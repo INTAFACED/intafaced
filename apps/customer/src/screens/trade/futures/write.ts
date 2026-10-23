@@ -2,20 +2,22 @@
  * Every futures write goes through here: one at a time, under the shared device guard (`../buy/write-lock`), with the
  * original request saved so an unknown outcome can be looked up again with the SAME request id.
  *
- * The service makes each of these retry-safe on its own request identity: open by `clientOpenId`, close by `clientCloseId`,
- * leverage and margin by `clientAdjustmentId` plus the position id. "Check status" reads first (open, close) and replays the
- * saved request, unchanged, only for margin and leverage or after the trader's explicit second step. Nothing here retries by itself.
+ * Opens and closes are orders through the book (futures ADR): an open is `POST /futures/orders`, a close is a reduce-only
+ * market order for the size asked. The service makes each retry-safe on its own request identity: an order by its
+ * `clientOrderId` (the open's `clientOpenId`, the close's `clientCloseId`: the same id returns the same order and holds
+ * nothing twice), leverage and margin by `clientAdjustmentId` plus the position id. "Check status" reads first; an open
+ * is sent again only on the trader's explicit second step. Nothing here retries by itself.
  */
 import type { Position } from '@intafaced/exchange-contract/schemas';
 import type { ApiResult } from '../../../shared/api';
-import { dec } from '../../../data/decimal';
+import { isPositive } from '../../../data/decimal';
 import { clearPending, readPending, runGuarded, type BlockReason, type Pending } from '../buy/write-lock';
-import type { FuturesApi, OpenInput } from './api';
+import type { FuturesApi, FuturesOrder, OpenInput } from './api';
 import { futuresRefusal, type FuturesRefusal } from './refusals';
 
 export type Intent =
   | { op: 'open'; input: OpenInput }
-  | { op: 'close'; positionId: string; symbol: string; size: string; clientCloseId: string }
+  | { op: 'close'; positionId: string; symbol: string; side: 'long' | 'short'; size: string; clientCloseId: string }
   | { op: 'leverage'; input: { symbol: string; positionId: string; leverage: string; clientAdjustmentId: string } }
   | { op: 'margin-add'; input: { symbol: string; positionId: string; amount: string; clientAdjustmentId: string } }
   | { op: 'margin-reduce'; input: { symbol: string; positionId: string; amount: string; clientAdjustmentId: string } };
@@ -65,12 +67,64 @@ function dropIntent(userId: string, id: string): void {
   }
 }
 
-export function send(api: FuturesApi, intent: Intent): Promise<ApiResult<Position>> {
+/** What the book did with an order. `null`: nothing filled and nothing rests, so the order's own code is the answer. */
+function nothingDone(order: FuturesOrder): Extract<ApiResult<never>, { ok: false }> | null {
+  if (isPositive(order.filledQty)) return null;
+  if (!['rejected', 'refused', 'cancelled'].includes(order.status)) return null;
+  return {
+    ok: false,
+    reason: 'error',
+    code: order.refusalCode ?? 'trade.futures_order_unfilled',
+    message: 'The book did not fill this order and nothing rests.',
+  };
+}
+
+async function sendOrder(api: FuturesApi, intent: Extract<Intent, { op: 'open' | 'close' }>): Promise<ApiResult<WriteResult>> {
+  const placed =
+    intent.op === 'open'
+      ? await api.placeOrder({
+          symbol: intent.input.symbol,
+          side: intent.input.side === 'long' ? 'buy' : 'sell',
+          type: intent.input.type,
+          amount: intent.input.size,
+          ...(intent.input.type === 'limit' && intent.input.price ? { price: intent.input.price } : {}),
+          leverage: intent.input.leverage,
+          clientOrderId: intent.input.clientOpenId,
+        })
+      : await api.placeOrder({
+          symbol: intent.symbol,
+          side: intent.side === 'long' ? 'sell' : 'buy',
+          type: 'market',
+          amount: intent.size,
+          reduceOnly: true,
+          clientOrderId: intent.clientCloseId,
+        });
+  if (!placed.ok) return placed;
+  const none = nothingDone(placed.data);
+  if (none) return none;
+  if (intent.op === 'open') return { ok: true, data: { order: placed.data } };
+  // A close answers with the position as it now stands (smaller, or closed). The order is the record if that read fails.
+  const after = await api.position(intent.positionId);
+  return { ok: true, data: after.ok ? { order: placed.data, position: after.data } : { order: placed.data } };
+}
+
+/** A finished write: the position it changed, and for an order, the order. */
+export interface WriteResult {
+  position?: Position;
+  order?: FuturesOrder;
+}
+
+async function sendAdjustment(api: FuturesApi, intent: Exclude<Intent, { op: 'open' | 'close' }>): Promise<ApiResult<WriteResult>> {
+  const result = await sendPosition(api, intent);
+  return result.ok ? { ok: true, data: { position: result.data } } : result;
+}
+
+export function send(api: FuturesApi, intent: Intent): Promise<ApiResult<WriteResult>> {
+  return intent.op === 'open' || intent.op === 'close' ? sendOrder(api, intent) : sendAdjustment(api, intent);
+}
+
+function sendPosition(api: FuturesApi, intent: Exclude<Intent, { op: 'open' | 'close' }>): Promise<ApiResult<Position>> {
   switch (intent.op) {
-    case 'open':
-      return api.open(intent.input);
-    case 'close':
-      return api.close(intent.positionId, { quantity: intent.size, clientCloseId: intent.clientCloseId });
     case 'leverage':
       return api.setLeverage(intent.input);
     case 'margin-add':
@@ -82,7 +136,7 @@ export function send(api: FuturesApi, intent: Intent): Promise<ApiResult<Positio
 
 export type WriteOutcome =
   | { kind: 'blocked'; reason: BlockReason; pending?: Pending }
-  | { kind: 'done'; position: Position }
+  | { kind: 'done'; position?: Position; order?: FuturesOrder }
   | { kind: 'refused'; refusal: FuturesRefusal }
   /** The outcome is unknown. The note stays, so no other trade write goes out until this one is looked up. `notFound`: a read looked and found nothing. */
   | { kind: 'uncertain'; id: string; notFound?: boolean };
@@ -121,7 +175,7 @@ export async function runIntent(
   const result = guarded.value;
   if (result.ok) {
     if (userId) dropIntent(userId, id);
-    return { kind: 'done', position: result.data };
+    return { kind: 'done', ...result.data };
   }
   if (result.reason === 'uncertain' && !isDefinite(result)) return { kind: 'uncertain', id };
   if (userId) dropIntent(userId, id);
@@ -130,35 +184,29 @@ export async function runIntent(
 
 const SETTLED = new Set(['closed', 'liquidated', 'closing']);
 
-/** Look for the effect of an unknown write without sending anything. Null = looked, found nothing; undefined = could not look. */
-async function lookup(api: FuturesApi, intent: Intent, pending: Pending): Promise<Position | null | undefined> {
-  if (intent.op === 'close') {
-    const result = await api.position(intent.positionId);
-    return result.ok ? result.data : result.code === 'trade.position_not_found' ? null : undefined;
-  }
-  if (intent.op === 'open') {
-    const result = await api.positions();
-    if (!result.ok) return undefined;
-    const size = dec(intent.input.size);
-    return (
-      result.data.find(
-        (p) =>
-          p.symbol === intent.input.symbol &&
-          p.side === intent.input.side &&
-          dec(p.contracts) === size &&
-          p.timestamp >= pending.startedAt - 10_000,
-      ) ?? null
-    );
-  }
-  return undefined;
+/** Look for the effect of an unknown close without sending anything. Null = looked, found nothing; undefined = could not look. */
+async function lookup(api: FuturesApi, intent: Extract<Intent, { op: 'close' }>): Promise<Position | null | undefined> {
+  const result = await api.position(intent.positionId);
+  return result.ok ? result.data : result.code === 'trade.position_not_found' ? null : undefined;
+}
+
+/** Look for an unknown open's order by its request id, without sending anything. Same null/undefined meaning. */
+async function lookupOrder(api: FuturesApi, clientOrderId: string): Promise<FuturesOrder | null | undefined> {
+  const result = await api.orders('all');
+  return result.ok ? (result.data.find((order) => order.clientOrderId === clientOrderId) ?? null) : undefined;
+}
+
+function settle(userId: string, id: string, outcome: WriteOutcome): WriteOutcome {
+  clearPending(userId, id);
+  dropIntent(userId, id);
+  return outcome;
 }
 
 /**
- * After an unknown outcome. Open and close are looked up with a READ first: a close that already went through is not sent
- * again, and an open whose request never arrived must not be sent again by a button called "check". A still-open close
- * replays the saved intent, including the same `clientCloseId`, so the service returns the first close instead of a second.
- * `resend` is the trader's explicit second step for an open that was not found: the same request id goes out once more, so at
- * most one position can result. Margin and leverage replays are safe by their request id and go straight out.
+ * After an unknown outcome, every check READS first and sends nothing: an open looks for its order by request id, a
+ * close reads the position. An open the book never saw is sent again only on the trader's explicit second step
+ * (`resend`), with the same request id, so the service answers a replay with the first order and holds nothing twice.
+ * A close still open, and a margin or leverage change, replay the saved request unchanged: their request id makes it safe.
  */
 export async function checkPending(
   api: FuturesApi,
@@ -169,15 +217,17 @@ export async function checkPending(
   if (!userId) return { kind: 'blocked', reason: 'signedOut' };
   const intent = loadIntent(userId, pending.id);
   if (!intent) return { kind: 'blocked', reason: 'unreadable' };
-  if (intent.op === 'open' || intent.op === 'close') {
-    const found = await lookup(api, intent, pending);
-    if (found && (intent.op === 'open' || SETTLED.has(found.status ?? ''))) {
-      clearPending(userId, pending.id);
-      dropIntent(userId, pending.id);
-      return { kind: 'done', position: found };
-    }
+  if (intent.op === 'open' && !options.resend) {
+    const order = await lookupOrder(api, intent.input.clientOpenId);
+    if (order === undefined) return { kind: 'uncertain', id: pending.id };
+    if (order === null) return { kind: 'uncertain', id: pending.id, notFound: true };
+    const none = nothingDone(order);
+    return settle(userId, pending.id, none ? { kind: 'refused', refusal: futuresRefusal(none) } : { kind: 'done', order });
+  }
+  if (intent.op === 'close') {
+    const found = await lookup(api, intent);
+    if (found && SETTLED.has(found.status ?? '')) return settle(userId, pending.id, { kind: 'done', position: found });
     if (found === undefined) return { kind: 'uncertain', id: pending.id };
-    if (intent.op === 'open' && !options.resend) return { kind: 'uncertain', id: pending.id, notFound: true };
   }
   const outcome = await runIntent(api, userId, intent, { recheck: true });
   if (outcome.kind === 'done' || outcome.kind === 'refused') clearPending(userId, pending.id);

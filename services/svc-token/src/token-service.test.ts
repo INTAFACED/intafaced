@@ -1305,6 +1305,73 @@ describe('svc-token money PG-hard', () => {
       expect(await sql`SELECT id FROM token.buyback_runs`).toHaveLength(0);
       expect(await token.burnedSupply()).toBe(0n);
     });
+
+    it('treasury.burned is burnedSupply, and lastBuyback is the latest settled run', async () => {
+      const empty = await token.treasuryView();
+      expect(empty).toEqual({
+        minted: null,
+        burned: '0',
+        bought: null,
+        toRewards: null,
+        distributed: null,
+        lastBuyback: null,
+      });
+      expect(empty.burned).toBe(formatAmount(await token.burnedSupply()));
+
+      await sql`
+        INSERT INTO token.emission_epochs (epoch, scheduled_amount, mined_amount, closed)
+        VALUES (0, 100, 12.5, true), (1, 100, 50, false)
+      `;
+      await sql`
+        INSERT INTO token.yield_payouts (window_id, user_id, amount, ledger_tx_id, paid_at)
+        VALUES
+          ('w-paid', ${USER_A}::uuid, 3.25, 'tx-treasury', now()),
+          ('w-planned', ${USER_A}::uuid, 9, NULL, NULL)
+      `;
+      await sql`
+        INSERT INTO token.buyback_runs (
+          id, revenue_window_from, revenue_window_to, revenue_total,
+          tokens_bought, tokens_burned, tokens_to_rewards, status, executed_at
+        ) VALUES
+          (
+            '11111111-1111-4111-8111-111111111111',
+            '2026-01-01T00:00:00Z', '2026-02-01T00:00:00Z', ${sql.json({ IFC: '10' } as never)},
+            10, 4, 6, 'settled', '2026-01-15T00:00:00Z'
+          ),
+          (
+            '00000000-0000-4000-8000-000000000001',
+            '2026-06-01T00:00:00Z', '2026-06-15T00:00:00Z', ${sql.json({ IFC: '2' } as never)},
+            2, 1, 1, 'settled', '2026-06-01T00:00:00Z'
+          ),
+          (
+            'ffffffff-ffff-4fff-8fff-ffffffffffff',
+            '2026-06-15T00:00:00Z', '2026-07-01T00:00:00Z', ${sql.json({ IFC: '5' } as never)},
+            5, 3, 2, 'settled', '2026-06-01T00:00:00Z'
+          ),
+          (
+            '22222222-2222-4222-8222-222222222222',
+            '2026-12-01T00:00:00Z', '2027-01-01T00:00:00Z', ${sql.json({ IFC: '100' } as never)},
+            100, 80, 20, 'pending', '2026-12-15T00:00:00Z'
+          )
+      `;
+      await ledger.post(recipes.mintEmission({ epoch: 90, assetId: 'IFC', amount: amt('7'), destination: rewardsEngine('IFC') }));
+      await ledger.post(recipes.burn({ runId: 'treasury-not-a-buyback', assetId: 'IFC', amount: amt('7'), from: rewardsEngine('IFC') }));
+
+      const view = await token.treasuryView();
+      expect(view.burned).toBe(formatAmount(await token.burnedSupply()));
+      expect(view.burned).toBe('7');
+      expect(view.burned).not.toBe('8');
+      expect(view.minted).toBe('12.5');
+      expect(view.bought).toBe('17');
+      expect(view.toRewards).toBe('9');
+      expect(view.distributed).toBe('3.25');
+      expect(view.lastBuyback).toEqual({
+        bought: '5',
+        burned: '3',
+        toRewards: '2',
+        executedAt: '2026-06-01T00:00:00.000Z',
+      });
+    });
   });
 
   // ── Buyback: the window is claimed BEFORE the burn ─────────────────────────

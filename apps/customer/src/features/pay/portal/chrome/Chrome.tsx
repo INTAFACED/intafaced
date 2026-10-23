@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ArrowLeft, Bell, Building2, ChevronsUpDown, Menu, Search } from 'lucide-react';
+import { ArrowLeft, Bell, Building2, ChevronsUpDown, CircleHelp, Menu, Search } from 'lucide-react';
 import {
   Button,
   Dialog,
@@ -19,6 +19,9 @@ import { currentHref } from './model';
 import { chromeCopy } from './copy';
 import { pageMatches, paymentTarget } from './search';
 import './chrome.css';
+
+/** Help articles and support requests are the app's own (`/support`, svc-support): one place for personal and business questions. */
+const SUPPORT_HREF = '/support';
 
 /** What the business pill says, from the verification status the account already reports. */
 function useBusinessStatus(): { kind: StatusKind; label: string } {
@@ -117,6 +120,10 @@ function PhoneMenu({ here }: { here: string }) {
           {t('backToPersonal')}
         </a>
         <SideMenu here={here} close={() => setOpen(false)} />
+        <a href={SUPPORT_HREF} className="pfo-drawer-link">
+          <CircleHelp size={14} aria-hidden="true" />
+          {t('helpSupport')}
+        </a>
       </DialogContent>
     </Dialog>
   );
@@ -239,6 +246,9 @@ export function MerchantTopBar({ path, account }: { path: string; account: React
           <ArrowLeft size={14} aria-hidden="true" />
           <span>{t('backToPersonal')}</span>
         </a>
+        <Button variant="ghost" size={32} nativeButton={false} role="link" render={<a href={SUPPORT_HREF} />} aria-label={t('helpSupport')}>
+          <CircleHelp size={18} aria-hidden="true" />
+        </Button>
         <Button variant="ghost" size={32} nativeButton={false} render={<a href="/pay/notifications" />} aria-label={t('notifications')}>
           <Bell size={18} aria-hidden="true" />
         </Button>

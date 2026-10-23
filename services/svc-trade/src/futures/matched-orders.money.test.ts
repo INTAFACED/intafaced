@@ -476,6 +476,8 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
       const first = await svc.place(principal(ALICE), input);
       const second = await svc.place(principal(ALICE), input);
       expect(second.orderId).toBe(first.orderId);
+      // The order carries the caller's id, so a client that lost the first answer can find it by reading.
+      expect([first.clientOrderId, second.clientOrderId]).toEqual(['twice', 'twice']);
       expect(engine.submits).toHaveLength(1);
       expect(await bal(futuresOrderMarginAccount(ALICE, USDT, first.orderId))).toBe(A('10'));
     });

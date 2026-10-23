@@ -20,7 +20,10 @@ import { withMoneySpan } from '../tracing.js';
 import { emptyPayFiatRampPort, resolvePayFiatRailId, assertEmptyRailsCannotLookLive, type PayFiatRampPort } from './pay-fiat-adapter.js';
 import type { OfframpFeeSource, OnrampMethod, OnrampPaymentPort, OnrampQuoteSource } from './customer-ports.js';
 import {
+  checkDestination,
   createOnramp,
+  onrampQuoteOf,
+  customerOnrampsByIds,
   listDestinations,
   quoteOfframp,
   quoteOnramp,
@@ -29,6 +32,7 @@ import {
   saveDestination,
   type CustomerOnrampView,
   type CustomerRampDeps,
+  type DestinationCheck,
   type DestinationView,
   type OfframpQuoteView,
   type OnrampQuoteView,
@@ -306,8 +310,16 @@ export class RampService {
     return listWithdrawNetworks(this.withdrawNetworkSource);
   }
 
-  /** Save an address-book entry (asset, network, address, optional memo or tag, unique label). */
-  saveDestination(input: SaveDestinationInput) {
+  /** Whether an address would be taken as typed: its checksum, and any saved entry it shows like but is not. */
+  checkDestination(input: { userId: string; ref: string }): Promise<DestinationCheck> {
+    return checkDestination(this.customerDeps(), input);
+  }
+
+  /**
+   * Save an address-book entry (asset, network, address, optional memo or tag, unique label). An address that shows
+   * like a saved one but is not needs `confirmLookalike`.
+   */
+  saveDestination(input: SaveDestinationInput & { confirmLookalike?: boolean }) {
     return saveDestination(this.customerDeps(), input);
   }
 
@@ -332,6 +344,16 @@ export class RampService {
    */
   onrampCreate(input: { userId: string; onrampId: string; quoteId: string; method: OnrampMethod }): Promise<CustomerOnrampView> {
     return createOnramp(this.customerDeps(), input);
+  }
+
+  /** One of the customer's own on-ramp quotes as stored, expired or not. */
+  onrampQuoteOf(userId: string, quoteId: string): Promise<OnrampQuoteView> {
+    return onrampQuoteOf(this.customerDeps(), userId, quoteId);
+  }
+
+  /** The customer's own on-ramps among these ids, with the partner's instructions, in one read. */
+  customerOnrampsByIds(userId: string, onrampIds: readonly string[]): Promise<Map<string, CustomerOnrampView>> {
+    return customerOnrampsByIds(this.customerDeps(), userId, onrampIds);
   }
 
   /**

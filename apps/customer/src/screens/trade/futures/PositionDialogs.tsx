@@ -23,6 +23,8 @@ import { adjustmentId, closeAllPlan, leveragePresets, stateOf } from './model';
 import {
   amountProblem,
   closeAllReduce,
+  closeShare,
+  closeSizeProblem,
   gateActions,
   hasUnresolved,
   pickNonce,
@@ -128,7 +130,8 @@ function useSend(position: Position, onDone: (p: Position) => void, onRefusal?: 
     if (refusal !== undefined) onRefusal?.(refusal);
   }, [refusal, onRefusal]);
   const settle = (result: Awaited<ReturnType<Writer['run']>>) => {
-    if (result.kind === 'done' && result.position.id === position.id) onDone(result.position);
+    // A close answers with the position as it now stands; when that read failed, the order is the record and the room re-reads.
+    if (result.kind === 'done' && (result.position?.id ?? position.id) === position.id) onDone(result.position ?? position);
   };
   return {
     writer,
@@ -292,16 +295,21 @@ export function CloseDialog({ position, onClose, onDone, onRefusal }: DialogBase
   const { writer, send, check } = useSend(position, onDone, onRefusal);
   const closing = stateOf(position) === 'closing';
   const nonce = useRef<{ key: string; nonce: string } | null>(null);
+  // Empty is the whole position; any other size is a partial close.
+  const [sizeRaw, setSizeRaw] = useState('');
+  const size = sizeRaw.trim() === '' ? position.contracts : sizeRaw;
+  const problem = closeSizeProblem(size, position.contracts);
   const submit = () => {
-    // No price field exists on a close: the service closes at the mark it accepts.
-    // The same position and size reuse one clientCloseId; a retry replays that close.
-    if (position.id === null) return;
-    nonce.current = pickNonce(nonce.current, `close:${position.id}:${position.contracts}`, newNonce);
+    // A close is a reduce-only market order through the book, bounded at the position's bankruptcy price.
+    // The same position and size reuse one clientCloseId; a retry replays that order.
+    if (position.id === null || problem !== null) return;
+    nonce.current = pickNonce(nonce.current, `close:${position.id}:${size}`, newNonce);
     void send({
       op: 'close',
       positionId: position.id,
       symbol: position.symbol,
-      size: position.contracts,
+      side: position.side,
+      size,
       clientCloseId: nonce.current.nonce,
     });
   };
@@ -328,12 +336,36 @@ export function CloseDialog({ position, onClose, onDone, onRefusal }: DialogBase
           <Button variant="secondary" onClick={onClose}>
             {t('Cancel')}
           </Button>
-          <Button variant="sell" loading={writer.busy} disabled={writer.note.state !== 'none' || position.id === null} onClick={submit}>
-            {closing ? t('Retry close button') : t('Close button')}
+          <Button
+            variant="sell"
+            loading={writer.busy}
+            disabled={writer.note.state !== 'none' || position.id === null || problem !== null}
+            onClick={submit}
+          >
+            {closing ? t('Retry close button') : sizeRaw.trim() === '' ? t('Close button') : t('Close part button')}
           </Button>
         </>
       }
     >
+      <Field
+        label={t('Close size field')}
+        hint={t('Close size hint', { size: fmtAmount(position.contracts, { places: 8 }) })}
+        error={sizeRaw !== '' && problem ? t(`Close problem ${problem}`) : undefined}
+      >
+        <Input kind="decimal" value={sizeRaw} onValueChange={setSizeRaw} precision={8} />
+      </Field>
+      <div role="group" aria-label={t('Close share group')} className="flex flex-wrap gap-2">
+        {[25, 50, 75, 100].map((pct) => (
+          <Button
+            key={pct}
+            variant="secondary"
+            size={28}
+            onClick={() => setSizeRaw(pct === 100 ? '' : (closeShare(position.contracts, pct) ?? ''))}
+          >
+            {t('Close share', { pct: String(pct) })}
+          </Button>
+        ))}
+      </div>
       <p>{t('Close mark word')}</p>
       {closing ? <p className="text-fg-2">{t('Close retry word')}</p> : null}
       <WriteNotice writer={writer} onCheck={() => void check()} />
@@ -396,6 +428,7 @@ export function CloseAllDialog({ positions, onClose, onDone }: { positions: Posi
           op: 'close',
           positionId: id,
           symbol: position.symbol,
+          side: position.side,
           size: position.contracts,
           clientCloseId,
         }),

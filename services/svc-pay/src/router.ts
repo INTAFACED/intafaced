@@ -19,7 +19,9 @@ import {
   payLinkListPageSchema,
   payMerchantFailureSchema,
   payPageSchema,
+  payPaymentAttemptSchema,
   payPaymentListInputSchema,
+  payPaymentListSummarySchema,
   payPricingSnapshotViewSchema,
   paySettlementLineSchema,
   paySettlementLinesInputSchema,
@@ -676,7 +678,7 @@ export function createPayRouter(
         .mutation(({ ctx, input }) =>
           wrap(async () => {
             await assertAccess(ctx.principal?.userId, input.merchantId, 'trpc.merchant.submitKyb');
-            const merchant = await pay.submitKyb(input);
+            const merchant = await pay.submitKyb({ ...input, actor: { id: ctx.principal.userId, scope: 'pay:onboard' } });
             return { id: merchant.id, kybStatus: merchant.kybStatus, kybRef: merchant.kybRef };
           }),
         ),
@@ -727,6 +729,7 @@ export function createPayRouter(
             const merchant = await pay.decideKyb({
               merchantId: input.merchantId,
               decision: input.decision,
+              actor: { id: ctx.principal.userId, scope: 'admin:compliance' },
               identityHash: binding.identityHash,
               beforeWrite: async () => {
                 confirmOperatorId = await consumePayApproval(
@@ -761,7 +764,7 @@ export function createPayRouter(
         .mutation(({ ctx, input }) =>
           wrap(async () => {
             await assertAccess(ctx.principal?.userId, input.merchantId, 'trpc.merchant.decideKybStub');
-            const merchant = await pay.decideKybStub(input);
+            const merchant = await pay.decideKybStub({ ...input, actor: { id: ctx.principal.userId, scope: 'pay:write' } });
             return { id: merchant.id, kybStatus: merchant.kybStatus, kybRef: merchant.kybRef };
           }),
         ),
@@ -1081,23 +1084,25 @@ export function createPayRouter(
 
       get: ownMerchantRead()
         .input(z.object({ paymentId: z.string().uuid() }))
-        .output(paymentView)
+        .output(paymentView.extend({ attempts: z.array(payPaymentAttemptSchema) }))
         .query(({ ctx, input }) =>
           wrap(async () => {
             // Fetched, then checked, then returned. The row has to be read to
             // learn which merchant it belongs to — so what the check protects
             // is the RESPONSE, and it must come before the return, not after
-            // the caller has the object.
+            // the caller has the object. Attempts are read only after that.
             const payment = await pay.getPayment(input.paymentId);
             const audience = await assertPaymentRead(ctx.principal.userId, input.paymentId, payment.merchantId);
-            return paymentOut(payment, audience, false);
+            const attempts = await pay.listPaymentAttempts(input.paymentId);
+            const body = await paymentOut(payment, audience, false);
+            return { ...body, attempts };
           }),
         ),
 
       /** Durable status list for the merchant — projection of `payments.status`. */
       list: ownMerchantRead()
         .input(payPaymentListInputSchema)
-        .output(payPageSchema(paymentView))
+        .output(payPageSchema(paymentView).extend({ summary: payPaymentListSummarySchema }))
         .query(({ ctx, input }) =>
           wrap(async () => {
             const audience = await assertRead(ctx.principal.userId, input.merchantId, 'trpc.payment.list', 'payments.read');
@@ -1109,6 +1114,7 @@ export function createPayRouter(
                 failure: item.failure,
               })),
               nextCursor: page.nextCursor,
+              summary: page.summary,
             };
           }),
         ),

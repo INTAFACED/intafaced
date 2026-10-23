@@ -43,3 +43,14 @@ export function futuresLadderPolicyGate(env: NodeJS.ProcessEnv = process.env): F
 
   return { configured: true, policy };
 }
+
+/**
+ * The ladder the service runs with: the owner's policy, or undefined when the setting is blank. A value that is set but
+ * is not valid JSON or not a coherent policy throws, so a typo stops the boot instead of running with no ladder.
+ */
+export function ownerLadderPolicy(raw: string | undefined): FuturesLadderPolicy | undefined {
+  const gate = futuresLadderPolicyGate({ [TRADE_FUTURES_LADDER_POLICY_ENV]: raw ?? '' });
+  if (gate.configured) return gate.policy;
+  if (gate.reason === 'ladder_unset') return undefined;
+  throw new Error(`${TRADE_FUTURES_LADDER_POLICY_ENV}: ${gate.detail}`);
+}

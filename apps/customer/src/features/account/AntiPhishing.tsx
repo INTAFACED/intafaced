@@ -121,7 +121,7 @@ export function AntiPhishing() {
     <section className="security__anti-phishing security__card" aria-label={t('title')} lang={languageFor('title')}>
       <h2>{t('title')}</h2>
       <p>{t('body')}</p>
-      <p className="muted">{t('parked')}</p>
+      <p className="muted">{t('carried')}</p>
       {unreadable ? (
         <p className="error-text">{t('refusedUnreadable')}</p>
       ) : view.code ? (

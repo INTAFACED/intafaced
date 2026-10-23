@@ -4,6 +4,8 @@ import type { Context } from '@intafaced/contracts';
 import { MemoryLedger, parseAmount, recipes } from '@intafaced/ledger-client';
 import { createLedgerRouter } from '../router.js';
 import type { LedgerService } from '../service.js';
+import { LookupUnrecordedError } from './operator-lookup.js';
+import type { OperatorAccessEntry } from './operator-owner-balances.js';
 import { TraceInconsistentError, traceBusinessKey } from './operator-trace.js';
 
 const USER = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -22,18 +24,23 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
   return { principal: await verifyAccessToken(token, authConfig), service: null, region: 'DE', requestId: 'req-1' };
 }
 
-/** TEST amounts only. */
+const ACTOR = { actorId: USER, requestId: 'req-1' };
+const record = { recordOperatorAccess: async () => {} };
+
+/** TEST amounts only. A memory book that also keeps the access rows a lookup writes. */
 async function seeded() {
-  const ledger = new MemoryLedger();
+  const book = new MemoryLedger();
   const deposit = recipes.deposit({ userId: USER, assetId: 'USDT', amount: parseAmount('10.5'), rail: 'test', railRef: 'trace-1' });
-  const tx = await ledger.post(deposit);
-  return { ledger, deposit, tx };
+  const tx = await book.post(deposit);
+  const access: OperatorAccessEntry[] = [];
+  const ledger = Object.assign(book, { recordOperatorAccess: async (entry: OperatorAccessEntry) => void access.push(entry) });
+  return { ledger, deposit, tx, access };
 }
 
 describe('traceBusinessKey', () => {
-  it('traces a booked key to its transaction, every posting as decimal strings', async () => {
-    const { ledger, deposit, tx } = await seeded();
-    const out = await traceBusinessKey(ledger, { businessKey: deposit.idempotencyKey });
+  it('traces a booked key to its transaction, every posting as decimal strings, after recording the lookup', async () => {
+    const { ledger, deposit, tx, access } = await seeded();
+    const out = await traceBusinessKey(ledger, ACTOR, { businessKey: deposit.idempotencyKey });
     expect(out).toMatchObject({ found: true, txId: tx.id, module: deposit.module, reason: deposit.reason, hash: tx.hash });
     if (!out.found) throw new Error('expected found');
     expect(out.postings).toHaveLength(tx.entries.length);
@@ -42,11 +49,27 @@ describe('traceBusinessKey', () => {
       expect(typeof p.balanceAfter).toBe('string');
     }
     expect(out.postings.map((p) => p.amount)).toContain('10.5');
+    expect(access).toEqual([
+      { actorId: USER, requestId: 'req-1', ownerType: 'business_key', ownerId: deposit.idempotencyKey, action: 'trace.read' },
+    ]);
+  });
+
+  it('refuses when the lookup cannot be recorded, and never reads the book', async () => {
+    let read = false;
+    const reader = {
+      recordOperatorAccess: () => Promise.reject(new Error('access log down')),
+      getTxByKey: async () => {
+        read = true;
+        return null;
+      },
+    };
+    await expect(traceBusinessKey(reader, ACTOR, { businessKey: 'k' })).rejects.toBeInstanceOf(LookupUnrecordedError);
+    expect(read).toBe(false);
   });
 
   it('answers an honest no-record for a key that never booked', async () => {
     const { ledger } = await seeded();
-    await expect(traceBusinessKey(ledger, { businessKey: 'never:booked:1' })).resolves.toEqual({
+    await expect(traceBusinessKey(ledger, ACTOR, { businessKey: 'never:booked:1' })).resolves.toEqual({
       found: false,
       businessKey: 'never:booked:1',
     });
@@ -54,18 +77,18 @@ describe('traceBusinessKey', () => {
 
   it('refuses a blank key instead of treating it as absent', async () => {
     const { ledger } = await seeded();
-    await expect(traceBusinessKey(ledger, { businessKey: '   ' })).rejects.toThrow();
+    await expect(traceBusinessKey(ledger, ACTOR, { businessKey: '   ' })).rejects.toThrow();
   });
 
   it('refuses to show a transaction the book says was booked under another key', async () => {
     const { tx } = await seeded();
-    const lying = { getTxByKey: async () => tx };
-    await expect(traceBusinessKey(lying, { businessKey: 'other:key' })).rejects.toBeInstanceOf(TraceInconsistentError);
+    const lying = { ...record, getTxByKey: async () => tx };
+    await expect(traceBusinessKey(lying, ACTOR, { businessKey: 'other:key' })).rejects.toBeInstanceOf(TraceInconsistentError);
   });
 
   it('surfaces a ledger read failure rather than a partial answer', async () => {
-    const failing = { getTxByKey: async () => Promise.reject(new Error('db down')) };
-    await expect(traceBusinessKey(failing, { businessKey: 'k' })).rejects.toThrow('db down');
+    const failing = { ...record, getTxByKey: async () => Promise.reject(new Error('db down')) };
+    await expect(traceBusinessKey(failing, ACTOR, { businessKey: 'k' })).rejects.toThrow('db down');
   });
 });
 
@@ -89,7 +112,7 @@ describe('ledger.trace procedure', () => {
 
   it('maps an inconsistent book to a typed internal error', async () => {
     const { tx } = await seeded();
-    const lying = { getTxByKey: async () => tx } as unknown as LedgerService;
+    const lying = { ...record, getTxByKey: async () => tx } as unknown as LedgerService;
     const caller = createLedgerRouter(lying).createCaller(await ctx(['admin:treasury'], true));
     await expect(caller.trace({ businessKey: 'other:key' })).rejects.toMatchObject({
       code: 'INTERNAL_SERVER_ERROR',
@@ -100,6 +123,7 @@ describe('ledger.trace procedure', () => {
   it('still reads while the posting freeze is on', async () => {
     const { ledger, deposit } = await seeded();
     const frozen = {
+      ...record,
       getTxByKey: (k: string) => ledger.getTxByKey(k),
       status: async () => ({ postingEnabled: false, frozenReason: 'TEST', frozenBy: 'op' }),
     };

@@ -543,6 +543,34 @@ describe('svc-trade reduce-only matched futures orders (slice 6b, PG-backed)', (
       expect((await positionRow(alice.id)).status).toBe('closed');
     });
 
+    it('a position closed in two reduces at two prices reports the sum of both fills as its realised result and size', async () => {
+      const { alice, bob } = await aliceLongBobShort();
+      mark = A('102');
+      const aR = await reduce(ALICE, 'sell', A('2'), { limitPrice: A('102') });
+      const bR = await reduce(BOB, 'buy', A('2'), { limitPrice: A('104') });
+      await settle(aR, bR, A('102'), A('0.5'));
+      mark = A('104');
+      await settle(aR, bR, A('104'), A('1.5'));
+      expect((await positionRow(alice.id)).status).toBe('closed');
+      const positions = new PositionService(sql, ledger, {
+        marks: memoryMarkBook().source(),
+        profitSource: null,
+        maxLeverage: A('10'),
+        now: () => NOW,
+      });
+      // 0.5 × 2 + 1.5 × 4 = 7: both fills, not only the last one the row's accepted mark describes.
+      const [aliceClosed] = await positions.listClosed(ALICE, { limit: 10 });
+      const [bobClosed] = await positions.listClosed(BOB, { limit: 10 });
+      expect(aliceClosed!.realizedPnl).toBe('7');
+      expect(bobClosed!.realizedPnl).toBe('-7');
+      expect((await positions.get(ALICE, alice.id)).realizedPnl).toBe('7');
+      expect((await positions.get(BOB, bob.id)).realizedPnl).toBe('-7');
+      // The row keeps its last remainder (1.5); the closed position reports the whole 2 it closed.
+      expect(aliceClosed!.contracts).toBe('2');
+      expect((await positions.get(BOB, bob.id)).contracts).toBe('2');
+      await assertBooksAgree();
+    });
+
     describe('a crash after each post: the retry finishes with one post per key', () => {
       it.each([
         ['the loss', 'futures.loss.realized', 'after'],

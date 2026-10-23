@@ -203,6 +203,81 @@ export const quantBacktestFeeSchema = z.object({
 });
 export type QuantBacktestFee = z.infer<typeof quantBacktestFeeSchema>;
 
+/**
+ * A statistic of a run (ENGINE MT-4): a decimal string, or null with the reason it is not defined. Never a zero in place
+ * of a missing value.
+ */
+export const quantMetricSchema = z.object({ value: decimalText.nullable(), reason: z.string().nullable() });
+export type QuantMetric = z.infer<typeof quantMetricSchema>;
+
+/** One entry and the exit that closed it, first in first out (ENGINE MT-5). Profit is after fees and slippage. */
+export const quantRoundTripSchema = z.object({
+  side: z.literal('long'),
+  entryTs: z.string(),
+  exitTs: z.string(),
+  qty: decimalText,
+  entryPrice: decimalText,
+  exitPrice: decimalText,
+  fees: decimalText,
+  profit: decimalText,
+  holdingMs: z.number().int().nonnegative(),
+});
+export type QuantRoundTrip = z.infer<typeof quantRoundTripSchema>;
+
+/**
+ * The report of a run (AL-report-01), computed by the engine from the run's own sided trades and equity points, never
+ * typed in. Percentages are percent with four places, cut toward zero. Sharpe and Sortino need the owner's risk-free
+ * rate; while it is blank they are null with `quant.risk_free_unset` and the rest still show.
+ */
+export const quantBacktestMetricsSchema = z.object({
+  returns: z.object({
+    net: quantMetricSchema,
+    netPercent: quantMetricSchema,
+    grossProfit: quantMetricSchema,
+    grossLoss: quantMetricSchema,
+    profitFactor: quantMetricSchema,
+    expectedPayoff: quantMetricSchema,
+    sharpe: quantMetricSchema,
+    sortino: quantMetricSchema,
+  }),
+  risk: z.object({
+    maxDrawdown: quantMetricSchema,
+    maxDrawdownPercent: quantMetricSchema,
+    longestDrawdownBars: quantMetricSchema,
+    maxRunUp: quantMetricSchema,
+    maxRunUpPercent: quantMetricSchema,
+  }),
+  trades: z.object({
+    roundTrips: z.number().int().nonnegative(),
+    wins: z.number().int().nonnegative(),
+    losses: z.number().int().nonnegative(),
+    winRate: quantMetricSchema,
+    averageWin: quantMetricSchema,
+    averageLoss: quantMetricSchema,
+    largestWin: quantMetricSchema,
+    largestLoss: quantMetricSchema,
+    longestWinStreak: z.number().int().nonnegative(),
+    longestLossStreak: z.number().int().nonnegative(),
+    averageHoldingMs: quantMetricSchema,
+  }),
+  roundTrips: z.array(quantRoundTripSchema),
+});
+export type QuantBacktestMetrics = z.infer<typeof quantBacktestMetricsSchema>;
+
+/**
+ * One line of a run's log, derived from the stored run on every read (AL-backtest-03). `warn` marks what a reader must
+ * weigh: a gap in the bars, an order that did not fill, a modelling choice that shaped the result. Text is the screen's;
+ * the line carries a code and its values.
+ */
+export const QUANT_BACKTEST_LOG_LEVELS = ['info', 'warn'] as const;
+export const quantBacktestLogLineSchema = z.object({
+  level: z.enum(QUANT_BACKTEST_LOG_LEVELS),
+  code: z.string(),
+  ts: z.string().nullable(),
+  values: z.record(z.string()),
+});
+export type QuantBacktestLogLine = z.infer<typeof quantBacktestLogLineSchema>;
+
 export const quantBacktestResultSchema = z.object({
   runId: z.string(),
   runKey: z.string(),
@@ -232,8 +307,29 @@ export const quantBacktestResultSchema = z.object({
     endEquity: decimalText,
     openQty: decimalText,
   }),
+  /** Derived from the stored trades and equity on every read, so a run stored before the report existed has one too. */
+  metrics: quantBacktestMetricsSchema,
+  log: z.array(quantBacktestLogLineSchema),
   simulated: z.literal(true),
   live: z.literal(false),
   claimLabel: z.literal('Historical simulation — not a forecast'),
 });
 export type QuantBacktestResult = z.infer<typeof quantBacktestResultSchema>;
+
+/** One stored bar backtest of the caller's, as the run history lists it: newest first, with its label. */
+export const quantBacktestHistoryRowSchema = z.object({
+  runId: z.string(),
+  strategyId: z.string().nullable(),
+  strategyVersion: z.number().int().positive().nullable(),
+  started: z.string(),
+  finished: z.string().nullable(),
+  outcome: z.string().nullable(),
+  label: z.string().nullable(),
+});
+export type QuantBacktestHistoryRow = z.infer<typeof quantBacktestHistoryRowSchema>;
+export const quantBacktestHistorySchema = z.object({
+  runs: z.array(quantBacktestHistoryRowSchema),
+  nextCursor: z.string().nullable(),
+});
+/** A run's label: the person's own name for it. Renaming never touches the stored result. */
+export const QUANT_RUN_LABEL_MAX = 80;

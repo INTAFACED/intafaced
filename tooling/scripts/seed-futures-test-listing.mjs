@@ -153,6 +153,16 @@ export function evaluateSeedRequest(input) {
     throw new SeedRefusal('refusing: liquidationPolicy must be an explicit string or object');
   }
 
+  // Contract terms are optional: an omitted one stays null on the row (the desk shows it as not published), never invented.
+  const family = raw.family == null ? null : requiredText(raw.family, 'family');
+  if (family !== null && family !== 'linear') throw new SeedRefusal('refusing: family must be linear (inverse has no published formula)');
+  const settleAsset = raw.settleAsset == null ? null : requiredText(raw.settleAsset, 'settleAsset');
+  if (settleAsset !== null && settleAsset !== quoteAsset) {
+    throw new SeedRefusal(`refusing: a linear contract settles in its quote asset ${quoteAsset}, not ${settleAsset}`);
+  }
+  if (settleAsset !== null && family === null) throw new SeedRefusal('refusing: settleAsset needs family');
+  const contractSize = raw.contractSize == null ? null : positiveDecimal(raw.contractSize, 'contractSize');
+
   return {
     databaseUrl,
     databaseName,
@@ -170,6 +180,9 @@ export function evaluateSeedRequest(input) {
       minNotional: positiveDecimal(raw.minNotional, 'minNotional'),
       makerBps: bps(raw.makerBps, 'makerBps'),
       takerBps: bps(raw.takerBps, 'takerBps'),
+      family,
+      settleAsset,
+      contractSize,
     },
   };
 }
@@ -184,12 +197,13 @@ export async function insertFuturesTestListing(sql, listing) {
     INSERT INTO trade.markets (
       symbol, base_asset, quote_asset, kind, tick_size, lot_size, min_qty, min_notional,
       maker_bps, taker_bps, status, display_name, listed_at, futures_contract_style,
-      "test", test_fixture
+      futures_family, futures_settle_asset, contract_size, "test", test_fixture
     ) VALUES (
       ${listing.symbol}, ${listing.baseAsset}, ${listing.quoteAsset}, 'futures',
       ${listing.tickSize}::numeric, ${listing.lotSize}::numeric, ${listing.minQty}::numeric,
       ${listing.minNotional}::numeric, ${listing.makerBps}::numeric, ${listing.takerBps}::numeric,
       'active', ${listing.displayName}, now(), 'perpetual',
+      ${listing.family ?? null}, ${listing.settleAsset ?? null}, ${listing.contractSize ?? null}::numeric,
       true, ${sql.json(fixture)}
     )
     ON CONFLICT (symbol) DO UPDATE SET
@@ -200,6 +214,9 @@ export async function insertFuturesTestListing(sql, listing) {
       min_notional = EXCLUDED.min_notional,
       maker_bps = EXCLUDED.maker_bps,
       taker_bps = EXCLUDED.taker_bps,
+      futures_family = EXCLUDED.futures_family,
+      futures_settle_asset = EXCLUDED.futures_settle_asset,
+      contract_size = EXCLUDED.contract_size,
       test_fixture = EXCLUDED.test_fixture,
       updated_at = now()
     WHERE trade.markets."test" = true

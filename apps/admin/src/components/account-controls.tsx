@@ -1,10 +1,11 @@
 'use client';
-import { useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import Link from 'next/link';
-import type { AccountControlResult, AccountControlState, AccountControlTarget } from '@intafaced/contracts';
+import type { AccountClosureState, AccountControlResult, AccountControlState, AccountControlTarget } from '@intafaced/contracts';
 import { ACCOUNT_GAPS, ACCOUNT_LINKS } from '@/lib/ops-desk/accounts-gaps';
 import { formatAsOf } from '@/lib/as-of';
 import { ControlDesk } from '@/components/control-desk';
+import { AccountClosure } from '@/components/account-closure';
 
 function controlExplanation(area: 'identity' | 'trading' | 'merchant'): string {
   if (area === 'identity')
@@ -32,6 +33,12 @@ export function AccountControls({ csrf, founderId }: { csrf: string; founderId: 
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [readAt, setReadAt] = useState<string | null>(null);
+  // Closed, open, or not known yet (identity's closure read has not answered): the freeze desk waits until it is known.
+  const [closed, setClosed] = useState<boolean | null>(null);
+  const onClosureState = useCallback(
+    (current: AccountClosureState | null | undefined) => setClosed(current === undefined ? null : current?.status === 'closed'),
+    [],
+  );
   const pending = useRef<{ key: string; requestId: string } | null>(null);
   const target: AccountControlTarget = area === 'merchant' ? { area, merchantId: id } : { area, userId: id };
   const controlAction = state?.restricted ? 'Restore access' : 'Restrict access';
@@ -67,6 +74,7 @@ export function AccountControls({ csrf, founderId }: { csrf: string; founderId: 
           setBusy(true);
           setError('');
           setState(null);
+          setClosed(null);
           setResult(null);
           setHistory([]);
           setConfirmed(false);
@@ -129,7 +137,13 @@ export function AccountControls({ csrf, founderId }: { csrf: string; founderId: 
             </p>
           )}
           <p className="adm-subtle">{controlExplanation(area)}</p>
-          {area === 'identity' && state.restricted ? (
+          {area === 'identity' && state.restricted && closed !== false ? (
+            <p className="adm-subtle" data-testid="account-closed-note">
+              {closed
+                ? 'This account is closed, so there is no freeze to lift. Reopening it is below, under Close or reopen.'
+                : 'Identity has not said yet whether this account is closed, so lifting the freeze waits until it does (see Close or reopen below).'}
+            </p>
+          ) : area === 'identity' && state.restricted ? (
             <div data-testid="account-unfreeze">
               <ControlDesk
                 key={`${id}:${state.version}`}
@@ -221,6 +235,17 @@ export function AccountControls({ csrf, founderId }: { csrf: string; founderId: 
             </form>
           )}
         </div>
+      )}
+      {state && area === 'identity' && (
+        <AccountClosure
+          key={id.toLowerCase()}
+          userId={id}
+          founderId={founderId}
+          onState={onClosureState}
+          onChanged={() => {
+            void inspect().catch(() => setError('The account could not be read again. Inspect the account again.'));
+          }}
+        />
       )}
       {result && (
         <p role={result.outcome === 'refused' || result.outcome === 'conflict' ? 'alert' : 'status'}>

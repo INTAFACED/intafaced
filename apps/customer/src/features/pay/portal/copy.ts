@@ -200,6 +200,7 @@ const en = {
   rRoleForbidden: 'Your role cannot do that. Ask the owner or an admin.',
   rNeedsVerifiedSession:
     'Team changes need a session verified with two-step sign-in. Sign in again with your passkey or code, then try again.',
+  rTeamBusinessShut: 'This business is suspended or closed, so you cannot join its team now. You can decline the invitation.',
   rMemberUnavailable: 'That person cannot be added to your team. They may already have a merchant account or belong to another team.',
   rSelfChange: 'You cannot change your own role or remove yourself this way.',
   rMemberNotFound: 'That team member could not be found. Refresh the list.',

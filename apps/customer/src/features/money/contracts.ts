@@ -190,6 +190,12 @@ export const withdrawAssetSchema = z.object({
 });
 export type WithdrawAsset = z.infer<typeof withdrawAssetSchema>;
 export const destinationRemovedSchema = z.object({ destinationId: z.string(), removed: z.literal(true) });
+/** svc-bank `bank.ramps.destinations.check`: whether the bank takes an address as typed, before any confirmation. */
+export const destinationCheckSchema = z.object({
+  address: z.enum(['ok', 'invalid', 'checksum_mismatch']),
+  lookalike: z.object({ destinationId: z.string(), label: z.string().nullable(), refMasked: z.string() }).nullable(),
+});
+export type DestinationCheck = z.infer<typeof destinationCheckSchema>;
 const detailSetSchema = z.object({
   id: z.string(),
   accountNumber: z.string().nullable(),
@@ -252,6 +258,54 @@ export const bankProfileSchema = z.object({
   kind: z.enum(['personal', 'business']),
   business: z.object({ accountId: z.string(), name: z.string(), role: z.string() }).nullable(),
 });
+/** svc-bank `bank.addMoney.*` (J-bank-02): the ways to pay in with their quotes, and the customer's add-money requests. */
+export const ADD_MONEY_METHODS = ['bank_transfer', 'pay_by_bank', 'card', 'wallet_pay'] as const;
+export type AddMoneyMethod = (typeof ADD_MONEY_METHODS)[number];
+const addMoneyQuoteSchema = z.object({
+  quoteId: z.string(),
+  assetId: z.string(),
+  amount: money,
+  method: z.enum(ADD_MONEY_METHODS),
+  payAmount: money,
+  fee: money,
+  payCurrency: z.string(),
+  expiresAt: z.string(),
+  deliveryEstimate: z.string().nullable(),
+});
+export const addMoneyMethodsSchema = z.object({
+  methods: z.array(
+    z.object({
+      method: z.enum(ADD_MONEY_METHODS),
+      rail: z.enum(['rail.bank', 'rail.card']),
+      quote: addMoneyQuoteSchema.nullable(),
+      blocker: z.string().nullable(),
+    }),
+  ),
+});
+export type AddMoneyOption = z.infer<typeof addMoneyMethodsSchema>['methods'][number];
+export const addMoneyRequestSchema = z.object({
+  requestId: z.string(),
+  assetId: z.string(),
+  amount: money,
+  method: z.enum(ADD_MONEY_METHODS),
+  country: z.string(),
+  rail: z.enum(['rail.bank', 'rail.card']),
+  status: z.enum(['opening', 'refused', 'opened']),
+  refusalCode: z.string().nullable(),
+  onramp: z
+    .object({
+      onrampId: z.string(),
+      payAmount: money,
+      fee: money,
+      payCurrency: z.string(),
+      status: z.literal('pending_payment'),
+      hostedUrl: z.string().nullable(),
+      bankInstructions: z.object({ reference: z.string(), accountName: z.string(), accountRef: z.string() }).nullable(),
+    })
+    .nullable(),
+  createdAt: z.string(),
+});
+export type AddMoneyRequest = z.infer<typeof addMoneyRequestSchema>;
 export const currencyWrites = {
   add: accountCurrencySchema,
   remove: z.object({ assetId: z.string(), removed: z.literal(true) }),
@@ -259,6 +313,8 @@ export const currencyWrites = {
 export const bankReads = {
   'accounts.features': accountTermsSchema,
   'accounts.profile': bankProfileSchema,
+  'addMoney.methods': addMoneyMethodsSchema,
+  'addMoney.requests': z.array(addMoneyRequestSchema),
   'currencies.list': currencySetSchema,
   'accountDetails.list': z.object({ currencies: z.array(accountDetailsRowSchema) }),
   'eligibility.get': eligibilitySchema,

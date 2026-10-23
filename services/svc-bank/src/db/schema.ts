@@ -1056,6 +1056,8 @@ export const rampOnrampQuotes = bank.table('ramp_onramp_quotes', {
   payCurrency: text('pay_currency').notNull(),
   expiresAt: tstz('expires_at').notNull(),
   simulated: boolean('simulated').notNull().default(true),
+  /** How long the source says the money takes to arrive, in its words. Null: it did not say. */
+  deliveryEstimate: text('delivery_estimate'),
   createdAt: createdAt(),
 });
 
@@ -1081,6 +1083,25 @@ export const customerOnramps = bank.table('customer_onramps', {
   bankReference: text('bank_reference'),
   bankAccountName: text('bank_account_name'),
   bankAccountRef: text('bank_account_ref'),
+  createdAt: createdAt(),
+});
+
+/**
+ * One add-money request (J-bank-02): opened with a partner instruction, or refused with the rail and the reason.
+ * A record of what was asked, never a balance or a credit.
+ */
+export const addMoneyRequests = bank.table('add_money_requests', {
+  id: uuid('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  assetId: text('asset_id').notNull(),
+  amount: amount('amount').notNull(),
+  method: text('method').notNull(),
+  country: text('country').notNull(),
+  rail: text('rail').notNull(),
+  status: text('status').notNull(),
+  refusalCode: text('refusal_code'),
+  quoteId: uuid('quote_id'),
+  onrampId: uuid('onramp_id'),
   createdAt: createdAt(),
 });
 

@@ -211,6 +211,12 @@ describe('bar backtest disclosures and races', () => {
     const result = await a.backtest.start(request(strategy.id));
     expect(result.fillTiming).toBe('next_open');
     expect(result.assumptions).toEqual(['long_only', 'averages_over_traded_bars', 'risk_limits_not_simulated']);
+    // The report comes from the run's own trades: one round trip, 115 - 0.115 fee - (110 + 0.11 fee).
+    expect(result.metrics.roundTrips.map((trip) => trip.profit)).toEqual(['4.775']);
+    expect(result.metrics.trades.winRate).toEqual({ value: '100', reason: null });
+    expect(result.metrics.returns.sharpe).toEqual({ value: null, reason: 'quant.risk_free_unset' });
+    // A stored run read back carries the same report, derived again from what was stored.
+    expect((await a.backtest.result({ runId: result.runId })).metrics).toEqual(result.metrics);
   });
 
   it('answers two presses under one key with the one stored run', async () => {
@@ -237,6 +243,62 @@ describe('bar backtest disclosures and races', () => {
       (value) => stored(value),
     );
     expect(answer).toEqual({ n: 1 });
+  });
+});
+
+describe('run history, labels and the log', () => {
+  it('lists own runs newest first; a label never changes the stored result; another account cannot see or rename them', async () => {
+    const { a, b } = setup();
+    const strategy = await saved(a);
+    const first = await a.backtest.start(request(strategy.id));
+    // Runs are stamped to the millisecond: wait one, so "newest first" is decided by time, not by a tie.
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const second = await a.backtest.start({ ...request(strategy.id), costs: { feeRole: 'maker', slippageBps: '2', delayBars: '0' } });
+    const page = await a.backtest.history({ limit: 10 });
+    expect(page.runs.map((row) => row.runId)).toEqual([second.runId, first.runId]);
+    expect(page.runs[0]).toMatchObject({ strategyId: strategy.id, strategyVersion: 1, outcome: 'ok', label: null });
+
+    expect(await a.backtest.rename({ runId: first.runId, label: '  hourly cross  ' })).toEqual({
+      runId: first.runId,
+      label: 'hourly cross',
+    });
+    expect((await a.backtest.history({ limit: 10 })).runs[1]!.label).toBe('hourly cross');
+    expect(await a.backtest.result({ runId: first.runId })).toEqual(first);
+
+    await expect(a.backtest.rename({ runId: first.runId, label: ' ' })).rejects.toThrow(/quant\.params_invalid — label/);
+    await expect(b.backtest.rename({ runId: first.runId, label: 'mine' })).rejects.toThrow(/quant\.run_not_found/);
+    expect((await b.backtest.history({ limit: 10 })).runs).toEqual([]);
+    // One page at a time, still newest first.
+    const one = await a.backtest.history({ limit: 1 });
+    expect(one.runs.map((row) => row.runId)).toEqual([second.runId]);
+    expect((await a.backtest.history({ limit: 1, cursor: one.nextCursor })).runs.map((row) => row.runId)).toEqual([first.runId]);
+  });
+
+  it('leaves out a fills-language backtest, which has no bar result to open, and refuses to rename it', async () => {
+    const { a, runs } = setup();
+    const strategy = await saved(a);
+    const bar = await a.backtest.start(request(strategy.id));
+    const fills = await runs.begin({
+      userId: ACCOUNT_A,
+      idempotencyKey: 'backtest.run:client-key',
+      kind: 'backtest',
+      strategyId: strategy.id,
+      strategyVersion: 1,
+    });
+    await runs.finish({ id: fills.id, userId: ACCOUNT_A, outcome: 'ok', stored: { detail: null, response: { simulated: true } } });
+    expect((await a.backtest.history({ limit: 10 })).runs.map((row) => row.runId)).toEqual([bar.runId]);
+    await expect(a.backtest.rename({ runId: fills.id, label: 'old' })).rejects.toThrow(/quant\.run_not_found/);
+  });
+
+  it('logs what was read, each fill and, as warnings, each gap and the choices that shaped the result', async () => {
+    const { a } = setup();
+    const strategy = await saved(a);
+    const result = await a.backtest.start(request(strategy.id));
+    expect(result.log[0]).toMatchObject({ level: 'info', code: 'bars_read', values: { bars: '8', expected: '8' } });
+    expect(result.log.filter((line) => line.code === 'fill')).toHaveLength(result.trades.length);
+    const warnings = result.log.filter((line) => line.level === 'warn');
+    expect(warnings).toEqual([{ level: 'warn', code: 'assumption', ts: null, values: { name: 'risk_limits_not_simulated' } }]);
+    expect(result.log[result.log.length - 1]).toMatchObject({ code: 'finished', values: { net: result.totals.net } });
   });
 });
 
