@@ -1,0 +1,50 @@
+{
+  "label": "TEST: CX-8 rig and local test stack only. Not an owner decision and not a product default.",
+  "values": {
+    "TRADE_MARKET_SLIPPAGE_CAP_BPS": {
+      "service": "trade",
+      "value": "150",
+      "note": "Worst price a market buy may be funded at above the best ask."
+    },
+    "TRADE_CONVERT_SPREAD_BPS": {
+      "service": "trade",
+      "value": "25",
+      "note": "House edge on convert quotes."
+    },
+    "TRADE_CANCEL_ALL_AFTER_TIMEOUTS_SEC": {
+      "service": "trade",
+      "value": "10,30,60,120",
+      "note": "Dead-man switch timeouts."
+    },
+    "TRADE_CANCEL_ALL_AFTER_SWEEP_INTERVAL_MS": {
+      "service": "trade",
+      "value": "1000",
+      "note": "One second sweep so journeys finish fast."
+    },
+    "TRADE_FEE_SCHEDULE": {
+      "service": "trade",
+      "value": "{\"published\": true, \"version\": \"test-zero-fee\", \"makerBps\": \"0\", \"takerBps\": \"0\", \"perpetual\": {\"makerBps\": \"0\", \"takerBps\": \"0\"}}",
+      "note": "Zero fee schedule, spot and perpetual, so the order paths post no fee. Without the perpetual block futures orders refuse."
+    },
+    "TRADE_COLLATERAL_HAIRCUT_BPS": {
+      "service": "trade",
+      "value": "0",
+      "note": "Cash in the settle asset counts in full, so futures opens are held only by their margin."
+    },
+    "TRADE_MAX_ORDER": {
+      "service": "trade",
+      "value": "1000000",
+      "note": "Order notional cap, quote units."
+    },
+    "TRADE_MAX_POSITION": {
+      "service": "trade",
+      "value": "1000000",
+      "note": "Futures position cap, quote units."
+    },
+    "TRADE_MAX_LOSS": {
+      "service": "trade",
+      "value": "1000000",
+      "note": "Futures loss cap, quote units."
+    }
+  }
+}
