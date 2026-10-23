@@ -66,6 +66,16 @@ export function mailedConfirmLinks(email) {
     .map((link) => `/${link}`);
 }
 
+/** Every LOCAL-TEST mail line for `purpose` sent to `email`, oldest first, read from the outbox like an inbox. */
+export function mailedLines(email, purpose) {
+  const file = path.join(STATE, 'email-outbox.log');
+  if (!existsSync(file)) return [];
+  const wanted = email.replace(/\s+/g, '');
+  return readFileSync(file, 'utf8')
+    .split('\n')
+    .filter((line) => line.includes(`purpose=${purpose} `) && line.includes(` email=${wanted} `));
+}
+
 /** The next code mailed to `email` once more than `seen` have arrived. The relay sends right after the request commits. */
 export async function nextMailedCode(email, seen = 0, waitMs = 20_000) {
   const until = Date.now() + waitMs;

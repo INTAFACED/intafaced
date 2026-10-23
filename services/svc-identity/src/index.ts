@@ -9,6 +9,7 @@ import { env } from './env.js';
 import { AuthService } from './auth/auth-service.js';
 import { createPayMerchantEmailInviteClaimer } from './auth/merchant-email-invite-claim.js';
 import { openIdentityMail } from './auth/local-mail.js';
+import { withAntiPhishingCode } from './profile/anti-phishing-mail.js';
 import { PlaceDoor } from './auth/place-door.js';
 import { founderEnrolmentConfig } from './auth/founder-enrolment.js';
 import { selectOnboardingUser } from './auth/onboarding-user.js';
@@ -315,11 +316,14 @@ if (env.PAY_URL) {
 // reset request refuses auth.reset_unwired. The only transport this process
 // can install is the local-outbox file, and only when APP_ENV is exactly dev
 // or test. Staging and production stay unwired. No provider is configured.
-const mail = openIdentityMail({
+const transportMail = openIdentityMail({
   appEnv: process.env.APP_ENV,
   transport: env.IDENTITY_MAIL_TRANSPORT,
   outboxPath: env.IDENTITY_LOCAL_MAIL_OUTBOX,
 });
+// Mails to an account's own address carry the anti-phishing code its owner set.
+const antiPhishingMailKey = antiPhishingKey(parseTotpSecretKey(env.IDENTITY_TOTP_SECRET_KEY));
+const mail = transportMail && withAntiPhishingCode(transportMail, sql, antiPhishingMailKey);
 auth.usePasswordResetMail(mail);
 auth.usePasswordResetTtl(env.IDENTITY_PASSWORD_RESET_TTL_SECONDS);
 auth.usePasswordResetPolicy({
@@ -471,7 +475,7 @@ const subAccountEdit = new SubAccountEditService({ sql, approvals: actionApprova
 const antiPhishing = new AntiPhishingService({
   sql,
   approvals: actionApprovals,
-  key: antiPhishingKey(parseTotpSecretKey(env.IDENTITY_TOTP_SECRET_KEY)),
+  key: antiPhishingMailKey,
 });
 const subAccountFeatures = new SubAccountFeatureService({ sql, eligibility: parseFeatureEligibility(env.IDENTITY_SUB_ACCOUNT_FEATURES) });
 const closure = new AccountClosureService({
