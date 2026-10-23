@@ -470,6 +470,17 @@ export function createPersonalPayApi(
     trades: (limit: number, signal?: AbortSignal) =>
       signedIn() ? Promise.resolve(signedIn()!) : api.query('p2p', 'trades.list', { limit }, z.array(s.tradeSchema), { signal }),
     trade: currentTrade,
+    /** One page of the order list: `tab` narrows it, `cursor` continues from the previous page's `nextCursor`. */
+    orderPage: (input: { limit: number; tab?: s.OrderTab; cursor?: string }, signal?: AbortSignal) =>
+      signedIn() ? Promise.resolve(signedIn()!) : api.query('p2p', 'trades.page', input, s.orderPageSchema, { signal }),
+    /** The caller's orders created in [from, to] as the service's CSV; a range or row count over the owner cap refuses. */
+    exportOrders: (range: { from: string; to: string }, signal?: AbortSignal) =>
+      signedIn()
+        ? Promise.resolve(signedIn()!)
+        : api.query('p2p', 'trades.export', { ...range, format: 'csv' }, s.orderExportSchema, { signal }),
+    /** A receipt for one released order. Each call spends one download of the owner quotas, so it is a write. */
+    receipt: (tradeId: string) =>
+      signedIn() ? Promise.resolve(signedIn()!) : api.mutate('p2p', 'trades.receipt', { tradeId }, s.orderReceiptSchema),
     health: (signal?: AbortSignal) => api.query('p2p', 'health', undefined, s.p2pHealthSchema, { signal }),
     fiat: (signal?: AbortSignal) => api.query('p2p', 'fiat.list', undefined, z.array(s.fiatSchema), { signal }),
     methods: (signal?: AbortSignal) => api.query('p2p', 'instruments.methods.list', { limit: 200 }, z.array(s.methodSchema), { signal }),

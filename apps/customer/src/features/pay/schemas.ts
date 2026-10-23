@@ -79,6 +79,61 @@ export const tradeSchema = z.object({
   resolvedAt: z.string().nullable(),
   settledAt: z.string().nullable(),
 });
+/** svc-p2p `trades.page`: one keyset page newest first, the server's tab and readable status per row, and exact per-tab counts. */
+export const orderTabs = ['in_progress', 'in_dispute', 'completed', 'cancelled'] as const;
+export const orderPageSchema = z.object({
+  trades: z.array(
+    tradeSchema.extend({
+      tab: z.enum(orderTabs),
+      displayStatus: z.enum([
+        'waiting_for_escrow',
+        'waiting_for_buyer_to_pay',
+        'waiting_for_seller_to_release',
+        'appealing',
+        'completed',
+        'completed_by_dispute_ruling',
+        'cancelled',
+        'cancelled_by_timeout',
+        'cancelled_by_dispute_ruling',
+      ]),
+    }),
+  ),
+  nextCursor: z.string().nullable(),
+  counts: z.object({
+    in_progress: z.number().int().nonnegative(),
+    in_dispute: z.number().int().nonnegative(),
+    completed: z.number().int().nonnegative(),
+    cancelled: z.number().int().nonnegative(),
+  }),
+});
+/** svc-p2p `trades.export`: the CSV the service generated, its row count and its per-pair totals as decimal strings. */
+export const orderExportSchema = z.object({
+  csv: z.string(),
+  rows: z.number().int().nonnegative(),
+  format: z.literal('csv'),
+  totals: z.array(z.object({ asset, fiatCurrency: z.string(), amount, fiatAmount: amount })),
+});
+/** svc-p2p `trades.receipt`: one released trade, the caller's own side only, and what is left of the download quotas. */
+export const orderReceiptSchema = z.object({
+  receipt: z.object({
+    tradeId: id,
+    offerId: id,
+    role: z.enum(['buyer', 'seller']),
+    asset,
+    amount,
+    fiatCurrency: z.string(),
+    fiatAmount: amount,
+    price: amount,
+    feeBps: z.number().int().nonnegative(),
+    method: z.string(),
+    createdAt: z.string(),
+    escrowedAt: z.string().nullable(),
+    fiatSentAt: z.string().nullable(),
+    resolvedAt: z.string().nullable(),
+  }),
+  dailyRemaining: z.number().int().nonnegative(),
+  tradeRemaining: z.number().int().nonnegative(),
+});
 /** svc-p2p `chat.messages.list`: oldest first; `nextCursor` is set while a full page was returned. */
 export const chatMessageSchema = z.object({
   id,
@@ -458,6 +513,10 @@ export const webhookDeliverySchema = z.object({
 });
 export type Offer = z.infer<typeof offerSchema>;
 export type Trade = z.infer<typeof tradeSchema>;
+export type OrderPage = z.infer<typeof orderPageSchema>;
+export type OrderTab = (typeof orderTabs)[number];
+export type OrderExport = z.infer<typeof orderExportSchema>;
+export type OrderReceipt = z.infer<typeof orderReceiptSchema>;
 export type ChatMessage = z.infer<typeof chatMessageSchema>;
 export type ChatPage = z.infer<typeof chatPageSchema>;
 export type ChatSent = z.infer<typeof chatSentSchema>;
