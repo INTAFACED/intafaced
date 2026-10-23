@@ -58,6 +58,8 @@ import { ReferralError } from './affiliates/referral-tree.js';
 import { AffiliateMembersLimitUnsetError, type ReferralService } from './affiliates/referral-service.js';
 import { ShareError } from './affiliates/share-service.js';
 import type { ShareService } from './affiliates/share-service.js';
+import type { ReferralCodeService } from './affiliates/referral-code.js';
+import { attachWindowStatus } from './affiliates/attach-window.js';
 import { FreezeError } from './affiliates/freeze-store.js';
 import { AffiliateFreezesLimitUnsetError, type FreezeService } from './affiliates/freeze-service.js';
 import { CommissionError } from './affiliates/commission.js';
@@ -166,6 +168,13 @@ function toTrpcError(err: unknown): TRPCError {
         return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
       case 'referral.invalid':
         return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
+      case 'referral.attach_window_closed':
+        return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
+      case 'referral.attach_window_unset':
+      case 'referral.code_length_unset':
+        return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
+      case 'referral.code_exhausted':
+        return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
     }
   }
 
@@ -558,6 +567,13 @@ export function createIdentityRouter(
     referral?: ReferralService;
     /** Share tokens (ops.social-promotion). Token → referrer; hits; revoke. */
     share?: ShareService;
+    /** Short referral codes beside the share link (CM-referral-01). */
+    referralCodes?: ReferralCodeService;
+    /**
+     * Owner setting `IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS`: how long after sign-up a person may attach a referrer
+     * through a link. Undefined (blank) refuses every link attach with `referral.attach_window_unset`.
+     */
+    referralAttachWindowSeconds?: number;
     freeze?: FreezeService;
     /** Slice B durable accrual rows (no ledger). Optional for light tests. */
     accruals?: AccrualStore;
@@ -680,6 +696,15 @@ export function createIdentityRouter(
     }
     return referral;
   }
+
+  function requireReferralCodes(): ReferralCodeService {
+    if (!options.referralCodes) {
+      throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Referral codes are not configured' });
+    }
+    return options.referralCodes;
+  }
+  /** A link attach after sign-up runs under the owner's attach window (CM-referral-01). */
+  const lateAttach = () => ({ windowSeconds: options.referralAttachWindowSeconds });
 
   function requireShare(): ShareService {
     if (!share) {
@@ -974,6 +999,12 @@ export function createIdentityRouter(
             dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date of birth must be YYYY-MM-DD'),
             accountType: z.enum(ACCOUNT_TYPES),
             referrerId: z.string().uuid().optional(),
+            /**
+             * The invitation link the person signed up from (CM-referral-01, ENGINE RF-1): its referrer is attached when
+             * the account is made, outside the late-attach window. An unknown or revoked link names no one; it never
+             * blocks the sign-up.
+             */
+            inviteToken: z.string().uuid().optional(),
           }),
         )
         .output(signUpAccepted)
@@ -987,8 +1018,9 @@ export function createIdentityRouter(
               );
             }
             if (!input.email) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Enter an email address.' });
-            const { channel: _channel, phone: _phone, email, ...rest } = input;
-            return await auth.signUpStart({ ...rest, email });
+            const { channel: _channel, phone: _phone, email, inviteToken, ...rest } = input;
+            const invitedBy = !rest.referrerId && inviteToken && share ? await share.referrerOf(inviteToken) : null;
+            return await auth.signUpStart({ ...rest, email, ...(invitedBy ? { referrerId: invitedBy } : {}) });
           } catch (err) {
             throw signUpTrpcError(err);
           }
@@ -2333,10 +2365,13 @@ export function createIdentityRouter(
         )
         .mutation(async ({ ctx, input }) => {
           try {
-            const edge = await requireReferral().attribute({
-              userId: ctx.principal.userId,
-              referrerId: input.referrerId,
-            });
+            const edge = await requireReferral().attribute(
+              {
+                userId: ctx.principal.userId,
+                referrerId: input.referrerId,
+              },
+              lateAttach(),
+            );
             return {
               userId: edge.userId,
               referrerId: edge.referrerId,
@@ -2401,21 +2436,23 @@ export function createIdentityRouter(
         .output(z.object({ hits: z.number().int(), attributed: z.boolean() }))
         .mutation(async ({ ctx, input }) => {
           try {
+            // The link owner opening their own link is refused before it counts as a visit.
+            if (ctx.principal && (await requireShare().referrerOf(input.token)) === ctx.principal.userId) {
+              throw new ReferralError('Self-referral is refused', 'referral.self');
+            }
             const rec = await requireShare().shareHits(input.token);
             let attributed = false;
-            if (ctx.principal && ctx.principal.userId !== rec.referrerId) {
+            if (ctx.principal) {
+              // A signed-in person attaches once, and only to this link's referrer (J-campaigns-05 #4).
               try {
-                await requireReferral().attribute({
-                  userId: ctx.principal.userId,
-                  referrerId: rec.referrerId,
-                });
+                await requireReferral().attribute({ userId: ctx.principal.userId, referrerId: rec.referrerId }, lateAttach());
                 attributed = true;
               } catch (err) {
-                if (err instanceof ReferralError && err.code === 'referral.already_set') {
-                  attributed = true;
-                } else {
-                  throw err;
-                }
+                if (!(err instanceof ReferralError && err.code === 'referral.already_set')) throw err;
+                // Opening the same referrer's link again is the same relationship; another referrer's link is refused.
+                const edge = await requireReferral().edgeOf(ctx.principal.userId);
+                if (edge?.referrerId !== rec.referrerId) throw err;
+                attributed = true;
               }
             }
             return { hits: rec.hits, attributed };
@@ -2442,6 +2479,59 @@ export function createIdentityRouter(
               userId: edge.userId,
               referrerId: edge.referrerId,
               attributedAt: edge.attributedAt.toISOString(),
+            };
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /** This person's short referral code, or null before they asked for one (CM-referral-01). */
+      myCode: scopedProcedure('identity:read')
+        .output(z.object({ code: z.string(), createdAt: z.string() }).nullable())
+        .query(async ({ ctx }) => {
+          try {
+            const rec = await requireReferralCodes().codeOf(ctx.principal.userId);
+            return rec ? { code: rec.code, createdAt: rec.createdAt.toISOString() } : null;
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /** Makes this person's code on the first call; repeats return the same one. Blank length refuses. */
+      createCode: scopedProcedure('identity:write')
+        .output(z.object({ code: z.string(), createdAt: z.string() }))
+        .mutation(async ({ ctx }) => {
+          try {
+            const rec = await requireReferralCodes().createCode(ctx.principal.userId);
+            return { code: rec.code, createdAt: rec.createdAt.toISOString() };
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /**
+       * Whether this person may still attach a referrer through a link, measured on the server from the account's
+       * creation (J-campaigns-05 #4 and #5). A blank owner window reads `unset`; nothing is invented.
+       */
+      attachWindow: scopedProcedure('identity:read')
+        .output(
+          z.object({
+            state: z.enum(['unset', 'open', 'closed']),
+            accountCreatedAt: z.string(),
+            windowSeconds: z.number().int().nullable(),
+            closesAt: z.string().nullable(),
+          }),
+        )
+        .query(async ({ ctx }) => {
+          try {
+            const age = await requireReferral().accountAge(ctx.principal.userId);
+            if (!age) throw new TRPCError({ code: 'NOT_FOUND', message: 'Account not found' });
+            const status = attachWindowStatus(age.createdAt, options.referralAttachWindowSeconds, age.now);
+            return {
+              state: status.state,
+              accountCreatedAt: status.accountCreatedAt.toISOString(),
+              windowSeconds: status.state === 'unset' ? null : status.windowSeconds,
+              closesAt: status.state === 'unset' ? null : status.closesAt.toISOString(),
             };
           } catch (err) {
             throw toTrpcError(err);

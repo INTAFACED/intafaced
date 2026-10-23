@@ -19,6 +19,8 @@ const LIMITS: AlertLimits = {
   triggerLogDays: 7,
   maxActivePrice: 20,
   repeatFrequencies: [],
+  burstWindowMinutes: null,
+  burstMaxTriggers: null,
 };
 const base = { userId: 'u1', marketId: 'BTC-USD', direction: 'above' as const, targetPrice: '100' };
 
@@ -74,7 +76,14 @@ describe('trigger log', () => {
   });
 
   it('blank retention writes no log, refuses the read, and the alert still fires', async () => {
-    const { alerts, log } = rig({ ...LIMITS, triggerLogDays: null, maxActivePrice: 20, repeatFrequencies: [] });
+    const { alerts, log } = rig({
+      ...LIMITS,
+      triggerLogDays: null,
+      maxActivePrice: 20,
+      repeatFrequencies: [],
+      burstWindowMinutes: null,
+      burstMaxTriggers: null,
+    });
     const row = await alerts.create(base, NOW);
     expect((await alerts.evaluateDueAlerts(NOW)).fired).toBe(1);
     expect((await alerts.get('u1', row.id))!.status).toBe('fired');
