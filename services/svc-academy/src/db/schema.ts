@@ -588,9 +588,69 @@ export const courseEvents = academy.table(
   (t) => [primaryKey({ columns: [t.courseId, t.revision] })],
 );
 
+/** AC-course-structure-02: a course's sections, in order. */
+export const courseSections = academy.table(
+  'course_sections',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    courseId: uuid('course_id')
+      .notNull()
+      .references(() => courses.id),
+    position: integer('position').notNull(),
+    title: text('title').notNull(),
+  },
+  (t) => [uniqueIndex('course_sections_position_uq').on(t.courseId, t.position)],
+);
+
+/** AC-course-structure-02: the typed items of one section, in order. Only a `link` has a url. */
+export const courseItems = academy.table(
+  'course_items',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    courseId: uuid('course_id')
+      .notNull()
+      .references(() => courses.id),
+    sectionId: uuid('section_id')
+      .notNull()
+      .references(() => courseSections.id, { onDelete: 'cascade' }),
+    position: integer('position').notNull(),
+    kind: text('kind').notNull(),
+    title: text('title').notNull(),
+    indent: integer('indent').notNull().default(0),
+    url: text('url'),
+    /** The lesson revision learners see (AC-course-structure-03); only an explicit publish moves it. */
+    liveRevision: integer('live_revision'),
+    liveCourseRevision: integer('live_course_revision'),
+    copiedFrom: uuid('copied_from'),
+    copiedAtRevision: integer('copied_at_revision'),
+  },
+  (t) => [uniqueIndex('course_items_position_uq').on(t.sectionId, t.position), index('course_items_course_idx').on(t.courseId)],
+);
+
+/** AC-course-structure-03: every save of an item's lesson, as ordered blocks. Keyed `lesson:<item>:<revision>`. */
+export const lessonRevisions = academy.table(
+  'lesson_revisions',
+  {
+    itemId: uuid('item_id')
+      .notNull()
+      .references(() => courseItems.id, { onDelete: 'cascade' }),
+    revision: integer('revision').notNull(),
+    source: text('source').notNull(),
+    fromRevision: integer('from_revision'),
+    fromItemId: uuid('from_item_id'),
+    blocks: jsonb('blocks').notNull(),
+    actor: uuid('actor').notNull(),
+    at: tstz('at').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.itemId, t.revision] })],
+);
+
 export const schema = {
   courses,
   courseEvents,
+  courseSections,
+  courseItems,
+  lessonRevisions,
   plannerTodos,
   learningGoals,
   itemVideos,

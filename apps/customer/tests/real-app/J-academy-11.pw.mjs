@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { ADMIN, founderSignIn } from './admin.mjs';
+import { tool } from './stack.mjs';
 
 // J-academy-11, in the running app (docs/roadmap/journeys.json): a founder creates a course on the founder console's
 // Academy desk and publishes it. One test per step, titled "J-academy-11 #<n>", run in order. The founder is the stack's
@@ -8,6 +9,8 @@ const J = 'J-academy-11';
 const RUN = Date.now().toString(36);
 const SLUG = `test-j11-${RUN}`;
 const TITLE = `TEST J-academy-11 course ${RUN}`;
+/** The course #2 creates, for the steps after it (serial, one worker). */
+let courseUrl = null;
 
 test.describe.configure({ mode: 'serial' });
 
@@ -86,6 +89,7 @@ test(`${J} #2 a course saves as a draft; an Academy tab as its address is refuse
   await page.getByLabel('Paid', { exact: true }).check();
   await page.getByRole('button', { name: 'Create draft' }).click();
   await page.waitForURL(/\/academy-ops\/catalogue\/courses\/[0-9a-f-]{36}$/);
+  courseUrl = new URL(page.url()).pathname;
   const facts = page.getByTestId('course-facts');
   await expect(page.getByRole('heading', { level: 1, name: TITLE, exact: true })).toBeVisible();
   await expect(facts).toContainText('Draft');
@@ -116,5 +120,206 @@ test(`${J} #2 a course saves as a draft; an Academy tab as its address is refuse
   await page.goto('/academy-ops/catalogue/courses');
   await expect(page.getByTestId(`course-${SLUG}`)).toContainText('25.5 USDT');
   await expect(counts.getByText(`Draft: ${draftsBefore + 1}`, { exact: true })).toBeVisible();
+  await page.context().close();
+});
+
+/** Academy restarted with the owner's outline limits blank, or back on the stack's TEST limits. */
+function academyOutlineLimits(on) {
+  const before = process.env.LOCAL_STACK_ACADEMY_OUTLINE_LIMITS;
+  if (on) delete process.env.LOCAL_STACK_ACADEMY_OUTLINE_LIMITS;
+  else process.env.LOCAL_STACK_ACADEMY_OUTLINE_LIMITS = 'off';
+  try {
+    tool('local-test-stack.mjs', 'restart', 'academy');
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_ACADEMY_OUTLINE_LIMITS;
+    else process.env.LOCAL_STACK_ACADEMY_OUTLINE_LIMITS = before;
+  }
+}
+
+test(`${J} #3 the outline holds ordered sections of typed items; with the section limits blank the save is refused`, async ({
+  browser,
+}) => {
+  test.setTimeout(240_000);
+  if (!courseUrl) throw new Error(`${J}: #2 left no course, so this step has nothing to build`);
+  const page = await console_(browser);
+  await page.goto(courseUrl);
+  await expect(page.getByTestId('outline-limits')).toContainText('sections 20, items 200');
+
+  // Two sections: a subheader and two lessons (one indented), then a quiz and a link.
+  await page.getByLabel('New section', { exact: true }).fill('Start here');
+  await page.getByRole('button', { name: 'Add section' }).click();
+  await page.getByLabel('New section', { exact: true }).fill('Practice');
+  await page.getByRole('button', { name: 'Add section' }).click();
+  const add = async (si, kind, title, { indent = 0, url } = {}) => {
+    await page.getByRole('button', { name: `Add item to section ${si + 1}` }).click();
+    const n = await page.getByTestId(`outline-section-${si}`).locator('[data-testid^="outline-item-"]').count();
+    const name = `Section ${si + 1} item ${n}`;
+    await page.getByRole('combobox', { name: `${name} type`, exact: true }).selectOption(kind);
+    await page.getByLabel(`${name} title`, { exact: true }).fill(title);
+    if (url) await page.getByLabel(`${name} address`, { exact: true }).fill(url);
+    for (let i = 0; i < indent; i++) await page.getByRole('button', { name: `Indent ${name}`, exact: true }).click();
+  };
+  await add(0, 'subheader', 'TEST Part 1');
+  await add(0, 'lesson', 'TEST Position size');
+  await add(0, 'lesson', 'TEST Stops', { indent: 1 });
+  await add(1, 'quiz', 'TEST Check yourself');
+  await add(1, 'link', 'TEST Reading list', { url: 'https://example.com/reading' });
+  await page.getByRole('button', { name: 'Save outline' }).click();
+  const outcome = page.getByTestId('course-desk-outcome');
+  await expect(outcome).toContainText('Done: outline saved');
+  await expect(page.getByTestId('course-history')).toContainText('outline saved (revision 3)');
+
+  // What svc-academy stored, in order: four items to open (the subheader is a label), the indent kept.
+  await page.reload();
+  await expect(page.getByTestId('course-facts')).toContainText('Items in the outline4');
+  const titles = await page
+    .locator('[data-testid^="outline-item-"] input[aria-label$="title"]')
+    .evaluateAll((els) => els.map((e) => e.value));
+  expect(titles).toEqual(['TEST Part 1', 'TEST Position size', 'TEST Stops', 'TEST Check yourself', 'TEST Reading list']);
+  await expect(page.getByRole('combobox', { name: 'Section 2 item 1 type', exact: true })).toHaveValue('quiz');
+  await expect(page.getByTestId('outline-item-0-2')).toHaveAttribute('style', /margin-left: ?24px/);
+
+  // With the owner's section limits blank, the next save is refused by name and the outline stays as it was.
+  academyOutlineLimits(false);
+  try {
+    await page.reload();
+    await expect(page.getByTestId('outline-limits')).toContainText('sections not set, items not set');
+    await add(1, 'discussion', 'TEST Questions');
+    await page.getByRole('button', { name: 'Save outline' }).click();
+    await expect(outcome).toHaveAttribute('data-code', 'academy.outline_limits_unset');
+    await expect(outcome).toContainText('The outline limits are not set');
+    // The refused edit is still on the page to save later; what svc-academy holds is unchanged.
+    await expect(page.getByLabel('Section 2 item 3 title', { exact: true })).toHaveValue('TEST Questions');
+    await expect(page.getByTestId('course-facts')).toContainText('Items in the outline4');
+  } finally {
+    academyOutlineLimits(true);
+  }
+  await page.context().close();
+});
+
+test(`${J} #4 a lesson's edits stay off learners until republished; revert makes a new revision; duplicate copies no learner record`, async ({
+  browser,
+}) => {
+  if (!courseUrl) throw new Error(`${J}: #2 left no course, so this step has nothing to write in`);
+  const page = await console_(browser);
+  await page.goto(courseUrl);
+  await page.getByRole('link', { name: 'Write Section 1 item 2', exact: true }).click();
+  await page.waitForURL(/\/items\/[0-9a-f-]{36}$/);
+  const lessonUrl = new URL(page.url()).pathname;
+  await expect(page.getByRole('heading', { level: 1, name: 'TEST Position size', exact: true })).toBeVisible();
+  const live = page.getByTestId('lesson-live');
+  const liveRevision = page.getByTestId('lesson-live-revision');
+  const outcome = page.getByTestId('course-desk-outcome');
+  await expect(liveRevision).toHaveText('Nothing: no revision is published');
+
+  // Revision 1: a text block and a code block, published to learners with a reason.
+  await page.getByRole('button', { name: 'Add block' }).click();
+  await page.getByLabel('Block 1 text', { exact: true }).fill('TEST Risk one percent of the account per trade.');
+  await page.getByRole('combobox', { name: 'New block type', exact: true }).selectOption('code');
+  await page.getByRole('button', { name: 'Add block' }).click();
+  await page.getByLabel('Block 2 code', { exact: true }).fill('size = account * 0.01 / stop_distance');
+  await page.getByLabel('Block 2 language', { exact: true }).fill('python');
+  await page.getByRole('button', { name: 'Save lesson' }).click();
+  await expect(outcome).toContainText('Done: lesson saved');
+  await expect(page.getByTestId('lesson-revision-1')).toContainText('Revision 1: saved');
+  await page.getByLabel('Reason', { exact: true }).fill('TEST first cut');
+  await page.getByRole('button', { name: 'Publish revision 1 to learners' }).click();
+  await expect(outcome).toContainText('Done: published to learners');
+  await expect(liveRevision).toHaveText('Revision 1');
+  await expect(live).toContainText('one percent');
+
+  // Revision 2 is saved while learners keep revision 1, until it is published.
+  await page.getByLabel('Block 1 text', { exact: true }).fill('TEST Risk half a percent while you learn.');
+  await page.getByRole('button', { name: 'Save lesson' }).click();
+  await expect(page.getByTestId('lesson-revision-2')).toContainText('Revision 2: saved');
+  await expect(liveRevision).toHaveText('Revision 1');
+  await expect(live).toContainText('one percent');
+  await expect(live).not.toContainText('half a percent');
+  await page.getByRole('button', { name: 'Publish revision 2 to learners' }).click();
+  await expect(liveRevision).toHaveText('Revision 2');
+  await expect(live).toContainText('half a percent');
+
+  // Revert to revision 1 makes revision 3 with its words; learners keep revision 2 until the next publish.
+  await page.getByRole('button', { name: 'Revert to revision 1' }).click();
+  await expect(outcome).toContainText('Done: reverted');
+  await expect(page.getByTestId('lesson-revision-3')).toContainText('Revision 3: reverted from revision 1');
+  await expect(page.getByLabel('Block 1 text', { exact: true })).toHaveValue('TEST Risk one percent of the account per trade.');
+  await expect(page.getByTestId('lesson-revision-2')).toBeVisible();
+  await expect(liveRevision).toHaveText('Revision 2');
+  await page.reload();
+  await expect(liveRevision).toHaveText('Revision 2');
+
+  // Duplicate: the copy holds the newest words as its own revision 1, and nothing is live for learners on it.
+  await page.getByRole('button', { name: 'Duplicate this item' }).click();
+  await page.waitForURL((url) => /\/items\/[0-9a-f-]{36}$/.test(url.pathname) && url.pathname !== lessonUrl);
+  await expect(page.getByTestId('lesson-revision-1')).toContainText('Revision 1: duplicated from another item');
+  await expect(page.getByTestId('lesson-revisions').locator('li')).toHaveCount(1);
+  await expect(liveRevision).toHaveText('Nothing: no revision is published');
+  await expect(page.getByLabel('Block 1 text', { exact: true })).toHaveValue('TEST Risk one percent of the account per trade.');
+
+  // On the course: the copy sits right after its source, and the history names the lesson publish.
+  await page.goto(courseUrl);
+  const titles = await page
+    .getByTestId('outline-section-0')
+    .locator('[data-testid^="outline-item-"] input[aria-label$="title"]')
+    .evaluateAll((els) => els.map((e) => e.value));
+  expect(titles).toEqual(['TEST Part 1', 'TEST Position size', 'TEST Position size', 'TEST Stops']);
+  await expect(page.getByTestId('outline-item-0-1')).toContainText('revision 3, learners see 2');
+  await expect(page.getByTestId('outline-item-0-2')).toContainText('revision 1, not published');
+  await expect(page.getByTestId('course-history')).toContainText('a lesson published to learners');
+  await page.context().close();
+});
+
+test(`${J} #5 a lesson file over the size limit is refused before it is read; an unknown block is listed and nothing is created`, async ({
+  browser,
+}) => {
+  if (!courseUrl) throw new Error(`${J}: #2 left no course, so this step has nothing to import into`);
+  const page = await console_(browser);
+  await page.goto(courseUrl);
+  await page.getByRole('link', { name: 'Write Section 1 item 2', exact: true }).click();
+  await page.waitForURL(/\/items\/[0-9a-f-]{36}$/);
+  await expect(page.getByTestId('lesson-import-limit')).toContainText('Up to 8192 bytes');
+  const revisions = page.getByTestId('lesson-revisions').locator('li');
+  const before = await revisions.count();
+  const outcome = page.getByTestId('course-desk-outcome');
+  const sent = [];
+  page.on('request', (r) => {
+    if (r.method() === 'POST' && r.url().includes('/api/academy-lessons')) sent.push(r.url());
+  });
+  const lessonFile = (name, blocks) => ({
+    name,
+    mimeType: 'application/json',
+    buffer: Buffer.from(JSON.stringify({ format: 'intafaced.lesson.v1', blocks })),
+  });
+
+  // 20 KiB against the stack's TEST limit of 8 KiB: refused by name before a byte is read or sent.
+  const big = lessonFile('TEST-big.json', [{ type: 'text', markdown: `TEST ${'x'.repeat(20_000)}` }]);
+  await page.getByLabel('Lesson file', { exact: true }).setInputFiles(big);
+  await page.getByRole('button', { name: 'Import file' }).click();
+  await expect(outcome).toHaveAttribute('data-code', 'academy.import_too_large');
+  await expect(outcome).toContainText('The file is over the size limit');
+  expect(sent).toEqual([]);
+  await expect(revisions).toHaveCount(before);
+
+  // An unknown block type: svc-academy lists it by its place in the file, and nothing is created.
+  const unknown = lessonFile('TEST-unknown.json', [
+    { type: 'text', markdown: 'TEST fine' },
+    { type: 'iframe', src: 'https://example.com/embed' },
+  ]);
+  await page.getByLabel('Lesson file', { exact: true }).setInputFiles(unknown);
+  await page.getByRole('button', { name: 'Import file' }).click();
+  await expect(outcome).toHaveAttribute('data-code', 'academy.import_invalid');
+  await expect(page.getByTestId('lesson-import-report')).toContainText('Block 2: unknown block type "iframe"');
+  await expect(revisions).toHaveCount(before);
+  await page.reload();
+  await expect(revisions).toHaveCount(before);
+
+  // A good file becomes the next revision, and learners keep the published one.
+  const good = lessonFile('TEST-good.json', [{ type: 'text', markdown: 'TEST Imported words.' }]);
+  await page.getByLabel('Lesson file', { exact: true }).setInputFiles(good);
+  await page.getByRole('button', { name: 'Import file' }).click();
+  await expect(outcome).toContainText('Done: imported');
+  await expect(page.getByTestId(`lesson-revision-${before + 1}`)).toContainText(`Revision ${before + 1}: imported`);
+  await expect(page.getByTestId('lesson-live-revision')).toHaveText('Revision 2');
   await page.context().close();
 });

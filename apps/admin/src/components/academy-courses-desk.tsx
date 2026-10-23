@@ -15,6 +15,7 @@ import {
   type CourseListView,
 } from '@/lib/academy/courses-model';
 import { ACADEMY_PAGES } from '@/lib/ops-desk/catalog';
+import { OutlineEditor } from '@/components/academy-outline-editor';
 
 /**
  * ACADEMY COURSE DESK (AC-course-structure-01).
@@ -33,7 +34,12 @@ const STATE: Record<AcademyCourse['state'], { label: string; tone: ChipTone }> =
   deleted: { label: 'Deleted', tone: 'danger' },
 };
 
-function Outcome({ reply }: { reply: CourseDeskReply | null }) {
+/** The answer to the last change, as the desk and the lesson editor show it. */
+export function Outcome({
+  reply,
+}: {
+  reply: Pick<CourseDeskReply & { ok: true }, 'ok' | 'what'> | (CourseDeskReply & { ok: false }) | null;
+}) {
   if (!reply) return null;
   if (reply.ok)
     return (
@@ -57,7 +63,7 @@ function Outcome({ reply }: { reply: CourseDeskReply | null }) {
   );
 }
 
-function Failed({ title, message, code }: { title: string; message: string; code: string | null }) {
+export function Failed({ title, message, code }: { title: string; message: string; code: string | null }) {
   return (
     <div className="adm-callout" data-tone="danger" role="status" data-code={code ?? ''}>
       <strong>{title}</strong>
@@ -67,7 +73,7 @@ function Failed({ title, message, code }: { title: string; message: string; code
   );
 }
 
-function AcademyNav() {
+export function AcademyNav() {
   return (
     <nav aria-label="Sections" className="dk-row">
       {ACADEMY_PAGES.map((p) => (
@@ -332,6 +338,13 @@ export function AcademyCourseDesk({ courseId, initial }: { courseId: string; ini
               </dd>
             </dl>
           </section>
+          {/* Remounts when a stored section or item is added or removed, so new items take their ids; a details save keeps unsaved outline edits. */}
+          <OutlineEditor
+            key={detail.data.outline.flatMap((s) => [s.id, ...s.items.map((i) => i.id)]).join() || 'empty'}
+            detail={detail.data}
+            busy={busy}
+            onSave={(sections) => void send({ op: 'outline', courseId, revision: detail.data.course.revision, sections })}
+          />
           {detail.data.course.state === 'draft' && (
             <section className="dk-stack" aria-labelledby="h-course-edit">
               <h2 id="h-course-edit">Edit the draft</h2>
@@ -352,8 +365,7 @@ export function AcademyCourseDesk({ courseId, initial }: { courseId: string; ini
           <section className="dk-stack" aria-labelledby="h-course-publish">
             <h2 id="h-course-publish">Publish</h2>
             <p className="dk-muted">
-              Publishing puts the course in the public catalogue. svc-academy refuses a paid course with no price and a course whose outline
-              is empty, and says which.
+              svc-academy refuses to publish a paid course with no price and a course whose outline has nothing to open, and says which.
             </p>
             <form
               className="dk-stack"
@@ -377,8 +389,16 @@ export function AcademyCourseDesk({ courseId, initial }: { courseId: string; ini
               {detail.data.events.map((e) => (
                 <li key={e.revision}>
                   {formatWhen(e.at)}:{' '}
-                  {e.kind === 'created' ? 'created as a draft' : e.kind === 'updated' ? 'details saved' : `moved to ${e.toState}`} (revision{' '}
-                  {e.revision}) by <code>{e.actor}</code>
+                  {e.kind === 'created'
+                    ? 'created as a draft'
+                    : e.kind === 'updated'
+                      ? 'details saved'
+                      : e.kind === 'outline'
+                        ? 'outline saved'
+                        : e.kind === 'lesson'
+                          ? 'a lesson published to learners'
+                          : `moved to ${e.toState}`}{' '}
+                  (revision {e.revision}) by <code>{e.actor}</code>
                   {e.reason ? `: ${e.reason}` : ''}
                 </li>
               ))}

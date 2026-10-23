@@ -105,13 +105,16 @@ describe('academy course desk BFF', () => {
     configure();
     const c = upstream({
       'admin.courses': () => ok({ courses: [COURSE], counts: COUNTS }),
-      'admin.course': () => ok({ course: COURSE, events: [] }),
+      'admin.course': () => ok({ course: COURSE, outline: [], limits: { maxSections: null, maxItems: null }, events: [] }),
     });
     const body = await (await GET(get())).json();
     expect(body.list).toEqual({ kind: 'ok', data: { courses: [COURSE], counts: COUNTS } });
     expect(decodeURIComponent(calls(c)[0]!.url)).toContain('"limit":100');
     const one = await (await GET(new Request(`${URL_}?courseId=${COURSE_ID}`, { headers: { cookie: session().cookie } }))).json();
-    expect(one.detail).toEqual({ kind: 'ok', data: { course: COURSE, events: [] } });
+    expect(one.detail).toEqual({
+      kind: 'ok',
+      data: { course: COURSE, outline: [], limits: { maxSections: null, maxItems: null }, events: [] },
+    });
     expect((await GET(new Request(`${URL_}?courseId=nope`, { headers: { cookie: session().cookie } }))).status).toBe(400);
   });
 
@@ -182,5 +185,35 @@ describe('academy course desk BFF', () => {
     );
     const body = await (await POST(post({ op: 'update', courseId: COURSE_ID, revision: 1, title: 'Risk basics', pricing: 'free' }))).json();
     expect(body).toMatchObject({ ok: false, changed: 'unknown' });
+  });
+
+  it('an outline is checked for shape here and saved whole; blank owner limits come back by name', async () => {
+    configure();
+    const c = upstream({ 'admin.saveOutline': () => refusal('academy.outline_limits_unset', 412) });
+    const sections = [{ title: 'Start', items: [{ kind: 'lesson', title: 'One', indent: 0, url: null }] }];
+    const bad = await POST(
+      post({
+        op: 'outline',
+        courseId: COURSE_ID,
+        revision: 1,
+        sections: [{ title: 'S', items: [{ kind: 'link', title: 'L', indent: 0, url: null }] }],
+      }),
+    );
+    expect(bad.status).toBe(400);
+    expect((await bad.json()).body).toBe('A link item needs an https address, and no other item has one.');
+    const untitled = await POST(
+      post({
+        op: 'outline',
+        courseId: COURSE_ID,
+        revision: 1,
+        sections: [{ title: 'S', items: [{ kind: 'quiz', title: ' ', indent: 0, url: null }] }],
+      }),
+    );
+    expect((await untitled.json()).body).toBe('Every section and item needs a title of up to 120 characters.');
+    expect(calls(c)).toHaveLength(0);
+    const res = await POST(post({ op: 'outline', courseId: COURSE_ID, revision: 1, sections }));
+    expect(res.status).toBe(412);
+    expect(await res.json()).toMatchObject({ ok: false, code: 'academy.outline_limits_unset', title: 'The outline limits are not set' });
+    expect(sent(c, 'admin.saveOutline')).toEqual({ courseId: COURSE_ID, revision: 1, sections });
   });
 });

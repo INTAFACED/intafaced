@@ -80,6 +80,33 @@ const schema = serviceEnvSchema
       ),
 
       /**
+       * AC-course-structure-02: how many sections one course outline may hold. Blank / unset is unpublished: saving an
+       * outline refuses `academy.outline_limits_unset`. Never invent a limit.
+       */
+      ACADEMY_OUTLINE_MAX_SECTIONS: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1).max(1000)]),
+      ),
+      /**
+       * AC-course-structure-02: how many items a learner can open (subheaders are labels and are not counted) one course
+       * outline may hold in all. Blank / unset is unpublished: saving an outline refuses `academy.outline_limits_unset`.
+       */
+      ACADEMY_OUTLINE_MAX_ITEMS: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1).max(1000)]),
+      ),
+
+      /**
+       * AC-course-structure-03: the largest lesson file, in bytes, the Academy desk imports. Blank / unset is
+       * unpublished: an import refuses `academy.import_limit_unset`, and a larger file refuses `academy.import_too_large`
+       * before it is parsed.
+       */
+      ACADEMY_LESSON_IMPORT_MAX_BYTES: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1).max(1_048_576)]),
+      ),
+
+      /**
        * Stage-1 tournament ladder kill-switch (mirrors flag `academy.tournament`).
        * When false, season/standing procedures refuse `academy.tournament_disabled`.
        */

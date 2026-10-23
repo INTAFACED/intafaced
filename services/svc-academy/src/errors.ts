@@ -207,7 +207,25 @@ export type AcademyErrorCode =
   | 'academy.price_unset'
   /** The course's outline is empty, so it is not published. */
   | 'academy.course_outline_empty'
-  | 'academy.courses_list_limit_unset';
+  | 'academy.courses_list_limit_unset'
+  /** AC-course-structure-02: the owner has not set the outline section and item limits. */
+  | 'academy.outline_limits_unset'
+  /** The outline has more sections or items than the owner allows. */
+  | 'academy.outline_too_large'
+  /** The outline names a section or item id this course does not hold. */
+  | 'academy.outline_item_unknown'
+  /** AC-course-structure-03: the lesson has a newer revision than the one the editor read. */
+  | 'academy.revision_stale'
+  /** No such revision of this lesson. */
+  | 'academy.lesson_revision_unknown'
+  /** A subheader or a link holds no lesson. */
+  | 'academy.item_has_no_lesson'
+  /** An item with a lesson does not become a subheader or a link. */
+  | 'academy.item_kind_locked'
+  /** The owner has not set the lesson import size limit. */
+  | 'academy.import_limit_unset'
+  /** The lesson file is over the owner's size limit; it was not parsed. */
+  | 'academy.import_too_large';
 
 export class AcademyError extends Error {
   constructor(
@@ -330,6 +348,15 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.price_unset',
   'academy.course_outline_empty',
   'academy.courses_list_limit_unset',
+  'academy.outline_limits_unset',
+  'academy.outline_too_large',
+  'academy.outline_item_unknown',
+  'academy.revision_stale',
+  'academy.lesson_revision_unknown',
+  'academy.item_has_no_lesson',
+  'academy.item_kind_locked',
+  'academy.import_limit_unset',
+  'academy.import_too_large',
 ] as const;
 
 /** L3 — catalog size. */
