@@ -881,6 +881,11 @@ function serviceDefs(secrets) {
         // Sub-account cap: an explicit LOCAL TEST value, not an owner limit (the owner has not published one; blank
         // refuses every create with auth.sub_account_cap_unset). 10 live sub-accounts per account on this stack only.
         IDENTITY_MAX_SUB_ACCOUNTS: '10',
+        // The closure checks a close runs first (customer closure and the console's staff close): svc-bank, svc-trade and
+        // svc-p2p answer for their own open products and balances, signed with this stack's shared service secret.
+        IDENTITY_CLOSURE_BANK_URL: urlOf('bank'),
+        IDENTITY_CLOSURE_TRADE_URL: urlOf('trade'),
+        IDENTITY_CLOSURE_P2P_URL: urlOf('p2p'),
         // LOCAL TEST founder pair only: local_test_founder_a / local_test_founder_b from
         // <state>/founders.json. Absent until that vault exists. Never the Docker vault.
         ...identityFounderEnv(),
