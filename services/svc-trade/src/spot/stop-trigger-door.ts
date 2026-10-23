@@ -33,6 +33,9 @@ export function assertStopTrigger(stopPrice: Amount, tickSize: Amount): void {
   }
 }
 
+/** Only a plain order uuid can be in the table: a bracket child's id (`<uuid>:sl`) is not, and a uuid column would refuse it. */
+const ORDER_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function positivePrice(raw: string): boolean {
   try {
     return parseAmount(raw) > 0n;
@@ -73,8 +76,8 @@ export function sqlStopTrigger(sql: Sql): StopTriggerStore {
       return out;
     },
     async recordFired(orderId, fired) {
-      // A price the table would refuse is not recorded: a retry could never land it, and the event would come back forever.
-      if (!positivePrice(fired.referencePrice)) return false;
+      // An id or price the table would refuse is not recorded: a retry could never land it, and the event would come back forever.
+      if (!ORDER_UUID.test(orderId) || !positivePrice(fired.referencePrice)) return false;
       await sql`
         UPDATE order_stop_trigger
         SET triggered_at = ${fired.at}::timestamptz, trigger_reference = ${fired.referencePrice}::numeric,
@@ -128,7 +131,7 @@ export function memoryStopTrigger(): StopTriggerStore {
       return out;
     },
     async recordFired(orderId, fired) {
-      if (!positivePrice(fired.referencePrice)) return false;
+      if (!ORDER_UUID.test(orderId) || !positivePrice(fired.referencePrice)) return false;
       const held = byId.get(orderId);
       if (!held) return false;
       if (!held.fired) held.fired = fired;

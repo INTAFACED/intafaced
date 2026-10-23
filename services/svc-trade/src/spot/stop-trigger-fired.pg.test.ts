@@ -67,6 +67,8 @@ describe('a stop that fired keeps when and at what price (PG)', () => {
     await store.remember(OTHER, ALICE, '5');
     expect(await store.recordFired(OTHER, { ...fired, referencePrice: '0' })).toBe(false);
     expect(await store.readFired([OTHER])).toEqual(new Map());
+    // A bracket child's stop (`<uuid>:sl`) is not this table's: answered, not a database error the bus would redeliver.
+    expect(await store.recordFired(`${OTHER}:sl`, { ...fired, referencePrice: '5' })).toBe(false);
   });
 
   it('refuses a half-written trigger at the table', async () => {
