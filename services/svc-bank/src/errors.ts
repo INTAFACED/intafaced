@@ -349,6 +349,10 @@ export type BankErrorCode =
    */
   | 'bank.ramp_invalid_asset'
   | 'bank.ramp_invalid_destination'
+  /** svc-ledger's asset and network registry could not be read, or is not connected. Nothing was saved. */
+  | 'bank.asset_registry_unavailable'
+  /** The asset does not allow withdrawals, or the network is not listed for it in the registry. Nothing was saved. */
+  | 'bank.withdraw_network_unsupported'
   /**
    * Offramp cooling hours are owner-set (PTX-M17-R03). Blank, unset,
    * non-integer, or negative refuse — never invent 24h and skip to withdrawHold.
@@ -678,7 +682,23 @@ export type BankErrorCode =
   /** A product id was reused with different terms. */
   | 'bank.loan_product_conflict'
   /** A spend door was refused for funds; carries available/onHold/inEarn figures when they could be read (RC-wallet-09). */
-  | 'bank.insufficient_funds';
+  | 'bank.insufficient_funds'
+  /** The owner has not published the base-tier account terms (`BANK_ACCOUNT_TERMS_JSON`), or they are not in shape (BK-acct-01). */
+  | 'bank.account_terms_unset'
+  /** The owner has not published which currencies an account may hold (`BANK_ACCOUNT_CURRENCIES`). */
+  | 'bank.account_currencies_unset'
+  /** A currency that is not on the owner's list. */
+  | 'bank.asset_unknown'
+  /** A currency that still holds a balance, a hold, an open order or a named space cannot be removed. */
+  | 'bank.currency_in_use'
+  /** The owner has not published how many spaces one account may hold (`BANK_SPACE_LIMIT`) (BK-pots-01). */
+  | 'bank.space_limit_unset'
+  /** The account already holds the owner's number of live named spaces. */
+  | 'bank.space_limit_reached'
+  /** The profile a bank call names is not one the caller holds: an unknown or closed business, or one they are not a member of. */
+  | 'bank.profile_not_held'
+  /** A business profile has no company account of its own in this build, so there is no company terms, currency or detail to show. */
+  | 'bank.company_account_unwired';
 
 export class BankError extends Error {
   constructor(

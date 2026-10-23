@@ -49,6 +49,27 @@ describe('futures order-type catalogue (D-orders-01)', () => {
     }
   });
 
+  it('through the book: market, limit, GTC, IOC and reduce-only are available; the rest refuse with the type code', () => {
+    const c = buildFuturesOrderTypeCatalogue('TEST/USDT-PERP', undefined, { throughBook: true });
+    const available = [...c.orderTypes, ...c.timeInForce, ...c.flags].filter((e) => e.state === 'available').map((e) => e.id);
+    expect(available).toEqual(['market', 'limit', 'GTC', 'IOC', 'reduceOnly']);
+    for (const e of [...c.orderTypes, ...c.timeInForce, ...c.flags].filter((x) => x.state === 'refused')) {
+      expect(e, e.id).toMatchObject({ state: 'refused', code: FUTURES_ORDER_TYPE_UNSUPPORTED });
+      expect(e.state === 'refused' && e.reason.length > 0).toBe(true);
+    }
+  });
+
+  it('GET /api/v1/futures/order-types follows the futures book while matching is on', async () => {
+    const res = await get(deps({ futuresMatchingEnabled: true }));
+    const limit = res.json().markets[0].orderTypes.find((t: { id: string }) => t.id === 'limit');
+    expect(limit).toEqual({ id: 'limit', state: 'available' });
+    const off = await get(deps());
+    expect(off.json().markets[0].orderTypes.find((t: { id: string }) => t.id === 'limit')).toMatchObject({
+      state: 'refused',
+      code: FUTURES_RESTING_UNSUPPORTED,
+    });
+  });
+
   it('derives from the matrix: open door not supported → market and reduce-only refuse too', () => {
     const matrix = CCXT_CAPABILITY_MATRIX.map((r) => (r.name === 'openPosition' ? { ...r, kind: 'refuse' as const } : r));
     const c = buildFuturesOrderTypeCatalogue('TEST/USDT-PERP', matrix);

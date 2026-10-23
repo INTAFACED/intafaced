@@ -3,7 +3,8 @@
  *
  * After the journal is in the book and before any new order can match, every
  * resting order is read against its ledger hold. The hold record is the
- * purposed `order:<id>` balance (packages/ledger-client). svc-matching has no
+ * purposed `order:<id>` balance (packages/ledger-client), or for a futures
+ * order its margin pot `futures-order:<id>`, confirmed by being positive. svc-matching has no
  * DATABASE_URL and does not post. A missing, short, or unreadable hold is
  * pulled through the normal cancel (`hold_unconfirmed`) so trade can release
  * what remains. If that cancel cannot land, the market stays halted. If the
@@ -56,9 +57,20 @@ export type ReplayHoldGate =
       readonly halted: readonly HaltedRestingMarket[];
     };
 
-/** Read-only. `null` means no hold balance for this order. Throw HoldCheckUnreachable when the service itself cannot be asked. */
+/**
+ * A resting futures order's hold: its margin pot `futures-order:<id>`. It is margin, not the order's notional, so it is
+ * confirmed by being there (positive), never compared with price x quantity.
+ */
+export interface FuturesMarginHold {
+  readonly futuresMargin: string;
+}
+
+/**
+ * Read-only. A string is the order's `order:<id>` hold; `{ futuresMargin }` is a futures order's margin hold; `null`
+ * means no hold balance for this order. Throw HoldCheckUnreachable when the service itself cannot be asked.
+ */
 export interface ReplayHoldLookup {
-  read(order: RestingHoldSubject): Promise<string | null>;
+  read(order: RestingHoldSubject): Promise<string | FuturesMarginHold | null>;
 }
 
 /**
@@ -99,9 +111,13 @@ export async function enforceReplayHolds(engine: MatchingEngine, lookup: ReplayH
   for (const order of subjects) {
     let verdict: 'confirmed' | HoldVerdict;
     try {
-      const required = requiredHoldAmount(order);
-      if (required == null) verdict = 'unreadable';
-      else verdict = classifyHold(await lookup.read(order), required);
+      const hold = await lookup.read(order);
+      // Margin needs no amount to compare with: any positive balance confirms it (zero or less is missing).
+      if (hold !== null && typeof hold === 'object') verdict = classifyHold(hold.futuresMargin, 0n);
+      else {
+        const required = requiredHoldAmount(order);
+        verdict = required == null ? 'unreadable' : classifyHold(hold, required);
+      }
     } catch (err) {
       if (err instanceof HoldCheckUnreachable) {
         engine.closeAdmission(err.code);
@@ -160,10 +176,13 @@ export function createReplayHoldLookup(ledger: ReplayHoldLedger): ReplayHoldLook
         }
         seen.set(key, rows);
       }
-      const purpose = `order:${order.orderId}`;
-      const holds = rows.filter((row) => row.account.kind === 'hold' && accountPurpose(row.account) === purpose);
+      const held = (purpose: string) => rows.filter((row) => row.account.kind === 'hold' && accountPurpose(row.account) === purpose);
+      const holds = held(`order:${order.orderId}`);
+      // A resting futures order holds margin in its own pot (ledger-client futuresOrderMarginAccount), not `order:<id>`.
+      const margin = held(`futures-order:${order.orderId}`);
+      if (holds.length + margin.length > 1) throw new Error(`multiple ledger holds for order ${order.orderId}`);
+      if (margin.length === 1) return { futuresMargin: formatAmount(margin[0]!.amount) };
       if (holds.length === 0) return null;
-      if (holds.length > 1) throw new Error(`multiple ledger holds for order ${order.orderId}`);
       return formatAmount(holds[0]!.amount);
     },
   };

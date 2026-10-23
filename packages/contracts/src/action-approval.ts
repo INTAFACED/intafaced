@@ -84,6 +84,8 @@ export const SAME_PERSON_ACTION_TYPES = [
   'identity.step_up.sub_account_delete',
   // Edit the label and purpose of one of the caller's own sub-accounts (RC-identity-14). Identity mints and consumes it.
   'identity.step_up.sub_account_edit',
+  // Set or clear the caller's own anti-phishing code (I-signin-sessions-25). Identity mints and consumes it.
+  'identity.step_up.anti_phishing_set',
 ] as const;
 
 /**

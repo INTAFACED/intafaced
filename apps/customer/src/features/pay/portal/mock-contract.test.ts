@@ -18,6 +18,7 @@ const core: ContractPart = {
     { method: 'snapshot', run: (p) => p.snapshot(merchant, 'today') },
     { method: 'series', run: (p) => p.series(merchant, '2026-09-01T00:00:00.000Z', '2026-10-01T00:00:00.000Z') },
     { method: 'teamMe', run: (p) => p.teamMe() },
+    { method: 'permissionCatalogue', run: (p) => p.permissionCatalogue() },
     { method: 'myAccess', run: (p) => p.myAccess(), mock: { myAccess: 'owner' } },
     { method: 'myAccess', run: (p) => p.myAccess(), mock: { myAccess: 'finance', role: 'finance' } },
     { method: 'myAccess', run: (p) => p.myAccess(), mock: { myAccess: 'payfac' } },

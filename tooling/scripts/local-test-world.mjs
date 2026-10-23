@@ -3585,6 +3585,37 @@ async function founderComplianceToken(gctx, session) {
 }
 
 /**
+ * svc-pay's operator doors sit behind the pay module's tier rule, so each of the pair deciding a KYB needs verification
+ * tier "full" too. Each one without it submits its own LOCAL TEST request, which the stack's two LOCAL TEST operators
+ * approve (the same path `populate` takes for the merchant owner). Only the deciders' own requests are approved.
+ */
+async function ensureDecidersKycFull(log) {
+  const gates = await gatesApi();
+  const gctx = await gates.makeContext({ log: (m) => log(`merchant kyb: ${m}`) });
+  const founders = loadEnrolledFounders(gctx);
+  const signedIn = founders ? await signInLocalFounders(gctx, gates, founders) : await signInTestOperatorPair(gctx, gates);
+  if (!signedIn) return { ok: false, refusal: KYB_FOUNDERS_MISSING };
+  if (!signedIn.ok) return signedIn;
+  const missing = signedIn.sessions.filter((s) => s.tier !== 'full' && s.tier !== 'institutional');
+  if (missing.length === 0) return { ok: true };
+  const pendingFor = (userId) => gates.listAccountsAndTiers(gctx.secrets).pending.some((r) => r.userId === userId && r.tier === 'full');
+  for (const s of missing) {
+    if (pendingFor(s.userId)) continue;
+    const sub = await gctx.edge.mutate(
+      'identity',
+      'kyc.submit',
+      { tier: 'full', jurisdiction: gates.MARKERS.kycJurisdiction },
+      s.loginToken ?? s.token,
+    );
+    if (!trpcData(sub)) return { ok: false, refusal: `KYB pending: decider kyc.submit refused (${gates.refusalText(sub)})` };
+  }
+  const rows = await gates.approvePending(gctx, null, { userIds: missing.map((s) => s.userId) });
+  const failed = rows.find((r) => !r.ok);
+  if (failed) return { ok: false, refusal: `KYB pending: decider verification refused (${oneLine(failed.why, 200)})` };
+  return { ok: true };
+}
+
+/**
  * Live-only KYB. The two local founders propose and approve. If they are not enrolled, this
  * returns before any proposal, so no PENDING row is left. An open proposal for the same binding
  * is approved or consumed instead of filing another.
@@ -4013,7 +4044,27 @@ async function main() {
   else if (cmd === 'seed') await cmdSeed();
   else if (cmd === 'status') cmdStatus();
   else if (cmd === 'populate') await cmdPopulate(process.argv.slice(3));
-  else die('usage: local-test-world.mjs watch | seed | status | populate [--only a,b] [--login-file <path>] [--dry-run] [--verify]', 2);
+  else if (cmd === 'approve-kyb') await cmdApproveKyb(process.argv[3]);
+  else
+    die(
+      'usage: local-test-world.mjs watch | seed | status | approve-kyb <merchantId> | populate [--only a,b] [--login-file <path>] [--dry-run] [--verify]',
+      2,
+    );
+}
+
+/**
+ * The stack's founder pair approves one TEST merchant's submitted verification through svc-pay's own two-person door,
+ * as `populate` does for the sandbox merchant. For journey tests that need an active business. Prints the decision.
+ */
+async function cmdApproveKyb(merchantId) {
+  if (!/^[0-9a-f-]{36}$/i.test(String(merchantId ?? ''))) die('usage: local-test-world.mjs approve-kyb <merchantId>', 2);
+  assertActiveLocalStack();
+  const log = (m) => console.error(m);
+  const ready = await ensureDecidersKycFull(log);
+  if (!ready.ok) die(ready.refusal, 3);
+  const out = await decideKybByFounderPair(log, merchantId);
+  if (!out.ok) die(out.refusal, 3);
+  console.log(JSON.stringify({ merchantId, kybStatus: out.kybStatus, approvalId: out.approvalId }));
 }
 
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) await main();

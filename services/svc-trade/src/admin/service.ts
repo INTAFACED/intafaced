@@ -39,6 +39,7 @@ import {
   type ApprovalBook,
 } from './common.js';
 import { AgreementsAdmin } from './agreements.js';
+import { ChartOwnerValuesAdmin } from './chart-owner-values.js';
 import { FuturesContractsAdmin } from './futures-contracts.js';
 import { currentRisk, riskHistory, riskView, validateLimits, type RiskLimits, type RiskVersion } from './risk.js';
 import { parseFeeScheduleJson, FeeScheduleError } from '../spot/fee-schedule.js';
@@ -94,9 +95,12 @@ export class TradeOpsAdmin {
   readonly futuresContracts: FuturesContractsAdmin;
   /** Risk agreements, margin terms and derivatives eligibility rules (D-account-07). */
   readonly agreements: AgreementsAdmin;
+  /** Charts module owner values and the per-market data class (C-ops-04, LD-14). */
+  readonly chartOwnerValues: ChartOwnerValuesAdmin;
 
   constructor(private readonly deps: TradeOpsDeps) {
     this.agreements = new AgreementsAdmin({ sql: deps.sql, approvals: deps.approvals, now: () => nowOf(deps) });
+    this.chartOwnerValues = new ChartOwnerValuesAdmin({ sql: deps.sql, approvals: deps.approvals, now: () => nowOf(deps) });
     this.futuresContracts = new FuturesContractsAdmin({
       sql: deps.sql,
       approvals: deps.approvals,

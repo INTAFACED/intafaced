@@ -41,6 +41,8 @@ export interface BookPick {
   /** Running total at that row, used when Shift is held. */
   amount: string;
   nonce: number;
+  /** Flatten from Assets: a market sell of `amount` (all that is free), reviewed at once. No price. */
+  flatten?: true;
 }
 
 const Row = memo(function Row({

@@ -123,6 +123,7 @@ function stubServices(): Stub {
     submitKyc: record('submitKyc', () => kycRecord()),
     listKycRecords: record('listKycRecords', () => [kycRecord()]),
     listPendingKyc: record('listPendingKyc', () => [kycRecord()]),
+    getKycRecord: record('getKycRecord', () => kycRecord()),
     kycTier: record('kycTier', () => 'none' as const),
     approveKycRecord: record('approveKycRecord', () =>
       kycRecord({ status: 'approved', reviewedBy: OPERATOR, reviewedAt: new Date('2026-07-28T09:00:00.000Z') }),
@@ -337,6 +338,70 @@ describe('kyc.approve is the operator action that grants custodial access', () =
     const call = stub.calls.find((c) => c.method === 'approveKycRecord')!;
     expect((call.args[0] as { reviewerId: string }).reviewerId).toBe(OPERATOR);
     expect((call.args[0] as { approvalId?: string }).approvalId).toBe('appr-1');
+  });
+
+  it('REFUSES THE PERSON WHOSE KYC IT IS, before the approval is spent', async () => {
+    // The record belongs to USER. An operator who is that user cannot decide it, approve or reject,
+    // and neither can a second operator named as that user.
+    const self = await caller(['admin:compliance'], { userId: USER });
+    for (const run of [() => self.kyc.approve({ recordId: RECORD, ...kycDual }), () => self.kyc.reject({ recordId: RECORD, ...kycDual })]) {
+      const err = await run().catch((e: unknown) => e);
+      expect(codeOf(err)).toBe('FORBIDDEN');
+      expect((err as { cause?: { code?: string } }).cause?.code).toBe('auth.kyc_self_review');
+    }
+    const named = await caller(['admin:compliance'], { userId: OPERATOR });
+    const err = await named.kyc.approve({ recordId: RECORD, ...kycDual, confirmOperatorId: USER }).catch((e: unknown) => e);
+    expect((err as { cause?: { code?: string } }).cause?.code).toBe('auth.kyc_self_review');
+    expect(stub.calls.filter((c) => c.method === 'approveKycRecord' || c.method === 'rejectKycRecord')).toHaveLength(0);
+  });
+
+  it('refuses a proposer or approver whose KYC it is, a typed-in variant of their id, and a missing record, all without spending the approval', async () => {
+    const consumed: string[] = [];
+    let parties: { requesterId: string; approverId: string | null } | null = null;
+    const approvals = {
+      ...stubActionApprovals(CONFIRM_KYC),
+      async consume(...args: Parameters<ReturnType<typeof stubActionApprovals>['consume']>) {
+        consumed.push(args[1].approvalId);
+        return stubActionApprovals(CONFIRM_KYC).consume(...args);
+      },
+      async partiesOf() {
+        return parties;
+      },
+    };
+    const api = createIdentityRouter(stub.auth, stub.rank, { actionApprovals: approvals }).createCaller(
+      await ctx(['admin:compliance'], { userId: OPERATOR }),
+    );
+    const refusals = [
+      { requesterId: USER, approverId: CONFIRM_KYC },
+      { requesterId: CONFIRM_KYC, approverId: ` ${USER.toUpperCase()} ` },
+    ];
+    for (const row of refusals) {
+      parties = row;
+      for (const run of [() => api.kyc.approve({ recordId: RECORD, ...kycDual }), () => api.kyc.reject({ recordId: RECORD, ...kycDual })]) {
+        const err = await run().catch((e: unknown) => e);
+        expect((err as { cause?: { code?: string } }).cause?.code).toBe('auth.kyc_self_review');
+      }
+    }
+    parties = null;
+    const typed = await api.kyc.approve({ recordId: RECORD, ...kycDual, confirmOperatorId: USER.toUpperCase() }).catch((e: unknown) => e);
+    expect((typed as { cause?: { code?: string } }).cause?.code).toBe('auth.kyc_self_review');
+
+    stub.auth.getKycRecord = async () => null;
+    const missing = await api.kyc.approve({ recordId: RECORD, ...kycDual }).catch((e: unknown) => e);
+    expect(codeOf(missing)).toBe('NOT_FOUND');
+
+    expect(consumed).toEqual([]);
+    expect(stub.calls.filter((c) => c.method === 'approveKycRecord' || c.method === 'rejectKycRecord')).toHaveLength(0);
+  });
+
+  it('hands both people on the consumed approval to the decision, which refuses either being the subject', async () => {
+    const api = await caller(['admin:compliance'], { userId: OPERATOR });
+    await api.kyc.approve({ recordId: RECORD, ...kycDual });
+    await api.kyc.reject({ recordId: RECORD, ...kycDual });
+    for (const method of ['approveKycRecord', 'rejectKycRecord']) {
+      const call = stub.calls.find((c) => c.method === method)!;
+      expect((call.args[0] as { approvalParties?: string[] }).approvalParties).toEqual(['requester', CONFIRM_KYC]);
+    }
   });
 
   it('holds the same bar on reject', async () => {

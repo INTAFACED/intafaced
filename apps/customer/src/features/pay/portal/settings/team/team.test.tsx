@@ -5,7 +5,7 @@ vi.mock('../../../../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 import type { PortalApi } from '../../api';
-import type { Invitation, Member, MemberRole, TeamEvent } from '../../schemas';
+import type { Invitation, Member, MemberRole, PermissionCatalogue, TeamEvent } from '../../schemas';
 import { pinOwner } from '../account/model';
 import { failed, list, noop, plain, ready, refusal } from '../account/testing';
 import { TeamView, InviteReview } from './Team';
@@ -34,6 +34,8 @@ const props = (role: MemberRole, extra: Partial<Parameters<typeof TeamView>[0]> 
   myUserId: 'owner-1',
   names: new Map([['user-finance', 'Accounts']]),
   invitations: ready<Invitation[]>([]),
+  catalogue: ready<PermissionCatalogue>({ roles: [], areas: [] }),
+  retryCatalogue: noop,
   members: list([viewer, member({}), owner, admin]),
   history: list<TeamEvent>([
     {

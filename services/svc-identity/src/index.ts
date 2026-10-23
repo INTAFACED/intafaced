@@ -66,6 +66,7 @@ import { createEnrollPasskeyRouter } from './enroll-passkey-router.js';
 import { createVerifyPasskeyRouter } from './verify-passkey-router.js';
 import { createPasskeyManageRouter } from './passkey-manage-router.js';
 import { createFactorStatusRouter } from './factor-status-router.js';
+import { createWorkItemsRouter } from './work-items.js';
 import { createTotpLifecycleRouter } from './totp-lifecycle-router.js';
 import { createSelfFreezeLiftRouter } from './self-freeze-lift-router.js';
 import { SelfFreezeLift } from './auth/self-freeze-lift.js';
@@ -99,6 +100,7 @@ import { AccountChange } from './account/account-router.js';
 import { httpClosureChecker } from './closure/closure-client.js';
 import { SubAccountDeleteService } from './sub-accounts/sub-account-delete.js';
 import { SubAccountEditService } from './sub-accounts/sub-account-edit.js';
+import { AntiPhishingService, antiPhishingKey } from './profile/anti-phishing.js';
 import { SubAccountFeatureService, parseFeatureEligibility } from './sub-accounts/sub-account-features.js';
 import { registerClosureFinalize } from './closure/closure-job.js';
 import { createClosureOpsRouter } from './closure/closure-ops-router.js';
@@ -466,6 +468,11 @@ const tradeClosureCheck = httpClosureChecker({
 });
 const subAccountDelete = new SubAccountDeleteService({ sql, approvals: actionApprovals, bank: bankClosureCheck, trade: tradeClosureCheck });
 const subAccountEdit = new SubAccountEditService({ sql, approvals: actionApprovals });
+const antiPhishing = new AntiPhishingService({
+  sql,
+  approvals: actionApprovals,
+  key: antiPhishingKey(parseTotpSecretKey(env.IDENTITY_TOTP_SECRET_KEY)),
+});
 const subAccountFeatures = new SubAccountFeatureService({ sql, eligibility: parseFeatureEligibility(env.IDENTITY_SUB_ACCOUNT_FEATURES) });
 const closure = new AccountClosureService({
   sql,
@@ -514,6 +521,7 @@ export const appRouter = mergeRouters(
     subAccountDelete,
     subAccountFeatures,
     subAccountEdit,
+    antiPhishing,
   }),
   createClosureOpsRouter(sql),
   createApiKeyIpRouter(sql, auth, auth),
@@ -566,6 +574,7 @@ export const appRouter = mergeRouters(
   ),
   createPasskeyManageRouter(sql, securityStepUp, { maxPerAccount: env.PASSKEY_MAX_PER_ACCOUNT }),
   createFactorStatusRouter(sql),
+  createWorkItemsRouter(sql),
   createSelfFreezeLiftRouter(new SelfFreezeLift(sql, env.IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS), securityStepUp),
   createActionApprovalRouter(actionApprovals, {
     privilegedUserIds: founderPair ?? [],

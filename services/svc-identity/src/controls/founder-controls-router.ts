@@ -46,10 +46,10 @@ export const identityFreezeInputSchema = identityRestrictionInputSchema.refine(
   (input) => input.action === 'restrict',
   'Restrict action required',
 );
-export const identityRestoreInputSchema = identityRestrictionInputSchema.refine(
-  (input) => input.action === 'restore',
-  'Restore action required',
-);
+/** A restore carries the `identity.account_unfreeze` approval a second person signed (`approvalId`); identity spends it. */
+export const identityRestoreInputSchema = identityAccountControlInputSchema
+  .refine((input) => input.target.area === 'identity', 'Identity target required')
+  .refine((input) => input.action === 'restore', 'Restore action required');
 
 export async function callFounderControl(
   controls: Pick<FounderControlsPort, 'change'> | undefined,

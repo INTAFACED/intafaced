@@ -116,6 +116,7 @@ export class AuthError extends Error {
       | 'auth.session_reused'
       | 'auth.not_found'
       | 'auth.kyc_not_pending'
+      | 'auth.kyc_self_review'
       | 'auth.kyc_agent_refused'
       | 'auth.mfa_not_enrolled'
       | 'identity.passkey_limit'
@@ -301,6 +302,19 @@ export type { WebAuthnConfig, StoredWebAuthnCredential };
 export function assertOperatorKycReview(input: { service?: string | null; kid?: string | null }): void {
   if (input.service || input.kid) {
     throw new AuthError('KYC review is an operator action — an agent must never write reviewed_by', 'auth.kyc_agent_refused');
+  }
+}
+
+/**
+ * Nobody decides their own verification: not the operator who records the decision, not the second operator named on
+ * the wire, and neither the proposer nor the approver of the four-eyes approval it consumes. Otherwise two people can
+ * approve each other's KYC, or one of them their own, and the four-eyes check grants what it exists to withhold.
+ */
+export function assertNotOwnKyc(subjectId: string, reviewers: readonly (string | null | undefined)[]): void {
+  // Ids arrive typed in as well as from rows: compare them the way a uuid compares, not byte for byte.
+  const subject = subjectId.trim().toLowerCase();
+  if (reviewers.some((id) => typeof id === 'string' && id.trim().toLowerCase() === subject)) {
+    throw new AuthError('Nobody may review their own verification', 'auth.kyc_self_review');
   }
 }
 
@@ -2278,6 +2292,8 @@ export class AuthService {
     confirmActorId?: string | null;
     approvalId?: string | null;
     operationId?: string | null;
+    /** The proposer and the approver of the consumed four-eyes approval for this decision. Required: [] says none. */
+    approvalParties: readonly string[];
   }): Promise<KycRecordView> {
     assertOperatorKycReview({ service: input.service, kid: input.kid });
     const outcome = await transaction(this.sql, async (tx) => {
@@ -2286,6 +2302,7 @@ export class AuthService {
       >`SELECT id, user_id, tier, jurisdiction, provider_ref, status, reviewed_by, reviewed_at, expires_at, created_at FROM kyc_records WHERE id = ${input.recordId} FOR UPDATE`;
       const row = rows[0];
       if (!row) throw new AuthError('KYC record not found', 'auth.not_found');
+      assertNotOwnKyc(row.user_id, [input.reviewerId, input.confirmActorId, ...input.approvalParties]);
       if (row.status === 'approved') return { record: toKycRecord(row), granted: false };
       if (row.status !== 'pending') {
         throw new AuthError(`KYC record is ${row.status}; only a pending record can be approved`, 'auth.kyc_not_pending');
@@ -2308,6 +2325,8 @@ export class AuthService {
     confirmActorId?: string | null;
     approvalId?: string | null;
     operationId?: string | null;
+    /** The proposer and the approver of the consumed four-eyes approval for this decision. Required: [] says none. */
+    approvalParties: readonly string[];
   }): Promise<KycRecordView> {
     assertOperatorKycReview({ service: input.service, kid: input.kid });
     return transaction(this.sql, async (tx) => {
@@ -2316,6 +2335,7 @@ export class AuthService {
       >`SELECT id, user_id, tier, jurisdiction, provider_ref, status, reviewed_by, reviewed_at, expires_at, created_at FROM kyc_records WHERE id = ${input.recordId} FOR UPDATE`;
       const row = rows[0];
       if (!row) throw new AuthError('KYC record not found', 'auth.not_found');
+      assertNotOwnKyc(row.user_id, [input.reviewerId, input.confirmActorId, ...input.approvalParties]);
       if (row.status === 'rejected') return toKycRecord(row);
       if (row.status !== 'pending') {
         throw new AuthError(`KYC record is ${row.status}; only a pending record can be rejected`, 'auth.kyc_not_pending');

@@ -60,6 +60,7 @@ import { businessApprovalsProcedure } from './ops/business-approvals.js';
 import { activityFailure, createActivityRouter } from './activity/activity.router.js';
 import { createStatementsRouter } from './statements/statement.router.js';
 import { createAccountDetailsRouter, createEligibilityRouter } from './account-details/account-details.router.js';
+import { createAccountsRouter, createCurrenciesRouter } from './account-home/account-home.router.js';
 import { createCreditCardPreviewRouter } from './loans/credit-card-preview.router.js';
 import { createBillsRouter, createGlobalRouter } from './personal-pay/router.js';
 import { createPersonalRequestRouter } from './transfers/personal-request.router.js';
@@ -473,6 +474,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.ramp_invalid_amount':
       case 'bank.ramp_invalid_asset':
       case 'bank.ramp_invalid_destination':
+      case 'bank.withdraw_network_unsupported':
       case 'bank.ramp_conflict':
       case 'bank.business_payroll_empty':
       case 'bank.earn_resume_pending_limit_unset':
@@ -527,11 +529,13 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.limit_grant_unset':
       case 'bank.loan_params_invalid':
       case 'bank.personal_transfer_terms_invalid':
+      case 'bank.asset_unknown':
         return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
 
       case 'bank.limit_request_not_found':
         return new TRPCError({ code: 'NOT_FOUND', message, cause: err });
       case 'bank.limit_request_self_decision':
+      case 'bank.profile_not_held':
         return new TRPCError({ code: 'FORBIDDEN', message, cause: err });
 
       // Named refusals where the platform, not the caller, is missing something.
@@ -594,6 +598,12 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.pay_request_notify_unwired':
       case 'bank.transfer_notify_unwired':
       case 'bank.party_handles_unset':
+      case 'bank.account_terms_unset':
+      case 'bank.account_currencies_unset':
+      case 'bank.currency_in_use':
+      case 'bank.space_limit_unset':
+      case 'bank.space_limit_reached':
+      case 'bank.company_account_unwired':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
 
       // Kill switches. Same 503 class as the matching HTTP job endpoints —
@@ -616,6 +626,8 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.step_up_unavailable':
       case 'bank.party_handles_unavailable':
       case 'bank.business_directory_unavailable':
+      // The ledger's asset registry could not be read; nothing was saved. Retry later.
+      case 'bank.asset_registry_unavailable':
         return new TRPCError({ code: 'SERVICE_UNAVAILABLE', message, cause: err });
 
       case 'bank.business_directory_rate_limited':
@@ -960,10 +972,9 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
       .output(z.object({ id: z.string(), name: z.string() }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
-          // The primary space must exist before a named one is useful — it is
-          // where value arrives from every other module.
-          await bank.spaces.ensurePrimary(ctx.principal.userId, input.assetId);
-          const space = await bank.spaces.create({
+          // Inside the owner's limit on live named spaces; blank refuses `bank.space_limit_unset` (BK-pots-01) before
+          // any row, the primary included, is written.
+          const space = await bank.spaces.createWithinLimit({
             userId: ctx.principal.userId,
             assetId: input.assetId,
             name: input.name,
@@ -993,7 +1004,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
         guard(async () => {
           const space = await bank.spaces.get(input.spaceId);
           assertSelf(ctx.principal.userId, space.userId);
-          await bank.spaces.unarchive(input.spaceId);
+          await bank.spaces.unarchiveWithinLimit(input.spaceId);
           return { archived: false as const };
         }),
       ),
@@ -3804,10 +3815,31 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
         .query(async ({ ctx }) => guard(async () => bank.ramps.listDestinations(ctx.principal.userId))),
 
       /**
+       * The assets an address may be saved for, each with the networks it is sent on: svc-ledger's registry, filtered
+       * to active assets that allow withdrawals. An empty list is the honest answer while nothing is published.
+       */
+      networks: scopedProcedure('bank:read', { module: 'bank' })
+        .output(
+          z.array(
+            z
+              .object({
+                assetId: z.string(),
+                precision: z.number().int(),
+                networks: z.array(z.object({ networkId: z.string(), label: z.string() }).strict()),
+                defaultNetworkId: z.string().nullable(),
+              })
+              .strict(),
+          ),
+        )
+        .query(async () => guard(async () => bank.ramps.withdrawNetworks())),
+
+      /**
        * Save an address-book entry. `trade:withdraw` (the step-up scope), like removing one: a leaked key or a
        * stolen access token must not be able to add the address that money is then sent to. The same
        * (asset, network, address, tag) again returns the stored entry. The label is unique per customer, and the
-       * number of entries is the owner's `BANK_ADDRESS_BOOK_CAP` (blank refuses `bank.address_book_cap_unset`).
+       * number of entries is the owner's `BANK_ADDRESS_BOOK_CAP` (blank refuses `bank.address_book_cap_unset`). The
+       * network must be one svc-ledger's registry lists for the asset now (`bank.withdraw_network_unsupported`),
+       * checked first: once an asset or network is delisted, saving that entry again refuses even if it is stored.
        */
       save: scopedProcedure('trade:withdraw', { module: 'bank' })
         .input(
@@ -4861,6 +4893,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     activity: createActivityRouter(bank),
     statements: createStatementsRouter(bank),
     accountDetails: createAccountDetailsRouter(bank, guard),
+    accounts: createAccountsRouter(bank, guard),
+    currencies: createCurrenciesRouter(bank, guard),
     eligibility: createEligibilityRouter(bank, guard),
     /** BK-loan-10 credit card preview: TEST rows and typed Preview refusals only. */
     creditCard: createCreditCardPreviewRouter(),

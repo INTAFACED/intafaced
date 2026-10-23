@@ -22,6 +22,10 @@ const PERMISSIONS = [
   'halts.read',
   'payout.request',
   'payout.approve',
+  'activity.read',
+  'payouts.read',
+  'webhooks.read',
+  'webhooks.manage',
 ];
 const READS = [
   'team.read',
@@ -35,16 +39,79 @@ const READS = [
   'settlements.read',
   'halts.read',
   'profile.read',
+  'activity.read',
+  'payouts.read',
 ];
 const HELD = {
   owner: PERMISSIONS,
   admin: PERMISSIONS,
   finance: [...READS, 'disputes.respond', 'invoices.write', 'exports.create', 'notifications.manage', 'payout.request', 'payout.approve'],
-  developer: [...READS, 'exports.create'],
+  developer: [...READS, 'exports.create', 'webhooks.read', 'webhooks.manage'],
   viewer: READS,
 };
 /** One flag per permission, as the service sends them. */
 const capabilitiesFor = (role) => Object.fromEntries(PERMISSIONS.map((key) => [key, HELD[role].includes(key)]));
+
+/** The service's permission catalogue (svc-pay merchant-plat-org-permission-catalogue.ts), rebuilt from the table above. */
+const AREA_OF = {
+  team: 'team',
+  disputes: 'risk',
+  invoices: 'payments',
+  customers: 'payments',
+  payments: 'payments',
+  kyb: 'account',
+  profile: 'account',
+  notifications: 'account',
+  exports: 'reports',
+  activity: 'reports',
+  settlements: 'money_out',
+  halts: 'money_out',
+  payout: 'money_out',
+  payouts: 'money_out',
+  webhooks: 'developer',
+};
+const AREAS = ['payments', 'money_out', 'team', 'developer', 'reports', 'risk', 'account'];
+const REQUIRES = {
+  'team.manage': ['team.read'],
+  'disputes.respond': ['disputes.read'],
+  'invoices.write': ['invoices.read'],
+  'profile.manage': ['profile.read'],
+  'exports.create': ['exports.read'],
+  'notifications.manage': ['notifications.read'],
+  'payout.request': ['payouts.read'],
+  'payout.approve': ['payouts.read'],
+  'webhooks.manage': ['webhooks.read'],
+};
+const ROLE_DESCRIPTION = {
+  owner: 'TEST stand-in. The person who opened the merchant account. Can do everything.',
+  admin: 'TEST stand-in. Can do everything the owner can, including managing the team.',
+  finance: 'TEST stand-in. Reads, disputes, invoices, exports, notification settings and payouts.',
+  developer: 'TEST stand-in. Reads, exports and webhooks.',
+  viewer: 'TEST stand-in. Reads only.',
+};
+const isRead = (key) => key.endsWith('.read');
+const areaOf = (key) => {
+  const area = AREA_OF[key.split('.')[0]];
+  if (!area) throw new Error(`stand-in catalogue: no area for ${key}`);
+  return area;
+};
+export function catalogue() {
+  const roles = Object.keys(HELD).map((role) => ({
+    role,
+    builtIn: true,
+    editable: false,
+    description: ROLE_DESCRIPTION[role],
+    grants: PERMISSIONS.filter((key) => HELD[role].includes(key)),
+  }));
+  const areas = AREAS.map((area) => ({
+    area,
+    permissions: PERMISSIONS.filter((key) => areaOf(key) === area).map((key) => {
+      const heldBy = roles.filter((r) => r.grants.includes(key)).map((r) => r.role);
+      return { key, area, kind: isRead(key) ? 'read' : 'write', requires: REQUIRES[key] ?? [], heldBy, unheld: heldBy.length === 0 };
+    }),
+  })).filter((group) => group.permissions.length > 0);
+  return { roles, areas };
+}
 
 /** The account itself: who is signed in, the headline numbers, the halts, and the in-app notifications. */
 export function createCoreMock(ctx) {
@@ -252,6 +319,8 @@ export function createCoreMock(ctx) {
           return scenario === 'new'
             ? refuse(route, 403, 'pay.merchant_ops_not_merchant')
             : ok(route, { merchantId: MERCHANT_ID, userId: USER_ID, role: state.role });
+        case 'merchantOps.permissions.catalogue':
+          return scenario === 'new' ? refuse(route, 403, 'pay.merchant_ops_not_merchant') : ok(route, catalogue());
         case 'merchantOps.notifications.list':
           return ok(
             route,

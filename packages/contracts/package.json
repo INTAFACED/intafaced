@@ -89,6 +89,10 @@
     "./datafeed": {
       "types": "./dist/datafeed.d.ts",
       "default": "./dist/datafeed.js"
+    },
+    "./home-work-items": {
+      "types": "./dist/home-work-items.d.ts",
+      "default": "./dist/home-work-items.js"
     }
   },
   "scripts": {

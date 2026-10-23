@@ -11,16 +11,27 @@ import {
   quantDisclosurePublishOutputSchema,
   quantDisclosureStatusInputSchema,
   quantDisclosureStatusOutputSchema,
+  quantBacktestFeeSchema,
+  quantBacktestInputSchema,
+  quantBacktestResultSchema,
   quantCompileOutputSchema,
   quantQuickStartOutputSchema,
   quantSignalRulesSchema,
+  quantTemplateDetailSchema,
+  quantTemplateIdSchema,
+  quantTemplateListOutputSchema,
+  quantTemplatePublishInputSchema,
+  quantTemplateVersionSchema,
   router,
   scopedProcedure,
   TRPCError,
   type Context,
+  type QuantBacktestResult,
 } from '@intafaced/contracts';
 import type { BacktestCostModel } from '@intafaced/quant-honesty';
 import { missingLake, type BacktestLake } from './backtest/lake.js';
+import { missingFees, missingHistory, type FeePort, type HistoryPort } from './engine/ports.js';
+import { prepareBacktest, readWindowBars, runOnBars } from './engine/run.js';
 import { backtestBodyOf, runBacktest } from './backtest/run.js';
 import {
   QUANT_BACKTEST_FILLS_MISSING,
@@ -34,6 +45,8 @@ import {
   QUANT_DATABASE_URL_UNSET,
   QUANT_DISCLOSURE_UNSET,
   QUANT_SIGNAL_RULES_SANDBOX,
+  QUANT_TEMPLATE_LIST_LIMIT_UNSET,
+  QUANT_TEMPLATE_NOT_FOUND,
   QUANT_DISCLOSURE_VERSION_STALE,
   QUANT_ENVIRONMENT_REQUIRED,
   QUANT_ENVIRONMENT_UNKNOWN,
@@ -60,6 +73,9 @@ import {
 } from './errors.js';
 import type { DisclosureRepository } from './disclosure/repository.js';
 import { openDisclosureRepository } from './disclosure/open.js';
+import type { TemplateRepository } from './templates/repository.js';
+import { openTemplateRepository } from './templates/open.js';
+import { blankTemplateRules } from './templates/rules.js';
 import { requireSimulatedStamp } from './honesty.js';
 import { claimFromRun } from './marketplace/claim.js';
 import { assertOpsRunsLimit, optionalWindowBound, requireWindowBound, RUN_RESULT_MAX_BYTES } from './runs/limit.js';
@@ -120,7 +136,7 @@ const runOutput = z
 function toTrpc(err: unknown): never {
   if (err instanceof QuantError) {
     const code =
-      err.code === QUANT_STUDIO_NOT_FOUND || err.code === QUANT_RUN_NOT_FOUND
+      err.code === QUANT_STUDIO_NOT_FOUND || err.code === QUANT_RUN_NOT_FOUND || err.code === QUANT_TEMPLATE_NOT_FOUND
         ? 'NOT_FOUND'
         : err.code === QUANT_SANDBOX_UNWIRED ||
             err.code === QUANT_SANDBOX_MAX_OPS_UNSET ||
@@ -128,6 +144,7 @@ function toTrpc(err: unknown): never {
             err.code === QUANT_BACKTEST_LAKE_MISSING ||
             err.code === QUANT_BACKTEST_FILLS_MISSING ||
             err.code === QUANT_STUDIO_LIST_LIMIT_UNSET ||
+            err.code === QUANT_TEMPLATE_LIST_LIMIT_UNSET ||
             err.code === QUANT_RUN_UNFINISHED ||
             err.code === QUANT_RUN_NOT_SIMULATED ||
             err.code === QUANT_RUN_RESULT_CAP_UNSET ||
@@ -273,6 +290,12 @@ const backtestOutput = z
 
 export interface QuantRouterDeps extends SandboxDeps {
   readonly lake?: BacktestLake;
+  /** The bar backtest's closed-candle read. Omitted refuses `quant.backtest_lake_missing`. */
+  readonly history?: HistoryPort;
+  /** The published fee schedule read. Omitted refuses `quant.cost_unset` naming fees. */
+  readonly fees?: FeePort;
+  /** Decides only whether a backtest window has closed. */
+  readonly now?: () => number;
   /**
    * Services allowed to name an account. Defaults to none.
    * `src/index.ts` does not set this.
@@ -284,6 +307,8 @@ export interface QuantRouterDeps extends SandboxDeps {
   readonly runs?: RunRepository;
   /** Omitted refuses by naming the missing database. Production passes Postgres. */
   readonly disclosure?: DisclosureRepository;
+  /** Omitted refuses by naming the missing database. Production passes Postgres. */
+  readonly templates?: TemplateRepository;
   /** Omitted uses the published byte cap. Pass null only to prove the cap refuses. */
   readonly runResultCap?: number | null;
 }
@@ -308,7 +333,11 @@ export function createQuantRouter(deps: QuantRouterDeps) {
   const strategies = deps.strategies ?? openStrategyRepository({}).repository;
   const runs = deps.runs ?? createMemoryRunRepository('runResultCap' in deps ? deps.runResultCap : RUN_RESULT_MAX_BYTES);
   const lake = deps.lake ?? missingLake();
+  const history = deps.history ?? missingHistory();
+  const fees = deps.fees ?? missingFees();
+  const now = deps.now ?? (() => Date.now());
   const disclosure = deps.disclosure ?? openDisclosureRepository({}).repository;
+  const templates = deps.templates ?? openTemplateRepository({}).repository;
   const studioServices = new Set(deps.studioServiceAllowlist ?? STUDIO_SERVICE_ALLOWLIST);
 
   async function replayOf(accountId: string, idempotencyKey: string | null | undefined): Promise<WriteReceipt | null> {
@@ -773,6 +802,99 @@ export function createQuantRouter(deps: QuantRouterDeps) {
             toTrpc(err);
           }
         }),
+
+      /** The published rate a bar backtest of this symbol charges, with the schedule version. Read only. */
+      fee: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ symbol: z.string().min(1).max(32) }))
+        .output(quantBacktestFeeSchema)
+        .query(async ({ input }) => {
+          try {
+            const symbol = input.symbol.trim();
+            const fee = await fees.fee(symbol);
+            return { symbol, version: fee.version, makerBps: fee.makerBps, takerBps: fee.takerBps };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      /**
+       * Runs a saved signal-rules version on the exchange's own closed bars (AL-backtest-01, AL-backtest-02). The run key
+       * is derived from everything that decides the result, so the same inputs read back the same stored run and a lost
+       * reply is answered by pressing Run again. A refusal before the engine stores no row.
+       */
+      start: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantBacktestInputSchema.extend(accountField))
+        .output(quantBacktestResultSchema)
+        .mutation(async ({ input, ctx }) =>
+          withQuantSpan('quant.backtest.start', { language: 'rules' }, async () => {
+            try {
+              const accountId = accountOf(ctx, input.accountId);
+              const found = await strategies.get({ accountId, id: input.strategyId });
+              const version = found && !found.deletedAt ? found.versions.find((row) => row.version === input.strategyVersion) : undefined;
+              if (!found || !version) missingStrategy();
+              const prepared = await prepareBacktest(
+                input,
+                { id: found.id, version: version.version, modules: version.modules, risk: version.risk },
+                fees,
+                now(),
+              );
+              const withRun = async (result: Omit<QuantBacktestResult, 'runId'>) => {
+                const row = await runs.replay(accountId, prepared.key);
+                return { ...result, runId: row?.id ?? '' };
+              };
+              const prior = await runs.replay(accountId, prepared.key);
+              if (prior?.finished && prior.outcome === 'ok') return withRun(prior.response as Omit<QuantBacktestResult, 'runId'>);
+              // Bars are read before the run row, so a history read that fails stores nothing and the same key can run later.
+              const bars = await readWindowBars(prepared, history);
+              const result = await trackRun(
+                runs,
+                {
+                  userId: accountId,
+                  idempotencyKey: prepared.key,
+                  kind: 'backtest',
+                  strategyId: found.id,
+                  strategyVersion: version.version,
+                },
+                async () => runOnBars(prepared, bars),
+                (value, err) => ({
+                  detail: err
+                    ? null
+                    : {
+                        equityCurve: value.equity,
+                        trades: value.trades.map((trade) => ({ ts: trade.ts, symbol: value.symbol, qty: trade.qty, price: trade.price })),
+                        costs: null,
+                        pnl: value.totals.net,
+                        simulated: true,
+                        live: false,
+                        environment: 'backtest',
+                        kind: 'simulated',
+                        claimLabel: value.claimLabel,
+                      },
+                  response: err ? null : value,
+                }),
+              );
+              return withRun(result);
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+        ),
+
+      /** A stored bar backtest of the caller's own. Another account's run reads as not found. */
+      result: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ runId: z.string().min(1), ...accountField }))
+        .output(quantBacktestResultSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            const userId = accountOf(ctx, input.accountId);
+            const row = await runs.get({ userId, id: input.runId });
+            const parsed = quantBacktestResultSchema.omit({ runId: true }).safeParse(row?.response);
+            if (!row || row.kind !== 'backtest' || !parsed.success) throw new QuantError(QUANT_RUN_NOT_FOUND, 'run not found');
+            return { ...parsed.data, runId: row.id };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
     }),
 
     sandbox: router({
@@ -886,6 +1008,46 @@ export function createQuantRouter(deps: QuantRouterDeps) {
             }
           }),
         ),
+    }),
+
+    /** First-party starter templates. Read by any signed-in person; only an operator publishes. */
+    template: router({
+      list: publicJurisdictionProcedure('quant', 'fiat')
+        .input(
+          z
+            .object({
+              limit: z.number().int().min(1).max(STUDIO_LIST_LIMIT_CAP).optional(),
+              cursor: quantTemplateIdSchema.optional().nullable(),
+              ...accountField,
+            })
+            .optional(),
+        )
+        .output(quantTemplateListOutputSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            accountOf(ctx, input?.accountId);
+            if (input?.limit === undefined)
+              throw new QuantError(QUANT_TEMPLATE_LIST_LIMIT_UNSET, 'pass limit; a page size is never invented');
+            const page = await templates.list({ limit: input.limit, cursor: input.cursor ?? null });
+            return { templates: page.templates.map((row) => ({ ...row })), nextCursor: page.nextCursor };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      get: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ id: quantTemplateIdSchema, ...accountField }))
+        .output(quantTemplateDetailSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            accountOf(ctx, input.accountId);
+            const versions = await templates.get(input.id);
+            if (!versions) throw new QuantError(QUANT_TEMPLATE_NOT_FOUND, 'template not found');
+            return { id: input.id, versions: versions.map((row) => ({ ...row })) };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
     }),
 
     disclosure: router({
@@ -1052,6 +1214,32 @@ export function createQuantRouter(deps: QuantRouterDeps) {
             toTrpc(err);
           }
         }),
+
+      template: router({
+        /** The next version of a starter template. Every number stays blank; the row records who, why and when. */
+        publish: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
+          .input(quantTemplatePublishInputSchema)
+          .output(quantTemplateVersionSchema)
+          .mutation(async ({ input, ctx }) =>
+            withQuantSpan('quant.ops.template.publish', { language: 'none' }, async () => {
+              try {
+                const published = await templates.publish({
+                  id: input.id,
+                  name: input.name,
+                  description: input.description,
+                  rules: blankTemplateRules(input.rules),
+                  releaseNote: input.releaseNote,
+                  reason: input.reason,
+                  publishedBy: ctx.principal.userId,
+                  idempotencyKey: input.idempotencyKey,
+                });
+                return { ...published };
+              } catch (err) {
+                toTrpc(err);
+              }
+            }),
+          ),
+      }),
 
       disclosure: router({
         publish: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })

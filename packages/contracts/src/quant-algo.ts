@@ -88,3 +88,152 @@ export const quantStrategyHeadSchema = quantStrategySummarySchema.merge(quantStr
   clientStrategyId: z.string(),
 });
 export type QuantStrategyHead = z.infer<typeof quantStrategyHeadSchema>;
+
+/** A template id: lower-case words joined by dashes, so it reads in a URL and never collides with a strategy id. */
+export const quantTemplateIdSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{1,47}$/);
+
+/**
+ * One published version of a first-party starter template (AL-editor-03). Its signal rules leave every number blank:
+ * the person fills them in. A release note says what changed in this version.
+ */
+export const quantTemplateVersionSchema = z.object({
+  id: quantTemplateIdSchema,
+  version: z.number().int().positive(),
+  name: z.string(),
+  description: z.string(),
+  rules: quantSignalRulesSchema,
+  releaseNote: z.string(),
+  publishedAt: z.string(),
+});
+export type QuantTemplateVersion = z.infer<typeof quantTemplateVersionSchema>;
+
+/** `template.list`: the newest version of each published template, one page in id order. */
+export const quantTemplateListOutputSchema = z.object({
+  templates: z.array(quantTemplateVersionSchema),
+  nextCursor: z.string().nullable(),
+});
+
+/** `template.get`: every version of one template, newest first. Read only. */
+export const quantTemplateDetailSchema = z.object({
+  id: quantTemplateIdSchema,
+  versions: z.array(quantTemplateVersionSchema).min(1),
+});
+
+/** `ops.template.publish`: an operator publishes the next version, with a reason for the audit row. */
+export const quantTemplatePublishInputSchema = z.object({
+  id: quantTemplateIdSchema,
+  name: z.string().trim().min(1).max(128),
+  description: z.string().trim().min(1).max(1000),
+  rules: quantSignalRulesSchema,
+  releaseNote: z.string().trim().min(1).max(1000),
+  reason: z.string().trim().min(1).max(500),
+  idempotencyKey: z.string().trim().min(1).max(128),
+});
+export type QuantTemplatePublishInput = z.infer<typeof quantTemplatePublishInputSchema>;
+
+/**
+ * How a backtest fills a signal. The engine reads a signal on a bar's close and fills it at the open of the next bar
+ * that trades (ENGINE BT-2, BT-4), so a fill never uses the price the signal was read from. No default: the person
+ * chooses it, so the form says what it means.
+ */
+export const QUANT_FILL_TIMINGS = ['next_open'] as const;
+export const QUANT_FEE_ROLES = ['taker', 'maker'] as const;
+/** Why an order a strategy placed did not fill. Every one is listed in the result; none is dropped silently. */
+export const QUANT_BACKTEST_REJECT_REASONS = ['insufficient_cash', 'no_size', 'unfilled_at_window_end'] as const;
+/**
+ * The modelling choices a run made, listed on its result so the reader sees them (ENGINE BT-5 "the run says so").
+ * `long_only` and `averages_over_traded_bars` hold for every run; the rest are listed only when they applied.
+ */
+export const QUANT_BACKTEST_ASSUMPTIONS = [
+  'long_only',
+  'averages_over_traded_bars',
+  'stop_loss_first',
+  'take_profit_without_slippage',
+  'open_position_marked_at_last_close',
+  'risk_limits_not_simulated',
+] as const;
+
+/**
+ * A bar backtest of a saved signal-rules strategy (AL-backtest-01, AL-backtest-02). Every cost is a string so a blank
+ * one reaches the service and refuses by name: the fee role picks a rate from the published schedule, slippage is in
+ * basis points against the order, and delay is a whole number of bars. The run key is derived by the service.
+ */
+export const quantBacktestInputSchema = z.object({
+  strategyId: z.string().min(1),
+  strategyVersion: z.number().int().positive(),
+  cash: z.string(),
+  from: z.string(),
+  to: z.string(),
+  fillTiming: z.string(),
+  costs: z.object({ feeRole: z.string(), slippageBps: z.string(), delayBars: z.string() }),
+});
+export type QuantBacktestInput = z.infer<typeof quantBacktestInputSchema>;
+
+/** One fill of a backtest. `barPrice` is the bar's own price; `price` is after slippage. */
+export const quantBacktestTradeSchema = z.object({
+  ts: z.string(),
+  side: z.enum(['buy', 'sell']),
+  reason: z.enum(['signal', 'stop_loss', 'take_profit']),
+  qty: decimalText,
+  barPrice: decimalText,
+  price: decimalText,
+  fee: decimalText,
+  slippage: decimalText,
+});
+export type QuantBacktestTrade = z.infer<typeof quantBacktestTradeSchema>;
+
+/** Which bars the window holds. A gap is a run of bar intervals with no trades on the market; nothing fills inside it. */
+export const quantCoverageSchema = z.object({
+  barSize: z.enum(QUANT_BAR_SIZES),
+  bars: z.number().int().nonnegative(),
+  expected: z.number().int().nonnegative(),
+  first: z.string().nullable(),
+  last: z.string().nullable(),
+  gaps: z.array(z.object({ from: z.string(), to: z.string() })),
+  fraction: decimalText,
+});
+export type QuantCoverage = z.infer<typeof quantCoverageSchema>;
+
+/** The published rate a backtest charges, with the schedule version it was read from. */
+export const quantBacktestFeeSchema = z.object({
+  symbol: z.string(),
+  version: z.string(),
+  makerBps: z.number().int(),
+  takerBps: z.number().int(),
+});
+export type QuantBacktestFee = z.infer<typeof quantBacktestFeeSchema>;
+
+export const quantBacktestResultSchema = z.object({
+  runId: z.string(),
+  runKey: z.string(),
+  strategyId: z.string(),
+  strategyVersion: z.number().int().positive(),
+  symbol: z.string(),
+  window: z.object({ from: z.string(), to: z.string() }),
+  fillTiming: z.enum(QUANT_FILL_TIMINGS),
+  costs: z.object({
+    feeScheduleVersion: z.string(),
+    feeRole: z.enum(QUANT_FEE_ROLES),
+    feeBps: z.number().int(),
+    slippageBps: decimalText,
+    delayBars: z.number().int().nonnegative(),
+  }),
+  coverage: quantCoverageSchema,
+  trades: z.array(quantBacktestTradeSchema),
+  rejected: z.array(z.object({ ts: z.string(), side: z.enum(['buy', 'sell']), reason: z.enum(QUANT_BACKTEST_REJECT_REASONS) })),
+  assumptions: z.array(z.enum(QUANT_BACKTEST_ASSUMPTIONS)),
+  equity: z.array(z.object({ ts: z.string(), equity: decimalText })),
+  totals: z.object({
+    startCash: decimalText,
+    gross: decimalText,
+    fees: decimalText,
+    slippage: decimalText,
+    net: decimalText,
+    endEquity: decimalText,
+    openQty: decimalText,
+  }),
+  simulated: z.literal(true),
+  live: z.literal(false),
+  claimLabel: z.literal('Historical simulation — not a forecast'),
+});
+export type QuantBacktestResult = z.infer<typeof quantBacktestResultSchema>;

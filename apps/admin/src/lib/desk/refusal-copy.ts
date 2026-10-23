@@ -57,6 +57,26 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'The owner has not set how many approvers a task needs, so no task can start or be decided.',
     next: 'Ask the owner to set it. Nothing was changed.',
   },
+  restriction_no_four_eyes: {
+    title: 'Lifting this freeze needs a second person',
+    body: 'Identity restores a frozen account only with an approval a different person signed. Nothing was changed.',
+    next: 'Make the request, send the packet to the other founder, and run it once they approve.',
+  },
+  restriction_approval_mismatch: {
+    title: 'That approval is not for this change',
+    body: 'Identity checked the approval against this account, its current version and the reason, and they differ, or the approval was made or signed by someone it does not accept for this account. Nothing was changed and the approval was not used.',
+    next: 'Read the account again and make a new request.',
+  },
+  restriction_approval_consumed: {
+    title: 'That approval was already used',
+    body: 'An approval runs once. Nothing was changed by this attempt.',
+    next: 'Read the account again: if an earlier run went through and its answer was lost, the change is already there. If it still needs doing, make a new request.',
+  },
+  'restriction.version_conflict': {
+    title: 'The account changed since you read it',
+    body: 'Identity applies the change only to the version that was approved. Nothing was changed.',
+    next: 'Read the account again and make a new request if it is still needed.',
+  },
   'action_approval.same_person': {
     title: 'A different founder has to do this',
     body: 'The person who made the request cannot approve it or reject it. Identity enforces this.',

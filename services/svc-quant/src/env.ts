@@ -63,6 +63,14 @@ const schema = baseEnvSchema
         .string()
         .optional()
         .transform((v) => (v === undefined || v.trim() === '' ? undefined : v.trim())),
+      /**
+       * svc-trade's base URL, for the bar backtest's two public reads: closed candles and the published fee schedule.
+       * Unset leaves both unwired and every bar backtest refuses by name. Never a default URL.
+       */
+      TRADE_URL: z
+        .string()
+        .optional()
+        .transform((v) => (v === undefined || v.trim() === '' ? undefined : v.trim())),
       /** Required only when DATABASE_URL is set. Blank is not 10. */
       DATABASE_POOL_MAX: z
         .string()

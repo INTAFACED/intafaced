@@ -120,6 +120,26 @@
       "service": "ops",
       "value": "http://archive.test.invalid/restore",
       "note": "TEST joint-restore archive URL. Nothing is behind it and the archive is not probed, so no backup is listed; it only lets restore steps run on the test stack."
+    },
+    "BANK_ACCOUNT_TERMS_JSON": {
+      "service": "bank",
+      "value": "{\"tier\": \"TEST base tier\", \"version\": \"local-test-1\", \"currency\": \"USDT\", \"monthlyFee\": \"0\", \"minimumBalance\": \"0\", \"overdraftFee\": null, \"included\": [\"TEST spaces for your goals\", \"TEST moves between your spaces\"]}",
+      "note": "Made-up base-tier terms labelled TEST so the account panel has something to read; not a price."
+    },
+    "BANK_ACCOUNT_CURRENCIES": {
+      "service": "bank",
+      "value": "USDT,USDC,BTC,ETH",
+      "note": "Which currencies a TEST account can add."
+    },
+    "BANK_SPACE_LIMIT": {
+      "service": "bank",
+      "value": "5",
+      "note": "TEST number of live named spaces per account, small so a journey can reach the limit."
+    },
+    "BANK_ACCOUNT_DETAILS_CURRENCIES": {
+      "service": "bank",
+      "value": "EUR,GBP,USD",
+      "note": "TEST currencies listed for account details; each still answers rail.bank, as no banking partner is wired."
     }
   }
 }

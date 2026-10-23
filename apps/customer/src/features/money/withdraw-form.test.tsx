@@ -1,16 +1,24 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Resource } from '../../shared/resource';
-import type { Destination } from './contracts';
+import type { Destination, WithdrawAsset } from './contracts';
 
 type Held = { assets: { assetId: string; available: string }[]; spaces: never[]; holdings: never[] };
 let resource: Resource<Held> = { status: 'loading' };
 vi.mock('./holdings', () => ({ useHoldings: () => ({ resource, reload: () => undefined }) }));
 let book: Resource<Destination[]> = { status: 'loading' };
+let networks: Resource<WithdrawAsset[]> = { status: 'loading' };
 vi.mock('./components', async (original) => {
   const real = await original<typeof import('./components')>();
-  return { ...real, useBankRead: () => ({ resource: book, reload: () => undefined }) };
+  return {
+    ...real,
+    useBankRead: (procedure: string) => ({
+      resource: procedure === 'ramps.destinations.networks' ? networks : book,
+      reload: () => undefined,
+    }),
+  };
 });
+vi.mock('../session/session', () => ({ useSession: () => ({ userId: 'u1', api: {} }) }));
 vi.mock('../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../shared/preferences')>();
   return { ...real, usePreferences: () => real.currentPreferences() };
@@ -24,6 +32,10 @@ const off = (html: string, label: string) => expect(html).toMatch(new RegExp(`<b
 beforeEach(() => {
   resource = ready({ assetId: 'USDT', available: '569.015372' }, { assetId: 'BTC', available: '0.0010999' });
   book = { status: 'ready', data: [] };
+  networks = {
+    status: 'ready',
+    data: [{ assetId: 'USDT', precision: 6, networks: [{ networkId: 'ethereum', label: 'TEST Ethereum' }], defaultNetworkId: 'ethereum' }],
+  };
 });
 
 describe('Withdraw leads with the whole form, and every way to send is off with its reason', () => {
@@ -78,17 +90,29 @@ const row = (over: Partial<Destination> = {}): Destination => ({
   ...over,
 });
 
-describe('Withdrawal addresses reads the bank address book; saving stays off for its real reason', () => {
+describe('Withdrawal addresses: the bank address book, and saving to it with a confirmation', () => {
   it('draws the columns and an honest empty state when the book has no addresses', () => {
     const html = renderToStaticMarkup(<WithdrawalAddresses />);
     for (const column of ['Label', 'Type', 'Address', 'First saved', 'Cooling-off', 'Details']) expect(html).toContain(`>${column}</th>`);
     expect(html).toContain('No saved addresses');
     expect(html).toContain('You have no saved withdrawal addresses.');
     expect(html).not.toContain('No saved addresses yet');
-    expect(html).toContain('Add an address');
-    off(html, 'Save address');
-    expect(html).toContain('isn’t connected');
     expect(html.toLowerCase()).not.toContain('coming soon');
+  });
+  it('offers the add form with the assets the bank lists, and a save button that is on', () => {
+    const html = renderToStaticMarkup(<WithdrawalAddresses />);
+    expect(html).toContain('Add an address');
+    expect(html).toMatch(/<option value="USDT"[^>]*>USDT<\/option>/);
+    expect(html).toContain('Choose an asset first');
+    expect(html).toMatch(/<button[^>]*type="submit"[^>]*>Save address<\/button>/);
+    expect(html).not.toMatch(/<button[^>]*disabled[^>]*>Save address<\/button>/);
+    expect(html).not.toContain('isn’t connected');
+  });
+  it('says plainly when no asset is open for withdrawals, and offers no form', () => {
+    networks = { status: 'ready', data: [] };
+    const html = renderToStaticMarkup(<WithdrawalAddresses />);
+    expect(html).toContain('No asset is open for withdrawals');
+    expect(html).not.toContain('>Save address<');
   });
   it('shows loading while the read is in flight, with no rows and no empty claim', () => {
     book = { status: 'loading' };
@@ -101,8 +125,24 @@ describe('Withdrawal addresses reads the bank address book; saving stays off for
     const html = renderToStaticMarkup(<WithdrawalAddresses />);
     expect(html).toContain('Test wallet');
     expect(html).toContain('0x5290…9EE7');
+    expect(html).toContain('>Remove</button>');
     expect(html).not.toContain('You have no saved withdrawal addresses.');
-    off(html, 'Save address');
+  });
+  it('shows an active entry as cooling off until its cooling-off ends', () => {
+    const cooling = renderToStaticMarkup(<AddressTable rows={[row({ state: 'active' })]} now={NOW} />);
+    expect(cooling).toContain('Cooling off');
+    expect(cooling).not.toContain('Ready to use');
+    const ready = renderToStaticMarkup(
+      <AddressTable rows={[row({ state: 'active', coolingOffEndsAt: '2026-10-17T12:00:00Z' })]} now={NOW} />,
+    );
+    expect(ready).toContain('Ready to use');
+    // No cooling-off published: the bank sends to nothing, so the entry is blocked, never ready.
+    const unset = renderToStaticMarkup(
+      <AddressTable rows={[row({ state: 'active', coolingOffEndsAt: null, coolingBlocker: 'bank.offramp_cooling_unset' })]} now={NOW} />,
+    );
+    expect(unset).toContain('No cooling-off period is published');
+    expect(unset).toContain('Blocked');
+    expect(unset).not.toContain('Ready to use');
   });
   it('shortens an address in its row (first six, last four) and keeps the full one under Details', () => {
     const html = renderToStaticMarkup(<AddressTable rows={[row()]} now={NOW} />);

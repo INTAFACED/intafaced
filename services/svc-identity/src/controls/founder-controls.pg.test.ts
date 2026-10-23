@@ -7,8 +7,9 @@ import { postgresAvailable, type TestDatabase } from '@intafaced/db';
 import { createTestDatabase } from '../fixture-truncate.testkit.js';
 import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import { MemoryEventBus } from '@intafaced/events';
-import type { AccountControlInput, Context } from '@intafaced/contracts';
+import type { Context, IdentityAccountControlInput } from '@intafaced/contracts';
 import { FounderControls, parseFounderPair } from './founder-controls.js';
+import { approvedUnfreeze } from './unfreeze-approval.testkit.js';
 import { AuthService } from '../auth/auth-service.js';
 import { hashPassword } from '../auth/passwords.js';
 import { RankService } from '../rank/rank-service.js';
@@ -57,12 +58,23 @@ if (!available) {
     );
     return { principal: await verifyAccessToken(token, tokens), service: null, region: 'DE', requestId: randomUUID() };
   };
-  const command = (action: 'restrict' | 'restore' = 'restrict', expectedVersion = '0'): AccountControlInput => ({
+  const command = (action: 'restrict' | 'restore' = 'restrict', expectedVersion = '0'): IdentityAccountControlInput => ({
     requestId: randomUUID(),
     target: { area: 'identity', userId: target },
     action,
     reason: 'Incident review',
     expectedVersion,
+  });
+  /** A restore by `by`, carrying an unfreeze approval `approver` signed for this account, version and reason. */
+  const approvedRestore = async (by: Context, approver: string, expectedVersion: string): Promise<IdentityAccountControlInput> => ({
+    ...command('restore', expectedVersion),
+    approvalId: await approvedUnfreeze(db.sql, {
+      requesterId: by.principal!.userId,
+      approverId: approver,
+      userId: target,
+      reason: 'Incident review',
+      expectedVersion,
+    }),
   });
   const state = async (userId = target) =>
     (
@@ -96,7 +108,7 @@ if (!available) {
       expect((await db.sql<Array<{ revoked: boolean }>>`SELECT revoked FROM sessions WHERE user_id = ${target}`)[0]!.revoked).toBe(true);
       expect((await db.sql<Array<{ revoked: boolean }>>`SELECT revoked FROM api_keys WHERE id = ${keyId}`)[0]!.revoked).toBe(true);
       expect((await db.sql<Array<{ revoked: boolean }>>`SELECT revoked FROM sub_accounts WHERE id = ${subId}`)[0]!.revoked).toBe(true);
-      expect(await controls.change(second, command('restore', '1'))).toMatchObject({
+      expect(await controls.change(second, await approvedRestore(second, first.principal!.userId, '1'))).toMatchObject({
         outcome: 'changed',
         after: { version: '2', restricted: false },
       });
@@ -192,7 +204,7 @@ if (!available) {
       const mintSub = () => auth.createSubAccount(target, 'Race partition');
       const login = () => auth.login({ identifier: row!.handle, password });
       for (let attempt = 0; attempt < 3; attempt++) {
-        if (attempt) await controls.change(second, command('restore', String(attempt * 2 - 1)));
+        if (attempt) await controls.change(second, await approvedRestore(second, first.principal!.userId, String(attempt * 2 - 1)));
         const results = await Promise.allSettled([
           mintKey(),
           mintSub(),
@@ -230,7 +242,7 @@ if (!available) {
       await afterFreeze.run;
       expect(await projection()).toEqual({ status: 'closed' });
       const afterRestore = delayOpen();
-      await controls.change(second, command('restore', '1'));
+      await controls.change(second, await approvedRestore(second, first.principal!.userId, '1'));
       afterRestore.release();
       await afterRestore.run;
       expect(await projection()).toEqual({ status: 'closed' });
@@ -307,7 +319,7 @@ if (!available) {
       expect(await store.readSession(snapshot.sessionId)).toEqual({ ...snapshot, status: 'closed' });
       const restored = delayPublish();
       const restoredRefusal = expect(restored.run).rejects.toMatchObject({ code: 'session_authority_denied' });
-      await controls.change(second, command('restore', '1'));
+      await controls.change(second, await approvedRestore(second, first.principal!.userId, '1'));
       restored.release();
       await restoredRefusal;
       await store.refreshFromAuthSessions();
@@ -340,8 +352,63 @@ if (!available) {
       target = second.principal!.userId;
       expect(await controls.change(first, command())).toMatchObject({ outcome: 'changed' });
       expect(await controls.change(second, command('restore', '1'))).toMatchObject({ code: 'operator.denied', current: null });
-      expect(await controls.change(first, command('restore', '1'))).toMatchObject({ outcome: 'changed' });
+      // The approver is a third operator: neither the founder restoring nor the frozen founder.
+      expect(await controls.change(first, await approvedRestore(first, randomUUID(), '1'))).toMatchObject({ outcome: 'changed' });
       expect((await db.sql<Array<{ revoked: boolean }>>`SELECT revoked FROM sessions WHERE user_id = ${target}`)[0]!.revoked).toBe(true);
+    });
+
+    it("lifts a freeze only with a second person's approval, spent once, and the history names both", async () => {
+      const lookup = { target: { area: 'identity' as const, userId: target } };
+      await controls.change(first, command());
+      const approvalRow = async (approvalId: string) =>
+        (await db.sql<Array<{ status: string }>>`SELECT status FROM action_approvals WHERE approval_id = ${approvalId}`)[0];
+
+      // No approval: refused, nothing changes.
+      expect(await controls.change(first, command('restore', '1'))).toMatchObject({
+        outcome: 'refused',
+        code: 'restriction_no_four_eyes',
+        current: { version: '1', restricted: true },
+      });
+      expect(await state()).toEqual({ status: 'frozen', version: '1' });
+
+      // An approval over another reason, or proposed by someone other than the founder restoring, does not bind and stays unspent.
+      const otherReason = await approvedUnfreeze(db.sql, {
+        requesterId: first.principal!.userId,
+        approverId: second.principal!.userId,
+        userId: target,
+        reason: 'A different reason',
+        expectedVersion: '1',
+      });
+      expect(await controls.change(first, { ...command('restore', '1'), approvalId: otherReason })).toMatchObject({
+        code: 'restriction_approval_mismatch',
+      });
+      expect(await approvalRow(otherReason)).toEqual({ status: 'APPROVED' });
+      const proposedBySecond = await approvedRestore(second, first.principal!.userId, '1');
+      expect(await controls.change(first, proposedBySecond)).toMatchObject({ code: 'restriction_approval_mismatch' });
+
+      // The account being restored can never be the approver.
+      expect(await controls.change(first, await approvedRestore(first, target, '1'))).toMatchObject({
+        code: 'restriction_approval_mismatch',
+      });
+      expect(await state()).toEqual({ status: 'frozen', version: '1' });
+
+      // A bound approval restores once and records the approver; the same approval cannot restore again.
+      const bound = await approvedRestore(first, second.principal!.userId, '1');
+      const restored = await controls.change(first, bound);
+      expect(restored).toMatchObject({
+        outcome: 'changed',
+        actorUserId: first.principal!.userId,
+        approverUserId: second.principal!.userId,
+        after: { version: '2', restricted: false },
+      });
+      expect(await approvalRow(bound.approvalId!)).toEqual({ status: 'CONSUMED' });
+      expect((await controls.history(first, { ...lookup, limit: 1 }))[0]).toMatchObject({ approverUserId: second.principal!.userId });
+      await controls.change(first, command('restrict', '2'));
+      expect(await controls.change(first, { ...command('restore', '3'), approvalId: bound.approvalId })).toMatchObject({
+        outcome: 'refused',
+        code: 'restriction_approval_consumed',
+      });
+      expect(await state()).toEqual({ status: 'frozen', version: '3' });
     });
 
     it('cannot turn a closed account into a restorable frozen identity', async () => {
@@ -383,7 +450,7 @@ if (!available) {
       expect(await controls.getState(first, lookup)).toEqual({ ...lookup, version: '0', restricted: false });
       expect(await controls.getState(first, { target: { area: 'identity', userId: randomUUID() } })).toBeNull();
       const frozen = await controls.change(first, command());
-      const restored = await controls.change(second, command('restore', '1'));
+      const restored = await controls.change(second, await approvedRestore(second, first.principal!.userId, '1'));
       expect(await controls.getState(second, lookup)).toEqual({ ...lookup, version: '2', restricted: false });
       expect(await controls.history(second, { ...lookup, limit: 1 })).toEqual([restored]);
       expect(await controls.history(second, { ...lookup, limit: 2 })).toEqual([restored, frozen]);
@@ -560,7 +627,7 @@ if (!available) {
       if (result.status === 'eligible') expect(Date.parse(result.leaseExpiresAt) - Date.parse(result.checkedAt)).toBe(5000);
       await controls.change(first, command());
       expect(await controls.currentAuthority(subject)).toMatchObject({ status: 'denied', code: 'auth.account_frozen' });
-      await controls.change(second, command('restore', '1'));
+      await controls.change(second, await approvedRestore(second, first.principal!.userId, '1'));
       expect(await controls.currentAuthority(subject)).toMatchObject({ status: 'denied', code: 'auth.credential_revoked' });
     });
 

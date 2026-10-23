@@ -257,11 +257,21 @@ export interface FreezeSnapshot {
  * become one.
  */
 export type LedgerOperatorCall = (
-  path: '/operator/freeze' | '/operator/unfreeze' | '/operator/reconcile',
+  path: '/operator/freeze' | '/operator/unfreeze' | '/operator/reconcile' | LedgerLookupPath,
   method: 'GET' | 'POST',
   bearer: string,
   body?: unknown,
 ) => Promise<{ status: number; body: unknown }>;
+
+/**
+ * The two operator object lookups svc-ledger serves (OPS-rules-monitoring-12). Built here from a checked UUID or an
+ * encoded business key, never from a caller's raw path, so the forward still reaches exactly one named route.
+ */
+export type LedgerLookupPath = `/operator/transactions/${string}` | `/operator/trace?businessKey=${string}`;
+
+const LOOKUP_TX_ID = z.string().uuid();
+const LOOKUP_BUSINESS_KEY = z.string().trim().min(1).max(512);
+const invalidLookup = (message: string) => ({ status: 400, body: { error: message, code: 'edge.invalid_ledger_lookup' } });
 
 export interface AdminApi {
   /** Verify an Authorization header for module control, or throw `AuthError`. */
@@ -297,6 +307,10 @@ export interface AdminApi {
   readReconcile(): Promise<{ status: number; body: unknown }>;
   /** Forward POST /operator/reconcile and keep a 2xx body as the last result. */
   runReconcile(body: unknown, header: string): Promise<{ status: number; body: unknown }>;
+  /** One booked transaction by id, read by svc-ledger as the operator (it records the lookup first). */
+  lookupTransaction(txId: unknown, header: string): Promise<{ status: number; body: unknown }>;
+  /** The transaction a business key booked, or svc-ledger's `found: false`. Recorded by svc-ledger first. */
+  traceBusinessKey(businessKey: unknown, header: string): Promise<{ status: number; body: unknown }>;
   consumeApproval(input: ActionApprovalConsumeInput, operator: Principal): Promise<ActionApproval>;
   /**
    * Ops honesty residual (VPN/network, freeze invent, compliance queue, analytics dark).
@@ -506,6 +520,20 @@ export function createAdminApi(state: KillSwitchState, deps: AdminApiDeps): Admi
         writeReconcileFile(deps.reconcileLastPath, lastReconcile);
       }
       return res;
+    },
+
+    async lookupTransaction(txId, header) {
+      if (!deps.ledger) return unreachable;
+      const id = LOOKUP_TX_ID.safeParse(txId);
+      if (!id.success) return invalidLookup('A transaction id is a UUID.');
+      return deps.ledger(`/operator/transactions/${id.data}`, 'GET', header);
+    },
+
+    async traceBusinessKey(businessKey, header) {
+      if (!deps.ledger) return unreachable;
+      const key = LOOKUP_BUSINESS_KEY.safeParse(businessKey);
+      if (!key.success) return invalidLookup('A business key is 1 to 512 characters.');
+      return deps.ledger(`/operator/trace?businessKey=${encodeURIComponent(key.data)}`, 'GET', header);
     },
 
     async consumeApproval(input, operator) {
