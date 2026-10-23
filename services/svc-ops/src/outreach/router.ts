@@ -24,6 +24,7 @@ import {
 import type { OutreachCrm } from './crm.js';
 import { OutreachError } from './config.js';
 import type { FounderAuthority } from './authority.js';
+import { PublicSettingsStaleError, publicChangesOf, type PublicSettingsBook } from './public-settings.js';
 
 function abuseKey(ctx: Context): string {
   const key = (ctx as Context & { outreachAbuseKey?: string }).outreachAbuseKey;
@@ -47,7 +48,13 @@ async function mapped<T>(fn: () => Promise<T>): Promise<T> {
     throw error;
   }
 }
-export function createOutreachRouter(crm: OutreachCrm, authority: FounderAuthority) {
+/** The public settings store, or a refusal that names why there is none (svc-ops runs without its database). */
+function settingsBook(book: PublicSettingsBook | undefined): PublicSettingsBook {
+  if (!book) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'ops.crm.storage_unconfigured' });
+  return book;
+}
+
+export function createOutreachRouter(crm: OutreachCrm, authority: FounderAuthority, publicSettings?: PublicSettingsBook) {
   const staffRead = scopedProcedure('ops:read').use(async ({ ctx, next }) =>
     mapped(async () => {
       await authority(ctx);
@@ -213,5 +220,35 @@ export function createOutreachRouter(crm: OutreachCrm, authority: FounderAuthori
     engagement: staffRead
       .output(z.object({ status: z.literal('disabled'), reason: z.literal('api_access_unavailable') }))
       .query(() => ({ status: 'disabled' as const, reason: 'api_access_unavailable' as const })),
+    // SP-pages-02: the public partner page reads where the invitation site is served and the programme terms. A blank
+    // value is null, never an error; a founder sets them with a reason, from the revision they read.
+    publicSettings: publicProcedure
+      .output(workflow.outreachPublicSettingsSchema)
+      .query(() => mapped(() => settingsBook(publicSettings).get())),
+    setPublicSettings: staffWrite
+      .input(workflow.outreachPublicSettingsSetInputSchema)
+      .output(workflow.outreachPublicSettingsSchema)
+      .mutation(async ({ input, ctx }) => {
+        try {
+          return await mapped(() =>
+            settingsBook(publicSettings).set({
+              changes: publicChangesOf(input),
+              expectedRevision: input.expectedRevision,
+              by: ctx.principal!.userId,
+              reason: input.reason,
+              at: new Date().toISOString(),
+            }),
+          );
+        } catch (err) {
+          if (err instanceof PublicSettingsStaleError) {
+            throw new TRPCError({
+              code: 'CONFLICT',
+              message: 'ops.public_settings_revision_stale' satisfies workflow.OutreachPublicErrorCode,
+              cause: err,
+            });
+          }
+          throw err;
+        }
+      }),
   });
 }

@@ -7,6 +7,7 @@ import { OutreachCrm } from './outreach/crm.js';
 import { OutreachError } from './outreach/config.js';
 import { createFounderAuthority } from './outreach/authority.js';
 import { createClientIpResolver } from './outreach/client-ip.js';
+import { SqlPublicSettingsBook } from './outreach/public-settings.js';
 import { createFeeRevenueClient } from './fee-revenue-client.js';
 import { createOutreachNotificationClient } from './outreach/notification-client.js';
 import { OutreachNotificationWorker } from './outreach/notification-worker.js';
@@ -121,6 +122,7 @@ const appRouter = createOpsRouter(
   ops,
   {
     crm,
+    ...(crmSql ? { publicSettings: new SqlPublicSettingsBook(crmSql) } : {}),
     authority: createFounderAuthority({
       identityUrl: env.IDENTITY_URL,
       serviceSecret: process.env.INTERNAL_SERVICE_SECRET,
