@@ -29,6 +29,14 @@ export const TAX_TERM_RULE_UNSET = 'tax.term_rule_unset' as const;
 export const TAX_DEPOSIT_BASIS_POLICY_UNSET = 'tax.deposit_basis_policy_unset' as const;
 /** No candle priced a coin at the time it arrived, so its value then is not known. */
 export const TAX_PRICE_AT_TIME_UNAVAILABLE = 'tax.price_at_time_unavailable' as const;
+/** A lot the customer picked for a sale was not open when the sale happened, so the sale's method decided instead. */
+export const TAX_LOT_PICK_UNUSABLE = 'tax.lot_pick_unusable' as const;
+/** A lot pick names a sale or a lot that is not in the caller's book, or a lot that arrived after the sale. */
+export const TAX_LOT_PICK_INVALID = 'tax.lot_pick_invalid' as const;
+/** The settings store is not connected, so a cost-basis choice cannot be saved. Reads use the product default. */
+export const TAX_DATABASE_URL_UNSET = 'tax.database_url_unset' as const;
+/** DATABASE_URL is set but its pool size is not; blank is not 10. */
+export const TAX_DATABASE_POOL_MAX_UNSET = 'tax.database_pool_max_unset' as const;
 
 export type TaxRefuseCode =
   | typeof TAX_JURISDICTION_UNMAPPED
@@ -49,7 +57,11 @@ export type TaxRefuseCode =
   | typeof TAX_LOT_BOOK_UNRECONCILED
   | typeof TAX_TERM_RULE_UNSET
   | typeof TAX_DEPOSIT_BASIS_POLICY_UNSET
-  | typeof TAX_PRICE_AT_TIME_UNAVAILABLE;
+  | typeof TAX_PRICE_AT_TIME_UNAVAILABLE
+  | typeof TAX_LOT_PICK_UNUSABLE
+  | typeof TAX_LOT_PICK_INVALID
+  | typeof TAX_DATABASE_URL_UNSET
+  | typeof TAX_DATABASE_POOL_MAX_UNSET;
 
 export class TaxError extends Error {
   readonly code: TaxRefuseCode;

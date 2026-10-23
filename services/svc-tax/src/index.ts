@@ -3,6 +3,7 @@ import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/a
 import { edgeTrustFromEnv } from '@intafaced/config';
 import { createEdgeContext, s2sFromEnv } from '@intafaced/contracts';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
+import { openChoices } from './choices.js';
 import { env } from './env.js';
 import { createTaxLedgerReads } from './ledger-reads.js';
 import { createTradePrices } from './prices.js';
@@ -27,7 +28,9 @@ registerProcessHooks(
  */
 // Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves the ledger reads on the shared secret alone.
 const s2s = s2sFromEnv(env, 'svc-tax');
+const choices = openChoices({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
 const tax = new TaxService({
+  choices: choices.store,
   mapRaw: env.TAX_JURISDICTION_MAP_JSON,
   reads: createTaxLedgerReads(
     env.LEDGER_URL,
@@ -64,6 +67,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     void (async () => {
       await app.close();
+      await choices.close();
       process.exit(0);
     })();
   });

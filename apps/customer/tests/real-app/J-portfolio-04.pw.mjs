@@ -18,14 +18,16 @@ function account() {
 }
 
 /** The screen's dollar text for an exact amount (fmtUsd): under 1 dollar at up to 4 places, else cents, half-up. */
-function usd(units) {
-  const abs = units < 0n ? -units : units;
+function usd(units, signed = false) {
+  const negative = units < 0n;
+  const abs = negative ? -units : units;
   const places = abs < ONE ? 4 : 2;
   const step = 10n ** BigInt(18 - places);
   const rounded = (abs + step / 2n) / step;
   let frac = (rounded % 10n ** BigInt(places)).toString().padStart(places, '0');
   if (places === 4) frac = frac.replace(/0{1,2}$/, '');
-  return `${units < 0n && rounded !== 0n ? '−' : ''}$${(rounded / 10n ** BigInt(places)).toLocaleString('en-US')}.${frac}`;
+  const sign = rounded === 0n ? '' : negative ? '−' : signed ? '+' : '';
+  return `${sign}$${(rounded / 10n ** BigInt(places)).toLocaleString('en-US')}.${frac}`;
 }
 
 const total = (balances, asset) => toUnits(balances[asset]?.total ?? '0');
@@ -81,36 +83,143 @@ test(`${J} #3 reads a deposit: valued at the time it arrived, with the price sou
   page,
 }) => {
   const who = account();
-  // TEST 0.004 BTC arrives by deposit through the real ledger, at a moment the BTC/USDT book has traded.
+  // TEST 0.04 ETH arrives by deposit through the real ledger, at a moment the ETH/USDT book has traded. (ETH, so the BTC
+  // lots stay all bought and steps 4 and 5 can work out every method by hand.)
   const before = Date.now();
-  expect(fund(who.email, 'BTC', '0.004').tx).toBeTruthy();
+  expect(fund(who.email, 'ETH', '0.04').tx).toBeTruthy();
   const after = Date.now();
   await signIn(page, who);
-  const lots = await lotsPage(page);
+  const lots = await lotsPage(page, 'ETH');
   const row = lots.locator('tbody tr[data-source="deposit"]');
   await expect(row).toHaveCount(1);
-  await expect(row.locator('[data-col="qty"]')).toHaveText('0.004');
+  await expect(row.locator('[data-col="qty"]')).toHaveText('0.04');
   // The TEST owner policy is "customer": a deposit's cost is unknown until the customer gives one, never zero.
   await expect(row.locator('[data-col="cost"]')).toHaveText('Cost unknown');
-  await expect(row.locator('[data-col="price-source"]')).toContainText('at the BTC/USDT price, one-minute candle from');
+  await expect(row.locator('[data-col="price-source"]')).toContainText('at the ETH/USDT price, one-minute candle from');
 
   // Hand count from the public one-minute candles: 0.004 times the close of the last candle that started at or before the
   // arrival. The arrival is posted between `before` and `after`, so the price is the one for either moment.
   const res = await fetch(
-    `${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=1m&since=${Math.floor(before / 60_000) * 60_000 - 3_600_000}&limit=720`,
+    `${EDGE}/api/v1/ohlcv/${encodeURIComponent('ETH/USDT')}?timeframe=1m&since=${Math.floor(before / 60_000) * 60_000 - 3_600_000}&limit=720`,
     { headers: { origin: ORIGIN } },
   );
   expect(res.status).toBe(200);
   const candles = await res.json();
   const lastAt = (t) => candles.filter((c) => c[0] <= t).at(-1)?.[4];
   const values = [...new Set([lastAt(before), lastAt(after)].filter(Boolean))].map((close) =>
-    usd((toUnits('0.004') * toUnits(close) + ONE / 2n) / ONE),
+    usd((toUnits('0.04') * toUnits(close) + ONE / 2n) / ONE),
   );
   expect(values.length).toBeGreaterThan(0);
   const shown = (await row.locator('[data-col="arrival"]').innerText()).split('\n')[0].trim();
   expect(values).toContain(shown.split(' ')[0]);
 
-  // The bought lots keep their cost, and the asset's open cost is now unknown on Open positions: one lot has no cost.
-  await expect(lots.locator('tbody tr[data-source="trade"] [data-col="cost"]').first()).not.toHaveText('Cost unknown');
-  await expect(page.locator('tr[data-asset="BTC"] [data-col="cost"]')).toHaveText('Not known');
+  // The coin's open cost is unknown on Open positions, never zero; the bought BTC keeps its cost.
+  await expect(page.locator('tr[data-asset="ETH"] [data-col="cost"]')).toHaveText('Not known');
+  await expect(page.locator('tr[data-asset="BTC"] [data-col="cost"]')).not.toHaveText('Not known');
+});
+
+/** Sells `amount` BTC over the best bid; returns the USDT that arrived. */
+async function sellNow(page, who, amount) {
+  const before = await (await api(who)).balances();
+  await page.goto(deskPath('BTC/USDT'));
+  const { bid } = await bestPrices('BTC/USDT');
+  await reviewLimit(page, 'sell', priceAt(bid, 99), amount);
+  await confirm(page, 'sell');
+  await expect.poll(async () => held(await (await api(who)).balances(), 'BTC'), { timeout: 20_000 }).toBe(0n);
+  const after = await (await api(who)).balances();
+  return total(after, 'USDT') - total(before, 'USDT');
+}
+
+/** The lot engine's share: cost * take / qty, cut at the ledger's 18 places; the whole lot when all of it is taken. */
+const share = (cost, qty, take) => (take === qty ? cost : (cost * take) / qty);
+
+/** What one sale of `take` costs under each method, from two open lots [{ cost, qty }] (oldest first). */
+function costBy(method, lots, take) {
+  const [a, b] = lots;
+  if (method === 'FIFO') return share(a.cost, a.qty, take);
+  if (method === 'LIFO') return share(b.cost, b.qty, take);
+  if (method === 'HIFO') return a.cost * b.qty >= b.cost * a.qty ? share(a.cost, a.qty, take) : share(b.cost, b.qty, take);
+  return share(a.cost + b.cost, a.qty + b.qty, take); // AVERAGE
+}
+
+test(`${J} #4 chooses FIFO, LIFO, HIFO or average cost for the account or one coin: the result and what is left follow`, async ({
+  page,
+}) => {
+  const who = account();
+  const buys = run.read().buys.map((b) => ({ cost: toUnits(b.cost), qty: toUnits(b.qty) }));
+  await signIn(page, who);
+  // TEST: sell 0.001 BTC, less than either lot, so every method draws on one lot (AVERAGE on the pool).
+  const take = toUnits('0.001');
+  const proceeds = await sellNow(page, who, '0.001');
+  run.write({ sale1: fromUnits(proceeds) });
+  const totalCost = buys[0].cost + buys[1].cost;
+
+  const expectMethod = async (method, source) => {
+    const cost = costBy(method, buys, take);
+    const sale = page.locator('tr[data-sale]').filter({ hasText: 'BTC' }).first();
+    await expect(sale.locator('[data-col="method"] [data-method]')).toHaveAttribute('data-method', method);
+    await expect(sale.locator('[data-col="method"]')).toContainText(source);
+    await expect(sale.locator('td').nth(2)).toHaveText(usd(cost));
+    await expect(sale.locator('[data-col="result"]')).toHaveText(usd(proceeds - cost, true));
+    // What is left: the two lots' cost less what this sale took.
+    await expect(page.locator('tr[data-asset="BTC"] [data-col="cost"]')).toHaveText(usd(totalCost - cost));
+  };
+
+  await page.goto('/money/pnl?asset=BTC');
+  await expectMethod('FIFO', '(standard)');
+  const choices = page.getByRole('region', { name: 'Your matching choices' });
+  await choices.getByRole('combobox', { name: 'Method for all coins' }).selectOption('LIFO');
+  await expect(choices.getByRole('status')).toHaveText('Saved. The figures above use it.');
+  await expectMethod('LIFO', '(your method for all coins)');
+  const coin = page.getByRole('region', { name: 'Lots' }).getByRole('combobox', { name: 'Method for BTC' });
+  for (const method of ['HIFO', 'AVERAGE', 'FIFO']) {
+    await coin.selectOption(method);
+    await expectMethod(method, '(your method for this coin)');
+  }
+  // Saved, not just on screen: a reload shows the same.
+  await page.reload();
+  await expectMethod('FIFO', '(your method for this coin)');
+  await coin.selectOption('');
+  await expectMethod('LIFO', '(your method for all coins)');
+});
+
+test(`${J} #5 picks the lot for one sale and sets a method for one day: that sale uses that lot, the other keeps its method`, async ({
+  page,
+}) => {
+  const who = account();
+  const buys = run.read().buys.map((b) => ({ cost: toUnits(b.cost), qty: toUnits(b.qty) }));
+  const proceeds1 = toUnits(run.read().sale1);
+  await signIn(page, who);
+  // TEST: a second sale of 0.001 BTC. The account method is LIFO (step 4): the first sale took from the newer lot.
+  const take = toUnits('0.001');
+  const proceeds2 = await sellNow(page, who, '0.001');
+  await page.goto('/money/pnl?asset=BTC');
+  const sales = page.locator('tr[data-sale]').filter({ hasText: 'BTC' });
+  await expect(sales).toHaveCount(2);
+  const [newest, oldest] = [sales.nth(0), sales.nth(1)];
+
+  // Pick the older lot for the newest sale.
+  const oldLot = await page.getByRole('region', { name: 'Lots' }).locator('tbody tr').first().getAttribute('data-lot');
+  await newest.getByRole('combobox', { name: 'Lot for this sale' }).selectOption(oldLot);
+  const firstCost = share(buys[1].cost, buys[1].qty, take); // LIFO, the newer lot
+  const pickedCost = share(buys[0].cost, buys[0].qty, take); // the older lot, untouched so far
+  await expect(newest.locator('td').nth(2)).toHaveText(usd(pickedCost));
+  await expect(newest.locator('[data-col="result"]')).toHaveText(usd(proceeds2 - pickedCost, true));
+  await expect(oldest.locator('[data-col="method"] [data-method]')).toHaveAttribute('data-method', 'LIFO');
+  await expect(oldest.locator('[data-col="result"]')).toHaveText(usd(proceeds1 - firstCost, true));
+
+  // A method for today (UTC), every coin: HIFO. The picked sale still uses its lot; the other sale follows the day.
+  const choices = page.getByRole('region', { name: 'Your matching choices' });
+  const day = new Date().toISOString().slice(0, 10);
+  await choices.getByLabel('Day (UTC)').fill(day);
+  await choices.getByRole('combobox', { name: 'Method for that day' }).selectOption('HIFO');
+  await choices.getByRole('button', { name: 'Save day method' }).click();
+  await expect(choices.getByRole('list', { name: 'Saved day methods' })).toContainText(`${day} · All coins · HIFO`);
+  const hifoCost = costBy('HIFO', buys, take);
+  await expect(oldest.locator('[data-col="method"] [data-method]')).toHaveAttribute('data-method', 'HIFO');
+  await expect(oldest.locator('[data-col="method"]')).toContainText('(your method for that day)');
+  await expect(oldest.locator('[data-col="result"]')).toHaveText(usd(proceeds1 - hifoCost, true));
+  // The newest sale keeps its picked lot whatever the day's method: the older lot, unless HIFO's first sale drew on it.
+  const left0 = hifoCost === share(buys[0].cost, buys[0].qty, take) ? { cost: buys[0].cost - hifoCost, qty: buys[0].qty - take } : buys[0];
+  await expect(newest.locator('td').nth(2)).toHaveText(usd(share(left0.cost, left0.qty, take)));
 });

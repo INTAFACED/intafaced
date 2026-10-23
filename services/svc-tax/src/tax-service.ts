@@ -12,12 +12,15 @@ import {
   TAX_LOT_METHOD_REQUIRED,
   TAX_DEPOSIT_BASIS_POLICY_UNSET,
   TAX_PRICE_AT_TIME_UNAVAILABLE,
+  TAX_DATABASE_URL_UNSET,
+  TAX_LOT_PICK_INVALID,
   TaxError,
 } from './codes.js';
 import { parseJurisdictionMap, refuseExportCompleteness, requireMappedRegion, type JurisdictionMap } from './jurisdiction-map.js';
 import type { HistoryRange, InflowLine, SubAccountActivityLine, TaxLedgerReads } from './ledger-reads.js';
 import type { PriceAt, PriceAtTime } from './prices.js';
-import { buildLotBook, DEFAULT_LOT_BOOK_METHOD, PAR_ASSETS, type Inflow, type LotBook } from './lot-book.js';
+import { buildLotBook, DEFAULT_LOT_BOOK_METHOD, PAR_ASSETS, type BookChoices, type Inflow, type LotBook } from './lot-book.js';
+import { saleRules, unwiredChoices, type ChoiceStore, type CostBasisChoices } from './choices.js';
 import { isLotMethod, runLots, type LotMethod, type LotMovement } from './lots.js';
 import { isEngineMethod, type EngineMethod, type ValuedAt } from './lot-engine.js';
 
@@ -93,6 +96,8 @@ export interface TaxServiceDeps {
   readonly depositBasis?: DepositBasisPolicy;
   /** Price of a coin at a past moment. Absent: arrivals are not valued, named `tax.price_at_time_unavailable`. */
   readonly prices?: PriceAtTime;
+  /** The customer's saved cost-basis choices. Absent: nothing can be saved and the product default applies. */
+  readonly choices?: ChoiceStore;
 }
 
 export const DEPOSIT_BASIS_POLICIES = ['market', 'customer'] as const;
@@ -186,6 +191,7 @@ export class TaxService {
   private readonly now: () => Date;
   private readonly depositBasis: DepositBasisPolicy | undefined;
   private readonly prices: PriceAtTime | undefined;
+  private readonly choices: ChoiceStore;
 
   constructor(deps: TaxServiceDeps) {
     this.map = parseJurisdictionMap(deps.mapRaw);
@@ -196,6 +202,7 @@ export class TaxService {
     this.now = deps.now ?? (() => new Date());
     this.depositBasis = deps.depositBasis;
     this.prices = deps.prices;
+    this.choices = deps.choices ?? unwiredChoices;
   }
 
   async exportPreview(input: { userId: string; region: string; lotMethod: string; complete?: boolean }): Promise<TaxExportPreview> {
@@ -208,11 +215,20 @@ export class TaxService {
   }
 
   /**
-   * Profit and loss as an indicator, from the caller's own trade fills (lot-book.ts). Not tied to a jurisdiction map and not a
-   * tax pack. The method defaults to FIFO (a product default, changeable per call); an unknown name is refused, not guessed.
+   * Profit and loss as an indicator, from the caller's own ledger (lot-book.ts). Not tied to a jurisdiction map and not a
+   * tax pack. Without a method it applies the customer's saved choices (choices.ts), else the product default FIFO; with
+   * one it previews that method for every sale. An unknown name is refused, not guessed.
    */
   async lotBook(input: { userId: string; method?: string }): Promise<LotBook> {
-    const method = input.method === undefined ? DEFAULT_LOT_BOOK_METHOD : requireBookMethod(input.method);
+    const preview = input.method === undefined ? null : requireBookMethod(input.method);
+    const saved = await this.choices.read(input.userId);
+    const method = preview ?? saved.accountMethod ?? DEFAULT_LOT_BOOK_METHOD;
+    const shared = {
+      method,
+      rules: saleRules(saved, DEFAULT_LOT_BOOK_METHOD, preview),
+      preview: preview !== null,
+      choices: this.bookChoices(saved),
+    };
     const readFills = this.reads.tradeFills;
     if (!readFills) throw new TaxError(TAX_LEDGER_UNWIRED, 'the ledger fill reader is not attached — tax does not invent a book');
     const [balances, filled] = await Promise.all([this.reads.balances('user', input.userId), readFills.call(this.reads, input.userId)]);
@@ -221,12 +237,49 @@ export class TaxService {
       if (row.amount > 0n) held.set(row.account.assetId, (held.get(row.account.assetId) ?? 0n) + row.amount);
     }
     if (filled.inflows === undefined) {
-      return buildLotBook({ fills: filled.fills, held, method, truncated: filled.truncated, outsideInflows: filled.outsideInflows });
+      return buildLotBook({ ...shared, fills: filled.fills, held, truncated: filled.truncated, outsideInflows: filled.outsideInflows });
     }
     const extra = new Set<string>();
     const inflows = await this.valueInflows(filled.inflows, extra);
-    const book = buildLotBook({ fills: filled.fills, held, method, truncated: filled.truncated, inflows, now: this.now() });
+    const book = buildLotBook({ ...shared, fills: filled.fills, held, truncated: filled.truncated, inflows, now: this.now() });
     return { ...book, residuals: [...new Set([...book.residuals, ...extra])].sort() };
+  }
+
+  private bookChoices(saved: CostBasisChoices): BookChoices {
+    if (this.choices.status === 'unwired') return { status: 'unwired', code: this.choices.code ?? TAX_DATABASE_URL_UNSET };
+    return {
+      status: 'saved',
+      accountMethod: saved.accountMethod,
+      assetMethods: [...saved.assetMethods].sort(([a], [b]) => a.localeCompare(b)).map(([assetId, m]) => ({ assetId, method: m })),
+      days: saved.days.map((d) => ({ day: d.day, assetId: d.assetId, method: d.method })),
+      picks: saved.picks.map((p) => ({ saleTxId: p.saleTxId, assetId: p.assetId, lotId: p.lotId })),
+    };
+  }
+
+  /** The caller's method for the whole account (`assetId` null) or one coin; null clears it. Settings only. */
+  async setLotMethod(input: { userId: string; assetId: string | null; method: string | null }): Promise<void> {
+    await this.choices.setMethod(input.userId, input.assetId, input.method === null ? null : requireBookMethod(input.method));
+  }
+
+  /** The caller's method for one UTC day, for one coin or every coin; null clears it. Settings only. */
+  async setDayMethod(input: { userId: string; day: string; assetId: string | null; method: string | null }): Promise<void> {
+    await this.choices.setDayMethod(input.userId, input.day, input.assetId, input.method === null ? null : requireBookMethod(input.method));
+  }
+
+  /**
+   * The lot one of the caller's sales draws on first; null clears it. The sale and the lot must both be in the caller's own
+   * book, for the same coin, and the lot must have arrived by the time of the sale. Anything else is refused, not stored.
+   */
+  async pickSaleLot(input: { userId: string; saleTxId: string; assetId: string; lotId: string | null }): Promise<void> {
+    if (input.lotId !== null) {
+      const book = await this.lotBook({ userId: input.userId });
+      const sale = book.sales.find((s) => s.txId === input.saleTxId && s.assetId === input.assetId);
+      const lot = book.lots.find((l) => l.id === input.lotId && l.assetId === input.assetId);
+      if (!sale || !lot || lot.acquiredAt > sale.disposedAt) {
+        throw new TaxError(TAX_LOT_PICK_INVALID, 'that sale and lot are not both in your book for this coin, with the lot arriving first');
+      }
+    }
+    await this.choices.setPick(input.userId, input.saleTxId, input.assetId, input.lotId);
   }
 
   /** Each arrival becomes a lot: its source, its value when it arrived, and the basis the owner's policy gives it. */

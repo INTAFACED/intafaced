@@ -8,16 +8,21 @@ A year pack lists each sub-account's fills and converts with `fee` and `makerReb
 
 ## API
 
-| Procedure       | Scope      | Input           | Output                                                            |
-| --------------- | ---------- | --------------- | ----------------------------------------------------------------- |
-| `health`        | public     | —               | `{ ok, service }` — liveness, not a custody claim                 |
-| `exportPreview` | `tax:read` | `{ lotMethod }` | preview; amounts as strings                                       |
-| `exportPack`    | `tax:read` | `{ lotMethod }` | JSON pack (`bodyBase64`), including `subAccounts`                 |
-| `lotBook`       | `tax:read` | `{ method? }`   | profit and loss indicator from the caller's own fills (see below) |
+| Procedure       | Scope       | Input                          | Output                                                                               |
+| --------------- | ----------- | ------------------------------ | ------------------------------------------------------------------------------------ |
+| `health`        | public      | —                              | `{ ok, service }` — liveness, not a custody claim                                    |
+| `exportPreview` | `tax:read`  | `{ lotMethod }`                | preview; amounts as strings                                                          |
+| `exportPack`    | `tax:read`  | `{ lotMethod }`                | JSON pack (`bodyBase64`), including `subAccounts`                                    |
+| `lotBook`       | `tax:read`  | `{ method? }`                  | profit and loss indicator from the caller's own fills (see below)                    |
+| `setLotMethod`  | `tax:write` | `{ assetId, method }`          | the caller's method for the account (`assetId` null) or a coin; `method` null clears |
+| `setDayMethod`  | `tax:write` | `{ day, assetId, method }`     | the caller's method for one UTC day, one coin or all (`assetId` null)                |
+| `pickSaleLot`   | `tax:write` | `{ saleTxId, assetId, lotId }` | the lot one of the caller's sales draws on first; `lotId` null clears                |
 
 ## Lot book (profit and loss indicator)
 
-`lotBook` is a self-only read of the caller's own ledger, labelled `indicator_not_tax_advice`. It is not the year pack and is not gated by the jurisdiction map. Input `{ method? }`: `FIFO`, `LIFO`, `HIFO` or `AVERAGE` (default FIFO, a product default changeable per call); anything else refuses.
+`lotBook` is a self-only read of the caller's own ledger, labelled `indicator_not_tax_advice`. It is not the year pack and is not gated by the jurisdiction map. Without a method it applies the caller's saved choices (below); `{ method }` (`FIFO`, `LIFO`, `HIFO` or `AVERAGE`) previews that one method for every sale (`preview: true`, no saved choice or pick applied). Anything else refuses.
+
+**Saved choices.** The caller may save a method for the whole account, for one coin, and for one UTC day (one coin or all), and pick the lot one sale draws on first. A sale's method, most specific first: that coin on that day, every coin that day, the coin, the account, then the product default FIFO; each sale says which (`method`, `methodSource`). A picked lot is drawn first (as much as is still open); the rest goes by the method. A pick must name a sale and a lot of the same coin in the caller's own book, with the lot arriving first, or it is refused (`tax.lot_pick_invalid`); a saved pick whose lot is no longer open at the sale is named (`tax.lot_pick_unusable`) and the method decides. Choices are settings rows in schema `tax` (`drizzle/`), keyed by the caller; they move no value and post nothing. `DATABASE_URL` unset: the book uses the default and says `choices: { status: 'unwired' }`, and a save refuses `tax.database_url_unset` (`tax.database_pool_max_unset` when only the pool size is blank).
 
 **Lots.** Every arrival of a coin is a lot with an id (`lot:<txId>:<asset>`, then `:2`, `:3` when one transaction credits the same coin again), when it arrived, its source (`trade`, `deposit`, `reward`, `transfer_in`, `other_in`), quantity, what is left, its cost and the cost of what is left, and days held. A bought lot is joined from two ledger reads, the received leg (on `available`) and the paying leg (on that order's `hold` account), on the transaction; against USDT, USDC or USD it has a real dollar cost (the fee is already out of the received leg). Fills against a house quote (`trade.fill.mm_maker`) are read like any other fill. Dollar coins count as exactly 1 USD and are not lots. Released holds, reversed withdrawals, margin release, unstake, earn withdrawals and fee corrections are the customer's own coins coming back, not new lots.
 
@@ -35,7 +40,7 @@ None. This service publishes no subjects.
 
 ## Ledger
 
-Read-only. `balances` + `history` over `@intafaced/ledger-client` HTTP to svc-ledger. No recipes. No `post`.
+Read-only. `balances` + `history` over `@intafaced/ledger-client` HTTP to svc-ledger. No recipes. No `post`. Its own Postgres schema `tax` holds only the customers' cost-basis choices: no balance, no amount.
 
 | Read       | Why                                   |
 | ---------- | ------------------------------------- |

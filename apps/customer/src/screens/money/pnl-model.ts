@@ -1,4 +1,10 @@
-import { LOT_BOOK_METHODS, type LotBookAnswer, type LotBookLot, type LotBookMethod } from '@intafaced/contracts/tax-lot-book';
+import {
+  LOT_BOOK_METHODS,
+  type LotBookAnswer,
+  type LotBookLot,
+  type LotBookMethod,
+  type LotBookSale,
+} from '@intafaced/contracts/tax-lot-book';
 import { dec, decOrNull, ratio, sub, sumOf, times, type Scaled } from '../../data/decimal';
 import type { Decimal } from '../../data';
 import type { MoneyRow } from './portfolio-source';
@@ -10,16 +16,20 @@ import type { MoneyRow } from './portfolio-source';
  */
 
 export { lotBookSchema } from '@intafaced/contracts/tax-lot-book';
-export type { LotBookAnswer as LotBook, LotBookLot, LotBookSale } from '@intafaced/contracts/tax-lot-book';
+export type { LotBookAnswer as LotBook, LotBookChoices, LotBookLot, LotBookSale, LotMethodSource } from '@intafaced/contracts/tax-lot-book';
+export { lotChoiceSavedSchema } from '@intafaced/contracts/tax-lot-book';
 
 /** The methods the screen offers, in the order of the switch. AVERAGE is one running cost per coin for each asset. */
 export const LOT_METHODS = LOT_BOOK_METHODS;
 export type LotMethod = LotBookMethod;
 
-/** `?method=` on /money/pnl: absent is the product default FIFO, one of the methods is that method, anything else is refused. */
-export function methodFromQuery(search: string): LotMethod | { unknown: string } {
+/**
+ * `?method=` on /money/pnl: absent is the customer's saved choices (else the product default FIFO); one of the methods is a
+ * preview of that method for every sale; anything else is refused.
+ */
+export function methodFromQuery(search: string): LotMethod | 'saved' | { unknown: string } {
   const raw = new URLSearchParams(search).get('method');
-  if (raw === null || raw === '') return 'FIFO';
+  if (raw === null || raw === '') return 'saved';
   const upper = raw.toUpperCase();
   return (LOT_METHODS as readonly string[]).includes(upper) ? (upper as LotMethod) : { unknown: raw };
 }
@@ -106,4 +116,14 @@ export function lotAssetFromQuery(search: string, assets: readonly string[]): st
 
 export function lotsOf(book: LotBookAnswer, asset: string): LotBookLot[] {
   return book.lots.filter((lot) => lot.assetId === asset);
+}
+
+/** The lots a sale could have drawn on: the same coin, arrived by the time of the sale. */
+export function pickableLots(book: LotBookAnswer, sale: LotBookSale): LotBookLot[] {
+  return book.lots.filter((lot) => lot.assetId === sale.assetId && lot.acquiredAt <= sale.disposedAt);
+}
+
+/** The coin's own saved method, or null when it follows the account. */
+export function coinMethod(book: LotBookAnswer, asset: string): LotMethod | null {
+  return book.choices.status === 'saved' ? (book.choices.assetMethods.find((m) => m.assetId === asset)?.method ?? null) : null;
 }

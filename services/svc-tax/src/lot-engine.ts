@@ -1,5 +1,5 @@
 import type { Amount } from '@intafaced/ledger-client';
-import { TAX_COST_BASIS_UNAVAILABLE, TAX_LOT_UNDERFLOW } from './codes.js';
+import { TAX_COST_BASIS_UNAVAILABLE, TAX_LOT_PICK_UNUSABLE, TAX_LOT_UNDERFLOW } from './codes.js';
 
 /**
  * LOT ENGINE for the lot book (the profit and loss indicator). The year pack keeps its own matcher in `lots.ts`.
@@ -65,7 +65,23 @@ export interface LotMatch {
   readonly realizedUsd: Amount | null;
 }
 
+/**
+ * How one sale is matched: the method, and optionally one lot the customer picked for it. A picked lot is drawn first (as
+ * much of it as is still open); anything left of the sale goes by the method. `source` says where the method came from and
+ * is passed through untouched.
+ */
+export interface SaleRule {
+  readonly method: EngineMethod;
+  readonly lotId?: string | null;
+  readonly source: string;
+}
+
+export type SaleRules = EngineMethod | ((sale: EngineDispose) => SaleRule);
+
 export interface EngineSale {
+  readonly rule: SaleRule;
+  /** The picked lot, when it was open at the sale and so was used; null when there was no pick or it could not be used. */
+  readonly pickedLotId: string | null;
   readonly assetId: string;
   readonly txId: string;
   readonly postedAt: Date;
@@ -134,7 +150,8 @@ function pick(open: readonly OpenLot[], method: EngineMethod): number | null {
   return best;
 }
 
-export function runLotEngine(movements: readonly EngineMovement[], method: EngineMethod): EngineRun {
+export function runLotEngine(movements: readonly EngineMovement[], rules: SaleRules): EngineRun {
+  const ruleOf = typeof rules === 'string' ? (): SaleRule => ({ method: rules, source: 'call' }) : rules;
   const byAsset = new Map<string, EngineMovement[]>();
   for (const m of movements) {
     if (m.qty <= 0n) continue;
@@ -178,7 +195,7 @@ export function runLotEngine(movements: readonly EngineMovement[], method: Engin
         all.push(entry);
         continue;
       }
-      sales.push(dispose(m, open, method, residuals));
+      sales.push(dispose(m, open, ruleOf(m), residuals));
     }
     for (const entry of all) {
       lots.push({ ...entry.lot, remaining: entry.remaining, remainingCostUsd: entry.remaining === 0n ? 0n : entry.remainingCost });
@@ -190,8 +207,15 @@ export function runLotEngine(movements: readonly EngineMovement[], method: Engin
   return { lots, sales, residuals: [...residuals].sort() };
 }
 
-function dispose(m: EngineDispose, open: OpenLot[], method: EngineMethod, residuals: Set<string>): EngineSale {
+function dispose(m: EngineDispose, open: OpenLot[], rule: SaleRule, residuals: Set<string>): EngineSale {
+  const { method } = rule;
   const matches: LotMatch[] = [];
+  // A picked lot is used only if it is still open when the sale happens; otherwise the pick is named and the method decides.
+  let picked: OpenLot | null = null;
+  if (rule.lotId) {
+    picked = open.find((lot) => lot.lot.id === rule.lotId) ?? null;
+    if (picked === null) residuals.add(TAX_LOT_PICK_UNUSABLE);
+  }
   let remaining = m.qty;
   let proceedsLeft = m.proceedsUsd;
   let unknown = false;
@@ -210,7 +234,8 @@ function dispose(m: EngineDispose, open: OpenLot[], method: EngineMethod, residu
   }
 
   while (remaining > 0n && open.length > 0) {
-    let idx = pick(open, method);
+    const pickedAt = picked === null ? -1 : open.indexOf(picked);
+    let idx = pickedAt >= 0 ? pickedAt : pick(open, method);
     if (idx === null) {
       // HIFO cannot rank a lot with no basis. The coins still left: draw the quantity oldest first so the open quantity stays
       // right, but which lot really went is not known, so this sale's cost and the cost of every lot left are unknown.
@@ -279,6 +304,8 @@ function dispose(m: EngineDispose, open: OpenLot[], method: EngineMethod, residu
   };
   const costUsd = covered ? sum((x) => x.costUsd) : null;
   return {
+    rule,
+    pickedLotId: picked === null ? null : picked.lot.id,
     assetId: m.assetId,
     txId: m.txId,
     postedAt: m.postedAt,

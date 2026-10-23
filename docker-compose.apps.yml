@@ -1528,9 +1528,18 @@ services:
       # Lake / indexer — blank names absent on the pack; never a fabricated $0.
       CONNECT_DATA_LAKE_TSDB_URL: ${CONNECT_DATA_LAKE_TSDB_URL:-}
       INDEXER_URL: ${INDEXER_URL:-}
+      # Public candles price a deposit or reward at the time it arrived.
+      TRADE_URL: http://svc-trade:4004
+      # Owner policy for an arrival's cost: market | customer. Blank names tax.deposit_basis_policy_unset.
+      TAX_DEPOSIT_BASIS: ${TAX_DEPOSIT_BASIS:-}
+      # The customer's own cost-basis choices. Role svc_tax and schema tax come from postgres-init;
+      # migrate-all applies the drizzle files. Blank DATABASE_POOL_MAX (x-service-env) refuses saves
+      # with tax.database_pool_max_unset.
+      DATABASE_URL: postgres://svc_tax:${SVC_TAX_DB_PASSWORD:-svc_tax}@postgres:5432/intafaced
     expose: ['4020']
     healthcheck: *healthcheck
     depends_on:
+      <<: *needs-schema
       svc-ledger: { condition: service_healthy }
 
   # Strategy sandbox (§29). Paper book, no ledger. Port 4021: 4020 held for tax.

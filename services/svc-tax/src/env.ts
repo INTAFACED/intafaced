@@ -60,6 +60,13 @@ const schema = baseEnvSchema
        * (unknown until the customer enters one). Blank: unknown, named `tax.deposit_basis_policy_unset`. Never a default.
        */
       TAX_DEPOSIT_BASIS: blankAsAbsent(z.enum(['market', 'customer']).optional()),
+      /**
+       * The customer's own cost-basis choices (methods, lot picks). Blank: nothing can be saved (`tax.database_url_unset`)
+       * and the lot book uses the product default. Never a default URL. Not a ledger connection.
+       */
+      DATABASE_URL: blankAsAbsent(z.string().optional()),
+      /** Required only when DATABASE_URL is set. Blank is not 10. */
+      DATABASE_POOL_MAX: blankAsAbsent(z.string().optional()),
     }),
   );
 

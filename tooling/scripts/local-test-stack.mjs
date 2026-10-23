@@ -141,6 +141,7 @@ const SCHEMAS = [
   'blueprint',
   'quant',
   'mining_pool',
+  'tax',
 ];
 // A schema whose service is named differently (svc-mining-pool owns schema mining_pool).
 const SCHEMA_SERVICE = { mining_pool: 'mining-pool' };
@@ -1191,7 +1192,14 @@ function serviceDefs(secrets) {
       // TRADE_URL: svc-trade's public candles price a deposit or reward when it arrived. TAX_DEPOSIT_BASIS is LOCAL TEST
       // `customer` (tooling/profiles/test-owner-values.json): an arrival's cost stays unknown until the customer enters one.
       name: 'tax',
-      env: () => ({ ...c('svc-tax', PORTS.tax), LEDGER_URL: urlOf('ledger'), TRADE_URL: urlOf('trade'), TAX_DEPOSIT_BASIS: 'customer' }),
+      // DATABASE_URL: the customer's own cost-basis choices (method, lot picks) in schema tax.
+      env: () => ({
+        ...c('svc-tax', PORTS.tax),
+        LEDGER_URL: urlOf('ledger'),
+        TRADE_URL: urlOf('trade'),
+        TAX_DEPOSIT_BASIS: 'customer',
+        DATABASE_URL: dbUrl('svc_tax', secrets),
+      }),
     },
     {
       // Share ingest and reads over its own schema. The pool fee and the PPLNS window are the owner's blank settings and

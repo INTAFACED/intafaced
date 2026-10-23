@@ -1,10 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import { lotAssetFromQuery, lotAssets, lotsOf, methodFromQuery, pnlView, type LotBook, type LotBookLot } from './pnl-model';
+import {
+  coinMethod,
+  lotAssetFromQuery,
+  lotAssets,
+  lotsOf,
+  methodFromQuery,
+  pickableLots,
+  pnlView,
+  type LotBook,
+  type LotBookLot,
+  type LotBookSale,
+} from './pnl-model';
 import type { MoneyRow } from './portfolio-source';
 
 // TEST data, hand-computed.
 const book = (over: Partial<LotBook> = {}): LotBook => ({
   method: 'FIFO',
+  preview: false,
+  choices: { status: 'saved', accountMethod: null, assetMethods: [], days: [], picks: [] },
   indicator: 'indicator_not_tax_advice',
   assets: [{ assetId: 'BTC', openQty: '1', openCostUsd: '200', held: '1' }],
   sales: [],
@@ -104,8 +117,8 @@ describe('average price and the method in the link', () => {
     expect(view.assets[0]!.avgPriceUsd).toBeNull();
   });
 
-  it('?method= picks FIFO by default, takes the three methods in any case, and names anything else as unknown', () => {
-    expect(methodFromQuery('')).toBe('FIFO');
+  it('?method= absent is your saved choices; a method in any case is a preview of it; anything else is named unknown', () => {
+    expect(methodFromQuery('')).toBe('saved');
     expect(methodFromQuery('?method=lifo')).toBe('LIFO');
     expect(methodFromQuery('?method=HIFO')).toBe('HIFO');
     expect(methodFromQuery('?method=average')).toBe('AVERAGE');
@@ -138,5 +151,32 @@ describe('lots', () => {
     expect(lotAssetFromQuery('?asset=btc', lotAssets(lots))).toBe('BTC');
     expect(lotAssetFromQuery('?asset=DOGE', lotAssets(lots))).toBe('ETH');
     expect(lotAssetFromQuery('', [])).toBeNull();
+  });
+
+  it('a sale can pick a lot of its own coin that arrived by then; a coin method is read from the saved choices', () => {
+    const later = { ...lot('lot:d:ETH', 'ETH', 'trade'), acquiredAt: '2026-10-22T10:00:00.000Z' };
+    const withLater = book({
+      ...lots,
+      lots: [...lots.lots, later],
+      choices: { status: 'saved', accountMethod: null, assetMethods: [{ assetId: 'ETH', method: 'HIFO' }], days: [], picks: [] },
+    });
+    const sale: LotBookSale = {
+      method: 'FIFO',
+      methodSource: 'default',
+      pickedLotId: null,
+      assetId: 'ETH',
+      txId: 's1',
+      disposedAt: '2026-10-21T10:00:00.000Z',
+      qty: '1',
+      unmatchedQty: '0',
+      proceedsUsd: null,
+      costUsd: null,
+      realizedUsd: null,
+      matches: [],
+    };
+    expect(pickableLots(withLater, sale).map((l) => l.id)).toEqual(['lot:a:ETH', 'lot:c:ETH']);
+    expect(coinMethod(withLater, 'ETH')).toBe('HIFO');
+    expect(coinMethod(withLater, 'BTC')).toBeNull();
+    expect(coinMethod(book({ choices: { status: 'unwired', code: 'tax.database_url_unset' } }), 'ETH')).toBeNull();
   });
 });

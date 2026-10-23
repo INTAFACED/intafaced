@@ -1,6 +1,6 @@
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { TAX_COST_BASIS_UNAVAILABLE, TAX_LOT_BOOK_INCOMPLETE, TAX_LOT_BOOK_UNRECONCILED, TAX_TERM_RULE_UNSET } from './codes.js';
-import { runLotEngine, type EngineMethod, type EngineMovement, type LotSource, type ValuedAt } from './lot-engine.js';
+import { runLotEngine, type EngineMethod, type EngineMovement, type LotSource, type SaleRules, type ValuedAt } from './lot-engine.js';
 
 /**
  * LOT BOOK. Profit and loss as an indicator, built only from the customer's own trade fills. Not a tax form and not tied to
@@ -95,7 +95,14 @@ export interface BookMatch {
   readonly realizedUsd: string | null;
 }
 
+export type BookMethodSource = 'preview' | 'day' | 'asset' | 'account' | 'default';
+
 export interface BookSale {
+  /** The method this sale was matched by, and where it came from. */
+  readonly method: EngineMethod;
+  readonly methodSource: BookMethodSource;
+  /** The lot the customer picked for this sale, when it was open and so drawn first. */
+  readonly pickedLotId: string | null;
   readonly assetId: string;
   readonly txId: string;
   readonly disposedAt: string;
@@ -109,8 +116,24 @@ export interface BookSale {
   readonly matches: BookMatch[];
 }
 
+/** The customer's saved choices as the book shows them, or why none can be saved. */
+export type BookChoices =
+  | {
+      readonly status: 'saved';
+      readonly accountMethod: EngineMethod | null;
+      readonly assetMethods: Array<{ assetId: string; method: EngineMethod }>;
+      readonly days: Array<{ day: string; assetId: string | null; method: EngineMethod }>;
+      readonly picks: Array<{ saleTxId: string; assetId: string; lotId: string }>;
+    }
+  | { readonly status: 'unwired'; readonly code: 'tax.database_url_unset' | 'tax.database_pool_max_unset' };
+
+export const UNWIRED_CHOICES: BookChoices = { status: 'unwired', code: 'tax.database_url_unset' };
+
 export interface LotBook {
+  /** The account's method: the previewed one, else the saved one, else the product default. */
   readonly method: EngineMethod;
+  readonly preview: boolean;
+  readonly choices: BookChoices;
   readonly indicator: typeof INDICATOR_LABEL;
   readonly assets: BookAsset[];
   readonly sales: BookSale[];
@@ -162,12 +185,21 @@ function movementsOf(fills: readonly Fill[], residuals: Set<string>): EngineMove
 }
 
 const DAY_MS = 86_400_000;
+const METHOD_SOURCES: readonly BookMethodSource[] = ['preview', 'day', 'asset', 'account', 'default'];
+/** One method passed for the whole book (no saved choices) reads as the default. */
+const methodSourceOf = (source: string): BookMethodSource =>
+  (METHOD_SOURCES as readonly string[]).includes(source) ? (source as BookMethodSource) : 'default';
 const money = (v: Amount | null): string | null => (v === null ? null : formatAmount(v));
 
 export function buildLotBook(input: {
   fills: readonly Fill[];
   held: ReadonlyMap<string, Amount>;
   method: EngineMethod;
+  /** How each sale is matched; absent: every sale by `method`. */
+  rules?: SaleRules;
+  /** One method asked for every sale, not the customer's saved choices. */
+  preview?: boolean;
+  choices?: BookChoices;
   /** The read stopped before the start of history. */
   truncated: boolean;
   /** Assets that reached the customer in a way the book could not turn into a lot: a sale may have used those coins first. */
@@ -193,7 +225,7 @@ export function buildLotBook(input: {
       valuedAt: inflow.valuedAt,
     });
   }
-  const run = runLotEngine(movements, input.method);
+  const run = runLotEngine(movements, input.rules ?? input.method);
   for (const r of run.residuals) residuals.add(r);
 
   // Open quantity per asset. If more or less is open than the customer holds, coins arrived or left in a way the book
@@ -238,6 +270,9 @@ export function buildLotBook(input: {
 
   const blank = (assetId: string) => input.truncated || outside.has(assetId);
   const sales: BookSale[] = run.sales.map((sale) => ({
+    method: sale.rule.method,
+    methodSource: methodSourceOf(sale.rule.source),
+    pickedLotId: sale.pickedLotId,
     assetId: sale.assetId,
     txId: sale.txId,
     disposedAt: sale.postedAt.toISOString(),
@@ -289,6 +324,8 @@ export function buildLotBook(input: {
 
   return {
     method: input.method,
+    preview: input.preview ?? false,
+    choices: input.choices ?? UNWIRED_CHOICES,
     indicator: INDICATOR_LABEL,
     assets,
     sales,

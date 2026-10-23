@@ -1,21 +1,25 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { InfoTip } from './InfoTip';
 import { moneyCopy } from './copy';
-import { Amount, Skeleton, StateBlock, fmtAmount, fmtPct, fmtUsd, navigate, refusalCopy, type Loadable } from './deps';
+import { Amount, Button, Skeleton, StateBlock, fmtAmount, fmtPct, fmtUsd, navigate, refusalCopy, type Loadable } from './deps';
 import {
   LOT_METHODS,
+  coinMethod,
   lotAssetFromQuery,
   lotAssets,
   lotsOf,
   methodFromQuery,
+  pickableLots,
   pnlView,
   type AssetPnl,
   type LotBook,
   type LotBookLot,
+  type LotBookSale,
   type LotMethod,
+  type LotMethodSource,
   type UnknownReason,
 } from './pnl-model';
-import { useLotBook } from './pnl-source';
+import { useLotBook, useSaveLotChoice, type LotChoice } from './pnl-source';
 import { useMoneyPortfolio } from './portfolio-source';
 import { stamp } from './time';
 import { usePreferences } from '../../shared/preferences';
@@ -46,6 +50,17 @@ const SOURCE_COPY: Record<
   other_in: 'Source other_in',
 };
 
+const METHOD_SOURCE_COPY: Record<
+  LotMethodSource,
+  'Method from preview' | 'Method from day' | 'Method from coin' | 'Method from account' | 'Method from default'
+> = {
+  preview: 'Method from preview',
+  day: 'Method from day',
+  asset: 'Method from coin',
+  account: 'Method from account',
+  default: 'Method from default',
+};
+
 /** One plain sentence for each reason the book can name. Codes never reach the screen. */
 const RESIDUAL_COPY: Record<
   string,
@@ -55,6 +70,7 @@ const RESIDUAL_COPY: Record<
   | 'Residual incomplete'
   | 'Residual deposit policy'
   | 'Residual price at time'
+  | 'Residual pick unusable'
 > = {
   'tax.lot_underflow': 'Residual underflow',
   'tax.cost_basis_unavailable': 'Residual cost unavailable',
@@ -62,7 +78,28 @@ const RESIDUAL_COPY: Record<
   'tax.lot_book_incomplete': 'Residual incomplete',
   'tax.deposit_basis_policy_unset': 'Residual deposit policy',
   'tax.price_at_time_unavailable': 'Residual price at time',
+  'tax.lot_pick_unusable': 'Residual pick unusable',
 };
+
+type Save = (choice: LotChoice) => Promise<void>;
+
+/** Saves a choice and says how it went in one status line. The book reads itself again after a save. */
+function useChoiceSaver(copy: Copy): { save: Save; busy: boolean; message: string } {
+  const send = useSaveLotChoice();
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  const save: Save = async (choice) => {
+    setBusy(true);
+    setMessage('');
+    const result = await send(choice);
+    setBusy(false);
+    setMessage(result.ok ? copy.t('Choice saved') : refusalCopy(result.code).title);
+  };
+  return { save, busy, message };
+}
+
+/** Today as a UTC calendar day, the form the day choice is saved in. */
+const utcToday = () => new Date().toISOString().slice(0, 10);
 
 function usd(value: string | null, copy: Copy, signed = false): string {
   return value === null ? copy.t('Not known') : fmtUsd(value, { showPlus: signed });
@@ -148,7 +185,7 @@ function AssetRows({ assets, hidden, copy }: { assets: readonly AssetPnl[]; hidd
   );
 }
 
-function SaleRows({ book, hidden, copy }: { book: LotBook; hidden: boolean; copy: Copy }) {
+function SaleRows({ book, hidden, copy, save, busy }: { book: LotBook; hidden: boolean; copy: Copy; save: Save | null; busy: boolean }) {
   const { t } = copy;
   const { timeZone } = usePreferences();
   return (
@@ -175,6 +212,7 @@ function SaleRows({ book, hidden, copy }: { book: LotBook; hidden: boolean; copy
               <th scope="col" className="money-num">
                 {t('Result')}
               </th>
+              <th scope="col">{t('Matched by')}</th>
             </tr>
           </thead>
           <tbody>
@@ -199,11 +237,138 @@ function SaleRows({ book, hidden, copy }: { book: LotBook; hidden: boolean; copy
                     <Amount value={usd(sale.realizedUsd, copy, true)} hidden={hidden} />
                   )}
                 </td>
+                <td data-col="method">
+                  <span data-method={sale.method}>{t(METHOD_COPY[sale.method])}</span>{' '}
+                  <span className="money-note">{t(METHOD_SOURCE_COPY[sale.methodSource])}</span>
+                  {save !== null ? <LotPick book={book} sale={sale} save={save} busy={busy} copy={copy} /> : null}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       )}
+    </section>
+  );
+}
+
+/** Which lot one sale draws on first. "By method" clears the pick. */
+function LotPick({ book, sale, save, busy, copy }: { book: LotBook; sale: LotBookSale; save: Save; busy: boolean; copy: Copy }) {
+  const { t } = copy;
+  const { timeZone } = usePreferences();
+  const saved =
+    book.choices.status === 'saved' ? book.choices.picks.find((p) => p.saleTxId === sale.txId && p.assetId === sale.assetId) : undefined;
+  return (
+    <select
+      className="money-note"
+      aria-label={t('Lot for this sale')}
+      value={saved?.lotId ?? ''}
+      disabled={busy}
+      onChange={(event) =>
+        void save({
+          procedure: 'pickSaleLot',
+          input: { saleTxId: sale.txId, assetId: sale.assetId, lotId: event.target.value === '' ? null : event.target.value },
+        })
+      }
+    >
+      <option value="">{t('By method')}</option>
+      {pickableLots(book, sale).map((lot) => (
+        <option key={lot.id} value={lot.id}>
+          {t('Lot option', { time: stamp(lot.acquiredAt, timeZone), qty: fmtAmount(lot.qty), source: t(SOURCE_COPY[lot.source]) })}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/** The customer's saved choices: the method for every coin, and a method for one day. A coin's method is on its lots. */
+function ChoicesCard({ book, save, busy, message, copy }: { book: LotBook; save: Save; busy: boolean; message: string; copy: Copy }) {
+  const { t } = copy;
+  const [day, setDay] = useState(utcToday);
+  const [dayAsset, setDayAsset] = useState('');
+  const [dayMethod, setDayMethod] = useState<LotMethod>('FIFO');
+  const choices = book.choices;
+  return (
+    <section className="money-card" aria-label={t('Your matching choices')}>
+      <header className="money-card__head">
+        <h2>{t('Your matching choices')}</h2>
+      </header>
+      {choices.status === 'unwired' ? (
+        <p className="money-note">{t('Choices not saved here')}</p>
+      ) : (
+        <>
+          <label className="money-note">
+            {t('Method for all coins')}{' '}
+            <select
+              aria-label={t('Method for all coins')}
+              value={choices.accountMethod ?? book.method}
+              disabled={busy}
+              onChange={(event) =>
+                void save({ procedure: 'setLotMethod', input: { assetId: null, method: event.target.value as LotMethod } })
+              }
+            >
+              {LOT_METHODS.map((m) => (
+                <option key={m} value={m}>
+                  {t(METHOD_COPY[m])}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="money-note">{t('Choices rule')}</p>
+          <form
+            className="money-note-form"
+            aria-label={t('Method for one day')}
+            onSubmit={(event) => {
+              event.preventDefault();
+              void save({ procedure: 'setDayMethod', input: { day, assetId: dayAsset === '' ? null : dayAsset, method: dayMethod } });
+            }}
+          >
+            <span className="money-note">{t('Method for one day')}</span>{' '}
+            <input type="date" aria-label={t('Day in UTC')} value={day} required onChange={(event) => setDay(event.target.value)} />{' '}
+            <select aria-label={t('Coin for that day')} value={dayAsset} onChange={(event) => setDayAsset(event.target.value)}>
+              <option value="">{t('All coins')}</option>
+              {lotAssets(book).map((a) => (
+                <option key={a} value={a}>
+                  {a}
+                </option>
+              ))}
+            </select>{' '}
+            <select
+              aria-label={t('Method for that day')}
+              value={dayMethod}
+              onChange={(event) => setDayMethod(event.target.value as LotMethod)}
+            >
+              {LOT_METHODS.map((m) => (
+                <option key={m} value={m}>
+                  {t(METHOD_COPY[m])}
+                </option>
+              ))}
+            </select>{' '}
+            <Button type="submit" variant="secondary" size={40} disabled={busy}>
+              {t('Save day method')}
+            </Button>
+          </form>
+          {choices.days.length > 0 ? (
+            <ul className="money-note" aria-label={t('Saved day methods')}>
+              {choices.days.map((d) => (
+                <li key={`${d.day}:${d.assetId ?? '*'}`} data-day={d.day}>
+                  {t('Day method line', { day: d.day, coin: d.assetId ?? t('All coins'), method: t(METHOD_COPY[d.method]) })}{' '}
+                  <button
+                    type="button"
+                    className="money-alloc__opt"
+                    disabled={busy}
+                    onClick={() => void save({ procedure: 'setDayMethod', input: { day: d.day, assetId: d.assetId, method: null } })}
+                  >
+                    {t('Remove')}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </>
+      )}
+      <p className="money-note" role="status">
+        {message}
+      </p>
     </section>
   );
 }
@@ -216,7 +381,21 @@ function priceSource(lot: LotBookLot, copy: Copy, timeZone: Parameters<typeof st
   return copy.t('Price source', { market: v.market, frame, time: v.candleAt === null ? '' : stamp(v.candleAt, timeZone) });
 }
 
-function LotRows({ book, search, hidden, copy }: { book: LotBook; search: string; hidden: boolean; copy: Copy }) {
+function LotRows({
+  book,
+  search,
+  hidden,
+  copy,
+  save,
+  busy,
+}: {
+  book: LotBook;
+  search: string;
+  hidden: boolean;
+  copy: Copy;
+  save: Save | null;
+  busy: boolean;
+}) {
   const { t } = copy;
   const { timeZone } = usePreferences();
   const assets = lotAssets(book);
@@ -242,6 +421,29 @@ function LotRows({ book, search, hidden, copy }: { book: LotBook; search: string
             ))}
           </select>
         </label>
+        {save !== null ? (
+          <label className="money-note">
+            {t('Method for coin', { asset })}{' '}
+            <select
+              aria-label={t('Method for coin', { asset })}
+              value={coinMethod(book, asset) ?? ''}
+              disabled={busy}
+              onChange={(event) =>
+                void save({
+                  procedure: 'setLotMethod',
+                  input: { assetId: asset, method: event.target.value === '' ? null : (event.target.value as LotMethod) },
+                })
+              }
+            >
+              <option value="">{t('Same as all coins')}</option>
+              {LOT_METHODS.map((m) => (
+                <option key={m} value={m}>
+                  {t(METHOD_COPY[m])}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
       </header>
       <p className="money-note">{t('Lots rule')}</p>
       <table className="money-table">
@@ -321,9 +523,12 @@ export default function Pnl({ search = '' }: { search?: string }) {
   const { hideBalances } = usePreferences();
   // The link is the one source of the method, so a copied or reloaded link shows what was on screen.
   const asked = useMemo(() => methodFromQuery(search), [search]);
-  const method = typeof asked === 'string' ? asked : null;
+  const ask = typeof asked === 'string' ? asked : null;
   const pick = (next: LotMethod) => navigate(`/money/pnl?method=${next}`, true);
-  const book = useLotBook(method);
+  const book = useLotBook(ask);
+  const saver = useChoiceSaver(copy);
+  // The switch shows the method on screen: the previewed one, else the account's saved (or default) method.
+  const method = ask !== 'saved' ? ask : book.status === 'ready' ? book.data.method : null;
   const portfolio = useMoneyPortfolio();
   const rows = portfolio.status === 'ready' ? portfolio.data.rows : null;
   const view = useMemo(() => (book.status === 'ready' ? pnlView(book.data, rows) : null), [book, rows]);
@@ -341,7 +546,7 @@ export default function Pnl({ search = '' }: { search?: string }) {
         retryLabel={t('Try again')}
       />
     );
-  } else if (book.status === 'refused' && method === null) {
+  } else if (book.status === 'refused' && ask === null) {
     body = <StateBlock kind="refused" className="money-state" title={t('Method not offered')} body={t('Method not offered body')} />;
   } else if (book.status === 'refused') {
     const words = refusalCopy(book.code);
@@ -367,8 +572,41 @@ export default function Pnl({ search = '' }: { search?: string }) {
     );
   } else {
     const reasons = book.data.residuals.flatMap((code) => (RESIDUAL_COPY[code] ? [RESIDUAL_COPY[code]!] : []));
+    const data = book.data;
+    // Choices are made on the saved book, never on a preview, and only where they can be saved.
+    const canChoose = !data.preview && data.choices.status === 'saved';
+    const save = canChoose ? saver.save : null;
     body = (
       <>
+        {data.preview ? (
+          <div className="money-note" role="note" aria-label={t('Preview')}>
+            <p>{t('Preview note', { method: t(METHOD_COPY[data.method]) })}</p>
+            {data.choices.status === 'saved' ? (
+              <Button
+                type="button"
+                variant="secondary"
+                size={40}
+                disabled={saver.busy}
+                onClick={() =>
+                  void saver
+                    .save({ procedure: 'setLotMethod', input: { assetId: null, method: data.method } })
+                    .then(() => navigate('/money/pnl', true))
+                }
+              >
+                {t('Save method for all coins', { method: t(METHOD_COPY[data.method]) })}
+              </Button>
+            ) : null}{' '}
+            <a
+              href="/money/pnl"
+              onClick={(event) => {
+                event.preventDefault();
+                navigate('/money/pnl', true);
+              }}
+            >
+              {t('Back to my choices')}
+            </a>
+          </div>
+        ) : null}
         <div className="money-head">
           <div className="money-head__main">
             <div className="money-label">
@@ -397,8 +635,9 @@ export default function Pnl({ search = '' }: { search?: string }) {
           </ul>
         ) : null}
         <AssetRows assets={view.assets} hidden={hideBalances} copy={copy} />
-        <SaleRows book={book.data} hidden={hideBalances} copy={copy} />
-        <LotRows book={book.data} search={search} hidden={hideBalances} copy={copy} />
+        <SaleRows book={data} hidden={hideBalances} copy={copy} save={save} busy={saver.busy} />
+        <LotRows book={data} search={search} hidden={hideBalances} copy={copy} save={save} busy={saver.busy} />
+        {data.preview ? null : <ChoicesCard book={data} save={saver.save} busy={saver.busy} message={saver.message} copy={copy} />}
       </>
     );
   }

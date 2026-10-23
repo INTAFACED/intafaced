@@ -69,6 +69,7 @@ const SERVICES = [
   ['svc-mining-pool', 'mining_pool'],
   ['svc-ops', 'ops'],
   ['svc-quant', 'quant'],
+  ['svc-tax', 'tax'],
 ];
 
 const host = process.env.POSTGRES_HOST ?? 'postgres';
