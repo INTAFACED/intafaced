@@ -17,6 +17,8 @@ import {
   createPriceWalk,
   crossingSide,
   fromScaled,
+  TAPE_CLIENT_PREFIX,
+  tapeWindow,
   toScaled,
   toScaledFloor,
 } from './local-test-market.mjs';
@@ -61,8 +63,46 @@ try {
   r = run(home, ['start', '--edge-url', 'https://api.intafaced.com']);
   assert.equal(r.status, 1, r.stderr);
   assert.match(r.stderr, /is not http:\/\/127\.0\.0\.1/);
+  // 5b. `history` sits behind the same guard, and refuses a nonsense bar count before any call.
+  r = run(home, ['history', '--edge-url', 'https://api.intafaced.com']);
+  assert.equal(r.status, 1, r.stderr);
+  assert.match(r.stderr, /is not http:\/\/127\.0\.0\.1/);
+  for (const bad of [
+    ['--bars', '0'],
+    ['--bars', '2001'],
+    ['--bars', '1.5'],
+    ['--step-minutes', '0'],
+    ['--step-minutes', '1441'],
+    ['--trades-per-bar', '0'],
+    ['--trades-per-bar', '7'],
+    ['--bars', '1000', '--trades-per-bar', '6'],
+    ['--bars', '1000', '--step-minutes', '60'],
+  ]) {
+    r = run(home, ['history', ...bad]);
+    assert.equal(r.status, 2, `${bad.join(' ')}: ${r.stderr}`);
+  }
 } finally {
   rmSync(home, { recursive: true, force: true });
+}
+
+// 5c. The tape history window: trades evenly spaced inside closed bars, the newest bar ending where the current bucket
+// starts. svc-trade matches the client id prefix exactly (services/svc-trade/src/spot/local-test-tape.ts).
+{
+  const step = 15 * 60_000;
+  const now = Date.UTC(2026, 9, 23, 0, 52, 13);
+  const end = Date.UTC(2026, 9, 23, 0, 45);
+  const one = tapeWindow({ nowMs: now, trades: 210, stepMs: step });
+  assert.deepEqual(one, { startMs: end - 210 * step, stepMs: step });
+  const three = tapeWindow({ nowMs: now, trades: 630, stepMs: step, perBar: 3 });
+  assert.deepEqual(three, { startMs: end - 210 * step, stepMs: step / 3 });
+  // Trade i lands in bar floor(i / 3): three per bar, and the last one before the current bucket.
+  const bar = (i) => Math.floor((three.startMs + i * three.stepMs) / step);
+  assert.deepEqual([bar(0), bar(1), bar(2), bar(3)], [bar(0), bar(0), bar(0), bar(0) + 1]);
+  assert.ok(three.startMs + 629 * three.stepMs < end);
+  assert.equal(bar(629), end / step - 1);
+  assert.throws(() => tapeWindow({ nowMs: now, trades: 7, stepMs: 1000, perBar: 7 }), /divide evenly/);
+  assert.equal(TAPE_CLIENT_PREFIX, 'LTEST-TAPE-');
+  assert.ok(`${TAPE_CLIENT_PREFIX}abcdef-${5000 * 5}`.length <= 64); // the order contract's client id limit
 }
 
 // 6. Decimal helpers round-trip and refuse non-decimal text.
