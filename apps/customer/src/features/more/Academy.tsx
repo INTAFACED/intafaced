@@ -22,6 +22,7 @@ import {
   rememberCertificate,
 } from './AcademyLearning';
 import { academyLearningCopy } from './academy-learning-copy';
+import { AcademyCourse, AcademyHub } from './AcademyHub';
 import { academySectionRedirect, academyTabHref, academyTabs, type AcademyRoute } from './academy-lms';
 import { navigate } from '../../app/location';
 
@@ -54,7 +55,7 @@ function Academy({ route, slug, initialPath }: { route: AcademyRoute; slug?: str
   const { userId } = useSession(),
     action = useAcademyAction();
   // Each tab is its own address: a click pushes history, so the back button returns to the previous tab.
-  const tab = route.kind === 'tab' ? route.tab : route.kind === 'reader' ? 'Learning' : '';
+  const tab = route.kind === 'tab' ? route.tab : route.kind === 'reader' || route.kind === 'course' ? 'Learning' : '';
   const [selection, setSelection] = useState({ owner: userId, id: selectedCertificate(userId) });
   const selected = selection.owner === userId ? selection.id : selectedCertificate(userId);
   useEffect(() => {
@@ -85,7 +86,10 @@ function Academy({ route, slug, initialPath }: { route: AcademyRoute; slug?: str
         }}
         label={copyText('academy.academy.sections')}
       />
-      {route.kind === 'progress' ? (
+      {route.kind === 'tab' && route.hub && <AcademyHub />}
+      {route.kind === 'course' ? (
+        <AcademyCourse slug={route.slug} signedIn />
+      ) : route.kind === 'progress' ? (
         <AcademyProgress action={action} />
       ) : tab === 'Learning' ? (
         <AcademyLearning slug={slug} initialPath={initialPath} certId={selected} chooseCertificate={chooseCertificate} action={action} />

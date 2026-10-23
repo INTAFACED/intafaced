@@ -47,3 +47,30 @@ export type AcademyPublicItem = z.infer<typeof academyPublicItemSchema>;
 /** `publicVideos`: titles only; playback stays behind sign-in and the tier and stake gate. */
 export const academyPublicVideoSchema = z.object({ slug: z.string(), title: z.string(), path: z.enum(ACADEMY_CURRICULUM_PATHS) });
 export type AcademyPublicVideo = z.infer<typeof academyPublicVideoSchema>;
+
+/**
+ * `publicCourse`: until courses are rows (AC-course-structure-01) a course is one curriculum path. Summary and instructor
+ * are null while nobody has written them; outcomes are the lessons' own objectives, the syllabus is the path's published
+ * items in order. `certificate` is the path's published certificate title, or null when the owner has published none.
+ */
+export const academyPublicCourseSchema = z.object({
+  slug: z.enum(ACADEMY_CURRICULUM_PATHS),
+  summary: z.string().nullable(),
+  instructor: z.string().nullable(),
+  outcomes: z.array(z.string()),
+  syllabus: z.array(academyCurriculumSummarySchema).min(1),
+  certificate: z.string().nullable(),
+});
+export type AcademyPublicCourse = z.infer<typeof academyPublicCourseSchema>;
+
+/** `publicCourses`: one card per course that has published items. */
+export const academyPublicCourseCardSchema = z.object({
+  slug: z.enum(ACADEMY_CURRICULUM_PATHS),
+  items: z.number().int().positive(),
+  estimatedMinutes: z.number().int().positive(),
+});
+export type AcademyPublicCourseCard = z.infer<typeof academyPublicCourseCardSchema>;
+
+/** `publicHub`: the item staff chose for the hub's featured slot, or null when nobody chose one. Never auto-promoted. */
+export const academyPublicHubSchema = z.object({ featured: academyCurriculumSummarySchema.nullable() });
+export type AcademyPublicHub = z.infer<typeof academyPublicHubSchema>;

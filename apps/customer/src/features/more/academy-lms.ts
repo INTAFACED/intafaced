@@ -354,19 +354,29 @@ export const academyTabs: readonly (readonly [AcademyTab, string])[] = [
 ];
 export const academyTabHref = (tab: AcademyTab) => `/academy/${academyTabs.find(([name]) => name === tab)![1]}`;
 
-export type AcademyRoute = { kind: 'tab'; tab: AcademyTab } | { kind: 'progress' } | { kind: 'reader'; slug: string | undefined };
+export type AcademyRoute =
+  | { kind: 'tab'; tab: AcademyTab; hub?: true }
+  | { kind: 'progress' }
+  | { kind: 'reader'; slug: string | undefined }
+  | { kind: 'course'; slug: string | undefined };
+/** The public course page (AC-catalogue-03). Until courses are rows a course is one curriculum path. */
+export const academyCourseHref = (slug: string) => `/academy/learning/course/${encodeURIComponent(slug)}`;
+const decoded = (segment: string) => {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return undefined;
+  }
+};
 /** What an `/academy` address opens: a tab, the progress page, or the reader. A tab segment always wins over a lesson. */
 export function academyRoute(pathname: string): AcademyRoute {
-  const segment = pathname.split('/')[2];
-  if (!segment) return { kind: 'tab', tab: 'Learning' };
+  const [, , segment, part, course] = pathname.split('/');
+  if (!segment) return { kind: 'tab', tab: 'Learning', hub: true };
+  if (segment === 'learning' && part === 'course') return { kind: 'course', slug: course ? decoded(course) : undefined };
   const tab = academyTabs.find(([, slug]) => slug === segment);
   if (tab) return { kind: 'tab', tab: tab[0] };
   if (segment === 'progress') return { kind: 'progress' };
-  try {
-    return { kind: 'reader', slug: decodeURIComponent(segment) };
-  } catch {
-    return { kind: 'reader', slug: undefined };
-  }
+  return { kind: 'reader', slug: decoded(segment) };
 }
 
 /** The old `/academy?section=videos` link lands on `/academy/videos`, keeping its other parameters. Anything else stays put. */
