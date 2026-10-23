@@ -38,17 +38,21 @@ describe('the review of a send to a person (J-bank-04 #3)', () => {
     expect(review.blocked).toContain('bank.personal_transfer_terms_unset');
   });
   it('turns Confirm off for a fee the transfer cannot charge, then the single limit, then today’s', () => {
-    expect(personSendReview(ok(quote({ fee: '1', feeBlocker: 'bank.personal_transfer_fee_unwired' })), '40', 'USDT').blocked).toContain(
-      'bank.personal_transfer_fee_unwired',
-    );
+    const unwired = personSendReview(ok(quote({ fee: '1', feeBlocker: 'bank.personal_transfer_fee_unwired' })), '40', 'USDT');
+    expect(unwired.blocked).toContain('bank.personal_transfer_fee_unwired');
+    // Nothing would leave, so no "taken" figure stands beside the refusal.
+    expect(unwired.rows.map(([label]) => label)).toEqual(['Transfer fee', 'Fees in total']);
     expect(personSendReview(ok(quote({ withinPerTransfer: false, withinDaily: false })), '40', 'USDT').blocked).toContain(
-      '1000 USDT limit',
+      '1,000 USDT limit',
     );
     expect(personSendReview(ok(quote({ spentToday: '4990', withinDaily: false })), '40', 'USDT').blocked).toContain('Only 10 USDT');
   });
   it('never shows a quote for another amount or asset, and says so when the read fails', () => {
     expect(personSendReview(ok(quote({ amount: '41' })), '40', 'USDT')).toMatchObject({ rows: [], blocked: expect.any(String) });
     expect(personSendReview(ok(quote({ assetId: 'USDC' })), '40', 'USDT').rows).toEqual([]);
-    expect(personSendReview(refused('bank.unavailable'), '40', 'USDT').blocked).toContain('could not be read');
+    expect(personSendReview({ ok: false, reason: 'error', message: 'offline' }, '40', 'USDT').blocked).toContain('could not be read');
+  });
+  it('names any other refusal by the service’s own code', () => {
+    expect(personSendReview(refused('bank.account_frozen'), '40', 'USDT').blocked).toContain('(bank.account_frozen)');
   });
 });

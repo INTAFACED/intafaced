@@ -47,6 +47,7 @@ const en = {
   reviewOverPayment: 'That is above the {limit} {asset} limit for a single transfer, so Confirm stays off.',
   reviewOverDaily: 'Only {left} {asset} is left to send today, so Confirm stays off.',
   reviewUnreadable: 'The fee and limits for this transfer could not be read, so Confirm stays off. Go back and review again.',
+  reviewRefused: 'The bank refused this transfer before anything was sent ({code}), so Confirm stays off.',
   periodCustom: 'Choose dates',
 } as const;
 const es = {
@@ -97,6 +98,7 @@ const es = {
   reviewOverDaily: 'Hoy solo te quedan {left} {asset} por enviar, así que Confirmar está desactivado.',
   reviewUnreadable:
     'No se pudieron leer la comisión y los límites de esta transferencia, así que Confirmar está desactivado. Vuelve y revisa otra vez.',
+  reviewRefused: 'El banco rechazó esta transferencia antes de enviar nada ({code}), así que Confirmar está desactivado.',
   periodCustom: 'Elegir fechas',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
@@ -148,6 +150,7 @@ const fr = {
   reviewOverDaily: 'Il ne reste que {left} {asset} à envoyer aujourd’hui, donc Confirmer reste désactivé.',
   reviewUnreadable:
     'Les frais et les plafonds de ce virement n’ont pas pu être lus, donc Confirmer reste désactivé. Revenez et vérifiez à nouveau.',
+  reviewRefused: 'La banque a refusé ce virement avant tout envoi ({code}), donc Confirmer reste désactivé.',
   periodCustom: 'Choisir des dates',
 } satisfies Record<keyof typeof en, string>;
 
