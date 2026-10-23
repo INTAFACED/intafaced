@@ -7,6 +7,7 @@ import {
   protocolServiceHealthSchema,
 } from '@intafaced/contracts/protocol-blockers';
 import {
+  protocolCapabilitiesOutputSchema,
   protocolDeploymentsOutputSchema,
   protocolNetworksListOutputSchema,
   type ProtocolDeploymentsOutput,
@@ -65,6 +66,9 @@ export function createProtocolApi(api: ApiClient) {
     /** Recorded contracts and router versions for one chain. A chain with nothing recorded is a refusal, not an empty list. */
     deploymentsList: (chainId: number, signal?: AbortSignal) =>
       api.query('protocol', 'deployments.list', { chainId }, protocolDeploymentsOutputSchema, { signal }),
+    /** What the node can do, measured by the service. Only the configured chain is probed; any other chain reports nothing probed. */
+    capabilities: (chainId: number, signal?: AbortSignal) =>
+      api.query('protocol', 'capabilities', { chainId }, protocolCapabilitiesOutputSchema, { signal }),
     /** A read-only quote. It moves nothing; the service refuses with a `dex.quote.*` code when no venue can be read fresh. */
     dexQuote: (input: { symbol: string; side: 'buy' | 'sell'; qty: string }, signal?: AbortSignal) =>
       api.query('dex', 'quote', input, dexQuoteSchema, { signal }),
