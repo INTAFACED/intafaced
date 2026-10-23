@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { Button, Field, Failure, Loading } from '../../shared/ui';
-import { publishedCopy, publishedLanguageFor } from '../../shared/copy';
 import { useLocation } from '../../app/location';
+import { useResource } from '../../shared/resource';
 import { useSession } from '../session/session';
 import { helpCopy as copy } from './help-copy';
 import { exactHelpArticle, helpHref, helpSelection, helpVersion, helpWindow, missingHelpVersion, type HelpArticle } from './help-guards';
@@ -10,6 +10,7 @@ import { ContactSupport } from './ContactSupport';
 import { ActionRequired, RequestEntry } from './HelpFrontDoor';
 import { helpCentreSwitchedOff, useHelpCentre } from './help-centre';
 import { HelpLibraryNav } from './HelpLibrary';
+import { kbArticleText } from './kb-text';
 import { supportKbParagraphs } from '@intafaced/contracts/support-kb-library';
 import './help.css';
 import '../more/support-desk.css';
@@ -105,17 +106,7 @@ export function PublicHelp() {
     if (visible && (selection.kind !== 'browse' || visible.status === 'failed')) heading.current?.focus();
   }, [context, read]);
 
-  // An answer typed in the desk carries its own text in its own language; a catalogue-keyed one is looked up.
-  const rendered = (article: HelpArticle) =>
-    article.title && article.body
-      ? { title: article.title, body: article.body, titleLanguage: article.language, bodyLanguage: article.language, stored: true }
-      : {
-          title: publishedCopy(article.titleKey, requestedLocale),
-          body: publishedCopy(article.bodyKey, requestedLocale),
-          titleLanguage: publishedLanguageFor(article.titleKey, requestedLocale),
-          bodyLanguage: publishedLanguageFor(article.bodyKey, requestedLocale),
-          stored: false,
-        };
+  const rendered = (article: HelpArticle) => kbArticleText(article, requestedLocale);
   /** Paragraphs as the reader sees them: a stored body by its blank lines, a catalogue body by its sentences. */
   const paragraphs = (article: HelpArticle) => {
     const text = rendered(article);
@@ -128,14 +119,32 @@ export function PublicHelp() {
     return Boolean((text.title && text.titleLanguage !== requestedLocale) || (text.body && text.bodyLanguage !== requestedLocale));
   };
   const loaded = visible?.status === 'ready' && visible.value.kind === 'browse' ? visible.value : null;
-  const articles =
-    loaded?.articles.filter((article) => {
-      const text = rendered(article);
-      return [text.title ?? '', text.body ?? '', article.id]
-        .join(' ')
-        .toLocaleLowerCase(requestedLocale)
-        .includes(filterText.trim().toLocaleLowerCase(requestedLocale));
-    }) ?? [];
+  const typed = filterText.trim();
+  // The service ranks a search: a labelled answer comes before one that only mentions the words. Answers on this page whose
+  // translated text matches follow, so a catalogue answer found by its words in the reader's language is never lost.
+  const ranked = useResource(
+    (signal): Promise<ApiResult<HelpArticle[]>> =>
+      typed && loaded && !switchedOff
+        ? actor.client.query('support', 'searchKb', { q: typed, limit }, helpWindow(limit), { signal })
+        : Promise.resolve({ ok: true, data: [] }),
+    `help-search:${actor.owner ?? 'public'}:${limit}:${typed}:${Boolean(loaded && !switchedOff)}`,
+  );
+  const textMatches = (article: HelpArticle) => {
+    const text = rendered(article);
+    return [text.title ?? '', text.body ?? '', article.id]
+      .join(' ')
+      .toLocaleLowerCase(requestedLocale)
+      .includes(typed.toLocaleLowerCase(requestedLocale));
+  };
+  const rankedRows = ranked.resource.status === 'ready' ? ranked.resource.data : [];
+  // Until the ranking answers, no count or "no matches" is said: the labelled answer may only be found by the service.
+  const ranking = Boolean(typed) && ranked.resource.status === 'loading';
+  const rankedIds = new Set(rankedRows.map((row) => row.id));
+  const articles = !loaded
+    ? []
+    : !typed
+      ? loaded.articles
+      : [...rankedRows, ...loaded.articles.filter((article) => !rankedIds.has(article.id) && textMatches(article))];
   const article = visible?.status === 'ready' && visible.value.kind === 'article' ? visible.value.article : null;
   const missing =
     selection.kind === 'article' && selection.version !== undefined && visible?.status === 'failed' && missingHelpVersion(visible.failure);
@@ -260,7 +269,7 @@ export function PublicHelp() {
             <Button type="submit">{t('search')}</Button>
           </form>
           <div className="help__request">
-            <RequestEntry />
+            <RequestEntry query={typed} />
           </div>
           <HelpLibraryNav />
           <p className="help__caption muted" role="status">
@@ -318,13 +327,19 @@ export function PublicHelp() {
                       );
                     })}
                   </div>
-                  {!articles.length && (
+                  {!articles.length && !ranking && (
                     <div className="help__empty" role="status">
                       <h2>{t(loaded.articles.length ? 'noMatches' : 'empty')}</h2>
                       <p className="muted">{t(loaded.articles.length ? 'noMatchesBody' : 'emptyBody')}</p>
                     </div>
                   )}
-                  {filterText && (
+                  {ranking && <Loading label={t('searching')} />}
+                  {typed && ranked.resource.status === 'failed' && (
+                    <p className="help__caption muted" role="status" data-testid="help-search-unranked">
+                      {t('searchUnranked')}
+                    </p>
+                  )}
+                  {typed && !ranking && (
                     <p className="help__caption muted" role="status">
                       <span lang="zxx">{articles.length}</span> {t('matches')}
                     </p>

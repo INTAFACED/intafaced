@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { contactChannels, helpCentre, publishText, saveCategory, saveSection, setHelpCentre, unpublish } from './help-centre.mjs';
+import { signUp } from './desk.mjs';
 import { EDGE, ORIGIN } from './stack.mjs';
 
 // J-support-public-01, in the running app (docs/roadmap/journeys.json): a signed-out visitor finds an answer in the help
@@ -150,4 +151,65 @@ test(`${J} #3 browses a category and then a section: only that section's publish
   await page.goto(`/help/category/${category.id}`);
   await expect(page.locator('main').getByTestId('help-topic-missing')).toBeVisible();
   await page.context().close();
+});
+
+test(`${J} #4 a search lists the labelled answer first, and the typed words survive going to sign in`, async ({ browser }) => {
+  // Two answers of the run's own: one labelled with the run's word, one that only mentions it in its body. Both are taken
+  // down and the topic retired at the end.
+  const word = `j01${RUN}`;
+  const category = { id: `j01-${RUN}-s`, name: `TEST ${J} ${RUN} search`, position: 9001, reason: `TEST ${J} #4` };
+  const section = { id: `j01-${RUN}-s1`, categoryId: category.id, name: `TEST search ${RUN}`, position: 0, reason: category.reason };
+  const made = [];
+  await saveCategory(category);
+  try {
+    await saveSection(section);
+    const mentions = await publishText({
+      id: `j01-${RUN}-mention`,
+      title: `TEST Signing in on a new phone ${RUN}`,
+      body: `TEST You can also add the ${word} step from your security page.`,
+      language: 'en',
+      sectionId: section.id,
+      baseRevision: 0,
+    });
+    made.push(mentions);
+    const labelled = await publishText({
+      id: `j01-${RUN}-labelled`,
+      title: `TEST Use a security key ${RUN}`,
+      body: 'TEST A hardware key works as the second step.',
+      language: 'en',
+      sectionId: section.id,
+      baseRevision: 0,
+      tags: [word],
+    });
+    made.push(labelled);
+
+    // A person with an account, signed out on this device.
+    const page = await visitor(browser);
+    const who = await signUp(page, 'j01s');
+    await page.context().clearCookies();
+
+    await page.goto('/help');
+    const main = page.locator('main');
+    await main.getByRole('textbox', { name: 'Search answers' }).fill(word);
+    await main.getByRole('button', { name: 'Search', exact: true }).click();
+    const titles = main.locator('.help__row h2');
+    await expect(titles).toHaveText([labelled.title, mentions.title]);
+
+    // Signed out, the request button asks for a sign-in in place; that sign-in brings the words to the support desk.
+    await main.getByRole('button', { name: 'Send a request' }).click();
+    const prompt = main.getByTestId('request-sign-in');
+    await expect(prompt.getByRole('link')).toHaveAttribute('href', `/login?redirect=${encodeURIComponent(`/support?q=${word}`)}`);
+    await prompt.getByRole('link').click();
+    await page.fill('input[name=identifier]', who.email);
+    await page.fill('input[name=password]', who.password);
+    await page.getByRole('button', { name: /^sign in$/i }).click();
+    // The desk opens on its help search with the words already run, then takes them out of the address.
+    await expect(page).toHaveURL(/\/support$/);
+    await expect(page.getByRole('textbox', { name: 'Search help' })).toHaveValue(word);
+    await expect(page.getByText(labelled.title)).toBeVisible();
+    await page.context().close();
+  } finally {
+    for (const row of made) await unpublish(row.id, row.revision);
+    await saveCategory({ ...category, retired: true, reason: `TEST ${J} #4 retire the run's topic` });
+  }
 });
