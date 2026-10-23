@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { test, expect } from '@playwright/test';
-import { EDGE, journeyState, toUnits } from './stack.mjs';
+import { journeyState, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
+import { closedBarsSince, tapeWindow } from './tape.mjs';
 
 // J-algo-dev-01, in the running app (docs/roadmap/journeys.json): build a first strategy, save it and backtest it on
 // history. One test per step this build serves, titled "J-algo-dev-01 #<n>", run in order on one TEST developer who
@@ -289,27 +290,15 @@ test(`${J} #4 saves the strategy at version 1; Save again after a lost reply mak
   run.write({ strategy: 'TEST first strategy' });
 });
 
-/** A UTC minute as a datetime-local value, `minutesAgo` before the current minute. */
-function utcMinute(minutesAgo) {
-  const at = Math.floor(Date.now() / 60_000) * 60_000 - minutesAgo * 60_000;
-  return new Date(at).toISOString().slice(0, 16);
-}
-
-/** The TEST market maker's closed 1m bars of BTC/USDT since a datetime-local UTC minute, read from Edge's public route. */
-async function closedBarsSince(minute) {
-  const since = Date.parse(`${minute}:00Z`);
-  const res = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=1m&since=${since}&limit=720`);
-  if (!res.ok) return [];
-  const rows = await res.json();
-  return rows.filter(([at]) => at >= since && at + 60_000 <= Date.now());
-}
-
 // The window both backtest steps run on: the last hour of the TEST tape, fixed once so #6 repeats #5's inputs exactly.
 const WINDOW_MINUTES = 60;
 
 test(`${J} #5 sets cash, a window, the fee, slippage and delay, and runs with slippage blank: a refusal names slippage and nothing runs; the published fee rates show`, async ({
   page,
 }) => {
+  test.setTimeout(15 * 60_000);
+  // The TEST market maker trades about once a minute: fix the window once the last hour holds enough closed bars.
+  const { from, to } = await tapeWindow(WINDOW_MINUTES);
   await signIn(page, developer());
   // The strategy now trades by signal rules: TEST inputs on 1 minute bars of the local TEST market, saved as version 3.
   await page.goto('/quant/studio');
@@ -336,8 +325,6 @@ test(`${J} #5 sets cash, a window, the fee, slippage and delay, and runs with sl
   );
   // The saved starting cash is offered; the developer keeps it.
   await expect(room.getByLabel('Starting cash')).toHaveValue('1000');
-  const from = utcMinute(WINDOW_MINUTES);
-  const to = utcMinute(0);
   run.write({ window: { from, to } });
   await room.getByLabel('From (UTC)').fill(from);
   await room.getByLabel('To (UTC)').fill(to);
