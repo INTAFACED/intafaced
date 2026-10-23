@@ -10,7 +10,7 @@ import { KillSwitchState } from './kill-switch.js';
 vi.stubEnv('APP_ENV', 'test');
 
 /**
- * The ledger object lookup on the edge (OPS-rules-monitoring-12): treasury scope, the operator's own token forwarded to
+ * The ledger object lookup on the edge (OPS-rules-monitoring-12): a founder's admin:read with a second factor, the operator's own token forwarded to
  * one named svc-ledger route, the path built from a checked id or an encoded key, and svc-ledger's answer passed through.
  */
 
@@ -124,17 +124,43 @@ describe('GET /admin/ledger/trace', () => {
 });
 
 describe('who may look up through the edge', () => {
-  it('refuses no credential, treasury without a second factor and a non-treasury scope, calling nothing', async () => {
+  it('refuses no credential, admin:read or treasury without a second factor, and a scope that is neither, calling nothing', async () => {
     const { app, calls } = await harness();
     for (const url of [`/admin/ledger/transactions/${TX}`, '/admin/ledger/trace?businessKey=k']) {
       expect((await app.inject({ method: 'GET', url })).statusCode).toBe(401);
+      for (const scopes of [['admin:treasury'], ['admin:read']]) {
+        const res = await app.inject({ method: 'GET', url, headers: { authorization: await bearer(scopes, false) } });
+        expect(res.statusCode).toBe(401);
+      }
       expect(
-        (await app.inject({ method: 'GET', url, headers: { authorization: await bearer(['admin:treasury'], false) } })).statusCode,
-      ).toBe(401);
-      expect(
-        (await app.inject({ method: 'GET', url, headers: { authorization: await bearer(['admin:read', 'admin:write']) } })).statusCode,
+        (await app.inject({ method: 'GET', url, headers: { authorization: await bearer(['market:ops', 'admin:write']) } })).statusCode,
       ).toBe(403);
     }
+    expect(calls).toHaveLength(0);
+    await app.close();
+  });
+
+  it("forwards a founder's admin:read with a second factor (owner decision 2026-10-23) on both lookups", async () => {
+    const { app, calls } = await harness();
+    const auth = await bearer(['admin:read']);
+    expect(
+      (await app.inject({ method: 'GET', url: `/admin/ledger/transactions/${TX}`, headers: { authorization: auth } })).statusCode,
+    ).toBe(200);
+    expect(
+      (await app.inject({ method: 'GET', url: '/admin/ledger/trace?businessKey=k', headers: { authorization: auth } })).statusCode,
+    ).toBe(200);
+    expect(calls.map((call) => call.path)).toEqual([`/operator/transactions/${TX}`, '/operator/trace?businessKey=k']);
+    expect(calls.every((call) => call.bearer === auth)).toBe(true);
+    await app.close();
+  });
+
+  it('keeps the freeze and reconcile on treasury: admin:read with a second factor forwards nothing there', async () => {
+    const { app, calls } = await harness();
+    const authorization = await bearer(['admin:read']);
+    expect((await app.inject({ method: 'GET', url: '/admin/ledger/freeze', headers: { authorization } })).statusCode).toBe(403);
+    expect((await app.inject({ method: 'POST', url: '/admin/ledger/reconcile', headers: { authorization }, payload: {} })).statusCode).toBe(
+      403,
+    );
     expect(calls).toHaveLength(0);
     await app.close();
   });
