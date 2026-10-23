@@ -560,7 +560,7 @@ test(`${J} #7 a postmortem: refused on an incident still open, then written, app
   await expect(section.getByTestId('postmortem-body')).toHaveText(POSTMORTEM);
   await expect(section.getByRole('textbox')).toHaveCount(0);
 
-  // Public, under the resolved incident, with no author on it.
+  // Published for visitors (the signed-out read), named by the resolved incident, with no author on it.
   const resolved = (await statusRead()).incidents.find((i) => i.title === INCIDENT_TITLE);
   const published = (await publishedPostmortems()).find((p) => p.incidentId === resolved.id);
   expect(published).toMatchObject({ body: POSTMORTEM, version: 1, publishedAt: expect.any(String) });

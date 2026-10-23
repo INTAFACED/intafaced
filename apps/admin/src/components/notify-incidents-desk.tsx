@@ -407,6 +407,12 @@ function PostmortemSection({
           ) : (
             <p className="dk-muted">svc-notify takes a postmortem once a published update has resolved the incident.</p>
           )}
+          {postmortem && body !== postmortem.body && (
+            <div data-testid="postmortem-saved">
+              <p className="dk-muted">Saved version {postmortem.version} reads (your edit below is not saved):</p>
+              <p>{postmortem.body}</p>
+            </div>
+          )}
           <div className="adm-field">
             <label htmlFor={`${id}-body`}>{postmortem ? 'Edit the postmortem' : 'What happened, why, and what changes'}</label>
             <textarea
@@ -503,7 +509,7 @@ function IncidentCard({
   onSubmit,
 }: {
   incident: Incident;
-  /** Undefined when postmortems could not be read: the section is not shown rather than shown empty. */
+  /** Undefined when postmortems could not be read: the section names that instead of offering a form over nothing. */
   postmortem: Postmortem | null | undefined;
   approvals: readonly PublishApproval[];
   names: ReadonlyMap<string, string>;
@@ -544,16 +550,21 @@ function IncidentCard({
       </ol>
       {state === 'open' && <UpdateForm incident={incident} busy={busy} onSubmit={onSubmit} />}
       {state === 'resolved' && <p className="dk-muted">Resolved, and final. If it happens again, declare a new incident.</p>}
+      {state !== 'draft' && postmortem === undefined && (
+        <section className="dk-stack" data-testid="incident-postmortem" data-status="unread">
+          <h4>Postmortem</h4>
+          <p className="dk-why">
+            The postmortem could not be read from svc-notify, so it cannot be written or published here now. Read the desk again.
+          </p>
+          <div className="dk-row">
+            <button type="button" className="adm-btn" disabled>
+              Save postmortem draft
+            </button>
+          </div>
+        </section>
+      )}
       {state !== 'draft' && postmortem !== undefined && (
-        <PostmortemSection
-          key={`${postmortem?.version ?? 0}`}
-          incident={incident}
-          postmortem={postmortem}
-          approvals={approvals}
-          me={me}
-          busy={busy}
-          onSubmit={onSubmit}
-        />
+        <PostmortemSection incident={incident} postmortem={postmortem} approvals={approvals} me={me} busy={busy} onSubmit={onSubmit} />
       )}
     </article>
   );

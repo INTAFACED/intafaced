@@ -14,16 +14,21 @@ const INCIDENT = '33333333-3333-4333-8333-333333333333';
 class BoundApprovals implements NoticeApprovalConsumer {
   readonly proposed = new Map<string, { hash: string; target: string; version: string }>();
   readonly spent = new Set<string>();
+  readonly inputs: ActionApprovalConsumeInput[] = [];
   approver = APPROVER;
+  actionType = POSTMORTEM_PUBLISH_ACTION;
+  failure: Error | null = null;
   async consume(input: ActionApprovalConsumeInput): Promise<ActionApproval> {
+    this.inputs.push(input);
+    if (this.failure) throw this.failure;
     const bound = this.proposed.get(input.approvalId);
     if (!bound || bound.hash !== input.payloadHash || bound.target !== input.targetId || bound.version !== input.expectedVersion)
-      throw new Error('action_approval.payload_mismatch');
-    if (this.spent.has(input.approvalId)) throw new Error('action_approval.consumed');
+      throw new Error('identity refused consume (409) action_approval.payload_mismatch');
+    if (this.spent.has(input.approvalId)) throw new Error('identity refused consume (409) action_approval.consumed');
     this.spent.add(input.approvalId);
     return {
       approvalId: input.approvalId,
-      actionType: POSTMORTEM_PUBLISH_ACTION,
+      actionType: this.actionType,
       targetService: input.targetService,
       targetId: input.targetId,
       expectedVersion: input.expectedVersion,
@@ -132,6 +137,55 @@ describe('incident postmortems', () => {
       code: 'status.postmortem_approval_spent',
     });
     expect(await postmortems.get(INCIDENT)).toMatchObject({ status: 'draft', version: 2 });
+  });
+
+  it('the consume names a request id and the publisher, so identity can answer a retry after a lost reply', async () => {
+    const { postmortems, approvals, approve } = desk();
+    await postmortems.write(AUTHOR, { incidentId: INCIDENT, body: 'TEST', expectedVersion: 0 });
+    await approve('appr-1');
+    await postmortems.publish(AUTHOR, { incidentId: INCIDENT, approvalId: 'appr-1', operationId: 'op-1' });
+    expect(approvals.inputs[0]).toMatchObject({ requestId: 'postmortem-publish:appr-1', consumerPrincipalId: AUTHOR });
+  });
+
+  it('identity not answering leaves the approval usable; identity refusing spends nothing here either', async () => {
+    const { postmortems, approvals, approve } = desk();
+    await postmortems.write(AUTHOR, { incidentId: INCIDENT, body: 'TEST', expectedVersion: 0 });
+    await approve('appr-1');
+    approvals.failure = new Error('identity refused consume (503) unavailable');
+    await expect(postmortems.publish(AUTHOR, { incidentId: INCIDENT, approvalId: 'appr-1', operationId: 'op-1' })).rejects.toMatchObject({
+      code: 'status.postmortem_approval_unreachable',
+    });
+    approvals.failure = new Error('The operation was aborted due to timeout');
+    await expect(postmortems.publish(AUTHOR, { incidentId: INCIDENT, approvalId: 'appr-1', operationId: 'op-1' })).rejects.toMatchObject({
+      code: 'status.postmortem_approval_unreachable',
+    });
+    approvals.failure = null;
+    expect(await postmortems.publish(AUTHOR, { incidentId: INCIDENT, approvalId: 'appr-1', operationId: 'op-1' })).toMatchObject({
+      status: 'published',
+    });
+  });
+
+  it('an approval asked for another action is spent and publishes nothing', async () => {
+    const { postmortems, approvals, approve } = desk();
+    await postmortems.write(AUTHOR, { incidentId: INCIDENT, body: 'TEST', expectedVersion: 0 });
+    await approve('appr-1');
+    approvals.actionType = 'notify.notice.publish' as typeof POSTMORTEM_PUBLISH_ACTION;
+    await expect(postmortems.publish(AUTHOR, { incidentId: INCIDENT, approvalId: 'appr-1', operationId: 'op-1' })).rejects.toMatchObject({
+      code: 'status.postmortem_approval_spent',
+    });
+    expect(await postmortems.get(INCIDENT)).toMatchObject({ status: 'draft' });
+  });
+
+  it('a spent approval is a replay only for the founder who published with it, on that incident', async () => {
+    const { postmortems, approve } = desk();
+    await postmortems.write(AUTHOR, { incidentId: INCIDENT, body: 'TEST', expectedVersion: 0 });
+    await approve('appr-1');
+    await postmortems.publish(AUTHOR, { incidentId: INCIDENT, approvalId: 'appr-1', operationId: 'op-1' });
+    await expect(postmortems.publish(APPROVER, { incidentId: INCIDENT, approvalId: 'appr-1', operationId: 'op-1' })).rejects.toMatchObject({
+      code: 'status.postmortem_approval_spent',
+    });
+    expect((await postmortems.forIncidents([INCIDENT, INCIDENT, 'other'])).map((p) => p.incidentId)).toEqual([INCIDENT]);
+    expect(await postmortems.forIncidents([])).toEqual([]);
   });
 
   it('with no approval service wired, publishing refuses and nothing is published', async () => {

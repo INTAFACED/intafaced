@@ -20,6 +20,6 @@ CREATE TABLE IF NOT EXISTS notify.status_postmortem_approval_uses (
   approval_id text PRIMARY KEY,
   incident_id uuid NOT NULL,
   publisher_id text NOT NULL,
-  outcome text NOT NULL CHECK (outcome IN ('published', 'refused_same_operator')),
+  outcome text NOT NULL CHECK (outcome IN ('published', 'refused_same_operator', 'refused_action')),
   created_at timestamptz NOT NULL DEFAULT now()
 );

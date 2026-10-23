@@ -107,8 +107,14 @@ const PROPOSAL = {
   expectedVersion: '1',
   payloadHash: 'b'.repeat(64),
 };
+const PUBLISHED = {
+  ...NOTICE,
+  id: '55555555-5555-4555-8555-555555555555',
+  status: 'published',
+  publishedAt: '2026-10-23T10:05:00.000Z',
+};
 const POSTMORTEM = {
-  incidentId: NOTICE_ID,
+  incidentId: PUBLISHED.id,
   body: 'TEST what happened',
   version: 1,
   status: 'draft',
@@ -146,8 +152,8 @@ describe('incident desk BFF', () => {
   it('reads incidents, postmortems, templates, components and only the publish approvals, once each, as the founder', async () => {
     configure();
     const c = upstream({
-      'notify.operatorNotices': () => ok([NOTICE]),
-      'statusPage.postmortems.list': () => ok([POSTMORTEM]),
+      'notify.operatorNotices': () => ok([NOTICE, PUBLISHED]),
+      'statusPage.postmortems.forIncidents': () => ok([POSTMORTEM]),
       'statusPage.templates.list': () => ok([]),
       'statusPage.definition': () => ok(DEFINITION),
       'actionApproval.list': () =>
@@ -160,8 +166,13 @@ describe('incident desk BFF', () => {
         }),
     });
     const body = await (await GET(get())).json();
-    expect(body.notices).toEqual({ kind: 'ok', data: [NOTICE] });
+    expect(body.notices).toEqual({ kind: 'ok', data: [NOTICE, PUBLISHED] });
     expect(body.postmortems).toEqual({ kind: 'ok', data: [POSTMORTEM] });
+    // Asked for by the published incidents shown, never the whole table; a draft incident has none.
+    const asked = calls(c).filter((x) => x.url.includes('statusPage.postmortems.forIncidents'));
+    expect(asked).toHaveLength(1);
+    expect(decodeURIComponent(asked[0]!.url)).toContain(PUBLISHED.id);
+    expect(decodeURIComponent(asked[0]!.url)).not.toContain(NOTICE_ID);
     expect(body.templates).toEqual({ kind: 'ok', data: [] });
     expect(body.components).toEqual({ kind: 'ok', data: [{ id: 'payments', name: 'Payments' }] });
     expect(body.approvals.data.map((a: { approvalId: string }) => a.approvalId)).toEqual(['appr-1', 'pm']);
@@ -178,6 +189,18 @@ describe('incident desk BFF', () => {
       'actionApproval.list': () => ok({ approvals: 'x' }),
     });
     expect((await (await GET(get())).json()).approvals.kind).toBe('failed');
+  });
+
+  it('postmortems that cannot be read are a failed part, never "none written"', async () => {
+    configure();
+    upstream({
+      'notify.operatorNotices': () => ok([PUBLISHED]),
+      'statusPage.postmortems.forIncidents': () => refusal('notify.status_page_unavailable', 412),
+      'statusPage.templates.list': () => ok([]),
+      'statusPage.definition': () => ok(DEFINITION),
+      'actionApproval.list': () => ok({ approvals: [] }),
+    });
+    expect((await (await GET(get())).json()).postmortems.kind).toBe('failed');
   });
 
   it('a draft that is not complete is refused before any service call', async () => {

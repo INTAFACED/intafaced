@@ -1,6 +1,6 @@
 /**
- * Incident postmortems (SP-status-02): what happened, written after an incident is resolved and published on the status
- * page under it. One per incident. Writing on an incident that is still open is refused
+ * Incident postmortems (SP-status-02): what happened, written after an incident is resolved and published for the status
+ * page to show under it (`statusPage.postmortems.published`). One per incident. Writing on an incident that is still open is refused
  * (`status.postmortem_requires_resolved`): the account is of something that is over.
  *
  * A draft moves by version: an edit names the version it read (`status.postmortem_version_stale` otherwise), and writing
@@ -9,7 +9,7 @@
  * founder other than the approver publishes, spending it once. A published postmortem is never edited.
  */
 import { createHash } from 'node:crypto';
-import type { NoticeApprovalConsumer } from '../notices/board.js';
+import { fourEyesRefused, type NoticeApprovalConsumer } from '../notices/board.js';
 
 export const POSTMORTEM_PUBLISH_ACTION = 'notify.postmortem.publish';
 export const POSTMORTEM_BODY_MAX = 20_000;
@@ -24,6 +24,7 @@ export type PostmortemCode =
   | 'status.postmortem_not_found'
   | 'status.postmortem_approval_spent'
   | 'status.postmortem_approval_unavailable'
+  | 'status.postmortem_approval_unreachable'
   | 'status.postmortem_publish_same_operator';
 
 export class PostmortemError extends Error {
@@ -61,9 +62,14 @@ export interface PostmortemStore {
     row: { incidentId: string; body: string; writtenBy: string; at: Date },
     expectedVersion: number,
   ): Promise<Postmortem | 'stale' | 'published'>;
-  approvalOutcome(approvalId: string): Promise<'published' | 'refused_same_operator' | null>;
-  /** Records that the approver tried to publish: the approval is spent and nothing is published. */
-  recordRefusal(approvalId: string, incidentId: string, publisherId: string): Promise<void>;
+  approvalUse(approvalId: string): Promise<ApprovalUse | null>;
+  /** Records that the approval was spent on a refused publish; nothing is published. */
+  recordRefusal(
+    approvalId: string,
+    incidentId: string,
+    publisherId: string,
+    outcome: 'refused_same_operator' | 'refused_action',
+  ): Promise<void>;
   /**
    * Records the approval's use and publishes the draft at `version`, both or neither: `spent` when the approval was already
    * used, `stale` when the draft is not at that version any more.
@@ -74,14 +80,24 @@ export interface PostmortemStore {
     patch: { approvalId: string; publishedBy: string; at: Date },
   ): Promise<'published' | 'spent' | 'stale'>;
   published(limit: number): Promise<readonly Postmortem[]>;
-  /** Drafts and published, newest written first: the founders' desk. */
-  list(limit: number): Promise<readonly Postmortem[]>;
+  /** Drafts and published of these incidents: the founders' desk asks for the incidents it shows. */
+  forIncidents(incidentIds: readonly string[]): Promise<readonly Postmortem[]>;
 }
+
+/** How an approval was used here: it published a postmortem, or it was refused and spent. */
+export type ApprovalUse = {
+  readonly outcome: 'published' | 'refused_same_operator' | 'refused_action';
+  readonly incidentId: string;
+  readonly publisherId: string;
+};
 
 export type IncidentState = 'unknown' | 'open' | 'resolved';
 
 /** The status of an incident as the notice board holds it: a published incident's first entry, open or resolved. */
 export type IncidentLookup = (incidentId: string) => Promise<IncidentState>;
+
+/** The identity client's refusal: identity answered with a 4xx. A timeout, a 5xx or an unreadable answer is not one. */
+const identityRefused = (err: unknown) => err instanceof Error && /identity refused consume \(4\d\d\)/.test(err.message);
 
 export const postmortemTarget = (incidentId: string) => `postmortem:${incidentId}`;
 
@@ -139,17 +155,26 @@ export class Postmortems {
 
   /**
    * Spends a second founder's approval once. The approver cannot also publish: that refusal spends the approval too, as a
-   * notice's does. The same approval sent again by the founder it published for answers the published postmortem.
+   * notice's does. The same approval sent again by the founder it published, for the same incident, answers the published
+   * postmortem. The consume carries a request id made from the approval and the publisher, so a retry after a lost reply
+   * (identity consumed, nothing recorded here) is answered by identity with the same approval instead of a refusal.
    */
   async publish(publisherId: string, input: { incidentId: string; approvalId: string; operationId: string }): Promise<Postmortem> {
     const row = await this.store.get(input.incidentId);
     if (!row) throw new PostmortemError('status.postmortem_not_found');
-    const used = await this.store.approvalOutcome(input.approvalId);
-    if (used === 'published' && row.status === 'published') return row;
-    if (used)
+    const used = await this.store.approvalUse(input.approvalId);
+    if (used) {
+      if (
+        used.outcome === 'published' &&
+        used.incidentId === input.incidentId &&
+        used.publisherId === publisherId &&
+        row.status === 'published'
+      )
+        return row;
       throw new PostmortemError(
-        used === 'refused_same_operator' ? 'status.postmortem_publish_same_operator' : 'status.postmortem_approval_spent',
+        used.outcome === 'refused_same_operator' ? 'status.postmortem_publish_same_operator' : 'status.postmortem_approval_spent',
       );
+    }
     if (row.status === 'published') throw new PostmortemError('status.postmortem_published');
     if (!this.approvals) throw new PostmortemError('status.postmortem_approval_unavailable');
     let approval;
@@ -161,18 +186,20 @@ export class Postmortems {
         targetService: 'svc-notify',
         targetId: postmortemTarget(input.incidentId),
         expectedVersion: String(row.version),
+        requestId: `postmortem-publish:${input.approvalId}`,
+        consumerPrincipalId: publisherId,
       });
-    } catch {
+    } catch (err) {
+      // Identity answered and refused (spent, another binding, expired): the approval cannot publish this. Anything else
+      // (no answer, a server error, an answer it could not read) leaves the approval as it was.
+      throw new PostmortemError(identityRefused(err) ? 'status.postmortem_approval_spent' : 'status.postmortem_approval_unreachable');
+    }
+    if (approval.actionType !== POSTMORTEM_PUBLISH_ACTION) {
+      await this.store.recordRefusal(input.approvalId, input.incidentId, publisherId, 'refused_action');
       throw new PostmortemError('status.postmortem_approval_spent');
     }
-    const sameOperator =
-      approval.approverId == null ||
-      approval.approverId === publisherId ||
-      approval.approverId === approval.requesterId ||
-      approval.kind === 'same_person' ||
-      (approval.status !== 'CONSUMED' && approval.status !== 'APPROVED');
-    if (sameOperator) {
-      await this.store.recordRefusal(input.approvalId, input.incidentId, publisherId);
+    if (fourEyesRefused(approval, publisherId)) {
+      await this.store.recordRefusal(input.approvalId, input.incidentId, publisherId, 'refused_same_operator');
       throw new PostmortemError('status.postmortem_publish_same_operator');
     }
     const outcome = await this.store.publishWith(input.incidentId, row.version, {
@@ -185,9 +212,11 @@ export class Postmortems {
     return (await this.store.get(input.incidentId))!;
   }
 
-  /** The founders' desk: every postmortem, newest written first. */
-  async list(limit: number): Promise<readonly Postmortem[]> {
-    return this.store.list(Math.min(Math.max(1, limit), POSTMORTEMS_LIST_MAX));
+  /** The founders' desk: the postmortems of the incidents it shows, drafts included. */
+  async forIncidents(incidentIds: readonly string[]): Promise<readonly Postmortem[]> {
+    const ids = [...new Set(incidentIds)];
+    if (ids.length > POSTMORTEMS_LIST_MAX) throw new PostmortemError('status.postmortem_invalid');
+    return ids.length === 0 ? [] : this.store.forIncidents(ids);
   }
 
   /** What a visitor reads: published postmortems, newest first. */
@@ -198,7 +227,7 @@ export class Postmortems {
 
 export class MemoryPostmortemStore implements PostmortemStore {
   private readonly rows = new Map<string, Postmortem & { approvalId: string | null }>();
-  private readonly uses = new Map<string, 'published' | 'refused_same_operator'>();
+  private readonly uses = new Map<string, ApprovalUse>();
 
   async get(incidentId: string) {
     const row = this.rows.get(incidentId);
@@ -222,17 +251,17 @@ export class MemoryPostmortemStore implements PostmortemStore {
     });
     return (await this.get(row.incidentId))!;
   }
-  async approvalOutcome(approvalId: string) {
+  async approvalUse(approvalId: string) {
     return this.uses.get(approvalId) ?? null;
   }
-  async recordRefusal(approvalId: string) {
-    if (!this.uses.has(approvalId)) this.uses.set(approvalId, 'refused_same_operator');
+  async recordRefusal(approvalId: string, incidentId: string, publisherId: string, outcome: 'refused_same_operator' | 'refused_action') {
+    if (!this.uses.has(approvalId)) this.uses.set(approvalId, { outcome, incidentId, publisherId });
   }
-  async publishWith(incidentId: string, version: number, patch: { approvalId: string; at: Date }) {
+  async publishWith(incidentId: string, version: number, patch: { approvalId: string; publishedBy: string; at: Date }) {
     if (this.uses.has(patch.approvalId)) return 'spent' as const;
     const row = this.rows.get(incidentId);
     if (!row || row.status !== 'draft' || row.version !== version) return 'stale' as const;
-    this.uses.set(patch.approvalId, 'published');
+    this.uses.set(patch.approvalId, { outcome: 'published', incidentId, publisherId: patch.publishedBy });
     this.rows.set(incidentId, { ...row, status: 'published', publishedAt: patch.at.toISOString(), approvalId: patch.approvalId });
     return 'published' as const;
   }
@@ -243,10 +272,12 @@ export class MemoryPostmortemStore implements PostmortemStore {
       .slice(0, limit)
       .map(({ approvalId: _approval, ...out }) => out);
   }
-  async list(limit: number) {
-    return [...this.rows.values()]
-      .sort((a, b) => b.writtenAt.localeCompare(a.writtenAt))
-      .slice(0, limit)
-      .map(({ approvalId: _approval, ...out }) => out);
+  async forIncidents(incidentIds: readonly string[]) {
+    return incidentIds.flatMap((id) => {
+      const row = this.rows.get(id);
+      if (!row) return [];
+      const { approvalId: _approval, ...out } = row;
+      return [out];
+    });
   }
 }

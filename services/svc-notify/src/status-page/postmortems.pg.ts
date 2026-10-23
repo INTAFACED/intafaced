@@ -1,6 +1,6 @@
 /** Postgres store for incident postmortems, on the tables of 0031_notify_status_postmortems.sql. */
 import type { Sql } from 'postgres';
-import type { Postmortem, PostmortemStore } from './postmortems.js';
+import type { ApprovalUse, Postmortem, PostmortemStore } from './postmortems.js';
 
 type Row = {
   incident_id: string;
@@ -59,17 +59,22 @@ export class SqlPostmortemStore implements PostmortemStore {
     return current?.status === 'published' ? 'published' : 'stale';
   }
 
-  async approvalOutcome(approvalId: string): Promise<'published' | 'refused_same_operator' | null> {
-    const [row] = await this.sql<{ outcome: 'published' | 'refused_same_operator' }[]>`
-      SELECT outcome FROM notify.status_postmortem_approval_uses WHERE approval_id = ${approvalId}
+  async approvalUse(approvalId: string): Promise<ApprovalUse | null> {
+    const [row] = await this.sql<{ outcome: ApprovalUse['outcome']; incident_id: string; publisher_id: string }[]>`
+      SELECT outcome, incident_id, publisher_id FROM notify.status_postmortem_approval_uses WHERE approval_id = ${approvalId}
     `;
-    return row?.outcome ?? null;
+    return row ? { outcome: row.outcome, incidentId: row.incident_id, publisherId: row.publisher_id } : null;
   }
 
-  async recordRefusal(approvalId: string, incidentId: string, publisherId: string): Promise<void> {
+  async recordRefusal(
+    approvalId: string,
+    incidentId: string,
+    publisherId: string,
+    outcome: 'refused_same_operator' | 'refused_action',
+  ): Promise<void> {
     await this.sql`
       INSERT INTO notify.status_postmortem_approval_uses (approval_id, incident_id, publisher_id, outcome)
-      VALUES (${approvalId}, ${incidentId}, ${publisherId}, 'refused_same_operator')
+      VALUES (${approvalId}, ${incidentId}, ${publisherId}, ${outcome})
       ON CONFLICT (approval_id) DO NOTHING
     `;
   }
@@ -113,9 +118,9 @@ export class SqlPostmortemStore implements PostmortemStore {
     return rows.map(fromRow);
   }
 
-  async list(limit: number): Promise<readonly Postmortem[]> {
+  async forIncidents(incidentIds: readonly string[]): Promise<readonly Postmortem[]> {
     const rows = await this.sql<Row[]>`
-      SELECT ${this.sql.unsafe(COLUMNS)} FROM notify.status_postmortems ORDER BY written_at DESC, incident_id LIMIT ${limit}
+      SELECT ${this.sql.unsafe(COLUMNS)} FROM notify.status_postmortems WHERE incident_id = ANY(${this.sql.array([...incidentIds])}::uuid[])
     `;
     return rows.map(fromRow);
   }

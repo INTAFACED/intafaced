@@ -44,7 +44,7 @@ if (!URL || !available) {
       expect(await store.write({ incidentId, body: 'TEST again', writtenBy: 'a', at }, 0)).toBe('stale');
       expect(await store.write({ incidentId, body: 'TEST second', writtenBy: 'b', at }, 1)).toMatchObject({ version: 2, writtenBy: 'b' });
       expect(await store.write({ incidentId, body: 'TEST third', writtenBy: 'b', at }, 1)).toBe('stale');
-      expect((await store.list(200)).some((p) => p.incidentId === incidentId)).toBe(true);
+      expect((await store.forIncidents([incidentId, randomUUID()])).map((p) => p.incidentId)).toEqual([incidentId]);
       expect((await store.published(200)).some((p) => p.incidentId === incidentId)).toBe(false);
     });
 
@@ -54,9 +54,9 @@ if (!URL || !available) {
       const approvalId = `appr-${randomUUID()}`;
       await store.write({ incidentId, body: 'TEST', writtenBy: 'a', at }, 0);
       expect(await store.publishWith(incidentId, 2, { approvalId, publishedBy: 'a', at })).toBe('stale');
-      expect(await store.approvalOutcome(approvalId)).toBeNull();
+      expect(await store.approvalUse(approvalId)).toBeNull();
       expect(await store.publishWith(incidentId, 1, { approvalId, publishedBy: 'a', at })).toBe('published');
-      expect(await store.approvalOutcome(approvalId)).toBe('published');
+      expect(await store.approvalUse(approvalId)).toEqual({ outcome: 'published', incidentId, publisherId: 'a' });
       expect(await store.publishWith(incidentId, 1, { approvalId, publishedBy: 'a', at })).toBe('spent');
       expect(await store.write({ incidentId, body: 'TEST edit', writtenBy: 'a', at }, 1)).toBe('published');
       expect((await store.published(200)).find((p) => p.incidentId === incidentId)).toMatchObject({ status: 'published', version: 1 });
@@ -67,8 +67,8 @@ if (!URL || !available) {
       const incidentId = randomUUID();
       const approvalId = `appr-${randomUUID()}`;
       await store.write({ incidentId, body: 'TEST', writtenBy: 'a', at }, 0);
-      await store.recordRefusal(approvalId, incidentId, 'b');
-      expect(await store.approvalOutcome(approvalId)).toBe('refused_same_operator');
+      await store.recordRefusal(approvalId, incidentId, 'b', 'refused_same_operator');
+      expect(await store.approvalUse(approvalId)).toMatchObject({ outcome: 'refused_same_operator', publisherId: 'b' });
       expect(await store.publishWith(incidentId, 1, { approvalId, publishedBy: 'a', at })).toBe('spent');
       expect(await store.get(incidentId)).toMatchObject({ status: 'draft' });
     });

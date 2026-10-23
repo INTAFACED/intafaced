@@ -258,18 +258,11 @@ export function statusPageRouter(deps?: StatusPageDeps) {
             })),
           ),
         ),
-      list: scopedProcedure('admin:write', { module: 'notify' })
-        .input(
-          z
-            .object({ limit: z.number().int().min(1).max(POSTMORTEMS_LIST_MAX).default(POSTMORTEMS_LIST_MAX) })
-            .strict()
-            .optional(),
-        )
+      forIncidents: scopedProcedure('admin:write', { module: 'notify' })
+        .input(z.object({ incidentIds: z.array(z.string().uuid()).max(POSTMORTEMS_LIST_MAX) }).strict())
         .output(z.array(postmortemOutput))
         .query(({ input }) =>
-          call(async ({ postmortems }) =>
-            (await requirePostmortems(postmortems).list(input?.limit ?? POSTMORTEMS_LIST_MAX)).map(postmortemWire),
-          ),
+          call(async ({ postmortems }) => (await requirePostmortems(postmortems).forIncidents(input.incidentIds)).map(postmortemWire)),
         ),
       write: scopedProcedure('admin:write', { module: 'notify' })
         .input(

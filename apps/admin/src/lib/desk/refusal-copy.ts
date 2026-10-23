@@ -448,6 +448,11 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'svc-notify has no connection to identity approvals, so it publishes no postmortem. Nothing was published.',
     next: 'Connect svc-notify to svc-identity (IDENTITY_URL and the internal service secret).',
   },
+  'status.postmortem_approval_unreachable': {
+    title: 'Identity did not answer',
+    body: 'svc-notify could not reach identity to spend the approval, or could not read its answer. Nothing was published, and the approval was not refused here.',
+    next: 'Read the desk again and publish again with the same approval.',
+  },
   'status.postmortem_publish_same_operator': {
     title: 'The approver cannot also publish',
     body: 'The founder who approved a postmortem does not publish it. svc-notify spent the approval and published nothing.',

@@ -12,6 +12,8 @@ import {
   type IncidentDeskReply,
   type IncidentDeskView,
   type IncidentDraftInput,
+  type OperatorNotice,
+  type Postmortem,
   type PublishApproval,
   publishApprovalOf,
 } from './incidents-model';
@@ -42,10 +44,32 @@ const approvalList = parseWith(actionApprovalSchema.array());
 const readApprovals = (raw: unknown) =>
   raw && typeof raw === 'object' && 'approvals' in raw ? approvalList((raw as { approvals: unknown }).approvals) : null;
 
+const POSTMORTEMS_PER_CALL = 200;
+
+/** The postmortems of the published incidents the desk shows, asked for by id. With no incidents read, none are asked for. */
+async function postmortemsOf(ctx: FounderCallContext, notices: readonly OperatorNotice[] | null): Promise<Part<readonly Postmortem[]>> {
+  if (notices === null)
+    return {
+      kind: 'failed',
+      message: 'The incidents could not be read, so their postmortems were not asked for.',
+      code: null,
+      notBuilt: false,
+      forbidden: false,
+    };
+  const ids = notices.filter((n) => n.kind === 'incident' && n.parentId === null && n.status === 'published').map((n) => n.id);
+  const chunks: string[][] = [];
+  for (let i = 0; i < ids.length; i += POSTMORTEMS_PER_CALL) chunks.push(ids.slice(i, i + POSTMORTEMS_PER_CALL));
+  const reads = await Promise.all(
+    chunks.map((incidentIds) => founderCall(ctx, 'notify', 'statusPage.postmortems.forIncidents', 'GET', { incidentIds }, readPostmortems)),
+  );
+  const failed = reads.find((r) => r.kind !== 'ok');
+  if (failed) return partFrom(failed, () => [], NOTIFY);
+  return { kind: 'ok', data: reads.flatMap((r) => (r.kind === 'ok' ? r.data : [])) };
+}
+
 export async function loadIncidentDesk(ctx: FounderCallContext): Promise<IncidentDeskView> {
-  const [notices, postmortems, templates, definition, pending, mine] = await Promise.all([
+  const [notices, templates, definition, pending, mine] = await Promise.all([
     founderCall(ctx, 'notify', 'notify.operatorNotices', 'GET', { kind: 'incident', limit: LIST_LIMIT }, readOperatorNotices),
-    founderCall(ctx, 'notify', 'statusPage.postmortems.list', 'GET', undefined, readPostmortems),
     founderCall(ctx, 'notify', 'statusPage.templates.list', 'GET', undefined, readTemplates),
     founderCall(ctx, 'notify', 'statusPage.definition', 'GET', undefined, readDefinition),
     founderCall(ctx, 'identity', 'actionApproval.list', 'GET', { view: 'pending', limit: APPROVALS_LIMIT }, readApprovals),
@@ -63,7 +87,7 @@ export async function loadIncidentDesk(ctx: FounderCallContext): Promise<Inciden
   }
   return {
     notices: partFrom(notices, (d) => d, NOTIFY),
-    postmortems: partFrom(postmortems, (d) => d, NOTIFY),
+    postmortems: await postmortemsOf(ctx, notices.kind === 'ok' ? notices.data : null),
     templates: partFrom(templates, (d) => d, NOTIFY),
     components: partFrom(definition, (d) => d.components.map((c) => ({ id: c.id, name: c.name })), NOTIFY),
     approvals,
