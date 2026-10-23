@@ -881,6 +881,11 @@ function serviceDefs(secrets) {
         // Sub-account cap: an explicit LOCAL TEST value, not an owner limit (the owner has not published one; blank
         // refuses every create with auth.sub_account_cap_unset). 10 live sub-accounts per account on this stack only.
         IDENTITY_MAX_SUB_ACCOUNTS: '10',
+        // Watchlist and saved-screen caps (C-alerts-scan-05, -07): explicit LOCAL TEST values, not owner limits (the owner
+        // has not published them; blank refuses every write that needs one). 10 named lists, 100 symbols per list, 10 screens.
+        IDENTITY_WATCHLIST_LIST_CAP: '10',
+        IDENTITY_WATCHLIST_SYMBOL_CAP: '100',
+        IDENTITY_SAVED_SCREEN_CAP: '10',
         // LOCAL TEST founder pair only: local_test_founder_a / local_test_founder_b from
         // <state>/founders.json. Absent until that vault exists. Never the Docker vault.
         ...identityFounderEnv(),

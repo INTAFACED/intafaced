@@ -9,6 +9,15 @@ import type { Context } from '@intafaced/contracts';
 import { ACCOUNT_DISPLAY_NAMESPACE, parseAccountDisplay, type AccountDisplayValue } from './account-display.js';
 import { UI_VIEW_NAMESPACE, parseUiView, type UiViewValue } from './ui-view.js';
 import { HOME_TILES_NAMESPACE, parseHomeTiles, type HomeTilesValue } from './home-tiles.js';
+import type { SavedScreensValue, WatchlistsValue } from '@intafaced/contracts/watchlists-preferences';
+import {
+  NO_WATCHLIST_CAPS,
+  SAVED_SCREENS_NAMESPACE,
+  WATCHLISTS_NAMESPACE,
+  parseSavedScreens,
+  parseWatchlists,
+  type WatchlistCaps,
+} from './watchlists.js';
 import {
   PREFERENCES_CLIENT_ID_UNSET,
   PREFERENCES_IDEMPOTENCY_CONFLICT,
@@ -23,12 +32,21 @@ import {
 } from './trade-views.js';
 
 export type PreferenceNamespace =
-  typeof TRADE_VIEWS_NAMESPACE | typeof ACCOUNT_DISPLAY_NAMESPACE | typeof UI_VIEW_NAMESPACE | typeof HOME_TILES_NAMESPACE;
-export type PreferenceValue = TradeViewsValue | AccountDisplayValue | UiViewValue | HomeTilesValue;
+  | typeof TRADE_VIEWS_NAMESPACE
+  | typeof ACCOUNT_DISPLAY_NAMESPACE
+  | typeof UI_VIEW_NAMESPACE
+  | typeof HOME_TILES_NAMESPACE
+  | typeof WATCHLISTS_NAMESPACE
+  | typeof SAVED_SCREENS_NAMESPACE;
+export type PreferenceValue = TradeViewsValue | AccountDisplayValue | UiViewValue | HomeTilesValue | WatchlistsValue | SavedScreensValue;
 
 /** Owner-published settings a value is checked against. Blank means nothing is listed. */
-export type PreferenceSettings = { readonly displayCurrencies: readonly string[] };
-const NO_SETTINGS: PreferenceSettings = { displayCurrencies: [] };
+export type PreferenceSettings = {
+  readonly displayCurrencies: readonly string[];
+  /** The watchlist and saved-screen caps. Absent or blank: a write that needs a cap is refused. */
+  readonly watchlists?: WatchlistCaps;
+};
+const NO_SETTINGS: PreferenceSettings = { displayCurrencies: [], watchlists: NO_WATCHLIST_CAPS };
 
 export class PreferencesError extends Error {
   constructor(
@@ -46,7 +64,9 @@ export type PreferenceView =
   | { readonly namespace: typeof TRADE_VIEWS_NAMESPACE; readonly version: number; readonly value: TradeViewsValue | null }
   | { readonly namespace: typeof ACCOUNT_DISPLAY_NAMESPACE; readonly version: number; readonly value: AccountDisplayValue | null }
   | { readonly namespace: typeof UI_VIEW_NAMESPACE; readonly version: number; readonly value: UiViewValue | null }
-  | { readonly namespace: typeof HOME_TILES_NAMESPACE; readonly version: number; readonly value: HomeTilesValue | null };
+  | { readonly namespace: typeof HOME_TILES_NAMESPACE; readonly version: number; readonly value: HomeTilesValue | null }
+  | { readonly namespace: typeof WATCHLISTS_NAMESPACE; readonly version: number; readonly value: WatchlistsValue | null }
+  | { readonly namespace: typeof SAVED_SCREENS_NAMESPACE; readonly version: number; readonly value: SavedScreensValue | null };
 
 type StoredResult = {
   outcome: 'stored' | 'conflict';
@@ -70,6 +90,8 @@ const NAMESPACES: Readonly<Record<PreferenceNamespace, (value: unknown, settings
   [ACCOUNT_DISPLAY_NAMESPACE]: (value, settings) => parseAccountDisplay(value, settings.displayCurrencies),
   [UI_VIEW_NAMESPACE]: (value) => parseUiView(value),
   [HOME_TILES_NAMESPACE]: (value) => parseHomeTiles(value),
+  [WATCHLISTS_NAMESPACE]: (value, settings) => parseWatchlists(value, settings.watchlists),
+  [SAVED_SCREENS_NAMESPACE]: (value, settings) => parseSavedScreens(value, settings.watchlists),
 };
 
 function requireNamespace(namespace: string): PreferenceNamespace {

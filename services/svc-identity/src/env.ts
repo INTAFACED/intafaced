@@ -218,6 +218,26 @@ const schema = serviceEnvSchema
         return v;
       }, z.coerce.number().int().min(1).max(10_000).optional()),
       /**
+       * Owner-published watchlist caps (C-alerts-scan-05, -07): named lists per account, symbols per list, saved screens per
+       * account. Blank / unset → unpublished; a write that needs the cap refuses (`identity.watchlist_*_cap_unset`). Never
+       * a default: the stack sets labelled TEST values only.
+       */
+      IDENTITY_WATCHLIST_LIST_CAP: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(1000).optional()),
+      IDENTITY_WATCHLIST_SYMBOL_CAP: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(1000).optional()),
+      IDENTITY_SAVED_SCREEN_CAP: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(1000).optional()),
+      /**
        * Owner-published lifetime of an OAuth authorisation code, in seconds. Blank / unset → unpublished; an
        * authorise decision and a code exchange refuse (`oauth.lifetime_unset`). Never git-default.
        */

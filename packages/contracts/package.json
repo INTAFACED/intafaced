@@ -97,6 +97,10 @@
     "./home-tiles-preferences": {
       "types": "./dist/home-tiles-preferences.d.ts",
       "default": "./dist/home-tiles-preferences.js"
+    },
+    "./watchlists-preferences": {
+      "types": "./dist/watchlists-preferences.d.ts",
+      "default": "./dist/watchlists-preferences.js"
     }
   },
   "scripts": {

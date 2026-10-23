@@ -27,6 +27,8 @@ import {
   type WorkbenchSetting,
 } from './workbench';
 import { isChartStyle, type ColourScheme } from './chart-style';
+import { WatchlistPanel } from '../../features/watchlists/WatchlistPanel';
+import { chartHrefFor, WATCHLIST_DRAG_TYPE } from '../../features/watchlists/links';
 
 function MarketSelect({
   label,
@@ -118,27 +120,44 @@ function Page({
           {t('Interval not offered body', { current: intervalLabel(setting.interval) })}
         </div>
       )}
-      <ChartGrid
-        market={market}
-        markets={markets}
-        workbench={id}
-        setting={setting}
-        setInterval={setInterval}
-        setMode={setMode}
-        setScheme={setScheme}
-        openSocket={openSocket}
-        mainAddons={(host, bars) => (
-          <DrawingsLayer
-            key={id}
-            host={host}
-            bars={bars}
+      <div className="cw-split">
+        {/* A watchlist row dragged here opens its market on this chart, at the interval the workbench already has. */}
+        <div
+          className="cw-split-chart"
+          onDragOver={(event) => {
+            if (event.dataTransfer.types.includes(WATCHLIST_DRAG_TYPE)) event.preventDefault();
+          }}
+          onDrop={(event) => {
+            const symbol = event.dataTransfer.getData(WATCHLIST_DRAG_TYPE);
+            if (!symbol) return;
+            event.preventDefault();
+            navigate(chartHrefFor(symbol, id));
+          }}
+        >
+          <ChartGrid
+            market={market}
+            markets={markets}
             workbench={id}
-            symbol={market.symbol}
-            tickSize={market.tickSize}
-            limits={limits}
+            setting={setting}
+            setInterval={setInterval}
+            setMode={setMode}
+            setScheme={setScheme}
+            openSocket={openSocket}
+            mainAddons={(host, bars) => (
+              <DrawingsLayer
+                key={id}
+                host={host}
+                bars={bars}
+                workbench={id}
+                symbol={market.symbol}
+                tickSize={market.tickSize}
+                limits={limits}
+              />
+            )}
           />
-        )}
-      />
+        </div>
+        <WatchlistPanel workbench={id} />
+      </div>
     </div>
   );
 }

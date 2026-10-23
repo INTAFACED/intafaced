@@ -403,3 +403,19 @@
     }
   }
 }
+
+/* The workbench page: the chart on the left, the watchlist panel on the right (one column when narrow). */
+.cw-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
+  gap: 12px;
+  align-items: start;
+}
+.cw-split-chart {
+  min-width: 0;
+}
+@media (max-width: 960px) {
+  .cw-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
