@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import postgres from 'postgres';
 import type { Principal } from '@intafaced/auth';
-import { createTestDatabase } from '@intafaced/db';
+import { createTestDatabase, postgresAvailable } from '@intafaced/db';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { randomUUID } from 'node:crypto';
 import { migrateOutreach } from '../db/migrate.js';
@@ -387,74 +387,82 @@ describe('alert desk (OPS-alerts-03)', () => {
   });
 });
 
-describe.runIf(Boolean(process.env.TEST_DATABASE_URL))('alert desk on real PostgreSQL', () => {
-  it('keeps the evaluator beat apart from a test beat, and refuses a taken name or an enforced missing variable', async () => {
-    const database = await createTestDatabase({ service: 'ops' });
-    const sql = postgres(database.url, { max: 4, onnotice: () => undefined });
-    const at = '2026-10-20T00:00:00.000Z';
-    try {
-      await migrateOutreach(sql);
-      const desk = createPgAlertDesk(sql);
-      const evaluator = new AlertEvaluator({
-        rules: createPgAlertRuleStore(sql),
-        state: createPgAlertState(sql),
-        signals: { read: async () => ({ status: 'ok', value: '1' }) },
-        now: () => at,
-        desk,
-      });
-      await evaluator.tick();
-      const caller = createOpsRouter(new OpsService(), undefined, {
-        now: () => at,
-        alertDesk: desk,
-        alertRules: new AlertRules(createPgAlertRuleStore(sql), () => at, randomUUID, desk),
-        alertHeartbeatMaxAgeSeconds: 30,
-      }).createCaller(await signed());
-      const status = await caller.alerts.heartbeatStatus();
-      expect(status.last).toMatchObject({ key: pipelineHeartbeatKey(at), actor: ALERT_EVALUATOR_ACTOR, reason: ALERT_EVALUATOR_REASON });
-      expect(status.overdue).toBe(false);
-      await caller.alerts.heartbeat({ reason: 'pressed by hand', idempotencyKey: 'beat-key-pg1' });
-      expect((await caller.alerts.heartbeatStatus()).last?.key).toBe(pipelineHeartbeatKey(at));
-      expect(await sql`SELECT 1 FROM ops.alert_test_beats`).toHaveLength(1);
-      expect(await sql`SELECT 1 FROM ops.alert_heartbeats`).toHaveLength(1);
-      await expect(sql`DELETE FROM ops.alert_heartbeats`).rejects.toThrow(/ops.alert_heartbeat_immutable/);
-      await expect(sql`DELETE FROM ops.alert_test_beats`).rejects.toThrow(/ops.alert_test_beat_immutable/);
-      await caller.alertTemplates.save({
-        name: 'page',
-        title: 'Hi {{label:owner}}',
-        body: 'Body',
-        variables: [{ name: 'owner', source: 'label' }],
-        reason: 'first',
-        idempotencyKey: 'tpl-key-pg01',
-      });
-      await expect(
-        caller.alertTemplates.save({
-          name: 'page',
-          title: 'Other',
-          body: 'Other',
-          variables: [],
-          reason: 'again',
-          idempotencyKey: 'tpl-key-pg02',
-        }),
-      ).rejects.toMatchObject({ message: expect.stringContaining(OPS_TEMPLATE_NAME_TAKEN) });
-      await caller.alertQuality.set({
-        requirements: [{ kind: 'label', key: 'team', mode: 'enforce' }],
-        reason: 'enforce',
-        idempotencyKey: 'qual-key-pg1',
-      });
-      await expect(
-        caller.alertTemplates.save({
-          name: 'other',
-          title: 'Missing {{query:value}}',
-          body: 'Body',
-          variables: [],
-          reason: 'blocked',
-          idempotencyKey: 'tpl-key-pg03',
-        }),
-      ).rejects.toMatchObject({ message: expect.stringContaining(OPS_ALERT_LABEL_REQUIRED) });
-      expect(await sql`SELECT 1 FROM ops.alert_templates`).toHaveLength(1);
-    } finally {
-      await sql.end();
-      await database.drop();
-    }
+const alertDeskPg = await postgresAvailable();
+
+if (!alertDeskPg) {
+  describe.skip('alert desk (Postgres unavailable)', () => {
+    it('skipped', () => undefined);
   });
-});
+} else {
+  describe('alert desk on real PostgreSQL', () => {
+    it('keeps the evaluator beat apart from a test beat, and refuses a taken name or an enforced missing variable', async () => {
+      const database = await createTestDatabase({ service: 'ops' });
+      const sql = postgres(database.url, { max: 4, onnotice: () => undefined });
+      const at = '2026-10-20T00:00:00.000Z';
+      try {
+        await migrateOutreach(sql);
+        const desk = createPgAlertDesk(sql);
+        const evaluator = new AlertEvaluator({
+          rules: createPgAlertRuleStore(sql),
+          state: createPgAlertState(sql),
+          signals: { read: async () => ({ status: 'ok', value: '1' }) },
+          now: () => at,
+          desk,
+        });
+        await evaluator.tick();
+        const caller = createOpsRouter(new OpsService(), undefined, {
+          now: () => at,
+          alertDesk: desk,
+          alertRules: new AlertRules(createPgAlertRuleStore(sql), () => at, randomUUID, desk),
+          alertHeartbeatMaxAgeSeconds: 30,
+        }).createCaller(await signed());
+        const status = await caller.alerts.heartbeatStatus();
+        expect(status.last).toMatchObject({ key: pipelineHeartbeatKey(at), actor: ALERT_EVALUATOR_ACTOR, reason: ALERT_EVALUATOR_REASON });
+        expect(status.overdue).toBe(false);
+        await caller.alerts.heartbeat({ reason: 'pressed by hand', idempotencyKey: 'beat-key-pg1' });
+        expect((await caller.alerts.heartbeatStatus()).last?.key).toBe(pipelineHeartbeatKey(at));
+        expect(await sql`SELECT 1 FROM ops.alert_test_beats`).toHaveLength(1);
+        expect(await sql`SELECT 1 FROM ops.alert_heartbeats`).toHaveLength(1);
+        await expect(sql`DELETE FROM ops.alert_heartbeats`).rejects.toThrow(/ops.alert_heartbeat_immutable/);
+        await expect(sql`DELETE FROM ops.alert_test_beats`).rejects.toThrow(/ops.alert_test_beat_immutable/);
+        await caller.alertTemplates.save({
+          name: 'page',
+          title: 'Hi {{label:owner}}',
+          body: 'Body',
+          variables: [{ name: 'owner', source: 'label' }],
+          reason: 'first',
+          idempotencyKey: 'tpl-key-pg01',
+        });
+        await expect(
+          caller.alertTemplates.save({
+            name: 'page',
+            title: 'Other',
+            body: 'Other',
+            variables: [],
+            reason: 'again',
+            idempotencyKey: 'tpl-key-pg02',
+          }),
+        ).rejects.toMatchObject({ message: expect.stringContaining(OPS_TEMPLATE_NAME_TAKEN) });
+        await caller.alertQuality.set({
+          requirements: [{ kind: 'label', key: 'team', mode: 'enforce' }],
+          reason: 'enforce',
+          idempotencyKey: 'qual-key-pg1',
+        });
+        await expect(
+          caller.alertTemplates.save({
+            name: 'other',
+            title: 'Missing {{query:value}}',
+            body: 'Body',
+            variables: [],
+            reason: 'blocked',
+            idempotencyKey: 'tpl-key-pg03',
+          }),
+        ).rejects.toMatchObject({ message: expect.stringContaining(OPS_ALERT_LABEL_REQUIRED) });
+        expect(await sql`SELECT 1 FROM ops.alert_templates`).toHaveLength(1);
+      } finally {
+        await sql.end();
+        await database.drop();
+      }
+    });
+  });
+}
