@@ -82,8 +82,8 @@ async function mock(page, overrides = {}) {
     // The bank filters the history by kind and cuts it at the limit, as Get started's one-line reads ask it to.
     const input = JSON.parse(new URL(route.request().url()).searchParams.get('input') ?? '{}');
     const wrap = name === 'activity' ? (data) => trpc(asked(data, input)) : trpc;
-    if (served[name] === null) return void held.push({ route, name, wrap });
-    return answer(route, served[name], undefined, wrap);
+    if (served[name] === null) return void held.push({ route, name, arg: input, wrap });
+    return answer(route, served[name], input, wrap);
   });
   await page.route('**/api/v1/**', async (route) => {
     const path = new URL(route.request().url()).pathname.replace(/^\/api\/v1\//, '');
@@ -515,6 +515,32 @@ test('a step that cannot be read is never shown as done', async ({ page }) => {
   await expect(started.locator('a[data-status="done"]')).toHaveCount(1);
   await expect(started.locator('[data-step="register"]')).toHaveAttribute('data-status', 'done');
   await expect(started.locator('.home-started__count')).toHaveText('1 of 6 done');
+});
+
+test("an old deposit still counts: Get started follows the bank's cursor past a window with no match", async ({ page }) => {
+  // The bank scans a window of the history per call; a window with no match answers an empty page and a cursor.
+  await mock(page, {
+    ...newAccount,
+    activity: (input) => (input?.cursor ? activityPage([activityRow('deposit', 'in', '50')]) : activityPage([], 'next-window')),
+  });
+  await open(page);
+  const started = page.locator('.home-started');
+  await expect(started.locator('[data-step="deposit"]')).toHaveAttribute('data-status', 'done');
+  await expect(started.locator('[data-step="trade"]')).toHaveAttribute('data-status', 'todo');
+});
+
+test('before verification the bank refuses the history: that reads as "not yet", any other refusal as unknown', async ({ page }) => {
+  const refusal = (message) => ({ status: 403, json: { error: { message, code: -32003, data: { code: 'FORBIDDEN', httpStatus: 403 } } } });
+  await mock(page, { ...newAccount, activity: refusal('Verification tier "full" required for bank in XX') });
+  await open(page);
+  const started = page.locator('.home-started');
+  await expect(started.locator('[data-step="deposit"]')).toHaveAttribute('data-status', 'todo');
+  await expect(started.locator('[data-step="trade"]')).toHaveAttribute('data-status', 'todo');
+  await page.unrouteAll();
+  await mock(page, { ...newAccount, activity: refusal('Not offered in your region') });
+  await page.reload();
+  await expect(started.locator('[data-step="deposit"]')).toHaveAttribute('data-status', 'unknown');
+  await expect(started.locator('[data-step="trade"]')).toHaveAttribute('data-status', 'unknown');
 });
 
 test('Get started can be hidden, and stays hidden for this person', async ({ page }) => {
