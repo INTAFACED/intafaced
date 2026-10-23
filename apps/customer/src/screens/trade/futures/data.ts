@@ -20,6 +20,7 @@ import {
   type AdlDisclosure,
   type AdlEvent,
   type Collateral,
+  type ConditionalOrder,
   type FundingRate,
   type FuturesApi,
   type FuturesListing,
@@ -43,6 +44,8 @@ export const FUTURES_INTERVALS = {
   adl: 60_000,
   history: 30_000,
   orders: 5_000,
+  /** Take profit, stop loss and stops: a fired one is followed from armed to filled, so it is read as often as orders. */
+  conditional: 5_000,
   orderTypes: 300_000,
   access: 60_000,
   tiers: 60_000,
@@ -269,6 +272,25 @@ export function useFuturesOrders(scope: 'open' | 'all', enabled: boolean): Loada
   );
 }
 
+/** The trader's take-profit, stop-loss and stop orders, armed and recent, with what each did when it fired. */
+export function useConditionalOrders(enabled: boolean): Loadable<ConditionalOrder[]> {
+  const env = useDataEnv();
+  const api = useFuturesApi();
+  return useSource(
+    useMemo(
+      () =>
+        privateSource<ConditionalOrder[]>(
+          env,
+          'futures-conditional',
+          (signal) => api.conditionalOrders(signal),
+          FUTURES_INTERVALS.conditional,
+          enabled,
+        ),
+      [env, api, enabled],
+    ),
+  );
+}
+
 /** Each contract open or blocked for this account, with every reason (D-ops-01). */
 export function useGatedList(): Loadable<GatedList> {
   const env = useDataEnv();
@@ -314,6 +336,7 @@ export function useFuturesRefresh(): () => void {
         'futures-adl-events',
         'futures-orders-open',
         'futures-orders-all',
+        'futures-conditional',
         'futures-gated',
         'futures-agreements',
         'futures-eligibility',

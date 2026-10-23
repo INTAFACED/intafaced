@@ -93,7 +93,7 @@ export const ticketCopy = defineCopy('trade.futures.ticket', {
     'To reduce or close a position, use Close in the positions table: it sends a reduce-only order for the size you choose.',
   'Take profit stop loss': 'Take profit / Stop loss',
   'Take profit off':
-    'Take-profit and stop-loss need a conditional order type that futures does not offer. Until then, watch the liquidation price and close by hand.',
+    'Set them on the position once it is open: Positions, Manage, Take profit / stop loss. Each closes the whole position through the book when the mark price crosses it.',
   Review: 'Review',
   Reviewing: 'Reviewing…',
   'Review to see cost': 'Review to see the all-in cost before you open.',

@@ -62,6 +62,7 @@ const messages = {
   'Action add': 'Add margin',
   'Action reduce': 'Remove margin',
   'Action leverage': 'Leverage',
+  'Action protect': 'Take profit / stop loss',
   'Action close': 'Close',
   'Action retry close': 'Retry close',
   'Action label': '{action}, {contract}',
@@ -194,6 +195,34 @@ const messages = {
   'KV updated': 'Opened',
   'Mode isolated': 'Isolated',
   'Mode cross': 'Cross',
+  // Take profit and stop loss (J-derivatives-03)
+  'Protect title': 'Take profit and stop loss',
+  'Protect line': '{contract} {side}, size {size}. Mark price {mark}.',
+  'Protect line no mark': '{contract} {side}, size {size}. The mark price is not published right now.',
+  'Protect how':
+    'Each one closes the whole position with a reduce-only market order in the book when the mark price crosses its trigger. When one fills, the other is cancelled. Once one fires, the Orders tab keeps what it did.',
+  'Protect replace note': 'Saving replaces both. Leave a price empty to have none on that side.',
+  'Protect take profit': 'Take profit',
+  'Protect stop loss': 'Stop loss',
+  'Protect field take profit': 'Take-profit trigger ({quote})',
+  'Protect field stop loss': 'Stop-loss trigger ({quote})',
+  'Protect side above': 'Must be above the mark price.',
+  'Protect side below': 'Must be below the mark price.',
+  'Protect estimate': 'If the whole position closed at this price: {result} {asset}, before fees.',
+  'Protect estimate unknown': 'The result at this price cannot be worked out from what the service publishes.',
+  'Protect problem invalid': 'Enter a price above zero.',
+  'Protect save': 'Save',
+  'Protect remove': 'Remove both',
+  'Protect done set': 'Saved. What is armed now is listed above.',
+  'Protect done removed': 'Removed. Nothing is armed on this position.',
+  'Protect done checked': 'The earlier request went through. What is armed now is listed above.',
+  'Protect closing now':
+    'A leg has fired and is closing the position through the book now. Saving and removing are off until it finishes; follow it on the Orders tab.',
+  'Protect current': 'On this position now',
+  'Protect loading': 'Reading what is armed…',
+  'Protect unreadable': 'Couldn’t read what is armed on this position. Saving is off until it can be read, since a save replaces both.',
+  'Protect none': 'None set',
+  'Protect leg': '{leg}: {status}',
 } as const;
 
 export const positionsCopy = defineCopy('trade.futures.positions', messages);

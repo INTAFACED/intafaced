@@ -173,6 +173,36 @@ const WORDS: Readonly<Record<string, Words>> = {
     body: 'It is already closed or liquidated. Check your position history.',
     retryable: false,
   },
+  'trade.protection_wrong_side': {
+    title: 'That price is on the wrong side of the mark',
+    body: 'A take profit must be past the mark price in your favour, and a stop loss past it against you: above the mark for a long’s take profit, below it for its stop loss, and the other way round for a short. Nothing was saved.',
+    retryable: false,
+  },
+  'trade.conditional_trigger_off': {
+    title: 'Price triggers are switched off',
+    body: 'The platform is not watching prices for take-profit, stop-loss or stop orders right now, so none can be armed. Nothing was saved. Your position is unchanged.',
+  },
+  'trade.conditional_amount_invalid': {
+    title: 'That price is not a number we can use',
+    body: 'Enter each trigger as a price above zero. Nothing was saved.',
+    retryable: false,
+  },
+  'trade.conditional_market_not_futures': {
+    title: 'Only futures positions take these orders',
+    body: 'Take profit, stop loss and stop orders here are for futures positions. Nothing was saved.',
+    retryable: false,
+  },
+  'trade.conditional_not_cancellable': {
+    title: 'That order already fired or ended',
+    body: 'Only an armed take profit, stop loss or stop can be cancelled. This one has fired, filled or ended: see what it did in the Orders tab.',
+    retryable: false,
+  },
+  'trade.conditional_not_found': {
+    title: 'That order was not found',
+    body: 'It may belong to another account. Refresh the Orders tab.',
+    retryable: false,
+  },
+  'trade.client_request_id_required': { title: 'Request id missing', body: 'Nothing was sent. Start the action again.' },
   'trade.position_under_review': {
     title: 'That position is under review',
     body: 'The platform is checking this position. It cannot be changed until the review ends.',
