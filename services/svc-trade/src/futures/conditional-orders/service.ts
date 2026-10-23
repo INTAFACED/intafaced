@@ -119,6 +119,8 @@ export interface ConditionalOrderDeps {
    * keeps `closeQuantity` and `placeLimit`.
    */
   readonly placeReduce?: ((input: ReduceOnInstruction, instructionId: string) => Promise<ReducePlaced>) | null;
+  /** How many finished orders (filled, cancelled, failed) the list carries, newest first. Default 100. */
+  readonly listFinishedLimit?: number;
 }
 
 /**
@@ -190,6 +192,7 @@ interface ReducingPosition {
 
 const LOCK_TIMEOUT_MS = 3_000;
 const NOT_FOUND = 'trade.conditional_not_found';
+const LIST_FINISHED_LIMIT = 100;
 
 function money(raw: string | null): string | null {
   if (raw == null) return null;
@@ -421,12 +424,26 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
     }
   }
 
+  /**
+   * Every live order (armed or triggered) and the most recent finished ones, oldest first. The screen reads this every
+   * few seconds, so a long history is cut; a live order is never left out.
+   */
   async function list(userId: string): Promise<ConditionalOrderView[]> {
+    const finished = deps.listFinishedLimit ?? LIST_FINISHED_LIMIT;
     const rows = await sql<OrderRow[]>`
       SELECT o.*, m.symbol
       FROM trade.futures_conditional_orders o
       JOIN trade.markets m ON m.id = o.market_id
       WHERE o.user_id = ${userId}
+        AND (
+          o.status IN ('armed', 'triggered')
+          OR o.id IN (
+            SELECT f.id FROM trade.futures_conditional_orders f
+            WHERE f.user_id = ${userId} AND f.status NOT IN ('armed', 'triggered')
+            ORDER BY f.created_at DESC, f.id DESC
+            LIMIT ${finished}
+          )
+        )
       ORDER BY o.created_at, o.id
     `;
     return rows.map(present);
