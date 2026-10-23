@@ -19,6 +19,7 @@ type Armable = {
     graceMs?: number,
   ): Promise<{ armed: boolean; timeoutSec: number; deadline: Date | null }>;
   sweepCancelAllAfter(): Promise<{ examined: number; fired: number; unavailable: number; failed: number }>;
+  readCancelAllAfter(principal: ReturnType<typeof principalFor>): Promise<{ armed: boolean; timeoutSec: number; deadline: Date | null }>;
 };
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -168,6 +169,17 @@ describe('svc-trade spot cancel-all-after dead-man switch (PG-hard)', () => {
     tick(60_000);
     expect(await caa().sweepCancelAllAfter()).toMatchObject({ examined: 0, fired: 0 });
     expect(await statusOf(a1.id)).toBe('open');
+  });
+
+  it("reads the caller's own countdown: armed with its deadline, then not armed once disarmed; never another user's", async () => {
+    const reader = (userId: string) => principalFor(userId, ['trade:read']);
+    expect(await caa().readCancelAllAfter(reader(ALICE))).toEqual({ armed: false, timeoutSec: 0, deadline: null });
+    const on = await caa().armCancelAllAfter(principal(ALICE), 60, PUBLISHED);
+    expect(await caa().readCancelAllAfter(reader(ALICE))).toEqual({ armed: true, timeoutSec: 60, deadline: on.deadline });
+    expect(await caa().readCancelAllAfter(reader(BOB))).toEqual({ armed: false, timeoutSec: 0, deadline: null });
+    await caa().armCancelAllAfter(principal(ALICE), 0, PUBLISHED);
+    expect(await caa().readCancelAllAfter(reader(ALICE))).toEqual({ armed: false, timeoutSec: 0, deadline: null });
+    await expect(caa().readCancelAllAfter(principalFor(ALICE, []))).rejects.toBeInstanceOf(Error);
   });
 
   it('refuses a blank published set and an unpublished timeout, arming nothing', async () => {
