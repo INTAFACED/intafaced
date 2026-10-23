@@ -1120,6 +1120,10 @@ function serviceDefs(secrets) {
         // LOCAL TEST only: how many price alerts one person may hold. Production has no value until the owner sets one,
         // and every create is refused (notify.alert_quota_unset) until then.
         NOTIFY_ALERT_MAX_ACTIVE_PRICE: '20',
+        // LOCAL TEST only: the inbox page size and the unread badge cap. Production has neither until the owner sets them,
+        // and the inbox refuses (notify.list_limit_unset, notify.unread_cap_unset) until then.
+        NOTIFY_INBOX_PAGE_SIZE: '20',
+        NOTIFY_INBOX_UNREAD_CAP: '99',
       }),
     },
     {
