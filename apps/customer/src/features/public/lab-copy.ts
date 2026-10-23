@@ -8,7 +8,7 @@ export const labCopy = defineCopy('public-lab', {
   noneBody: 'What the Lab holds is the owner’s decision, and it has not been made. No entry is shown, and none is made up.',
   publishAction: 'Publishing Lab entries',
   detailTitle: 'This Lab entry is not published',
-  detailBody: 'No Lab entry with this reference exists.',
+  detailBody: 'No Lab entry is published, so there is nothing to show at this address.',
   back: 'Back to the Lab',
   elsewhereTitle: 'Looking for something else?',
   elsewhereBody: 'Every room of the app is listed on the home page. Questions go to the help centre.',

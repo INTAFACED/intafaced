@@ -504,8 +504,8 @@ export const features: readonly Feature[] = [
     label: 'Notices, Lab, App, Partner',
     paths: ['/notice', '/notice/:id', '/announcement', '/announcement/:id', '/lab', '/lab/detail/:id', '/bzb', '/app', '/partner'],
     status: 'blocked',
-    reason: 'No service behind them',
-    unlock: 'per feature',
+    reason: 'No service behind them; what the Lab holds is an owner decision',
+    unlock: 'per feature; the Lab when the owner records what it holds',
     tab: 'public',
   },
   {
