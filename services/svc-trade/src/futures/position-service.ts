@@ -636,6 +636,7 @@ export class PositionService {
   async collateralFigures(
     userId: string,
     asset: string,
+    db: Sql | TransactionSql = this.sql,
   ): Promise<{
     free: Amount;
     posted: Amount;
@@ -658,11 +659,11 @@ export class PositionService {
       const row = snapshot.find((b) => b.account.assetId === asset && b.account.kind === kind && (b.account.purpose ?? '') === purpose);
       return row && row.amount > 0n ? row.amount : 0n;
     };
-    const positions = await this.sql<{ id: string; margin_initial: string }[]>`
+    const positions = await db<{ id: string; margin_initial: string }[]>`
       SELECT id, margin_initial FROM trade.positions
        WHERE user_id = ${userId} AND margin_asset = ${asset} AND status IN ('open', 'closing')
     `;
-    const orders = await this.sql<OrderRow[]>`
+    const orders = await db<OrderRow[]>`
       SELECT * FROM trade.futures_orders
        WHERE user_id = ${userId} AND hold_asset = ${asset} AND status IN ('pending', 'held', 'submitting', 'open', 'submit_unknown')
     `;
@@ -693,102 +694,71 @@ export class PositionService {
   }
 
   /**
-   * An opening order's hold answers to the owner's haircut like an at-mark open did: the account's posted cash, cut,
-   * must cover everything it has committed, the new order's hold included. Blank refuses `trade.haircut_unset`; short
-   * refuses `trade.haircut_credit_short`; a read that fails refuses `trade.collateral_unreadable` (503). Nothing is held.
+   * The account's collateral figures for a credit check. A read that fails refuses `trade.collateral_unreadable` (503):
+   * it says nothing about the owner's haircut, and the request may be retried. A blank haircut refuses
+   * `trade.haircut_unset`.
    */
-  private async assertMatchedCollateralCredit(input: { userId: string; asset: string; additionalHold?: Amount }): Promise<void> {
+  private async collateralForCredit(
+    userId: string,
+    asset: string,
+    db: Sql | TransactionSql = this.sql,
+  ): Promise<Awaited<ReturnType<PositionService['collateralFigures']>> & { haircutBps: number }> {
     let figures: Awaited<ReturnType<PositionService['collateralFigures']>>;
     try {
-      figures = await this.collateralFigures(input.userId, input.asset);
+      figures = await this.collateralFigures(userId, asset, db);
     } catch (err) {
       if (err instanceof FuturesError) throw err;
-      // The service could not read the account, which says nothing about the owner's haircut: a 5xx, retried.
       throw new FuturesError('collateral could not be read — refusing with no margin hold', COLLATERAL_UNREADABLE, 503);
     }
     if (figures.haircutBps === null) {
       throw new FuturesError('TRADE_COLLATERAL_HAIRCUT_BPS is unset — refuse rather than invent a haircut', HAIRCUT_UNSET, 400);
     }
-    // The same rule as the at-mark open: posted cash, cut, covers everything committed (this order's hold included).
-    // A split order's children not yet written are passed as `additionalHold`; a written row already counts its own.
-    const decision = decideOpenCredit({
-      postedCash: figures.posted,
-      initialMargin: (figures.committed + (input.additionalHold ?? 0n)) as Amount,
-      haircutBps: figures.haircutBps,
-    });
-    if (!decision.ok) {
-      throw new FuturesError(
-        'posted collateral, after the haircut, is below the margin already committed plus this order’s hold — nothing was held',
-        HAIRCUT_CREDIT_SHORT,
-        400,
-      );
-    }
+    return { ...figures, haircutBps: figures.haircutBps };
   }
 
   /**
-   * credit(available + Σ position collateral pots) must cover Σ margin_initial + the new
-   * requirement. The pots are read from the ledger, never from `margin_current`: that column is a mirror and can drift
-   * from what the ledger holds, and no service-held figure may decide how much credit a customer has. A shortfall or a failed read refuses and
-   * posts nothing. `additionalInitialMargin` is the new open's IM, or the IM
-   * delta when setLeverage is raising margin.
+   * Serialises the credit checks of one account's cash in one asset that write their requirement after they check
+   * (a leverage change writes the position's new initial margin when its transaction commits). Held until `db`'s
+   * transaction ends, so a check that waits on it reads that requirement. An opening order's check only passes through
+   * the lock: its row exists before its check, so a leverage change that takes the lock after it already counts it.
    */
-  private async assertAggregateHaircutCredit(input: {
-    userId: string;
-    asset: string;
-    additionalInitialMargin: Amount;
-    available?: Amount;
-  }): Promise<void> {
-    let haircutBps: number;
-    try {
-      haircutBps = requireOwnerHaircutBps(readOwnerHaircutBps());
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'TRADE_COLLATERAL_HAIRCUT_BPS is unset — refuse rather than invent a haircut';
-      throw new FuturesError(message, HAIRCUT_UNSET, 400);
-    }
+  private async lockCollateral(db: TransactionSql, userId: string, asset: string): Promise<void> {
+    await db`SELECT pg_advisory_xact_lock(hashtextextended(${`trade.collateral:${userId}:${asset}`}, 0))`;
+  }
 
-    let rows: ReadonlyArray<{ id: string; margin_initial: string }>;
-    try {
-      rows = await this.sql<{ id: string; margin_initial: string }[]>`
-        SELECT id, margin_initial
-        FROM trade.positions
-        WHERE user_id = ${input.userId}
-          AND margin_asset = ${input.asset}
-          AND status IN ('open', 'closing')
-      `;
-    } catch (err) {
-      if (err instanceof FuturesError) throw err;
-      throw new FuturesError('collateral credit could not be read — refusing with no margin lock', HAIRCUT_UNSET, 400);
-    }
-
-    let available = input.available;
-    if (available === undefined) {
-      try {
-        available = (await this.ledger.balance(userAvailable(input.userId, input.asset))).amount;
-      } catch (err) {
-        if (err instanceof FuturesError) throw err;
-        throw new FuturesError('collateral credit could not be read — refusing with no margin lock', HAIRCUT_UNSET, 400);
-      }
-    }
-
-    let sumCurrent = 0n;
-    let sumInitial = 0n;
-    try {
-      for (const row of rows) {
-        sumInitial += parseAmount(String(row.margin_initial));
-        const pot = (await this.ledger.balance(positionCollateralAccount(input.userId, input.asset, row.id))).amount;
-        if (pot > 0n) sumCurrent += pot;
-      }
-    } catch (err) {
-      if (err instanceof FuturesError) throw err;
-      throw new FuturesError('collateral credit could not be read — refusing with no margin lock', HAIRCUT_UNSET, 400);
-    }
-
+  /**
+   * One rule for every credit check: the account's posted cash (free, position pots and order holds, from one ledger
+   * read), cut by the owner's haircut, covers everything committed (positions' initial margin and what live orders
+   * commit) plus `additional`, this request's new requirement. The figures come from the ledger, never from
+   * `margin_current`: that column is a mirror and can drift from what the ledger holds.
+   */
+  private assertHaircutCredit(
+    figures: { posted: Amount; committed: Amount; haircutBps: number },
+    additional: Amount,
+    message?: string,
+  ): void {
     const decision = decideOpenCredit({
-      postedCash: (available + sumCurrent) as Amount,
-      initialMargin: (sumInitial + input.additionalInitialMargin) as Amount,
-      haircutBps,
+      postedCash: figures.posted,
+      initialMargin: (figures.committed + additional) as Amount,
+      haircutBps: figures.haircutBps,
     });
-    if (!decision.ok) throw new FuturesError(decision.reason, HAIRCUT_CREDIT_SHORT, 400);
+    if (!decision.ok) throw new FuturesError(message ?? decision.reason, HAIRCUT_CREDIT_SHORT, 400);
+  }
+
+  /**
+   * An opening order's hold answers to the owner's haircut like an at-mark open did. A split order's children not yet
+   * written are passed as `additionalHold`; a written row already counts its own. Nothing is held on a refusal.
+   */
+  private async assertMatchedCollateralCredit(input: { userId: string; asset: string; additionalHold?: Amount }): Promise<void> {
+    // Wait out a leverage change that is writing its new margin, then read: the lock is taken and let go at once, so no
+    // connection is held while the ledger is read.
+    await this.sql.begin((tx) => this.lockCollateral(tx, input.userId, input.asset));
+    const figures = await this.collateralForCredit(input.userId, input.asset);
+    this.assertHaircutCredit(
+      figures,
+      (input.additionalHold ?? 0n) as Amount,
+      'posted collateral, after the haircut, is below the margin already committed plus this order’s hold — nothing was held',
+    );
   }
 
   /**
@@ -1610,11 +1580,7 @@ export class PositionService {
       entryPrice,
       leverage,
     });
-    await this.assertAggregateHaircutCredit({
-      userId: input.userId,
-      asset: m.quote_asset,
-      additionalInitialMargin: margin,
-    });
+    this.assertHaircutCredit(await this.collateralForCredit(input.userId, m.quote_asset), margin);
     if (!principal || principal.userId !== input.userId) throw new TradingControlError('auth.credential_denied');
     if (!this.deps.accountAdmission) throw new TradingControlError('authority.unavailable');
     // Owner pre-trade limits (#4725), before the margin lock. A retry of an
@@ -1637,7 +1603,7 @@ export class PositionService {
         limitRefusal.code.endsWith('_unset') ? 400 : PRETRADE_LIMIT_HTTP_STATUS,
       );
     // The open-interest limits an opening order through the book answers to (D-margin-05), wherever they are wired.
-    // There are no live orders while opens are at the mark, so the room is what open positions leave.
+    // The room counts live opening orders as well: orders placed while matching was on may still rest after it is off.
     if (this.openInterestLimits) {
       const room = await this.openInterestRoom({
         userId: input.userId,
@@ -1954,26 +1920,17 @@ export class PositionService {
 
         if (delta > 0n) {
           this.refuseIfFuturesExposureOff();
-          let availableAmount: Amount;
-          try {
-            availableAmount = (await this.ledger.balance(userAvailable(input.userId, row.margin_asset))).amount;
-          } catch (err) {
-            if (err instanceof FuturesError) throw err;
-            throw new FuturesError('collateral credit could not be read — refusing with no margin lock', HAIRCUT_UNSET, 400);
-          }
-          if (availableAmount < delta) {
+          // Held until this transaction writes the new initial margin, so an opening order's check waits and counts it.
+          await this.lockCollateral(tx, input.userId, row.margin_asset);
+          const figures = await this.collateralForCredit(input.userId, row.margin_asset, tx);
+          if (figures.free < delta) {
             throw new FuturesError(
-              `need ${formatAmount(delta)} ${row.margin_asset} extra isolated margin, have ${formatAmount(availableAmount)}`,
+              `need ${formatAmount(delta)} ${row.margin_asset} extra isolated margin, have ${formatAmount(figures.free)}`,
               LEVERAGE_INSUFFICIENT_MARGIN,
               400,
             );
           }
-          await this.assertAggregateHaircutCredit({
-            userId: input.userId,
-            asset: row.margin_asset,
-            additionalInitialMargin: delta,
-            available: availableAmount,
-          });
+          this.assertHaircutCredit(figures, delta);
           ledgerAttempted = true;
           await this.ledger.post(
             recipes.futuresMarginAdd({
