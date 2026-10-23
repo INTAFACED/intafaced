@@ -553,6 +553,12 @@ export class NoticeBoard {
     return rows.map(toNoticeWire);
   }
 
+  /** A published notice as its subscriber fan-out takes it, or null when there is none by that id. */
+  async publishedForFanOut(id: string): Promise<NoticeRow | null> {
+    const row = await this.store.findById(id);
+    return row && row.status === 'published' ? row : null;
+  }
+
   async notice(id: string): Promise<NoticeWire> {
     const row = await this.store.findById(id);
     if (!row || row.status !== 'published') throw new NoticeError('notify.notice_not_found');

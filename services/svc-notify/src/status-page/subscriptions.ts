@@ -26,9 +26,19 @@ import type { MailOutcome, StatusMailer } from './mailer.js';
 import { pinnedPost, systemResolver, webhookTargetProblem, type Resolver, type WebhookPost } from './webhook.js';
 
 const HOUR_MS = 3_600_000;
+/** How long one sender holds a delivery row before another fan-out may try it: longer than any send waits. */
+const DELIVERY_LEASE_MS = 120_000;
+/** Storage bounds of one founder import, not owner values. */
+export const STATUS_IMPORT_MAX = 500;
+const EVENT_ROWS_MAX = 500;
+export const STATUS_IMPORT_SOURCE_PATTERN = /^[a-z0-9][a-z0-9-]{0,39}$/;
+const EMAIL_PATTERN = /^[^\s@]{1,64}@[^\s@]+\.[^\s@]{2,}$/;
+
+/** The contract's codes, plus the founder desk's own: a malformed import, and a resend of a notice that is not published. */
+export type StatusSubscriptionCode = StatusSubscriptionErrorCode | 'status.import_invalid' | 'status.notice_unknown';
 
 export class StatusSubscriptionError extends Error {
-  constructor(readonly code: StatusSubscriptionErrorCode) {
+  constructor(readonly code: StatusSubscriptionCode) {
     super(code);
     this.name = 'StatusSubscriptionError';
   }
@@ -42,6 +52,28 @@ export type Subscriber = {
   readonly webhookUrl: string | null;
   /** Moves when the address subscribes again after leaving, so its new confirmation is a new message. */
   readonly revision: number;
+  /** The founder import that added it; null for an address that subscribed on /status. */
+  readonly source: string | null;
+};
+
+/** One subscriber as the founders' desk lists it, with how its deliveries stand. */
+export type SubscriberSummary = Pick<Subscriber, 'id' | 'email' | 'state' | 'componentIds' | 'source'> & {
+  readonly webhook: boolean;
+  readonly createdAt: string;
+  readonly deliveries: Readonly<Record<DeliveryStatus, number>>;
+};
+
+/** What a founder import did, address by address, after duplicates were folded into one. */
+export type StatusImportResult = {
+  readonly received: number;
+  /** Distinct valid addresses: a duplicate in the list, in any letter case, is one. */
+  readonly distinct: number;
+  readonly added: number;
+  readonly alreadyKnown: number;
+  /** Not addresses, in the order given. */
+  readonly invalid: readonly string[];
+  /** Over the per-address hourly limit: stored, but no confirmation was sent this time. */
+  readonly limited: number;
 };
 
 export type DeliveryStatus = 'pending' | 'accepted' | 'failed' | 'refused';
@@ -71,8 +103,22 @@ export interface SubscriptionStore {
   useChallenge(tokenHash: string, at: Date, expiredBefore: Date): Promise<boolean>;
   /** Writes the row if it is not there; returns the stored row either way. */
   claimDelivery(row: Pick<Delivery, 'key' | 'subscriberId' | 'event' | 'channel'>, at: Date): Promise<Delivery>;
-  settleDelivery(key: string, status: DeliveryStatus, refusalCode: string | null, at: Date): Promise<void>;
+  /**
+   * Takes an unsettled row for one send until `until`: false when it is settled or another sender holds it. Settling
+   * the row lets it go.
+   */
+  takeDelivery(key: string, at: Date, until: Date): Promise<boolean>;
+  /** Records a send's result. With `lease`, only while that lease is still the row's: a sender that lost it records nothing. */
+  settleDelivery(key: string, status: DeliveryStatus, refusalCode: string | null, at: Date, lease?: Date): Promise<void>;
   deliveries(subscriberId: string): Promise<readonly Delivery[]>;
+  /** The rows of one event, each with its subscriber's address, ordered by address then channel. */
+  eventDeliveries(event: string, limit: number): Promise<readonly (Delivery & { readonly email: string })[]>;
+  /** The rows of one event still to be sent (pending or failed), each with its subscriber. */
+  unsettledDeliveries(event: string): Promise<readonly Delivery[]>;
+  /** Subscribers newest first, in one state or all, with their delivery counts. */
+  list(state: StatusSubscriberState | null, limit: number): Promise<readonly SubscriberSummary[]>;
+  /** An imported address: added as unconfirmed with its source when unknown; a known address is left as it is. */
+  importSubscriber(email: string, source: string, at: Date): Promise<{ readonly subscriber: Subscriber; readonly added: boolean }>;
   /** Active subscribers, for a fan-out. */
   active(): Promise<readonly Subscriber[]>;
 }
@@ -138,6 +184,73 @@ export class StatusSubscriptions {
     return this.deps.linkTtlMinutes === null ? null : this.deps.linkTtlMinutes * 60_000;
   }
 
+  /** How each channel leaves this deployment: the founders' desk names the code of a channel with no sender. */
+  channels(): { email: { sender: StatusMailer['kind']; notConnected: 'vendor.email' | null }; sms: 'vendor.sms'; push: 'vendor.push' } {
+    return {
+      email: { sender: this.deps.mailer.kind, notConnected: this.deps.mailer.notConnected },
+      sms: 'vendor.sms',
+      push: 'vendor.push',
+    };
+  }
+
+  async list(input: { state: StatusSubscriberState | null; limit: number }): Promise<readonly SubscriberSummary[]> {
+    return this.deps.store.list(input.state, Math.min(Math.max(1, input.limit), 200));
+  }
+
+  /** One event's rows, at most `EVENT_ROWS_MAX`; `more` says the event has rows beyond them. */
+  async eventDeliveries(event: string): Promise<{ rows: readonly (Delivery & { readonly email: string })[]; more: boolean }> {
+    const rows = await this.deps.store.eventDeliveries(event, EVENT_ROWS_MAX + 1);
+    return { rows: rows.slice(0, EVENT_ROWS_MAX), more: rows.length > EVENT_ROWS_MAX };
+  }
+
+  /**
+   * Founders add addresses from another list. Each new one is unconfirmed until its own link is opened and gets one
+   * confirmation; a known address is left as it is, so importing the same list again sends nothing. A blank proof of
+   * work or rate limit refuses the import (`status.challenge_unset`, `status.rate_limit_unset`), as it refuses subscribing.
+   */
+  async importSubscribers(input: { source: string; emails: readonly string[] }): Promise<StatusImportResult> {
+    if (!STATUS_IMPORT_SOURCE_PATTERN.test(input.source) || input.emails.length === 0 || input.emails.length > STATUS_IMPORT_MAX)
+      throw new StatusSubscriptionError('status.import_invalid');
+    const definition = await this.deps.page.definition();
+    // Both safeguards blank-refuse an import as they refuse subscribing on /status.
+    if (definition.challengeBits === null || !this.deps.secret || this.ttlMs() === null)
+      throw new StatusSubscriptionError('status.challenge_unset');
+    if (definition.subscribeRatePerHour === null) throw new StatusSubscriptionError('status.rate_limit_unset');
+    const invalid: string[] = [];
+    const distinct = new Set<string>();
+    for (const raw of input.emails) {
+      const email = raw.trim().toLowerCase();
+      if (email.length > 254 || !EMAIL_PATTERN.test(email)) invalid.push(raw);
+      else distinct.add(email);
+    }
+    let added = 0;
+    let limited = 0;
+    for (const email of distinct) {
+      const at = this.now();
+      const stored = await this.deps.store.importSubscriber(email, input.source, at);
+      // A known address is left as it is: no confirmation it did not ask for, and its hourly budget untouched.
+      if (!stored.added) continue;
+      added += 1;
+      const recent = await this.deps.store.countAndRecordRequest(email, new Date(at.getTime() - HOUR_MS), at);
+      if (recent >= definition.subscribeRatePerHour) {
+        limited += 1;
+        continue;
+      }
+      await this.sendConfirmation(stored.subscriber, `import.${input.source}.r${stored.subscriber.revision}`, at);
+    }
+    return { received: input.emails.length, distinct: distinct.size, added, alreadyKnown: distinct.size - added, invalid, limited };
+  }
+
+  private async sendConfirmation(subscriber: Subscriber, event: string, at: Date): Promise<void> {
+    const link = `${this.deps.mailer.origin}/status/confirm?token=${encodeURIComponent(
+      this.token('confirm', subscriber.id, subscriber.revision, at.getTime() + this.ttlMs()!),
+    )}`;
+    await this.deliverEmail(subscriber, event, {
+      subject: 'Confirm your status updates',
+      text: `Open this link to start getting status updates: ${link}\nNothing is sent to you until you do. If you did not ask for this, ignore this message.`,
+    });
+  }
+
   async policy(): Promise<StatusSubscriptionPolicy> {
     const definition = await this.deps.page.definition();
     return {
@@ -181,14 +294,8 @@ export class StatusSubscriptions {
       ? { state: 'confirmation_pending', notConnected: this.deps.mailer.notConnected }
       : { state: 'confirmation_sent', notConnected: null };
     if (subscriber.state === 'active') return answer;
-    const link = `${this.deps.mailer.origin}/status/confirm?token=${encodeURIComponent(
-      this.token('confirm', subscriber.id, subscriber.revision, at.getTime() + this.ttlMs()!),
-    )}`;
     // One confirmation per request (the rate limit bounds them), so asking again after a link expired sends a fresh one.
-    await this.deliverEmail(subscriber, `confirm.r${subscriber.revision}.${at.getTime()}`, {
-      subject: 'Confirm your status updates',
-      text: `Open this link to start getting status updates: ${link}\nNothing is sent to you until you do. If you did not ask for this, ignore this message.`,
-    });
+    await this.sendConfirmation(subscriber, `confirm.r${subscriber.revision}.${at.getTime()}`, at);
     return answer;
   }
 
@@ -268,12 +375,29 @@ export class StatusSubscriptions {
     for (const subscriber of await this.deps.store.active()) {
       const chosen = subscriber.componentIds;
       if (chosen !== null && notice.components.length > 0 && !notice.components.some((c) => chosen.includes(c))) continue;
-      const token = encodeURIComponent(this.manageToken(subscriber));
-      await this.deliverEmail(subscriber, notice.id, {
-        subject: `Status update: ${notice.title}`,
-        text: `${notice.title}\n\n${notice.body}\n\nChoose what you get: ${this.deps.mailer.origin}/status/manage?token=${token}\nStop these updates: ${this.deps.mailer.origin}/status/unsubscribe?token=${token}`,
-      });
+      await this.deliverEmail(subscriber, notice.id, this.updateMail(subscriber, notice));
       if (subscriber.webhookUrl) await this.deliverWebhook(subscriber, notice);
+    }
+  }
+
+  private updateMail(subscriber: Subscriber, notice: Pick<NoticeWire, 'title' | 'body'>): { subject: string; text: string } {
+    const token = encodeURIComponent(this.manageToken(subscriber));
+    return {
+      subject: `Status update: ${notice.title}`,
+      text: `${notice.title}\n\n${notice.body}\n\nChoose what you get: ${this.deps.mailer.origin}/status/manage?token=${token}\nStop these updates: ${this.deps.mailer.origin}/status/unsubscribe?token=${token}`,
+    };
+  }
+
+  /**
+   * A founder's "send again" for one published notice: only its rows still pending or failed are tried once more, for
+   * subscribers still active. No row is made for anyone the notice did not reach when it was published.
+   */
+  async retry(notice: Pick<NoticeWire, 'id' | 'kind' | 'title' | 'body'>): Promise<void> {
+    for (const row of await this.deps.store.unsettledDeliveries(notice.id)) {
+      const subscriber = await this.deps.store.byId(row.subscriberId);
+      if (!subscriber || subscriber.state !== 'active') continue;
+      if (row.channel === 'email') await this.deliverEmail(subscriber, notice.id, this.updateMail(subscriber, notice));
+      else if (subscriber.webhookUrl) await this.deliverWebhook(subscriber, notice);
     }
   }
 
@@ -282,22 +406,34 @@ export class StatusSubscriptions {
     const at = this.now();
     const row = await this.deps.store.claimDelivery({ key, subscriberId: subscriber.id, event, channel: 'email' }, at);
     if (row.status === 'accepted' || row.status === 'refused') return null;
-    const outcome = await this.deps.mailer.send({ to: subscriber.email, ...mail, key });
-    if (outcome.status === 'accepted') await this.deps.store.settleDelivery(key, 'accepted', null, this.now());
+    // Another fan-out of the same event is sending this row now: it settles it.
+    const lease = new Date(at.getTime() + DELIVERY_LEASE_MS);
+    if (!(await this.deps.store.takeDelivery(key, at, lease))) return null;
+    let outcome: MailOutcome;
+    try {
+      outcome = await this.deps.mailer.send({ to: subscriber.email, ...mail, key });
+    } catch {
+      // A transport that throws is a failed send of this row, never a stop for the subscribers after it.
+      outcome = { status: 'failed' };
+    }
+    if (outcome.status === 'accepted') await this.deps.store.settleDelivery(key, 'accepted', null, this.now(), lease);
     // No sender is not a refusal of this message: it waits, pending, with the code that says why.
     else if (outcome.status === 'refused')
-      await this.deps.store.settleDelivery(key, outcome.code === 'vendor.email' ? 'pending' : 'refused', outcome.code, this.now());
-    else await this.deps.store.settleDelivery(key, 'failed', null, this.now());
+      await this.deps.store.settleDelivery(key, outcome.code === 'vendor.email' ? 'pending' : 'refused', outcome.code, this.now(), lease);
+    else await this.deps.store.settleDelivery(key, 'failed', null, this.now(), lease);
     return outcome;
   }
 
   private async deliverWebhook(subscriber: Subscriber, notice: Pick<NoticeWire, 'id' | 'kind' | 'title' | 'body'>): Promise<void> {
     const key = `${notice.id}:${subscriber.id}:webhook`;
-    const row = await this.deps.store.claimDelivery({ key, subscriberId: subscriber.id, event: notice.id, channel: 'webhook' }, this.now());
+    const at = this.now();
+    const row = await this.deps.store.claimDelivery({ key, subscriberId: subscriber.id, event: notice.id, channel: 'webhook' }, at);
     if (row.status === 'accepted' || row.status === 'refused') return;
+    const lease = new Date(at.getTime() + DELIVERY_LEASE_MS);
+    if (!(await this.deps.store.takeDelivery(key, at, lease))) return;
     // The address is checked again at send time: a name can resolve somewhere else since it was stored.
     if ((await webhookTargetProblem(subscriber.webhookUrl!, this.resolve)) !== null) {
-      await this.deps.store.settleDelivery(key, 'refused', 'status.webhook_target_refused', this.now());
+      await this.deps.store.settleDelivery(key, 'refused', 'status.webhook_target_refused', this.now(), lease);
       return;
     }
     try {
@@ -307,15 +443,17 @@ export class StatusSubscriptions {
         { 'content-type': 'application/json', 'idempotency-key': key },
         this.deps.webhookTimeoutMs,
       );
-      await this.deps.store.settleDelivery(key, res.ok ? 'accepted' : 'failed', null, this.now());
+      await this.deps.store.settleDelivery(key, res.ok ? 'accepted' : 'failed', null, this.now(), lease);
     } catch {
-      await this.deps.store.settleDelivery(key, 'failed', null, this.now());
+      await this.deps.store.settleDelivery(key, 'failed', null, this.now(), lease);
     }
   }
 }
 
 export class MemorySubscriptionStore implements SubscriptionStore {
   private readonly rows = new Map<string, Subscriber>();
+  private readonly created = new Map<string, Date>();
+  private readonly leases = new Map<string, number>();
   private readonly requests: { email: string; at: number }[] = [];
   private readonly used = new Set<string>();
   readonly sent = new Map<string, Delivery>();
@@ -323,8 +461,10 @@ export class MemorySubscriptionStore implements SubscriptionStore {
   async subscribe(email: string, componentIds: readonly string[] | null): Promise<Subscriber> {
     const existing = [...this.rows.values()].find((row) => row.email === email);
     let next: Subscriber;
-    if (!existing) next = { id: randomUUID(), email, state: 'unconfirmed', componentIds, webhookUrl: null, revision: 1 };
-    else if (existing.state === 'unsubscribed')
+    if (!existing) {
+      next = { id: randomUUID(), email, state: 'unconfirmed', componentIds, webhookUrl: null, revision: 1, source: null };
+      this.created.set(next.id, new Date());
+    } else if (existing.state === 'unsubscribed')
       next = { ...existing, state: 'unconfirmed', componentIds, webhookUrl: null, revision: existing.revision + 1 };
     else if (existing.state === 'unconfirmed') next = { ...existing, componentIds };
     else next = existing;
@@ -360,8 +500,17 @@ export class MemorySubscriptionStore implements SubscriptionStore {
     this.sent.set(row.key, fresh);
     return fresh;
   }
-  async settleDelivery(key: string, status: DeliveryStatus, refusalCode: string | null) {
+  async takeDelivery(key: string, at: Date, until: Date) {
+    const row = this.sent.get(key);
+    if (!row || row.status === 'accepted' || row.status === 'refused') return false;
+    if ((this.leases.get(key) ?? 0) > at.getTime()) return false;
+    this.leases.set(key, until.getTime());
+    return true;
+  }
+  async settleDelivery(key: string, status: DeliveryStatus, refusalCode: string | null, _at?: Date, lease?: Date) {
     const row = this.sent.get(key)!;
+    if (lease !== undefined && this.leases.get(key) !== lease.getTime()) return;
+    this.leases.delete(key);
     if (row.status === 'accepted' || row.status === 'refused') return;
     this.sent.set(key, { ...row, status, refusalCode, attempts: row.attempts + 1 });
   }
@@ -370,5 +519,51 @@ export class MemorySubscriptionStore implements SubscriptionStore {
   }
   async active() {
     return [...this.rows.values()].filter((row) => row.state === 'active');
+  }
+  async unsettledDeliveries(event: string) {
+    return [...this.sent.values()].filter((row) => row.event === event && (row.status === 'pending' || row.status === 'failed'));
+  }
+  async eventDeliveries(event: string, limit: number) {
+    return [...this.sent.values()]
+      .filter((row) => row.event === event)
+      .map((row) => ({ ...row, email: this.rows.get(row.subscriberId)!.email }))
+      .sort((a, b) => a.email.localeCompare(b.email) || a.channel.localeCompare(b.channel))
+      .slice(0, limit);
+  }
+  async list(state: StatusSubscriberState | null, limit: number) {
+    return [...this.rows.values()]
+      .filter((row) => state === null || row.state === state)
+      .sort((a, b) => this.created.get(b.id)!.getTime() - this.created.get(a.id)!.getTime() || a.id.localeCompare(b.id))
+      .slice(0, limit)
+      .map((row): SubscriberSummary => {
+        const deliveries = { pending: 0, accepted: 0, failed: 0, refused: 0 };
+        for (const d of this.sent.values()) if (d.subscriberId === row.id) deliveries[d.status] += 1;
+        return {
+          id: row.id,
+          email: row.email,
+          state: row.state,
+          componentIds: row.componentIds,
+          source: row.source,
+          webhook: row.webhookUrl !== null,
+          createdAt: this.created.get(row.id)!.toISOString(),
+          deliveries,
+        };
+      });
+  }
+  async importSubscriber(email: string, source: string, at: Date) {
+    const existing = await this.byEmail(email);
+    if (existing) return { subscriber: existing, added: false };
+    const subscriber: Subscriber = {
+      id: randomUUID(),
+      email,
+      state: 'unconfirmed',
+      componentIds: null,
+      webhookUrl: null,
+      revision: 1,
+      source,
+    };
+    this.rows.set(subscriber.id, subscriber);
+    this.created.set(subscriber.id, at);
+    return { subscriber, added: true };
   }
 }

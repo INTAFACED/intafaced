@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { draftNotice, publishAs, publishNotice } from './notices.mjs';
 import { configureStatusPage, incidentTemplates, setIncidentTemplate, statusDefinition, statusRead } from './status-page.mjs';
-import { ORIGIN } from './stack.mjs';
+import { ORIGIN, statusMail } from './stack.mjs';
 
 // J-support-public-19, in the running app (docs/roadmap/journeys.json): two operators publish an incident, a maintenance
 // window and an announcement from the founder console's notify desk, and the public pages, the notice board and the
@@ -81,6 +81,8 @@ test.afterAll(async () => {
       componentCap: found.componentCap,
       stalenessSeconds: found.stalenessSeconds,
       uptimeDays: found.uptimeDays,
+      challengeBits: found.challengeBits,
+      subscribeRatePerHour: found.subscribeRatePerHour,
     },
     `TEST journey ${J}: put back the definition it found`,
   );
@@ -345,6 +347,159 @@ test(`${J} #4 post updates, then resolve: the component goes back to its own sta
   ).rejects.toThrow(/notify\.notice_incident_resolved/);
   await a.context().close();
   await b.context().close();
+});
+
+/** TEST subscription safeguards: proof-of-work strength (leading zero bits) and subscribe requests per address per hour. */
+const TEST_SAFEGUARDS = { challengeBits: 12, subscribeRatePerHour: 5 };
+const SUBSCRIBER = `j19-${RUN}@example.com`;
+const IMPORTED = [`j19-a-${RUN}@example.com`, `j19-b-${RUN}@example.com`];
+
+/** Founder A on the console's subscriber desk, in a context of its own. */
+async function subscriberDesk(browser) {
+  const context = await browser.newContext({ baseURL: ADMIN, viewport: { width: 1440, height: 1000 } });
+  const page = await context.newPage();
+  await founderSignIn(page, 'a');
+  await page.goto('/notify/subscribers');
+  await expect(page.getByRole('heading', { level: 1, name: 'Status subscribers' })).toBeVisible();
+  return page;
+}
+
+/** Status mail to `email` once there are `count` messages; fan-out runs just after the publish answers. */
+async function statusMailAtLeast(email, count, waitMs = 15_000) {
+  const until = Date.now() + waitMs;
+  for (;;) {
+    const mail = statusMail(email);
+    if (mail.length >= count || Date.now() >= until) return mail;
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+}
+
+const deskOutcome = (page) => page.getByTestId('subscriber-desk-outcome');
+
+test(`${J} #5 subscriber delivery: one row per subscriber and channel however often it is sent, and the channels with no sender named`, async ({
+  browser,
+}) => {
+  await configureStatusPage(TEST_SAFEGUARDS, `TEST journey ${J} #5: subscription safeguards`);
+  // A visitor subscribes on /status to every component and confirms by the emailed link.
+  const visitor = await browser.newPage({ baseURL: ORIGIN });
+  await visitor.goto('/status');
+  const form = visitor.getByTestId('status-subscribe');
+  await form.getByLabel('Email address').fill(SUBSCRIBER);
+  await form.getByRole('button', { name: 'Subscribe' }).click();
+  await expect(form.getByTestId('status-subscribe-sent')).toContainText('Check your inbox');
+  const [confirm] = statusMail(SUBSCRIBER);
+  await visitor.goto(/(\/status\/confirm\?token=\S+)/.exec(confirm.text)[1]);
+  await visitor.getByRole('button', { name: 'Confirm' }).click();
+  await expect(visitor.getByTestId('status-subscription-state')).toHaveText('Active');
+  await visitor.context().close();
+
+  const key = `j19-delivery:${RUN}`;
+  const notice = await publishNotice(
+    await draftNotice({
+      kind: 'incident',
+      title: `${INCIDENT_PREFIX} delivery check (run ${RUN})`,
+      body: 'TEST Checking delivery to subscribers.',
+      minutes: 15,
+      key,
+      impact: 'minor',
+      components: ['api'],
+    }),
+    key,
+  );
+  const updates = () => statusMail(SUBSCRIBER).filter((m) => m.subject === `Status update: ${notice.title}`);
+  await statusMailAtLeast(SUBSCRIBER, 2);
+  expect(updates()).toHaveLength(1);
+
+  const page = await subscriberDesk(browser);
+  const channels = page.getByTestId('subscriber-channels');
+  await expect(channels.getByTestId('subscriber-channel-email')).toContainText('LOCAL TEST outbox');
+  await expect(channels.getByTestId('subscriber-channel-sms')).toContainText('vendor.sms');
+  await expect(channels.getByTestId('subscriber-channel-push')).toContainText('vendor.push');
+
+  const deliveries = page.getByTestId('subscriber-deliveries');
+  await deliveries.getByLabel('Published notice').selectOption(notice.id);
+  const mine = deliveries.locator(`[data-testid="subscriber-delivery"][data-email="${SUBSCRIBER}"]`);
+  await expect(mine).toHaveCount(1);
+  await expect(mine).toHaveAttribute('data-channel', 'email');
+  await expect(mine).toHaveAttribute('data-status', 'accepted');
+
+  // The fan-out runs twice more: still one row per subscriber and channel, still one message.
+  for (let i = 0; i < 2; i += 1) {
+    await deliveries.getByRole('button', { name: 'Send again' }).click();
+    await expect(deskOutcome(page)).toContainText('Done: sent again');
+  }
+  await expect(mine).toHaveCount(1);
+  await expect(mine).toHaveAttribute('data-status', 'accepted');
+  await expect(mine.locator('td').nth(4)).toHaveText('1');
+  const pairs = await deliveries
+    .getByTestId('subscriber-delivery')
+    .evaluateAll((rows) => rows.map((r) => `${r.getAttribute('data-email')}|${r.getAttribute('data-channel')}`));
+  expect(new Set(pairs).size).toBe(pairs.length);
+  expect(updates()).toHaveLength(1);
+
+  const listed = page.locator(`[data-testid="subscriber-row"][data-email="${SUBSCRIBER}"]`);
+  await expect(listed).toHaveAttribute('data-state', 'active');
+  await expect(listed).toContainText('The /status form');
+  await page.context().close();
+  // The subscriber leaves by the link in the update, so later runs do not keep mailing it.
+  const leave = await browser.newPage({ baseURL: ORIGIN });
+  await leave.goto(/(\/status\/unsubscribe\?token=\S+)/.exec(updates()[0].text)[1]);
+  await leave.getByRole('button', { name: 'Unsubscribe' }).click();
+  await expect(leave.getByTestId('status-subscription-left')).toBeVisible();
+  await leave.context().close();
+});
+
+test(`${J} #6 subscriber safeguards: a blank rate limit refuses, and an import with a duplicate address makes one record`, async ({
+  browser,
+}) => {
+  const page = await subscriberDesk(browser);
+  const safeguards = page.getByTestId('subscriber-safeguards');
+  const importer = page.getByTestId('subscriber-import');
+  const importList = async (text) => {
+    await importer.getByLabel(/^Source/).fill('j19-test');
+    await importer.getByLabel(/^Addresses/).fill(text);
+    await importer.getByRole('button', { name: 'Import' }).click();
+  };
+  const list = `${IMPORTED[0]}\n${IMPORTED[0].toUpperCase()}, ${IMPORTED[1]}`;
+
+  // The owner blanks the rate limit: subscribing on /status and imports refuse.
+  await safeguards.getByLabel('Subscribe requests per address per hour').fill('');
+  await safeguards.getByLabel('Reason').fill(`TEST journey ${J} #6: blank rate limit`);
+  await safeguards.getByRole('button', { name: 'Save safeguards' }).click();
+  await expect(deskOutcome(page)).toContainText('Done: safeguards saved');
+  await expect(safeguards.getByTestId('subscriber-safeguards-now')).toContainText('Subscribe requests per address: blank');
+  const visitor = await browser.newPage({ baseURL: ORIGIN });
+  await visitor.goto('/status');
+  await expect(visitor.getByTestId('status-subscribe')).toContainText('status.rate_limit_unset');
+  await visitor.context().close();
+  await importList(list);
+  await expect(deskOutcome(page)).toHaveAttribute('data-code', 'status.rate_limit_unset');
+  await expect(page.locator(`[data-testid="subscriber-row"][data-email="${IMPORTED[0]}"]`)).toHaveCount(0);
+
+  // With the limit set again, the import folds the duplicate into one record, and importing again adds nothing.
+  await safeguards.getByLabel('Subscribe requests per address per hour').fill(String(TEST_SAFEGUARDS.subscribeRatePerHour));
+  await safeguards.getByLabel('Reason').fill(`TEST journey ${J} #6: rate limit set again`);
+  await safeguards.getByRole('button', { name: 'Save safeguards' }).click();
+  await expect(deskOutcome(page)).toContainText('Done: safeguards saved');
+  // The refused list is still there to import again, previewed before it is sent.
+  await expect(importer.getByTestId('subscriber-import-preview')).toContainText('3 lines, 2 distinct');
+  await importList(list);
+  await expect(deskOutcome(page).getByTestId('subscriber-import-result')).toContainText(
+    '3 received, 2 distinct addresses: 2 added, 0 already known',
+  );
+  await page.getByTestId('subscriber-list').getByLabel('State').selectOption('unconfirmed');
+  for (const email of IMPORTED) {
+    const row = page.locator(`[data-testid="subscriber-row"][data-email="${email}"]`);
+    await expect(row).toHaveCount(1);
+    await expect(row).toContainText('Import: j19-test');
+    await expect(row).toHaveAttribute('data-state', 'unconfirmed');
+  }
+  await importList(list);
+  await expect(deskOutcome(page).getByTestId('subscriber-import-result')).toContainText('2 distinct addresses: 0 added, 2 already known');
+  await expect(page.locator(`[data-testid="subscriber-row"][data-email="${IMPORTED[0]}"]`)).toHaveCount(1);
+  // One confirmation each, and nothing else until it is opened.
+  for (const email of IMPORTED) expect(statusMail(email).map((m) => m.subject)).toEqual(['Confirm your status updates']);
+  await page.context().close();
 });
 
 test(`${J} #10 the badge page: an image link, HTML and Markdown snippet per component, on the public site`, async ({ browser }) => {

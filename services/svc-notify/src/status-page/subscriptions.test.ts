@@ -11,6 +11,7 @@ const NOW = new Date('2026-10-23T12:00:00.000Z');
 const SECRET = 'status-subscription-test-pepper-0123456789';
 
 class Outbox implements StatusMailer {
+  readonly kind = 'local-outbox' as const;
   readonly notConnected = null;
   readonly origin = 'https://site.test';
   readonly mail: StatusMail[] = [];
@@ -312,5 +313,143 @@ describe('webhook targets', () => {
     const rebinding = async () => (calls++ === 0 ? ['93.184.216.34'] : ['127.0.0.1']);
     expect(await webhookTargetProblem('https://rebind.example.com/x', rebinding)).toBeNull();
     await expect(pinnedPost(rebinding)('https://rebind.example.com/x', '{}', {}, 1000)).rejects.toThrow(/status.webhook_target_refused/);
+  });
+});
+
+describe('subscriber desk (SP-status-04 delivery rows and safeguards)', () => {
+  const notice = { id: 'n-desk', kind: 'incident' as const, title: 'Trading slow', body: 'Looking.', components: ['trading'] };
+
+  it('one delivery row per subscriber and channel, however many fan-outs, and two at once send once', async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    class SlowOutbox extends Outbox {
+      slow = false;
+      override async send(mail: StatusMail): Promise<MailOutcome> {
+        if (this.slow) await gate;
+        return super.send(mail);
+      }
+    }
+    const mailer = new SlowOutbox();
+    const h = await harness({ mailer });
+    await h.subscribe('one@example.com');
+    await h.subs.confirm(linkIn(mailer.mail[0]!, '/status/confirm'));
+    mailer.slow = true;
+    const both = Promise.all([h.subs.fanOut(notice), h.subs.fanOut(notice)]);
+    release();
+    await both;
+    await h.subs.fanOut(notice);
+    expect(mailer.mail.filter((m) => m.subject.startsWith('Status update'))).toHaveLength(1);
+    expect(await h.subs.eventDeliveries(notice.id)).toEqual({
+      rows: [expect.objectContaining({ email: 'one@example.com', channel: 'email', status: 'accepted', attempts: 1 })],
+      more: false,
+    });
+  });
+
+  it('with no sender the rows wait pending with vendor.email, and the desk names every channel without one', async () => {
+    const h = await harness({ mailer: new NoMailer() });
+    expect(h.subs.channels()).toEqual({ email: { sender: null, notConnected: 'vendor.email' }, sms: 'vendor.sms', push: 'vendor.push' });
+    await h.subs.importSubscribers({ source: 'test-list', emails: ['wait@example.com'] });
+    const [row] = await h.subs.list({ state: null, limit: 10 });
+    expect(row).toMatchObject({
+      email: 'wait@example.com',
+      state: 'unconfirmed',
+      source: 'test-list',
+      deliveries: { pending: 1, accepted: 0 },
+    });
+  });
+
+  it('an import with a duplicate address makes one record, and importing it again sends nothing new', async () => {
+    const h = await harness();
+    const outbox = h.mailer as Outbox;
+    await h.subscribe('known@example.com');
+    const result = await h.subs.importSubscribers({
+      source: 'test-list',
+      emails: ['new@example.com', ' NEW@example.com ', 'known@example.com', 'not an address'],
+    });
+    expect(result).toEqual({ received: 4, distinct: 2, added: 1, alreadyKnown: 1, invalid: ['not an address'], limited: 0 });
+    const rows = await h.subs.list({ state: null, limit: 10 });
+    expect(rows.filter((r) => r.email === 'new@example.com')).toHaveLength(1);
+    expect(rows.find((r) => r.email === 'known@example.com')!.source).toBeNull();
+    const confirmations = () => outbox.mail.filter((m) => m.to === 'new@example.com').length;
+    expect(confirmations()).toBe(1);
+    await h.subs.importSubscribers({ source: 'test-list', emails: ['new@example.com'] });
+    expect(confirmations()).toBe(1);
+    // Imported is not active: nothing but the confirmation reaches it.
+    await h.subs.fanOut(notice);
+    expect(confirmations()).toBe(1);
+  });
+
+  it('a blank rate limit refuses an import as it refuses subscribing; a malformed import is refused whole', async () => {
+    const blank = await harness({ settings: { subscribeRatePerHour: null } });
+    expect(await code(blank.subs.importSubscribers({ source: 'test-list', emails: ['a@example.com'] }))).toBe('status.rate_limit_unset');
+    expect(await blank.subs.list({ state: null, limit: 10 })).toEqual([]);
+    const h = await harness();
+    expect(await code(h.subs.importSubscribers({ source: 'Bad Source', emails: ['a@example.com'] }))).toBe('status.import_invalid');
+    expect(await code(h.subs.importSubscribers({ source: 'test-list', emails: [] }))).toBe('status.import_invalid');
+  });
+
+  it('a resend tries pending rows again once a sender is there, and leaves accepted ones', async () => {
+    const store = new MemorySubscriptionStore();
+    const at = new Date('2026-10-23T12:00:00.000Z');
+    await store.claimDelivery({ key: 'k', subscriberId: 's', event: 'e', channel: 'email' }, at);
+    expect(await store.takeDelivery('k', at, new Date(at.getTime() + 1000))).toBe(true);
+    expect(await store.takeDelivery('k', at, new Date(at.getTime() + 1000))).toBe(false);
+    await store.settleDelivery('k', 'pending', 'vendor.email', at);
+    expect(await store.takeDelivery('k', at, new Date(at.getTime() + 1000))).toBe(true);
+    await store.settleDelivery('k', 'accepted', null, at);
+    expect(await store.takeDelivery('k', at, new Date(at.getTime() + 1000))).toBe(false);
+  });
+
+  it("send again tries only the notice's unsettled rows: no one who joined since is reached", async () => {
+    let failing = true;
+    class Flaky extends Outbox {
+      override async send(mail: StatusMail): Promise<MailOutcome> {
+        if (failing && mail.subject.startsWith('Status update') && mail.to === 'first@example.com') throw new Error('disk full');
+        return super.send(mail);
+      }
+    }
+    const mailer = new Flaky();
+    const h = await harness({ mailer });
+    await h.subscribe('first@example.com');
+    await h.subscribe('second@example.com');
+    for (const mail of [...mailer.mail]) await h.subs.confirm(linkIn(mail, '/status/confirm'));
+    await h.subs.fanOut(notice);
+    // A transport that throws fails its own row and the fan-out goes on to the next subscriber.
+    const statuses = async () => Object.fromEntries((await h.subs.eventDeliveries(notice.id)).rows.map((r) => [r.email, r.status]));
+    expect(await statuses()).toEqual({ 'first@example.com': 'failed', 'second@example.com': 'accepted' });
+    await h.subscribe('late@example.com');
+    await h.subs.confirm(linkIn(mailer.mail.at(-1)!, '/status/confirm'));
+    failing = false;
+    await h.subs.retry(notice);
+    expect(await statuses()).toEqual({ 'first@example.com': 'accepted', 'second@example.com': 'accepted' });
+    expect(mailer.mail.filter((m) => m.to === 'late@example.com' && m.subject.startsWith('Status update'))).toHaveLength(0);
+    expect(mailer.mail.filter((m) => m.to === 'second@example.com' && m.subject.startsWith('Status update'))).toHaveLength(1);
+  });
+
+  it('a blank proof of work refuses an import; a known unconfirmed address gets no confirmation from an import', async () => {
+    const blank = await harness({ settings: { challengeBits: null } });
+    expect(await code(blank.subs.importSubscribers({ source: 'test-list', emails: ['a@example.com'] }))).toBe('status.challenge_unset');
+    const h = await harness();
+    const outbox = h.mailer as Outbox;
+    await h.subscribe('waiting@example.com');
+    for (let i = 0; i < 5; i += 1) await h.subs.importSubscribers({ source: 'test-list', emails: ['waiting@example.com'] });
+    expect(outbox.mail.filter((m) => m.to === 'waiting@example.com')).toHaveLength(1);
+    // Its own hourly budget was not spent by the imports.
+    expect(await h.subscribe('waiting@example.com')).toMatchObject({ state: 'confirmation_sent' });
+  });
+
+  it('a sender that lost its lease records nothing over the one that took the row', async () => {
+    const store = new MemorySubscriptionStore();
+    const at = new Date('2026-10-23T12:00:00.000Z');
+    await store.claimDelivery({ key: 'k', subscriberId: 's', event: 'e', channel: 'email' }, at);
+    const first = new Date(at.getTime() + 1000);
+    expect(await store.takeDelivery('k', at, first)).toBe(true);
+    const later = new Date(at.getTime() + 2000);
+    const second = new Date(at.getTime() + 5000);
+    expect(await store.takeDelivery('k', later, second)).toBe(true);
+    await store.settleDelivery('k', 'failed', null, later, first);
+    expect((await store.deliveries('s'))[0]).toMatchObject({ status: 'pending', attempts: 0 });
+    await store.settleDelivery('k', 'accepted', null, later, second);
+    expect((await store.deliveries('s'))[0]).toMatchObject({ status: 'accepted', attempts: 1 });
   });
 });

@@ -26,6 +26,8 @@ export type MailOutcome =
   { readonly status: 'accepted' } | { readonly status: 'refused'; readonly code: string } | { readonly status: 'failed' };
 
 export interface StatusMailer {
+  /** Which transport sends: the owner's gateway, the LOCAL TEST outbox, or none. */
+  readonly kind: 'gateway' | 'local-outbox' | null;
   /** `vendor.email` when nothing can send; null when a message would be attempted. */
   readonly notConnected: 'vendor.email' | null;
   /** Prepended to the paths in a message. Empty for the local outbox, whose reader knows the site. */
@@ -34,6 +36,7 @@ export interface StatusMailer {
 }
 
 export class NoMailer implements StatusMailer {
+  readonly kind = null;
   readonly notConnected = 'vendor.email' as const;
   readonly origin = '';
   async send(): Promise<MailOutcome> {
@@ -42,6 +45,7 @@ export class NoMailer implements StatusMailer {
 }
 
 export class LocalOutboxMailer implements StatusMailer {
+  readonly kind = 'local-outbox' as const;
   readonly notConnected = null;
   readonly origin = '';
   constructor(private readonly file: string) {}
@@ -54,6 +58,7 @@ export class LocalOutboxMailer implements StatusMailer {
 }
 
 export class GatewayMailer implements StatusMailer {
+  readonly kind = 'gateway' as const;
   readonly notConnected = null;
   constructor(
     private readonly channel: NotificationChannel,

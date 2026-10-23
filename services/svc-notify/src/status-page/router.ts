@@ -126,7 +126,7 @@ export function statusPageRouter(deps?: StatusPageDeps) {
     }
   }
   return router({
-    subscriptions: statusSubscriptionsRouter(deps?.subscriptions),
+    subscriptions: statusSubscriptionsRouter(deps?.subscriptions, deps?.notices),
 
     read: publicProcedure.output(statusPageSchema).query(() => call((deps) => readStatusPage(deps, now()))),
 

@@ -239,16 +239,30 @@ that, and confirming again is the same one active subscriber), may add a webhook
   saved and again at send time; redirects are not followed.
 - A published incident or maintenance notice fans out to the active subscribers it concerns (a notice naming no
   component goes to all). Each send writes `notify.status_deliveries` first, keyed `<notice>:<subscriber>:<channel>`, so a
-  second fan-out never sends again once accepted.
+  second fan-out never sends again once accepted, and takes the row for a two-minute lease before sending (migration
+  0030), so two fan-outs racing on one notice cannot both send it.
 - Mail transport: the email gateway with `NOTIFY_PUBLIC_ORIGIN` for the links; with either missing, nothing is attempted
   and the delivery waits `pending` with `vendor.email`, which the form says. `NOTIFY_STATUS_MAIL_TRANSPORT=local-outbox`
   writes LOCAL-TEST lines to `NOTIFY_STATUS_MAIL_OUTBOX` and refuses to boot unless `APP_ENV` is exactly dev or test.
   SMS and push are named not connected (`vendor.sms`, `vendor.push`).
-- `statusPage.subscriptions.find` (`admin:write`) is the founders' view of one address with its delivery rows.
-- Not yet: a per-source rate limit (only per address); a retry worker for pending and failed deliveries (fan-out runs
-  once, after the publish answers); a claim on each delivery row so two fan-outs racing on one notice cannot both send;
-  sending webhooks apart from email, so a slow webhook does not hold up the next subscriber's mail; and a founder
-  console screen.
+- The founders' subscriber desk (`/notify/subscribers` in the console), all `admin:write`:
+  - `statusPage.subscriptions.find` is one address with its delivery rows; `list` (`state`, `limit` up to 200) is the
+    subscribers newest first with their delivery counts and source; `channels` says how each channel leaves (the email
+    gateway, the LOCAL TEST outbox, or none with `vendor.email`; SMS and push are `vendor.sms` and `vendor.push`).
+  - `deliveries` (`noticeId`) is one published notice's rows, one per subscriber and channel (the first 500, with `more`
+    when there are others). `resend` tries that notice's pending and failed rows once more, for subscribers still
+    active: accepted and refused rows are left, no row is doubled, and no one who subscribed since is sent it
+    (`status.notice_unknown` for a notice that is not published).
+  - `import` (`source`, 1 to 500 addresses) adds addresses as unconfirmed with their source; a duplicate in the list, in
+    any letter case, is one record, and a known address is left as it is (no confirmation, its hourly budget untouched).
+    Each added address gets one confirmation, within the per-address hourly limit, so importing the list again sends
+    nothing. A blank proof of work or rate limit refuses the import as it refuses subscribing (`status.challenge_unset`,
+    `status.rate_limit_unset`); a malformed one is `status.import_invalid`.
+- A send that throws fails its own row and the fan-out goes on; a sender that lost its lease records nothing over the
+  sender that took the row.
+- Not yet: a per-source rate limit (only per address); a retry worker that tries pending and failed deliveries on its
+  own (a founder resends from the desk); sending webhooks apart from email, so a slow webhook does not hold up the next
+  subscriber's mail; export.
 
 ### Guest outreach emails
 
