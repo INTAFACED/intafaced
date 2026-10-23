@@ -1117,6 +1117,43 @@ describe('a merchant reaches their own rows and nobody else’s', () => {
     await expect(api.merchant.decideKybStub({ merchantId: MERCHANT, decision: 'approved' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
 
+  it('opens the owner’s own reads on pay:onboard before KYB, and still fences them to the caller’s merchant (J-merchant-01)', async () => {
+    const stranger = '99999999-9999-4999-8999-999999999999';
+    const disputes = new MemoryDisputeCaseStore();
+    disputes.open({ disputeId: 'dp-onboard', paymentId: PAYMENT, merchantId: MERCHANT, amount: '10', assetId: 'USDT', reasonCode: '4853' });
+    const fenced = createPayRouter(stub.service, rails, money.service, null, undefined, stubApprovalConsumer(CONFIRM), null, disputes);
+    const owner = fenced.createCaller(await ctx(['pay:onboard']));
+    expect((await owner.fraud.getDispute({ disputeId: 'dp-onboard' })).merchantId).toBe(MERCHANT);
+    await expect(owner.railHealth()).resolves.toBeInstanceOf(Array);
+    // railHealth is platform-wide: an onboarding caller with no business of its own is refused it.
+    const noBusiness = createPayRouter(
+      { ...stub.service, getMerchantByUserId: async () => null } as unknown as PayService,
+      rails,
+      money.service,
+      null,
+      undefined,
+      stubApprovalConsumer(CONFIRM),
+    );
+    await expect(noBusiness.createCaller(await ctx(['pay:onboard'], { userId: stranger })).railHealth()).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      message: 'pay.merchant_not_found',
+    });
+
+    const other = fenced.createCaller(await ctx(['pay:onboard'], { userId: stranger }));
+    await expect(other.fraud.getDispute({ disputeId: 'dp-onboard' })).rejects.toMatchObject({ code: 'NOT_FOUND' });
+
+    // pay:onboard is a second-factor scope: without one the read refuses as it did before.
+    const noMfa = fenced.createCaller(await ctx(['pay:onboard'], { mfa: false }));
+    await expect(noMfa.railHealth()).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+    // A session with neither scope is refused, naming both.
+    const plain = fenced.createCaller(await ctx(['identity:read']));
+    await expect(plain.railHealth()).rejects.toMatchObject({ code: 'FORBIDDEN', message: 'One of pay:onboard, pay:read is required' });
+    // Refunds stay off pay:onboard.
+    await expect(owner.payment.refund({ paymentId: PAYMENT, amount: '1', refundId: 'rf-onboard' })).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
+  });
+
   it('reports an unset merchant fee as null and keeps an explicit zero', async () => {
     const me = async (feeBps: number | undefined) => {
       const pay = {

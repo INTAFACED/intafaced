@@ -61,7 +61,7 @@ import { registerPayStepUpGrantRoute } from './merchant-pay-step-up-grant.js';
 import { registerMerchantMfaRuleRoute } from './merchant-mfa-rule-route.js';
 import { mfaRuleForUser } from './merchant-ops/security.js';
 import { roleOnMerchantForUser } from './control/access.js';
-import { assertOwnerPayScopeStillGranted } from './owner-pay-grant-recheck.js';
+import { assertOwnerPayScopeStillGranted, teamMerchantStatusesFromSql } from './owner-pay-grant-recheck.js';
 import { PayError, PayService } from './payment-service.js';
 import { startPayoutReconciler } from './payout-reconciler.js';
 import { UserMoneyService, openWithdrawalHolds } from './user-money-service.js';
@@ -1035,6 +1035,7 @@ await app.register(async (webhookScope) => {
  * not serve /trpc": the edge routes `/api/pay` here, so without this mount it
  * forwards to a service with nothing to forward to.
  */
+const teamStatuses = teamMerchantStatusesFromSql(sql);
 await app.register(fastifyTRPCPlugin, {
   prefix: '/trpc',
   trpcOptions: {
@@ -1043,7 +1044,7 @@ await app.register(fastifyTRPCPlugin, {
       ...edgeContext(req),
       ownerPayGrant: {
         assertStillGranted: (principal, scope) =>
-          assertOwnerPayScopeStillGranted(principal, scope, (userId) => pay.getMerchantByUserId(userId)),
+          assertOwnerPayScopeStillGranted(principal, scope, (userId) => pay.getMerchantByUserId(userId), teamStatuses),
       },
     }),
     responseMeta({ ctx }) {

@@ -1,12 +1,6 @@
 import type { Sql } from 'postgres';
 import { z } from 'zod';
-import {
-  anyScopeProcedure,
-  merchantCustomerSeriesInputSchema,
-  merchantCustomerSeriesSchema,
-  router,
-  scopedProcedure,
-} from '@intafaced/contracts';
+import { merchantCustomerSeriesInputSchema, merchantCustomerSeriesSchema, router, scopedProcedure } from '@intafaced/contracts';
 import { defaultDisputeCaseStore, type DisputeCaseStore } from '../fraud/dispute-case.js';
 import type { FounderAuthority } from '../founder-authority.js';
 import { founderProcedure } from '../namespaces/founder-procedure.js';
@@ -32,6 +26,7 @@ import { permissionCatalogue, refuseBuiltInRoleEdit } from './merchant-plat-org-
 import { TeamService } from './team.js';
 import { type TeamEmailInviteLimit } from './team-email.js';
 import { WebhookOps, type WebhookRetryLimit } from './webhooks.js';
+import { ownMerchantRead } from '../own-merchant-read.js';
 
 /**
  * `merchantOps.*`   - the merchant's own operations pages (W15). Scoped to the
@@ -110,8 +105,8 @@ function makeParts(deps: MerchantOpsDeps) {
 }
 
 export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
-  const read = scopedProcedure('pay:read', { module: 'pay' });
-  const onboardOrRead = anyScopeProcedure(['pay:onboard', 'pay:read'], { module: 'pay' });
+  const read = ownMerchantRead();
+  const onboardOrRead = ownMerchantRead();
   const write = scopedProcedure('pay:write', { module: 'pay' });
   const { need } = makeParts(deps);
   const kick =

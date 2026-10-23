@@ -7,7 +7,7 @@ import { quoteInputSchema, quoteViewSchema } from './withdrawals/quotes/schemas.
 import type { WithdrawalQuoteService } from './withdrawals/quotes/service.js';
 import { z } from 'zod';
 import type { Sql } from 'postgres';
-import { AuthError, requireMfa } from '@intafaced/auth';
+import { AuthError, hasScope, requireMfa } from '@intafaced/auth';
 import {
   payCheckoutSettingsGetInputSchema,
   payCheckoutSettingsSchema,
@@ -36,7 +36,6 @@ import {
   merchantStarterFeeSchema,
   router,
   scopedProcedure,
-  anyScopeProcedure,
   publicProcedure,
   TRPCError,
 } from '@intafaced/contracts';
@@ -115,6 +114,7 @@ import {
 } from './plugins/cms-unwired.js';
 import { PAY_PUBLIC_API_BASE } from './plugins/reference-client.js';
 import { MAX_FEE_BPS } from './fee-bps-bound.js';
+import { ownMerchantRead } from './own-merchant-read.js';
 
 /**
  * svc-pay's internal tRPC surface (§2 — cross-service calls go through
@@ -495,7 +495,7 @@ export function createPayRouter(
      * console cannot answer "can users withdraw today" from health alone; a
      * sandbox is perfectly healthy at simulating.
      */
-    railHealth: scopedProcedure('pay:read', { module: 'pay' })
+    railHealth: ownMerchantRead()
       .output(
         z.array(
           z.object({
@@ -523,8 +523,12 @@ export function createPayRouter(
           }),
         ),
       )
-      .query(() =>
-        rails.health().map((h) => ({
+      .query(async ({ ctx }) => {
+        // Platform-wide, so a pay:onboard caller sees it only once it owns a business.
+        if (!hasScope(ctx.principal.scopes, 'pay:read') && !(await pay.getMerchantByUserId(ctx.principal.userId))) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'pay.merchant_not_found' });
+        }
+        return rails.health().map((h) => ({
           id: h.id,
           capabilities: [...h.capabilities],
           mode: h.mode,
@@ -532,8 +536,8 @@ export function createPayRouter(
           healthy: h.healthy,
           latencyMs: h.latencyMs,
           reason: h.reason,
-        })),
-      ),
+        }));
+      }),
 
     merchant: router({
       ...(portal?.merchant ?? {}),
@@ -605,7 +609,7 @@ export function createPayRouter(
         .mutation(({ ctx, input }) => wrap(async () => setDestination(ctx.principal, input))),
 
       /** Current merchant for the principal — null when not yet onboarded. */
-      me: anyScopeProcedure(['pay:onboard', 'pay:read'], { module: 'pay' })
+      me: ownMerchantRead()
         .output(
           z
             .object({
@@ -645,7 +649,7 @@ export function createPayRouter(
        * The published starter fee, including for a caller who has no merchant yet.
        * Null means the fee is not configured.
        */
-      starterFee: anyScopeProcedure(['pay:onboard', 'pay:read'], { module: 'pay' })
+      starterFee: ownMerchantRead()
         .output(z.object({ starterFee: merchantStarterFeeSchema.nullable() }))
         .query(() => ({ starterFee })),
 
@@ -778,7 +782,7 @@ export function createPayRouter(
        * `feeRouting` is null unless the caller sees full pricing. `checkoutConfig` stays.
        */
       checkoutSettings: router({
-        get: scopedProcedure('pay:read', { module: 'pay' })
+        get: ownMerchantRead()
           .input(payCheckoutSettingsGetInputSchema)
           .output(payCheckoutSettingsSchema)
           .query(({ ctx, input }) =>
@@ -832,7 +836,7 @@ export function createPayRouter(
           }),
         ),
 
-      listLinks: scopedProcedure('pay:read', { module: 'pay' })
+      listLinks: ownMerchantRead()
         .input(payLinkListInputSchema)
         .output(payLinkListPageSchema)
         .query(({ ctx, input }) =>
@@ -847,7 +851,7 @@ export function createPayRouter(
        * Same gate as listLinks: the owner, or a PayFac grant of `payment.link`.
        * The team role table has no link permission, so a stored role is not the owner.
        */
-      getLink: scopedProcedure('pay:read', { module: 'pay' })
+      getLink: ownMerchantRead()
         .input(payGetLinkInputSchema)
         .output(payLinkListItemSchema)
         .query(({ ctx, input }) =>
@@ -874,7 +878,7 @@ export function createPayRouter(
        * the two are independent on purpose, which is what makes reconciliation
        * meaningful (Doctrine §0.6).
        */
-      balances: scopedProcedure('pay:read', { module: 'pay' })
+      balances: ownMerchantRead()
         .input(z.object({ merchantId: z.string().uuid(), assetId: assetIdSchema }))
         .output(z.object({ clearing: amountSchema, available: amountSchema }))
         .query(({ ctx, input }) =>
@@ -919,7 +923,7 @@ export function createPayRouter(
             }),
           )
           .mutation(({ ctx, input }) => wrap(async () => setDestination(ctx.principal, input))),
-        list: scopedProcedure('pay:read', { module: 'pay' })
+        list: ownMerchantRead()
           .input(payPayoutDestinationListInputSchema)
           .output(payPageSchema(payPayoutDestinationItemSchema))
           .query(({ ctx, input }) =>
@@ -953,7 +957,7 @@ export function createPayRouter(
        * one page shows captures and payouts. Reserve is `not_booked`.
        */
       statement: router({
-        list: scopedProcedure('pay:read', { module: 'pay' })
+        list: ownMerchantRead()
           .input(payStatementListInputSchema)
           .output(payStatementPageSchema)
           .query(({ ctx, input }) =>
@@ -1068,7 +1072,7 @@ export function createPayRouter(
           }),
         ),
 
-      get: scopedProcedure('pay:read', { module: 'pay' })
+      get: ownMerchantRead()
         .input(z.object({ paymentId: z.string().uuid() }))
         .output(paymentView)
         .query(({ ctx, input }) =>
@@ -1084,7 +1088,7 @@ export function createPayRouter(
         ),
 
       /** Durable status list for the merchant — projection of `payments.status`. */
-      list: scopedProcedure('pay:read', { module: 'pay' })
+      list: ownMerchantRead()
         .input(payPaymentListInputSchema)
         .output(payPageSchema(paymentView))
         .query(({ ctx, input }) =>
@@ -1103,7 +1107,7 @@ export function createPayRouter(
         ),
 
       /** The append-only state history (§6.1). Read-only, by construction. */
-      history: scopedProcedure('pay:read', { module: 'pay' })
+      history: ownMerchantRead()
         .input(
           z.object({
             paymentId: z.string().uuid(),
@@ -1162,7 +1166,7 @@ export function createPayRouter(
 
       /** Account-wide refund projection. The write stays on `payment.refund`. */
       refunds: router({
-        list: scopedProcedure('pay:read', { module: 'pay' })
+        list: ownMerchantRead()
           .input(payRefundListInputSchema)
           .output(payPageSchema(payRefundItemSchema))
           .query(({ ctx, input }) =>
@@ -1172,7 +1176,7 @@ export function createPayRouter(
             }),
           ),
 
-        get: scopedProcedure('pay:read', { module: 'pay' })
+        get: ownMerchantRead()
           .input(payRefundGetInputSchema)
           .output(payRefundItemSchema)
           .query(({ ctx, input }) =>
@@ -1227,7 +1231,7 @@ export function createPayRouter(
           }),
         ),
 
-      get: scopedProcedure('pay:read', { module: 'pay' })
+      get: ownMerchantRead()
         .input(z.object({ settlementId: z.string().uuid() }))
         .output(settlementDetailView)
         .query(({ ctx, input }) =>
@@ -1245,7 +1249,7 @@ export function createPayRouter(
       /**
        * Merchant fleet list (ops truth). Read-only — no freeze, no payout.
        */
-      list: scopedProcedure('pay:read', { module: 'pay' })
+      list: ownMerchantRead()
         .input(paySettlementListInputSchema)
         .output(payPageSchema(settlementDetailView))
         .query(({ ctx, input }) =>
@@ -1257,7 +1261,7 @@ export function createPayRouter(
         ),
 
       /** Payments included in one settlement, oldest first. */
-      lines: scopedProcedure('pay:read', { module: 'pay' })
+      lines: ownMerchantRead()
         .input(paySettlementLinesInputSchema)
         .output(payPageSchema(paySettlementLineSchema))
         .query(({ ctx, input }) =>
@@ -1299,7 +1303,7 @@ export function createPayRouter(
        * synthetic event (`timeKnown: false`) floors that status. The read
        * never reports a status lower than the column.
        */
-      lifecycle: scopedProcedure('pay:read', { module: 'pay' })
+      lifecycle: ownMerchantRead()
         .input(payPayoutLifecycleInputSchema)
         .output(payPayoutLifecycleSchema)
         .query(({ ctx, input }) =>
@@ -1891,7 +1895,7 @@ export function createPayRouter(
           }
         }),
 
-      getDispute: scopedProcedure('pay:read', { module: 'pay' })
+      getDispute: ownMerchantRead()
         .input(z.object({ disputeId: z.string().min(1) }))
         .query(({ ctx, input }) =>
           wrap(async () => {
