@@ -82,31 +82,33 @@ test(`${J} #3 reads a deposit: valued at the time it arrived, with the price sou
 }) => {
   const who = account();
   // TEST 0.004 BTC arrives by deposit through the real ledger, at a moment the BTC/USDT book has traded.
-  const arrived = Date.now();
+  const before = Date.now();
   expect(fund(who.email, 'BTC', '0.004').tx).toBeTruthy();
+  const after = Date.now();
   await signIn(page, who);
   const lots = await lotsPage(page);
   const row = lots.locator('tbody tr[data-source="deposit"]');
   await expect(row).toHaveCount(1);
   await expect(row.locator('[data-col="qty"]')).toHaveText('0.004');
-  // The TEST owner policy is "customer": a deposit's cost is unknown until the customer enters one, never zero.
+  // The TEST owner policy is "customer": a deposit's cost is unknown until the customer gives one, never zero.
   await expect(row.locator('[data-col="cost"]')).toHaveText('Cost unknown');
-  await expect(row.locator('[data-col="price-source"]')).toContainText('BTC/USDT price');
+  await expect(row.locator('[data-col="price-source"]')).toContainText('at the BTC/USDT price, one-minute candle from');
 
-  // Hand count: 0.004 times the close of the public candle that contains the arrival (one minute, else one hour).
-  const candleClose = async (timeframe, ms) => {
-    const start = Math.floor(arrived / ms) * ms;
-    const res = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=${timeframe}&since=${start}&limit=720`, {
-      headers: { origin: ORIGIN },
-    });
-    const rows = res.ok ? await res.json() : [];
-    return rows[0]?.[0] === start ? rows[0][4] : null;
-  };
-  const shown = (await row.locator('[data-col="price-source"]').innerText()).includes('one-minute') ? ['1m', 60_000] : ['1h', 3_600_000];
-  const close = await candleClose(...shown);
-  expect(close).not.toBeNull();
-  const value = (toUnits('0.004') * toUnits(close) + ONE / 2n) / ONE;
-  await expect(row.locator('[data-col="arrival"]')).toContainText(usd(value));
+  // Hand count from the public one-minute candles: 0.004 times the close of the last candle that started at or before the
+  // arrival. The arrival is posted between `before` and `after`, so the price is the one for either moment.
+  const res = await fetch(
+    `${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=1m&since=${Math.floor(before / 60_000) * 60_000 - 3_600_000}&limit=720`,
+    { headers: { origin: ORIGIN } },
+  );
+  expect(res.status).toBe(200);
+  const candles = await res.json();
+  const lastAt = (t) => candles.filter((c) => c[0] <= t).at(-1)?.[4];
+  const values = [...new Set([lastAt(before), lastAt(after)].filter(Boolean))].map((close) =>
+    usd((toUnits('0.004') * toUnits(close) + ONE / 2n) / ONE),
+  );
+  expect(values.length).toBeGreaterThan(0);
+  const shown = (await row.locator('[data-col="arrival"]').innerText()).split('\n')[0].trim();
+  expect(values).toContain(shown.split(' ')[0]);
 
   // The bought lots keep their cost, and the asset's open cost is now unknown on Open positions: one lot has no cost.
   await expect(lots.locator('tbody tr[data-source="trade"] [data-col="cost"]').first()).not.toHaveText('Cost unknown');

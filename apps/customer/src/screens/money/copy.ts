@@ -104,6 +104,7 @@ const messages = {
   Source: 'Source',
   Left: 'Left',
   'Value on arrival': 'Value on arrival',
+  'Cost of what is left': 'Cost of what is left',
   'Days held': 'Days held',
   'Source trade': 'Bought',
   'Source deposit': 'Deposit',
