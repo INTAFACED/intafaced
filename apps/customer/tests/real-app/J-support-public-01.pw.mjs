@@ -344,6 +344,7 @@ test(`${J} #7 a staff-only answer reads as an address that never existed, and is
       for (const id of [answer.id, `j01-${RUN}-never-existed`]) {
         await page.goto(`/helpdetail?id=${id}`);
         await expect(main.getByRole('heading', { level: 1, name: 'No answer found' })).toBeVisible();
+        await expect(main.getByText('Loading this answer')).toHaveCount(0);
         await expect(main.getByText('Loading contact details')).toHaveCount(0);
         seen.push((await main.innerText()).replaceAll(id, '<id>'), await main.getByTestId('help-sign-in').count());
       }
