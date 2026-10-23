@@ -129,15 +129,15 @@ describe('video player doors (AC-videos-01)', () => {
     const caller = createAcademyRouter({} as AcademyService).createCaller(signed(USER));
     await expect(caller.videoCaptions({ slug: SLUG })).rejects.toMatchObject({
       code: 'PRECONDITION_FAILED',
-      cause: { code: 'academy.video_captions_unpublished' },
+      cause: { code: 'academy.video_storage_unconfigured' },
     });
     await expect(caller.videoTranscript({ slug: SLUG })).rejects.toMatchObject({
       code: 'PRECONDITION_FAILED',
-      cause: { code: 'academy.video_transcript_unpublished' },
+      cause: { code: 'academy.video_storage_unconfigured' },
     });
     await expect(caller.videoCaptions({ slug: 'missing' })).rejects.toMatchObject({
-      code: 'NOT_FOUND',
-      cause: { code: 'academy.video_not_found' },
+      code: 'PRECONDITION_FAILED',
+      cause: { code: 'academy.video_storage_unconfigured' },
     });
   });
 

@@ -10,8 +10,8 @@
  */
 import type { Amount } from '@intafaced/ledger-client';
 import { AcademyError } from '../errors.js';
-import { listVideoSpine, getVideoSpineItem } from './catalog.js';
-import { captionsPublished, transcriptFor } from './player.js';
+import { listVideoSpine, getVideoSpineItem, type VideoSpineEntry } from './catalog.js';
+import { captionsPublished, readVideoCaptions, readVideoTranscript, transcriptFor, VIDEO_TRANSCRIPTS } from './player.js';
 import { assertVideoEntitled, type VideoCaller, type VideoGateConfig } from './entitlement.js';
 import {
   assertPlaybackUrlGranted,
@@ -117,6 +117,57 @@ export async function grantAcademyVideoPlayback(input: {
   return {
     slug: item.slug,
     playbackUrl: issued.playbackUrl,
+    expiresAt: issued.expiresAt,
+    grant: issueGrant(storage.secretKey, bound, issued.expiresAt),
+  };
+}
+
+async function entitle(deps: VideoLibraryDeps, caller: VideoCaller): Promise<VideoStorageConfig> {
+  const storage = assertVideoStorageConfigured(deps.storage);
+  const stake = await deps.stakeOf(caller.userId);
+  assertVideoEntitled({ gate: deps.gate, caller, stake });
+  return storage;
+}
+
+/** Captions use the same tier, stake, and short-lived grant as playback. A raw URL is not returned. */
+export async function grantAcademyVideoCaptions(input: {
+  readonly deps: VideoLibraryDeps;
+  readonly slug: string;
+  readonly caller: VideoCaller;
+  readonly spine?: readonly VideoSpineEntry[];
+}): Promise<{ slug: string; captionsUrl: string; language: string | null; expiresAt: Date; grant: string }> {
+  const storage = await entitle(input.deps, input.caller);
+  const track = readVideoCaptions(input.slug, input.spine);
+  const now = input.deps.now?.() ?? new Date();
+  const issued = signGetObjectUrl(storage, track.captionsUrl, now);
+  const bound = `${input.caller.userId}|${track.slug}|captions|${track.captionsUrl}`;
+  return {
+    slug: track.slug,
+    captionsUrl: issued.playbackUrl,
+    language: track.language,
+    expiresAt: issued.expiresAt,
+    grant: issueGrant(storage.secretKey, bound, issued.expiresAt),
+  };
+}
+
+/** Transcript text is behind the same gate. The URL is signed; the words are not invented. */
+export async function grantAcademyVideoTranscript(input: {
+  readonly deps: VideoLibraryDeps;
+  readonly slug: string;
+  readonly caller: VideoCaller;
+  readonly spine?: readonly VideoSpineEntry[];
+  readonly transcripts?: typeof VIDEO_TRANSCRIPTS;
+}): Promise<{ slug: string; language: string; text: string; transcriptUrl: string; expiresAt: Date; grant: string }> {
+  const storage = await entitle(input.deps, input.caller);
+  const track = readVideoTranscript(input.slug, input.transcripts ?? VIDEO_TRANSCRIPTS, input.spine);
+  const now = input.deps.now?.() ?? new Date();
+  const issued = signGetObjectUrl(storage, `transcripts/${track.slug}.txt`, now);
+  const bound = `${input.caller.userId}|${track.slug}|transcript|${track.language}`;
+  return {
+    slug: track.slug,
+    language: track.language,
+    text: track.text,
+    transcriptUrl: issued.playbackUrl,
     expiresAt: issued.expiresAt,
     grant: issueGrant(storage.secretKey, bound, issued.expiresAt),
   };

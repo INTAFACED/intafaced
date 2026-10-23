@@ -81,12 +81,14 @@ import { seasonWindowAt } from './tournaments/season-calendar.js';
 import { describeTournamentPolicy } from './tournaments/tournament-policy.js';
 import {
   assertAcademyVideoUrlGranted,
+  grantAcademyVideoCaptions,
   grantAcademyVideoPlayback,
+  grantAcademyVideoTranscript,
   listAcademyVideos,
   unconfiguredVideoLibrary,
   type VideoLibraryDeps,
 } from './video/library.js';
-import { decideWatched, readVideoCaptions, readVideoTranscript, requireSpineItem } from './video/player.js';
+import { decideWatched, requireSpineItem } from './video/player.js';
 
 /**
  * svc-academy's API — lobbies + thin curriculum catalog (§8.3, §XIII).
@@ -1049,9 +1051,19 @@ export function createAcademyRouter(
           slug: z.string(),
           captionsUrl: z.string(),
           language: z.string().nullable(),
+          expiresAt: z.date(),
+          grant: z.string(),
         }),
       )
-      .query(({ input }) => guard(async () => readVideoCaptions(input.slug))),
+      .query(({ ctx, input }) =>
+        guard(async () =>
+          grantAcademyVideoCaptions({
+            deps: video,
+            slug: input.slug,
+            caller: { userId: ctx.principal.userId, tier: ctx.principal.tier },
+          }),
+        ),
+      ),
 
     /**
      * AC-videos-01 transcript. Unpublished text refuses
@@ -1064,9 +1076,20 @@ export function createAcademyRouter(
           slug: z.string(),
           language: z.string(),
           text: z.string(),
+          transcriptUrl: z.string(),
+          expiresAt: z.date(),
+          grant: z.string(),
         }),
       )
-      .query(({ input }) => guard(async () => readVideoTranscript(input.slug))),
+      .query(({ ctx, input }) =>
+        guard(async () =>
+          grantAcademyVideoTranscript({
+            deps: video,
+            slug: input.slug,
+            caller: { userId: ctx.principal.userId, tier: ctx.principal.tier },
+          }),
+        ),
+      ),
 
     /**
      * Signed expiring GET after tier/stake gate. URL without grant is refused.

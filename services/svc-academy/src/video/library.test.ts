@@ -3,7 +3,9 @@ import { parseAmount } from '@intafaced/ledger-client';
 import { AcademyError } from '../errors.js';
 import {
   assertAcademyVideoUrlGranted,
+  grantAcademyVideoCaptions,
   grantAcademyVideoPlayback,
+  grantAcademyVideoTranscript,
   listAcademyVideos,
   unconfiguredVideoLibrary,
   type VideoLibraryDeps,
@@ -90,6 +92,48 @@ describe('academy stored video — grant and signed URL', () => {
     } catch (err) {
       expect((err as AcademyError).code).toBe('academy.video_grant_required');
     }
+  });
+
+  it('captions and transcript use the playback gate and return a signed URL', async () => {
+    const spine = [
+      {
+        slug: 'foundations-risk-first',
+        title: 'Risk first',
+        path: 'foundations' as const,
+        objectKey: 'foundations/risk-first.mp4',
+        durationSeconds: 30,
+        thumbnailUrl: null,
+        language: 'en',
+        captionsUrl: 'captions/risk-first.vtt',
+      },
+    ];
+    const caller = { userId: USER, tier: 'none' as const };
+    await expect(
+      grantAcademyVideoCaptions({
+        deps: deps({ gate: { minTier: '', minStake: '' } }),
+        slug: 'foundations-risk-first',
+        caller,
+        spine,
+      }),
+    ).rejects.toMatchObject({ code: 'academy.video_grant_required' });
+    const captions = await grantAcademyVideoCaptions({
+      deps: deps(),
+      slug: 'foundations-risk-first',
+      caller,
+      spine,
+    });
+    expect(captions.captionsUrl).toContain('X-Amz-Signature=');
+    expect(captions.captionsUrl).not.toBe('captions/risk-first.vtt');
+    expect(captions.grant.startsWith('v1.')).toBe(true);
+    const transcript = await grantAcademyVideoTranscript({
+      deps: deps(),
+      slug: 'foundations-risk-first',
+      caller,
+      spine,
+      transcripts: { 'foundations-risk-first': { language: 'en', text: 'TEST transcript.' } },
+    });
+    expect(transcript.transcriptUrl).toContain('X-Amz-Signature=');
+    expect(transcript.text).toBe('TEST transcript.');
   });
 
   it('unknown slug is not a grant', async () => {
