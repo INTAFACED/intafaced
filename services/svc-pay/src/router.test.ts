@@ -1127,7 +1127,7 @@ describe('a merchant reaches their own rows and nobody else’s', () => {
     await expect(owner.railHealth()).resolves.toBeInstanceOf(Array);
     // railHealth is platform-wide: an onboarding caller with no business of its own is refused it.
     const noBusiness = createPayRouter(
-      { ...stub.service, getMerchantByUserId: async () => null } as PayService,
+      { ...stub.service, getMerchantByUserId: async () => null } as unknown as PayService,
       rails,
       money.service,
       null,
