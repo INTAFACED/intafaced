@@ -394,6 +394,14 @@ export const itemWindows = academy.table('item_windows', {
   dueAt: tstz('due_at'),
 });
 
+export const featuredItems = academy.table('featured_items', {
+  slot: text('slot').primaryKey(),
+  itemSlug: text('item_slug').notNull(),
+  reason: text('reason').notNull(),
+  chosenBy: uuid('chosen_by').notNull(),
+  chosenAt: tstz('chosen_at').notNull(),
+});
+
 export const itemExtensions = academy.table(
   'item_extensions',
   {
@@ -443,6 +451,7 @@ export const schema = {
   itemPrerequisites,
   itemWindows,
   itemExtensions,
+  featuredItems,
   learningState,
   learningActiveDays,
   learningTouches,

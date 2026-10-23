@@ -12,6 +12,7 @@ import {
   sameForm,
   sizeInBase,
   sizePlaces,
+  splitPreview,
 } from './ticket-logic';
 
 // TEST figures only: not market data.
@@ -97,6 +98,28 @@ describe('preview comparison', () => {
     expect(sameForm(k, { ...k })).toBe(true);
     expect(sameForm(k, { ...k, leverage: '3' })).toBe(false);
     expect(sameForm(k, { ...k, side: 'short' })).toBe(false);
+    // Market is the default type; a limit's price and its correction are part of what was reviewed.
+    expect(sameForm(k, { ...k, type: 'market' })).toBe(true);
+    expect(sameForm({ ...k, type: 'limit', limitPrice: '99' }, { ...k, type: 'limit', limitPrice: '98' })).toBe(false);
+    expect(sameForm({ ...k, type: 'limit', limitPrice: '99' }, { ...k, type: 'limit', limitPrice: '99', priceCorrection: 'adjust' })).toBe(
+      false,
+    );
+  });
+  it('a split is offered only when the max-order is the one refusal and the service named the children', () => {
+    const over = {
+      ...preview,
+      orderable: false,
+      split: { parts: 3, sizes: ['0.2', '0.2', '0.1'] },
+      refusals: [{ code: 'trade.limit_max_order', field: 'size', message: 'm' }],
+    };
+    expect(splitPreview(over)).toMatchObject({ orderable: true, refusals: [] });
+    expect(splitPreview({ ...over, split: null })).toBeNull();
+    expect(splitPreview(preview)).toBeNull();
+    // Another refusal stays: the split preview is not orderable, and Open's gate names it.
+    const more = { ...over, refusals: [...over.refusals, { code: 'trade.slippage_cap_unset', field: 'slippage', message: 'm' }] };
+    expect(splitPreview(more)).toMatchObject({ orderable: false, refusals: [{ code: 'trade.slippage_cap_unset' }] });
+    expect(openBlock({ ...base, preview: splitPreview(more) })).toBe('notOrderable');
+    expect(openBlock({ ...base, preview: splitPreview(over) })).toBeNull();
   });
   it('distance to liquidation follows the side', () => {
     expect(previewLiquidationDistance(preview)).toBe('17.50');

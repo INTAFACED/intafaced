@@ -39,6 +39,8 @@ import { ASSESSMENT_CATALOG, type AssessmentDefinition, type AssessmentPublic } 
 import { AssessmentRepository, type AttemptRow } from './assessment/repository.js';
 import { randomPublicId, isPublicId } from './certs/public-id.js';
 import { ReleaseAccess } from './release/access.js';
+import { FeaturedSlot } from './curriculum/featured.js';
+import { publicCourse } from './curriculum/public-catalogue.js';
 import { normaliseHolderName } from './certs/holder-name.js';
 import { PROGRAMME_SLUGS } from './curriculum/programmes.js';
 import {
@@ -245,6 +247,7 @@ export class AcademyService {
   private readonly customer: AcademyCustomerStore;
   private readonly assessments: AssessmentRepository;
   private readonly release: ReleaseAccess;
+  private readonly featured: FeaturedSlot;
 
   constructor(
     private readonly sql: Sql,
@@ -261,6 +264,7 @@ export class AcademyService {
   ) {
     this.customer = new AcademyCustomerStore(sql);
     this.release = new ReleaseAccess(sql);
+    this.featured = new FeaturedSlot(sql);
     const assessments = this.options.assessmentCatalog ?? ASSESSMENT_CATALOG;
     this.assessments = new AssessmentRepository(sql, assessments);
     if (this.options.certCatalog) {
@@ -1749,23 +1753,46 @@ export class AcademyService {
    */
   async readCurriculumItem(input: { userId: string; slug: string; now?: Date }) {
     await this.release.assertMayRead({ userId: input.userId, itemSlug: input.slug, now: input.now });
-    const item = getCurriculumItem(input.slug.trim());
-    if (!item) {
-      throw new AcademyError(`Curriculum item "${input.slug}" is not in the day-one spine`, 'academy.curriculum_not_found');
+    return curriculumItemView(input.slug);
+  }
+
+  /** The public course page (AC-catalogue-03), with the path's published certificate title when there is one. */
+  publicCourse(slug: string, now?: Date) {
+    return publicCourse(
+      slug,
+      (path) => this.certs().find((row) => row.path === path)?.title ?? null,
+      (itemSlug) => this.opensSignedOut(itemSlug, now),
+    );
+  }
+
+  /** Whether the signed-out reader would open this item; a prerequisite or a closed window says no. */
+  private async opensSignedOut(itemSlug: string, now?: Date): Promise<boolean> {
+    try {
+      await this.release.assertMayReadSignedOut({ itemSlug, now });
+      return true;
+    } catch (err) {
+      if (err instanceof AcademyError && (err.code === 'academy.sign_in_required' || err.code === 'academy.window_invalid')) return false;
+      throw err;
     }
-    return {
-      slug: item.slug,
-      title: item.title,
-      kind: item.kind,
-      path: item.path,
-      order: item.order,
-      summary: item.summary,
-      estimatedMinutes: item.estimatedMinutes,
-      body: item.body,
-      objectives: [...item.objectives],
-      keyTerms: item.keyTerms.map((term) => ({ term: term.term, definition: term.definition })),
-      selfCheck: [...item.selfCheck],
-    };
+  }
+
+  /**
+   * The hub's featured item (AC-articles-01). The hub is public, so the item shows only while a visitor's reader would
+   * open it: one behind a prerequisite or outside its window is left out rather than promised and then refused.
+   */
+  async featuredItem(now?: Date) {
+    const item = await this.featured.featured();
+    return item && (await this.opensSignedOut(item.slug, now)) ? item : null;
+  }
+
+  setFeatured(input: { itemSlug: string | null; reason: string; operatorId: string; now?: Date }) {
+    return this.featured.choose(input);
+  }
+
+  /** The reader for a signed-out visitor (AC-catalogue-01): the same item, nothing about any learner, no touch written. */
+  async readPublicCurriculumItem(input: { slug: string; now?: Date }) {
+    await this.release.assertMayReadSignedOut({ itemSlug: input.slug, now: input.now });
+    return curriculumItemView(input.slug);
   }
 
   async readCurriculumItemLocalized(input: { userId: string; slug: string; locale?: string; now?: Date }) {
@@ -2143,4 +2170,24 @@ export class AcademyService {
       );
     }
   }
+}
+
+function curriculumItemView(slug: string) {
+  const item = getCurriculumItem(slug.trim());
+  if (!item) {
+    throw new AcademyError(`Curriculum item "${slug}" is not in the day-one spine`, 'academy.curriculum_not_found');
+  }
+  return {
+    slug: item.slug,
+    title: item.title,
+    kind: item.kind,
+    path: item.path,
+    order: item.order,
+    summary: item.summary,
+    estimatedMinutes: item.estimatedMinutes,
+    body: item.body,
+    objectives: [...item.objectives],
+    keyTerms: item.keyTerms.map((term) => ({ term: term.term, definition: term.definition })),
+    selfCheck: [...item.selfCheck],
+  };
 }

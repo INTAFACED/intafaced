@@ -185,7 +185,10 @@ export type RefusalKey =
   | 'refVideoUrlTtlUnset'
   | 'refVideoRegionUnset'
   | 'refVideoGrantRequired'
-  | 'refVideoNotFound';
+  | 'refVideoNotFound'
+  | 'refSignInRequired'
+  | 'refCurriculumNotFound'
+  | 'refCourseNotFound';
 
 /** Which sentence words a typed Academy refusal, or null when Academy did not type it (a dropped connection, a sign-in problem). */
 export function academyRefusalKey(failure: Pick<Failure, 'code' | 'message'>): RefusalKey | null {
@@ -227,6 +230,12 @@ export function academyRefusalKey(failure: Pick<Failure, 'code' | 'message'>): R
       return 'refVideoGrantRequired';
     case 'academy.video_not_found':
       return 'refVideoNotFound';
+    case 'academy.sign_in_required':
+      return 'refSignInRequired';
+    case 'academy.curriculum_not_found':
+      return 'refCurriculumNotFound';
+    case 'academy.course_not_found':
+      return 'refCourseNotFound';
     default:
       return null;
   }

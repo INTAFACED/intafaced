@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Position } from '@intafaced/exchange-contract/schemas';
 import type { ApiResult } from '../../../shared/api';
 import { pendingKey, readPending, type Pending } from '../buy/write-lock';
-import type { FuturesApi, FuturesOrder, OpenInput, PlaceOrderInput } from './api';
+import type { FuturesApi, FuturesOrder, FuturesSplit, OpenInput, PlaceOrderInput } from './api';
 import { checkPending, intentId, loadIntent, runIntent, type Intent } from './write';
 
 function memoryStorage() {
@@ -88,6 +88,7 @@ function order(over: Partial<FuturesOrder> = {}): FuturesOrder {
 function fakeApi() {
   const api = {
     placeOrder: vi.fn<(input: PlaceOrderInput) => Promise<ApiResult<FuturesOrder>>>(),
+    placeSplit: vi.fn<(input: PlaceOrderInput) => Promise<ApiResult<FuturesSplit>>>(),
     setLeverage:
       vi.fn<
         (input: { symbol: string; positionId: string; leverage: string; clientAdjustmentId: string }) => Promise<ApiResult<Position>>
@@ -97,6 +98,7 @@ function fakeApi() {
     reduceMargin:
       vi.fn<(input: { symbol: string; positionId: string; amount: string; clientAdjustmentId: string }) => Promise<ApiResult<Position>>>(),
     orders: vi.fn<(scope: 'open' | 'all') => Promise<ApiResult<FuturesOrder[]>>>(),
+    ordersOn: vi.fn<(symbol: string) => Promise<ApiResult<FuturesOrder[]>>>(),
     position: vi.fn<(id: string) => Promise<ApiResult<Position>>>(),
     positions: vi.fn<() => Promise<ApiResult<Position[]>>>(),
   };
@@ -390,5 +392,80 @@ describe('guards', () => {
     const outcome = await checkPending(typed, USER, { kind: 'position', id: 'ghost', symbol: 'BTC/USDT:USDT', startedAt: Date.now() });
     expect(outcome).toEqual({ kind: 'blocked', reason: 'unreadable' });
     expect(api.placeOrder).not.toHaveBeenCalled();
+  });
+});
+
+describe('a split open (D-orders-06): above the max-order, placed as children keyed by the open id', () => {
+  const splitIntent: Intent = {
+    op: 'open',
+    input: { ...openInput, size: '2', type: 'limit', price: '120', priceCorrection: 'adjust', split: true },
+  };
+  const child = (n: number, over: Partial<FuturesOrder> = {}) =>
+    order({ orderId: `ord-${n}`, clientOrderId: `open-abc:${n}:0a1b2c3d`, qty: '1', status: 'open', filledQty: '0', ...over });
+
+  it('goes to the split door once with the same body as one order, and answers every child', async () => {
+    const { api, typed } = fakeApi();
+    api.placeSplit.mockResolvedValue(ok({ parts: 2, orders: [child(1), child(2)], stopped: null }));
+    const outcome = await runIntent(typed, USER, splitIntent);
+    expect(outcome).toMatchObject({ kind: 'done', order: { orderId: 'ord-1' }, orders: [{ orderId: 'ord-1' }, { orderId: 'ord-2' }] });
+    expect(outcome).not.toHaveProperty('stopped');
+    expect(api.placeOrder).not.toHaveBeenCalled();
+    expect(api.placeSplit.mock.calls[0]![0]).toEqual({
+      symbol: 'BTC/USDT:USDT',
+      side: 'buy',
+      type: 'limit',
+      amount: '2',
+      price: '120',
+      priceCorrection: 'adjust',
+      leverage: '5',
+      clientOrderId: 'open-abc',
+    });
+  });
+
+  it('children that all did nothing are the first one’s refusal; a split stopped early is done with what is live', async () => {
+    const { api, typed } = fakeApi();
+    const dead = { status: 'cancelled', refusalCode: 'trade.futures_order_unfilled' };
+    api.placeSplit.mockResolvedValueOnce(ok({ parts: 2, orders: [child(1, dead), child(2, dead)], stopped: null }));
+    expect(await runIntent(typed, USER, splitIntent)).toMatchObject({ kind: 'refused', refusal: { code: 'trade.futures_order_unfilled' } });
+    const stopped = { child: 2, code: 'trade.limit_max_order', message: 'over' };
+    api.placeSplit.mockResolvedValueOnce(ok({ parts: 2, orders: [child(1)], stopped }));
+    expect(await runIntent(typed, USER, splitIntent)).toMatchObject({ kind: 'done', orders: [{ orderId: 'ord-1' }], stopped });
+    expect(readPending(USER)).toEqual({ state: 'none' });
+  });
+
+  it('an unknown split reads its children on the contract and sends nothing until the trader asks', async () => {
+    const { api, typed } = fakeApi();
+    api.placeSplit.mockResolvedValueOnce(failure('uncertain', undefined, 504));
+    await runIntent(typed, USER, splitIntent);
+    // Another key that shares the prefix is not a child.
+    api.ordersOn.mockResolvedValueOnce(ok([order({ clientOrderId: 'open-abc:x:1' }), order({ clientOrderId: 'open-abcd:1:0a1b2c3d' })]));
+    expect(await checkPending(typed, USER, pendingFor('open-abc'))).toEqual({ kind: 'uncertain', id: 'open-abc', notFound: true });
+    expect(api.ordersOn).toHaveBeenLastCalledWith('BTC/USDT:USDT');
+
+    // Some of the size found: still nothing sent, the children found are named.
+    api.ordersOn.mockResolvedValueOnce(ok([child(1)]));
+    expect(await checkPending(typed, USER, pendingFor('open-abc'))).toMatchObject({
+      kind: 'uncertain',
+      notFound: true,
+      found: [{ orderId: 'ord-1' }],
+    });
+    expect(api.placeSplit).toHaveBeenCalledTimes(1);
+
+    // The whole size found, in key order: done, nothing sent, the note cleared.
+    api.ordersOn.mockResolvedValueOnce(ok([child(2), child(1)]));
+    const outcome = await checkPending(typed, USER, pendingFor('open-abc'));
+    expect(outcome).toMatchObject({ kind: 'done', orders: [{ orderId: 'ord-1' }, { orderId: 'ord-2' }] });
+    expect(api.placeSplit).toHaveBeenCalledTimes(1);
+    expect(readPending(USER)).toEqual({ state: 'none' });
+  });
+
+  it('the trader’s second step sends the same split request again', async () => {
+    const { api, typed } = fakeApi();
+    api.placeSplit.mockResolvedValueOnce(failure('uncertain', undefined, 504));
+    await runIntent(typed, USER, splitIntent);
+    api.placeSplit.mockResolvedValueOnce(ok({ parts: 2, orders: [child(1), child(2)], stopped: null }));
+    const outcome = await checkPending(typed, USER, pendingFor('open-abc'), { resend: true });
+    expect(outcome).toMatchObject({ kind: 'done', orders: [{ orderId: 'ord-1' }, { orderId: 'ord-2' }] });
+    expect(api.placeSplit.mock.calls[1]![0]).toEqual(api.placeSplit.mock.calls[0]![0]);
   });
 });
