@@ -211,6 +211,29 @@ export const quantVerdictCriteriaSchema = z.object({
 export type QuantVerdictCriteria = z.infer<typeof quantVerdictCriteriaSchema>;
 export const QUANT_VERDICT_STATUSES = ['passed', 'failed', 'inconclusive'] as const;
 
+/**
+ * The checks a result carries (ENGINE BT-9): what was measured, against the owner's threshold where one applies. A
+ * blank threshold reads `not_set` and raises no warning; a check the run cannot make reads `not_applicable` with why.
+ * Look-ahead and repainting cannot happen by how the engine is built, and say so.
+ */
+export const QUANT_CHECKS = ['sample_gap', 'variant_count', 'bar_offset', 'bar_type', 'look_ahead', 'repainting'] as const;
+export const QUANT_CHECK_STATUSES = ['warning', 'clear', 'not_set', 'not_applicable', 'by_construction'] as const;
+export const quantCheckThresholdsSchema = z.object({
+  maxSampleGapPercent: z.string().nullable(),
+  maxVariants: z.string().nullable(),
+  maxOffsetShiftPercent: z.string().nullable(),
+});
+export type QuantCheckThresholds = z.infer<typeof quantCheckThresholdsSchema>;
+export const quantCheckSchema = z.object({
+  name: z.enum(QUANT_CHECKS),
+  status: z.enum(QUANT_CHECK_STATUSES),
+  /** The owner's threshold as it stood when the run finished; null when the check has none or it is blank. */
+  threshold: z.string().nullable(),
+  /** What the check measured, by name. A null figure is not defined for this run. */
+  evidence: z.record(z.string(), z.string().nullable()),
+});
+export type QuantCheck = z.infer<typeof quantCheckSchema>;
+
 /** One fill of a backtest. `barPrice` is the bar's own price; `price` is after slippage. */
 export const quantBacktestTradeSchema = z.object({
   ts: z.string(),
@@ -383,6 +406,10 @@ export const quantBacktestResultSchema = z.object({
   holdout: z.object({ enforced: z.boolean(), from: z.string().nullable() }),
   /** Fields the request sent that only the service may set; they were ignored. */
   ignoredInputs: z.array(z.string()),
+  /** The same rules and costs run again from one bar later, to show how much the result leans on where it starts. */
+  offsetRun: z.object({ from: z.string(), returnPercent: quantMetricSchema, trades: z.number().int().nonnegative() }).nullable(),
+  /** Overfitting, look-ahead and repainting checks, derived on every read; every check is listed, none is hidden. */
+  checks: z.array(quantCheckSchema),
   log: z.array(quantBacktestLogLineSchema),
   simulated: z.literal(true),
   live: z.literal(false),

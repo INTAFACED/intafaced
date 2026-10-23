@@ -10,6 +10,7 @@ import {
   quantStrategyListOutputSchema,
   type QuantBacktestMetrics,
   type QuantBacktestResult,
+  type QuantCheck,
   type QuantMetric,
   type QuantSplitPreset,
   type QuantStrategyHead,
@@ -347,7 +348,7 @@ function FeeLedger({ symbol }: { symbol: string }) {
   );
 }
 
-const RESULT_TABS = ['summary', 'metrics', 'charts', 'trades', 'log'] as const;
+const RESULT_TABS = ['summary', 'metrics', 'checks', 'charts', 'trades', 'log'] as const;
 const CHART_W = 1000;
 const CHART_H = 300;
 type ResultTab = (typeof RESULT_TABS)[number];
@@ -365,10 +366,18 @@ function BacktestResult({ result }: { result: QuantBacktestResult }) {
         value={tab}
         onChange={(next) => setTab(next as ResultTab)}
         label={t('resultTabs')}
-        labels={{ summary: t('tabSummary'), metrics: t('tabMetrics'), charts: t('tabCharts'), trades: t('tabTrades'), log: t('tabLog') }}
+        labels={{
+          summary: t('tabSummary'),
+          metrics: t('tabMetrics'),
+          checks: t('tabChecks'),
+          charts: t('tabCharts'),
+          trades: t('tabTrades'),
+          log: t('tabLog'),
+        }}
       />
       {tab === 'summary' && <ResultSummary result={result} />}
       {tab === 'metrics' && <MetricsTab metrics={result.metrics} />}
+      {tab === 'checks' && <ChecksTab checks={result.checks} />}
       {tab === 'charts' && <ResultCharts result={result} />}
       {tab === 'trades' && <ResultTrades result={result} />}
       {tab === 'log' && <ResultLog result={result} />}
@@ -467,6 +476,66 @@ const REASONS = ['no_trades', 'no_winning_trades', 'no_losing_trades', 'too_few_
  * The run's report (AL-report-01), grouped in returns, risk and trades, with a help line per figure. A figure the engine
  * could not define shows the reason in words, never a zero.
  */
+const NOT_CHECKED = ['not_split', 'section_undefined', 'not_counted', 'too_few_bars', 'return_undefined', 'not_run'] as const;
+
+/** Every check the service made on the run, with what it measured; nothing is folded away or hidden. */
+function ChecksTab({ checks }: { checks: readonly QuantCheck[] }) {
+  const { t } = backtestCopy.useCopy();
+  const figure = (check: QuantCheck, name: string) => check.evidence[name] ?? t('notSet');
+  const detail = (check: QuantCheck): string => {
+    if (check.status === 'not_applicable') {
+      const reason = check.evidence.reason ?? '';
+      return (NOT_CHECKED as readonly string[]).includes(reason) ? t(`na_${reason as (typeof NOT_CHECKED)[number]}`) : reason;
+    }
+    switch (check.name) {
+      case 'sample_gap':
+        return t('d_sample_gap', {
+          inSample: figure(check, 'inSampleReturnPercent'),
+          outOfSample: figure(check, 'outOfSampleReturnPercent'),
+          gap: figure(check, 'gapPercent'),
+        });
+      case 'variant_count':
+        return t('d_variant_count', { variants: figure(check, 'variants') });
+      case 'bar_offset':
+        return t('d_bar_offset', {
+          base: figure(check, 'returnPercent'),
+          from: check.evidence.offsetFrom ? utcText(check.evidence.offsetFrom) : t('notSet'),
+          offset: figure(check, 'offsetReturnPercent'),
+          shift: figure(check, 'shiftPercent'),
+        });
+      case 'bar_type':
+        return t('d_bar_type', { barSize: figure(check, 'barSize') });
+      case 'look_ahead':
+        return t('d_look_ahead');
+      case 'repainting':
+        return t('d_repainting');
+    }
+  };
+  return (
+    <div data-testid="quant-bar-checks">
+      <p className="muted">{t('checksIntro')}</p>
+      <ul className="quant-checks">
+        {checks.map((check) => (
+          <li
+            key={check.name}
+            data-testid={`quant-check-${check.name}`}
+            data-status={check.status}
+            data-threshold={check.threshold ?? ''}
+            {...Object.fromEntries(Object.entries(check.evidence).map(([name, value]) => [`data-${name.toLowerCase()}`, value ?? '']))}
+          >
+            <h4>{t(`k_${check.name}`)}</h4>
+            <p>
+              <strong>{t(`s_${check.status}`)}</strong>
+            </p>
+            <p>{detail(check)}</p>
+            {check.threshold !== null && <p className="muted">{t('checkThreshold', { threshold: check.threshold })}</p>}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function MetricsTab({ metrics }: { metrics: QuantBacktestMetrics }) {
   const { t } = backtestCopy.useCopy();
   const reasonText = (reason: string) =>

@@ -354,7 +354,7 @@ describe('honest results: split, computed verdict, variant count (AL-backtest-04
   const CRITERIA = { minTrades: '0', minReturnPercent: '-100', maxDrawdownPercent: '100', maxShortfallPercent: null };
 
   it('splits off the latest third, computes the verdict, names the blank criterion, and ignores a typed verdict', async () => {
-    const { a } = setup({ judgement: { criteria: CRITERIA, holdoutStart: null } });
+    const { a } = setup({ judgement: { ...NO_JUDGEMENT, criteria: CRITERIA } });
     const strategy = await saved(a);
     const result = await a.backtest.start({ ...request(strategy.id), split: { preset: '1/3' }, outOfSampleStatus: 'passed' });
     // Eight hours: the latest third starts 2h40m before the end, moved up to the next bar open at 06:00.
@@ -364,7 +364,7 @@ describe('honest results: split, computed verdict, variant count (AL-backtest-04
     expect(result.ignoredInputs).toEqual(['outOfSampleStatus']);
     expect(result.holdout).toEqual({ enforced: false, from: null });
 
-    const judged = setup({ judgement: { criteria: { ...CRITERIA, maxShortfallPercent: '100' }, holdoutStart: null } });
+    const judged = setup({ judgement: { ...NO_JUDGEMENT, criteria: { ...CRITERIA, maxShortfallPercent: '100' } } });
     const other = await saved(judged.a);
     const computed = await judged.a.backtest.start({ ...request(other.id), split: { preset: '1/3' }, outOfSampleStatus: 'failed' });
     expect(computed.verdict.status).toBe('passed');
@@ -404,6 +404,28 @@ describe('honest results: split, computed verdict, variant count (AL-backtest-04
     await expect(clear.a.backtest.start({ ...asked, strategyId: far.id, split: { preset: 'thirds' } })).rejects.toThrow(
       /quant\.backtest_window_invalid — split/,
     );
+  });
+
+  it('carries every check with its evidence, from the owner thresholds as they stood when it ran, the same on every read', async () => {
+    const thresholds = { maxSampleGapPercent: '1000', maxVariants: '1', maxOffsetShiftPercent: null };
+    const { a } = setup({ judgement: { ...NO_JUDGEMENT, checks: thresholds } });
+    const strategy = await saved(a);
+    const first = await a.backtest.start({ ...request(strategy.id), split: { preset: '1/3' } });
+    // The sensitivity run starts at the window's second bar.
+    expect(first.offsetRun).toMatchObject({ from: new Date(T0 + HOUR).toISOString() });
+    const checks = Object.fromEntries(first.checks.map((check) => [check.name, check]));
+    expect(first.checks).toHaveLength(6);
+    expect(checks.sample_gap).toMatchObject({ status: 'clear', threshold: '1000' });
+    expect(checks.variant_count).toMatchObject({ status: 'clear', evidence: { variants: '1' } });
+    expect(checks.bar_offset).toMatchObject({ status: 'not_set', threshold: null });
+    expect(checks.look_ahead!.status).toBe('by_construction');
+    const second = await a.backtest.start({
+      ...request(strategy.id),
+      split: { preset: '1/3' },
+      costs: { feeRole: 'taker', slippageBps: '9', delayBars: '0' },
+    });
+    expect(second.checks.find((check) => check.name === 'variant_count')).toMatchObject({ status: 'warning', evidence: { variants: '2' } });
+    expect((await a.backtest.result({ runId: second.runId })).checks).toEqual(second.checks);
   });
 
   it('refuses a replay whose stored result no longer reads, and runs nothing again', async () => {
