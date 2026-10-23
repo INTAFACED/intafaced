@@ -83,11 +83,17 @@ export function decideRoomAction(ctx: RoomAccessContext, need: ActionNeed): { al
   if (!ctx.sessionInteractive) return { allowed: false, reason: 'session' };
   // createPaymentLink, subscription writes, and payoutSettlement refuse any
   // status other than active before KYB, the same cut-off as assertMerchantActive.
-  // Refund and a payout approval request do not. Other writes leave a pending
-  // account in onboarding, and only a suspended or closed one is inactive.
+  // A refund and a payout request stay available on a suspended or closed
+  // account so the payer can be repaid. Other writes leave a pending account
+  // in onboarding, and a suspended or closed one is inactive.
+  const survivesShutdown = need.kind === 'money' && (need.money === 'refund' || (need.money === 'payout' && need.act === 'request'));
   const requiresActive =
     (need.kind === 'owner' && need.activeAccount) || (need.kind === 'money' && need.money === 'payout' && need.act === 'send');
-  const inactive = requiresActive ? ctx.accountStatus !== 'active' : ctx.accountStatus === 'suspended' || ctx.accountStatus === 'closed';
+  const inactive = survivesShutdown
+    ? false
+    : requiresActive
+      ? ctx.accountStatus !== 'active'
+      : ctx.accountStatus === 'suspended' || ctx.accountStatus === 'closed';
   if (inactive) return { allowed: false, reason: 'inactive' };
   const ownerProfile = need.kind === 'permission' && need.permission === 'profile.manage' && ctx.role === 'owner';
   if (ctx.kybStatus !== 'approved' && !ownerProfile) return { allowed: false, reason: 'kyb' };

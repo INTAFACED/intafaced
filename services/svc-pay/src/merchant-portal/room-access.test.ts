@@ -157,8 +157,23 @@ describe('merchant room access (M-adv-phantom-order-01)', () => {
     });
     expect(action('owner', 'refund-new', 'refund', { accountStatus: 'suspended' })).toEqual({
       action: 'refund',
-      allowed: false,
-      reason: 'inactive',
+      allowed: true,
+      reason: 'step_up',
+    });
+    expect(action('owner', 'refund-new', 'refund', { accountStatus: 'closed' })).toEqual({
+      action: 'refund',
+      allowed: true,
+      reason: 'step_up',
+    });
+    expect(action('owner', 'payout-new', 'payout.request', { accountStatus: 'suspended' })).toEqual({
+      action: 'payout.request',
+      allowed: true,
+      reason: 'step_up',
+    });
+    expect(action('owner', 'payout-new', 'payout.request', { accountStatus: 'closed' })).toEqual({
+      action: 'payout.request',
+      allowed: true,
+      reason: 'step_up',
     });
     expect(action('owner', 'payout-new', 'payout.request', { accountStatus: 'pending', kybStatus: 'none' })).toEqual({
       action: 'payout.request',
