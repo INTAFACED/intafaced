@@ -258,7 +258,7 @@ function readBody(req, limit = 4096) {
 
 /**
  * Where to go after the password: a path on this link, or `/`. It is resolved the way a browser would resolve it, so
- * `//x`, `/\\x` and tab or newline tricks that leave the link fall back to `/`.
+ * `//x`, `/\\x`, `/..//x` and tab or newline tricks that leave the link fall back to `/`.
  */
 export function safeNext(n) {
   if (typeof n !== 'string' || !n.startsWith('/')) return '/';
@@ -270,7 +270,12 @@ export function safeNext(n) {
     return '/';
   }
   if (url.origin !== base || url.pathname.startsWith('/__try/')) return '/';
-  return `${url.pathname}${url.search}${url.hash}`;
+  const out = `${url.pathname}${url.search}${url.hash}`;
+  // Dot segments collapse (`/..//x` resolves to the path `//x`), so the result is checked again as what it is: a path
+  // that a browser resolves on this link and that resolves to itself.
+  if (out.startsWith('//') || out.startsWith('/\\')) return '/';
+  const again = new URL(out, base);
+  return again.origin === base && `${again.pathname}${again.search}${again.hash}` === out ? out : '/';
 }
 
 export function createGate({ password, publicOrigin, port = 8088, endsAt = null, stateDir = localStackState(), upstream = UPSTREAM }) {
