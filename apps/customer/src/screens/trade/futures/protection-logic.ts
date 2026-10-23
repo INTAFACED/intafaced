@@ -29,17 +29,17 @@ export function isLive(order: ConditionalOrder | null): boolean {
 }
 
 /**
- * The result if the whole position closed at `price`, before fees: (price − entry) × size × contract size, negated for a
- * short. Null when any input is unknown or malformed: never a guessed figure.
+ * The result if the whole position closed at `price`, before fees: (price − entry) × size, negated for a short. A
+ * position's size is in the base asset, as its notional and unrealised PnL are worked out. Null when any input is
+ * unknown or malformed: never a guessed figure.
  */
 export function estimatedResult(position: Position, price: string): string | null {
   const at = dec(price);
   const entry = dec(position.entryPrice);
   const size = dec(position.contracts);
-  const contract = dec(position.contractSize);
-  if (at === null || at <= 0n || entry === null || size === null || contract === null) return null;
+  if (at === null || at <= 0n || entry === null || size === null) return null;
   const move = position.side === 'long' ? sub(at, entry) : sub(entry, at);
-  return str(times(times(move, size), contract));
+  return str(times(move, size));
 }
 
 /** Which side of the mark each leg must sit on, for the field hint. Null when the side is unknown. */

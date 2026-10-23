@@ -74,12 +74,13 @@ describe('estimatedResult', () => {
     expect(estimatedResult(position, '120')).toBe('10');
     expect(estimatedResult(position, '95.5')).toBe('-2.25');
     expect(estimatedResult({ ...position, side: 'short' }, '95.5')).toBe('2.25');
-    expect(estimatedResult({ ...position, contractSize: '0.001' }, '120')).toBe('0.01');
+    // Size is in the base asset, as the service's notional and unrealised PnL are: the contract size is not a factor.
+    expect(estimatedResult({ ...position, contractSize: '0.001' }, '120')).toBe('10');
   });
   it('is unknown, never zero, when a figure is missing or the price is not usable', () => {
     expect(estimatedResult(position, '')).toBeNull();
     expect(estimatedResult(position, '0')).toBeNull();
-    expect(estimatedResult({ ...position, contractSize: null as unknown as string }, '120')).toBeNull();
+    expect(estimatedResult({ ...position, entryPrice: null as unknown as string }, '120')).toBeNull();
   });
 });
 
