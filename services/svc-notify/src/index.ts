@@ -29,6 +29,8 @@ import { readStatusPage } from './status-page/router.js';
 import { openStatusMailer } from './status-page/mailer.js';
 import { StatusSubscriptions } from './status-page/subscriptions.js';
 import { SqlSubscriptionStore } from './status-page/subscriptions.pg.js';
+import { IncidentTemplates } from './status-page/templates.js';
+import { SqlTemplateStore } from './status-page/templates.pg.js';
 import { noticeApprovalConsumerFromProcessEnv } from './notices/approval.js';
 import { ChannelSettings } from './ops-config/channel-settings.js';
 import { PostgresChannelSettingsStore } from './ops-config/channel-settings.pg.js';
@@ -333,7 +335,16 @@ const loadVenueIncident = async () =>
     allClear: env.NOTIFY_INCIDENT_ALL_CLEAR,
   });
 
-const statusPageDeps = { book: statusBook, notices, subscriptions: statusSubscriptions, publicOrigin: env.NOTIFY_PUBLIC_ORIGIN ?? null };
+const incidentTemplates = new IncidentTemplates(new SqlTemplateStore(sql), async () =>
+  (await statusBook.definition()).components.map((component) => component.id),
+);
+const statusPageDeps = {
+  book: statusBook,
+  notices,
+  subscriptions: statusSubscriptions,
+  templates: incidentTemplates,
+  publicOrigin: env.NOTIFY_PUBLIC_ORIGIN ?? null,
+};
 export const appRouter = createNotifyRouter(
   notify,
   alerts,

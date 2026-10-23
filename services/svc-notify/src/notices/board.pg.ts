@@ -179,17 +179,65 @@ export class PostgresNoticeStore implements NoticeStore {
     return rows.map(fromPg);
   }
 
-  async markPublished(id: string, patch: { publishedAt: Date; approvalId: string; publishClientRequestId: string }): Promise<void> {
-    const rows = await this.sql<{ id: string }[]>`
-      UPDATE notify.notices
-         SET status = 'published',
-             published_at = ${patch.publishedAt},
-             approval_id = ${patch.approvalId},
-             publish_client_request_id = ${patch.publishClientRequestId}
-       WHERE id = ${id} AND status = 'draft'
-       RETURNING id
+  async listAll(kind: NoticeKind | null, limit: number): Promise<readonly NoticeRow[]> {
+    const rows =
+      kind == null
+        ? await this.sql<NoticePg[]>`
+            SELECT ${this.sql.unsafe(COLUMNS)} FROM notify.notices ORDER BY created_at DESC, id ASC LIMIT ${limit}
+          `
+        : await this.sql<NoticePg[]>`
+            SELECT ${this.sql.unsafe(COLUMNS)} FROM notify.notices WHERE kind = ${kind} ORDER BY created_at DESC, id ASC LIMIT ${limit}
+          `;
+    return rows.map(fromPg);
+  }
+
+  async resolved(rootId: string): Promise<boolean> {
+    const rows = await this.sql<{ one: number }[]>`
+      SELECT 1 AS one FROM notify.notices WHERE parent_id = ${rootId} AND status = 'published' AND resolves LIMIT 1
     `;
-    if (rows.length === 0) throw new NoticeError('notify.notice_published_immutable');
+    return rows.length > 0;
+  }
+
+  async openIncidentThreads(limit: number): Promise<readonly NoticeRow[]> {
+    const rows = await this.sql<NoticePg[]>`
+      WITH open AS (
+        SELECT r.id FROM notify.notices r
+         WHERE r.kind = 'incident' AND r.parent_id IS NULL AND r.status = 'published'
+           AND NOT EXISTS (
+             SELECT 1 FROM notify.notices c WHERE c.parent_id = r.id AND c.status = 'published' AND c.resolves
+           )
+      )
+      SELECT ${this.sql.unsafe(COLUMNS)} FROM notify.notices
+       WHERE id IN (SELECT id FROM open) OR parent_id IN (SELECT id FROM open)
+       ORDER BY created_at DESC, id ASC
+       LIMIT ${limit}
+    `;
+    return rows.map(fromPg);
+  }
+
+  async markPublished(id: string, patch: { publishedAt: Date; approvalId: string; publishClientRequestId: string }): Promise<void> {
+    await this.sql.begin(async (tx) => {
+      const [draft] = await tx<{ parent_id: string | null }[]>`SELECT parent_id FROM notify.notices WHERE id = ${id}`;
+      if (draft?.parent_id) {
+        // Every publish under one incident takes the incident's row first, so the check below sees any resolution that
+        // committed before it, and a resolution racing it waits for this one.
+        await tx`SELECT id FROM notify.notices WHERE id = ${draft.parent_id} FOR UPDATE`;
+        const resolved = await tx<{ one: number }[]>`
+          SELECT 1 AS one FROM notify.notices WHERE parent_id = ${draft.parent_id} AND status = 'published' AND resolves LIMIT 1
+        `;
+        if (resolved.length > 0) throw new NoticeError('notify.notice_incident_resolved');
+      }
+      const rows = await tx<{ id: string }[]>`
+        UPDATE notify.notices
+           SET status = 'published',
+               published_at = ${patch.publishedAt},
+               approval_id = ${patch.approvalId},
+               publish_client_request_id = ${patch.publishClientRequestId}
+         WHERE id = ${id} AND status = 'draft'
+         RETURNING id
+      `;
+      if (rows.length === 0) throw new NoticeError('notify.notice_published_immutable');
+    });
   }
 
   async approvalOutcome(approvalId: string): Promise<'published' | 'refused_same_operator' | null> {

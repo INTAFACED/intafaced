@@ -115,3 +115,18 @@ export async function openNotices() {
   if (current.json?.error?.data?.cause?.code === 'notify.announcement_unset') return { ...status, announcement: null };
   return { ...status, announcement: data(current, 'notify.announcement') };
 }
+
+/** Founder `key` ('a' or 'b') publishes a draft with an approval it holds. Returns the refusal code, or null when published. */
+export async function publishAs(key, { id, approvalId, operationId }) {
+  const { ctx, pair } = await founders();
+  const res = await ctx.edge.mutate(
+    'notify',
+    'notify.publishNotice',
+    { id, clientRequestId: `journey:notice-publish:${approvalId}:${key}`, approvalId, operationId },
+    await pair[key].tradeOpsToken(),
+  );
+  if (res.json?.result?.data) return null;
+  const code = res.json?.error?.data?.cause?.code;
+  if (!code) throw new Error(`notify.publishNotice failed without a code (${res.status}): ${res.text.slice(0, 300)}`);
+  return code;
+}

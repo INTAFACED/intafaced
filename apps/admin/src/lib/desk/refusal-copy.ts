@@ -343,6 +343,71 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'svc-edge has no route to svc-ledger on this deployment, so nothing was sent to it.',
     next: 'Ask engineering. Nothing was changed.',
   },
+  'notify.notice_publish_same_operator': {
+    title: 'The approver cannot also publish',
+    body: 'svc-notify publishes only for a founder other than the one who approved, so this approval was used up and nothing was published.',
+    next: 'Ask for approval again; the founder who did not approve publishes.',
+  },
+  'notify.notice_approval_spent': {
+    title: 'That approval is already used',
+    body: 'svc-notify spends each approval once. Nothing more was published.',
+    next: 'Read the incident again. If the entry is still a draft, ask for a new approval.',
+  },
+  'notify.notice_incident_resolved': {
+    title: 'This incident is resolved',
+    body: 'A resolved incident is final, so svc-notify takes no further update on it. Nothing was saved.',
+    next: 'If the problem is back, declare a new incident.',
+  },
+  'notify.notice_published_immutable': {
+    title: 'Already published',
+    body: 'A published entry is never edited. Nothing was changed.',
+    next: 'Post an update with the correction instead.',
+  },
+  'notify.notice_impact_unset': {
+    title: 'Name the impact',
+    body: 'An incident that names components has to say how bad it is. Nothing was saved.',
+    next: 'Pick an impact and save again.',
+  },
+  'notify.notice_component_unknown': {
+    title: 'That component is not on the status page',
+    body: 'svc-notify does not know one of the components named. Nothing was saved.',
+    next: 'Read the desk again and pick from the components it lists.',
+  },
+  'notify.notice_copy_unset': {
+    title: 'Write a title and a message',
+    body: 'Both are needed. Nothing was saved.',
+    next: 'Fill them in and save again.',
+  },
+  'notify.notice_parent_invalid': {
+    title: 'That incident cannot take an update',
+    body: 'Updates go on a published incident, never on a draft or on another update. Nothing was saved.',
+    next: 'Publish the incident first, then post the update.',
+  },
+  'status.template_invalid': {
+    title: 'That template is not complete',
+    body: 'A template needs an id (lowercase letters, digits and dashes), a name, a title and a message. Nothing was saved.',
+    next: 'Correct it and save again.',
+  },
+  'status.template_component_unknown': {
+    title: 'That component is not on the status page',
+    body: 'A template may only name components the page defines. Nothing was saved.',
+    next: 'Pick from the components the desk lists.',
+  },
+  'status.template_impact_unset': {
+    title: 'Name the impact',
+    body: 'A template that names components has to say how bad the incident is. Nothing was saved.',
+    next: 'Pick an impact and save again.',
+  },
+  'status.template_cap_reached': {
+    title: 'Too many templates',
+    body: 'svc-notify keeps at most 100 active templates. Nothing was saved.',
+    next: 'Retire one you no longer use, then save again.',
+  },
+  'status.template_not_found': {
+    title: 'No such template',
+    body: 'That template is not active. Nothing was changed.',
+    next: 'Read the desk again.',
+  },
   'status.component_cap_unset': {
     title: 'The component cap is blank',
     body: 'svc-notify refuses any list of components until a founder sets how many the page may hold. Nothing was changed.',

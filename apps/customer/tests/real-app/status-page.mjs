@@ -24,6 +24,36 @@ export async function statusDefinition() {
   return data(await ctx.edge.query('notify', 'statusPage.definition', undefined, await pair.a.tradeOpsToken()), 'statusPage.definition');
 }
 
+/** The page a visitor reads, as svc-notify answers it: components with their state and basis, and incidents. */
+export async function statusRead() {
+  const { ctx } = await founders();
+  return data(await ctx.edge.query('notify', 'statusPage.read'), 'statusPage.read');
+}
+
+/** The founders' active incident templates. */
+export async function incidentTemplates() {
+  const { ctx, pair } = await founders();
+  const res = await ctx.edge.query('notify', 'statusPage.templates.list', undefined, await pair.a.tradeOpsToken());
+  if (!Array.isArray(res.json?.result?.data))
+    throw new Error(`statusPage.templates.list refused (${res.status}): ${res.text.slice(0, 300)}`);
+  return res.json.result.data;
+}
+
+/** Define (or bring back) one incident template, or retire one with `retire: true`. */
+export async function setIncidentTemplate(template, { retire = false } = {}) {
+  const { ctx, pair } = await founders();
+  const input = retire
+    ? { id: template.id }
+    : (({ id, name, group, title, body, impact, components }) => ({ id, name, group, title, body, impact, components }))(template);
+  const res = await ctx.edge.mutate(
+    'notify',
+    retire ? 'statusPage.templates.retire' : 'statusPage.templates.define',
+    input,
+    await pair.a.tradeOpsToken(),
+  );
+  return data(res, retire ? 'statusPage.templates.retire' : 'statusPage.templates.define');
+}
+
 /** Change the definition from the revision it reads now. Fields left out stay as they are. */
 export async function configureStatusPage(fields, reason = 'TEST journey J-support-public-07') {
   const { ctx, pair } = await founders();

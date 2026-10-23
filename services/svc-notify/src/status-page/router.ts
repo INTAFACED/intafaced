@@ -17,12 +17,15 @@ import { StatusPageError, type StatusPageBook } from './book.js';
 import { statusBadge } from './badge.js';
 import { buildStatusPage, uptimeStart } from './page.js';
 import type { StatusSubscriptions } from './subscriptions.js';
+import { TEMPLATE_ID_PATTERN, TemplateError, type IncidentTemplate, type IncidentTemplates } from './templates.js';
 import { statusSubscriptionsRouter } from './subscriptions-router.js';
 
 export type StatusPageDeps = {
   book: StatusPageBook;
   notices: NoticeBoard | null;
   subscriptions?: StatusSubscriptions;
+  /** Incident templates (SP-status-02). Absent, the template calls answer `notify.status_page_unavailable`. */
+  templates?: IncidentTemplates;
   /** NOTIFY_PUBLIC_ORIGIN: the site address badge and subscription links use. Unset, the founders' read says so. */
   publicOrigin?: string | null;
   now?: () => Date;
@@ -41,10 +44,45 @@ const definitionOutput = z.object({
   publicOrigin: z.string().nullable(),
 });
 
+const templateOutput = z.object({
+  id: z.string(),
+  name: z.string(),
+  group: z.string().nullable(),
+  title: z.string(),
+  body: z.string(),
+  impact: z.enum(['none', 'minor', 'major', 'critical']).nullable(),
+  components: z.array(z.string()),
+  definedBy: z.string(),
+  definedAt: z.string(),
+});
+
+const templateInput = z
+  .object({
+    id: z.string().regex(TEMPLATE_ID_PATTERN),
+    name: z.string().min(1).max(80),
+    group: z.string().max(80).nullable().optional(),
+    title: z.string().min(1).max(200),
+    body: z.string().min(1).max(8000),
+    impact: z.enum(['none', 'minor', 'major', 'critical']).nullable().optional(),
+    components: z
+      .array(z.string().regex(/^[a-z][a-z0-9-]{1,39}$/))
+      .max(100)
+      .nullable()
+      .optional(),
+  })
+  .strict();
+
 const originOrNull = (origin: string | null | undefined): string | null => {
   const trimmed = origin?.trim().replace(/\/+$/, '') ?? '';
   return trimmed === '' ? null : trimmed;
 };
+
+const templateWire = (t: IncidentTemplate) => ({ ...t, components: [...t.components] });
+
+function requireTemplates(templates: IncidentTemplates | undefined): IncidentTemplates {
+  if (!templates) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.status_page_unavailable' });
+  return templates;
+}
 
 /** The page as a visitor reads it now: definition, latest readings, the uptime window and the incident feed. */
 export async function readStatusPage({ book, notices }: StatusPageDeps, at: Date): Promise<StatusPage> {
@@ -73,6 +111,12 @@ export function statusPageRouter(deps?: StatusPageDeps) {
     try {
       return await run(deps);
     } catch (err) {
+      if (err instanceof TemplateError)
+        throw new TRPCError({
+          code: err.code === 'status.template_not_found' ? 'NOT_FOUND' : 'PRECONDITION_FAILED',
+          message: err.code,
+          cause: err,
+        });
       if (err instanceof StatusPageError) {
         const code =
           err.code === 'status.page_revision_stale' || err.code === 'status.reading_conflict' ? 'CONFLICT' : 'PRECONDITION_FAILED';
@@ -116,6 +160,31 @@ export function statusPageRouter(deps?: StatusPageDeps) {
           }),
         ),
       ),
+
+    /**
+     * Incident templates (SP-status-02): founders only, like the definition. Nothing is seeded, so an empty list is the
+     * honest answer until a founder defines one.
+     */
+    templates: router({
+      list: scopedProcedure('admin:write', { module: 'notify' })
+        .output(z.array(templateOutput))
+        .query(() => call(async ({ templates }) => (await requireTemplates(templates).list()).map(templateWire))),
+      define: scopedProcedure('admin:write', { module: 'notify' })
+        .input(templateInput)
+        .output(templateOutput)
+        .mutation(({ ctx, input }) =>
+          call(async ({ templates }) => templateWire(await requireTemplates(templates).define(ctx.principal.userId, input))),
+        ),
+      retire: scopedProcedure('admin:write', { module: 'notify' })
+        .input(z.object({ id: z.string().regex(TEMPLATE_ID_PATTERN) }).strict())
+        .output(z.object({ id: z.string(), retired: z.literal(true) }))
+        .mutation(({ ctx, input }) =>
+          call(async ({ templates }) => {
+            await requireTemplates(templates).retire(ctx.principal.userId, input.id);
+            return { id: input.id, retired: true as const };
+          }),
+        ),
+    }),
 
     record: scopedProcedure('admin:write', { module: 'notify' })
       .input(statusReadingInputSchema)
