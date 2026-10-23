@@ -19,6 +19,7 @@ import { MemoryCopyFollowStore } from './follow-store.js';
 import { applyCopyFlatten, flattenFollowerCopyPosition, presentCopyFlattenAck } from './copy-flatten.js';
 import type { FlattenCopyPositionPort } from './copy-flatten.js';
 import type { CopyFollow } from './follows.js';
+import { GateOpenLedger, GateOpenStore, OPEN_FOLLOW_GATE } from './follow-gate.fixture.js';
 
 const SECRET = 'copy-flatten-edge-secret-32bytes-xx';
 const FOLLOWER = '11111111-1111-4111-8111-111111111111';
@@ -63,13 +64,14 @@ const publishedFee = {
 const publishedJur = { published: true as const, allowedRegions: ['SG'] };
 
 function wiredCopy(opts: { flatten?: FlattenCopyPositionPort; place?: PlaceFollowerOrderPort } = {}) {
-  return new CopyService(new MemoryLedger(), {
+  return new CopyService(new GateOpenLedger(), {
+    ...OPEN_FOLLOW_GATE,
+    store: new GateOpenStore(),
     feeShareLaw: publishedFee,
     jurisdictionLaw: publishedJur,
     placeMirrorEnabled: true,
     inspectMarket: async () => ({ paper: false }),
     placeFollowerOrder: opts.place ?? (async () => ({ orderId: 'ord-unused' })),
-    store: new MemoryCopyFollowStore(),
     flattenCopyPosition: opts.flatten,
     lookupLeaderFill: async (fillId) => ({
       fillId,
@@ -234,6 +236,7 @@ describe('trade.copy flatten (PTX-M26-R05)', () => {
     });
     const follower = createTradeRouter({} as TradeService, undefined, copy).createCaller(signed());
     const follow = await follower.copy.follow({
+      clientRequestId: 'test-request-1',
       leaderId: LEADER,
       region: 'SG',
       permittedMarkets: ['BTC-USDT'],

@@ -492,6 +492,8 @@ function toTrpcError(err: unknown): TRPCError {
       case 'trade.copy_pnl_fee_forbidden':
       case 'trade.copy_ranking_forbidden':
       case 'trade.copy_leader_resume_forbidden':
+      case 'trade.tier_insufficient':
+      case 'trade.copy_subaccount_refused':
         return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
       case 'trade.copy_fee_share_blank':
       case 'trade.copy_jurisdiction_blank':
@@ -516,6 +518,8 @@ function toTrpcError(err: unknown): TRPCError {
       case 'trade.copy_leader_suspended':
       case 'trade.copy_leader_delisted':
       case 'trade.copy_leader_capacity_full':
+      case 'trade.copy_tier_unset':
+      case 'trade.copy_reserve_exceeds_balance':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
       case 'trade.copy_paper_live_forbidden':
         return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
@@ -1503,6 +1507,10 @@ export function createTradeRouter(
             maxDrawdown: decimal.optional(),
             maxLeverage: z.union([z.string(), z.number()]).optional(),
             expiresAt: z.string().datetime(),
+            /** The request's own key: a second press with the same key returns the same follow. */
+            clientRequestId: z.string().min(8).max(120),
+            /** Quote amount each copied order uses. Omitted means no fixed size. */
+            fixedOrderSize: decimal.optional(),
             leaderSettings: z
               .object({
                 maxAllocation: decimal.optional(),
@@ -1521,7 +1529,7 @@ export function createTradeRouter(
               logRefusalSpec('trade.copy_jurisdiction_blank');
               throw new CopyError(COPY_JURISDICTION_RESIDUAL, 'trade.copy_jurisdiction_blank', COPY_JURISDICTION_RESIDUAL);
             }
-            return copy.follow(ctx.principal, input);
+            return copy.startFollow(ctx.principal, input);
           }),
         ),
 

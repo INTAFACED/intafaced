@@ -453,6 +453,7 @@ describe('D26-P2-01a public doors — copy refuse invent §8 rates / jurisdictio
       maxNotionalPerOrder: '100',
       maxAggregateExposure: '1000',
       expiresAt: '2026-12-01T00:00:00.000Z',
+      clientRequestId: 'test-request-blank-region',
     });
 
     expect(statusCode).toBe(412);

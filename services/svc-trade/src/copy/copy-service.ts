@@ -57,6 +57,7 @@ import {
   requireNewCopyIntentAllowed,
 } from './copy-lifecycle.js';
 import { assertCopyRegionAllowed, copyRegionClosed, parseCopyEnvelope, presentCopyFollow, type CopyFollow } from './follows.js';
+import { assertMayFollow, assertReserveFits, copyFollowIdFor, copyQuoteAsset, freeSpotBalance, type CopyTier } from './follow-gate.js';
 import {
   attributeCopyFeeShare,
   canonicalizeCopyFillId,
@@ -157,6 +158,8 @@ const LEADER_FILL_MISSING = 'Leader fill not found — refuse rather than invent
 
 export interface CopyServiceOptions {
   feeShareLaw?: CopyFeeShareLaw;
+  /** Owner's verification level for copying (TRADE_COPY_MIN_TIER). Omitted → every startFollow refuses. */
+  minTier?: CopyTier | null;
   jurisdictionLaw?: CopyJurisdictionLaw;
   /** Owner disclosure text. Omitted → unpublished. Never a composed default. */
   disclosureLaw?: CopyDisclosureLaw;
@@ -297,6 +300,7 @@ export class CopyService {
   private readonly lookupMark: ((marketId: string) => Promise<AlgoQuotedMark | null>) | null;
   private readonly directory: LeaderDirectory;
   private readonly metricDefinitions: CopyMetricDefinitions;
+  private readonly minTier: CopyTier | null;
   private readonly readResultFigure: ((follow: CopyFollow) => Promise<{ figure: Amount | null; missing: string | null }>) | null;
 
   constructor(
@@ -321,6 +325,7 @@ export class CopyService {
     this.readResultFigure = options.readResultFigure ?? null;
     // Read like TRADE_COPY_PLACE_MIRROR above; env.ts declares it. Invalid JSON fails boot.
     this.metricDefinitions = options.metricDefinitions ?? UNPUBLISHED_COPY_METRIC_DEFINITIONS;
+    this.minTier = options.minTier ?? null;
     this.directory =
       options.directory ??
       memoryLeaderDirectory({
@@ -560,6 +565,44 @@ export class CopyService {
    * Follow a leader under a scoped envelope. Jurisdiction law must be published.
    * Does not move value — follower funds stay in follower account.
    */
+  /**
+   * The customer's Start copying (CB-copy-03, CB-copy-04). Every gate runs before anything is written: sub-account,
+   * the owner's copy tier, the accepted disclosure, the country list (inside follow), and a reserve that fits the
+   * follower's free spot balance. The same clientRequestId returns the follow it already made.
+   */
+  async startFollow(principal: Principal, input: Parameters<CopyService['follow']>[1] & { readonly clientRequestId: string }) {
+    // The desk's own blocker first: with no country list nothing else matters.
+    try {
+      assertCopyRegionAllowed(this.jurisdictionLaw, input.region);
+    } catch (err) {
+      this.blankLawRefusal(err);
+    }
+    assertMayFollow(principal, this.minTier);
+    await requireCopyDisclosureForMirror(this.disclosureLaw, this.store, principal.userId);
+    const leaderId = await this.directory.resolveLeaderId(input.leaderId, input.leaderRef);
+    const followId = copyFollowIdFor(principal.userId, leaderId, input.clientRequestId);
+    const already = await this.store.getFollow(followId);
+    if (already) {
+      if (already.followerId !== principal.userId) throw new CopyError('Follow not found', 'trade.copy_not_following');
+      return this.presentFollow(already);
+    }
+
+    const asset = copyQuoteAsset(input.permittedMarkets);
+    let amount: Amount;
+    try {
+      amount = parseAmount(input.maxAggregateExposure);
+    } catch {
+      throw new CopyError('Copy envelope caps must be valid decimal amounts', 'trade.copy_envelope_invalid');
+    }
+    assertReserveFits({
+      amount,
+      asset,
+      free: freeSpotBalance(await this.ledger.balances('user', principal.userId), asset),
+      reservedElsewhere: await this.store.sumHeldReserves(principal.userId, asset),
+    });
+    return this.follow(principal, input, { followId, reserveAsset: asset });
+  }
+
   async follow(
     principal: Principal,
     input: {
@@ -580,9 +623,13 @@ export class CopyService {
       /** Refused. Copy places spot limits only; nothing is stored. */
       maxLeverage?: string | number | null;
       expiresAt: string;
+      /** Quote amount each copied order uses. Blank means no fixed size. */
+      fixedOrderSize?: string | null;
       /** Leader recommendations — clamp only; never raise follower caps. */
       leaderSettings?: CopyLeaderLimitSettings;
     },
+    /** Set by startFollow: the request's follow id and the asset its reserve is held in. */
+    admitted?: { readonly followId: string; readonly reserveAsset: string },
   ) {
     let region: string;
     try {
@@ -607,6 +654,7 @@ export class CopyService {
       maxNotionalPerOrder: input.maxNotionalPerOrder,
       maxAggregateExposure: input.maxAggregateExposure,
       maxLoss: input.maxLoss,
+      fixedOrderSize: input.fixedOrderSize,
       expiresAt: input.expiresAt,
       now: this.now(),
     });
@@ -623,8 +671,16 @@ export class CopyService {
       }),
     );
 
+    // A leader's recommendation can only lower the per-order cap; the fixed amount has to fit what is left.
+    if (envelope.fixedOrderSize !== undefined && envelope.fixedOrderSize > envelope.maxNotionalPerOrder) {
+      throw new CopyError(
+        `The fixed amount cannot be above the most per order, ${formatAmount(envelope.maxNotionalPerOrder)}`,
+        'trade.copy_fixed_size_above_cap',
+      );
+    }
+
     const follow: CopyFollow = {
-      followId: randomUUID(),
+      followId: admitted?.followId ?? randomUUID(),
       followerId: principal.userId,
       leaderId,
       envelope,
@@ -632,6 +688,10 @@ export class CopyService {
       createdAt: this.now(),
       feeShareKilled: false,
       relationshipState: 'ACTIVE',
+      // The reserve is the most in total after the leader's limits, which can only lower what startFollow checked.
+      ...(admitted
+        ? { reserve: { asset: admitted.reserveAsset, amount: envelope.maxAggregateExposure, heldAt: this.now(), releasedAt: null } }
+        : {}),
     };
     if (!this.accountAdmission) throw new TradingControlError('authority.unavailable');
     await this.accountAdmission.admit(

@@ -23,6 +23,7 @@ import {
 } from './copy-control-wire.js';
 import type { CopyFeeShareLaw, CopyJurisdictionLaw } from './fee-share-law.js';
 import { CopyError } from './errors.js';
+import { GateOpenLedger, GateOpenStore, OPEN_FOLLOW_GATE } from './follow-gate.fixture.js';
 
 const SECRET = 'copy-desk-blockers-edge-secret-32chars';
 const FOLLOWER = '00000000-0000-4000-8000-0000000000a1';
@@ -92,12 +93,18 @@ function followInput() {
     maxNotionalPerOrder: '100',
     maxAggregateExposure: '1000',
     expiresAt: futureExpiry,
+    clientRequestId: 'test-request-desk',
   };
 }
 
 describe('copy.deskStatus blockers', () => {
   it('both laws blank returns the fee-share and jurisdiction codes and no internal sentence', async () => {
-    const copy = new CopyService(new MemoryLedger(), { feeShareLaw: { published: false }, jurisdictionLaw: { published: false } });
+    const copy = new CopyService(new GateOpenLedger(), {
+      ...OPEN_FOLLOW_GATE,
+      store: new GateOpenStore(),
+      feeShareLaw: { published: false },
+      jurisdictionLaw: { published: false },
+    });
     const status = await createTradeRouter({} as TradeService, undefined, copy)
       .createCaller(signed())
       .copy.deskStatus();
@@ -121,7 +128,12 @@ describe('copy.deskStatus blockers', () => {
     const mounted = await createTradeRouter(
       {} as TradeService,
       undefined,
-      new CopyService(new MemoryLedger(), { feeShareLaw: { published: false }, jurisdictionLaw: { published: false } }),
+      new CopyService(new GateOpenLedger(), {
+        ...OPEN_FOLLOW_GATE,
+        store: new GateOpenStore(),
+        feeShareLaw: { published: false },
+        jurisdictionLaw: { published: false },
+      }),
     )
       .createCaller(signed())
       .copy.deskStatus();
@@ -140,7 +152,12 @@ describe('copy.deskStatus blockers', () => {
   });
 
   it('opsStatus returns the sentences to an operator and refuses a customer', async () => {
-    const copy = new CopyService(new MemoryLedger(), { feeShareLaw: { published: false }, jurisdictionLaw: { published: false } });
+    const copy = new CopyService(new GateOpenLedger(), {
+      ...OPEN_FOLLOW_GATE,
+      store: new GateOpenStore(),
+      feeShareLaw: { published: false },
+      jurisdictionLaw: { published: false },
+    });
     const router = createTradeRouter({} as TradeService, undefined, copy);
     await expect(router.createCaller(signed(['trade:read', 'trade:write'])).copy.opsStatus()).rejects.toMatchObject({
       code: 'FORBIDDEN',
@@ -159,7 +176,12 @@ describe('copy.deskStatus blockers', () => {
   });
 
   it('follow with a blank served list refuses jurisdiction_blank with blockers and no internal id', async () => {
-    const copy = new CopyService(new MemoryLedger(), { feeShareLaw: publishedFee, jurisdictionLaw: { published: false } });
+    const copy = new CopyService(new GateOpenLedger(), {
+      ...OPEN_FOLLOW_GATE,
+      store: new GateOpenStore(),
+      feeShareLaw: publishedFee,
+      jurisdictionLaw: { published: false },
+    });
     const caller = createTradeRouter({} as TradeService, undefined, copy).createCaller(signed());
     const desk = await caller.copy.deskStatus();
     try {
@@ -182,12 +204,22 @@ describe('copy.deskStatus blockers', () => {
     const blankLaws = createTradeRouter(
       {} as TradeService,
       undefined,
-      new CopyService(new MemoryLedger(), { feeShareLaw: { published: false }, jurisdictionLaw: { published: false } }),
+      new CopyService(new GateOpenLedger(), {
+        ...OPEN_FOLLOW_GATE,
+        store: new GateOpenStore(),
+        feeShareLaw: { published: false },
+        jurisdictionLaw: { published: false },
+      }),
     );
     const publishedPlaceOff = createTradeRouter(
       {} as TradeService,
       undefined,
-      new CopyService(new MemoryLedger(), { feeShareLaw: publishedFee, jurisdictionLaw: publishedJur }),
+      new CopyService(new GateOpenLedger(), {
+        ...OPEN_FOLLOW_GATE,
+        store: new GateOpenStore(),
+        feeShareLaw: publishedFee,
+        jurisdictionLaw: publishedJur,
+      }),
     );
     const unmounted = createTradeRouter({} as TradeService);
     const placeOff = [blankLaws, publishedPlaceOff];
@@ -229,7 +261,9 @@ describe('copy control dispositions', () => {
   });
 
   it('each control returns one value from its own subset and stop is not flatten', async () => {
-    const copy = new CopyService(new MemoryLedger(), {
+    const copy = new CopyService(new GateOpenLedger(), {
+      ...OPEN_FOLLOW_GATE,
+      store: new GateOpenStore(),
       feeShareLaw: publishedFee,
       jurisdictionLaw: publishedJur,
       placeMirrorEnabled: true,
@@ -245,10 +279,16 @@ describe('copy control dispositions', () => {
     expect(COPY_STOP_DISPOSITIONS).not.toContain('DETACH_FLATTEN');
     expect(copyStopOutput.safeParse({ ...stopped, disposition: 'DETACH_FLATTEN' }).success).toBe(false);
 
-    const kept = await caller.copy.follow({ ...followInput(), leaderId: '00000000-0000-4000-8000-0000000000b2' });
+    const kept = await caller.copy.follow({
+      ...followInput(),
+      leaderId: '00000000-0000-4000-8000-0000000000b2',
+    });
     expect((await caller.copy.detach({ followId: kept.followId })).disposition).toBe('DETACH_KEEP');
 
-    const flat = await caller.copy.follow({ ...followInput(), leaderId: '00000000-0000-4000-8000-0000000000b3' });
+    const flat = await caller.copy.follow({
+      ...followInput(),
+      leaderId: '00000000-0000-4000-8000-0000000000b3',
+    });
     expect((await caller.copy.flatten({ followId: flat.followId })).disposition).toBe('DETACH_FLATTEN');
   });
 });
