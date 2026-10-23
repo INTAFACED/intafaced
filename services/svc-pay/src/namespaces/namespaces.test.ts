@@ -11,8 +11,13 @@ import { createFounderAuthority } from '../founder-authority.js';
 import { createPayNamespaces, FOUNDER_ONLY_PREFIXES, findUnguardedFounderProcedures, founderProcedure } from './index.js';
 
 const NAMESPACES = ['merchantControl', 'merchantMetrics', 'founderAdmin', 'conversion', 'payHalts'] as const;
-/** W15 and W10 own these and test them in their own suites; they are real, not W0 stubs. */
-const isW15 = (path: string) => path.startsWith('merchantOps.') || path.startsWith('founderAdmin.ops.') || path.startsWith('b2bRamp.');
+/** Real procedures with their own suites, not W0 stubs. */
+const isW15 = (path: string) =>
+  path.startsWith('merchantOps.') ||
+  path.startsWith('founderAdmin.ops.') ||
+  path.startsWith('b2bRamp.') ||
+  path.startsWith('merchant.customerEmails.') ||
+  path.startsWith('payments.receipt.');
 
 const id = () => randomUUID();
 const merchantId = id();
