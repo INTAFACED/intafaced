@@ -241,6 +241,51 @@ describe('sending crypto out (J-wallet-05)', () => {
     expect(document.querySelector('input[name="withdraw-stepup-code"]')).toBeNull();
   });
 
+  it('never says nothing is held when the answer is lost, and a retry of the same send keeps its reference', async () => {
+    mint.mockResolvedValue({ ok: true, data: { accessToken: 'one-use', expiresAt: '2026-10-23T05:10:00Z' } });
+    mutate.mockResolvedValueOnce({ ok: true, data: quoteFor('25') });
+    mutate.mockResolvedValueOnce({ ok: false, reason: 'uncertain', status: 504, message: 'gateway timeout' });
+    mutate.mockResolvedValueOnce({ ok: true, data: quoteFor('25') });
+    mutate.mockResolvedValueOnce(refusal('pay.wallet_withdraw_unavailable', 400));
+    await mount();
+    await type('Saved address', ROW.destinationId);
+    await type('Amount', '25');
+    await press('Get the fee');
+    await press('Confirm and send');
+    await confirmWithCode();
+    const outcome = () => document.querySelector('[data-testid="withdraw-outcome"]')!.textContent;
+    expect(outcome()).toContain('Answer not received');
+    expect(outcome()).not.toContain('nothing is held');
+    await press('Get the fee');
+    await press('Confirm and send');
+    await confirmWithCode();
+    const sends = mutate.mock.calls.filter(([, procedure]) => procedure === 'withdrawal.create');
+    expect(sends).toHaveLength(2);
+    expect(sends[1]![2].clientRef).toBe(sends[0]![2].clientRef);
+    expect(outcome()).toContain('Nothing was sent and nothing is held.');
+  });
+
+  it('gives a send for other terms its own reference', async () => {
+    mint.mockResolvedValue({ ok: true, data: { accessToken: 'one-use', expiresAt: '2026-10-23T05:10:00Z' } });
+    mutate.mockResolvedValueOnce({ ok: true, data: quoteFor('25') });
+    mutate.mockResolvedValueOnce({ ok: false, reason: 'uncertain', status: 504, message: 'gateway timeout' });
+    mutate.mockResolvedValueOnce({ ok: true, data: quoteFor('20') });
+    mutate.mockResolvedValueOnce(refusal('pay.wallet_withdraw_unavailable', 400));
+    await mount();
+    await type('Saved address', ROW.destinationId);
+    await type('Amount', '25');
+    await press('Get the fee');
+    await press('Confirm and send');
+    await confirmWithCode();
+    await type('Amount', '20');
+    await press('Get the fee');
+    await press('Confirm and send');
+    await confirmWithCode();
+    const sends = mutate.mock.calls.filter(([, procedure]) => procedure === 'withdrawal.create');
+    expect(sends.map((call) => call[2].amount)).toEqual(['25', '20']);
+    expect(sends[1]![2].clientRef).not.toBe(sends[0]![2].clientRef);
+  });
+
   it('names the recorded withdrawal and links to its record when svc-pay takes it', async () => {
     const id = '99999999-9999-4999-8999-999999999999';
     mint.mockResolvedValue({ ok: true, data: { accessToken: 'one-use', expiresAt: '2026-10-23T05:10:00Z' } });
