@@ -121,6 +121,9 @@ function parseEnumField<T extends string>(
 const heldKey = (storeKey: string): string => `held/${storeKey}`;
 const scanRefused = (): SupportError => new SupportError('attachment did not pass the scanner', 'support.attachment_scan_refused');
 
+/** The owner setting a blank comment cap names (`SUPPORT_COMMENT_CAP`). */
+export const SUPPORT_COMMENT_CAP_KEY = 'support.comment_cap';
+
 export class SupportError extends Error {
   constructor(
     message: string,
@@ -328,6 +331,11 @@ export class SupportService implements SupportContract {
       assistantModel: null,
       searchQueryMax: null,
     },
+    /**
+     * How many comments a requester may add to one request (SP-api-01). Owner value; blank (null) refuses a requester's
+     * comment `support.comment_cap_unset`. Operators are not counted and not capped.
+     */
+    private readonly commentCap: number | null = null,
   ) {}
 
   /** The viewer's place in the desk, or null while no group exists (visibility not restricted). */
@@ -549,8 +557,16 @@ export class SupportService implements SupportContract {
    * is finished; storing a reply nobody will queue is a ghost. Operators may
    * still annotate a closed ticket.
    */
-  async comment(input: { userId: string; ticketId: string; body: string; asOperator?: boolean }): Promise<SupportComment> {
+  async comment(input: {
+    userId: string;
+    ticketId: string;
+    body: string;
+    asOperator?: boolean;
+    /** The caller's key. The same key again answers the first comment and writes nothing; with other text it refuses. */
+    clientRequestId?: string;
+  }): Promise<SupportComment> {
     return withSupportSpan('support.comment', { op: 'comment', ticketId: input.ticketId }, async () => {
+      if (input.clientRequestId !== undefined) this.requireClientRequestId(input.clientRequestId);
       await this.getTicket({
         userId: input.userId,
         ticketId: input.ticketId,
@@ -561,11 +577,26 @@ export class SupportService implements SupportContract {
         authorId: input.userId,
         authorRole: input.asOperator ? 'operator' : 'user',
         body: input.body,
+        ...(input.clientRequestId !== undefined ? { clientRequestId: input.clientRequestId.trim() } : {}),
+        ...(!input.asOperator ? { userCap: this.commentCap } : {}),
       });
       if (result.status === 'refuse') {
         if (result.reason === 'not_found') throw ticketNotFound();
+        if (result.reason === 'cap_unset') {
+          throw new SupportError('the comment cap per request is not set', 'support.comment_cap_unset', SUPPORT_COMMENT_CAP_KEY);
+        }
+        if (result.reason === 'cap_reached') {
+          throw new SupportError('this request holds as many of your comments as it may', 'support.comment_cap_reached');
+        }
+        if (result.reason === 'idempotency_conflict') {
+          throw new SupportError('idempotency key was already used for a different command', 'support.idempotency_conflict');
+        }
         throw new SupportError('comment refused: ticket is terminal', 'support.comment.terminal');
       }
+      // A replay wrote nothing. While its comment is still the request's last write, the first call may have died before
+      // the lifecycle below, so the replay settles it again (both writes keep what is already set); after a later write it
+      // moves nothing, or it would undo that write's side.
+      if (result.replay && result.ticket.updatedAt !== result.comment.createdAt) return result.comment;
       // Every operator comment is visible to the customer (there are no internal notes), so each is a public reply:
       // the ticket now waits on the customer and the first one is stamped once. A customer reply puts it back on the team.
       const at = result.comment.createdAt;

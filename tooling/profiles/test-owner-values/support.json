@@ -15,6 +15,11 @@
       "service": "support",
       "value": "25",
       "note": "Batch size for a bulk change of support requests, so a journey can use the bulk bar. Not an owner decision."
+    },
+    "SUPPORT_COMMENT_CAP": {
+      "service": "support",
+      "value": "50",
+      "note": "How many comments a requester may add to one request, so journeys can reply and J-support-public-09 can reach the cap. Not an owner decision."
     }
   }
 }

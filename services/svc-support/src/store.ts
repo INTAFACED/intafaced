@@ -60,6 +60,13 @@ export type AddCommentInput = {
   authorId: string;
   authorRole: 'user' | 'operator';
   body: string;
+  /** The caller's key: a replay answers the first comment and writes nothing. */
+  clientRequestId?: string;
+  /**
+   * How many comments the requester may add to one request; checked under the ticket lock, after a replay. Null is the
+   * owner value left blank: a new requester comment refuses `cap_unset`. Operators pass none.
+   */
+  userCap?: number | null;
 };
 
 /**
@@ -79,8 +86,19 @@ export type AddCommentResult =
       readonly comment: SupportComment;
       readonly ticket: SupportTicket;
       readonly reopened: boolean;
+      /** True when the key was used before: the first comment, nothing written now. */
+      readonly replay?: boolean;
     }
-  | { readonly status: 'refuse'; readonly reason: 'not_found' | 'terminal' };
+  | { readonly status: 'refuse'; readonly reason: 'not_found' | 'terminal' | 'cap_unset' | 'cap_reached' | 'idempotency_conflict' };
+
+/** What a comment's key holds: the comment it made and what it was asked to say. */
+type CommentReceipt = { fingerprint: string; comment: SupportComment };
+
+function commentFingerprint(input: AddCommentInput): string {
+  return createHash('sha256')
+    .update(JSON.stringify([input.ticketId, input.authorRole, input.body]))
+    .digest('hex');
+}
 
 export type AppendEventInput = {
   ticketId: string;
@@ -845,10 +863,22 @@ export class MemorySupportStore implements SupportStore {
   async addComment(input: AddCommentInput): Promise<AddCommentResult> {
     const ticket = this.tickets.get(input.ticketId);
     if (!ticket) return { status: 'refuse', reason: 'not_found' };
+    const key = input.clientRequestId === undefined ? null : this.receiptKey('support.comment', input.authorId, input.clientRequestId);
+    const fingerprint = commentFingerprint(input);
+    const prior = key === null ? undefined : (this.receipts.get(key) as CommentReceipt | undefined);
+    if (prior) {
+      if (prior.fingerprint !== fingerprint) return { status: 'refuse', reason: 'idempotency_conflict' };
+      return { status: 'ok', comment: prior.comment, ticket, reopened: false, replay: true };
+    }
     // Closed is terminal for the owner. An operator note after close is a
     // desk annotation, not a reopen, so it is allowed.
     if (ticket.status === 'closed' && input.authorRole === 'user') {
       return { status: 'refuse', reason: 'terminal' };
+    }
+    if (input.userCap === null && input.authorRole === 'user') return { status: 'refuse', reason: 'cap_unset' };
+    if (input.userCap !== undefined && input.userCap !== null && input.authorRole === 'user') {
+      const mine = (this.comments.get(input.ticketId) ?? []).filter((c) => c.authorRole === 'user').length;
+      if (mine >= input.userCap) return { status: 'refuse', reason: 'cap_reached' };
     }
 
     const now = new Date().toISOString();
@@ -863,6 +893,7 @@ export class MemorySupportStore implements SupportStore {
     const list = this.comments.get(input.ticketId) ?? [];
     list.push(comment);
     this.comments.set(input.ticketId, list);
+    if (key !== null) this.receipts.set(key, { fingerprint, comment } satisfies CommentReceipt);
 
     const reopened = ticket.status === 'resolved' && input.authorRole === 'user';
     // A customer reply on a request the team had in progress or on hold puts it back in the open queue;
@@ -1599,8 +1630,29 @@ export class PostgresSupportStore implements SupportStore {
       `;
       if (!locked[0]) return { status: 'refuse', reason: 'not_found' };
       const existing = ticketFromPg(locked[0]);
+      const fingerprint = commentFingerprint(input);
+      if (input.clientRequestId !== undefined) {
+        // One key used on two requests at once serialises here, not only on the ticket lock.
+        await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`support.comment:${input.authorId.length}:${input.authorId}:${input.clientRequestId}`}, 0))`;
+        const prior = await tx<{ result: CommentReceipt }[]>`
+          SELECT result FROM support.write_receipts
+          WHERE procedure = 'support.comment' AND actor_id = ${input.authorId} AND client_request_id = ${input.clientRequestId}
+          LIMIT 1
+        `;
+        if (prior[0]) {
+          if (prior[0].result.fingerprint !== fingerprint) return { status: 'refuse', reason: 'idempotency_conflict' };
+          return { status: 'ok', comment: prior[0].result.comment, ticket: existing, reopened: false, replay: true };
+        }
+      }
       if (existing.status === 'closed' && input.authorRole === 'user') {
         return { status: 'refuse', reason: 'terminal' };
+      }
+      if (input.userCap === null && input.authorRole === 'user') return { status: 'refuse', reason: 'cap_unset' };
+      if (input.userCap !== undefined && input.userCap !== null && input.authorRole === 'user') {
+        const counted = await tx<{ n: number }[]>`
+          SELECT count(*)::int AS n FROM support.comments WHERE ticket_id = ${input.ticketId} AND author_role = 'user'
+        `;
+        if ((counted[0]?.n ?? 0) >= input.userCap) return { status: 'refuse', reason: 'cap_reached' };
       }
 
       const comments = await tx<PgComment[]>`
@@ -1608,6 +1660,13 @@ export class PostgresSupportStore implements SupportStore {
         VALUES (${input.ticketId}, ${input.authorId}, ${input.authorRole}, ${input.body})
         RETURNING id, ticket_id, author_id, author_role, body, created_at
       `;
+      if (input.clientRequestId !== undefined) {
+        const receipt: CommentReceipt = { fingerprint, comment: commentFromPg(comments[0]!) };
+        await tx`
+          INSERT INTO support.write_receipts (procedure, actor_id, client_request_id, result)
+          VALUES ('support.comment', ${input.authorId}, ${input.clientRequestId}, ${tx.json(receipt as never)})
+        `;
+      }
 
       const reopened = existing.status === 'resolved' && input.authorRole === 'user';
       const resumed = (existing.status === 'pending' || existing.status === 'on_hold') && input.authorRole === 'user';

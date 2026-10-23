@@ -153,6 +153,11 @@ export const deskCopy = defineCopy('support-desk', {
     'We could not finish checking that file, so we are holding it. It shows as being checked and cannot be opened until the check passes.',
   refuseAttachUnreadable: 'That file could not be read, so it was not kept. Pick it again.',
   refuseArticleGone: 'That article is no longer published, so it cannot take feedback.',
+  refuseCommentsOff: 'Replies to a request are switched off in this build, so your reply was not sent. Your words are still in the box.',
+  refuseCommentCap:
+    'This request already holds as many of your replies as it can take, so this one was not sent. Start a new request instead.',
+  refuseReplyChanged:
+    'The request changed while you were writing, so this reply was not sent. Refresh the page, then send it again. Your words are still in the box.',
   // Help article feedback and related articles
   feedbackQuestion: 'Did this answer help?',
   feedbackYes: 'Yes, it helped',

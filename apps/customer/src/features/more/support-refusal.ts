@@ -4,7 +4,7 @@ import { deskCopy } from './support-desk-copy';
 
 /**
  * Plain-English answers for the refusals the support service gives to a signed-in person. The service names a refusal with
- * a dotted code (`support.already_rated`) and an HTTP class; this turns the ones it can send for close, rate, attach and
+ * a dotted code (`support.already_rated`) and an HTTP class; this turns the ones it can send for close, rate, attach, reply and
  * help-article feedback into a sentence a person can act on. A code this file does not know still gets a plain sentence,
  * never the dotted code. A refusal that is not from the support service, or an outcome the app could not confirm, is left
  * exactly as it came, so "we do not know if it went through" is never rewritten as "it failed".
@@ -32,19 +32,25 @@ const BY_CODE: Readonly<Record<string, RefusalKey>> = {
   'support.follow_up_invalid': 'refuseFollowUp',
   'support.kb.not_published': 'refuseArticleGone',
   'support.kb_version_unknown': 'refuseArticleGone',
+  'support.comment_cap_unset': 'refuseCommentsOff',
+  'support.comment_cap_reached': 'refuseCommentCap',
 };
 const SUPPORT_CODE = /\bsupport(?:\.[a-z0-9_]+)+/;
 
 type Failure = Extract<ApiResult<unknown>, { ok: false }>;
 
 /** Which sentence answers this refusal, or null when it should be shown as it came. */
-export function supportRefusalKey(failure: Pick<Failure, 'reason' | 'message' | 'code' | 'status'>): RefusalKey | null {
+export function supportRefusalKey(
+  failure: Pick<Failure, 'reason' | 'message' | 'code' | 'status'>,
+  /** Codes whose sentence depends on which action refused, for this action only. */
+  forAction: Readonly<Record<string, RefusalKey>> = {},
+): RefusalKey | null {
   // Never rewrite "we could not confirm" or "you changed account / left the page".
   if (failure.reason === 'uncertain' || failure.reason === 'aborted' || failure.reason === 'unreachable') return null;
   if (failure.reason === 'unauthorized') return 'refuseSignedOut';
   if (failure.reason === 'forbidden') return 'refuseForbidden';
   const named = SUPPORT_CODE.exec(failure.message)?.[0] ?? (failure.code && SUPPORT_CODE.test(failure.code) ? failure.code : null);
-  if (named) return BY_CODE[named] ?? 'refuseGeneric';
+  if (named) return forAction[named] ?? BY_CODE[named] ?? 'refuseGeneric';
   // The gateway refuses an oversized body before the service sees it.
   if (failure.status === 413) return 'refuseAttachLarge';
   if (failure.code === 'NOT_FOUND') return 'refuseNotFound';
@@ -53,9 +59,9 @@ export function supportRefusalKey(failure: Pick<Failure, 'reason' | 'message' | 
 }
 
 /** Wrap a mutation result so a refusal reads in plain words (in the person's language when a translation exists). */
-export function plainSupportResult<T>(result: ApiResult<T>): ApiResult<T> {
+export function plainSupportResult<T>(result: ApiResult<T>, forAction?: Readonly<Record<string, RefusalKey>>): ApiResult<T> {
   if (result.ok) return result;
-  const key = supportRefusalKey(result);
+  const key = supportRefusalKey(result, forAction);
   if (!key) return result;
   return presentActionFailure({ ...result, message: deskCopy.t(key) }, (locale) => {
     const current = deskCopy.forLocale(locale);

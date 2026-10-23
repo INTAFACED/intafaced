@@ -120,6 +120,8 @@ function mapError(err: unknown): never {
       err.code === 'support.attachment_count_reached' ||
       err.code === 'support.attachment_too_large' ||
       err.code === 'support.feedback_rate_limit_unset' ||
+      err.code === 'support.comment_cap_unset' ||
+      err.code === 'support.comment_cap_reached' ||
       err.code === 'support.assistant_model_unset'
     ) {
       throw new TRPCError({ code: 'PRECONDITION_FAILED', message });
@@ -293,7 +295,14 @@ export function createSupportRouter(
       }),
 
     comment: scopedProcedure('support:write')
-      .input(z.object({ ticketId: z.string().uuid(), body: z.string().min(1).max(10_000) }))
+      .input(
+        z.object({
+          ticketId: z.string().uuid(),
+          body: z.string().min(1).max(10_000),
+          /** The caller's key: sent again after a lost reply it answers the first comment and writes no second one. */
+          clientRequestId: z.string().min(1).max(200).optional(),
+        }),
+      )
       .output(supportCommentSchema)
       .mutation(async ({ ctx, input }) => {
         try {
@@ -303,6 +312,7 @@ export function createSupportRouter(
             ticketId: input.ticketId,
             body: input.body,
             asOperator,
+            ...(input.clientRequestId !== undefined ? { clientRequestId: input.clientRequestId } : {}),
           });
         } catch (err) {
           mapError(err);
