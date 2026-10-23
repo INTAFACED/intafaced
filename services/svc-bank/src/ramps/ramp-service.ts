@@ -21,6 +21,8 @@ import { emptyPayFiatRampPort, resolvePayFiatRailId, assertEmptyRailsCannotLookL
 import type { OfframpFeeSource, OnrampMethod, OnrampPaymentPort, OnrampQuoteSource } from './customer-ports.js';
 import {
   createOnramp,
+  onrampQuoteOf,
+  customerOnrampsByIds,
   listDestinations,
   quoteOfframp,
   quoteOnramp,
@@ -332,6 +334,16 @@ export class RampService {
    */
   onrampCreate(input: { userId: string; onrampId: string; quoteId: string; method: OnrampMethod }): Promise<CustomerOnrampView> {
     return createOnramp(this.customerDeps(), input);
+  }
+
+  /** One of the customer's own on-ramp quotes as stored, expired or not. */
+  onrampQuoteOf(userId: string, quoteId: string): Promise<OnrampQuoteView> {
+    return onrampQuoteOf(this.customerDeps(), userId, quoteId);
+  }
+
+  /** The customer's own on-ramps among these ids, with the partner's instructions, in one read. */
+  customerOnrampsByIds(userId: string, onrampIds: readonly string[]): Promise<Map<string, CustomerOnrampView>> {
+    return customerOnrampsByIds(this.customerDeps(), userId, onrampIds);
   }
 
   /**

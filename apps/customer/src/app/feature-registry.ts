@@ -135,6 +135,7 @@ export const features: readonly Feature[] = [
       '/bank/loans',
       '/bank/cards',
       '/bank/ramps',
+      '/bank/ramps/new',
       '/bank/analytics',
       '/bank/business',
     ],

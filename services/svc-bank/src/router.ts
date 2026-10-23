@@ -61,6 +61,8 @@ import { activityFailure, createActivityRouter } from './activity/activity.route
 import { createStatementsRouter } from './statements/statement.router.js';
 import { createAccountDetailsRouter, createEligibilityRouter } from './account-details/account-details.router.js';
 import { createAccountsRouter, createCurrenciesRouter } from './account-home/account-home.router.js';
+import { createAddMoneyRouter } from './ramps/add-money.router.js';
+import { ONRAMP_METHODS } from './ramps/customer-ports.js';
 import { createCreditCardPreviewRouter } from './loans/credit-card-preview.router.js';
 import { createBillsRouter, createGlobalRouter } from './personal-pay/router.js';
 import { createPersonalRequestRouter } from './transfers/personal-request.router.js';
@@ -3904,7 +3906,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
         z.object({
           assetId: z.string().min(1).max(16),
           amount: amountString,
-          method: z.enum(['card', 'bank_transfer', 'wallet_pay']),
+          method: z.enum(ONRAMP_METHODS),
           country: z.string().regex(/^[A-Za-z]{2}$/),
         }),
       )
@@ -3913,13 +3915,14 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           quoteId: z.string(),
           assetId: z.string(),
           amount: amountString,
-          method: z.enum(['card', 'bank_transfer', 'wallet_pay']),
+          method: z.enum(ONRAMP_METHODS),
           country: z.string(),
           payAmount: amountString,
           fee: amountString,
           rate: amountString,
           payCurrency: z.string(),
           expiresAt: z.string(),
+          deliveryEstimate: z.string().nullable(),
           simulated: z.literal(true),
         }),
       )
@@ -3945,7 +3948,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
         z.object({
           onrampId: z.string().uuid(),
           quoteId: z.string().uuid(),
-          method: z.enum(['card', 'bank_transfer', 'wallet_pay']),
+          method: z.enum(ONRAMP_METHODS),
         }),
       )
       .output(
@@ -3954,7 +3957,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
           quoteId: z.string(),
           assetId: z.string(),
           amount: amountString,
-          method: z.enum(['card', 'bank_transfer', 'wallet_pay']),
+          method: z.enum(ONRAMP_METHODS),
           payAmount: amountString,
           fee: amountString,
           rate: amountString,
@@ -4895,6 +4898,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     accountDetails: createAccountDetailsRouter(bank, guard),
     accounts: createAccountsRouter(bank, guard),
     currencies: createCurrenciesRouter(bank, guard),
+    addMoney: createAddMoneyRouter(bank, guard),
     eligibility: createEligibilityRouter(bank, guard),
     /** BK-loan-10 credit card preview: TEST rows and typed Preview refusals only. */
     creditCard: createCreditCardPreviewRouter(),

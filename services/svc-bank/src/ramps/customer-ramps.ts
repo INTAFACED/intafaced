@@ -51,6 +51,7 @@ interface QuoteRow {
   pay_currency: string;
   expires_at: Date;
   simulated: boolean;
+  delivery_estimate: string | null;
   created_at: Date;
 }
 
@@ -86,6 +87,8 @@ export interface OnrampQuoteView {
   rate: string;
   payCurrency: string;
   expiresAt: string;
+  /** The source's own delivery estimate, or null when it gave none. */
+  deliveryEstimate: string | null;
   simulated: true;
 }
 
@@ -176,14 +179,18 @@ export async function quoteOnramp(
   if (!(terms.expiresAt instanceof Date) || Number.isNaN(terms.expiresAt.getTime()) || terms.expiresAt.getTime() <= Date.now()) {
     throw new BankError('The rate source did not publish a future expiry', 'bank.onramp_rate_unset');
   }
+  const estimate = terms.deliveryEstimate?.trim() || null;
+  if (estimate !== null && estimate.length > 140) {
+    throw new BankError('The rate source published a delivery estimate longer than 140 characters', 'bank.onramp_rate_unset');
+  }
 
   const rows = await deps.sql<QuoteRow[]>`
     INSERT INTO bank.ramp_onramp_quotes (
-      user_id, asset_id, amount, method, country, pay_amount, fee, rate, pay_currency, expires_at, simulated
+      user_id, asset_id, amount, method, country, pay_amount, fee, rate, pay_currency, expires_at, simulated, delivery_estimate
     ) VALUES (
       ${input.userId}, ${input.assetId}, ${formatAmount(amount)}::numeric, ${input.method}, ${country},
       ${formatAmount(payAmount)}::numeric, ${formatAmount(fee)}::numeric, ${formatAmount(rate)}::numeric,
-      ${payCurrency}, ${terms.expiresAt}, true
+      ${payCurrency}, ${terms.expiresAt}, true, ${estimate}
     )
     RETURNING *
   `;
@@ -200,14 +207,14 @@ export async function createOnramp(
   if (quote.method !== input.method) {
     throw new BankError('On-ramp method does not match the quote', 'bank.ramp_conflict');
   }
-  if (quote.expires_at.getTime() <= Date.now()) {
-    throw new BankError('On-ramp quote has expired', 'bank.onramp_quote_expired');
-  }
-
+  // A replay of an instruction already opened returns it, even after its quote expired: the partner holds it.
   const existing = await deps.sql<CustomerOnrampRow[]>`
     SELECT * FROM bank.customer_onramps WHERE id = ${input.onrampId}::uuid
   `;
   if (existing[0]) return sameOnramp(existing[0], input.userId, quote.id);
+  if (quote.expires_at.getTime() <= Date.now()) {
+    throw new BankError('On-ramp quote has expired', 'bank.onramp_quote_expired');
+  }
 
   if (!deps.payments) {
     throw new BankError(
@@ -265,6 +272,25 @@ export async function createOnramp(
     return raced[0];
   });
   return sameOnramp(inserted, input.userId, quote.id);
+}
+
+/** One of the customer's own on-ramp quotes, as stored, expired or not. Someone else's, or none, is `bank.onramp_quote_missing`. */
+export async function onrampQuoteOf(deps: CustomerRampDeps, userId: string, quoteId: string): Promise<OnrampQuoteView> {
+  assertUuid(quoteId, 'quoteId');
+  return toQuote(await loadQuote(deps, userId, quoteId));
+}
+
+/** The customer's own on-ramps among these ids, by id, in one read. Someone else's are left out. */
+export async function customerOnrampsByIds(
+  deps: CustomerRampDeps,
+  userId: string,
+  onrampIds: readonly string[],
+): Promise<Map<string, CustomerOnrampView>> {
+  if (onrampIds.length === 0) return new Map();
+  const rows = await deps.sql<CustomerOnrampRow[]>`
+    SELECT * FROM bank.customer_onramps WHERE id = ANY(${deps.sql.array([...onrampIds])}::uuid[]) AND user_id = ${userId}
+  `;
+  return new Map(rows.map((row) => [row.id, toCustomerOnramp(row)]));
 }
 
 export async function quoteOfframp(
@@ -449,6 +475,7 @@ function toQuote(row: QuoteRow): OnrampQuoteView {
     rate: formatAmount(parseAmount(row.rate)),
     payCurrency: row.pay_currency,
     expiresAt: row.expires_at.toISOString(),
+    deliveryEstimate: row.delivery_estimate,
     simulated: true,
   };
 }
