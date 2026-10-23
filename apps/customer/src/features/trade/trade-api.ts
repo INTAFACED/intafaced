@@ -53,6 +53,57 @@ export interface HistoryQuery {
 }
 /** The most fills one order's detail reads (the service's own ceiling for a fills read). */
 export const ORDER_TRADES_LIMIT = 500;
+/**
+ * The dead-man switch (cancel-all-after): the caller's countdown and the timeouts the venue publishes, in whole seconds.
+ * `timeouts` is null while none are published, and the switch cannot be armed.
+ */
+export const cancelAllAfterSchema = z.object({
+  armed: z.boolean(),
+  timeout: z.number().int().nonnegative(),
+  triggerTime: z.string().datetime({ offset: true }).nullable(),
+  timeouts: z.array(z.number().int().nonnegative()).nullable().optional(),
+});
+export type CancelAllAfter = z.infer<typeof cancelAllAfterSchema>;
+
+/** One balance change on the person's own account, as the ledger booked it: `referenceId` is the ledger transaction. */
+export const ledgerEntrySchema = z.object({
+  id: z.string().regex(/^\d{1,19}$/),
+  referenceId: z.string().min(1),
+  timestamp: z.number().int(),
+  datetime: z.string().datetime({ offset: true }),
+  currency: z.string().min(1),
+  direction: z.enum(['in', 'out']),
+  amount: decimalSchema,
+  type: z.string(),
+  module: z.string(),
+  orderId: z.string().nullable(),
+});
+export type LedgerEntry = z.infer<typeof ledgerEntrySchema>;
+export const ledgerPageSchema = z.object({ entries: z.array(ledgerEntrySchema), nextCursor: z.string().nullable() });
+export type LedgerPage = z.infer<typeof ledgerPageSchema>;
+/** The most lines one ledger page answers (the ledger's own page cap). */
+export const LEDGER_PAGE_LIMIT = 200;
+
+/** A statement export job: one per request key, built once; `rows` and `sha256` once it is finished. */
+export const statementJobSchema = z.object({
+  id: z.string().uuid(),
+  requestKey: z.string(),
+  from: z.string().datetime({ offset: true }),
+  to: z.string().datetime({ offset: true }),
+  status: z.enum(['pending', 'finished', 'failed']),
+  rows: z.object({ orders: z.number().int(), trades: z.number().int(), ledger: z.number().int() }).nullable(),
+  sha256: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/)
+    .nullable(),
+  error: z.string().nullable(),
+  createdAt: z.string().datetime({ offset: true }),
+  finishedAt: z.string().datetime({ offset: true }).nullable(),
+});
+export type StatementJob = z.infer<typeof statementJobSchema>;
+export const statementFileSchema = z.object({ filename: z.string().min(1), sha256: z.string().regex(/^[0-9a-f]{64}$/), csv: z.string() });
+export type StatementFile = z.infer<typeof statementFileSchema>;
+
 /** One answer per id of a batch cancel, in the order sent: cancelled, refused with the service's reason, or unknown. */
 export const batchCancelSchema = z.object({
   atomic: z.literal(false),
@@ -439,6 +490,32 @@ export function createTradeApi(api: ApiClient, now: () => number = Date.now) {
       symbol.trim() === ''
         ? Promise.resolve({ ok: false as const, reason: 'error' as const, message: 'symbol is required' })
         : api.rest('/orders', z.array(orderSchema), { method: 'DELETE', query: { symbol } }),
+    /** The dead-man switch as it stands, and the published timeouts. */
+    cancelAllAfter: (signal?: AbortSignal): Promise<ApiResult<CancelAllAfter>> =>
+      api.rest('/orders/cancel-all-after', cancelAllAfterSchema, { signal }),
+    /** Arm (or push out) the dead-man switch; 0 disarms. A reply that does not answer this timeout is refused. */
+    async armCancelAllAfter(timeout: number): Promise<ApiResult<CancelAllAfter>> {
+      const result = await api.rest('/orders/cancel-all-after', cancelAllAfterSchema, { method: 'POST', body: { timeout } });
+      return result.ok && (result.data.timeout !== timeout || result.data.armed !== timeout > 0)
+        ? tradeRefusal('theOrderResponseDoesNotIdentifyTheRequestedOriginalOrder', { reason: 'invalid_response' })
+        : result;
+    },
+    /** One page of the person's balance changes, newest first. */
+    ledger: (input: { limit: number; cursor?: string; code?: string }, signal?: AbortSignal): Promise<ApiResult<LedgerPage>> =>
+      api.rest('/ledger', ledgerPageSchema, { signal, query: { limit: input.limit, cursor: input.cursor, code: input.code } }),
+    /** Ask for a statement of [from, to); the same key answers the same job. A reply for another key or range is refused. */
+    async requestStatement(input: { from: string; to: string; requestKey: string }): Promise<ApiResult<StatementJob>> {
+      const result = await api.rest('/statements', statementJobSchema, { method: 'POST', body: input });
+      return result.ok &&
+        (result.data.requestKey !== input.requestKey ||
+          Date.parse(result.data.from) !== Date.parse(input.from) ||
+          Date.parse(result.data.to) !== Date.parse(input.to))
+        ? tradeRefusal('theOrderResponseDoesNotIdentifyTheRequestedOriginalOrder', { reason: 'invalid_response' })
+        : result;
+    },
+    statement: (id: string): Promise<ApiResult<StatementJob>> => api.rest(`/statements/${encodeURIComponent(id)}`, statementJobSchema),
+    statementFile: (id: string): Promise<ApiResult<StatementFile>> =>
+      api.rest(`/statements/${encodeURIComponent(id)}/file`, statementFileSchema, { query: { as: 'json' } }),
     /** Cancel every open order in every market (DELETE /orders with no symbol). The reply lists the orders it cancelled. */
     cancelAllMarkets: (): Promise<ApiResult<Order[]>> => api.rest('/orders', z.array(orderSchema), { method: 'DELETE' }),
     /** Cancel every open order in every spot market, and none of another product's (DELETE /orders?kind=spot). */

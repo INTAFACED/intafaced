@@ -252,6 +252,22 @@ const schema = serviceEnvSchema
       BANK_ADDRESS_BOOK_CAP: z.string().optional(),
 
       /**
+       * Owner-set minutes a wallet ownership proof offer stays open for signing (W-withdraw-17).
+       *
+       * No default. Blank / unset / zero / not a whole number → starting a proof refuses
+       * `bank.wallet_proof_window_unset`. Boot stays up; the start is the refuse.
+       */
+      BANK_WALLET_PROOF_WINDOW_MINUTES: z.string().optional(),
+
+      /**
+       * Owner-set days a verified wallet ownership proof holds before the customer proves the wallet again (W-withdraw-17).
+       *
+       * No default. Blank / unset / zero / not a whole number → a proof refuses `bank.wallet_proof_validity_unset`.
+       * Boot stays up; the proof is the refuse.
+       */
+      BANK_WALLET_PROOF_VALID_DAYS: z.string().optional(),
+
+      /**
        * Owner-published currencies that have local account details, comma separated ISO-4217 codes ("GBP,EUR").
        *
        * No default. Blank / unset / a code that is not three letters → the list refuses

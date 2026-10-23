@@ -1,7 +1,7 @@
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import type { EventBus } from '@intafaced/events';
-import { formatAmount, type Amount } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { AgentError } from './errors.js';
 import { AuditLog, type ActionKind, type AuditedAction } from './fleet/audit.js';
 import {
@@ -20,6 +20,8 @@ import { type SettlementResult, type UsageMeter } from './metering/meter.js';
 import { meteringOffSettlementStub, shouldMeterUsage } from './metering/product-law.js';
 import { usageCost } from './metering/pricing.js';
 import type { TokenUsage } from './providers/provider.js';
+import type { SpendGate } from './spend/gate.js';
+import { UserSpendStore } from './spend/store.js';
 import { withEngineSpan } from './tracing.js';
 
 /**
@@ -69,6 +71,11 @@ export interface AgentRuntimeOptions {
    * Omitted / undefined is fail-closed (must NOT bill). Never `?? true`.
    */
   readonly meteringEnabled?: boolean;
+  /**
+   * User spend caps. Absent only in tests that exercise the guardrail ceiling
+   * alone. When set, a run with no user limit refuses before the provider.
+   */
+  readonly spend?: SpendGate;
 }
 
 export interface SessionRecord {
@@ -173,6 +180,7 @@ export class AgentRuntime {
   readonly audit: AuditLog;
   private readonly feeAssetId: string;
   private readonly meteringEnabled: boolean;
+  private readonly spend: SpendGate | null;
 
   constructor(
     private readonly sql: Sql,
@@ -184,6 +192,7 @@ export class AgentRuntime {
     this.audit = new AuditLog(sql);
     this.feeAssetId = options.feeAssetId;
     this.meteringEnabled = options.meteringEnabled ?? false;
+    this.spend = options.spend ?? null;
   }
 
   // ── Agent definitions ──────────────────────────────────────────────────────
@@ -393,6 +402,10 @@ export class AgentRuntime {
 
     const maxOutputTokens =
       input.maxOutputTokens === undefined ? route.maxOutputTokens : Math.min(input.maxOutputTokens, route.maxOutputTokens);
+    const worstCaseCost = usageCost(
+      { inputTokens: estimateInputTokens(input.system, input.messages), outputTokens: maxOutputTokens },
+      route.price,
+    );
 
     // 2 · Guardrail, before anything is called.
     const state = await this.stateOf(session);
@@ -402,10 +415,7 @@ export class AgentRuntime {
       {
         task: input.task,
         maxOutputTokens,
-        worstCaseCost: usageCost(
-          { inputTokens: estimateInputTokens(input.system, input.messages), outputTokens: maxOutputTokens },
-          route.price,
-        ),
+        worstCaseCost,
       },
       this.feeAssetId,
     );
@@ -450,6 +460,86 @@ export class AgentRuntime {
       }
     }
 
+    // 2c · User cap. The worst case is the price the route already declared.
+    // A blank user limit refuses. This hold is not a ledger post.
+    let reserved: Amount | null = null;
+    let reservationKey = input.requestId;
+    if (this.spend) {
+      try {
+        let held = await this.spend.reserve({
+          userId: session.userId,
+          sessionId: session.id,
+          reservationKey,
+          assetId: this.feeAssetId,
+          amount: formatAmount(worstCaseCost),
+        });
+        // A committed hold is a metered replay. Metering-off must not invent
+        // agents.request_id_replay (D26-P1-A6).
+        if (held.status === 'committed' && shouldMeter) {
+          if (claimed) await this.meter.releaseClaim(session.id, input.requestId);
+          throw new AgentError(
+            `Request id "${input.requestId}" already reserved on session ${session.id}`,
+            'agents.request_id_replay',
+            'agents.error.request_id_replay',
+            { requestId: input.requestId },
+          );
+        }
+        // A committed row is a finished call. Metering-off must not invent
+        // agents.request_id_replay. The next key is requestId:N, where N is
+        // how many committed keys already use that id. If it does not fit,
+        // reserve throws agents.spend_limit and the provider is not called.
+        if (held.replayed && held.status === 'committed' && !shouldMeter) {
+          const counted = await this.sql<Array<{ n: string }>>`
+            SELECT count(*)::text AS n
+              FROM agents.spend_reservations
+             WHERE user_id = ${session.userId}
+               AND status = 'committed'
+               AND (
+                 reservation_key = ${input.requestId}
+                 OR strpos(reservation_key, ${`${input.requestId}:`}) = 1
+               )
+          `;
+          reservationKey = `${input.requestId}:${counted[0]?.n ?? '0'}`;
+          held = await this.spend.reserve({
+            userId: session.userId,
+            sessionId: session.id,
+            reservationKey,
+            assetId: this.feeAssetId,
+            amount: formatAmount(worstCaseCost),
+          });
+        }
+        // One hold does not authorize a second provider call. A crashed hold
+        // stays held until reconcileSpendHolds; this retry does not finish it.
+        if (held.replayed && (held.status === 'held' || held.status === 'committed')) {
+          if (claimed) await this.meter.releaseClaim(session.id, input.requestId);
+          throw new AgentError(
+            `Reservation ${reservationKey} is still held`,
+            'agents.spend_reservation_conflict',
+            'agents.refused.spend_reservation_conflict',
+          );
+        }
+        reserved = parseAmount(held.amount);
+      } catch (err) {
+        if (claimed) await this.meter.releaseClaim(session.id, input.requestId);
+        if (
+          err instanceof AgentError &&
+          (err.code === 'agents.spend_limit' || err.code === 'agents.spend_limit_unset' || err.code === 'agents.spend_limit_invalid')
+        ) {
+          throw await this.appendRefusal(
+            session,
+            {
+              allowed: false,
+              code: 'agents.spend_limit',
+              userMessageKey: err.userMessageKey,
+              userMessageParams: err.userMessageParams,
+            },
+            { kind: 'completion', task: input.task },
+          );
+        }
+        throw err;
+      }
+    }
+
     // 3 · Execute.
     let completion: Awaited<ReturnType<ModelGateway['complete']>>;
     try {
@@ -464,6 +554,7 @@ export class AgentRuntime {
       // reported counts, and there are none. A failed call cannot be billed,
       // and cannot be double-billed. Release the claim so the same request id
       // can be retried once the engine answers.
+      if (reserved !== null && this.spend) await this.spend.release({ userId: session.userId, reservationKey });
       if (claimed) await this.meter.releaseClaim(session.id, input.requestId);
       await this.appendFailure(session, {
         kind: 'completion',
@@ -485,6 +576,57 @@ export class AgentRuntime {
     // which is the only acceptable direction for that error. The attempt is
     // still logged, because §8.2 admits no gaps.
     const ceiling = session.guardrail.limits.maxSpendPerSession;
+    // The provider can report more than the worst case that was held. Throwing
+    // here used to skip the commit, so the hold stayed `held` and the meter
+    // claim stayed taken. Finish the hold at the reserved amount — never the
+    // larger actual cost, which the reservation rejects — drop the claim, then
+    // refuse the text. The session-ceiling path below finishes its hold
+    // (it releases) before it refuses.
+    const spend = this.spend;
+    const releaseHoldAndClaim = async (gate: NonNullable<typeof this.spend>, claim: boolean): Promise<void> => {
+      const steps: Array<Promise<unknown>> = [gate.release({ userId: session.userId, reservationKey })];
+      if (claim) steps.push(this.meter.releaseClaim(session.id, input.requestId));
+      const results = await Promise.allSettled(steps);
+      const failed = results.find((result) => result.status === 'rejected');
+      if (failed?.status === 'rejected') throw failed.reason;
+    };
+    if (reserved !== null && spend && cost > reserved) {
+      const heldAmount = reserved;
+      const commitHeld = () =>
+        transaction(
+          this.sql,
+          async (tx) => {
+            await spend.commitIn(tx, {
+              userId: session.userId,
+              reservationKey,
+              amount: formatAmount(heldAmount),
+            });
+          },
+          { isolation: 'read committed', maxAttempts: 5 },
+        );
+      try {
+        await commitHeld();
+      } catch (first) {
+        try {
+          // The provider already ran. Retry the commit only.
+          await commitHeld();
+        } catch (again) {
+          await releaseHoldAndClaim(spend, claimed);
+          throw again instanceof Error ? again : first;
+        }
+      }
+      if (claimed) await this.meter.releaseClaim(session.id, input.requestId);
+      throw await this.appendRefusal(
+        session,
+        {
+          allowed: false,
+          code: 'agents.spend_limit',
+          userMessageKey: 'agents.refused.spend_cap',
+          userMessageParams: { limit: formatAmount(heldAmount), asset: this.feeAssetId, scope: 'call' },
+        },
+        { kind: 'completion', task: input.task },
+      );
+    }
     const committed = await transaction(
       this.sql,
       async (tx) => {
@@ -534,11 +676,26 @@ export class AgentRuntime {
           outputDigest: digestOfText(completion.result.text),
         });
 
+        if (this.spend && reserved !== null) {
+          // The user cap counts this call's cost even when metering is off.
+          // The audit row above keeps recorded ? cost : 0n — that zero is the
+          // bill, not the cap.
+          await this.spend.commitIn(tx, {
+            userId: session.userId,
+            reservationKey,
+            amount: formatAmount(cost),
+          });
+        }
+
         return { action: row, metered: recorded, windowId: window };
       },
       { isolation: 'read committed', maxAttempts: 5 },
     ).catch(async (err: unknown) => {
+      if (reserved !== null && this.spend && !(err instanceof SessionSpendCeilingError)) {
+        await this.spend.release({ userId: session.userId, reservationKey });
+      }
       if (err instanceof SessionSpendCeilingError) {
+        if (reserved !== null && this.spend) await this.spend.release({ userId: session.userId, reservationKey });
         throw await this.appendRefusal(
           session,
           {
@@ -733,6 +890,16 @@ export class AgentRuntime {
          AND tool = ${tool}
          AND result_json IS NULL
     `;
+  }
+
+  /**
+   * Release held reservations older than an owner-set age.
+   *
+   * There is no default age and no timer. A blank age refuses and releases nothing.
+   */
+  async reconcileSpendHolds(maxAge: string | null | undefined, now?: Date): Promise<{ released: number }> {
+    const store = this.spend instanceof UserSpendStore ? this.spend : new UserSpendStore(this.sql);
+    return store.releaseStaleHolds({ maxAge, now });
   }
 
   // ── Settle ─────────────────────────────────────────────────────────────────

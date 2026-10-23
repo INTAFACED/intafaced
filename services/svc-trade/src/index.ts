@@ -21,6 +21,8 @@ import { createDropCopyIngestClient } from './spot/drop-copy-ingest.js';
 import { createSubAccountOwnershipClient } from './spot/sub-account-ownership.js';
 import { createEmailProofClient } from './spot/email-proof.js';
 import { createLedgerClient } from './ledger-client.js';
+import { createLedgerPages } from './statements/ledger-history.js';
+import { StatementExports } from './statements/statement-export.js';
 import { registerClosureCheck } from './closure/closure-check.js';
 import { subscribeMatchingEvents, type MatchedFillsSink } from './events.js';
 import { FUTURES_PRICE_BAND_UNSET, parsePriceBand, perpetualFeeRates } from './futures/matched-order-plan.js';
@@ -207,6 +209,8 @@ const doorS2s = s2s.serviceVerifier && s2s.s2sMode ? { verifier: s2s.serviceVeri
 const outS2s = s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined;
 bindMatchingCloseS2s(outS2s);
 const ledger = createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
+/** Ledger history pages (read-only), for the person's ledger history and statement export. */
+const ledgerPages = createLedgerPages(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
 bindTradingRestrictApprovals(identityApprovalBook(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s));
 const tradingControls = new TradingControls(
   sql,
@@ -1083,6 +1087,10 @@ registerPrivateRest(app, {
       env.TRADE_CANCEL_ALL_AFTER_TIMEOUTS_SEC,
       env.TRADE_CANCEL_ALL_AFTER_SWEEP_INTERVAL_MS * 3,
     ),
+  readCancelAllAfter: async (principal) => ({
+    ...(await (trade as unknown as CancelAllAfterHost).readCancelAllAfter(principal)),
+    published: env.TRADE_CANCEL_ALL_AFTER_TIMEOUTS_SEC,
+  }),
   massCancelOrders: (principal, marketId) => trade.massCancelOrders(principal, marketId),
   myFills: (principal, limit, marketId, sinceMs) => trade.myFills(principal, limit, marketId, sinceMs),
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
@@ -1210,6 +1218,7 @@ registerPrivateRest(app, {
   convertExport: (principal, query) => trade.convertExport(principal, query),
   copyExport: (principal, query) => copy.exportMirrorTrail(principal, query),
   rfqExport: (principal, query) => trade.rfqExport(principal, query),
+  statements: { ledger: ledgerPages, exports: new StatementExports(sql, ledgerPages) },
   icebergDisplay: sqlIcebergDisplay(sql),
   stopTriggers,
   ocoExits: (ids) => readOcoIntents(sql, ids),
