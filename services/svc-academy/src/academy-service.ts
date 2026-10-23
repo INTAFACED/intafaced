@@ -61,6 +61,7 @@ import type {
   AcademyCourseListInput,
   AcademyCreateCourseInput,
   AcademySetCourseStateInput,
+  AcademySaveOutlineInput,
   AcademyUpdateCourseInput,
 } from '@intafaced/contracts';
 import { normaliseHolderName } from './certs/holder-name.js';
@@ -248,6 +249,9 @@ export interface AcademyServiceOptions {
   maxRoomCapacity?: number;
   /** AC-progress-02: owner-set to-do items per learner (`ACADEMY_PLANNER_TODO_LIMIT`). Undefined: unset, adding refuses. */
   plannerTodoLimit?: number;
+  /** AC-course-structure-02: owner-set sections and items per course outline. Undefined: unset, an outline save refuses. */
+  outlineMaxSections?: number;
+  outlineMaxItems?: number;
   /** Stage-1 tournament ladder kill-switch (`ACADEMY_TOURNAMENT_ENABLED`). */
   tournamentEnabled?: boolean;
   /** Stage-3 paper-trading ops kill-switch (`ACADEMY_PAPER_TRADING_ENABLED`). */
@@ -298,7 +302,10 @@ export class AcademyService {
     this.customer = new AcademyCustomerStore(sql);
     this.release = new ReleaseAccess(sql);
     this.featured = new FeaturedSlot(sql);
-    this.courseRecords = new CourseRecords(sql);
+    this.courseRecords = new CourseRecords(sql, {
+      maxSections: this.options.outlineMaxSections ?? null,
+      maxItems: this.options.outlineMaxItems ?? null,
+    });
     this.courseStarts = new CourseStarts(sql);
     this.plannerStore = new PlannerStore(sql, this.options.plannerTodoLimit ?? null);
     this.videoTracks = new VideoTracks(sql);
@@ -2155,6 +2162,10 @@ export class AcademyService {
 
   setCourseState(input: AcademySetCourseStateInput & { operatorId: string; now?: Date }) {
     return this.courseRecords.setState({ ...input, now: input.now ?? new Date() });
+  }
+
+  saveOutline(input: AcademySaveOutlineInput & { operatorId: string; now?: Date }) {
+    return this.courseRecords.saveOutline({ ...input, now: input.now ?? new Date() });
   }
 
   setFeatured(input: { itemSlug: string | null; reason: string; operatorId: string; now?: Date }) {

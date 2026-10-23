@@ -20,6 +20,11 @@ const videoStorage = ({ secrets, urlOf }) =>
         ACADEMY_VIDEO_POSITION_SAVE_SECONDS: '2',
       };
 
+// LOCAL TEST outline limits (TEST owner values, not decisions). `LOCAL_STACK_ACADEMY_OUTLINE_LIMITS=off` on a start or
+// restart leaves them blank, so the "limits not set" refusal of an outline save can be seen too (J-academy-11 #3).
+const outlineLimits = () =>
+  process.env.LOCAL_STACK_ACADEMY_OUTLINE_LIMITS === 'off' ? {} : { ACADEMY_OUTLINE_MAX_SECTIONS: '20', ACADEMY_OUTLINE_MAX_ITEMS: '200' };
+
 export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
   name: 'academy',
   env: () => ({
@@ -31,5 +36,6 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     ACADEMY_STREAM_PROVIDER: 'none', // no LiveKit: live classes stay unconnected
     ACADEMY_PLANNER_TODO_LIMIT: '50', // TEST: the owner sets the real cap; the stack needs one so the planner journey can add
     ...videoStorage({ secrets, urlOf }),
+    ...outlineLimits(),
   }),
 });
