@@ -128,6 +128,8 @@ const academy = new AcademyService(
   {
     maxRoomCapacity: env.ACADEMY_MAX_ROOM_CAPACITY,
     plannerTodoLimit: env.ACADEMY_PLANNER_TODO_LIMIT,
+    videoWatchThresholdSeconds: env.ACADEMY_VIDEO_WATCH_THRESHOLD_SECONDS,
+    videoSaveEverySeconds: env.ACADEMY_VIDEO_POSITION_SAVE_SECONDS,
     tournamentEnabled: env.ACADEMY_TOURNAMENT_ENABLED,
     paperTradingEnabled: env.ACADEMY_PAPER_TRADING_ENABLED,
     paperMarketFlagPort: env.TRADE_URL

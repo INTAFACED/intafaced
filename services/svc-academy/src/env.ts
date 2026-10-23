@@ -167,6 +167,15 @@ const schema = serviceEnvSchema
         (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
         z.union([z.undefined(), z.coerce.number().int().min(1).max(86_400)]),
       ),
+      /**
+       * Owner-published seconds between watch-position saves while a video
+       * plays (AC-videos-01). Blank / unset: the player saves on pause and on
+       * leaving only, and says the interval is not set.
+       */
+      ACADEMY_VIDEO_POSITION_SAVE_SECONDS: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1).max(3600)]),
+      ),
       /** Blank = unpublished magnitudes, grant refuse-closed. */
       ACADEMY_VIDEO_MIN_TIER: z.string().optional().default(''),
       ACADEMY_VIDEO_MIN_STAKE: z.string().optional().default(''),

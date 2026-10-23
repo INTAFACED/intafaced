@@ -20,6 +20,13 @@ import {
   academyQuizReviewSchema,
   academyQuizSchema,
   academySetQuizInputSchema,
+  academyItemVideoSchema,
+  academySetItemVideoInputSchema,
+  academySetVideoTracksInputSchema,
+  academyVideoPlayerSchema,
+  academyVideoPositionSavedSchema,
+  academyVideoPositionSchema,
+  academyVideoTrackSchema,
   academyProgressPageSchema,
   academyPlannerSchema,
   academyPlannerTodoSchema,
@@ -113,6 +120,7 @@ import { bulkScoreStatusLine, validateBulkScoreWrite } from './tournaments/bulk-
 import { seasonWindowAt } from './tournaments/season-calendar.js';
 import { describeTournamentPolicy } from './tournaments/tournament-policy.js';
 import {
+  assertAcademyVideoEntitled,
   assertAcademyVideoUrlGranted,
   grantAcademyVideoCaptions,
   grantAcademyVideoPlayback,
@@ -507,10 +515,7 @@ const cohortOut = z.object({
   entryRules: z.string().nullable(),
   seatsLeft: z.number().int().nullable(),
 });
-const videoProgressOut = z.object({
-  videoSlug: z.string(),
-  positionSeconds: z.number().int().nullable(),
-});
+const videoProgressOut = academyVideoPositionSchema;
 const metricCellOut = z.object({
   value: z.number().int().nullable(),
   reason: z.enum(['metric_not_recorded']).nullable(),
@@ -773,6 +778,7 @@ function toTrpcError(err: unknown): TRPCError {
       });
 
     case 'academy.goal_invalid':
+    case 'academy.captions_invalid':
     case 'academy.seconds_out_of_range':
     case 'academy.video_position_out_of_range':
     case 'academy.metrics_range_invalid':
@@ -1227,6 +1233,26 @@ export function createAcademyRouter(
           });
         }),
       ),
+
+    /**
+     * AC-videos-01: the player's caption tracks (as cues; the transcript is the same cues), the renditions that exist and
+     * the owner's save interval and watch threshold. Behind the same storage, tier and stake gate as playback.
+     */
+    videoPlayer: scopedProcedure('academy:read', { module: 'academy' })
+      .input(z.object({ slug: z.string().min(1).max(120) }).strict())
+      .output(academyVideoPlayerSchema)
+      .query(({ ctx, input }) =>
+        guard(async () => {
+          await assertAcademyVideoEntitled(video, { userId: ctx.principal.userId, tier: ctx.principal.tier });
+          return academy.videoPlayer(input.slug);
+        }),
+      ),
+
+    /** AC-videos-01: the video attached to one curriculum item (null: none), so the reader shows its player. */
+    itemVideo: scopedProcedure('academy:read', { module: 'academy' })
+      .input(z.object({ itemSlug: z.string().min(1).max(120) }).strict())
+      .output(academyItemVideoSchema)
+      .query(({ input }) => guard(() => academy.itemVideo(input.itemSlug))),
 
     /**
      * Paper drill gate for a workbook (TRK-academy.paper-trading Stage 2+3).
@@ -2670,7 +2696,7 @@ export function createAcademyRouter(
             clientRequestId: z.string().min(1).max(200),
           }),
         )
-        .output(videoProgressOut)
+        .output(academyVideoPositionSavedSchema)
         .mutation(({ ctx, input }) =>
           guard(() =>
             academy.setVideoProgress({
@@ -2740,6 +2766,18 @@ export function createAcademyRouter(
         .input(academySetQuizInputSchema)
         .output(z.object({ slug: z.string(), published: z.boolean() }))
         .mutation(({ input, ctx }) => guard(() => academy.setQuiz({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-videos-01: attach a spine video to one curriculum item (it then completes by `watch`), or take it off with null. */
+      setItemVideo: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academySetItemVideoInputSchema)
+        .output(academyItemVideoSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.setItemVideo({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-videos-01: replace every caption track of one video (WebVTT per language); `tracks: []` removes them. */
+      setVideoTracks: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academySetVideoTracksInputSchema)
+        .output(z.object({ videoSlug: z.string(), tracks: z.array(academyVideoTrackSchema) }))
+        .mutation(({ input, ctx }) => guard(() => academy.setVideoTracks({ ...input, operatorId: ctx.principal!.userId }))),
 
       /** AC-enrolment-01 step 4: staff set a course's start date with a reason; `startsAt: null` clears it, keeping who and why. */
       setCourseStart: scopedProcedure('admin:write', { module: 'academy' })

@@ -90,7 +90,8 @@ import {
 import { getCurriculumItem, hasCurriculumSlug, listCurriculum, type CurriculumPath } from './curriculum/catalog.js';
 import { curriculumBodyForLocale, curriculumI18nStrategyLine } from './curriculum/i18n-strategy.js';
 import { type ProgrammeDefinition } from './curriculum/programmes.js';
-import type { VideoSpineEntry } from './video/catalog.js';
+import { getVideoSpineItem, listVideoSpine, type VideoSpineEntry } from './video/catalog.js';
+import { VideoTracks, type VideoTrack } from './video/tracks.js';
 import { AcademyCustomerStore } from './learning/customer-store.js';
 import {
   assertMayWriteScore,
@@ -256,6 +257,10 @@ export interface AcademyServiceOptions {
   programmeCatalog?: readonly ProgrammeDefinition[];
   /** Test seam. Production uses the spine, whose media fields are null until set. */
   videoSpine?: readonly VideoSpineEntry[];
+  /** AC-videos-01: owner-set seconds of stored position that count as watched. Undefined: unset, a watch item cannot complete. */
+  videoWatchThresholdSeconds?: number;
+  /** AC-videos-01: owner-set seconds between position saves while playing. Undefined: saves on pause and on leaving only. */
+  videoSaveEverySeconds?: number;
   /** Test seam. Production is the owner catalog, which is foundations-v1 only. */
   certCatalog?: readonly CertDefinition[];
   /** Test seam. Production is empty: no owner-published scored assessment. */
@@ -269,6 +274,7 @@ export class AcademyService {
   private readonly featured: FeaturedSlot;
   private readonly courseStarts: CourseStarts;
   private readonly plannerStore: PlannerStore;
+  private readonly videoTracks: VideoTracks;
 
   constructor(
     private readonly sql: Sql,
@@ -288,6 +294,7 @@ export class AcademyService {
     this.featured = new FeaturedSlot(sql);
     this.courseStarts = new CourseStarts(sql);
     this.plannerStore = new PlannerStore(sql, this.options.plannerTodoLimit ?? null);
+    this.videoTracks = new VideoTracks(sql);
     const assessments = this.options.assessmentCatalog ?? ASSESSMENT_CATALOG;
     this.assessments = new AssessmentRepository(sql, assessments);
     if (this.options.certCatalog) {
@@ -1730,17 +1737,17 @@ export class AcademyService {
     const path = item.path as CurriculumPath;
     const now = input.now ?? new Date();
     const releases = await this.courseReleases(input.userId, path, now, await this.courseStarts.startsAt(path));
-    const [completedAt, passed, quizzes] = await Promise.all([
-      this.completionTimes(
-        input.userId,
-        releases.map(({ row }) => row.slug),
-      ),
+    const slugs = releases.map(({ row }) => row.slug);
+    const [completedAt, passed, quizzes, videos] = await Promise.all([
+      this.completionTimes(input.userId, slugs),
       this.assessments.passedSlugs(input.userId, now),
       this.assessments.publishedSlugs(),
+      this.videoTracks.itemVideos(slugs),
     ]);
+    const watched = await this.watchedItems(input.userId, videos);
     const items = releases.map(({ row, view }) => {
       const opensLater = view.lock === 'window' && view.availableFrom !== null && view.availableFrom.getTime() > now.getTime();
-      const rule = this.completionRule(row.slug, quizzes);
+      const rule = this.completionRule(row.slug, quizzes, videos);
       return {
         slug: row.slug,
         title: row.title,
@@ -1750,7 +1757,7 @@ export class AcademyService {
         missing: [...view.missing],
         opensAt: opensLater ? view.availableFrom!.toISOString() : null,
         rule,
-        ruleMet: this.completionRuleMet(row.slug, rule, passed),
+        ruleMet: this.completionRuleMet(row.slug, rule, passed, watched),
         completedAt: completedAt.get(row.slug)?.toISOString() ?? null,
       };
     });
@@ -1893,11 +1900,38 @@ export class AcademyService {
     return this.customer.residencyCohorts(limit);
   }
 
-  setVideoProgress(input: { userId: string; videoSlug: string; positionSeconds: number; clientRequestId: string; now?: Date }) {
-    return this.customer.setVideoProgress({
+  /**
+   * Stores the caller's watch position (AC-videos-01). A position at or past the owner's threshold completes, without a
+   * button, every item this video is attached to that completes by the `watch` rule, is open to the caller and is not
+   * complete yet; `completedItems` names them. Storing comes first: if completing fails, the next save completes.
+   */
+  async setVideoProgress(input: { userId: string; videoSlug: string; positionSeconds: number; clientRequestId: string; now?: Date }) {
+    const stored = await this.customer.setVideoProgress({
       ...input,
       ...(this.options.videoSpine ? { spine: this.options.videoSpine } : {}),
     });
+    const threshold = this.options.videoWatchThresholdSeconds;
+    const completedItems: string[] = [];
+    if (threshold === undefined || stored.positionSeconds === null || stored.positionSeconds < threshold) {
+      return { ...stored, completedItems };
+    }
+    const now = input.now ?? new Date();
+    const items = await this.videoTracks.itemsWithVideo(stored.videoSlug);
+    const quizzes = items.length > 0 ? await this.assessments.publishedSlugs() : new Set<string>();
+    for (const slug of items) {
+      if (quizzes.has(slug) || !hasCurriculumSlug(slug)) continue;
+      if (await this.currentCompletion(this.sql, input.userId, slug)) continue;
+      try {
+        await this.release.assertMayComplete({ userId: input.userId, itemSlug: slug });
+      } catch (err) {
+        // An item still locked for the caller keeps its watch position and completes on a save after it opens.
+        if (err instanceof AcademyError) continue;
+        throw err;
+      }
+      await this.recordCompletion(input.userId, slug, now);
+      completedItems.push(slug);
+    }
+    return { ...stored, completedItems };
   }
 
   getVideoProgress(input: { userId: string; videoSlug: string }) {
@@ -1905,6 +1939,75 @@ export class AcademyService {
       ...input,
       ...(this.options.videoSpine ? { spine: this.options.videoSpine } : {}),
     });
+  }
+
+  private spineVideo(videoSlug: string): VideoSpineEntry {
+    const spine = this.options.videoSpine ?? listVideoSpine();
+    const video = this.options.videoSpine ? spine.find((row) => row.slug === videoSlug) : getVideoSpineItem(videoSlug);
+    if (!video) throw new AcademyError(`Video "${videoSlug}" is not on the named spine`, 'academy.video_not_found');
+    return video;
+  }
+
+  /** AC-videos-01: the video attached to one curriculum item, or null. */
+  async itemVideo(itemSlug: string): Promise<{ itemSlug: string; videoSlug: string | null }> {
+    const slug = itemSlug.trim();
+    if (!hasCurriculumSlug(slug)) throw new AcademyError('Unknown curriculum item', 'academy.curriculum_not_found');
+    return { itemSlug: slug, videoSlug: await this.videoTracks.itemVideo(slug) };
+  }
+
+  /**
+   * AC-videos-01: what the player needs besides the signed URL. Only the original file exists (no transcode path), so it
+   * is the one rendition; the caption tracks are staff's, read back as cues; both owner intervals are passed as set.
+   */
+  async videoPlayer(videoSlug: string): Promise<{
+    slug: string;
+    title: string;
+    renditions: Array<{ id: 'original' }>;
+    tracks: VideoTrack[];
+    saveEverySeconds: number | null;
+    watchThresholdSeconds: number | null;
+  }> {
+    const video = this.spineVideo(videoSlug);
+    return {
+      slug: video.slug,
+      title: video.title,
+      renditions: [{ id: 'original' }],
+      tracks: await this.videoTracks.tracks(video.slug),
+      saveEverySeconds: this.options.videoSaveEverySeconds ?? null,
+      watchThresholdSeconds: this.options.videoWatchThresholdSeconds ?? null,
+    };
+  }
+
+  /** Staff attach a spine video to one curriculum item, or with `videoSlug: null` take it off, with a reason. */
+  async setItemVideo(input: { itemSlug: string; videoSlug: string | null; operatorId: string; reason: string; now?: Date }) {
+    const itemSlug = input.itemSlug.trim();
+    if (!hasCurriculumSlug(itemSlug)) throw new AcademyError('Unknown curriculum item', 'academy.curriculum_not_found');
+    const reason = input.reason.trim();
+    if (!reason) throw new AcademyError('A reason is required', 'academy.reason_required');
+    const videoSlug = input.videoSlug === null ? null : this.spineVideo(input.videoSlug.trim()).slug;
+    await this.videoTracks.setItemVideo({ itemSlug, videoSlug, operatorId: input.operatorId, reason, now: input.now ?? new Date() });
+    return { itemSlug, videoSlug };
+  }
+
+  /** Staff replace every caption track of one spine video, with a reason. */
+  async setVideoTracks(input: {
+    videoSlug: string;
+    tracks: readonly { language: string; label: string; vtt: string }[];
+    operatorId: string;
+    reason: string;
+    now?: Date;
+  }) {
+    const video = this.spineVideo(input.videoSlug.trim());
+    const reason = input.reason.trim();
+    if (!reason) throw new AcademyError('A reason is required', 'academy.reason_required');
+    const tracks = await this.videoTracks.setTracks({
+      videoSlug: video.slug,
+      tracks: input.tracks,
+      operatorId: input.operatorId,
+      reason,
+      now: input.now ?? new Date(),
+    });
+    return { videoSlug: video.slug, tracks };
   }
 
   callerLiveSeats(userId: string) {
@@ -2038,31 +2141,42 @@ export class AcademyService {
     }
     if (decision.alreadyComplete) return decision.record;
     await this.release.assertMayComplete({ userId: input.userId, itemSlug: slug });
+    const now = input.now ?? new Date();
     const quiz = await this.assessments.definition(slug);
-    const rule: AcademyCompletionRule = quiz ? 'score' : 'view';
     if (quiz && quiz.passMark === null) {
       throw new AcademyError(`academy.pass_mark_unset slug=${slug}`, 'academy.pass_mark_unset');
     }
-    if (rule !== 'view' && !this.completionRuleMet(slug, rule, await this.assessments.passedSlugs(input.userId))) {
-      throw new AcademyError(`academy.completion_rule_unmet rule=${rule}`, 'academy.completion_rule_unmet');
+    const video = quiz ? null : await this.videoTracks.itemVideo(slug);
+    const rule: AcademyCompletionRule = quiz ? 'score' : video ? 'watch' : 'view';
+    if (rule === 'watch' && this.options.videoWatchThresholdSeconds === undefined) {
+      throw new AcademyError('academy.watch_threshold_unset', 'academy.watch_threshold_unset');
     }
-    const now = input.now ?? new Date();
+    const met =
+      rule === 'view' ||
+      (rule === 'score' && (await this.assessments.passedSlugs(input.userId, now)).has(slug)) ||
+      (rule === 'watch' && (await this.watchedItems(input.userId, new Map([[slug, video!]]))).has(slug));
+    if (!met) throw new AcademyError(`academy.completion_rule_unmet rule=${rule}`, 'academy.completion_rule_unmet');
+    return this.recordCompletion(input.userId, slug, now);
+  }
+
+  /** Records one completion and its history row; a concurrent completion of the same item returns that one. */
+  private recordCompletion(userId: string, slug: string, now: Date): Promise<ItemCompletionRecord> {
     return transaction(this.sql, async (tx) => {
       // Complete and Undo on one item take turns, so the history and the current row never disagree.
-      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${input.userId}:${slug}:completion`}, 0))`;
+      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${userId}:${slug}:completion`}, 0))`;
       const rows = await tx<Array<{ user_id: string; item_slug: string; completed_at: Date }>>`
         INSERT INTO academy.cert_item_completions (user_id, item_slug, completed_at)
-        VALUES (${input.userId}, ${slug}, ${now})
+        VALUES (${userId}, ${slug}, ${now})
         ON CONFLICT (user_id, item_slug) DO NOTHING
         RETURNING user_id, item_slug, completed_at
       `;
       if (!rows[0]) {
         // Completed by a concurrent request: that one wrote the history row.
-        return (await this.currentCompletion(tx, input.userId, slug))!;
+        return (await this.currentCompletion(tx, userId, slug))!;
       }
       await tx`
         INSERT INTO academy.item_completion_events (user_id, item_slug, event, client_request_id, recorded_at)
-        VALUES (${input.userId}, ${slug}, 'completed', NULL, ${now})
+        VALUES (${userId}, ${slug}, 'completed', NULL, ${now})
       `;
       return { userId: rows[0].user_id, itemSlug: rows[0].item_slug, completedAt: rows[0].completed_at };
     });
@@ -2131,13 +2245,31 @@ export class AcademyService {
    * The course rule an item completes by (AC-progress-01): `score` when a quiz is published for it, otherwise `view`, met
    * by opening it, which the Complete button on the open item already is.
    */
-  private completionRule(slug: string, quizzes: ReadonlySet<string>): AcademyCompletionRule {
-    return quizzes.has(slug) ? 'score' : 'view';
+  private completionRule(slug: string, quizzes: ReadonlySet<string>, videos: ReadonlyMap<string, string>): AcademyCompletionRule {
+    return quizzes.has(slug) ? 'score' : videos.has(slug) ? 'watch' : 'view';
   }
 
-  /** `passed`: the caller's passed quiz slugs. A quiz with no pass mark is never passed, and completing says why. */
-  private completionRuleMet(slug: string, rule: AcademyCompletionRule, passed: ReadonlySet<string>): boolean {
-    return rule === 'view' || passed.has(slug);
+  /**
+   * `passed`: the caller's passed quiz slugs. A quiz with no pass mark is never passed, and completing says why.
+   * `watched`: the caller's watch items whose video's stored position reached the owner threshold.
+   */
+  private completionRuleMet(slug: string, rule: AcademyCompletionRule, passed: ReadonlySet<string>, watched: ReadonlySet<string>): boolean {
+    return rule === 'view' || (rule === 'score' ? passed.has(slug) : watched.has(slug));
+  }
+
+  /**
+   * AC-videos-01: of the given item → video pairs, the items whose video the caller has watched: a stored position at or
+   * past the owner's threshold. No threshold: none, since a blank threshold is not zero.
+   */
+  private async watchedItems(userId: string, videos: ReadonlyMap<string, string>): Promise<Set<string>> {
+    const threshold = this.options.videoWatchThresholdSeconds;
+    if (threshold === undefined || videos.size === 0) return new Set();
+    const rows = await this.sql<Array<{ video_slug: string }>>`
+      SELECT video_slug FROM academy.video_progress
+       WHERE user_id = ${userId} AND video_slug IN ${this.sql([...new Set(videos.values())])} AND position_seconds >= ${threshold}
+    `;
+    const seen = new Set(rows.map((row) => row.video_slug));
+    return new Set([...videos].filter(([, video]) => seen.has(video)).map(([item]) => item));
   }
 
   private async completionTimes(userId: string, slugs: readonly string[]): Promise<Map<string, Date>> {
