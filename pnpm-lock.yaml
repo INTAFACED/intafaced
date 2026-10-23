@@ -1589,6 +1589,9 @@ importers:
 
   services/svc-mining-pool:
     dependencies:
+      '@intafaced/config':
+        specifier: workspace:*
+        version: link:../../packages/config
       '@intafaced/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
