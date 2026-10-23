@@ -118,6 +118,12 @@ describe('ownershipOf', () => {
     expect(ownershipOf({ pending: null, verified }, new Date('2026-11-01T00:00:00Z')).state).toBe('expired');
   });
 
+  it('ignores a proof made for another address than the entry holds now', () => {
+    const at = new Date('2026-10-30T00:00:00Z');
+    expect(ownershipOf({ pending: null, verified }, at, KEY_ADDRESS.toUpperCase().replace('0X', '0x')).state).toBe('verified');
+    expect(ownershipOf({ pending, verified }, at, '0x1111111111111111111111111111111111111111').state).toBe('none');
+  });
+
   it('keeps a proof that still holds over a newer offer, and shows the offer once the proof lapses', () => {
     const newer = { ...pending, expiresAt: new Date('2026-11-01T00:30:00Z') };
     expect(ownershipOf({ pending: newer, verified }, new Date('2026-10-30T00:00:00Z')).state).toBe('verified');

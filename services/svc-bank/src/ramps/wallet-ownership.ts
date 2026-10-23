@@ -87,9 +87,12 @@ function requirePositive(
  * What an entry's proofs say about it now. A still-valid verified proof wins over any newer offer, so opening the panel
  * again never hides a proof that holds; then an open offer; then whatever lapsed.
  */
-export function ownershipOf(proofs: EntryProofs | undefined, now: Date): Ownership {
-  const verified = proofs?.verified ?? null;
-  const pending = proofs?.pending ?? null;
+export function ownershipOf(proofs: EntryProofs | undefined, now: Date, address?: string): Ownership {
+  // A proof answers only for the address it was made for: given the entry's address now, any other is ignored.
+  const forAddress = (row: WalletProofRow | null) =>
+    row && (address === undefined || row.address === address.trim().toLowerCase()) ? row : null;
+  const verified = forAddress(proofs?.verified ?? null);
+  const pending = forAddress(proofs?.pending ?? null);
   const proved = verified
     ? {
         verifiedAt: verified.verifiedAt?.toISOString() ?? null,

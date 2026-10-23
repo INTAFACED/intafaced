@@ -389,14 +389,14 @@ function viewOf(row: WithdrawDestination, hours: number | null, ownership: Owner
 /** One entry's view with its ownership read from the latest proof. */
 async function viewWithOwnership(deps: CustomerRampDeps, userId: string, row: WithdrawDestination): Promise<DestinationView> {
   const latest = await deps.proofs.latest(userId);
-  return viewOf(row, readOfframpCoolingHours(deps.coolingRaw()), ownershipOf(latest.get(row.destinationId), new Date()));
+  return viewOf(row, readOfframpCoolingHours(deps.coolingRaw()), ownershipOf(latest.get(row.destinationId), new Date(), row.ref));
 }
 
 export async function listDestinations(deps: CustomerRampDeps, userId: string): Promise<DestinationView[]> {
   const hours = readOfframpCoolingHours(deps.coolingRaw());
   const [rows, latest] = await Promise.all([deps.destinations.list(userId), deps.proofs.latest(userId)]);
   const now = new Date();
-  return rows.map((row) => viewOf(row, hours, ownershipOf(latest.get(row.destinationId), now)));
+  return rows.map((row) => viewOf(row, hours, ownershipOf(latest.get(row.destinationId), now, row.ref)));
 }
 
 /** What the add form learns before it asks for a confirmation code: whether the bank would take this address as typed. */
