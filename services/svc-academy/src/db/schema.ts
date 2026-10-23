@@ -404,7 +404,7 @@ export const featuredItems = academy.table('featured_items', {
 
 export const courseStarts = academy.table('course_starts', {
   path: text('path').primaryKey(),
-  startsAt: tstz('starts_at').notNull(),
+  startsAt: tstz('starts_at'),
   reason: text('reason').notNull(),
   setBy: uuid('set_by').notNull(),
   setAt: tstz('set_at').notNull(),

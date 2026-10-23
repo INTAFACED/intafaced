@@ -1700,7 +1700,8 @@ export class AcademyService {
     return Promise.all(
       enrolments.map(async (row) => {
         const path = row.pathSlug as CurriculumPath;
-        const [releases, startsAt] = await Promise.all([this.courseReleases(userId, path, now), this.courseStarts.startsAt(path)]);
+        const startsAt = await this.courseStarts.startsAt(path);
+        const releases = await this.courseReleases(userId, path, now, startsAt);
         const open = releases.filter(({ view }) => view.lock === null).map(({ row }) => row.slug);
         return myCourseView(path, row, completed, state.lastItemSlug, open, startsAt, now);
       }),
@@ -1716,7 +1717,7 @@ export class AcademyService {
     if (!item) throw new AcademyError('Unknown curriculum item', 'academy.curriculum_not_found');
     const path = item.path as CurriculumPath;
     const now = input.now ?? new Date();
-    const releases = await this.courseReleases(input.userId, path, now);
+    const releases = await this.courseReleases(input.userId, path, now, await this.courseStarts.startsAt(path));
     return {
       slug: path,
       items: releases.map(({ row, view }) => {
@@ -1738,9 +1739,9 @@ export class AcademyService {
    * The caller's release decision for every item of one course, at one `now`, so the outline, Start course and Continue
    * agree. A course is a curriculum path of a handful of items.
    */
-  private async courseReleases(userId: string, path: CurriculumPath, now: Date) {
+  private async courseReleases(userId: string, path: CurriculumPath, now: Date, courseStartsAt: Date | null) {
     const rows = listCurriculum({ path });
-    const views = await Promise.all(rows.map((row) => this.release.itemRelease({ userId, itemSlug: row.slug, now })));
+    const views = await Promise.all(rows.map((row) => this.release.itemRelease({ userId, itemSlug: row.slug, now, courseStartsAt })));
     return rows.map((row, i) => ({ row, view: views[i]! }));
   }
 

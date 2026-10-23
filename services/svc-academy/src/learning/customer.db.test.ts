@@ -341,6 +341,9 @@ describe('academy customer learning reads and writes', () => {
     expect((await academy.myLearning(USER, later))[0]).toMatchObject({ status: 'in_progress', startsAt: startsAt.toISOString() });
 
     await academy.setCourseStart({ slug: 'markets', startsAt: null, reason: 'self-paced again', operatorId: OTHER, now });
+    expect(await sql`SELECT starts_at, reason, set_by FROM academy.course_starts WHERE path = 'markets'`).toEqual([
+      { starts_at: null, reason: 'self-paced again', set_by: OTHER },
+    ]);
     expect((await academy.courseEnrolment({ userId: USER, slug: 'markets' })).startsAt).toBeNull();
     await expect(academy.readCurriculumItem({ userId: USER, slug: items[0]!.slug, now })).resolves.toBeTruthy();
   });

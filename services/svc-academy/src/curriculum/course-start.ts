@@ -1,6 +1,6 @@
 /**
- * AC-enrolment-01 step 4 — a course's start date. Staff set it with a reason; no row means the course is self-paced
- * and opens on enrolment. Until then every item in the course is held as a window (`release/access.ts`), and the
+ * AC-enrolment-01 step 4 — a course's start date. Staff set or clear it with a reason, and the row keeps who did it and
+ * why; no row or a cleared one means the course is self-paced and opens on enrolment. Until then every item in the course is held as a window (`release/access.ts`), and the
  * course page and My learning show the date. Nothing is given a start date it was not set.
  */
 import type { Sql } from 'postgres';
@@ -8,7 +8,7 @@ import { AcademyError } from '../errors.js';
 import type { CurriculumPath } from './catalog.js';
 import { publishedCourse } from './course-enrolment.js';
 
-export type CourseStartChoice = { slug: CurriculumPath; startsAt: Date | null; reason: string | null; setAt: Date | null };
+export type CourseStartChoice = { slug: CurriculumPath; startsAt: Date | null; reason: string; setAt: Date };
 
 /** Blank after trim is not a reason, and none is invented. */
 function requireStartReason(reason: string): string {
@@ -17,22 +17,23 @@ function requireStartReason(reason: string): string {
   return trimmed;
 }
 
+/** The one read of a course's start date, shared by the release gate and the views that show it. */
+export async function readCourseStart(sql: Sql, path: string): Promise<Date | null> {
+  const rows = await sql<Array<{ starts_at: Date | null }>>`SELECT starts_at FROM academy.course_starts WHERE path = ${path}`;
+  return rows[0]?.starts_at ?? null;
+}
+
 export class CourseStarts {
   constructor(private readonly sql: Sql) {}
 
-  async startsAt(path: CurriculumPath): Promise<Date | null> {
-    const rows = await this.sql<Array<{ starts_at: Date }>>`SELECT starts_at FROM academy.course_starts WHERE path = ${path}`;
-    return rows[0]?.starts_at ?? null;
+  startsAt(path: CurriculumPath): Promise<Date | null> {
+    return readCourseStart(this.sql, path);
   }
 
-  /** `startsAt: null` clears the date. A reason is required either way; a blank one is refused, never filled in. */
+  /** `startsAt: null` clears the date and keeps who cleared it and why. A blank reason is refused, never filled in. */
   async set(input: { slug: string; startsAt: Date | null; reason: string; operatorId: string; now?: Date }): Promise<CourseStartChoice> {
     const slug = publishedCourse(input.slug);
     const reason = requireStartReason(input.reason);
-    if (input.startsAt === null) {
-      await this.sql`DELETE FROM academy.course_starts WHERE path = ${slug}`;
-      return { slug, startsAt: null, reason: null, setAt: null };
-    }
     const setAt = input.now ?? new Date();
     await this.sql`
       INSERT INTO academy.course_starts (path, starts_at, reason, set_by, set_at)

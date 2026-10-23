@@ -2,12 +2,13 @@
 -- Reversal: 0014_course_start.down.sql
 --
 -- One row per course (a curriculum path until courses are rows), set by staff
--- with a reason. No row means the course is self-paced and opens on
+-- with a reason. No row, or a cleared one (starts_at NULL, still naming who
+-- cleared it and why), means the course is self-paced and opens on
 -- enrolment; nothing is ever given a start date it was not set.
 
 CREATE TABLE IF NOT EXISTS "academy"."course_starts" (
   "path"        text PRIMARY KEY,
-  "starts_at"   timestamptz NOT NULL,
+  "starts_at"   timestamptz,
   "reason"      text NOT NULL,
   "set_by"      uuid NOT NULL,
   "set_at"      timestamptz NOT NULL,

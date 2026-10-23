@@ -158,7 +158,7 @@ test(`${J} #4 a course that starts next week takes the enrolment, shows its date
     await expect(outline.locator('[data-outline-state="locked"]')).toHaveCount(items.length);
     await expect(outline.locator(`[data-outline-item="${items[0]}"]`)).toContainText(/Locked: opens /);
     await expect(outline.getByText('No item in this course can be opened now.')).toBeVisible();
-    await expect(page.getByText('This item is closed right now. The course outline says when it opens.')).toBeVisible();
+    await expect(page.getByText('This item is closed right now: it opens on a later date, or its window has ended.')).toBeVisible();
   } finally {
     await setCourseStart(third, null);
   }
