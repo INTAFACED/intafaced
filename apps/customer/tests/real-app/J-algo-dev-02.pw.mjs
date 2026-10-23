@@ -262,16 +262,20 @@ test(`${J} #4 opens the checks panel: overfitting, look-ahead and repainting fin
   await expect(check('look_ahead')).toContainText('A test of the engine proves a bar cannot change anything that happened before it.');
 });
 
+const MARGIN_SLIPPAGE = '15';
+
 test(`${J} #5 opens the simulated account, sets leverage, and runs again: margin calls and stop-outs in the stated order; a blank leverage refuses by name`, async ({
   page,
 }) => {
   const { window } = run.read();
   if (!window) throw new Error(`${J} #1 fixed no window, so this step has nothing to run on`);
   await signIn(page, developer());
-  // Every entry spends all the simulated equity on margin, so the leverage decides how far the price may move.
+  // Every entry spends all the simulated equity on margin, so the leverage decides how far the price may move. At 100x
+  // a 15 basis-point slippage alone costs 15 % of the equity on entry: the margin level falls under the 90 % stop-out
+  // in the bar it entered, whatever the TEST tape does, so the run shows the call and the stop-out every time.
   const strategy = 'TEST margin strategy';
   await saveSignalStrategy(page, strategy, { kind: 'percent_equity', value: '100' });
-  const room = await backtestForm(page, strategy, window);
+  const room = await backtestForm(page, strategy, { ...window, slippage: MARGIN_SLIPPAGE });
   const account = room.getByTestId('quant-account');
   await expect(account).toContainText('Cash account: no order spends more than the simulated cash.');
   await account.getByRole('checkbox', { name: 'Trade on margin' }).check();
