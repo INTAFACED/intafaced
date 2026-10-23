@@ -26,6 +26,11 @@
       "value": "{\"published\": true, \"version\": \"test-zero-fee\", \"makerBps\": \"0\", \"takerBps\": \"0\", \"perpetual\": {\"makerBps\": \"0\", \"takerBps\": \"0\"}}",
       "note": "Zero fee schedule, spot and perpetual, so the order paths post no fee. Without the perpetual block futures orders refuse."
     },
+    "TRADE_COLLATERAL_HAIRCUT_BPS": {
+      "service": "trade",
+      "value": "0",
+      "note": "Cash in the settle asset counts in full, so futures opens are held only by their margin."
+    },
     "TRADE_MAX_ORDER": {
       "service": "trade",
       "value": "1000000",
@@ -96,6 +101,11 @@
       "value": "standard:spot+convert+algo+copy,managed:spot,spot:spot",
       "note": "Which trading features a main account may turn on for each sub-account kind. Futures is refused in code until derivatives eligibility is readable."
     },
+    "IDENTITY_SECURITY_LOCK_UNLOCK_WAIT_SECONDS": {
+      "service": "identity",
+      "value": "86400",
+      "note": "A security lock ends one day after its unlock is asked for."
+    },
     "SUPPORT_ATTACHMENT_STORE": {
       "service": "support",
       "value": "local-test-memory",
@@ -161,6 +171,21 @@
       "value": "99",
       "note": "Bell badge ceiling (J-home-ia-05)."
     },
+    "IDENTITY_API_KEYS_MAX_BY_TIER": {
+      "service": "identity",
+      "value": "none=3,basic=3,full=3,institutional=3",
+      "note": "Live API keys per account at each verification level, so the developer room can show the fourth key refused."
+    },
+    "BANK_WALLET_PROOF_WINDOW_MINUTES": {
+      "service": "bank",
+      "value": "30",
+      "note": "How many minutes a wallet ownership proof stays open for signing (J-wallet-04)."
+    },
+    "BANK_WALLET_PROOF_VALID_DAYS": {
+      "service": "bank",
+      "value": "180",
+      "note": "How many days a verified wallet ownership proof holds (J-wallet-04)."
+    },
     "IDENTITY_ACCOUNT_TIERS": {
       "service": "identity",
       "value": "[{\"id\":\"test-standard\",\"name\":\"TEST Standard\",\"terms\":{\"ratePercent\":\"0\",\"monthlyFee\":\"0\",\"feeAssetId\":\"USD\",\"dailyLimit\":\"1000\",\"clearingDays\":\"2\"}},{\"id\":\"test-plus\",\"name\":\"TEST Plus\",\"terms\":{\"ratePercent\":\"1.5\",\"monthlyFee\":\"4.99\",\"feeAssetId\":\"USD\",\"dailyLimit\":\"5000\",\"clearingDays\":\"1\"}},{\"id\":\"test-premier\",\"name\":\"TEST Premier\",\"terms\":{\"ratePercent\":\"2\",\"monthlyFee\":null,\"feeAssetId\":\"USD\",\"dailyLimit\":\"25000\",\"clearingDays\":\"0\"}}]",
@@ -220,6 +245,71 @@
       "service": "tax",
       "value": "customer",
       "note": "A deposit, reward or transfer in has no cost until the customer enters one; its value on arrival is still shown."
+    },
+    "MINING_OVERVIEW_VERSION": {
+      "service": "mining-pool",
+      "value": "TEST-1",
+      "note": "TEST version stamp for the pool overview. Not a product default."
+    },
+    "MINING_OVERVIEW_WHAT": {
+      "service": "mining-pool",
+      "value": "TEST pool overview",
+      "note": "TEST sentence for what the pool is. Not a product default."
+    },
+    "MINING_OVERVIEW_COIN": {
+      "service": "mining-pool",
+      "value": "TEST",
+      "note": "TEST coin name. Not a product default."
+    },
+    "MINING_OVERVIEW_HARDWARE": {
+      "service": "mining-pool",
+      "value": "TEST",
+      "note": "TEST hardware line. Not a product default."
+    },
+    "MINING_OVERVIEW_REVENUE_SPLIT": {
+      "service": "mining-pool",
+      "value": "TEST in proportion to accepted work",
+      "note": "TEST revenue-split sentence. Not a product default."
+    },
+    "MINING_OVERVIEW_NOT_SUPPORTED": {
+      "service": "mining-pool",
+      "value": "TEST",
+      "note": "TEST unsupported line. Not a product default."
+    },
+    "MINING_POOL_HOST": {
+      "service": "mining-pool",
+      "value": "127.0.0.1",
+      "note": "TEST pool host a miner copies. Not a product default."
+    },
+    "MINING_POOL_PORT": {
+      "service": "mining-pool",
+      "value": "3999",
+      "note": "TEST pool port a miner copies. Not a product default."
+    },
+    "MINING_POOL_SECURE_URL": {
+      "service": "mining-pool",
+      "value": "stratum+ssl://127.0.0.1:3999",
+      "note": "TEST secure URL, published only in this profile."
+    },
+    "MINING_WORKER_NAME_PATTERN": {
+      "service": "mining-pool",
+      "value": "TEST.{worker}",
+      "note": "TEST worker-name pattern. Not a product default."
+    },
+    "MINING_PROBE_LIMIT": {
+      "service": "mining-pool",
+      "value": "3",
+      "note": "TEST reachability presses one account may make in the window."
+    },
+    "MINING_PROBE_WINDOW_MS": {
+      "service": "mining-pool",
+      "value": "60000",
+      "note": "TEST reachability window. Not a product default."
+    },
+    "MINING_PROBE_TIMEOUT_MS": {
+      "service": "mining-pool",
+      "value": "1000",
+      "note": "TEST how long one reachability press waits. Not a product default."
     }
   }
 }

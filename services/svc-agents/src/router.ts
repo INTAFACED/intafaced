@@ -60,6 +60,7 @@ import { marketplaceInstallDoor } from './fleet/install.js';
 import { listCatalogue } from './ops/catalogue.js';
 import { listSessions } from './ops/ops-sessions.js';
 import { engineForTasks, engineOfAdapter, routeIsMetered, type RouteDef, type RouteEngine } from './gateway/routing.js';
+import { spendRouter } from './spend/routes.js';
 
 /**
  * The internal tRPC surface (§1: "Fastify + tRPC (internal) / REST (public)").
@@ -262,9 +263,11 @@ function toActionOutput(action: AuditedAction) {
 function toTRPCError(err: unknown): TRPCError {
   if (err instanceof AgentError) {
     const code =
-      err.code === 'agents.refused'
+      err.code === 'agents.refused' || err.code === 'agents.spend_limit' || err.code === 'agents.spend_limit_unset'
         ? 'FORBIDDEN'
-        : err.code === 'agents.session_not_found' || err.code === 'agents.agent_not_found'
+        : err.code === 'agents.session_not_found' ||
+            err.code === 'agents.agent_not_found' ||
+            err.code === 'agents.spend_reservation_not_found'
           ? 'NOT_FOUND'
           : err.code === 'agents.provider_unavailable'
             ? 'SERVICE_UNAVAILABLE'
@@ -4031,6 +4034,9 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
         )
         .mutation(({ input }) => marketplaceInstallDoor(input)),
     }),
+
+    /** User spend caps (AG-spend-01). A blank cap refuses. A reservation is not a ledger post. */
+    spend: spendRouter(sql),
   });
 }
 

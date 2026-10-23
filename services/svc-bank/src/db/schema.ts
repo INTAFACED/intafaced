@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { boolean, date, index, integer, jsonb, pgSchema, primaryKey, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { bigint, boolean, date, index, integer, jsonb, pgSchema, primaryKey, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { amount, bps, createdAt, tstz, updatedAt } from '@intafaced/db';
 
 /**
@@ -1040,6 +1040,29 @@ export const withdrawDestinationRemovals = bank.table(
     removedAt: tstz('removed_at').notNull().defaultNow(),
   },
   (t) => [primaryKey({ name: 'withdraw_destination_removals_pkey', columns: [t.userId, t.idempotencyKey] })],
+);
+
+/**
+ * Signed-message proofs that a customer controls a saved wallet (W-withdraw-17, migration 0057). `pending` until the
+ * saved address signs the message; then `verified` with the signature and how long the proof holds.
+ */
+export const walletOwnershipProofs = bank.table(
+  'wallet_ownership_proofs',
+  {
+    id: uuid('id').primaryKey(),
+    seq: bigint('seq', { mode: 'bigint' }).generatedAlwaysAsIdentity(),
+    userId: text('user_id').notNull(),
+    destinationId: uuid('destination_id').notNull(),
+    address: text('address').notNull(),
+    message: text('message').notNull(),
+    status: text('status').notNull().default('pending'),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+    expiresAt: tstz('expires_at').notNull(),
+    verifiedAt: tstz('verified_at'),
+    validUntil: tstz('valid_until'),
+    signature: text('signature'),
+  },
+  (t) => [index('wallet_ownership_proofs_entry_idx').on(t.userId, t.destinationId, t.status, t.seq.desc())],
 );
 
 /**
