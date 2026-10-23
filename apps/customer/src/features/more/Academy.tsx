@@ -23,6 +23,8 @@ import {
 } from './AcademyLearning';
 import { academyLearningCopy } from './academy-learning-copy';
 import { AcademyCourse, AcademyHub } from './AcademyHub';
+import { AcademyAccessGrants, AcademyMyLearning } from './AcademyMyLearning';
+import { AcademyCourseOutline } from './AcademyCourseOutline';
 import { academySectionRedirect, academyTabHref, academyTabs, type AcademyRoute } from './academy-lms';
 import { navigate } from '../../app/location';
 
@@ -92,7 +94,11 @@ function Academy({ route, slug, initialPath }: { route: AcademyRoute; slug?: str
       ) : route.kind === 'progress' ? (
         <AcademyProgress action={action} />
       ) : tab === 'Learning' ? (
-        <AcademyLearning slug={slug} initialPath={initialPath} certId={selected} chooseCertificate={chooseCertificate} action={action} />
+        <>
+          {!slug && <AcademyMyLearning />}
+          {slug && <AcademyCourseOutline itemSlug={slug} refresh={action.result} />}
+          <AcademyLearning slug={slug} initialPath={initialPath} certId={selected} chooseCertificate={chooseCertificate} action={action} />
+        </>
       ) : tab === 'Certificates' ? (
         <Certificates selected={selected} setSelected={chooseCertificate} action={action} />
       ) : tab === 'Rooms' ? (
@@ -408,6 +414,7 @@ function AcademyProgress({ action }: { action: AcademyAction }) {
   );
   return (
     <div className="academy-grant-certificates">
+      <AcademyAccessGrants />
       {/* Without the definitions the records still list, by reference; the failure says why the titles are missing. */}
       {definitions.resource.status === 'failed' && <AcademyRefusal failure={definitions.resource.failure} retry={definitions.reload} />}
       <AcademyGrantRecords

@@ -187,6 +187,167 @@ describe('academy customer learning reads and writes', () => {
     expect(rows[0]).toEqual({ n: 2, active: 1 });
   });
 
+  it('enrols in a course on the free track once, refuses the unpriced certificate track, and keeps progress across a leave', async () => {
+    const academy = service();
+    // Markets has no published certificate, so Programmes refuses it; the free course track does not need one.
+    await expect(academy.enrollCertPath({ userId: USER, pathSlug: 'markets' })).rejects.toMatchObject({
+      code: 'academy.certificate_unpublished',
+    });
+    const before = await academy.courseEnrolment({ userId: USER, slug: 'markets' });
+    expect(before).toMatchObject({ slug: 'markets', startsAt: null, seatCap: null, seatsRemaining: null, closed: null, enrolment: null });
+    expect(before.tracks).toEqual([
+      { track: 'audit', free: true, closed: null },
+      { track: 'certificate', free: false, closed: 'no_price' },
+    ]);
+    expect(before.activationMail).toBe('vendor.email');
+    await expect(academy.enrolCourse({ userId: USER, slug: 'markets', track: 'certificate' })).rejects.toMatchObject({
+      code: 'academy.enrolment_closed',
+      message: expect.stringContaining('reason=no_price'),
+    });
+    await expect(academy.enrolCourse({ userId: USER, slug: 'no-such-course', track: 'audit' })).rejects.toMatchObject({
+      code: 'academy.course_not_found',
+    });
+    const caller = createAcademyRouter(academy).createCaller(signed());
+    const [first, second] = await Promise.all([
+      caller.enrolCourse({ slug: 'markets', track: 'audit' }),
+      caller.enrolCourse({ slug: 'markets', track: 'audit' }),
+    ]);
+    expect(first.enrolment).toMatchObject({ track: 'audit' });
+    expect(second.enrolment).toEqual(first.enrolment);
+    expect(await caller.courseEnrolment({ slug: 'markets' })).toEqual(first);
+    const active = await sql<Array<{ n: number }>>`
+      SELECT COUNT(*)::int AS n FROM academy.cert_enrollments WHERE user_id = ${USER} AND path_slug = 'markets'
+    `;
+    expect(active[0]?.n).toBe(1);
+    expect((await academy.courseEnrolment({ userId: OTHER, slug: 'markets' })).enrolment).toBeNull();
+
+    await academy.markCurriculumComplete({ userId: USER, itemSlug: 'markets-reading-the-book' });
+    await academy.leaveCertPath({ userId: USER, pathSlug: 'markets', clientRequestId: 'leave-markets' });
+    expect((await academy.courseEnrolment({ userId: USER, slug: 'markets' })).enrolment).toBeNull();
+    const again = await academy.enrolCourse({ userId: USER, slug: 'markets', track: 'audit' });
+    expect(again.enrolment).not.toBeNull();
+    expect((await academy.myCompletions({ userId: USER, limit: 10 })).items.map((row) => row.itemSlug)).toEqual([
+      'markets-reading-the-book',
+    ]);
+    await expect(createAcademyRouter(academy).createCaller(anonymous()).courseEnrolment({ slug: 'markets' })).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+    });
+  });
+
+  it('My learning shows real progress, Start course before anything is read, and keeps progress across leave and re-enrol', async () => {
+    const academy = service();
+    const items = listCurriculum({ path: 'markets' });
+    expect(await academy.myLearning(USER)).toEqual([]);
+    expect(await academy.myAccessGrants(USER)).toEqual([]);
+    const enrolled = await academy.enrolCourse({ userId: USER, slug: 'markets', track: 'audit' });
+    await academy.touchLesson({ userId: USER, slug: items[0]!.slug, clientRequestId: 'touch-0' });
+    const [fresh] = await academy.myLearning(USER);
+    expect(fresh).toEqual({
+      slug: 'markets',
+      status: 'in_progress',
+      enrolledAt: enrolled.enrolment!.enrolledAt,
+      startsAt: null,
+      items: items.length,
+      completed: 0,
+      firstItemSlug: items[0]!.slug,
+      resumeItemSlug: null,
+    });
+    expect(await academy.myAccessGrants(USER)).toEqual([
+      { slug: 'markets', source: 'free', grantedAt: enrolled.enrolment!.enrolledAt, expiresAt: null },
+    ]);
+
+    await academy.markCurriculumComplete({ userId: USER, itemSlug: items[0]!.slug });
+    const [started] = await academy.myLearning(USER);
+    // Continue goes back to the item last opened in this course.
+    expect(started).toMatchObject({ completed: 1, resumeItemSlug: items[0]!.slug });
+    await academy.touchLesson({ userId: USER, slug: items[items.length - 1]!.slug, clientRequestId: 'touch-1' });
+    expect((await academy.myLearning(USER))[0]!.resumeItemSlug).toBe(items[items.length - 1]!.slug);
+    // The reading position is one per learner: opening a lesson elsewhere sends Continue back to the first item not done.
+    await academy.touchLesson({ userId: USER, slug: listCurriculum({ path: 'builder' })[0]!.slug, clientRequestId: 'touch-2' });
+    expect((await academy.myLearning(USER))[0]!.resumeItemSlug).toBe(items[1]?.slug ?? items[0]!.slug);
+    expect(await academy.myLearning(OTHER)).toEqual([]);
+
+    await academy.leaveCertPath({ userId: USER, pathSlug: 'markets', clientRequestId: 'leave-ml' });
+    expect(await academy.myLearning(USER)).toEqual([]);
+    expect(await academy.myAccessGrants(USER)).toEqual([]);
+    await academy.enrolCourse({ userId: USER, slug: 'markets', track: 'audit' });
+    expect((await academy.myLearning(USER))[0]).toMatchObject({ completed: 1, status: 'in_progress' });
+
+    for (const row of items) await academy.markCurriculumComplete({ userId: USER, itemSlug: row.slug });
+    expect((await academy.myLearning(USER))[0]).toMatchObject({ completed: items.length, status: 'completed' });
+    const caller = createAcademyRouter(academy).createCaller(signed());
+    expect((await caller.myLearning()).map((row) => row.slug)).toEqual(['markets']);
+    expect((await caller.myAccessGrants()).map((row) => row.source)).toEqual(['free']);
+  });
+
+  it('the course outline gives each item its own release state, locks with the reason, and Start course skips a locked first item', async () => {
+    const academy = service();
+    const items = listCurriculum({ path: 'markets' });
+    expect(items.length).toBeGreaterThanOrEqual(3);
+    await academy.setItemPrerequisites({ itemSlug: items[2]!.slug, prerequisites: [items[1]!.slug] });
+    const outline = await academy.courseOutline({ userId: USER, itemSlug: items[0]!.slug });
+    expect(outline.slug).toBe('markets');
+    expect(outline.items.map((row) => row.slug)).toEqual(items.map((row) => row.slug));
+    expect(outline.items[2]).toMatchObject({ state: 'locked', lock: 'prerequisite', missing: [items[1]!.slug], opensAt: null });
+    expect(outline.items[0]).toMatchObject({ state: 'unlocked', lock: null, missing: [] });
+    expect(JSON.stringify(outline)).not.toContain('body');
+
+    await academy.markCurriculumComplete({ userId: USER, itemSlug: items[1]!.slug });
+    const after = await academy.courseOutline({ userId: USER, itemSlug: items[2]!.slug });
+    expect(after.items[1]!.state).toBe('completed');
+    expect(after.items[2]).toMatchObject({ lock: null, missing: [] });
+    expect((await academy.courseOutline({ userId: OTHER, itemSlug: items[2]!.slug })).items[2]!.lock).toBe('prerequisite');
+
+    await academy.setItemPrerequisites({ itemSlug: items[0]!.slug, prerequisites: [items[2]!.slug] });
+    await academy.enrolCourse({ userId: OTHER, slug: 'markets', track: 'audit' });
+    expect((await academy.myLearning(OTHER))[0]!.firstItemSlug).toBe(items[1]!.slug);
+    await expect(academy.courseOutline({ userId: USER, itemSlug: 'no-such-item' })).rejects.toMatchObject({
+      code: 'academy.curriculum_not_found',
+    });
+  });
+
+  it('a course that starts next week takes enrolments, shows its date, and holds every item until it starts', async () => {
+    const academy = service();
+    const items = listCurriculum({ path: 'markets' });
+    const now = new Date('2026-10-23T12:00:00.000Z');
+    const startsAt = new Date('2026-10-30T09:00:00.000Z');
+    await expect(academy.setCourseStart({ slug: 'markets', startsAt, reason: '  ', operatorId: OTHER, now })).rejects.toMatchObject({
+      code: 'academy.reason_required',
+    });
+    await expect(
+      academy.setCourseStart({ slug: 'no-such-course', startsAt, reason: 'cohort', operatorId: OTHER, now }),
+    ).rejects.toMatchObject({ code: 'academy.course_not_found' });
+    expect(await academy.setCourseStart({ slug: 'markets', startsAt, reason: 'cohort', operatorId: OTHER, now })).toMatchObject({
+      slug: 'markets',
+      startsAt,
+    });
+
+    const enrolled = await academy.enrolCourse({ userId: USER, slug: 'markets', track: 'audit' });
+    expect(enrolled).toMatchObject({ startsAt: startsAt.toISOString(), enrolment: { track: 'audit' } });
+    expect((await academy.courseEnrolment({ userId: USER, slug: 'foundations' })).startsAt).toBeNull();
+    expect((await academy.myLearning(USER, now))[0]).toMatchObject({ status: 'future_start', startsAt: startsAt.toISOString() });
+
+    const outline = await academy.courseOutline({ userId: USER, itemSlug: items[0]!.slug, now });
+    expect(outline.items.every((row) => row.lock === 'window' && row.opensAt === startsAt.toISOString())).toBe(true);
+    await expect(academy.readCurriculumItem({ userId: USER, slug: items[0]!.slug, now })).rejects.toMatchObject({
+      code: 'academy.window_invalid',
+    });
+    await expect(academy.readPublicCurriculumItem({ slug: items[0]!.slug, now })).rejects.toMatchObject({
+      code: 'academy.window_invalid',
+    });
+
+    const later = new Date('2026-10-30T09:00:00.000Z');
+    await expect(academy.readCurriculumItem({ userId: USER, slug: items[0]!.slug, now: later })).resolves.toBeTruthy();
+    expect((await academy.myLearning(USER, later))[0]).toMatchObject({ status: 'in_progress', startsAt: startsAt.toISOString() });
+
+    await academy.setCourseStart({ slug: 'markets', startsAt: null, reason: 'self-paced again', operatorId: OTHER, now });
+    expect(await sql`SELECT starts_at, reason, set_by FROM academy.course_starts WHERE path = 'markets'`).toEqual([
+      { starts_at: null, reason: 'self-paced again', set_by: OTHER },
+    ]);
+    expect((await academy.courseEnrolment({ userId: USER, slug: 'markets' })).startsAt).toBeNull();
+    await expect(academy.readCurriculumItem({ userId: USER, slug: items[0]!.slug, now })).resolves.toBeTruthy();
+  });
+
   it('refuses an unmet programme prerequisite and enrols when it is met or empty', async () => {
     const gated = service({ programmeCatalog: WITH_PREREQ, certCatalog: [FOUNDATIONS_V1, TEST_MARKETS_CERT] });
     await expect(gated.enrollCertPath({ userId: USER, pathSlug: 'markets' })).rejects.toMatchObject({

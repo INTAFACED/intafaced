@@ -40,7 +40,16 @@ import { AssessmentRepository, type AttemptRow } from './assessment/repository.j
 import { randomPublicId, isPublicId } from './certs/public-id.js';
 import { ReleaseAccess } from './release/access.js';
 import { FeaturedSlot } from './curriculum/featured.js';
+import { CourseStarts } from './curriculum/course-start.js';
 import { publicCourse } from './curriculum/public-catalogue.js';
+import { accessGrantView, assertTrackOpen, courseEnrolmentView, myCourseView, publishedCourse } from './curriculum/course-enrolment.js';
+import type {
+  AcademyAccessGrant,
+  AcademyCourseEnrolment,
+  AcademyCourseOutline,
+  AcademyEnrolmentTrack,
+  AcademyMyCourse,
+} from '@intafaced/contracts';
 import { normaliseHolderName } from './certs/holder-name.js';
 import { PROGRAMME_SLUGS } from './curriculum/programmes.js';
 import {
@@ -70,7 +79,7 @@ import {
   type CertPerkOutcome,
   type CertPerkPlaneStatus,
 } from './certs/perk-plane.js';
-import { getCurriculumItem, hasCurriculumSlug } from './curriculum/catalog.js';
+import { getCurriculumItem, hasCurriculumSlug, listCurriculum, type CurriculumPath } from './curriculum/catalog.js';
 import { curriculumBodyForLocale, curriculumI18nStrategyLine } from './curriculum/i18n-strategy.js';
 import { type ProgrammeDefinition } from './curriculum/programmes.js';
 import type { VideoSpineEntry } from './video/catalog.js';
@@ -248,6 +257,7 @@ export class AcademyService {
   private readonly assessments: AssessmentRepository;
   private readonly release: ReleaseAccess;
   private readonly featured: FeaturedSlot;
+  private readonly courseStarts: CourseStarts;
 
   constructor(
     private readonly sql: Sql,
@@ -265,6 +275,7 @@ export class AcademyService {
     this.customer = new AcademyCustomerStore(sql);
     this.release = new ReleaseAccess(sql);
     this.featured = new FeaturedSlot(sql);
+    this.courseStarts = new CourseStarts(sql);
     const assessments = this.options.assessmentCatalog ?? ASSESSMENT_CATALOG;
     this.assessments = new AssessmentRepository(sql, assessments);
     if (this.options.certCatalog) {
@@ -1657,6 +1668,93 @@ export class AcademyService {
     return { userId: row.userId, pathSlug: row.pathSlug, enrolledAt: row.enrolledAt };
   }
 
+  /** AC-enrolment-01: the terms of enrolling in a course and the caller's own active enrolment in it. */
+  async courseEnrolment(input: { userId: string; slug: string }): Promise<AcademyCourseEnrolment> {
+    const path = publishedCourse(input.slug);
+    const [enrolments, startsAt] = await Promise.all([this.customer.myEnrollments(input.userId), this.courseStarts.startsAt(path)]);
+    const active = enrolments.find((row) => row.pathSlug === path) ?? null;
+    return courseEnrolmentView(path, active, startsAt);
+  }
+
+  /**
+   * Enrol now on the free track. The certificate needs no published definition for this: the free track is the course
+   * itself. A repeat while enrolled returns the same enrolment (one active row per learner and course); programme
+   * prerequisites still apply.
+   */
+  async enrolCourse(input: { userId: string; slug: string; track: AcademyEnrolmentTrack }): Promise<AcademyCourseEnrolment> {
+    const path = publishedCourse(input.slug);
+    assertTrackOpen(input.track);
+    const row = await this.customer.enrollCertPath({
+      userId: input.userId,
+      pathSlug: path,
+      ...(this.options.programmeCatalog ? { catalog: this.options.programmeCatalog } : {}),
+    });
+    return courseEnrolmentView(path, row, await this.courseStarts.startsAt(path));
+  }
+
+  /** AC-catalogue-02: My learning, one row per course the caller is enrolled in and that is still published. */
+  async myLearning(userId: string, now: Date = new Date()): Promise<AcademyMyCourse[]> {
+    const enrolments = await this.publishedEnrolments(userId);
+    if (enrolments.length === 0) return [];
+    const [completed, state] = await Promise.all([this.completedSlugs(userId), this.customer.learningState(userId)]);
+    return Promise.all(
+      enrolments.map(async (row) => {
+        const path = row.pathSlug as CurriculumPath;
+        const startsAt = await this.courseStarts.startsAt(path);
+        const releases = await this.courseReleases(userId, path, now, startsAt);
+        const open = releases.filter(({ view }) => view.lock === null).map(({ row }) => row.slug);
+        return myCourseView(path, row, completed, state.lastItemSlug, open, startsAt, now);
+      }),
+    );
+  }
+
+  /**
+   * AC-course-structure-02: the outline of the course an item belongs to, with the caller's own release state per item.
+   * Only titles, kinds and lock reasons: no body, and no staff name or reason from an extension.
+   */
+  async courseOutline(input: { userId: string; itemSlug: string; now?: Date }): Promise<AcademyCourseOutline> {
+    const item = getCurriculumItem(input.itemSlug.trim());
+    if (!item) throw new AcademyError('Unknown curriculum item', 'academy.curriculum_not_found');
+    const path = item.path as CurriculumPath;
+    const now = input.now ?? new Date();
+    const releases = await this.courseReleases(input.userId, path, now, await this.courseStarts.startsAt(path));
+    return {
+      slug: path,
+      items: releases.map(({ row, view }) => {
+        const opensLater = view.lock === 'window' && view.availableFrom !== null && view.availableFrom.getTime() > now.getTime();
+        return {
+          slug: row.slug,
+          title: row.title,
+          kind: row.kind,
+          state: view.state,
+          lock: view.lock,
+          missing: [...view.missing],
+          opensAt: opensLater ? view.availableFrom!.toISOString() : null,
+        };
+      }),
+    };
+  }
+
+  /**
+   * The caller's release decision for every item of one course, at one `now`, so the outline, Start course and Continue
+   * agree. A course is a curriculum path of a handful of items.
+   */
+  private async courseReleases(userId: string, path: CurriculumPath, now: Date, courseStartsAt: Date | null) {
+    const rows = listCurriculum({ path });
+    const views = await Promise.all(rows.map((row) => this.release.itemRelease({ userId, itemSlug: row.slug, now, courseStartsAt })));
+    return rows.map((row, i) => ({ row, view: views[i]! }));
+  }
+
+  /** AC-access-grants-01: the caller's access records, one per active enrolment. */
+  async myAccessGrants(userId: string): Promise<AcademyAccessGrant[]> {
+    return (await this.publishedEnrolments(userId)).map(accessGrantView);
+  }
+
+  /** Active enrolments in courses that are still published: My learning and the access records list the same set. */
+  private async publishedEnrolments(userId: string) {
+    return (await this.customer.myEnrollments(userId)).filter((row) => listCurriculum({ path: row.pathSlug as CurriculumPath }).length > 0);
+  }
+
   myCompletions(input: { userId: string; limit: number | null | undefined; cursor?: string | null }) {
     return this.customer.myCompletions(input);
   }
@@ -1787,6 +1885,11 @@ export class AcademyService {
 
   setFeatured(input: { itemSlug: string | null; reason: string; operatorId: string; now?: Date }) {
     return this.featured.choose(input);
+  }
+
+  /** AC-enrolment-01 step 4: staff set or clear a course's start date with a reason. */
+  setCourseStart(input: { slug: string; startsAt: Date | null; reason: string; operatorId: string; now?: Date }) {
+    return this.courseStarts.set(input);
   }
 
   /** The reader for a signed-out visitor (AC-catalogue-01): the same item, nothing about any learner, no touch written. */

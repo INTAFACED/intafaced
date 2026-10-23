@@ -11,6 +11,11 @@ import {
   academyPublicVideoSchema,
   academyPublicCourseCardSchema,
   academyPublicCourseSchema,
+  academyCourseEnrolmentSchema,
+  academyEnrolCourseInputSchema,
+  academyMyCourseSchema,
+  academyAccessGrantSchema,
+  academyCourseOutlineSchema,
   academyPublicHubSchema,
 } from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
@@ -765,6 +770,7 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.assessment_unpublished':
     case 'academy.pass_mark_unset':
     case 'academy.certificate_unpublished':
+    case 'academy.enrolment_closed':
     case 'academy.verify_rate_unset':
     case 'academy.verify_address_unset':
     case 'academy.video_captions_unpublished':
@@ -2187,6 +2193,36 @@ export function createAcademyRouter(
       .output(enrollmentOut)
       .mutation(({ input, ctx }) => guard(() => academy.enrollCertPath({ userId: ctx.principal!.userId, pathSlug: input.pathSlug }))),
 
+    /** AC-enrolment-01: Enrol now from a course page. A repeat while enrolled answers with the same enrolment. */
+    enrolCourse: scopedProcedure('academy:write', { module: 'academy' })
+      .input(academyEnrolCourseInputSchema)
+      .output(academyCourseEnrolmentSchema)
+      .mutation(({ input, ctx }) =>
+        guard(() => academy.enrolCourse({ userId: ctx.principal!.userId, slug: input.slug, track: input.track })),
+      ),
+
+    /** AC-enrolment-01: the terms of enrolling in a course (tracks, start date, seats, closed reason) and the caller's own enrolment. */
+    courseEnrolment: scopedProcedure('academy:read', { module: 'academy' })
+      .input(z.object({ slug: z.string().min(1).max(64) }).strict())
+      .output(academyCourseEnrolmentSchema)
+      .query(({ input, ctx }) => guard(() => academy.courseEnrolment({ userId: ctx.principal.userId, slug: input.slug }))),
+
+    /** AC-catalogue-02: My learning, the caller's enrolled courses with real progress and where Continue goes. */
+    myLearning: scopedProcedure('academy:read', { module: 'academy' })
+      .output(z.array(academyMyCourseSchema))
+      .query(({ ctx }) => guard(() => academy.myLearning(ctx.principal.userId))),
+
+    /** AC-course-structure-02: the outline of an item's course, with the caller's own release state per item. */
+    courseOutline: scopedProcedure('academy:read', { module: 'academy' })
+      .input(z.object({ itemSlug: z.string().min(1).max(120) }).strict())
+      .output(academyCourseOutlineSchema)
+      .query(({ input, ctx }) => guard(() => academy.courseOutline({ userId: ctx.principal.userId, itemSlug: input.itemSlug }))),
+
+    /** AC-access-grants-01: the caller's access records, with source and expiry. */
+    myAccessGrants: scopedProcedure('academy:read', { module: 'academy' })
+      .output(z.array(academyAccessGrantSchema))
+      .query(({ ctx }) => guard(() => academy.myAccessGrants(ctx.principal.userId))),
+
     markCurriculumComplete: scopedProcedure('academy:write', { module: 'academy' })
       .input(z.object({ itemSlug: z.string().min(1).max(120) }))
       .output(itemCompletionOut)
@@ -2597,6 +2633,29 @@ export function createAcademyRouter(
         .input(z.object({ itemSlug: z.string().min(1).max(120).nullable(), reason: z.string().max(500) }).strict())
         .output(z.object({ itemSlug: z.string().nullable(), reason: z.string().nullable(), chosenAt: z.date().nullable() }))
         .mutation(({ input, ctx }) => guard(() => academy.setFeatured({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-enrolment-01 step 4: staff set a course's start date with a reason; `startsAt: null` clears it, keeping who and why. */
+      setCourseStart: scopedProcedure('admin:write', { module: 'academy' })
+        .input(
+          z
+            .object({
+              slug: z.string().min(1).max(120),
+              startsAt: z.string().datetime({ offset: true }).nullable(),
+              reason: z.string().max(500),
+            })
+            .strict(),
+        )
+        .output(z.object({ slug: z.string(), startsAt: z.date().nullable(), reason: z.string(), setAt: z.date() }))
+        .mutation(({ input, ctx }) =>
+          guard(() =>
+            academy.setCourseStart({
+              slug: input.slug,
+              startsAt: input.startsAt === null ? null : new Date(input.startsAt),
+              reason: input.reason,
+              operatorId: ctx.principal!.userId,
+            }),
+          ),
+        ),
 
       setItemPrerequisites: scopedProcedure('admin:write', { module: 'academy' })
         .input(z.object({ itemSlug: z.string().min(1).max(120), prerequisites: z.array(z.string().min(1).max(120)).max(40) }))

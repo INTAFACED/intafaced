@@ -12,7 +12,7 @@ import { isAcademyPath, rememberLastLesson } from './academy-lms';
 import { useAcademyTracking } from './academy-tracking';
 import { AcademyCatalogue } from './AcademyCatalogue';
 import { academyLmsCopy } from './academy-lms-copy';
-import { kindLabel, pathLabel } from './AcademyLmsParts';
+import { AcademyRefusal, kindLabel, pathLabel } from './AcademyLmsParts';
 import { Assessment } from './AcademyAssessment';
 import { LessonVideoLink, ReaderHeader, ReaderPager } from './AcademyReaderParts';
 import './academy-learning.css';
@@ -426,99 +426,104 @@ export function AcademyLearning({
           <Panel title={copyText('academy.learning.item')}>
             <div className="academy-learning-stack">
               {recovery}
-              <Read resource={reader.resource} retry={reader.reload}>
-                {(lesson) =>
-                  lesson && (
-                    <>
-                      <div>
-                        <h2 lang="und">{lesson.title}</h2>
-                        <div className="academy-learning-meta">
-                          <span>
-                            <Copy k="readingMinutes" params={{ minutes: lesson.estimatedMinutes }} />
-                          </span>
-                          <span>
-                            {isAcademyPath(lesson.path) ? pathLabel(lms, lesson.path) : lesson.path} · {kindLabel(lms, lesson.kind)}
-                          </span>
+              {/* A lesson held by its course start or window is refused in words; the outline beside it says when it opens. */}
+              {reader.resource.status === 'failed' ? (
+                <AcademyRefusal failure={reader.resource.failure} retry={reader.reload} />
+              ) : (
+                <Read resource={reader.resource} retry={reader.reload}>
+                  {(lesson) =>
+                    lesson && (
+                      <>
+                        <div>
+                          <h2 lang="und">{lesson.title}</h2>
+                          <div className="academy-learning-meta">
+                            <span>
+                              <Copy k="readingMinutes" params={{ minutes: lesson.estimatedMinutes }} />
+                            </span>
+                            <span>
+                              {isAcademyPath(lesson.path) ? pathLabel(lms, lesson.path) : lesson.path} · {kindLabel(lms, lesson.kind)}
+                            </span>
+                          </div>
                         </div>
-                      </div>
-                      <Read resource={overview.resource} retry={overview.reload}>
-                        {(data) => <ReaderHeader slug={lesson.slug} path={lesson.path} lessons={data.lessons} tracking={data.tracking} />}
-                      </Read>
-                      <LessonVideoLink slug={lesson.slug} />
-                      {lesson.fellBack && (
-                        <p className="muted">
-                          <Copy
-                            k="languageFallback"
-                            params={{ language: lesson.locale === 'en' ? t('englishBodyLanguage') : lesson.locale }}
-                          />
-                        </p>
-                      )}
-                      <section>
-                        <h3>
-                          <Text k="academy.learning.objectives" />
-                        </h3>
-                        <ul lang="und">
-                          {lesson.objectives.map((o) => (
-                            <li key={o}>{o}</li>
-                          ))}
-                        </ul>
-                      </section>
-                      <article className="more-body" lang={lesson.locale}>
-                        <LessonBody body={lesson.body} title={lesson.title} />
-                      </article>
-                      <section>
-                        <h3>
-                          <Text k="academy.key.terms" />
-                        </h3>
-                        <div lang="und">
-                          <Details items={lesson.keyTerms.map((term) => [term.term, term.definition])} />
-                        </div>
-                      </section>
-                      <Assessment slug={lesson.slug} prompts={lesson.selfCheck} />
-                      {receiptMatches && receipt?.success && (
-                        <section className="academy-learning-receipt" aria-label={t('completionReceipt')}>
-                          <h3>
-                            <Copy k="completionReceipt" />
-                          </h3>
-                          <p>
-                            <Copy k="completionBoundary" />
-                          </p>
-                          <Details
-                            items={[
-                              [
-                                t('recordedAt'),
-                                <time dateTime={receipt.data.completedAt} lang="zxx">
-                                  {receipt.data.completedAt}
-                                </time>,
-                              ],
-                              [t('originalLesson'), <span lang="und">{lesson.title}</span>],
-                              [copyText('common.acting.as.account'), <code lang="zxx">{receipt.data.userId}</code>],
-                            ]}
-                          />
+                        <Read resource={overview.resource} retry={overview.reload}>
+                          {(data) => <ReaderHeader slug={lesson.slug} path={lesson.path} lessons={data.lessons} tracking={data.tracking} />}
+                        </Read>
+                        <LessonVideoLink slug={lesson.slug} />
+                        {lesson.fellBack && (
                           <p className="muted">
-                            <Copy k="receiptUnavailable" />
+                            <Copy
+                              k="languageFallback"
+                              params={{ language: lesson.locale === 'en' ? t('englishBodyLanguage') : lesson.locale }}
+                            />
                           </p>
+                        )}
+                        <section>
+                          <h3>
+                            <Text k="academy.learning.objectives" />
+                          </h3>
+                          <ul lang="und">
+                            {lesson.objectives.map((o) => (
+                              <li key={o}>{o}</li>
+                            ))}
+                          </ul>
                         </section>
-                      )}
-                      <div className="academy-learning-actions">
-                        <Button disabled={action.disabled} onClick={() => review(lesson)}>
-                          <Copy k="reviewCompletion" />
-                        </Button>
-                        <a
-                          className="academy-learning-link"
-                          href={certId ? certificateLink : `/academy?${new URLSearchParams({ path: lesson.path })}`}
-                        >
-                          <Copy k={certId ? 'returnCertificate' : 'returnLibrary'} />
-                        </a>
-                      </div>
-                      {lesson.kind === 'workbook' && <Workbook slug={lesson.slug} />}
-                      <Read resource={overview.resource} retry={overview.reload}>
-                        {(data) => <ReaderPager slug={lesson.slug} path={lesson.path} lessons={data.lessons} certId={certId} />}
-                      </Read>
-                    </>
-                  )
-                }
-              </Read>
+                        <article className="more-body" lang={lesson.locale}>
+                          <LessonBody body={lesson.body} title={lesson.title} />
+                        </article>
+                        <section>
+                          <h3>
+                            <Text k="academy.key.terms" />
+                          </h3>
+                          <div lang="und">
+                            <Details items={lesson.keyTerms.map((term) => [term.term, term.definition])} />
+                          </div>
+                        </section>
+                        <Assessment slug={lesson.slug} prompts={lesson.selfCheck} />
+                        {receiptMatches && receipt?.success && (
+                          <section className="academy-learning-receipt" aria-label={t('completionReceipt')}>
+                            <h3>
+                              <Copy k="completionReceipt" />
+                            </h3>
+                            <p>
+                              <Copy k="completionBoundary" />
+                            </p>
+                            <Details
+                              items={[
+                                [
+                                  t('recordedAt'),
+                                  <time dateTime={receipt.data.completedAt} lang="zxx">
+                                    {receipt.data.completedAt}
+                                  </time>,
+                                ],
+                                [t('originalLesson'), <span lang="und">{lesson.title}</span>],
+                                [copyText('common.acting.as.account'), <code lang="zxx">{receipt.data.userId}</code>],
+                              ]}
+                            />
+                            <p className="muted">
+                              <Copy k="receiptUnavailable" />
+                            </p>
+                          </section>
+                        )}
+                        <div className="academy-learning-actions">
+                          <Button disabled={action.disabled} onClick={() => review(lesson)}>
+                            <Copy k="reviewCompletion" />
+                          </Button>
+                          <a
+                            className="academy-learning-link"
+                            href={certId ? certificateLink : `/academy?${new URLSearchParams({ path: lesson.path })}`}
+                          >
+                            <Copy k={certId ? 'returnCertificate' : 'returnLibrary'} />
+                          </a>
+                        </div>
+                        {lesson.kind === 'workbook' && <Workbook slug={lesson.slug} />}
+                        <Read resource={overview.resource} retry={overview.reload}>
+                          {(data) => <ReaderPager slug={lesson.slug} path={lesson.path} lessons={data.lessons} certId={certId} />}
+                        </Read>
+                      </>
+                    )
+                  }
+                </Read>
+              )}
             </div>
           </Panel>
         </div>

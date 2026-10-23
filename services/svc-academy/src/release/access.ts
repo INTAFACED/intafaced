@@ -8,7 +8,8 @@
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import { AcademyError } from '../errors.js';
-import { hasCurriculumSlug } from '../curriculum/catalog.js';
+import { getCurriculumItem, hasCurriculumSlug } from '../curriculum/catalog.js';
+import { readCourseStart } from '../curriculum/course-start.js';
 
 export type ReleaseState = 'locked' | 'unlocked' | 'started' | 'completed';
 export type ReleaseLock = 'prerequisite' | 'window';
@@ -178,6 +179,8 @@ export function decideRelease(input: {
   readonly window: ItemWindow | null;
   readonly extensionUntil: Date | null;
   readonly now: Date;
+  /** The start of the course the item belongs to; while it is ahead, an item that would otherwise open is held. */
+  readonly courseStartsAt?: Date | null;
 }): ReleaseDecision {
   if (input.completed) return { state: 'completed', missing: [], lock: null };
   const missing = [...input.missing].sort();
@@ -185,6 +188,7 @@ export function decideRelease(input: {
   if (input.window && outsideWindow(input.window, input.extensionUntil, input.now)) {
     return { state: 'locked', missing: [], lock: 'window' };
   }
+  if (courseStartPending(input.courseStartsAt ?? null, input.now)) return { state: 'locked', missing: [], lock: 'window' };
   if (input.started) return { state: 'started', missing: [], lock: null };
   return { state: 'unlocked', missing: [], lock: null };
 }
@@ -196,6 +200,34 @@ export function refuseRelease(decision: ReleaseDecision): void {
   if (decision.lock === 'window') {
     throw new AcademyError('academy.window_invalid outside the published window', 'academy.window_invalid');
   }
+}
+
+/**
+ * A course that starts later holds its items as a window until then (AC-enrolment-01 step 4), so the reader, completion
+ * and outline say the same thing. A completed item stays completed, and an item already locked by a prerequisite or its
+ * own window keeps that more specific reason. No start, or one already passed, changes nothing.
+ */
+function courseStartPending(courseStartsAt: Date | null, now: Date): courseStartsAt is Date {
+  return courseStartsAt !== null && now.getTime() < courseStartsAt.getTime();
+}
+
+/**
+ * When a window-locked item opens: its own window's start, or the course start when that is later. An item whose own
+ * window has closed keeps that window's start (already past), so nothing promises an opening that will not happen.
+ */
+export function releaseOpensAt(input: {
+  readonly window: ItemWindow | null;
+  readonly extensionUntil: Date | null;
+  readonly courseStartsAt: Date | null;
+  readonly now: Date;
+}): Date | null {
+  const own = input.window?.availableFrom ?? null;
+  const ownClosed =
+    input.window !== null &&
+    input.now.getTime() >= input.window.availableFrom.getTime() &&
+    outsideWindow(input.window, input.extensionUntil, input.now);
+  if (ownClosed || !courseStartPending(input.courseStartsAt, input.now)) return own;
+  return own !== null && own.getTime() > input.courseStartsAt.getTime() ? own : input.courseStartsAt;
 }
 
 export type ItemExtensionRecord = {
@@ -238,15 +270,19 @@ function extensionReplayAgrees(
 export class ReleaseAccess {
   constructor(private readonly sql: Sql) {}
 
-  async itemRelease(input: { userId: string; itemSlug: string; now?: Date }): Promise<ItemReleaseView> {
+  /**
+   * `courseStartsAt` lets a caller that reads every item of one course read its start once; left out, it is read here.
+   */
+  async itemRelease(input: { userId: string; itemSlug: string; now?: Date; courseStartsAt?: Date | null }): Promise<ItemReleaseView> {
     const itemSlug = requireCurriculumSlug(input.itemSlug);
-    return this.load(input.userId, itemSlug, input.now ?? new Date());
+    const courseStartsAt = input.courseStartsAt === undefined ? await this.courseStartsAt(itemSlug) : input.courseStartsAt;
+    return this.load(input.userId, itemSlug, input.now ?? new Date(), courseStartsAt);
   }
 
   /** Same decision as completion. A lock throws before a lesson body is read. */
   async assertMayRead(input: { userId: string; itemSlug: string; now?: Date }): Promise<void> {
     const itemSlug = requireCurriculumSlug(input.itemSlug);
-    const view = await this.load(input.userId, itemSlug, input.now ?? new Date());
+    const view = await this.load(input.userId, itemSlug, input.now ?? new Date(), await this.courseStartsAt(itemSlug));
     refuseRelease(view);
   }
 
@@ -267,9 +303,9 @@ export class ReleaseAccess {
     `;
     const row = windows[0];
     const window = row ? { availableFrom: row.available_from, availableUntil: row.available_until, dueAt: row.due_at } : null;
-    refuseRelease(
-      decideRelease({ completed: false, started: false, missing: [], window, extensionUntil: null, now: input.now ?? new Date() }),
-    );
+    const now = input.now ?? new Date();
+    const courseStartsAt = await this.courseStartsAt(itemSlug);
+    refuseRelease(decideRelease({ completed: false, started: false, missing: [], window, extensionUntil: null, now, courseStartsAt }));
   }
 
   async assertMayComplete(input: { userId: string; itemSlug: string; now?: Date }): Promise<void> {
@@ -398,7 +434,13 @@ export class ReleaseAccess {
     });
   }
 
-  private async load(userId: string, itemSlug: string, now: Date): Promise<ItemReleaseView> {
+  /** The start date of the course `itemSlug` belongs to, or null when none is set. */
+  private async courseStartsAt(itemSlug: string): Promise<Date | null> {
+    const path = getCurriculumItem(itemSlug)?.path;
+    return path ? readCourseStart(this.sql, path) : null;
+  }
+
+  private async load(userId: string, itemSlug: string, now: Date, courseStartsAt: Date | null): Promise<ItemReleaseView> {
     const prereqRows = await this.sql<Array<{ prerequisite_slug: string }>>`
       SELECT prerequisite_slug FROM academy.item_prerequisites WHERE item_slug = ${itemSlug}
     `;
@@ -444,24 +486,23 @@ export class ReleaseAccess {
     `;
     const windowRow = windows[0];
     const extension = extensions[0];
+    const window = windowRow
+      ? { availableFrom: windowRow.available_from, availableUntil: windowRow.available_until, dueAt: windowRow.due_at }
+      : null;
+    const extensionUntil = extension?.extended_until ?? null;
     const decision = decideRelease({
       completed: completed[0]?.completed === true,
       started: started[0]?.started === true,
       missing,
-      window: windowRow
-        ? {
-            availableFrom: windowRow.available_from,
-            availableUntil: windowRow.available_until,
-            dueAt: windowRow.due_at,
-          }
-        : null,
-      extensionUntil: extension?.extended_until ?? null,
+      window,
+      extensionUntil,
       now,
+      courseStartsAt,
     });
     return {
       itemSlug,
       ...decision,
-      availableFrom: windowRow?.available_from ?? null,
+      availableFrom: releaseOpensAt({ window, extensionUntil, courseStartsAt, now }),
       availableUntil: windowRow?.available_until ?? null,
       dueAt: windowRow?.due_at ?? null,
       extendedUntil: extension?.extended_until ?? null,

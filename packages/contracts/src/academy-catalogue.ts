@@ -74,3 +74,112 @@ export type AcademyPublicCourseCard = z.infer<typeof academyPublicCourseCardSche
 /** `publicHub`: the item staff chose for the hub's featured slot, or null when nobody chose one. Never auto-promoted. */
 export const academyPublicHubSchema = z.object({ featured: academyCurriculumSummarySchema.nullable() });
 export type AcademyPublicHub = z.infer<typeof academyPublicHubSchema>;
+
+/**
+ * AC-enrolment-01: enrolling in one course from its page. `audit` is the free track; `certificate` is the paid track and
+ * stays closed with `no_price` until the owner publishes a price (AC-commerce-01). A closed course or track carries its
+ * reason, never a guess.
+ */
+export const ACADEMY_ENROLMENT_TRACKS = ['audit', 'certificate'] as const;
+export type AcademyEnrolmentTrack = (typeof ACADEMY_ENROLMENT_TRACKS)[number];
+export const ACADEMY_ENROLMENT_CLOSED_REASONS = [
+  'unpublished',
+  'hidden',
+  'no_price',
+  'window_not_started',
+  'window_ended',
+  'full',
+] as const;
+export type AcademyEnrolmentClosedReason = (typeof ACADEMY_ENROLMENT_CLOSED_REASONS)[number];
+
+const isoInstant = z.string().datetime({ offset: true });
+
+/**
+ * `courseEnrolment` (signed in): the terms of enrolling and the caller's own enrolment. `startsAt` null means the course
+ * is self-paced and opens when you enrol. `seatCap` null means no cap is set, and then `seatsRemaining` is null too.
+ * `activationMail` names the outside piece the activation mail needs while it is switched off; null once it is sent.
+ */
+export const academyCourseEnrolmentSchema = z
+  .object({
+    slug: z.enum(ACADEMY_CURRICULUM_PATHS),
+    startsAt: isoInstant.nullable(),
+    seatCap: z.number().int().positive().nullable(),
+    seatsRemaining: z.number().int().nonnegative().nullable(),
+    closed: z.enum(ACADEMY_ENROLMENT_CLOSED_REASONS).nullable(),
+    tracks: z
+      .array(
+        z.object({
+          track: z.enum(ACADEMY_ENROLMENT_TRACKS),
+          free: z.boolean(),
+          closed: z.enum(ACADEMY_ENROLMENT_CLOSED_REASONS).nullable(),
+        }),
+      )
+      .min(1),
+    enrolment: z.object({ track: z.enum(ACADEMY_ENROLMENT_TRACKS), enrolledAt: isoInstant }).nullable(),
+    activationMail: z.literal('vendor.email').nullable(),
+  })
+  .refine((row) => (row.seatCap === null) === (row.seatsRemaining === null), {
+    message: 'seatsRemaining is set exactly when a seat cap is',
+  });
+export type AcademyCourseEnrolment = z.infer<typeof academyCourseEnrolmentSchema>;
+
+/** `enrolCourse` input. A repeat while enrolled answers with the same enrolment; nothing is created twice. */
+export const academyEnrolCourseInputSchema = z
+  .object({ slug: z.string().min(1).max(64), track: z.enum(ACADEMY_ENROLMENT_TRACKS) })
+  .strict();
+export type AcademyEnrolCourseInput = z.infer<typeof academyEnrolCourseInputSchema>;
+
+/**
+ * AC-catalogue-02: My learning, one row per course the caller is enrolled in. `completed` counts the course's items the
+ * caller has completed; `resumeItemSlug` is null until they have completed something in it, and then names
+ * where Continue goes. `firstItemSlug` is where Start course goes.
+ */
+export const ACADEMY_MY_COURSE_STATUSES = ['in_progress', 'completed', 'future_start'] as const;
+export const academyMyCourseSchema = z
+  .object({
+    slug: z.enum(ACADEMY_CURRICULUM_PATHS),
+    status: z.enum(ACADEMY_MY_COURSE_STATUSES),
+    enrolledAt: isoInstant,
+    startsAt: isoInstant.nullable(),
+    items: z.number().int().positive(),
+    completed: z.number().int().nonnegative(),
+    firstItemSlug: z.string().min(1),
+    resumeItemSlug: z.string().min(1).nullable(),
+  })
+  .refine((row) => row.completed <= row.items, { message: 'more items completed than the course has' });
+export type AcademyMyCourse = z.infer<typeof academyMyCourseSchema>;
+
+/**
+ * AC-access-grants-01: the caller's access records, one per course they may learn in. `source` says how the access was
+ * given; `expiresAt` null means it does not expire. Free enrolment is the only source today.
+ */
+export const ACADEMY_ACCESS_SOURCES = ['free', 'purchase', 'staff', 'invitation'] as const;
+export const academyAccessGrantSchema = z.object({
+  slug: z.enum(ACADEMY_CURRICULUM_PATHS),
+  source: z.enum(ACADEMY_ACCESS_SOURCES),
+  grantedAt: isoInstant,
+  expiresAt: isoInstant.nullable(),
+});
+export type AcademyAccessGrant = z.infer<typeof academyAccessGrantSchema>;
+
+/**
+ * AC-course-structure-02: the outline beside an open item, for the signed-in learner. Each item carries the caller's
+ * own release state; a locked item says why (`prerequisite` with the missing items, or `window` with when it opens,
+ * null when the window has closed) and its body is never part of the outline.
+ */
+export const ACADEMY_ITEM_STATES = ['locked', 'unlocked', 'started', 'completed'] as const;
+export const academyCourseOutlineItemSchema = z.object({
+  slug: z.string().min(1),
+  title: z.string().min(1),
+  kind: z.enum(ACADEMY_CURRICULUM_KINDS),
+  state: z.enum(ACADEMY_ITEM_STATES),
+  lock: z.enum(['prerequisite', 'window']).nullable(),
+  missing: z.array(z.string().min(1)),
+  opensAt: isoInstant.nullable(),
+});
+export type AcademyCourseOutlineItem = z.infer<typeof academyCourseOutlineItemSchema>;
+export const academyCourseOutlineSchema = z.object({
+  slug: z.enum(ACADEMY_CURRICULUM_PATHS),
+  items: z.array(academyCourseOutlineItemSchema).min(1),
+});
+export type AcademyCourseOutline = z.infer<typeof academyCourseOutlineSchema>;
