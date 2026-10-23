@@ -1,6 +1,46 @@
 {
   "label": "TEST: CX-8 rig and local test stack only. Not an owner decision and not a product default.",
   "values": {
+    "NOTIFY_ALERT_MAX_EXPIRY_DAYS": {
+      "service": "notify",
+      "value": "30",
+      "note": "Furthest an alert may expire."
+    },
+    "NOTIFY_ALERT_TEXT_MAX_LENGTH": {
+      "service": "notify",
+      "value": "200",
+      "note": "Longest alert name or message."
+    },
+    "NOTIFY_ALERT_MAX_CONDITIONS": {
+      "service": "notify",
+      "value": "3",
+      "note": "Most conditions one alert may hold."
+    },
+    "NOTIFY_ALERT_TRIGGER_LOG_DAYS": {
+      "service": "notify",
+      "value": "7",
+      "note": "Days the alert trigger log is kept."
+    },
+    "NOTIFY_ALERT_MAX_ACTIVE_PRICE": {
+      "service": "notify",
+      "value": "20",
+      "note": "Most price alerts one person may hold open."
+    },
+    "NOTIFY_ALERT_FREQUENCIES": {
+      "service": "notify",
+      "value": "every_crossing",
+      "note": "Lets a crossing alert repeat, so the repeat-alert journey step runs."
+    },
+    "NOTIFY_ALERT_BURST_WINDOW_MINUTES": {
+      "service": "notify",
+      "value": "10",
+      "note": "Burst auto-stop window."
+    },
+    "NOTIFY_ALERT_BURST_MAX_TRIGGERS": {
+      "service": "notify",
+      "value": "5",
+      "note": "Burst auto-stop count: the sixth trigger inside the window stops the alert."
+    },
     "NOTIFY_INBOX_PAGE_SIZE": {
       "service": "notify",
       "value": "20",
