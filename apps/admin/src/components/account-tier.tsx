@@ -1,24 +1,11 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
-import {
-  ACCOUNT_TIER_TERM_KEYS,
-  type AccountTier,
-  type AccountTierList,
-  type AccountTierResult,
-  type AccountTierState,
-} from '@intafaced/contracts';
+import type { AccountTier, AccountTierList, AccountTierResult, AccountTierState } from '@intafaced/contracts';
 import { ControlDesk } from '@/components/control-desk';
+import { TIER_TERM_KEYS, TIER_TERM_LABEL } from '@/lib/accounts/tier-terms';
 
-const TERM_LABEL: Record<(typeof ACCOUNT_TIER_TERM_KEYS)[number], string> = {
-  ratePercent: 'Rate (% a year)',
-  monthlyFee: 'Monthly fee',
-  feeAssetId: 'Fee and limit asset',
-  dailyLimit: 'Daily limit',
-  clearingDays: 'Clearing (days)',
-};
-
-function blankTerms(tier: AccountTier): string[] {
-  return ACCOUNT_TIER_TERM_KEYS.filter((key) => tier.terms[key] === null);
+function blankTerms(tier: AccountTier) {
+  return TIER_TERM_KEYS.filter((key) => tier.terms[key] === null);
 }
 
 /**
@@ -71,7 +58,7 @@ export function AccountTierPanel({ userId, founderId, onChanged }: { userId: str
         ? 'You cannot move your own account; the other founder can (identity.tier_self_forbidden).'
         : chosen && blankTerms(chosen).length > 0
           ? `Tier ${chosen.name} has blank terms (${blankTerms(chosen)
-              .map((key) => TERM_LABEL[key as keyof typeof TERM_LABEL].toLowerCase())
+              .map((key) => TIER_TERM_LABEL[key].toLowerCase())
               .join(', ')}), so it cannot be assigned (identity.tier_terms_unset).`
           : null;
 
@@ -103,8 +90,8 @@ export function AccountTierPanel({ userId, founderId, onChanged }: { userId: str
                 <thead>
                   <tr>
                     <th>Tier</th>
-                    {ACCOUNT_TIER_TERM_KEYS.map((key) => (
-                      <th key={key}>{TERM_LABEL[key]}</th>
+                    {TIER_TERM_KEYS.map((key) => (
+                      <th key={key}>{TIER_TERM_LABEL[key]}</th>
                     ))}
                   </tr>
                 </thead>
@@ -114,7 +101,7 @@ export function AccountTierPanel({ userId, founderId, onChanged }: { userId: str
                       <td>
                         {tier.name} <span className="adm-subtle">({tier.id})</span>
                       </td>
-                      {ACCOUNT_TIER_TERM_KEYS.map((key) => (
+                      {TIER_TERM_KEYS.map((key) => (
                         <td key={key}>{tier.terms[key] ?? 'not set'}</td>
                       ))}
                     </tr>
