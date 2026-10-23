@@ -78,6 +78,10 @@
       "types": "./dist/outreach-public.d.ts",
       "default": "./dist/outreach-public.js"
     },
+    "./status-page": {
+      "types": "./dist/status-page.d.ts",
+      "default": "./dist/status-page.js"
+    },
     "./ui-view-preferences": {
       "types": "./dist/ui-view-preferences.d.ts",
       "default": "./dist/ui-view-preferences.js"

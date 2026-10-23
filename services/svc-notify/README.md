@@ -175,6 +175,25 @@ the app shows the permission state and the `vendor.push` notice and registers no
 
 ## API
 
+### Public status page (SP-status-01)
+
+`statusPage.read` (signed-out) is what `/status` shows: the components the founders define, each with a state taken from
+an open incident or active maintenance notice that names it, else its newest reading inside the staleness window, else
+`no_data`. Nothing is typed in as operational, and the top level is the worst component. With nothing defined it answers
+`overall: none_defined`. The uptime strip is the worst reading per UTC day over the window; no percentage is made.
+
+- `statusPage.configure` (`admin:write`, module notify) replaces the component list and sets the owner values, from the
+  revision the founder read and with a reason. Changes are logged append-only in `notify.status_page_log` under
+  `status.page:r<revision>`; a replay of the same change returns the stored state.
+- `statusPage.record` (same scope) stores one reading (`component`, `observedAt`, `state`, `source`). The pair is the key:
+  a replay is one row, a different state at the same instant is `status.reading_conflict`. Readings are append-only.
+- Owner values, blank until a founder sets them: component cap (blank refuses any component, `status.component_cap_unset`),
+  staleness window in seconds (blank shows every reading as no data, `status.staleness_unset`), uptime window in days
+  (blank shows no strip). The journey sets labelled TEST values through `statusPage.configure`.
+- Incident and maintenance notices may name a defined component as well as `api`, `webhooks` and `console`; a trigger on
+  `notify.notices` refuses any other name. `notify.statusFeed` still reports only the three built-in components.
+- Readings come from founders today; a service that publishes its own health reading does it in its own contract PR.
+
 ### Guest outreach emails
 
 `guestNotifications.send`, `get`, and `eraseSubmission` are **POST mutations**

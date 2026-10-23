@@ -158,7 +158,17 @@ function dayKey(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10);
 }
 
-export function buildStatusFeed(rows: readonly NoticeRow[], at: Date, days: number): StatusFeed {
+/**
+ * `components` is the set the feed is about: the built-in three by default, or the status page's own. An incident or
+ * maintenance window lists only the components of that set, and one that names none of them is still listed.
+ */
+export function buildStatusFeed(
+  rows: readonly NoticeRow[],
+  at: Date,
+  days: number,
+  components: readonly StatusComponent[] = STATUS_COMPONENTS,
+): StatusFeed {
+  const inSet = (named: readonly StatusComponent[]) => named.filter((c) => components.includes(c));
   const now = at.getTime();
   const windowStart = Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate()) - (days - 1) * DAY_MS;
   const threads = threadsOf(rows, at);
@@ -173,7 +183,7 @@ export function buildStatusFeed(rows: readonly NoticeRow[], at: Date, days: numb
     id: t.root.id,
     title: t.root.title,
     impact: t.segments[t.segments.length - 1]!.impact,
-    components: t.segments[t.segments.length - 1]!.components,
+    components: inSet(t.segments[t.segments.length - 1]!.components),
     openedAt: t.root.publishedAt!.toISOString(),
     resolvedAt: t.resolvedAt?.toISOString() ?? null,
     updates: t.entries.map((entry) => ({
@@ -191,12 +201,12 @@ export function buildStatusFeed(rows: readonly NoticeRow[], at: Date, days: numb
     .map((row) => ({
       id: row.id,
       title: row.title,
-      components: row.components,
+      components: inSet(row.components),
       startsAt: row.startsAt?.toISOString() ?? null,
       endsAt: row.endsAt?.toISOString() ?? null,
     }));
 
-  const components: ComponentStatus[] = STATUS_COMPONENTS.map((component) => {
+  const states: ComponentStatus[] = components.map((component) => {
     let worst: { rank: number; state: ComponentState; since: Date } | null = null;
     for (const t of open) {
       const { impact, components: named } = t.segments[t.segments.length - 1]!;
@@ -217,7 +227,7 @@ export function buildStatusFeed(rows: readonly NoticeRow[], at: Date, days: numb
     const dayEnd = Math.min(dayStart + DAY_MS, now);
     history.push({
       date: dayKey(dayStart),
-      components: STATUS_COMPONENTS.map((component) => {
+      components: components.map((component) => {
         const spans: Array<[number, number]> = [];
         let worstRank = -1;
         let worstImpact: IncidentImpact | null = null;
@@ -250,7 +260,7 @@ export function buildStatusFeed(rows: readonly NoticeRow[], at: Date, days: numb
 
   return {
     asOf: at.toISOString(),
-    components,
+    components: states,
     incidents,
     maintenance,
     history: { basis: 'incident_notices_only', days: history },

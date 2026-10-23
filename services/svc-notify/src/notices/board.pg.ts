@@ -9,7 +9,7 @@ import {
   INCIDENT_PHASES,
   NOTICE_KINDS,
   NoticeError,
-  STATUS_COMPONENTS,
+  STATUS_COMPONENT_PATTERN,
   type IncidentImpact,
   type IncidentPhase,
   type NoticeKind,
@@ -62,8 +62,7 @@ function asPhase(value: string | null): IncidentPhase | null {
 }
 
 function asComponents(values: string[]): StatusComponent[] {
-  if (values.some((value) => !(STATUS_COMPONENTS as readonly string[]).includes(value)))
-    throw new NoticeError('notify.notice_component_unknown');
+  if (values.some((value) => !STATUS_COMPONENT_PATTERN.test(value))) throw new NoticeError('notify.notice_component_unknown');
   return values as StatusComponent[];
 }
 

@@ -25,8 +25,11 @@ export type NoticeKind = (typeof NOTICE_KINDS)[number];
 export type NoticeStatus = 'draft' | 'published';
 
 /** What a status notice can be about. Components with no notice stay `unknown`. */
+/** The built-in components of the developer status feed. Incident and maintenance notices may also name a component the public status page defines. */
 export const STATUS_COMPONENTS = ['api', 'webhooks', 'console'] as const;
-export type StatusComponent = (typeof STATUS_COMPONENTS)[number];
+/** A component a notice names: a built-in one, or one the status page defines (same shape as its id). */
+export type StatusComponent = string;
+export const STATUS_COMPONENT_PATTERN = /^[a-z][a-z0-9-]{1,39}$/;
 
 export const INCIDENT_IMPACTS = ['none', 'minor', 'major', 'critical'] as const;
 export type IncidentImpact = (typeof INCIDENT_IMPACTS)[number];
@@ -303,6 +306,8 @@ export class NoticeBoard {
     private readonly approvals: NoticeApprovalConsumer | null,
     private readonly commands: CommandLog,
     private readonly now: () => Date = () => new Date(),
+    /** The status page's own components, which a notice may name beside the built-in ones. None when no page is wired. */
+    private readonly pageComponents: () => Promise<readonly string[]> = async () => [],
   ) {}
 
   async draft(
@@ -377,8 +382,11 @@ export class NoticeBoard {
     const incident = input.kind === 'incident';
     if (!incident && (impact !== null || parentId !== null || resolves)) throw new NoticeError('notify.notice_incident_fields_invalid');
     if (!incident && input.kind !== 'maintenance' && components.length > 0) throw new NoticeError('notify.notice_incident_fields_invalid');
-    if (components.some((c) => !(STATUS_COMPONENTS as readonly string[]).includes(c)))
-      throw new NoticeError('notify.notice_component_unknown');
+    if (components.some((c) => !(STATUS_COMPONENTS as readonly string[]).includes(c))) {
+      const defined = new Set(await this.pageComponents());
+      if (components.some((c) => !(STATUS_COMPONENTS as readonly string[]).includes(c) && !defined.has(c)))
+        throw new NoticeError('notify.notice_component_unknown');
+    }
     if (impact !== null && !(INCIDENT_IMPACTS as readonly string[]).includes(impact))
       throw new NoticeError('notify.notice_incident_fields_invalid');
     if (incident && components.length > 0 && impact === null) throw new NoticeError('notify.notice_impact_unset');
@@ -501,6 +509,13 @@ export class NoticeBoard {
     const days = clampStatusDays(input.days);
     const rows = await this.store.listPublishedForStatus(STATUS_FEED_ROWS_MAX);
     return buildStatusFeed(rows, at, days);
+  }
+
+  /** The same feed over another set of components: the public status page's own. Notices naming other components are cut to these. */
+  async statusFeedFor(components: readonly string[], input: { days: number }, at: Date = this.now()): Promise<StatusFeed> {
+    const days = clampStatusDays(input.days);
+    const rows = await this.store.listPublishedForStatus(STATUS_FEED_ROWS_MAX);
+    return buildStatusFeed(rows, at, days, components);
   }
 
   async currentAnnouncement(at: Date = this.now()): Promise<NoticeWire | null> {
