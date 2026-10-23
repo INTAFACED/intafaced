@@ -319,7 +319,14 @@ assert.equal(
 
 // Charts owner values (C-ops-04): the LOCAL TEST values are the documented ones, IFC/USDT is never given one, and the
 // data class approval hashes exactly as svc-trade recomputes it (the same golden vector as its router test).
-assert.deepEqual(TEST_CHART_COUNTS, { compareCap: 3, chartCountLimit: 4, drawingCap: 50, brushPointCap: 2000, delayedBoundarySeconds: 30 });
+assert.deepEqual(TEST_CHART_COUNTS, {
+  compareCap: 3,
+  chartCountLimit: 4,
+  drawingCap: 50,
+  brushPointCap: 2000,
+  delayedBoundarySeconds: 30,
+  renderBudgetMs: 500,
+});
 assert.deepEqual(TEST_CHART_DATA_CLASSES, { 'BTC/USDT': 'real_time', 'ETH/USDT': 'real_time' });
 assert.equal(Object.keys(TEST_CHART_DATA_CLASSES).includes('IFC/USDT'), false, 'IFC/USDT stays unset on purpose');
 assert.equal(

@@ -14,6 +14,9 @@ import type { WidgetProps } from './MarketChartWidget';
 import { DrawingsLayer } from './drawings/DrawingsLayer';
 import type { DrawingLimits } from './drawings/model';
 import { ownerValue, useChartOwnerValues } from './owner-values';
+import { useBookHalt, useMarketLifecycle } from './market-state';
+import { refusalText } from './DataStatus';
+import { tradeRefusal } from './data-status';
 import {
   DEFAULT_SETTING,
   chartsHref,
@@ -50,6 +53,34 @@ function MarketSelect({
         ))}
       </select>
     </label>
+  );
+}
+
+/**
+ * The chart's way to the desk for its market. While the market's state is halted, not open or unreadable, the control is
+ * disabled and names the reason: the chart never offers an order into a market that cannot take one.
+ */
+function TradeLink({ symbol }: { symbol: string }) {
+  const { t } = chartsCopy.useCopy();
+  // The link is disabled until the state and the book are read, and while either is refused: one rule, the chart's own.
+  const lifecycle = useMarketLifecycle(symbol);
+  const bookHalt = useBookHalt(symbol);
+  const refusal = refusalText(tradeRefusal(lifecycle, bookHalt, Date.now()), t);
+  if (refusal !== null)
+    return (
+      <span className="cw-link-refused">
+        <button type="button" className="cw-link" disabled aria-describedby="cw-trade-refusal" data-code="trade.chart.order_entry_refused">
+          {t('Trade this market')}
+        </button>
+        <span id="cw-trade-refusal" role="status">
+          {refusal}
+        </span>
+      </span>
+    );
+  return (
+    <a className="cw-link" href={`/trade/spot/${pairOf(symbol)}`}>
+      {t('Trade this market')}
+    </a>
   );
 }
 
@@ -107,9 +138,7 @@ function Page({
         </div>
         <div className="cw-head-actions">
           <MarketSelect label={t('Choose a market')} value={market.symbol} markets={markets} onChoose={chooseMarket} />
-          <a className="cw-link" href={`/trade/spot/${pairOf(market.symbol)}`}>
-            {t('Trade this market')}
-          </a>
+          <TradeLink symbol={market.symbol} />
         </div>
       </header>
       {unoffered && (

@@ -13,6 +13,8 @@ const world = vi.hoisted(() => ({
   history: { status: 'idle' } as unknown,
   owner: {} as Record<string, unknown>,
   ownerStatus: 'ready' as 'ready' | 'loading' | 'error',
+  lifecycle: { status: 'ready', data: { state: 'OPEN', effectiveAt: 0, evidenceRefs: [] }, asOf: 0 } as unknown,
+  bookHalt: { status: 'ready', data: { halted: false, venueHalted: false }, asOf: 0 } as unknown,
 }));
 vi.mock('../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../shared/preferences')>();
@@ -31,6 +33,21 @@ vi.mock('./WorkbenchChart', () => ({
   WorkbenchChart: ({ candles, style, scheme }: { candles: readonly Candle[]; style: string; scheme: string }) => (
     <div data-testid="price-chart" data-mode={style} data-scheme={scheme} data-last={candles[candles.length - 1]?.c ?? ''} />
   ),
+}));
+// The market's state and newest trade: read as open and fresh unless a case says otherwise.
+vi.mock('./market-state', async (original) => ({
+  ...(await original<typeof import('./market-state')>()),
+  // A read is stamped when the chart asks: a read older than the state poll allows is not current.
+  useMarketLifecycle: () => {
+    const life = world.lifecycle as { status: string };
+    return life.status === 'ready' ? { ...life, asOf: Date.now() } : life;
+  },
+  useBookHalt: () => {
+    const book = world.bookHalt as { status: string };
+    return book.status === 'ready' ? { ...book, asOf: Date.now() } : book;
+  },
+  useServerClock: () => ({ status: 'ready', data: 0, asOf: Date.now() }),
+  useLastTrade: () => ({ status: 'ready', data: Date.now() - 5_000, asOf: 0 }),
 }));
 vi.mock('./history', async (original) => ({
   ...(await original<typeof import('./history')>()),
@@ -98,6 +115,7 @@ beforeEach(() => {
   world.candles = ready([bar(0, '1'), bar(60_000, '2')]);
   world.asked = [];
   world.history = { status: 'idle' };
+  world.lifecycle = { status: 'ready', data: { state: 'OPEN', effectiveAt: 0, evidenceRefs: [] }, asOf: 0 };
   // TEST owner values, not published ones.
   world.ownerStatus = 'ready';
   world.owner = {
@@ -106,6 +124,7 @@ beforeEach(() => {
     drawingCap: 50,
     brushPointCap: 2000,
     delayedBoundarySeconds: 30,
+    renderBudgetMs: 500,
     dataClass: 'real_time',
   };
 });
@@ -126,6 +145,26 @@ describe('chart workbench', () => {
     expect(world.asked).toContain('BTC/USDT:15m');
     expect((host.querySelector('.cw-head select') as HTMLSelectElement).value).toBe('BTC/USDT');
     expect(host.querySelector('a.cw-link')?.getAttribute('href')).toBe('/trade/spot/BTC-USDT');
+  });
+
+  it('a halted market shows the halt as its chip, a banner with the time, and refuses the trade link by name', async () => {
+    const since = Date.now() - 60_000;
+    world.lifecycle = { status: 'ready', data: { state: 'HALTED', effectiveAt: since, evidenceRefs: [] }, asOf: 0 };
+    await open();
+    expect(host.querySelector('[data-testid="chart-status"]')?.getAttribute('data-status')).toBe('halted');
+    expect(host.querySelector('[data-testid="chart-banner"]')?.getAttribute('data-kind')).toBe('halted');
+    expect(host.querySelector('[data-testid="chart-banner"]')?.textContent).toContain('Halted as of');
+    const trade = host.querySelector('button.cw-link') as HTMLButtonElement;
+    expect(trade.disabled).toBe(true);
+    expect(host.querySelector('a.cw-link')).toBeNull();
+    expect(host.querySelector('#cw-trade-refusal')?.textContent).toBe('Order entry is off: this market is halted.');
+  });
+
+  it('an unreadable market state refuses the trade link too, and the chip says the state is unavailable', async () => {
+    world.lifecycle = { status: 'error', retry: () => undefined };
+    await open();
+    expect(host.querySelector('[data-testid="chart-status"]')?.getAttribute('data-status')).toBe('lifecycle_unavailable');
+    expect((host.querySelector('button.cw-link') as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('opens at the interval in the address and keeps the person’s later choice', async () => {

@@ -54,3 +54,12 @@
 .quant-checks > li[data-status='warning'] {
   border-color: var(--if-warn);
 }
+
+.quant-account {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--if-line);
+  border-radius: var(--if-r-sm);
+}
