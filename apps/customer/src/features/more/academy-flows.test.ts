@@ -50,7 +50,15 @@ const quiz = {
     },
   ],
 };
-const attempt = (score: number, at: string, over = {}) => ({ slug, score, maxScore: 3, pass: score >= 3, submittedAt: at, hiddenUntil: null, ...over });
+const attempt = (score: number, at: string, over = {}) => ({
+  slug,
+  score,
+  maxScore: 3,
+  pass: score >= 3,
+  submittedAt: at,
+  hiddenUntil: null,
+  ...over,
+});
 
 type Call = { method: string; url: URL; body: unknown; authorization: string | null };
 type Reply = Response | Error | ((call: Call) => Response | Error);

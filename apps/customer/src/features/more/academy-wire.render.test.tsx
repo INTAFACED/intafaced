@@ -79,7 +79,14 @@ const reviewOf = (questions: AcademyQuizReview['questions']): AcademyQuizReview 
   reviewMode: questions === null ? 'score_only' : 'answers',
   questions,
 });
-const attempt = (score: number, at: string): Attempt => ({ slug: quizData.slug, score, maxScore: 3, pass: score >= 3, submittedAt: at, hiddenUntil: null });
+const attempt = (score: number, at: string): Attempt => ({
+  slug: quizData.slug,
+  score,
+  maxScore: 3,
+  pass: score >= 3,
+  submittedAt: at,
+  hiddenUntil: null,
+});
 const history = { status: 'ready' as const, data: [attempt(3, '2026-10-12T10:00:00.000Z'), attempt(1, '2026-10-11T10:00:00.000Z')] };
 const noop = () => undefined;
 const quiz = (over: Partial<TimedQuizViewProps> = {}) =>
