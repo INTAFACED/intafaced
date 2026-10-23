@@ -4,11 +4,11 @@
 
 Every value below is blank on purpose until the owners publish it. A blank one refuses with a typed `_unset` code and the room shows the refusal (AGENTS.md, product law). Nothing here is a product default. This file does not hold real values; it names what is missing.
 
-172 env settings, 235 owner values read elsewhere, 216 page sizes the caller sends. 569 distinct `_unset` codes in all.
+172 env settings, 236 owner values read elsewhere, 216 page sizes the caller sends. 570 distinct `_unset` codes in all.
 
 ## TEST profile
 
-`tooling/profiles/test-owner-values/` (one file per service) holds 75 values labelled **TEST**. A rig (CX-8, the local test stack) loads them so a fund, trade and withdraw journey runs. `node tooling/scripts/owner-settings.mjs --profile` prints them as exports and refuses unless `APP_ENV` is `dev` or `test`. They are never a product default and never reach a real environment.
+`tooling/profiles/test-owner-values/` (one file per service) holds 78 values labelled **TEST**. A rig (CX-8, the local test stack) loads them so a fund, trade and withdraw journey runs. `node tooling/scripts/owner-settings.mjs --profile` prints them as exports and refuses unless `APP_ENV` is `dev` or `test`. They are never a product default and never reach a real environment.
 
 ## Env settings
 
@@ -323,6 +323,7 @@ Read from a database row, a published record or a caller input. The first file i
 | `pay.kyb_doc_key_unset`                           | Pay                      | trade-funding (withdraw)    | `services/svc-pay/src/kyb-documents.ts`                          |
 | `pay.kyb_requirements_unset`                      | Pay                      | trade-funding (withdraw)    | `services/svc-pay/src/kyb-entity-types.ts`                       |
 | `pay.kyb_upload_rules_unset`                      | Pay                      | trade-funding (withdraw)    | `packages/contracts/src/kyb-documents.ts`                        |
+| `pay.link_confirmation_unset`                     | Pay                      | trade-funding (withdraw)    | `services/svc-pay/src/payment-link-share.ts`                     |
 | `pay.link_max_ttl_unset`                          | Pay                      | trade-funding (withdraw)    | `services/svc-pay/src/payment-service.ts`                        |
 | `pay.link_ttl_unset`                              | Pay                      | trade-funding (withdraw)    | `services/svc-pay/src/payment-service.ts`                        |
 | `pay.merchant_controls_unset`                     | Pay                      | trade-funding (withdraw)    | `services/svc-pay/src/control/mode.ts`                           |
