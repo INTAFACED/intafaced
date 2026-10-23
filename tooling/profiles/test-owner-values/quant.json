@@ -1,0 +1,55 @@
+{
+  "label": "TEST: CX-8 rig and local test stack only. Not an owner decision and not a product default.",
+  "values": {
+    "QUANT_OOS_MIN_TRADES": {
+      "service": "quant",
+      "value": "1",
+      "note": "Out-of-sample round trips a TEST backtest needs before it is judged; one, so a short TEST tape can be judged."
+    },
+    "QUANT_OOS_MIN_RETURN_PERCENT": {
+      "service": "quant",
+      "value": "0",
+      "note": "TEST: the out-of-sample part must not lose money after costs."
+    },
+    "QUANT_OOS_MAX_DRAWDOWN_PERCENT": {
+      "service": "quant",
+      "value": "10",
+      "note": "TEST largest out-of-sample fall from a peak, in percent. QUANT_OOS_MAX_SHORTFALL_PERCENT is left blank on purpose so the screen shows a verdict that names a missing criterion."
+    },
+    "QUANT_HOLDOUT_START": {
+      "service": "quant",
+      "value": "PT15M",
+      "note": "TEST holdout: the latest 15 minutes of the TEST tape, so a journey can run clear of it and be refused inside it."
+    },
+    "QUANT_CHECK_MAX_SAMPLE_GAP_PERCENT": {
+      "service": "quant",
+      "value": "5",
+      "note": "TEST overfitting threshold: warn when the out-of-sample return falls over 5 percentage points below in sample."
+    },
+    "QUANT_CHECK_MAX_VARIANTS": {
+      "service": "quant",
+      "value": "3",
+      "note": "TEST overfitting threshold: warn from the fourth variant, so a journey that tries five sees the warning."
+    },
+    "QUANT_CHECK_MAX_OFFSET_SHIFT_PERCENT": {
+      "service": "quant",
+      "value": "1",
+      "note": "TEST sensitivity threshold: warn when starting one bar later moves the return by over 1 percentage point."
+    },
+    "QUANT_ACCOUNT_MAX_LEVERAGE": {
+      "service": "quant",
+      "value": "100",
+      "note": "TEST simulated-account maximum leverage for margin backtests."
+    },
+    "QUANT_ACCOUNT_MARGIN_CALL_PERCENT": {
+      "service": "quant",
+      "value": "100",
+      "note": "TEST margin call when equity falls to the margin used."
+    },
+    "QUANT_ACCOUNT_STOP_OUT_PERCENT": {
+      "service": "quant",
+      "value": "90",
+      "note": "TEST stop-out close under the margin call, so a short TEST tape shows both events in order."
+    }
+  }
+}
