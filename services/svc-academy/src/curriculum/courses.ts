@@ -23,9 +23,8 @@ import type {
 import { ACADEMY_COURSE_STATES } from '@intafaced/contracts';
 import { AcademyError } from '../errors.js';
 import { assertSlugNotReserved } from './reserved-slugs.js';
-import { getCurriculumItem, type CurriculumPath } from './catalog.js';
+import { CURRICULUM_PATHS, getCurriculumItem } from './catalog.js';
 
-const SHIPPED_COURSES: readonly CurriculumPath[] = ['foundations', 'markets', 'builder', 'sovereign'];
 const EVENTS_SHOWN = 100;
 
 type CourseRow = {
@@ -96,7 +95,7 @@ function sameDetails(row: CourseRow, d: Details): boolean {
 /** A course slug is never a reserved tab, a shipped course (a curriculum path) or a lesson's address. */
 function assertSlugFree(slug: string): void {
   assertSlugNotReserved(slug);
-  if ((SHIPPED_COURSES as readonly string[]).includes(slug) || getCurriculumItem(slug))
+  if ((CURRICULUM_PATHS as readonly string[]).includes(slug) || getCurriculumItem(slug))
     throw new AcademyError(`slug "${slug}" is already the address of a course or lesson`, 'academy.course_slug_taken');
 }
 
@@ -124,8 +123,9 @@ export class CourseRecords {
         return courseOf(row);
       }
       const [existing] = await tx<CourseRow[]>`SELECT * FROM academy.courses WHERE slug = ${input.slug}`;
-      // The same create again (a lost reply) answers with the stored course; the slug with other details is someone else's.
-      if (existing && existing.revision === 1 && sameDetails(existing, input)) return courseOf(existing);
+      // The same founder's create again (a lost reply) answers with the stored course; anyone else's is a taken slug.
+      if (existing && existing.revision === 1 && existing.created_by === input.operatorId && sameDetails(existing, input))
+        return courseOf(existing);
       throw new AcademyError(`slug "${input.slug}" is already the address of a course`, 'academy.course_slug_taken');
     });
   }
@@ -203,14 +203,14 @@ export class CourseRecords {
   /** The page asked for, newest first, and the count in every state. A missing page size refuses; nothing dumps the table. */
   async list(input: { state?: AcademyCourseState; limit?: number }): Promise<AcademyCourseList> {
     if (input.limit === undefined) throw new AcademyError('the course list needs a page size', 'academy.courses_list_limit_unset');
-    const rows = input.state
-      ? await this.sql<CourseRow[]>`
-          SELECT * FROM academy.courses WHERE state = ${input.state} ORDER BY created_at DESC, id LIMIT ${input.limit}
-        `
-      : await this.sql<CourseRow[]>`SELECT * FROM academy.courses ORDER BY created_at DESC, id LIMIT ${input.limit}`;
-    const tally = await this.sql<Array<{ state: AcademyCourseState; n: number }>>`
-      SELECT state, count(*)::int AS n FROM academy.courses GROUP BY state
-    `;
+    const [rows, tally] = await Promise.all([
+      input.state
+        ? this.sql<CourseRow[]>`
+            SELECT * FROM academy.courses WHERE state = ${input.state} ORDER BY created_at DESC, id LIMIT ${input.limit}
+          `
+        : this.sql<CourseRow[]>`SELECT * FROM academy.courses ORDER BY created_at DESC, id LIMIT ${input.limit}`,
+      this.sql<Array<{ state: AcademyCourseState; n: number }>>`SELECT state, count(*)::int AS n FROM academy.courses GROUP BY state`,
+    ]);
     const counts = Object.fromEntries(ACADEMY_COURSE_STATES.map((s) => [s, 0])) as AcademyCourseList['counts'];
     for (const t of tally) counts[t.state] = t.n;
     return { courses: rows.map(courseOf), counts };

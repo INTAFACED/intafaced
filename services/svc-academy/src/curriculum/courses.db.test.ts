@@ -72,6 +72,8 @@ describe('creating a course', () => {
     await expect(records().create({ ...free, title: 'Another', operatorId: B, now: NOW })).rejects.toMatchObject({
       code: 'academy.course_slug_taken',
     });
+    // The same details from another founder are not their create: the course is someone else's.
+    await expect(records().create({ ...free, operatorId: B, now: NOW })).rejects.toMatchObject({ code: 'academy.course_slug_taken' });
     expect((await records().list({ limit: 10 })).counts.draft).toBe(1);
   });
 });

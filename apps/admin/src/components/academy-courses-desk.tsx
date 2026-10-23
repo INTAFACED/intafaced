@@ -262,20 +262,25 @@ export function AcademyCourseDesk({ courseId, initial }: { courseId: string; ini
   const [fields, setFields] = useState<Fields>(fieldsOf(loaded));
   const [reason, setReason] = useState('');
 
-  const reload = useCallback(async () => {
-    const next = await fetchCourses(courseId);
-    if (next && 'detail' in next) {
-      setView(next);
-      if (next.detail.kind === 'ok') setFields(fieldsOf(next.detail.data.course));
-    }
-  }, [courseId]);
+  /** `resetForm` only after a saved change: a refused edit keeps what the founder typed, so they can correct it. */
+  const reload = useCallback(
+    async (resetForm: boolean) => {
+      const next = await fetchCourses(courseId);
+      if (next && 'detail' in next) {
+        setView(next);
+        if (resetForm && next.detail.kind === 'ok') setFields(fieldsOf(next.detail.data.course));
+      }
+    },
+    [courseId],
+  );
 
   const send = async (body: Record<string, unknown>) => {
     setBusy(true);
-    setReply(await postCourseChange(body));
+    const answer = await postCourseChange(body);
+    setReply(answer);
     setBusy(false);
     // Whatever the answer, the page shows the course as svc-academy holds it now.
-    await reload();
+    await reload(answer.ok);
   };
 
   const detail = view?.detail;
@@ -291,7 +296,7 @@ export function AcademyCourseDesk({ courseId, initial }: { courseId: string; ini
       </div>
       <AcademyNav />
       <div className="dk-row">
-        <button type="button" className="adm-btn" onClick={() => void reload()}>
+        <button type="button" className="adm-btn" onClick={() => void reload(true)}>
           Refresh
         </button>
         <span className="dk-asof">{view ? `Read ${formatAsOf(view.asOf)}` : 'No read yet'}</span>

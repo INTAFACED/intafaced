@@ -567,14 +567,16 @@ export const courses = academy.table(
     createdAt: tstz('created_at').notNull(),
     updatedAt: tstz('updated_at').notNull(),
   },
-  (t) => [uniqueIndex('courses_slug_uq').on(t.slug), index('courses_state_idx').on(t.state, t.createdAt)],
+  (t) => [uniqueIndex('courses_slug_uq').on(t.slug), index('courses_state_idx').on(t.state, t.createdAt.desc())],
 );
 
 /** AC-course-structure-01: every create, edit and lifecycle move of a course, one row per revision, with who and why. */
 export const courseEvents = academy.table(
   'course_events',
   {
-    courseId: uuid('course_id').notNull(),
+    courseId: uuid('course_id')
+      .notNull()
+      .references(() => courses.id),
     revision: integer('revision').notNull(),
     kind: text('kind').notNull(),
     fromState: text('from_state'),
