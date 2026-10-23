@@ -19,6 +19,7 @@ import { MemoryApprovalBook, payloadHash } from './common.js';
 import { TradeOpsAdmin } from './service.js';
 import { currentRisk, currentRiskForMarkets } from './risk.js';
 import { readOpenInterestLimits } from '../futures/open-interest-limits.js';
+import { readPriceRangeSettings, sqlPriceBandStore } from '../futures/dynamic-price-band.js';
 import { tradeOpsAdminRouter } from './router.js';
 import { bindTradingRestrictApprovals } from './trading-restrict.js';
 
@@ -474,6 +475,71 @@ describe('trade operator procedures', () => {
     expect(cleared).toMatchObject({ version: '3', oiLimit: null, oiShareBps: '1000' });
     expect(readOpenInterestLimits(await currentRisk(db.sql, marketId))).toBeNull();
     expect(await admin.riskGet(operator(), marketId)).toMatchObject({ version: '3', oiLimit: null, oiShareBps: '1000' });
+  });
+
+  it('writes the dynamic price range, keeps it on a write that leaves it out, and the band record keeps each change (D-instruments-08)', async () => {
+    const reason = 'publish the dynamic price range';
+    const write = async (limits: Record<string, string | null>, expectedVersion: string, approvalId: string) => {
+      allow({
+        approvalId,
+        actionType: 'trade.risk_set',
+        operationId: `op-${approvalId}`,
+        targetId: marketId,
+        expectedVersion,
+        body: { actionType: 'trade.risk_set', market: marketId, limits, expectedVersion, reason },
+      });
+      return admin.riskSet(operatorWriter(), {
+        market: marketId,
+        limits: limits as typeof BLANK_LIMITS,
+        expectedVersion,
+        reason,
+        approvalId,
+        operationId: `op-${approvalId}`,
+      });
+    };
+    const range = { priceRangeMax: '0.2', priceRangeTrigger: '0.001', priceRangeCadenceSeconds: '30' };
+    for (const bad of [
+      { priceRangeMax: '0' },
+      { priceRangeMax: '1' },
+      { priceRangeMax: '-0.1' },
+      { priceRangeTrigger: '1' },
+      { priceRangeTrigger: 'x' },
+      { priceRangeCadenceSeconds: '0' },
+      { priceRangeCadenceSeconds: '86401' },
+      { priceRangeCadenceSeconds: '1.5' },
+    ]) {
+      await expect(write({ ...BLANK_LIMITS, ...range, ...bad }, '0', 'range-bad')).rejects.toMatchObject({ code: 'risk_limit_not_exact' });
+    }
+    const first = await write({ ...BLANK_LIMITS, ...range }, '0', 'range-1');
+    expect(first).toMatchObject({ version: '1', ...range });
+    expect(readPriceRangeSettings(await currentRisk(db.sql, marketId))).toEqual({
+      max: amt('0.2'),
+      trigger: amt('0.001'),
+      cadenceSeconds: 30,
+    });
+    // A write that sends only the first five keeps the range, as it keeps the open-interest pair.
+    expect(await write({ ...BLANK_LIMITS, fatFinger: '50' }, '1', 'range-2')).toMatchObject({ version: '2', ...range });
+    const cleared = await write({ ...BLANK_LIMITS, priceRangeTrigger: null }, '2', 'range-3');
+    expect(cleared).toMatchObject({ version: '3', priceRangeMax: '0.2', priceRangeTrigger: null });
+    expect(readPriceRangeSettings(await currentRisk(db.sql, marketId))).toBeNull();
+
+    // The band record: the band in force is upserted on each working; a change of value is kept once.
+    const store = sqlPriceBandStore(db.sql);
+    const at = (s: number) => new Date(Date.UTC(2026, 9, 23, 12, 0, s));
+    const working = { marketId, staticBand: amt('0.05'), premium: amt('0.01'), mark: amt('65000'), bookMid: amt('65650') };
+    expect(await store.record({ ...working, band: amt('0.06'), reason: 'widened', riskVersion: '3', checkedAt: at(0) })).toEqual({
+      changed: true,
+    });
+    expect(await store.record({ ...working, band: amt('0.06'), reason: 'widened', riskVersion: '3', checkedAt: at(30) })).toEqual({
+      changed: false,
+    });
+    expect(await store.current(marketId)).toMatchObject({ band: amt('0.06'), checkedAt: at(30), changedAt: at(0), riskVersion: '3' });
+    await store.record({ ...working, band: amt('0.05'), premium: amt('0'), reason: 'within_trigger', riskVersion: '3', checkedAt: at(60) });
+    const changes = await store.changes(marketId, 10);
+    expect(changes.map((c) => [c.band, c.previousBand, c.reason])).toEqual([
+      [amt('0.05'), amt('0.06'), 'within_trigger'],
+      [amt('0.06'), null, 'widened'],
+    ]);
   });
 
   it('reads the latest version as the newest one past version 9, not by its text', async () => {

@@ -61,6 +61,9 @@ const limits = z
     // Optional: a write that leaves them out keeps the market's current open-interest limits.
     oiLimit: z.string().nullable().optional(),
     oiShareBps: z.string().nullable().optional(),
+    priceRangeMax: z.string().nullable().optional(),
+    priceRangeTrigger: z.string().nullable().optional(),
+    priceRangeCadenceSeconds: z.string().nullable().optional(),
   })
   .strict();
 

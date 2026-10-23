@@ -4,6 +4,9 @@
  *
  * The two open-interest limits (D-margin-05) are read by the futures order path only
  * (`futures/open-interest-limits.ts`), where a blank one refuses every open on that market.
+ *
+ * The three dynamic price range values (D-instruments-08) are read by the futures price band job and order path only
+ * (`futures/dynamic-price-band.ts`). Any of them blank keeps the owner's static band in force.
  */
 import type { Sql } from 'postgres';
 import { formatAmount, mul, parseAmount, type Amount } from '@intafaced/ledger-client';
@@ -20,16 +23,29 @@ export interface RiskLimits {
   readonly oiLimit: string | null;
   /** The largest share of `oiLimit` one account may hold, in basis points (1 to 10000). */
   readonly oiShareBps: string | null;
+  /** The widest a futures market's dynamic price band may go, as a fraction of the mark (above 0, below 1). */
+  readonly priceRangeMax: string | null;
+  /** The premium of the futures book over the mark, as a fraction, past which the band widens (0 up to below 1). */
+  readonly priceRangeTrigger: string | null;
+  /** How often the band is worked out again, in whole seconds (1 to 86400). */
+  readonly priceRangeCadenceSeconds: string | null;
 }
 
+/** The fields a write may leave out, keeping the current values. Added after the first five, so older callers omit them. */
+export const CARRIED_RISK_FIELDS = [
+  'oiLimit',
+  'oiShareBps',
+  'priceRangeMax',
+  'priceRangeTrigger',
+  'priceRangeCadenceSeconds',
+] as const satisfies readonly (keyof RiskLimits)[];
+type CarriedRiskField = (typeof CARRIED_RISK_FIELDS)[number];
+
 /**
- * A write's limits. The open-interest pair may be left out, and then the new version keeps the current values: a
- * caller that does not know them yet (an older desk) never clears them by writing the other five. Null clears one.
+ * A write's limits. A carried field may be left out, and then the new version keeps the current value: a caller that
+ * does not know it yet (an older desk) never clears it by writing the others. Null clears one.
  */
-export type RiskLimitsInput = Omit<RiskLimits, 'oiLimit' | 'oiShareBps'> & {
-  readonly oiLimit?: string | null;
-  readonly oiShareBps?: string | null;
-};
+export type RiskLimitsInput = Omit<RiskLimits, CarriedRiskField> & { readonly [K in CarriedRiskField]?: string | null };
 
 export interface RiskVersion extends RiskLimits {
   readonly marketId: string;
@@ -51,6 +67,9 @@ interface RiskRow {
   circuit_breaker: string | null;
   oi_limit: string | null;
   oi_share_bps: string | null;
+  price_range_max: string | null;
+  price_range_trigger: string | null;
+  price_range_cadence_seconds: string | null;
   operator_id: string;
   approver_id: string;
   reason: string;
@@ -66,6 +85,9 @@ const EMPTY: RiskLimits = {
   circuitBreaker: null,
   oiLimit: null,
   oiShareBps: null,
+  priceRangeMax: null,
+  priceRangeTrigger: null,
+  priceRangeCadenceSeconds: null,
 };
 
 function present(row: RiskRow): RiskVersion {
@@ -79,6 +101,9 @@ function present(row: RiskRow): RiskVersion {
     circuitBreaker: row.circuit_breaker,
     oiLimit: row.oi_limit,
     oiShareBps: row.oi_share_bps,
+    priceRangeMax: row.price_range_max,
+    priceRangeTrigger: row.price_range_trigger,
+    priceRangeCadenceSeconds: row.price_range_cadence_seconds,
     operatorId: row.operator_id,
     approverId: row.approver_id,
     reason: row.reason,
@@ -120,6 +145,26 @@ export function validateLimits(input: RiskLimitsInput): RiskLimitsInput {
       throw new TradeOpsError('risk_limit_not_exact', 'oiShareBps must be an integer basis-point string from 1 to 10000');
     }
   }
+  const priceRangeMax = input.priceRangeMax == null ? input.priceRangeMax : exactDecimal(input.priceRangeMax, 'priceRangeMax');
+  const priceRangeTrigger =
+    input.priceRangeTrigger == null ? input.priceRangeTrigger : exactDecimal(input.priceRangeTrigger, 'priceRangeTrigger');
+  const priceRangeCadenceSeconds =
+    input.priceRangeCadenceSeconds == null
+      ? input.priceRangeCadenceSeconds
+      : exactInteger(input.priceRangeCadenceSeconds, 'priceRangeCadenceSeconds');
+  // The widest band is a fraction of the mark on each side, as the static band is: 0 is no band, 1 or more takes any price.
+  if (priceRangeMax != null && !fractionBelowOne(priceRangeMax, false)) {
+    throw new TradeOpsError('risk_limit_not_exact', 'priceRangeMax must be a fraction above 0 and below 1 (0.1 is 10%)');
+  }
+  if (priceRangeTrigger != null && !fractionBelowOne(priceRangeTrigger, true)) {
+    throw new TradeOpsError('risk_limit_not_exact', 'priceRangeTrigger must be a fraction from 0 to below 1 (0.01 is 1%)');
+  }
+  if (priceRangeCadenceSeconds != null) {
+    const seconds = Number(priceRangeCadenceSeconds);
+    if (!Number.isInteger(seconds) || seconds < 1 || seconds > 86_400) {
+      throw new TradeOpsError('risk_limit_not_exact', 'priceRangeCadenceSeconds must be a whole number of seconds from 1 to 86400');
+    }
+  }
   // Left out stays left out, so the approval's hash covers exactly what the caller sent.
   return {
     collar,
@@ -129,7 +174,27 @@ export function validateLimits(input: RiskLimitsInput): RiskLimitsInput {
     circuitBreaker,
     ...(oiLimit !== undefined ? { oiLimit } : {}),
     ...(oiShareBps !== undefined ? { oiShareBps } : {}),
+    ...(priceRangeMax !== undefined ? { priceRangeMax } : {}),
+    ...(priceRangeTrigger !== undefined ? { priceRangeTrigger } : {}),
+    ...(priceRangeCadenceSeconds !== undefined ? { priceRangeCadenceSeconds } : {}),
   };
+}
+
+function fractionBelowOne(text: string, zeroAllowed: boolean): boolean {
+  let value: Amount;
+  try {
+    value = parseAmount(text);
+  } catch {
+    return false;
+  }
+  return (zeroAllowed ? value >= 0n : value > 0n) && value < parseAmount('1');
+}
+
+/** The new version's carried fields: what the write sent, else the current version's value, else unset. */
+export function carriedLimits(limits: RiskLimitsInput, current: RiskLimits | null): Pick<RiskLimits, CarriedRiskField> {
+  const out = {} as Record<CarriedRiskField, string | null>;
+  for (const field of CARRIED_RISK_FIELDS) out[field] = limits[field] !== undefined ? limits[field]! : (current?.[field] ?? null);
+  return out;
 }
 
 // Every ORDER BY names the table's bigint column: a bare `version` sorts by the `version::text` output column, where
@@ -137,6 +202,7 @@ export function validateLimits(input: RiskLimitsInput): RiskLimitsInput {
 export async function currentRisk(sql: Sql, marketId: string): Promise<RiskVersion | null> {
   const [row] = await sql<RiskRow[]>`
     SELECT market_id, version::text, collar, fat_finger, slippage_cap, throttle, circuit_breaker, oi_limit, oi_share_bps,
+           price_range_max, price_range_trigger, price_range_cadence_seconds,
            operator_id, approver_id, reason, approval_id, created_at
       FROM trade.operator_risk_limits
      WHERE market_id = ${marketId}
@@ -156,6 +222,7 @@ export async function currentRiskForMarkets(sql: Sql, marketIds: readonly string
   const rows = await sql<RiskRow[]>`
     SELECT DISTINCT ON (market_id)
            market_id, version::text, collar, fat_finger, slippage_cap, throttle, circuit_breaker, oi_limit, oi_share_bps,
+           price_range_max, price_range_trigger, price_range_cadence_seconds,
            operator_id, approver_id, reason, approval_id, created_at
       FROM trade.operator_risk_limits
      WHERE market_id = ANY(${[...marketIds]}::uuid[])
@@ -167,6 +234,7 @@ export async function currentRiskForMarkets(sql: Sql, marketIds: readonly string
 export async function riskHistory(sql: Sql, marketId: string): Promise<RiskVersion[]> {
   const rows = await sql<RiskRow[]>`
     SELECT market_id, version::text, collar, fat_finger, slippage_cap, throttle, circuit_breaker, oi_limit, oi_share_bps,
+           price_range_max, price_range_trigger, price_range_cadence_seconds,
            operator_id, approver_id, reason, approval_id, created_at
       FROM trade.operator_risk_limits
      WHERE market_id = ${marketId}

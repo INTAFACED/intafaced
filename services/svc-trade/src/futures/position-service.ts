@@ -341,6 +341,10 @@ export interface PositionServiceDeps {
     matching: MatchingClient | null;
     enabled: boolean;
     priceBand: Amount | null;
+    /** The band a new order is held to now, under the operator's dynamic range (D-instruments-08); absent is the static band. */
+    priceBandFor?: (marketId: string) => Promise<Amount>;
+    /** The widest band a resting order may still sit in; absent is the static band. */
+    restingBandFor?: (marketId: string) => Promise<Amount>;
     lifecycleProof: ((marketId: string) => Promise<LifecycleAdmissionProof>) | null;
     /** The perpetual rates an account pays now (owner schedule less rank discount). Absent refuses opening orders. */
     feeRates?: ((userId: string) => Promise<FeeRates>) | null;
@@ -458,6 +462,8 @@ export class PositionService {
       matching: matchedOrders?.matching ?? null,
       enabled: matchedOrders?.enabled ?? false,
       priceBand: matchedOrders?.priceBand ?? null,
+      ...(matchedOrders?.priceBandFor ? { priceBandFor: matchedOrders.priceBandFor } : {}),
+      ...(matchedOrders?.restingBandFor ? { restingBandFor: matchedOrders.restingBandFor } : {}),
       maxLeverage: this.maxLeverage,
       now: this.now,
       markFor: async (marketId, symbol, at, size) => (await this.markFor(marketId, symbol, at, size)).price,

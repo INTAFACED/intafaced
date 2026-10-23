@@ -880,7 +880,18 @@ export const TEST_RISK_LIMITS = { collar: '0.1', throttle: '20' };
  */
 export const TEST_FUTURES_OI_LIMITS = { oiLimit: '1000', oiShareBps: '5000' };
 /** Every field of a market's operator limits row, in the order `admin.risk.get` answers them. */
-export const RISK_LIMIT_FIELDS = ['collar', 'fatFinger', 'slippageCap', 'throttle', 'circuitBreaker', 'oiLimit', 'oiShareBps'];
+export const RISK_LIMIT_FIELDS = [
+  'collar',
+  'fatFinger',
+  'slippageCap',
+  'throttle',
+  'circuitBreaker',
+  'oiLimit',
+  'oiShareBps',
+  'priceRangeMax',
+  'priceRangeTrigger',
+  'priceRangeCadenceSeconds',
+];
 export const RISK_SET_ACTION = 'trade.risk_set';
 
 /** Keys sorted, no spaces, null for an unset value: the form svc-trade hashes (services/svc-trade/src/admin/common.ts). */
@@ -936,7 +947,7 @@ export async function setPairRisk(ctx, symbol, changes, sessions = null) {
   const row = data(res);
   if (!row?.version) throw new Error(`trade admin.risk.set for ${symbol} refused (${res.status}): ${refusalText(res)}`);
   ctx.log(
-    `pair limits ${symbol}: version ${row.version}, band ${row.collar ?? 'not set'}, cap ${row.throttle ?? 'not set'}${row.oiLimit != null || row.oiShareBps != null ? `, open interest ${row.oiLimit ?? 'not set'} at ${row.oiShareBps ?? 'not set'} bps per account` : ''} (${MARKERS.label}); approval ${ids.approvalId}`,
+    `pair limits ${symbol}: version ${row.version}, band ${row.collar ?? 'not set'}, cap ${row.throttle ?? 'not set'}${row.oiLimit != null || row.oiShareBps != null ? `, open interest ${row.oiLimit ?? 'not set'} at ${row.oiShareBps ?? 'not set'} bps per account` : ''}${row.priceRangeMax != null ? `, price range up to ${row.priceRangeMax} past ${row.priceRangeTrigger ?? 'not set'} every ${row.priceRangeCadenceSeconds ?? 'not set'}s` : ''} (${MARKERS.label}); approval ${ids.approvalId}`,
   );
   return { symbol, marketId: market.id, version: row.version, changed: true, limits };
 }
@@ -1517,7 +1528,10 @@ async function main() {
       const symbol = process.argv[3];
       const pairs = process.argv.slice(4);
       if (!symbol || pairs.length === 0)
-        die('usage: local-test-gates.mjs risk <SYMBOL> collar=0.1|unset throttle=20|unset oiLimit=1000|unset ...', 2);
+        die(
+          'usage: local-test-gates.mjs risk <SYMBOL> collar=0.1|unset throttle=20|unset oiLimit=1000|unset priceRangeMax=0.2|unset ...',
+          2,
+        );
       const changes = {};
       for (const p of pairs) {
         const [k, v] = p.split('=');

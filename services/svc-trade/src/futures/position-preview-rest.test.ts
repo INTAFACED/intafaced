@@ -59,6 +59,7 @@ function appWith(input: {
   maxOrder?: number | null;
   riskTierFor?: Parameters<typeof registerPositionPreviewRest>[1]['riskTierFor'];
   openInterestFor?: Parameters<typeof registerPositionPreviewRest>[1]['openInterestFor'];
+  priceBandInForce?: Parameters<typeof registerPositionPreviewRest>[1]['priceBandInForce'];
 }) {
   const app = Fastify();
   const liquidation = input.liquidation;
@@ -75,6 +76,7 @@ function appWith(input: {
     ...(liquidation === undefined ? {} : { liquidationPriceFor: async () => (liquidation === null ? null : parseAmount(liquidation)) }),
     ...(input.riskTierFor ? { riskTierFor: input.riskTierFor } : {}),
     ...(input.openInterestFor ? { openInterestFor: input.openInterestFor } : {}),
+    ...(input.priceBandInForce ? { priceBandInForce: input.priceBandInForce } : {}),
   });
   return app;
 }
@@ -220,6 +222,70 @@ describe('POST /api/v1/positions/preview', () => {
     expect(bad.statusCode).toBe(400);
     expect(bad.json().error).toBe('trade.price_correction_invalid');
     await app.close();
+  });
+
+  it('shows the band in force with its width and why: wider while the dynamic range has widened it (D-instruments-08)', async () => {
+    const widened = appWith({
+      mark: '100',
+      cap: '5',
+      liquidation: '80',
+      priceBandInForce: async () => ({
+        fraction: parseAmount('0.08'),
+        staticFraction: parseAmount('0.05'),
+        source: 'dynamic',
+        reason: 'widened',
+        max: parseAmount('0.2'),
+        premium: parseAmount('0.03'),
+        checkedAt: new Date('2026-10-23T12:00:30.000Z'),
+        changedAt: new Date('2026-10-23T12:00:00.000Z'),
+      }),
+    });
+    const inside = await widened.inject({
+      method: 'POST',
+      url: '/api/v1/positions/preview',
+      headers: headers(),
+      payload: { ...payload, type: 'limit', limitPrice: '107' },
+    });
+    expect(inside.json()).toMatchObject({
+      band: {
+        fraction: '0.08',
+        low: '92',
+        high: '108',
+        staticFraction: '0.05',
+        source: 'dynamic',
+        reason: 'widened',
+        max: '0.2',
+        premium: '0.03',
+        changedAt: '2026-10-23T12:00:00.000Z',
+      },
+      orderPrice: '107',
+      orderable: true,
+    });
+    const outside = await widened.inject({
+      method: 'POST',
+      url: '/api/v1/positions/preview',
+      headers: headers(),
+      payload: { ...payload, type: 'limit', limitPrice: '109' },
+    });
+    expect(outside.json().refusals).toEqual([
+      expect.objectContaining({ code: 'trade.futures_price_outside_band', message: expect.stringContaining('92 to 108') }),
+    ]);
+    await widened.close();
+    // Unwired, the static band with its reason.
+    const plain = appWith({ mark: '100', cap: '5', liquidation: '80' });
+    const res = await plain.inject({ method: 'POST', url: '/api/v1/positions/preview', headers: headers(), payload });
+    expect(res.json().band).toEqual({
+      fraction: '0.05',
+      low: '95',
+      high: '105',
+      staticFraction: '0.05',
+      source: 'static',
+      reason: 'price_range_unset',
+      max: null,
+      premium: null,
+      changedAt: null,
+    });
+    await plain.close();
   });
 
   it('above the max-order the size line refuses and names the split; blank band and max-order refuse their own lines', async () => {

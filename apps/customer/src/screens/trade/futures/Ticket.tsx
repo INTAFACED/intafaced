@@ -412,6 +412,16 @@ export function Ticket(props: TicketProps) {
       },
     ];
   };
+  /** The band's width and, while the dynamic range has widened it, by how much and why. */
+  const bandHint = (band: NonNullable<PositionPreview['band']>): string => {
+    const pct = (v: string) => fmtPct(v, { signed: false });
+    if (band.source !== 'dynamic' || !band.staticFraction) return t('Band hint', { pct: pct(band.fraction) });
+    return t(band.reason === 'capped' ? 'Band wider capped hint' : 'Band wider hint', {
+      pct: pct(band.fraction),
+      usual: pct(band.staticFraction),
+      premium: band.premium == null ? '' : pct(band.premium),
+    });
+  };
   /** The band, the price the order is held and sent at, the slippage cap and the max-order: the limits this order meets. */
   const controlItems = (p: PositionPreview): KeyValueItem[] => {
     if (p.band === undefined) return [];
@@ -419,7 +429,7 @@ export function Ticket(props: TicketProps) {
       {
         label: t('Price band'),
         value: p.band === null ? t('Not set') : t('Band range', { low: price(p.band.low) ?? '', high: price(p.band.high) ?? '' }),
-        hint: p.band === null ? t('Band unset hint') : t('Band hint', { pct: fmtPct(p.band.fraction, { signed: false }) }),
+        hint: p.band === null ? t('Band unset hint') : bandHint(p.band),
       },
       { label: p.type === 'limit' ? t('Order price limit') : t('Order price market'), value: price(p.orderPrice ?? null) },
     ];

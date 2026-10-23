@@ -276,6 +276,16 @@ export interface MatchedOrdersDeps {
   readonly enabled: boolean;
   /** The owner's band as a fraction of the mark. Null is unset, and refuses new orders. */
   readonly priceBand: Amount | null;
+  /**
+   * The band a new order on a market is held to now (`dynamic-price-band.ts`): the static band, or wider while the
+   * operator's dynamic range has widened it. Absent holds every order to the static band.
+   */
+  readonly priceBandFor?: (marketId: string) => Promise<Amount>;
+  /**
+   * The widest band a resting order on a market may still sit in: the dynamic range's widest, else the static band. A
+   * band narrowing again never cancels an order it accepted. Absent uses the static band.
+   */
+  readonly restingBandFor?: (marketId: string) => Promise<Amount>;
   /** The owner's leverage cap. Null is unset, and refuses. */
   readonly maxLeverage: Amount | null;
   readonly now: () => Date;
@@ -707,6 +717,11 @@ interface WaitRow {
 export class MatchedFuturesOrders {
   constructor(private readonly deps: MatchedOrdersDeps) {}
 
+  /** The band a new order on this market is held to: the dynamic range's band in force, else the owner's static band. */
+  private async bandInForce(marketId: string, staticBand: Amount): Promise<Amount> {
+    return this.deps.priceBandFor ? this.deps.priceBandFor(marketId) : staticBand;
+  }
+
   /** Whether NEW matched orders are accepted. Read by the at-mark open, which must not run alongside them. */
   get matchingEnabled(): boolean {
     return this.deps.enabled;
@@ -800,6 +815,7 @@ export class MatchedFuturesOrders {
       refuse(FUTURES_PRICE_BAND_UNSET, 'the futures price band is unset on this deployment — the owner names it; nothing is invented');
     }
     const market = await this.loadMarket(input.symbol);
+    const inForce = await this.bandInForce(market.id, band);
     const lotSize = market.lot_size == null ? null : parseAmount(market.lot_size);
     // Every full child is a lot multiple, so a whole order off the lot step would only fail on its last child.
     const lot = checkCloseQuantity({ quantity: input.qty, size: input.qty, lotSize });
@@ -824,7 +840,7 @@ export class MatchedFuturesOrders {
         ? { ok: true as const, parts: [input.qty] }
         : splitPlan({
             qty: input.qty,
-            sizedAt: priceBandAround(mark, band).high,
+            sizedAt: priceBandAround(mark, inForce).high,
             maxOrderNotional: limitAmount(maxOrder),
             lotSize,
             ...(first ? { childSize: parseAmount(first.qty) } : {}),
@@ -862,7 +878,7 @@ export class MatchedFuturesOrders {
       await this.refuseUnconfirmedTier(input, market, total, mark);
       // The children not yet placed, together, must fit the room the open-interest limits leave.
       await this.refuseOverOpenInterest(input.userId, market, total);
-      const { bandAt, limit } = await this.openingLimit(input, market.id, mark, band);
+      const { bandAt, limit } = await this.openingLimit(input, market.id, mark, inForce);
       const rates = await this.openingFeeRates(input.userId);
       const hold = waiting.reduce(
         (sum, qty) =>
@@ -962,7 +978,8 @@ export class MatchedFuturesOrders {
     if (band === null) {
       refuse(FUTURES_PRICE_BAND_UNSET, 'the futures price band is unset on this deployment — the owner names it; nothing is invented');
     }
-    if (input.reduceOnly === true) return this.placeReduceOnly(principal, input, clientOrderId, market, band);
+    const inForce = await this.bandInForce(market.id, band);
+    if (input.reduceOnly === true) return this.placeReduceOnly(principal, input, clientOrderId, market, inForce);
 
     if (input.leverage % LEVERAGE_STEP !== 0n) {
       refuse('trade.leverage_invalid', 'leverage has at most two decimal places');
@@ -983,7 +1000,7 @@ export class MatchedFuturesOrders {
 
     const at = this.deps.now();
     const mark = await this.deps.markFor(market.id, market.symbol, at, input.qty);
-    const { bandAt, limit } = await this.openingLimit(input, market.id, mark, band);
+    const { bandAt, limit } = await this.openingLimit(input, market.id, mark, inForce);
 
     const slot = await this.deps.sql<{ id: string; leverage: string }[]>`
       SELECT id, leverage FROM trade.positions
@@ -2745,7 +2762,7 @@ export class MatchedFuturesOrders {
         skipped.push({ marketId: market.market_id, reason: typeof code === 'string' ? code : 'trade.mark_unavailable' });
         continue;
       }
-      const bandAt = priceBandAround(mark, band);
+      const bandAt = priceBandAround(mark, this.deps.restingBandFor ? await this.deps.restingBandFor(market.market_id) : band);
       const resting = await this.deps.sql<OrderRow[]>`
         SELECT * FROM trade.futures_orders WHERE market_id = ${market.market_id} AND status = 'open' ORDER BY id
       `;
