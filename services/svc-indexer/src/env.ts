@@ -191,6 +191,14 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
      */
     INDEXER_EXPLORER_LIST_LIMIT: z.string().optional(),
 
+    /**
+     * D-explorer-02: seconds a mempool hash may stay unseen before it is dropped.
+     * NO DEFAULT. Blank / unset does not refuse boot. A hash we already saw
+     * pending, which the node no longer has, refuses indexer.tx_drop_window_unset
+     * rather than inventing a window. Never invent a duration.
+     */
+    INDEXER_TX_DROP_WINDOW_SECONDS: z.string().optional(),
+
     INDEXER_BATCH_SIZE: z.preprocess(
       (value) => {
         if (value === undefined || value === null) return undefined;

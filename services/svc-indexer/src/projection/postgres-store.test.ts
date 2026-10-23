@@ -7,7 +7,7 @@ import { createTestDb, rewriteSchemaSql, type TestDb } from '@intafaced/db';
 import { formatAmount } from '@intafaced/ledger-client/money';
 import { PostgresProjectionStore } from './postgres-store.js';
 import { CHAIN_ID, runProjectionConformance } from '../testing/conformance.js';
-import type { ChainBlock } from '../chain/source.js';
+import type { ChainBlock, ChainTx } from '../chain/source.js';
 import { listPage, parseExplorerListLimit } from '../explorer/blocks.js';
 
 /**
@@ -265,6 +265,83 @@ describe('svc-indexer · PostgresProjectionStore PG-hard', () => {
       ).rejects.toThrow(/foreign key/);
     });
 
+    it('D-explorer-02: txs land with the block, replay stays one row, a reorg names the replacement', async () => {
+      await db.sql`TRUNCATE positions, fills, book_levels, blocks, explorer_tx_seen RESTART IDENTITY CASCADE`;
+      const store = new PostgresProjectionStore(db.sql, CHAIN_ID);
+      const zero = `0x${'00'.repeat(32)}`;
+      const h0 = `0x${'11'.repeat(32)}`;
+      const h1 = `0x${'22'.repeat(32)}`;
+      const h1b = `0x${'33'.repeat(32)}`;
+      const txA = `0x${'a1'.repeat(32)}`;
+      const txB = `0x${'b2'.repeat(32)}`;
+      const from = `0x${'ab'.repeat(20)}`;
+      const to = `0x${'cd'.repeat(20)}`;
+      const topic = `0x${'ee'.repeat(32)}`;
+      const chainTx = (hash: string): ChainTx => ({
+        hash,
+        index: 0,
+        from,
+        to,
+        valueWei: 0n,
+        nonce: 7,
+        gasLimit: 21_000n,
+        gasPriceWei: null,
+        gasConsumed: 21_000n,
+        status: 'failed',
+        revertReason: 'Error(string)',
+        input: '0xa9059cbb',
+        createdContract: null,
+        logs: [{ logIndex: 2, address: to, topics: [topic], data: '0x01' }],
+      });
+      const block = (height: number, hash: string, parentHash: string, transactions?: ChainTx[]): ChainBlock => ({
+        chainId: CHAIN_ID,
+        height,
+        hash,
+        parentHash,
+        timestamp: 1_700_000_000 + height,
+        events: [],
+        ...(transactions ? { transactions } : {}),
+      });
+
+      await store.applyBlock(block(0, h0, zero));
+      await store.applyBlock(block(1, h1, h0, [chainTx(txA)]));
+      await store.applyBlock(block(1, h1, h0, [chainTx(txA)]));
+      const [count] = await db.sql<Array<{ n: number }>>`SELECT COUNT(*)::int AS n FROM explorer_txs WHERE chain_id = ${CHAIN_ID}`;
+      const [logs] = await db.sql<Array<{ n: number }>>`SELECT COUNT(*)::int AS n FROM explorer_tx_logs WHERE chain_id = ${CHAIN_ID}`;
+      expect(count?.n).toBe(1);
+      expect(logs?.n).toBe(1);
+
+      const stored = await store.explorerTx(txA);
+      expect(stored?.tx.valueWei).toBe(0n);
+      expect(stored?.tx.gasPriceWei).toBeNull();
+      expect(stored?.tx.revertReason).toBe('Error(string)');
+      expect(stored?.tx.logs).toEqual([{ logIndex: 2, address: to, topics: [topic], data: '0x01' }]);
+      expect(stored?.replacementHash).toBeNull();
+
+      await store.unwindTo(1);
+      expect((await store.explorerTx(txA))?.blockStatus).toBe('orphaned');
+
+      await store.applyBlock(block(1, h1b, h0, [chainTx(txB)]));
+      const replaced = await store.explorerTx(txA);
+      expect(replaced?.blockStatus).toBe('orphaned');
+      expect(replaced?.replacementHash).toBe(txB);
+      expect((await store.explorerTx(txB))?.replacementHash).toBeNull();
+      expect((await store.explorerTx(txB))?.tx.status).toBe('failed');
+
+      const first = new Date('2026-01-01T00:00:00.000Z');
+      await store.noteExplorerTxPending(txA, first);
+      await store.noteExplorerTxPending(txA, new Date('2026-02-01T00:00:00.000Z'));
+      expect((await store.explorerTxPendingSince(txA))?.toISOString()).toBe(first.toISOString());
+
+      await expect(
+        db.sql`INSERT INTO explorer_txs (
+          chain_id, hash, block_hash, tx_index, from_address, to_address, value_wei, nonce, gas_limit, receipt_status, input_data
+        ) VALUES (
+          ${CHAIN_ID}, ${`0x${'ff'.repeat(32)}`}, ${`0x${'99'.repeat(32)}`}, 0, ${from}, ${to}, 0, 1, 1, 'success', '0x'
+        )`,
+      ).rejects.toThrow(/foreign key/);
+    });
+
     /**
      * Parent-link / height-gap parity with MemoryProjectionStore (memory #1420).
      * The store is the last line of defence if a second writer or corrupt apply
@@ -495,7 +572,16 @@ describe('svc-indexer · PostgresProjectionStore PG-hard', () => {
         ).map((r) => r.table_name);
 
       const before = await tableNames();
-      expect(before).toEqual(['blocks', 'book_levels', 'explorer_block_facts', 'fills', 'positions']);
+      expect(before).toEqual([
+        'blocks',
+        'book_levels',
+        'explorer_block_facts',
+        'explorer_tx_logs',
+        'explorer_tx_seen',
+        'explorer_txs',
+        'fills',
+        'positions',
+      ]);
 
       for (const body of [...downFiles].reverse()) {
         await db.sql.unsafe(rewriteSchemaSql(body, 'indexer', db.schema));
