@@ -306,6 +306,25 @@ export const addMoneyRequestSchema = z.object({
   createdAt: z.string(),
 });
 export type AddMoneyRequest = z.infer<typeof addMoneyRequestSchema>;
+/** svc-bank `bank.linkedAccounts.*` (J-bank-02 #6): the person's own accounts at other banks, each with its state. */
+export const linkedAccountSchema = z.object({
+  accountId: z.string(),
+  label: z.string(),
+  holderName: z.string(),
+  ibanMasked: z.string(),
+  country: z.string(),
+  state: z.enum(['unverified', 'verified']),
+  usable: z.boolean(),
+  blocker: z.enum(['bank.linked_account_unverified', 'bank.offramp_cooling_unset', 'bank.offramp_cooling_active']).nullable(),
+  verificationRail: z.literal('rail.bank').nullable(),
+  linkedAt: z.string(),
+  coolingOffEndsAt: z.string().nullable(),
+});
+export type LinkedAccount = z.infer<typeof linkedAccountSchema>;
+export const linkedAccountWrites = {
+  link: z.object({ account: linkedAccountSchema, created: z.boolean() }),
+  remove: z.object({ accountId: z.string(), removed: z.literal(true) }),
+};
 export const currencyWrites = {
   add: accountCurrencySchema,
   remove: z.object({ assetId: z.string(), removed: z.literal(true) }),
@@ -318,6 +337,7 @@ export const bankReads = {
   'currencies.list': currencySetSchema,
   'accountDetails.list': z.object({ currencies: z.array(accountDetailsRowSchema) }),
   'eligibility.get': eligibilitySchema,
+  'linkedAccounts.list': z.object({ accounts: z.array(linkedAccountSchema) }),
   'spaces.list': z.array(spaceSchema),
   'spaces.unnamed': z.array(z.object({ assetId: z.string(), balance: money })),
   'transfers.listSchedules': z.array(scheduleSchema),
