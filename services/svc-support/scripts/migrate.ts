@@ -7,7 +7,7 @@ import postgres from 'postgres';
  * Migration runner for support schema.
  *
  * Applies every `NNNN_*.sql` in order, tracked in `support.__migrations`.
- * That directory is the registry: 0031_help_centre.sql follows 0029 (the highest on origin/main).
+ * That directory is the registry: 0031_help_centre.sql follows 0029, and 0032_kb_library.sql follows 0031.
  * 0030 is reserved for the desk-views migration. Pass `--down` to reverse (CI reversibility, not for live desks).
  */
 

@@ -73,6 +73,7 @@ export * from './quant-algo.js';
 export * from './home-work-items.js';
 export * from './support-attachments.js';
 export * from './support-contact.js';
+export * from './support-kb-library.js';
 export * from './support-help-centre.js';
 export * from './outreach-public.js';
 export * from './status-page.js';

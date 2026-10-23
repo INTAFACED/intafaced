@@ -9,19 +9,10 @@ import { exactHelpArticle, helpHref, helpSelection, helpVersion, helpWindow, mis
 import { ContactSupport } from './ContactSupport';
 import { ActionRequired, RequestEntry } from './HelpFrontDoor';
 import { helpCentreSwitchedOff, useHelpCentre } from './help-centre';
-import { KB_CATEGORIES, inKbCategory, kbCategoryCounts, type KbCategory } from '../more/support-desk';
-import { deskCopy } from '../more/support-desk-copy';
+import { HelpLibraryNav } from './HelpLibrary';
+import { supportKbParagraphs } from '@intafaced/contracts/support-kb-library';
 import './help.css';
 import '../more/support-desk.css';
-
-const CATEGORY_KEY = {
-  all: 'categoryAll',
-  account: 'categoryAccount',
-  security: 'categorySecurity',
-  trading: 'categoryTrading',
-  money: 'categoryMoney',
-  general: 'categoryGeneral',
-} as const;
 
 type Actor = { client: ApiClient; owner: string | null; token: string | null };
 type Context = { actor: Actor; url: string };
@@ -55,8 +46,6 @@ export function PublicHelp() {
   const [window, setWindow] = useState({ actor, limit: 100 }),
     [retry, setRetry] = useState(0);
   const [read, setRead] = useState<Read | null>(null);
-  const [category, setCategory] = useState<KbCategory>('all');
-  const desk = deskCopy.useCopy();
   const helpCentre = useHelpCentre();
   const limit = window.actor === actor ? window.limit : 100;
   const queryText = query.actor === actor ? query.text : '';
@@ -116,20 +105,31 @@ export function PublicHelp() {
     if (visible && (selection.kind !== 'browse' || visible.status === 'failed')) heading.current?.focus();
   }, [context, read]);
 
-  const rendered = (article: HelpArticle) => ({
-    title: publishedCopy(article.titleKey, requestedLocale),
-    body: publishedCopy(article.bodyKey, requestedLocale),
-    titleLanguage: publishedLanguageFor(article.titleKey, requestedLocale),
-    bodyLanguage: publishedLanguageFor(article.bodyKey, requestedLocale),
-  });
+  // An answer typed in the desk carries its own text in its own language; a catalogue-keyed one is looked up.
+  const rendered = (article: HelpArticle) =>
+    article.title && article.body
+      ? { title: article.title, body: article.body, titleLanguage: article.language, bodyLanguage: article.language, stored: true }
+      : {
+          title: publishedCopy(article.titleKey, requestedLocale),
+          body: publishedCopy(article.bodyKey, requestedLocale),
+          titleLanguage: publishedLanguageFor(article.titleKey, requestedLocale),
+          bodyLanguage: publishedLanguageFor(article.bodyKey, requestedLocale),
+          stored: false,
+        };
+  /** Paragraphs as the reader sees them: a stored body by its blank lines, a catalogue body by its sentences. */
+  const paragraphs = (article: HelpArticle) => {
+    const text = rendered(article);
+    if (!text.body) return [];
+    return text.stored ? supportKbParagraphs(text.body) : text.body.split(/(?<=[.!?])\s+/);
+  };
   const fallback = (article: HelpArticle) => {
     const text = rendered(article);
+    if (text.stored) return false;
     return Boolean((text.title && text.titleLanguage !== requestedLocale) || (text.body && text.bodyLanguage !== requestedLocale));
   };
   const loaded = visible?.status === 'ready' && visible.value.kind === 'browse' ? visible.value : null;
   const articles =
     loaded?.articles.filter((article) => {
-      if (!inKbCategory(article.id, category)) return false;
       const text = rendered(article);
       return [text.title ?? '', text.body ?? '', article.id]
         .join(' ')
@@ -262,6 +262,7 @@ export function PublicHelp() {
           <div className="help__request">
             <RequestEntry />
           </div>
+          <HelpLibraryNav />
           <p className="help__caption muted" role="status">
             {loaded ? (
               <>
@@ -285,20 +286,6 @@ export function PublicHelp() {
               )}
               {loaded && (
                 <>
-                  <div className="support-chips" role="group" aria-label={desk.t('categoriesLabel')}>
-                    {KB_CATEGORIES.filter((id) => kbCategoryCounts(loaded.articles.map((row) => row.id))[id]).map((id) => (
-                      <button
-                        type="button"
-                        key={id}
-                        className={`support-chip${category === id ? ' support-chip--on' : ''}`}
-                        aria-pressed={category === id}
-                        onClick={() => setCategory(id)}
-                      >
-                        {desk.t(CATEGORY_KEY[id])}{' '}
-                        <span aria-hidden="true">{kbCategoryCounts(loaded.articles.map((row) => row.id))[id]}</span>
-                      </button>
-                    ))}
-                  </div>
                   <div className="help__list">
                     {articles.map((row) => {
                       const text = rendered(row);
@@ -315,7 +302,7 @@ export function PublicHelp() {
                             </a>
                           </div>
                           <p className="muted" lang={text.bodyLanguage ?? languageFor('bodyUnavailable')}>
-                            {text.body?.split(/(?<=[.!?])\s+/)[0] ?? t('bodyUnavailable')}
+                            {paragraphs(row)[0] ?? t('bodyUnavailable')}
                           </p>
                           <p className="help__caption muted">
                             {helpVersion(row) === undefined ? (
@@ -362,9 +349,7 @@ export function PublicHelp() {
             <>
               <article className="help__body help__measure" lang={rendered(article).bodyLanguage ?? languageFor('bodyUnavailable')}>
                 {rendered(article).body ? (
-                  rendered(article)
-                    .body!.split(/(?<=[.!?])\s+/)
-                    .map((paragraph, index) => <p key={index}>{paragraph}</p>)
+                  paragraphs(article).map((paragraph, index) => <p key={index}>{paragraph}</p>)
                 ) : (
                   <p>{t('bodyUnavailable')}</p>
                 )}

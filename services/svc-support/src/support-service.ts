@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { AuthError, requireScope, type Principal } from '@intafaced/auth';
 import {
+  SUPPORT_KB_STORED_BODY_KEY,
+  SUPPORT_KB_STORED_TITLE_KEY,
+  supportKbBodyProblem,
+  supportKbTitleProblem,
   SUPPORT_ATTACHMENT_DOWNLOAD_TYPE,
   SUPPORT_ATTACHMENT_KEYS,
   SUPPORT_KB_AUDIENCES,
@@ -1006,6 +1010,8 @@ export class SupportService implements SupportContract {
     baseRevision: number;
     category?: string | null;
     tags?: readonly string[] | null;
+    /** Text typed in the desk and its section (SP-kb-01); checked by publishKbText. */
+    text?: { title: string; body: string; language: string; sectionId: string };
   }): Promise<SupportKbArticle> {
     let topic: { category: string | null; tags: string[] | null };
     try {
@@ -1023,6 +1029,7 @@ export class SupportService implements SupportContract {
       published: true,
       category: topic.category,
       tags: topic.tags,
+      ...(input.text ? { text: input.text } : {}),
     });
     if (result.status === 'refuse') {
       if (result.reason === 'revision_stale') {
@@ -1031,6 +1038,39 @@ export class SupportService implements SupportContract {
       throw new SupportError('KB article refused', result.reason === 'vendor' ? 'support.kb_vendor_name' : 'support.kb_invalid');
     }
     return toPublicKb(result.article);
+  }
+
+  /**
+   * Publish an article typed in the desk (SP-kb-01). A blank title refuses `support.kb_title_blank`, a body that is
+   * blank, too long or carries control characters `support.kb_body_invalid`. The section is checked by the caller.
+   * The text is stored as typed (trimmed) and shown as text.
+   */
+  async publishKbText(input: {
+    id: string;
+    title: string;
+    body: string;
+    language: string;
+    sectionId: string;
+    tags?: readonly string[] | null;
+    baseRevision: number;
+  }): Promise<SupportKbArticle> {
+    const titleProblem = supportKbTitleProblem(input.title);
+    if (titleProblem) throw new SupportError('KB title refused', titleProblem);
+    const bodyProblem = supportKbBodyProblem(input.body);
+    if (bodyProblem) throw new SupportError('KB body refused', bodyProblem);
+    return this.publishKb({
+      id: input.id,
+      titleKey: SUPPORT_KB_STORED_TITLE_KEY,
+      bodyKey: SUPPORT_KB_STORED_BODY_KEY,
+      baseRevision: input.baseRevision,
+      tags: input.tags ?? null,
+      text: { title: input.title.trim(), body: input.body.trim(), language: input.language.trim(), sectionId: input.sectionId },
+    });
+  }
+
+  /** Every published article the viewer may read, unpaged: what the library counts and a section page draws from. */
+  async listKbVisible(viewer: SupportKbViewer = ANONYMOUS_KB_VIEWER): Promise<SupportKbArticle[]> {
+    return this.visibleKb(await this.store.listPublishedKb({ audiences: audiencesFor(viewer) }), viewer).map(toPublicKb);
   }
 
   /** Operator unpublish. Unpublished never appears on public list/search/get. */

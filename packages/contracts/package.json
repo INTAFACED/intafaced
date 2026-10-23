@@ -74,6 +74,10 @@
       "types": "./dist/support-contact.d.ts",
       "default": "./dist/support-contact.js"
     },
+    "./support-kb-library": {
+      "types": "./dist/support-kb-library.d.ts",
+      "default": "./dist/support-kb-library.js"
+    },
     "./support-help-centre": {
       "types": "./dist/support-help-centre.d.ts",
       "default": "./dist/support-help-centre.js"

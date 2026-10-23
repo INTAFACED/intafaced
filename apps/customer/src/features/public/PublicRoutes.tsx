@@ -7,6 +7,8 @@ import { ConfirmEmail } from './ConfirmEmail';
 import { Invitation } from './Invitation';
 import { DevelopersRoutes } from '../developers/DevelopersRoutes';
 import { PublicHelp as Help } from './PublicHelp';
+import { HelpLibrary } from './HelpLibrary';
+import { helpLibraryPath } from './help-library';
 import { findRoom, roomTitle } from '../../app/navigation';
 import { publicAuthContext, publicAuthHref } from './auth-context';
 import './public.css';
@@ -74,6 +76,8 @@ export function PublicRoutes({ path }: { path: string }) {
           <Invitation />
         ) : path === '/help' || path === '/helpdetail' ? (
           <Help />
+        ) : helpLibraryPath(path) ? (
+          <HelpLibrary at={helpLibraryPath(path)!} />
         ) : path === '/findPwd' ? (
           <PasswordRecovery />
         ) : path === '/about-us' ? (

@@ -319,6 +319,8 @@ export type PutKbRevisionInput =
       bodyKey: string;
       category?: string | null;
       tags?: readonly string[] | null;
+      /** Text typed in the desk, with its section (SP-kb-01). Left out for a catalogue-keyed article. */
+      text?: { title: string; body: string; language: string; sectionId: string };
     }
   | {
       id: string;
@@ -614,6 +616,10 @@ type PgKb = {
   category?: string | null;
   tags?: string[] | null;
   audience?: SupportKbAudience | null;
+  title?: string | null;
+  body?: string | null;
+  language?: string | null;
+  section_id?: string | null;
 };
 
 function topicOn(article: { category?: string | null; tags?: readonly string[] | null }): { category?: string; tags?: string[] } {
@@ -623,6 +629,34 @@ function topicOn(article: { category?: string | null; tags?: readonly string[] |
     ...(category ? { category } : {}),
     ...(tags.length > 0 ? { tags } : {}),
   };
+}
+
+/** The desk-typed text of a version row (0032), or nothing for a catalogue-keyed one. */
+function textOn(row: {
+  title?: string | null;
+  body?: string | null;
+  language?: string | null;
+  section_id?: string | null;
+}): Pick<SupportKbArticle, 'title' | 'body' | 'language' | 'sectionId'> {
+  return {
+    ...(row.title != null && row.body != null && row.language != null ? { title: row.title, body: row.body, language: row.language } : {}),
+    ...(row.section_id != null ? { sectionId: row.section_id } : {}),
+  };
+}
+
+/** The text columns to copy into a new version row, from an article or a stored version. */
+function textColumns(article: Pick<SupportKbArticle, 'title' | 'body' | 'language' | 'sectionId'>) {
+  return {
+    title: article.title ?? null,
+    body: article.body ?? null,
+    language: article.language ?? null,
+    sectionId: article.sectionId ?? null,
+  };
+}
+
+/** The text fields an article already carries, copied onto its next version. */
+function textOf(article: SupportKbArticle): Pick<SupportKbArticle, 'title' | 'body' | 'language' | 'sectionId'> {
+  return textOn({ title: article.title, body: article.body, language: article.language, section_id: article.sectionId });
 }
 
 function kbFromPg(row: PgKb): SupportKbArticle {
@@ -636,8 +670,19 @@ function kbFromPg(row: PgKb): SupportKbArticle {
     published: row.published,
     ...topicOn(row),
     ...(row.audience ? { audience: row.audience } : {}),
+    ...textOn(row),
   });
 }
+
+type PgVersionCarry = {
+  category: string | null;
+  tags: string[] | null;
+  audience: SupportKbAudience;
+  title: string | null;
+  body: string | null;
+  language: string | null;
+  section_id: string | null;
+};
 
 type PgKbVersion = {
   id: string;
@@ -647,6 +692,10 @@ type PgKbVersion = {
   category?: string | null;
   tags?: string[] | null;
   audience?: SupportKbAudience | null;
+  title?: string | null;
+  body?: string | null;
+  language?: string | null;
+  section_id?: string | null;
 };
 
 function kbFromVersionPg(row: PgKbVersion): SupportKbArticle {
@@ -659,6 +708,7 @@ function kbFromVersionPg(row: PgKbVersion): SupportKbArticle {
     revision: version,
     ...topicOn(row),
     ...(row.audience ? { audience: row.audience } : {}),
+    ...textOn(row),
   });
 }
 
@@ -1216,6 +1266,7 @@ export class MemorySupportStore implements SupportStore {
           published: true,
           ...topicOn(input),
           audience: 'public',
+          ...input.text,
         });
         this.kb.set(input.id, created);
         this.rememberVersion(created);
@@ -1232,6 +1283,7 @@ export class MemorySupportStore implements SupportStore {
         published: true,
         ...topicOn(input),
         audience: current.audience ?? 'public',
+        ...input.text,
       });
       this.kb.set(input.id, next);
       this.rememberVersion(next);
@@ -1251,6 +1303,7 @@ export class MemorySupportStore implements SupportStore {
       published: false,
       ...topicOn(current),
       audience: current.audience ?? 'public',
+      ...textOf(current),
     });
     this.kb.set(input.id, hidden);
     this.rememberVersion(hidden);
@@ -2134,7 +2187,8 @@ export class PostgresSupportStore implements SupportStore {
     // The audience filter and the page are one query, so a hidden article takes no place in a page.
     const audiences = options?.audiences ? [...options.audiences] : null;
     const rows = await this.sql<PgKb[]>`
-      SELECT a.id, a.title_key, a.body_key, a.revision, a.published, a.updated_at, v.category, v.tags, v.audience
+      SELECT a.id, a.title_key, a.body_key, a.revision, a.published, a.updated_at, v.category, v.tags, v.audience,
+             v.title, v.body, v.language, v.section_id
       FROM support.kb_articles AS a
       LEFT JOIN support.kb_article_versions AS v ON v.id = a.id AND v.version = a.revision
       WHERE a.published = true
@@ -2147,7 +2201,8 @@ export class PostgresSupportStore implements SupportStore {
 
   async getPublishedKb(id: string): Promise<SupportKbArticle | null> {
     const rows = await this.sql<PgKb[]>`
-      SELECT a.id, a.title_key, a.body_key, a.revision, a.published, a.updated_at, v.category, v.tags, v.audience
+      SELECT a.id, a.title_key, a.body_key, a.revision, a.published, a.updated_at, v.category, v.tags, v.audience,
+             v.title, v.body, v.language, v.section_id
       FROM support.kb_articles AS a
       LEFT JOIN support.kb_article_versions AS v ON v.id = a.id AND v.version = a.revision
       WHERE a.id = ${id} AND a.published = true
@@ -2158,7 +2213,7 @@ export class PostgresSupportStore implements SupportStore {
 
   async listKbVersions(id: string): Promise<SupportKbArticle[]> {
     const rows = await this.sql<PgKbVersion[]>`
-      SELECT id, title_key, body_key, version, category, tags, audience
+      SELECT id, title_key, body_key, version, category, tags, audience, title, body, language, section_id
       FROM support.kb_article_versions
       WHERE id = ${id}
       ORDER BY version
@@ -2182,6 +2237,7 @@ export class PostgresSupportStore implements SupportStore {
         const topic = topicOn(input);
         const category = topic.category ?? null;
         const tags = topic.tags ? tx.json(topic.tags) : null;
+        const text = textColumns(input.text ?? {});
         if (!current) {
           if (input.baseRevision !== 0) return { status: 'refuse', reason: 'revision_stale' };
           const rows = await tx<PgKb[]>`
@@ -2190,10 +2246,14 @@ export class PostgresSupportStore implements SupportStore {
             RETURNING id, title_key, body_key, revision, published, updated_at
           `;
           await tx`
-            INSERT INTO support.kb_article_versions (id, version, title_key, body_key, category, tags, audience)
-            VALUES (${input.id}, 1, ${input.titleKey}, ${input.bodyKey}, ${category}, ${tags}, 'public')
+            INSERT INTO support.kb_article_versions
+              (id, version, title_key, body_key, category, tags, audience, title, body, language, section_id)
+            VALUES (
+              ${input.id}, 1, ${input.titleKey}, ${input.bodyKey}, ${category}, ${tags}, 'public',
+              ${text.title}, ${text.body}, ${text.language}, ${text.sectionId}
+            )
           `;
-          return { status: 'ok', article: toPublicKb({ ...kbFromPg(rows[0]!), ...topic }) };
+          return { status: 'ok', article: toPublicKb({ ...kbFromPg(rows[0]!), ...topic, ...input.text }) };
         }
         if (current.revision !== input.baseRevision) return { status: 'refuse', reason: 'revision_stale' };
         const rows = await tx<PgKb[]>`
@@ -2214,20 +2274,26 @@ export class PostgresSupportStore implements SupportStore {
         `;
         const audience = heldAudience[0]?.audience ?? 'public';
         await tx`
-          INSERT INTO support.kb_article_versions (id, version, title_key, body_key, category, tags, audience)
-          VALUES (${input.id}, ${kbVersionOf(bumped)}, ${input.titleKey}, ${input.bodyKey}, ${category}, ${tags}, ${audience})
+          INSERT INTO support.kb_article_versions
+            (id, version, title_key, body_key, category, tags, audience, title, body, language, section_id)
+          VALUES (
+            ${input.id}, ${kbVersionOf(bumped)}, ${input.titleKey}, ${input.bodyKey}, ${category}, ${tags}, ${audience},
+            ${text.title}, ${text.body}, ${text.language}, ${text.sectionId}
+          )
         `;
-        return { status: 'ok', article: toPublicKb({ ...bumped, ...topic, audience }) };
+        return { status: 'ok', article: toPublicKb({ ...bumped, ...topic, audience, ...input.text }) };
       }
 
       if (!current) return { status: 'refuse', reason: 'invalid' };
       if (current.revision !== input.baseRevision) return { status: 'refuse', reason: 'revision_stale' };
-      const prev = await tx<{ category: string | null; tags: string[] | null; audience: SupportKbAudience }[]>`
-        SELECT category, tags, audience
+      const prev = await tx<PgVersionCarry[]>`
+        SELECT category, tags, audience, title, body, language, section_id
         FROM support.kb_article_versions
         WHERE id = ${input.id} AND version = ${current.revision}
       `;
       const carried = topicOn(prev[0] ?? {});
+      const carriedText = textOn(prev[0] ?? {});
+      const text = textColumns(carriedText);
       const rows = await tx<PgKb[]>`
         UPDATE support.kb_articles
         SET revision = revision + 1,
@@ -2241,7 +2307,8 @@ export class PostgresSupportStore implements SupportStore {
       // 0008 refuses a revision change that has no matching version row.
       // Copy the stored keys and the stored topic; do not write a new title or body.
       await tx`
-        INSERT INTO support.kb_article_versions (id, version, title_key, body_key, category, tags, audience)
+        INSERT INTO support.kb_article_versions
+          (id, version, title_key, body_key, category, tags, audience, title, body, language, section_id)
         VALUES (
           ${input.id},
           ${kbVersionOf(hidden)},
@@ -2249,10 +2316,14 @@ export class PostgresSupportStore implements SupportStore {
           ${hidden.bodyKey},
           ${carried.category ?? null},
           ${carried.tags ? tx.json(carried.tags) : null},
-          ${prev[0]?.audience ?? 'public'}
+          ${prev[0]?.audience ?? 'public'},
+          ${text.title}, ${text.body}, ${text.language}, ${text.sectionId}
         )
       `;
-      return { status: 'ok', article: toPublicKb({ ...hidden, ...carried, audience: prev[0]?.audience ?? 'public' }) };
+      return {
+        status: 'ok',
+        article: toPublicKb({ ...hidden, ...carried, audience: prev[0]?.audience ?? 'public', ...carriedText }),
+      };
     });
   }
 
@@ -2267,14 +2338,17 @@ export class PostgresSupportStore implements SupportStore {
       if (!locked[0]) return { status: 'refuse', reason: 'invalid' };
       const current = kbFromPg(locked[0]);
       if (current.revision !== input.baseRevision) return { status: 'refuse', reason: 'revision_stale' };
-      const prev = await tx<{ category: string | null; tags: string[] | null; audience: SupportKbAudience }[]>`
-        SELECT category, tags, audience
+      const prev = await tx<PgVersionCarry[]>`
+        SELECT category, tags, audience, title, body, language, section_id
         FROM support.kb_article_versions
         WHERE id = ${input.id} AND version = ${current.revision}
       `;
       const from = prev[0]?.audience ?? 'public';
       const carried = topicOn(prev[0] ?? {});
-      if (from === input.audience) return { status: 'ok', article: toPublicKb({ ...current, ...carried, audience: from }), changed: false };
+      const carriedText = textOn(prev[0] ?? {});
+      const text = textColumns(carriedText);
+      if (from === input.audience)
+        return { status: 'ok', article: toPublicKb({ ...current, ...carried, audience: from, ...carriedText }), changed: false };
       const rows = await tx<PgKb[]>`
         UPDATE support.kb_articles
         SET revision = revision + 1,
@@ -2286,7 +2360,8 @@ export class PostgresSupportStore implements SupportStore {
       const bumped = kbFromPg(rows[0]);
       // 0008 refuses a revision change that has no matching version row; the keys and topic are copied unchanged.
       await tx`
-        INSERT INTO support.kb_article_versions (id, version, title_key, body_key, category, tags, audience)
+        INSERT INTO support.kb_article_versions
+          (id, version, title_key, body_key, category, tags, audience, title, body, language, section_id)
         VALUES (
           ${input.id},
           ${kbVersionOf(bumped)},
@@ -2294,14 +2369,15 @@ export class PostgresSupportStore implements SupportStore {
           ${bumped.bodyKey},
           ${carried.category ?? null},
           ${carried.tags ? tx.json(carried.tags) : null},
-          ${input.audience}
+          ${input.audience},
+          ${text.title}, ${text.body}, ${text.language}, ${text.sectionId}
         )
       `;
       await tx`
         INSERT INTO support.kb_audience_changes (article_id, from_audience, to_audience, from_revision, to_revision, actor_id)
         VALUES (${input.id}, ${from}, ${input.audience}, ${current.revision ?? 0}, ${kbVersionOf(bumped)}, ${input.actorId})
       `;
-      return { status: 'ok', article: toPublicKb({ ...bumped, ...carried, audience: input.audience }), changed: true };
+      return { status: 'ok', article: toPublicKb({ ...bumped, ...carried, audience: input.audience, ...carriedText }), changed: true };
     });
   }
 
