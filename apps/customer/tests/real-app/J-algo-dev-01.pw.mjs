@@ -63,6 +63,84 @@ test(`${J} #1 opens Algo dev from the Trade menu: every room listed, quick start
 });
 
 /** The next write to `procedure` reaches the service, but its reply is lost on the way back, as on a dropped line. */
+/** The TEST starter template the journey reads, published by the stack's TEST founder through the operator write. */
+async function publishTestTemplate() {
+  const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
+  const ctx = await gates.makeContext({ log: () => {} });
+  const founders = await gates.approverSessions(ctx);
+  const res = await ctx.edge.mutate(
+    'quant',
+    'ops.template.publish',
+    {
+      id: 'test-ma-cross',
+      name: 'TEST moving-average cross',
+      description: 'Buys when a fast average crosses above a slow one and sells when it crosses back below.',
+      rules: {
+        symbol: 'BTC/USDT',
+        barSize: '1h',
+        signal: { kind: 'ma_cross', average: 'sma', fast: '', slow: '' },
+        sizing: { kind: 'quantity', value: '' },
+        exit: { stopLossPercent: '', takeProfitPercent: '' },
+      },
+      releaseNote: 'LOCAL TEST template for the algo journey.',
+      reason: 'LOCAL TEST journey template',
+      // One key for every run: a replay returns the first version instead of stacking new ones.
+      idempotencyKey: 'journey:J-algo-dev-01:test-ma-cross:v1',
+    },
+    // The operator write scope, as svc-trade's admin doors take it; a plain founder session is an ordinary user.
+    await founders.a.tradeOpsToken(),
+  );
+  if (!res.json?.result?.data?.version) throw new Error(`template publish refused: ${res.status} ${res.text.slice(0, 300)}`);
+  return res.json.result.data;
+}
+
+test(`${J} #2 picks a starter template and presses Use: a draft with every number blank and no return claim; Use again after a lost reply leaves one draft`, async ({
+  page,
+}) => {
+  const template = await publishTestTemplate();
+  await signIn(page, developer());
+  await page.goto('/quant/studio');
+  const templates = page.getByTestId('quant-templates');
+  const row = templates.getByRole('row', { name: new RegExp(template.name) });
+  await expect(row).toBeVisible();
+  await expect(row).toContainText(`Version ${template.version}`);
+  // No return, win rate or other performance figure is claimed for a template.
+  expect(await row.innerText()).not.toMatch(/\d\s*%|return|profit/i);
+
+  // The first Use reads the template but the reply is lost: nothing lands in the form.
+  await loseNextReply(page, 'template.get');
+  const use = row.getByRole('button', { name: `Use ${template.name}` });
+  await use.click();
+  await expect(templates.locator('.failure')).toBeVisible();
+  await expect(page.getByLabel('How the strategy trades')).toHaveValue('blocks');
+
+  // Pressing Use again reads it again and fills one draft.
+  await use.click();
+  await expect(page.getByTestId('quant-template-used')).toContainText(`${template.name} version ${template.version} is in the form`);
+  await expect(page.getByLabel('Strategy name')).toHaveValue(template.name);
+  await expect(page.getByLabel('How the strategy trades')).toHaveValue('signal');
+  const builder = page.getByTestId('quant-signal-builder');
+  await expect(builder.getByLabel('Symbol')).toHaveValue('BTC/USDT');
+  for (const label of [
+    'Fast average (bars)',
+    'Slow average (bars)',
+    'Size',
+    'Stop loss (percent, optional)',
+    'Take profit (percent, optional)',
+  ]) {
+    await expect(builder.getByLabel(label, { exact: true })).toHaveValue('');
+  }
+  await expect(page.getByLabel('Simulated starting cash')).toHaveValue('');
+  await expect(page.getByTestId('quant-save-state')).toContainText('Fill in a name, the starting cash');
+
+  // One draft: nothing was saved, and the form is the only copy. Clear it for the next step (the second press confirms).
+  await expect(page.getByText('No strategy is saved yet.')).toBeVisible();
+  const fresh = page.getByRole('button', { name: 'Start a new strategy' });
+  await fresh.click();
+  await fresh.click();
+  await expect(page.getByLabel('How the strategy trades')).toHaveValue('blocks');
+});
+
 test(`${J} #3 types the signal rule inputs: a blank required input refuses by name and nothing runs; filled, the builder shows the generated source`, async ({
   page,
 }) => {

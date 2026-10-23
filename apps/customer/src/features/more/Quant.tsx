@@ -30,6 +30,7 @@ import { fingerprint, newLink, readLink, writeLink, type StudioLink } from '../q
 import { studioCopy } from '../quant/studio-copy';
 import { builderCopy } from '../quant/builder-copy';
 import { SignalBuilder } from '../quant/SignalBuilder';
+import { StudioTemplates } from '../quant/StudioTemplates';
 import { emptySignalRules } from '../quant/signal-rules';
 import type { QuantSignalRules } from '@intafaced/contracts/quant-algo';
 import { emptyDraft, readDraft, writeDraft } from './quant-draft';
@@ -416,6 +417,23 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                 saved: fingerprint(head),
               })
             }
+          />
+          <StudioTemplates
+            onUse={(template) => {
+              if (!confirmReplace(`template:${template.id}`)) return false;
+              // A new draft: the template's choices with every number blank, and no cash or risk filled in for you.
+              load(
+                {
+                  name: template.name,
+                  cash: '',
+                  blocks: [],
+                  modules: template.rules,
+                  risk: { maxDrawdown: '', maxNotional: '', kill: '' },
+                },
+                newLink(),
+              );
+              return true;
+            }}
           />
           <QuantDisclosure />
         </div>
