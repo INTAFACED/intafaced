@@ -4,7 +4,7 @@
 
 Every value below is blank on purpose until the owners publish it. A blank one refuses with a typed `_unset` code and the room shows the refusal (AGENTS.md, product law). Nothing here is a product default. This file does not hold real values; it names what is missing.
 
-133 env settings, 218 owner values read elsewhere, 212 page sizes the caller sends. 528 distinct `_unset` codes in all.
+133 env settings, 219 owner values read elsewhere, 212 page sizes the caller sends. 529 distinct `_unset` codes in all.
 
 ## TEST profile
 
@@ -226,6 +226,7 @@ Read from a database row, a published record or a caller input. The first file i
 | `ledger.custody.off_exchange_owner_unset`         | Ledger                   | none yet                    | `services/svc-ledger/src/ledger/custody-adapters.ts`             |
 | `ledger.resilience.slo_owner_unset`               | Ledger                   | none yet                    | `services/svc-ledger/src/ledger/resilience-gate.ts`              |
 | `market.leverage_cap_unset`                       | Markets                  | none yet                    | `services/svc-market/src/perp-listing-eligibility.ts`            |
+| `market.listing_category_unset`                   | Markets                  | none yet                    | `services/svc-market/src/commerce/listing-categories.ts`         |
 | `market.listing_pin_unset`                        | Markets                  | none yet                    | `services/svc-market/src/live-markets.ts`                        |
 | `market.listing_set_unset`                        | Markets                  | none yet                    | `services/svc-market/src/live-markets.ts`                        |
 | `market.listings_sort_unset`                      | Markets                  | none yet                    | `services/svc-market/src/commerce/commerce-service.ts`           |
@@ -238,7 +239,7 @@ Read from a database row, a published record or a caller input. The first file i
 | `mining.epoch_unset`                              | Mining                   | none yet                    | `services/svc-mining-pool/src/ledger-client.ts`                  |
 | `mining.idempotency_key_unset`                    | Mining                   | none yet                    | `services/svc-mining-pool/src/share-rejections.ts`               |
 | `mining.worker_registration_scope_unset`          | Mining                   | none yet                    | `services/svc-mining-pool/src/router.ts`                         |
-| `notify.announcement_unset`                       | Notifications            | none yet                    | `services/svc-notify/src/notify-service.ts`                      |
+| `notify.announcement_unset`                       | Notifications            | none yet                    | `apps/customer/src/features/public/notices-api.ts`               |
 | `notify.changelog_area_unset`                     | Notifications            | none yet                    | `services/svc-notify/src/notices/changelog.ts`                   |
 | `notify.changelog_migration_note_unset`           | Notifications            | none yet                    | `services/svc-notify/src/notices/changelog.ts`                   |
 | `notify.contact_policy_field_unset`               | Notifications            | none yet                    | `services/svc-notify/src/ops-config/contact-policy.ts`           |
