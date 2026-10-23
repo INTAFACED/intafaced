@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef, useState, type ReactNode } from 'react';
 import { ACADEMY_LESSON_BLOCK_TYPES, ACADEMY_LESSON_FORMAT, type AcademyLessonBlockType } from '@intafaced/contracts/academy-courses';
 import { Chip } from '@/components/chip';
 import './desk.css';
@@ -335,7 +335,18 @@ function ImportForm({
   );
 }
 
-export function AcademyLessonEditor({ courseId, itemId, initial }: { courseId: string; itemId: string; initial: LessonView | null }) {
+export function AcademyLessonEditor({
+  courseId,
+  itemId,
+  initial,
+  files,
+}: {
+  courseId: string;
+  itemId: string;
+  initial: LessonView | null;
+  /** The item's video, captions and handouts (AC-videos-02), shown after the import. */
+  files?: ReactNode;
+}) {
   const router = useRouter();
   const [view, setView] = useState(initial);
   const [busy, setBusy] = useState(false);
@@ -412,6 +423,7 @@ export function AcademyLessonEditor({ courseId, itemId, initial }: { courseId: s
             onRefused={setReply}
           />
           <ImportReport reply={reply} />
+          {files}
           <section className="dk-stack" aria-labelledby="h-lesson-live">
             <h2 id="h-lesson-live">What learners see</h2>
             {live ? (

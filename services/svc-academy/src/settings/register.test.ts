@@ -12,6 +12,9 @@ const FULL: SettingsEnv = {
   ACADEMY_OUTLINE_MAX_SECTIONS: 20,
   ACADEMY_OUTLINE_MAX_ITEMS: 200,
   ACADEMY_LESSON_IMPORT_MAX_BYTES: 8192,
+  ACADEMY_UPLOAD_MAX_BYTES: 1_048_576,
+  ACADEMY_UPLOAD_VIDEO_TYPES: ['video/webm'],
+  ACADEMY_UPLOAD_HANDOUT_TYPES: ['application/pdf'],
   ACADEMY_MAX_ROOM_CAPACITY: 7,
   ACADEMY_PAPER_MARKETS_LIMIT: 3,
   TRADE_URL: 'http://trade.test',
@@ -81,6 +84,9 @@ describe('settingsRegister (AC-order-02)', () => {
       store: 'env',
       refusalCode: 'academy.import_limit_unset',
     });
+    for (const key of ['upload_size_limit', 'upload_video_types', 'upload_handout_types'])
+      expect(row({}, key)).toMatchObject({ state: 'not_set', store: 'env', refusalCode: 'academy.upload_limits_unset' });
+    expect(row({ ACADEMY_UPLOAD_VIDEO_TYPES: ['video/webm'] }, 'upload_video_types').state).toBe('set');
     expect(row({}, 'cert_verify_rate').refusalCode).toBe('academy.verify_rate_unset');
     expect(row({}, 'ambassador_ifc_pay_law').refusalCode).toBe('academy.ambassador_pay.rates_unset');
     expect(row({}, 'ambassador_revenue_share_law').refusalCode).toBe('academy.ambassador_revenue_share.rates_unset');

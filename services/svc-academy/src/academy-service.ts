@@ -43,6 +43,8 @@ import { ReleaseAccess } from './release/access.js';
 import { FeaturedSlot } from './curriculum/featured.js';
 import { CourseRecords } from './curriculum/courses.js';
 import { LessonRecords } from './curriculum/lessons.js';
+import { CourseMedia, type ReadBackFn } from './curriculum/media.js';
+import type { VideoStorageConfig } from './video/storage.js';
 import { CourseStarts } from './curriculum/course-start.js';
 import { publicCourse } from './curriculum/public-catalogue.js';
 import { accessGrantView, assertTrackOpen, courseEnrolmentView, myCourseView, publishedCourse } from './curriculum/course-enrolment.js';
@@ -70,6 +72,8 @@ import type {
   AcademyImportLessonInput,
   AcademyAssistantDraftInput,
   AcademyDecideDraftInput,
+  AcademyMediaIntentInput,
+  AcademySetItemCaptionsInput,
   AcademyUpdateCourseInput,
 } from '@intafaced/contracts';
 import { normaliseHolderName } from './certs/holder-name.js';
@@ -262,6 +266,12 @@ export interface AcademyServiceOptions {
   outlineMaxItems?: number;
   /** AC-course-structure-03: the owner's lesson import size limit in bytes. Unset, an import refuses `academy.import_limit_unset`. */
   lessonImportMaxBytes?: number;
+  /** AC-videos-02: our own object store for course files, and the owner's upload limits. Unset limits refuse `academy.upload_limits_unset`. */
+  mediaStorage?: VideoStorageConfig | null;
+  uploadMaxBytes?: number;
+  uploadVideoTypes?: readonly string[];
+  uploadHandoutTypes?: readonly string[];
+  mediaReadBack?: ReadBackFn;
   /** Stage-1 tournament ladder kill-switch (`ACADEMY_TOURNAMENT_ENABLED`). */
   tournamentEnabled?: boolean;
   /** Stage-3 paper-trading ops kill-switch (`ACADEMY_PAPER_TRADING_ENABLED`). */
@@ -293,6 +303,7 @@ export class AcademyService {
   private readonly featured: FeaturedSlot;
   private readonly courseRecords: CourseRecords;
   private readonly lessonRecords: LessonRecords;
+  private readonly courseMedia: CourseMedia;
   private readonly courseStarts: CourseStarts;
   private readonly plannerStore: PlannerStore;
   private readonly videoTracks: VideoTracks;
@@ -318,6 +329,16 @@ export class AcademyService {
       maxItems: this.options.outlineMaxItems ?? null,
     });
     this.lessonRecords = new LessonRecords(sql, this.courseRecords, this.options.lessonImportMaxBytes ?? null);
+    this.courseMedia = new CourseMedia(
+      sql,
+      this.options.mediaStorage ?? null,
+      {
+        maxBytes: this.options.uploadMaxBytes ?? null,
+        videoTypes: this.options.uploadVideoTypes ?? null,
+        handoutTypes: this.options.uploadHandoutTypes ?? null,
+      },
+      this.options.mediaReadBack,
+    );
     this.courseStarts = new CourseStarts(sql);
     this.plannerStore = new PlannerStore(sql, this.options.plannerTodoLimit ?? null);
     this.videoTracks = new VideoTracks(sql);
@@ -2212,6 +2233,26 @@ export class AcademyService {
 
   decideDraft(input: AcademyDecideDraftInput & { operatorId: string; now?: Date }) {
     return this.lessonRecords.decideDraft({ ...input, now: input.now ?? new Date() });
+  }
+
+  /** AC-videos-02: an item's uploads, captions and the owner's upload limits. */
+  itemMedia(itemId: string, now: Date = new Date()) {
+    return this.courseMedia.itemMedia(itemId, now);
+  }
+
+  /** AC-videos-02: a declared file checked against the limits, and a signed upload address for its bytes. */
+  mediaUploadIntent(input: AcademyMediaIntentInput & { operatorId: string; now?: Date }) {
+    return this.courseMedia.intent({ ...input, now: input.now ?? new Date() });
+  }
+
+  /** AC-videos-02: the stored file read back and checked against what was declared. */
+  confirmMedia(input: { mediaId: string; operatorId: string; now?: Date }) {
+    return this.courseMedia.confirm({ ...input, now: input.now ?? new Date() });
+  }
+
+  /** AC-videos-02: one language's SRT or WebVTT captions for the item's video. */
+  setItemCaptions(input: AcademySetItemCaptionsInput & { operatorId: string; now?: Date }) {
+    return this.courseMedia.setCaptions({ ...input, now: input.now ?? new Date() });
   }
 
   setFeatured(input: { itemSlug: string | null; reason: string; operatorId: string; now?: Date }) {
