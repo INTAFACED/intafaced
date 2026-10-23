@@ -107,7 +107,13 @@ export function CancelMany({
         if (result.ok) {
           const done = result.data.filter(isTerminalOrder);
           cancelled = done.map((order) => order.id);
-          setOutcome({ kind: 'all', tone: 'good', text: t('Cancel all done', { count: done.length }) });
+          // An order the service returned that has not ended yet may still be open: say so, never "all cancelled".
+          const left = result.data.length - done.length;
+          setOutcome(
+            left === 0
+              ? { kind: 'all', tone: 'good', text: t('Cancel all done', { count: done.length }) }
+              : { kind: 'all', tone: 'bad', text: t('Cancel all partial', { count: done.length, left }) },
+          );
         } else {
           // Some orders may already be cancelled when a later one fails, so a refusal never says "nothing was cancelled".
           setOutcome({ kind: 'all', tone: 'bad', text: t('Cancel all uncertain') });

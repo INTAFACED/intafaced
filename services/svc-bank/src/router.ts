@@ -63,6 +63,7 @@ import { createAccountDetailsRouter, createEligibilityRouter } from './account-d
 import { createAccountsRouter, createCurrenciesRouter } from './account-home/account-home.router.js';
 import { createAddMoneyRouter } from './ramps/add-money.router.js';
 import { ONRAMP_METHODS } from './ramps/customer-ports.js';
+import { createWorkItemsRouter } from './home/work-items.js';
 import { createCreditCardPreviewRouter } from './loans/credit-card-preview.router.js';
 import { createBillsRouter, createGlobalRouter } from './personal-pay/router.js';
 import { createPersonalRequestRouter } from './transfers/personal-request.router.js';
@@ -4925,6 +4926,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     accounts: createAccountsRouter(bank, guard),
     currencies: createCurrenciesRouter(bank, guard),
     addMoney: createAddMoneyRouter(bank, guard),
+    /** Home's work list (HM-dashboard-03): the bank's own kinds for the signed person. */
+    workItems: createWorkItemsRouter(() => bank.transferOps.sql, guard),
     eligibility: createEligibilityRouter(bank, guard),
     /** BK-loan-10 credit card preview: TEST rows and typed Preview refusals only. */
     creditCard: createCreditCardPreviewRouter(),
