@@ -233,4 +233,97 @@ describe('loans.projection, payoffQuote, statement (BK-loan-06)', () => {
       }),
     ).rejects.toMatchObject({ code: 'bank.statement_unavailable' });
   });
+
+  it('writes off an insured liquidation shortfall so closing debt is zero and the lines sum to it', async () => {
+    const bank = services();
+    const opened = await seed(bank);
+    const saleAt = new Date('2026-06-15T00:00:00.000Z');
+    await sql`
+      INSERT INTO bank.loan_liquidations (
+        loan_id, tranche, ltv_bps, mark_price, collateral_sold, proceeds,
+        principal_repaid, interest_repaid, penalty, surplus_returned, shortfall,
+        status, ledger_tx_id, bad_debt_ledger_tx_id, settled_at
+      ) VALUES (
+        ${opened.loan.id}, 0, 9000, '10000'::numeric, '0.008'::numeric, '80'::numeric,
+        '80'::numeric, '0'::numeric, '0'::numeric, '0'::numeric, '20'::numeric,
+        'settled', 'sale-tx-80', 'bad-debt-tx-20', ${saleAt}
+      )
+    `;
+    const books = await bank.loans.outstanding(opened.loan.id);
+    expect(formatAmount(books.principal)).toBe('0');
+    expect(formatAmount(books.interest)).toBe('0');
+    const file = await bank.loans.statement({
+      loanId: opened.loan.id,
+      from: '2026-06-01T00:00:00.000Z',
+      to: '2026-07-01T00:00:00.000Z',
+      now: new Date('2026-07-02T00:00:00.000Z'),
+    });
+    expect(file.closingPrincipal).toBe('0');
+    expect(file.closingInterest).toBe('0');
+    expect(file.closingPrincipal).toBe(formatAmount(books.principal));
+    expect(file.closingInterest).toBe(formatAmount(books.interest));
+    const text = Buffer.from(file.bodyBase64, 'base64').toString('utf8');
+    const summed = statementDebt(text, file.openingPrincipal, file.openingInterest);
+    expect(summed.principal).toBe(file.closingPrincipal);
+    expect(summed.interest).toBe(file.closingInterest);
+    const sale = summed.rows.find((row) => row.kind === 'liquidation');
+    const wroteOff = summed.rows.find((row) => row.kind === 'liquidation_shortfall');
+    expect(sale).toMatchObject({ principal: '80', interest: '0', ledgerTxId: 'sale-tx-80' });
+    expect(wroteOff).toMatchObject({ principal: '20', interest: '0', ledgerTxId: 'bad-debt-tx-20' });
+    expect(signStatement(SECRET, Buffer.from(file.bodyBase64, 'base64'))).toEqual({
+      sha256: file.sha256,
+      signature: file.signature,
+    });
+  });
 });
+
+/** Opening plus draws and interest, minus repayments, sales and insured shortfall. */
+function statementDebt(text: string, openingPrincipal: string, openingInterest: string) {
+  let principal = amt(openingPrincipal);
+  let interest = amt(openingInterest);
+  const rows: Array<{ kind: string; interest: string; principal: string; ledgerTxId: string }> = [];
+  for (const line of text.split('\n')) {
+    if (!line || line.startsWith('#') || line.startsWith('kind,')) continue;
+    const cells = csvCells(line);
+    const kind = cells[0] ?? '';
+    const interestCell = cells[3] ?? '0';
+    const principalCell = cells[4] ?? '0';
+    const ledgerTxId = cells[6] ?? '';
+    rows.push({ kind, interest: interestCell, principal: principalCell, ledgerTxId });
+    const linePrincipal = amt(principalCell);
+    const lineInterest = amt(interestCell);
+    if (kind === 'draw' || kind === 'interest') {
+      principal += linePrincipal;
+      interest += lineInterest;
+    } else if (kind === 'repayment' || kind === 'liquidation' || kind === 'liquidation_shortfall') {
+      principal -= linePrincipal;
+      interest -= lineInterest;
+    } else if (linePrincipal !== 0n || lineInterest !== 0n) {
+      throw new Error(`statement line ${kind} moves debt and is not in the sum`);
+    }
+  }
+  return { principal: formatAmount(principal), interest: formatAmount(interest), rows };
+}
+
+function csvCells(line: string): string[] {
+  const cells: string[] = [];
+  let current = '';
+  let quoted = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i]!;
+    if (quoted) {
+      if (ch === '"') {
+        if (line[i + 1] === '"') {
+          current += '"';
+          i += 1;
+        } else quoted = false;
+      } else current += ch;
+    } else if (ch === '"') quoted = true;
+    else if (ch === ',') {
+      cells.push(current);
+      current = '';
+    } else current += ch;
+  }
+  cells.push(current);
+  return cells;
+}

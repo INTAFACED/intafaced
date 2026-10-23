@@ -214,12 +214,23 @@ async function debtBefore(sql: Sql, loanId: string, cutoff: Date, drawnPrincipal
       FROM bank.loan_repayments
      WHERE loan_id = ${loanId} AND status = 'settled' AND COALESCE(settled_at, created_at) < ${cutoff}
   `;
-  const seized = await sql<Array<{ p: string; i: string }>>`
-    SELECT COALESCE(SUM(principal_repaid), 0)::text AS p, COALESCE(SUM(interest_repaid), 0)::text AS i
+  const seized = await sql<Array<{ p: string; i: string; s: string }>>`
+    SELECT COALESCE(SUM(principal_repaid), 0)::text AS p,
+           COALESCE(SUM(interest_repaid), 0)::text AS i,
+           COALESCE(SUM(
+             CASE
+               WHEN shortfall > 0 AND bad_debt_ledger_tx_id IS NOT NULL THEN shortfall
+               ELSE 0
+             END
+           ), 0)::text AS s
       FROM bank.loan_liquidations
-     WHERE loan_id = ${loanId} AND status = 'settled' AND COALESCE(settled_at, created_at) < ${cutoff}
+     WHERE loan_id = ${loanId}
+       AND status = 'settled'
+       AND COALESCE(settled_at, created_at) < ${cutoff}
   `;
-  const principal = drawn - parseAmount(repaid[0]?.p ?? '0') - parseAmount(seized[0]?.p ?? '0');
+  // Insured shortfall is principal the books wrote off. It counts on the sale's
+  // cutoff, and only once bad_debt_ledger_tx_id is set, the same rule as outstanding().
+  const principal = drawn - parseAmount(repaid[0]?.p ?? '0') - parseAmount(seized[0]?.p ?? '0') - parseAmount(seized[0]?.s ?? '0');
   const interest = parseAmount(accrued[0]?.v ?? '0') - parseAmount(repaid[0]?.i ?? '0') - parseAmount(seized[0]?.i ?? '0');
   return { principal: principal > 0n ? principal : 0n, interest: interest > 0n ? interest : 0n };
 }
@@ -349,10 +360,18 @@ export async function buildLoanStatement(
     });
   }
   const liquidations = await sql<
-    Array<{ settled_at: Date; interest_repaid: string; principal_repaid: string; ledger_tx_id: string | null }>
+    Array<{
+      settled_at: Date;
+      interest_repaid: string;
+      principal_repaid: string;
+      shortfall: string;
+      ledger_tx_id: string | null;
+      bad_debt_ledger_tx_id: string | null;
+    }>
   >`
     SELECT COALESCE(settled_at, created_at) AS settled_at, interest_repaid::text AS interest_repaid,
-           principal_repaid::text AS principal_repaid, ledger_tx_id
+           principal_repaid::text AS principal_repaid, shortfall::text AS shortfall,
+           ledger_tx_id, bad_debt_ledger_tx_id
       FROM bank.loan_liquidations
      WHERE loan_id = ${loan.id} AND status = 'settled'
        AND COALESCE(settled_at, created_at) >= ${from}
@@ -362,15 +381,28 @@ export async function buildLoanStatement(
   for (const row of liquidations) {
     const interest = parseAmount(row.interest_repaid);
     const principal = parseAmount(row.principal_repaid);
+    const at = row.settled_at.toISOString();
     lines.push({
       kind: 'liquidation',
-      at: row.settled_at.toISOString(),
+      at,
       amount: interest + principal,
       interest,
       principal,
       asset: loan.debtAssetId,
       ledgerTxId: row.ledger_tx_id ?? '',
     });
+    const shortfall = parseAmount(row.shortfall);
+    if (shortfall > 0n && row.bad_debt_ledger_tx_id !== null) {
+      lines.push({
+        kind: 'liquidation_shortfall',
+        at,
+        amount: shortfall,
+        interest: 0n,
+        principal: shortfall,
+        asset: loan.debtAssetId,
+        ledgerTxId: row.bad_debt_ledger_tx_id,
+      });
+    }
   }
   const provisional = toMs > now.getTime();
   const generatedAt = now.toISOString();
