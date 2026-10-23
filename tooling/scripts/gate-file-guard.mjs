@@ -61,6 +61,7 @@ export const GATE_PATHS = [
   ['**/CLAUDE.md', 'the short rules a service, app or package loads for its own directory'],
   ['tooling/agent-protocol/**', 'the agent protocol every agent loads'],
   ['.agents/**', 'agent skills and rules'],
+  ['docs/agents/**', 'the build, review and brief guides AGENTS.md tells every agent to read'],
   ['.cursor/rules/**', 'agent rules'],
   ['turbo.json', 'which tasks CI runs and how they depend on each other'],
   ['.prettierignore', 'which files the format check skips'],

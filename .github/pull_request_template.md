@@ -2,7 +2,7 @@
 Title: <type>(<scope>): <what changed>
    e.g. feat(svc-identity): rank recalculation on XP events
    A PR that changes a gate file (for example tooling/ci, .github/workflows,
-   AGENTS.md, CLAUDE.md, .cursor/rules, tooling/agent-protocol) needs a ci: or gate: title.
+   AGENTS.md, CLAUDE.md, .cursor/rules, tooling/agent-protocol, docs/agents) needs a ci: or gate: title.
 
 Keep it small. One service per PR. If describing it needs the word "and", it is
 two PRs. A slice is the exception: its contracts or events, one service and that
