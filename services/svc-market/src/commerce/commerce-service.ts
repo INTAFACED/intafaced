@@ -360,8 +360,9 @@ export class CommerceService {
     /** Whole seconds. Required for subscription; forbidden for one-time. No default. */
     periodSeconds?: number | null;
     /**
-     * Published taxonomy slug. Omit for strategy and legacy one-time creates.
-     * A string is checked against the owner list — never stored if it is not on it.
+     * Published taxonomy slug. Required for one-time — omit is not a null row.
+     * Strategy (subscription) may omit it. A string is checked against the
+     * owner list and is never stored unless that check returns the slug.
      */
     category?: string | null;
   }): Promise<ListingRecord> {
@@ -389,9 +390,6 @@ export class CommerceService {
       throw new MarketError('Listing price must be positive', 'market.listing_invalid_price');
     }
 
-    const category =
-      input.category === undefined || input.category === null ? null : assertListingCategory(this.config.listingCategories, input.category);
-
     // Create gate ≠ public "listed". A vendor is listed only AFTER they hold a
     // usable slot; the first listing is what claims that slot. Using
     // listingEligibility here would refuse every first listing with
@@ -405,6 +403,15 @@ export class CommerceService {
     if (vendor.status !== 'approved') {
       throw new MarketError('Only an approved vendor can create listings', 'market.vendor_not_approved');
     }
+
+    // One-time writes only a published slug. Null stays lawful for strategy rows
+    // (and for legacy one-time rows already stored). Do not backfill those.
+    const category =
+      input.offerType === 'one_time'
+        ? assertListingCategory(this.config.listingCategories, input.category)
+        : input.category == null
+          ? null
+          : assertListingCategory(this.config.listingCategories, input.category);
 
     const priceStr = formatAmount(price);
 

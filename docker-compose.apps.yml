@@ -1451,6 +1451,8 @@ services:
       # Pass-through only — no compose default. Silence still refuses
       # market.commission_not_configured. Copy .env.example → .env for 0.
       MARKET_HOUSE_COMMISSION_BPS: ${MARKET_HOUSE_COMMISSION_BPS:-}
+      # Owner taxonomy for non-strategy listings. Pass-through only — blank stays unset.
+      MARKET_LISTING_CATEGORIES: ${MARKET_LISTING_CATEGORIES:-}
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4018']
     healthcheck: *healthcheck

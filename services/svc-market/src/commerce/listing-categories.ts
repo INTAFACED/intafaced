@@ -39,17 +39,33 @@ export function readListingCategories(value: unknown): readonly string[] | undef
   return parts;
 }
 
-export const marketListingCategoriesSchema: z.ZodType<readonly string[] | undefined> = z.any().transform((value, ctx) => {
-  try {
-    return readListingCategories(value);
-  } catch (err) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: err instanceof Error ? err.message : 'MARKET_LISTING_CATEGORIES is invalid',
-    });
-    return z.NEVER;
-  }
-});
+/**
+ * Blank / whitespace is unset, same as house commission bps.
+ * `.optional()` is what the services map reads — a missing value does not refuse boot.
+ * An invalid list still throws. There is no `.default()` list.
+ */
+export const marketListingCategoriesSchema = z.preprocess(
+  (value) => {
+    if (value === undefined || value === null) return undefined;
+    if (typeof value === 'string' && value.trim() === '') return undefined;
+    return value;
+  },
+  z
+    .any()
+    .transform((value, ctx): readonly string[] | undefined => {
+      if (value === undefined) return undefined;
+      try {
+        return readListingCategories(value);
+      } catch (err) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: err instanceof Error ? err.message : 'MARKET_LISTING_CATEGORIES is invalid',
+        });
+        return z.NEVER;
+      }
+    })
+    .optional(),
+);
 
 export function requireListingTaxonomy(taxonomy: readonly string[] | null | undefined): readonly string[] {
   if (taxonomy == null || taxonomy.length === 0) {

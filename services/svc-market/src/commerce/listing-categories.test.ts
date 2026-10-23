@@ -101,6 +101,22 @@ describe('listing category taxonomy — no built-in list', () => {
     }
   });
 
+  it('passes a blank category list through compose and .env.example without slugs', () => {
+    const repo = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
+    const compose = readFileSync(join(repo, 'docker-compose.apps.yml'), 'utf8');
+    const start = compose.search(/^  svc-market:/m);
+    expect(start).toBeGreaterThanOrEqual(0);
+    const rest = compose.slice(start);
+    const next = rest.slice(1).search(/^  [a-z0-9-]+:/m);
+    const block = next === -1 ? rest : rest.slice(0, next + 1);
+    expect(block).toMatch(/MARKET_LISTING_CATEGORIES:\s*\$\{MARKET_LISTING_CATEGORIES:-\}/);
+    expect(block).not.toMatch(/MARKET_LISTING_CATEGORIES:\s*\$\{MARKET_LISTING_CATEGORIES:-[^}]+\}/);
+    const line = readFileSync(join(repo, '.env.example'), 'utf8')
+      .split(/\r?\n/)
+      .find((row) => row.startsWith('MARKET_LISTING_CATEGORIES='));
+    expect(line).toBe('MARKET_LISTING_CATEGORIES=');
+  });
+
   it('does not seed categories in the migration', () => {
     const sql = readFileSync(join(ROOT, 'drizzle/0010_market_listing_category.sql'), 'utf8');
     expect(sql).not.toMatch(/INSERT/i);
@@ -211,6 +227,74 @@ describe('non-strategy listings refuse blank category, price, and limit', () => 
     expect(values[0]).toContain('signals');
     expect(values[0]).not.toContain('subscription');
     expect(vendors.claimSlot).toHaveBeenCalledWith({ userId: USER, ref: LISTING });
+  });
+
+  it('refuses one-time createListing unless assertListingCategory returns a published slug', async () => {
+    const sql = refusingSql();
+    const vendors = {
+      myVendor: vi.fn(async () => ({ id: VENDOR, status: 'approved' as const })),
+      claimSlot: vi.fn(async () => ({ claimed: true })),
+    };
+    const svc = service({ sql, vendors });
+    const input = {
+      userId: USER,
+      title: 'Tape',
+      description: 'A tape of prints',
+      offerType: 'one_time' as const,
+      assetId: 'USDT',
+      price: '10',
+    };
+    await expect(svc.createListing(input)).rejects.toMatchObject({ code: 'market.listing_category_unset' });
+    await expect(svc.createListing({ ...input, category: null })).rejects.toMatchObject({ code: 'market.listing_category_unset' });
+    await expect(svc.createListing({ ...input, category: '  ' })).rejects.toMatchObject({ code: 'market.listing_category_unset' });
+    await expect(svc.createListing({ ...input, category: 'bots' })).rejects.toMatchObject({ code: 'market.listing_category_unknown' });
+    const unsetTaxonomy = service({ sql, vendors, listingCategories: null });
+    await expect(unsetTaxonomy.createListing({ ...input, category: 'signals' })).rejects.toMatchObject({
+      code: 'market.category_taxonomy_unset',
+    });
+    expect(sql).not.toHaveBeenCalled();
+    expect(vendors.claimSlot).not.toHaveBeenCalled();
+  });
+
+  it('stores the published slug from one-time createListing', async () => {
+    const values: unknown[][] = [];
+    const row = {
+      id: LISTING,
+      vendor_id: VENDOR,
+      title: 'Tape',
+      description: 'A tape of prints',
+      offer_type: 'one_time' as const,
+      asset_id: 'USDT',
+      price: '10',
+      period_seconds: null,
+      category: 'data-feeds',
+      status: 'active' as const,
+      created_at: new Date('2026-10-23T00:00:00.000Z'),
+      updated_at: new Date('2026-10-23T00:00:00.000Z'),
+    };
+    const sql = vi.fn(async (_strings: TemplateStringsArray, ...bound: unknown[]) => {
+      values.push(bound);
+      return [row];
+    });
+    const svc = service({
+      sql,
+      vendors: {
+        myVendor: vi.fn(async () => ({ id: VENDOR, status: 'approved' as const })),
+        claimSlot: vi.fn(async () => ({ claimed: true })),
+      },
+    });
+    const created = await svc.createListing({
+      userId: USER,
+      title: 'Tape',
+      description: 'A tape of prints',
+      offerType: 'one_time',
+      assetId: 'USDT',
+      price: '10',
+      category: ' data-feeds ',
+    });
+    expect(created.offerType).toBe('one_time');
+    expect(values[0]?.at(-1)).toBe('data-feeds');
+    expect(values[0]?.at(-2)).toBeNull();
   });
 
   it('leaves strategy create uncategorised', async () => {

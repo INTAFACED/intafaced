@@ -1226,7 +1226,7 @@ describe('svc-market mount — listings array and public reviews', () => {
     `;
     const vendors = new VendorService(sql, new FixedEntitlement());
     const ledger = new MemoryLedger();
-    commerce = new CommerceService(sql, vendors, ledger, { commissionBps: 500 });
+    commerce = new CommerceService(sql, vendors, ledger, { commissionBps: 500, listingCategories: ['signals'] });
     reviews = new ReviewsService(sql);
     const vendor = await vendors.applyAsVendor({
       userId: VENDOR_USER,
@@ -1261,6 +1261,7 @@ describe('svc-market mount — listings array and public reviews', () => {
       title: 'Later bot',
       description: 'Created first, dated later',
       offerType: 'one_time',
+      category: 'signals',
       assetId: 'USDT',
       price: '12',
     });
@@ -1269,6 +1270,7 @@ describe('svc-market mount — listings array and public reviews', () => {
       title: 'Earlier bot',
       description: 'Created second, dated earlier',
       offerType: 'one_time',
+      category: 'signals',
       assetId: 'USDT',
       price: '8',
     });
@@ -1300,6 +1302,7 @@ describe('svc-market mount — listings array and public reviews', () => {
       title: 'Reviewed bot',
       description: 'A bot with one review',
       offerType: 'one_time',
+      category: 'signals',
       assetId: 'USDT',
       price: '10',
     });

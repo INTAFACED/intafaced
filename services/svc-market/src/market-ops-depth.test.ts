@@ -99,7 +99,7 @@ describe('market ops depth', () => {
     stakes = new FixedEntitlement(200);
     vendors = new VendorService(sql, stakes);
     ledger = new MemoryLedger();
-    commerce = new CommerceService(sql, vendors, ledger, { commissionBps: 500 });
+    commerce = new CommerceService(sql, vendors, ledger, { commissionBps: 500, listingCategories: ['signals'] });
     reviews = new ReviewsService(sql);
   });
 
@@ -385,6 +385,7 @@ describe('market ops depth', () => {
           title: i === 7 ? '100% cotton' : `Listing ${String(i).padStart(3, '0')}`,
           description: 'A catalogue row long enough to store',
           offerType: 'one_time',
+          category: 'signals',
           assetId: i % 2 === 0 ? 'USDT' : 'BTC',
           price: i === 0 ? '9.99' : i === 1 ? '10.5' : '1',
         });
@@ -497,6 +498,7 @@ describe('market ops depth', () => {
         title: 'Bot pack',
         description: 'A useful bot',
         offerType: 'one_time',
+        category: 'signals',
         assetId: 'USDT',
         price: '10',
       });
@@ -586,6 +588,7 @@ describe('market ops depth', () => {
         title: 'USDT pack',
         description: 'settled in tether',
         offerType: 'one_time',
+        category: 'signals',
         assetId: 'USDT',
         price: '10',
       });
@@ -594,6 +597,7 @@ describe('market ops depth', () => {
         title: 'USDT large',
         description: 'second tether sale',
         offerType: 'one_time',
+        category: 'signals',
         assetId: 'USDT',
         price: '20',
       });
@@ -602,6 +606,7 @@ describe('market ops depth', () => {
         title: 'BTC pack',
         description: 'settled in bitcoin',
         offerType: 'one_time',
+        category: 'signals',
         assetId: 'BTC',
         price: '40',
       });
@@ -610,6 +615,7 @@ describe('market ops depth', () => {
         title: 'Other',
         description: 'another vendor sale',
         offerType: 'one_time',
+        category: 'signals',
         assetId: 'USDT',
         price: '7',
       });
