@@ -144,6 +144,17 @@ export const positionPreviewSchema = z.object({
   initialMargin: decimalSchema.nullable(),
   estimatedFee: decimalSchema.nullable(),
   liquidationPrice: decimalSchema.nullable(),
+  /** The size and price controls the order path applies (D-orders-06). Optional: older answers carry none of them. */
+  type: z.enum(['market', 'limit']).optional(),
+  band: z.object({ fraction: decimalSchema, low: decimalSchema, high: decimalSchema }).nullable().optional(),
+  slippageCapBps: z.number().int().nullable().optional(),
+  orderPrice: decimalSchema.nullable().optional(),
+  priceCorrection: z.object({ asked: decimalSchema, applied: decimalSchema }).nullable().optional(),
+  maxOrderNotional: decimalSchema.nullable().optional(),
+  split: z
+    .object({ parts: z.number().int(), sizes: z.array(decimalSchema) })
+    .nullable()
+    .optional(),
   orderable: z.boolean(),
   refusals: z.array(z.object({ code: z.string(), field: z.string(), message: z.string() })),
 });
