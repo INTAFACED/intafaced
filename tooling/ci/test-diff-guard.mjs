@@ -145,6 +145,12 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   console.error(`\n${head} — ${problems.length} finding(s)\n`);
   for (const p of problems) console.error(`  ${p.path}\n    → ${p.why}\n`);
   if (!declared) {
+    // One annotation per finding (GitHub keeps 10 per step), so `tooling/ci/why-red.mjs` names them without the job log.
+    if (process.env.GITHUB_ACTIONS) {
+      const esc = (t) => String(t).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+      for (const p of problems.slice(0, 10))
+        console.log(`::error file=${esc(p.path).replace(/:/g, '%3A').replace(/,/g, '%2C')},title=Test-diff guard::${esc(p.why)}`);
+    }
     console.error('  If a change is intended, say why in the PR description on a line starting "Test-change:".');
     process.exit(1);
   }
