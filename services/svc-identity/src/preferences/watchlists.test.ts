@@ -99,11 +99,11 @@ describe('caps apply to growth only, against the stored record', () => {
       volumeMin: null,
       lastMin: null,
       lastMax: null,
-      universe: 'all',
+      universe: 'all' as const,
       listId: null,
     },
-    columns: ['last'],
-    changeTimeframe: '24h',
+    columns: ['last' as const],
+    changeTimeframe: '24h' as const,
   });
 
   it('lets a delete pass when the stored record is over a cap that has since been lowered', () => {
