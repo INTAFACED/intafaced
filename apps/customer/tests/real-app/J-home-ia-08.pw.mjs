@@ -59,6 +59,14 @@ test(`${J} #1 the Exchange and Web3 switch opens /dex, then the last Web3 room, 
   await switcher(page).getByRole('link', { name: 'Web3' }).click();
   await expect(page).toHaveURL(/\/dex\/pools$/);
   await expectWeb3(page);
+
+  // Narrower than 1280 px the signed-in bar has no room for the switch, so the account menu carries it.
+  await page.setViewportSize({ width: 1100, height: 900 });
+  await page.goto('/money');
+  await expect(switcher(page)).toHaveCount(0);
+  await page.getByRole('button', { name: 'Account menu' }).click();
+  await switcher(page).getByRole('link', { name: 'Web3' }).click();
+  await expect(page).toHaveURL(/\/dex\/pools$/);
   await page.context().close();
 });
 

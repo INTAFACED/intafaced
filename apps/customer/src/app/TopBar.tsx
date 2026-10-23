@@ -272,7 +272,7 @@ export function TopBar({
         </nav>
         <div className="tb-right">
           {/* The bar has room for the switch from 1280 px; narrower, it is in the account menu, or signed out in the row below. */}
-          <ShellSwitch current="exchange" here={here} className="max-[1279px]:hidden" />
+          <ShellSwitch current="exchange" here={here} className="max-[1280px]:hidden" />
           <TopSearch />
           {session ? (
             <>
@@ -297,7 +297,7 @@ export function TopBar({
         </div>
         {children}
       </header>
-      {session || restoring ? null : (
+      {session ? null : (
         <div className="tb-switch-row min-[1280px]:hidden">
           <ShellSwitch current="exchange" here={here} />
         </div>
