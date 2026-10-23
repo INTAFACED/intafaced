@@ -139,14 +139,195 @@ const WORDS: Readonly<Record<string, Words>> = {
   'trade.size_invalid': { title: 'Check the size', body: 'Enter a size that is more than zero and fits the contract step.' },
   'trade.price_not_accepted': {
     title: 'You cannot name a price here',
-    body: 'Futures positions open and close at the accepted mark price. A price cannot be sent.',
+    body: 'A market order fills at the best prices on the book. Choose a limit order to name a price.',
     retryable: false,
   },
   'trade.order_type_unsupported': {
     title: 'That order type is not offered on futures',
-    body: 'Futures open and close at the accepted mark. Resting, stop and take-profit orders are not offered on futures.',
+    body: 'The futures book takes market and limit orders. Stop, take-profit and the other types are not offered.',
     retryable: false,
   },
+  'trade.limit_price_on_market_order': {
+    title: 'A market order has no price',
+    body: 'A market order fills at the best prices on the book. Choose a limit order to name a price.',
+    retryable: false,
+  },
+  'trade.invalid_price': { title: 'Check the limit price', body: 'Enter a price that is more than zero and fits the price step.' },
+  'trade.time_in_force_unsupported': {
+    title: 'That time in force is not offered',
+    body: 'A limit order rests until it fills or is cancelled; a market order fills what it can and cancels the rest.',
+    retryable: false,
+  },
+  'trade.futures_price_outside_band': {
+    title: 'That price is outside the price band',
+    body: 'Orders must sit inside the band around the mark price. Move the price closer to the mark.',
+  },
+  'trade.futures_price_band_unset': {
+    title: 'The price band is not set',
+    body: 'The platform has not set the price band for this contract, so orders are refused until it does.',
+    retryable: false,
+  },
+  'trade.futures_margin_insufficient': {
+    title: 'Not enough free balance',
+    body: 'The margin held for this order is more than your free balance. Add funds, lower the size, or lower the leverage.',
+  },
+  'trade.futures_matching_unconfigured': {
+    title: 'The futures book is not switched on',
+    body: 'Orders through the futures book are switched off on this platform, so nothing can be placed.',
+    retryable: false,
+  },
+  'trade.futures_matching_disabled': {
+    title: 'The futures book is not switched on',
+    body: 'Orders through the futures book are switched off on this platform, so nothing can be placed.',
+    retryable: false,
+  },
+  'trade.futures_orders_unmounted': {
+    title: 'The futures book is not switched on',
+    body: 'Orders through the futures book are switched off on this platform, so nothing can be placed.',
+    retryable: false,
+  },
+  'trade.futures_order_unfilled': {
+    title: 'The book did not fill this order',
+    body: 'Nothing filled and nothing rests, so no position was opened or changed. The margin held for it is released.',
+  },
+  'trade.futures_order_not_found': {
+    title: 'That order was not found',
+    body: 'It may belong to another account. Refresh your orders.',
+    retryable: false,
+  },
+  'trade.futures_submit_unknown': {
+    title: 'The book has not confirmed this order',
+    body: 'The order was sent but its answer is not known. It is checked with the book before anything else is done. Refresh in a moment.',
+  },
+  'trade.futures_hold_released': {
+    title: 'This order is no longer live',
+    body: 'Its margin hold was already released, so it cannot fill. Refresh your orders.',
+    retryable: false,
+  },
+  'trade.hold_unconfirmed': {
+    title: 'The margin hold was not confirmed',
+    body: 'The book could not confirm the margin held for this order, so it was not placed. Nothing was taken. Try again in a moment.',
+  },
+  'trade.futures_reduce_only_no_position': {
+    title: 'No open position to reduce',
+    body: 'A reduce-only order needs an open position on the other side. Refresh your positions.',
+    retryable: false,
+  },
+  'trade.futures_reduce_only_exceeds_position': {
+    title: 'That is more than the position',
+    body: 'Together with your other reduce-only orders, this would close more than the position holds. Lower the size.',
+  },
+  'trade.futures_reduce_past_bankruptcy': {
+    title: 'That price would lose more than the margin',
+    body: 'A reduce at this price would lose more than the margin on the position. Choose a price closer to the mark.',
+  },
+  'trade.futures_reduce_bankruptcy_outside_band': {
+    title: 'This close cannot be placed now',
+    body: 'The price at which this position loses its whole margin lies outside the price band, so a market close is refused. Add margin or wait for the mark to move.',
+  },
+  'trade.futures_one_way_flip_refused': {
+    title: 'Close the other side first',
+    body: 'Positions are one-way on this contract. Close or cancel the opposite position or order first.',
+    retryable: false,
+  },
+  'trade.futures_fill_in_progress': {
+    title: 'A fill is still being recorded',
+    body: 'A fill on this position has not finished recording. Wait a moment, then check the position.',
+  },
+  'trade.futures_reduce_orders_resting': {
+    title: 'A close order is resting on this position',
+    body: 'Cancel the resting reduce-only order on this position first, then try again.',
+  },
+  'trade.futures_open_at_mark_retired': {
+    title: 'Positions open through the book',
+    body: 'Opening at the mark is retired. Send a market or limit order instead.',
+    retryable: false,
+  },
+  'trade.futures_close_at_mark_retired': {
+    title: 'Positions close through the book',
+    body: 'Closing at the mark is retired. Close with a reduce-only order instead.',
+    retryable: false,
+  },
+  'trade.client_order_id_conflict': {
+    title: 'That request id was used for something else',
+    body: 'The same id came with a different order. Nothing was changed. Start the order again.',
+  },
+  'trade.client_order_id_required': { title: 'Request id missing', body: 'Nothing was sent. Start the action again.' },
+  'trade.email_proof_required': {
+    title: 'Confirm your email first',
+    body: 'A new order needs a confirmed email address. Confirm it from your account, then try again.',
+    retryable: false,
+  },
+  'trade.agreement_required': {
+    title: 'Accept the risk agreement first',
+    body: 'Read and accept the current risk agreement and margin terms for futures, above the ticket.',
+    retryable: false,
+  },
+  'trade.agreement_version_stale': {
+    title: 'The agreement has a newer version',
+    body: 'The platform published a newer version. Read and accept it, above the ticket.',
+    retryable: false,
+  },
+  'trade.agreement_unpublished': {
+    title: 'No risk agreement is published',
+    body: 'The platform has not published the futures risk agreement, so positions cannot open.',
+    retryable: false,
+  },
+  'trade.agreement_region_unavailable': {
+    title: 'No agreement for your region',
+    body: 'The futures risk agreement is not published for your region, so positions cannot open.',
+    retryable: false,
+  },
+  'trade.agreements_unconfigured': {
+    title: 'Agreements are not set up',
+    body: 'Risk agreements and the knowledge check are not wired on this platform, so derivatives stay closed.',
+    retryable: false,
+  },
+  'trade.derivatives_eligibility_unset': {
+    title: 'Pass the knowledge check first',
+    body: 'Derivatives need a passed knowledge check under the current rules. Take it above the ticket.',
+    retryable: false,
+  },
+  'trade.identity_level_insufficient': {
+    title: 'Your identity level is too low',
+    body: 'Derivatives need a higher identity level. Finish identity checks from your account.',
+    retryable: false,
+  },
+  'trade.identity_level_unavailable': {
+    title: 'Your identity level cannot be read',
+    body: 'The platform cannot read your identity level right now, so derivatives stay closed. Try again later.',
+  },
+  'trade.eligibility_answers_invalid': {
+    title: 'Check your answers',
+    body: 'Answer every question with one of its options, then submit again.',
+  },
+  'trade.eligibility_submission_conflict': {
+    title: 'Those answers were already sent differently',
+    body: 'Nothing was changed. Submit your answers again.',
+  },
+  'trade.adl_disclosure_required': {
+    title: 'Acknowledge the auto-deleveraging notice',
+    body: 'Read and acknowledge how auto-deleveraging works, in the ticket, before opening.',
+    retryable: false,
+  },
+  'trade.gated_list_unknown': {
+    title: 'A check could not be read',
+    body: 'One of the checks for this contract could not be read, so it is shown as blocked. Try again in a moment.',
+  },
+  'trade.gated_list_unmounted': {
+    title: 'Your access cannot be listed here',
+    body: 'The per-account list of contracts is not wired on this platform. Opening still runs every check.',
+    retryable: false,
+  },
+  'trade.market_not_orderable': {
+    title: 'This contract does not take orders now',
+    body: 'You can still see its price and your positions.',
+  },
+  'trade.market_halted': {
+    title: 'This contract is halted',
+    body: 'The platform halted trading on this contract. Positions stay as they are.',
+  },
+  'trade.market_paused': { title: 'This contract is paused', body: 'Trading on this contract is paused. Positions stay as they are.' },
   'trade.position_mode_unset': {
     title: 'Position mode is not set',
     body: 'The platform has not set how positions on one contract combine (one-way or hedge), so new positions are refused until it does. Nothing was changed.',
