@@ -49,7 +49,10 @@ test(`${J} #1 adds BTC-USDT by search to a list; it appears at the end and survi
   await openWorkbench(page);
   await addMarket(page, 'eth', 'ETH/USDT');
   await expect(row(page, 'ETH/USDT')).toBeVisible();
+  // The save reply must land before the reload or the second device, or they would read the version before this write.
+  const saved = page.waitForResponse((res) => /preferences/.test(res.url()) && res.request().method() !== 'GET' && res.ok());
   await addMarket(page, 'btc', 'BTC/USDT');
+  await saved;
   const order = await panel(page)
     .locator('tbody tr[data-symbol]')
     .evaluateAll((rows) => rows.map((r) => r.dataset.symbol));
@@ -105,8 +108,13 @@ test(`${J} #3 shows the last price and change of each row live, from the stack's
   await openWorkbench(page);
   const ticker = await publicTicker('BTC/USDT');
   await expect(row(page, 'BTC/USDT').locator('td[data-column="last"]')).toHaveAttribute('data-state', 'live');
-  await expect(row(page, 'BTC/USDT').locator('td[data-column="last"]')).not.toHaveText('no data');
-  expect(Number(ticker.last)).toBeGreaterThan(0);
+  const cellText = row(page, 'BTC/USDT').locator('td[data-column="last"]');
+  await expect(cellText).not.toHaveText('no data');
+  // The page shows the same price Edge serves: within half a percent, since the quote may tick between the two reads.
+  const shown = Number((await cellText.innerText()).replace(/[^0-9.-]/g, ''));
+  const served = Number(ticker.last);
+  expect(served).toBeGreaterThan(0);
+  expect(Math.abs(shown - served) / served).toBeLessThan(0.005);
 });
 
 test(`${J} #4 a row click shows that market on the chart at the interval the workbench has; a drag onto the chart does the same`, async ({
@@ -156,8 +164,11 @@ test(`${J} #6 exports the list as a CSV file, and an import adds only the listed
       mimeType: 'text/csv',
       buffer: Buffer.from('symbol\nIFC/USDT\nDOGE/USDT\nETH/USDT\n'),
     });
-  await expect(panel(page).getByRole('status')).toContainText('1 added');
-  await expect(panel(page).getByRole('status')).toContainText('1 refused: unknown symbol');
+  const summary = panel(page).getByRole('status').filter({ hasText: 'added' });
+  await expect(summary).toHaveCount(1);
+  await expect(summary).toContainText('1 added');
+  await expect(summary).toContainText('1 refused: unknown symbol');
+  await expect(summary).toContainText('1 already listed');
   await expect(row(page, 'IFC/USDT')).toBeVisible();
   await expect(row(page, 'DOGE/USDT')).toHaveCount(0);
 });

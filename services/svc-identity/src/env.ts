@@ -226,7 +226,7 @@ const schema = serviceEnvSchema
         if (v === undefined || v === null) return undefined;
         if (typeof v === 'string' && v.trim() === '') return undefined;
         return v;
-      }, z.coerce.number().int().min(1).max(1000).optional()),
+      }, z.coerce.number().int().min(1).max(20).optional()),
       IDENTITY_WATCHLIST_SYMBOL_CAP: z.preprocess((v) => {
         if (v === undefined || v === null) return undefined;
         if (typeof v === 'string' && v.trim() === '') return undefined;
@@ -236,7 +236,7 @@ const schema = serviceEnvSchema
         if (v === undefined || v === null) return undefined;
         if (typeof v === 'string' && v.trim() === '') return undefined;
         return v;
-      }, z.coerce.number().int().min(1).max(1000).optional()),
+      }, z.coerce.number().int().min(1).max(50).optional()),
       /**
        * Owner-published chart-desk limits (C-workspace-02, C-embed-feed-ops-03): saved layouts per person, the days a deleted
        * layout can be recovered for, the deleted layouts kept, and chart templates per person. Blank / unset → unpublished; a

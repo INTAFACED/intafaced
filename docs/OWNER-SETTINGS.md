@@ -219,8 +219,8 @@ Read from a database row, a published record or a caller input. The first file i
 | `identity.anti_phishing_key_unset`                | Account and verification | trade-onboarding            | `apps/customer/src/features/account/anti-phishing.ts`            |
 | `identity.client_request_id_unset`                | Account and verification | trade-onboarding            | `services/svc-identity/src/ops/operator-sessions.ts`             |
 | `identity.dma.hierarchy_law_unset`                | Account and verification | trade-onboarding            | `services/svc-identity/src/orgs/dma-hierarchy.ts`                |
-| `identity.layout_cap_unset`                       | Account and verification | trade-onboarding            | `services/svc-identity/src/preferences/layouts.ts`               |
-| `identity.layout_restore_unset`                   | Account and verification | trade-onboarding            | `services/svc-identity/src/preferences/layouts.ts`               |
+| `identity.layout_cap_unset`                       | Account and verification | trade-onboarding            | `apps/customer/src/screens/charts/layouts/store.ts`              |
+| `identity.layout_restore_unset`                   | Account and verification | trade-onboarding            | `apps/customer/src/screens/charts/layouts/store.ts`              |
 | `identity.revoke_reason_unset`                    | Account and verification | trade-onboarding            | `services/svc-identity/src/ops/operator-api-keys.ts`             |
 | `identity.saved_screen_cap_unset`                 | Account and verification | trade-onboarding            | `services/svc-identity/src/preferences/watchlists.ts`            |
 | `identity.screening_unset`                        | Account and verification | trade-onboarding            | `apps/customer/src/features/public/sign-up-copy.ts`              |

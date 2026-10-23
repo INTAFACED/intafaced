@@ -3,6 +3,7 @@
  * compare-and-set account store the watchlists use; identity checks each write against the owner's limits and refuses with its
  * code, which the menu shows as words.
  */
+import { z } from 'zod';
 import {
   CHART_TEMPLATES_NAMESPACE,
   LAYOUTS_NAMESPACE,
@@ -20,14 +21,19 @@ const NO_TEMPLATES: ChartTemplatesValue = [];
 
 /** The account's saved layouts and the deleted ones kept for recovery. */
 export function useLayoutRecord(): RecordStore<LayoutsValue> {
-  return useAccountRecord<LayoutsValue>(LAYOUTS_NAMESPACE, layoutsPreferenceSchema, layoutsRequestId, NO_LAYOUTS);
+  return useAccountRecord<LayoutsValue>(
+    LAYOUTS_NAMESPACE,
+    { read: layoutsPreferenceSchema, stored: layoutsPreferenceSchema.extend({ outcome: z.literal('stored') }) },
+    layoutsRequestId,
+    NO_LAYOUTS,
+  );
 }
 
 /** The account's chart templates. */
 export function useChartTemplates(): RecordStore<ChartTemplatesValue> {
   return useAccountRecord<ChartTemplatesValue>(
     CHART_TEMPLATES_NAMESPACE,
-    chartTemplatesPreferenceSchema,
+    { read: chartTemplatesPreferenceSchema, stored: chartTemplatesPreferenceSchema.extend({ outcome: z.literal('stored') }) },
     chartTemplatesRequestId,
     NO_TEMPLATES,
   );
