@@ -11,6 +11,7 @@ import { ActionRequired, RequestEntry } from './HelpFrontDoor';
 import { helpCentreSwitchedOff, useHelpCentre } from './help-centre';
 import { HelpLibraryNav } from './HelpLibrary';
 import { kbArticleText } from './kb-text';
+import { canonicalUiLocale, uiLocaleDescriptor } from '../../shared/locale';
 import { supportKbParagraphs } from '@intafaced/contracts/support-kb-library';
 import './help.css';
 import '../more/support-desk.css';
@@ -47,7 +48,26 @@ export function PublicHelp() {
   const [window, setWindow] = useState({ actor, limit: 100 }),
     [retry, setRetry] = useState(0);
   const [read, setRead] = useState<Read | null>(null);
+  // A reader's pick holds for the answer it was made on; another answer opens in the reader's own language again.
+  const [picked, setPicked] = useState<{ id: string; code: string } | null>(null);
   const helpCentre = useHelpCentre();
+  const settings = helpCentre.status === 'ready' ? helpCentre.data : null;
+  // The owner's offered languages, compared by canonical code (an owner's `pt-br` is the catalogue's `pt-BR`). None offered
+  // (blank) draws no picker: the reader reads in the site language.
+  const offered = settings?.languages?.length ? settings.languages.map((tag) => ({ tag, code: canonicalLanguage(tag) })) : null;
+  const pickedHere = picked && selection.kind === 'article' && picked.id === selection.id ? picked.code : null;
+  const offers = (code: string | null | undefined) => Boolean(code && offered?.some((row) => row.code === code));
+  const defaultCode = settings?.defaultLanguage ? canonicalLanguage(settings.defaultLanguage) : null;
+  const reading = !offered
+    ? null
+    : offers(pickedHere)
+      ? pickedHere!
+      : offers(requestedLocale)
+        ? requestedLocale
+        : offers(defaultCode)
+          ? defaultCode!
+          : offered[0]!.code;
+  const readingLocale = (selection.kind === 'article' && reading && canonicalUiLocale(reading)) || requestedLocale;
   const limit = window.actor === actor ? window.limit : 100;
   const queryText = query.actor === actor ? query.text : '';
   const filterText = submitted.actor === actor ? submitted.text : '';
@@ -106,7 +126,7 @@ export function PublicHelp() {
     if (visible && (selection.kind !== 'browse' || visible.status === 'failed')) heading.current?.focus();
   }, [context, read]);
 
-  const rendered = (article: HelpArticle) => kbArticleText(article, requestedLocale);
+  const rendered = (article: HelpArticle) => kbArticleText(article, readingLocale);
   /** Paragraphs as the reader sees them: a stored body by its blank lines, a catalogue body by its sentences. */
   const paragraphs = (article: HelpArticle) => {
     const text = rendered(article);
@@ -117,6 +137,13 @@ export function PublicHelp() {
     const text = rendered(article);
     if (text.stored) return false;
     return Boolean((text.title && text.titleLanguage !== requestedLocale) || (text.body && text.bodyLanguage !== requestedLocale));
+  };
+  /** The language the reader actually sees, when it is not the one they asked for: the body's, or else the title's. */
+  const shownInstead = (article: HelpArticle) => {
+    if (!reading) return null;
+    const text = rendered(article);
+    const languages = [text.bodyLanguage, text.titleLanguage].filter((tag): tag is string => Boolean(tag)).map(canonicalLanguage);
+    return languages.find((code) => code !== reading) ?? null;
   };
   const loaded = visible?.status === 'ready' && visible.value.kind === 'browse' ? visible.value : null;
   const typed = filterText.trim();
@@ -165,6 +192,7 @@ export function PublicHelp() {
               : visible?.status === 'failed'
                 ? t('unavailable')
                 : t('loadingArticle');
+  const instead = article && !switchedOff ? shownInstead(article) : null;
   const titleLanguage =
     article && !switchedOff ? (rendered(article).titleLanguage ?? languageFor('textUnavailable')) : languageFor('title');
   const original = selection.kind === 'article' && (
@@ -221,7 +249,29 @@ export function PublicHelp() {
             </span>
           </p>
         )}
-        {article && !switchedOff && fallback(article) && <p className="help__caption muted">{t('englishFallback')}</p>}
+        {article && !switchedOff && offered && reading && (
+          <div className="help__language">
+            <label>
+              <span>{t('articleLanguage')}</span>{' '}
+              <select name="help-language" value={reading} onChange={(event) => setPicked({ id: article.id, code: event.target.value })}>
+                {offered.map((row) => (
+                  <option key={row.tag} value={row.code} lang={row.code}>
+                    {languageName(row.code, row.code)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {instead && (
+              <p className="help__caption" role="status" data-testid="help-language-fallback">
+                {t('languageFallback', {
+                  wanted: languageName(reading, requestedLocale),
+                  shown: languageName(instead, requestedLocale),
+                })}
+              </p>
+            )}
+          </div>
+        )}
+        {article && !switchedOff && !offered && fallback(article) && <p className="help__caption muted">{t('englishFallback')}</p>}
       </header>
       {settingsLoading ? (
         <Loading label={t('loadingCatalogue')} />
@@ -430,4 +480,20 @@ export function PublicHelp() {
       )}
     </div>
   );
+}
+
+/** A tag in the catalogue's canonical spelling where the catalogue knows it (`pt-br` → `pt-BR`), else as the owner wrote it. */
+function canonicalLanguage(tag: string): string {
+  return canonicalUiLocale(tag) ?? tag;
+}
+
+/** A language by its name, written in the given language; the app's own name for a catalogue language, else the tag. */
+function languageName(code: string, inLanguage: string): string {
+  const known = canonicalUiLocale(code);
+  if (known && known === inLanguage) return uiLocaleDescriptor(known).nativeName;
+  try {
+    return new Intl.DisplayNames([inLanguage], { type: 'language' }).of(code) ?? code;
+  } catch {
+    return code;
+  }
 }

@@ -213,3 +213,51 @@ test(`${J} #4 a search lists the labelled answer first, and the typed words surv
     await saveCategory({ ...category, retired: true, reason: `TEST ${J} #4 retire the run's topic` });
   }
 });
+
+test(`${J} #5 an answer reads as text; another language shows it with a label naming its language; no languages, no picker`, async ({
+  browser,
+}) => {
+  const category = { id: `j01-${RUN}-l`, name: `TEST ${J} ${RUN} language`, position: 9002, reason: `TEST ${J} #5` };
+  const section = { id: `j01-${RUN}-l1`, categoryId: category.id, name: `TEST language ${RUN}`, position: 0, reason: category.reason };
+  const found = await helpCentre();
+  let answer = null;
+  let page = null;
+  await saveCategory(category);
+  try {
+    await saveSection(section);
+    answer = await publishText({
+      id: `j01-${RUN}-lang`,
+      title: `TEST Where to find your statement ${RUN}`,
+      body: 'TEST Statements are under Account.\n\nThis <script>window.__j01lang = 1</script> is text.',
+      language: 'en',
+      sectionId: section.id,
+      baseRevision: 0,
+    });
+    await setHelpCentre({ languages: ['en', 'es'] }, `TEST ${J} #5 offer two languages`);
+
+    page = await visitor(browser);
+    await page.goto(`/helpdetail?id=${answer.id}`);
+    const main = page.locator('main');
+    await expect(main.getByRole('heading', { level: 1, name: answer.title })).toBeVisible();
+    const picker = main.getByRole('combobox', { name: 'Article language' });
+    await expect(picker).toHaveValue('en');
+    await expect(main.getByTestId('help-language-fallback')).toHaveCount(0);
+    await picker.selectOption('es');
+    await expect(main.getByTestId('help-language-fallback')).toHaveText(
+      'This answer is not translated into Spanish. It is shown in English.',
+    );
+    await expect(main.locator('.help__body')).toContainText('This <script>window.__j01lang = 1</script> is text.');
+    expect(await page.evaluate(() => window.__j01lang)).toBeUndefined();
+
+    // With no language offered, there is no picker and the answer reads as before.
+    await setHelpCentre({ languages: null }, `TEST ${J} #5 offer no language`);
+    await page.reload();
+    await expect(main.getByRole('heading', { level: 1, name: answer.title })).toBeVisible();
+    await expect(main.getByRole('combobox', { name: 'Article language' })).toHaveCount(0);
+  } finally {
+    await page?.context().close();
+    await setHelpCentre({ languages: found.languages }, `TEST ${J} #5 put the languages back`);
+    if (answer) await unpublish(answer.id, answer.revision);
+    await saveCategory({ ...category, retired: true, reason: `TEST ${J} #5 retire the run's topic` });
+  }
+});
