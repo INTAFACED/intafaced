@@ -14,6 +14,11 @@ const TITLE = {
   'identity.verification.pending': 'Work verification pending',
   'identity.verification.rejected': 'Work verification rejected',
   'identity.verification.expired': 'Work verification expired',
+  'bank.margin.call_open': 'Work margin call open',
+  'bank.margin.liquidating': 'Work margin liquidating',
+  'bank.card.frozen_by_you': 'Work card frozen by you',
+  'bank.card.frozen_by_bank': 'Work card frozen by bank',
+  'bank.card.frozen': 'Work kind card_frozen',
 } as const;
 const titleOf = (key: string) => (Object.hasOwn(TITLE, key) ? TITLE[key as keyof typeof TITLE] : undefined);
 const KIND_TITLE = {
