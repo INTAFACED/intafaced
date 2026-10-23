@@ -222,7 +222,7 @@ describe('watchlist alert', () => {
     const notify = new NotifyService(new MemoryNotifyStore(), { fanoutEnabled: true });
     const alerts = new AlertService(new MemoryAlertStore(), darkMarks(), notify);
     const caller = createNotifyRouter(notify, alerts).createCaller(signed());
-    expect(await caller.notify.alertQuota()).toEqual({ kind: 'price', used: 0, max: null });
+    expect(await caller.notify.alertQuota()).toEqual({ kind: 'price', used: 0, max: null, burst: null });
     await expect(caller.notify.createAlerts({ marketIds: ['BTC-USD'], direction: 'above', targetPrice: '100' })).rejects.toMatchObject({
       code: 'PRECONDITION_FAILED',
       cause: { code: 'notify.alert_quota_unset' },

@@ -1,0 +1,97 @@
+.status-overall--operational {
+  border-left-color: var(--color-positive);
+}
+.status-overall--degraded,
+.status-overall--maintenance,
+.status-overall--no_data {
+  border-left-color: var(--color-warning);
+}
+.status-overall--partial_outage,
+.status-overall--major_outage {
+  border-left-color: var(--color-negative);
+}
+.status-group {
+  display: grid;
+  gap: var(--spacing-8);
+}
+.status-group h3 {
+  margin: 0;
+  font-size: var(--text-15);
+}
+.pub-card ul.status-components {
+  list-style: none;
+  padding: 0;
+  gap: var(--spacing-12);
+}
+.status-component {
+  display: grid;
+  gap: var(--spacing-4);
+  padding-bottom: var(--spacing-12);
+  border-bottom: 1px solid var(--color-border);
+}
+.status-component__head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--spacing-8);
+}
+.status-component__basis {
+  font-size: var(--text-13);
+}
+.status-chip {
+  font-size: var(--text-13);
+  padding: 0 var(--spacing-8);
+  border-radius: var(--radius-8);
+  border: 1px solid var(--color-border);
+}
+.status-chip--operational {
+  color: var(--color-positive);
+}
+.status-chip--degraded,
+.status-chip--maintenance,
+.status-chip--no_data {
+  color: var(--color-warning);
+}
+.status-chip--partial_outage,
+.status-chip--major_outage {
+  color: var(--color-negative);
+}
+.status-uptime {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  gap: 2px;
+  flex-wrap: wrap;
+}
+.status-uptime__day {
+  width: 8px;
+  height: 24px;
+  border-radius: 2px;
+  border: 1px solid var(--color-border);
+}
+.status-uptime__day--operational {
+  background: var(--color-positive);
+}
+.status-uptime__day--degraded,
+.status-uptime__day--maintenance {
+  background: var(--color-warning);
+}
+.status-uptime__day--partial_outage,
+.status-uptime__day--major_outage {
+  background: var(--color-negative);
+}
+.status-incident {
+  display: grid;
+  gap: var(--spacing-4);
+}
+.status-incident h3 {
+  margin: 0;
+  font-size: var(--text-15);
+}
+.status-timeline {
+  margin: 0;
+  padding-left: var(--spacing-20);
+  display: grid;
+  gap: var(--spacing-4);
+}

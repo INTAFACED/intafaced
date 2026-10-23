@@ -175,6 +175,25 @@ the app shows the permission state and the `vendor.push` notice and registers no
 
 ## API
 
+### Public status page (SP-status-01)
+
+`statusPage.read` (signed-out) is what `/status` shows: the components the founders define, each with a state taken from
+an open incident or active maintenance notice that names it, else its newest reading inside the staleness window, else
+`no_data`. Nothing is typed in as operational, and the top level is the worst component. With nothing defined it answers
+`overall: none_defined`. The uptime strip is the worst reading per UTC day over the window; no percentage is made.
+
+- `statusPage.configure` (`admin:write`, module notify) replaces the component list and sets the owner values, from the
+  revision the founder read and with a reason. Changes are logged append-only in `notify.status_page_log` under
+  `status.page:r<revision>`; a replay of the same change returns the stored state.
+- `statusPage.record` (same scope) stores one reading (`component`, `observedAt`, `state`, `source`). The pair is the key:
+  a replay is one row, a different state at the same instant is `status.reading_conflict`. Readings are append-only.
+- Owner values, blank until a founder sets them: component cap (blank refuses any component, `status.component_cap_unset`),
+  staleness window in seconds (blank shows every reading as no data, `status.staleness_unset`), uptime window in days
+  (blank shows no strip). The journey sets labelled TEST values through `statusPage.configure`.
+- Incident and maintenance notices may name a defined component as well as `api`, `webhooks` and `console`; a trigger on
+  `notify.notices` refuses any other name. `notify.statusFeed` still reports only the three built-in components.
+- Readings come from founders today; a service that publishes its own health reading does it in its own contract PR.
+
 ### Guest outreach emails
 
 `guestNotifications.send`, `get`, and `eraseSubmission` are **POST mutations**
@@ -616,12 +635,18 @@ a row. A redelivery reuses the same key and cannot double-send.
   taken only if it is still the number the sweep read, so a sweep retried after a crash counts the same crossing once. Known limit: a crash between the inbox write and the count, followed by the mark reversing before the retry, loses the
   announcement of the next crossing (it reuses the same number); never a double send. Close-based
   timing (once per candle close) needs the candle-close flag from svc-ws and is not built. Migration 0022.
+- Burst auto-stop (C-alerts-scan-03b): `NOTIFY_ALERT_BURST_WINDOW_MINUTES` and `NOTIFY_ALERT_BURST_MAX_TRIGGERS` arm the rule
+  when both are set; no default, either blank leaves it off (`notify.alertQuota` returns `burst: null`, and the page says so). A
+  repeating alert that triggers more than the count inside the window is delivered, then stopped with `stopReason: 'burst'`. The
+  window opens at the alert's first trigger and restarts once it has run out; the count is taken under a row lock together with the
+  trigger count. Resuming clears the reason and the window. A pause by the person has no reason. One-shot alerts are not counted.
+  Migration 0026.
 - Quota (C-alerts-scan-03a): `NOTIFY_ALERT_MAX_ACTIVE_PRICE` is the most price alerts one person may hold open, active or
   paused. No default: blank refuses every price alert create `notify.alert_quota_unset`; at the cap a create is refused
   `alert.quota_reached` (precondition, nothing stored). Triggered, expired, cancelled and deleted alerts do not use a place,
   and an alert past its stop time is expired before the count. The count and the write happen under one per-person lock, so
   two creates racing for the last place cannot both pass. `notify.alertQuota` reads `{used, max}` (`max: null` while blank).
-  Other alert kinds have no quota setting and are not counted. Burst auto-stop (03b) needs repeating alerts (01c) and is not built.
+  Other alert kinds have no quota setting and are not counted. Burst auto-stop is below.
 - Watchlist alert (C-alerts-scan-03c): `notify.createAlerts` takes up to 100 market ids and one rule and creates one alert per
   market, checked like a single create, as one step: all or none. The batch is held to the same price-alert quota as a whole
   (`alert.quota_reached`, with how many are open and how many were asked for), a market named twice is made once, and a blank cap

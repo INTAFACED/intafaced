@@ -39,6 +39,9 @@ const base: PriceAlert = {
   updatedAt: new Date('2026-10-17T08:00:00Z'),
   frequency: 'once',
   fireCount: 0,
+  stopReason: null,
+  burstStartedAt: null,
+  burstCount: 0,
   lastFiredAt: null,
 };
 
