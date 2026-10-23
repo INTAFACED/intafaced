@@ -70,7 +70,7 @@ export async function assertWithdrawNetwork(source: WithdrawNetworkSource | null
   }
 }
 
-/** A fixed list, for tests and for a deployment that wires the registry later. */
+/** A fixed list, for tests (like `memoryWithdrawDestinations`). Production reads svc-ledger (`createLedgerAssetRegistry`). */
 export function memoryWithdrawNetworks(assets: RegistryAsset[]): WithdrawNetworkSource {
   return { withdrawable: async () => assets.filter((asset) => assetAllows(asset, 'withdraw')) };
 }

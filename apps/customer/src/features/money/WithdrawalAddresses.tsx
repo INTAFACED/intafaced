@@ -19,11 +19,21 @@ const STATE_KEYS = {
 } as const;
 
 /**
+ * What the status column says. An active entry is not ready while its cooling-off has not ended, nor while the bank has
+ * published no cooling-off period at all (the bank refuses to send to it then), so it reads cooling off or blocked.
+ */
+export function shownState(state: keyof typeof STATE_KEYS, cooling: 'ends' | 'ended' | 'unset'): keyof typeof STATE_KEYS {
+  if (state !== 'active') return state;
+  return cooling === 'ends' ? 'cooling' : cooling === 'unset' ? 'blocked' : 'active';
+}
+
+/**
  * The address book as a table. The columns always show; with no rows the body says why it is empty. Each row gives a short
  * form of the address and a Details control that opens the full address, so a long address never breaks the row. Every
  * cell comes from the bank's saved-destination read: a label (when one was set), the kind, the address, when it was added
  * the asset, network and tag, and the cooling-off the bank returned. An entry the bank calls active is shown as cooling off
- * while its cooling-off has not ended, so the status never says "ready" before it is.
+ * while its cooling-off has not ended, and as blocked while no cooling-off is published, so the status never says "ready"
+ * before it is.
  */
 export function AddressTable({
   rows,
@@ -75,11 +85,7 @@ export function AddressTable({
                         ? t('aCoolingUnset')
                         : t(cooling.state === 'ends' ? 'aCoolingEnds' : 'aCoolingEnded', { time: date(cooling.at) })}
                     </td>
-                    <td>
-                      {row.state
-                        ? t(STATE_KEYS[row.state === 'active' && cooling.state === 'ends' ? 'cooling' : row.state])
-                        : t('aNotReturned')}
-                    </td>
+                    <td>{row.state ? t(STATE_KEYS[shownState(row.state, cooling.state)]) : t('aNotReturned')}</td>
                     <td>
                       {onRename && row.state !== 'archived' ? (
                         <Button variant="ghost" onClick={() => onRename(row)}>

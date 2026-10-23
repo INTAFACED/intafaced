@@ -136,6 +136,13 @@ describe('Withdrawal addresses: the bank address book, and saving to it with a c
       <AddressTable rows={[row({ state: 'active', coolingOffEndsAt: '2026-10-17T12:00:00Z' })]} now={NOW} />,
     );
     expect(ready).toContain('Ready to use');
+    // No cooling-off published: the bank sends to nothing, so the entry is blocked, never ready.
+    const unset = renderToStaticMarkup(
+      <AddressTable rows={[row({ state: 'active', coolingOffEndsAt: null, coolingBlocker: 'bank.offramp_cooling_unset' })]} now={NOW} />,
+    );
+    expect(unset).toContain('No cooling-off period is published');
+    expect(unset).toContain('Blocked');
+    expect(unset).not.toContain('Ready to use');
   });
   it('shortens an address in its row (first six, last four) and keeps the full one under Details', () => {
     const html = renderToStaticMarkup(<AddressTable rows={[row()]} now={NOW} />);

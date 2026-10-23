@@ -3838,7 +3838,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
        * stolen access token must not be able to add the address that money is then sent to. The same
        * (asset, network, address, tag) again returns the stored entry. The label is unique per customer, and the
        * number of entries is the owner's `BANK_ADDRESS_BOOK_CAP` (blank refuses `bank.address_book_cap_unset`). The
-       * network must be one svc-ledger's registry lists for the asset (`bank.withdraw_network_unsupported`).
+       * network must be one svc-ledger's registry lists for the asset now (`bank.withdraw_network_unsupported`),
+       * checked first: once an asset or network is delisted, saving that entry again refuses even if it is stored.
        */
       save: scopedProcedure('trade:withdraw', { module: 'bank' })
         .input(

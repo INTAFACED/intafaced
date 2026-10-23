@@ -138,6 +138,19 @@ describe('bank.ramps.destinations: the address book', () => {
     expect(await stepped.ramps.destinations.list()).toEqual(before);
   });
 
+  it('checks the registry on the entry as it is stored, so a lower-case asset or a capitalised network is the same entry', async () => {
+    const stepped = callerWith(['bank:read', 'bank:write', 'trade:withdraw']);
+    const saved = await stepped.ramps.destinations.save({
+      ...entry,
+      assetId: 'usdt',
+      network: 'Base',
+      ref: '0x5555555555555555555555555555555555555555',
+      label: 'Cased',
+    });
+    expect(saved).toMatchObject({ assetId: 'USDT', network: 'base' });
+    await stepped.ramps.destinations.remove({ destinationId: saved.destinationId, idempotencyKey: 'rm-cased' });
+  });
+
   it('refuses to save while the registry cannot be read, and says so, rather than accepting any network', async () => {
     const down: WithdrawNetworkSource = {
       withdrawable: async () => {
