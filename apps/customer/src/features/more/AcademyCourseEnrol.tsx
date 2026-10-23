@@ -50,14 +50,24 @@ export function AcademyCourseEnrol({ slug }: { slug: string }) {
     inFlight.current = true;
     setSending(true);
     setRefusal(null);
-    const sent = await api.mutate('academy', 'enrolCourse', { slug, track }, academyCourseEnrolmentSchema);
-    if (!sent.ok) setRefusal(sent);
-    inFlight.current = false;
-    setSending(false);
-    terms.reload();
+    try {
+      const sent = await api.mutate('academy', 'enrolCourse', { slug, track }, academyCourseEnrolmentSchema);
+      if (!sent.ok) setRefusal(sent);
+    } finally {
+      inFlight.current = false;
+      setSending(false);
+      terms.reload();
+    }
   };
   if (terms.resource.status === 'loading') return <Loading />;
-  if (terms.resource.status === 'failed') return <AcademyRefusal failure={terms.resource.failure} retry={terms.reload} />;
+  if (terms.resource.status === 'failed')
+    return (
+      <>
+        {/* A refused enrolment keeps its own reason even when the read after it fails too. */}
+        {refusal && <AcademyRefusal failure={refusal} />}
+        <AcademyRefusal failure={terms.resource.failure} retry={terms.reload} />
+      </>
+    );
   return <CourseEnrolView terms={terms.resource.data} sending={sending} refusal={refusal} onEnrol={enrol} />;
 }
 
@@ -76,7 +86,9 @@ export function CourseEnrolView({
   const { t, Copy } = copy.useCopy();
   const { language } = usePreferences();
   const openTracks = terms.tracks.filter((row) => row.closed === null);
-  const [chosen, setChosen] = useState<AcademyEnrolmentTrack | null>(openTracks[0]?.track ?? null);
+  const [picked, setPicked] = useState<AcademyEnrolmentTrack | null>(null);
+  // A track that has closed since it was picked is no longer the choice; the first open one is.
+  const chosen = openTracks.find((row) => row.track === picked)?.track ?? openTracks[0]?.track ?? null;
   const enrolled = terms.enrolment;
   const reason = terms.closed
     ? closedReasonText(t, terms.closed)
@@ -104,10 +116,10 @@ export function CourseEnrolView({
           <Copy k="enrolSeats" />
         </dt>
         <dd>
-          {terms.seatCap === null ? (
+          {terms.seatCap === null || terms.seatsRemaining === null ? (
             <Copy k="enrolSeatsNotSet" />
           ) : (
-            <Copy k="enrolSeatsLeft" params={{ remaining: terms.seatsRemaining ?? 0, cap: terms.seatCap }} />
+            <Copy k="enrolSeatsLeft" params={{ remaining: terms.seatsRemaining, cap: terms.seatCap }} />
           )}
         </dd>
       </dl>
@@ -140,7 +152,7 @@ export function CourseEnrolView({
                       checked={chosen === row.track}
                       disabled={row.closed !== null || terms.closed !== null}
                       aria-describedby={row.closed ? `${id}-closed` : undefined}
-                      onChange={() => setChosen(row.track)}
+                      onChange={() => setPicked(row.track)}
                     />{' '}
                     {t(TRACK_KEYS[row.track])}
                     {row.free && (

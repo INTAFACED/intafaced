@@ -118,7 +118,9 @@ export const academyCourseEnrolmentSchema = z
     enrolment: z.object({ track: z.enum(ACADEMY_ENROLMENT_TRACKS), enrolledAt: isoInstant }).nullable(),
     activationMail: z.literal('vendor.email').nullable(),
   })
-  .refine((row) => row.seatCap !== null || row.seatsRemaining === null, { message: 'seatsRemaining without a seat cap' });
+  .refine((row) => (row.seatCap === null) === (row.seatsRemaining === null), {
+    message: 'seatsRemaining is set exactly when a seat cap is',
+  });
 export type AcademyCourseEnrolment = z.infer<typeof academyCourseEnrolmentSchema>;
 
 /** `enrolCourse` input. A repeat while enrolled answers with the same enrolment; nothing is created twice. */

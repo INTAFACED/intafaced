@@ -43,6 +43,8 @@ describe('academy signed-out catalogue shapes (AC-catalogue-01)', () => {
     };
     expect(academyCourseEnrolmentSchema.parse(terms)).toEqual(terms);
     expect(academyCourseEnrolmentSchema.safeParse({ ...terms, seatsRemaining: 3 }).success).toBe(false);
+    expect(academyCourseEnrolmentSchema.safeParse({ ...terms, seatCap: 20 }).success).toBe(false);
+    expect(academyCourseEnrolmentSchema.safeParse({ ...terms, seatCap: 20, seatsRemaining: 0 }).success).toBe(true);
     expect(academyCourseEnrolmentSchema.safeParse({ ...terms, tracks: [] }).success).toBe(false);
     expect(academyCourseEnrolmentSchema.safeParse({ ...terms, closed: 'sold_out' }).success).toBe(false);
     expect(academyEnrolCourseInputSchema.safeParse({ slug: 'markets', track: 'audit' }).success).toBe(true);
