@@ -192,6 +192,14 @@ export function OutlineEditor({
                     <button
                       type="button"
                       className="adm-btn"
+                      onClick={() => setSection(si, { ...section, items: move(section.items, ii, ii + 1) })}
+                      aria-label={`Move ${name} down`}
+                    >
+                      Down
+                    </button>
+                    <button
+                      type="button"
+                      className="adm-btn"
                       onClick={() => setSection(si, { ...section, items: section.items.filter((_, i) => i !== ii) })}
                       aria-label={`Remove ${name}`}
                     >

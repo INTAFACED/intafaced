@@ -115,13 +115,20 @@ export function checkOutline(input: unknown): CheckedInput<AcademySaveOutlineInp
   const parsed = academySaveOutlineInputSchema.safeParse(input);
   if (parsed.success) return { ok: true, input: parsed.data };
   const path = parsed.error.issues[0]?.path ?? [];
+  const last = path[path.length - 1];
+  // The link rule is checked on the whole item, so its issue ends at the item's index (or at `url` for a bad address).
+  const onItem = path.includes('items') && (last === 'url' || typeof last === 'number');
   return {
     ok: false,
-    why: path.includes('url')
+    why: onItem
       ? 'A link item needs an https address, and no other item has one.'
-      : path.includes('items') || path.includes('sections')
+      : last === 'title'
         ? 'Every section and item needs a title of up to 120 characters.'
-        : 'Which course, read at which revision?',
+        : last === 'indent'
+          ? 'An item is indented 0 to 2 steps.'
+          : last === 'kind'
+            ? 'Each item is a lesson, video, file, quiz, assignment, discussion, link or subheader.'
+            : 'Which course, read at which revision, with which sections?',
   };
 }
 

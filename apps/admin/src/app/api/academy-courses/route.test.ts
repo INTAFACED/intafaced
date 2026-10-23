@@ -200,6 +200,16 @@ describe('academy course desk BFF', () => {
       }),
     );
     expect(bad.status).toBe(400);
+    expect((await bad.json()).body).toBe('A link item needs an https address, and no other item has one.');
+    const untitled = await POST(
+      post({
+        op: 'outline',
+        courseId: COURSE_ID,
+        revision: 1,
+        sections: [{ title: 'S', items: [{ kind: 'quiz', title: ' ', indent: 0, url: null }] }],
+      }),
+    );
+    expect((await untitled.json()).body).toBe('Every section and item needs a title of up to 120 characters.');
     expect(calls(c)).toHaveLength(0);
     const res = await POST(post({ op: 'outline', courseId: COURSE_ID, revision: 1, sections }));
     expect(res.status).toBe(412);

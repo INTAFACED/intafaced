@@ -193,6 +193,14 @@ describe('the outline (AC-course-structure-02)', () => {
       limited().saveOutline({ courseId: course.id, revision: 2, sections: [...outline, outline[1]!], operatorId: A, now: NOW }),
     ).rejects.toMatchObject({ code: 'academy.outline_too_large' });
     expect((await records().get(course.id)).course.revision).toBe(2);
+    // The item limit counts what a learner can open, as the desk's item count does: two more subheaders fit under 3.
+    const labels = [
+      { ...outline[0]!, items: [...outline[0]!.items, ...outline[0]!.items.filter((i) => i.kind === 'subheader')] },
+      outline[1]!,
+    ];
+    const withLabels = await limited().saveOutline({ courseId: course.id, revision: 2, sections: labels, operatorId: A, now: NOW });
+    expect(withLabels.course).toMatchObject({ revision: 3, items: 2 });
+    expect(withLabels.outline[0]!.items).toHaveLength(3);
   });
 
   it('a course with items publishes with its reason; a paid one still needs its price first', async () => {
