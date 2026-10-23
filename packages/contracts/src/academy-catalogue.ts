@@ -213,3 +213,106 @@ export const academyUndoCompletionSchema = z.object({
   undoneAt: isoInstant.nullable(),
 });
 export type AcademyUndoCompletion = z.infer<typeof academyUndoCompletionSchema>;
+
+/**
+ * AC-quizzes-03: a quiz as the learner reads it. `timeLimitSeconds` and `attemptLimit` are null when staff set none (no
+ * limit applies); `reviewMode` says whether a finished attempt shows each answer against the key or the score only.
+ */
+export const ACADEMY_QUIZ_REVIEW_MODES = ['answers', 'score_only'] as const;
+export type AcademyQuizReviewMode = (typeof ACADEMY_QUIZ_REVIEW_MODES)[number];
+const quizChoice = z.object({ id: z.string().min(1).max(80), text: z.string().min(1).max(500) });
+export const academyQuizSchema = z.object({
+  slug: z.string().min(1),
+  kind: z.literal('quiz'),
+  passMark: z.number().int().nonnegative(),
+  timeLimitSeconds: z.number().int().positive().nullable(),
+  attemptLimit: z.number().int().positive().nullable(),
+  reviewMode: z.enum(ACADEMY_QUIZ_REVIEW_MODES),
+  questions: z.array(
+    z.object({
+      id: z.string().min(1),
+      prompt: z.string().min(1),
+      kind: z.literal('single'),
+      points: z.number().int().positive(),
+      choices: z.array(quizChoice),
+    }),
+  ),
+});
+export type AcademyQuiz = z.infer<typeof academyQuizSchema>;
+
+/**
+ * One timed attempt. The deadline is the server's, set at Start; `secondsLeft` is counted on the server at this read, so
+ * a refresh shows the same time left. `answers` are the saved choices by question id. `result` is null while open.
+ */
+export const academyQuizAttemptSchema = z.object({
+  attemptId: z.string().uuid(),
+  slug: z.string().min(1),
+  number: z.number().int().positive(),
+  startedAt: isoInstant,
+  deadlineAt: isoInstant.nullable(),
+  secondsLeft: z.number().int().nonnegative().nullable(),
+  answers: z.record(z.string(), z.string()),
+  result: z
+    .object({
+      score: z.number().int().nonnegative(),
+      maxScore: z.number().int().nonnegative(),
+      pass: z.boolean(),
+      finishedAt: isoInstant,
+    })
+    .nullable(),
+});
+export type AcademyQuizAttempt = z.infer<typeof academyQuizAttemptSchema>;
+
+/** A finished attempt's review: the learner's own choices against the key, or `questions: null` when the quiz shows the score only. */
+export const academyQuizReviewSchema = z.object({
+  attemptId: z.string().uuid(),
+  slug: z.string().min(1),
+  number: z.number().int().positive(),
+  score: z.number().int().nonnegative(),
+  maxScore: z.number().int().nonnegative(),
+  pass: z.boolean(),
+  finishedAt: isoInstant,
+  reviewMode: z.enum(ACADEMY_QUIZ_REVIEW_MODES),
+  questions: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        prompt: z.string().min(1),
+        choices: z.array(quizChoice),
+        chosenChoiceId: z.string().nullable(),
+        correctChoiceId: z.string(),
+        correct: z.boolean(),
+      }),
+    )
+    .nullable(),
+});
+export type AcademyQuizReview = z.infer<typeof academyQuizReviewSchema>;
+
+/** Staff publish (or, with `quiz: null`, take down) the quiz on one curriculum item, with a reason. */
+export const academySetQuizInputSchema = z
+  .object({
+    slug: z.string().min(1).max(120),
+    quiz: z
+      .object({
+        passMark: z.number().int().nonnegative().nullable(),
+        attemptLimit: z.number().int().positive().nullable(),
+        timeLimitSeconds: z.number().int().positive().nullable(),
+        reviewMode: z.enum(ACADEMY_QUIZ_REVIEW_MODES),
+        questions: z
+          .array(
+            z.object({
+              id: z.string().min(1).max(80),
+              prompt: z.string().min(1).max(2000),
+              points: z.number().int().positive(),
+              choices: z.array(quizChoice).min(2).max(20),
+              correctChoiceId: z.string().min(1).max(80),
+            }),
+          )
+          .min(1)
+          .max(100),
+      })
+      .nullable(),
+    reason: z.string().trim().min(1).max(500),
+  })
+  .strict();
+export type AcademySetQuizInput = z.infer<typeof academySetQuizInputSchema>;

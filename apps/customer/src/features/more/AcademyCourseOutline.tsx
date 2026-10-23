@@ -36,7 +36,7 @@ export function outlineNeighbours(items: readonly AcademyCourseOutlineItem[], cu
 }
 
 /** The outline beside an open item (AC-course-structure-02), signed in: typed items, locks with their reason, Previous and Next. */
-export function AcademyCourseOutline({ itemSlug, refresh }: { itemSlug: string; refresh?: unknown }) {
+export function AcademyCourseOutline({ itemSlug, refresh, progress = 0 }: { itemSlug: string; refresh?: unknown; progress?: number }) {
   const api = useApi();
   const { userId } = useSession();
   const { t } = copy.useCopy();
@@ -44,13 +44,13 @@ export function AcademyCourseOutline({ itemSlug, refresh }: { itemSlug: string; 
     (signal) => api.query('academy', 'courseOutline', { itemSlug }, academyCourseOutlineSchema, { signal }),
     `course-outline:${userId}:${itemSlug}`,
   );
-  // A completion recorded in the reader beside it can unlock items: read the outline again.
+  // A completion recorded in the reader beside it can unlock items, and a finished quiz can meet a rule: read the outline again.
   // `reload` is a new function each render, so the effect follows only the completion it is told about.
   const reload = useRef(outline.reload);
   reload.current = outline.reload;
   useEffect(() => {
-    if (refresh) reload.current();
-  }, [refresh]);
+    if (refresh || progress) reload.current();
+  }, [refresh, progress]);
   const completion = useItemCompletion(itemSlug, () => reload.current());
   return (
     <Panel title={t('outlineTitle')}>

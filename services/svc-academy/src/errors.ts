@@ -174,7 +174,13 @@ export type AcademyErrorCode =
   /** The item's course rule (pass its quiz, watch its video) is not met, so it cannot be marked complete. */
   | 'academy.completion_rule_unmet'
   /** A request id already answered a different request (another item, another action). */
-  | 'academy.request_reused';
+  | 'academy.request_reused'
+  /** AC-quizzes-03: no attempt of the caller's with this id. */
+  | 'academy.attempt_not_found'
+  /** The attempt is finished or past its deadline, so it takes no more answers. */
+  | 'academy.attempt_closed'
+  /** The attempt is still open, so there is nothing to review. */
+  | 'academy.attempt_open';
 
 export class AcademyError extends Error {
   constructor(
@@ -280,6 +286,9 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.enrolment_closed',
   'academy.completion_rule_unmet',
   'academy.request_reused',
+  'academy.attempt_not_found',
+  'academy.attempt_closed',
+  'academy.attempt_open',
 ] as const;
 
 /** L3 — catalog size. */

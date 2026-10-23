@@ -120,12 +120,15 @@ export function AcademyLearning({
   certId,
   chooseCertificate,
   action,
+  onQuizFinished,
 }: {
   slug?: string;
   initialPath?: string;
   certId: string;
   chooseCertificate: (id: string) => void;
   action: ActionControls;
+  /** A quiz attempt on this item was scored, so its course rule may now be met. */
+  onQuizFinished?: () => void;
 }) {
   const api = useApi(),
     { userId } = useSession(),
@@ -492,7 +495,7 @@ export function AcademyLearning({
                             <Details items={lesson.keyTerms.map((term) => [term.term, term.definition])} />
                           </div>
                         </section>
-                        <Assessment slug={lesson.slug} prompts={lesson.selfCheck} />
+                        <Assessment slug={lesson.slug} prompts={lesson.selfCheck} onFinished={onQuizFinished} />
                         {receiptMatches && receipt?.success && (
                           <section className="academy-learning-receipt" aria-label={t('completionReceipt')}>
                             <h3>

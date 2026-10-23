@@ -35,7 +35,7 @@ import {
   type ResidencyStatus,
 } from './ambassadors/residency.js';
 import { assertCertCatalog, certificateForPath, listCertCatalog } from './certs/catalog.js';
-import { ASSESSMENT_CATALOG, type AssessmentDefinition, type AssessmentPublic } from './assessment/catalog.js';
+import { ASSESSMENT_CATALOG, type AssessmentDefinition } from './assessment/catalog.js';
 import { AssessmentRepository, type AttemptRow } from './assessment/repository.js';
 import { randomPublicId, isPublicId } from './certs/public-id.js';
 import { ReleaseAccess } from './release/access.js';
@@ -50,6 +50,10 @@ import type {
   AcademyCourseOutline,
   AcademyEnrolmentTrack,
   AcademyMyCourse,
+  AcademyQuiz,
+  AcademyQuizAttempt,
+  AcademyQuizReview,
+  AcademySetQuizInput,
   AcademyUndoCompletion,
 } from '@intafaced/contracts';
 import { normaliseHolderName } from './certs/holder-name.js';
@@ -1720,16 +1724,17 @@ export class AcademyService {
     const path = item.path as CurriculumPath;
     const now = input.now ?? new Date();
     const releases = await this.courseReleases(input.userId, path, now, await this.courseStarts.startsAt(path));
-    const [completedAt, passed] = await Promise.all([
+    const [completedAt, passed, quizzes] = await Promise.all([
       this.completionTimes(
         input.userId,
         releases.map(({ row }) => row.slug),
       ),
       this.assessments.passedSlugs(input.userId),
+      this.assessments.publishedSlugs(),
     ]);
     const items = releases.map(({ row, view }) => {
       const opensLater = view.lock === 'window' && view.availableFrom !== null && view.availableFrom.getTime() > now.getTime();
-      const rule = this.completionRule(row.slug);
+      const rule = this.completionRule(row.slug, quizzes);
       return {
         slug: row.slug,
         title: row.title,
@@ -1935,8 +1940,9 @@ export class AcademyService {
     }
     if (decision.alreadyComplete) return decision.record;
     await this.release.assertMayComplete({ userId: input.userId, itemSlug: slug });
-    const rule = this.completionRule(slug);
-    if (rule === 'score' && this.assessments.definition(slug)!.passMark === null) {
+    const quiz = await this.assessments.definition(slug);
+    const rule: AcademyCompletionRule = quiz ? 'score' : 'view';
+    if (quiz && quiz.passMark === null) {
       throw new AcademyError(`academy.pass_mark_unset slug=${slug}`, 'academy.pass_mark_unset');
     }
     if (rule !== 'view' && !this.completionRuleMet(slug, rule, await this.assessments.passedSlugs(input.userId))) {
@@ -2027,8 +2033,8 @@ export class AcademyService {
    * The course rule an item completes by (AC-progress-01): `score` when a quiz is published for it, otherwise `view`, met
    * by opening it, which the Complete button on the open item already is.
    */
-  completionRule(slug: string): AcademyCompletionRule {
-    return this.assessments.definition(slug) ? 'score' : 'view';
+  private completionRule(slug: string, quizzes: ReadonlySet<string>): AcademyCompletionRule {
+    return quizzes.has(slug) ? 'score' : 'view';
   }
 
   /** `passed`: the caller's passed quiz slugs. A quiz with no pass mark is never passed, and completing says why. */
@@ -2209,14 +2215,17 @@ export class AcademyService {
     }
   }
 
-  getAssessment(slug: string): AssessmentPublic {
-    const def = this.assessments.definition(slug);
+  async getAssessment(slug: string): Promise<AcademyQuiz> {
+    const def = await this.assessments.definition(slug);
     if (!def) throw new AcademyError(`academy.assessment_unpublished slug=${slug}`, 'academy.assessment_unpublished');
     if (def.passMark === null) throw new AcademyError(`academy.pass_mark_unset slug=${slug}`, 'academy.pass_mark_unset');
     return {
       slug: def.slug,
       kind: def.kind,
       passMark: def.passMark,
+      timeLimitSeconds: def.timeLimitSeconds ?? null,
+      attemptLimit: def.attemptLimit,
+      reviewMode: def.reviewMode ?? 'score_only',
       questions: def.questions.map((question) => ({
         id: question.id,
         prompt: question.prompt,
@@ -2239,6 +2248,32 @@ export class AcademyService {
 
   assessmentAttempts(userId: string, slug: string): Promise<AttemptRow[]> {
     return this.assessments.attempts(userId, slug);
+  }
+
+  /** AC-quizzes-03: Start (or resume) a timed attempt; see AssessmentRepository.start. */
+  startQuizAttempt(input: { userId: string; slug: string; now?: Date }): Promise<AcademyQuizAttempt> {
+    return this.assessments.start(input);
+  }
+
+  currentQuizAttempt(input: { userId: string; slug: string; now?: Date }): Promise<AcademyQuizAttempt | null> {
+    return this.assessments.current(input);
+  }
+
+  answerQuizAttempt(input: { userId: string; attemptId: string; questionId: string; choiceId: string; now?: Date }) {
+    return this.assessments.answer(input);
+  }
+
+  finishQuizAttempt(input: { userId: string; attemptId: string; now?: Date }): Promise<AcademyQuizAttempt> {
+    return this.assessments.finish(input);
+  }
+
+  reviewQuizAttempt(input: { userId: string; attemptId: string }): Promise<AcademyQuizReview> {
+    return this.assessments.review(input);
+  }
+
+  /** Staff publish or take down the quiz on one curriculum item (admin door, reason required). */
+  setQuiz(input: AcademySetQuizInput & { operatorId: string; now?: Date }) {
+    return this.assessments.setQuiz({ ...input, lesson: hasCurriculumSlug });
   }
 
   /**
