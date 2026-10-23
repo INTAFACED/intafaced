@@ -12,7 +12,7 @@ import { DualControlError, requireDualControl } from './dual-control.js';
 import { TokenError, previewStakeTerms, type BuybackRunResult, type TokenService, type YieldRunResult } from './token-service.js';
 import { publishedStakeTiers, stakingAssetPublication } from './terms.js';
 import { requireTokenJobService } from './job-hmac.js';
-import { DELEGATION_PARKED, parkedDelegation, refuseDelegation } from './delegation.js';
+import { DELEGATION_BLOCKER, refuseDelegation, unavailableDelegation } from './delegation.js';
 import { userCopy } from './user-copy.js';
 
 /**
@@ -50,11 +50,15 @@ import { userCopy } from './user-copy.js';
  *                    Blank TOKEN_GOVERNANCE_QUORUM_BPS / THRESHOLD_BPS refuses
  *                    `token.governance_quorum_unset`. Grant/listing close does
  *                    not execute (`token.governance_execute_unwired`).
- *   token.delegation `delegate` refuses `token.delegation_parked` (no chain GO).
- *                    Nothing is written. `delegation` reads a null delegatee.
- *   token.treasury   `treasury` sums closed mints, settled buybacks and paid
- *                    yield rows this service stored. No rows is null. No price
- *                    and no ledger balance.
+ *   token.delegation `delegate` refuses `token.delegation_unavailable` with
+ *                    blocker `no_chain_service` (no chain service and no
+ *                    on-chain delegate registry). Nothing is written.
+ *                    `delegation` reads a null delegatee and that blocker.
+ *   token.treasury   `burned` is the `burnedSupply` balance. Lifetime
+ *                    `minted`, `bought`, `toRewards` and `distributed` sum
+ *                    closed mints, settled buybacks and paid yield rows.
+ *                    `lastBuyback` is the latest settled run, or null.
+ *                    No rows on those sums is null. No price. No new recipe.
  *
  * Say so wherever these are described. An operator mutation is not a flywheel.
  */
@@ -196,7 +200,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'token.governance_quorum_unset':
       case 'token.governance_snapshot_missing':
       case 'token.governance_execute_unwired':
-      case 'token.delegation_parked':
+      case 'token.delegation_unavailable':
       case 'token.treasury_figure_unreadable':
       case 'token.proposal_list_limit_unset':
       case 'token.stakes_list_limit_unset':
@@ -803,25 +807,27 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
       ),
 
     /**
-     * Caller's own delegation. Always null: the control is parked, so there
-     * is no delegatee to report. Not a lookup of someone else.
+     * Caller's own delegation. Always a null delegatee: there is no chain
+     * service and no on-chain delegate registry (`no_chain_service`).
+     * Not a lookup of someone else.
      */
     delegation: scopedProcedure('token:read', { module: 'token' })
       .output(
         z.object({
           delegateeUserId: z.null(),
-          parked: z.literal(DELEGATION_PARKED),
+          blocker: z.literal(DELEGATION_BLOCKER),
         }),
       )
       .query(({ ctx }) => {
         if (!ctx.principal.userId) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Principal required' });
-        return parkedDelegation();
+        return unavailableDelegation();
       }),
 
     /**
      * Set a delegate. Blank target is `token.delegation_delegatee_unset`.
-     * Any member id, including the caller, is `token.delegation_parked`.
-     * No row, no vote-weight change.
+     * A non-member id is `token.delegation_delegatee_invalid`.
+     * Any member id, including the caller, is `token.delegation_unavailable`
+     * with blocker `no_chain_service`. No row, no vote-weight change.
      */
     delegate: scopedProcedure('token:stake', { module: 'token' })
       .input(z.object({ delegateeUserId: z.string().max(128).nullish() }).strict())
@@ -833,17 +839,26 @@ export function createTokenRouter(token: TokenService, options: TokenRouterOptio
       }),
 
     /**
-     * Figures this service has recorded. Null fields are "no rows", not zero.
-     * Does not call the ledger and does not price the token.
+     * `burned` is `burnedSupply`. The other sums are rows this service stored.
+     * Null on those sums, and a null `lastBuyback`, means no rows, not zero.
+     * Does not price the token and does not post a new recipe.
      */
     treasury: scopedProcedure('token:read', { module: 'token' })
       .output(
         z.object({
           minted: amountString.nullable(),
-          burned: amountString.nullable(),
+          burned: amountString,
           bought: amountString.nullable(),
           toRewards: amountString.nullable(),
           distributed: amountString.nullable(),
+          lastBuyback: z
+            .object({
+              bought: amountString,
+              burned: amountString,
+              toRewards: amountString,
+              executedAt: z.string().datetime({ offset: true }),
+            })
+            .nullable(),
         }),
       )
       .query(({ ctx }) => {

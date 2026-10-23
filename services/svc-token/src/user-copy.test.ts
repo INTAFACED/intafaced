@@ -53,7 +53,7 @@ const TOKEN_ERROR_CODES = [
   'token.ledger_tx_unread',
   'token.delegation_delegatee_unset',
   'token.delegation_delegatee_invalid',
-  'token.delegation_parked',
+  'token.delegation_unavailable',
   'token.treasury_figure_unreadable',
 ] as const satisfies readonly TokenError['code'][];
 

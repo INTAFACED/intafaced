@@ -4,16 +4,17 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
-import { DELEGATION_PARKED, parkedDelegation, refuseDelegation } from './delegation.js';
+import { DELEGATION_BLOCKER, DELEGATION_UNAVAILABLE, refuseDelegation, unavailableDelegation } from './delegation.js';
 import { createTokenRouter } from './router.js';
 import { TokenError, type TokenService } from './token-service.js';
-import { reportTreasury, type TreasurySums } from './treasury-view.js';
+import { reportLastBuyback, reportTreasury, type TreasurySums } from './treasury-view.js';
 import { userCopy } from './user-copy.js';
 
 /**
- * MC-token-04. Delegation is parked (no chain GO, no stored delegate, no
- * invented self-delegation). The treasury view is only rows this service
- * already recorded: no rows is null, not zero, and a blank total is not zero.
+ * MC-token-04. Delegation is unavailable because there is no chain service
+ * and no on-chain delegate registry (`no_chain_service`). Nothing is stored.
+ * Treasury sums are rows this service already recorded: no rows is null, not
+ * zero. `burned` is filled by the service from `burnedSupply`, not this fold.
  */
 
 const SECRET = 'a-token-delegation-test-edge-secret-long-enough';
@@ -54,8 +55,6 @@ function emptySums(overrides: Partial<TreasurySums> = {}): TreasurySums {
   return {
     minted: null,
     mintedCount: '0',
-    burned: null,
-    burnedCount: '0',
     bought: null,
     boughtCount: '0',
     toRewards: null,
@@ -68,19 +67,18 @@ function emptySums(overrides: Partial<TreasurySums> = {}): TreasurySums {
 
 const emptyView = {
   minted: null,
-  burned: null,
   bought: null,
   toRewards: null,
   distributed: null,
 };
 
-describe('delegation parked', () => {
-  it('reads null and does not invent a delegatee', () => {
-    expect(parkedDelegation()).toEqual({ delegateeUserId: null, parked: DELEGATION_PARKED });
-    expect(parkedDelegation()).toEqual(parkedDelegation());
+describe('delegation unavailable', () => {
+  it('reads null and names the chain-service blocker', () => {
+    expect(unavailableDelegation()).toEqual({ delegateeUserId: null, blocker: DELEGATION_BLOCKER });
+    expect(unavailableDelegation()).toEqual(unavailableDelegation());
   });
 
-  it('refuses a blank target before the park, and does not keep it', () => {
+  it('refuses a blank target before the chain blocker, and does not keep it', () => {
     for (const blank of [undefined, null, '', '   ']) {
       expect(() => refuseDelegation(blank)).toThrow(TokenError);
       try {
@@ -102,27 +100,42 @@ describe('delegation parked', () => {
     }
   });
 
-  it('parks a member id, including the caller, and two calls still store nothing', () => {
-    const codes: string[] = [];
+  it('refuses a member id, including the caller, and two calls still store nothing', () => {
+    const seen: Array<{ code: string; blocker?: string }> = [];
     for (const id of [OTHER, USER, `  ${OTHER}  `]) {
       try {
         refuseDelegation(id);
       } catch (err) {
-        codes.push((err as TokenError).code);
+        const tokenErr = err as TokenError;
+        seen.push({ code: tokenErr.code, blocker: tokenErr.blocker });
       }
     }
-    expect(codes).toEqual(['token.delegation_parked', 'token.delegation_parked', 'token.delegation_parked']);
-    expect(userCopy('token.delegation_parked')).toBe('Delegation is not available.');
+    expect(seen).toEqual([
+      { code: DELEGATION_UNAVAILABLE, blocker: 'no_chain_service' },
+      { code: DELEGATION_UNAVAILABLE, blocker: 'no_chain_service' },
+      { code: DELEGATION_UNAVAILABLE, blocker: 'no_chain_service' },
+    ]);
+    expect(userCopy(DELEGATION_UNAVAILABLE)).toBe('There is no chain service and no on-chain delegate registry.');
   });
 
-  it('castVote does not read a delegation', () => {
+  it('castVote does not read a delegation, and the copy does not claim the chain GO is missing', () => {
     const src = readFileSync(join(ROOT, 'services/svc-token/src/token-service.ts'), 'utf8');
     const start = src.indexOf('async castVote(');
     const end = src.indexOf('async listProposals(', start);
     const fn = src.slice(start, end);
     expect(fn).not.toMatch(/delegat/i);
+    const files = [
+      'services/svc-token/src/delegation.ts',
+      'services/svc-token/src/token-service.ts',
+      'services/svc-token/src/router.ts',
+      'services/svc-token/README.md',
+    ];
+    for (const file of files) {
+      expect(readFileSync(join(ROOT, file), 'utf8')).not.toMatch(/no chain GO is recorded/i);
+    }
     const delegation = readFileSync(join(ROOT, 'services/svc-token/src/delegation.ts'), 'utf8');
     expect(delegation).not.toMatch(/\b(insert|update|sql)\b/i);
+    expect(delegation).toContain('no_chain_service');
   });
 });
 
@@ -136,8 +149,6 @@ describe('treasury view', () => {
       emptySums({
         minted: '10.500',
         mintedCount: '2',
-        burned: '0',
-        burnedCount: '1',
         bought: '0.0',
         boughtCount: '1',
         toRewards: '0',
@@ -148,8 +159,31 @@ describe('treasury view', () => {
     );
     expect(reported).toEqual({
       ok: true,
-      view: { minted: '10.5', burned: '0', bought: '0', toRewards: '0', distributed: '3.25' },
+      view: { minted: '10.5', bought: '0', toRewards: '0', distributed: '3.25' },
     });
+  });
+
+  it('last buyback is null when no run is settled, and a recorded zero stays zero', () => {
+    expect(reportLastBuyback(null)).toEqual({ ok: true, last: null });
+    expect(reportLastBuyback({ bought: null, burned: null, toRewards: null, executedAt: null })).toEqual({ ok: true, last: null });
+    expect(
+      reportLastBuyback({
+        bought: '5.0',
+        burned: '0',
+        toRewards: '0.0',
+        executedAt: new Date('2026-06-01T00:00:00.000Z'),
+      }),
+    ).toEqual({
+      ok: true,
+      last: { bought: '5', burned: '0', toRewards: '0', executedAt: '2026-06-01T00:00:00.000Z' },
+    });
+  });
+
+  it('refuses a partial or unreadable last buyback instead of zero', () => {
+    expect(reportLastBuyback({ bought: '1', burned: null, toRewards: '0', executedAt: '2026-06-01T00:00:00.000Z' }).ok).toBe(false);
+    expect(reportLastBuyback({ bought: '-1', burned: '1', toRewards: '0', executedAt: '2026-06-01T00:00:00.000Z' }).ok).toBe(false);
+    expect(reportLastBuyback({ bought: '1', burned: '1', toRewards: '0', executedAt: 'not-a-date' }).ok).toBe(false);
+    expect(reportLastBuyback({ bought: '-1', burned: null, toRewards: null, executedAt: null }).ok).toBe(false);
   });
 
   it('refuses a blank, negative, or mismatched total instead of zero', () => {
@@ -169,7 +203,10 @@ describe('treasury view', () => {
     expect(fn).toContain('closed = true');
     expect(fn).toContain("status = 'settled'");
     expect(fn).toContain('ledger_tx_id IS NOT NULL');
-    expect(fn).not.toMatch(/this\.ledger|burnAccount|houseFees|price/i);
+    expect(fn).toContain('executed_at DESC, id DESC');
+    expect(fn).toContain('this.burnedSupply()');
+    expect(fn).not.toMatch(/SUM\(tokens_burned\)/);
+    expect(fn).not.toMatch(/this\.ledger|burnAccount|houseFees|price|recipes\./i);
     const fold = readFileSync(join(ROOT, 'services/svc-token/src/treasury-view.ts'), 'utf8');
     expect(fold).not.toMatch(/\bNumber\(/);
   });
@@ -186,11 +223,11 @@ describe('delegation and treasury routes', () => {
     expect(treasuryView).not.toHaveBeenCalled();
   });
 
-  it('a signed read is null and parked, and delegate refuses without calling the service', async () => {
+  it('a signed read names the blocker, and delegate refuses without calling the service', async () => {
     const treasuryView = vi.fn();
     const token = { treasuryView } as unknown as TokenService;
     const caller = createTokenRouter(token).createCaller(signed());
-    await expect(caller.delegation()).resolves.toEqual({ delegateeUserId: null, parked: 'token.delegation_parked' });
+    await expect(caller.delegation()).resolves.toEqual({ delegateeUserId: null, blocker: 'no_chain_service' });
     await expect(caller.delegate({})).rejects.toMatchObject({
       code: 'BAD_REQUEST',
       message: 'The person to delegate to is not set.',
@@ -202,28 +239,35 @@ describe('delegation and treasury routes', () => {
     });
     await expect(caller.delegate({ delegateeUserId: OTHER })).rejects.toMatchObject({
       code: 'PRECONDITION_FAILED',
-      message: 'Delegation is not available.',
-      cause: { code: 'token.delegation_parked' },
+      message: 'There is no chain service and no on-chain delegate registry.',
+      cause: { code: 'token.delegation_unavailable', blocker: 'no_chain_service' },
     });
     await expect(caller.delegate({ delegateeUserId: USER })).rejects.toMatchObject({
-      cause: { code: 'token.delegation_parked' },
+      cause: { code: 'token.delegation_unavailable', blocker: 'no_chain_service' },
     });
     expect(treasuryView).not.toHaveBeenCalled();
   });
 
-  it('two parked delegates still leave the read null', async () => {
+  it('two refused delegates still leave the read null', async () => {
     const token = {} as unknown as TokenService;
     const caller = createTokenRouter(token).createCaller(signed());
     const results = await Promise.allSettled([caller.delegate({ delegateeUserId: OTHER }), caller.delegate({ delegateeUserId: OTHER })]);
     expect(results.map((r) => (r.status === 'rejected' ? (r.reason as { cause?: { code?: string } }).cause?.code : 'ok'))).toEqual([
-      'token.delegation_parked',
-      'token.delegation_parked',
+      'token.delegation_unavailable',
+      'token.delegation_unavailable',
     ]);
-    await expect(caller.delegation()).resolves.toEqual({ delegateeUserId: null, parked: 'token.delegation_parked' });
+    await expect(caller.delegation()).resolves.toEqual({ delegateeUserId: null, blocker: 'no_chain_service' });
   });
 
   it('treasury returns the service report and refuses an unreadable figure', async () => {
-    const view = { minted: '10.5', burned: null, bought: null, toRewards: null, distributed: null };
+    const view = {
+      minted: '10.5',
+      burned: '7',
+      bought: '17',
+      toRewards: '9',
+      distributed: '3.25',
+      lastBuyback: { bought: '5', burned: '3', toRewards: '2', executedAt: '2026-06-01T00:00:00.000Z' },
+    };
     const token = { treasuryView: vi.fn(async () => view) } as unknown as TokenService;
     const caller = createTokenRouter(token).createCaller(signed());
     await expect(caller.treasury()).resolves.toEqual(view);
