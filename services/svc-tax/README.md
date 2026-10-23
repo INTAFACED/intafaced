@@ -8,12 +8,17 @@ A year pack lists each sub-account's fills and converts with `fee` and `makerReb
 
 ## API
 
-| Procedure       | Scope      | Input           | Output                                                            |
-| --------------- | ---------- | --------------- | ----------------------------------------------------------------- |
-| `health`        | public     | —               | `{ ok, service }` — liveness, not a custody claim                 |
-| `exportPreview` | `tax:read` | `{ lotMethod }` | preview; amounts as strings                                       |
-| `exportPack`    | `tax:read` | `{ lotMethod }` | JSON pack (`bodyBase64`), including `subAccounts`                 |
-| `lotBook`       | `tax:read` | `{ method? }`   | profit and loss indicator from the caller's own fills (see below) |
+| Procedure              | Scope       | Input                  | Output                                                                |
+| ---------------------- | ----------- | ---------------------- | --------------------------------------------------------------------- |
+| `health`               | public      | —                      | `{ ok, service }` — liveness, not a custody claim                     |
+| `exportPreview`        | `tax:read`  | `{ lotMethod }`        | preview; amounts as strings                                           |
+| `exportPack`           | `tax:read`  | `{ lotMethod }`        | JSON pack (`bodyBase64`), including `subAccounts`                     |
+| `lotBook`              | `tax:read`  | `{ method? }`          | profit and loss indicator from the caller's own fills (see below)     |
+| `missingBasis`         | `tax:read`  | `{ method? }`          | open lots and disposals with no basis; effect is `unknown share`      |
+| `basisOverride.set`    | `tax:write` | lot, price, date, note | customer-entered basis, or a manual position held apart from balances |
+| `basisOverride.remove` | `tax:write` | `{ lotId }`            | tombstone; the book shows the unknown again                           |
+
+`basisOverride.set` refuses `tax.basis_store_unwired` when `DATABASE_URL` is blank, `tax.basis_price_unset` when the price is blank, and `portfolio.basis_override_not_allowed` when the lot already has a cost from our fills or a market price. A set `DATABASE_URL` whose `DATABASE_POOL_MAX` is blank refuses at boot with `tax.database_pool_max_unset` and does not open a pool. The size is never filled in. The same payload twice stores one version. The key is `basisoverride:<userId>:<lotId>:<version>`. A manual position id is `manual:<userId>:<token>` and is not added to holdings. While any customer basis is active, the year pack carries `tax.customer_basis_export_unset`: whether those figures may appear in a regulator-facing export is not published. Figures that use an override are marked `customer-entered`. An override never posts to the ledger.
 
 ## Lot book (profit and loss indicator)
 
@@ -35,7 +40,7 @@ None. This service publishes no subjects.
 
 ## Ledger
 
-Read-only. `balances` + `history` over `@intafaced/ledger-client` HTTP to svc-ledger. No recipes. No `post`.
+Read-only toward the ledger. `balances` + `history` over `@intafaced/ledger-client` HTTP to svc-ledger. No recipes. No `post`. Customer basis rows are this service's own table and are not balances.
 
 | Read       | Why                                   |
 | ---------- | ------------------------------------- |

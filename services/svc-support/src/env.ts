@@ -79,6 +79,22 @@ const schema = serviceEnvSchema
        */
       SUPPORT_VIEW_PERSONAL_CAP: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().min(0).optional()),
       SUPPORT_VIEW_SHARED_CAP: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().min(0).optional()),
+      /**
+       * How many votes one signed-out reader may cast in the window below.
+       * Either one blank refuses a public vote with support.feedback_rate_limit_unset. Never defaulted.
+       */
+      SUPPORT_FEEDBACK_RATE_LIMIT: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
+      SUPPORT_FEEDBACK_RATE_WINDOW_SECONDS: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
+      /**
+       * Switches the help answer panel on. The value is never returned or sent on.
+       * Blank refuses support.assistant_model_unset. Never defaulted.
+       */
+      SUPPORT_ASSISTANT_MODEL: z.preprocess((v) => (v === '' ? undefined : v), z.string().min(1).optional()),
+      /**
+       * Tighter than the contract bound of 200 on a search query. Blank leaves that bound.
+       * A longer query refuses support.search_query_too_long. Never defaulted.
+       */
+      SUPPORT_SEARCH_QUERY_MAX: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
       STAFF_HEARTBEAT_WINDOW_SECONDS: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
     }),
   );
