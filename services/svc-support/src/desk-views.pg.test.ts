@@ -114,7 +114,7 @@ if (!url) {
       await expect(db.sql`DELETE FROM support.desk_view_log`).rejects.toThrow(/append-only/);
     });
 
-    it('refuses to save Mine again at revision 0 after delete and writes no row', async () => {
+    it('replays a live create, then saves the same name as a new view after delete', async () => {
       const book = new SqlViewBook(db.sql, { personal: 2, shared: 1 });
       const input = {
         name: 'Mine',
@@ -129,17 +129,34 @@ if (!url) {
         at: AT,
       };
       const first = await book.save(input);
+      expect(await book.save(input)).toEqual(first);
+      expect(await db.sql`SELECT id FROM support.desk_views`).toHaveLength(1);
+      expect(await db.sql`SELECT key FROM support.desk_view_log`).toHaveLength(1);
       await book.remove({ viewId: first.id, actorId: OWNER, reason: 'Clearing it', at: AT });
-      const before = (
-        await db.sql<{ key: string; fingerprint: string }[]>`SELECT key, fingerprint FROM support.desk_view_log ORDER BY key`
-      ).map((row) => ({ key: row.key, fingerprint: row.fingerprint }));
-      expect(before.map((row) => row.key)).toContain(viewLogKey(OWNER, 'Mine', 0));
-      await expect(book.save(input)).rejects.toMatchObject({ code: 'support.idempotency_conflict' });
       expect(await db.sql`SELECT 1 FROM support.desk_views`).toHaveLength(0);
-      const after = (
-        await db.sql<{ key: string; fingerprint: string }[]>`SELECT key, fingerprint FROM support.desk_view_log ORDER BY key`
-      ).map((row) => ({ key: row.key, fingerprint: row.fingerprint }));
-      expect(after).toEqual(before);
+      const second = await book.save(input);
+      expect(second.id).not.toBe(first.id);
+      expect(await book.save(input)).toEqual(second);
+      const views = await db.sql<{ id: string }[]>`SELECT id FROM support.desk_views`;
+      expect(views.map((row) => row.id)).toEqual([second.id]);
+      const keys = (await db.sql<{ key: string }[]>`SELECT key FROM support.desk_view_log`).map((row) => row.key);
+      expect(keys).toContain(viewLogKey(OWNER, 'Mine', 0));
+      expect(keys).toContain(viewLogKey(OWNER, 'Mine', 0, first.id));
+      expect(keys).toHaveLength(3);
+      await expect(book.save({ ...input, reason: 'A different reason' })).rejects.toMatchObject({ code: 'support.idempotency_conflict' });
+      expect(await db.sql`SELECT id FROM support.desk_views`).toHaveLength(1);
+      expect(await db.sql`SELECT key FROM support.desk_view_log`).toHaveLength(3);
+      const updated = await book.save({ ...input, expectedRevision: second.revision, reason: 'Shift change' });
+      expect(updated).toMatchObject({ id: second.id, revision: 2 });
+      expect(await book.save({ ...input, expectedRevision: second.revision, reason: 'Shift change' })).toEqual(updated);
+      await book.remove({ viewId: second.id, actorId: OWNER, reason: 'Clearing the second', at: AT });
+      const third = await book.save(input);
+      expect(third.id).not.toBe(first.id);
+      expect(third.id).not.toBe(second.id);
+      expect(await book.save(input)).toEqual(third);
+      expect(await db.sql<{ id: string }[]>`SELECT id FROM support.desk_views`).toEqual([{ id: third.id }]);
+      const again = (await db.sql<{ key: string }[]>`SELECT key FROM support.desk_view_log`).map((row) => row.key);
+      expect(again).toContain(viewLogKey(OWNER, 'Mine', 0, second.id));
     });
   });
 }

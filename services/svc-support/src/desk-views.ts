@@ -3,7 +3,7 @@
  *
  * Personal and shared caps are owner values. A null cap refuses `support.view_cap_unset` and names the setting.
  * No reference cap (10, 100) is filled in. A save is keyed by owner, view name and the revision it read.
- * Deleting the view leaves that key, so the same save refuses `support.idempotency_conflict`.
+ * That key replays only while its view row still exists. A later delete starts a new key named by the deleted view.
  */
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql, TransactionSql } from 'postgres';
@@ -145,8 +145,14 @@ export function orderFacts(facts: readonly DeskFact[], sort: SupportViewSort | n
   });
 }
 
-export function viewLogKey(ownerId: string, name: string, expectedRevision: number): string {
-  return `view:${ownerId}:${name}:r${expectedRevision}`;
+/** `afterViewId` is the deleted view this save follows. The first save of a name omits it. */
+export function viewLogKey(ownerId: string, name: string, expectedRevision: number, afterViewId?: string): string {
+  const base = `view:${ownerId}:${name}:r${expectedRevision}`;
+  return afterViewId === undefined ? base : `${base}:after:${afterViewId}`;
+}
+
+function viewDeleteKey(viewId: string, revision: number): string {
+  return `view-delete:${viewId}:r${revision}`;
 }
 
 export function viewFingerprint(input: Pick<ViewSave, 'shared' | 'filter' | 'sort' | 'layout' | 'favourite' | 'reason'>): string {
@@ -310,13 +316,52 @@ function canonical(value: unknown): string {
   return JSON.stringify(value);
 }
 
-type LogHit = { readonly fingerprint: string; readonly after: SupportView };
+type SaveLog = { readonly viewId: string; readonly fingerprint: string; readonly after: SupportView };
 
-/** A logged business key is append-only. Replay only while its view row remains and the fingerprint matches. */
-function replayLoggedSave(log: LogHit | undefined, rowPresent: boolean, fingerprint: string): SupportView | undefined {
+type StoredLog = { readonly action: 'save' | 'delete'; readonly fingerprint: string; readonly after: SupportView };
+
+/** `live` still has its row. `deleted` has a later delete log and no row. `absent` has neither. */
+type SavedViewState = 'live' | 'deleted' | 'absent';
+
+/**
+ * Walk past save keys whose view was deleted. The next key names that view id, so a replay of the
+ * new create hits the same row and a different payload still conflicts.
+ */
+async function resolveSaveKey(
+  ownerId: string,
+  name: string,
+  expectedRevision: number,
+  readSave: (key: string) => Promise<SaveLog | undefined>,
+  stateOf: (viewId: string) => Promise<SavedViewState>,
+): Promise<{ readonly key: string; readonly log: SaveLog | undefined; readonly rowPresent: boolean }> {
+  let afterViewId: string | undefined;
+  const seen = new Set<string>();
+  for (;;) {
+    const key = viewLogKey(ownerId, name, expectedRevision, afterViewId);
+    const log = await readSave(key);
+    if (!log) return { key, log: undefined, rowPresent: false };
+    if (seen.has(log.viewId)) throw new ViewError(VIEW_CONFLICT);
+    seen.add(log.viewId);
+    const state = await stateOf(log.viewId);
+    if (state === 'deleted') {
+      afterViewId = log.viewId;
+      continue;
+    }
+    return { key, log, rowPresent: state === 'live' };
+  }
+}
+
+/** Replay only while this key's view row remains and the fingerprint matches. A missing row with no delete is a conflict. */
+function replayLoggedSave(log: SaveLog | undefined, rowPresent: boolean, fingerprint: string): SupportView | undefined {
   if (!log) return undefined;
   if (!rowPresent || log.fingerprint !== fingerprint) throw new ViewError(VIEW_CONFLICT);
   return log.after;
+}
+
+function viewDeleteFingerprint(viewId: string, reason: string): string {
+  return createHash('sha256')
+    .update(canonical({ id: viewId, reason }))
+    .digest('hex');
 }
 
 function assertCap(caps: ViewCaps, input: ViewSave, views: readonly SupportView[], current: SupportView | undefined): void {
@@ -333,7 +378,7 @@ function assertCap(caps: ViewCaps, input: ViewSave, views: readonly SupportView[
 
 export class MemoryViewBook implements ViewBook {
   private readonly views = new Map<string, SupportView>();
-  private readonly logs = new Map<string, LogHit>();
+  private readonly logs = new Map<string, StoredLog>();
 
   constructor(readonly caps: ViewCaps) {}
 
@@ -348,15 +393,21 @@ export class MemoryViewBook implements ViewBook {
   }
 
   async save(input: ViewSave): Promise<SupportView> {
-    const key = viewLogKey(input.ownerId, input.name, input.expectedRevision);
     const fingerprint = viewFingerprint(input);
+    const resolved = await resolveSaveKey(
+      input.ownerId,
+      input.name,
+      input.expectedRevision,
+      async (key) => this.readSave(key),
+      async (viewId) => this.viewState(viewId),
+    );
     const current = input.viewId
       ? this.views.get(input.viewId)
       : [...this.views.values()].find((view) => view.ownerId === input.ownerId && view.name === input.name);
     if (input.viewId && !current) throw new ViewError('support.not_found');
     if (current && current.ownerId !== input.ownerId) throw new ViewError(current.shared ? VIEW_NOT_OWNER : 'support.not_found');
     if (current && current.name !== input.name) throw new ViewError(FILTER_INVALID);
-    const replay = replayLoggedSave(this.logs.get(key), current !== undefined, fingerprint);
+    const replay = replayLoggedSave(resolved.log, resolved.rowPresent, fingerprint);
     if (replay) return replay;
     if (current && current.revision !== input.expectedRevision) throw new ViewError(VIEW_REVISION_STALE);
     if (!current && input.expectedRevision !== 0) throw new ViewError(VIEW_REVISION_STALE);
@@ -374,7 +425,7 @@ export class MemoryViewBook implements ViewBook {
       updatedAt: input.at,
     };
     this.views.set(next.id, next);
-    this.logs.set(key, { fingerprint, after: next });
+    this.logs.set(resolved.key, { action: 'save', fingerprint, after: next });
     return next;
   }
 
@@ -382,8 +433,27 @@ export class MemoryViewBook implements ViewBook {
     const current = this.views.get(input.viewId);
     if (!current) throw new ViewError('support.not_found');
     if (current.ownerId !== input.actorId) throw new ViewError(current.shared ? VIEW_NOT_OWNER : 'support.not_found');
+    this.logs.set(viewDeleteKey(current.id, current.revision), {
+      action: 'delete',
+      fingerprint: viewDeleteFingerprint(current.id, input.reason),
+      after: current,
+    });
     this.views.delete(current.id);
     return current;
+  }
+
+  private readSave(key: string): SaveLog | undefined {
+    const hit = this.logs.get(key);
+    if (!hit || hit.action !== 'save') return undefined;
+    return { viewId: hit.after.id, fingerprint: hit.fingerprint, after: hit.after };
+  }
+
+  private viewState(viewId: string): SavedViewState {
+    if (this.views.has(viewId)) return 'live';
+    for (const log of this.logs.values()) {
+      if (log.action === 'delete' && log.after.id === viewId) return 'deleted';
+    }
+    return 'absent';
   }
 }
 
@@ -400,7 +470,7 @@ type PgView = {
   updated_at: Date | string;
 };
 
-type PgLog = { fingerprint: string; after: SupportView };
+type PgLog = { view_id: string; fingerprint: string; after: SupportView; action: string };
 
 function fromRow(row: PgView): SupportView {
   return {
@@ -440,13 +510,18 @@ export class SqlViewBook implements ViewBook {
   }
 
   async save(input: ViewSave): Promise<SupportView> {
-    const key = viewLogKey(input.ownerId, input.name, input.expectedRevision);
     const fingerprint = viewFingerprint(input);
     return this.sql.begin(async (tx) => {
       await tx`SELECT pg_advisory_xact_lock(hashtext('support.desk_views'))`;
       const current = await lockedView(tx, input);
-      const logged = await tx<PgLog[]>`SELECT fingerprint, after FROM support.desk_view_log WHERE key = ${key}`;
-      const replay = replayLoggedSave(logged[0], current !== undefined, fingerprint);
+      const resolved = await resolveSaveKey(
+        input.ownerId,
+        input.name,
+        input.expectedRevision,
+        (key) => readSqlSave(tx, key),
+        (viewId) => sqlViewState(tx, viewId),
+      );
+      const replay = replayLoggedSave(resolved.log, resolved.rowPresent, fingerprint);
       if (replay) return replay;
       if (current && current.revision !== input.expectedRevision) throw new ViewError(VIEW_REVISION_STALE);
       if (!current && input.expectedRevision !== 0) throw new ViewError(VIEW_REVISION_STALE);
@@ -484,7 +559,7 @@ export class SqlViewBook implements ViewBook {
       }
       await tx`
         INSERT INTO support.desk_view_log (key, view_id, fingerprint, revision_after, action, after, set_by, reason, set_at)
-        VALUES (${key}, ${next.id}, ${fingerprint}, ${next.revision}, 'save', ${tx.json(next as never)}, ${input.ownerId}, ${input.reason}, ${input.at})
+        VALUES (${resolved.key}, ${next.id}, ${fingerprint}, ${next.revision}, 'save', ${tx.json(next as never)}, ${input.ownerId}, ${input.reason}, ${input.at})
       `;
       return next;
     }) as Promise<SupportView>;
@@ -498,10 +573,8 @@ export class SqlViewBook implements ViewBook {
       if (!current) throw new ViewError('support.not_found');
       if (current.owner_id !== input.actorId) throw new ViewError(current.shared ? VIEW_NOT_OWNER : 'support.not_found');
       const view = fromRow(current);
-      const key = `view-delete:${view.id}:r${view.revision}`;
-      const fingerprint = createHash('sha256')
-        .update(canonical({ id: view.id, reason: input.reason }))
-        .digest('hex');
+      const key = viewDeleteKey(view.id, view.revision);
+      const fingerprint = viewDeleteFingerprint(view.id, input.reason);
       await tx`
         INSERT INTO support.desk_view_log (key, view_id, fingerprint, revision_after, action, after, set_by, reason, set_at)
         VALUES (${key}, ${view.id}, ${fingerprint}, ${view.revision}, 'delete', ${tx.json(view as never)}, ${input.actorId}, ${input.reason}, ${input.at})
@@ -510,6 +583,22 @@ export class SqlViewBook implements ViewBook {
       return view;
     }) as Promise<SupportView>;
   }
+}
+
+async function readSqlSave(tx: TransactionSql, key: string): Promise<SaveLog | undefined> {
+  const rows = await tx<PgLog[]>`SELECT view_id, fingerprint, after, action FROM support.desk_view_log WHERE key = ${key}`;
+  const row = rows[0];
+  if (!row || row.action !== 'save') return undefined;
+  return { viewId: row.view_id, fingerprint: row.fingerprint, after: row.after };
+}
+
+async function sqlViewState(tx: TransactionSql, viewId: string): Promise<SavedViewState> {
+  const live = await tx<{ id: string }[]>`SELECT id FROM support.desk_views WHERE id = ${viewId}`;
+  if (live.length > 0) return 'live';
+  const deleted = await tx<{ key: string }[]>`
+    SELECT key FROM support.desk_view_log WHERE view_id = ${viewId} AND action = 'delete' LIMIT 1
+  `;
+  return deleted.length > 0 ? 'deleted' : 'absent';
 }
 
 async function lockedView(tx: TransactionSql, input: ViewSave): Promise<PgView | undefined> {

@@ -217,7 +217,7 @@ describe('saved views (SP-desk-01)', () => {
 });
 
 describe('MemoryViewBook', () => {
-  it('refuses to save Mine again at revision 0 after delete and writes no row', async () => {
+  it('replays a live create, then saves the same name as a new view after delete', async () => {
     const book = new MemoryViewBook({ personal: 2, shared: 1 });
     const input = {
       name: 'Mine',
@@ -232,9 +232,15 @@ describe('MemoryViewBook', () => {
       at: '2026-10-23T01:00:00.000Z',
     };
     const first = await book.save(input);
+    expect(await book.save(input)).toEqual(first);
+    expect(await book.listVisible(AGENT)).toEqual([first]);
     await book.remove({ viewId: first.id, actorId: AGENT, reason: 'Clearing it', at: input.at });
-    await expect(book.save(input)).rejects.toMatchObject({ code: 'support.idempotency_conflict' });
     expect(await book.get(first.id)).toBeNull();
-    expect(await book.listVisible(AGENT)).toEqual([]);
+    const second = await book.save(input);
+    expect(second.id).not.toBe(first.id);
+    expect(await book.save(input)).toEqual(second);
+    expect(await book.listVisible(AGENT)).toEqual([second]);
+    await expect(book.save({ ...input, reason: 'A different reason' })).rejects.toMatchObject({ code: 'support.idempotency_conflict' });
+    expect(await book.listVisible(AGENT)).toEqual([second]);
   });
 });
