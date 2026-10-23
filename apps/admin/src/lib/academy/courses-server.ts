@@ -4,8 +4,10 @@ import {
   academyCourseListSchema,
   academyCourseSchema,
   academyCreateCourseInputSchema,
+  academySaveOutlineInputSchema,
   academySetCourseStateInputSchema,
   academyUpdateCourseInputSchema,
+  type AcademySaveOutlineInput,
 } from '@intafaced/contracts/academy-courses';
 import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
 import { partFrom, type PartLabels } from '@/lib/desk/part';
@@ -37,6 +39,8 @@ export async function loadCourseDetail(ctx: FounderCallContext, courseId: string
   const detail = await founderCall(ctx, 'academy', 'admin.course', 'GET', { courseId }, readDetail);
   return { detail: partFrom(detail, (d) => d, ACADEMY), asOf: new Date().toISOString() };
 }
+
+const readCourseOfDetail = (raw: unknown) => readDetail(raw)?.course ?? null;
 
 function reply(result: FounderCallResult<ReturnType<typeof readCourse>>, what: string): { status: number; reply: CourseDeskReply } {
   const refused = (code: string | null, status: number, uncertain = false) => ({
@@ -104,4 +108,23 @@ export function checkMove(input: { courseId: string; to: 'published'; revision: 
 
 export async function moveCourse(ctx: FounderCallContext, input: { courseId: string; to: 'published'; revision: number; reason: string }) {
   return reply(await founderCall(ctx, 'academy', 'admin.setCourseState', 'POST', input, readCourse), input.to);
+}
+
+/** An outline save: the outline's own shape is checked here as svc-academy checks it; the owner's limits are the service's. */
+export function checkOutline(input: unknown): CheckedInput<AcademySaveOutlineInput> {
+  const parsed = academySaveOutlineInputSchema.safeParse(input);
+  if (parsed.success) return { ok: true, input: parsed.data };
+  const path = parsed.error.issues[0]?.path ?? [];
+  return {
+    ok: false,
+    why: path.includes('url')
+      ? 'A link item needs an https address, and no other item has one.'
+      : path.includes('items') || path.includes('sections')
+        ? 'Every section and item needs a title of up to 120 characters.'
+        : 'Which course, read at which revision?',
+  };
+}
+
+export async function saveOutline(ctx: FounderCallContext, input: AcademySaveOutlineInput) {
+  return reply(await founderCall(ctx, 'academy', 'admin.saveOutline', 'POST', input, readCourseOfDetail), 'outline saved');
 }

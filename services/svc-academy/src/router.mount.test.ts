@@ -265,6 +265,7 @@ describe('svc-academy mount — the router is actually mounted', () => {
         'admin.createCourse',
         'admin.updateCourse',
         'admin.setCourseState',
+        'admin.saveOutline',
         'admin.setItemPrerequisites',
         'admin.setItemWindow',
         'admin.grantItemExtension',

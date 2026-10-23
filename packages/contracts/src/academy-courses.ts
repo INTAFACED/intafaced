@@ -76,7 +76,7 @@ export const academyCourseSchema = z.object({
   priceAsset: z.string().nullable(),
   state: z.enum(ACADEMY_COURSE_STATES),
   revision: z.number().int().positive(),
-  /** Items in the course's outline. Zero until the outline is built (AC-course-structure-02). */
+  /** Items in the course's outline a learner can open (subheaders are labels and are not counted). */
   items: z.number().int().nonnegative(),
   createdBy: z.string().uuid(),
   createdAt: isoInstant,
@@ -84,7 +84,7 @@ export const academyCourseSchema = z.object({
 });
 export type AcademyCourse = z.infer<typeof academyCourseSchema>;
 
-export const ACADEMY_COURSE_EVENT_KINDS = ['created', 'updated', 'state'] as const;
+export const ACADEMY_COURSE_EVENT_KINDS = ['created', 'updated', 'state', 'outline'] as const;
 export const academyCourseEventSchema = z.object({
   kind: z.enum(ACADEMY_COURSE_EVENT_KINDS),
   revision: z.number().int().positive(),
@@ -96,8 +96,66 @@ export const academyCourseEventSchema = z.object({
 });
 export type AcademyCourseEvent = z.infer<typeof academyCourseEventSchema>;
 
-/** `admin.course`: one course with its history, newest first. */
-export const academyCourseDetailSchema = z.object({ course: academyCourseSchema, events: z.array(academyCourseEventSchema) });
+/**
+ * AC-course-structure-02: a course's outline is ordered sections of typed items. A `subheader` is a label inside a
+ * section, not something to open; a `link` carries an https address and opens in a new tab (nothing launches a tool);
+ * every other kind's content is written in the lesson editor (AC-course-structure-03). `indent` is 0 to 2.
+ */
+export const ACADEMY_OUTLINE_ITEM_KINDS = ['lesson', 'video', 'file', 'quiz', 'assignment', 'discussion', 'link', 'subheader'] as const;
+export type AcademyOutlineItemKind = (typeof ACADEMY_OUTLINE_ITEM_KINDS)[number];
+
+const outlineItemInput = z
+  .object({
+    kind: z.enum(ACADEMY_OUTLINE_ITEM_KINDS),
+    title: z.string().trim().min(1).max(120),
+    indent: z.number().int().min(0).max(2),
+    url: z.string().max(2048).url().startsWith('https://').nullable(),
+  })
+  .strict()
+  .refine((i) => (i.kind === 'link') === (i.url !== null), { message: 'a link item has an https address, and only a link has one' });
+
+/**
+ * `admin.saveOutline`: the whole outline, over the revision the editor read. The owner's section and item limits bound
+ * it; while either limit is blank the save refuses `academy.outline_limits_unset`, and nothing is defaulted.
+ */
+export const academySaveOutlineInputSchema = z
+  .object({
+    courseId: z.string().uuid(),
+    revision: z.number().int().positive(),
+    sections: z
+      .array(z.object({ title: z.string().trim().min(1).max(120), items: z.array(outlineItemInput).max(1000) }).strict())
+      .max(1000),
+  })
+  .strict();
+export type AcademySaveOutlineInput = z.infer<typeof academySaveOutlineInputSchema>;
+
+export const academyOutlineItemSchema = z.object({
+  id: z.string().uuid(),
+  kind: z.enum(ACADEMY_OUTLINE_ITEM_KINDS),
+  title: z.string().min(1),
+  indent: z.number().int().min(0).max(2),
+  url: z.string().nullable(),
+});
+export const academyOutlineSectionSchema = z.object({
+  id: z.string().uuid(),
+  title: z.string().min(1),
+  items: z.array(academyOutlineItemSchema),
+});
+export type AcademyOutlineSection = z.infer<typeof academyOutlineSectionSchema>;
+
+/** The owner's outline limits: null is "not set", and a save refuses until both are set. */
+export const academyOutlineLimitsSchema = z.object({
+  maxSections: z.number().int().positive().nullable(),
+  maxItems: z.number().int().positive().nullable(),
+});
+
+/** `admin.course`: one course with its outline, the owner's outline limits and its history, newest first. */
+export const academyCourseDetailSchema = z.object({
+  course: academyCourseSchema,
+  outline: z.array(academyOutlineSectionSchema),
+  limits: academyOutlineLimitsSchema,
+  events: z.array(academyCourseEventSchema),
+});
 export type AcademyCourseDetail = z.infer<typeof academyCourseDetailSchema>;
 
 /** `admin.courses` input. The page size is the caller's to send; a missing one refuses rather than dumping the table. */

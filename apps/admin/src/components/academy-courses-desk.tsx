@@ -15,6 +15,7 @@ import {
   type CourseListView,
 } from '@/lib/academy/courses-model';
 import { ACADEMY_PAGES } from '@/lib/ops-desk/catalog';
+import { OutlineEditor } from '@/components/academy-outline-editor';
 
 /**
  * ACADEMY COURSE DESK (AC-course-structure-01).
@@ -332,6 +333,12 @@ export function AcademyCourseDesk({ courseId, initial }: { courseId: string; ini
               </dd>
             </dl>
           </section>
+          <OutlineEditor
+            key={detail.data.course.revision}
+            detail={detail.data}
+            busy={busy}
+            onSave={(sections) => void send({ op: 'outline', courseId, revision: detail.data.course.revision, sections })}
+          />
           {detail.data.course.state === 'draft' && (
             <section className="dk-stack" aria-labelledby="h-course-edit">
               <h2 id="h-course-edit">Edit the draft</h2>
@@ -352,8 +359,7 @@ export function AcademyCourseDesk({ courseId, initial }: { courseId: string; ini
           <section className="dk-stack" aria-labelledby="h-course-publish">
             <h2 id="h-course-publish">Publish</h2>
             <p className="dk-muted">
-              Publishing puts the course in the public catalogue. svc-academy refuses a paid course with no price and a course whose outline
-              is empty, and says which.
+              svc-academy refuses to publish a paid course with no price and a course whose outline has nothing to open, and says which.
             </p>
             <form
               className="dk-stack"
@@ -377,8 +383,14 @@ export function AcademyCourseDesk({ courseId, initial }: { courseId: string; ini
               {detail.data.events.map((e) => (
                 <li key={e.revision}>
                   {formatWhen(e.at)}:{' '}
-                  {e.kind === 'created' ? 'created as a draft' : e.kind === 'updated' ? 'details saved' : `moved to ${e.toState}`} (revision{' '}
-                  {e.revision}) by <code>{e.actor}</code>
+                  {e.kind === 'created'
+                    ? 'created as a draft'
+                    : e.kind === 'updated'
+                      ? 'details saved'
+                      : e.kind === 'outline'
+                        ? 'outline saved'
+                        : `moved to ${e.toState}`}{' '}
+                  (revision {e.revision}) by <code>{e.actor}</code>
                   {e.reason ? `: ${e.reason}` : ''}
                 </li>
               ))}

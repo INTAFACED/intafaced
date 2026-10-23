@@ -663,6 +663,16 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'Its outline has no sections or items, so there is nothing for a learner to open and it was not published.',
     next: 'Build the outline first. Nothing was changed.',
   },
+  'academy.outline_limits_unset': {
+    title: 'The outline limits are not set',
+    body: 'The owner has not set how many sections and items a course outline may hold, so no outline is saved.',
+    next: 'The owner sets both limits for this deployment. Nothing was saved.',
+  },
+  'academy.outline_too_large': {
+    title: 'The outline is over the limit',
+    body: 'It has more sections or items than the owner allows for one course.',
+    next: 'Remove some, then save again. Nothing was saved.',
+  },
   'academy.course_not_found': {
     title: 'No such course',
     body: 'svc-academy has no course with this id.',
