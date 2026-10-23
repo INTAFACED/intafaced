@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { issueAccessToken } from '@intafaced/auth';
 import { MemoryLedger, parseAmount, recipes } from '@intafaced/ledger-client';
-import { LOOKUP_INPUT_INVALID, LOOKUP_UNRECORDED, registerOperatorHttp } from './operator-http.js';
+import { LOOKUP_INPUT_INVALID, LOOKUP_UNAVAILABLE, LOOKUP_UNRECORDED, registerOperatorHttp } from './operator-http.js';
 import { stubApprovalConsumer } from './ledger/action-approval-consume.js';
 import type { OperatorAccessEntry } from './ledger/operator-owner-balances.js';
 import type { LedgerService } from './service.js';
@@ -26,7 +26,7 @@ async function bearer(scopes: string[], mfa = true): Promise<string> {
 }
 
 /** TEST amounts only. A memory book with one deposit, and the access rows the routes wrote. */
-async function seeded(opts: { failAccess?: boolean } = {}) {
+async function seeded(opts: { failAccess?: boolean; failRead?: boolean; lie?: boolean } = {}) {
   const book = new MemoryLedger();
   const deposit = recipes.deposit({ userId: USER, assetId: 'USDT', amount: parseAmount('10.5'), rail: 'test', railRef: 'lookup-1' });
   const tx = await book.post(deposit);
@@ -39,11 +39,13 @@ async function seeded(opts: { failAccess?: boolean } = {}) {
     },
     getTx: async (id: string) => {
       reads += 1;
+      if (opts.failRead) throw new Error('connection terminated: secret-host:5432');
       return book.getTx(id);
     },
     getTxByKey: async (key: string) => {
       reads += 1;
-      return book.getTxByKey(key);
+      if (opts.failRead) throw new Error('connection terminated: secret-host:5432');
+      return opts.lie ? book.getTx(tx.id) : book.getTxByKey(key);
     },
   } as unknown as LedgerService;
   const app: FastifyInstance = Fastify({ logger: false });
@@ -164,6 +166,34 @@ describe('GET /operator/trace', () => {
     expect(res.statusCode).toBe(503);
     expect(res.json()).toMatchObject({ code: LOOKUP_UNRECORDED });
     expect(reads()).toBe(0);
+    await app.close();
+  });
+});
+
+describe('a recorded lookup the ledger cannot answer', () => {
+  it('is 503 lookup_unavailable with a fixed message, never a 400 and never the driver text', async () => {
+    const { app, tx, deposit, access } = await seeded({ failRead: true });
+    const auth = { authorization: await bearer(['admin:treasury']) };
+    for (const url of [`/operator/transactions/${tx.id}`, `/operator/trace?businessKey=${encodeURIComponent(deposit.idempotencyKey)}`]) {
+      const res = await app.inject({ method: 'GET', url, headers: auth });
+      expect(res.statusCode, url).toBe(503);
+      expect(res.json()).toMatchObject({ code: LOOKUP_UNAVAILABLE });
+      expect(res.body).not.toContain('secret-host');
+    }
+    expect(access).toHaveLength(2);
+    await app.close();
+  });
+
+  it('refuses a trace the book answered with a transaction booked under another key (500, typed)', async () => {
+    const { app, tx } = await seeded({ lie: true });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/operator/trace?businessKey=other%3Akey',
+      headers: { authorization: await bearer(['admin:treasury']) },
+    });
+    expect(res.statusCode).toBe(500);
+    expect(res.json()).toMatchObject({ code: 'ledger.trace_inconsistent' });
+    expect(res.body).not.toContain(tx.hash);
     await app.close();
   });
 });

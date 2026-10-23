@@ -38,7 +38,7 @@ tRPC procedures above are exported for their type; **nothing mounts the tRPC plu
 
 Operator freeze/unfreeze is dual-control: the signed treasury principal plus a distinct `confirmOperatorId`. Missing or same-as-operator confirm refuses (`missing_operator`) — the ledger does not invent a second caller. Reconciliation and boot `LEDGER_POSTING_ENABLED=false` still freeze through `LedgerService` without a confirmer (not operator doors).
 
-The two lookups are reads that answer while posting is frozen. Each writes one `operator_access_log` row first (`transaction.read` or `trace.read`, migration 0025); a row that cannot be written refuses with 503 `ledger.lookup_unrecorded` and nothing is read. A malformed id or key refuses with 400 `ledger.lookup_input_invalid`. Postings name opaque account ids only; transaction metadata is not returned.
+The two lookups are reads that answer while posting is frozen. Each writes one `operator_access_log` row first (`transaction.read` or `trace.read`, migration 0025), inside the read itself, so the `trace` and `transactionGet` tRPC procedures record the same way; a row that cannot be written refuses with 503 `ledger.lookup_unrecorded` and nothing is read. A malformed id or key refuses with 400 `ledger.lookup_input_invalid`; a recorded lookup the database could not answer is 503 `ledger.lookup_unavailable`. Postings name opaque account ids only; transaction metadata is not returned.
 
 `POST /operator/reconcile` is the on-demand path for apps/admin. A broken chain reports `chainLength` as how far verification got and names `chainBrokenAt` — never collapses a break to zero (that would look like an empty healthy book). Edge/admin must proxy this route; until they do, the scheduled job and this path are the live answers.
 

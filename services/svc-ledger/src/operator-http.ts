@@ -4,8 +4,9 @@ import { AuthError, bearerToken, requireScope, verifyAccessToken, type Principal
 import { LedgerError } from '@intafaced/ledger-client';
 import { DualControlError } from './ledger/dual-control.js';
 import { ActionApprovalConsumeError, consumeLedgerApproval, type ActionApprovalConsumer } from './ledger/action-approval-consume.js';
-import { TraceInconsistentError, operatorTraceInputSchema, traceBusinessKey } from './ledger/operator-trace.js';
-import { LEDGER_TX_NOT_FOUND, operatorTxGet, operatorTxGetInputSchema } from './ledger/operator-tx-get.js';
+import { LOOKUP_UNRECORDED, LookupUnrecordedError, type LookupActor } from './ledger/operator-lookup.js';
+import { TraceInconsistentError, operatorTraceInputSchema, operatorTraceOutputSchema, traceBusinessKey } from './ledger/operator-trace.js';
+import { LEDGER_TX_NOT_FOUND, operatorTxGet, operatorTxGetInputSchema, operatorTxGetOutputSchema } from './ledger/operator-tx-get.js';
 import type { LedgerService } from './service.js';
 
 /**
@@ -150,10 +151,11 @@ interface OperatorRequest {
   readonly id?: string;
 }
 
-/** A lookup whose access row could not be written: nothing was read. */
-export const LOOKUP_UNRECORDED = 'ledger.lookup_unrecorded' as const;
-/** A transaction id that is not a UUID, or a blank or over-long business key. */
+export { LOOKUP_UNRECORDED };
+/** A transaction id that is not a UUID, or a blank or over-long business key. Nothing was recorded or read. */
 export const LOOKUP_INPUT_INVALID = 'ledger.lookup_input_invalid' as const;
+/** A recorded lookup the ledger could not answer (the database did not respond, or the answer failed its schema). */
+export const LOOKUP_UNAVAILABLE = 'ledger.lookup_unavailable' as const;
 
 export function registerOperatorHttp(
   app: FastifyInstance,
@@ -319,77 +321,61 @@ export function registerOperatorHttp(
    * Object lookup (OPS-rules-monitoring-12 on OPS-ledger-desk-01's reads): one booked transaction by its id, or the
    * transaction a business key booked. Reads, never posts, and they answer while the posting freeze is on.
    *
-   * A business key names a customer's deposit, withdrawal or order, so each lookup writes one `operator_access_log` row
-   * FIRST (actor, what was looked up, request id, time), as an owner-balances read does. A row that cannot be written
-   * refuses the lookup with 503 and reads nothing. An unknown transaction id is 404 `ledger.tx_not_found`; a business key
-   * that never booked is an honest `found: false`, never an invented row. Postings name opaque account ids only.
+   * Each lookup writes one `operator_access_log` row FIRST, inside the read function (`operator-lookup.ts`); a row that
+   * cannot be written refuses with 503 and reads nothing. An unknown transaction id is 404 `ledger.tx_not_found`; a key
+   * that never booked is an honest `found: false`. A read that fails after it was recorded is 503 with a fixed message,
+   * never a 400 that would blame the operator, and never the driver's text. Answers are checked against the same output
+   * schemas the tRPC procedures declare. Postings name opaque account ids only.
    */
-  const audited = async (
-    reply: FastifyReply,
-    entry: {
-      actorId: string;
-      ownerType: 'transaction' | 'business_key';
-      ownerId: string;
-      requestId: string | null;
-      action: 'transaction.read' | 'trace.read';
-    },
-  ): Promise<boolean> => {
-    try {
-      await ledger.recordOperatorAccess(entry);
-      return true;
-    } catch (err) {
-      app.log.error({ err, actor: entry.actorId, action: entry.action }, 'operator lookup refused: access row not written');
-      await reply.code(503).send({ message: 'The lookup could not be recorded, so it was not read.', code: LOOKUP_UNRECORDED });
-      return false;
-    }
-  };
-
-  app.get(
-    '/operator/transactions/:txId',
+  const lookup = <I, T>(spec: {
+    input: (req: OperatorRequest) => unknown;
+    inputSchema: z.ZodType<I>;
+    invalid: string;
+    read: (actor: LookupActor, input: I) => Promise<T>;
+    output: z.ZodType<T>;
+  }) =>
     guarded(async (operator, _body, req, reply) => {
-      const input = operatorTxGetInputSchema.safeParse({ txId: (req.params as { txId?: unknown } | undefined)?.txId });
-      if (!input.success) return reply.code(400).send({ message: 'A transaction id is a UUID.', code: LOOKUP_INPUT_INVALID });
-      const recorded = await audited(reply, {
-        actorId: operator.userId,
-        ownerType: 'transaction',
-        ownerId: input.data.txId,
-        requestId: req.id ?? null,
-        action: 'transaction.read',
-      });
-      if (!recorded) return reply;
+      const input = spec.inputSchema.safeParse(spec.input(req));
+      if (!input.success) return reply.code(400).send({ message: spec.invalid, code: LOOKUP_INPUT_INVALID });
       try {
-        return await operatorTxGet(ledger, input.data);
+        return spec.output.parse(await spec.read({ actorId: operator.userId, requestId: req.id ?? null }, input.data));
       } catch (err) {
+        if (err instanceof LookupUnrecordedError) {
+          app.log.error({ err, actor: operator.userId }, 'operator lookup refused: access row not written');
+          return reply.code(503).send({ message: 'The lookup could not be recorded, so it was not read.', code: LOOKUP_UNRECORDED });
+        }
         if (err instanceof LedgerError && err.code === LEDGER_TX_NOT_FOUND) {
           return reply.code(404).send({ message: 'No transaction has that id.', code: LEDGER_TX_NOT_FOUND });
         }
-        throw err;
+        if (err instanceof TraceInconsistentError) {
+          // The book's own integrity, not the operator's request: a server fault, as the tRPC procedure reports it.
+          app.log.error({ err, actor: operator.userId }, 'operator trace: the book answered a transaction booked under another key');
+          return reply.code(500).send({ message: 'The book answered a transaction booked under another key.', code: err.code });
+        }
+        app.log.error({ err, actor: operator.userId }, 'operator lookup failed after it was recorded');
+        return reply.code(503).send({ message: 'The ledger could not answer this lookup. Try again.', code: LOOKUP_UNAVAILABLE });
       }
+    });
+
+  app.get(
+    '/operator/transactions/:txId',
+    lookup({
+      input: (req) => ({ txId: (req.params as { txId?: unknown } | undefined)?.txId }),
+      inputSchema: operatorTxGetInputSchema,
+      invalid: 'A transaction id is a UUID.',
+      read: (actor, input) => operatorTxGet(ledger, actor, input),
+      output: operatorTxGetOutputSchema,
     }),
   );
 
   app.get(
     '/operator/trace',
-    guarded(async (operator, _body, req, reply) => {
-      const input = operatorTraceInputSchema.safeParse({ businessKey: (req.query as { businessKey?: unknown } | undefined)?.businessKey });
-      if (!input.success) return reply.code(400).send({ message: 'A business key is 1 to 512 characters.', code: LOOKUP_INPUT_INVALID });
-      const recorded = await audited(reply, {
-        actorId: operator.userId,
-        ownerType: 'business_key',
-        ownerId: input.data.businessKey,
-        requestId: req.id ?? null,
-        action: 'trace.read',
-      });
-      if (!recorded) return reply;
-      try {
-        return await traceBusinessKey(ledger, input.data);
-      } catch (err) {
-        if (err instanceof TraceInconsistentError) {
-          app.log.error({ err, actor: operator.userId }, 'operator trace: the book answered a transaction booked under another key');
-          return reply.code(500).send({ message: 'The book answered a transaction booked under another key.', code: err.code });
-        }
-        throw err;
-      }
+    lookup({
+      input: (req) => ({ businessKey: (req.query as { businessKey?: unknown } | undefined)?.businessKey }),
+      inputSchema: operatorTraceInputSchema,
+      invalid: 'A business key is 1 to 512 characters.',
+      read: (actor, input) => traceBusinessKey(ledger, actor, input),
+      output: operatorTraceOutputSchema,
     }),
   );
 }
