@@ -61,12 +61,23 @@ test(`${J} #2 turns percent mode on and every series is rebased to the same star
     .getByRole('combobox', { name: /Compare with/ })
     .selectOption(first);
   await tools(page).getByRole('button', { name: 'Add', exact: true }).click();
+  const item = tools(page).getByRole('list', { name: 'Compared markets' }).getByRole('listitem').first();
+  // A market with no trades at this interval is drawn as nothing; a loaded one starts at 0.00% at its first bar.
+  await expect(item).toHaveAttribute('data-state', /ready|empty/);
   const before = await canvas(page).screenshot();
   await tools(page).getByRole('checkbox', { name: 'Percent scale' }).check();
   // The axis now reads in percent.
   await expect.poll(async () => !(await canvas(page).screenshot()).equals(before)).toBe(true);
   await expect(canvas(page)).toHaveAttribute('data-scale', 'percent');
   await expect(tools(page).getByRole('checkbox', { name: 'Percent scale' })).toBeChecked();
+  // The main series: a base is named, and the first value the library holds for its first bar is 0.00.
+  await expect(canvas(page)).toHaveAttribute('data-base', /^\d+(\.\d+)?$/);
+  await expect(canvas(page)).toHaveAttribute('data-first-percent', '0.00');
+  // The compared line: the same, unless the market has nothing to draw at this interval.
+  if ((await item.getAttribute('data-state')) === 'ready') {
+    await expect(item).toHaveAttribute('data-base', /^\d+(\.\d+)?$/);
+    await expect(item).toHaveAttribute('data-first-percent', '0.00');
+  }
 });
 
 test(`${J} #4 takes a snapshot, copies a share link and prints, with no account detail`, async ({ page, context }) => {

@@ -13,28 +13,39 @@ import type { DeskMarket } from '../trade/desk/market';
 import { zoneName } from '../trade/desk/time';
 import { barsCsv, chartLink, fileStem, visibleBars } from './chart-files';
 import type { ChartHost, ChartSeries } from './chart-host';
-import type { ChartStyle } from './chart-style';
+import { percentBase, rebasePoints, type ChartStyle, type DrawnPoint } from './chart-style';
 import { chartsCopy } from './copy';
 import { OWNER_VALUE_UNSET, ownerValue, useChartOwnerValues } from './owner-values';
 
 const COMPARE_TOKENS = ['--if-ma-1', '--if-ma-2', '--if-ma-3'] as const;
 export const PUBLISH_UNAVAILABLE = 'trade.chart.publish_unavailable' as const;
 
-/** One compared market: its candles at the chart's interval, drawn as a line; it reports how it went. */
+/** What a compared line reports: how it went, and in percent mode its base and first drawn value (0.00 when rebased). */
+export interface LineReport {
+  state: 'loading' | 'ready' | 'empty' | 'error';
+  base: string;
+  first: string;
+}
+
+/**
+ * One compared market: its candles at the chart's interval, drawn as a line. The parent keys it by symbol and colour
+ * token, so a line that moves to another slot is made again with its own colour, scale and data. In percent mode the
+ * line is rebased to its own first bar, on the same right-hand scale as the main series.
+ */
 function CompareLine({
   host,
   symbol,
   interval,
   token,
   percent,
-  onState,
+  onReport,
 }: {
   host: ChartHost;
   symbol: string;
   interval: ChartInterval;
   token: string;
   percent: boolean;
-  onState: (symbol: string, state: 'loading' | 'ready' | 'empty' | 'error') => void;
+  onReport: (symbol: string, report: LineReport) => void;
 }) {
   const read = useChartCandles(symbol, interval);
   const series = useRef<ChartSeries | null>(null);
@@ -55,13 +66,27 @@ function CompareLine({
     series.current?.applyOptions({ priceScaleId: percent ? 'right' : 'left' });
   }, [percent, host]);
   useEffect(() => {
-    if (read.status === 'ready') series.current?.setData(read.data.map(toLinePoint));
-    else series.current?.setData([]);
-    onState(
-      symbol,
-      read.status === 'ready' ? 'ready' : read.status === 'empty' ? 'empty' : read.status === 'loading' ? 'loading' : 'error',
-    );
-  }, [read, symbol, onState, host]);
+    const line = series.current;
+    if (read.status !== 'ready') {
+      line?.setData([]);
+      onReport(symbol, { state: read.status === 'empty' ? 'empty' : read.status === 'loading' ? 'loading' : 'error', base: '', first: '' });
+      return;
+    }
+    const points = read.data.map(toLinePoint) as DrawnPoint[];
+    const base = percentBase(points);
+    if (percent && base === null) {
+      line?.setData([]);
+      onReport(symbol, { state: 'error', base: '', first: '' });
+      return;
+    }
+    line?.setData(percent && base !== null ? rebasePoints(points, base) : points);
+    const at = line?.dataByIndex(0) as { value?: number } | null | undefined;
+    onReport(symbol, {
+      state: 'ready',
+      base: percent && base !== null ? String(base) : '',
+      first: percent && typeof at?.value === 'number' ? at.value.toFixed(2) : '',
+    });
+  }, [read, symbol, onReport, host, percent]);
   return null;
 }
 
@@ -72,40 +97,47 @@ export function CompareTools({
   interval,
   style,
   bars,
+  percent,
+  onPercent,
 }: {
   host: ChartHost | null;
   market: DeskMarket;
   markets: readonly DeskMarket[];
   interval: ChartInterval;
   style: ChartStyle;
+  /** The bars the chart draws now, in the order its visible range counts them. */
   bars: readonly Candle[];
+  percent: boolean;
+  onPercent: (percent: boolean) => void;
 }) {
   const { t } = chartsCopy.useCopy();
   const { timeZone } = usePreferences();
   const owner = useChartOwnerValues(market.symbol);
   const cap = ownerValue(owner, 'compareCap');
   const [added, setAdded] = useState<string[]>([]);
-  const [states, setStates] = useState<Record<string, string>>({});
-  const [percent, setPercent] = useState(false);
+  const [states, setStates] = useState<Record<string, LineReport>>({});
   const [pick, setPick] = useState('');
   const [note, setNote] = useState<{ code?: string; text: string } | null>(null);
   const others = useMemo(
     () => markets.filter((m) => m.symbol !== market.symbol && !added.includes(m.symbol)),
     [markets, market.symbol, added],
   );
-  const onState = useMemo(
-    () => (symbol: string, state: string) => setStates((now) => (now[symbol] === state ? now : { ...now, [symbol]: state })),
+  const onReport = useMemo(
+    () => (symbol: string, report: LineReport) =>
+      setStates((now) => {
+        const old = now[symbol];
+        return old && old.state === report.state && old.base === report.base && old.first === report.first
+          ? now
+          : { ...now, [symbol]: report };
+      }),
     [],
   );
 
-  // Percent mode rebases the chart's own scale; compared lines join it there.
+  // Percent mode is drawn by the series themselves (rebased to their own first bar), so the library's own percent mode
+  // stays off. Lines keep their own scale only while prices are shown.
   useEffect(() => {
     if (!host) return;
-    host.element.dataset.scale = percent ? 'percent' : 'price';
-    host.chart.applyOptions({
-      rightPriceScale: { mode: percent ? 2 : 0 },
-      leftPriceScale: { visible: !percent && added.length > 0, mode: 0 },
-    });
+    host.chart.applyOptions({ leftPriceScale: { visible: !percent && added.length > 0, mode: 0 } });
   }, [host, percent, added.length]);
 
   const add = () => {
@@ -128,13 +160,15 @@ export function CompareTools({
     setPick('');
   };
 
-  const download = (name: string, href: string) => {
+  const download = (name: string, href: string, blob = false) => {
     const a = document.createElement('a');
     a.href = href;
     a.download = name;
     document.body.append(a);
     a.click();
     a.remove();
+    // A blob address is released once the browser has taken the file.
+    if (blob) window.setTimeout(() => URL.revokeObjectURL(href), 1000);
   };
   const snapshot = () => {
     if (!host) return;
@@ -149,11 +183,12 @@ export function CompareTools({
       setNote({ text: t('Link to copy', { link }) });
     }
   };
+  // The bars the chart draws (a replay's frozen bars while it runs): the visible range indexes that array.
   const exportBars = () => {
     const range = host?.chart.timeScale().getVisibleLogicalRange() ?? null;
     const shown = visibleBars(bars, range);
     const csv = barsCsv(shown, market.symbol, interval, zoneName(timeZone) ?? Intl.DateTimeFormat().resolvedOptions().timeZone);
-    download(`${fileStem(market.symbol, interval)}.csv`, URL.createObjectURL(new Blob([csv], { type: 'text/csv' })));
+    download(`${fileStem(market.symbol, interval)}.csv`, URL.createObjectURL(new Blob([csv], { type: 'text/csv' })), true);
   };
 
   return (
@@ -172,16 +207,21 @@ export function CompareTools({
         {t('Add to chart')}
       </button>
       <label className="cw-check">
-        <input type="checkbox" checked={percent} onChange={(event) => setPercent(event.target.checked)} />
+        <input type="checkbox" checked={percent} onChange={(event) => onPercent(event.target.checked)} />
         <span>{t('Percent')}</span>
       </label>
       {added.length > 0 && (
         <ul className="cw-compare-list" aria-label={t('Compared markets')}>
           {added.map((symbol, i) => (
-            <li key={symbol} data-state={states[symbol] ?? 'loading'}>
+            <li
+              key={symbol}
+              data-state={states[symbol]?.state ?? 'loading'}
+              data-base={states[symbol]?.base ?? ''}
+              data-first-percent={states[symbol]?.first ?? ''}
+            >
               <span>{symbol}</span>
-              {states[symbol] === 'empty' && <span>{t('Compare no candles')}</span>}
-              {states[symbol] === 'error' && <span>{t('Compare error')}</span>}
+              {states[symbol]?.state === 'empty' && <span>{t('Compare no candles')}</span>}
+              {states[symbol]?.state === 'error' && <span>{t('Compare error')}</span>}
               <button
                 type="button"
                 onClick={() => setAdded((now) => now.filter((s) => s !== symbol))}
@@ -191,12 +231,13 @@ export function CompareTools({
               </button>
               {host && (
                 <CompareLine
+                  key={`${symbol}:${COMPARE_TOKENS[i % COMPARE_TOKENS.length]!}`}
                   host={host}
                   symbol={symbol}
                   interval={interval}
                   token={COMPARE_TOKENS[i % COMPARE_TOKENS.length]!}
                   percent={percent}
-                  onState={onState}
+                  onReport={onReport}
                 />
               )}
             </li>

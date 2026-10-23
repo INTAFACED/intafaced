@@ -94,3 +94,33 @@ export function seriesOptions(style: ChartStyle, colors: SchemeColors): Record<s
       return { upColor: colors.up, downColor: colors.down, wickUpColor: colors.up, wickDownColor: colors.down, borderVisible: false };
   }
 }
+
+/** Percent mode: the price axis and the price labels of every series read as percent change from the series' base. */
+export const PERCENT_PRICE_FORMAT = { type: 'custom', minMove: 0.01, formatter: (value: number) => `${value.toFixed(2)}%` } as const;
+
+/** A point as the chart draws it: a time and its prices (OHLC, or one `value` for a line, area or column). */
+export type DrawnPoint = { time: number } & Partial<Record<'open' | 'high' | 'low' | 'close' | 'value', unknown>>;
+const PRICE_FIELDS = ['open', 'high', 'low', 'close', 'value'] as const;
+
+/**
+ * The base a series is rebased to: the close (or value) of its first point, the first bar it draws. Null when there is
+ * no first point or it is not a positive price, so percent mode refuses rather than divides by nothing.
+ */
+export function percentBase(points: readonly DrawnPoint[]): number | null {
+  const first = points[0];
+  if (!first) return null;
+  const base = Number(first.close ?? first.value);
+  return Number.isFinite(base) && base > 0 ? base : null;
+}
+
+/** Percent mode: every price of a series as percent change from its base, so its first point is 0%. */
+export function rebasePoints(points: readonly DrawnPoint[], base: number): DrawnPoint[] {
+  return points.map((point) => {
+    const out: DrawnPoint = { ...point };
+    for (const field of PRICE_FIELDS) {
+      const price = point[field];
+      if (typeof price === 'number') out[field] = (price / base - 1) * 100;
+    }
+    return out;
+  });
+}

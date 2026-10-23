@@ -95,6 +95,9 @@ export const MarketChartWidget = memo(function MarketChartWidget({
   );
   const all = candles ?? (polled.status === 'ready' ? polled.data : []);
   const replay = useReplay();
+  // The bars the chart draws: the loaded bars, or a replay's frozen copy up to its cut. Export reads this same array.
+  const drawnBars = replayBars(all, replay.replay);
+  const [percent, setPercent] = useState(false);
   const [replayOpen, setReplayOpen] = useState(false);
   const [replayNote, setReplayNote] = useState<string | null>(null);
   useEffect(() => {
@@ -198,9 +201,10 @@ export const MarketChartWidget = memo(function MarketChartWidget({
   } else
     body = (
       <WorkbenchChart
-        candles={replayBars(candles ?? polled.data, replay.replay)}
+        candles={drawnBars}
         style={mode}
         scheme={scheme}
+        percent={percent}
         resetKey={`${market.symbol}:${interval}`}
         symbol={market.symbol}
         tickSize={market.tickSize}
@@ -306,7 +310,18 @@ export const MarketChartWidget = memo(function MarketChartWidget({
           <button type="submit">{t('Go')}</button>
         </form>
       </div>
-      {markets && <CompareTools host={host} market={market} markets={markets} interval={interval} style={mode} bars={all} />}
+      {markets && (
+        <CompareTools
+          host={host}
+          market={market}
+          markets={markets}
+          interval={interval}
+          style={mode}
+          bars={drawnBars}
+          percent={percent}
+          onPercent={setPercent}
+        />
+      )}
       {basisRefused && (
         <p className="cw-note" role="status" data-code={BASIS_UNPUBLISHED}>
           {t('Basis refused', { basis: t(BASIS_LABEL[basisRefused]) })}
