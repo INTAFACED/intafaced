@@ -44,13 +44,25 @@ export interface RunRepository {
   /** Whether this account has at least one finished run with outcome ok, per kind. Feeds the quick start ticks. */
   okKinds(input: { readonly userId: string }): Promise<{ readonly backtest: boolean; readonly sandbox: boolean }>;
   claimOnce(input: ClaimInput): Promise<ClaimRow>;
-  /** One account's own runs of a kind, newest first, each with its label. */
+  /** One account's own runs of a kind whose key starts with `keyPrefix`, newest first, each with its label. */
   history(input: {
     readonly userId: string;
     readonly kind: RunKind;
+    readonly keyPrefix: string;
     readonly limit: number;
     readonly cursor: string | null;
   }): Promise<RunHistoryPage>;
+  /**
+   * How many distinct finished runs the account has of one strategy on one symbol and bar size, among the runs whose key
+   * starts with `keyPrefix` (ENGINE MT-6). Each distinct run key is one variant tried; a replay is the same run.
+   */
+  variantCount(input: {
+    readonly userId: string;
+    readonly strategyId: string;
+    readonly symbol: string;
+    readonly barSize: string;
+    readonly keyPrefix: string;
+  }): Promise<number>;
   /**
    * Sets the label of one of the account's own runs. The label lives beside the run, never in it: the run row and its
    * result stay as they were stored. Another account's run refuses as not found.

@@ -87,6 +87,19 @@ describe('ledger.transactionGet procedure', () => {
     expect(access).toMatchObject([{ actorId: USER, requestId: 'req-1', ownerId: tx.id, action: 'transaction.read' }]);
   });
 
+  it('serves a founder sign-in with admin:read and a second factor, recorded under that founder (owner decision 2026-10-23)', async () => {
+    const { ledger, tx, access } = await seeded();
+    const router = createLedgerRouter(ledger as unknown as LedgerService);
+    await expect(router.createCaller(await ctx(['admin:read'], true)).transactionGet({ txId: tx.id })).resolves.toMatchObject({
+      txId: tx.id,
+    });
+    expect(access).toMatchObject([{ actorId: USER, ownerId: tx.id, action: 'transaction.read' }]);
+    await expect(router.createCaller(await ctx(['admin:read'], false)).transactionGet({ txId: tx.id })).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+    });
+    expect(access).toHaveLength(1);
+  });
+
   it('maps an unrecorded lookup to a typed internal error', async () => {
     const { tx } = await seeded();
     const failing = { recordOperatorAccess: () => Promise.reject(new Error('down')), getTx: async () => tx } as unknown as LedgerService;

@@ -1,3 +1,4 @@
+import { requireMfa, requireScope, type Principal } from '@intafaced/auth';
 import type { OperatorAccessEntry } from './operator-owner-balances.js';
 
 /**
@@ -7,6 +8,18 @@ import type { OperatorAccessEntry } from './operator-owner-balances.js';
  * is recorded first, exactly as an owner-balances read is, and a lookup whose row cannot be written is refused with
  * nothing read. The record lives inside the read functions, not in a route, so every door that serves them inherits it.
  */
+
+/**
+ * Who may look up (owner decision 2026-10-23): `admin:read` with a second factor, so a founder's own sign-in can look
+ * and the access row names the person. A lookup is a read, so the halt-the-platform scope is not required for it (a
+ * founder sign-in never holds that scope). `admin:treasury` and `admin:compliance` imply `admin:read` (`hasScope`), so
+ * their holders still pass. `admin:read` is interactive-only, so `requireScope` refuses it on an API key. Throws
+ * `AuthError` (`mfa.required`, `scope.denied` or `scope.interactive_only`); nothing is recorded.
+ */
+export function requireLookupAuthority(principal: Principal): void {
+  requireScope(principal, 'admin:read');
+  requireMfa(principal);
+}
 
 /** A lookup whose access row could not be written: nothing was read. */
 export const LOOKUP_UNRECORDED = 'ledger.lookup_unrecorded' as const;

@@ -8,7 +8,7 @@ Finished is the Operation Zero definition: every build row of all 21 modules com
 
 1. **Push (now).** Build every slice. Proof per slice: its tests, the journey it serves, and screenshots.
 2. **Polish (part of finishing, after the push).** Review against the reference apps with a rubric, scripted persona tasks per module, nightly re-runs, dependency upgrades, leftover review findings.
-3. **Real-funds day.** One named switch that only the owner turns on. Before it: a bought custody signer behind the existing signer interface, live owner values (docs/OWNER-SETTINGS.md), service keys only (the shared secrets removed), ledger idempotency in `refuse` mode, the items on the owner's must-fix list, every slice whose title starts "Before real money:" (Phantom's fault table, admin acceptance tests and his 2026-10-23 controls: proof of reserves, AML transaction monitoring, 3-D Secure and sanctions screening proven in a journey; linked from the money journeys they protect but not steps of them), the readiness review of the first launch unit, and an external security audit of the money code (the audit is external; agents never mark anything audited).
+3. **Real-funds day.** One named switch that only the owner turns on. Before it: a bought custody signer behind the existing signer interface, live owner values (docs/OWNER-SETTINGS.md), service keys only (the shared secrets removed), ledger idempotency in `refuse` mode, the items on the owner's must-fix list, every slice whose title starts "Before real money:" (Phantom's fault table, admin acceptance tests and his 2026-10-23 controls: proof of reserves, AML transaction monitoring, 3-D Secure and sanctions screening proven in a journey, and a check that production runs in live mode with no TEST shortcuts reachable; linked from the money journeys they protect but not steps of them), the readiness review of the first launch unit, and an external security audit of the money code (the audit is external; agents never mark anything audited).
 
 ## How work flows
 
@@ -44,7 +44,7 @@ The full slice specs (behaviour, tests, failure cases, references) live in the p
 
 ## Generated: what is left, by module, lane and journey
 
-1493 slices left in 21 modules. 281 need no other slice. 47 sit in a dependency loop that the lane untangles first. 357 end in a refusal that names an outside service (built, switched on later). Size: 703 L, 684 M, 106 S.
+1494 slices left in 21 modules. 282 need no other slice. 47 sit in a dependency loop that the lane untangles first. 357 end in a refusal that names an outside service (built, switched on later). Size: 703 L, 685 M, 106 S.
 
 ### Journey map
 
@@ -80,7 +80,7 @@ Done is defined by 462 journeys (3111 steps) in `modules/<module>/acceptance/jou
 | -------------- | ------ | ------------ | ----------------------------- | ----- |
 | merchant       | 211    | 35           | 10                            | 105   |
 | copy-bots-otc  | 125    | 42           | 18                            | 47    |
-| ops-console    | 117    | 24           | 42                            | 66    |
+| ops-console    | 118    | 25           | 42                            | 66    |
 | dex-protocol   | 111    | 4            | 102                           | 40    |
 | bank           | 98     | 40           | 7                             | 57    |
 | identity       | 90     | 17           | 30                            | 27    |
@@ -146,6 +146,7 @@ A lane is one service, or one app area, so two lanes never edit the same files. 
 | admin shell                   | 2      | 0            | 0                     | 0                     | 0             |
 | admin: founder-ops            | 2      | 1            | 1                     | 0                     | 0             |
 | admin: protocol-desk          | 2      | 0            | 0                     | 0                     | 0             |
+| config                        | 2      | 2            | 0                     | 0                     | 2             |
 | customer: money               | 2      | 1            | 1                     | 0                     | 1             |
 | acceptance (Polish)           | 1      | 1            | 1                     | 0                     | 1             |
 | admin: console-status-banner  | 1      | 0            | 0                     | 1                     | 0             |
@@ -157,7 +158,6 @@ A lane is one service, or one app area, so two lanes never edit the same files. 
 | admin: nav                    | 1      | 0            | 0                     | 1                     | 0             |
 | admin: support-ticket-actions | 1      | 0            | 0                     | 1                     | 0             |
 | ci gate                       | 1      | 1            | 0                     | 0                     | 1             |
-| config                        | 1      | 1            | 0                     | 0                     | 1             |
 | customer: coin                | 1      | 0            | 0                     | 0                     | 0             |
 | docs                          | 1      | 0            | 0                     | 0                     | 1             |
 

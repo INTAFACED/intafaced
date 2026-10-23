@@ -37,6 +37,9 @@ import { contactProcedures } from './contact-router.js';
 import type { AttachmentMeta } from './store.js';
 import { attachmentProcedures } from './attachment-router.js';
 import { MemoryAttachmentSettingsBook, type AttachmentSettingsBook } from './attachment-settings.js';
+import { MemorySurveyBook, type SurveyBook } from './survey-settings.js';
+import { surveyProcedures } from './survey-router.js';
+import { unwiredApprovalConsumer, type ActionApprovalConsumer } from './action-approval-consume.js';
 import { describeSupportDeskPolicy } from './desk-policy.js';
 import { describeKbPolicy } from './kb-policy.js';
 import { SupportError, SupportService, requireSupportOps } from './support-service.js';
@@ -168,10 +171,13 @@ export function createSupportRouter(
   scope?: DeskScopeReader,
   contact: ContactBook = new MemoryContactBook(),
   attachmentSettings: AttachmentSettingsBook = new MemoryAttachmentSettingsBook(),
+  surveys: SurveyBook = new MemorySurveyBook(),
+  surveyApprovals: ActionApprovalConsumer = unwiredApprovalConsumer(),
 ) {
   return router({
     ...contactProcedures(contact, support),
     ...attachmentProcedures(attachmentSettings, support),
+    ...surveyProcedures(surveys, support, surveyApprovals),
 
     deskPolicy: publicProcedure.query(() => describeSupportDeskPolicy(internalServiceSecret ?? null)),
 

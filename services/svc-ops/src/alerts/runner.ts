@@ -1,4 +1,5 @@
 import { close, instanceOf, isDue, step } from './evaluate.js';
+import { ALERT_EVALUATOR_ACTOR, ALERT_EVALUATOR_REASON, fingerprintOf, pipelineHeartbeatKey, type AlertDeskStore } from './desk-store.js';
 import type { AlertRuleStore } from './rules.js';
 import type { SignalReader } from './signals.js';
 import type { AlertEventName, AlertOutbox, AlertStateStore } from './state-store.js';
@@ -13,6 +14,8 @@ export interface EvaluatorDeps {
   readonly state: AlertStateStore;
   readonly signals: SignalReader;
   readonly now?: () => string;
+  /** When set, a completed cycle appends one pipeline beat. A thrown cycle writes nothing. */
+  readonly desk?: Pick<AlertDeskStore, 'recordHeartbeat'>;
 }
 
 export interface TickReport {
@@ -32,6 +35,7 @@ export class AlertEvaluator {
   }
 
   async tick(): Promise<TickReport> {
+    const cycleStart = this.now();
     let evaluated = 0;
     let opened = 0;
     let resolved = 0;
@@ -68,6 +72,15 @@ export class AlertEvaluator {
       const last = page[page.length - 1];
       if (page.length < 200 || !last) break;
       cursor = { folder: last.folder, group: last.group, name: last.name, id: last.id };
+    }
+    if (this.deps.desk) {
+      await this.deps.desk.recordHeartbeat({
+        key: pipelineHeartbeatKey(cycleStart),
+        fingerprint: fingerprintOf({ kind: 'pipeline', cycleStart }),
+        actor: ALERT_EVALUATOR_ACTOR,
+        reason: ALERT_EVALUATOR_REASON,
+        at: this.now(),
+      });
     }
     return { evaluated, opened, resolved };
   }

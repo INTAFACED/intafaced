@@ -152,7 +152,11 @@ test(`${J} #3 refuses a changed character, and warns about a look-alike of a sav
   await expect(page.getByText('TEST look-alike was saved to your address book.')).toBeVisible();
   await page.reload();
   await expect(savedRows(page)).toHaveCount(2);
-  await expect(savedRows(page).filter({ hasText: 'TEST look-alike' }).locator('td[data-withdrawal-private]')).toHaveText('0x5290…9EE7');
+  // The confirmation is recorded on the new entry, and the book says so; the entry it looks like is unchanged.
+  const lookalikeRow = savedRows(page).filter({ hasText: 'TEST look-alike' });
+  await expect(lookalikeRow.locator('td[data-withdrawal-private]')).toHaveText('0x5290…9EE7');
+  await expect(lookalikeRow).toContainText('You confirmed the look-alike warning');
+  await expect(savedRows(page).filter({ hasText: 'TEST cold wallet' })).not.toContainText('You confirmed the look-alike warning');
 });
 
 test(`${J} #4 removes a saved address after a fresh confirmation, and it is gone after a reload`, async ({ page }) => {

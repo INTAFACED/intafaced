@@ -42,6 +42,20 @@ export interface HistoryFilter {
   readonly limit: number;
 }
 
+/** One stored instance that is pending or firing. Normal is not an active alert. */
+export interface ActiveInstance {
+  readonly ruleId: string;
+  readonly instance: string;
+  readonly state: OpsAlertState;
+  readonly health: OpsAlertHealth;
+  readonly epoch: number;
+  readonly pendingSince: string | null;
+  readonly firingSince: string | null;
+  readonly lastEvaluatedAt: string;
+  readonly lastValue: string | null;
+  readonly lastCode: string | null;
+}
+
 export interface AlertStateStore {
   /**
    * Runs one evaluation under a per-instance lock, so two replicas cannot both evaluate or both announce. `run` sees the stored state;
@@ -51,6 +65,8 @@ export interface AlertStateStore {
   /** The stored state of each rule's instance, by rule id. A rule never evaluated has none. */
   states(ruleIds: readonly string[]): Promise<ReadonlyMap<string, InstanceState & { readonly instance: string }>>;
   history(filter: HistoryFilter): Promise<{ readonly rows: readonly HistoryRow[]; readonly truncated: boolean }>;
+  /** Pending and firing instances only, firing first. `limit` is a cap the caller chose; this does not invent a page size. */
+  active(states: readonly ('pending' | 'firing')[], limit: number): Promise<readonly ActiveInstance[]>;
 }
 
 export interface AlertOutbox {
@@ -138,6 +154,33 @@ export function createMemoryAlertState(): AlertStateStore &
         )
         .sort((a, b) => b.id - a.id);
       return { rows: rows.slice(0, f.limit), truncated: rows.length > f.limit };
+    },
+    async active(states, limit) {
+      const wanted = new Set<string>(states);
+      return [...instances.values()]
+        .filter((row) => wanted.has(row.state))
+        .sort((a, b) => {
+          const rank = (state: string) => (state === 'firing' ? 0 : 1);
+          const byState = rank(a.state) - rank(b.state);
+          if (byState !== 0) return byState;
+          const when = (row: { firingSince: string | null; pendingSince: string | null }) => row.firingSince ?? row.pendingSince ?? '';
+          const byWhen = when(b).localeCompare(when(a));
+          if (byWhen !== 0) return byWhen;
+          return a.ruleId < b.ruleId ? -1 : a.ruleId > b.ruleId ? 1 : 0;
+        })
+        .slice(0, limit)
+        .map((row) => ({
+          ruleId: row.ruleId,
+          instance: row.instance,
+          state: row.state,
+          health: row.health,
+          epoch: row.epoch,
+          pendingSince: row.pendingSince,
+          firingSince: row.firingSince,
+          lastEvaluatedAt: row.lastEvaluatedAt,
+          lastValue: row.lastValue,
+          lastCode: row.lastCode,
+        }));
     },
     async pending(limit) {
       return outbox.filter((o) => !o.published).slice(0, limit);
@@ -252,6 +295,30 @@ export function createPgAlertState(sql: Sql): AlertStateStore & AlertOutbox {
         })),
         truncated: rows.length > f.limit,
       };
+    },
+    async active(states, limit) {
+      if (states.length === 0 || limit < 1) return [];
+      const rows = await sql<InstanceRow[]>`SELECT * FROM ops.alert_instances
+        WHERE state IN ${sql([...states])}
+        ORDER BY CASE state WHEN 'firing' THEN 0 ELSE 1 END,
+          COALESCE(firing_since, pending_since) DESC NULLS LAST,
+          rule_id
+        LIMIT ${limit}`;
+      return rows.map((r) => {
+        const inst = toInstance(r);
+        return {
+          ruleId: r.rule_id,
+          instance: inst.instance,
+          state: inst.state,
+          health: inst.health,
+          epoch: inst.epoch,
+          pendingSince: inst.pendingSince,
+          firingSince: inst.firingSince,
+          lastEvaluatedAt: inst.lastEvaluatedAt,
+          lastValue: inst.lastValue,
+          lastCode: inst.lastCode,
+        };
+      });
     },
     async pending(limit) {
       const rows = await sql<

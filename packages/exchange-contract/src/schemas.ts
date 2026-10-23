@@ -554,6 +554,11 @@ export const positionSchema = z.object({
   closedAt: isoDatetime.nullable().optional(),
   /** Row update time. Distinct from `timestamp`, which stays the open time. */
   updatedAt: isoDatetime.nullable().optional(),
+  /**
+   * Trading fees the position's fills paid, opening and reducing, in the margin asset. Null (with a reason in
+   * fieldReasons) when the position has no fill that recorded one. Absent when the answer did not read them.
+   */
+  fees: decimal.nullable().optional(),
   /** Set on a repeated close of a position this caller already closed. */
   replayed: z.boolean().optional(),
   /** Why a field above is null. Absent when that field has a value. */

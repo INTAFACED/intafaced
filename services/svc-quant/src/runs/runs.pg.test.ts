@@ -342,13 +342,16 @@ describe('quant run records, detail, clone, claim, and the operator list', () =>
     // Runs are stamped to the millisecond: wait one, so the order is decided by time, not by a tie.
     await new Promise((resolve) => setTimeout(resolve, 5));
     const newer = await begin('algo:bt:history:2');
-    const page = await repo.history({ userId: ACCOUNT_A, kind: 'backtest', limit: 50, cursor: null });
+    // A fills-language backtest (kind 'backtest' under a key the caller chose) has no bar result: it is not listed.
+    const fills = await begin('backtest.run:history');
+    const page = await repo.history({ userId: ACCOUNT_A, kind: 'backtest', keyPrefix: 'algo:bt:', limit: 50, cursor: null });
     const ids = page.runs.map((row) => row.id);
     expect(ids.indexOf(newer.id)).toBeLessThan(ids.indexOf(older.id));
+    expect(ids).not.toContain(fills.id);
 
     expect(await repo.setLabel({ userId: ACCOUNT_A, runId: older.id, label: 'first' })).toEqual({ label: 'first' });
     expect(await repo.setLabel({ userId: ACCOUNT_A, runId: older.id, label: 'renamed' })).toEqual({ label: 'renamed' });
-    const listed = (await repo.history({ userId: ACCOUNT_A, kind: 'backtest', limit: 50, cursor: null })).runs.find(
+    const listed = (await repo.history({ userId: ACCOUNT_A, kind: 'backtest', keyPrefix: 'algo:bt:', limit: 50, cursor: null })).runs.find(
       (row) => row.id === older.id,
     );
     expect(listed).toMatchObject({ label: 'renamed', strategyVersion: 2, outcome: 'ok' });
@@ -356,9 +359,36 @@ describe('quant run records, detail, clone, claim, and the operator list', () =>
     expect((await repo.get({ userId: ACCOUNT_A, id: older.id }))?.response).toEqual({ n: 1 });
 
     await expect(repo.setLabel({ userId: ACCOUNT_B, runId: older.id, label: 'theirs' })).rejects.toThrow(/quant\.run_not_found/);
-    expect((await repo.history({ userId: ACCOUNT_B, kind: 'backtest', limit: 50, cursor: null })).runs.map((row) => row.id)).not.toContain(
-      older.id,
-    );
+    expect(
+      (await repo.history({ userId: ACCOUNT_B, kind: 'backtest', keyPrefix: 'algo:bt:', limit: 50, cursor: null })).runs.map(
+        (row) => row.id,
+      ),
+    ).not.toContain(older.id);
     await expect(sql.unsafe(`INSERT INTO "${SCHEMA}"."run_labels" VALUES ($1, $2, '', now())`, [newer.id, ACCOUNT_A])).rejects.toThrow();
+  });
+
+  it('counts finished bar backtests of one strategy on one symbol and bar size as variants', async () => {
+    const repo = createPostgresRunRepository(sql, SCHEMA, RUN_RESULT_MAX_BYTES);
+    const done = async (key: string, response: unknown, outcome = 'ok') => {
+      const row = await repo.begin({
+        userId: ACCOUNT_A,
+        idempotencyKey: key,
+        kind: 'backtest',
+        strategyId: 'strategy-v',
+        strategyVersion: 1,
+      });
+      await repo.finish({ id: row.id, userId: ACCOUNT_A, outcome, stored: { detail: null, response } });
+    };
+    const bar = (symbol: string, barSize: string) => ({ symbol, coverage: { barSize } });
+    await done('algo:bt:variant:1', bar('BTC/USDT', '1h'));
+    await done('algo:bt:variant:2', bar('BTC/USDT', '1h'));
+    await done('algo:bt:variant:3', bar('BTC/USDT', '5m'));
+    await done('algo:bt:variant:4', bar('ETH/USDT', '1h'));
+    await done('algo:bt:variant:5', bar('BTC/USDT', '1h'), 'quant.backtest_fills_missing');
+    await done('backtest.run:variant', bar('BTC/USDT', '1h'));
+    const count = (userId: string) =>
+      repo.variantCount({ userId, strategyId: 'strategy-v', symbol: 'BTC/USDT', barSize: '1h', keyPrefix: 'algo:bt:' });
+    expect(await count(ACCOUNT_A)).toBe(2);
+    expect(await count(ACCOUNT_B)).toBe(0);
   });
 });

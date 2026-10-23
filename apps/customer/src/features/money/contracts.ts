@@ -179,6 +179,8 @@ export const destinationSchema = z.object({
   network: z.string().nullable().optional(),
   tag: z.string().nullable().optional(),
   state: z.enum(['pending', 'cooling', 'active', 'blocked', 'archived']).optional(),
+  // When the customer confirmed this address is not the saved one it looks like (W-withdraw-03).
+  lookalikeConfirmedAt: z.string().nullable().optional(),
 });
 export type Destination = z.infer<typeof destinationSchema>;
 /** One asset an address may be saved for, with the networks it is sent on (the bank's read of the ledger's asset list). */
@@ -306,6 +308,48 @@ export const addMoneyRequestSchema = z.object({
   createdAt: z.string(),
 });
 export type AddMoneyRequest = z.infer<typeof addMoneyRequestSchema>;
+/** svc-bank `bank.linkedAccounts.*` (J-bank-02 #6): the person's own accounts at other banks, each with its state. */
+export const linkedAccountSchema = z.object({
+  accountId: z.string(),
+  label: z.string(),
+  holderName: z.string(),
+  ibanMasked: z.string(),
+  country: z.string(),
+  state: z.enum(['unverified', 'verified']),
+  usable: z.boolean(),
+  blocker: z.enum(['bank.linked_account_unverified', 'bank.offramp_cooling_unset', 'bank.offramp_cooling_active']).nullable(),
+  verificationRail: z.literal('rail.bank').nullable(),
+  linkedAt: z.string(),
+  coolingOffEndsAt: z.string().nullable(),
+});
+export type LinkedAccount = z.infer<typeof linkedAccountSchema>;
+export const linkedAccountWrites = {
+  link: z.object({ account: linkedAccountSchema, created: z.boolean() }),
+  remove: z.object({ accountId: z.string(), removed: z.literal(true) }),
+};
+/** svc-bank `bank.cashOut.*` (J-bank-03): cash out to a linked bank account, with what stands in the way. */
+export const cashOutQuoteSchema = z.object({
+  assetId: z.string(),
+  amount: money,
+  available: money,
+  account: linkedAccountSchema,
+  rail: z.literal('rail.bank'),
+  fee: money.nullable(),
+  receiveAmount: money.nullable(),
+  blocker: z.string(),
+});
+export type CashOutQuote = z.infer<typeof cashOutQuoteSchema>;
+export const cashOutRequestSchema = z.object({
+  requestId: z.string(),
+  assetId: z.string(),
+  amount: money,
+  linkedAccountId: z.string(),
+  rail: z.literal('rail.bank'),
+  status: z.literal('refused'),
+  refusalCode: z.string(),
+  createdAt: z.string(),
+});
+export type CashOutRequest = z.infer<typeof cashOutRequestSchema>;
 export const currencyWrites = {
   add: accountCurrencySchema,
   remove: z.object({ assetId: z.string(), removed: z.literal(true) }),
@@ -318,6 +362,9 @@ export const bankReads = {
   'currencies.list': currencySetSchema,
   'accountDetails.list': z.object({ currencies: z.array(accountDetailsRowSchema) }),
   'eligibility.get': eligibilitySchema,
+  'linkedAccounts.list': z.object({ accounts: z.array(linkedAccountSchema) }),
+  'cashOut.quote': cashOutQuoteSchema,
+  'cashOut.requests': z.array(cashOutRequestSchema),
   'spaces.list': z.array(spaceSchema),
   'spaces.unnamed': z.array(z.object({ assetId: z.string(), balance: money })),
   'transfers.listSchedules': z.array(scheduleSchema),
