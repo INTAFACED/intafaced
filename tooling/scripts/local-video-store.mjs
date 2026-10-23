@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 const FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), 'local-stack-fixtures');
 
 export const VIDEO_STORE_BUCKET = 'local-test-academy';
-export const VIDEO_STORE_ACCESS_KEY = 'local-test-academy';
+export const VIDEO_STORE_ACCESS_KEY = 'local-test-academy-dev-only';
 export const VIDEO_STORE_REGION = 'local-test';
 
 /**
