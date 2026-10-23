@@ -715,7 +715,13 @@ export type BankErrorCode =
   /** The profile a bank call names is not one the caller holds: an unknown or closed business, or one they are not a member of. */
   | 'bank.profile_not_held'
   /** A business profile has no company account of its own in this build, so there is no company terms, currency or detail to show. */
-  | 'bank.company_account_unwired';
+  | 'bank.company_account_unwired'
+  /** The owner has not published the loan payoff fee (`BANK_LOAN_PAYOFF_FEE`). A quote is not given, and zero is not assumed (BK-loan-06). */
+  | 'bank.loan_fee_unset'
+  /** The owner has not published how long a loan payoff quote stays valid (`BANK_LOAN_PAYOFF_WINDOW_MINUTES`) (BK-loan-06). */
+  | 'bank.loan_payoff_window_unset'
+  /** The loan's snapshotted rate cannot be used, so a projection is refused rather than invented (BK-loan-06). */
+  | 'bank.loan_terms_missing';
 
 export class BankError extends Error {
   constructor(

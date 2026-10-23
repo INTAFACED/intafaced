@@ -18,6 +18,14 @@ import {
 } from '@intafaced/ledger-client';
 import { isDefiniteLedgerRefusal } from '../ledger-outcome.js';
 import { BankError } from '../errors.js';
+import {
+  buildLoanStatement,
+  projectLoanDays,
+  quotePayoff,
+  type LoanProjection,
+  type LoanStatementFile,
+  type PayoffQuote,
+} from './loan-reads.js';
 import { assertLoanProductsListLimit } from '../catalog-list-limit.js';
 import { assertLoansListLimit } from '../owner-list-limit.js';
 import { assertLoanAccrueBatchLimit, assertLoanResumePendingLimit, assertLoanRiskSweepLimit } from '../job-batch-limit.js';
@@ -339,6 +347,19 @@ export interface LoanServiceOptions {
    * unwind the ledger post. Body is `{ feeEventId }` only.
    */
   readonly affiliatePayout?: AffiliatePayoutPort;
+  /**
+   * Owner-published payoff fee, a decimal string (`BANK_LOAN_PAYOFF_FEE`).
+   * Blank, unset or not a decimal refuses `bank.loan_fee_unset`. `0` is a
+   * published zero fee, not a blank.
+   */
+  readonly payoffFee?: string | null;
+  /**
+   * Owner-published minutes a payoff quote stays valid (`BANK_LOAN_PAYOFF_WINDOW_MINUTES`).
+   * Blank, unset, zero or out of range refuses `bank.loan_payoff_window_unset`.
+   */
+  readonly payoffWindowMinutes?: string | null;
+  /** Signs `loans.statement`. Blank refuses `bank.statement_unavailable`. */
+  readonly statementSecret?: string | null;
 }
 
 const ONE = parseAmount('1');
@@ -2968,6 +2989,65 @@ export class LoanService {
   /** The borrower's spendable balance in the debt asset. For repayment quotes. */
   async availableOf(loan: LoanRecord): Promise<Amount> {
     return (await this.ledger.balance(userAvailable(loan.userId, loan.debtAssetId))).amount;
+  }
+
+  /**
+   * Forward interest for the next `days` UTC days (BK-loan-06). Same charge as
+   * `accrue`, labelled a projection. An optional extra repayment is a what-if
+   * applied interest-first. Nothing is written.
+   */
+  async projection(input: { loanId: string; days: number; extraRepayment?: Amount; asOf?: Date }): Promise<LoanProjection> {
+    const loan = await this.loan(input.loanId);
+    this.assertProjectable(loan);
+    const debt = await this.outstanding(loan.id);
+    return projectLoanDays({
+      loanId: loan.id,
+      principal: debt.principal,
+      interest: debt.interest,
+      aprBps: loan.aprBps,
+      days: input.days,
+      asOf: input.asOf ?? new Date(),
+      daysPerYear: this.options.daysPerYear,
+      extraRepayment: input.extraRepayment,
+    });
+  }
+
+  /**
+   * What clearing the loan costs now: outstanding interest, then principal,
+   * plus the published fee. Re-priced on every call. Repay does not store or
+   * consume this quote, so an expired quote cannot be applied.
+   */
+  async payoffQuote(input: { loanId: string; now?: Date }): Promise<PayoffQuote> {
+    const loan = await this.loan(input.loanId);
+    this.assertProjectable(loan);
+    const debt = await this.outstanding(loan.id);
+    return quotePayoff({
+      loanId: loan.id,
+      principal: debt.principal,
+      interest: debt.interest,
+      assetId: loan.debtAssetId,
+      feeRaw: this.options.payoffFee,
+      windowRaw: this.options.payoffWindowMinutes,
+      now: input.now ?? new Date(),
+    });
+  }
+
+  /** A signed CSV of one loan's month. Opening and closing debt come from the event rows. */
+  async statement(input: { loanId: string; from: string; to: string; now?: Date }): Promise<LoanStatementFile> {
+    const loan = await this.loan(input.loanId);
+    return buildLoanStatement(this.sql, loan, this.options.statementSecret, input);
+  }
+
+  private assertProjectable(loan: LoanRecord): void {
+    if (loan.status === 'pending') {
+      throw new BankError(`Loan ${loan.id} has no drawn principal`, 'bank.loan_not_drawable');
+    }
+    if (loan.status === 'liquidating') {
+      throw new BankError(`Loan ${loan.id} is mid-liquidation`, 'bank.loan_liquidating');
+    }
+    if (loan.status === 'repaid' || loan.status === 'liquidated') {
+      throw new BankError(`Loan ${loan.id} is ${loan.status}`, 'bank.loan_closed');
+    }
   }
 
   // ── Internals ──────────────────────────────────────────────────────────────

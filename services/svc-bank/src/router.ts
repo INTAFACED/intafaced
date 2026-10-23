@@ -67,6 +67,7 @@ import { createCashOutRouter } from './cash-out/cash-out.router.js';
 import { ONRAMP_METHODS } from './ramps/customer-ports.js';
 import { createWorkItemsRouter } from './home/work-items.js';
 import { createCreditCardPreviewRouter } from './loans/credit-card-preview.router.js';
+import { loanCustomerReadProcedures } from './loans/loan-reads.router.js';
 import { createBillsRouter, createGlobalRouter } from './personal-pay/router.js';
 import { createPersonalRequestRouter } from './transfers/personal-request.router.js';
 import { plainNote, plainReference } from './transfers/personal-pay.js';
@@ -617,6 +618,9 @@ function toTrpcError(err: unknown): TRPCError {
       case 'bank.space_limit_unset':
       case 'bank.space_limit_reached':
       case 'bank.company_account_unwired':
+      case 'bank.loan_fee_unset':
+      case 'bank.loan_payoff_window_unset':
+      case 'bank.loan_terms_missing':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message, cause: err });
 
       // Kill switches. Same 503 class as the matching HTTP job endpoints —
@@ -1828,6 +1832,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
    * missing mark refuses before any post. No invented rate.
    */
   const loans = router({
+    ...loanCustomerReadProcedures(bank, guard),
     products: scopedProcedure('bank:read', { module: 'bank' })
       .input(
         z.object({
