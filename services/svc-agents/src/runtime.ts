@@ -471,7 +471,9 @@ export class AgentRuntime {
           assetId: this.feeAssetId,
           amount: formatAmount(worstCaseCost),
         });
-        if (held.status === 'committed') {
+        // A committed hold is a metered replay. Metering-off must not invent
+        // agents.request_id_replay (D26-P1-A6) — the run continues.
+        if (held.status === 'committed' && shouldMeter) {
           if (claimed) await this.meter.releaseClaim(session.id, input.requestId);
           throw new AgentError(
             `Request id "${input.requestId}" already reserved on session ${session.id}`,
@@ -538,14 +540,34 @@ export class AgentRuntime {
     // which is the only acceptable direction for that error. The attempt is
     // still logged, because §8.2 admits no gaps.
     const ceiling = session.guardrail.limits.maxSpendPerSession;
-    if (reserved !== null && cost > reserved) {
+    // The provider can report more than the worst case that was held. Throwing
+    // here used to skip the commit, so the hold stayed `held` and the meter
+    // claim stayed taken. Finish the hold at the reserved amount — never the
+    // larger actual cost, which the reservation rejects — drop the claim, then
+    // refuse the text. The session-ceiling path below finishes its hold
+    // (it releases) before it refuses.
+    const spend = this.spend;
+    if (reserved !== null && spend && cost > reserved) {
+      const heldAmount = reserved;
+      await transaction(
+        this.sql,
+        async (tx) => {
+          await spend.commitIn(tx, {
+            userId: session.userId,
+            reservationKey: input.requestId,
+            amount: formatAmount(heldAmount),
+          });
+        },
+        { isolation: 'read committed', maxAttempts: 5 },
+      );
+      if (claimed) await this.meter.releaseClaim(session.id, input.requestId);
       throw await this.appendRefusal(
         session,
         {
           allowed: false,
           code: 'agents.spend_limit',
           userMessageKey: 'agents.refused.spend_cap',
-          userMessageParams: { limit: formatAmount(reserved), asset: this.feeAssetId, scope: 'call' },
+          userMessageParams: { limit: formatAmount(heldAmount), asset: this.feeAssetId, scope: 'call' },
         },
         { kind: 'completion', task: input.task },
       );
@@ -600,10 +622,13 @@ export class AgentRuntime {
         });
 
         if (this.spend && reserved !== null) {
+          // The user cap counts this call's cost even when metering is off.
+          // The audit row above keeps recorded ? cost : 0n — that zero is the
+          // bill, not the cap.
           await this.spend.commitIn(tx, {
             userId: session.userId,
             reservationKey: input.requestId,
-            amount: formatAmount(recorded ? cost : 0n),
+            amount: formatAmount(cost),
           });
         }
 
