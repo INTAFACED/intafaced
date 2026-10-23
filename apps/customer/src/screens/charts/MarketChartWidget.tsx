@@ -16,6 +16,7 @@ import {
 import { chartsCopy } from './copy';
 import { Menu, MenuContent, MenuItem, MenuTrigger, refusalCopy, Skeleton, StateBlock } from './deps';
 import { HISTORY_DEPTH, locateDate, useChartHistory, withHistory } from './history';
+import { REPLAY_SPEEDS, replayBars, replayStart, useReplay, type ReplayRefusal, type ReplaySpeed } from './replay';
 import { isStreamInterval, mergeLive, useCandleStream, type OpenSocket } from './live-candles';
 import { intervalLabel, type ChartMode } from './workbench';
 import { WorkbenchChart } from './WorkbenchChart';
@@ -33,6 +34,9 @@ export interface WidgetProps {
   openSocket?: OpenSocket;
   /** Add-ons drawn on the chart (studies, drawings). */
   addons?: (host: ChartHost | null) => ReactNode;
+  onHost?: (host: ChartHost | null) => void;
+  /** A command from the workbench's keys (open the replay panel), new each time by its nonce. */
+  command?: { kind: 'replay'; nonce: number } | null;
 }
 
 const STYLE_LABEL = {
@@ -60,6 +64,8 @@ export const MarketChartWidget = memo(function MarketChartWidget({
   onScheme,
   openSocket,
   addons,
+  onHost,
+  command,
 }: WidgetProps) {
   const { t } = chartsCopy.useCopy();
   const { timeZone, language } = usePreferences();
@@ -75,6 +81,41 @@ export const MarketChartWidget = memo(function MarketChartWidget({
     () => (recent ? withHistory(recent, history.state.status === 'loaded' ? history.state.bars : []) : null),
     [recent, history.state],
   );
+  const all = candles ?? (polled.status === 'ready' ? polled.data : []);
+  const replay = useReplay();
+  const [replayOpen, setReplayOpen] = useState(false);
+  const [replayNote, setReplayNote] = useState<string | null>(null);
+  useEffect(() => {
+    if (command?.kind === 'replay') setReplayOpen((open) => !open);
+  }, [command]);
+  // A replay belongs to one market and interval.
+  useEffect(() => {
+    replay.exit();
+    setReplayNote(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [market.symbol, interval]);
+  /** The words for a replay that cannot start: each reason states its own fact, so a count is never read as a bar back. */
+  const replayRefusal = (reason: ReplayRefusal, most: number, bars: number): string =>
+    reason === 'whole'
+      ? t('Replay whole')
+      : reason === 'least'
+        ? t('Replay least')
+        : reason === 'few'
+          ? t('Replay few', { bars: String(bars) })
+          : t('Replay too deep', { most: String(most), bars: String(bars) });
+  const startReplay = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const back = Number(form.get('back'));
+    const speed = Number(form.get('speed')) as ReplaySpeed;
+    const start = replayStart(all.length, back);
+    if (!start.ok) {
+      setReplayNote(replayRefusal(start.reason, start.most, all.length));
+      return;
+    }
+    setReplayNote(null);
+    replay.start(all, start.position, REPLAY_SPEEDS.includes(speed) ? speed : 1);
+  };
   const [basisRefused, setBasisRefused] = useState<PriceBasis | null>(null);
   const [focus, setFocus] = useState<{ index: number; nonce: number } | null>(null);
   const [dateNote, setDateNote] = useState<string | null>(null);
@@ -145,7 +186,7 @@ export const MarketChartWidget = memo(function MarketChartWidget({
   } else
     body = (
       <WorkbenchChart
-        candles={candles ?? polled.data}
+        candles={replayBars(candles ?? polled.data, replay.replay)}
         style={mode}
         scheme={scheme}
         resetKey={`${market.symbol}:${interval}`}
@@ -154,7 +195,8 @@ export const MarketChartWidget = memo(function MarketChartWidget({
         timeZone={zoneName(timeZone)}
         labels={labels}
         onReachStart={() => void history.load()}
-        focus={focus}
+        focus={replay.replay ? null : focus}
+        onHost={onHost}
       >
         {addons}
       </WorkbenchChart>
@@ -241,6 +283,9 @@ export const MarketChartWidget = memo(function MarketChartWidget({
             ))}
           </select>
         </label>
+        <button type="button" className="cw-option" aria-pressed={replayOpen} onClick={() => setReplayOpen((open) => !open)}>
+          {t('Bar replay')}
+        </button>
         <form className="cw-date" onSubmit={(event) => void goToDate(event)}>
           <label className="cw-select cw-select--inline">
             <span>{t('Go to date')}</span>
@@ -264,6 +309,62 @@ export const MarketChartWidget = memo(function MarketChartWidget({
         {note}
         {stream.mode === 'poll' && seconds !== null && <> {t('Feed age', { seconds: String(seconds) })}</>}
       </p>
+      {replayOpen && (
+        <div className="cw-replay" role="group" aria-label={t('Bar replay')}>
+          {replay.replay ? (
+            <>
+              <span data-testid="replay-position">
+                {t('Replay position', { bar: String(replay.replay.position + 1), bars: String(replay.replay.bars.length) })}
+              </span>
+              {replay.replay.playing ? (
+                <button type="button" onClick={replay.pause}>
+                  {t('Pause')}
+                </button>
+              ) : (
+                <button type="button" onClick={replay.play}>
+                  {t('Play')}
+                </button>
+              )}
+              <button type="button" onClick={replay.step}>
+                {t('Step')}
+              </button>
+              <label className="cw-select cw-select--inline">
+                <span>{t('Replay speed')}</span>
+                <select value={replay.replay.speed} onChange={(event) => replay.speed(Number(event.target.value) as ReplaySpeed)}>
+                  {REPLAY_SPEEDS.map((x) => (
+                    <option key={x} value={x}>{`${x}x`}</option>
+                  ))}
+                </select>
+              </label>
+              <button type="button" onClick={replay.exit}>
+                {t('Exit replay')}
+              </button>
+            </>
+          ) : (
+            <form className="cw-date" onSubmit={startReplay}>
+              <label className="cw-select cw-select--inline">
+                <span>{t('Bars back')}</span>
+                <input type="number" name="back" min={1} step={1} defaultValue={100} required />
+              </label>
+              <label className="cw-select cw-select--inline">
+                <span>{t('Replay speed')}</span>
+                <select name="speed" defaultValue="1">
+                  {REPLAY_SPEEDS.map((x) => (
+                    <option key={x} value={x}>{`${x}x`}</option>
+                  ))}
+                </select>
+              </label>
+              <button type="submit">{t('Start replay')}</button>
+            </form>
+          )}
+          <span className="cw-replay-note">{t('Replay note')}</span>
+          {replayNote && (
+            <span role="status" data-testid="replay-note">
+              {replayNote}
+            </span>
+          )}
+        </div>
+      )}
       {depth && (
         <p className="cw-feed" data-testid="chart-depth">
           {depth}

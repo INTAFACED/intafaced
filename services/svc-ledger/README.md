@@ -35,10 +35,12 @@ tRPC procedures above are exported for their type; **nothing mounts the tRPC plu
 | `POST` | `/operator/reconcile`          | Full three-check run (balances · chain · totalsByAsset); freezes on failure |
 | `GET`  | `/operator/transactions/:txId` | One booked transaction with its postings; 404 `ledger.tx_not_found`         |
 | `GET`  | `/operator/trace?businessKey=` | The transaction a business key booked, or `found: false`                    |
+| `GET`  | `/operator/assets`             | Every asset registry row, published or not (W-balances-05)                  |
+| `POST` | `/operator/assets/apply-edit`  | Apply one founder-approved registry edit (`ledger.asset_edit`)              |
 
 Operator freeze/unfreeze is dual-control: the signed treasury principal plus a distinct `confirmOperatorId`. Missing or same-as-operator confirm refuses (`missing_operator`) — the ledger does not invent a second caller. Reconciliation and boot `LEDGER_POSTING_ENABLED=false` still freeze through `LedgerService` without a confirmer (not operator doors).
 
-The two lookups are reads that answer while posting is frozen. Each writes one `operator_access_log` row first (`transaction.read` or `trace.read`, migration 0025), inside the read itself, so the `trace` and `transactionGet` tRPC procedures record the same way; a row that cannot be written refuses with 503 `ledger.lookup_unrecorded` and nothing is read. A malformed id or key refuses with 400 `ledger.lookup_input_invalid`; a recorded lookup the database could not answer is 503 `ledger.lookup_unavailable`. Postings name opaque account ids only; transaction metadata is not returned.
+The two lookups are reads that answer while posting is frozen. Each writes one `operator_access_log` row first (`transaction.read` or `trace.read`, migration 0026), inside the read itself, so the `trace` and `transactionGet` tRPC procedures record the same way; a row that cannot be written refuses with 503 `ledger.lookup_unrecorded` and nothing is read. A malformed id or key refuses with 400 `ledger.lookup_input_invalid`; a recorded lookup the database could not answer is 503 `ledger.lookup_unavailable`. Postings name opaque account ids only; transaction metadata is not returned.
 
 `POST /operator/reconcile` is the on-demand path for apps/admin. A broken chain reports `chainLength` as how far verification got and names `chainBrokenAt` — never collapses a break to zero (that would look like an empty healthy book). Edge/admin must proxy this route; until they do, the scheduled job and this path are the live answers.
 
@@ -51,6 +53,13 @@ Each door on the service port names the services that may call it (`src/door-cal
 `POST /trpc/feeRevenue` takes a half-open ISO window (`from` inclusive, `to` exclusive) and answers, for each asset with a fee movement in it, the fees collected (debits to `fees:*` house accounts), the fees returned (credits out of them) and the signed net, as decimal strings. It reads sums over those accounts and nothing else: no user account, no insurance fund, no entries. An asset with no movement is absent, never a zero row. It is a READ with no path into `post()`.
 
 The door names one caller, svc-ops (`src/door-callers.ts`), which uses it for the venue unit-economics report. svc-ops is named on no other door, and `fee-revenue-door.test.ts` proves every other door refuses it.
+
+### The asset and network registry (W-balances-05)
+
+The one list of supported assets, their networks, their precision and what each may be used for, in the wire shape of `packages/contracts/src/asset-registry.ts`. The rows live on `assets` (0025), the table every balance already has a foreign key to.
+
+- **Reads.** `POST /trpc/assetsList` (`{ state?, action? }`) and `POST /trpc/assetsGet` (`{ assetId }`), open to every service that reads balances. Only published rows are listed: a row whose precision the owner has not set is left out of the list and refused by `get` with `ledger.asset_precision_unset` (400), never read as 18. An unknown id is `ledger.asset_not_found` (400). The migration publishes nothing: every existing row starts with no precision, no network and no allowed action.
+- **Writes.** Founder edits only, through svc-identity's action approval: action `ledger.asset_edit`, target `svc-ledger`, target id the asset, `expectedVersion` the row's `revision` (`0` for a new asset), payload hash `assetEditPayloadHash(edit)`. `POST /operator/assets/apply-edit { approvalId, operationId, edit }` consumes the approval under the operation id identity issued with it. A retry after the edit landed answers with the row it produced. A retry after identity consumed the approval but before the edit landed refuses `action_approval.not_founders`: identity does not repeat its founder attestation on a repeated consume, so the ledger fails closed and the founders approve again and requires identity to attest a distinct founder pair. One operation id applies once; a retry answers with the row. An edit approved against an older revision refuses (`ledger.asset_edit_stale`, 409), as does an operation id reused for another edit (`ledger.asset_operation_conflict`, 409). An edit cannot change an asset's kind. Each applied edit is kept in the append-only `asset_edits` table with who proposed, approved and sent it. Nothing here moves value.
 
 ### `history` — a read, and the two ways it refuses
 

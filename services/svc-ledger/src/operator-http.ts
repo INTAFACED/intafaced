@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { AuthError, bearerToken, requireScope, verifyAccessToken, type Principal, type TokenConfig } from '@intafaced/auth';
 import { LedgerError } from '@intafaced/ledger-client';
+import { ASSET_EDIT_STALE, ASSET_OPERATION_CONFLICT, REGISTRY_REFUSALS } from './ledger/supported-assets.js';
 import { DualControlError } from './ledger/dual-control.js';
 import { ActionApprovalConsumeError, consumeLedgerApproval, type ActionApprovalConsumer } from './ledger/action-approval-consume.js';
 import { LOOKUP_UNRECORDED, LookupUnrecordedError, type LookupActor } from './ledger/operator-lookup.js';
@@ -207,6 +208,14 @@ export function registerOperatorHttp(
         if (err instanceof LedgerError && err.code === 'ledger.reconcile_incomplete') {
           return reply.code(503).send({ message: err.message, code: err.code });
         }
+        // The asset registry (W-balances-05): another edit landed first, or the operation id was used for
+        // another edit. Nothing changed; 409 so the console asks for a fresh approval rather than retrying.
+        if (err instanceof LedgerError && (err.code === ASSET_EDIT_STALE || err.code === ASSET_OPERATION_CONFLICT)) {
+          return reply.code(409).send({ message: err.message, code: err.code });
+        }
+        if (err instanceof LedgerError && REGISTRY_REFUSALS.has(err.code)) {
+          return reply.code(400).send({ message: err.message, code: err.code });
+        }
         const message = err instanceof Error ? err.message : 'operator request failed';
         // 400 rather than 500: everything reachable here is either a validation
         // failure or a constraint the database refused, and both are the
@@ -376,6 +385,25 @@ export function registerOperatorHttp(
       invalid: 'A business key is 1 to 512 characters.',
       read: (actor, input) => traceBusinessKey(ledger, actor, input),
       output: operatorTraceOutputSchema,
+    }),
+  );
+
+  /**
+   * The asset and network registry (W-balances-05), operator side. The read lists every row, published or
+   * not, so a founder sees what is still blank. The write applies one edit two founders approved in identity
+   * (`ledger.asset_edit`); the edit travels with the call and its hash must match the approval's.
+   */
+  app.get(
+    '/operator/assets',
+    guarded(async () => ({ assets: await ledger.listOperatorAssets() })),
+  );
+
+  app.post(
+    '/operator/assets/apply-edit',
+    guarded(async (operator, body) => {
+      const asset = await ledger.applyAssetEdit(approvals, operator.userId, body);
+      app.log.warn({ actor: operator.userId, assetId: asset.id, revision: asset.revision }, 'LEDGER ASSET EDIT applied');
+      return asset;
     }),
   );
 }

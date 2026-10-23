@@ -105,7 +105,7 @@ const migrations = readdirSync(drizzleDir)
       await expect(db.sql`TRUNCATE operator_access_log`).rejects.toThrow(/append-only/);
     });
 
-    it('stores a transaction lookup and a business-key trace with their own action (0025)', async () => {
+    it('stores a transaction lookup and a business-key trace with their own action (0026)', async () => {
       const txId = '99999999-9999-4999-8999-999999999999';
       await recordOperatorAccess(db.sql, {
         actorId: OPERATOR,

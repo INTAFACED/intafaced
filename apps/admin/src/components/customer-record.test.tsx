@@ -15,7 +15,8 @@ describe('CustomerRecord', () => {
     const html = renderToStaticMarkup(
       <CustomerRecord userId={USER} founderId={USER} tab="money" reads={plan.reads} outcomes={{}} unwired={plan.unwired} />,
     );
-    for (const tab of ['money', 'trade', 'pay', 'cards', 'tickets']) expect(html).toContain(`data-testid="customer-tab-${tab}"`);
+    for (const tab of ['money', 'trade', 'pay', 'cards', 'documents', 'tickets'])
+      expect(html).toContain(`data-testid="customer-tab-${tab}"`);
     expect(html).toContain(`href="/accounts/${USER}?tab=trade"`);
     expect(html).toMatch(/aria-current="page"[^>]*data-testid="customer-tab-money"/);
     expect(html).toContain('This part was not read');

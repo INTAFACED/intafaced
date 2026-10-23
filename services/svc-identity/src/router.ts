@@ -23,6 +23,7 @@ import { factorActor, factorGateTrpcError } from './auth/factor-gate.js';
 import {
   AuthError,
   assertDelegateCannotGrant,
+  assertNotOwnKyc,
   assertOperatorKycReview,
   ApiKeysListLimitUnsetError,
   KycPendingLimitUnsetError,
@@ -302,6 +303,9 @@ function toTrpcError(err: unknown): TRPCError {
       return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
     case 'auth.kyc_not_pending':
       return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
+    case 'auth.kyc_self_review':
+      // Operator refuse: the subject is one of the reviewers. Known, not allowed.
+      return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
     case 'auth.kyc_agent_refused':
       // Operator/agent refuse — keep the reviewed_by sentence. Not user catalog copy.
       return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
@@ -576,7 +580,8 @@ export function createIdentityRouter(
      * Action-bound approval issuer. Privileged mutates consume it.
      * Absent → those doors refuse (typed-in second name is not enough).
      */
-    actionApprovals?: Pick<import('./auth/action-approval-service.js').ActionApprovalService, 'consume'>;
+    actionApprovals?: Pick<import('./auth/action-approval-service.js').ActionApprovalService, 'consume'> &
+      Partial<Pick<import('./auth/action-approval-service.js').ActionApprovalService, 'partiesOf'>>;
     /**
      * Drop 0 waitlist + referral queue. Absent → named `waitlist.unbuilt`
      * (no silent enroll). Wired in index.ts against SqlWaitlistStore.
@@ -710,7 +715,7 @@ export function createIdentityRouter(
     input: { approvalId?: string | null; operationId?: string | null },
     targetId: string,
     fields: Record<string, string> = {},
-  ): Promise<string> {
+  ): Promise<{ requesterId: string; approverId: string }> {
     const approvals = options.actionApprovals;
     if (!approvals) {
       throw new PrivilegedDualControlError(
@@ -725,7 +730,24 @@ export function createIdentityRouter(
       targetId,
       fields,
     });
-    return consumed.approverId;
+    return consumed;
+  }
+
+  /**
+   * Nobody decides their own KYC: not the caller, the named second operator, the proposer or the approver.
+   * Checked before the approval is consumed, so a refused decision does not spend it. A missing record is
+   * not found here too, for the same reason. The decision re-checks the consumed parties under the row lock.
+   */
+  async function refuseOwnKyc(
+    recordId: string,
+    callerId: string,
+    input: { approvalId?: string | null; confirmOperatorId?: string | null },
+  ): Promise<void> {
+    const target = await auth.getKycRecord(recordId);
+    if (!target) throw new AuthError('KYC record not found', 'auth.not_found');
+    const approvalId = input.approvalId?.trim();
+    const parties = approvalId ? await options.actionApprovals?.partiesOf?.(approvalId) : null;
+    assertNotOwnKyc(target.userId, [callerId, input.confirmOperatorId, parties?.requesterId, parties?.approverId]);
   }
 
   function requireWaitlist(): WaitlistService {
@@ -1680,7 +1702,8 @@ export function createIdentityRouter(
           try {
             requireMfa(ctx.principal);
             assertOperatorKycReview({ service: ctx.service, kid: ctx.principal.kid });
-            await consumePrivileged(ctx.principal.userId, input, 'kyc.approve', { recordId: input.recordId });
+            await refuseOwnKyc(input.recordId, ctx.principal.userId, input);
+            const parties = await consumePrivileged(ctx.principal.userId, input, 'kyc.approve', { recordId: input.recordId });
             return presentKyc(
               await auth.approveKycRecord({
                 recordId: input.recordId,
@@ -1691,6 +1714,7 @@ export function createIdentityRouter(
                 confirmActorId: input.confirmOperatorId,
                 approvalId: input.approvalId,
                 operationId: input.operationId,
+                approvalParties: [parties.requesterId, parties.approverId],
               }),
             );
           } catch (err) {
@@ -1713,7 +1737,8 @@ export function createIdentityRouter(
           try {
             requireMfa(ctx.principal);
             assertOperatorKycReview({ service: ctx.service, kid: ctx.principal.kid });
-            await consumePrivileged(ctx.principal.userId, input, 'kyc.reject', { recordId: input.recordId });
+            await refuseOwnKyc(input.recordId, ctx.principal.userId, input);
+            const parties = await consumePrivileged(ctx.principal.userId, input, 'kyc.reject', { recordId: input.recordId });
             return presentKyc(
               await auth.rejectKycRecord({
                 recordId: input.recordId,
@@ -1723,6 +1748,7 @@ export function createIdentityRouter(
                 confirmActorId: input.confirmOperatorId,
                 approvalId: input.approvalId,
                 operationId: input.operationId,
+                approvalParties: [parties.requesterId, parties.approverId],
               }),
             );
           } catch (err) {
@@ -2824,7 +2850,7 @@ export function createIdentityRouter(
             }
 
             requireMfa(ctx.principal);
-            const confirmOperatorId = await consumePrivileged(ctx.principal.userId, input, 'affiliates.payout', {
+            const { approverId: confirmOperatorId } = await consumePrivileged(ctx.principal.userId, input, 'affiliates.payout', {
               feeEventId,
             });
 

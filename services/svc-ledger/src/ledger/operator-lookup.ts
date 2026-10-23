@@ -1,7 +1,7 @@
 import type { OperatorAccessEntry } from './operator-owner-balances.js';
 
 /**
- * The access row every operator object lookup writes BEFORE it reads (OPS-rules-monitoring-12, migration 0025).
+ * The access row every operator object lookup writes BEFORE it reads (OPS-rules-monitoring-12, migration 0026).
  *
  * A business key names a customer's deposit, withdrawal or order, and a transaction id leads to the same. So a lookup
  * is recorded first, exactly as an owner-balances read is, and a lookup whose row cannot be written is refused with

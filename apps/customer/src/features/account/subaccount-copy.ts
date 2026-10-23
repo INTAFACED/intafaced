@@ -71,6 +71,12 @@ export const subaccountCopy = defineCopy(
     separate: 'This response belongs to this request. Earlier unconfirmed requests remain separate.',
     refused: 'Creation was refused before insertion',
     refusedBody: 'The service refused this original creation. No strategy partition was inserted by this request.',
+    refusedNotFound: 'Your account could not be found, so no sub-account was created. Sign in again.',
+    refusedFrozen: 'This account is frozen or closed, so it cannot create sub-accounts. No sub-account was created.',
+    refusedCapUnset:
+      'Sub-accounts cannot be created here: the most sub-accounts an account may hold has not been set. No sub-account was created.',
+    refusedLimit:
+      'This account already holds the most sub-accounts allowed. Revoke one you no longer use (with nothing left open on it) to create another. No sub-account was created.',
     revokeRefused: 'Revoke was refused before any change',
     revokeRefusedBody:
       'Something is still open on this subaccount, or the open items could not be read. It was not revoked. Clear what is open, then try again.',
@@ -158,6 +164,12 @@ export const subaccountCopy = defineCopy(
       separate: 'Esta respuesta pertenece a esta solicitud. Las solicitudes anteriores sin confirmar siguen separadas.',
       refused: 'Creación rechazada antes de la inserción',
       refusedBody: 'El servicio rechazó esta creación original. Esta solicitud no insertó ninguna partición de estrategia.',
+      refusedNotFound: 'No se encontró tu cuenta, así que no se creó ninguna subcuenta. Vuelve a iniciar sesión.',
+      refusedFrozen: 'Esta cuenta está congelada o cerrada, así que no puede crear subcuentas. No se creó ninguna subcuenta.',
+      refusedCapUnset:
+        'Aquí no se pueden crear subcuentas: no se ha fijado el máximo de subcuentas por cuenta. No se creó ninguna subcuenta.',
+      refusedLimit:
+        'Esta cuenta ya tiene el máximo de subcuentas permitido. Revoca una que ya no uses (sin nada abierto en ella) para crear otra. No se creó ninguna subcuenta.',
       revokeRefused: 'Revocación rechazada antes de cualquier cambio',
       revokeRefusedBody:
         'Algo sigue abierto en esta subcuenta, o no se pudo leer lo abierto. No se revocó. Cierra lo abierto e inténtalo de nuevo.',
@@ -245,6 +257,12 @@ export const subaccountCopy = defineCopy(
       separate: 'Cette réponse appartient à cette demande. Les demandes antérieures non confirmées restent distinctes.',
       refused: 'Création refusée avant l’insertion',
       refusedBody: 'Le service a refusé cette création initiale. Cette demande n’a inséré aucune partition de stratégie.',
+      refusedNotFound: 'Votre compte est introuvable, aucun sous-compte n’a donc été créé. Reconnectez-vous.',
+      refusedFrozen: 'Ce compte est gelé ou fermé, il ne peut donc pas créer de sous-comptes. Aucun sous-compte n’a été créé.',
+      refusedCapUnset:
+        'Impossible de créer des sous-comptes ici : le nombre maximal de sous-comptes par compte n’a pas été fixé. Aucun sous-compte n’a été créé.',
+      refusedLimit:
+        'Ce compte détient déjà le nombre maximal de sous-comptes autorisé. Révoquez-en un que vous n’utilisez plus (sans rien d’ouvert dessus) pour en créer un autre. Aucun sous-compte n’a été créé.',
       revokeRefused: 'Révocation refusée avant tout changement',
       revokeRefusedBody:
         'Quelque chose reste ouvert sur ce sous-compte, ou ce qui est ouvert n’a pas pu être lu. Il n’a pas été révoqué. Clôturez ce qui est ouvert, puis réessayez.',

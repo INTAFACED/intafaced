@@ -62,7 +62,7 @@ export function stubActionApprovals(approverId = '22222222-2222-4222-8222-222222
 export async function requirePrivilegedDualControl(
   approvals: Pick<ActionApprovalService, 'consume'>,
   cmd: PrivilegedApprovalCmd | undefined,
-): Promise<{ approverId: string }> {
+): Promise<{ requesterId: string; approverId: string }> {
   const approvalId = cmd?.approvalId?.trim() ?? '';
   const operationId = cmd?.operationId?.trim() ?? '';
   if (!approvalId || !operationId || !cmd?.targetId) {
@@ -80,7 +80,7 @@ export async function requirePrivilegedDualControl(
       targetId: cmd.targetId,
       expectedVersion: '1',
     });
-    return { approverId: row.approverId ?? row.requesterId };
+    return { requesterId: row.requesterId, approverId: row.approverId ?? row.requesterId };
   } catch (err) {
     if (err instanceof ActionApprovalError) {
       throw new PrivilegedDualControlError(err.message, err.code);

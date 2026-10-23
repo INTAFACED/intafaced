@@ -120,6 +120,8 @@ describe('personal send and request (Postgres)', () => {
     const transferBus = eventPersonalTransferNotices(bus);
     bank = createBankServices(db.sql, ledger, memoryLedgerHistory(ledger), {
       nativeAssetId: 'IFC',
+      // A labelled TEST space limit, so the router's create door is open in this suite.
+      spaceLimit: '10',
       recipients: memoryRecipientState(),
       handles: memoryPartyHandles({ [ADA]: 'ada', [BOB]: 'bob' }),
       requestNotices: {

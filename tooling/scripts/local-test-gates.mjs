@@ -11,6 +11,7 @@
  *   node tooling/scripts/local-test-gates.mjs halt <SYMBOL>    halt one book in matching (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs resume <SYMBOL>  resume a halted book (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs limits     publish the TEST price band and open-order cap (two-person approval)
+ *   node tooling/scripts/local-test-gates.mjs charts     publish the TEST charts owner values (counts; data class two-person approval)
  *   node tooling/scripts/local-test-gates.mjs risk <SYMBOL> collar=0.1|unset throttle=20|unset   change one market's limits
  *   node tooling/scripts/local-test-gates.mjs status     read-only: what is open, who is verified
  *
@@ -822,6 +823,138 @@ export async function publishPairRisk(ctx) {
   return out;
 }
 
+// ── 2e. Charts owner values (C-ops-04): LOCAL TEST values through svc-trade's own door ──
+
+/**
+ * LOCAL TEST charts owner values. Not owner values, and not product defaults: they let the charts journeys run on the
+ * local test stack. Counts go through `admin.chartOwnerValues.set` with the stack's operator A (admin:write, a reason, a
+ * business key); a count needs no second operator. The data class goes through the same door with a second operator's
+ * approval, as the owner's flow does. IFC/USDT is left unset on purpose, so a journey can see the blank refusal.
+ */
+export const TEST_CHART_COUNTS = Object.freeze({
+  compareCap: 3,
+  chartCountLimit: 4,
+  drawingCap: 50,
+  brushPointCap: 2000,
+  delayedBoundarySeconds: 30,
+});
+export const TEST_CHART_DATA_CLASSES = Object.freeze({ 'BTC/USDT': 'real_time', 'ETH/USDT': 'real_time' });
+export const CHART_DATA_CLASS_ACTION = 'trade.chart_data_class_set';
+
+/** The hash svc-trade recomputes for a data class approval (services/svc-trade/src/admin/chart-owner-values.ts). */
+export function chartDataClassPayloadHash({ symbol, dataClass, expectedVersion, reason }) {
+  const body = { actionType: CHART_DATA_CLASS_ACTION, symbol, dataClass, expectedVersion, reason };
+  return `sha256:${crypto.createHash('sha256').update(canonicalJson(body)).digest('hex')}`;
+}
+
+/**
+ * The policy version the founder page's proposal carries (apps/admin/src/lib/trade-ops/charts-owner-values-model.ts,
+ * CHART_DATA_CLASS_POLICY_VERSION). Identity stores policy_version and does not check it, and svc-trade's
+ * consumeApproval does not check it either, so the stand-in uses the same value as the real flow.
+ */
+export const CHART_DATA_CLASS_POLICY_VERSION = 'trade-chart-data-class-v1';
+
+export function chartDataClassProposal(body) {
+  return {
+    actionType: CHART_DATA_CLASS_ACTION,
+    targetService: 'svc-trade',
+    targetId: body.symbol,
+    expectedVersion: body.expectedVersion,
+    payloadHash: chartDataClassPayloadHash(body),
+    policyVersion: CHART_DATA_CLASS_POLICY_VERSION,
+  };
+}
+
+async function readChartValues(ctx, token) {
+  const res = await ctx.edge.query('trade', 'admin.chartOwnerValues.get', {}, token);
+  const view = data(res);
+  if (!view?.scalars) throw new Error(`trade admin.chartOwnerValues.get refused (${res.status}): ${refusalText(res)}`);
+  return view;
+}
+
+/** Set each TEST count that is not set yet. One write per count, each under a business key, each with a reason. */
+export async function publishChartCounts(ctx, sessions = null) {
+  const pair = sessions ?? (await approverSessions(ctx));
+  let view = await readChartValues(ctx, await pair.a.tradeOpsToken());
+  const out = [];
+  for (const [key, value] of Object.entries(TEST_CHART_COUNTS)) {
+    if (view.scalars.values[key] === value) {
+      out.push({ key, value, changed: false, version: view.scalars.version });
+      continue;
+    }
+    const expectedVersion = view.scalars.version ?? '0';
+    const res = await ctx.edge.mutate(
+      'trade',
+      'admin.chartOwnerValues.set',
+      {
+        key,
+        value,
+        expectedVersion,
+        reason: `${MARKERS.label}: TEST charts ${key}`,
+        clientRequestId: `${MARKERS.idPrefix}charts:${key}:v${expectedVersion}:${value}`,
+      },
+      await pair.a.tradeOpsToken(),
+    );
+    view = data(res);
+    if (!view?.scalars) throw new Error(`trade admin.chartOwnerValues.set ${key} refused (${res.status}): ${refusalText(res)}`);
+    out.push({ key, value, changed: true, version: view.scalars.version });
+  }
+  return out;
+}
+
+/** Set each TEST data class that differs. Two operators: A proposes the exact change, B approves it, A writes it. */
+export async function publishChartDataClasses(ctx, sessions = null) {
+  const pair = sessions ?? (await approverSessions(ctx));
+  let view = await readChartValues(ctx, await pair.a.tradeOpsToken());
+  const out = [];
+  for (const [symbol, dataClass] of Object.entries(TEST_CHART_DATA_CLASSES)) {
+    const row = view.dataClasses.find((r) => r.symbol === symbol);
+    if (!row) throw new Error(`no market ${symbol} is listed on this stack, so it has no data class to set`);
+    if (row.dataClass === dataClass) {
+      out.push({ symbol, dataClass, changed: false });
+      continue;
+    }
+    const body = { symbol, dataClass, expectedVersion: row.version ?? '0', reason: `${MARKERS.label}: TEST data class` };
+    const ids = await twoPerson(ctx, pair, chartDataClassProposal(body));
+    assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
+    const res = await ctx.edge.mutate(
+      'trade',
+      'admin.chartOwnerValues.set',
+      {
+        key: 'dataClass',
+        symbol,
+        value: dataClass,
+        expectedVersion: body.expectedVersion,
+        reason: body.reason,
+        approvalId: ids.approvalId,
+        clientRequestId: ids.operationId,
+      },
+      await pair.a.tradeOpsToken(),
+    );
+    view = data(res);
+    if (!view?.scalars)
+      throw new Error(`trade admin.chartOwnerValues.set dataClass ${symbol} refused (${res.status}): ${refusalText(res)}`);
+    out.push({ symbol, dataClass, changed: true, approvalId: ids.approvalId });
+  }
+  return out;
+}
+
+export async function publishCharts(ctx) {
+  const pair = await approverSessions(ctx);
+  return { counts: await publishChartCounts(ctx, pair), dataClasses: await publishChartDataClasses(ctx, pair) };
+}
+
+/** One line per value. Every line says TEST, and the blank market is named, so nobody reads a TEST value as a real one. */
+function sayCharts(report) {
+  for (const c of report.counts)
+    say(`  charts    ${c.key.padEnd(24)} ${c.changed ? `set to ${c.value} (TEST), version ${c.version}` : `already ${c.value} (TEST)`}`);
+  for (const d of report.dataClasses)
+    say(
+      `  charts    ${d.symbol.padEnd(24)} ${d.changed ? `data class ${d.dataClass} (TEST), approval ${d.approvalId}` : `already ${d.dataClass} (TEST)`}`,
+    );
+  say('  charts    IFC/USDT stays not set on purpose (no TEST value): a journey sees the blank refusal');
+}
+
 // ── 3. Verification tier ────────────────────────────────────────────────────
 
 /** Accounts whose credentials this stack holds (it created them), keyed by handle. */
@@ -879,11 +1012,16 @@ export async function approvePending(ctx, sessions = null, { userIds = null } = 
   const out = [];
   if (todo.length === 0) return out;
   const s = sessions ?? (await approverSessions(ctx));
+  let operators = null;
   for (const r of todo) {
     const who = users.find((u) => u.id === r.userId)?.handle ?? r.userId;
     try {
-      const ids = await twoPerson(ctx, s, kycApproveProposal(r.id));
-      const token = await s.a.complianceToken();
+      // Identity refuses a KYC decision by its own subject (auth.kyc_self_review), so a founder's own request is
+      // decided by the two TEST operators (kyc.* is an operator action), never by the founder pair it belongs to.
+      const own = r.userId === s.a.op.userId || r.userId === s.b.op.userId;
+      const pair = own ? (operators ??= await operatorSessions(ctx)) : s;
+      const ids = await twoPerson(ctx, pair, kycApproveProposal(r.id));
+      const token = await pair.a.complianceToken();
       const res = await ctx.edge.mutate(
         'identity',
         'kyc.approve',
@@ -894,7 +1032,7 @@ export async function approvePending(ctx, sessions = null, { userIds = null } = 
       out.push({ handle: who, recordId: r.id, tier: r.tier, ok, why: ok ? 'approved' : refusalText(res) });
       ctx.log(
         ok
-          ? `verify ${who}: ${r.tier} approved by ${s.a.op.handle}, confirmed by ${s.b.op.handle} (${MARKERS.label}); record ${r.id}`
+          ? `verify ${who}: ${r.tier} approved by ${pair.a.op.handle}, confirmed by ${pair.b.op.handle} (${MARKERS.label}); record ${r.id}`
           : `verify ${who}: REFUSED ${refusalText(res)}`,
       );
     } catch (err) {
@@ -989,6 +1127,7 @@ async function main() {
       for (const r of await publishTransferTerms(ctx)) say(`  terms     ${r.assetId.padEnd(10)} published`);
       for (const r of await publishPairRisk(ctx))
         say(`  limits    ${r.symbol.padEnd(10)} ${r.changed ? `version ${r.version}` : 'already published'}`);
+      sayCharts(await publishCharts(ctx));
       const v = await verifyAll(ctx);
       for (const a of v.approved) say(`  verify    ${a.handle} ${a.tier}: ${a.ok ? 'approved' : a.why}`);
       if (v.stillWithoutFull.length)
@@ -1001,6 +1140,8 @@ async function main() {
     } else if (cmd === 'limits') {
       for (const r of await publishPairRisk(ctx))
         say(`  limits    ${r.symbol.padEnd(10)} ${r.changed ? `version ${r.version}` : 'already published'}`);
+    } else if (cmd === 'charts') {
+      sayCharts(await publishCharts(ctx));
     } else if (cmd === 'risk') {
       // risk <SYMBOL> <field>=<value|unset> ...: a journey step's own change to one market's limits.
       const symbol = process.argv[3];
@@ -1019,7 +1160,7 @@ async function main() {
       say(JSON.stringify(await status(ctx), null, 2));
     } else {
       die(
-        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | limits | risk <SYMBOL> k=v... | verify | halt <SYMBOL> | resume <SYMBOL> | status',
+        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | limits | charts | risk <SYMBOL> k=v... | verify | halt <SYMBOL> | resume <SYMBOL> | status',
         2,
       );
     }

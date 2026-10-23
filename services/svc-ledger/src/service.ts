@@ -34,6 +34,9 @@ import {
 import { DEFAULT_RECONCILE_STATEMENT_TIMEOUT_MS, RECONCILE_ACTOR, RECONCILE_MISMATCH_REASON } from './ledger/reconcile-config.js';
 import type { ReconcileIncompleteAlert } from './ledger/scheduled-reconcile-tick.js';
 import { withMoneySpan, withSpan } from './tracing.js';
+import type { RegistryAsset } from '@intafaced/contracts';
+import type { ActionApprovalConsumer } from './ledger/action-approval-consume.js';
+import { applyAssetEdit, getAsset, listAssets, listOperatorAssets, type OperatorAssetRow } from './ledger/supported-assets.js';
 
 /**
  * The service layer: the ledger engine plus the three things wrapping every
@@ -104,7 +107,7 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
     return this.engine.balances(ownerType, ownerId);
   }
 
-  /** Operator access row for the ledger desk (0024, 0025). Written before an operator reads an owner's detail or one transaction. */
+  /** Operator access row for the ledger desk (0024, 0026). Written before an operator reads an owner's detail or one transaction. */
   recordOperatorAccess(entry: OperatorAccessEntry): Promise<void> {
     return recordOperatorAccess(this.sql, entry);
   }
@@ -142,6 +145,25 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
       lastWriteAt: at.lastWriteAt ? at.lastWriteAt.toISOString() : null,
       readAt: new Date().toISOString(),
     };
+  }
+
+  /** The published asset and network registry (W-balances-05). A read: no chain tip, no balance. */
+  listAssets(input?: unknown): Promise<RegistryAsset[]> {
+    return listAssets(this.sql, input);
+  }
+
+  getAsset(input: unknown): Promise<RegistryAsset> {
+    return getAsset(this.sql, input);
+  }
+
+  /** Every registry row, published or not, for the operator console. */
+  listOperatorAssets(): Promise<OperatorAssetRow[]> {
+    return listOperatorAssets(this.sql);
+  }
+
+  /** One founder edit, approved through identity, applied once per operation id. Moves no value. */
+  applyAssetEdit(approvals: ActionApprovalConsumer, operatorId: string, input: unknown): Promise<RegistryAsset> {
+    return applyAssetEdit(this.sql, approvals, operatorId, input);
   }
 
   /** Paged sibling of `history`. A read; same no-span reasoning. */
