@@ -87,6 +87,25 @@ const WORDS: Readonly<Record<string, Words>> = {
     body: 'Nothing was held. Review again and confirm the tier the review shows.',
     retryable: false,
   },
+  'trade.oi_share_limit': {
+    title: 'This order is above your share of open interest',
+    body: 'One account may hold only part of this contract’s open interest limit, counting your open position and live orders. Nothing was held. Review again to see how much you can still add.',
+    retryable: false,
+  },
+  'trade.oi_limit': {
+    title: 'This contract is near its open interest limit',
+    body: 'Open interest on this contract is capped, and this order would go past the cap. Nothing was held. Review again to see how much can still be added.',
+    retryable: false,
+  },
+  'trade.oi_limit_unset': {
+    title: 'This contract has no open interest limit published',
+    body: 'The platform has not published how much open interest this contract may carry, so nothing can be opened on it. Closing still works.',
+    retryable: false,
+  },
+  'trade.oi_room_unavailable': {
+    title: 'Your open interest room could not be read',
+    body: 'Nothing was held. Try the review again in a moment.',
+  },
   'trade.ladder_unset': {
     title: 'Margin tiers are not published',
     body: 'The platform has not published the maintenance tiers for futures. Without them a position could not be closed when it runs out of margin, so nothing can be opened until they are.',

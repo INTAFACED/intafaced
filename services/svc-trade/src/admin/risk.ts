@@ -1,6 +1,9 @@
 /**
  * Per-market operator limits. A null field is unset: the order path keeps the
  * refusal it already had for a blank limit and does not invent a number.
+ *
+ * The two open-interest limits (D-margin-05) are read by the futures order path only
+ * (`futures/open-interest-limits.ts`), where a blank one refuses every open on that market.
  */
 import type { Sql } from 'postgres';
 import { formatAmount, mul, parseAmount, type Amount } from '@intafaced/ledger-client';
@@ -13,7 +16,20 @@ export interface RiskLimits {
   readonly slippageCap: string | null;
   readonly throttle: string | null;
   readonly circuitBreaker: string | null;
+  /** A futures market's largest open interest, in its base asset (the sum of open position sizes). */
+  readonly oiLimit: string | null;
+  /** The largest share of `oiLimit` one account may hold, in basis points (1 to 10000). */
+  readonly oiShareBps: string | null;
 }
+
+/**
+ * A write's limits. The open-interest pair may be left out, and then the new version keeps the current values: a
+ * caller that does not know them yet (an older desk) never clears them by writing the other five. Null clears one.
+ */
+export type RiskLimitsInput = Omit<RiskLimits, 'oiLimit' | 'oiShareBps'> & {
+  readonly oiLimit?: string | null;
+  readonly oiShareBps?: string | null;
+};
 
 export interface RiskVersion extends RiskLimits {
   readonly marketId: string;
@@ -33,6 +49,8 @@ interface RiskRow {
   slippage_cap: string | null;
   throttle: string | null;
   circuit_breaker: string | null;
+  oi_limit: string | null;
+  oi_share_bps: string | null;
   operator_id: string;
   approver_id: string;
   reason: string;
@@ -46,6 +64,8 @@ const EMPTY: RiskLimits = {
   slippageCap: null,
   throttle: null,
   circuitBreaker: null,
+  oiLimit: null,
+  oiShareBps: null,
 };
 
 function present(row: RiskRow): RiskVersion {
@@ -57,6 +77,8 @@ function present(row: RiskRow): RiskVersion {
     slippageCap: row.slippage_cap,
     throttle: row.throttle,
     circuitBreaker: row.circuit_breaker,
+    oiLimit: row.oi_limit,
+    oiShareBps: row.oi_share_bps,
     operatorId: row.operator_id,
     approverId: row.approver_id,
     reason: row.reason,
@@ -65,7 +87,7 @@ function present(row: RiskRow): RiskVersion {
   };
 }
 
-export function validateLimits(input: RiskLimits): RiskLimits {
+export function validateLimits(input: RiskLimitsInput): RiskLimitsInput {
   const collar = input.collar == null ? null : exactDecimal(input.collar, 'collar');
   const fatFinger = input.fatFinger == null ? null : exactDecimal(input.fatFinger, 'fatFinger');
   const slippageCap = input.slippageCap == null ? null : exactInteger(input.slippageCap, 'slippageCap');
@@ -82,14 +104,31 @@ export function validateLimits(input: RiskLimits): RiskLimits {
       throw new TradeOpsError('risk_limit_not_exact', 'slippageCap must be an integer basis-point string from 1 to 5000');
     }
   }
-  return { collar, fatFinger, slippageCap, throttle, circuitBreaker };
+  const oiLimit = input.oiLimit == null ? input.oiLimit : exactDecimal(input.oiLimit, 'oiLimit');
+  const oiShareBps = input.oiShareBps == null ? input.oiShareBps : exactInteger(input.oiShareBps, 'oiShareBps');
+  if (oiShareBps != null) {
+    const bps = Number(oiShareBps);
+    if (!Number.isInteger(bps) || bps < 1 || bps > 10_000) {
+      throw new TradeOpsError('risk_limit_not_exact', 'oiShareBps must be an integer basis-point string from 1 to 10000');
+    }
+  }
+  // Left out stays left out, so the approval's hash covers exactly what the caller sent.
+  return {
+    collar,
+    fatFinger,
+    slippageCap,
+    throttle,
+    circuitBreaker,
+    ...(oiLimit !== undefined ? { oiLimit } : {}),
+    ...(oiShareBps !== undefined ? { oiShareBps } : {}),
+  };
 }
 
 // Every ORDER BY names the table's bigint column: a bare `version` sorts by the `version::text` output column, where
 // "9" comes after "10", so from version 10 on the latest row read as an older one.
 export async function currentRisk(sql: Sql, marketId: string): Promise<RiskVersion | null> {
   const [row] = await sql<RiskRow[]>`
-    SELECT market_id, version::text, collar, fat_finger, slippage_cap, throttle, circuit_breaker,
+    SELECT market_id, version::text, collar, fat_finger, slippage_cap, throttle, circuit_breaker, oi_limit, oi_share_bps,
            operator_id, approver_id, reason, approval_id, created_at
       FROM trade.operator_risk_limits
      WHERE market_id = ${marketId}
@@ -108,7 +147,7 @@ export async function currentRiskForMarkets(sql: Sql, marketIds: readonly string
   if (marketIds.length === 0) return out;
   const rows = await sql<RiskRow[]>`
     SELECT DISTINCT ON (market_id)
-           market_id, version::text, collar, fat_finger, slippage_cap, throttle, circuit_breaker,
+           market_id, version::text, collar, fat_finger, slippage_cap, throttle, circuit_breaker, oi_limit, oi_share_bps,
            operator_id, approver_id, reason, approval_id, created_at
       FROM trade.operator_risk_limits
      WHERE market_id = ANY(${[...marketIds]}::uuid[])
@@ -119,7 +158,7 @@ export async function currentRiskForMarkets(sql: Sql, marketIds: readonly string
 
 export async function riskHistory(sql: Sql, marketId: string): Promise<RiskVersion[]> {
   const rows = await sql<RiskRow[]>`
-    SELECT market_id, version::text, collar, fat_finger, slippage_cap, throttle, circuit_breaker,
+    SELECT market_id, version::text, collar, fat_finger, slippage_cap, throttle, circuit_breaker, oi_limit, oi_share_bps,
            operator_id, approver_id, reason, approval_id, created_at
       FROM trade.operator_risk_limits
      WHERE market_id = ${marketId}

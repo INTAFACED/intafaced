@@ -128,6 +128,12 @@ export const ticketCopy = defineCopy('trade.futures.ticket', {
   'Tier confirm leverage': 'Leverage {leverage}. Every tier allows up to the listing cap of {cap}.',
   'Tier confirm leverage no cap': 'Leverage {leverage}. No listing leverage cap is published.',
   'Tier confirm accept': 'I accept tier {tier}',
+  'Open interest room': 'Open interest you can add',
+  'Open interest room value': '{room} {base}',
+  'Open interest share hint': 'One account may hold up to {cap} {base}, {pct} of this contract’s open interest limit of {limit} {base}.',
+  'Open interest market hint': 'This contract’s open interest is near its limit of {limit} {base}.',
+  'Open interest unset': 'Not published',
+  'Open interest unset hint': 'The open interest limit for this contract is not published, so nothing can be opened on it.',
   'Unknown figure': 'The service did not publish this figure.',
 
   // Open

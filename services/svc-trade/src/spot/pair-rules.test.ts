@@ -24,6 +24,8 @@ const risk: RiskVersion = {
   slippageCap: '50',
   throttle: '200',
   circuitBreaker: null,
+  oiLimit: null,
+  oiShareBps: null,
   operatorId: 'op',
   approverId: 'ap',
   reason: 'r',

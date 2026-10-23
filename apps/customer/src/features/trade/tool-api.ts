@@ -167,6 +167,19 @@ export const positionPreviewSchema = z.object({
     })
     .nullable()
     .optional(),
+  /** The market's open-interest limits and the room this account has left (D-margin-05), in the base asset. */
+  openInterest: z
+    .object({
+      limit: decimalSchema,
+      shareBps: z.number().int(),
+      accountCap: decimalSchema,
+      accountCommitted: decimalSchema,
+      marketCommitted: decimalSchema,
+      room: decimalSchema,
+      binding: z.enum(['account', 'market']),
+    })
+    .nullable()
+    .optional(),
   orderable: z.boolean(),
   refusals: z.array(z.object({ code: z.string(), field: z.string(), message: z.string() })),
 });

@@ -1997,6 +1997,158 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
       });
     });
   });
+
+  describe('open-interest and share limits (D-margin-05, J-derivatives-02 #7)', () => {
+    // A market limit of 10 BTC, and at most 10% of it (1 BTC) per account.
+    let limits: { limit: bigint; shareBps: number } | null;
+    beforeEach(() => {
+      limits = { limit: A('10'), shareBps: 1_000 };
+    });
+
+    function positionsWithLimits(): PositionService {
+      return new PositionService(sql, ledger, {
+        marks: memoryMarkBook().source(),
+        profitSource: null,
+        maxLeverage: A('10'),
+        now: () => NOW,
+        matchedOrders: {
+          matching: null,
+          enabled: false,
+          priceBand: null,
+          lifecycleProof: null,
+          openInterestLimits: async () => limits as never,
+        },
+      });
+    }
+
+    function limited(overrides: Partial<MatchedOrdersDeps> = {}): MatchedFuturesOrders {
+      const positions = positionsWithLimits();
+      return build({ openInterest: (input) => positions.openInterestRoom(input), ...overrides });
+    }
+
+    async function liveOrders(userId: string) {
+      return sql<{ client_order_id: string; status: string; refusal_code: string | null }[]>`
+        SELECT client_order_id, status, refusal_code FROM trade.futures_orders WHERE user_id = ${userId} ORDER BY client_order_id
+      `;
+    }
+
+    it('an open past the account share refuses with the room left; nothing is held or written', async () => {
+      const svc = limited();
+      await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('0.6'), clientOrderId: 'oi-1' }));
+      const free = await bal(userAvailable(ALICE, USDT));
+      // The resting 0.6 counts: 0.5 more is 1.1 of a 1 BTC share.
+      const over = svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('0.5'), clientOrderId: 'oi-2' }));
+      await expect(over).rejects.toMatchObject({ code: 'trade.oi_share_limit', status: 422 });
+      await expect(over).rejects.toThrow(
+        "this order would take your open interest on this market to 1.1 BTC, past the 1 BTC one account may hold (10% of the market's limit of 10 BTC); room left 0.4 BTC",
+      );
+      expect(engine.submits).toHaveLength(1);
+      expect(await bal(userAvailable(ALICE, USDT))).toBe(free);
+      expect((await liveOrders(ALICE)).map((o) => o.client_order_id)).toEqual(['oi-1']);
+      // The room it named places; exactly at the share is allowed.
+      await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('0.4'), clientOrderId: 'oi-3' }));
+      expect(engine.submits).toHaveLength(2);
+      await assertBooksAgree();
+    });
+
+    it("filled positions count on both sides, and another account's share is its own", async () => {
+      const svc = limited();
+      const a = await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('1'), clientOrderId: 'oi-pa' }));
+      const b = await svc.place(principal(BOB), order({ userId: BOB, side: 'sell', qty: A('1'), clientOrderId: 'oi-pb' }));
+      await svc.settleFill({ marketId: MARKET, makerOrderId: a.orderId, takerOrderId: b.orderId, price: '100', qty: '1', sequence: 11 });
+      await expect(
+        svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('0.0001'), clientOrderId: 'oi-pa2' })),
+      ).rejects.toMatchObject({ code: 'trade.oi_share_limit' });
+      await expect(
+        svc.place(principal(BOB), order({ userId: BOB, side: 'sell', qty: A('0.0001'), clientOrderId: 'oi-pb2' })),
+      ).rejects.toMatchObject({ code: 'trade.oi_share_limit' });
+      // Carol holds nothing yet: her whole share is open to her.
+      await svc.place(principal(CAROL), order({ userId: CAROL, side: 'buy', qty: A('1'), clientOrderId: 'oi-pc' }));
+      await assertBooksAgree();
+    });
+
+    it("the market's limit refuses with the market's room when it is the nearer one", async () => {
+      limits = { limit: A('2'), shareBps: 10_000 };
+      const svc = limited();
+      await svc.place(principal(BOB), order({ userId: BOB, side: 'sell', qty: A('1.5'), clientOrderId: 'oi-mb' }));
+      await expect(
+        svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('0.6'), clientOrderId: 'oi-ma' })),
+      ).rejects.toThrow("this order would take the market's open interest to 2.1 BTC, past its limit of 2 BTC; room left 0.5 BTC");
+      await expect(
+        svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('0.6'), clientOrderId: 'oi-ma' })),
+      ).rejects.toMatchObject({ code: 'trade.oi_limit', status: 422 });
+    });
+
+    it('a blank limit refuses every open on the market before any hold; a close still goes', async () => {
+      const svc = limited();
+      const a = await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('0.5'), clientOrderId: 'oi-ua' }));
+      const b = await svc.place(principal(BOB), order({ userId: BOB, side: 'sell', qty: A('0.5'), clientOrderId: 'oi-ub' }));
+      await svc.settleFill({ marketId: MARKET, makerOrderId: a.orderId, takerOrderId: b.orderId, price: '100', qty: '0.5', sequence: 12 });
+      limits = null;
+      const free = await bal(userAvailable(CAROL, USDT));
+      await expect(
+        svc.place(principal(CAROL), order({ userId: CAROL, side: 'buy', qty: A('0.1'), clientOrderId: 'oi-uc' })),
+      ).rejects.toMatchObject({ code: 'trade.oi_limit_unset', status: 503 });
+      expect(await bal(userAvailable(CAROL, USDT))).toBe(free);
+      expect(await liveOrders(CAROL)).toHaveLength(0);
+      // Reduce-only never meets the limit: a trader can always leave.
+      const close = await svc.place(
+        principal(ALICE),
+        order({ userId: ALICE, side: 'sell', qty: A('0.5'), clientOrderId: 'oi-close', reduceOnly: true, type: 'market' }),
+      );
+      expect(close.reduceOnly).toBe(true);
+    });
+
+    it('two opens placed together near the share: the later check, after its row is written, refuses', async () => {
+      const positions = positionsWithLimits();
+      let racing = true;
+      const svc: MatchedFuturesOrders = build({
+        openInterest: async (input) => {
+          const room = await positions.openInterestRoom(input);
+          if (racing && input.excludeOrderId === undefined) {
+            racing = false;
+            await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('0.6'), clientOrderId: 'oi-race-b' }));
+          }
+          return room;
+        },
+      });
+      // Each 0.6 alone fits the 1 BTC share; together they are 1.2.
+      await expect(
+        svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('0.6'), clientOrderId: 'oi-race-a' })),
+      ).rejects.toMatchObject({ code: 'trade.oi_share_limit' });
+      expect(await liveOrders(ALICE)).toEqual([
+        { client_order_id: 'oi-race-a', status: 'refused', refusal_code: 'trade.oi_share_limit' },
+        { client_order_id: 'oi-race-b', status: 'open', refusal_code: null },
+      ]);
+      expect(engine.submits).toHaveLength(1);
+      await assertBooksAgree();
+    });
+
+    describe('through the split door', () => {
+      const saved = process.env.TRADE_MAX_ORDER;
+      afterEach(() => {
+        if (saved === undefined) delete process.env.TRADE_MAX_ORDER;
+        else process.env.TRADE_MAX_ORDER = saved;
+      });
+
+      it('the whole order is checked before any child is placed', async () => {
+        process.env.TRADE_MAX_ORDER = '50';
+        const svc = limited();
+        await expect(
+          svc.placeSplit(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('1.2'), clientOrderId: 'oi-split' })),
+        ).rejects.toMatchObject({ code: 'trade.oi_share_limit' });
+        expect(engine.submits).toHaveLength(0);
+        expect(await liveOrders(ALICE)).toHaveLength(0);
+        const out = await svc.placeSplit(
+          principal(ALICE),
+          order({ userId: ALICE, side: 'buy', qty: A('1'), clientOrderId: 'oi-split-ok' }),
+        );
+        expect(out.stopped).toBeNull();
+        expect(out.orders.length).toBeGreaterThan(1);
+        await assertBooksAgree();
+      });
+    });
+  });
 });
 
 describe('the at-mark open is retired while matched mode is on', () => {

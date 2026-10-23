@@ -22,6 +22,8 @@ function risk(slippageCap: string | null): RiskVersion {
     slippageCap,
     throttle: null,
     circuitBreaker: null,
+    oiLimit: null,
+    oiShareBps: null,
     operatorId: 'op',
     approverId: 'ap',
     reason: 'r',

@@ -100,6 +100,15 @@ export function tierToConfirm(preview: PositionPreview): number | null {
   return preview.riskTier?.confirmRequired ? preview.riskTier.projected : null;
 }
 
+/** Basis points as a decimal rate string for the percent formatter, worked in whole numbers (1000 → "0.1", 250 → "0.025"). */
+export function bpsRate(bps: number): string {
+  const whole = Math.floor(bps / 10_000);
+  const frac = String(bps % 10_000)
+    .padStart(4, '0')
+    .replace(/0+$/, '');
+  return frac ? `${whole}.${frac}` : String(whole);
+}
+
 /** Server values of two previews are identical. Order of keys is the schema's, so JSON equality is exact. */
 export const previewsEqual = (a: PositionPreview, b: PositionPreview): boolean => JSON.stringify(a) === JSON.stringify(b);
 

@@ -62,6 +62,7 @@ import {
   splitPreview,
   sizePlaces,
   tierToConfirm,
+  bpsRate,
   type FormKey,
   type OpenBlock,
   type ReviewBlock,
@@ -364,6 +365,7 @@ export function Ticket(props: TicketProps) {
       },
       { label: t('Leverage cap'), value: p.leverageCap === null ? null : `${fmtAmount(p.leverageCap)}x` },
       ...tierItems(p),
+      ...openInterestItems(p),
       ...controlItems(p),
     ];
   };
@@ -377,6 +379,28 @@ export function Ticket(props: TicketProps) {
         value:
           tier === null ? null : t('Tier value', { tier: String(tier.projected), rate: fmtPct(tier.maintenanceRate, { signed: false }) }),
         hint: tier?.confirmRequired ? t('Tier confirm hint') : t('Tier hint'),
+      },
+    ];
+  };
+  /** The open interest this account may still add on the contract, and the limit that sets it (D-margin-05). */
+  const openInterestItems = (p: PositionPreview): KeyValueItem[] => {
+    if (p.openInterest === undefined) return [];
+    const oi = p.openInterest;
+    const base = market.base;
+    if (oi === null) return [{ label: t('Open interest room'), value: t('Open interest unset'), hint: t('Open interest unset hint') }];
+    return [
+      {
+        label: t('Open interest room'),
+        value: t('Open interest room value', { room: fmtAmount(oi.room), base }),
+        hint:
+          oi.binding === 'market'
+            ? t('Open interest market hint', { limit: fmtAmount(oi.limit), base })
+            : t('Open interest share hint', {
+                cap: fmtAmount(oi.accountCap),
+                limit: fmtAmount(oi.limit),
+                base,
+                pct: fmtPct(bpsRate(oi.shareBps), { signed: false }),
+              }),
       },
     ];
   };

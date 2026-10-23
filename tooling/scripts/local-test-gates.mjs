@@ -872,6 +872,14 @@ export async function publishAssetRegistry(ctx) {
  * there; the other limits on the row are kept as they are.
  */
 export const TEST_RISK_LIMITS = { collar: '0.1', throttle: '20' };
+/**
+ * LOCAL TEST open-interest limits on the TEST perpetual (D-margin-05), not owner values: 1000 BTC of open interest and
+ * half of it per account, far above what the journeys and the TEST market maker hold, so only a journey step that
+ * lowers them meets them. Spot markets carry the fields and never read them.
+ */
+export const TEST_FUTURES_OI_LIMITS = { oiLimit: '1000', oiShareBps: '5000' };
+/** Every field of a market's operator limits row, in the order `admin.risk.get` answers them. */
+export const RISK_LIMIT_FIELDS = ['collar', 'fatFinger', 'slippageCap', 'throttle', 'circuitBreaker', 'oiLimit', 'oiShareBps'];
 export const RISK_SET_ACTION = 'trade.risk_set';
 
 /** Keys sorted, no spaces, null for an unset value: the form svc-trade hashes (services/svc-trade/src/admin/common.ts). */
@@ -911,7 +919,7 @@ export async function setPairRisk(ctx, symbol, changes, sessions = null) {
   const pair = sessions ?? (await approverSessions(ctx));
   const current = data(await ctx.edge.query('trade', 'admin.risk.get', { market: market.id }, await pair.a.tradeOpsToken()));
   if (!current?.version) throw new Error(`trade admin.risk.get for ${symbol} gave no version`);
-  const fields = ['collar', 'fatFinger', 'slippageCap', 'throttle', 'circuitBreaker'];
+  const fields = RISK_LIMIT_FIELDS;
   const limits = Object.fromEntries(fields.map((f) => [f, f in changes ? changes[f] : (current[f] ?? null)]));
   if (fields.every((f) => limits[f] === (current[f] ?? null)))
     return { symbol, marketId: market.id, version: current.version, changed: false, limits };
@@ -927,7 +935,7 @@ export async function setPairRisk(ctx, symbol, changes, sessions = null) {
   const row = data(res);
   if (!row?.version) throw new Error(`trade admin.risk.set for ${symbol} refused (${res.status}): ${refusalText(res)}`);
   ctx.log(
-    `pair limits ${symbol}: version ${row.version}, band ${row.collar ?? 'not set'}, cap ${row.throttle ?? 'not set'} (${MARKERS.label}); approval ${ids.approvalId}`,
+    `pair limits ${symbol}: version ${row.version}, band ${row.collar ?? 'not set'}, cap ${row.throttle ?? 'not set'}${row.oiLimit != null || row.oiShareBps != null ? `, open interest ${row.oiLimit ?? 'not set'} at ${row.oiShareBps ?? 'not set'} bps per account` : ''} (${MARKERS.label}); approval ${ids.approvalId}`,
   );
   return { symbol, marketId: market.id, version: row.version, changed: true, limits };
 }
@@ -938,7 +946,8 @@ export async function publishPairRisk(ctx) {
   if (markets.length === 0) return [];
   const sessions = await approverSessions(ctx);
   const out = [];
-  for (const m of markets) out.push(await setPairRisk(ctx, m.symbol, TEST_RISK_LIMITS, sessions));
+  for (const m of markets)
+    out.push(await setPairRisk(ctx, m.symbol, m.swap ? { ...TEST_RISK_LIMITS, ...TEST_FUTURES_OI_LIMITS } : TEST_RISK_LIMITS, sessions));
   return out;
 }
 
@@ -1504,12 +1513,12 @@ async function main() {
       // risk <SYMBOL> <field>=<value|unset> ...: a journey step's own change to one market's limits.
       const symbol = process.argv[3];
       const pairs = process.argv.slice(4);
-      if (!symbol || pairs.length === 0) die('usage: local-test-gates.mjs risk <SYMBOL> collar=0.1|unset throttle=20|unset ...', 2);
+      if (!symbol || pairs.length === 0)
+        die('usage: local-test-gates.mjs risk <SYMBOL> collar=0.1|unset throttle=20|unset oiLimit=1000|unset ...', 2);
       const changes = {};
       for (const p of pairs) {
         const [k, v] = p.split('=');
-        if (!['collar', 'fatFinger', 'slippageCap', 'throttle', 'circuitBreaker'].includes(k) || v === undefined)
-          die(`not a limit: ${p}`, 2);
+        if (!RISK_LIMIT_FIELDS.includes(k) || v === undefined) die(`not a limit: ${p}`, 2);
         changes[k] = v === 'unset' ? null : v;
       }
       const r = await setPairRisk(ctx, symbol, changes);
