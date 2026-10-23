@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import { build, loadProfile, profileEnvFor, profileExports, render, scanEnvFile } from './owner-settings.mjs';
 
@@ -23,6 +25,30 @@ test('an env entry is an owner setting only when its comment says so', () => {
   );
   assert.deepEqual(found[0].codes, ['trade.slippage_cap_unset']);
   assert.match(found[0].what, /^Worst price a market buy/);
+});
+
+test('the TEST profile merges one file per service and refuses a misplaced or doubled value', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'owner-profile-'));
+  const label = 'TEST: fixture';
+  const write = (file, values, l = label) => writeFileSync(join(dir, file), JSON.stringify({ label: l, values }));
+  try {
+    write('pay.json', { PAY_A: { service: 'pay', value: '1', note: '' } });
+    write('trade.json', { TRADE_A: { service: 'trade', value: '2', note: '' } });
+    const merged = loadProfile(dir);
+    assert.equal(merged.label, label);
+    assert.deepEqual(Object.keys(merged.values).sort(), ['PAY_A', 'TRADE_A']);
+
+    write('trade.json', { PAY_B: { service: 'pay', value: '3', note: '' } });
+    assert.throws(() => loadProfile(dir), /PAY_B belongs to service "pay", so it goes in pay\.json/);
+
+    write('trade.json', { TRADE_A: { service: 'trade', value: '2', note: '' } }, 'something else');
+    assert.throws(() => loadProfile(dir), /label differs/);
+
+    write('trade.json', { PAY_A: { service: 'trade', value: '2', note: '' } });
+    assert.throws(() => loadProfile(dir), /PAY_A is already set in pay\.json/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('the TEST profile loads only in dev and test', () => {

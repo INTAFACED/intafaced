@@ -1,0 +1,87 @@
+import { loadProfile } from '../owner-settings.mjs';
+import path from 'node:path';
+
+export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORIGIN, identityFounderEnv }) => ({
+  name: 'identity',
+  env: () => ({
+    ...c('svc-identity', PORTS.identity),
+    DATABASE_URL: dbUrl('svc_identity', secrets),
+    LEDGER_URL: urlOf('ledger'),
+    REGISTRATION_OPEN: 'true',
+    // LOCAL TEST ONLY: passkeys on. Relying-party ID must be a hostname, so use localhost and open
+    // http://localhost:3210 for passkeys. Not the production relying party.
+    WEBAUTHN_ENABLED: 'true',
+    WEBAUTHN_RP_ID: 'localhost',
+    WEBAUTHN_RP_NAME: 'INTAFACED (LOCAL TEST)',
+    WEBAUTHN_ORIGIN: CUSTOMER_LOCALHOST_ORIGIN,
+    IDENTITY_TRADE_ADMISSION_SECRET: secrets.tradeAdmission,
+    IDENTITY_PAY_ADMISSION_SECRET: secrets.payAdmission,
+    // Owner pay-scope grant. Identity asks pay at login. Unset leaves sessions without pay:*.
+    PAY_URL: urlOf('pay'),
+    // Edge reads each caller's current account authority with this key; without it
+    // Edge refuses every signed-in token as 'invalid' and forwards anonymously.
+    IDENTITY_EDGE_AUTHORITY_SECRET: secrets.edgeAuthority,
+    // LOCAL TEST ONLY (Nitro, option B, 2026-10-13). Required, no default, owner-unpublished: how long a
+    // two-person action approval lives. 600 s is a local test value, not an owner decision. The labelled
+    // local test operators (tooling/scripts/local-test-gates.mjs) use it to open markets and verify
+    // test accounts; "LOCAL TEST — not a real approval".
+    IDENTITY_ACTION_APPROVAL_TTL_SECONDS: '600',
+    // LOCAL TEST ONLY. The identity service refuses email confirmation until a mail
+    // transport, a lifetime, and a rate budget are published. local-outbox is refused
+    // at boot unless APP_ENV is exactly dev or test. These numbers are for this stack,
+    // not an owner decision. The confirm link is written to the outbox file, labelled
+    // LOCAL-TEST, and the merchant populate step reads it back through auth.confirmEmail.
+    IDENTITY_MAIL_TRANSPORT: 'local-outbox',
+    IDENTITY_LOCAL_MAIL_OUTBOX: path.join(STATE, 'email-outbox.log'),
+    IDENTITY_EMAIL_CONFIRM_TTL_SECONDS: '600',
+    IDENTITY_EMAIL_CONFIRM_RATE_MAX: '5',
+    IDENTITY_EMAIL_CONFIRM_RATE_WINDOW_SECONDS: '3600',
+    // LOCAL TEST ONLY. Sign-up refuses until the owner publishes its numbers (I-signin-sessions-18,
+    // I-kyc-compliance-06). These are for this stack, not owner decisions: a code lives 10 minutes, five wrong
+    // codes lock it, a new code after 30 seconds, ten sign-ups per address an hour. AQ is closed so the
+    // journey can show the per-country switch refusing; it says nothing about any real country.
+    IDENTITY_FLOW_SUBJECT_KEY: secrets.identityFlowSubject,
+    IDENTITY_SIGNUP_MIN_AGE_YEARS: '18',
+    IDENTITY_SIGNUP_CODE_TTL_SECONDS: '600',
+    IDENTITY_SIGNUP_CODE_MAX_ATTEMPTS: '5',
+    IDENTITY_SIGNUP_RESEND_SECONDS: '30',
+    IDENTITY_SIGNUP_REQUEST_MAX: '10',
+    IDENTITY_SIGNUP_REQUEST_WINDOW_SECONDS: '3600',
+    IDENTITY_SIGNUP_CLOSED_COUNTRIES: 'AQ',
+    // LOCAL TEST ONLY, not an owner decision (W-withdraw-09): a security lock ends one day after its unlock is asked
+    // for, so a journey can see the lock still holding with its end time.
+    IDENTITY_SECURITY_LOCK_UNLOCK_WAIT_SECONDS: '86400',
+    // Sealing key for operator second factors (TOTP). Generated per machine in secrets.json.
+    IDENTITY_TOTP_SECRET_KEY: secrets.identityTotp,
+    // LOCAL TEST, not the lead's grant (which founder holds which scope is the lead's call for a real stack). The
+    // operator reads the founder console makes: svc-bank's desks (admin:read), svc-p2p's
+    // operator lists (admin:compliance) and svc-market's vendor desk (market:ops). Identity adds them only to a
+    // founder's own signed-in session with a second factor, never to an API key or a sub-account. admin:write,
+    // support:ops and every money-moving scope stay off.
+    IDENTITY_FOUNDER_SESSION_SCOPES: 'admin:read,admin:compliance,market:ops',
+    // Sub-account cap: an explicit LOCAL TEST value, not an owner limit (the owner has not published one; blank
+    // refuses every create with auth.sub_account_cap_unset). 10 live sub-accounts per account on this stack only.
+    IDENTITY_MAX_SUB_ACCOUNTS: '10',
+    // The closure checks a close runs first (customer closure and the console's staff close): svc-bank, svc-trade and
+    // svc-p2p answer for their own open products and balances, signed with this stack's shared service secret.
+    IDENTITY_CLOSURE_BANK_URL: urlOf('bank'),
+    IDENTITY_CLOSURE_TRADE_URL: urlOf('trade'),
+    IDENTITY_CLOSURE_P2P_URL: urlOf('p2p'),
+    // API key cap per verification level: an explicit LOCAL TEST value, not an owner limit (blank refuses every key
+    // create in the developer room with identity.key_cap_unset). Three live keys per account on this stack, so
+    // J-developer-03 can show the fourth refused.
+    IDENTITY_API_KEYS_MAX_BY_TIER: 'none=3,basic=3,full=3,institutional=3',
+    // LOCAL TEST account tiers (J-ops-console-04 #11), labelled TEST, never an owner decision: the owner has published no
+    // tiers (blank refuses every move with identity.account_tiers_unset). TEST Premier leaves its monthly fee blank on
+    // purpose, so the console shows a tier that cannot be assigned (identity.tier_terms_unset).
+    // One copy: the labelled TEST value in tooling/profiles/test-owner-values/identity.json.
+    IDENTITY_ACCOUNT_TIERS: loadProfile().values.IDENTITY_ACCOUNT_TIERS.value,
+    // LOCAL TEST referral attach window and code length (J-campaigns-05), labelled TEST in the same profile. Blank refuses
+    // every link attach (referral.attach_window_unset) and every new code (referral.code_length_unset).
+    IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS: loadProfile().values.IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS.value,
+    IDENTITY_REFERRAL_CODE_LENGTH: loadProfile().values.IDENTITY_REFERRAL_CODE_LENGTH.value,
+    // LOCAL TEST founder pair only: local_test_founder_a / local_test_founder_b from
+    // <state>/founders.json. Absent until that vault exists. Never the Docker vault.
+    ...identityFounderEnv(),
+  }),
+});
