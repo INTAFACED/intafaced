@@ -171,7 +171,7 @@ const COPY: Readonly<Record<string, Words>> = {
     body: 'Each copied order can use at most your most per order. Lower the fixed amount or raise that limit. Nothing was followed.',
   },
   'trade.copy_tier_unset': {
-    title: 'Copy trading isn’t open yet',
+    title: 'Copy trading is closed',
     body: 'The platform hasn’t set the verification level copying needs, so no one can start a copy. Nothing was followed.',
   },
   'trade.tier_insufficient': {
