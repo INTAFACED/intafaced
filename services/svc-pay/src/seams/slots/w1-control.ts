@@ -16,7 +16,8 @@ export function createW1ControlGuards(deps: {
   merchantControls?: MerchantControlsMode;
   ledger?: SettlementBookReader;
 }): PartialPayGuards {
-  // PAY_MERCHANT_CONTROLS=off|required, default off; any other value throws at boot.
-  const mode = deps.merchantControls ?? parseMerchantControlsMode(process.env.PAY_MERCHANT_CONTROLS);
+  // PAY_MERCHANT_CONTROLS=required outside exact dev/test. Unset, blank and off
+  // throw at boot unless APP_ENV is exactly dev or test (then they mean off).
+  const mode = deps.merchantControls ?? parseMerchantControlsMode(process.env);
   return createControlGuards({ sql: deps.sql, mode, ledger: deps.ledger });
 }

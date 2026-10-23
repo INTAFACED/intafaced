@@ -1,8 +1,10 @@
 # W1 merchant control room (svc-pay)
 
-Tiers, caps, layered pricing, reserves and payout maker-checker. Behind `PAY_MERCHANT_CONTROLS=off|required`
-(default `off`; `off` makes every hook a no-op). Guards live in `guards.ts`, registered by
-`seams/slots/w1-control.ts`. All numbers in tests are TEST VALUES.
+Tiers, caps, layered pricing, reserves and payout maker-checker. Behind `PAY_MERCHANT_CONTROLS=off|required`.
+`required` is the production value and a release gate. Unset, blank, and `off` refuse boot
+(`pay.merchant_controls_boot_refused`) unless the raw `APP_ENV` is exactly `dev` or `test`, where they
+mean `off` and every hook is a no-op. There is no schema default of `off`. Guards live in `guards.ts`,
+registered by `seams/slots/w1-control.ts`. All numbers in tests are TEST VALUES.
 
 ## How each control is enforced
 
@@ -48,6 +50,12 @@ for a merchant that still has a legacy settlement of the asset being withdrawn. 
 refuses every personal withdrawal, including a recovery that would call the rail.
 
 ## Pre-enable checklist (before setting `PAY_MERCHANT_CONTROLS=required`)
+
+`required` is the only legal value when `APP_ENV` is not exactly `dev` or `test`. A staging or production
+process that leaves the variable unset, blank, or `off` refuses to boot with `pay.merchant_controls_boot_refused`.
+The local test stack sets `APP_ENV=dev`, so it still boots with the flag unset (controls off) until this
+checklist is done and the flag is set to `required`. Do not enable `required` until every step below is true:
+an unconfigured merchant is refused, not given a default.
 
 1. Counters and old keys: `SELECT count(*) FROM pay.control_cap_events WHERE event_key LIKE 'payment.create:%'` must be 0. Earlier builds counted intake at create; if any rows exist, reset the intake counters (`pay.control_cap_usage`
    rows of kind `daily_intake` and `monthly_intake`, and their events) so captured volume starts clean.

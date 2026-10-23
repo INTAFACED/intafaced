@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { edgeEnvSchema, internalServiceEnvSchema, loadEnv, serviceEnvSchema } from '@intafaced/config';
+import { parseMerchantControlsMode } from './control/mode.js';
 import { parseOwnerIntegerEnv } from './fee-bps-env.js';
 import { operatorCreditRailsSchema } from './operator-credit-rails-env.js';
 
@@ -13,11 +14,12 @@ const schema = serviceEnvSchema
 
       /**
        * Merchant control room enforcement (caps, pricing, payout maker-checker).
-       * `off` (default) leaves payments and payouts exactly as before; `required`
-       * refuses merchants whose tier, caps, pricing or thresholds are unconfigured.
-       * Anything else fails boot. See control/mode.ts.
+       * No schema default. `parseMerchantControlsMode` reads this and the raw
+       * APP_ENV: unset, blank, and `off` boot only when APP_ENV is exactly
+       * `dev` or `test`. `required` is the production value. Anything else
+       * fails boot and never falls through to `off`. See control/mode.ts.
        */
-      PAY_MERCHANT_CONTROLS: z.enum(['off', 'required']).default('off'),
+      PAY_MERCHANT_CONTROLS: z.string().optional(),
 
       /**
        * Reconciler for payments stuck in `authorized` after the ledger capture
@@ -249,5 +251,14 @@ const schema = serviceEnvSchema
     }),
   );
 
-export const env = loadEnv(schema);
+const parsed = loadEnv(schema);
+/**
+ * Resolved after the schema so a missing APP_ENV is not the schema's `dev`
+ * default. Unset or `off` outside exact dev/test throws MerchantControlsModeError
+ * before the process exports an environment.
+ */
+export const env = {
+  ...parsed,
+  PAY_MERCHANT_CONTROLS: parseMerchantControlsMode(process.env),
+};
 export type Env = typeof env;

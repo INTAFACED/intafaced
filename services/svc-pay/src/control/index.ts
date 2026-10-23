@@ -7,4 +7,9 @@ export { createControlGuards } from './guards.js';
 export { computePricing, computeReserve, resolvePricingRule, type PricingQuote, type PricingRule } from './pricing.js';
 export { unwiredReserveLedger, type ReserveLedgerPort } from './reserve.js';
 export { ControlService } from './service.js';
-export { parseMerchantControlsMode, MerchantControlsModeError, type MerchantControlsMode } from './mode.js';
+export {
+  parseMerchantControlsMode,
+  MerchantControlsModeError,
+  MERCHANT_CONTROLS_BOOT_CODE,
+  type MerchantControlsMode,
+} from './mode.js';

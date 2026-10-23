@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { formatAmount as f, parseAmount as a } from '@intafaced/ledger-client';
 import { assertValidRule, computePricing, computeReserve, PricingConfigError, resolvePricingRule, type PricingRule } from './pricing.js';
 import { payoutPayloadHash } from './approval-gate.js';
-import { MerchantControlsModeError, parseMerchantControlsMode } from './mode.js';
 
 /**
  * TEST VALUES ONLY. Nothing below is a real fee, spread, band or reserve: no
@@ -143,16 +142,5 @@ describe('payout payload hash binds amount, asset, rail and destination', () => 
     expect(payoutPayloadHash({ ...base, railId: 'bank-payout' })).not.toBe(h);
     expect(payoutPayloadHash({ ...base, assetCode: 'USD' })).not.toBe(h);
     expect(payoutPayloadHash({ ...base, destination: { kind: 'CRYPTO', ref: ' 0xABC ' } })).toBe(h);
-  });
-});
-
-describe('PAY_MERCHANT_CONTROLS', () => {
-  it('defaults to off; off and required parse; anything else fails boot', () => {
-    expect(parseMerchantControlsMode(undefined)).toBe('off');
-    expect(parseMerchantControlsMode('off')).toBe('off');
-    expect(parseMerchantControlsMode('required')).toBe('required');
-    for (const bad of ['', 'on', 'Required', 'true', 'OFF', ' off']) {
-      expect(() => parseMerchantControlsMode(bad)).toThrow(MerchantControlsModeError);
-    }
   });
 });

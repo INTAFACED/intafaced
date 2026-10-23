@@ -171,21 +171,37 @@ describe('payout maker-checker', () => {
   it('at or above the threshold a payout is refused until a different team member approves; then it goes through once', async () => {
     const s = await settled(merchantId, ['50'], 'w-gate');
     await expect(payout(s.id)).rejects.toMatchObject({ code: 'pay.approval_required' });
+    expect(await sql`SELECT id FROM pay.payout_admissions`).toHaveLength(0);
     const req = await approvals.request(maker(), { merchantId, settlementId: s.id, railId: 'crypto-native' });
     expect(req.status).toBe('pending');
     expect(req.makerUserId).toBe(MAKER);
     // Asking again for the same payload returns the same request.
     expect((await approvals.request(maker(), { merchantId, settlementId: s.id, railId: 'crypto-native' })).approvalId).toBe(req.approvalId);
     await expect(payout(s.id)).rejects.toMatchObject({ code: 'pay.approval_required' });
+    expect(await sql`SELECT id FROM pay.payout_admissions`).toHaveLength(0);
+    const [pending] = await sql`SELECT status, consumed_attempt FROM pay.control_payout_approvals WHERE id = ${req.approvalId}`;
+    expect(pending!.status).toBe('pending');
+    expect(pending!.consumed_attempt).toBeNull();
 
     const done = await approvals.decide(finance(), decideInput(req));
     expect(done.status).toBe('approved');
     expect(done.checkerUserId).toBe(FINANCE);
     const paid = await payout(s.id);
     expect(paid.status).toBe('paid_out');
+    expect(await sql`SELECT id FROM pay.payout_admissions`).toHaveLength(1);
     const [row] = await sql`SELECT status, consumed_attempt FROM pay.control_payout_approvals WHERE id = ${req.approvalId}`;
     expect(row!.status).toBe('consumed');
+    expect(row!.consumed_attempt).toBe(0);
     expect(await auditKinds(req.approvalId)).toEqual(['payout.approval_requested', 'payout.approval_decided', 'payout.approval_consumed']);
+
+    // The consumed approval is single-use. Another settlement at the threshold
+    // is refused and writes no second admission.
+    const again = await settled(merchantId, ['50'], 'w-gate-again');
+    await expect(payout(again.id)).rejects.toMatchObject({ code: 'pay.approval_required' });
+    expect(await sql`SELECT id FROM pay.payout_admissions`).toHaveLength(1);
+    const [still] = await sql`SELECT status, consumed_attempt FROM pay.control_payout_approvals WHERE id = ${req.approvalId}`;
+    expect(still!.status).toBe('consumed');
+    expect(still!.consumed_attempt).toBe(0);
   });
 
   it('the maker cannot approve their own request (application and database both refuse)', async () => {
