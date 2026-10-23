@@ -48,7 +48,8 @@ export const ticketCopy = defineCopy('trade.futures.ticket', {
   'Max order': 'Max order value',
   'Not set': 'Not set',
   'Split title': 'Place as smaller orders',
-  'Split body': 'One order can be worth at most {max}. This one can go as {parts} orders: {sizes}. Each is checked and held on its own; all of them are checked together first.',
+  'Split body':
+    'One order can be worth at most {max}. This one can go as {parts} orders: {sizes}. Each is checked and held on its own; all of them are checked together first.',
   'Split button': 'Place as {parts} orders',
   'Split row': 'Placed as',
   'Split as': '{parts} orders within the max order value',

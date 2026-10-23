@@ -665,32 +665,32 @@ export class MatchedFuturesOrders {
     band: Amount,
   ): Promise<{ bandAt: PriceBand; limit: Amount }> {
     const bandAt: PriceBand = priceBandAround(mark, band);
-      let limit: Amount;
-      if (input.type === 'market') {
-        if (this.deps.slippageCapBps) {
-          const cap = await this.deps.slippageCapBps(marketId);
-          // The cap's own range (admin.risk.set and the spot reader): an out-of-range value is not a cap.
-          if (cap === null || !Number.isInteger(cap) || cap < 1 || cap > 5000) {
-            refuse(
-              'trade.slippage_cap_unset',
-              'no slippage cap is published for this market, so a market open has no protection price; use a limit',
-              503,
-            );
-          }
-          limit = marketOpenLimit(input.side, mark, bandAt, cap);
-        } else {
-          limit = protectiveLimit(input.side, bandAt);
+    let limit: Amount;
+    if (input.type === 'market') {
+      if (this.deps.slippageCapBps) {
+        const cap = await this.deps.slippageCapBps(marketId);
+        // The cap's own range (admin.risk.set and the spot reader): an out-of-range value is not a cap.
+        if (cap === null || !Number.isInteger(cap) || cap < 1 || cap > 5000) {
+          refuse(
+            'trade.slippage_cap_unset',
+            'no slippage cap is published for this market, so a market open has no protection price; use a limit',
+            503,
+          );
         }
+        limit = marketOpenLimit(input.side, mark, bandAt, cap);
       } else {
-        limit = input.priceCorrection === 'adjust' ? correctToBand(input.limitPrice as Amount, bandAt) : (input.limitPrice as Amount);
+        limit = protectiveLimit(input.side, bandAt);
       }
-      if (!limitWithinBand(limit, bandAt)) {
-        refuse(
-          'trade.futures_price_outside_band',
-          `the limit is outside the price band around the mark (${formatAmount(bandAt.low)} to ${formatAmount(bandAt.high)}); send priceCorrection adjust to move it to the edge`,
-          400,
-        );
-      }
+    } else {
+      limit = input.priceCorrection === 'adjust' ? correctToBand(input.limitPrice as Amount, bandAt) : (input.limitPrice as Amount);
+    }
+    if (!limitWithinBand(limit, bandAt)) {
+      refuse(
+        'trade.futures_price_outside_band',
+        `the limit is outside the price band around the mark (${formatAmount(bandAt.low)} to ${formatAmount(bandAt.high)}); send priceCorrection adjust to move it to the edge`,
+        400,
+      );
+    }
     return { bandAt, limit };
   }
 

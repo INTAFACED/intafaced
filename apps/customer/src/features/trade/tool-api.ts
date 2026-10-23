@@ -151,7 +151,10 @@ export const positionPreviewSchema = z.object({
   orderPrice: decimalSchema.nullable().optional(),
   priceCorrection: z.object({ asked: decimalSchema, applied: decimalSchema }).nullable().optional(),
   maxOrderNotional: decimalSchema.nullable().optional(),
-  split: z.object({ parts: z.number().int(), sizes: z.array(decimalSchema) }).nullable().optional(),
+  split: z
+    .object({ parts: z.number().int(), sizes: z.array(decimalSchema) })
+    .nullable()
+    .optional(),
   orderable: z.boolean(),
   refusals: z.array(z.object({ code: z.string(), field: z.string(), message: z.string() })),
 });

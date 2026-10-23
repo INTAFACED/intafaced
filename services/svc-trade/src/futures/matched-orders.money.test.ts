@@ -1400,7 +1400,14 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
       expect(engine.submits).toHaveLength(0);
       expect(await held(ALICE)).toBe(0n);
 
-      const asked = order({ userId: ALICE, side: 'buy', qty: A('1'), limitPrice: A('120'), priceCorrection: 'adjust', clientOrderId: 'pc-adj' });
+      const asked = order({
+        userId: ALICE,
+        side: 'buy',
+        qty: A('1'),
+        limitPrice: A('120'),
+        priceCorrection: 'adjust',
+        clientOrderId: 'pc-adj',
+      });
       const placed = await svc.place(principal(ALICE), asked);
       expect(placed.limitPrice).toBe('105');
       expect(engine.submits[0]!.price).toBe('105');

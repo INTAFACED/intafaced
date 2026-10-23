@@ -119,7 +119,17 @@ export function registerPositionPreviewRest(app: FastifyInstance, deps: Position
     }
 
     const body = (req.body ?? {}) as Record<string, unknown>;
-    const allowedFields = new Set(['symbol', 'side', 'size', 'leverage', 'marginMode', 'collateralClass', 'type', 'limitPrice', 'priceCorrection']);
+    const allowedFields = new Set([
+      'symbol',
+      'side',
+      'size',
+      'leverage',
+      'marginMode',
+      'collateralClass',
+      'type',
+      'limitPrice',
+      'priceCorrection',
+    ]);
     const suppliedServerValues = Object.keys(body).filter((key) => !allowedFields.has(key));
     if (suppliedServerValues.length > 0) {
       return sendError(
@@ -141,7 +151,12 @@ export function registerPositionPreviewRest(app: FastifyInstance, deps: Position
     const type = body.type === undefined || body.type === 'market' ? 'market' : body.type === 'limit' ? 'limit' : null;
     const askedPrice = typeof body.limitPrice === 'string' ? parsePositive(body.limitPrice.trim()) : null;
     if (type === null || (type === 'limit' && askedPrice === null) || (type === 'market' && body.limitPrice !== undefined)) {
-      return sendError(reply, 400, 'trade.position_preview_invalid', 'type is market or limit; a limit needs a positive decimal-string limitPrice');
+      return sendError(
+        reply,
+        400,
+        'trade.position_preview_invalid',
+        'type is market or limit; a limit needs a positive decimal-string limitPrice',
+      );
     }
     if (body.priceCorrection !== undefined && body.priceCorrection !== 'reject' && body.priceCorrection !== 'adjust') {
       return sendError(reply, 400, 'trade.price_correction_invalid', 'priceCorrection is reject or adjust');
