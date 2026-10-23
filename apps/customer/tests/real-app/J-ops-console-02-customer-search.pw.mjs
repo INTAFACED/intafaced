@@ -56,4 +56,7 @@ test('J-ops-console-02 #1 customer search by handle start and by email', async (
   await expect(results.getByTestId('account-search-row')).toHaveCount(2, { timeout: 30_000 });
   await results.getByRole('link', { name: 'Open record' }).first().click();
   await page.waitForURL(/\/accounts\/[0-9a-f-]{36}$/, { timeout: 60_000 });
+  // The record that opens is the account that was found.
+  await expect(page.getByTestId('customer-record-id')).toHaveText(new URL(page.url()).pathname.split('/').pop());
+  await expect(page.getByTestId('customer-tab-money')).toBeVisible();
 });
