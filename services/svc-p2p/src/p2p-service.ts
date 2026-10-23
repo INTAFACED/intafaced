@@ -10,6 +10,7 @@ import {
   formatAmount,
   parseAmount,
   recipes,
+  div,
   mulBps,
   sub,
   tradeEscrowAccount,
@@ -64,7 +65,16 @@ import {
   type ExportPolicy,
 } from './export-receipt.js';
 import { ownStats, payTiming, type OwnStats } from './user-center.js';
-import { assertWithinBounds, partiesFor, quote, PricingError, type PriceType, type ReferencePriceSource } from './pricing.js';
+import {
+  assertWithinBounds,
+  effectivePrice,
+  partiesFor,
+  quantiseFiat,
+  quote,
+  PricingError,
+  type PriceType,
+  type ReferencePriceSource,
+} from './pricing.js';
 import {
   isVerificationTier,
   remaining,
@@ -146,6 +156,10 @@ import { fireAffiliatePayout, NoopAffiliatePayout, type AffiliatePayoutPort } fr
  */
 
 export type P2pErrorCode =
+  | 'p2p.quote_not_found'
+  | 'p2p.quote_mismatch'
+  | 'p2p.quote_expired'
+  | 'p2p.quote_changed'
   | 'p2p.offer_not_found'
   | 'p2p.offer_not_active'
   | 'p2p.offer_method_unsupported'
@@ -850,6 +864,110 @@ function describeFailure(tradeId: string, status: TradeStatus, err: unknown): Sw
 /** Who authorised a terminal decision. Goes on the event and into the trace. */
 type Actor = 'seller' | 'buyer' | 'moderator' | 'timeout';
 
+/** The coin amount a fiat amount buys at `price`, rounded down to the ledger's precision: never more fiat than asked. */
+function coinForFiat(fiatAmount: Amount, price: Amount): Amount {
+  if (fiatAmount <= 0n) throw new PricingError('The fiat amount must be positive', 'p2p.invalid_amount');
+  const amount = div(fiatAmount, price, 'floor');
+  if (amount <= 0n) throw new PricingError('The fiat amount buys nothing at this price', 'p2p.invalid_amount');
+  return amount;
+}
+
+export interface LockedQuote {
+  quoteId: string;
+  offerId: string;
+  method: string;
+  amount: Amount;
+  price: Amount;
+  fiatAmount: Amount;
+  feeBps: number;
+  fee: Amount;
+  netAmount: Amount;
+  expiresAt: Date;
+  /** Milliseconds left by the database clock when read, so a client can count down without trusting its own clock. */
+  expiresInMs: number;
+}
+
+interface QuoteRow {
+  quote_id: string;
+  taker_id: string;
+  offer_id: string;
+  method: string;
+  offer_price: string;
+  amount: string;
+  price: string;
+  fiat_amount: string;
+  fee_bps: number;
+  expires_at: Date;
+  expires_in_ms: string;
+}
+
+async function readQuote(sql: Sql, quoteId: string): Promise<QuoteRow | null> {
+  const rows = await sql<QuoteRow[]>`
+    SELECT *, GREATEST(0, floor(extract(epoch FROM (expires_at - now())) * 1000))::bigint AS expires_in_ms
+      FROM p2p.take_quotes WHERE quote_id = ${quoteId}`;
+  return rows[0] ?? null;
+}
+
+/** The same request as the row it names: one taker, ad, method and size (coin or fiat, as asked). */
+function sameQuoteOrConflict(
+  row: QuoteRow,
+  input: { takerId: string; offerId: string; method: string; amount?: Amount; fiatAmount?: Amount },
+): LockedQuote {
+  const amount = parseAmount(row.amount);
+  if (
+    row.taker_id !== input.takerId ||
+    row.offer_id !== input.offerId ||
+    row.method !== input.method ||
+    (input.amount !== undefined && amount !== input.amount) ||
+    (input.fiatAmount !== undefined && parseAmount(row.fiat_amount) !== input.fiatAmount)
+  ) {
+    throw new P2pError('p2p.idempotency_conflict', 'p2p.idempotency_conflict');
+  }
+  const fee = mulBps(amount, row.fee_bps);
+  return {
+    quoteId: row.quote_id,
+    offerId: row.offer_id,
+    method: row.method,
+    amount,
+    price: parseAmount(row.price),
+    fiatAmount: parseAmount(row.fiat_amount),
+    feeBps: row.fee_bps,
+    fee,
+    netAmount: sub(amount, fee),
+    expiresAt: row.expires_at,
+    expiresInMs: Number(row.expires_in_ms),
+  };
+}
+
+/**
+ * The locked quote a take names, if it still holds: the caller's, for this ad, method and amount, inside its window.
+ * Null when this take already placed its trade, so a retry reaches that trade rather than a refusal saying nothing was
+ * placed. Read inside the reservation transaction, before pricing: a floating ad is placed at the quoted price.
+ */
+async function heldQuote(
+  tx: Sql,
+  input: { quoteId: string; tradeId: string; takerId: string; offerId: string; method: string; amount: Amount },
+): Promise<QuoteRow | null> {
+  const placed = await tx`SELECT 1 FROM p2p.p2p_trades WHERE id = ${input.tradeId}`;
+  if (placed.length > 0) return null;
+  const row = await readQuote(tx, input.quoteId);
+  if (!row || row.taker_id !== input.takerId) throw new P2pError('p2p.quote_not_found', 'p2p.quote_not_found');
+  if (row.offer_id !== input.offerId || row.method !== input.method || parseAmount(row.amount) !== input.amount) {
+    throw new P2pError('p2p.quote_mismatch: the take differs from the quote it names', 'p2p.quote_mismatch');
+  }
+  if (Number(row.expires_in_ms) <= 0) {
+    throw new P2pError(`p2p.quote_expired: the quote ended at ${row.expires_at.toISOString()}`, 'p2p.quote_expired');
+  }
+  return row;
+}
+
+/** The ad's own price and the fee are what the quote saw, and the take prices at the quoted price. */
+function assertQuoteTerms(row: QuoteRow, now: { offerPrice: Amount; price: Amount; feeBps: number }): void {
+  if (parseAmount(row.offer_price) !== now.offerPrice || parseAmount(row.price) !== now.price || row.fee_bps !== now.feeBps) {
+    throw new P2pError('p2p.quote_changed: the price or the fee moved since the quote', 'p2p.quote_changed');
+  }
+}
+
 /**
  * THE CLOCK. Postgres', never this process'.
  *
@@ -1513,6 +1631,11 @@ export class P2pService {
     tradeId: string;
     /** Signed-in verification tier. Required only once a limit table is published. */
     tier?: string;
+    /**
+     * P-trade-orders-06: the locked quote this take places. Past its window the take refuses `p2p.quote_expired`;
+     * a moved price or fee refuses `p2p.quote_changed`. Both before anything is reserved.
+     */
+    quoteId?: string;
   }): Promise<TradeRecord> {
     this.assertTradingEnabled();
 
@@ -1543,6 +1666,7 @@ export class P2pService {
     amount: Amount;
     method: string;
     tier?: string;
+    quoteId?: string;
   }): Promise<TradeRecord> {
     // Read the offer once, unlocked, purely to decide whether a reference price
     // is needed. Fetching a mark price is a network call; holding the offer's
@@ -1624,11 +1748,23 @@ export class P2pService {
           // row lock, so two concurrent takers cannot both pass the same check.
           assertWithinBounds(input.amount, { minAmt: offer.minAmt, maxAmt: offer.maxAmt, remainingAmt: offer.remainingAmt });
 
+          // P-trade-orders-06: a named quote holds its price. A floating ad is placed at the price it was quoted at,
+          // not at the reference read a moment ago; a fixed ad's price must be the one quoted.
+          const held = input.quoteId
+            ? await heldQuote(tx, {
+                quoteId: input.quoteId,
+                tradeId: input.tradeId,
+                takerId: input.takerId,
+                offerId: offer.id,
+                method: input.method,
+                amount: input.amount,
+              })
+            : null;
           const priced = quote({
             amount: input.amount,
-            priceType: offer.priceType,
-            price: offer.price,
-            referencePrice,
+            ...(held && offer.priceType === 'float'
+              ? { priceType: 'fixed' as const, price: parseAmount(held.price), referencePrice: null }
+              : { priceType: offer.priceType, price: offer.price, referencePrice }),
             fiatCurrency: offer.fiatCurrency,
           });
 
@@ -1638,6 +1774,7 @@ export class P2pService {
           // Fee is constructor/`P2P_FEE_BPS` only — never a take-time argument.
           // Unset refuses rather than inventing 30 (or 0).
           const feeBps = publishedFeeBps(this.feeBps);
+          if (held) assertQuoteTerms(held, { offerPrice: offer.price, price: priced.price, feeBps });
           // Before inventory moves: a dust take that cannot post a release would
           // lock value into a trade that can never settle.
           assertReleasePostable(input.amount, feeBps);
@@ -3390,10 +3527,15 @@ export class P2pService {
   }
 
   /**
-   * Fee and reservation preview. Does not lock inventory and does not post.
-   * Fee comes from the service policy. Unset fee refuses. No estimate.
+   * Fee and reservation preview. Does not lock inventory and does not post. Fee comes from the service policy; unset
+   * refuses, no estimate. `amount` in the coin, or `fiatAmount` in the ad's fiat (no finer than its minor unit): the coin
+   * amount is then the fiat over the price, rounded down to the ledger's precision, so the quoted fiat is the fiat asked.
    */
-  async quoteTake(input: { offerId: string; takerId: string; amount: Amount; method: string; tier?: string }): Promise<{
+  async quoteTake(
+    input: { offerId: string; takerId: string; method: string; tier?: string } & (
+      { amount: Amount; fiatAmount?: undefined } | { amount?: undefined; fiatAmount: Amount }
+    ),
+  ): Promise<{
     amount: Amount;
     price: Amount;
     fiatAmount: Amount;
@@ -3401,6 +3543,8 @@ export class P2pService {
     fee: Amount;
     netAmount: Amount;
     reservationExpiresAt: Date;
+    /** The ad's own price (fiat per coin, or the floating multiplier) the figures came from. */
+    offerPrice: Amount;
   }> {
     this.assertTradingEnabled();
     const offer = await this.loadOfferRaw(input.offerId);
@@ -3416,18 +3560,22 @@ export class P2pService {
     if (!methodAllowed(offer.methods, input.method)) {
       throw new InstrumentError(resolveP2pCopy(P2P_COPY.takeRefused), 'p2p.take_refused');
     }
-    assertWithinBounds(input.amount, { minAmt: offer.minAmt, maxAmt: offer.maxAmt, remainingAmt: offer.remainingAmt });
     const referencePrice =
       offer.priceType === 'float' ? ((await this.referencePrices?.price(offer.asset, offer.fiatCurrency)) ?? null) : null;
+    if (input.fiatAmount !== undefined && quantiseFiat(input.fiatAmount, offer.fiatCurrency, 'floor') !== input.fiatAmount) {
+      throw new PricingError(`A ${offer.fiatCurrency} amount has no finer unit than the currency's own`, 'p2p.invalid_amount');
+    }
+    const amount = input.amount ?? coinForFiat(input.fiatAmount, effectivePrice({ ...offer, referencePrice }));
+    assertWithinBounds(amount, { minAmt: offer.minAmt, maxAmt: offer.maxAmt, remainingAmt: offer.remainingAmt });
     const priced = quote({
-      amount: input.amount,
+      amount,
       priceType: offer.priceType,
       price: offer.price,
       referencePrice,
       fiatCurrency: offer.fiatCurrency,
     });
     const feeBps = publishedFeeBps(this.feeBps);
-    assertReleasePostable(input.amount, feeBps);
+    assertReleasePostable(amount, feeBps);
     if (this.verificationLimits.status !== 'absent') {
       await this.assertBuyerVerificationLimit(this.sql, {
         buyerId,
@@ -3443,11 +3591,51 @@ export class P2pService {
         lock: false,
       });
     }
-    const fee = mulBps(input.amount, feeBps);
-    const netAmount = sub(input.amount, fee);
+    const fee = mulBps(amount, feeBps);
+    const netAmount = sub(amount, fee);
     const reservationExpiresAt = deadlineFor('created', new Date(), this.deadlines);
     if (!reservationExpiresAt) throw new P2pError('p2p.escrow_deadline_unset', 'p2p.escrow_deadline_unset');
-    return { amount: priced.amount, price: priced.price, fiatAmount: priced.fiatAmount, feeBps, fee, netAmount, reservationExpiresAt };
+    return {
+      amount: priced.amount,
+      price: priced.price,
+      fiatAmount: priced.fiatAmount,
+      feeBps,
+      fee,
+      netAmount,
+      reservationExpiresAt,
+      offerPrice: offer.price,
+    };
+  }
+
+  /**
+   * P-trade-orders-06: lock a take quote for its window (the escrow window, `P2P_ESCROW_SECONDS`). The quote row holds
+   * the price, the fee and both amounts; `trades.take` with this `quoteId` places exactly that or refuses. A retry with
+   * the same `quoteId` returns the first row; the same id for another taker, ad or method refuses
+   * `p2p.idempotency_conflict`. Nothing is reserved here.
+   */
+  async lockQuote(
+    input: { quoteId: string; offerId: string; takerId: string; method: string; tier?: string } & (
+      { amount: Amount; fiatAmount?: undefined } | { amount?: undefined; fiatAmount: Amount }
+    ),
+  ): Promise<LockedQuote> {
+    const existing = await readQuote(this.sql, input.quoteId);
+    if (existing) return sameQuoteOrConflict(existing, input);
+    // Quotes are short-lived: this taker's that ended over a day ago go, so the table holds about a day of them.
+    await this.sql`DELETE FROM p2p.take_quotes WHERE taker_id = ${input.takerId} AND expires_at < now() - interval '1 day'`;
+    const quoted = await this.quoteTake(input);
+    await this.sql`
+      INSERT INTO p2p.take_quotes (quote_id, taker_id, offer_id, method, offer_price, amount, price, fiat_amount, fee_bps, expires_at)
+      VALUES (
+        ${input.quoteId}, ${input.takerId}, ${input.offerId}, ${input.method}, ${formatAmount(quoted.offerPrice)}::numeric,
+        ${formatAmount(quoted.amount)}::numeric, ${formatAmount(quoted.price)}::numeric,
+        ${formatAmount(quoted.fiatAmount)}::numeric, ${quoted.feeBps},
+        now() + make_interval(secs => ${this.deadlines.escrowSeconds})
+      )
+      ON CONFLICT (quote_id) DO NOTHING
+    `;
+    const row = await readQuote(this.sql, input.quoteId);
+    if (!row) throw new P2pError('p2p.quote_not_found', 'p2p.quote_not_found');
+    return sameQuoteOrConflict(row, input);
   }
 
   async listOfferBoard(

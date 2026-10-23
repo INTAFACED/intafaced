@@ -224,3 +224,54 @@ test('J-p2p-01 #3 an ad shows the seller’s record and terms, and the risk noti
   expect(notice.acceptedAt).toBeTruthy();
   expect((await b.query('access.eligibility')).canTake).toBe(true);
 });
+
+test('J-p2p-01 #4 a fiat amount becomes a quote held with a countdown, and a quote past its window refuses by name', async ({ page }) => {
+  test.setTimeout(300_000);
+  const state = journey();
+  const b = p2p(await api(state.buyer));
+  // A quote held through the service's own window (the stack's TEST escrow window, 120 s), placed after it ends.
+  const held = await b.mutate('trades.lockQuote', {
+    quoteId: randomUUID(),
+    offerId: state.offerId,
+    fiatAmount: '20',
+    method: METHOD,
+  });
+  // 20 EUR at 0.92 is 21.739130434782608695… USDT, rounded down: never more fiat than asked.
+  expect(held.amount).toBe('21.739130434782608695');
+  expect(held.fiatAmount).toBe('20');
+
+  await signIn(page, state.buyer);
+  await page.goto(`/p2p?offerId=${state.offerId}`);
+  const take = page.getByTestId('take-offer');
+  await take.getByTestId('take-fiat-amount').fill('20');
+  await take.locator('select').selectOption(METHOD);
+  await expect(take.getByLabel('Quantity in USDT')).toHaveValue('21.739130434782608695');
+  const quote = take.getByTestId('take-quote');
+  await expect(quote).toContainText('20 EUR');
+  await expect(quote).toContainText('0.92 EUR / USDT');
+  await take.getByTestId('take-review').click();
+  const dialog = page.getByTestId('take-review-dialog');
+  const countdown = dialog.getByTestId('take-quote-countdown');
+  await expect(countdown).toContainText(/Price, fee and amounts held for 1:[45]\d/);
+  await expect(dialog.getByTestId('take-confirm')).toBeEnabled();
+
+  // Past the window: the service refuses the held quote by name and reserves nothing; the dialog turns placing off.
+  const before = (await b.query('offers.get', { offerId: state.offerId })).remainingAmount;
+  await page.waitForTimeout(Math.max(0, Date.parse(held.expiresAt) - Date.now()) + 1_000);
+  const refused = await b.raw.mutate('trades.take', {
+    offerId: state.offerId,
+    tradeId: randomUUID(),
+    amount: held.amount,
+    method: METHOD,
+    quoteId: held.quoteId,
+  });
+  expect(refused.status).toBe(409);
+  expect(refusalCode(refused)).toBe('p2p.quote_expired');
+  expect((await b.query('offers.get', { offerId: state.offerId })).remainingAmount).toBe(before);
+  await expect(countdown).toHaveAttribute('data-ended', 'true');
+  await expect(countdown).toContainText('This quote ended at');
+  await expect(dialog.getByTestId('take-confirm')).toBeDisabled();
+  await dialog.getByTestId('take-quote-renew').click();
+  await expect(countdown).toContainText(/held for 1:[45]\d/);
+  await expect(dialog.getByTestId('take-confirm')).toBeEnabled();
+});

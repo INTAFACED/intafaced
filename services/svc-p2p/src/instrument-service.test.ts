@@ -1098,6 +1098,7 @@ describe('svc-p2p payment instruments', () => {
         },
         'offers.update': { offerId: offer.id, idempotencyKey: 'leak-sweep-update', terms: 'probe' },
         'trades.quote': { offerId: offer.id, amount: '10', method: METHOD },
+        'trades.lockQuote': { quoteId: '77777777-7777-4777-8777-777777777777', offerId: offer.id, amount: '10', method: METHOD },
         'trades.export': { from: '2020-01-01T00:00:00.000Z', to: '2030-01-01T00:00:00.000Z' },
         'chat.messages.list': { tradeId: trade.id, limit: 50 },
         'chat.messages.send': { tradeId: trade.id, text: 'probe', clientId: 'leak-sweep-chat' },
