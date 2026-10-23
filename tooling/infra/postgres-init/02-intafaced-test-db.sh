@@ -35,7 +35,7 @@ CREATE EXTENSION IF NOT EXISTS "citext";
 DO $$
 DECLARE
   svc text;
-  services text[] := ARRAY['identity','ledger','token','matching','trade','pay','p2p','blueprint','bank','agents','indexer','protocol','notify','support'];
+  services text[] := ARRAY['identity','ledger','token','matching','trade','pay','p2p','blueprint','bank','agents','indexer','protocol','notify','support','tax'];
 BEGIN
   FOREACH svc IN ARRAY services LOOP
     -- Guard on pg_roles: there is no CREATE ROLE IF NOT EXISTS.

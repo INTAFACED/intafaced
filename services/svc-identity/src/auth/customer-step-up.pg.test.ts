@@ -357,6 +357,31 @@ if (!available) {
       });
     });
 
+    it('stamps lastVerifiedAt on the asserted passkey only, which the API key mint rule reads', async () => {
+      const session = await register();
+      const used = softAuthenticator();
+      const options = await auth.startWebauthnRegistration(session.userId, PASSWORD_SESSION);
+      await auth.confirmWebauthnRegistration(session.userId, PASSWORD_SESSION, used.registrationResponse(options.challenge));
+      // A second passkey on the account, stored as enrolment stores one; it is never asserted here.
+      await db.sql`
+        UPDATE users SET webauthn_creds = webauthn_creds || ${db.sql.json([{ credentialId: 'other-passkey', publicKey: 'unused', counter: 0 }])}
+        WHERE id = ${session.userId}`;
+      const credsOf = async () =>
+        (
+          await db.sql<Array<{ webauthn_creds: Array<{ credentialId: string; lastVerifiedAt?: string }> }>>`
+          SELECT webauthn_creds FROM users WHERE id = ${session.userId}`
+        )[0]!.webauthn_creds;
+      expect((await credsOf()).every((c) => c.lastVerifiedAt === undefined)).toBe(true);
+      const caller = api.createCaller(await ctxOf(session.accessToken));
+      const begun = await caller.stepUp.begin(sendInput(session.userId));
+      const assertion = used.assertionResponse(begun.webauthn!.challenge);
+      await caller.stepUp.complete({ challengeId: begun.challengeId, webauthn: assertion });
+      const creds = await credsOf();
+      const stamped = creds.filter((c) => typeof c.lastVerifiedAt === 'string');
+      expect(stamped.map((c) => c.credentialId)).toEqual([assertion.id]);
+      expect(Number.isFinite(Date.parse(stamped[0]!.lastVerifiedAt!))).toBe(true);
+    });
+
     it('accepts a passkey assertion that cannot be reused as a withdraw bearer', async () => {
       const session = await register();
       const authenticator = softAuthenticator();

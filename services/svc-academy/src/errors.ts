@@ -129,6 +129,12 @@ export type AcademyErrorCode =
   | 'academy.video_not_found'
   /** Watch position is negative, not an integer, or past a set duration. */
   | 'academy.video_position_out_of_range'
+  /** Captions track was asked for and the owner has not published a URL. */
+  | 'academy.video_captions_unpublished'
+  /** Transcript was asked for and the owner has not published text. */
+  | 'academy.video_transcript_unpublished'
+  /** Seconds of stored position that count as watched. Blank is not zero. */
+  | 'academy.watch_threshold_unset'
   /** Leave found no enrolment for this caller. */
   | 'academy.enrollment_not_found'
   /** Operator completionsByItem path is not a curriculum path. */
@@ -156,6 +162,8 @@ export type AcademyErrorCode =
   | 'academy.verify_address_unset'
   /** certVerify over the published per-address limit. */
   | 'academy.verify_rate_limited'
+  /** The item has a prerequisite, so whether it is open depends on the reader's own record: sign in. */
+  | 'academy.sign_in_required'
   | 'academy.holder_name_invalid'
   /** AC-articles-02: a slug equal to a reserved academy tab. */
   | 'academy.slug_reserved';
@@ -238,6 +246,9 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.seconds_out_of_range',
   'academy.video_not_found',
   'academy.video_position_out_of_range',
+  'academy.video_captions_unpublished',
+  'academy.video_transcript_unpublished',
+  'academy.watch_threshold_unset',
   'academy.enrollment_not_found',
   'academy.path_not_found',
   'academy.metrics_range_invalid',
@@ -254,6 +265,7 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.verify_rate_unset',
   'academy.verify_address_unset',
   'academy.verify_rate_limited',
+  'academy.sign_in_required',
   'academy.holder_name_invalid',
   'academy.slug_reserved',
 ] as const;

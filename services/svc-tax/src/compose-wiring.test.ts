@@ -16,6 +16,9 @@ describe('svc-tax compose mount', () => {
     expect(block).toMatch(/TAX_JURISDICTION_MAP_JSON:\s*\$\{TAX_JURISDICTION_MAP_JSON:-\}/);
     expect(block).toMatch(/TAX_HISTORY_YEARS:\s*\$\{TAX_HISTORY_YEARS:-\}/);
     expect(block).not.toMatch(/TAX_HISTORY_YEARS:\s*\$\{TAX_HISTORY_YEARS:-10\}/);
+    expect(block).toContain('DATABASE_URL: postgres://svc_tax:${SVC_TAX_DB_PASSWORD:-svc_tax}@postgres:5432/intafaced');
+    expect(block).toContain('<<: *needs-schema');
+    expect(block).toMatch(/svc-ledger:\s*\n\s*condition: service_healthy/);
     expect(compose).toMatch(/TAX_URL: http:\/\/svc-tax:4020/);
   });
 });

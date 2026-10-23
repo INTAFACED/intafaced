@@ -108,6 +108,11 @@ describe('bank ramps money-out needs a step-up', () => {
       // Renaming a saved destination changes only its label. Saving and removing one need the step-up scope,
       // so they are not listed: they must refuse a plain session like every other value-out mutation.
       'ramps.destinations.rename',
+      // Proving a saved wallet (W-withdraw-17) records that its key signed a message. It cannot add or change an
+      // address, and only the wallet's own key can make the signature, so a plain session cannot prove a wallet it
+      // does not control; adding the address to prove still needs the step-up scope.
+      'ramps.destinations.ownership.start',
+      'ramps.destinations.ownership.verify',
     ]);
     const procedures = (router as unknown as { _def: { procedures: Record<string, { _def: { type: string } }> } })._def.procedures;
     const mutations = Object.entries(procedures)
