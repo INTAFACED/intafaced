@@ -55,6 +55,7 @@ const base = {
   me: 'TEST-owner',
   names: new Map<string, string>(),
   mayEdit: true,
+  mayChangeRule: true,
   interactive: true,
   loadMoreHistory: noop,
   reload: noop,
@@ -171,6 +172,11 @@ describe('second approval and the name', () => {
     const off = html({ profile: ready({ ...profile, secondApprovalEnabled: false }) });
     expect(off).toContain('Second approval is off.');
     expect(off).toContain('Turn on second approval');
+  });
+  it('lets only the owner switch it, and says why to an admin', () => {
+    const admin = html({ mayChangeRule: false, profile: ready({ ...profile, secondApprovalEnabled: true }) });
+    expect(admin).toContain('Second approval is on.');
+    expect(admin).toContain('Only the account owner can change this, because it also applies to admins.');
   });
   it('says nothing about the setting while the profile is still loading', () => {
     const out = html({ profile: { status: 'loading' } });

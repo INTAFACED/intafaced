@@ -6,7 +6,14 @@
  * value back to not set. The data class is the one value that needs a second founder.
  */
 
-export const CHART_SCALAR_KEYS = ['compareCap', 'chartCountLimit', 'drawingCap', 'brushPointCap', 'delayedBoundarySeconds'] as const;
+export const CHART_SCALAR_KEYS = [
+  'compareCap',
+  'chartCountLimit',
+  'drawingCap',
+  'brushPointCap',
+  'delayedBoundarySeconds',
+  'renderBudgetMs',
+] as const;
 export type ChartScalarKey = (typeof CHART_SCALAR_KEYS)[number];
 
 export interface ChartScalarInfo {
@@ -25,6 +32,11 @@ export const CHART_SCALARS: readonly ChartScalarInfo[] = [
     key: 'delayedBoundarySeconds',
     label: 'Delayed boundary (seconds)',
     meaning: 'Age of the newest candle after which a stream reads "delayed".',
+  },
+  {
+    key: 'renderBudgetMs',
+    label: 'Render budget (ms)',
+    meaning: 'Longest single main-thread task the chart may hold while ticks stream.',
   },
 ];
 

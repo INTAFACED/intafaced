@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   accountControlInputSchema,
+  accountTierResultSchema,
+  accountTierTermsSchema,
   identityAccountControlInputSchema,
   accountControlHistoryInputSchema,
   accountControlLookupInputSchema,
@@ -346,5 +348,49 @@ describe('service-only operator entitlement read', () => {
       { userId: USER, sessionId: KEY, expiresAt: NOW },
     ])
       expect(serviceOperatorEntitlementInputSchema.safeParse(candidate).success).toBe(false);
+  });
+});
+
+describe('account tier results (J-ops-console-04 #11)', () => {
+  const user = '0b6f7a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b';
+  const base = {
+    auditId: '33333333-3333-4333-8333-333333333333',
+    requestId: '44444444-4444-4444-8444-444444444444',
+    userId: user,
+    tierId: 'plus',
+    reason: 'Customer qualifies for plus',
+    occurredAt: '2026-10-23T03:00:00.000Z',
+  };
+  const changed = {
+    ...base,
+    outcome: 'changed',
+    changed: true,
+    actorUserId: '11111111-1111-4111-8111-111111111111',
+    approverUserId: '22222222-2222-4222-8222-222222222222',
+    before: { userId: user, version: '0', tierId: null },
+    after: { userId: user, version: '1', tierId: 'plus' },
+  };
+  it('accepts a coherent move and refuses one whose tier, version or approver disagree', () => {
+    expect(accountTierResultSchema.safeParse(changed).success).toBe(true);
+    expect(accountTierResultSchema.safeParse({ ...changed, after: { ...changed.after, tierId: 'standard' } }).success).toBe(false);
+    expect(accountTierResultSchema.safeParse({ ...changed, after: { ...changed.after, version: '2' } }).success).toBe(false);
+    expect(accountTierResultSchema.safeParse({ ...changed, approverUserId: changed.actorUserId }).success).toBe(false);
+  });
+  it('carries blank terms with tier_terms_unset only', () => {
+    const refused = { ...base, outcome: 'refused', changed: false, actorUserId: changed.actorUserId, current: changed.before };
+    expect(accountTierResultSchema.safeParse({ ...refused, code: 'identity.tier_terms_unset', blankTerms: ['monthlyFee'] }).success).toBe(
+      true,
+    );
+    expect(accountTierResultSchema.safeParse({ ...refused, code: 'identity.tier_terms_unset' }).success).toBe(false);
+    expect(accountTierResultSchema.safeParse({ ...refused, code: 'identity.tier_unknown', blankTerms: ['monthlyFee'] }).success).toBe(
+      false,
+    );
+    expect(accountTierResultSchema.safeParse({ ...refused, code: 'operator.denied', current: changed.before }).success).toBe(false);
+  });
+  it('keeps tier terms as decimal strings or null, never numbers', () => {
+    const terms = { ratePercent: '1.5', monthlyFee: null, feeAssetId: 'USD', dailyLimit: '1000', clearingDays: '2' };
+    expect(accountTierTermsSchema.safeParse(terms).success).toBe(true);
+    expect(accountTierTermsSchema.safeParse({ ...terms, monthlyFee: 4.99 }).success).toBe(false);
+    expect(accountTierTermsSchema.safeParse({ ...terms, dailyLimit: '-1' }).success).toBe(false);
   });
 });
