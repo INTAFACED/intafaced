@@ -124,3 +124,15 @@
 .dk-common .adm-chip {
   align-self: flex-start;
 }
+.dk-tab {
+  display: inline-block;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--if-border);
+  color: var(--if-text);
+  text-decoration: none;
+}
+.dk-tab[aria-current='page'] {
+  border-color: var(--if-border-strong);
+  background: var(--if-surface-raised);
+}
