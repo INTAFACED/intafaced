@@ -1,0 +1,110 @@
+import {
+  apiKeyCreateOutputSchema,
+  apiKeyCreateRequestId,
+  apiKeyListOutputSchema,
+  apiKeyScopesOutputSchema,
+  type ApiKeyCreateInput,
+  type ApiKeyCreateOutput,
+  type ApiKeyList,
+  type ApiKeyScopeEntry,
+} from '@intafaced/contracts/api-keys';
+import type { ApiClient, ApiResult } from '../../shared/api';
+import { requestPasskeyAssertion } from '../session/webauthn';
+import type { ApiKeysCopyKey } from './api-keys-copy';
+
+/** The most keys the room reads at once; the owner's cap is far below it. */
+const LIST_LIMIT = 200;
+
+export function readDeveloperKeys(api: ApiClient, signal: AbortSignal): Promise<ApiResult<ApiKeyList>> {
+  return api.query('identity', 'developerKeys.list', { limit: LIST_LIMIT }, apiKeyListOutputSchema, { signal });
+}
+
+export function readKeyScopes(api: ApiClient, signal: AbortSignal): Promise<ApiResult<{ scopes: ApiKeyScopeEntry[] }>> {
+  return api.query('identity', 'developerKeys.scopes', undefined, apiKeyScopesOutputSchema, { signal });
+}
+
+export type Preset = 'read' | 'trade' | 'custom';
+
+/** The scopes a preset ticks, from those this sign-in may put on a key. */
+export function presetScopes(preset: Exclude<Preset, 'custom'>, offered: readonly ApiKeyScopeEntry[]): string[] {
+  const allowed = offered.filter((entry) => entry.onKey);
+  if (preset === 'read') return allowed.filter((entry) => entry.access === 'read').map((entry) => entry.scope);
+  return allowed.filter((entry) => entry.scope === 'trade:read' || entry.scope === 'trade:write').map((entry) => entry.scope);
+}
+
+/** One address per line; blank lines dropped. The service checks each one. */
+export const ipLines = (text: string): string[] =>
+  text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+/** A chosen calendar day (`YYYY-MM-DD`) becomes the first instant of the next day, UTC: the key works through that day. */
+export function endOfDayUtc(day: string): string | undefined {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return undefined;
+  const start = Date.parse(`${day}T00:00:00.000Z`);
+  if (!Number.isFinite(start)) return undefined;
+  return new Date(start + 86_400_000).toISOString();
+}
+
+export type Factor = { code: string } | { passkey: true } | null;
+
+/**
+ * Sends one create. The request id comes from the list this form read and the key asked for, so pressing Create again
+ * after a lost reply returns the key that request made. With no factor the service answers `auth.step_up_required`.
+ */
+export async function createDeveloperKey(
+  api: ApiClient,
+  userId: string,
+  listed: ApiKeyList['keys'],
+  asked: Omit<ApiKeyCreateInput, 'requestId'>,
+  factor: Factor,
+  signal?: AbortSignal,
+): Promise<ApiResult<ApiKeyCreateOutput>> {
+  let factorProof: { totpCode: string } | { webauthn: unknown } | undefined;
+  if (factor && 'code' in factor) factorProof = { totpCode: factor.code };
+  if (factor && 'passkey' in factor) {
+    const assertion = await requestPasskeyAssertion(api, signal);
+    if (!assertion.ok) return assertion;
+    factorProof = { webauthn: assertion.data };
+  }
+  const requestId = apiKeyCreateRequestId(userId, listed, asked);
+  return api.mutate(
+    'identity',
+    'developerKeys.create',
+    { ...asked, requestId, ...(factorProof ? { factorProof } : {}) },
+    apiKeyCreateOutputSchema,
+    { signal, keepSessionFor: ['auth.mfa_invalid', 'auth.webauthn_invalid'] },
+  );
+}
+
+const REFUSALS = new Set<string>([
+  'auth.step_up_required',
+  'auth.step_up_expired',
+  'auth.mfa_invalid',
+  'auth.webauthn_invalid',
+  'auth.scope_empty',
+  'auth.scope_unknown',
+  'auth.scope_interactive_only',
+  'auth.scope_not_held',
+  'auth.ip_invalid',
+  'identity.key_name_invalid',
+  'identity.key_name_taken',
+  'identity.key_expiry_invalid',
+  'identity.key_cap_unset',
+  'identity.key_cap_reached',
+  'identity.key_request_conflict',
+  'identity.delegated_refused',
+  'auth.passkey_missing',
+  'auth.passkey_verify_unavailable',
+]);
+
+/** The room's own sentence for a typed refusal, or null for anything else (shown by the shared failure panel). */
+export function createRefusal(result: Extract<ApiResult<unknown>, { ok: false }>): Extract<ApiKeysCopyKey, `refused.${string}`> | null {
+  return result.code && REFUSALS.has(result.code) ? (`refused.${result.code}` as Extract<ApiKeysCopyKey, `refused.${string}`>) : null;
+}
+
+/** A small text file a program can load, built in the browser from the reply and never stored. */
+export function environmentFile(key: string): string {
+  return `# API key for your program. Keep this file out of source control.\nINTAFACED_API_KEY=${key}\n`;
+}
