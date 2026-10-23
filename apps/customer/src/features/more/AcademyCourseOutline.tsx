@@ -117,8 +117,14 @@ export function CourseOutlineView({ outline, current }: { outline: AcademyCourse
         })}
       </ol>
       <div className="academy-outline-nav">
-        {navLink(previous, 'outlinePrevious', 'outlineNoPrevious')}
-        {navLink(next, 'outlineNext', 'outlineNoNext')}
+        {outline.items.some(opens) ? (
+          <>
+            {navLink(previous, 'outlinePrevious', 'outlineNoPrevious')}
+            {navLink(next, 'outlineNext', 'outlineNoNext')}
+          </>
+        ) : (
+          <span className="muted">{t('outlineNoneOpen')}</span>
+        )}
       </div>
     </nav>
   );

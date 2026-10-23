@@ -5,8 +5,8 @@ import { signIn, signUp, verify } from './desk.mjs';
 // J-academy-02, in the running app (docs/roadmap/journeys.json): enrol in a free course and start learning. One test per
 // step, titled "J-academy-02 #<n>", run in order. The learner is a verified TEST account signed up in the browser; the
 // courses are what svc-academy publishes, nothing is seeded by hand.
-// Not here yet: #4 (a course that starts next week); its slice comes next. In #6 staff set one TEST prerequisite through
-// Academy's own admin door, as an operator would, and take it off again at the end.
+// In #4 and #6 staff set a TEST course start and a TEST prerequisite through Academy's own admin door, as an operator
+// would, and take them off again at the end.
 const J = 'J-academy-02';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
@@ -114,6 +114,56 @@ test(`${J} #3 /academy/progress shows a free access record with no expiry for ea
   await expect(page.locator('[data-access-grant]')).toHaveCount(2);
 });
 
+/** Staff act through Academy's admin door with the stack's TEST founder session, the same door the ops desk uses. */
+let staffDoor;
+async function staff(procedure, input) {
+  staffDoor ??= (async () => {
+    const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
+    const ctx = await gates.makeContext({ log: () => {} });
+    const founders = await gates.approverSessions(ctx);
+    return { ctx, token: await founders.a.tradeOpsToken() };
+  })();
+  const { ctx, token } = await staffDoor;
+  const res = await ctx.edge.mutate('academy', procedure, input, token);
+  expect(res.status, res.text.slice(0, 300)).toBe(200);
+}
+
+const setPrerequisites = (itemSlug, prerequisites) => staff('admin.setItemPrerequisites', { itemSlug, prerequisites });
+const setCourseStart = (slug, startsAt) => staff('admin.setCourseStart', { slug, startsAt, reason: `TEST ${J}` });
+
+test(`${J} #4 a course that starts next week takes the enrolment, shows its date, and holds its items until then`, async ({ page }) => {
+  const { who } = state('who');
+  const third = (await courses())[2];
+  expect(third, 'a third published course is needed: #1 and #2 enrol the first two').toBeTruthy();
+  const items = await syllabus(third);
+  const startsAt = new Date(Date.now() + 7 * 24 * 3600_000);
+  startsAt.setUTCSeconds(0, 0);
+  await setCourseStart(third, startsAt.toISOString());
+  try {
+    await signIn(page, who);
+    await page.goto(`/academy/learning/course/${third}`);
+    const block = enrolBlock(page);
+    await expect(block).toHaveAttribute('data-academy-enrol', third);
+    await expect(block.locator(`time[datetime="${startsAt.toISOString()}"]`)).toHaveText(/^Opens on /);
+    await block.getByRole('button', { name: 'Enrol now', exact: true }).click();
+    await expect(block.getByText(/^You are enrolled on the Free track since /)).toBeVisible();
+
+    await page.goto('/academy/learning');
+    const card = page.locator(`[data-my-learning-section="future_start"] [data-my-course="${third}"]`);
+    await expect(card.getByText(/^Starts /)).toBeVisible();
+    await expect(card.getByRole('link', { name: /Start course|Continue/ })).toHaveCount(0);
+
+    await page.goto(`/academy/${items[0]}`);
+    const outline = page.locator(`[data-academy-outline="${third}"]`);
+    await expect(outline.locator('[data-outline-state="locked"]')).toHaveCount(items.length);
+    await expect(outline.locator(`[data-outline-item="${items[0]}"]`)).toContainText(/Locked: opens /);
+    await expect(outline.getByText('No item in this course can be opened now.')).toBeVisible();
+    await expect(page.getByText('This item is closed right now. The course outline says when it opens.')).toBeVisible();
+  } finally {
+    await setCourseStart(third, null);
+  }
+});
+
 test(`${J} #5 Learning shows My learning by state with real progress, and Start course until something is read`, async ({ page }) => {
   const { who, first, second } = state('who', 'first', 'second');
   await signIn(page, who);
@@ -133,17 +183,6 @@ test(`${J} #5 Learning shows My learning by state with real progress, and Start 
     await expect(card.getByRole('link', { name: 'Start course' })).toHaveAttribute('href', `/academy/${items[0]}`);
   }
 });
-
-/** Staff set an item's prerequisites through Academy's admin door, with the stack's TEST founder session. */
-async function setPrerequisites(itemSlug, prerequisites) {
-  const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
-  const ctx = await gates.makeContext({ log: () => {} });
-  const founders = await gates.approverSessions(ctx);
-  // The founder's own session with the operator write scope, the same door the ops desk uses.
-  const token = await founders.a.tradeOpsToken();
-  const res = await ctx.edge.mutate('academy', 'admin.setItemPrerequisites', { itemSlug, prerequisites }, token);
-  expect(res.status, res.text.slice(0, 300)).toBe(200);
-}
 
 test(`${J} #6 Start course opens the first open item with the outline: typed items, a locked one with its reason, Next skipping it`, async ({
   page,

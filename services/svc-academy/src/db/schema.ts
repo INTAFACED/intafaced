@@ -402,6 +402,14 @@ export const featuredItems = academy.table('featured_items', {
   chosenAt: tstz('chosen_at').notNull(),
 });
 
+export const courseStarts = academy.table('course_starts', {
+  path: text('path').primaryKey(),
+  startsAt: tstz('starts_at').notNull(),
+  reason: text('reason').notNull(),
+  setBy: uuid('set_by').notNull(),
+  setAt: tstz('set_at').notNull(),
+});
+
 export const itemExtensions = academy.table(
   'item_extensions',
   {
@@ -452,6 +460,7 @@ export const schema = {
   itemWindows,
   itemExtensions,
   featuredItems,
+  courseStarts,
   learningState,
   learningActiveDays,
   learningTouches,

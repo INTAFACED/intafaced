@@ -8,7 +8,7 @@
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import { AcademyError } from '../errors.js';
-import { hasCurriculumSlug } from '../curriculum/catalog.js';
+import { getCurriculumItem, hasCurriculumSlug } from '../curriculum/catalog.js';
 
 export type ReleaseState = 'locked' | 'unlocked' | 'started' | 'completed';
 export type ReleaseLock = 'prerequisite' | 'window';
@@ -198,6 +198,17 @@ export function refuseRelease(decision: ReleaseDecision): void {
   }
 }
 
+/**
+ * A course that starts later locks every item in it as a window until then (AC-enrolment-01 step 4). A completed item
+ * stays completed; anything else reads `window` with the start as its opening, so the reader, completion and outline
+ * all say the same thing. No row, or a start already passed, changes nothing.
+ */
+export function applyCourseStart(decision: ReleaseDecision, courseStartsAt: Date | null, now: Date): ReleaseDecision {
+  if (courseStartsAt === null || decision.state === 'completed') return decision;
+  if (now.getTime() >= courseStartsAt.getTime()) return decision;
+  return { state: 'locked', missing: [], lock: 'window' };
+}
+
 export type ItemExtensionRecord = {
   readonly userId: string;
   readonly itemSlug: string;
@@ -267,8 +278,14 @@ export class ReleaseAccess {
     `;
     const row = windows[0];
     const window = row ? { availableFrom: row.available_from, availableUntil: row.available_until, dueAt: row.due_at } : null;
+    const now = input.now ?? new Date();
+    const courseStartsAt = await this.courseStartsAt(itemSlug);
     refuseRelease(
-      decideRelease({ completed: false, started: false, missing: [], window, extensionUntil: null, now: input.now ?? new Date() }),
+      applyCourseStart(
+        decideRelease({ completed: false, started: false, missing: [], window, extensionUntil: null, now }),
+        courseStartsAt,
+        now,
+      ),
     );
   }
 
@@ -398,6 +415,14 @@ export class ReleaseAccess {
     });
   }
 
+  /** The start date of the course `itemSlug` belongs to, or null when none is set. */
+  private async courseStartsAt(itemSlug: string): Promise<Date | null> {
+    const path = getCurriculumItem(itemSlug)?.path;
+    if (!path) return null;
+    const rows = await this.sql<Array<{ starts_at: Date }>>`SELECT starts_at FROM academy.course_starts WHERE path = ${path}`;
+    return rows[0]?.starts_at ?? null;
+  }
+
   private async load(userId: string, itemSlug: string, now: Date): Promise<ItemReleaseView> {
     const prereqRows = await this.sql<Array<{ prerequisite_slug: string }>>`
       SELECT prerequisite_slug FROM academy.item_prerequisites WHERE item_slug = ${itemSlug}
@@ -458,10 +483,18 @@ export class ReleaseAccess {
       extensionUntil: extension?.extended_until ?? null,
       now,
     });
+    const courseStartsAt = await this.courseStartsAt(itemSlug);
+    const gated = applyCourseStart(decision, courseStartsAt, now);
+    // Held by the course start: the item opens at the later of the course start and its own window.
+    const windowFrom = windowRow?.available_from ?? null;
+    const availableFrom =
+      gated !== decision && courseStartsAt !== null && (windowFrom === null || windowFrom.getTime() < courseStartsAt.getTime())
+        ? courseStartsAt
+        : windowFrom;
     return {
       itemSlug,
-      ...decision,
-      availableFrom: windowRow?.available_from ?? null,
+      ...gated,
+      availableFrom,
       availableUntil: windowRow?.available_until ?? null,
       dueAt: windowRow?.due_at ?? null,
       extendedUntil: extension?.extended_until ?? null,

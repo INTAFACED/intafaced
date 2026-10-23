@@ -144,4 +144,12 @@ describe('course outline (AC-course-structure-02)', () => {
     expect(out).toContain('Locked items skipped: 2');
     expect(out).toMatch(/href="\/academy\/e" rel="next"/);
   });
+
+  it('a course that has not started says no item can be opened instead of offering Previous and Next', () => {
+    const held = items.map((item) => ({ ...item, state: 'locked' as const, lock: 'window' as const, opensAt: '2026-11-02T00:00:00.000Z' }));
+    const out = html(<CourseOutlineView outline={{ slug: 'markets', items: held }} current="a" />);
+    expect(out).toContain('No item in this course can be opened now.');
+    expect(out).not.toContain('This is the first item you can open.');
+    expect(out).not.toContain('rel="next"');
+  });
 });

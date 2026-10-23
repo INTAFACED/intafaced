@@ -3,7 +3,7 @@
  * one curriculum path, and a course enrolment is the learner's one active path enrolment (`academy.cert_enrollments`),
  * so Programmes and the course page read the same record.
  *
- * What is not set stays unset: no start date (self-paced, opens on enrolment), no seat cap, no enrolment window. The
+ * What is not set stays unset: no start date unless staff set one (self-paced, opens on enrolment), no seat cap, no enrolment window. The
  * certificate track has no published price (AC-commerce-01), so it is closed with `no_price` and refuses. The academy
  * has no mail sender, so the activation mail names `vendor.email`; enrolment never waits on it.
  */
@@ -31,11 +31,11 @@ const TRACKS: AcademyCourseEnrolment['tracks'] = [
   { track: 'certificate', free: false, closed: 'no_price' },
 ];
 
-/** The terms of enrolling in `path`, with the caller's own active enrolment or null. */
-export function courseEnrolmentView(path: CurriculumPath, active: EnrollmentRow | null): AcademyCourseEnrolment {
+/** The terms of enrolling in `path`, with the caller's own active enrolment or null. `startsAt` is what staff set, or null. */
+export function courseEnrolmentView(path: CurriculumPath, active: EnrollmentRow | null, startsAt: Date | null): AcademyCourseEnrolment {
   return {
     slug: path,
-    startsAt: null,
+    startsAt: startsAt?.toISOString() ?? null,
     seatCap: null,
     seatsRemaining: null,
     closed: null,
@@ -58,7 +58,7 @@ export function assertTrackOpen(track: AcademyEnrolmentTrack): void {
  * one per learner, not per course, so it cannot say a course was started). Start course and Continue only ever point
  * at an item the caller may open now (`open`, in course order): Continue goes to the last item opened when that is
  * open, else the first open item not completed. With every item locked they point at the first item, whose page says
- * why. No course has a start date yet, so nothing is a future start.
+ * why. A course whose start date is still ahead reads `future_start` with that date until it starts.
  */
 export function myCourseView(
   path: CurriculumPath,
@@ -66,17 +66,20 @@ export function myCourseView(
   completed: ReadonlySet<string>,
   lastItemSlug: string | null,
   open: readonly string[],
+  startsAt: Date | null,
+  now: Date,
 ): AcademyMyCourse {
   const items = listCurriculum({ path });
   const done = items.filter((row) => completed.has(row.slug)).length;
+  const startsLater = startsAt !== null && startsAt.getTime() > now.getTime();
   const first = open[0] ?? items[0]!.slug;
   const resume =
     (lastItemSlug !== null && open.includes(lastItemSlug) ? lastItemSlug : null) ?? open.find((slug) => !completed.has(slug)) ?? first;
   return {
     slug: path,
-    status: done === items.length ? 'completed' : 'in_progress',
+    status: done === items.length ? 'completed' : startsLater ? 'future_start' : 'in_progress',
     enrolledAt: enrolment.enrolledAt.toISOString(),
-    startsAt: null,
+    startsAt: startsAt?.toISOString() ?? null,
     items: items.length,
     completed: done,
     firstItemSlug: first,

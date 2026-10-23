@@ -40,6 +40,7 @@ import { AssessmentRepository, type AttemptRow } from './assessment/repository.j
 import { randomPublicId, isPublicId } from './certs/public-id.js';
 import { ReleaseAccess } from './release/access.js';
 import { FeaturedSlot } from './curriculum/featured.js';
+import { CourseStarts } from './curriculum/course-start.js';
 import { publicCourse } from './curriculum/public-catalogue.js';
 import { accessGrantView, assertTrackOpen, courseEnrolmentView, myCourseView, publishedCourse } from './curriculum/course-enrolment.js';
 import type {
@@ -256,6 +257,7 @@ export class AcademyService {
   private readonly assessments: AssessmentRepository;
   private readonly release: ReleaseAccess;
   private readonly featured: FeaturedSlot;
+  private readonly courseStarts: CourseStarts;
 
   constructor(
     private readonly sql: Sql,
@@ -273,6 +275,7 @@ export class AcademyService {
     this.customer = new AcademyCustomerStore(sql);
     this.release = new ReleaseAccess(sql);
     this.featured = new FeaturedSlot(sql);
+    this.courseStarts = new CourseStarts(sql);
     const assessments = this.options.assessmentCatalog ?? ASSESSMENT_CATALOG;
     this.assessments = new AssessmentRepository(sql, assessments);
     if (this.options.certCatalog) {
@@ -1668,8 +1671,9 @@ export class AcademyService {
   /** AC-enrolment-01: the terms of enrolling in a course and the caller's own active enrolment in it. */
   async courseEnrolment(input: { userId: string; slug: string }): Promise<AcademyCourseEnrolment> {
     const path = publishedCourse(input.slug);
-    const active = (await this.customer.myEnrollments(input.userId)).find((row) => row.pathSlug === path) ?? null;
-    return courseEnrolmentView(path, active);
+    const [enrolments, startsAt] = await Promise.all([this.customer.myEnrollments(input.userId), this.courseStarts.startsAt(path)]);
+    const active = enrolments.find((row) => row.pathSlug === path) ?? null;
+    return courseEnrolmentView(path, active, startsAt);
   }
 
   /**
@@ -1685,7 +1689,7 @@ export class AcademyService {
       pathSlug: path,
       ...(this.options.programmeCatalog ? { catalog: this.options.programmeCatalog } : {}),
     });
-    return courseEnrolmentView(path, row);
+    return courseEnrolmentView(path, row, await this.courseStarts.startsAt(path));
   }
 
   /** AC-catalogue-02: My learning, one row per course the caller is enrolled in and that is still published. */
@@ -1696,8 +1700,9 @@ export class AcademyService {
     return Promise.all(
       enrolments.map(async (row) => {
         const path = row.pathSlug as CurriculumPath;
-        const open = (await this.courseReleases(userId, path, now)).filter(({ view }) => view.lock === null).map(({ row }) => row.slug);
-        return myCourseView(path, row, completed, state.lastItemSlug, open);
+        const [releases, startsAt] = await Promise.all([this.courseReleases(userId, path, now), this.courseStarts.startsAt(path)]);
+        const open = releases.filter(({ view }) => view.lock === null).map(({ row }) => row.slug);
+        return myCourseView(path, row, completed, state.lastItemSlug, open, startsAt, now);
       }),
     );
   }
@@ -1879,6 +1884,11 @@ export class AcademyService {
 
   setFeatured(input: { itemSlug: string | null; reason: string; operatorId: string; now?: Date }) {
     return this.featured.choose(input);
+  }
+
+  /** AC-enrolment-01 step 4: staff set or clear a course's start date with a reason. */
+  setCourseStart(input: { slug: string; startsAt: Date | null; reason: string; operatorId: string; now?: Date }) {
+    return this.courseStarts.set(input);
   }
 
   /** The reader for a signed-out visitor (AC-catalogue-01): the same item, nothing about any learner, no touch written. */

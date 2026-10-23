@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { AcademyError } from '../errors.js';
 import {
+  applyCourseStart,
   assertExtensionExtends,
   clearedOrWindow,
   decideRelease,
@@ -118,5 +119,16 @@ describe('item release rules', () => {
       now: from,
     });
     expect(done).toMatchObject({ state: 'completed', lock: null, missing: [] });
+  });
+
+  it('holds an item until its course starts, keeps a completed one, and changes nothing once it has started', () => {
+    const start = new Date('2026-10-30T09:00:00.000Z');
+    const before = new Date('2026-10-29T09:00:00.000Z');
+    const open = { state: 'unlocked', missing: [], lock: null } as const;
+    expect(applyCourseStart(open, start, before)).toEqual({ state: 'locked', missing: [], lock: 'window' });
+    expect(applyCourseStart({ state: 'locked', missing: ['a'], lock: 'prerequisite' }, start, before)).toMatchObject({ lock: 'window' });
+    expect(applyCourseStart({ state: 'completed', missing: [], lock: null }, start, before).state).toBe('completed');
+    expect(applyCourseStart(open, start, start)).toBe(open);
+    expect(applyCourseStart(open, null, before)).toBe(open);
   });
 });

@@ -2634,6 +2634,29 @@ export function createAcademyRouter(
         .output(z.object({ itemSlug: z.string().nullable(), reason: z.string().nullable(), chosenAt: z.date().nullable() }))
         .mutation(({ input, ctx }) => guard(() => academy.setFeatured({ ...input, operatorId: ctx.principal!.userId }))),
 
+      /** AC-enrolment-01 step 4: staff set a course's start date with a reason; `startsAt: null` clears it. */
+      setCourseStart: scopedProcedure('admin:write', { module: 'academy' })
+        .input(
+          z
+            .object({
+              slug: z.string().min(1).max(120),
+              startsAt: z.string().datetime({ offset: true }).nullable(),
+              reason: z.string().max(500),
+            })
+            .strict(),
+        )
+        .output(z.object({ slug: z.string(), startsAt: z.date().nullable(), reason: z.string().nullable(), setAt: z.date().nullable() }))
+        .mutation(({ input, ctx }) =>
+          guard(() =>
+            academy.setCourseStart({
+              slug: input.slug,
+              startsAt: input.startsAt === null ? null : new Date(input.startsAt),
+              reason: input.reason,
+              operatorId: ctx.principal!.userId,
+            }),
+          ),
+        ),
+
       setItemPrerequisites: scopedProcedure('admin:write', { module: 'academy' })
         .input(z.object({ itemSlug: z.string().min(1).max(120), prerequisites: z.array(z.string().min(1).max(120)).max(40) }))
         .output(z.object({ itemSlug: z.string(), prerequisites: z.array(z.string()) }))
