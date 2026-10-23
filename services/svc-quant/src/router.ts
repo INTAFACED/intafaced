@@ -37,10 +37,13 @@ import {
   BACKTEST_HISTORY_PAGE_MAX,
   BAR_BACKTEST_KEY_PREFIX,
   isBarBacktest,
+  NO_JUDGEMENT,
   prepareBacktest,
   presentBacktest,
+  readStoredBacktest,
   readWindowBars,
   runOnBars,
+  type Judgement,
   type StoredBacktest,
 } from './engine/run.js';
 import { backtestBodyOf, runBacktest } from './backtest/run.js';
@@ -305,8 +308,10 @@ export interface QuantRouterDeps extends SandboxDeps {
   readonly history?: HistoryPort;
   /** The published fee schedule read. Omitted refuses `quant.cost_unset` naming fees. */
   readonly fees?: FeePort;
-  /** Decides only whether a backtest window has closed. */
+  /** Decides only whether a backtest window has closed, and where a rolling holdout begins. */
   readonly now?: () => number;
+  /** The owner's out-of-sample criteria and holdout. Omitted, every one is blank: verdicts read inconclusive by name. */
+  readonly judgement?: Judgement;
   /**
    * Services allowed to name an account. Defaults to none.
    * `src/index.ts` does not set this.
@@ -347,6 +352,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
   const history = deps.history ?? missingHistory();
   const fees = deps.fees ?? missingFees();
   const now = deps.now ?? (() => Date.now());
+  const judgement = deps.judgement ?? NO_JUDGEMENT;
   const disclosure = deps.disclosure ?? openDisclosureRepository({}).repository;
   const templates = deps.templates ?? openTemplateRepository({}).repository;
   const studioServices = new Set(deps.studioServiceAllowlist ?? STUDIO_SERVICE_ALLOWLIST);
@@ -848,13 +854,16 @@ export function createQuantRouter(deps: QuantRouterDeps) {
                 { id: found.id, version: version.version, modules: version.modules, risk: version.risk },
                 fees,
                 now(),
+                judgement,
               );
+              // What this request sent that only the service may set is named on the answer, also when it replays a run.
               const withRun = async (result: StoredBacktest) => {
                 const row = await runs.replay(accountId, prepared.key);
-                return presentBacktest(result, row?.id ?? '');
+                return presentBacktest({ ...result, ignoredInputs: [...prepared.ignoredInputs] }, row?.id ?? '');
               };
               const prior = await runs.replay(accountId, prepared.key);
-              if (prior?.finished && prior.outcome === 'ok') return withRun(prior.response as StoredBacktest);
+              const stored = prior?.finished && prior.outcome === 'ok' ? readStoredBacktest(prior.response) : null;
+              if (stored) return withRun(stored);
               // Bars are read before the run row, so a history read that fails stores nothing and the same key can run later.
               const bars = await readWindowBars(prepared, history);
               const result = await trackRun(
@@ -866,7 +875,17 @@ export function createQuantRouter(deps: QuantRouterDeps) {
                   strategyId: found.id,
                   strategyVersion: version.version,
                 },
-                async () => runOnBars(prepared, bars),
+                async () => {
+                  // This run is one more variant: the account's earlier distinct runs of the family, and this one.
+                  const earlier = await runs.variantCount({
+                    userId: accountId,
+                    strategyId: found.id,
+                    symbol: prepared.rules.symbol,
+                    barSize: prepared.rules.barSize,
+                    keyPrefix: BAR_BACKTEST_KEY_PREFIX,
+                  });
+                  return runOnBars(prepared, bars, earlier + 1);
+                },
                 (value, err) => ({
                   detail: err
                     ? null
@@ -899,9 +918,9 @@ export function createQuantRouter(deps: QuantRouterDeps) {
           try {
             const userId = accountOf(ctx, input.accountId);
             const row = await runs.get({ userId, id: input.runId });
-            const parsed = quantBacktestResultSchema.omit({ runId: true, metrics: true, log: true }).safeParse(row?.response);
-            if (!row || row.kind !== 'backtest' || !parsed.success) throw new QuantError(QUANT_RUN_NOT_FOUND, 'run not found');
-            return presentBacktest(parsed.data, row.id);
+            const stored = row && isBarBacktest(row) ? readStoredBacktest(row.response) : null;
+            if (!row || !stored) throw new QuantError(QUANT_RUN_NOT_FOUND, 'run not found');
+            return presentBacktest(stored, row.id);
           } catch (err) {
             toTrpc(err);
           }

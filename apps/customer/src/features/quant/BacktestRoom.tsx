@@ -1,6 +1,9 @@
 import {
   QUANT_FEE_ROLES,
   QUANT_FILL_TIMINGS,
+  QUANT_SPLIT_PRESETS,
+  QUANT_VERDICT_CRITERIA,
+  quantOutOfSampleFrom,
   quantBacktestFeeSchema,
   quantBacktestResultSchema,
   quantStrategyHeadSchema,
@@ -8,8 +11,10 @@ import {
   type QuantBacktestMetrics,
   type QuantBacktestResult,
   type QuantMetric,
+  type QuantSplitPreset,
   type QuantStrategyHead,
 } from '@intafaced/contracts/quant-algo';
+import { DATAFEED_INTERVAL_MS } from '@intafaced/contracts/datafeed';
 import { useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
@@ -30,7 +35,7 @@ const page = quantStrategyListOutputSchema.extend({ strategies: z.array(quantStr
 
 /** The inputs a refusal can name, by the word the service puts first in its message. */
 const NAMED = { cash: 'cash', fees: 'feeRole', slippage: 'slippage', delay: 'delay', from: 'from', to: 'to' } as const;
-type Named = (typeof NAMED)[keyof typeof NAMED] | 'fillTiming';
+type Named = (typeof NAMED)[keyof typeof NAMED] | 'fillTiming' | 'split' | 'holdout';
 type Refusal = { input: Named; detail: string; blank: boolean };
 
 /**
@@ -45,6 +50,10 @@ function namedRefusal(message: string): Refusal | null {
   if (window) return { input: NAMED[window[1] as 'from' | 'to'], detail: window[2]!.trim(), blank: false };
   const timing = /^quant\.fill_timing_unset — (.*)$/.exec(message);
   if (timing) return { input: 'fillTiming', detail: timing[1]!.trim(), blank: blank(timing[1]!) };
+  const split = /^quant\.backtest_window_invalid — (?:split — |out-of-sample start )(.*)$/.exec(message);
+  if (split) return { input: 'split', detail: split[1]!.trim(), blank: false };
+  const holdout = /^quant\.holdout_(?:overlap|date_unset) — holdout — (.*)$/.exec(message);
+  if (holdout) return { input: 'holdout', detail: holdout[1]!.trim(), blank: false };
   return null;
 }
 
@@ -68,6 +77,9 @@ export function BacktestRoom() {
   const [feeRole, setFeeRole] = useState('');
   const [slippage, setSlippage] = useState('');
   const [delay, setDelay] = useState('');
+  const [split, setSplit] = useState<QuantSplitPreset | ''>('');
+  const [oosFrom, setOosFrom] = useState('');
+  const [enforceHoldout, setEnforceHoldout] = useState(false);
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
   const [failure, setFailure] = useState<Failed | null>(null);
@@ -81,6 +93,8 @@ export function BacktestRoom() {
     from: t('from'),
     to: t('to'),
     fillTiming: t('fillTiming'),
+    split: t('split'),
+    holdout: t('holdout'),
   };
   // A refusal shows once, next to the input it names.
   const errorFor = (input: Named): ReactNode =>
@@ -117,6 +131,8 @@ export function BacktestRoom() {
         to: utcInput(to) ?? to,
         fillTiming,
         costs: { feeRole, slippageBps: slippage, delayBars: delay },
+        ...(split ? { split: { preset: split, ...(split === 'custom' ? { outOfSampleFrom: utcInput(oosFrom) ?? oosFrom } : {}) } } : {}),
+        ...(enforceHoldout ? { enforceHoldout: true } : {}),
       },
       quantBacktestResultSchema,
     );
@@ -205,6 +221,37 @@ export function BacktestRoom() {
                     />
                   </div>
                   <Select
+                    label={t('split')}
+                    value={split}
+                    onChange={(value) => edited(setSplit)(value as QuantSplitPreset | '')}
+                    options={[
+                      { value: '', label: t('splitNone') },
+                      ...QUANT_SPLIT_PRESETS.map((value) => ({ value, label: t(SPLIT_WORDS[value]) })),
+                    ]}
+                  />
+                  {split === 'custom' && (
+                    <Field
+                      label={t('oosFrom')}
+                      type="datetime-local"
+                      value={oosFrom}
+                      onChange={(e) => edited(setOosFrom)(e.target.value)}
+                    />
+                  )}
+                  {split && strategy?.modules && (
+                    <SplitPreview from={from} to={to} preset={split} oosFrom={oosFrom} barSize={strategy.modules.barSize} />
+                  )}
+                  {selectError('split')}
+                  <label className="quant-check-line">
+                    <input
+                      type="checkbox"
+                      className="quant-run-check"
+                      checked={enforceHoldout}
+                      onChange={(e) => edited(setEnforceHoldout)(e.target.checked)}
+                    />
+                    {t('holdout')}
+                  </label>
+                  {selectError('holdout')}
+                  <Select
                     label={t('fillTiming')}
                     value={fillTiming}
                     onChange={edited(setFillTiming)}
@@ -252,6 +299,32 @@ export function BacktestRoom() {
   );
 }
 
+const SPLIT_WORDS = { '1/2': 'split_half', '1/3': 'split_third', '1/4': 'split_quarter', custom: 'split_custom' } as const;
+
+/** Both parts of the split as the service will cut them, shown before Run: the same rule, on the strategy's bar size. */
+function SplitPreview(props: { from: string; to: string; preset: QuantSplitPreset; oosFrom: string; barSize: string }) {
+  const { t } = backtestCopy.useCopy();
+  const at = (value: string) => Date.parse(utcInput(value) ?? '');
+  const span = DATAFEED_INTERVAL_MS[props.barSize as keyof typeof DATAFEED_INTERVAL_MS];
+  const fromMs = at(props.from);
+  const toMs = at(props.to);
+  const custom = props.preset === 'custom' ? at(props.oosFrom) : undefined;
+  const cut =
+    Number.isFinite(fromMs) && Number.isFinite(toMs) && span ? quantOutOfSampleFrom({ fromMs, toMs }, props.preset, span, custom) : null;
+  if (cut === null)
+    return (
+      <p className="muted" data-testid="quant-split-preview">
+        {t('splitShort')}
+      </p>
+    );
+  const minute = (ms: number) => new Date(ms).toISOString().slice(0, 16).replace('T', ' ');
+  return (
+    <p data-testid="quant-split-preview" data-oos-from={new Date(cut).toISOString()} lang="zxx">
+      {t('splitPreview', { isFrom: minute(fromMs), isTo: minute(cut), oosFrom: minute(cut), oosTo: minute(toMs) })}
+    </p>
+  );
+}
+
 /** The published rates for the strategy's symbol, read before the run so the person sees what will be charged. */
 function FeeLedger({ symbol }: { symbol: string }) {
   const api = useApi();
@@ -281,6 +354,7 @@ function BacktestResult({ result }: { result: QuantBacktestResult }) {
     <section aria-label={t('resultTitle')} data-testid="quant-bar-result" data-run-id={result.runId}>
       <h3>{t('resultTitle')}</h3>
       <p className="muted">{t('simulated')}</p>
+      <VerdictCard result={result} />
       <Tabs
         items={RESULT_TABS}
         value={tab}
@@ -293,6 +367,92 @@ function BacktestResult({ result }: { result: QuantBacktestResult }) {
       {tab === 'charts' && <ResultCharts result={result} />}
       {tab === 'trades' && <ResultTrades result={result} />}
       {tab === 'log' && <ResultLog result={result} />}
+    </section>
+  );
+}
+
+const WHY = [
+  'not_split',
+  'criteria_unset',
+  'too_few_trades',
+  'section_undefined',
+  'return_below_minimum',
+  'drawdown_above_maximum',
+  'shortfall_above_maximum',
+] as const;
+
+/**
+ * The verdict the service computed (AL-backtest-04), with its reasons in words, every criterion as it stood (a blank one
+ * named "not set"), the variant count, whether the holdout was enforced, and any field the request sent that only the
+ * service sets.
+ */
+function VerdictCard({ result }: { result: QuantBacktestResult }) {
+  const { t } = backtestCopy.useCopy();
+  const { verdict, sections } = result;
+  const why = (reason: string) => ((WHY as readonly string[]).includes(reason) ? t(`why_${reason as (typeof WHY)[number]}`) : reason);
+  const percent = (metric: QuantMetric) => metric.value ?? t('notSet');
+  return (
+    <section aria-label={t('verdictTitle')} data-testid="quant-verdict" data-status={verdict.status}>
+      <h4>{t('verdictTitle')}</h4>
+      <p data-testid="quant-verdict-status">
+        <strong>{t(`v_${verdict.status}`)}</strong>
+      </p>
+      <p className="muted">{t('verdictComputed')}</p>
+      <ul data-testid="quant-verdict-reasons">
+        {verdict.reasons.map((reason) => (
+          <li key={reason} data-reason={reason}>
+            {why(reason)}
+          </li>
+        ))}
+      </ul>
+      {verdict.unset.length > 0 && (
+        <p role="note" data-testid="quant-verdict-unset" data-unset={verdict.unset.join(',')}>
+          {t('unsetNamed', { names: verdict.unset.map((name) => t(`c_${name}`)).join(', ') })}
+        </p>
+      )}
+      <h5>{t('criteriaTitle')}</h5>
+      <dl className="quant-bar-totals" data-testid="quant-verdict-criteria">
+        {QUANT_VERDICT_CRITERIA.map((name) => (
+          <div key={name} data-criterion={name} data-value={verdict.criteria[name] ?? ''}>
+            <dt>{t(`c_${name}`)}</dt>
+            <dd lang={verdict.criteria[name] === null ? undefined : 'zxx'}>{verdict.criteria[name] ?? t('notSet')}</dd>
+          </div>
+        ))}
+      </dl>
+      <p data-testid="quant-variant-count" data-count={result.variantCount ?? ''}>
+        {result.variantCount === null ? t('variantsNone') : t('variants', { count: result.variantCount })}
+      </p>
+      <p className="muted">{t('variantsHelp')}</p>
+      <p data-testid="quant-holdout" data-enforced={String(result.holdout.enforced)}>
+        {result.holdout.enforced && result.holdout.from
+          ? t('holdoutOn', { from: result.holdout.from.slice(0, 16).replace('T', ' ') })
+          : t('holdoutOff')}
+      </p>
+      {result.ignoredInputs.length > 0 && (
+        <p role="note" data-testid="quant-ignored-inputs" data-fields={result.ignoredInputs.join(',')}>
+          {t('ignored', { fields: result.ignoredInputs.join(', ') })}
+        </p>
+      )}
+      {sections && (
+        <DataTable headers={[t('part'), t('partWindow'), t('partReturn'), t('partDrawdown'), t('partTrips')]} label={t('sectionsTitle')}>
+          {(
+            [
+              ['inSample', sections.inSample],
+              ['outOfSample', sections.outOfSample],
+            ] as const
+          ).map(([name, part]) => (
+            <tr key={name} data-testid={`quant-section-${name}`} data-from={part.from} data-to={part.to}>
+              <td>{t(name)}</td>
+              <td lang="zxx">
+                {part.from.slice(0, 16).replace('T', ' ')} – {part.to.slice(0, 16).replace('T', ' ')}
+              </td>
+              <td lang="zxx">{percent(part.returnPercent)}</td>
+              <td lang="zxx">{percent(part.maxDrawdownPercent)}</td>
+              <td lang="zxx">{part.roundTrips}</td>
+            </tr>
+          ))}
+        </DataTable>
+      )}
     </section>
   );
 }

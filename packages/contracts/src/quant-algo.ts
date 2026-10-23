@@ -166,8 +166,50 @@ export const quantBacktestInputSchema = z.object({
   to: z.string(),
   fillTiming: z.string(),
   costs: z.object({ feeRole: z.string(), slippageBps: z.string(), delayBars: z.string() }),
+  /** The out-of-sample split of the window (AL-backtest-04). Absent, the run has no out-of-sample section to judge. */
+  split: z.object({ preset: z.string(), outOfSampleFrom: z.string().optional() }).optional(),
+  /** Whether the run keeps clear of the owner's holdout. Absent or false, the result says the holdout is not enforced. */
+  enforceHoldout: z.boolean().optional(),
+  /**
+   * A verdict and a variant count are computed by the service, never taken from the caller (ENGINE MT-6, MT-7). A request
+   * that still sends them is accepted, the values are ignored, and the result lists them under `ignoredInputs`.
+   */
+  outOfSampleStatus: z.unknown().optional(),
+  strategyVariantCount: z.unknown().optional(),
 });
 export type QuantBacktestInput = z.infer<typeof quantBacktestInputSchema>;
+
+/** How the window splits into an in-sample part and the latest, out-of-sample part (ENGINE BT-9). */
+export const QUANT_SPLIT_PRESETS = ['1/2', '1/3', '1/4', 'custom'] as const;
+export type QuantSplitPreset = (typeof QUANT_SPLIT_PRESETS)[number];
+
+/**
+ * Where the out-of-sample part starts: the latest half, third or quarter of the window, or a chosen instant, moved up to
+ * the next bar open so both parts hold whole bars. Null when the split leaves either part without a whole bar.
+ */
+export function quantOutOfSampleFrom(
+  window: { readonly fromMs: number; readonly toMs: number },
+  preset: QuantSplitPreset,
+  spanMs: number,
+  customMs?: number,
+): number | null {
+  const share = preset === '1/2' ? 2 : preset === '1/3' ? 3 : preset === '1/4' ? 4 : null;
+  const raw = share === null ? customMs : window.toMs - Math.floor((window.toMs - window.fromMs) / share);
+  if (raw === undefined || !Number.isFinite(raw)) return null;
+  const at = Math.ceil(raw / spanMs) * spanMs;
+  return at - window.fromMs >= spanMs && window.toMs - at >= spanMs ? at : null;
+}
+
+/** The owner's out-of-sample criteria a verdict is judged against (ENGINE MT-7). Each null one is not set. */
+export const QUANT_VERDICT_CRITERIA = ['minTrades', 'minReturnPercent', 'maxDrawdownPercent', 'maxShortfallPercent'] as const;
+export const quantVerdictCriteriaSchema = z.object({
+  minTrades: z.string().nullable(),
+  minReturnPercent: z.string().nullable(),
+  maxDrawdownPercent: z.string().nullable(),
+  maxShortfallPercent: z.string().nullable(),
+});
+export type QuantVerdictCriteria = z.infer<typeof quantVerdictCriteriaSchema>;
+export const QUANT_VERDICT_STATUSES = ['passed', 'failed', 'inconclusive'] as const;
 
 /** One fill of a backtest. `barPrice` is the bar's own price; `price` is after slippage. */
 export const quantBacktestTradeSchema = z.object({
@@ -278,6 +320,18 @@ export const quantBacktestLogLineSchema = z.object({
 });
 export type QuantBacktestLogLine = z.infer<typeof quantBacktestLogLineSchema>;
 
+/** One part of a split run: its window, its own return and drawdown, and the round trips entered inside it. */
+export const quantSampleSectionSchema = z.object({
+  from: z.string(),
+  to: z.string(),
+  startEquity: decimalText,
+  endEquity: decimalText,
+  returnPercent: quantMetricSchema,
+  maxDrawdownPercent: quantMetricSchema,
+  roundTrips: z.number().int().nonnegative(),
+});
+export type QuantSampleSection = z.infer<typeof quantSampleSectionSchema>;
+
 export const quantBacktestResultSchema = z.object({
   runId: z.string(),
   runKey: z.string(),
@@ -309,6 +363,26 @@ export const quantBacktestResultSchema = z.object({
   }),
   /** Derived from the stored trades and equity on every read, so a run stored before the report existed has one too. */
   metrics: quantBacktestMetricsSchema,
+  /** The split the run was asked for, with the instant the out-of-sample part starts. Null: the run was not split. */
+  split: z.object({ preset: z.enum(QUANT_SPLIT_PRESETS), outOfSampleFrom: z.string() }).nullable(),
+  /** In-sample and out-of-sample figures, derived from the stored equity and trades. Null when the run was not split. */
+  sections: z.object({ inSample: quantSampleSectionSchema, outOfSample: quantSampleSectionSchema }).nullable(),
+  /**
+   * Computed by the service from the out-of-sample section against the owner's criteria as they stood when the run
+   * finished. Any blank criterion makes it inconclusive and is named in `unset`; it never reads passed.
+   */
+  verdict: z.object({
+    status: z.enum(QUANT_VERDICT_STATUSES),
+    reasons: z.array(z.string()),
+    unset: z.array(z.enum(QUANT_VERDICT_CRITERIA)),
+    criteria: quantVerdictCriteriaSchema,
+  }),
+  /** How many distinct runs of this strategy, symbol and bar size the account had finished, this one included. */
+  variantCount: z.number().int().positive().nullable(),
+  /** Whether the run kept clear of the owner's holdout, and where the holdout began when it did. */
+  holdout: z.object({ enforced: z.boolean(), from: z.string().nullable() }),
+  /** Fields the request sent that only the service may set; they were ignored. */
+  ignoredInputs: z.array(z.string()),
   log: z.array(quantBacktestLogLineSchema),
   simulated: z.literal(true),
   live: z.literal(false),
