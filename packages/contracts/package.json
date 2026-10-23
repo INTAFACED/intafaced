@@ -74,6 +74,10 @@
       "types": "./dist/support-contact.d.ts",
       "default": "./dist/support-contact.js"
     },
+    "./outreach-public": {
+      "types": "./dist/outreach-public.d.ts",
+      "default": "./dist/outreach-public.js"
+    },
     "./ui-view-preferences": {
       "types": "./dist/ui-view-preferences.d.ts",
       "default": "./dist/ui-view-preferences.js"

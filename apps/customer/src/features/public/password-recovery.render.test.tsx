@@ -17,13 +17,27 @@ vi.mock('../more/support-contact', async (original) => {
   };
 });
 
+// Same for the outreach desk: by default it answered and holds no join address or terms; a test may set what it holds.
+const partnerDesk = vi.hoisted(() => ({ read: { ok: true, joinUrl: null, partnerTerms: null } as const as unknown }));
+vi.mock('./partner-settings', async (original) => {
+  const real = await original<typeof import('./partner-settings')>();
+  return {
+    ...real,
+    usePartnerSettings: () =>
+      real.mergePartnerSettings(partnerDesk.read as Parameters<typeof real.mergePartnerSettings>[0], import.meta.env.VITE_JOIN_URL),
+  };
+});
+
 import { SessionProvider } from '../session/session';
 import { PasswordRecovery } from './PasswordRecovery';
 import { AppPage, NoticePage, PartnerPage } from './PublicPages';
 
 const html = (node: React.ReactNode) => renderToString(<SessionProvider>{node}</SessionProvider>);
 const TEST_ADDRESS = 'support@example.test';
-afterEach(() => vi.unstubAllEnvs());
+afterEach(() => {
+  vi.unstubAllEnvs();
+  partnerDesk.read = { ok: true, joinUrl: null, partnerTerms: null };
+});
 
 describe('/findPwd', () => {
   vi.stubEnv('VITE_SUPPORT_EMAIL', TEST_ADDRESS);
@@ -92,5 +106,24 @@ describe('other public pages', () => {
     const page = html(<PartnerPage />);
     expect(page).toContain('Support email is not set');
     expect(page).not.toContain('mailto:');
+    expect(page).toContain('Programme terms are not published.');
+  });
+
+  it("links the founders' join address and shows their programme terms when the outreach desk holds them", () => {
+    vi.stubEnv('VITE_JOIN_URL', 'https://build.example.test');
+    partnerDesk.read = { ok: true, joinUrl: 'https://join.example.test', partnerTerms: 'TEST terms\nsecond line' };
+    const page = html(<PartnerPage />);
+    expect(page).toContain('href="https://join.example.test/partner"');
+    expect(page).not.toContain('build.example.test');
+    expect(page).toContain('TEST terms');
+    expect(page).not.toContain('Programme terms are not published');
+  });
+
+  it('keeps the build join address but says the terms could not be read when the outreach desk is unreachable', () => {
+    vi.stubEnv('VITE_JOIN_URL', 'https://build.example.test');
+    partnerDesk.read = { ok: false };
+    const page = html(<PartnerPage />);
+    expect(page).toContain('href="https://build.example.test/partner"');
+    expect(page).toContain('The programme terms could not be read just now');
   });
 });
