@@ -690,6 +690,7 @@ export const navigationCopy: ReturnType<typeof defineCopy<typeof messages>> = de
     chain: 'Cadena',
     dex: 'DEX',
     protocol: 'Protocolo',
+    wallet: 'Monedero',
   },
   fr: {
     Home: 'Accueil',
@@ -960,6 +961,7 @@ export const navigationCopy: ReturnType<typeof defineCopy<typeof messages>> = de
     chain: 'Chaîne',
     dex: 'DEX',
     protocol: 'Protocole',
+    wallet: 'Portefeuille',
   },
 });
 export type NavigationCopyKey = Parameters<typeof navigationCopy.t>[0];

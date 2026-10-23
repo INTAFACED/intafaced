@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { signIn, signUp } from './desk.mjs';
+import { ORIGIN } from './stack.mjs';
 
 // J-home-ia-02, in the running app (docs/roadmap/journeys.json): I find any room I need. Tests titled "J-home-ia-02 #<n>"
 // prove a whole step. One TEST person, signed up once; the signed-out step uses a fresh browser.
@@ -152,7 +153,7 @@ test(`${J} #8 a deep link while signed out: public rooms open, private rooms ask
   browser,
 }) => {
   test.setTimeout(120_000);
-  const context = await browser.newContext({ baseURL: 'http://127.0.0.1:3210', viewport: { width: 1440, height: 900 } });
+  const context = await browser.newContext({ baseURL: ORIGIN, viewport: { width: 1440, height: 900 } });
   const page = await context.newPage();
   // Public rooms open as they are.
   for (const path of ['/help', '/trade']) {
