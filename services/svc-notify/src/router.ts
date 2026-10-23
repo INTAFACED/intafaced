@@ -1159,13 +1159,21 @@ export function createNotifyRouter(
           z.object({
             kind: z.enum(['announcement', 'maintenance', 'incident', 'changelog']).optional(),
             limit: z.number().int().min(1),
+            /** The id of the last notice of the page before: answers the page after it. */
+            after: z.string().uuid().optional(),
           }),
         )
         .output(z.array(noticeWireOutput))
         .query(async ({ input }) => {
           if (!notify.notices) return [];
           try {
-            return [...(await notify.notices.notices({ kind: input.kind ?? null, limit: Math.min(input.limit, NOTICES_LIST_LIMIT_MAX) }))];
+            return [
+              ...(await notify.notices.notices({
+                kind: input.kind ?? null,
+                limit: Math.min(input.limit, NOTICES_LIST_LIMIT_MAX),
+                after: input.after ?? null,
+              })),
+            ];
           } catch (err) {
             typedRefusal(err);
           }
