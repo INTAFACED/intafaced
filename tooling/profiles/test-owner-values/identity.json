@@ -1,0 +1,35 @@
+{
+  "label": "TEST: CX-8 rig and local test stack only. Not an owner decision and not a product default.",
+  "values": {
+    "IDENTITY_SUB_ACCOUNT_FEATURES": {
+      "service": "identity",
+      "value": "standard:spot+convert+algo+copy,managed:spot,spot:spot",
+      "note": "Which trading features a main account may turn on for each sub-account kind. Futures is refused in code until derivatives eligibility is readable."
+    },
+    "IDENTITY_SECURITY_LOCK_UNLOCK_WAIT_SECONDS": {
+      "service": "identity",
+      "value": "86400",
+      "note": "A security lock ends one day after its unlock is asked for."
+    },
+    "IDENTITY_API_KEYS_MAX_BY_TIER": {
+      "service": "identity",
+      "value": "none=3,basic=3,full=3,institutional=3",
+      "note": "Live API keys per account at each verification level, so the developer room can show the fourth key refused."
+    },
+    "IDENTITY_ACCOUNT_TIERS": {
+      "service": "identity",
+      "value": "[{\"id\":\"test-standard\",\"name\":\"TEST Standard\",\"terms\":{\"ratePercent\":\"0\",\"monthlyFee\":\"0\",\"feeAssetId\":\"USD\",\"dailyLimit\":\"1000\",\"clearingDays\":\"2\"}},{\"id\":\"test-plus\",\"name\":\"TEST Plus\",\"terms\":{\"ratePercent\":\"1.5\",\"monthlyFee\":\"4.99\",\"feeAssetId\":\"USD\",\"dailyLimit\":\"5000\",\"clearingDays\":\"1\"}},{\"id\":\"test-premier\",\"name\":\"TEST Premier\",\"terms\":{\"ratePercent\":\"2\",\"monthlyFee\":null,\"feeAssetId\":\"USD\",\"dailyLimit\":\"25000\",\"clearingDays\":\"0\"}}]",
+      "note": "Three TEST account tiers; TEST Premier leaves its monthly fee blank so a tier that cannot be assigned is shown."
+    },
+    "IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS": {
+      "service": "identity",
+      "value": "600",
+      "note": "Ten minutes after sign-up to attach a referrer through a link, so a new invitee attaches and an older account is refused (J-campaigns-05)."
+    },
+    "IDENTITY_REFERRAL_CODE_LENGTH": {
+      "service": "identity",
+      "value": "8",
+      "note": "Eight characters per short referral code."
+    }
+  }
+}
