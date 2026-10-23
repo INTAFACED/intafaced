@@ -41,8 +41,12 @@ test('the TEST profile merges one file per service and refuses a misplaced or do
     write('trade.json', { PAY_B: { service: 'pay', value: '3', note: '' } });
     assert.throws(() => loadProfile(dir), /PAY_B belongs to service "pay", so it goes in pay\.json/);
 
-    write('trade.json', { TRADE_A: { service: 'trade', value: '2', note: '' } }, 'something else');
+    write('trade.json', { TRADE_A: { service: 'trade', value: '2', note: '' } }, 'TEST: something else');
     assert.throws(() => loadProfile(dir), /label differs/);
+
+    write('aa.json', {}, '');
+    assert.throws(() => loadProfile(dir), /aa\.json: its label must start with TEST/);
+    rmSync(join(dir, 'aa.json'));
 
     write('trade.json', { PAY_A: { service: 'trade', value: '2', note: '' } });
     assert.throws(() => loadProfile(dir), /PAY_A is already set in pay\.json/);

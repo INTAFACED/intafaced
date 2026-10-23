@@ -1,6 +1,13 @@
 import { loadProfile } from '../owner-settings.mjs';
 import path from 'node:path';
 
+/** One labelled TEST value from this service's profile file; a missing one names the file instead of a bare TypeError. */
+function testValue(name) {
+  const entry = loadProfile().values[name];
+  if (!entry) throw new Error(`${name} is missing from tooling/profiles/test-owner-values/identity.json.`);
+  return entry.value;
+}
+
 export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORIGIN, identityFounderEnv }) => ({
   name: 'identity',
   env: () => ({
@@ -75,11 +82,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     // tiers (blank refuses every move with identity.account_tiers_unset). TEST Premier leaves its monthly fee blank on
     // purpose, so the console shows a tier that cannot be assigned (identity.tier_terms_unset).
     // One copy: the labelled TEST value in tooling/profiles/test-owner-values/identity.json.
-    IDENTITY_ACCOUNT_TIERS: loadProfile().values.IDENTITY_ACCOUNT_TIERS.value,
+    IDENTITY_ACCOUNT_TIERS: testValue('IDENTITY_ACCOUNT_TIERS'),
     // LOCAL TEST referral attach window and code length (J-campaigns-05), labelled TEST in the same profile. Blank refuses
     // every link attach (referral.attach_window_unset) and every new code (referral.code_length_unset).
-    IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS: loadProfile().values.IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS.value,
-    IDENTITY_REFERRAL_CODE_LENGTH: loadProfile().values.IDENTITY_REFERRAL_CODE_LENGTH.value,
+    IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS: testValue('IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS'),
+    IDENTITY_REFERRAL_CODE_LENGTH: testValue('IDENTITY_REFERRAL_CODE_LENGTH'),
     // LOCAL TEST founder pair only: local_test_founder_a / local_test_founder_b from
     // <state>/founders.json. Absent until that vault exists. Never the Docker vault.
     ...identityFounderEnv(),

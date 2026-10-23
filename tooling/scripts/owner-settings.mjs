@@ -142,6 +142,7 @@ export function loadProfile(dir = PROFILE_DIR) {
     .sort();
   for (const file of files) {
     const { label, values } = JSON.parse(readFileSync(join(dir, file), 'utf8'));
+    if (!/^TEST\b/.test(label ?? '')) throw new Error(`${file}: its label must start with TEST.`);
     if (profile.label !== '' && label !== profile.label) throw new Error(`${file}: its label differs from the other TEST profile files.`);
     profile.label = label;
     for (const [name, v] of Object.entries(values)) {

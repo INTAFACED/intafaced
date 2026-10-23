@@ -144,7 +144,7 @@ console.log('local-test-stack: 6 refusal checks passed');
   assert.ok(matching, 'matching service missing');
   assert.equal(
     matching.env.LEDGER_URL,
-    `http://127.0.0.1:${ledger.env.HTTP_PORT}`,
+    `http://${ledger.env.HTTP_HOST}:${ledger.env.HTTP_PORT}`,
     "matching env must contain LEDGER_URL: urlOf('ledger')",
   );
   console.log('local-test-stack: matching ledger hold wiring check passed');
