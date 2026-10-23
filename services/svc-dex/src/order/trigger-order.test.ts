@@ -15,7 +15,7 @@ import {
 } from '@intafaced/contracts';
 import { parseAmount } from '@intafaced/ledger-client/money';
 import { z } from 'zod';
-import { OrderBook, RATE_COPY, RESTING_ORDER_COPY } from './order-book.js';
+import { OrderBook, RATE_COPY, RESTING_ORDER_COPY, poolKey } from './order-book.js';
 import { PRICE_ORDER_TYPES, type OrderDomain } from './order-signature.js';
 import { runKeeperTick, startTriggerKeeper } from './trigger-keeper.js';
 import { minOutForFill, percentString } from './trigger-math.js';
@@ -44,6 +44,7 @@ const account = privateKeyToAccount(`0x${'11'.repeat(32)}` as Hex);
 const MAKER = account.address.toLowerCase();
 const TOKEN_IN = '0x2222222222222222222222222222222222222222';
 const TOKEN_OUT = '0x3333333333333333333333333333333333333333';
+const PAIR = poolKey(TOKEN_IN, TOKEN_OUT);
 const SIG = `0x${'ab'.repeat(65)}`;
 const DOMAIN: OrderDomain = {
   name: 'INTAFACED TEST Order',
@@ -152,7 +153,9 @@ async function placed(over: Partial<TriggerOrderInput['typedOrder']> = {}): Prom
 
 class ScriptPrice implements PricePort {
   result: PriceRead = { status: 'ok', price: parseAmount('104'), observedAt: NOW.toISOString() };
+  onRead: (() => PriceRead | Promise<PriceRead>) | null = null;
   async read(): Promise<PriceRead> {
+    if (this.onRead) return this.onRead();
     return this.result;
   }
 }
@@ -162,12 +165,20 @@ class ScriptFill implements FillPort {
   readonly keys: string[] = [];
   sendCalls = 0;
   liquidity: bigint | null = null;
+  /** Pool free size that a pending send does not reduce. Only `reserved` keeps a second order off it. */
+  stickyPool: bigint | null = null;
   crashNext = false;
   throwNext = false;
-  /** Throw before `noteTx`, so the next tick may retry the same key. */
+  /** Throw before `noteTx`. No hash is stored. */
   throwBeforeNote = false;
-  /** Second call returns rejected. Used when a retry must not clear the row. */
+  /** Return unknown before `noteTx`. */
+  unknownWithoutHash = false;
+  /** Return unwired before `noteTx`. */
+  unwiredNext = false;
+  /** Return rejected before `noteTx`. */
   rejectNext = false;
+  /** Store a hash, then return rejected. */
+  rejectAfterNote = false;
   pause: Promise<void> | null = null;
   onNoted: (() => void) | null = null;
   onSendEntered: (() => void) | null = null;
@@ -178,13 +189,14 @@ class ScriptFill implements FillPort {
 
   async quote(input: { amountIn: bigint; reserved?: bigint }): Promise<FillQuote> {
     const reserved = input.reserved ?? 0n;
-    if (this.liquidity !== null) {
-      const free = this.liquidity > reserved ? this.liquidity - reserved : 0n;
+    const pool = this.stickyPool ?? this.liquidity;
+    if (pool !== null) {
+      const free = pool > reserved ? pool - reserved : 0n;
       if (free <= 0n) return { status: 'insufficient_liquidity' };
     }
     const quoted = this.quoteOf(input.amountIn);
-    if (quoted.status === 'ok' && this.liquidity !== null) {
-      const free = this.liquidity > reserved ? this.liquidity - reserved : 0n;
+    if (quoted.status === 'ok' && pool !== null) {
+      const free = pool > reserved ? pool - reserved : 0n;
       if (quoted.take > free) return { status: 'insufficient_liquidity' };
     }
     return quoted;
@@ -204,11 +216,26 @@ class ScriptFill implements FillPort {
     }
     if (this.throwBeforeNote) {
       this.throwBeforeNote = false;
-      this.rejectNext = true;
       throw new Error('died before the hash was recorded');
     }
-    if (this.liquidity !== null && input.take > this.liquidity) return { status: 'rejected', reason: 'insufficient_liquidity' };
-    if (this.liquidity !== null) this.liquidity -= input.take;
+    if (this.unknownWithoutHash) {
+      this.unknownWithoutHash = false;
+      return { status: 'unknown' };
+    }
+    if (this.unwiredNext) {
+      this.unwiredNext = false;
+      return { status: 'unwired' };
+    }
+    if (this.rejectAfterNote) {
+      this.rejectAfterNote = false;
+      const noted = `0x${createHash('sha256').update(`noted:${input.key}`).digest('hex')}`;
+      input.noteTx?.(noted);
+      return { status: 'rejected', reason: 'reverted' };
+    }
+    if (this.stickyPool === null && this.liquidity !== null && input.take > this.liquidity) {
+      return { status: 'rejected', reason: 'insufficient_liquidity' };
+    }
+    if (this.stickyPool === null && this.liquidity !== null) this.liquidity -= input.take;
     const txHash = `0x${createHash('sha256').update(input.key).digest('hex')}`;
     this.byKey.set(input.key, txHash);
     input.noteTx?.(txHash);
@@ -803,21 +830,206 @@ describe('svc-dex price-trigger orders (D-limit-dca-02)', () => {
     expect(view.remaining).toBe('100');
   });
 
-  it('a later rejected answer does not clear an uncertain send or open round 2', async () => {
+  it('a send with no stored hash clears and does not open the next round', async () => {
+    const price = new ScriptPrice();
+    price.result = { status: 'ok', price: parseAmount('106'), observedAt: NOW.toISOString() };
+
+    const thrown = new ScriptFill();
+    thrown.throwBeforeNote = true;
+    const first = harness({ price, fill: thrown });
+    const created = await first.caller().order.createTrigger(await placed());
+    await runKeeperTick(first.book, { now: () => NOW, settings, price, fill: thrown }, 'throw');
+    const cleared = await first.caller().order.get({ orderHash: created.orderHash });
+    expect(cleared.state).toBe('open');
+    expect(cleared.pendingFill).toBeNull();
+    expect(cleared.remaining).toBe('100');
+    expect(thrown.keys).toEqual([`dex.order.fill:${created.orderHash}:1`]);
+    expect(first.book.attempts(created.orderHash).map((row) => row.reason)).toContain('reverted');
+    expect(first.book.reserved(PAIR)).toBe(0n);
+
+    const rejected = new ScriptFill();
+    rejected.rejectNext = true;
+    const second = harness({ price, fill: rejected });
+    const rejectedOrder = await second.caller().order.createTrigger(await placed({ expiry: '2026-10-25T00:00:00.000Z' }));
+    await runKeeperTick(second.book, { now: () => NOW, settings, price, fill: rejected }, 'reject');
+    expect((await second.caller().order.get({ orderHash: rejectedOrder.orderHash })).state).toBe('open');
+    expect(rejected.keys).toEqual([`dex.order.fill:${rejectedOrder.orderHash}:1`]);
+    expect(second.book.attempts(rejectedOrder.orderHash).map((row) => row.reason)).toEqual(['reverted']);
+
+    const unwired = new ScriptFill();
+    unwired.unwiredNext = true;
+    const third = harness({ price, fill: unwired });
+    const unwiredOrder = await third.caller().order.createTrigger(await placed({ expiry: '2026-10-26T00:00:00.000Z' }));
+    await runKeeperTick(third.book, { now: () => NOW, settings, price, fill: unwired }, 'unwired');
+    expect((await third.caller().order.get({ orderHash: unwiredOrder.orderHash })).state).toBe('open');
+    expect(unwired.keys).toEqual([`dex.order.fill:${unwiredOrder.orderHash}:1`]);
+    expect(third.book.attempts(unwiredOrder.orderHash).map((row) => row.reason)).toEqual(['rail.crypto']);
+
+    const unknown = new ScriptFill();
+    unknown.unknownWithoutHash = true;
+    const fourth = harness({ price, fill: unknown });
+    const unknownOrder = await fourth.caller().order.createTrigger(await placed({ expiry: '2026-10-27T00:00:00.000Z' }));
+    await runKeeperTick(fourth.book, { now: () => NOW, settings, price, fill: unknown }, 'unknown');
+    expect(fourth.book.live(unknownOrder.orderHash)?.executing?.uncertain).toBe(true);
+    expect(fourth.book.live(unknownOrder.orderHash)?.executing?.txHash).toBeNull();
+    unknown.rejectNext = true;
+    await runKeeperTick(fourth.book, { now: () => NOW, settings, price, fill: unknown }, 'later');
+    const after = await fourth.caller().order.get({ orderHash: unknownOrder.orderHash });
+    expect(after.state).toBe('open');
+    expect(after.pendingFill).toBeNull();
+    expect(unknown.keys).toEqual([`dex.order.fill:${unknownOrder.orderHash}:1`, `dex.order.fill:${unknownOrder.orderHash}:1`]);
+    expect(fourth.book.attempts(unknownOrder.orderHash).map((row) => row.reason)).toEqual(['reverted']);
+
+    const noted = new ScriptFill();
+    noted.rejectAfterNote = true;
+    noted.receipt = () => 'pending';
+    const fifth = harness({ price, fill: noted });
+    const notedOrder = await fifth.caller().order.createTrigger(await placed({ expiry: '2026-10-28T00:00:00.000Z' }));
+    await runKeeperTick(fifth.book, { now: () => NOW, settings, price, fill: noted }, 'noted');
+    const held = await fifth.caller().order.get({ orderHash: notedOrder.orderHash });
+    expect(held.state).toBe('executing');
+    expect(held.pendingFill?.txHash).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(noted.keys).toEqual([`dex.order.fill:${notedOrder.orderHash}:1`]);
+    expect(fifth.book.attempts(notedOrder.orderHash)).toHaveLength(0);
+    expect(fifth.book.reserved(PAIR)).toBe(parseAmount('100'));
+  });
+
+  it('two orders of 100 against a pool of 100 do not both send while one read is pending or unwired', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dex-orders-'));
     const price = new ScriptPrice();
     price.result = { status: 'ok', price: parseAmount('106'), observedAt: NOW.toISOString() };
     const fill = new ScriptFill();
-    fill.throwBeforeNote = true;
+    fill.stickyPool = parseAmount('100');
+    fill.receipt = () => 'unwired';
+    const book = new OrderBook(dir);
+    const { caller } = harness({ price, fill, book });
+    await caller().order.createTrigger(await placed());
+    await caller().order.createTrigger(await placed({ expiry: '2026-10-25T00:00:00.000Z' }));
+    await runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'unwired');
+    expect(fill.sent).toHaveLength(1);
+    expect(fill.sent[0]?.take).toBe(parseAmount('100'));
+    expect(book.reserved(PAIR)).toBe(parseAmount('100'));
+    await runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'still-unwired');
+    expect(fill.sendCalls).toBe(1);
+    expect(book.reserved(PAIR)).toBe(parseAmount('100'));
+
+    fill.receipt = () => 'pending';
+    await runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'pending');
+    expect(fill.sendCalls).toBe(1);
+    expect(book.reserved(PAIR)).toBe(parseAmount('100'));
+    expect(
+      book
+        .ids()
+        .map((id) => book.view(id)?.state)
+        .sort(),
+    ).toEqual(['executing', 'open']);
+
+    const resumed = new OrderBook(dir);
+    expect(resumed.reserved(PAIR)).toBe(parseAmount('100'));
+    const fill2 = new ScriptFill();
+    fill2.stickyPool = parseAmount('100');
+    fill2.receipt = () => 'pending';
+    await runKeeperTick(resumed, { now: () => NOW, settings, price, fill: fill2 }, 'restart');
+    expect(fill2.sendCalls).toBe(0);
+    expect(resumed.reserved(PAIR)).toBe(parseAmount('100'));
+
+    fill2.receipt = () => {
+      fill2.stickyPool = 0n;
+      return 'success';
+    };
+    await runKeeperTick(resumed, { now: () => NOW, settings, price, fill: fill2 }, 'mined');
+    expect(fill2.sendCalls).toBe(0);
+    expect(resumed.reserved(PAIR)).toBe(0n);
+    const states = resumed
+      .ids()
+      .map((id) => resumed.view(id)?.state)
+      .sort();
+    expect(states).toEqual(['filled', 'open']);
+  });
+
+  it('an expired executing order with no tx hash does not send', async () => {
+    const price = new ScriptPrice();
+    price.result = { status: 'ok', price: parseAmount('106'), observedAt: NOW.toISOString() };
+    const fill = new ScriptFill();
     const { caller, book } = harness({ price, fill });
     const created = await caller().order.createTrigger(await placed());
-    await runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'throw');
-    expect((await caller().order.get({ orderHash: created.orderHash })).state).toBe('executing');
-    await runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'rejected');
-    const view = await caller().order.get({ orderHash: created.orderHash });
-    expect(view.state).toBe('executing');
-    expect(view.pendingFill?.key).toBe(`dex.order.fill:${created.orderHash}:1`);
-    expect(fill.keys.every((key) => key.endsWith(':1'))).toBe(true);
-    expect(fill.keys.some((key) => key.endsWith(':2'))).toBe(false);
+    const started = book.beginFill(created.orderHash, parseAmount('100'), parseAmount('10'), parseAmount('10'));
+    expect(started?.uncertain).toBe(false);
+    expect(started?.txHash).toBeNull();
+    expect(book.reserved(PAIR)).toBe(parseAmount('100'));
+    const later = new Date('2026-10-24T00:00:01.000Z');
+    await runKeeperTick(book, { now: () => later, settings, price, fill }, 'expired');
+    expect(fill.sendCalls).toBe(0);
+    expect(book.view(created.orderHash)?.state).toBe('expired');
+    expect(book.view(created.orderHash)?.pendingFill).toBeNull();
+    expect(book.reserved(PAIR)).toBe(0n);
+
+    const dir = mkdtempSync(join(tmpdir(), 'dex-orders-'));
+    const fillU = new ScriptFill();
+    fillU.unknownWithoutHash = true;
+    const bookU = new OrderBook(dir);
+    const uncertain = harness({ price, fill: fillU, book: bookU });
+    const row = await uncertain.caller().order.createTrigger(await placed({ expiry: '2026-10-25T00:00:00.000Z' }));
+    await runKeeperTick(bookU, { now: () => NOW, settings, price, fill: fillU }, 'unknown');
+    expect(fillU.sendCalls).toBe(1);
+    expect(bookU.live(row.orderHash)?.executing?.uncertain).toBe(true);
+    expect(bookU.live(row.orderHash)?.executing?.txHash).toBeNull();
+    const resumed = new OrderBook(dir);
+    const past = new Date('2026-10-25T00:00:01.000Z');
+    await runKeeperTick(resumed, { now: () => past, settings, price, fill: fillU }, 'wait');
+    expect(fillU.sendCalls).toBe(1);
+    expect(resumed.view(row.orderHash)?.state).toBe('executing');
+    expect(resumed.live(row.orderHash)?.executing?.txHash).toBeNull();
+    expect(resumed.reserved(PAIR)).toBe(parseAmount('100'));
+  });
+
+  it('a thrown prepare leaves the take reserved until the fill is terminal', async () => {
+    const price = new ScriptPrice();
+    price.result = { status: 'ok', price: parseAmount('106'), observedAt: NOW.toISOString() };
+    let arm = false;
+    let reads = 0;
+    price.onRead = () => {
+      if (!arm) return price.result;
+      reads += 1;
+      if (reads === 2) throw new Error('oracle read failed');
+      return price.result;
+    };
+    const fill = new ScriptFill();
+    fill.stickyPool = parseAmount('100');
+    fill.receipt = () => 'pending';
+    const { caller, book } = harness({ price, fill });
+    await caller().order.createTrigger(await placed());
+    await caller().order.createTrigger(await placed({ expiry: '2026-10-25T00:00:00.000Z' }));
+    arm = true;
+    await expect(runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'boom')).rejects.toThrow('oracle read failed');
+    expect(book.tickOpen()).toBe(false);
+    expect(fill.sendCalls).toBe(0);
+    expect(book.reserved(PAIR)).toBe(parseAmount('100'));
+    const executingId = book.ids().find((id) => book.view(id)?.state === 'executing');
+    expect(executingId).toBeTruthy();
+    expect(book.live(executingId ?? '')?.executing?.txHash).toBeNull();
+    expect(book.live(executingId ?? '')?.executing?.uncertain).toBe(false);
+
+    price.onRead = null;
+    await runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'retry');
+    expect(fill.sendCalls).toBe(1);
+    expect(fill.keys).toEqual([`dex.order.fill:${executingId}:1`]);
+    expect(book.reserved(PAIR)).toBe(parseAmount('100'));
+    expect(book.ids().filter((id) => book.view(id)?.state === 'executing')).toHaveLength(1);
+
+    fill.receipt = () => {
+      fill.stickyPool = 0n;
+      return 'success';
+    };
+    await runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'done');
+    expect(fill.sendCalls).toBe(1);
+    expect(book.reserved(PAIR)).toBe(0n);
+    expect(book.view(executingId ?? '')?.state).toBe('filled');
+    const open = book
+      .ids()
+      .map((id) => book.view(id))
+      .find((row) => row?.state === 'open');
+    expect(open?.remaining).toBe('100');
   });
 
   it('does not start a second tick while one is sending, and reserves the pool across orders', async () => {

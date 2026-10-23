@@ -29,7 +29,7 @@ export interface FillQuoteInput {
   readonly tokenIn: string;
   readonly tokenOut: string;
   readonly amountIn: bigint;
-  /** Size already reserved by in-flight fills on this pair. The quote must not spend it twice. */
+  /** Sum of executing takes on this pair. The quote must not spend them twice. */
   readonly reserved: bigint;
 }
 
@@ -67,9 +67,10 @@ export interface FillPort {
   /**
    * At most one broadcast per `key` (`dex.order.fill:<orderHash>:<round>`).
    * Record the key before any broadcast. A repeat returns the same hash and does not broadcast again.
-   * Call `noteTx` with the hash before resolving, rejecting, or returning `unknown`.
-   * `unknown` means the broadcast may have happened; the caller keeps the order `executing` and reads by hash.
-   * A later `rejected` or `unwired` must not be treated as proof that nothing was broadcast.
+   * Call `noteTx` with the hash before resolving, rejecting, or returning `unknown`, when a hash exists.
+   * `unknown` means the broadcast may have happened. The caller keeps the order `executing`.
+   * A throw, `rejected`, or `unwired` with no stored hash was not a broadcast: the caller clears the row and does not start the next round.
+   * A stored hash is finished only by `read`.
    */
   send(input: FillSendInput): Promise<FillSend>;
   read(txHash: string): Promise<FillReceipt>;

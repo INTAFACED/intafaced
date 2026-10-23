@@ -78,7 +78,7 @@ interface Executing {
   floor: bigint;
   quotedOut: bigint;
   txHash: string | null;
-  /** True once `send` has been entered. A later rejected or unwired answer must not clear the row. */
+  /** True once a tx hash is stored, or `send` has returned unknown. */
   uncertain: boolean;
 }
 
@@ -370,7 +370,6 @@ export class OrderBook {
   private readonly attemptsByOrder = new Map<string, AttemptView[]>();
   private readonly tails = new Map<string, Promise<void>>();
   private readonly busy = new Set<string>();
-  private readonly held = new Map<string, bigint>();
   private tickRunning = false;
 
   /** `dir` omitted: a private temp directory. Pass the same directory to resume after a restart. */
@@ -410,20 +409,19 @@ export class OrderBook {
     return this.busy.has(orderHash);
   }
 
-  /** Quoted size held for in-flight sends on this pair. Not a balance. */
+  /**
+   * Sum of executing takes on this pair, from the loaded rows. Not a balance.
+   * Stays until `applyFill` or `clearExecuting`, including after a restart.
+   */
   reserved(pair: string): bigint {
-    return this.held.get(pair) ?? 0n;
-  }
-
-  hold(pair: string, take: bigint): void {
-    if (take <= 0n) return;
-    this.held.set(pair, (this.held.get(pair) ?? 0n) + take);
-  }
-
-  release(pair: string, take: bigint): void {
-    const next = (this.held.get(pair) ?? 0n) - take;
-    if (next <= 0n) this.held.delete(pair);
-    else this.held.set(pair, next);
+    let total = 0n;
+    for (const row of this.rows.values()) {
+      const exec = row.executing;
+      if (row.state !== 'executing' || !exec) continue;
+      if (poolKey(row.tokenIn, row.tokenOut) !== pair) continue;
+      total += exec.take;
+    }
+    return total;
   }
 
   /** One order at a time. The next caller waits until `fn` finishes, including its awaits. */
@@ -538,20 +536,21 @@ export class OrderBook {
     return executing;
   }
 
-  /** Persist before `send` returns. A repeat of the same hash is a no-op. */
+  /** Persist the hash before `send` returns, and mark the row uncertain. A repeat is a no-op. */
   noteTx(orderHash: string, txHash: string): void {
     const row = this.rows.get(orderHash);
     if (!row?.executing) return;
     if (row.executing.txHash) return;
     if (txHash.trim() === '') return;
     row.executing.txHash = txHash;
+    row.executing.uncertain = true;
     this.persist();
   }
 
-  /** Called immediately before `send` is awaited. A crash after this stays uncertain. */
-  noteSendStarted(orderHash: string): void {
+  /** `send` returned unknown and stored no hash. A crash after this stays executing. */
+  markUncertain(orderHash: string): void {
     const exec = this.rows.get(orderHash)?.executing;
-    if (!exec || exec.uncertain) return;
+    if (!exec || exec.uncertain || exec.txHash) return;
     exec.uncertain = true;
     this.persist();
   }

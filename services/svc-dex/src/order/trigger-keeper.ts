@@ -2,10 +2,12 @@
  * Keeper tick for resting price-trigger orders (D-limit-dca-02, VLT-5).
  *
  * A stale or disagreeing price does not fill. The intent is on disk before `send`.
- * The tx hash is recorded by `noteTx` before `send` resolves or rejects. A throw or
- * `unknown` stays `executing` until `fill.read` on that hash returns `reverted` or
- * success. A later rejected or unwired answer does not clear the row. One tick at
- * a time. Quoted size is reserved across orders until each send settles.
+ * Quoted size is the sum of executing takes on the pair. It stays until `applyFill`
+ * or `clearExecuting`, including when `fill.read` is pending or unwired, and when
+ * a tick throws before the queued send runs. The next tick reconciles that row.
+ * A terminal read clears it. Uncertain is set only once `noteTx` stores a hash,
+ * or `send` returns unknown. A throw, rejection, or unwired answer with no stored
+ * hash clears the row and does not start the next round. One tick at a time.
  */
 
 import { attemptReasons, refuseTrigger, triggerOrderCodes, type AttemptReason } from './trigger-error.js';
@@ -97,14 +99,8 @@ async function prepare(book: OrderBook, deps: KeeperDeps, tickId: string, orderH
 
   const exec = book.beginFill(orderHash, quote.take, floor, quote.out);
   if (!exec) return null;
-  book.hold(pair, exec.take);
-  const take = exec.take;
   return async () => {
-    try {
-      await broadcast(book, deps, tickId, orderHash, now);
-    } finally {
-      book.release(pair, take);
-    }
+    await broadcast(book, deps, tickId, orderHash, now);
   };
 }
 
@@ -113,11 +109,18 @@ function note(book: OrderBook, orderHash: string, tickId: string, reason: Attemp
   return null;
 }
 
+/** No hash was stored, so nothing was broadcast. Clears the intent and does not begin another round. */
+function abandonUnsent(book: OrderBook, orderHash: string, tickId: string, now: Date, reason: AttemptReason): void {
+  const exec = book.live(orderHash)?.executing;
+  if (!exec || exec.txHash) return;
+  book.clearExecuting(orderHash);
+  note(book, orderHash, tickId, reason, now);
+}
+
 async function broadcast(book: OrderBook, deps: KeeperDeps, tickId: string, orderHash: string, now: Date): Promise<void> {
   const row = book.live(orderHash);
   const exec = row?.executing;
   if (!row || !exec) return;
-  book.noteSendStarted(orderHash);
   let sent: FillSend;
   try {
     sent = await deps.fill.send({
@@ -131,32 +134,33 @@ async function broadcast(book: OrderBook, deps: KeeperDeps, tickId: string, orde
       noteTx: (txHash) => book.noteTx(orderHash, txHash),
     });
   } catch {
-    // The port may have broadcast before throwing. `noteTx` already persisted the hash when it had one.
+    // A hash means `noteTx` ran, so the broadcast may have happened. Only `fill.read` may finish it.
+    if (book.live(orderHash)?.executing?.txHash) return;
+    abandonUnsent(book, orderHash, tickId, now, attemptReasons.reverted);
     return;
   }
   if (sent.status === 'unknown') {
     if (sent.txHash) book.noteTx(orderHash, sent.txHash);
+    else book.markUncertain(orderHash);
     return;
   }
   const hash = book.live(orderHash)?.executing?.txHash;
   if (sent.status === 'rejected' || sent.status === 'unwired') {
-    // This answer is the send just started. A stored hash means the broadcast
-    // already happened, so only fill.read may clear it. No hash: nothing went out.
+    // A stored hash means the broadcast already happened, so only fill.read may clear it.
     if (hash) {
       await readStored(book, deps, tickId, orderHash, now);
       return;
     }
-    book.clearExecuting(orderHash);
-    note(
+    abandonUnsent(
       book,
       orderHash,
       tickId,
+      now,
       sent.status === 'unwired'
         ? attemptReasons.railCrypto
         : sent.reason === 'reverted'
           ? attemptReasons.reverted
           : attemptReasons.insufficientLiquidity,
-      now,
     );
     return;
   }
@@ -165,47 +169,22 @@ async function broadcast(book: OrderBook, deps: KeeperDeps, tickId: string, orde
 }
 
 async function reconcile(book: OrderBook, deps: KeeperDeps, tickId: string, orderHash: string, now: Date): Promise<void> {
-  const exec = book.live(orderHash)?.executing;
-  if (!exec) return;
+  const row = book.live(orderHash);
+  const exec = row?.executing;
+  if (!row || !exec) return;
   if (exec.txHash) {
     await readStored(book, deps, tickId, orderHash, now);
     return;
   }
-  if (exec.uncertain) {
-    await retryUncertain(book, deps, tickId, orderHash, now);
+  // No hash: a send was never confirmed. Past expiry, do not broadcast.
+  if (Date.parse(row.expiry) <= now.getTime()) {
+    if (!exec.uncertain) {
+      book.clearExecuting(orderHash);
+      book.markExpired(orderHash);
+    }
     return;
   }
   await broadcast(book, deps, tickId, orderHash, now);
-}
-
-/** Same fill key only. A rejected or unwired retry does not open a new round. */
-async function retryUncertain(book: OrderBook, deps: KeeperDeps, tickId: string, orderHash: string, now: Date): Promise<void> {
-  const row = book.live(orderHash);
-  const exec = row?.executing;
-  if (!row || !exec || exec.txHash) return;
-  let sent: FillSend;
-  try {
-    sent = await deps.fill.send({
-      key: exec.key,
-      orderHash: row.orderHash,
-      maker: row.maker,
-      tokenIn: row.tokenIn,
-      tokenOut: row.tokenOut,
-      take: exec.take,
-      minOut: exec.floor,
-      noteTx: (txHash) => book.noteTx(orderHash, txHash),
-    });
-  } catch {
-    return;
-  }
-  if (sent.status === 'sent') {
-    book.noteTx(orderHash, sent.txHash);
-    await readStored(book, deps, tickId, orderHash, now);
-    return;
-  }
-  if (sent.status === 'unknown' && sent.txHash) book.noteTx(orderHash, sent.txHash);
-  const hash = book.live(orderHash)?.executing?.txHash;
-  if (hash) await readStored(book, deps, tickId, orderHash, now);
 }
 
 async function readStored(book: OrderBook, deps: KeeperDeps, tickId: string, orderHash: string, now: Date): Promise<void> {
