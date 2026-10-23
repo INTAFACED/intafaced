@@ -3,7 +3,6 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { Campaigns } from './Campaigns';
 import { LaunchJourney, LaunchParticipation } from './LaunchRooms';
 import { MiningRooms, RewardsView, SharesView, WorkersView } from './MiningRooms';
-import { QuantLibrary } from './QuantLibrary';
 import type { Resource } from '../../shared/resource';
 import type { MiningHealth } from './mining-journey';
 
@@ -203,27 +202,5 @@ describe('rooms with no backing service', () => {
     const html = renderToStaticMarkup(<RewardsView terms={failed} pending={failed} payouts={failed} />);
     expect(html).toContain('This account cannot read that.');
     expect(html).not.toContain('Paid to you</dt><dd>0');
-  });
-  it('Quant library labels the strategies as shared, not private, saving off, and simulated', () => {
-    const html = renderToStaticMarkup(
-      <QuantLibrary
-        onPick={() => undefined}
-        strategies={[
-          {
-            id: 's_1',
-            name: 'Momentum',
-            environment: 'paper',
-            claimLabel: 'Paper — not live performance',
-            cash: '1000',
-            blocks: [{ side: 'buy', symbol: 'BTC-USD', qty: '1' }],
-            risk: { maxDrawdown: '0.1', maxNotional: '500', kill: '0.2' },
-          },
-        ]}
-      />,
-    );
-    expect(html).toContain('Shared library');
-    expect(html).toContain('Everyone using this service sees the same strategies here.');
-    expect(html).toContain('Momentum');
-    expect(html).toContain('Showing 1 of 1 loaded');
   });
 });

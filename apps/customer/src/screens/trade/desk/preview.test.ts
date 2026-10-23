@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Preview } from '../../../features/trade/trade-api';
-import { failureOf, previewIsOrderable, previewRefusalCode, refusalFailure } from './preview';
+import { asReplacement, failureOf, previewFailure, previewIsOrderable, previewRefusalCode, refusalFailure } from './preview';
 
 const preview = (extra: Partial<Preview> = {}): Preview => ({
   symbol: 'BTC/USDT',
@@ -19,6 +19,37 @@ const preview = (extra: Partial<Preview> = {}): Preview => ({
   orderable: true,
   refusals: [],
   ...extra,
+});
+
+describe('asReplacement', () => {
+  const cap = { code: 'trade.operator_throttle', field: 'symbol', message: 'm', data: { cap: '20', open: '20' } };
+  const band = { code: 'trade.price_band', field: 'price', message: 'm' };
+  it('an edit is never refused by an open-order cap: the replacement takes the slot its original frees', () => {
+    expect(previewIsOrderable(asReplacement(preview({ orderable: false, refusals: [cap] })))).toBe(true);
+    expect(
+      previewIsOrderable(asReplacement(preview({ orderable: false, refusals: [{ ...cap, code: 'trade.limit_max_open_orders' }] }))),
+    ).toBe(true);
+    expect(
+      previewIsOrderable(asReplacement(preview({ orderable: false, refusals: [{ ...cap, code: 'trade.open_orders_cap_unset' }] }))),
+    ).toBe(true);
+  });
+  it('every other refusal stays', () => {
+    expect(previewIsOrderable(asReplacement(preview({ orderable: false, refusals: [cap, band] })))).toBe(false);
+    expect(asReplacement(preview({ orderable: false, refusals: [band] })).refusals).toEqual([band]);
+  });
+});
+
+describe('previewFailure', () => {
+  it('names the band edges at the tick and the cap with the count', () => {
+    const band = { code: 'trade.price_band', field: 'price', message: 'm', data: { low: '58500', high: '71500', collar: '0.1' } };
+    const failure = previewFailure(preview({ orderable: false, refusals: [band] }), {}, '0.01');
+    expect(failure.kind === 'refusal' && failure.copy.body).toContain('buy prices up to 71,500.00 and sell prices down to 58,500.00');
+    const cap = { code: 'trade.operator_throttle', field: 'symbol', message: 'm', data: { cap: '20', open: '20' } };
+    const full = previewFailure(preview({ orderable: false, refusals: [cap] }), {});
+    expect(full.kind === 'refusal' && full.copy.body).toBe(
+      'You have 20 open orders here and this market allows 20. Cancel one to place another.',
+    );
+  });
 });
 
 describe('previewIsOrderable', () => {

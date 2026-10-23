@@ -1,6 +1,8 @@
 /**
- * The Futures ticket (TRFUT-SPEC §2.2). A position opens at the mark the service accepts, so the form is: direction,
- * size, leverage, Review (the service's own preview), then Open behind a confirm step that re-checks the numbers.
+ * The Futures ticket (TRFUT-SPEC §2.2). A position opens through an order on the futures book (futures ADR): market
+ * (it fills at the best prices up to the price band's edge) or limit (it rests at the trader's price). The form is:
+ * direction, order type, size, leverage, Review (the service's own preview at the mark), then Open behind a confirm
+ * step that re-checks the numbers.
  * Every control that cannot work says the real reason in one line. Nothing is sent from here except through the
  * shared writer, and one intent keeps one request id until the numbers change.
  */
@@ -13,7 +15,6 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  Badge,
   Button,
   Collapsible,
   CollapsibleTrigger,
@@ -23,6 +24,7 @@ import {
   KeyValue,
   Menu,
   MenuContent,
+  MenuGroup,
   MenuItem,
   MenuLabel,
   MenuTrigger,
@@ -37,12 +39,12 @@ import {
   Switch,
   type KeyValueItem,
 } from '@intafaced/ui';
-import { dec, isPositive, str } from '../../../data/decimal';
-import { fmtAmount, fmtPctPoints, fmtPrice } from '../../../data/format';
+import { dec, fractionDigits, isPositive, str } from '../../../data/decimal';
+import { fmtAmount, fmtPct, fmtPctPoints, fmtPrice } from '../../../data/format';
 import type { BalanceEntry } from '../../../data/derive';
 import type { Loadable } from '../../../data/types';
-import type { AdlDisclosure, FuturesListing, PositionPreview, TickerStrip } from './api';
-import { STALE_AFTER_MS, useFuturesApi, useFuturesRefresh } from './data';
+import type { AdlDisclosure, FuturesListing, FuturesOrder, OrderTypeEntry, PositionPreview, TickerStrip } from './api';
+import { STALE_AFTER_MS, useFuturesApi, useFuturesRefresh, useOrderTypes } from './data';
 import { newNonce, useFuturesWriter, type Writer } from './hooks';
 import { allInCost, isStale, leveragePresets, openId, stateOf } from './model';
 import { futuresRefusal, isPlaneOff, type FuturesRefusal } from './refusals';
@@ -56,6 +58,7 @@ import {
   reviewBlock,
   sameForm,
   sizeInBase,
+  splitPreview,
   sizePlaces,
   type FormKey,
   type OpenBlock,
@@ -74,7 +77,8 @@ export interface TicketProps {
   /** The futures plane is switched off: the form is replaced by one block naming the switch. */
   planeOff: boolean;
   now: number;
-  onOpened(position: Position): void;
+  /** The order the book took: filled into a position, or resting. */
+  onOpened(order: FuturesOrder | null): void;
 }
 
 type Review =
@@ -88,21 +92,32 @@ interface Confirm {
   data: PositionPreview;
   changed: boolean;
   checking: boolean;
+  /** Placed as the children the review named (`split`), not as one order. */
+  split: boolean;
 }
 
-const ORDER_TYPES = [
-  'Type limit',
-  'Type stop market',
-  'Type stop limit',
-  'Type take profit',
-  'Type trailing',
-  'Type post only',
-  'Type ioc fok',
-  'Type scaled',
-  'Type twap',
-] as const;
+/** The two types the futures book takes; everything else the catalogue lists is shown with its refusal. */
+type BookType = 'market' | 'limit';
+const BOOK_TYPES: readonly BookType[] = ['market', 'limit'];
 const PERCENTS = [25, 50, 75, 100] as const;
 const note = 'text-xs text-fg-2';
+
+/** Words for the order type ids the service's catalogue lists; an id without words is shown as sent. */
+const TYPE_NAMES = {
+  stop_market: 'Type stop market',
+  stop_limit: 'Type stop limit',
+  take_profit: 'Type take profit',
+  trailing: 'Type trailing',
+  trailing_stop: 'Type trailing',
+  post_only: 'Type post only',
+  ioc: 'Type ioc fok',
+  fok: 'Type ioc fok',
+  scaled: 'Type scaled',
+  twap: 'Type twap',
+} as const;
+
+const COLLATERAL_CHOICES = ['cash', 'yield_bearing', 'staked', 'lending_idle'] as const;
+type CollateralChoice = (typeof COLLATERAL_CHOICES)[number];
 
 export function Ticket(props: TicketProps) {
   const { market, strip, balances, disclosure, now, onOpened } = props;
@@ -113,11 +128,17 @@ export function Ticket(props: TicketProps) {
   const asset = market.settle ?? market.quote;
 
   const [side, setSide] = useState<Side>('long');
+  const [orderType, setOrderType] = useState<BookType>('market');
+  const [limitRaw, setLimitRaw] = useState('');
+  const [adjust, setAdjust] = useState(false);
+  const catalogue = useOrderTypes();
   const [unit, setUnit] = useState<SizeUnit>('base');
   const [sizeRaw, setSizeRaw] = useState('');
   const [leverage, setLeverage] = useState('');
   const [nonce, setNonce] = useState(newNonce);
   const [review, setReview] = useState<Review>({ status: 'idle' });
+  const [modeAsked, setModeAsked] = useState<string | null>(null);
+  const [collateral, setCollateral] = useState<CollateralChoice>('cash');
   const [cap, setCap] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [offSeen, setOffSeen] = useState(false);
@@ -125,8 +146,28 @@ export function Ticket(props: TicketProps) {
 
   const size = sizeInBase(sizeRaw, unit, market);
   const lev = dec(leverage) === null ? '' : str(dec(leverage)!);
+  const limitPrice = orderType === 'limit' && isPositive(limitRaw) ? str(dec(limitRaw)!) : null;
+  const entries: OrderTypeEntry[] =
+    catalogue.status === 'ready' ? (catalogue.data.markets.find((m) => m.market === market.symbol)?.orderTypes ?? []) : [];
+  const offered = BOOK_TYPES.filter((id) => entries.some((e) => e.id === id && e.state === 'available'));
+  const refusedTypes = entries.filter((e) => e.state === 'refused');
+  const typeName = (id: string) => {
+    const key = Object.hasOwn(TYPE_NAMES, id) ? TYPE_NAMES[id as keyof typeof TYPE_NAMES] : null;
+    return key ? t(key) : id;
+  };
   const form: FormKey | null =
-    size !== null && isPositive(size) && isPositive(lev) ? { symbol: market.symbol, side, size, leverage: lev } : null;
+    size !== null && isPositive(size) && isPositive(lev) && (orderType === 'market' || limitPrice !== null)
+      ? {
+          symbol: market.symbol,
+          side,
+          size,
+          leverage: lev,
+          ...(collateral === 'cash' ? {} : { collateralClass: collateral }),
+          type: orderType,
+          ...(limitPrice !== null ? { limitPrice } : {}),
+          ...(orderType === 'limit' && adjust ? { priceCorrection: 'adjust' as const } : {}),
+        }
+      : null;
   const formRef = useRef(form);
   formRef.current = form;
   const request = useRef(0);
@@ -180,8 +221,14 @@ export function Ticket(props: TicketProps) {
       leverage: lev,
       free,
     });
-  const openOff = gate(shown);
-  const reviewOff = reviewBlock({ planeOff, signedOut, markKnown: markNow !== null, markStale, size, leverage: lev });
+  const typeOff = !offered.includes(orderType) ? 'typeUnavailable' : orderType === 'limit' && limitPrice === null ? 'noLimitPrice' : null;
+  const openOff = gate(shown) ?? typeOff;
+  // Above the max-order the review names a split: it may be placed as those children when nothing else refuses.
+  const splitShown = splitPreview(shown);
+  const splitOff = splitShown ? (gate(splitShown) ?? typeOff) : null;
+  const reviewOff =
+    reviewBlock({ planeOff, signedOut, markKnown: markNow !== null, markStale, size, leverage: lev }) ??
+    (orderType === 'limit' && limitPrice === null ? 'noLimitPrice' : null);
 
   if (planeOff)
     return (
@@ -249,12 +296,25 @@ export function Ticket(props: TicketProps) {
       if (!previewsEqual(result.data, confirm.data)) {
         setCap(result.data.leverageCap);
         setReview({ status: 'ready', form: asked, data: result.data, at: Date.now() });
-        setConfirm({ data: result.data, changed: true, checking: false });
+        setConfirm({ data: result.data, changed: true, checking: false, split: confirm.split });
         return;
       }
     }
     setConfirm(null);
-    finish(await writer.run({ op: 'open', input: { ...asked, clientOpenId: openId(nonce) } }));
+    if (typeOff !== null) return;
+    const { limitPrice: askedPrice, ...rest } = asked;
+    finish(
+      await writer.run({
+        op: 'open',
+        input: {
+          ...rest,
+          type: orderType,
+          ...(askedPrice !== undefined ? { price: askedPrice } : {}),
+          ...(confirm.split ? { split: true as const } : {}),
+          clientOpenId: openId(nonce),
+        },
+      }),
+    );
   }
 
   function finish(outcome: WriteOutcome) {
@@ -264,7 +324,7 @@ export function Ticket(props: TicketProps) {
       setNonce(newNonce());
       setReview({ status: 'idle' });
       setConfirm(null);
-      onOpened(outcome.position);
+      onOpened(outcome.order ?? null);
     } else if (outcome.kind === 'refused' && isPlaneOff(outcome.refusal.code)) setOffSeen(true);
   }
 
@@ -296,10 +356,40 @@ export function Ticket(props: TicketProps) {
         hint: t('Distance hint'),
       },
       { label: t('Leverage cap'), value: p.leverageCap === null ? null : `${fmtAmount(p.leverageCap)}x` },
+      ...controlItems(p),
     ];
   };
+  /** The band, the price the order is held and sent at, the slippage cap and the max-order: the limits this order meets. */
+  const controlItems = (p: PositionPreview): KeyValueItem[] => {
+    if (p.band === undefined) return [];
+    const items: KeyValueItem[] = [
+      {
+        label: t('Price band'),
+        value: p.band === null ? t('Not set') : t('Band range', { low: price(p.band.low) ?? '', high: price(p.band.high) ?? '' }),
+        hint: p.band === null ? t('Band unset hint') : t('Band hint', { pct: fmtPct(p.band.fraction, { signed: false }) }),
+      },
+      { label: p.type === 'limit' ? t('Order price limit') : t('Order price market'), value: price(p.orderPrice ?? null) },
+    ];
+    if (p.type !== 'limit') {
+      items.push({
+        label: t('Slippage cap'),
+        value: p.slippageCapBps == null ? t('Not set') : t('Slippage bps', { bps: String(p.slippageCapBps) }),
+        hint: p.slippageCapBps == null ? t('Slippage unset hint') : t('Slippage hint'),
+      });
+    }
+    if (p.priceCorrection) {
+      items.push({
+        label: t('Price corrected'),
+        value: t('Corrected from to', { asked: price(p.priceCorrection.asked) ?? '', applied: price(p.priceCorrection.applied) ?? '' }),
+      });
+    }
+    items.push({ label: t('Max order'), value: p.maxOrderNotional == null ? t('Not set') : money(p.maxOrderNotional) });
+    return items;
+  };
 
-  const offWords: Record<Exclude<OpenBlock | ReviewBlock, null>, string> = {
+  const offWords: Record<Exclude<OpenBlock | ReviewBlock | typeof typeOff, null>, string> = {
+    typeUnavailable: catalogue.status === 'ready' ? t('Off type unavailable') : t('Off types loading'),
+    noLimitPrice: t('Off no limit price'),
     planeOff: t('Off plane'),
     signedOut: t('Off signed out'),
     disclosureLoading: t('Off disclosure loading'),
@@ -346,7 +436,20 @@ export function Ticket(props: TicketProps) {
       <div className="flex items-center justify-between gap-2">
         <span className="text-sm text-fg-2">{t('Margin mode')}</span>
         <span className="flex items-center gap-2">
-          <Badge>{t('Isolated')}</Badge>
+          <SegmentedControl
+            aria-label={t('Margin mode')}
+            size={28}
+            value="isolated"
+            onValueChange={(v) =>
+              // Only isolated is live. Choosing another mode changes nothing and sends nothing: it names the rule.
+              setModeAsked(v === 'cross' ? 'trade.cross_margin_unsupported' : v === 'portfolio' ? 'trade.portfolio_margin_unset' : null)
+            }
+            items={[
+              { value: 'isolated', label: t('Isolated') },
+              { value: 'cross', label: t('Cross') },
+              { value: 'portfolio', label: t('Portfolio') },
+            ]}
+          />
           <Popover>
             <PopoverTrigger render={<Button variant="ghost" size={28} />}>{t('Why only isolated')}</PopoverTrigger>
             <PopoverContent>
@@ -355,24 +458,103 @@ export function Ticket(props: TicketProps) {
           </Popover>
         </span>
       </div>
+      {modeAsked ? (
+        <p role="status" className="text-xs text-warn" data-code={modeAsked}>
+          {futuresRefusal({ code: modeAsked }).title}. {futuresRefusal({ code: modeAsked }).body}
+        </p>
+      ) : null}
+
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-sm text-fg-2">{t('Margin from')}</span>
+        {/* Cash is the margin. Another choice is sent to the review as chosen, so the service names its own refusal. */}
+        <SegmentedControl
+          aria-label={t('Margin from')}
+          size={28}
+          value={collateral}
+          onValueChange={(v) => {
+            setCollateral(v as CollateralChoice);
+            touch();
+          }}
+          items={COLLATERAL_CHOICES.map((c) => ({ value: c, label: t(`Margin from ${c}`) }))}
+        />
+      </div>
 
       <div className="flex items-center justify-between gap-2">
         <span className="text-sm text-fg-2">{t('Order type')}</span>
-        <Menu>
-          <MenuContent align="end">
-            <MenuLabel>{t('Order types off')}</MenuLabel>
-            {ORDER_TYPES.map((key) => (
-              <MenuItem key={key} disabled>
-                {t(key)}
-              </MenuItem>
-            ))}
-          </MenuContent>
-          <MenuTrigger render={<Button variant="secondary" size={32} />}>
-            {t('Market at accepted mark')}
-            <span aria-hidden="true"> ▾</span>
-          </MenuTrigger>
-        </Menu>
+        <span className="flex items-center gap-2">
+          <SegmentedControl
+            aria-label={t('Order type')}
+            size={32}
+            value={orderType}
+            onValueChange={(v) => {
+              setOrderType(v as BookType);
+              touch();
+            }}
+            items={BOOK_TYPES.map((id) => ({
+              value: id,
+              label: t(id === 'market' ? 'Type market' : 'Type limit'),
+              disabled: !offered.includes(id),
+            }))}
+          />
+          <Menu>
+            <MenuContent align="end">
+              <MenuGroup>
+                <MenuLabel>{catalogue.status === 'ready' ? t('Order types off') : t('Off types loading')}</MenuLabel>
+                {refusedTypes.map((entry) => (
+                  <MenuItem key={entry.id} disabled>
+                    <span className="flex flex-col">
+                      <span>{typeName(entry.id)}</span>
+                      <span className="text-2xs text-fg-3">
+                        {futuresRefusal({ code: entry.code ?? 'trade.order_type_unsupported' }).body}
+                      </span>
+                    </span>
+                  </MenuItem>
+                ))}
+              </MenuGroup>
+            </MenuContent>
+            <MenuTrigger render={<Button variant="ghost" size={32} aria-label={t('Other order types')} />}>
+              {t('More types')}
+              <span aria-hidden="true"> ▾</span>
+            </MenuTrigger>
+          </Menu>
+        </span>
       </div>
+      <p className={note}>{orderType === 'market' ? t('Market rule') : t('Limit rule')}</p>
+      {orderType === 'limit' ? (
+        <Field label={t('Limit price')} hint={t('Limit price hint')}>
+          <Input
+            kind="decimal"
+            value={limitRaw}
+            precision={fractionDigits(market.precision.price) ?? 2}
+            onValueChange={(v) => {
+              setLimitRaw(v);
+              touch();
+            }}
+            trailing={asset}
+          />
+        </Field>
+      ) : null}
+      {orderType === 'limit' ? (
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center justify-between gap-2">
+            <span id="ticket-correct" className="text-sm text-fg-2">
+              {t('Price correction')}
+            </span>
+            <Switch
+              checked={adjust}
+              onCheckedChange={(on) => {
+                setAdjust(on);
+                touch();
+              }}
+              aria-labelledby="ticket-correct"
+              aria-describedby="ticket-correct-why"
+            />
+          </div>
+          <p id="ticket-correct-why" className={note}>
+            {adjust ? t('Price correction on') : t('Price correction off')}
+          </p>
+        </div>
+      ) : null}
 
       <div className="flex items-center justify-between gap-2" aria-live="polite">
         <span className="text-sm text-fg-2">{t('Mark')}</span>
@@ -516,11 +698,35 @@ export function Ticket(props: TicketProps) {
       {shown && review.status === 'ready' ? (
         <>
           <KeyValue density="dense" items={costItems(shown, review.at)} unknownLabel={t('Unknown figure')} now={now} />
-          {shown.refusals.map((r) => (
-            <p key={`${r.code}:${r.field}`} role="status" className="text-xs text-warn">
-              {r.message}
-            </p>
-          ))}
+          {shown.refusals.map((r) => {
+            const words = r.field === 'collateral' ? futuresRefusal({ code: r.code }) : null;
+            return (
+              <p key={`${r.code}:${r.field}`} role="status" className="text-xs text-warn" data-code={r.code}>
+                {words ? `${words.title}. ${words.body}` : r.message}
+              </p>
+            );
+          })}
+          {shown.split && splitShown ? (
+            <section aria-label={t('Split title')} className="flex flex-col gap-2 rounded-lg border border-line p-3">
+              <h4 className="text-sm font-medium">{t('Split title')}</h4>
+              <p className={note}>
+                {t('Split body', {
+                  max: money(shown.maxOrderNotional ?? null) ?? '—',
+                  parts: String(shown.split.parts),
+                  sizes: shown.split.sizes.map((x) => `${fmtAmount(x)} ${market.base}`).join(', '),
+                })}
+              </p>
+              <Button
+                variant="secondary"
+                size={32}
+                disabled={splitOff !== null}
+                onClick={() => setConfirm({ data: shown, changed: false, checking: false, split: true })}
+              >
+                {t('Split button', { parts: String(shown.split.parts) })}
+              </Button>
+              {splitOff !== null ? <p className={note}>{offWords[splitOff]}</p> : null}
+            </section>
+          ) : null}
         </>
       ) : review.status === 'idle' || (review.status === 'ready' && !shown) ? (
         <p className={note}>{t('Review to see cost')}</p>
@@ -542,7 +748,7 @@ export function Ticket(props: TicketProps) {
         fullWidth
         disabled={openOff !== null}
         loading={writer.busy}
-        onClick={() => shown && setConfirm({ data: shown, changed: false, checking: false })}
+        onClick={() => shown && setConfirm({ data: shown, changed: false, checking: false, split: false })}
       >
         {side === 'long' ? t('Open long') : t('Open short')}
       </Button>
@@ -578,7 +784,14 @@ export function Ticket(props: TicketProps) {
               items={[
                 { label: t('Direction'), value: sideWord },
                 { label: t('Size row'), value: form ? `${fmtAmount(form.size)} ${market.base}` : null },
+                ...(confirm.split && confirm.data.split
+                  ? [{ label: t('Split row'), value: t('Split as', { parts: String(confirm.data.split.parts) }) }]
+                  : []),
                 { label: t('Leverage row'), value: form ? `${fmtAmount(form.leverage)}x` : null },
+                {
+                  label: t('Order type'),
+                  value: orderType === 'market' ? t('Type market') : t('Limit at', { price: price(limitPrice) ?? '—' }),
+                },
                 ...costItems(confirm.data, null),
               ]}
             />
@@ -589,7 +802,7 @@ export function Ticket(props: TicketProps) {
               <Button
                 variant={side === 'long' ? 'buy' : 'sell'}
                 loading={confirm.checking}
-                disabled={gate(confirm.data) !== null}
+                disabled={(confirm.split ? gate(splitPreview(confirm.data)) : gate(confirm.data)) !== null}
                 onClick={() => void confirmOpen()}
               >
                 {confirm.checking ? t('Checking') : side === 'long' ? t('Confirm open long') : t('Confirm open short')}
@@ -624,7 +837,7 @@ function Outcome({ writer, onCheck, onAgain }: { writer: Writer; onCheck(pending
         ) : null}
         {pending && outcome?.kind === 'uncertain' && outcome.notFound ? (
           <>
-            <p className={note}>{t('Not found body')}</p>
+            <p className={note}>{outcome.found ? t('Split partly found', { count: String(outcome.found.length) }) : t('Not found body')}</p>
             <Button variant="secondary" size={32} loading={writer.busy} onClick={() => onCheck(pending, true)}>
               {t('Send same request again')}
             </Button>
@@ -635,13 +848,52 @@ function Outcome({ writer, onCheck, onAgain }: { writer: Writer; onCheck(pending
     );
   }
   if (outcome?.kind === 'done') {
-    const status = stateOf(outcome.position);
+    const order = outcome.order;
+    const status = outcome.position ? stateOf(outcome.position) : 'unknown';
     const word = status === 'unknown' ? t('Status unknown') : status;
+    // What the book did: filled (a position is open), resting (a limit waits on the book), or partly filled.
+    const resting = order?.status === 'open';
+    const partly = order !== undefined && order.status === 'cancelled' && isPositive(order.filledQty);
+    if (outcome.orders && (outcome.orders.length > 1 || outcome.stopped)) {
+      const stopped = outcome.stopped ? futuresRefusal({ code: outcome.stopped.code, message: outcome.stopped.message }) : null;
+      return (
+        <div role="status" className="flex flex-col gap-2 rounded-lg border border-line p-3">
+          <h3 className="text-sm font-medium">
+            {stopped
+              ? t('Split stopped title', { placed: String(outcome.orders.length) })
+              : t('Split placed title', { parts: String(outcome.orders.length) })}
+          </h3>
+          {stopped ? (
+            <p className="text-xs text-warn" data-code={stopped.code ?? undefined}>
+              {t('Split stopped body', { reason: `${stopped.title}. ${stopped.body}` })}
+            </p>
+          ) : null}
+          <ul className="flex flex-col gap-1 text-sm">
+            {outcome.orders.map((child) => (
+              <li key={child.orderId} className="if-num">
+                {child.status === 'open'
+                  ? t('Split child resting', { qty: fmtAmount(child.qty), price: fmtAmount(child.limitPrice) })
+                  : t('Split child filled', { filled: fmtAmount(child.filledQty), qty: fmtAmount(child.qty) })}
+              </li>
+            ))}
+          </ul>
+          <Button variant="secondary" size={32} onClick={onAgain}>
+            {t('Open another')}
+          </Button>
+        </div>
+      );
+    }
     return (
       <div role="status" className="flex flex-col gap-2 rounded-lg border border-line p-3">
-        <h3 className="text-sm font-medium">{t('Opened title')}</h3>
+        <h3 className="text-sm font-medium">{resting ? t('Resting title') : partly ? t('Partly title') : t('Opened title')}</h3>
         <p className="text-sm">
-          {outcome.position.id ? t('Opened body', { id: outcome.position.id, status: word }) : t('Opened no id', { status: word })}
+          {order
+            ? resting
+              ? t('Resting body', { qty: fmtAmount(order.qty), price: fmtAmount(order.limitPrice) })
+              : t('Filled body', { filled: fmtAmount(order.filledQty), qty: fmtAmount(order.qty) })
+            : outcome.position?.id
+              ? t('Opened body', { id: outcome.position.id, status: word })
+              : t('Opened no id', { status: word })}
         </p>
         <Button variant="secondary" size={32} onClick={onAgain}>
           {t('Open another')}

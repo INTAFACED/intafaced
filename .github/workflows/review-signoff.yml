@@ -18,13 +18,19 @@ permissions: {}
 jobs:
   signoff:
     name: Review sign-off
-    if: github.event_name == 'pull_request_target' || github.event.issue.pull_request
+    # Only a comment that can sign off takes a runner: every other PR comment queued a job here and, on the free plan's
+    # 20 concurrent jobs, held up CI. `contains` ignores case, like MARKER; the script still judges the comment in full,
+    # and the seal (review-marker.mjs) reads the PASS comment itself, so skipping other comments changes no verdict.
+    if: >-
+      github.event_name == 'pull_request_target' ||
+      (github.event.issue.pull_request && contains(github.event.comment.body, 'Independent review: PASS'))
     runs-on: ubuntu-latest
-    timeout-minutes: 5 # healthy run: seconds
+    timeout-minutes: 8 # healthy run: seconds; waiting out a running seal takes up to 4 min (SEAL_POLLS in the script)
     permissions:
       contents: read
       statuses: write # the `Independent review` status
       actions: write # re-run the failed seal job
+      checks: read # find the seal's check run on the head
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

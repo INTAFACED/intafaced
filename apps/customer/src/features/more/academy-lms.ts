@@ -343,12 +343,49 @@ export function roomSummary(sessions: readonly { status: 'scheduled' | 'live' | 
   };
 }
 
-const sectionTabs: Record<string, string> = {
-  certificates: 'Certificates',
-  rooms: 'Rooms',
-  videos: 'Videos',
-  programmes: 'Programmes',
+export type AcademyTab = 'Learning' | 'Certificates' | 'Rooms' | 'Videos' | 'Programmes';
+/** The five hub tabs and their addresses (IA-SPEC 2.9). Each segment, and `progress`, is reserved: never a lesson slug. */
+export const academyTabs: readonly (readonly [AcademyTab, string])[] = [
+  ['Learning', 'learning'],
+  ['Certificates', 'certificates'],
+  ['Rooms', 'rooms'],
+  ['Videos', 'videos'],
+  ['Programmes', 'programmes'],
+];
+export const academyTabHref = (tab: AcademyTab) => `/academy/${academyTabs.find(([name]) => name === tab)![1]}`;
+
+export type AcademyRoute =
+  | { kind: 'tab'; tab: AcademyTab; hub?: true }
+  | { kind: 'progress' }
+  | { kind: 'reader'; slug: string | undefined }
+  | { kind: 'course'; slug: string | undefined };
+/** The public course page (AC-catalogue-03). Until courses are rows a course is one curriculum path. */
+export const academyCourseHref = (slug: string) => `/academy/learning/course/${encodeURIComponent(slug)}`;
+const decoded = (segment: string) => {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return undefined;
+  }
 };
-/** The tab a `?section=` link opens. Unknown or missing sections open Learning. */
-export const tabForSection = (section: string | null) =>
-  section && Object.hasOwn(sectionTabs, section) ? sectionTabs[section]! : 'Learning';
+/** What an `/academy` address opens: a tab, the progress page, or the reader. A tab segment always wins over a lesson. */
+export function academyRoute(pathname: string): AcademyRoute {
+  const [, , segment, part, course] = pathname.split('/');
+  if (!segment) return { kind: 'tab', tab: 'Learning', hub: true };
+  if (segment === 'learning' && part === 'course') return { kind: 'course', slug: course ? decoded(course) : undefined };
+  const tab = academyTabs.find(([, slug]) => slug === segment);
+  if (tab) return { kind: 'tab', tab: tab[0] };
+  if (segment === 'progress') return { kind: 'progress' };
+  return { kind: 'reader', slug: decoded(segment) };
+}
+
+/** The old `/academy?section=videos` link lands on `/academy/videos`, keeping its other parameters. Anything else stays put. */
+export function academySectionRedirect(pathname: string, search: string): string | undefined {
+  if (pathname !== '/academy') return undefined;
+  const query = new URLSearchParams(search);
+  const section = query.get('section');
+  const known = section === 'progress' || academyTabs.some(([, slug]) => slug === section);
+  if (!section || !known) return undefined;
+  query.delete('section');
+  return `/academy/${section}${query.size ? `?${query}` : ''}`;
+}

@@ -11,5 +11,11 @@ export const sections: ReadonlyArray<{ id: Section; href: string; title: 'Accoun
 /** Which section a route belongs to; anything that is not Security, Verification or Display is Account. */
 export function sectionFor(path: string): Section {
   const clean = path.split('?')[0];
-  return clean === '/uc/safe' ? 'security' : clean === '/verification' ? 'verification' : clean === '/view' ? 'display' : 'account';
+  return clean === '/uc/safe' || clean?.startsWith('/uc/safe/')
+    ? 'security'
+    : clean === '/verification'
+      ? 'verification'
+      : clean === '/view'
+        ? 'display'
+        : 'account';
 }

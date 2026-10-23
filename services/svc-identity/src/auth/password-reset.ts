@@ -2,8 +2,10 @@ import { createHmac } from 'node:crypto';
 import { transaction } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { AuthError } from './auth-service.js';
+import { assertNotSecurityLocked } from './security-lock.js';
 import {
   assertPasswordShape,
+  assertPasswordNotIdentity,
   dummyPasswordHash,
   generateToken,
   hashPassword,
@@ -50,10 +52,14 @@ export interface PasswordResetMail {
     readonly purpose?: MailPurpose;
     /** The username, for the recovery mail only. */
     readonly handle?: string;
+    /** The account the mail is about, when the sender knows it and the address may no longer name it. */
+    readonly userId?: string;
+    /** The account's anti-phishing code, on mails to its own address when its owner set one. */
+    readonly antiPhishingCode?: string;
   }): Promise<void>;
 }
 
-/** What a mail is for. The last four are the recovery flows; their `code` is empty when they carry none. */
+/** What a mail is for. The recovery and sign-up notices carry no code; their `code` is empty. */
 export type MailPurpose =
   | 'password-reset'
   | 'email-confirm'
@@ -61,7 +67,9 @@ export type MailPurpose =
   | 'email-change-notice'
   | 'reset-no-account'
   | 'handle-recovery'
-  | 'handle-recovery-no-account';
+  | 'handle-recovery-no-account'
+  | 'signup-code'
+  | 'signup-existing';
 
 export interface PasswordResetDeps {
   readonly sql: Sql;
@@ -303,14 +311,15 @@ export async function completePasswordReset(
     return rejectInvalidProof(input.newPassword);
   }
 
-  const users = await deps.sql<Array<{ id: string; password_hash: string; status: string }>>`
-    SELECT id, password_hash, status FROM users WHERE id = ${flow.user_id}
+  const users = await deps.sql<Array<{ id: string; password_hash: string; status: string; handle: string; email: string }>>`
+    SELECT id, password_hash, status, handle, email FROM users WHERE id = ${flow.user_id}
   `;
   const user = users[0];
   if (!user || user.status !== 'active') return rejectInvalidProof(input.newPassword);
 
   try {
     assertPasswordShape(input.newPassword);
+    assertPasswordNotIdentity(input.newPassword, user);
   } catch (err) {
     if (err instanceof WeakPasswordError) throw new AuthError(err.message, 'auth.password_policy');
     throw err;
@@ -329,6 +338,9 @@ export async function completePasswordReset(
       if (!locked[0] || locked[0].status !== 'active') {
         throw new AuthError(INVALID_PROOF, 'auth.reset_proof_invalid');
       }
+      // The owner's security lock (W-withdraw-09) stops a reset too, after the code proved the address: the code stays
+      // unspent, and the person sees why. Under the user row lock, so a lock set meanwhile is seen.
+      await assertNotSecurityLocked(tx, user.id);
       const proof = await tx<Array<{ id: string }>>`
         SELECT id FROM auth_flows
         WHERE id = ${flow.id} AND status = 'code_sent' AND consumed_at IS NULL AND expires_at > ${deps.now()}

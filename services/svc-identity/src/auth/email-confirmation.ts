@@ -119,7 +119,20 @@ export async function requestEmailConfirmation(deps: EmailConfirmDeps, input: { 
         SELECT count(*)::int AS n FROM email_confirmation_attempts
         WHERE user_id = ${input.userId} AND created_at > ${since}
       `;
-      if (Number(counted[0]?.n ?? 0) >= rate.max) return { kind: 'rate' as const };
+      const n = Number(counted[0]?.n ?? 0);
+      if (n >= rate.max) {
+        // The wait is until enough requests leave the window for one more to fit: the (n - max + 1)th oldest.
+        const freeing = await tx<Array<{ created_at: Date | string }>>`
+          SELECT created_at FROM email_confirmation_attempts
+          WHERE user_id = ${input.userId} AND created_at > ${since}
+          ORDER BY created_at OFFSET ${n - rate.max} LIMIT 1
+        `;
+        const oldest = new Date(freeing[0]?.created_at ?? now).getTime();
+        return {
+          kind: 'rate' as const,
+          retryAfterSeconds: Math.max(1, Math.ceil((oldest + rate.windowSeconds * 1000 - now.getTime()) / 1000)),
+        };
+      }
 
       const users = await tx<Array<{ id: string; status: string; email: string; email_verified_at: Date | string | null }>>`
         SELECT id, status, email::text AS email, email_verified_at
@@ -151,7 +164,9 @@ export async function requestEmailConfirmation(deps: EmailConfirmDeps, input: { 
   );
 
   if (outcome.kind === 'rate') {
-    throw new AuthError('Too many confirmation emails. Try again later.', 'auth.email_confirm_rate_limited');
+    throw new AuthError('Too many confirmation emails. Try again later.', 'auth.email_confirm_rate_limited', {
+      retryAfterSeconds: outcome.retryAfterSeconds,
+    });
   }
   if (outcome.kind === 'silent') return { accepted: true };
 

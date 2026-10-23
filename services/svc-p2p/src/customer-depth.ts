@@ -24,6 +24,8 @@ export interface BoardOffer {
   remainingAmt: Amount;
   methods: unknown[];
   terms: string;
+  /** Maker verification tier at create. Null when the row never stored one. */
+  makerTier: string | null;
   status: 'active' | 'paused' | 'closed';
   createdAt: Date;
   /** Postgres `to_char` instant, microsecond precision. Cursor keyset uses this, not a JS Date. */
@@ -161,6 +163,7 @@ interface BoardRow {
   remaining_amt: string;
   methods: unknown[];
   terms: string;
+  maker_tier: string | null;
   status: 'active' | 'paused' | 'closed';
   created_at: Date;
   created_at_exact: string;
@@ -181,6 +184,7 @@ export function boardRowToOffer(row: BoardRow): BoardOffer {
     remainingAmt: parseAmount(row.remaining_amt),
     methods: Array.isArray(row.methods) ? row.methods : [],
     terms: row.terms,
+    makerTier: row.maker_tier ?? null,
     status: row.status,
     createdAt: row.created_at instanceof Date ? row.created_at : new Date(row.created_at),
     createdAtExact: row.created_at_exact,
@@ -413,8 +417,11 @@ export async function listContacts(sql: Sql, ownerId: string): Promise<{ followi
 }
 
 export function csvCell(value: string): string {
-  if (/[",\n\r]/.test(value) || /^[=+\-@]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
-  return value;
+  // Formula injection: a cell a spreadsheet would evaluate (= + - @ tab CR)
+  // is prefixed with ' so it opens as text, then quoted like any other.
+  const safe = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+  if (/[",\n\r]/.test(safe) || safe !== value) return `"${safe.replace(/"/g, '""')}"`;
+  return safe;
 }
 
 export function tradesCsv(

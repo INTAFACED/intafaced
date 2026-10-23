@@ -14,6 +14,14 @@
       "types": "./dist/identity.d.ts",
       "default": "./dist/identity.js"
     },
+    "./account-controls": {
+      "types": "./dist/account-controls.d.ts",
+      "default": "./dist/account-controls.js"
+    },
+    "./quant-algo": {
+      "types": "./dist/quant-algo.d.ts",
+      "default": "./dist/quant-algo.js"
+    },
     "./academy-cert-perks": {
       "types": "./dist/academy-cert-perks.d.ts",
       "default": "./dist/academy-cert-perks.js"
@@ -58,9 +66,17 @@
       "types": "./dist/support-bulk.d.ts",
       "default": "./dist/support-bulk.js"
     },
+    "./support-merge": {
+      "types": "./dist/support-merge.d.ts",
+      "default": "./dist/support-merge.js"
+    },
     "./support-contact": {
       "types": "./dist/support-contact.d.ts",
       "default": "./dist/support-contact.js"
+    },
+    "./outreach-public": {
+      "types": "./dist/outreach-public.d.ts",
+      "default": "./dist/outreach-public.js"
     },
     "./ui-view-preferences": {
       "types": "./dist/ui-view-preferences.d.ts",
@@ -73,6 +89,30 @@
     "./custody-approval-tasks": {
       "types": "./dist/custody-approval-tasks.d.ts",
       "default": "./dist/custody-approval-tasks.js"
+    },
+    "./datafeed": {
+      "types": "./dist/datafeed.d.ts",
+      "default": "./dist/datafeed.js"
+    },
+    "./home-work-items": {
+      "types": "./dist/home-work-items.d.ts",
+      "default": "./dist/home-work-items.js"
+    },
+    "./tax-lot-book": {
+      "types": "./dist/tax-lot-book.d.ts",
+      "default": "./dist/tax-lot-book.js"
+    },
+    "./home-tiles-preferences": {
+      "types": "./dist/home-tiles-preferences.d.ts",
+      "default": "./dist/home-tiles-preferences.js"
+    },
+    "./api-keys": {
+      "types": "./dist/api-keys.d.ts",
+      "default": "./dist/api-keys.js"
+    },
+    "./academy-catalogue": {
+      "types": "./dist/academy-catalogue.d.ts",
+      "default": "./dist/academy-catalogue.js"
     }
   },
   "scripts": {

@@ -17,6 +17,7 @@ const draft: StudioDraft = {
     { side: 'buy', symbol: 'BTC-USDT', qty: '0.5' },
     { side: 'sell', symbol: 'ETH-USDT', qty: '2' },
   ],
+  modules: null,
   drawdown: '0.1',
   notional: '500',
   kill: '0.2',
@@ -65,5 +66,21 @@ describe('studio draft on this device', () => {
     expect(readDraft('user-1', refusing)).toBeNull();
     expect(writeDraft('user-1', draft, null)).toBe(false);
     expect(readDraft('user-1', null)).toBeNull();
+  });
+
+  it('keeps signal rules, reads an older draft without them as blocks, and drops damaged rules', () => {
+    const modules = {
+      symbol: 'BTC/USDT',
+      barSize: '1h' as const,
+      signal: { kind: 'ma_cross' as const, average: 'sma' as const, fast: '3', slow: '' },
+      sizing: { kind: 'quantity' as const, value: '' },
+      exit: { stopLossPercent: '', takeProfitPercent: '' },
+    };
+    const store = memory();
+    writeDraft('user-1', { ...draft, modules }, store);
+    expect(readDraft('user-1', store)?.modules).toEqual(modules);
+    const { modules: _dropped, ...older } = draft;
+    expect(parseDraft(JSON.stringify(older))?.modules).toBeNull();
+    expect(parseDraft(JSON.stringify({ ...draft, modules: { symbol: 'x' } }))?.modules).toBeNull();
   });
 });

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Eye, EyeOff } from 'lucide-react';
+import { ChevronRight, Eye, EyeOff } from 'lucide-react';
 import { Tabs, TabsList, TabsTab } from '@intafaced/ui';
 import './home-pro.css';
 import { clockTime } from './clock';
@@ -21,15 +21,14 @@ import {
   Pct,
   ratio,
   refusalCopy,
-  roundScaled,
   Skeleton,
   StateBlock,
   sub,
-  toFixedString,
+  useActivity,
   useFavorites,
   useMarkets,
   useHomePortfolio,
-  DerivedTotalNote,
+  DerivedTotalTag,
   useSparklines,
   useTickers,
   type HomeHolding,
@@ -48,6 +47,15 @@ import { useSession } from '../../features/session/session';
 import { normalizePair } from '../../app/navigation';
 import { savePreferences, usePreferences } from '../../shared/preferences';
 import { HOME_LINKS } from './links';
+import { TotalFigure, TotalUnitNote } from './TotalFigure';
+import { RecentActivity } from './RecentActivity';
+import { WorkList } from './WorkList';
+import { GetStarted } from './GetStarted';
+import { useStartedTile } from './started-data';
+import { CustomiseHome } from './CustomiseHome';
+import { HomeNotices } from './Notices';
+import { useHomeLayout } from './tiles-data';
+import { shownTiles } from './tiles';
 
 /** How many markets and assets Home Pro lists before it points to the full screen. */
 const MARKET_ROWS = 10;
@@ -77,12 +85,6 @@ const ACTIONS_FOR: Record<ActionMode, readonly ActionLabel[] | null> = {
   refused: ['Receive'],
 };
 const ACTION_WIDTH: Record<ActionLabel, number> = { 'Add money': 104, Buy: 56, Sell: 56, Convert: 80, Send: 64, Receive: 80 };
-
-/** A USD decimal rounded half-up to cents, as the string HeroNumber animates. Unknown stays null. */
-function cents(value: string | null): string | null {
-  const parsed = dec(value);
-  return parsed === null ? null : toFixedString(roundScaled(parsed, 2), 2);
-}
 
 /** Today's change of one holding as a ratio of what it was worth a day ago; unknown when either figure is. */
 function changeRatio(holding: HomeHolding): string | null {
@@ -197,7 +199,7 @@ function Summary({
 }) {
   const { t } = homeCopy.useCopy();
   const { t: tp } = proCopy.useCopy();
-  const { timeZone } = usePreferences();
+  const { timeZone, displayCurrency } = usePreferences();
 
   const label = (
     <div className="hp-label">
@@ -211,6 +213,12 @@ function Summary({
         {hidden ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
       </button>
       <InfoTip text={t('Total value rule')} label={t('How the total is worked out')} side="right" />
+      {isHiddenPath('/money') ? null : (
+        <a className="hp-tile-link" href="/money">
+          {t('Assets')}
+          <ChevronRight size={14} aria-hidden="true" />
+        </a>
+      )}
     </div>
   );
 
@@ -296,8 +304,9 @@ function Summary({
       <div className="hp-total">
         {label}
         <div className="hp-total__figure">
-          <HeroNumber value={cents(data.totalUsd)} decimals={2} prefix="$" unit="USD" size="hero-pro" hidden={hidden} />
+          <TotalFigure data={data} displayCurrency={displayCurrency} hidden={hidden} pro />
         </div>
+        <TotalUnitNote data={data} displayCurrency={displayCurrency} hidden={hidden} className="hp-total__note" />
         <div className="hp-total__change">
           {data.change24hUsd !== null && hasCrypto ? (
             <>
@@ -311,8 +320,8 @@ function Summary({
               <InfoTip text={t('Not counted list', { assets: data.unpriced.join(', ') })} label={t('Not counted label')} />
             </span>
           ) : null}
+          <DerivedTotalTag source={data.source} className="hp-total__note" />
         </div>
-        <DerivedTotalNote source={data.source} className="hp-total__note" />
       </div>
       <div className="hp-stats">
         <Stat label={t('Cash')}>
@@ -575,10 +584,14 @@ function MarketsPanel() {
  */
 export function HomePro() {
   const { t } = homeCopy.useCopy();
-  const { hideBalances } = usePreferences();
-  const portfolio = useHomePortfolio();
+  const { hideBalances, displayCurrency } = usePreferences();
+  const portfolio = useHomePortfolio(displayCurrency);
   const orders = useOpenOrders();
   const markets = useMarkets();
+  const activity = useActivity();
+  const home = useHomeLayout();
+  const tiles = shownTiles(home.layout, 'pro');
+  const started = useStartedTile(portfolio, tiles.includes('started'));
 
   const noMarkets = markets.status === 'empty' || (markets.status === 'ready' && !markets.data.some((market) => market.orderable));
   const accountEmpty = portfolio.status === 'empty' || (portfolio.status === 'ready' && portfolio.data.holdings.length === 0);
@@ -598,9 +611,32 @@ export function HomePro() {
   return (
     <div className="if-home-pro">
       <h1 className="if-sr">{t('Home')}</h1>
+      <HomeNotices />
+      {/* Above the summary, so it is there in every state of the account (an unverified one has no total row). */}
+      <div className="hp-toolbar">
+        <CustomiseHome home={home} mode="pro" />
+      </div>
       <Summary portfolio={portfolio} orders={orders} hidden={hideBalances} actionMode={actionMode} />
-      {showAssets ? <Assets portfolio={portfolio} hidden={hideBalances} /> : null}
-      <MarketsPanel />
+      {tiles.map((id) => {
+        switch (id) {
+          case 'started':
+            return started.show ? (
+              <div className="hp-started" key={id}>
+                <GetStarted steps={started.steps} onHide={started.hide} />
+              </div>
+            ) : null;
+          case 'work':
+            return <WorkList key={id} hidden={hideBalances} className="hp-panel hp-work" />;
+          case 'holdings':
+            return showAssets ? <Assets key={id} portfolio={portfolio} hidden={hideBalances} /> : null;
+          case 'activity':
+            return <RecentActivity key={id} activity={activity} hidden={hideBalances} className="hp-panel hp-activity" />;
+          case 'markets':
+            return <MarketsPanel key={id} />;
+          default:
+            return null;
+        }
+      })}
     </div>
   );
 }

@@ -16,6 +16,13 @@ import { approvalPayloadHash } from '../operator-desks.js';
 import { OpsService } from '../ops-service.js';
 import { createOpsRouter } from '../router.js';
 import { createListingDesk } from './wiring.js';
+import {
+  createMemoryReasonCodeStore,
+  createPgReasonCodeStore,
+  createReasonCodes,
+  DEFAULT_REASON_CODES,
+  type ReasonCodeStore,
+} from './reason-codes.js';
 import { createMemoryListingStore, createPgListingStore, type ListingStore } from './store.js';
 
 const SECRET = 'a-ops-mount-test-edge-secret-long-enough';
@@ -115,7 +122,11 @@ function build(opts: { store?: ListingStore | null; ids?: ReturnType<typeof iden
           protocolListing: createListingDesk({
             store,
             approvals: ids,
-            reasonCodes: () => (opts.codes === undefined ? ['scam_report'] : opts.codes),
+            reasonCodes: createReasonCodes({
+              store: createMemoryReasonCodeStore(),
+              envCodes: opts.codes === undefined ? ['scam_report'] : opts.codes,
+              now: () => '2026-10-20T10:00:00.000Z',
+            }),
             now: () => '2026-10-20T10:00:00.000Z',
           }),
         }
@@ -279,18 +290,67 @@ describe('protocol listing desk', () => {
     expect((await caller.protocolListing.markets.list()).markets).toMatchObject([{ symbol: 'BTC-USDT', state: 'visible', hidden: null }]);
   });
 
-  it('refuses owner.decision when the reason codes are blank, and an unknown code, before it consumes anything', async () => {
-    for (const [codes, expected] of [
-      [null, 'owner.decision'],
-      [[], 'owner.decision'],
-      [['spam'], 'protocol.ops_reason_code_unknown'],
-    ] as const) {
-      const { router, ids, store } = build({ codes: codes as string[] | null });
-      const caller = await as(router);
-      await expect(caller.protocolListing.pools.hide(hideInput(ids))).rejects.toMatchObject(refuses(expected));
-      expect(ids.consumed()).toBe(0);
-      expect(await store!.list('pool')).toEqual([]);
+  it('refuses a reason code outside the list in force before it consumes anything', async () => {
+    const { router, ids, store } = build({ codes: ['spam'] });
+    const caller = await as(router);
+    await expect(caller.protocolListing.pools.hide(hideInput(ids))).rejects.toMatchObject(refuses('protocol.ops_reason_code_unknown'));
+    expect(ids.consumed()).toBe(0);
+    expect(await store!.list('pool')).toEqual([]);
+  });
+
+  it('uses the built-in default list when no setting or edit exists, and says so', async () => {
+    const { router, ids } = build({ codes: null });
+    const caller = await as(router);
+    const list = await caller.protocolListing.reasonCodes.list();
+    expect(list).toMatchObject({ source: 'default', updatedAt: null, updatedBy: null });
+    expect(list.codes).toEqual([...DEFAULT_REASON_CODES]);
+    await expect(caller.protocolListing.pools.hide(hideInput(ids))).rejects.toMatchObject(refuses('protocol.ops_reason_code_unknown'));
+    const fields = { reasonCode: 'scam_or_fraud', reason: 'reported by three users' };
+    const input = {
+      chainId: 84532,
+      poolAddress: POOL,
+      ...fields,
+      ...ids.propose('protocol.pool.hide', POOL_ID, { targetId: POOL_ID, ...fields }),
+    };
+    await expect(caller.protocolListing.pools.hide(input)).resolves.toMatchObject({ state: 'hidden', outcome: 'applied' });
+  });
+
+  it('reads the deployment setting as the list in force when there is no edit', async () => {
+    const { router } = build({ codes: ['a_code', 'b_code'] });
+    expect(await (await as(router)).protocolListing.reasonCodes.list()).toMatchObject({ source: 'env', codes: ['a_code', 'b_code'] });
+  });
+
+  it('lets an admin replace the list, takes effect on the next hide, and logs who changed it', async () => {
+    const { router, ids } = build({ codes: ['scam_report'] });
+    const caller = await as(router);
+    const set = await caller.protocolListing.reasonCodes.set({ codes: ['spam_listing', 'rug_pull'] });
+    expect(set).toMatchObject({ source: 'admin', codes: ['spam_listing', 'rug_pull'], updatedBy: expect.any(String) });
+    expect(await caller.protocolListing.reasonCodes.list()).toEqual(set);
+    // The old setting no longer counts; the new code does.
+    await expect(caller.protocolListing.pools.hide(hideInput(ids))).rejects.toMatchObject(refuses('protocol.ops_reason_code_unknown'));
+    const fields = { reasonCode: 'rug_pull', reason: 'reported by three users' };
+    const input = {
+      chainId: 84532,
+      poolAddress: POOL,
+      ...fields,
+      ...ids.propose('protocol.pool.hide', POOL_ID, { targetId: POOL_ID, ...fields }),
+    };
+    await expect(caller.protocolListing.pools.hide(input)).resolves.toMatchObject({ state: 'hidden' });
+  });
+
+  it('refuses an empty, duplicated or oddly spelled list, a reader editing, and an edit with no storage', async () => {
+    const { router } = build();
+    const caller = await as(router);
+    for (const codes of [[], ['a_code', 'a_code'], ['Bad Code']]) {
+      await expect(caller.protocolListing.reasonCodes.set({ codes })).rejects.toThrow();
     }
+    expect(await caller.protocolListing.reasonCodes.list()).toMatchObject({ source: 'env' });
+    const reader = await as(router, ['admin:read']);
+    await expect(reader.protocolListing.reasonCodes.set({ codes: ['a_code'] })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    const unstored = build({ store: null });
+    await expect((await as(unstored.router)).protocolListing.reasonCodes.list()).rejects.toMatchObject(
+      refuses('ops.protocol_listing_storage_unconfigured'),
+    );
   });
 
   it('refuses without an approval, with an approval for another action, and when identity is unwired', async () => {
@@ -309,7 +369,11 @@ describe('protocol listing desk', () => {
       protocolListing: createListingDesk({
         store: createMemoryListingStore(),
         approvals: undefined,
-        reasonCodes: () => ['scam_report'],
+        reasonCodes: createReasonCodes({
+          store: createMemoryReasonCodeStore(),
+          envCodes: ['scam_report'],
+          now: () => '2026-10-20T10:00:00.000Z',
+        }),
         now: () => '2026-10-20T10:00:00.000Z',
       }),
     });
@@ -430,6 +494,24 @@ function storeContract(name: string, open: () => Promise<{ store: ListingStore; 
   });
 }
 
+function reasonCodeStoreContract(name: string, open: () => Promise<{ store: ReasonCodeStore; close: () => Promise<void> }>) {
+  describe(name, () => {
+    it('has no edit until one is made, then the newest edit wins and the older ones are kept in order', async () => {
+      const { store, close } = await open();
+      try {
+        expect(await store.latest()).toBeNull();
+        await store.append(['a_code'], 'u1', '2026-10-20T10:00:00.000Z');
+        await store.append(['b_code', 'c_code'], 'u2', '2026-10-20T11:00:00.000Z');
+        expect(await store.latest()).toEqual({ codes: ['b_code', 'c_code'], changedBy: 'u2', changedAt: '2026-10-20T11:00:00.000Z' });
+      } finally {
+        await close();
+      }
+    });
+  });
+}
+
+reasonCodeStoreContract('memory reason code store', async () => ({ store: createMemoryReasonCodeStore(), close: async () => undefined }));
+
 storeContract('memory listing store', async () => ({ store: createMemoryListingStore(), close: async () => undefined }));
 
 describe.runIf(Boolean(process.env.TEST_DATABASE_URL))('durable protocol listing on real PostgreSQL', () => {
@@ -447,6 +529,26 @@ describe.runIf(Boolean(process.env.TEST_DATABASE_URL))('durable protocol listing
     };
   };
   storeContract('postgres listing store', open);
+  reasonCodeStoreContract('postgres reason code store', async () => {
+    const { sql, close } = await open();
+    return { store: createPgReasonCodeStore(sql), close };
+  });
+
+  it('refuses to change or delete a reason code edit, an empty list and a rollback over edits', async () => {
+    const { sql, close } = await open();
+    try {
+      const store = createPgReasonCodeStore(sql);
+      await store.append(['a_code'], 'u1', '2026-10-20T10:00:00.000Z');
+      await expect(sql`UPDATE ops.protocol_reason_code_changes SET changed_by='x'`).rejects.toThrow(
+        /protocol_reason_code_change_immutable/,
+      );
+      await expect(sql`DELETE FROM ops.protocol_reason_code_changes`).rejects.toThrow(/protocol_reason_code_change_immutable/);
+      await expect(store.append([], 'u1', '2026-10-20T11:00:00.000Z')).rejects.toThrow();
+      await expect(migrateOutreach(sql, 'down')).rejects.toThrow(/archive them before rolling back/);
+    } finally {
+      await close();
+    }
+  });
 
   it('refuses to change or delete a decision, an unknown kind and an unknown state', async () => {
     const { sql, store, close } = await open();

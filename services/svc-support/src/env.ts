@@ -1,3 +1,4 @@
+import { supportSurveyCapEnv } from './survey-cap-env.js';
 import { z } from 'zod';
 import { edgeEnvSchema, internalServiceEnvSchema, loadEnv, s2sEnvSchema, serviceEnvSchema } from '@intafaced/config';
 
@@ -65,11 +66,29 @@ const schema = serviceEnvSchema
        */
       SUPPORT_ATTACHMENT_STORE: z.string().optional(),
       SUPPORT_MALWARE_SCANNER: z.string().optional(),
+      /** SP-csat-02: owner cap on how many surveys exist; blank allows only the first. */
+      SUPPORT_SURVEY_CAP: supportSurveyCapEnv,
       /**
        * How many requests one bulk change may hold. Blank is an owner value left unset: a bulk change refuses
        * support.bulk_cap_unset and the desk says so. Never defaulted.
        */
       SUPPORT_BULK_CAP: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
+      /**
+       * How many votes one signed-out reader may cast in the window below.
+       * Either one blank refuses a public vote with support.feedback_rate_limit_unset. Never defaulted.
+       */
+      SUPPORT_FEEDBACK_RATE_LIMIT: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
+      SUPPORT_FEEDBACK_RATE_WINDOW_SECONDS: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
+      /**
+       * Switches the help answer panel on. The value is never returned or sent on.
+       * Blank refuses support.assistant_model_unset. Never defaulted.
+       */
+      SUPPORT_ASSISTANT_MODEL: z.preprocess((v) => (v === '' ? undefined : v), z.string().min(1).optional()),
+      /**
+       * Tighter than the contract bound of 200 on a search query. Blank leaves that bound.
+       * A longer query refuses support.search_query_too_long. Never defaulted.
+       */
+      SUPPORT_SEARCH_QUERY_MAX: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
       STAFF_HEARTBEAT_WINDOW_SECONDS: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
     }),
   );

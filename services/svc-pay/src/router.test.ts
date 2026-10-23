@@ -1,3 +1,4 @@
+import type { Sql } from 'postgres';
 import { describe, expect, it, beforeEach } from 'vitest';
 import { INTERACTIVE_ONLY_SCOPES, SESSION_SCOPES, assertKeyScopesAllowed, issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import type { Context } from '@intafaced/contracts';
@@ -187,6 +188,13 @@ function stubService(): Stub {
     listPayments: record('listPayments', () => ({
       items: [{ ...paymentView({ status: 'captured', capturedAmount: amt('100') }), pricingSnapshot: null, failure: null }],
       nextCursor: null,
+      summary: {
+        matchedCount: '1',
+        succeededCount: '1',
+        failedCount: '0',
+        finishedCount: '1',
+        successRate: '100',
+      },
     })),
     createProfile: record('createProfile', () => ({ id: SETTLEMENT, merchantId: MERCHANT })),
     clearingBalance: record('clearingBalance', () => amt('100.5')),
@@ -196,6 +204,7 @@ function stubService(): Stub {
     capture: record('capture', () => paymentView({ status: 'captured', capturedAmount: amt('100') })),
     refund: record('refund', () => paymentView({ status: 'refunded', capturedAmount: amt('100'), refundedAmount: amt('100') })),
     getPayment: record('getPayment', () => paymentView()),
+    listPaymentAttempts: record('listPaymentAttempts', () => []),
     history: record('history', (_paymentId: string, limit?: number) => {
       assertPaymentHistoryLimit(limit);
       return [{ id: PAYMENT, event: 'created', payload: { amount: '100' }, railEventId: null, ts: new Date('2026-07-27T12:00:00.000Z') }];
@@ -1115,6 +1124,67 @@ describe('a merchant reaches their own rows and nobody else’s', () => {
       }),
     ).rejects.toMatchObject({ code: 'FORBIDDEN' });
     await expect(api.merchant.decideKybStub({ merchantId: MERCHANT, decision: 'approved' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+  });
+
+  it('opens the owner’s own reads on pay:onboard before KYB, and still fences them to the caller’s merchant (J-merchant-01)', async () => {
+    const stranger = '99999999-9999-4999-8999-999999999999';
+    const disputes = new MemoryDisputeCaseStore();
+    disputes.open({ disputeId: 'dp-onboard', paymentId: PAYMENT, merchantId: MERCHANT, amount: '10', assetId: 'USDT', reasonCode: '4853' });
+    const fenced = createPayRouter(stub.service, rails, money.service, null, undefined, stubApprovalConsumer(CONFIRM), null, disputes);
+    const owner = fenced.createCaller(await ctx(['pay:onboard']));
+    expect((await owner.fraud.getDispute({ disputeId: 'dp-onboard' })).merchantId).toBe(MERCHANT);
+    await expect(owner.railHealth()).resolves.toBeInstanceOf(Array);
+    // railHealth is platform-wide: an onboarding caller with no business of its own is refused it.
+    const noBusiness = createPayRouter(
+      { ...stub.service, getMerchantByUserId: async () => null } as unknown as PayService,
+      rails,
+      money.service,
+      null,
+      undefined,
+      stubApprovalConsumer(CONFIRM),
+    );
+    await expect(noBusiness.createCaller(await ctx(['pay:onboard'], { userId: stranger })).railHealth()).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      message: 'pay.merchant_not_found',
+    });
+    // An active team member of a business sees it too (J-merchant-01 #4); the lookup is the member's own row only.
+    const asked: unknown[][] = [];
+    const teamSql = ((_strings: TemplateStringsArray, ...values: unknown[]) => {
+      asked.push(values);
+      return Promise.resolve(values[0] === '33333333-3333-4333-8333-333333333333' ? [{ '?column?': 1 }] : []);
+    }) as unknown as Sql;
+    const onTeam = createPayRouter(
+      { ...stub.service, getMerchantByUserId: async () => null } as unknown as PayService,
+      rails,
+      money.service,
+      null,
+      undefined,
+      stubApprovalConsumer(CONFIRM),
+      null,
+      undefined,
+      teamSql,
+    );
+    await expect(
+      onTeam.createCaller(await ctx(['pay:onboard'], { userId: '33333333-3333-4333-8333-333333333333' })).railHealth(),
+    ).resolves.toBeInstanceOf(Array);
+    await expect(onTeam.createCaller(await ctx(['pay:onboard'], { userId: stranger })).railHealth()).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
+    expect(asked).toEqual([['33333333-3333-4333-8333-333333333333'], [stranger]]);
+
+    const other = fenced.createCaller(await ctx(['pay:onboard'], { userId: stranger }));
+    await expect(other.fraud.getDispute({ disputeId: 'dp-onboard' })).rejects.toMatchObject({ code: 'NOT_FOUND' });
+
+    // pay:onboard is a second-factor scope: without one the read refuses as it did before.
+    const noMfa = fenced.createCaller(await ctx(['pay:onboard'], { mfa: false }));
+    await expect(noMfa.railHealth()).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+    // A session with neither scope is refused, naming both.
+    const plain = fenced.createCaller(await ctx(['identity:read']));
+    await expect(plain.railHealth()).rejects.toMatchObject({ code: 'FORBIDDEN', message: 'One of pay:onboard, pay:read is required' });
+    // Refunds stay off pay:onboard.
+    await expect(owner.payment.refund({ paymentId: PAYMENT, amount: '1', refundId: 'rf-onboard' })).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
   });
 
   it('reports an unset merchant fee as null and keeps an explicit zero', async () => {

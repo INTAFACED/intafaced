@@ -3,7 +3,9 @@ import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/a
 import { edgeTrustFromEnv } from '@intafaced/config';
 import { createEdgeContext } from '@intafaced/contracts';
 import { missingLake } from './backtest/lake.js';
+import { missingFees, missingHistory, tradeFeePort, tradeHistoryPort } from './engine/ports.js';
 import { openDisclosureRepository } from './disclosure/open.js';
+import { openTemplateRepository } from './templates/open.js';
 import { env } from './env.js';
 import { quantReadyHonesty } from './ready-honesty.js';
 import { createQuantRouter } from './router.js';
@@ -32,19 +34,45 @@ registerProcessHooks(
  */
 const isolateWired = true;
 const lake = missingLake();
+const history = env.TRADE_URL ? tradeHistoryPort({ tradeUrl: env.TRADE_URL, now: () => Date.now() }) : missingHistory();
+const fees = env.TRADE_URL ? tradeFeePort({ tradeUrl: env.TRADE_URL }) : missingFees();
 const venueVaultSet = env.QUANT_VENUE_VAULT !== undefined;
 const strategies = openStrategyRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
 const runs = openRunRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
 const disclosure = openDisclosureRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
+const templates = openTemplateRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
 
 export const appRouter = createQuantRouter({
   wired: isolateWired,
   venueVaultSet,
   limits: { maxOps: env.SANDBOX_MAX_OPS, maxSource: env.SANDBOX_MAX_SOURCE },
   lake,
+  history,
+  fees,
+  judgement: {
+    criteria: {
+      minTrades: env.QUANT_OOS_MIN_TRADES ?? null,
+      minReturnPercent: env.QUANT_OOS_MIN_RETURN_PERCENT ?? null,
+      maxDrawdownPercent: env.QUANT_OOS_MAX_DRAWDOWN_PERCENT ?? null,
+      maxShortfallPercent: env.QUANT_OOS_MAX_SHORTFALL_PERCENT ?? null,
+    },
+    holdoutStart: env.QUANT_HOLDOUT_START ?? null,
+    checks: {
+      maxSampleGapPercent: env.QUANT_CHECK_MAX_SAMPLE_GAP_PERCENT ?? null,
+      maxVariants: env.QUANT_CHECK_MAX_VARIANTS ?? null,
+      maxOffsetShiftPercent: env.QUANT_CHECK_MAX_OFFSET_SHIFT_PERCENT ?? null,
+    },
+    account: {
+      mode: 'netting',
+      maxLeverage: env.QUANT_ACCOUNT_MAX_LEVERAGE ?? null,
+      marginCallPercent: env.QUANT_ACCOUNT_MARGIN_CALL_PERCENT ?? null,
+      stopOutPercent: env.QUANT_ACCOUNT_STOP_OUT_PERCENT ?? null,
+    },
+  },
   strategies: strategies.repository,
   runs: runs.repository,
   disclosure: disclosure.repository,
+  templates: templates.repository,
 });
 export type AppRouter = typeof appRouter;
 
@@ -78,6 +106,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       await strategies.close();
       await runs.close();
       await disclosure.close();
+      await templates.close();
       process.exit(0);
     })();
   });

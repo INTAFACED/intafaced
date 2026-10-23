@@ -20,6 +20,7 @@ import type { BindProviderRefInput, BindProviderRefResult } from './kyc/provider
 import { MemoryWaitlistStore } from './waitlist/waitlist-store.js';
 import { WaitlistService } from './waitlist/waitlist-service.js';
 import { MemoryShareStore } from './affiliates/share-service.js';
+import { ReferralError } from './affiliates/referral-tree.js';
 
 /**
  * The tRPC boundary for KYC and step-up.
@@ -123,6 +124,7 @@ function stubServices(): Stub {
     submitKyc: record('submitKyc', () => kycRecord()),
     listKycRecords: record('listKycRecords', () => [kycRecord()]),
     listPendingKyc: record('listPendingKyc', () => [kycRecord()]),
+    getKycRecord: record('getKycRecord', () => kycRecord()),
     kycTier: record('kycTier', () => 'none' as const),
     approveKycRecord: record('approveKycRecord', () =>
       kycRecord({ status: 'approved', reviewedBy: OPERATOR, reviewedAt: new Date('2026-07-28T09:00:00.000Z') }),
@@ -337,6 +339,70 @@ describe('kyc.approve is the operator action that grants custodial access', () =
     const call = stub.calls.find((c) => c.method === 'approveKycRecord')!;
     expect((call.args[0] as { reviewerId: string }).reviewerId).toBe(OPERATOR);
     expect((call.args[0] as { approvalId?: string }).approvalId).toBe('appr-1');
+  });
+
+  it('REFUSES THE PERSON WHOSE KYC IT IS, before the approval is spent', async () => {
+    // The record belongs to USER. An operator who is that user cannot decide it, approve or reject,
+    // and neither can a second operator named as that user.
+    const self = await caller(['admin:compliance'], { userId: USER });
+    for (const run of [() => self.kyc.approve({ recordId: RECORD, ...kycDual }), () => self.kyc.reject({ recordId: RECORD, ...kycDual })]) {
+      const err = await run().catch((e: unknown) => e);
+      expect(codeOf(err)).toBe('FORBIDDEN');
+      expect((err as { cause?: { code?: string } }).cause?.code).toBe('auth.kyc_self_review');
+    }
+    const named = await caller(['admin:compliance'], { userId: OPERATOR });
+    const err = await named.kyc.approve({ recordId: RECORD, ...kycDual, confirmOperatorId: USER }).catch((e: unknown) => e);
+    expect((err as { cause?: { code?: string } }).cause?.code).toBe('auth.kyc_self_review');
+    expect(stub.calls.filter((c) => c.method === 'approveKycRecord' || c.method === 'rejectKycRecord')).toHaveLength(0);
+  });
+
+  it('refuses a proposer or approver whose KYC it is, a typed-in variant of their id, and a missing record, all without spending the approval', async () => {
+    const consumed: string[] = [];
+    let parties: { requesterId: string; approverId: string | null } | null = null;
+    const approvals = {
+      ...stubActionApprovals(CONFIRM_KYC),
+      async consume(...args: Parameters<ReturnType<typeof stubActionApprovals>['consume']>) {
+        consumed.push(args[1].approvalId);
+        return stubActionApprovals(CONFIRM_KYC).consume(...args);
+      },
+      async partiesOf() {
+        return parties;
+      },
+    };
+    const api = createIdentityRouter(stub.auth, stub.rank, { actionApprovals: approvals }).createCaller(
+      await ctx(['admin:compliance'], { userId: OPERATOR }),
+    );
+    const refusals = [
+      { requesterId: USER, approverId: CONFIRM_KYC },
+      { requesterId: CONFIRM_KYC, approverId: ` ${USER.toUpperCase()} ` },
+    ];
+    for (const row of refusals) {
+      parties = row;
+      for (const run of [() => api.kyc.approve({ recordId: RECORD, ...kycDual }), () => api.kyc.reject({ recordId: RECORD, ...kycDual })]) {
+        const err = await run().catch((e: unknown) => e);
+        expect((err as { cause?: { code?: string } }).cause?.code).toBe('auth.kyc_self_review');
+      }
+    }
+    parties = null;
+    const typed = await api.kyc.approve({ recordId: RECORD, ...kycDual, confirmOperatorId: USER.toUpperCase() }).catch((e: unknown) => e);
+    expect((typed as { cause?: { code?: string } }).cause?.code).toBe('auth.kyc_self_review');
+
+    stub.auth.getKycRecord = async () => null;
+    const missing = await api.kyc.approve({ recordId: RECORD, ...kycDual }).catch((e: unknown) => e);
+    expect(codeOf(missing)).toBe('NOT_FOUND');
+
+    expect(consumed).toEqual([]);
+    expect(stub.calls.filter((c) => c.method === 'approveKycRecord' || c.method === 'rejectKycRecord')).toHaveLength(0);
+  });
+
+  it('hands both people on the consumed approval to the decision, which refuses either being the subject', async () => {
+    const api = await caller(['admin:compliance'], { userId: OPERATOR });
+    await api.kyc.approve({ recordId: RECORD, ...kycDual });
+    await api.kyc.reject({ recordId: RECORD, ...kycDual });
+    for (const method of ['approveKycRecord', 'rejectKycRecord']) {
+      const call = stub.calls.find((c) => c.method === method)!;
+      expect((call.args[0] as { approvalParties?: string[] }).approvalParties).toEqual(['requester', CONFIRM_KYC]);
+    }
   });
 
   it('holds the same bar on reject', async () => {
@@ -858,7 +924,7 @@ describe('auth.register optional referrerId', () => {
   const REFERRER = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
   it('records the client address on the session, not the request id', async () => {
-    const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true }).createCaller(await ctx([]));
+    const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, directRegister: true }).createCaller(await ctx([]));
     await requestIpAls.run('203.0.113.10', () =>
       api.auth.register({
         handle: 'newbie',
@@ -871,7 +937,7 @@ describe('auth.register optional referrerId', () => {
   });
 
   it('leaves the session address empty when no client address was seen', async () => {
-    const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true }).createCaller(await ctx([]));
+    const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, directRegister: true }).createCaller(await ctx([]));
     await api.auth.register({
       handle: 'newbie',
       email: 'newbie@example.com',
@@ -890,7 +956,9 @@ describe('auth.register optional referrerId', () => {
       },
     } as unknown as import('./affiliates/referral-service.js').ReferralService;
 
-    const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, referral }).createCaller(await ctx([]));
+    const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, directRegister: true, referral }).createCaller(
+      await ctx([]),
+    );
     const session = await api.auth.register({
       handle: 'newbie',
       email: 'newbie@example.com',
@@ -909,7 +977,9 @@ describe('auth.register optional referrerId', () => {
       },
     } as unknown as import('./affiliates/referral-service.js').ReferralService;
 
-    const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, referral }).createCaller(await ctx([]));
+    const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, directRegister: true, referral }).createCaller(
+      await ctx([]),
+    );
     await api.auth.register({
       handle: 'newbie',
       email: 'newbie@example.com',
@@ -927,7 +997,9 @@ describe('auth.register optional referrerId', () => {
       },
     } as unknown as import('./affiliates/referral-service.js').ReferralService;
 
-    const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, referral }).createCaller(await ctx([]));
+    const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, directRegister: true, referral }).createCaller(
+      await ctx([]),
+    );
     const err = await api.auth
       .register({
         handle: 'newbie',
@@ -2010,6 +2082,7 @@ describe('affiliates createShare / revokeShare / shareHits', () => {
       createShare: async (referrerId: string) => store.createShare(referrerId),
       revokeShare: async (referrerId: string) => store.revokeShare(referrerId),
       shareHits: async (token: string) => store.shareHits(token),
+      referrerOf: async (token: string) => store.referrerOf(token),
     } as unknown as import('./affiliates/share-service.js').ShareService;
     const referral = {
       attribute: async (input: { userId: string; referrerId: string }) => {
@@ -2063,6 +2136,120 @@ describe('affiliates createShare / revokeShare / shareHits', () => {
     expect(codeOf(err)).toBe('FORBIDDEN');
     expect((err as { message?: string }).message).toContain('share.revoked');
     expect(attributeCalls).toHaveLength(0);
+  });
+
+  it('the link owner opening their own link is refused (referral.self) and counts no visit', async () => {
+    const { api, attributeCalls } = shareRouter();
+    const owner = api.createCaller(await ctx(['identity:write']));
+    const created = await owner.affiliates.createShare();
+    const err = await owner.affiliates.shareHits({ token: created.token }).catch((e: unknown) => e);
+    expect(codeOf(err)).toBe('CONFLICT');
+    expect(((err as { cause?: { code?: string } }).cause ?? {}).code).toBe('referral.self');
+    expect(attributeCalls).toHaveLength(0);
+    expect((await owner.affiliates.createShare()).hits).toBe(0);
+  });
+
+  it('a link attach runs under the owner attach window; same referrer again is the same relationship', async () => {
+    const store = new MemoryShareStore();
+    store.rememberUser(USER);
+    const OTHER_REF = '88888888-8888-4888-8888-888888888888';
+    store.rememberUser(OTHER_REF);
+    const edges = new Map<string, string>();
+    const windows: Array<number | undefined> = [];
+    const share = {
+      createShare: async (referrerId: string) => store.createShare(referrerId),
+      shareHits: async (token: string) => store.shareHits(token),
+      referrerOf: async (token: string) => store.referrerOf(token),
+    } as unknown as import('./affiliates/share-service.js').ShareService;
+    const referral = {
+      attribute: async (input: { userId: string; referrerId: string }, late?: { windowSeconds: number | undefined }) => {
+        windows.push(late?.windowSeconds);
+        if (edges.has(input.userId)) throw new ReferralError('Referral already set for this user', 'referral.already_set');
+        edges.set(input.userId, input.referrerId);
+        return { userId: input.userId, referrerId: input.referrerId, attributedAt: new Date() };
+      },
+      edgeOf: async (userId: string) => (edges.has(userId) ? { userId, referrerId: edges.get(userId)!, attributedAt: new Date() } : null),
+    } as unknown as import('./affiliates/referral-service.js').ReferralService;
+    const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, share, referral, referralAttachWindowSeconds: 600 });
+    const mine = await api.createCaller(await ctx(['identity:write'])).affiliates.createShare();
+    const theirs = await api.createCaller(await ctx(['identity:write'], { userId: OTHER_REF })).affiliates.createShare();
+    const visitor = api.createCaller(await ctx(['identity:write'], { userId: VISITOR }));
+
+    expect((await visitor.affiliates.shareHits({ token: mine.token })).attributed).toBe(true);
+    expect((await visitor.affiliates.shareHits({ token: mine.token })).attributed).toBe(true);
+    const err = await visitor.affiliates.shareHits({ token: theirs.token }).catch((e: unknown) => e);
+    expect(codeOf(err)).toBe('CONFLICT');
+    expect(((err as { cause?: { code?: string } }).cause ?? {}).code).toBe('referral.already_set');
+    expect(edges.get(VISITOR)).toBe(USER);
+    expect(windows).toEqual([600, 600, 600]);
+  });
+
+  it('attachWindow reads unset while the owner window is blank, and open or closed from the account age', async () => {
+    const created = new Date(Date.now() - 120_000);
+    const referral = {
+      accountAge: async () => ({ createdAt: created, now: new Date() }),
+    } as unknown as import('./affiliates/referral-service.js').ReferralService;
+    const unset = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, referral });
+    expect(await unset.createCaller(await ctx(['identity:read'])).affiliates.attachWindow()).toMatchObject({
+      state: 'unset',
+      windowSeconds: null,
+      closesAt: null,
+    });
+    const short = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, referral, referralAttachWindowSeconds: 60 });
+    expect((await short.createCaller(await ctx(['identity:read'])).affiliates.attachWindow()).state).toBe('closed');
+    const long = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, referral, referralAttachWindowSeconds: 600 });
+    expect(await long.createCaller(await ctx(['identity:read'])).affiliates.attachWindow()).toMatchObject({
+      state: 'open',
+      windowSeconds: 600,
+      closesAt: new Date(created.getTime() + 600_000).toISOString(),
+    });
+  });
+
+  it('createCode refuses with referral.code_length_unset while the owner length is blank', async () => {
+    const referralCodes = new (await import('./affiliates/referral-code.js')).ReferralCodeService(
+      { unsafe: () => undefined } as never,
+      undefined,
+    );
+    referralCodes.codeOf = async () => null;
+    const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, referralCodes });
+    const err = await api
+      .createCaller(await ctx(['identity:write']))
+      .affiliates.createCode()
+      .catch((e: unknown) => e);
+    expect(codeOf(err)).toBe('PRECONDITION_FAILED');
+    expect((err as { message?: string }).message).toContain('referral.code_length_unset');
+  });
+
+  it('signUpStart from an invitation link names its referrer for the account; a revoked link names no one', async () => {
+    const { store } = shareRouter();
+    const live = store.createShare(USER);
+    const seen: Array<{ referrerId?: string }> = [];
+    const auth = {
+      ...stub.auth,
+      signUpStart: async (input: { referrerId?: string }) => {
+        seen.push(input);
+        return { accepted: true, next: 'confirm_email', flowId: '77777777-7777-4777-8777-777777777777', resendAfterSeconds: 60 };
+      },
+    } as unknown as typeof stub.auth;
+    const share = {
+      referrerOf: async (token: string) => store.referrerOf(token),
+    } as unknown as import('./affiliates/share-service.js').ShareService;
+    const api = createIdentityRouter(auth, stub.rank, { registrationOpen: true, share });
+    const anon = api.createCaller(await ctx([]));
+    const form = {
+      channel: 'email' as const,
+      handle: 'friend_one',
+      email: 'friend@example.com',
+      password: 'a-long-test-password',
+      country: 'DE',
+      dateOfBirth: '1990-05-01',
+      accountType: 'individual' as const,
+    };
+    await anon.auth.signUpStart({ ...form, inviteToken: live.token });
+    store.revokeShare(USER);
+    await anon.auth.signUpStart({ ...form, inviteToken: live.token });
+    expect(seen.map((input) => input.referrerId)).toEqual([USER, undefined]);
+    expect(seen.every((input) => !('inviteToken' in input))).toBe(true);
   });
 
   it('deleted profile refuses shareHits (share.profile_gone)', async () => {

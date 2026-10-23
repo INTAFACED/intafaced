@@ -1,12 +1,13 @@
 import { createArchiveClient } from './outreach/archive-publication.js';
 import Fastify from 'fastify';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import postgres from 'postgres';
 import { migrateOutreach } from './db/migrate.js';
 import { OutreachCrm } from './outreach/crm.js';
 import { OutreachError } from './outreach/config.js';
 import { createFounderAuthority } from './outreach/authority.js';
 import { createClientIpResolver } from './outreach/client-ip.js';
+import { SqlPublicSettingsBook } from './outreach/public-settings.js';
 import { createFeeRevenueClient } from './fee-revenue-client.js';
 import { createOutreachNotificationClient } from './outreach/notification-client.js';
 import { OutreachNotificationWorker } from './outreach/notification-worker.js';
@@ -16,6 +17,7 @@ import { AlertRules } from './alerts/rules.js';
 import { AlertEvaluator } from './alerts/runner.js';
 import { warehouseSignalReader } from './alerts/signals.js';
 import { createPgAlertState } from './alerts/state-store.js';
+import { createPgAlertDesk } from './alerts/desk-store.js';
 import { createPgRestoreStore } from './restore-store.js';
 import { createRestoreDesk } from './restore/desk.js';
 import { createPgRestoreRunStore } from './restore/run-store.js';
@@ -23,6 +25,7 @@ import { createWatermarkReader } from './restore/watermark-reader.js';
 import { createPgVenueCostStore } from './venue-cost-store.js';
 import { createListingDesk } from './protocol-listing/wiring.js';
 import { createPgListingStore } from './protocol-listing/store.js';
+import { createPgReasonCodeStore, createReasonCodes } from './protocol-listing/reason-codes.js';
 import { reapplyCompletedErasures } from './outreach/restore-privacy.js';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { buildEdgeContext } from './edge-context.js';
@@ -88,6 +91,7 @@ if (process.env.DATABASE_URL && Number.isInteger(poolMax) && poolMax > 0) {
 }
 const alertRuleStore = crmSql ? createPgAlertRuleStore(crmSql) : null;
 const alertState = crmSql ? createPgAlertState(crmSql) : null;
+const alertDesk = crmSql ? createPgAlertDesk(crmSql) : undefined;
 let outreachConfiguration: unknown = null;
 try {
   outreachConfiguration = JSON.parse(process.env.OPS_OUTREACH_CONFIG ?? 'null');
@@ -118,6 +122,7 @@ const appRouter = createOpsRouter(
   ops,
   {
     crm,
+    ...(crmSql ? { publicSettings: new SqlPublicSettingsBook(crmSql) } : {}),
     authority: createFounderAuthority({
       identityUrl: env.IDENTITY_URL,
       serviceSecret: process.env.INTERNAL_SERVICE_SECRET,
@@ -147,8 +152,10 @@ const appRouter = createOpsRouter(
       secret: env.INTERNAL_SERVICE_SECRET,
       ...(s2sKey ? { s2s: s2sKey } : {}),
     }),
-    alertRules: alertRuleStore ? new AlertRules(alertRuleStore) : undefined,
+    alertRules: alertRuleStore ? new AlertRules(alertRuleStore, () => new Date().toISOString(), randomUUID, alertDesk) : undefined,
     alertState: alertState ?? undefined,
+    alertDesk,
+    alertHeartbeatMaxAgeSeconds: env.OPS_ALERT_HEARTBEAT_MAX_AGE_SECONDS ?? null,
     compliance: crmSql ? createPgComplianceStore(crmSql) : undefined,
     alertSourceUrl: env.OPS_ALERT_SOURCE_URL,
     approvals: approvalConsumer,
@@ -156,7 +163,11 @@ const appRouter = createOpsRouter(
       ? createListingDesk({
           store: createPgListingStore(crmSql),
           approvals: approvalConsumer,
-          reasonCodes: () => protocolReasonCodes,
+          reasonCodes: createReasonCodes({
+            store: createPgReasonCodeStore(crmSql),
+            envCodes: protocolReasonCodes,
+            now: () => new Date().toISOString(),
+          }),
           now: () => new Date().toISOString(),
         })
       : undefined,
@@ -220,7 +231,12 @@ notificationTimer.unref();
 // outbox: no bus is wired from this process yet, so nothing is published and /ready says so.
 const alertEvaluator =
   alertRuleStore && alertState
-    ? new AlertEvaluator({ rules: alertRuleStore, state: alertState, signals: warehouseSignalReader(ops) })
+    ? new AlertEvaluator({
+        rules: alertRuleStore,
+        state: alertState,
+        signals: warehouseSignalReader(ops),
+        ...(alertDesk ? { desk: alertDesk } : {}),
+      })
     : null;
 let alertRun: Promise<void> | null = null;
 const alertTimer = setInterval(() => {

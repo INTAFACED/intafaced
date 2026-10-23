@@ -164,6 +164,7 @@ const messages = {
   'view.money': 'Money',
   'view.hide.balance.values': 'Hide balance values',
   'view.display.currency': 'Display currency',
+  'view.display.currency.hint': 'Home and Money show your total in this unit. With no BTC price, the total stays in dollars and says so.',
   'view.a.converted.total.requires.a.complete.valuation': 'Totals are shown in this currency when every coin you hold has a price.',
   'view.hiding.small.balances.requires.a.valuation.threshold':
     'Hiding small balances requires a valuation threshold. That isn’t available.',
@@ -425,6 +426,8 @@ const es = {
   'view.money': 'Dinero',
   'view.hide.balance.values': 'Ocultar los saldos',
   'view.display.currency': 'Moneda de visualización',
+  'view.display.currency.hint':
+    'Inicio y Dinero muestran tu total en esta unidad. Sin precio de BTC, el total sigue en dólares y lo indica.',
   'view.a.converted.total.requires.a.complete.valuation':
     'Un total convertido requiere una fuente de valoración completa. Las cantidades de activos conservan sus propias unidades.',
   'view.hiding.small.balances.requires.a.valuation.threshold':
@@ -688,6 +691,8 @@ const fr = {
   'view.money': 'Argent',
   'view.hide.balance.values': 'Masquer les soldes',
   'view.display.currency': 'Devise d’affichage',
+  'view.display.currency.hint':
+    'Accueil et Argent affichent votre total dans cette unité. Sans prix du BTC, le total reste en dollars et le signale.',
   'view.a.converted.total.requires.a.complete.valuation':
     'Un total converti nécessite une source de valorisation complète. Les quantités d’actifs conservent leurs propres unités.',
   'view.hiding.small.balances.requires.a.valuation.threshold':

@@ -19,6 +19,7 @@ export interface FounderCallContext {
 
 export type DeskModule =
   | 'identity'
+  | 'trade'
   | 'pay'
   | 'support'
   | 'notify'

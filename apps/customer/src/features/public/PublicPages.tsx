@@ -5,15 +5,20 @@ import { supportMailto } from '../more/support-desk';
 import { ContactSupport } from './ContactSupport';
 import { NoticeDetail, NoticeFeed } from './NoticeFeed';
 import { doorSummaries } from './public-catalogue';
-import { PARTICIPATION_ROOMS, partnerEnquiryHref } from './public-pages';
+import { PARTICIPATION_ROOMS } from './public-pages';
+import { usePartnerSettings } from './partner-settings';
 import { pagesCopy } from './public-pages-copy';
 import { publicCopy } from './public-copy';
 import './public-pages.css';
 
-/** /partner: where a partnership enquiry goes. The form is in the invitation app; this page points at it or at an email. */
+/**
+ * /partner: where a partnership enquiry goes. The form is on the invitation site at the founders' join address; this page
+ * points at it, or at the support email, or says neither is set. Programme terms show only when the founders publish them.
+ */
 export function PartnerPage() {
   const copy = pagesCopy.useCopy();
-  const form = partnerEnquiryHref(import.meta.env.VITE_JOIN_URL as string | undefined);
+  const settings = usePartnerSettings();
+  const form = settings.formHref;
   const contact = useSupportContact();
   const to = contact.email;
   return (
@@ -25,8 +30,8 @@ export function PartnerPage() {
       <section className="pub-card" aria-labelledby="partner-form">
         <h2 id="partner-form">{copy.t('partnerFormTitle')}</h2>
         <p>{copy.t(form ? 'partnerFormBody' : 'partnerNoFormBody')}</p>
-        {form ? (
-          <a className="button button--primary" href={form}>
+        {settings.status === 'loading' ? null : form ? (
+          <a className="button button--primary" href={form} data-testid="partner-form-link">
             {copy.t('partnerOpenForm')} ↗
           </a>
         ) : to ? (
@@ -56,6 +61,22 @@ export function PartnerPage() {
           <li>{copy.t('partnerInclude3')}</li>
         </ul>
         <p className="muted">{copy.t('partnerBoundary')}</p>
+      </section>
+      <section className="pub-card" aria-labelledby="partner-terms">
+        <h2 id="partner-terms">{copy.t('partnerTermsTitle')}</h2>
+        {settings.terms ? (
+          <p className="partner-terms" data-testid="partner-terms">
+            {settings.terms}
+          </p>
+        ) : settings.status === 'loading' ? null : settings.status === 'unread' ? (
+          <p role="status" data-testid="partner-terms-unread">
+            {copy.t('partnerTermsUnread')}
+          </p>
+        ) : (
+          <p role="status" data-testid="partner-terms-unset">
+            {copy.t('partnerTermsNotSet')}
+          </p>
+        )}
       </section>
       <section className="pub-card" aria-labelledby="partner-merchant">
         <h2 id="partner-merchant">{copy.t('partnerMerchantTitle')}</h2>
@@ -128,10 +149,10 @@ export function AppPage() {
 }
 
 /**
- * Campaigns and activities, for the public /lab page and the signed-in /campaigns room. No campaign service exists, so no
- * campaign, task or prize is shown. What a person can take part in today comes from rooms that do exist.
+ * Campaigns and activities, for the signed-in /campaigns room. No campaign service exists, so no campaign, task or prize is
+ * shown. What a person can take part in today comes from rooms that do exist. The public /lab page is its own screen.
  */
-export function CampaignsOverview({ heading = true, detail = false }: { heading?: boolean; detail?: boolean }) {
+export function CampaignsOverview({ heading = true }: { heading?: boolean }) {
   const copy = pagesCopy.useCopy();
   const { session } = useSession();
   return (
@@ -142,13 +163,8 @@ export function CampaignsOverview({ heading = true, detail = false }: { heading?
         </header>
       )}
       <section className="pub-notice" role="status">
-        <h2>{copy.t(detail ? 'campDetailTitle' : 'campNoneTitle')}</h2>
-        <p>{copy.t(detail ? 'campDetailBody' : 'campNoneBody')}</p>
-        {detail && (
-          <a className="text-link" href="/lab">
-            ← {copy.t('campBack')}
-          </a>
-        )}
+        <h2>{copy.t('campNoneTitle')}</h2>
+        <p>{copy.t('campNoneBody')}</p>
       </section>
       <section className="pub-card" aria-labelledby="camp-today">
         <h2 id="camp-today">{copy.t('campTodayTitle')}</h2>

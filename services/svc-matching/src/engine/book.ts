@@ -18,6 +18,7 @@ import type {
   RestingRef,
   SubmitResult,
   TimeInForce,
+  TriggerFact,
   TriggerOutcome,
 } from './types.js';
 import { aonIcebergRefuse, canFillAon, clipMeetsAon, readAon } from './aon.js';
@@ -363,6 +364,11 @@ export class OrderBook {
 
     const isStop = order.type === 'stop' || order.type === 'stop_limit';
     const triggersNow = isStop && (this.isTriggered(stopView(order)) || this.alreadyAtStop(stopView(order)));
+    // A stop already at or through its price goes straight to the book; say so with the last price it met.
+    const arrival: TriggerFact | null =
+      triggersNow && this.lastTradePrice !== null
+        ? triggerFact(readTriggerBy(order), order.stopPrice as Amount, this.lastTradePrice)
+        : null;
 
     if (isStop && !triggersNow) {
       const displaced = this.displaceReduceOnly(order);
@@ -440,7 +446,10 @@ export class OrderBook {
       fills: outcome.fills,
       resting: outcome.resting,
       cancellations: [...displaced, ...expired, ...outcome.cancellations, ...reduceCancels, ...ocoCancels],
-      triggered,
+      // The arrival is reported like any other trigger, so every composer (bracket, OCO) carries it to the event.
+      triggered: arrival
+        ? [{ orderId: order.orderId, sequence, fills: [], resting: null, cancellations: [], trigger: arrival }, ...triggered]
+        : triggered,
       ...(surveillanceCases.length > 0 ? { surveillanceCases } : {}),
     };
   }
@@ -711,7 +720,7 @@ export class OrderBook {
       if (viability) return refusedAmend(cmd.orderId, viability);
       const at = this.stops.findIndex((s) => s.orderId === stop.orderId);
       if (at !== -1) this.stops.splice(at, 1);
-      const triggered = this.activate(updated);
+      const triggered = this.fire(updated, this.lastTradePrice as Amount);
       const cascade = this.drainStops();
       this.lastMove = null;
       const surveillanceCases = collectSurveillance(triggered.surveillanceCases ?? [], cascade);
@@ -1238,7 +1247,7 @@ export class OrderBook {
       const at = this.stops.findIndex((stop) => this.legacyLevelTriggered(stop));
       if (at === -1) break;
       const stop = this.stops.splice(at, 1)[0]!;
-      outcomes.push(this.activate(stop));
+      outcomes.push(this.fire(stop, this.lastTradePrice as Amount));
     }
   }
 
@@ -1257,11 +1266,16 @@ export class OrderBook {
       }
       if (batch.length === 0) break;
       batch.reverse();
-      for (const stop of batch) outcomes.push(this.activate(stop));
+      for (const stop of batch) outcomes.push(this.fire(stop, move.next));
       if (this.lastMove === move) break;
       this.drainLegacyStops(outcomes);
     }
     return outcomes;
+  }
+
+  /** Activate a stop and record why: the reference it watches reached its stop price at `reference`. */
+  private fire(stop: StopOrder, reference: Amount): TriggerOutcome {
+    return { ...this.activate(stop), trigger: triggerFact(stop.triggerBy, stop.stopPrice, reference) };
   }
 
   private activate(stop: StopOrder): TriggerOutcome {
@@ -1606,7 +1620,7 @@ export class OrderBook {
       );
       if (at === -1) break;
       const stop = this.stops.splice(at, 1)[0] as StopOrder;
-      outcomes.push(this.activate(stop));
+      outcomes.push(this.fire(stop, next));
     }
     return outcomes;
   }
@@ -1988,6 +2002,11 @@ export class OrderBook {
 
     return book;
   }
+}
+
+/** One shape for why a stop fired, whether it fired on the book or on arrival. */
+function triggerFact(by: TriggerFact['by'], stopPrice: Amount, reference: Amount): TriggerFact {
+  return { by, stopPrice, reference };
 }
 
 function collectSurveillance(fromMatch: readonly EngineSurveillanceCase[], triggered: readonly TriggerOutcome[]): EngineSurveillanceCase[] {

@@ -227,7 +227,7 @@ export function AcademyLearning({
   const pending = originalPending(userId);
   const receipt = action.result?.ok ? completion.safeParse(action.result.data) : null;
   const receiptMatches = receipt?.success && receipt.data.userId === userId && receipt.data.itemSlug === slug;
-  const certificateLink = `/academy?${new URLSearchParams({ ...(certId ? { cert: certId } : {}), section: 'certificates' })}`;
+  const certificateLink = `/academy/certificates${certId ? `?${new URLSearchParams({ cert: certId })}` : ''}`;
   function review(lesson: z.infer<typeof item>) {
     const expected = { ...context.current },
       originalLocale = language;
@@ -603,7 +603,7 @@ function inlineText(text: string): ReactNode {
       ),
     );
 }
-function LessonBody({ body, title }: { body: string; title: string }) {
+export function LessonBody({ body, title }: { body: string; title: string }) {
   return (
     <>
       {body

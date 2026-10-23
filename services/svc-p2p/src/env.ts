@@ -51,6 +51,20 @@ const schema = serviceEnvSchema
       P2P_FEE_BPS: ownerInt,
 
       /**
+       * P-disputes-security-15. JSON table of per-tier buy caps in one fiat.
+       * Empty is unset. A partial table or a JSON number is invalid, not a cap.
+       * No default currency and no default amount.
+       */
+      P2P_VERIFICATION_LIMITS: z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), z.string().optional()),
+
+      /**
+       * Seconds a security-setting change would lock new sells. Empty is unset.
+       * A positive value still cannot be applied until identity publishes the
+       * change time; it is not 86400 by default.
+       */
+      P2P_SECURITY_CHANGE_LOCK_SECONDS: ownerInt,
+
+      /**
        * Largest `maxAmt` an offer may advertise — the merchant badge's first
        * real entitlement (`merchant-limits.ts` argues why the numbers are not
        * invented in code).
@@ -72,6 +86,31 @@ const schema = serviceEnvSchema
           .string()
           .regex(/^(unlimited|\d+(\.\d+)?)$/i, 'P2P_OFFER_MAX_STANDARD must be a non-negative decimal string or the literal unlimited')
           .optional(),
+      ),
+      /** P-trade-orders-21: hours support has to review a completion appeal. Empty is unset → appeal refuses p2p.config_unset. */
+      P2P_APPEAL_REVIEW_HOURS: z.preprocess(
+        (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+        z.coerce.number().int().min(1).optional(),
+      ),
+      /**
+       * P-trade-orders-14 owner caps (whole numbers ≥ 1). Empty is unset, and an
+       * unset cap makes trades.exportFile / trades.receipt refuse p2p.config_unset.
+       */
+      P2P_EXPORT_MAX_RANGE_DAYS: z.preprocess(
+        (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+        z.coerce.number().int().min(1).optional(),
+      ),
+      P2P_EXPORT_MAX_ROWS: z.preprocess(
+        (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+        z.coerce.number().int().min(1).optional(),
+      ),
+      P2P_RECEIPT_DAILY_QUOTA: z.preprocess(
+        (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+        z.coerce.number().int().min(1).optional(),
+      ),
+      P2P_RECEIPT_PER_TRADE_QUOTA: z.preprocess(
+        (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+        z.coerce.number().int().min(1).optional(),
       ),
       P2P_OFFER_MAX_MERCHANT: z.preprocess(
         (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),

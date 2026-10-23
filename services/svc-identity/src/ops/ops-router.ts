@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import type { Sql } from 'postgres';
 import { AccountDirectoryError, accountCounts, searchAccounts } from './account-directory.js';
+import { OperatorApiKeyError, revokeApiKeyForUser } from './operator-api-keys.js';
 import { OperatorSessionError, listSessionsForUser, revokeSessionsForUser } from './operator-sessions.js';
 
 const directoryRow = z
@@ -32,12 +33,35 @@ function sessionError(error: unknown): never {
   throw error;
 }
 
+function apiKeyError(error: unknown): never {
+  if (error instanceof OperatorApiKeyError) {
+    const code =
+      error.code === 'mfa.required'
+        ? 'UNAUTHORIZED'
+        : error.code === 'operator.denied'
+          ? 'FORBIDDEN'
+          : error.code === 'auth.not_found'
+            ? 'NOT_FOUND'
+            : 'PRECONDITION_FAILED';
+    throw new TRPCError({ code, message: `${error.message} [${error.code}]`, cause: error });
+  }
+  throw error;
+}
+
 export function createOperatorOpsRouter(sql: Sql) {
   return router({
     accountDirectory: router({
       search: scopedProcedure('admin:compliance')
-        .input(z.object({ email: z.string().max(320).optional(), handle: z.string().max(32).optional() }).strict())
-        .output(z.object({ rows: z.array(directoryRow) }).strict())
+        .input(
+          z
+            .object({
+              email: z.string().max(320).optional(),
+              handle: z.string().max(32).optional(),
+              cursor: z.string().max(512).optional(),
+            })
+            .strict(),
+        )
+        .output(z.object({ rows: z.array(directoryRow), nextCursor: z.string().nullable() }).strict())
         .query(async ({ ctx, input }) => {
           try {
             return await searchAccounts(sql, ctx, input);
@@ -114,6 +138,40 @@ export function createOperatorOpsRouter(sql: Sql) {
             return await revokeSessionsForUser(sql, ctx, input);
           } catch (error) {
             sessionError(error);
+          }
+        }),
+    }),
+    /** Support-agent and founder-ops revoke of one customer key (DV-keys-04, ENGINE KS-11). Never returns a secret. */
+    apiKeyOps: router({
+      revoke: scopedProcedure('admin:write')
+        .input(
+          z
+            .object({
+              userId: z.string().uuid(),
+              keyId: z.string().uuid(),
+              reason: z.string().max(500),
+              clientRequestId: z.string().max(128),
+            })
+            .strict(),
+        )
+        .output(
+          z
+            .object({
+              userId: z.string().uuid(),
+              keyId: z.string().uuid(),
+              changed: z.boolean(),
+              revocation: z
+                .object({ actorId: z.string().uuid(), reason: z.string(), revokedAt: z.string().datetime({ offset: true }) })
+                .strict()
+                .nullable(),
+            })
+            .strict(),
+        )
+        .mutation(async ({ ctx, input }) => {
+          try {
+            return await revokeApiKeyForUser(sql, ctx, input);
+          } catch (error) {
+            apiKeyError(error);
           }
         }),
     }),

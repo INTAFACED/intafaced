@@ -215,6 +215,7 @@ export type SupportActionRequest =
       readonly change: BulkChange;
       readonly reason?: string;
     }
+  | { readonly action: 'merge'; readonly ticketId: string; readonly survivorId: string; readonly reason: string }
   | { readonly action: 'reply'; readonly ticketId: string; readonly body: string }
   | { readonly action: 'status'; readonly ticketId: string; readonly status: TicketStatus; readonly note?: string }
   | {
@@ -336,6 +337,11 @@ export function readActionRequest(raw: Record<string, unknown>): SupportActionRe
         change,
         ...(raw.reason === undefined ? {} : { reason: raw.reason.trim() }),
       };
+    }
+    case 'merge': {
+      if (!isTicketId(raw.ticketId) || !isTicketId(raw.survivorId) || raw.ticketId === raw.survivorId) return null;
+      if (!isText(raw.reason, 400)) return null;
+      return { action: 'merge', ticketId: raw.ticketId, survivorId: raw.survivorId, reason: raw.reason.trim() };
     }
     case 'kb_publish': {
       if (!isKey(raw.id) || !isKey(raw.titleKey) || !isKey(raw.bodyKey)) return null;

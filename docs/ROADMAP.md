@@ -8,13 +8,13 @@ Finished is the Operation Zero definition: every build row of all 21 modules com
 
 1. **Push (now).** Build every slice. Proof per slice: its tests, the journey it serves, and screenshots.
 2. **Polish (part of finishing, after the push).** Review against the reference apps with a rubric, scripted persona tasks per module, nightly re-runs, dependency upgrades, leftover review findings.
-3. **Real-funds day.** One named switch that only the owner turns on. Before it: a bought custody signer behind the existing signer interface, live owner values (docs/OWNER-SETTINGS.md), service keys only (the shared secrets removed), ledger idempotency in `refuse` mode, and the items on the owner's must-fix list.
+3. **Real-funds day.** One named switch that only the owner turns on. Before it: a bought custody signer behind the existing signer interface, live owner values (docs/OWNER-SETTINGS.md), service keys only (the shared secrets removed), ledger idempotency in `refuse` mode, the items on the owner's must-fix list, every slice whose title starts "Before real money:" (Phantom's fault table, admin acceptance tests and his 2026-10-23 controls: proof of reserves, AML transaction monitoring, 3-D Secure and sanctions screening proven in a journey, and a check that production runs in live mode with no TEST shortcuts reachable; linked from the money journeys they protect but not steps of them), the readiness review of the first launch unit, and an external security audit of the money code (the audit is external; agents never mark anything audited).
 
 ## How work flows
 
 - **Lanes.** A lane is one service, or one app area, so two lanes never edit the same files. A lane keeps one thread across many slices and takes its next slice from its queue (`node tooling/scripts/roadmap.mjs --lane "<lane>"`). Trader-journey slices go first.
 - **Slice ids.** A PR that builds a slice names its id in the title (for example `svc-trade: SP-order-entry-02 market order by value`), so progress is counted from merged PRs, not typed (`node tooling/scripts/roadmap.mjs --progress`).
-- **How to build and review a slice:** the `build-slice` repo skill, with the lane brief and the reviewer brief.
+- **How to build and review a slice:** `docs/agents/build-slice.md`, with the lane brief and the reviewer brief beside it. A slice lands as one PR: its contracts or events, one service and that service's screen (owner decision 2026-10-22).
 - **Before building a slice,** re-read its spec and re-check every cited `file:line` against today's main. The specs were written against main of 2026-10-18; drop what is already built and say so in the PR.
 - **Journeys.** Each cross-module journey has one owner whose job is keeping it green in the real app: trader first; then bank to fund to trade to withdraw; merchant payout to bank; one portfolio.
 - **Front end.** Build on the default design tokens. Look choices go to the owner in one batch per phase, as two or three rendered options side by side; without an answer the default stays.
@@ -29,11 +29,11 @@ Settled before lanes go wide. Each has one owner.
 | Futures engine                 | Matched traders with a margin book beside matching; svc-ledger stays the only balance and settles through ledger-client recipes; insurance fund and auto-deleveraging. Batch settlement designed, built only when volume needs it. | ADR being written                                                        |
 | Service-to-service auth        | Each service signs with its own key                                                                                                                                                                                                | Rolling out service by service; keys-only flip is on the real-funds list |
 | Ledger keys                    | Per-operation key prefixes and one shared lost-reply classifier, before money lanes widen                                                                                                                                          | In progress                                                              |
-| TEST settings                  | Labelled TEST profile for the rigs (`tooling/profiles/test-owner-values.json`); live values stay blank                                                                                                                             | On main; extended as journeys need                                       |
+| TEST settings                  | Labelled TEST profile for the rigs (`tooling/profiles/test-owner-values/`, one file per service); live values stay blank                                                                                                           | On main; extended as journeys need                                       |
 | Customer app shell and types   | Navigation skeleton first; new screens take response types from `packages/contracts`; one refusal catalogue                                                                                                                        | In progress                                                              |
-| Seams                          | Each journey's contracts and events land first, then stay frozen while its lanes build                                                                                                                                             | Per journey                                                              |
+| Seams                          | A slice's contracts and events land in the slice's one PR; once merged they stay frozen while the journey builds on them                                                                                                           | Per journey                                                              |
 | Merchant webhooks              | Self-hosted open-source webhook server, no purchase; payout, refund and dispute as explicit state machines first                                                                                                                   | Pay lane                                                                 |
-| On-chain contracts and Predict | @shehzad002's lane; audited libraries; never `audited: true`                                                                                                                                                                       | That lane                                                                |
+| On-chain contracts and Predict | Open to agents (owner decision 2026-10-22; @shehzad002 may take a part back); audited libraries; never `audited: true`                                                                                                             | Agents                                                                   |
 | Custody signer                 | Signer interface on main; provider bought before real funds                                                                                                                                                                        | Closed for test money                                                    |
 
 ## Where the specs are
@@ -44,11 +44,11 @@ The full slice specs (behaviour, tests, failure cases, references) live in the p
 
 ## Generated: what is left, by module, lane and journey
 
-1455 slices left in 21 modules. 262 need no other slice. 47 sit in a dependency loop that the lane untangles first. 347 end in a refusal that names an outside service (built, switched on later). Size: 702 L, 657 M, 96 S.
+1494 slices left in 21 modules. 282 need no other slice. 47 sit in a dependency loop that the lane untangles first. 357 end in a refusal that names an outside service (built, switched on later). Size: 703 L, 685 M, 106 S.
 
 ### Journey map
 
-Done is defined by 461 journeys (3099 steps) in `modules/<module>/acceptance/journeys.md`; a journey is finished when its browser test passes on the real stack built from main. Order 1 is a module's first usable journey, and lane queues take its slices first. 34 steps still need a capability no slice covers yet.
+Done is defined by 462 journeys (3111 steps) in `modules/<module>/acceptance/journeys.md`; a journey is finished when its browser test passes on the real stack built from main. Order 1 is a module's first usable journey, and lane queues take its slices first. 34 steps still need a capability no slice covers yet.
 
 | Module         | Journeys | Order 1 | Order 2 | Order 3 | Steps | Steps with no slice |
 | -------------- | -------- | ------- | ------- | ------- | ----- | ------------------- |
@@ -56,7 +56,7 @@ Done is defined by 461 journeys (3099 steps) in `modules/<module>/acceptance/jou
 | dex-protocol   | 32       | 5       | 16      | 11      | 283   | 0                   |
 | copy-bots-otc  | 30       | 5       | 13      | 12      | 207   | 1                   |
 | bank           | 28       | 4       | 15      | 9       | 166   | 7                   |
-| ops-console    | 25       | 3       | 17      | 5       | 229   | 8                   |
+| ops-console    | 26       | 3       | 18      | 5       | 241   | 8                   |
 | identity       | 21       | 4       | 11      | 6       | 135   | 1                   |
 | p2p            | 21       | 2       | 12      | 7       | 118   | 0                   |
 | pay            | 21       | 2       | 11      | 8       | 121   | 1                   |
@@ -78,20 +78,20 @@ Done is defined by 461 journeys (3099 steps) in `modules/<module>/acceptance/jou
 
 | Module         | Slices | Need nothing | Refuse for an outside service | Large |
 | -------------- | ------ | ------------ | ----------------------------- | ----- |
-| merchant       | 190    | 23           | 7                             | 104   |
+| merchant       | 211    | 35           | 10                            | 105   |
 | copy-bots-otc  | 125    | 42           | 18                            | 47    |
+| ops-console    | 118    | 25           | 42                            | 66    |
 | dex-protocol   | 111    | 4            | 102                           | 40    |
-| ops-console    | 107    | 19           | 41                            | 66    |
-| bank           | 96     | 40           | 5                             | 57    |
+| bank           | 98     | 40           | 7                             | 57    |
 | identity       | 90     | 17           | 30                            | 27    |
-| wallet         | 73     | 24           | 24                            | 26    |
+| wallet         | 77     | 25           | 27                            | 26    |
 | p2p            | 70     | 12           | 2                             | 40    |
 | academy        | 60     | 3            | 14                            | 34    |
 | derivatives    | 59     | 10           | 19                            | 28    |
 | cex-spot       | 53     | 5            | 13                            | 33    |
 | support-public | 52     | 10           | 15                            | 21    |
 | more-catalogue | 51     | 3            | 22                            | 19    |
-| pay            | 48     | 6            | 2                             | 19    |
+| pay            | 49     | 7            | 3                             | 19    |
 | agents         | 46     | 1            | 10                            | 22    |
 | developer      | 42     | 12           | 1                             | 23    |
 | campaigns      | 41     | 2            | 11                            | 23    |
@@ -106,25 +106,25 @@ A lane is one service, or one app area, so two lanes never edit the same files. 
 
 | Lane                          | Slices | Need nothing | In the trader journey | In an Order 1 journey | In no journey |
 | ----------------------------- | ------ | ------------ | --------------------- | --------------------- | ------------- |
-| svc-pay merchant              | 214    | 26           | 11                    | 36                    | 2             |
-| svc-bank                      | 192    | 53           | 35                    | 38                    | 16            |
+| svc-pay merchant              | 232    | 36           | 11                    | 36                    | 16            |
+| svc-bank                      | 195    | 53           | 35                    | 38                    | 19            |
 | svc-trade spot                | 163    | 41           | 42                    | 48                    | 6             |
-| svc-identity                  | 134    | 29           | 68                    | 40                    | 8             |
+| svc-identity                  | 136    | 29           | 68                    | 40                    | 10            |
 | svc-protocol                  | 75     | 4            | 1                     | 20                    | 3             |
 | svc-p2p                       | 62     | 10           | 0                     | 19                    | 1             |
 | svc-academy                   | 60     | 3            | 0                     | 19                    | 3             |
 | svc-agents                    | 49     | 2            | 0                     | 8                     | 2             |
 | svc-trade futures             | 48     | 8            | 0                     | 9                     | 0             |
+| svc-ops                       | 42     | 11           | 4                     | 0                     | 8             |
 | svc-notify                    | 39     | 15           | 3                     | 11                    | 1             |
-| svc-ops                       | 38     | 8            | 4                     | 0                     | 5             |
 | svc-support                   | 36     | 7            | 2                     | 10                    | 3             |
+| svc-pay wallet                | 32     | 9            | 14                    | 10                    | 3             |
 | svc-quant                     | 31     | 4            | 0                     | 9                     | 0             |
-| svc-pay wallet                | 30     | 8            | 14                    | 10                    | 1             |
+| ledger                        | 25     | 9            | 7                     | 2                     | 3             |
 | svc-matching                  | 21     | 2            | 4                     | 2                     | 3             |
-| ledger                        | 20     | 6            | 7                     | 2                     | 0             |
 | svc-execution                 | 20     | 3            | 5                     | 0                     | 13            |
 | customer: trade               | 19     | 1            | 3                     | 4                     | 1             |
-| svc-edge                      | 18     | 1            | 2                     | 4                     | 0             |
+| svc-edge                      | 19     | 1            | 2                     | 4                     | 1             |
 | customer: more                | 16     | 2            | 3                     | 7                     | 0             |
 | svc-market                    | 15     | 0            | 0                     | 6                     | 0             |
 | svc-token                     | 15     | 2            | 0                     | 4                     | 0             |
@@ -146,6 +146,7 @@ A lane is one service, or one app area, so two lanes never edit the same files. 
 | admin shell                   | 2      | 0            | 0                     | 0                     | 0             |
 | admin: founder-ops            | 2      | 1            | 1                     | 0                     | 0             |
 | admin: protocol-desk          | 2      | 0            | 0                     | 0                     | 0             |
+| config                        | 2      | 2            | 0                     | 0                     | 2             |
 | customer: money               | 2      | 1            | 1                     | 0                     | 1             |
 | acceptance (Polish)           | 1      | 1            | 1                     | 0                     | 1             |
 | admin: console-status-banner  | 1      | 0            | 0                     | 1                     | 0             |
@@ -156,7 +157,9 @@ A lane is one service, or one app area, so two lanes never edit the same files. 
 | admin: modules                | 1      | 0            | 0                     | 0                     | 0             |
 | admin: nav                    | 1      | 0            | 0                     | 1                     | 0             |
 | admin: support-ticket-actions | 1      | 0            | 0                     | 1                     | 0             |
+| ci gate                       | 1      | 1            | 0                     | 0                     | 1             |
 | customer: coin                | 1      | 0            | 0                     | 0                     | 0             |
+| docs                          | 1      | 0            | 0                     | 0                     | 1             |
 
 ### By journey
 
@@ -164,7 +167,7 @@ A lane is one service, or one app area, so two lanes never edit the same files. 
 | ------------------------ | ------ | ------------ |
 | trader                   | 225    | 56           |
 | bank-fund-trade-withdraw | 51     | 17           |
-| merchant-payout-to-bank  | 83     | 22           |
+| merchant-payout-to-bank  | 84     | 23           |
 | one-portfolio            | 35     | 9            |
 
 ### Trader journey queue

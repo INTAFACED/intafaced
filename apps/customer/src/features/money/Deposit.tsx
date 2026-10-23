@@ -1,7 +1,10 @@
 import { AccountDetailsPanel } from './AccountDetails';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { DepositPendingPanel, DepositRecordsPanel } from './DepositRecords';
 import { DepositAddressPanel, DepositNetworkPicker } from './DepositFunding';
+import { DepositAssetPicker } from './DepositAssetPicker';
+import { DepositMethods } from './DepositMethods';
+import { readDepositLink, resolveDepositLink, type DepositLinkResult } from './deposit-link';
 import { useDepositCatalogue } from './deposit-reads';
 import { Button, EmptyState, Page } from '../../shared/ui';
 import { displayAmount } from '../../shared/money';
@@ -24,6 +27,22 @@ export function Deposit() {
   const catalogue = useDepositCatalogue();
   const [picked, setPicked] = useState('');
   const [networkId, setNetworkId] = useState('');
+  // `?asset=&network=` chooses once, when custody's list is known. An unpublished asset or network chooses nothing and says so.
+  const [link] = useState(() => readDepositLink(location.search));
+  const [refused, setRefused] = useState<Extract<DepositLinkResult, { status: 'refused' }> | null>(null);
+  const linked = useRef(false);
+  useEffect(() => {
+    if (linked.current || catalogue.resource.status !== 'ready') return;
+    linked.current = true;
+    const result = resolveDepositLink(link, catalogue.resource.data);
+    if (result.status === 'ok') {
+      setPicked(result.asset);
+      setNetworkId(result.network);
+    } else if (result.status === 'refused') {
+      if (result.code === 'bank.deposit_network_unpublished') setPicked(result.asset);
+      setRefused(result);
+    }
+  }, [catalogue.resource, link]);
   const [onlyAsset, setOnlyAsset] = useState(true);
   const heldIds = held.resource.status === 'ready' ? held.resource.data.assets.map((asset) => asset.assetId) : [];
   const listed = markets.status === 'ready' ? markets.data.map((row) => row.base) : [];
@@ -36,28 +55,25 @@ export function Deposit() {
   const total = onlyAsset && asset ? depositTotal(rows) : null;
   return (
     <Page eyebrow={t('eyebrow')} title={t('title')} description={t('lead')}>
+      <DepositMethods />
       <div className="bd-columns">
         <div className="bd-stack">
           <DepthPanel title={t('asset')}>
-            <label className="field">
-              <span>{t('asset')}</span>
-              <select
-                value={asset}
-                onChange={(event) => {
-                  setPicked(event.target.value);
-                  setNetworkId('');
-                }}
-                disabled={assets.length === 0}
-              >
-                {assets.length === 0 && <option value="">—</option>}
-                {assets.map((id) => (
-                  <option key={id} value={id}>
-                    {id}
-                  </option>
-                ))}
-              </select>
-              <small>{assets.length === 0 ? t('noAssets') : t('assetHint')}</small>
-            </label>
+            <DepositAssetPicker
+              assets={assets}
+              asset={asset}
+              onAsset={(id) => {
+                setPicked(id);
+                setNetworkId('');
+              }}
+            />
+            {refused && (
+              <p role="alert" data-code={refused.code}>
+                {refused.code === 'bank.deposit_asset_unpublished'
+                  ? t('linkAssetUnpublished', { asset: refused.asset })
+                  : t('linkNetworkUnpublished', { asset: refused.asset, network: refused.network ?? '' })}
+              </p>
+            )}
             <DepositNetworkPicker
               asset={asset}
               catalogue={catalogue.resource}
@@ -151,22 +167,6 @@ export function Deposit() {
                 )}
               </>
             )}
-          </DepthPanel>
-          <DepthPanel title={t('otherTitle')}>
-            <ul className="bd-links">
-              <li>
-                <a className="text-link" href="/bank/ramps">
-                  {t('otherCard')}
-                </a>
-                <span className="money-caption">{t('otherCardNote')}</span>
-              </li>
-              <li>
-                <a className="text-link" href="/pay/receive">
-                  {t('otherReceive')}
-                </a>
-                <span className="money-caption">{t('otherReceiveNote')}</span>
-              </li>
-            </ul>
           </DepthPanel>
         </div>
       </div>

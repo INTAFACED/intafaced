@@ -11,6 +11,7 @@
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -86,6 +87,11 @@ function founderInviteCode() {
 const FOUNDER_INVITE_CODES = [founderInviteCode(), founderInviteCode()];
 const FOUNDER_INVITE_HASHES = FOUNDER_INVITE_CODES.map((c) => createHash('sha256').update(c, 'utf8').digest('hex'));
 const FOUNDER_INVITE_EXPIRES_AT = new Date(Date.now() + 3_600_000).toISOString(); // SMOKE RIG ONLY — one hour
+
+// New custodial orders need a proved email (RC-identity-01, #5878). Identity writes its LOCAL-TEST confirm links to this
+// file, and the smoke and the journeys prove their traders' addresses the way a person does: ask, then open the link.
+// SMOKE RIG ONLY — a throwaway file per run; local-outbox is refused at boot unless APP_ENV is dev or test.
+const MAIL_OUTBOX = join(tmpdir(), `cx8-email-outbox-${process.pid}.log`);
 
 const children = [];
 
@@ -204,6 +210,13 @@ function startIdentity(founderPair = null) {
     // Operator desk scope for the two smoke founders' MFA sessions, so the customer journeys can review a KYC request
     // through identity's own two-person path. SMOKE RIG ONLY — a throwaway founder pair, fresh each run
     IDENTITY_FOUNDER_SESSION_SCOPES: 'admin:compliance',
+    // Email confirmation for the traders (see MAIL_OUTBOX). SMOKE RIG ONLY — not owner decisions: a link lives 10
+    // minutes, five asks an hour.
+    IDENTITY_MAIL_TRANSPORT: 'local-outbox',
+    IDENTITY_LOCAL_MAIL_OUTBOX: MAIL_OUTBOX,
+    IDENTITY_EMAIL_CONFIRM_TTL_SECONDS: '600',
+    IDENTITY_EMAIL_CONFIRM_RATE_MAX: '5',
+    IDENTITY_EMAIL_CONFIRM_RATE_WINDOW_SECONDS: '3600',
     REGISTRATION_OPEN: 'true',
     WEBAUTHN_ENABLED: 'false',
     WEBAUTHN_RP_ID: 'localhost',
@@ -225,6 +238,7 @@ async function enrolFoundersAndRestartIdentity() {
       env: {
         ...process.env,
         IDENTITY_HTTP_URL: 'http://127.0.0.1:4002',
+        CX8_MAIL_OUTBOX: MAIL_OUTBOX,
         EDGE_PRINCIPAL_SECRET: EDGE,
         JWT_ACCESS_SECRET: JWT,
         JWT_ISSUER: common.JWT_ISSUER,
@@ -315,7 +329,7 @@ async function main() {
       // SMOKE RIG ONLY — throwaway secrets and owner integers, fresh each run; not production values
       PAY_CRYPTO_WEBHOOK_SECRET: randomBytes(24).toString('base64url'),
       PAY_CARD_SANDBOX_WEBHOOK_SECRET: randomBytes(24).toString('base64url'),
-      // Owner integers and rails: the labelled TEST profile (tooling/profiles/test-owner-values.json)
+      // Owner integers and rails: the labelled TEST profile (tooling/profiles/test-owner-values/<service>.json)
       ...profileEnvFor('pay', common.APP_ENV),
       PAY_CRYPTO_WATCHER_ENABLED: 'false',
       // The same local-test stand-in the trade service gets below (Nino, 2026-10-19: yes to the sanctions switch for svc-pay). Counsel's list is not ours
@@ -403,7 +417,7 @@ async function main() {
     // screening reader ignores 'off' there, so screening stays fail-closed.
     INTAFACED_SCREENING_FAIL_CLOSED: 'off', // SMOKE RIG ONLY — local-test fixture value, same as every service's vitest config; refused outside dev/test
     // Owner values (convert spread, slippage cap, dead-man timeouts, fee schedule, pre-trade caps): the labelled TEST profile,
-    // tooling/profiles/test-owner-values.json, listed in docs/OWNER-SETTINGS.md. Blank in compose; never a product default.
+    // tooling/profiles/test-owner-values/<service>.json, listed in docs/OWNER-SETTINGS.md. Blank in compose; never a product default.
     ...profileEnvFor('trade', common.APP_ENV),
     // NOT a boot requirement any more. svc-trade boots with this blank and logs
     // "FUTURES IS DISABLED" (optionalProfitSourceFromConfig in
@@ -424,6 +438,7 @@ async function main() {
     // founders' MFA sessions as the edge would, so it needs identity's URL and the
     // token settings.
     IDENTITY_HTTP_URL: 'http://127.0.0.1:4002',
+    CX8_MAIL_OUTBOX: MAIL_OUTBOX,
     JWT_ACCESS_SECRET: JWT,
     JWT_ISSUER: common.JWT_ISSUER,
     JWT_AUDIENCE: common.JWT_AUDIENCE,
@@ -454,6 +469,7 @@ async function main() {
       MATCHING_HTTP_URL: 'http://127.0.0.1:4005',
       LEDGER_HTTP_URL: 'http://127.0.0.1:4001',
       IDENTITY_HTTP_URL: 'http://127.0.0.1:4002',
+      CX8_MAIL_OUTBOX: MAIL_OUTBOX,
       ...(WITH_PAY
         ? { PAY_HTTP_URL: 'http://127.0.0.1:4006', BANK_HTTP_URL: 'http://127.0.0.1:4009', TAX_HTTP_URL: 'http://127.0.0.1:4020' }
         : {}),

@@ -1,6 +1,4 @@
-import { SubNav } from '@intafaced/ui';
 import { QuantDisclosure } from './QuantDisclosure';
-import { QuantMemoryNotice } from './QuantMemoryNotice';
 import { t as copyText, Text } from './copy';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
@@ -26,9 +24,18 @@ import {
   type HistoricalSnapshot,
 } from './quant-analysis';
 import { QuantHistoricalRecord } from './QuantHistoricalRecord';
-import { QuantLibraryClosed, QuantSaveOff } from './QuantSaveOff';
+import { StudioLibrary } from '../quant/StudioLibrary';
+import { StudioSave } from '../quant/StudioSave';
+import { fingerprint, newLink, readLink, writeLink, type StudioLink } from '../quant/studio-save';
+import { studioCopy } from '../quant/studio-copy';
+import { builderCopy } from '../quant/builder-copy';
+import { SignalBuilder } from '../quant/SignalBuilder';
+import { StudioTemplates } from '../quant/StudioTemplates';
+import { emptySignalRules } from '../quant/signal-rules';
+import type { QuantSignalRules } from '@intafaced/contracts/quant-algo';
 import { emptyDraft, readDraft, writeDraft } from './quant-draft';
 import { analysisCopy } from './quant-analysis-copy';
+import { QuantRooms } from '../quant/QuantRooms';
 import './quant-analysis.css';
 /** A service sometimes answers with its own refusal code; customers read the plain sentence for it instead. */
 const RAW_CODE = /^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$/i;
@@ -66,9 +73,13 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
     [cash, setCash] = useState(draftStart.cash),
     [name, setName] = useState(draftStart.name),
     [blocks, setBlocks] = useState<{ side: 'buy' | 'sell'; symbol: string; qty: string }[]>(draftStart.blocks),
+    [modules, setModules] = useState<QuantSignalRules | null>(draftStart.modules),
     [drawdown, setDrawdown] = useState(draftStart.drawdown),
     [notional, setNotional] = useState(draftStart.notional),
     [kill, setKill] = useState(draftStart.kill),
+    [link, setLink] = useState<StudioLink>(() => (mode === 'studio' ? readLink(userId ?? null) : newLink())),
+    [libraryRevision, setLibraryRevision] = useState(0),
+    [replacing, setReplacing] = useState<string | null>(null),
     [result, setResult] = useState<z.infer<typeof runSchema> | null>(null),
     [bt, setBt] = useState<HistoricalSnapshot | null>(null),
     [strategyId, setStrategyId] = useState(''),
@@ -87,7 +98,7 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
     });
   const { Copy, t, languageFor, directionFor } = analysisCopy.useCopy();
   const draft = useRef<HTMLDivElement>(null);
-  // Backtest picks from the named draft kept on this device; the shared library is closed, so it is never read.
+  // Backtest still picks from the named draft kept on this device; it does not read the account library.
   const [studioDraft] = useState(() => (mode === 'backtest' ? readDraft(userId ?? null) : null));
   const strategyNames = draftStrategyNames(studioDraft);
   const [lastAttempt, setLastAttempt] = useState<{ request: HistoricalRequest; view: object; result: ApiResult<unknown> } | null>(null);
@@ -129,23 +140,48 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
   );
   const validCash = signedDecimalSchema.safeParse(cash).success;
   useEffect(() => {
-    if (mode === 'studio') writeDraft(userId ?? null, { name, cash, blocks, drawdown, notional, kill });
-  }, [mode, userId, name, cash, blocks, drawdown, notional, kill]);
+    if (mode === 'studio') writeDraft(userId ?? null, { name, cash, blocks, modules, drawdown, notional, kill });
+  }, [mode, userId, name, cash, blocks, modules, drawdown, notional, kill]);
+  useEffect(() => {
+    if (mode === 'studio') writeLink(userId ?? null, link);
+  }, [mode, userId, link]);
+  const rules = { name, cash, blocks, modules, risk: { maxDrawdown: drawdown, maxNotional: notional, kill } };
+  const blankRules = fingerprint({
+    name: '',
+    cash: '',
+    blocks: emptyDraft().blocks,
+    modules: null,
+    risk: { maxDrawdown: '', maxNotional: '', kill: '' },
+  });
+  /** Unsaved rules are never replaced on one press: the first press warns, a second press of the same control goes on. */
+  const confirmReplace = (control: string): boolean => {
+    const current = fingerprint(rules);
+    if (current === blankRules || current === link.saved || replacing === control) {
+      setReplacing(null);
+      return true;
+    }
+    setReplacing(control);
+    return false;
+  };
+  /** Fill the form with saved rules (or a blank draft) and remember which strategy it is. */
+  const load = (
+    next: { name: string; cash: string; blocks: typeof blocks; modules: QuantSignalRules | null; risk: typeof rules.risk } | null,
+    nextLink: StudioLink,
+  ) => {
+    const draft = next ?? { ...emptyDraft(), risk: { maxDrawdown: '', maxNotional: '', kill: '' } };
+    setName(draft.name);
+    setCash(draft.cash);
+    // A strategy of signal rules has no blocks; the form still keeps one blank block row for switching back.
+    setBlocks(draft.blocks.length ? draft.blocks.map((b) => ({ ...b })) : emptyDraft().blocks);
+    setModules(draft.modules ? structuredClone(draft.modules) : null);
+    setDrawdown(draft.risk.maxDrawdown);
+    setNotional(draft.risk.maxNotional);
+    setKill(draft.risk.kill);
+    setLink(nextLink);
+  };
   return (
     <div className="more-grid">
-      {/* The same room switch Trade uses, so moving between Quant rooms looks and behaves the same everywhere. */}
-      <SubNav
-        aria-label={copyText('quant.rooms')}
-        active={mode}
-        className="px-0"
-        items={[
-          { id: 'sandbox', label: copyText('quant.sandbox'), href: preservePaperHref('/quant', paper) },
-          { id: 'studio', label: copyText('quant.studio'), href: preservePaperHref('/quant/studio', paper) },
-          { id: 'backtest', label: copyText('quant.backtest'), href: preservePaperHref('/quant/backtest', paper) },
-          { id: 'execution', label: copyText('quant.execution'), href: preservePaperHref('/execution', paper) },
-        ]}
-      />
-      {mode !== 'sandbox' && <QuantMemoryNotice />}
+      <QuantRooms active={mode} paper={paper} />
       <p className="more-badge">
         <Text k="quant.simulated.no.live.trading.authority" />
       </p>
@@ -288,41 +324,54 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                 onChange={(e) => setCash(e.target.value)}
                 inputMode="decimal"
               />
-              {blocks.map((b, i) => (
-                <fieldset key={i}>
-                  <legend>
-                    <Text k="quant.order.block" />
-                    {i + 1}
-                  </legend>
-                  <Select
-                    label={copyText('quant.block.side', { value1: i + 1 })}
-                    value={b.side}
-                    onChange={(v) => setBlocks((rows) => rows.map((r, j) => (j === i ? { ...r, side: v as 'buy' | 'sell' } : r)))}
-                    options={['buy', 'sell']}
-                  />
-                  <Field
-                    label={copyText('quant.block.symbol', { value1: i + 1 })}
-                    value={b.symbol}
-                    onChange={(e) => setBlocks((rows) => rows.map((r, j) => (j === i ? { ...r, symbol: e.target.value } : r)))}
-                    maxLength={32}
-                  />
-                  <Field
-                    label={copyText('quant.block.quantity', { value1: i + 1 })}
-                    value={b.qty}
-                    onChange={(e) => setBlocks((rows) => rows.map((r, j) => (j === i ? { ...r, qty: e.target.value } : r)))}
-                    inputMode="decimal"
-                  />
-                  {blocks.length > 1 && (
-                    <Button variant="ghost" onClick={() => setBlocks((rows) => rows.filter((_, j) => j !== i))}>
-                      <Text k="quant.remove.block" />
+              <Select
+                label={builderCopy.t('rulesKind')}
+                value={modules ? 'signal' : 'blocks'}
+                onChange={(v) => setModules(v === 'signal' ? (modules ?? emptySignalRules()) : null)}
+                options={[
+                  { value: 'blocks', label: builderCopy.t('kindBlocks') },
+                  { value: 'signal', label: builderCopy.t('kindSignal') },
+                ]}
+              />
+              {modules && <SignalBuilder value={modules} onChange={setModules} />}
+              {!modules &&
+                blocks.map((b, i) => (
+                  <fieldset key={i}>
+                    <legend>
+                      <Text k="quant.order.block" />
                       {i + 1}
-                    </Button>
-                  )}
-                </fieldset>
-              ))}
-              <Button variant="secondary" onClick={() => setBlocks((rows) => [...rows, { side: 'buy', symbol: '', qty: '' }])}>
-                <Text k="quant.add.block" />
-              </Button>
+                    </legend>
+                    <Select
+                      label={copyText('quant.block.side', { value1: i + 1 })}
+                      value={b.side}
+                      onChange={(v) => setBlocks((rows) => rows.map((r, j) => (j === i ? { ...r, side: v as 'buy' | 'sell' } : r)))}
+                      options={['buy', 'sell']}
+                    />
+                    <Field
+                      label={copyText('quant.block.symbol', { value1: i + 1 })}
+                      value={b.symbol}
+                      onChange={(e) => setBlocks((rows) => rows.map((r, j) => (j === i ? { ...r, symbol: e.target.value } : r)))}
+                      maxLength={32}
+                    />
+                    <Field
+                      label={copyText('quant.block.quantity', { value1: i + 1 })}
+                      value={b.qty}
+                      onChange={(e) => setBlocks((rows) => rows.map((r, j) => (j === i ? { ...r, qty: e.target.value } : r)))}
+                      inputMode="decimal"
+                    />
+                    {blocks.length > 1 && (
+                      <Button variant="ghost" onClick={() => setBlocks((rows) => rows.filter((_, j) => j !== i))}>
+                        <Text k="quant.remove.block" />
+                        {i + 1}
+                      </Button>
+                    )}
+                  </fieldset>
+                ))}
+              {!modules && (
+                <Button variant="secondary" onClick={() => setBlocks((rows) => [...rows, { side: 'buy', symbol: '', qty: '' }])}>
+                  <Text k="quant.add.block" />
+                </Button>
+              )}
               <Field
                 label={copyText('quant.max.drawdown.service.unit.unspecified')}
                 value={drawdown}
@@ -338,10 +387,54 @@ export function Quant({ mode, paper = false }: { mode: 'sandbox' | 'studio' | 'b
                 value={kill}
                 onChange={(e) => setKill(e.target.value)}
               />
-              <QuantSaveOff />
+              <StudioSave
+                rules={rules}
+                link={link}
+                onSaved={(head, saved) => {
+                  setLink({ clientStrategyId: head.clientStrategyId, strategyId: head.id, version: head.version, saved });
+                  setLibraryRevision((n) => n + 1);
+                }}
+              />
+              <Button variant="ghost" onClick={() => confirmReplace('new') && load(null, newLink())}>
+                {studioCopy.t('newStrategy')}
+              </Button>
+              {replacing && (
+                <p role="alert" data-testid="quant-replace-warning">
+                  {studioCopy.t('replaceWarning')}
+                </p>
+              )}
             </form>
           </Panel>
-          <QuantLibraryClosed />
+          <StudioLibrary
+            revision={libraryRevision}
+            activeId={link.strategyId}
+            onOpen={(head) =>
+              confirmReplace(`open:${head.id}`) &&
+              load(head, {
+                clientStrategyId: head.clientStrategyId,
+                strategyId: head.id,
+                version: head.version,
+                saved: fingerprint(head),
+              })
+            }
+          />
+          <StudioTemplates
+            onUse={(template) => {
+              if (!confirmReplace(`template:${template.id}`)) return false;
+              // A new draft: the template's choices with every number blank, and no cash or risk filled in for you.
+              load(
+                {
+                  name: template.name,
+                  cash: '',
+                  blocks: [],
+                  modules: template.rules,
+                  risk: { maxDrawdown: '', maxNotional: '', kill: '' },
+                },
+                newLink(),
+              );
+              return true;
+            }}
+          />
           <QuantDisclosure />
         </div>
       ) : (

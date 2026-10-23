@@ -60,6 +60,18 @@ export const FEE_REVENUE_PATHS = {
     feeModule: 'trade',
     note: 'MM maker fill fees → houseFees(trade).',
   },
+  'trade.futures.fill_fee': {
+    kind: 'recipe',
+    recipe: 'futuresOrderMarginApply',
+    feeModule: 'trade',
+    note: 'An opening or growing futures fill pays its maker or taker fee from the order hold → houseFees(trade), in the fill posting.',
+  },
+  'trade.futures.close_fee': {
+    kind: 'recipe',
+    recipe: 'futuresMarginRelease',
+    feeModule: 'trade',
+    note: 'A reducing futures fill pays its fee from the position pot → houseFees(trade), in the release posting.',
+  },
   'trade.futures.realize_loss_sink': {
     kind: 'recipe',
     recipe: 'futuresRealizeLoss',
@@ -228,6 +240,8 @@ export const RECIPES_TOUCHING_HOUSE_FEES = [
   'tradeFillFeeCorrection',
   'marketMakerMakerFill',
   'futuresInsuranceTopup',
+  'futuresMarginRelease',
+  'futuresOrderMarginApply',
   'escrowRelease',
   'merchantSettlement',
   'fxConversion',

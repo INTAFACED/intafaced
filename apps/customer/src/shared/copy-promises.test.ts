@@ -59,10 +59,6 @@ const FACTS: Array<[phrase: string, why: string]> = [
   ['You can rate a request once it is resolved or closed.', 'a rule about the request’s status, not a feature'],
   ['Saved, but not confirmed yet.', 'one address has not been confirmed by its owner'],
   ['Not confirmed yet', 'one value has not been confirmed'],
-  [
-    'Not yet run against a real svc-pay.',
-    'a developer note in the feature registry about the merchant portal’s stand-in backend; never shown to customers',
-  ],
   ['No assets you can spend yet', 'an empty list of assets the customer holds'],
   ['You don’t own any assets yet.', 'an empty portfolio'],
   ['You don’t hold anything yet.', 'an empty balance'],

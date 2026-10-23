@@ -83,6 +83,12 @@ const KNOWN = {
     module: '@vitest/mocker',
     note: 'vitest > @vitest/mocker. Test/dev-server tooling; never runs in a service. Patch is vitest 4.1.11.',
   },
+  // Owner approved 2026-10-22: known until vitest is upgraded.
+  'GHSA-qxg6-89mg-rqv8': {
+    severity: 'moderate',
+    module: '@vitest/mocker',
+    note: 'vitest > @vitest/mocker. Test/dev-server tooling; never runs in a service. Patch is vitest 4.1.12.',
+  },
   'GHSA-2883-xcg3-v3hh': {
     severity: 'high',
     module: 'js-yaml',
@@ -167,19 +173,36 @@ const KNOWN = {
   },
 };
 
-const audit = spawnSync('pnpm', ['audit', '--json'], { cwd: ROOT, encoding: 'utf8', shell: process.platform === 'win32' });
-
 // `pnpm audit` exits non-zero whenever it finds anything, so the exit code says
-// nothing useful here. An unparseable body is the real failure — it means the
-// registry was unreachable and this run proved nothing either way.
+// nothing useful here. An unreadable body is the real failure — it means the
+// registry was unreachable and this run proved nothing either way. A registry
+// timeout comes back as parseable JSON with only an `error` key, which used to
+// read as "no advisories" and flag every frozen entry as stale; it is unreadable
+// too. The registry times out often enough that a run asks up to three times.
+function readAudit() {
+  const audit = spawnSync('pnpm', ['audit', '--json'], { cwd: ROOT, encoding: 'utf8', shell: process.platform === 'win32' });
+  try {
+    const body = JSON.parse(audit.stdout);
+    if (body && typeof body === 'object' && body.advisories && typeof body.advisories === 'object' && !body.error) {
+      return { report: body };
+    }
+    return { problem: JSON.stringify(body?.error ?? body).slice(0, 800) };
+  } catch {
+    return { problem: (audit.stderr || audit.stdout || '').slice(0, 800) };
+  }
+}
+
 let report;
-try {
-  report = JSON.parse(audit.stdout);
-} catch {
+let problem = '';
+for (let attempt = 1; attempt <= 3 && !report; attempt++) {
+  ({ report, problem } = readAudit());
+  if (!report) console.error(`dependency-audit: attempt ${attempt} could not read \`pnpm audit --json\`: ${problem}`);
+}
+if (!report) {
   console.error('\n✖ dependency-audit could not read `pnpm audit --json`.');
   console.error('  This needs network: the advisory database is remote. A run that cannot');
   console.error('  reach it has not cleared anything and must not be reported as clean.\n');
-  console.error((audit.stderr || audit.stdout || '').slice(0, 800));
+  console.error(problem);
   process.exit(1);
 }
 

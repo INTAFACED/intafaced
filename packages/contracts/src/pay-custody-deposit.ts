@@ -121,7 +121,8 @@ export const PAY_CUSTODY_DEPOSIT_PENDING_STATUSES = ['detected', 'confirming'] a
 /**
  * The reason a record is not credited, as a code the screen can say in words. Null while the record is on its way or credited.
  * `amount_mismatch` is a finalized amount that differs from the one first seen; `unknown_asset` is a token the address was not
- * issued for.
+ * issued for. `chain_reorg` is a credit reversed because the chain rewrote the block it was read from; `reversal_unfunded` is
+ * a reversal the balance could not cover (the funds were already spent), left for a person to resolve.
  */
 export const PAY_CUSTODY_DEPOSIT_REASONS = [
   'below_minimum',
@@ -129,6 +130,8 @@ export const PAY_CUSTODY_DEPOSIT_REASONS = [
   'unknown_asset',
   'minimum_unset',
   'confirmations_unset',
+  'chain_reorg',
+  'reversal_unfunded',
 ] as const;
 export type PayCustodyDepositReason = (typeof PAY_CUSTODY_DEPOSIT_REASONS)[number];
 

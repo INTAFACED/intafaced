@@ -17,6 +17,8 @@ import { chargebackOpen, chargebackShortfall, chargebackWon, chargebackShortfall
 import { orderHoldAmend } from './order-hold-amend.js';
 import { futuresOrderMarginApply, futuresOrderMarginHold, futuresOrderMarginRelease } from './futures-order-margin.js';
 import { subAccountTransfer } from './sub-accounts.js';
+import { payReceivedHold, payReceivedRelease, payReceivedReturn } from './pay-received-hold.js';
+import { bankTransferReversal } from './bank-transfer-reversal.js';
 import { marketListingFee, marketPremiumPlacement, marketPurchase } from './market.js';
 import { fxConversion, fxConversionHold, fxConversionLateFill, fxConversionRelease, fxConversionReverse } from './conversion.js';
 import { tradeFillFeeCorrection } from './fill-correction.js';
@@ -561,16 +563,38 @@ export function futuresMarginAdd(input: FuturesMarginInput & { sequence: number 
   };
 }
 
-/** Release remaining margin on close / cancel before open risk. */
-export function futuresMarginRelease(input: FuturesMarginInput & { sequence?: number }): PostRequest {
-  requirePositive('futures margin release amount', input.amount);
+/**
+ * Release remaining margin on close / cancel before open risk.
+ *
+ * `fee` is a closing fill's trading fee, paid from the position's pot into
+ * `houseFees('trade')` in the same posting as the release, so no crash can
+ * return margin the fee needed (docs/adr/2026-10-20-futures-matched-traders.md).
+ * With a fee, `amount` may be zero: a close whose loss took the rest of the
+ * margin still pays its fee from what the pot holds. The engine names both
+ * amounts; this recipe never chooses a rate.
+ */
+export function futuresMarginRelease(input: FuturesMarginInput & { sequence?: number; fee?: Amount }): PostRequest {
+  const fee = input.fee ?? 0n;
+  if (typeof fee !== 'bigint' || fee < 0n) throw new InvalidEntryError('futures margin release fee must not be negative');
+  if (fee === 0n) requirePositive('futures margin release amount', input.amount);
+  else if (typeof input.amount !== 'bigint' || input.amount < 0n) {
+    throw new InvalidEntryError('futures margin release amount must not be negative');
+  }
   const pots = marginPots(input);
   return {
     idempotencyKey: `futures.margin.release:${input.positionId}:${input.sequence ?? 0}`,
     module: 'trade',
     reason: 'futures.margin.release',
-    meta: { positionId: input.positionId, ...(pots.subAccountId ? { subAccountId: pots.subAccountId } : {}) },
-    entries: [credit(pots.collateral, input.amount), debit(pots.available, input.amount)],
+    meta: {
+      positionId: input.positionId,
+      ...(fee > 0n ? { fee: fee.toString() } : {}),
+      ...(pots.subAccountId ? { subAccountId: pots.subAccountId } : {}),
+    },
+    entries: [
+      credit(pots.collateral, input.amount + fee),
+      ...(input.amount > 0n ? [debit(pots.available, input.amount)] : []),
+      ...(fee > 0n ? [debit(houseFees('trade', input.assetId), fee)] : []),
+    ],
   };
 }
 
@@ -766,10 +790,16 @@ export function escrowLock(input: EscrowInput): PostRequest {
  * stays `p2p.escrow.release:<tradeId>` so svc-p2p can adopt attribution without
  * a key migration.
  */
-export function escrowRelease(input: EscrowInput & { feeBps?: number; ruling?: EscrowDisputeRuling }): PostRequest {
+export function escrowRelease(input: EscrowInput & { feeBps: number; ruling?: EscrowDisputeRuling }): PostRequest {
   requirePositive('escrow amount', input.amount);
   assertEscrowDisputeRuling(input.ruling, 'escrowRelease');
-  const feeBps = input.feeBps ?? 0;
+  // A blank fee is not a zero fee: the caller passes the trade's own feeBps
+  // (0 explicitly when the trade carries none). Defaulting to 0 would pay the
+  // buyer the house's fee on any caller that forgot it.
+  const feeBps = input.feeBps;
+  if (feeBps === undefined || feeBps === null) {
+    throw new InvalidEntryError('escrow feeBps is required; pass 0 explicitly for a fee-free release');
+  }
   // Same class as tradeFill: an unbound feeBps at 10000 gives the buyer nothing;
   // above that the buyer leg goes negative and is refused four layers down with a
   // message that says nothing about fees (STOP §4.2b #2). Refuse here, clearly.
@@ -1263,6 +1293,8 @@ export * from './loans.js';
 export * from './chargeback.js';
 export * from './order-hold-amend.js';
 export * from './futures-order-margin.js';
+export * from './pay-received-hold.js';
+export * from './bank-transfer-reversal.js';
 export {
   marketPurchase,
   marketListingFee,
@@ -1355,6 +1387,10 @@ export const recipes = {
   businessPayroll,
   // SPEC-SUBACCOUNTS — only legal cross-partition value path. See ./sub-accounts.ts.
   subAccountTransfer,
+  payReceivedHold,
+  payReceivedRelease,
+  payReceivedReturn,
+  bankTransferReversal,
   // §8.7 market — purchase (live) + listing/premium fees (§13 unwired; D26-P1-M2).
   // Flagged shared-package. No existing recipe body was rewritten for the fee legs.
   marketPurchase,

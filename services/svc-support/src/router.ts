@@ -16,6 +16,10 @@ import {
   supportBulkInputSchema,
   supportBulkPolicySchema,
   supportBulkResultSchema,
+  supportMergeInputSchema,
+  supportMergePreviewInputSchema,
+  supportMergePreviewSchema,
+  supportMergeResultSchema,
   supportAttachmentIdInputSchema,
   supportAttachmentSchema,
   supportCaseFileSchema,
@@ -33,6 +37,10 @@ import { contactProcedures } from './contact-router.js';
 import type { AttachmentMeta } from './store.js';
 import { attachmentProcedures } from './attachment-router.js';
 import { MemoryAttachmentSettingsBook, type AttachmentSettingsBook } from './attachment-settings.js';
+import { MemorySurveyBook, type SurveyBook } from './survey-settings.js';
+import { surveyProcedures } from './survey-router.js';
+import { kbFeedbackProcedures } from './kb-feedback-router.js';
+import { unwiredApprovalConsumer, type ActionApprovalConsumer } from './action-approval-consume.js';
 import { describeSupportDeskPolicy } from './desk-policy.js';
 import { describeKbPolicy } from './kb-policy.js';
 import { SupportError, SupportService, requireSupportOps } from './support-service.js';
@@ -103,14 +111,21 @@ function mapError(err: unknown): never {
       err.code === 'support.assign.not_queueable' ||
       err.code === 'support.attachments_unconfigured' ||
       err.code === 'support.bulk_cap_unset' ||
+      err.code === 'support.merge_not_allowed' ||
+      err.code === 'support.merge_same_ticket' ||
       err.code === 'support.rate_status_refused' ||
       err.code === 'support.attachment_scan_refused' ||
       err.code === 'support.attachment_count_unset' ||
       err.code === 'support.attachment_scan_unknown' ||
       err.code === 'support.attachment_count_reached' ||
-      err.code === 'support.attachment_too_large'
+      err.code === 'support.attachment_too_large' ||
+      err.code === 'support.feedback_rate_limit_unset' ||
+      err.code === 'support.assistant_model_unset'
     ) {
       throw new TRPCError({ code: 'PRECONDITION_FAILED', message });
+    }
+    if (err.code === 'support.feedback_rate_exceeded') {
+      throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message });
     }
     if (err.code === 'support.not_lead' || err.code === 'support.not_staff' || err.code === 'support.release.not_assignee') {
       throw new TRPCError({ code: 'FORBIDDEN', message });
@@ -162,10 +177,14 @@ export function createSupportRouter(
   scope?: DeskScopeReader,
   contact: ContactBook = new MemoryContactBook(),
   attachmentSettings: AttachmentSettingsBook = new MemoryAttachmentSettingsBook(),
+  surveys: SurveyBook = new MemorySurveyBook(),
+  surveyApprovals: ActionApprovalConsumer = unwiredApprovalConsumer(),
 ) {
   return router({
     ...contactProcedures(contact, support),
     ...attachmentProcedures(attachmentSettings, support),
+    ...surveyProcedures(surveys, support, surveyApprovals),
+    ...kbFeedbackProcedures(support, mapError),
 
     deskPolicy: publicProcedure.query(() => describeSupportDeskPolicy(internalServiceSecret ?? null)),
 
@@ -894,6 +913,10 @@ export function createSupportRouter(
           id: z.string().min(1).max(200),
           helpful: z.boolean(),
           clientRequestId: z.string().min(1).max(200),
+          /** Kept on an unhelpful vote. A request needs this and helpful false. */
+          comment: z.string().max(2_000).optional(),
+          /** Opens one linked request. Refused unless the vote is unhelpful and the comment is set. */
+          openRequest: z.boolean().optional(),
         }),
       )
       .output(
@@ -902,6 +925,8 @@ export function createSupportRouter(
           version: z.number().int().positive(),
           userId: z.string().uuid(),
           helpful: z.boolean(),
+          /** Present only when this vote opened a request. */
+          ticketId: z.string().uuid().optional(),
         }),
       )
       .mutation(async ({ ctx, input }) => {
@@ -971,12 +996,14 @@ export function createSupportRouter(
             availability: z.enum(['online', 'busy', 'offline']),
             availabilitySetAt: z.string().nullable(),
             lastHeartbeatAt: z.string().nullable(),
+            /** Desk groups (teams) this member belongs to, sorted by name. */
+            groups: z.array(z.object({ id: z.string(), name: z.string() })),
           }),
         ),
       )
       .query(async ({ ctx }) => {
         requireSupportOps(ctx.principal!);
-        return support.listStaff();
+        return support.listStaffDirectory();
       }),
 
     /** Says whether automatic offline is an owner value or still blank. */
@@ -1199,6 +1226,32 @@ export function createSupportRouter(
         try {
           requireSupportOps(ctx.principal!);
           return await support.bulkUpdate({ operatorId: ctx.principal!.userId, ...input });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** What a merge would move and what stays on the source, read before the confirmation. Moves nothing. */
+    previewMerge: scopedProcedure('support:ops')
+      .input(supportMergePreviewInputSchema)
+      .output(supportMergePreviewSchema)
+      .query(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.previewMerge({ operatorId: ctx.principal!.userId, ...input });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** Fold a duplicate request into the one that stays. Irreversible; a replay of the same pair returns the stored result. */
+    mergeTickets: scopedProcedure('support:ops')
+      .input(supportMergeInputSchema)
+      .output(supportMergeResultSchema)
+      .mutation(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.mergeTickets({ operatorId: ctx.principal!.userId, ...input });
         } catch (err) {
           mapError(err);
         }

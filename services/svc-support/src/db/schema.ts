@@ -54,7 +54,7 @@ export const ticketEvents = schema.table(
       .references(() => tickets.id, { onDelete: 'restrict' }),
     /** 1-based, dense per ticket. The gap is the evidence a row was lost. */
     sequence: integer('sequence').notNull(),
-    kind: text('kind').$type<'opened' | 'assigned' | 'status_changed' | 'grounding_read' | 'escalated'>().notNull(),
+    kind: text('kind').$type<'opened' | 'assigned' | 'status_changed' | 'grounding_read' | 'escalated' | 'merged'>().notNull(),
     actorId: text('actor_id').notNull(),
     actorRole: text('actor_role').$type<'user' | 'operator'>().notNull(),
     fromStatus: text('from_status').$type<'open' | 'pending' | 'resolved' | 'closed'>(),
@@ -68,6 +68,24 @@ export const ticketEvents = schema.table(
     index('ticket_events_ticket_occurred_idx').on(t.ticketId, t.occurredAt),
   ],
 );
+
+/**
+ * A duplicate request folded into another (SP-tickets-07). One row per source: the merged-into link and the stored result a
+ * replay of (source, survivor) returns. Rows are never removed with a ticket (no cascade).
+ */
+export const ticketMerges = schema.table('ticket_merges', {
+  sourceId: uuid('source_id')
+    .primaryKey()
+    .references(() => tickets.id, { onDelete: 'restrict' }),
+  survivorId: uuid('survivor_id')
+    .notNull()
+    .references(() => tickets.id, { onDelete: 'restrict' }),
+  actorId: text('actor_id').notNull(),
+  reason: text('reason').notNull(),
+  commentsMoved: integer('comments_moved').notNull(),
+  attachmentsMoved: integer('attachments_moved').notNull(),
+  mergedAt: timestamp('merged_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+});
 
 /**
  * The context an escalation carries. Immutable once written (trigger, 0001;
@@ -190,10 +208,39 @@ export const kbFeedback = schema.table(
     userId: text('user_id').notNull(),
     helpful: boolean('helpful').notNull(),
     clientRequestId: text('client_request_id').notNull(),
+    /** Set when the reader added a comment. Never required for a plain vote. */
+    comment: text('comment'),
+    /** The request opened from an unhelpful vote, when they asked for one. */
+    ticketId: uuid('ticket_id').references(() => tickets.id, { onDelete: 'restrict' }),
     createdAt: createdAt(),
   },
   (t) => [
     uniqueIndex('kb_feedback_user_article_version_idx').on(t.userId, t.articleId, t.version),
     uniqueIndex('kb_feedback_user_request_idx').on(t.userId, t.clientRequestId),
+    index('kb_feedback_reader_at_idx').on(t.userId, t.createdAt),
   ],
+);
+
+/**
+ * A search that found nothing. The query, a zero count and the time.
+ * No reader column: the log must not identify who searched.
+ */
+export const kbSearchMisses = schema.table('kb_search_misses', {
+  id: pk(),
+  query: text('query').notNull(),
+  resultCount: integer('result_count').notNull().default(0),
+  createdAt: createdAt(),
+});
+
+/** A click on a search result, keyed by the caller's request id. No reader column. */
+export const kbSearchClicks = schema.table(
+  'kb_search_clicks',
+  {
+    id: pk(),
+    query: text('query').notNull(),
+    articleId: text('article_id').notNull(),
+    clientRequestId: text('client_request_id').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('kb_search_clicks_request_uq').on(t.clientRequestId)],
 );

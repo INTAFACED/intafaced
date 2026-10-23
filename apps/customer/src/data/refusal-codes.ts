@@ -11,18 +11,27 @@ export type RefusalKind =
   | 'screening'
   | 'region'
   | 'verify'
+  | 'emailProof'
   | 'convertSpreadUnset'
   | 'slippageCapUnset'
   | 'noBook'
   | 'insufficientDepth'
   | 'quoteFailed'
   | 'marketNotOpen'
+  | 'marketHalted'
+  | 'protectionUnset'
+  | 'priceBand'
+  | 'openOrdersCap'
+  | 'priceBandUnset'
+  | 'openOrdersCapUnset'
   | 'insufficient'
   | 'destMissing'
   | 'recipientNoAccount'
   | 'signedOut'
   | 'stepUp'
   | 'mfaRequired'
+  | 'signInMismatch'
+  | 'tooManyTries'
   | 'pricesDown'
   | 'noPermission'
   | 'rateLimited'
@@ -89,7 +98,20 @@ export type RefusalKind =
 const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.convert_spread_unset': 'convertSpreadUnset',
   'trade.slippage_cap_unset': 'slippageCapUnset',
+  // No published price protection for a market order: refused, never a guessed floor.
+  'trade.protection_unset': 'protectionUnset',
+  // The operator's price band and open-order cap: the screen fills in the edges, the cap and the count it was given.
+  'trade.price_band': 'priceBand',
+  'trade.operator_throttle': 'openOrdersCap',
+  'trade.limit_max_open_orders': 'openOrdersCap',
+  // A pair whose band or open-order cap is not published: refused, never a default rule.
+  'trade.price_band_unset': 'priceBandUnset',
+  'trade.open_orders_cap_unset': 'openOrdersCapUnset',
   'trade.no_book': 'noBook',
+  // An operator halt: new orders stop, open orders stay and can be cancelled. Not the same as a closed market.
+  'trade.market_halted': 'marketHalted',
+  'trade.venue_halted': 'marketHalted',
+  'edge.venue_halted': 'marketHalted',
   'bank.dest_user_missing': 'destMissing',
   'bank.recipient_no_account': 'recipientNoAccount',
 
@@ -103,6 +125,8 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'token.malformed': 'signedOut',
   'mfa.required': 'stepUp',
   'auth.mfa_required': 'mfaRequired',
+  'auth.invalid_credentials': 'signInMismatch',
+  'auth.too_many_attempts': 'tooManyTries',
   'bank.prices_unavailable': 'pricesDown',
   'scope.denied': 'noPermission',
   'ownership.denied': 'noPermission',
@@ -110,6 +134,8 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.not_owner': 'noPermission',
   'bank.not_owner': 'noPermission',
   'tier.insufficient': 'verify',
+  'trade.email_proof_required': 'emailProof',
+  'trade.identity_unavailable': 'tryAgain',
   'trade.account_restricted': 'accountOnHold',
   'ledger.frozen': 'accountOnHold',
   'ledger.freeze': 'accountOnHold',

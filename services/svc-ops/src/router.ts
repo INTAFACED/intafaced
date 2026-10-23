@@ -42,6 +42,7 @@ import type { OpsService } from './ops-service.js';
 import type { OutreachCrm } from './outreach/crm.js';
 import type { FounderAuthority } from './outreach/authority.js';
 import { createOutreachRouter } from './outreach/router.js';
+import type { PublicSettingsBook } from './outreach/public-settings.js';
 import {
   alertList,
   alertSourcePosture,
@@ -57,6 +58,8 @@ import {
   type WatermarkStamp,
 } from './operator-desks.js';
 import { createAlertRulesRouter } from './alerts/router.js';
+import { createAlertDeskRoutes } from './alerts/overview.js';
+import type { AlertDeskStore } from './alerts/desk-store.js';
 import { createProtocolListingRouter } from './protocol-listing/router.js';
 import type { ListingDesk } from './protocol-listing/wiring.js';
 import { createComplianceRouter } from './compliance/router.js';
@@ -212,6 +215,10 @@ export interface OperatorDeskConfig {
   /** Durable alert rules. Absent means every alertRules call refuses `ops.alert_storage_unconfigured`. */
   readonly alertRules?: AlertRules;
   readonly alertState?: AlertStateStore;
+  /** Heartbeats, templates and the quality policy. Absent refuses ops.alert_storage_unconfigured. */
+  readonly alertDesk?: AlertDeskStore;
+  /** Blank means a heartbeat is recorded but never judged overdue. */
+  readonly alertHeartbeatMaxAgeSeconds?: number | null;
   /** Protocol pool hide and market delist (D-order-controls-04). Absent means every call refuses `ops.protocol_listing_storage_unconfigured`. */
   readonly protocolListing?: ListingDesk;
   /** Durable compliance cases. Absent means every compliance call refuses `ops.compliance_storage_unconfigured`. */
@@ -220,10 +227,17 @@ export interface OperatorDeskConfig {
 
 export function createOpsRouter(
   ops: OpsService,
-  outreach?: { crm: OutreachCrm; authority: FounderAuthority },
+  outreach?: { crm: OutreachCrm; authority: FounderAuthority; publicSettings?: PublicSettingsBook },
   desks: OperatorDeskConfig = {},
 ) {
   const now = desks.now ?? (() => new Date().toISOString());
+  const alertDeskRoutes = createAlertDeskRoutes({
+    now,
+    ...(desks.alertState ? { alertState: desks.alertState } : {}),
+    ...(desks.alertRules ? { alertRules: desks.alertRules } : {}),
+    ...(desks.alertDesk ? { alertDesk: desks.alertDesk } : {}),
+    alertHeartbeatMaxAgeSeconds: desks.alertHeartbeatMaxAgeSeconds ?? null,
+  });
   const idem = new Map<string, { fingerprint: string; value: unknown }>();
   const deskError = (err: unknown): never => {
     if (err instanceof OpsError && err.code === OPS_IDEMPOTENCY_CONFLICT) {
@@ -232,7 +246,7 @@ export function createOpsRouter(
     mapError(err);
   };
   return router({
-    ...(outreach ? { outreach: createOutreachRouter(outreach.crm, outreach.authority) } : {}),
+    ...(outreach ? { outreach: createOutreachRouter(outreach.crm, outreach.authority, outreach.publicSettings) } : {}),
     health: publicProcedure
       .output(z.object({ ok: z.literal(true), service: z.literal('svc-ops') }))
       .query(() => ({ ok: true as const, service: 'svc-ops' as const })),
@@ -799,7 +813,13 @@ export function createOpsRouter(
             }`,
           });
         }),
+      activity: alertDeskRoutes.activity,
+      heartbeat: alertDeskRoutes.heartbeat,
+      heartbeatStatus: alertDeskRoutes.heartbeatStatus,
     }),
+
+    alertTemplates: alertDeskRoutes.templates,
+    alertQuality: alertDeskRoutes.quality,
   });
 }
 

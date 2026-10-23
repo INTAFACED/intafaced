@@ -193,6 +193,27 @@ function refusePlace(check: Extract<PositionModeCheck, { ok: false }>): never {
   throw new TradeError(check.reason, check.code as TradeErrorCode);
 }
 
+/** A spot-path order on a futures book while futures orders go through the matching book (futures ADR slice 6). */
+export const FUTURES_ORDERS_THROUGH_BOOK = 'trade.futures_orders_through_book' as const;
+
+/**
+ * TRADE_FUTURES_MATCHING_ENABLED, read the way env.ts reads it. While it is on, a futures book takes matched futures
+ * orders only: a spot-path order resting there would hold spot funds against a futures fill, and the fill could not
+ * settle on either path (`trade.futures_fill_crosses_order_paths`).
+ */
+export function futuresOrdersThroughBook(env: NodeJS.ProcessEnv = process.env): boolean {
+  // Exactly env.ts's transform (no trim): the routes it mounts and this refusal must never disagree.
+  return ['1', 'true', 'on', 'yes'].includes((env.TRADE_FUTURES_MATCHING_ENABLED ?? '').toLowerCase());
+}
+
+function refuseThroughBook(): never {
+  // The refusal reaches the caller as a 400 with this code (ccxt-errors.ts, the TradeError fallback arm).
+  throw new TradeError(
+    'futures orders go through the futures book: place them at /api/v1/futures/orders, not the spot order path',
+    FUTURES_ORDERS_THROUGH_BOOK as TradeErrorCode,
+  );
+}
+
 const OPEN_FLAG = Symbol.for('intafaced.trade.positionModeOpen');
 const PLACE_FLAG = Symbol.for('intafaced.trade.positionModePlace');
 
@@ -243,11 +264,31 @@ export function installPositionModePlace(ctor: typeof TradeService): void {
   if (proto[PLACE_FLAG]) return;
   proto[PLACE_FLAG] = true;
   const origPlace = proto.placeOrder;
+  // The copy-trading mirror places through its own entry (placeOrderInner, not placeOrder), so it gets the same
+  // through-the-book refusal: a follower's spot hold must not rest on a futures book either.
+  const mirror = proto as unknown as {
+    placeCopyMirror?: (principal: Principal, input: PlaceOrderInput, followId: string) => Promise<unknown>;
+  };
+  const origMirror = mirror.placeCopyMirror;
+  if (origMirror) {
+    mirror.placeCopyMirror = async function (this: TradeService, principal: Principal, input: PlaceOrderInput, followId: string) {
+      if (futuresOrdersThroughBook()) {
+        const market = input.marketId
+          ? await this.marketById(input.marketId)
+          : input.symbol
+            ? await this.marketBySymbol(input.symbol)
+            : null;
+        if (market?.kind === 'futures') refuseThroughBook();
+      }
+      return origMirror.call(this, principal, input, followId);
+    };
+  }
   proto.placeOrder = async function (this: TradeService, principal: Principal, input: PlaceOrderInput) {
     const tagged = input as PlaceWithMode;
     const market = input.marketId ? await this.marketById(input.marketId) : input.symbol ? await this.marketBySymbol(input.symbol) : null;
     // A futures order with no position mode must not fall through to a spot hold.
     if (market?.kind === 'futures') {
+      if (futuresOrdersThroughBook()) refuseThroughBook();
       const mode = parsePositionMode(tagged.positionMode);
       if (!mode.ok) refusePlace(mode);
       const side = checkOrderSideForPositionMode({

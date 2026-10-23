@@ -1,4 +1,6 @@
 import type { Sql } from 'postgres';
+import { recordOperatorAccess, type OperatorAccessEntry } from './ledger/operator-owner-balances.js';
+import { toWriteBlockError } from './ledger/write-block.js';
 import {
   LedgerError,
   type AccountRef,
@@ -32,6 +34,9 @@ import {
 import { DEFAULT_RECONCILE_STATEMENT_TIMEOUT_MS, RECONCILE_ACTOR, RECONCILE_MISMATCH_REASON } from './ledger/reconcile-config.js';
 import type { ReconcileIncompleteAlert } from './ledger/scheduled-reconcile-tick.js';
 import { withMoneySpan, withSpan } from './tracing.js';
+import type { RegistryAsset } from '@intafaced/contracts';
+import type { ActionApprovalConsumer } from './ledger/action-approval-consume.js';
+import { applyAssetEdit, getAsset, listAssets, listOperatorAssets, type OperatorAssetRow } from './ledger/supported-assets.js';
 
 /**
  * The service layer: the ledger engine plus the three things wrapping every
@@ -76,7 +81,12 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
         entryCount: request.entries.length,
       },
       async (span) => {
-        const tx = await this.engine.post(request);
+        let tx: LedgerTx;
+        try {
+          tx = await this.engine.post(request);
+        } catch (err) {
+          throw toWriteBlockError(err);
+        }
         span.setAttribute('intafaced.tx_id', tx.id);
 
         // Publish AFTER commit, from the outbox row written in that same
@@ -95,6 +105,11 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
 
   balances(ownerType: AccountRef['ownerType'], ownerId: string): Promise<Balance[]> {
     return this.engine.balances(ownerType, ownerId);
+  }
+
+  /** Operator access row for the ledger desk (0024, 0026). Written before an operator reads an owner's detail or one transaction. */
+  recordOperatorAccess(entry: OperatorAccessEntry): Promise<void> {
+    return recordOperatorAccess(this.sql, entry);
   }
 
   /**
@@ -130,6 +145,25 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
       lastWriteAt: at.lastWriteAt ? at.lastWriteAt.toISOString() : null,
       readAt: new Date().toISOString(),
     };
+  }
+
+  /** The published asset and network registry (W-balances-05). A read: no chain tip, no balance. */
+  listAssets(input?: unknown): Promise<RegistryAsset[]> {
+    return listAssets(this.sql, input);
+  }
+
+  getAsset(input: unknown): Promise<RegistryAsset> {
+    return getAsset(this.sql, input);
+  }
+
+  /** Every registry row, published or not, for the operator console. */
+  listOperatorAssets(): Promise<OperatorAssetRow[]> {
+    return listOperatorAssets(this.sql);
+  }
+
+  /** One founder edit, approved through identity, applied once per operation id. Moves no value. */
+  applyAssetEdit(approvals: ActionApprovalConsumer, operatorId: string, input: unknown): Promise<RegistryAsset> {
+    return applyAssetEdit(this.sql, approvals, operatorId, input);
   }
 
   /** Paged sibling of `history`. A read; same no-span reasoning. */

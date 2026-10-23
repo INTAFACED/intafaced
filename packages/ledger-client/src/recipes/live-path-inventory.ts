@@ -70,24 +70,9 @@ export const RECIPE_MATRIX = {
   futuresMarginLock: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/futures/position-service.ts' },
   futuresMarginAdd: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/futures/position-service.ts' },
   futuresMarginRelease: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/futures/close-planner.ts' },
-  futuresOrderMarginHold: {
-    kind: 'socket',
-    socket: '§13',
-    reason:
-      '§13 — futures order margin (ADR 2026-10-20, slice 5): initial margin held per resting order before it rests. Futures orders do not go through svc-matching until ADR slice 6, so no production writer posts this yet; the recipe-gate catalog samples it and does not ledger.post.',
-  },
-  futuresOrderMarginRelease: {
-    kind: 'socket',
-    socket: '§13',
-    reason:
-      '§13 — futures order margin (ADR 2026-10-20, slice 5): unused order margin returned on cancel, expiry or a smaller order. No production writer until ADR slice 6 puts futures orders on the book; the recipe-gate catalog samples it and does not ledger.post.',
-  },
-  futuresOrderMarginApply: {
-    kind: 'socket',
-    socket: '§13',
-    reason:
-      '§13 — futures order margin (ADR 2026-10-20, slice 5): a fill moves order margin into the position pot and returns the unused part in one posting. No production writer until ADR slice 6 settles futures fills; the recipe-gate catalog samples it and does not ledger.post.',
-  },
+  futuresOrderMarginHold: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/futures/matched-orders.ts' },
+  futuresOrderMarginRelease: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/futures/matched-orders.ts' },
+  futuresOrderMarginApply: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/futures/matched-orders.ts' },
   futuresRealizeLoss: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/futures/liquidation-planner.ts' },
   futuresRealizeProfit: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/futures/close-planner.ts' },
   futuresFundingPay: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/futures/funding-settlement.ts' },
@@ -135,6 +120,30 @@ export const RECIPE_MATRIX = {
   businessApprovalSettle: { kind: 'live', module: 'bank', proof: 'services/svc-bank/src/business/business-service.ts' },
   businessPayroll: { kind: 'live', module: 'bank', proof: 'services/svc-bank/src/business/business-service.ts' },
   subAccountTransfer: { kind: 'live', module: 'identity', proof: 'services/svc-identity/src/router.ts' },
+  payReceivedHold: {
+    kind: 'socket',
+    socket: '§13',
+    reason:
+      '§13 — holds on received funds (pay ENGINE-SPEC RH-1 to RH-4, PP-money-balance-05): recipient available into a pot of its own per hold. svc-bank has no production writer until PP-money-balance-05 lands and no grant is added yet; the recipe-gate catalog samples it and does not ledger.post.',
+  },
+  payReceivedRelease: {
+    kind: 'socket',
+    socket: '§13',
+    reason:
+      '§13 — holds on received funds (pay ENGINE-SPEC RH-1 to RH-4, PP-money-balance-05): held funds back to the recipient at the release date or early by an agent. svc-bank has no production writer until PP-money-balance-05 lands and no grant is added yet; the recipe-gate catalog samples it and does not ledger.post.',
+  },
+  payReceivedReturn: {
+    kind: 'socket',
+    socket: '§13',
+    reason:
+      '§13 — holds on received funds (pay ENGINE-SPEC RH-1 to RH-4, PP-money-balance-05): held funds to the payer on a ruling. svc-bank has no production writer until PP-money-balance-05 lands and no grant is added yet; the recipe-gate catalog samples it and does not ledger.post.',
+  },
+  bankTransferReversal: {
+    kind: 'socket',
+    socket: '§13',
+    reason:
+      '§13 — consented reversal of a posted internal send (bank-transfers BK-xfer-09): recipient available back to the original sender, only with the recipient consent. svc-bank has no production writer until BK-xfer-09 lands and no grant is added yet; the recipe-gate catalog samples it and does not ledger.post.',
+  },
   marketPurchase: { kind: 'live', module: 'market', proof: 'services/svc-market/src/commerce/commerce-service.ts' },
   marketListingFee: {
     kind: 'socket',

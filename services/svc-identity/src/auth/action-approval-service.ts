@@ -340,6 +340,15 @@ export class ActionApprovalService {
   }
 
   /**
+   * The two people on an approval, or null when there is none. Read before a consume so a door can refuse a
+   * request one of them may not make without spending the approval. Discloses nothing past the two ids.
+   */
+  async partiesOf(approvalId: string): Promise<{ readonly requesterId: string; readonly approverId: string | null } | null> {
+    const row = await this.store.get(approvalId);
+    return row ? { requesterId: row.requesterId, approverId: row.approverId } : null;
+  }
+
+  /**
    * The audience-relevant fields of a stored approval, or null. Lets a door classify it before acting on it.
    * Only the request's own type, target service, target id and kind: nothing else is disclosed.
    */

@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { TRPCError } from '@trpc/server';
 import { fetchRequestHandler } from '@trpc/server/adapters/fetch';
+import { previewRefusal } from './preview-refusal.js';
 import {
   algoRefusalDetails,
+  previewRefusalOf,
   withdrawalAllowanceOf,
   publicProcedure,
   retryAfterSecondsOf,
+  accountStateOf,
   conflictProfile,
   router,
   type Context,
@@ -15,7 +18,7 @@ import {
 class FakeAuthError extends Error {
   constructor(
     readonly code: string,
-    readonly details?: { retryAfterSeconds?: number },
+    readonly details?: { retryAfterSeconds?: number; accountState?: unknown },
   ) {
     super('refused');
   }
@@ -35,6 +38,12 @@ const app = router({
       message: 'x',
       cause: new FakeAuthError('auth.invalid_credentials', { retryAfterSeconds: 5 }),
     });
+  }),
+  closedAccount: publicProcedure.query(() => {
+    throw new TRPCError({ code: 'FORBIDDEN', message: 'x', cause: new FakeAuthError('auth.account_frozen', { accountState: 'closed' }) });
+  }),
+  frozenNoState: publicProcedure.query(() => {
+    throw new TRPCError({ code: 'FORBIDDEN', message: 'x', cause: new FakeAuthError('auth.account_frozen') });
   }),
 });
 
@@ -83,6 +92,8 @@ describe('errorFormatter retryAfterSeconds', () => {
     expect(retryAfterSecondsOf(new FakeAuthError('auth.too_many_attempts'))).toBeUndefined();
     expect(retryAfterSecondsOf(undefined)).toBeUndefined();
     expect(retryAfterSecondsOf(new FakeAuthError('auth.too_many_attempts', { retryAfterSeconds: 1.2 }))).toBe(2);
+    expect(retryAfterSecondsOf(new FakeAuthError('auth.email_confirm_rate_limited', { retryAfterSeconds: 90 }))).toBe(90);
+    expect(retryAfterSecondsOf(new FakeAuthError('auth.invalid_credentials', { retryAfterSeconds: 90 }))).toBeUndefined();
   });
 
   it('returns the current profile only on a version conflict', async () => {
@@ -102,6 +113,28 @@ describe('errorFormatter retryAfterSeconds', () => {
     const data = ((await res.json()) as { error: { data: Record<string, unknown> } }).error.data;
     expect(data.profile).toEqual({ displayName: 'Ada', locale: 'en', region: 'DE', version: 2 });
     expect(conflictProfile(undefined)).toBeUndefined();
+  });
+});
+
+describe('errorFormatter accountState', () => {
+  it('reaches the client on auth.account_frozen, alongside the code', async () => {
+    const data = await wireData('closedAccount');
+    expect(data.accountState).toBe('closed');
+    expect(data.cause).toEqual({ code: 'auth.account_frozen' });
+    expect(data.httpStatus).toBe(403);
+  });
+
+  it('is absent when the refusal carries none, and on every other error', async () => {
+    expect(await wireData('frozenNoState')).not.toHaveProperty('accountState');
+    expect(await wireData('lockedOut')).not.toHaveProperty('accountState');
+  });
+
+  it('keeps only the two known states on the one code', () => {
+    expect(accountStateOf(new FakeAuthError('auth.account_frozen', { accountState: 'frozen' }))).toBe('frozen');
+    expect(accountStateOf(new FakeAuthError('auth.account_frozen', { accountState: 'active' }))).toBeUndefined();
+    expect(accountStateOf(new FakeAuthError('auth.account_frozen', { accountState: { x: 1 } }))).toBeUndefined();
+    expect(accountStateOf(new FakeAuthError('auth.invalid_credentials', { accountState: 'closed' }))).toBeUndefined();
+    expect(accountStateOf(undefined)).toBeUndefined();
   });
 });
 
@@ -185,5 +218,33 @@ describe('errorFormatter withdrawal allowance', () => {
     expect(withdrawalAllowanceOf(exceeded(undefined))).toBeUndefined();
     expect(withdrawalAllowanceOf({ code: 'pay.guard_withdrawal_limit_unset', remaining: { perTx: '1', rolling24h: '1' } })).toBeUndefined();
     expect(withdrawalAllowanceOf(undefined)).toBeUndefined();
+  });
+});
+
+describe('errorFormatter preview refusals', () => {
+  it('surfaces kind, code, engine, action and label on data.preview', async () => {
+    const refusal = previewRefusal('bank.loan_schedule', 'change_repayment_date');
+    const refused = router({
+      preview: publicProcedure.query(() => {
+        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: refusal.label, cause: refusal });
+      }),
+    });
+    const res = await fetchRequestHandler({
+      endpoint: '/trpc',
+      req: new Request('http://localhost/trpc/preview'),
+      router: refused,
+      createContext: () => ({}) as Context,
+    });
+    const data = ((await res.json()) as { error: { data: Record<string, unknown> } }).error.data;
+    expect(data.cause).toEqual({ code: refusal.code });
+    expect(data.preview).toEqual(refusal);
+  });
+
+  it('ignores anything that is not a full preview refusal', () => {
+    expect(previewRefusalOf(undefined)).toBeUndefined();
+    expect(previewRefusalOf({ code: 'preview.engine_not_built' })).toBeUndefined();
+    expect(previewRefusalOf({ ...previewRefusal('bank.loan_schedule', 'repay'), kind: 'live' })).toBeUndefined();
+    const extra = previewRefusalOf({ ...previewRefusal('bank.loan_schedule', 'repay'), secret: 'x' });
+    expect(extra).toEqual(previewRefusal('bank.loan_schedule', 'repay'));
   });
 });

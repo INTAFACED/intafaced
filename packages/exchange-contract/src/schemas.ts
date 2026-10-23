@@ -103,6 +103,41 @@ export type MarketHours = z.infer<typeof marketHoursSchema>;
  * A client that ignores unknown keys is no worse off; one that reads them can
  * refuse simulated markets and "venue shut" without guessing from empty books.
  */
+/**
+ * SP-order-entry-03: pair rules in words. Every protection value is either a
+ * value string or the literal "not set" — never a guessed default.
+ */
+const pairRuleValueSchema = z.string().min(1);
+export const pairRulesSchema = z.object({
+  tick: z.string(),
+  lot: z.string(),
+  minQty: z.string(),
+  minNotional: z.string(),
+  maxQty: pairRuleValueSchema,
+  protection: z.object({
+    collar: pairRuleValueSchema,
+    fatFinger: pairRuleValueSchema,
+    /** Effective cap: operator cap, else the owner env cap, else "not set". */
+    slippageCapBps: pairRuleValueSchema,
+    openOrdersPerMarket: pairRuleValueSchema,
+  }),
+  /** Operator risk version the protection values came from; "0" when none was approved. */
+  riskVersion: z.string(),
+});
+export type PairRules = z.infer<typeof pairRulesSchema>;
+
+/**
+ * SP-order-entry-03 review fix: operator circuit-breaker state. While set, the
+ * order path refuses every order with `trade.circuit_breaker_reference_unset`.
+ */
+export const pairHaltSchema = z.object({
+  circuitBreaker: pairRuleValueSchema,
+  refusesAllOrders: z.boolean(),
+  refusalCode: z.literal('trade.circuit_breaker_reference_unset').nullable(),
+  riskVersion: z.string(),
+});
+export type PairHalt = z.infer<typeof pairHaltSchema>;
+
 export const marketSchema = z.object({
   id: z.string(),
   symbol: z.string(),
@@ -196,6 +231,10 @@ export const marketSchema = z.object({
     cost: z.object({ min: decimal.nullable(), max: decimal.nullable() }),
     leverage: z.object({ min: decimal.nullable(), max: decimal.nullable() }),
   }),
+  /** SP-order-entry-03 pair rules; null when the mount has no risk reader or the read failed; null = unknown, never no limits. Absent on older servers. */
+  pairRules: pairRulesSchema.nullable().optional(),
+  /** SP-order-entry-03 circuit-breaker state; null when the mount has no risk reader or the read failed; null = unknown, never not-halted. */
+  pairHalt: pairHaltSchema.nullable().optional(),
 });
 export type Market = z.infer<typeof marketSchema>;
 
@@ -350,6 +389,26 @@ export const orderSchema = z.object({
   exit: orderExitSchema.nullable().optional(),
   /** The caller's own label from the create body. Null when none was sent. Absent on wires from before this field. */
   tag: z.string().nullable().optional(),
+  /**
+   * What a live order still holds: the hold placed with it, less what its fills spent and what an amend released (quote
+   * for a buy, base for a sell). Null on a closed or unresolved order (nothing stated). Absent on wires from before this
+   * field.
+   */
+  hold: z.object({ asset: z.string(), amount: decimal }).nullable().optional(),
+  /**
+   * The rank fee discount the order trades with, as a rate ("0" when none). Its fills' fee rates already include it.
+   * Absent on wires from before this field.
+   */
+  feeDiscount: decimal.optional(),
+  /**
+   * A stop order's trigger: when it fired, which price it watched (`last` trade, `mark` or `index`) and the price that
+   * reached the stop. Null on a stop that has not fired, or fired with no record kept. Absent on other orders and on
+   * wires from before this field.
+   */
+  triggered: z
+    .object({ at: isoDatetime, by: z.enum(['last', 'mark', 'index']), referencePrice: decimal })
+    .nullable()
+    .optional(),
 });
 export type Order = z.infer<typeof orderSchema>;
 
@@ -504,6 +563,11 @@ export const positionSchema = z.object({
   closedAt: isoDatetime.nullable().optional(),
   /** Row update time. Distinct from `timestamp`, which stays the open time. */
   updatedAt: isoDatetime.nullable().optional(),
+  /**
+   * Trading fees the position's fills paid, opening and reducing, in the margin asset. Null (with a reason in
+   * fieldReasons) when the position has no fill that recorded one. Absent when the answer did not read them.
+   */
+  fees: decimal.nullable().optional(),
   /** Set on a repeated close of a position this caller already closed. */
   replayed: z.boolean().optional(),
   /** Why a field above is null. Absent when that field has a value. */

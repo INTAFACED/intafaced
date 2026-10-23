@@ -1,3 +1,4 @@
+import { listWithdrawNetworks, type WithdrawAsset, type WithdrawNetworkSource } from './withdraw-networks.js';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import {
@@ -19,7 +20,10 @@ import { withMoneySpan } from '../tracing.js';
 import { emptyPayFiatRampPort, resolvePayFiatRailId, assertEmptyRailsCannotLookLive, type PayFiatRampPort } from './pay-fiat-adapter.js';
 import type { OfframpFeeSource, OnrampMethod, OnrampPaymentPort, OnrampQuoteSource } from './customer-ports.js';
 import {
+  checkDestination,
   createOnramp,
+  onrampQuoteOf,
+  customerOnrampsByIds,
   listDestinations,
   quoteOfframp,
   quoteOnramp,
@@ -28,10 +32,21 @@ import {
   saveDestination,
   type CustomerOnrampView,
   type CustomerRampDeps,
+  type DestinationCheck,
   type DestinationView,
   type OfframpQuoteView,
   type OnrampQuoteView,
 } from './customer-ramps.js';
+import {
+  BANK_WALLET_PROOF_VALIDITY_ENV,
+  BANK_WALLET_PROOF_WINDOW_ENV,
+  sqlWalletProofs,
+  startWalletProof,
+  verifyWalletProof,
+  type StartedProof,
+  type WalletProofDeps,
+  type WalletProofStore,
+} from './wallet-ownership.js';
 import { assertCryptoRamp, assertFiatSocketWhenNone, refuseFiatRamp, type RampProgramme, NO_RAMP_PROGRAMME } from './rails.js';
 import {
   BANK_ADDRESS_BOOK_CAP_ENV,
@@ -212,6 +227,19 @@ export interface RampServiceOptions {
    * Unset refuses `bank.offramp_fee_unset`. A zero fee is not assumed.
    */
   offrampFees?: OfframpFeeSource | null;
+  /**
+   * svc-ledger's asset and network registry: which asset may be withdrawn on which network. Unset refuses saving an
+   * address with `bank.asset_registry_unavailable`; no network is accepted on its looks.
+   */
+  withdrawNetworks?: WithdrawNetworkSource | null;
+  /** Signed-message wallet proofs (W-withdraw-17). Omit for the Postgres store on `sql`. */
+  walletProofs?: WalletProofStore;
+  /**
+   * Owner-set minutes a wallet proof offer stays open (`BANK_WALLET_PROOF_WINDOW_MINUTES`) and days a verified proof
+   * holds (`BANK_WALLET_PROOF_VALID_DAYS`). Omit to read the env at call time. Blank refuses; never defaulted.
+   */
+  walletProofWindowMinutes?: string;
+  walletProofValidDays?: string;
 }
 
 export class RampService {
@@ -222,6 +250,10 @@ export class RampService {
   private readonly onrampQuotes: OnrampQuoteSource | null;
   private readonly onrampPayments: OnrampPaymentPort | null;
   private readonly offrampFees: OfframpFeeSource | null;
+  private readonly withdrawNetworkSource: WithdrawNetworkSource | null;
+  private readonly walletProofs: WalletProofStore;
+  private readonly walletProofWindowMinutes: string | undefined;
+  private readonly walletProofValidDays: string | undefined;
 
   constructor(
     private readonly sql: Sql,
@@ -239,6 +271,21 @@ export class RampService {
     this.onrampQuotes = options.onrampQuotes ?? null;
     this.onrampPayments = options.onrampPayments ?? null;
     this.offrampFees = options.offrampFees ?? null;
+    this.withdrawNetworkSource = options.withdrawNetworks ?? null;
+    this.walletProofs = options.walletProofs ?? sqlWalletProofs(sql);
+    this.walletProofWindowMinutes = options.walletProofWindowMinutes;
+    this.walletProofValidDays = options.walletProofValidDays;
+  }
+
+  private walletProofDeps(): WalletProofDeps {
+    return {
+      destinations: this.destinations,
+      proofs: this.walletProofs,
+      windowRaw: () =>
+        this.walletProofWindowMinutes !== undefined ? this.walletProofWindowMinutes : process.env[BANK_WALLET_PROOF_WINDOW_ENV],
+      validityRaw: () =>
+        this.walletProofValidDays !== undefined ? this.walletProofValidDays : process.env[BANK_WALLET_PROOF_VALIDITY_ENV],
+    };
   }
 
   private customerDeps(): CustomerRampDeps {
@@ -250,7 +297,9 @@ export class RampService {
       payments: this.onrampPayments,
       fees: this.offrampFees,
       destinations: this.destinations,
+      networks: this.withdrawNetworkSource,
       coolingRaw: () => this.ownerOfframpCoolingHoursRaw(),
+      proofs: this.walletProofs,
     };
   }
 
@@ -292,14 +341,37 @@ export class RampService {
     return listDestinations(this.customerDeps(), userId);
   }
 
-  /** Save an address-book entry (asset, network, address, optional memo or tag, unique label). */
-  saveDestination(input: SaveDestinationInput) {
+  /** Assets an address may be saved for, with their networks, from svc-ledger's registry. */
+  withdrawNetworks(): Promise<WithdrawAsset[]> {
+    return listWithdrawNetworks(this.withdrawNetworkSource);
+  }
+
+  /** Whether an address would be taken as typed: its checksum, and any saved entry it shows like but is not. */
+  checkDestination(input: { userId: string; ref: string }): Promise<DestinationCheck> {
+    return checkDestination(this.customerDeps(), input);
+  }
+
+  /**
+   * Save an address-book entry (asset, network, address, optional memo or tag, unique label). An address that shows
+   * like a saved one but is not needs `confirmLookalike`.
+   */
+  saveDestination(input: SaveDestinationInput & { confirmLookalike?: boolean }) {
     return saveDestination(this.customerDeps(), input);
   }
 
   /** Rename one saved destination. The cooling clock does not restart. */
   renameDestination(input: { userId: string; destinationId: string; label: string }) {
     return renameDestination(this.customerDeps(), input);
+  }
+
+  /** Offer a message to sign that proves the customer controls one of their saved wallets (W-withdraw-17). */
+  startWalletProof(input: { userId: string; destinationId: string }): Promise<StartedProof> {
+    return startWalletProof(this.walletProofDeps(), input);
+  }
+
+  /** Check the signature of an open proof offer: the saved address must have signed it. */
+  verifyWalletProof(input: { userId: string; proofId: string; signature: string }) {
+    return verifyWalletProof(this.walletProofDeps(), input);
   }
 
   /** Remove one saved destination. `idempotencyKey` replays the same removal. */
@@ -318,6 +390,16 @@ export class RampService {
    */
   onrampCreate(input: { userId: string; onrampId: string; quoteId: string; method: OnrampMethod }): Promise<CustomerOnrampView> {
     return createOnramp(this.customerDeps(), input);
+  }
+
+  /** One of the customer's own on-ramp quotes as stored, expired or not. */
+  onrampQuoteOf(userId: string, quoteId: string): Promise<OnrampQuoteView> {
+    return onrampQuoteOf(this.customerDeps(), userId, quoteId);
+  }
+
+  /** The customer's own on-ramps among these ids, with the partner's instructions, in one read. */
+  customerOnrampsByIds(userId: string, onrampIds: readonly string[]): Promise<Map<string, CustomerOnrampView>> {
+    return customerOnrampsByIds(this.customerDeps(), userId, onrampIds);
   }
 
   /**

@@ -15,7 +15,9 @@ import { fxNamedDegrade, isFxProduct } from './spot/fx-product.js';
 import { percentageOf, type TickerStats24h } from './spot/ticker-stats.js';
 import type { Candle, Market, PublicTapePrint } from './spot/types.js';
 import { publicMarketLifecycle } from './public-market-lifecycle.js';
+import type { PairHalt, PairRisk, PairRules } from './spot/pair-rules.js';
 import { logRefusalSpec } from './refusal-spec-log.js';
+import type { ChartOwnerValuesPublicReader } from './admin/chart-owner-values.js';
 
 /**
  * Public CCXT-style REST slice (trade.ccxt-api — market data).
@@ -28,6 +30,7 @@ import { logRefusalSpec } from './refusal-spec-log.js';
  *   GET /api/v1/trades/:symbol?limit=&since=
  *   GET /api/v1/ohlcv/:symbol?timeframe=&since=&limit=
  *   GET /api/v1/funding-rate/:symbol
+ *   GET /api/v1/charts/owner-values?symbol=   (charts owner values, C-ops-04; plain JSON like ohlcv)
  *
  * No auth — public market data. Amounts are decimal strings on the wire.
  * Private routes live in `private-rest.ts` (edge-signed principal).
@@ -53,8 +56,35 @@ export interface PublicRestDeps {
   /** Listed markets page. Limit required at GET /markets — never invent 50. */
   markets(limit: number): Promise<Market[]>;
   marketBySymbol(symbol: string): Promise<Market | null>;
+  /** Charts owner values (C-ops-04). Absent: the owner-values read refuses, it never answers with a default. */
+  chartOwnerValues?: ChartOwnerValuesPublicReader;
   /** Optional PX-S01 snapshot; absent means this bounded mount has no authority publisher. */
   lifecycleForMarket?(market: Market): MarketStateSnapshot | null | Promise<MarketStateSnapshot | null>;
+  /**
+   * The matching book's halt for one market and for the whole venue, read from matching's board. Absent, or throwing,
+   * answers 503 (trade.book_halt_unavailable): a halt that cannot be read is never read as open.
+   */
+  bookHalt?(market: Market): Promise<{ halted: boolean; venueHalted: boolean }>;
+  /**
+   * SP-order-entry-03: TEST-ONLY per-market reader (one read per market — the
+   * N+1 the batched readers replace). Production must not mount it; kept for
+   * existing tests only. Absent means `pairRules: null` on the wire.
+   */
+  pairRulesForMarket?(market: Market): Promise<PairRules>;
+  /**
+   * SP-order-entry-03: batched reader, one query for the whole list. Preferred
+   * over `pairRulesForMarket` when both are mounted. A market missing from the
+   * map gets `pairRules: null`.
+   */
+  pairRulesForMarkets?(markets: readonly Market[]): Promise<ReadonlyMap<string, PairRules>>;
+  /**
+   * SP-order-entry-03 review fix: batched rules AND circuit-breaker state from
+   * one operator-risk read. Preferred over both readers above when mounted
+   * (production mounts this one). A missing market gets `pairRules`/`pairHalt` null.
+   */
+  pairRiskForMarkets?(markets: readonly Market[]): Promise<ReadonlyMap<string, PairRisk>>;
+  /** Warn sink for a failed pair-rules read (the listing degrades, never fails). Defaults to console.warn. */
+  onPairRulesReadError?(err: unknown): void;
   depth(marketId: string, limit: number): Promise<EngineDepth>;
   /**
    * Recent public prints for a market (no user/order ids). Empty when nothing
@@ -126,6 +156,8 @@ export interface PublicRestDeps {
    * listing appear on GET /markets. Does not enable TRADE_FUTURES_ENABLED.
    */
   futuresTestSeed?: boolean;
+  /** TRADE_FUTURES_MATCHING_ENABLED: the order-type catalogue follows the futures book instead of the at-mark doors. */
+  futuresMatchingEnabled?: boolean;
 }
 
 /** Send an already-mapped CCXT error. */
@@ -338,6 +370,8 @@ export function presentCcxtMarket(
     readonly futuresOrderable?: boolean;
     readonly futuresMaxLeverage?: string | null;
     readonly lifecycle?: MarketStateSnapshot | null;
+    readonly pairRules?: PairRules | null;
+    readonly pairHalt?: PairHalt | null;
   } = {},
 ) {
   const tick = formatAmount(market.tickSize);
@@ -435,6 +469,10 @@ export function presentCcxtMarket(
     /** PX-S01 authority state; null is explicit when this mount has no publisher. */
     lifecycle: publicMarketLifecycle(flags.lifecycle),
     lifecycleReasonCode: flags.lifecycle?.reasonCode ?? null,
+    /** SP-order-entry-03 pair rules in words; null when this mount has no risk reader. */
+    pairRules: flags.pairRules ?? null,
+    /** Operator circuit-breaker state; null when unread. `refusesAllOrders` true means no order is accepted. */
+    pairHalt: flags.pairHalt ?? null,
     taker: bpsToRate(market.takerBps),
     maker: bpsToRate(market.makerBps),
     contractSize: isFutures && market.contractSize != null ? formatAmount(market.contractSize) : (null as string | null),
@@ -660,6 +698,64 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
     });
   });
 
+  /**
+   * Futures order-type catalogue (D-orders-01): every type, time in force and
+   * flag per listed futures market, with its typed refusal. Derived from the
+   * capability matrix; no market listed → an empty list, never a sample one.
+   * The market window is the caller's `limit`, as on `/api/v1/markets`; blank refuses.
+   */
+  app.get<{ Querystring: { limit?: string } }>('/api/v1/futures/order-types', async (req, reply) => {
+    const limit = parsePublicRestLimit(req.query.limit, MAX_MARKETS);
+    if (limit === undefined) {
+      return sendCcxt(reply, badRequest('order-types limit is unset — refuse to invent a market window', TRADE_MARKETS_LIMIT_UNSET));
+    }
+    const { buildFuturesOrderTypeCatalogue } = await import('./futures/order-type-catalogue.js');
+    const markets = (await deps.markets(limit)).filter(
+      (m) => m.kind === 'futures' && visibleOnPublicBoard(m, deps.futuresTestSeed === true),
+    );
+    return reply.code(200).send({
+      asOfMs: now(),
+      markets: markets.map((m) =>
+        buildFuturesOrderTypeCatalogue(m.symbol, undefined, { throughBook: deps.futuresMatchingEnabled === true }),
+      ),
+    });
+  });
+
+  /**
+   * GET /api/v1/charts/owner-values[?symbol=] — the charts module's owner values (C-ops-04, LD-14).
+   * Plain JSON, no envelope, like /api/v1/ohlcv. Every count is the owner's number or null (not set). `dataClass`
+   * is the symbol's data class when `?symbol=` is given, else null. An unknown symbol is trade.market_not_found.
+   * Nothing here falls back to a default: an unwired reader refuses 503, a DB error is not swallowed.
+   */
+  app.get<{ Querystring: { symbol?: string } }>('/api/v1/charts/owner-values', async (req, reply) => {
+    const reader = deps.chartOwnerValues;
+    if (!reader) {
+      return sendCcxt(reply, {
+        status: 503,
+        body: {
+          code: 'ExchangeNotAvailable',
+          message: 'charts owner values are not wired on this service',
+          intafacedCode: 'trade.charts_owner_values_unconfigured',
+        },
+      });
+    }
+    const symbol = typeof req.query.symbol === 'string' ? req.query.symbol.trim() : '';
+    try {
+      let dataClass: string | null = null;
+      if (symbol !== '') {
+        // A symbol longer than any listed market's key is not a market: refuse before the lookup, same shape.
+        if (symbol.length > 64) return sendCcxt(reply, badSymbol(symbol));
+        const market = await deps.marketBySymbol(symbol);
+        if (!market) return sendCcxt(reply, badSymbol(symbol));
+        dataClass = await reader.dataClassFor(market.symbol);
+      }
+      const values = await reader.scalars();
+      return reply.code(200).send({ ...values, dataClass });
+    } catch (err) {
+      return sendMapped(reply, err);
+    }
+  });
+
   app.get<{ Querystring: { limit?: string } }>('/api/v1/markets', async (req, reply) => {
     const limit = parsePublicRestLimit(req.query.limit, MAX_MARKETS);
     if (limit === undefined) {
@@ -668,12 +764,41 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
     const markets = (await deps.markets(limit)).filter((m) => visibleOnPublicBoard(m, deps.futuresTestSeed === true));
     const ts = now();
     const futuresOrderable = deps.futures?.orderableEnabled === true;
+    // Pair rules are additive: a failed risk read degrades to null for the
+    // affected markets (logged), never fails the listing.
+    let rulesFailed = false;
+    const failRules = (err: unknown) => {
+      rulesFailed = true;
+      (deps.onPairRulesReadError ?? ((e) => req.log.warn({ err: e }, 'pair rules read failed; pairRules null')))(err);
+    };
+    let batchedRisk: ReadonlyMap<string, PairRisk> | null = null;
+    let batchedRules: ReadonlyMap<string, PairRules> | null = null;
+    try {
+      if (deps.pairRiskForMarkets) batchedRisk = await deps.pairRiskForMarkets(markets);
+      else if (deps.pairRulesForMarkets) batchedRules = await deps.pairRulesForMarkets(markets);
+    } catch (err) {
+      failRules(err);
+    }
+    const rulesFor = async (m: Market): Promise<PairRules | null> => {
+      if (rulesFailed) return null;
+      if (batchedRisk) return batchedRisk.get(m.id)?.rules ?? null;
+      if (batchedRules) return batchedRules.get(m.id) ?? null;
+      if (!deps.pairRulesForMarket) return null;
+      try {
+        return await deps.pairRulesForMarket(m);
+      } catch (err) {
+        failRules(err);
+        return null;
+      }
+    };
     const presented = await Promise.all(
       markets.map(async (m) =>
         presentCcxtMarket(m, ts, {
           futuresOrderable,
           futuresMaxLeverage: deps.futures?.maxLeverage ?? null,
           lifecycle: deps.lifecycleForMarket ? await deps.lifecycleForMarket(m) : null,
+          pairRules: await rulesFor(m),
+          pairHalt: !rulesFailed && batchedRisk ? (batchedRisk.get(m.id)?.halt ?? null) : null,
         }),
       ),
     );
@@ -681,6 +806,20 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
   });
 
   /** PX-S01 projection. Missing authority is a typed 503, never an OPEN default. */
+  app.get<{ Params: { symbol: string } }>('/api/v1/market-halt/:symbol', async (req, reply) => {
+    const symbol = decodeURIComponent(req.params.symbol);
+    const market = await deps.marketBySymbol(symbol);
+    if (!market) return sendCcxt(reply, badSymbol(symbol));
+    const unavailable = { error: 'matching halt state is not readable', code: 'trade.book_halt_unavailable' };
+    if (!deps.bookHalt) return reply.code(503).send(unavailable);
+    try {
+      const halt = await deps.bookHalt(market);
+      return reply.code(200).send({ symbol, halted: halt.halted, venueHalted: halt.venueHalted, serverTime: now() });
+    } catch {
+      return reply.code(503).send(unavailable);
+    }
+  });
+
   app.get<{ Params: { symbol: string } }>('/api/v1/market-lifecycle/:symbol', async (req, reply) => {
     const symbol = decodeURIComponent(req.params.symbol);
     const market = await deps.marketBySymbol(symbol);

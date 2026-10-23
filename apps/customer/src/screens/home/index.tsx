@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { ChevronRight, Eye, EyeOff } from 'lucide-react';
 import './home.css';
 import { clockTime } from './clock';
@@ -13,16 +13,14 @@ import {
   isHiddenPath,
   Money,
   refusalCopy,
-  roundScaled,
   Skeleton,
   StateBlock,
-  toFixedString,
   useActivity,
   useFavorites,
   useMarkets,
   useMovers,
   useHomePortfolio,
-  DerivedTotalNote,
+  DerivedTotalTag,
   useSparklines,
   useTickers,
   type Loadable,
@@ -39,9 +37,14 @@ import { Watchlist } from './Watchlist';
 import { GetStarted } from './GetStarted';
 import { LearnStrip } from './LearnStrip';
 import { RecentActivity } from './RecentActivity';
+import { WorkList } from './WorkList';
+import { TotalFigure, TotalUnitNote } from './TotalFigure';
 import { HOME_LINKS } from './links';
-import { progress, readDismissed, writeDismissed } from './started';
-import { useGetStarted } from './started-data';
+import { useStartedTile } from './started-data';
+import { CustomiseHome } from './CustomiseHome';
+import { HomeNotices } from './Notices';
+import { useHomeLayout } from './tiles-data';
+import { shownTiles } from './tiles';
 import { savePreferences, usePreferences } from '../../shared/preferences';
 import { useSession } from '../../features/session/session';
 
@@ -67,12 +70,6 @@ const ACTIONS_FOR: Record<ActionMode, readonly ActionLabel[] | null> = {
 };
 /** Real pill widths, so the skeletons are the final size (critic M4). */
 const PILL_WIDTH: Record<ActionLabel, number> = { 'Add money': 112, Buy: 64, Sell: 60, Convert: 88, Send: 72, Receive: 88 };
-
-/** A USD decimal rounded half-up to cents, as the string HeroNumber animates. Unknown stays null. */
-function cents(value: string | null): string | null {
-  const parsed = dec(value);
-  return parsed === null ? null : toFixedString(roundScaled(parsed, 2), 2);
-}
 
 function ActionPills({ loading, mode }: { loading: boolean; mode: ActionMode }) {
   const { t } = homeCopy.useCopy();
@@ -142,7 +139,7 @@ function HoldingsSkeleton() {
 
 function Balance({ portfolio, hidden }: { portfolio: Loadable<HomePortfolio>; hidden: boolean }) {
   const { t } = homeCopy.useCopy();
-  const { timeZone } = usePreferences();
+  const { timeZone, displayCurrency } = usePreferences();
 
   if (portfolio.status === 'loading')
     return (
@@ -208,15 +205,20 @@ function Balance({ portfolio, hidden }: { portfolio: Loadable<HomePortfolio>; hi
   return (
     <>
       <div className="home-total">
-        <HeroNumber value={cents(data.totalUsd)} decimals={2} prefix="$" hidden={hidden} />
+        <TotalFigure data={data} displayCurrency={displayCurrency} hidden={hidden} pro={false} />
       </div>
-      {data.change24hUsd !== null && hasCrypto ? (
+      <TotalUnitNote data={data} displayCurrency={displayCurrency} hidden={hidden} className="home-note" />
+      {(data.change24hUsd !== null && hasCrypto) || data.source === 'derived' ? (
         <p className="home-change">
-          <ChangeText value={fmtChangeLine(data.change24hUsd, data.change24hPct)} hidden={hidden} suffix={changeLabel} />
-          {data.source === 'derived' ? <InfoTip text={t('Today change rule')} label={t('Today change rule label')} /> : null}
+          {data.change24hUsd !== null && hasCrypto ? (
+            <>
+              <ChangeText value={fmtChangeLine(data.change24hUsd, data.change24hPct)} hidden={hidden} suffix={changeLabel} />
+              {data.source === 'derived' ? <InfoTip text={t('Today change rule')} label={t('Today change rule label')} /> : null}
+            </>
+          ) : null}
+          <DerivedTotalTag source={data.source} className="home-change__tag" />
         </p>
       ) : null}
-      <DerivedTotalNote source={data.source} className="home-note" />
       {unpriced > 0 ? (
         <p className="home-note">
           {unpriced === 1 ? t('Asset not counted') : t('Assets not counted', { count: unpriced })}
@@ -230,8 +232,8 @@ function Balance({ portfolio, hidden }: { portfolio: Loadable<HomePortfolio>; hi
 /** Simple Home (UI-SPEC 5.1). Pro mode draws `HomePro` instead; see `Home` below. */
 function HomeSimple() {
   const { t } = homeCopy.useCopy();
-  const { hideBalances, timeZone } = usePreferences();
-  const portfolio = useHomePortfolio();
+  const { hideBalances, timeZone, displayCurrency } = usePreferences();
+  const portfolio = useHomePortfolio(displayCurrency);
   const markets = useMarkets();
   const tickers = useTickers();
   const movers = useMovers(6);
@@ -290,22 +292,15 @@ function HomeSimple() {
           : 'normal';
   const pricesAsOf = tickers.status === 'ready' ? tickers.asOf : null;
 
-  // Get started: only for an account that holds nothing (the real balance read says so), until the person hides it
-  // (remembered per person on this device). The checklist's own reads start only while it can be shown, and it goes
-  // away once every step is done.
-  const [dismissed, setDismissed] = useState(() => readDismissed(userId));
-  useEffect(() => setDismissed(readDismissed(userId)), [userId]);
-  const hide = useCallback(() => {
-    writeDismissed(userId);
-    setDismissed(true);
-  }, [userId]);
-  const startedOn = accountEmpty && userId !== null && !dismissed;
-  const steps = useGetStarted({ portfolio, activity }, startedOn);
-  const showStarted = startedOn && !progress(steps).complete;
+  const home = useHomeLayout();
+  const main = shownTiles(home.layout, 'simple', 'main');
+  const side = shownTiles(home.layout, 'simple', 'side');
+  const started = useStartedTile(portfolio, side.includes('started'));
 
   return (
     <div className="if-home">
       <h1 className="if-sr">{t('Home')}</h1>
+      <HomeNotices />
       <div className="home-grid">
         <div className="home-main">
           <div className="home-label">
@@ -319,67 +314,91 @@ function HomeSimple() {
               {hideBalances ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
             </button>
             <InfoTip text={t('Total value rule')} label={t('How the total is worked out')} side="right" />
+            {isHiddenPath('/money') ? null : (
+              <a className="home-tile-link" href="/money">
+                {t('Assets')}
+                <ChevronRight size={14} aria-hidden="true" />
+              </a>
+            )}
+            <CustomiseHome home={home} mode="simple" />
           </div>
 
           <Balance portfolio={portfolio} hidden={hideBalances} />
           <ActionPills loading={portfolio.status === 'loading'} mode={actionMode} />
-          {portfolio.status === 'loading' ? <HoldingsSkeleton /> : null}
-          {portfolio.status === 'ready' && portfolio.data.holdings.length > 0 ? (
-            <HoldingsCard portfolio={portfolio.data} hidden={hideBalances} />
-          ) : null}
-
-          {showMarkets ? (
-            <section className="home-section" aria-labelledby="home-markets-title">
-              <div className="home-section__head">
-                <h2 className="home-h2" id="home-markets-title">
-                  {t('Markets')}
-                </h2>
-                {pricesAsOf !== null ? (
-                  <p className="home-fresh">{t('Prices updated {time}', { time: clockTime(pricesAsOf, timeZone) })}</p>
-                ) : null}
-              </div>
-              {marketsLoading ? (
-                <MarketsSkeleton count={all.length || 4} />
-              ) : marketsBroken ? (
-                <MarketsFailure retry={markets.status === 'error' ? markets.retry : undefined} />
-              ) : (
-                <MarketsRow cards={cards} tickers={tickers} sparklines={sparklines} favoriting={favoriting} />
-              )}
-            </section>
-          ) : null}
-
-          {showMovers ? (
-            <section className="home-section home-section--movers">
-              <MoversHeading />
-              {marketsLoading || movers.status === 'loading' ? <MoversSkeleton /> : <MoversRow movers={moverItems} />}
-            </section>
-          ) : null}
-
-          <RecentActivity activity={activity} hidden={hideBalances} />
-          <LearnStrip />
+          {main.map((id) => {
+            switch (id) {
+              case 'work':
+                return <WorkList key={id} hidden={hideBalances} />;
+              case 'holdings':
+                return portfolio.status === 'loading' ? (
+                  <HoldingsSkeleton key={id} />
+                ) : portfolio.status === 'ready' && portfolio.data.holdings.length > 0 ? (
+                  <HoldingsCard key={id} portfolio={portfolio.data} hidden={hideBalances} />
+                ) : null;
+              case 'markets':
+                return showMarkets ? (
+                  <section key={id} className="home-section" aria-labelledby="home-markets-title">
+                    <div className="home-section__head">
+                      <h2 className="home-h2" id="home-markets-title">
+                        {t('Markets')}
+                      </h2>
+                      {pricesAsOf !== null ? (
+                        <p className="home-fresh">{t('Prices updated {time}', { time: clockTime(pricesAsOf, timeZone) })}</p>
+                      ) : null}
+                    </div>
+                    {marketsLoading ? (
+                      <MarketsSkeleton count={all.length || 4} />
+                    ) : marketsBroken ? (
+                      <MarketsFailure retry={markets.status === 'error' ? markets.retry : undefined} />
+                    ) : (
+                      <MarketsRow cards={cards} tickers={tickers} sparklines={sparklines} favoriting={favoriting} />
+                    )}
+                  </section>
+                ) : null;
+              case 'movers':
+                return showMovers ? (
+                  <section key={id} className="home-section home-section--movers">
+                    <MoversHeading />
+                    {marketsLoading || movers.status === 'loading' ? <MoversSkeleton /> : <MoversRow movers={moverItems} />}
+                  </section>
+                ) : null;
+              case 'activity':
+                return <RecentActivity key={id} activity={activity} hidden={hideBalances} />;
+              case 'learn':
+                return <LearnStrip key={id} />;
+              default:
+                return null;
+            }
+          })}
         </div>
 
-        {showStarted ? (
+        {started.show ? (
           <div className="home-started-slot">
-            <GetStarted steps={steps} onHide={hide} />
+            <GetStarted steps={started.steps} onHide={started.hide} />
           </div>
         ) : null}
 
         {showMarkets && !marketsBroken ? (
           <aside className="home-side">
-            {portfolio.status === 'loading' ? <YourCryptoSkeleton /> : null}
-            {portfolio.status === 'ready' ? <YourCrypto holdings={portfolio.data.holdings} hidden={hideBalances} /> : null}
-            {portfolio.status === 'empty' ? <YourCrypto holdings={[]} hidden={hideBalances} /> : null}
-            {marketsLoading || !popular || watchItems.length > 0 ? (
-              <Watchlist
-                items={watchItems}
-                popular={popular}
-                tickers={tickers}
-                sparklines={sparklines}
-                loading={marketsLoading}
-                favoriting={favoriting}
-              />
-            ) : null}
+            {side.map((id) =>
+              id === 'your-crypto' ? (
+                portfolio.status === 'loading' ? (
+                  <YourCryptoSkeleton key={id} />
+                ) : portfolio.status === 'ready' || portfolio.status === 'empty' ? (
+                  <YourCrypto key={id} holdings={portfolio.status === 'ready' ? portfolio.data.holdings : []} hidden={hideBalances} />
+                ) : null
+              ) : id === 'watchlist' && (marketsLoading || !popular || watchItems.length > 0) ? (
+                <Watchlist
+                  key={id}
+                  items={watchItems}
+                  popular={popular}
+                  tickers={tickers}
+                  sparklines={sparklines}
+                  loading={marketsLoading}
+                  favoriting={favoriting}
+                />
+              ) : null,
+            )}
           </aside>
         ) : null}
       </div>

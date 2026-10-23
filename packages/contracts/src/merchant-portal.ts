@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { payAmountStringSchema, payAssetCodeSchema, payBpsSchema, payMerchantIdSchema, payTimestampSchema } from './merchant-control.js';
+import { merchantStatementDescriptorSchema } from './merchant-descriptor.js';
 import { payListCursorSchema } from './pay-merchant-reads.js';
 
 /**
@@ -107,9 +108,13 @@ export const merchantBusinessProfileSchema = z
     supportPhone: z.string().nullable(),
     statementDescriptor: z.string().nullable(),
     industry: z.string().nullable(),
+    /** The owner's rule: a legal-detail change also needs a second teammate before INTAFACED reviews it. */
+    secondApprovalEnabled: z.boolean(),
   })
   .strict();
 export type MerchantBusinessProfile = z.infer<typeof merchantBusinessProfileSchema>;
+/** The fields a change request edits: the profile without its key, version and the second-approval rule. */
+const merchantProfileFieldsSchema = merchantBusinessProfileSchema.omit({ merchantId: true, version: true, secondApprovalEnabled: true });
 
 /**
  * Identity a compliance proposer reads before filing a KYB approval.
@@ -142,7 +147,11 @@ export const merchantBusinessProfileSubmitInputSchema = z
     website: profileField,
     supportEmail: profileField,
     supportPhone: profileField,
-    statementDescriptor: profileField,
+    /** '' or null clears the descriptor; any other value must pass the shared descriptor validator. */
+    statementDescriptor: z
+      .union([z.literal(''), merchantStatementDescriptorSchema])
+      .nullable()
+      .optional(),
     industry: profileField,
   })
   .strict();
@@ -236,8 +245,8 @@ export const merchantProfileChangeSchema = z
      * compliance decides.
      */
     status: z.enum(['applied', 'applied_pre_kyb', 'pending', 'pending_review', 'rejected', 'conflict']),
-    before: merchantBusinessProfileSchema.omit({ merchantId: true, version: true }),
-    after: merchantBusinessProfileSchema.omit({ merchantId: true, version: true }),
+    before: merchantProfileFieldsSchema,
+    after: merchantProfileFieldsSchema,
     sensitiveKeys: z.array(z.enum(['legalName', 'address', 'statementDescriptor', 'industry'])),
     changeHash: z.string(),
     expectedVersion: z.string().regex(/^\d{1,18}$/),

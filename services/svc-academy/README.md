@@ -138,7 +138,38 @@ is never invented.
 
 `grantCert` is safe to call twice. The grant is idempotent on `(user, cert)` and the award carries the same business key, so a repeat is dropped by identity rather than paid twice — that is also how an award missed during a bus outage is recovered. XP amounts are a v0 policy in `src/certs/xp-policy.ts` with a conservative default; product may retune them, and a cert with no policy publishes **nothing** (no XP, no perk-grant shape) rather than an invented amount. After XP, `perks` is either a **real** `rank_thresholds.perks` readout from svc-identity or a **refuse** (unpriced / identity unreadable / invent path) — academy never invents perk money or a cert→perk map (`src/certs/perk-plane.ts`, D26-P1-C1).
 
-A seat belongs to `ctx.principal.userId`. **No procedure takes a userId from the input except `invite`**, where naming somebody else _is_ the operation — and that one is host-only, so the caller must already own the room. The scene is written **whole** by the host, not merged per attendee: merging would need a conflict model this does not have, and half a merge is a room that renders differently for different people.
+### Item release (AC-release-access-02)
+
+Curriculum slugs the lesson screen already opens (journey J-academy-03 step 3). No stored rule means the item stays open. Programme enrolment checks are unchanged.
+
+| Procedure                                    | Scope          | Purpose                                                                                                                                                                                                                                                                   |
+| -------------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `itemRelease`                                | `academy:read` | This learner's state: locked, unlocked, started, completed. Also the window (`availableFrom`, `availableUntil`, `dueAt`, each null when unset) and this caller's latest extension (`extendedUntil`, `reason`, `grantedAt`, `grantedBy`)                                   |
+| `curriculumItem` / `curriculumItemLocalized` | `academy:read` | The body, only when this learner is not locked. A lock refuses `academy.prerequisite_unmet` with `missing=<slugs>`, or `academy.window_invalid` for the window, before any body leaves                                                                                    |
+| `admin.setItemPrerequisites`                 | `admin:write`  | Replace one item's prerequisites. A cycle refuses `academy.prerequisite_cycle`                                                                                                                                                                                            |
+| `admin.setItemWindow`                        | `admin:write`  | Availability start and end, optional due. End before start refuses `academy.window_invalid`. All null clears the window                                                                                                                                                   |
+| `admin.grantItemExtension`                   | `admin:write`  | Extend one learner past the binding end. A blank reason refuses `academy.reason_required`. Replay is the learner, the item, and `clientRequestId`. The same item, reason, and end returns the first grant. A different item, reason, or end is refused and writes nothing |
+
+`itemRelease` never returns another learner's extension. With no window, the three dates are null so the card can say not set.
+
+`markCurriculumComplete` refuses `academy.prerequisite_unmet` or `academy.window_invalid` while the item is locked. A completion already stored stays completed.
+
+**Follow-ups, not in this change:** cohort and course-wide extensions, staff reset, and audit rows for `setItemPrerequisites` and `setItemWindow`.
+
+### Video player tracks (AC-videos-01)
+
+Journey J-academy-03 step 4. The Videos screen already calls `videos` and `videoPlayback`. Those still play the file when captions, the transcript, or the watch threshold are blank.
+
+| Procedure               | Scope          | Purpose                                                                                                                                                                                                                           |
+| ----------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `videos`                | `academy:read` | Named spine. `captionsPublished` and `transcriptPublished` are false until the owner sets them. `captionsUrl` stays null. No duration or transcript is guessed.                                                                   |
+| `videoCaptions`         | `academy:read` | Signed captions URL behind the same tier and stake gate as playback. No URL refuses `academy.video_captions_unpublished`.                                                                                                         |
+| `videoTranscript`       | `academy:read` | Transcript text behind that same gate, with a signed URL. No text refuses `academy.video_transcript_unpublished`.                                                                                                                 |
+| `videoProgress.watched` | `academy:read` | This caller's stored position against `ACADEMY_VIDEO_WATCH_THRESHOLD_SECONDS`. Blank, zero, or a fraction refuses `academy.watch_threshold_unset`. No stored row is not watched. The threshold is not cut down to fit a duration. |
+
+`videoProgress.get` and `videoProgress.set` are unchanged. Play, pause, seek, and volume are the player itself. This service does not publish a speed list.
+
+A seat belongs to `ctx.principal.userId`. **No procedure takes a userId from the input except `invite` and `admin.grantItemExtension`**, where naming somebody else _is_ the operation — invite is host-only, and the extension is `admin:write`. The scene is written **whole** by the host, not merged per attendee: merging would need a conflict model this does not have, and half a merge is a room that renders differently for different people.
 
 ---
 

@@ -14,12 +14,12 @@
 | `svc-edge` | the front door (§9) | 4000 | published 4000:4000 | `EDGE_BODY_LIMIT_BYTES`, `EDGE_PRINCIPAL_SECRET`, `EDGE_RATE_LIMIT_MAX`, `EDGE_RATE_LIMIT_WINDOW_MS`, `JWT_ACCESS_SECRET` |
 | `svc-execution` | Bounded execution-service foundations: sealed house-tenancy controls plus partial OMS/SOR/EMS, external arbitrage, and external market-making doors. | 4019 | compose network only | `EDGE_PRINCIPAL_SECRET` |
 | `svc-fix` | No README. | - | compose network only, profile fix | see `src/env.ts` |
-| `svc-identity` | One account, one verification, one rank — the key that opens every room (§4.1). | 4002 | compose network only | `DATABASE_POOL_MAX`, `DATABASE_URL`, `EDGE_PRINCIPAL_SECRET`, `INTERNAL_SERVICE_SECRET`, `JWT_ACCESS_SECRET` |
+| `svc-identity` | One account, one verification, one rank — the key that opens every room (§4.1). | 4002 | compose network only | `DATABASE_POOL_MAX`, `DATABASE_URL`, `EDGE_PRINCIPAL_SECRET`, `IDENTITY_SIGNUP_CLOSED_COUNTRIES`, `INTERNAL_SERVICE_SECRET`, `JWT_ACCESS_SECRET` |
 | `svc-indexer` | Chain → Postgres read models for `apps/web` — books, fills, positions (§17.5). | 4013 | compose network only | `DATABASE_POOL_MAX`, `DATABASE_URL`, `EDGE_PRINCIPAL_SECRET`, `INDEXER_BATCH_SIZE`, `INDEXER_CHAIN_ID`, `INDEXER_FINALITY_DEPTH`, `INDEXER_RPC_URL`, `INDEXER_START_HEIGHT`, `INDEXER_VENUE_ADDRESS` |
 | `svc-ledger` | THE BALANCE (§4.2). The single wallet graph for the entire OS. | 4001 | compose network only | `DATABASE_POOL_MAX`, `DATABASE_URL`, `INTERNAL_SERVICE_SECRET`, `JWT_ACCESS_SECRET`, `RECONCILE_CRON_MINUTES` |
 | `svc-market` | Vendor lifecycle for `market.vendors` (§8.7) plus listings and one-time purchase for `market.commerce`. | 4018 | compose network only | `DATABASE_POOL_MAX`, `DATABASE_URL`, `EDGE_PRINCIPAL_SECRET`, `INTERNAL_SERVICE_SECRET` |
 | `svc-matching` | THE ENGINE (§5.1). Orderbooks and matching. | 4005 | compose network only | `EDGE_PRINCIPAL_CLOCK_SKEW_SECONDS`, `EDGE_PRINCIPAL_MAX_LIFETIME_SECONDS`, `EDGE_PRINCIPAL_PUBLIC_KEY`, `INTERNAL_SERVICE_SECRET`, `MATCHING_OPERATOR_IDS`, `MATCHING_SNAPSHOT_EVERY` |
-| `svc-mining-pool` | Mining pool: share ingest, PPLNS payout planning and epoch payouts. | 4023 | compose network only | see `src/env.ts` |
+| `svc-mining-pool` | Mining pool: share ingest, PPLNS payout planning and epoch payouts. | 4023 | compose network only | none |
 | `svc-notify` | Event-driven notification fan-out for `ops.notifications`. | 4015 | compose network only | `DATABASE_POOL_MAX`, `DATABASE_URL`, `EDGE_PRINCIPAL_SECRET` |
 | `svc-ops` | Thin operator surfaces for CRM, team directory, warehouse revenue, projects, and custody tiers. | 4022 | compose network only | `EDGE_PRINCIPAL_SECRET`, `INTERNAL_SERVICE_SECRET` |
 | `svc-p2p` | Peer-to-peer trading with escrow (§6.2). | 4007 | compose network only | `DATABASE_POOL_MAX`, `DATABASE_URL`, `EDGE_PRINCIPAL_SECRET`, `INTERNAL_SERVICE_SECRET` |

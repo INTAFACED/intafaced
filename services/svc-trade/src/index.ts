@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { createEdgeContext, retainRawBody, createIdentityOperationDecisionClient, s2sFromEnv } from '@intafaced/contracts';
+import { loadBotVerificationPolicy } from './algo/bots-verification.js';
 import { TradingControls, TradingControlError } from './controls/trading-controls.js';
 import { createLiveTradingOperator } from './controls/identity-port.js';
 import { JetStreamEventBus } from '@intafaced/events';
@@ -11,23 +12,31 @@ import { MARKETS_LIMIT_MAX, TradeService } from './spot/trade-service.js';
 import { createMatchingClient } from './spot/matching-client.js';
 import { bindMatchingCloseS2s } from './spot/matching-close.js';
 import { readOcoIntents } from './spot/oco-intent.js';
+import { readOrderHolds } from './spot/order-holds.js';
 import { createTickerStatsReader } from './spot/ticker-stats.js';
 import { createRankPerksClient } from './spot/rank-perks.js';
 import { createAffiliateAccrueClient } from './spot/affiliate-accrue.js';
 import { createAffiliatePayoutClient } from './spot/affiliate-payout.js';
 import { createDropCopyIngestClient } from './spot/drop-copy-ingest.js';
 import { createSubAccountOwnershipClient } from './spot/sub-account-ownership.js';
+import { createEmailProofClient } from './spot/email-proof.js';
 import { createLedgerClient } from './ledger-client.js';
+import { createLedgerPages } from './statements/ledger-history.js';
+import { StatementExports } from './statements/statement-export.js';
 import { registerClosureCheck } from './closure/closure-check.js';
-import { subscribeMatchingEvents } from './events.js';
+import { subscribeMatchingEvents, type MatchedFillsSink } from './events.js';
+import { FUTURES_PRICE_BAND_UNSET, parsePriceBand, perpetualFeeRates } from './futures/matched-order-plan.js';
+import { MATCHED_FILL_RETRY_BATCH } from './futures/matched-orders.js';
 import { createTradeRouter, type TradeRouter } from './router.js';
 import { identityApprovalBook } from './admin/identity-approval.js';
 import { bindTradingRestrictApprovals, currentTradingRestrictApprovals } from './admin/trading-restrict.js';
 import { operatorSeedAllows as readOperatorSeedAllows } from './admin/service.js';
 import { wireTradeOpsAdmin } from './admin/wire.js';
+import { chartOwnerValuesPublicReader } from './admin/chart-owner-values.js';
 import { InsuranceTopupAdmin } from './admin/insurance-topup.js';
 import { SupportTradeSummaryReader } from './support/trade-summary.js';
-import { registerPublicRest } from './public-rest.js';
+import { orderableForListedMarket, registerPublicRest } from './public-rest.js';
+import { readGatedList } from './futures/gated-list.js';
 import { registerFuturesTickerRest } from './futures/futures-ticker-rest.js';
 import {
   conditionalTriggerScheduled,
@@ -36,7 +45,7 @@ import {
   refuseFuturesRestingLimit,
   startConditionalOrderJobs,
 } from './futures/conditional-orders/index.js';
-import { listCallerLiquidations, listFundingPayments, readFuturesTickerFacts } from './futures/futures-reads.js';
+import { listCallerLiquidations, listFundingPayments, loadPositionLiquidation, readFuturesTickerFacts } from './futures/futures-reads.js';
 import { listPayoutsForUser } from './futures/futures-payouts.js';
 import { registerPrivateRest } from './private-rest.js';
 import { bindExpireAt, installGtdGttPlace } from './spot/gtd-gtt-place.js';
@@ -67,6 +76,7 @@ import { bindCollar, installCollarPlace } from './spot/collar-place.js';
 import { bindCombo, installComboPlace } from './spot/combo-place.js';
 import { memoryOutcomeCatalogue, registerOutcomesRest } from './outcomes-rest.js';
 import { registerPositionPreviewRest } from './futures/position-preview-rest.js';
+import { resolveAdmissionLimits } from './futures/pretrade-limits.js';
 import { registerGreeksWhatIfRest } from './greeks/what-if-rest.js';
 import { registerDeltaHedgeRest } from './greeks/delta-hedge-rest.js';
 import { registerQuantLiveDeployRest } from './quant/live-deploy-rest.js';
@@ -83,13 +93,28 @@ import {
   AdlDisclosureError,
 } from './futures/adl-disclosure.js';
 import { presentAdlActionDisclosureWire, sqlAdlDisclosureEventStore } from './futures/adl-last-resort.js';
-import { derivativesAccessGate } from './futures/derivatives-access.js';
-import { assessEligibility, presentQuestions, readEligibilityState, sqlEligibilityStore } from './futures/derivatives-eligibility.js';
-import { acceptAgreement, AGREEMENT_KINDS, readAgreementView, sqlRiskAgreementStore } from './futures/risk-agreements.js';
+import { derivativesAccessGate, FUTURES_OPEN_AGREEMENT_KINDS } from './futures/derivatives-access.js';
+import {
+  assertEligible,
+  assessEligibility,
+  presentQuestions,
+  readEligibilityState,
+  sqlEligibilityStore,
+} from './futures/derivatives-eligibility.js';
+import { assertOperatorRiskOnPlace, currentRiskForMarkets, operatorSlippageCapBps } from './admin/risk.js';
+import { presentPairRisk } from './spot/pair-rules.js';
+import {
+  acceptAgreement,
+  AGREEMENT_KINDS,
+  assertAgreementsAccepted,
+  readAgreementView,
+  sqlRiskAgreementStore,
+} from './futures/risk-agreements.js';
 import { optionalProfitSourceFromConfig } from './futures/profit-source.js';
 import { parseConfiguredMaxLeverage } from './futures/initial-margin.js';
 import { parseConfiguredSettleAssets } from './futures/contract-family.js';
 import { parseFundingMarketIds, startFuturesJobs } from './futures/futures-jobs.js';
+import type { MatchedLiquidationPort } from './futures/matched-liquidation.js';
 import { presentMarginCallWire } from './futures/margin-call-transport.js';
 import { createConfiguredVenueMarkSource, createVenueMarketDataAdapter, parseVenueMarkSymbols } from './futures/mark-from-venue.js';
 import { presentVenueLatencyHealth } from './futures/venue-latency-health.js';
@@ -98,6 +123,8 @@ import { presentFuturesJobsHealth } from './futures/futures-jobs-health.js';
 import { sqlMarginModeSwitchAudit } from './futures/margin-mode.js';
 import { MaintainedBook } from '@intafaced/venue-adapter';
 import { registerInternalFundingRate } from './futures/internal-funding-rate.js';
+import { writeOperatorAudit } from './admin/common.js';
+import { loadLiquidationFeeFraction } from './futures/liquidation-fee.js';
 import { memoryFundingHistory, registerFundingHistory } from './futures/funding-history.js';
 import { createCopyLeaderFixturesStore } from './agents/copy-leader-fixtures-store.js';
 import { registerCopyLeaderFixturesRoutes } from './agents/copy-leader-fixtures-routes.js';
@@ -111,6 +138,11 @@ import { parseCandleMarketIds, parseCandleTimeframes } from './spot/candles.js';
 import { startCandleJobs } from './spot/candle-jobs.js';
 import { startTrailingMarkJobs } from './spot/trailing-mark-jobs.js';
 import { markSourceFromDepth } from './futures/mark-from-depth.js';
+import { markBookResolver, parseIndexSpotMarkets } from './futures/mark-from-spot-index.js';
+import { liquidationPriceFor } from './futures/liquidation-price.js';
+import { registerRiskCalculatorRest } from './futures/risk-calculator-rest.js';
+import { registerCollateralRest } from './futures/collateral-rest.js';
+import { ownerLadderPolicy } from './futures/futures-ladder-owner-gate.js';
 import type { QuotedMarkSource } from './futures/liquidation-tick.js';
 import { startEngineLedgerReconcileJobs } from './spot/engine-ledger-reconcile-jobs.js';
 import { startHoldUnknownSweepJobs } from './spot/hold-unknown-sweep-jobs.js';
@@ -126,6 +158,8 @@ import { parseOtcDeskLawJson } from './otc/desk-law.js';
 import { createOtcMidSourceFromConfig } from './otc/venue-mid-source.js';
 import { describeOtcMidFeedWiring } from './otc/mid-feed.js';
 import { OtcDeskService } from './otc/otc-service.js';
+import { loadOtcMakerDirectory } from './otc/maker-directory.js';
+import { parseOtcConvertBoundsJson } from './otc/otc-convert-bounds.js';
 import { SqlOtcQuoteStore } from './otc/quote-store.js';
 import { createOtcStakeSource } from './otc/stake-source.js';
 import { canonicalizeCopyFillId } from './copy/fee-share.js';
@@ -139,6 +173,8 @@ import { createFollowerFlattenPort } from './copy/follower-flatten-port.js';
 import type { PlaceFollowerOrderPort } from './copy/auto-mirror-place.js';
 import { SqlMarketLifecycleAuthority, SqlMarketLifecycleEvidenceStore, assertNoLocalTestLifecycleRows } from './market-lifecycle.js';
 import { registerMarketLifecycleRoutes } from './market-lifecycle-routes.js';
+import { localTestTapeRetimeEnabled } from './spot/local-test-tape.js';
+import { registerLocalTestTapeRoutes } from './spot/local-test-tape-routes.js';
 import { logTrpcServerFault } from './trpc-error-log.js';
 
 registerProcessHooks(
@@ -153,6 +189,9 @@ registerProcessHooks(
 // Local-test stand-ins (ZZ screening list, SCREENING_FAIL_CLOSED=off, `local-test:` lifecycle
 // records) are refused unless APP_ENV is exactly dev/test. Reads the raw APP_ENV: unset = NOT dev.
 assertNoLocalTestFixtures(process.env);
+// LOCAL TEST tape retime (chart history on a fresh stack): throws here, before any connection, if the flag is on
+// outside explicit dev/test. Off, the route does not exist.
+const localTestTapeRetime = localTestTapeRetimeEnabled(process.env);
 
 const sql = postgres(env.DATABASE_URL, {
   max: env.DATABASE_POOL_MAX,
@@ -171,6 +210,8 @@ const doorS2s = s2s.serviceVerifier && s2s.s2sMode ? { verifier: s2s.serviceVeri
 const outS2s = s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined;
 bindMatchingCloseS2s(outS2s);
 const ledger = createLedgerClient(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
+/** Ledger history pages (read-only), for the person's ledger history and statement export. */
+const ledgerPages = createLedgerPages(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
 bindTradingRestrictApprovals(identityApprovalBook(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s));
 const tradingControls = new TradingControls(
   sql,
@@ -187,6 +228,7 @@ const tradingControls = new TradingControls(
 const matching = createMatchingClient(env.MATCHING_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
 const perks = createRankPerksClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
 const subAccounts = createSubAccountOwnershipClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
+const emailProof = createEmailProofClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
 const affiliateAccrue = createAffiliateAccrueClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
 const affiliatePayout = createAffiliatePayoutClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
 const dropCopyIngest = createDropCopyIngestClient(env.TRADE_FIX_DROPCOPY_INGEST_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
@@ -233,6 +275,11 @@ const trade = new TradeService(sql, ledger, matching, perks, bus, {
   futuresSettlementFixing: env.TRADE_FUTURES_SETTLEMENT_FIXING,
   futuresSettleAssets: parseConfiguredSettleAssets(env.TRADE_FUTURES_SETTLE_ASSETS),
   marketSlippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
+  // CB-bots-10: required by default; a blank level refuses every bot create, a bad value stops the boot.
+  botVerification: loadBotVerificationPolicy({
+    TRADE_BOTS_VERIFICATION: env.TRADE_BOTS_VERIFICATION,
+    TRADE_BOTS_VERIFICATION_LEVEL: env.TRADE_BOTS_VERIFICATION_LEVEL,
+  }),
   convertEnabled: env.TRADE_CONVERT_ENABLED,
   standingInstructionsEnabled: env.TRADE_STANDING_INSTRUCTION_ENABLED,
   convertSpreadBps: env.TRADE_CONVERT_SPREAD_BPS,
@@ -243,13 +290,13 @@ const trade = new TradeService(sql, ledger, matching, perks, bus, {
   seedPlaceEnabled: env.TRADE_MM_SEED_ENABLED,
   feeSchedule,
   subAccounts,
+  emailProof,
   affiliateAccrue,
   affiliatePayout,
   dropCopyIngest,
   holdUnknownTakerMaxAgeMs: env.TRADE_HOLD_UNKNOWN_TAKER_MAX_AGE_MS,
   onHoldUnknownAlert: (a) => app.log.error({ alert: a }, 'order.hold reply lost'),
 });
-const subscriptions = await subscribeMatchingEvents(bus, trade);
 const venuePublicAdapter = createVenueMarketDataAdapter(env.TRADE_VENUE_MARK_VENUE);
 const venueMarkSymbols = parseVenueMarkSymbols(env.TRADE_VENUE_MARK_SYMBOLS);
 const otcVenueSymbols = parseVenueMarkSymbols(env.TRADE_OTC_VENUE_SYMBOLS);
@@ -286,11 +333,24 @@ const otcMidFeedWiring = describeOtcMidFeedWiring({
 });
 const otc = new OtcDeskService(ledger, otcStakes, {
   accountAdmission: tradingControls,
+  emailProof,
   law: otcDeskLaw,
   midSource: otcMidBuilt.source,
   liveObservationFeed: otcMidBuilt.liveObservationFeed,
   midFeedWiring: otcMidFeedWiring,
+  convertBounds: (() => {
+    try {
+      return parseOtcConvertBoundsJson(env.TRADE_OTC_CONVERT_BOUNDS);
+    } catch (err) {
+      // A malformed setting must not stop all trading: log it and leave both flows refusing.
+      process.stderr.write(`${JSON.stringify({ level: 'error', msg: 'trade.otc.convert_bounds_invalid', message: String(err) })}\n`);
+      return undefined;
+    }
+  })(),
   store: new SqlOtcQuoteStore(sql),
+  makerDirectory: loadOtcMakerDirectory(env.TRADE_OTC_MAKER_DIRECTORY, (message) =>
+    process.stderr.write(`${JSON.stringify({ level: 'error', msg: 'trade.otc.maker_directory_invalid', message })}\n`),
+  ),
 });
 const copyFeeShareLaw = parseCopyFeeShareLawJson(env.TRADE_COPY_FEE_SHARE_LAW);
 const copyJurisdictionLaw = parseCopyJurisdictionLawJson(env.TRADE_COPY_JURISDICTION_LAW);
@@ -433,6 +493,8 @@ if (env.TRADE_VENUE_MARK_VENUE.trim() && !venueMarkConfigured) {
   );
 }
 const fundingMarketIds = parseFundingMarketIds(env.TRADE_FUTURES_FUNDING_MARKET_IDS);
+// D-margin-07: invalid owner fee fraction fails boot; blank is fee unset (nothing is charged, J-3).
+const liquidationFeeFraction = loadLiquidationFeeFraction(process.env);
 const fundingMaxAbsRate = resolveFundingMaxAbsRateForBoot({ fundingMarketIds, maxAbsRateRaw: env.TRADE_FUTURES_FUNDING_MAX_ABS_RATE });
 if (fundingMaxAbsRate) {
   app.log.info({ fundingMaxAbsRate }, 'futures funding |rate| bound is configured');
@@ -441,15 +503,26 @@ if (fundingMaxAbsRate) {
     'TRADE_FUTURES_FUNDING_MAX_ABS_RATE unset — funding markets empty; publish/settle still refuse rates until a max is set (no invented ceiling)',
   );
 }
+// Liquidation through the book (futures ADR slice 7): bound once the position service exists, below.
+const matchedLiquidation: { current: MatchedLiquidationPort | null } = { current: null };
 const futuresJobs = startFuturesJobs({
   sql,
   ledger,
   matching,
   bus,
   venueMarkSource: venueMarkConfigured?.source ?? null,
+  markBookFor: markBookResolver(parseIndexSpotMarkets(env.TRADE_FUTURES_INDEX_SPOT_MARKETS), {
+    byId: (marketId) => trade.marketById(marketId),
+    bySymbol: (symbol) => trade.marketBySymbol(symbol),
+  }),
+  // Only futures orders through the book need a book mark; off, a depth read with no time still gives none (#5033).
+  stampDepthReads: env.TRADE_FUTURES_MATCHING_ENABLED,
+  // The owner's maintenance ladder (D3). Blank: no ladder, as before; a value that is not a coherent policy stops boot.
+  ladderPolicy: ownerLadderPolicy(env.TRADE_FUTURES_LADDER_POLICY),
   config: {
     enabled: env.TRADE_FUTURES_JOBS_ENABLED,
     liqIntervalMs: env.TRADE_FUTURES_LIQ_INTERVAL_MS,
+    liquidationFeeFraction,
     fundingIntervalMs: env.TRADE_FUTURES_FUNDING_INTERVAL_MS,
     fundingComputerPollMs: env.TRADE_FUTURES_FUNDING_COMPUTER_POLL_MS,
     fundingMarketIds,
@@ -457,6 +530,7 @@ const futuresJobs = startFuturesJobs({
     settlementFixing: env.TRADE_FUTURES_SETTLEMENT_FIXING,
   },
   onError: (name, err) => app.log.error({ err, job: name }, 'futures job tick failed'),
+  matchedLiquidation,
 });
 const profitSource = optionalProfitSourceFromConfig(env.TRADE_FUTURES_PROFIT_SOURCE);
 const maxLeverage = parseConfiguredMaxLeverage(env.TRADE_FUTURES_MAX_LEVERAGE);
@@ -475,8 +549,15 @@ const adlDisclosureEvents = sqlAdlDisclosureEventStore(sql);
 const riskAgreements = sqlRiskAgreementStore(sql);
 const derivativesEligibility = sqlEligibilityStore(sql);
 const derivativesGate = derivativesAccessGate({ agreements: riskAgreements, eligibility: derivativesEligibility });
+const futuresPriceBand = parsePriceBand(env.TRADE_FUTURES_PRICE_BAND);
+const futuresSlippageCapBps = async (marketId: string): Promise<number | null> =>
+  (await operatorSlippageCapBps(sql, marketId)) ?? env.TRADE_MARKET_SLIPPAGE_CAP_BPS ?? null;
+/** The perpetual rates an account pays now: the owner's schedule in force (TRADE_FEE_SCHEDULE `perpetual`) less its rank discount. */
+const futuresFeeRates = async (userId: string) =>
+  perpetualFeeRates(await feeScheduleAt(sql, feeSchedule, new Date()), (await perks.perksOf(userId)).feeDiscountBps);
 const positions = new PositionService(sql, ledger, {
   accountAdmission: tradingControls,
+  emailProof,
   marks: futuresJobs.marks,
   profitSource,
   bus,
@@ -484,6 +565,18 @@ const positions = new PositionService(sql, ledger, {
   // The same ladder the liquidation tick rates against: a withdrawal is refused when the ladder
   // would liquidate what is left. `policy` is unset until the owner publishes the D3 table.
   ladder: futuresJobs.ladderGate,
+  // Futures orders through svc-matching (slice 6). Off unless TRADE_FUTURES_MATCHING_ENABLED is set; the band is parsed here,
+  // so a malformed value stops boot rather than being read as a default.
+  matchedOrders: {
+    matching,
+    enabled: env.TRADE_FUTURES_MATCHING_ENABLED,
+    priceBand: futuresPriceBand,
+    lifecycleProof: (marketId) => trade.placeLifecycleProofForMarket(marketId),
+    // The owner's perpetual block in force now, less the account's rank discount; an order keeps what it was accepted at.
+    feeRates: futuresFeeRates,
+    // As spot reads it: the operator's per-market cap, else the owner's; both blank refuses every market open.
+    slippageCapBps: futuresSlippageCapBps,
+  },
   assertDerivativesAccess: derivativesGate,
   assertAdlDisclosureAcked: async (userId) => {
     try {
@@ -495,6 +588,32 @@ const positions = new PositionService(sql, ledger, {
       throw err;
     }
   },
+});
+// Matched futures fills settle into the position book this service owns (futures ADR slice 6). The matching events
+// are subscribed only now, with the sink bound: a fill or cancel replayed at boot for a resting futures order from an
+// earlier process must reach the futures path, never fall through to spot (which ignores an order it does not know).
+const matchedFuturesFills: { current: MatchedFillsSink | null } = { current: positions.matchedFills };
+const stopTriggers = sqlStopTrigger(sql);
+const subscriptions = await subscribeMatchingEvents(bus, trade, undefined, matchedFuturesFills, stopTriggers);
+// While TRADE_FUTURES_MATCHING_ENABLED is on, a liquidation works its tranche in the book instead of at the mark.
+matchedLiquidation.current = positions.matchedLiquidation;
+// Matched-order upkeep on the liquidation cadence. Both run whatever TRADE_FUTURES_JOBS_ENABLED says, because resting
+// orders and waiting fills exist whenever matched orders have been placed: resting orders whose limit has left the band
+// around the mark come off the book, and fills that arrived while a position was busy are settled once it is free.
+futuresJobs.host.every('futures.order_band', env.TRADE_FUTURES_LIQ_INTERVAL_MS, async () => {
+  const sweep = await positions.cancelMatchedOrdersOutsideBand();
+  for (const item of sweep.skipped) {
+    app.log.error(
+      { job: 'futures.order_band', marketId: item.marketId, reason: item.reason },
+      'resting futures orders not checked against the band',
+    );
+  }
+});
+futuresJobs.host.every('futures.fill_waits', env.TRADE_FUTURES_LIQ_INTERVAL_MS, async () => {
+  const retry = await positions.retryWaitingMatchedFills(MATCHED_FILL_RETRY_BATCH);
+  for (const item of retry.failed) {
+    app.log.error({ job: 'futures.fill_waits', sequence: item.sequence, err: item.message }, 'a waiting futures fill failed to settle');
+  }
 });
 const conditionalJobsConfig = {
   enabled: env.TRADE_FUTURES_CONDITIONAL_JOBS_ENABLED,
@@ -702,11 +821,26 @@ app.get('/ready', async (_req, reply) => {
 registerPublicRest(app, {
   markets: (limit) => trade.markets(limit),
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
+  chartOwnerValues: chartOwnerValuesPublicReader(sql),
   depth: (marketId, limit) => matching.depth(marketId, limit),
   publicTape: (marketId, limit, sinceMs) => trade.publicTape(marketId, limit, sinceMs),
   candles: (marketId, timeframe, limit, sinceMs) => trade.candles(marketId, timeframe, limit, sinceMs),
   tickerStats: createTickerStatsReader(sql, { ttlMs: 3000 }),
   lifecycleForMarket: (market) => trade.marketLifecycleSnapshot(market),
+  bookHalt: async (market) => {
+    const board = await matching.listMarkets();
+    // An engine that omits its halt fields has reported no halt state: that is not an open book, so it refuses.
+    if (board.halted === undefined && board.venueHalted === undefined) throw new Error('matching reports no halt state');
+    return { halted: board.halted?.includes(market.id) === true, venueHalted: board.venueHalted === true };
+  },
+  pairRiskForMarkets: async (markets) => {
+    const risks = await currentRiskForMarkets(
+      sql,
+      markets.map((m) => m.id),
+    );
+    return new Map(markets.map((m) => [m.id, presentPairRisk(m, risks.get(m.id) ?? null, env.TRADE_MARKET_SLIPPAGE_CAP_BPS)]));
+  },
+  onPairRulesReadError: (err) => app.log.warn({ err }, 'GET /api/v1/markets: pair rules read failed; pairRules/pairHalt null'),
   fundingRateForMarket: async (marketId, _symbol) => {
     const entry = futuresJobs.getPublishedRate(marketId);
     if (!entry) return null;
@@ -720,6 +854,7 @@ registerPublicRest(app, {
     };
   },
   futuresTestSeed: env.TRADE_FUTURES_TEST_SEED,
+  futuresMatchingEnabled: env.TRADE_FUTURES_MATCHING_ENABLED,
   algo: { createEnabled: env.TRADE_ALGO_ENABLED, jobsEnabled: env.TRADE_ALGO_JOBS_ENABLED },
   futures: {
     jobsEnabled: env.TRADE_FUTURES_JOBS_ENABLED,
@@ -737,6 +872,8 @@ registerConditionalOrdersRest(app, {
   edgeTrust: edgeTrustFromEnv(env),
   serviceName: env.SERVICE_NAME,
   orders: conditionalOrders,
+  // While futures orders go through the book, its routes own /api/v1/futures/orders (private-rest.ts).
+  restingRefusal: !env.TRADE_FUTURES_MATCHING_ENABLED,
 });
 registerFuturesTickerRest(app, {
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
@@ -751,6 +888,48 @@ registerPositionPreviewRest(app, {
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
   markForMarket: (marketId, symbol) => futuresJobs.publicMark(marketId, symbol),
   leverageCap: maxLeverage,
+  // The band, slippage cap and max-order the order path holds an open to, read the same way it reads them.
+  priceBand: futuresPriceBand,
+  slippageCapBps: futuresSlippageCapBps,
+  maxOrder: () => {
+    const resolved = resolveAdmissionLimits();
+    return 'refusal' in resolved ? null : resolved.limits.maxOrder;
+  },
+  // The rate an opening order would keep as taker, from the same schedule the order path reads.
+  takerFeeBps: async (userId) => (await futuresFeeRates(userId)).takerBps,
+  // The liquidation tick's own ladder and depth (`liquidation-price.ts`); no published ladder or no readable depth is
+  // null, which the preview refuses with its reason.
+  liquidationPriceFor: async ({ market, side, size, markPrice, initialMargin }) => {
+    const { policy, depth } = futuresJobs.ladderGate;
+    if (!policy) return null;
+    try {
+      const depthNotional = await depth.depthNotional({ marketId: market.id, side, symbol: market.symbol });
+      if (depthNotional == null || depthNotional <= 0n) return null;
+      return liquidationPriceFor({ side, size, entryPrice: markPrice, margin: initialMargin, depthNotional, policy }).price;
+    } catch {
+      return null;
+    }
+  },
+});
+// The tier table and the margin and P&L calculator read the same ladder and depth as the liquidation tick and the
+// preview, and the same taker rate as the order path (`risk-calculator.ts`).
+registerRiskCalculatorRest(app, {
+  edgeSecret: env.EDGE_PRINCIPAL_SECRET,
+  edgeTrust: edgeTrustFromEnv(env),
+  serviceName: env.SERVICE_NAME,
+  marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
+  publishedLadder: () => futuresJobs.ladderGate.policy,
+  depthNotional: (input) => futuresJobs.ladderGate.depth.depthNotional(input),
+  leverageCap: maxLeverage,
+  takerFeeBps: async (userId) => (await futuresFeeRates(userId)).takerBps,
+});
+// What counts as futures margin for the account, read the same way the opening order's haircut check reads it.
+registerCollateralRest(app, {
+  edgeSecret: env.EDGE_PRINCIPAL_SECRET,
+  edgeTrust: edgeTrustFromEnv(env),
+  serviceName: env.SERVICE_NAME,
+  settleAssets: async () => (await trade.markets(500)).filter((m) => m.kind === 'futures').map((m) => m.quoteAsset),
+  figures: (userId, asset) => positions.collateralFigures(userId, asset),
 });
 registerGreeksWhatIfRest(app, {
   edgeSecret: env.EDGE_PRINCIPAL_SECRET,
@@ -786,6 +965,10 @@ registerSpotOrderPreviewRest(app, {
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
   marketLifecycle,
   stopLimitEnabled: true,
+  matchingHalt: async (marketId) => {
+    const board = await matching.listMarkets();
+    return { market: board.halted?.includes(marketId) === true, venue: board.venueHalted === true };
+  },
   bestAsk: async (marketId) => {
     const depth = await matching.depth(marketId, 1);
     const best = depth.asks[0];
@@ -796,6 +979,13 @@ registerSpotOrderPreviewRest(app, {
     const best = depth.bids[0];
     return best ? parseAmount(best[0]) : null;
   },
+  operatorRisk: (market, userId, input) =>
+    assertOperatorRiskOnPlace(sql, market, userId, input, async () => {
+      const depth = await matching.depth(market.id, 1);
+      const bid = depth.bids[0];
+      const ask = depth.asks[0];
+      return { bid: bid ? parseAmount(bid[0]) : null, ask: ask ? parseAmount(ask[0]) : null };
+    }),
   spotEnabled: env.TRADE_SPOT_ENABLED,
   futuresEnabled: env.TRADE_FUTURES_ENABLED,
   optionsSettlementLawStamped: env.TRADE_OPTIONS_SETTLEMENT_ASSET_LAW.trim().length > 0,
@@ -813,6 +1003,7 @@ registerInternalFundingRate(app, {
   maxAbsRate: fundingMaxAbsRate,
   installRawBody: false,
   approvals: currentTradingRestrictApprovals() ?? identityApprovalBook(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s),
+  writeAudit: (row) => writeOperatorAudit(sql, row),
 });
 registerFundingHistory(app, {
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
@@ -824,6 +1015,9 @@ registerMarketLifecycleRoutes(app, {
   store: marketLifecycleStore,
   installRawBody: false,
 });
+if (localTestTapeRetime) {
+  registerLocalTestTapeRoutes(app, { internalSecret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s, sql, installRawBody: false });
+}
 const copyLeaderFixturesStore = createCopyLeaderFixturesStore(sql);
 registerCopyLeaderFixturesRoutes(app, {
   internalSecret: env.INTERNAL_SERVICE_SECRET,
@@ -873,6 +1067,7 @@ registerPrivateRest(app, {
   adminOpenOrders: (principal, limit) => trade.adminOpenOrders(principal, limit),
   orderHistory: (principal, input) => trade.orderHistory(principal, input),
   getOrder: (principal, orderId) => trade.getOrder(principal, orderId),
+  orderFills: (principal, orderId, limit) => trade.fillsForOrder(principal, orderId, limit),
   orderAmendments: (principal, orderId) => trade.orderAmendments(principal, orderId),
   placeOrder: (principal, input) =>
     trade.placeOrder(
@@ -896,7 +1091,7 @@ registerPrivateRest(app, {
   cancelOrder: (principal, orderId) => trade.cancelOrder(principal, orderId),
   replaceOrder: (principal, orderId, input) => trade.replaceOrder(principal, orderId, input),
   amendOrder: (principal, orderId, input) => trade.amendOrder(principal, orderId, input),
-  cancelAllOrders: (principal, marketId) => trade.cancelAllOrders(principal, marketId),
+  cancelAllOrders: (principal, marketId, kind) => trade.cancelAllOrders(principal, marketId, kind),
   armCancelAllAfter: (principal, timeoutSec) =>
     (trade as unknown as CancelAllAfterHost).armCancelAllAfter(
       principal,
@@ -904,6 +1099,10 @@ registerPrivateRest(app, {
       env.TRADE_CANCEL_ALL_AFTER_TIMEOUTS_SEC,
       env.TRADE_CANCEL_ALL_AFTER_SWEEP_INTERVAL_MS * 3,
     ),
+  readCancelAllAfter: async (principal) => ({
+    ...(await (trade as unknown as CancelAllAfterHost).readCancelAllAfter(principal)),
+    published: env.TRADE_CANCEL_ALL_AFTER_TIMEOUTS_SEC,
+  }),
   massCancelOrders: (principal, marketId) => trade.massCancelOrders(principal, marketId),
   myFills: (principal, limit, marketId, sinceMs) => trade.myFills(principal, limit, marketId, sinceMs),
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
@@ -914,6 +1113,37 @@ registerPrivateRest(app, {
   now: () => new Date(),
   lifecycleForMarket: (market) => trade.marketLifecycleSnapshot(market),
   userBalances: (userId) => ledger.balances('user', userId),
+  ...(env.TRADE_FUTURES_MATCHING_ENABLED
+    ? {
+        futuresOrders: {
+          place: (principal, input, context) => positions.placeMatchedOrder(principal, input, context),
+          placeSplit: (principal, input, context) => positions.placeMatchedSplit(principal, input, context),
+          cancel: (principal, orderId) => positions.cancelMatchedOrder(principal, orderId),
+          list: (principal, input) => positions.listMatchedOrders(principal.userId, input),
+        },
+      }
+    : {}),
+  // D-ops-01: the same gates the open runs, asked one by one so every reason shows at once.
+  gatedList: (subject) =>
+    readGatedList(
+      {
+        markets: () => trade.markets(500),
+        planeRefusal: () => positions.futuresExposureRefusal(),
+        orderPathRefusal: () =>
+          !env.TRADE_FUTURES_MATCHING_ENABLED
+            ? { code: 'trade.futures_matching_disabled', message: 'Futures orders through the book are switched off on this deployment.' }
+            : futuresPriceBand === null
+              ? { code: FUTURES_PRICE_BAND_UNSET, message: 'The futures price band is unset on this deployment.' }
+              : null,
+        emailProved: async (userId) => (await emailProof.get(userId)) === 'accepted',
+        orderable: (market) => orderableForListedMarket(market, env.TRADE_FUTURES_ENABLED),
+        checkEligibility: (who) => assertEligible(derivativesEligibility, { userId: who.userId, tier: who.tier }),
+        checkAgreements: (who) =>
+          assertAgreementsAccepted(riskAgreements, { userId: who.userId, kinds: FUTURES_OPEN_AGREEMENT_KINDS, region: who.region }),
+        adlAcknowledged: async (userId) => (await adlDisclosureAcks.getAck(userId, ADL_DISCLOSURE_VERSION)) != null,
+      },
+      subject,
+    ),
   listPositions: (principal, symbol, clientOpenId) => positions.listOpen(principal.userId, symbol, clientOpenId),
   listClosedPositions: (principal, input) => positions.listClosed(principal.userId, input),
   getPosition: (principal, positionId) => positions.get(principal.userId, positionId),
@@ -1001,12 +1231,15 @@ registerPrivateRest(app, {
   convertExport: (principal, query) => trade.convertExport(principal, query),
   copyExport: (principal, query) => copy.exportMirrorTrail(principal, query),
   rfqExport: (principal, query) => trade.rfqExport(principal, query),
+  statements: { ledger: ledgerPages, exports: new StatementExports(sql, ledgerPages) },
   icebergDisplay: sqlIcebergDisplay(sql),
-  stopTriggers: sqlStopTrigger(sql),
+  stopTriggers,
   ocoExits: (ids) => readOcoIntents(sql, ids),
+  orderHolds: (orders) => readOrderHolds(sql, orders),
   findClientOrder: (principal, input) => trade.findClientOrder(principal, input),
   listFundingPayments: (principal, positionId, cursor) => listFundingPayments(sql, principal.userId, positionId, cursor),
   listLiquidations: (principal) => listCallerLiquidations(sql, principal.userId),
+  positionLiquidation: (principal, positionId) => loadPositionLiquidation(sql, principal.userId, positionId),
   listFuturesPayouts: async (principal) => ({ payouts: await listPayoutsForUser(sql, principal.userId) }),
 });
 await app.register(fastifyTRPCPlugin, {

@@ -98,6 +98,10 @@ export type WarehouseDoorSnapshot = {
  * sake — it means the edge refuses before it forwards a token, so an
  * under-scoped operator never reaches the money plane at all.
  *
+ * The two ledger object lookups are reads and take a founder's `admin:read`
+ * with a second factor on a live session instead (`authenticateLookup`, owner
+ * decision 2026-10-23, ADR 2026-10-22 §3.9); svc-ledger applies the same rule.
+ *
  * Mutate of `/admin/kill-switches` is dual-control: the signed `admin:write`
  * principal plus a distinct `confirmOperatorId`. Missing or same-as-operator
  * confirm refuses (`missing_operator`) — one operator cannot kill or resume a
@@ -257,11 +261,21 @@ export interface FreezeSnapshot {
  * become one.
  */
 export type LedgerOperatorCall = (
-  path: '/operator/freeze' | '/operator/unfreeze' | '/operator/reconcile',
+  path: '/operator/freeze' | '/operator/unfreeze' | '/operator/reconcile' | LedgerLookupPath,
   method: 'GET' | 'POST',
   bearer: string,
   body?: unknown,
 ) => Promise<{ status: number; body: unknown }>;
+
+/**
+ * The two operator object lookups svc-ledger serves (OPS-rules-monitoring-12). Built here from a checked UUID or an
+ * encoded business key, never from a caller's raw path, so the forward still reaches exactly one named route.
+ */
+export type LedgerLookupPath = `/operator/transactions/${string}` | `/operator/trace?businessKey=${string}`;
+
+const LOOKUP_TX_ID = z.string().uuid();
+const LOOKUP_BUSINESS_KEY = z.string().trim().min(1).max(512);
+const invalidLookup = (message: string) => ({ status: 400, body: { error: message, code: 'edge.invalid_ledger_lookup' } });
 
 export interface AdminApi {
   /** Verify an Authorization header for module control, or throw `AuthError`. */
@@ -270,6 +284,11 @@ export interface AdminApi {
   authenticateRead(header: string | undefined): Promise<Principal>;
   /** Verify an Authorization header for treasury control, or throw `AuthError`. */
   authenticateTreasury(header: string | undefined): Promise<Principal>;
+  /**
+   * Verify an Authorization header for the ledger object lookups: `admin:read` with a second factor, on a live session
+   * (owner decision 2026-10-23), the same rule svc-ledger applies. Or throw `AuthError`.
+   */
+  authenticateLookup(header: string | undefined): Promise<Principal>;
   /** Current kill-switch state and its audit trail, as the console renders it. */
   read(): KillSwitchSnapshot;
   /**
@@ -297,6 +316,10 @@ export interface AdminApi {
   readReconcile(): Promise<{ status: number; body: unknown }>;
   /** Forward POST /operator/reconcile and keep a 2xx body as the last result. */
   runReconcile(body: unknown, header: string): Promise<{ status: number; body: unknown }>;
+  /** One booked transaction by id, read by svc-ledger as the operator (it records the lookup first). */
+  lookupTransaction(txId: unknown, header: string): Promise<{ status: number; body: unknown }>;
+  /** The transaction a business key booked, or svc-ledger's `found: false`. Recorded by svc-ledger first. */
+  traceBusinessKey(businessKey: unknown, header: string): Promise<{ status: number; body: unknown }>;
   consumeApproval(input: ActionApprovalConsumeInput, operator: Principal): Promise<ActionApproval>;
   /**
    * Ops honesty residual (VPN/network, freeze invent, compliance queue, analytics dark).
@@ -389,6 +412,15 @@ export function createAdminApi(state: KillSwitchState, deps: AdminApiDeps): Admi
       const principal = await verify(header);
       // `admin:treasury` is interactive-only, so this enforces MFA too.
       requireScope(principal, 'admin:treasury');
+      if (deps.sessionLive) await deps.sessionLive(principal);
+      return principal;
+    },
+
+    async authenticateLookup(header) {
+      const principal = await verify(header);
+      // `admin:read` is interactive-only (refused on an API key); a lookup also needs the second factor.
+      requireScope(principal, 'admin:read');
+      requireMfa(principal);
       if (deps.sessionLive) await deps.sessionLive(principal);
       return principal;
     },
@@ -506,6 +538,20 @@ export function createAdminApi(state: KillSwitchState, deps: AdminApiDeps): Admi
         writeReconcileFile(deps.reconcileLastPath, lastReconcile);
       }
       return res;
+    },
+
+    async lookupTransaction(txId, header) {
+      if (!deps.ledger) return unreachable;
+      const id = LOOKUP_TX_ID.safeParse(txId);
+      if (!id.success) return invalidLookup('A transaction id is a UUID.');
+      return deps.ledger(`/operator/transactions/${id.data}`, 'GET', header);
+    },
+
+    async traceBusinessKey(businessKey, header) {
+      if (!deps.ledger) return unreachable;
+      const key = LOOKUP_BUSINESS_KEY.safeParse(businessKey);
+      if (!key.success) return invalidLookup('A business key is 1 to 512 characters.');
+      return deps.ledger(`/operator/trace?businessKey=${encodeURIComponent(key.data)}`, 'GET', header);
     },
 
     async consumeApproval(input, operator) {

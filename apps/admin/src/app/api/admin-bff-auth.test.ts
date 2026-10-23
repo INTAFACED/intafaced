@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GET as warehouseGet, POST as warehousePost } from './analytics/warehouse/route.js';
 import { GET as killSwitchGet, POST as killSwitchPost } from './kill-switch/route.js';
 import { GET as ledgerFreezeGet, POST as ledgerFreezePost } from './ledger-freeze/route.js';
+import { GET as ledgerLookupGet } from './ledger-lookup/route.js';
 import { GET as operatorToolsGet, POST as operatorToolsPost } from './operator-tools/route.js';
 import { GET as bankOpsGet } from './bank-ops/route.js';
 import { GET as bankOpsCustomerGet } from './bank-ops/customer/route.js';
@@ -12,6 +13,7 @@ import { GET as p2pOpsGet } from './p2p-ops/route.js';
 import { GET as academyOpsGet, POST as academyOpsPost } from './academy-ops/route.js';
 import { GET as moreOpsGet, POST as moreOpsPost } from './more-ops/route.js';
 import { GET as protocolOpsGet, POST as protocolOpsPost } from './protocol-ops/route.js';
+import { POST as protocolOpsReasonCodesPost } from './protocol-ops/reason-codes/route.js';
 import { GET as custodyOpsGet, POST as custodyOpsPost } from './custody-ops/route.js';
 import { GET as identityKeysGet, POST as identityKeysPost } from './identity-ops/keys/route.js';
 import { GET as identityOauthGet, POST as identityOauthPost } from './identity-ops/oauth/route.js';
@@ -32,6 +34,7 @@ const routes = [
   ['POST /api/kill-switch', killSwitchPost, 'POST'],
   ['GET /api/ledger-freeze', ledgerFreezeGet, 'GET'],
   ['POST /api/ledger-freeze', ledgerFreezePost, 'POST'],
+  ['GET /api/ledger-lookup', ledgerLookupGet, 'GET'],
   ['GET /api/operator-tools', operatorToolsGet, 'GET'],
   ['POST /api/operator-tools', operatorToolsPost, 'POST'],
   ['GET /api/bank-ops', bankOpsGet, 'GET'],
@@ -46,6 +49,7 @@ const routes = [
   ['POST /api/more-ops', moreOpsPost, 'POST'],
   ['GET /api/protocol-ops', protocolOpsGet, 'GET'],
   ['POST /api/protocol-ops', protocolOpsPost, 'POST'],
+  ['POST /api/protocol-ops/reason-codes', protocolOpsReasonCodesPost, 'POST'],
   ['GET /api/custody-ops', custodyOpsGet, 'GET'],
   ['POST /api/custody-ops', custodyOpsPost, 'POST'],
   ['GET /api/identity-ops/keys', identityKeysGet, 'GET'],

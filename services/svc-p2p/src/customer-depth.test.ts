@@ -50,6 +50,8 @@ describe('svc-p2p customer depth', () => {
     p2p = new P2pService(sql, ledger, bus, {
       instruments,
       feeBps: 100,
+      // P-trade-orders-14: trades.export now refuses without owner caps; generous caps keep this test about export content.
+      exportPolicy: { maxRangeDays: 36_500, maxRows: 10_000 },
       deadlines: {
         escrowSeconds: 120,
         paymentSeconds: 900,

@@ -1,3 +1,4 @@
+import { SecurityLockError } from './auth/security-lock.js';
 import { z } from 'zod';
 import { router, publicProcedure, protectedProcedure, scopedProcedure, serviceProcedure, TRPCError } from '@intafaced/contracts';
 import { rankPerksSchema, rankStateSchema, accountControlResultSchema } from '@intafaced/contracts';
@@ -9,6 +10,7 @@ import {
 } from './controls/founder-controls-router.js';
 import { AuthError as GuardError, requireMfa } from '@intafaced/auth';
 import { requestIpAls } from './auth/auth-service-ip.js';
+import { ACCOUNT_TYPES, SignUpError } from './auth/sign-up.js';
 import type { RefreshCookieBag } from './auth/refresh-cookie.js';
 
 declare module '@intafaced/contracts' {
@@ -22,6 +24,7 @@ import { factorActor, factorGateTrpcError } from './auth/factor-gate.js';
 import {
   AuthError,
   assertDelegateCannotGrant,
+  assertNotOwnKyc,
   assertOperatorKycReview,
   ApiKeysListLimitUnsetError,
   KycPendingLimitUnsetError,
@@ -55,6 +58,8 @@ import { ReferralError } from './affiliates/referral-tree.js';
 import { AffiliateMembersLimitUnsetError, type ReferralService } from './affiliates/referral-service.js';
 import { ShareError } from './affiliates/share-service.js';
 import type { ShareService } from './affiliates/share-service.js';
+import type { ReferralCodeService } from './affiliates/referral-code.js';
+import { attachWindowStatus } from './affiliates/attach-window.js';
 import { FreezeError } from './affiliates/freeze-store.js';
 import { AffiliateFreezesLimitUnsetError, type FreezeService } from './affiliates/freeze-service.js';
 import { CommissionError } from './affiliates/commission.js';
@@ -84,8 +89,12 @@ import type { AccountChange } from './account/account-router.js';
 import { createAccountRouter } from './account/account-router.js';
 import { createAccountClosureRouter } from './closure/closure-router.js';
 import type { AccountClosureService } from './closure/closure-service.js';
+import { createSubAccountFeatureProcedures } from './sub-accounts/sub-account-features-router.js';
+import type { SubAccountFeatureService } from './sub-accounts/sub-account-features.js';
 import { createSubAccountDeleteProcedures, subAccountDeleteToTrpc } from './sub-accounts/sub-account-delete-router.js';
 import { SubAccountDeleteError, type SubAccountDeleteService } from './sub-accounts/sub-account-delete.js';
+import { type SubAccountEditService } from './sub-accounts/sub-account-edit.js';
+import { createSubAccountEditProcedures } from './sub-accounts/sub-account-edit-router.js';
 
 /**
  * svc-identity's API (§4.1).
@@ -103,6 +112,15 @@ function toTrpcError(err: unknown): TRPCError {
   // shared package's AuthError, which is a different class from this service's.
   if (err instanceof GuardError) {
     return new TRPCError({ code: err.code === 'mfa.required' ? 'UNAUTHORIZED' : 'FORBIDDEN', message: err.message, cause: err });
+  }
+
+  // The owner's security lock refused a password change or reset (W-withdraw-09). 412, never 401: it is not a sign-out.
+  if (err instanceof SecurityLockError) {
+    return new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: userCopy(err.code),
+      cause: err.unlocksAt ? { code: err.code, unlocksAt: err.unlocksAt.toISOString() } : { code: err.code },
+    });
   }
 
   if (err instanceof PrivilegedDualControlError || err instanceof ActionApprovalError) {
@@ -150,6 +168,13 @@ function toTrpcError(err: unknown): TRPCError {
         return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
       case 'referral.invalid':
         return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
+      case 'referral.attach_window_closed':
+        return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
+      case 'referral.attach_window_unset':
+      case 'referral.code_length_unset':
+        return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
+      case 'referral.code_exhausted':
+        return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
     }
   }
 
@@ -297,6 +322,9 @@ function toTrpcError(err: unknown): TRPCError {
       return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
     case 'auth.kyc_not_pending':
       return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
+    case 'auth.kyc_self_review':
+      // Operator refuse: the subject is one of the reviewers. Known, not allowed.
+      return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
     case 'auth.kyc_agent_refused':
       // Operator/agent refuse — keep the reviewed_by sentence. Not user catalog copy.
       return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
@@ -373,6 +401,39 @@ function toTrpcError(err: unknown): TRPCError {
       return new TRPCError({ code: 'PRECONDITION_FAILED', message: `${userCopy(err.code)} [${err.code}]`, cause: err });
     case 'pay.role_not_allowed':
       return new TRPCError({ code: 'FORBIDDEN', message: `${err.message} [${err.code}]`, cause: err });
+  }
+}
+
+const signUpAccepted = z.object({
+  accepted: z.literal(true),
+  next: z.literal('confirm_email'),
+  flowId: z.string().uuid(),
+  resendAfterSeconds: z.number().int().positive(),
+});
+
+/** A sign-up refusal for the wire. Its code goes in `cause`, so the page can name it. */
+function signUpTrpcError(err: unknown): TRPCError {
+  if (!(err instanceof SignUpError)) return toTrpcError(err);
+  switch (err.code) {
+    case 'auth.too_many_attempts':
+      return new TRPCError({ code: 'TOO_MANY_REQUESTS', message: err.message, cause: err });
+    case 'identity.resend_too_soon':
+      return new TRPCError({ code: 'TOO_MANY_REQUESTS', message: err.message, cause: err });
+    case 'identity.signup_unwired':
+    case 'identity.age_rule_unset':
+    case 'identity.screening_unset':
+    case 'vendor.email':
+    case 'vendor.sms':
+      return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
+    case 'identity.underage':
+    case 'identity.region_blocked':
+      return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
+    case 'auth.handle_taken':
+    case 'auth.email_taken':
+    case 'identity.signup_code_used':
+      return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
+    default:
+      return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
   }
 }
 
@@ -483,6 +544,12 @@ export function createIdentityRouter(
      */
     registrationOpen?: boolean;
     /**
+     * The code-less `auth.register` door, kept for the dev and test stacks' own tools (TEST market accounts,
+     * fixtures). True only when APP_ENV is exactly dev or test (index.ts). Off, every call refuses
+     * `identity.register_replaced`: people sign up through `auth.signUpStart` and the mailed code.
+     */
+    directRegister?: boolean;
+    /**
      * Founder enrolment (`auth.registerFounder`, `auth.founderEnrolmentStatus`).
      * `invites` is the parsed IDENTITY_FOUNDER_INVITE_HASHES + _EXPIRES_AT; absent
      * means enrolment is closed. Independent of `registrationOpen`. `now` is a test clock.
@@ -500,6 +567,13 @@ export function createIdentityRouter(
     referral?: ReferralService;
     /** Share tokens (ops.social-promotion). Token → referrer; hits; revoke. */
     share?: ShareService;
+    /** Short referral codes beside the share link (CM-referral-01). */
+    referralCodes?: ReferralCodeService;
+    /**
+     * Owner setting `IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS`: how long after sign-up a person may attach a referrer
+     * through a link. Undefined (blank) refuses every link attach with `referral.attach_window_unset`.
+     */
+    referralAttachWindowSeconds?: number;
     freeze?: FreezeService;
     /** Slice B durable accrual rows (no ledger). Optional for light tests. */
     accruals?: AccrualStore;
@@ -532,7 +606,8 @@ export function createIdentityRouter(
      * Action-bound approval issuer. Privileged mutates consume it.
      * Absent → those doors refuse (typed-in second name is not enough).
      */
-    actionApprovals?: Pick<import('./auth/action-approval-service.js').ActionApprovalService, 'consume'>;
+    actionApprovals?: Pick<import('./auth/action-approval-service.js').ActionApprovalService, 'consume'> &
+      Partial<Pick<import('./auth/action-approval-service.js').ActionApprovalService, 'partiesOf'>>;
     /**
      * Drop 0 waitlist + referral queue. Absent → named `waitlist.unbuilt`
      * (no silent enroll). Wired in index.ts against SqlWaitlistStore.
@@ -557,6 +632,11 @@ export function createIdentityRouter(
     closure?: AccountClosureService;
     /** Sub-account delete. Absent → `subAccounts.delete` refuses `identity.sub_account_check_unavailable`. */
     subAccountDelete?: SubAccountDeleteService;
+    /** Sub-account trading features. Absent → `subAccounts.setFeatures` refuses `identity.sub_account_features_unset`. */
+    subAccountFeatures?: SubAccountFeatureService;
+    subAccountEdit?: SubAccountEditService;
+    /** Anti-phishing code (`profile.antiPhishing.*`). Absent: both doors refuse `identity.anti_phishing_unavailable`. */
+    antiPhishing?: import('./profile/anti-phishing.js').AntiPhishingService;
   },
 ) {
   const webauthnEnabled = options.webauthnEnabled !== false;
@@ -596,12 +676,35 @@ export function createIdentityRouter(
   const waitlist = options.waitlist;
   const handleLookupLimiter = options.handleLookupLimiter ?? new HandleLookupLimiter();
 
+  /** The owner's registration switch. Unset refuses as unset; closed says so with its own code. */
+  function assertRegistrationOpen(): void {
+    if (options.registrationOpen === undefined) {
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: 'REGISTRATION_OPEN is unset — owner must publish open or closed [identity.registration_open_unset]',
+        cause: { code: 'identity.registration_open_unset' },
+      });
+    }
+    if (!options.registrationOpen) {
+      throw new TRPCError({ code: 'FORBIDDEN', message: 'Registration is not open yet', cause: { code: 'identity.registration_closed' } });
+    }
+  }
+
   function requireReferral(): ReferralService {
     if (!referral) {
       throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Referral tree is not configured' });
     }
     return referral;
   }
+
+  function requireReferralCodes(): ReferralCodeService {
+    if (!options.referralCodes) {
+      throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Referral codes are not configured' });
+    }
+    return options.referralCodes;
+  }
+  /** A link attach after sign-up runs under the owner's attach window (CM-referral-01). */
+  const lateAttach = () => ({ windowSeconds: options.referralAttachWindowSeconds });
 
   function requireShare(): ShareService {
     if (!share) {
@@ -649,7 +752,7 @@ export function createIdentityRouter(
     input: { approvalId?: string | null; operationId?: string | null },
     targetId: string,
     fields: Record<string, string> = {},
-  ): Promise<string> {
+  ): Promise<{ requesterId: string; approverId: string }> {
     const approvals = options.actionApprovals;
     if (!approvals) {
       throw new PrivilegedDualControlError(
@@ -664,7 +767,24 @@ export function createIdentityRouter(
       targetId,
       fields,
     });
-    return consumed.approverId;
+    return consumed;
+  }
+
+  /**
+   * Nobody decides their own KYC: not the caller, the named second operator, the proposer or the approver.
+   * Checked before the approval is consumed, so a refused decision does not spend it. A missing record is
+   * not found here too, for the same reason. The decision re-checks the consumed parties under the row lock.
+   */
+  async function refuseOwnKyc(
+    recordId: string,
+    callerId: string,
+    input: { approvalId?: string | null; confirmOperatorId?: string | null },
+  ): Promise<void> {
+    const target = await auth.getKycRecord(recordId);
+    if (!target) throw new AuthError('KYC record not found', 'auth.not_found');
+    const approvalId = input.approvalId?.trim();
+    const parties = approvalId ? await options.actionApprovals?.partiesOf?.(approvalId) : null;
+    assertNotOwnKyc(target.userId, [callerId, input.confirmOperatorId, parties?.requesterId, parties?.approverId]);
   }
 
   function requireWaitlist(): WaitlistService {
@@ -694,7 +814,7 @@ export function createIdentityRouter(
         return { userId: ctx.principal.userId, handle: view.handle, emailVerified: view.emailVerified };
       }),
 
-    profile: createProfileRouter(options.profile),
+    profile: createProfileRouter(options.profile, options.antiPhishing),
     account: createAccountRouter(options.account),
     accountClosure: createAccountClosureRouter(options.closure),
 
@@ -840,14 +960,13 @@ export function createIdentityRouter(
         )
         .output(sessionOutput)
         .mutation(async ({ input, ctx }) => {
-          if (options.registrationOpen === undefined) {
+          assertRegistrationOpen();
+          if (options.directRegister !== true) {
             throw new TRPCError({
-              code: 'PRECONDITION_FAILED',
-              message: 'REGISTRATION_OPEN is unset — owner must publish open or closed [identity.registration_open_unset]',
+              code: 'FORBIDDEN',
+              message: 'Sign up with auth.signUpStart and the mailed code [identity.register_replaced]',
+              cause: { code: 'identity.register_replaced' },
             });
-          }
-          if (!options.registrationOpen) {
-            throw new TRPCError({ code: 'FORBIDDEN', message: 'Registration is not open yet' });
           }
           try {
             const { referrerId, ...registerInput } = input;
@@ -858,6 +977,92 @@ export function createIdentityRouter(
             return sessionWire(ctx, session);
           } catch (err) {
             throw toTrpcError(err);
+          }
+        }),
+
+      /**
+       * Sign-up, step 1 (I-signin-sessions-18, I-kyc-compliance-06). Eligibility first (age, country,
+       * nationality), then the password, then a six-digit code by email. Answers the same for a new address
+       * and one that already has an account, and opens no session. Phone sign-up needs an SMS provider and
+       * answers `vendor.sms` in this build; email sign-up works without it.
+       */
+      signUpStart: publicProcedure
+        .input(
+          z.object({
+            channel: z.enum(['email', 'phone']),
+            handle: z.string().regex(/^[a-zA-Z0-9_]{3,32}$/, 'handle must be 3-32 letters, numbers or underscores'),
+            email: z.string().trim().email().max(320).optional(),
+            phone: z.string().trim().max(20).optional(),
+            password: z.string().max(200),
+            country: z.string().trim().length(2),
+            nationality: z.string().trim().length(2).optional(),
+            dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date of birth must be YYYY-MM-DD'),
+            accountType: z.enum(ACCOUNT_TYPES),
+            referrerId: z.string().uuid().optional(),
+            /**
+             * The invitation link the person signed up from (CM-referral-01, ENGINE RF-1): its referrer is attached when
+             * the account is made, outside the late-attach window. An unknown or revoked link names no one; it never
+             * blocks the sign-up.
+             */
+            inviteToken: z.string().uuid().optional(),
+          }),
+        )
+        .output(signUpAccepted)
+        .mutation(async ({ input }) => {
+          assertRegistrationOpen();
+          try {
+            if (input.channel === 'phone') {
+              throw new SignUpError(
+                'Phone sign-up needs a text-message provider, which is not connected in this build. Use email.',
+                'vendor.sms',
+              );
+            }
+            if (!input.email) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Enter an email address.' });
+            const { channel: _channel, phone: _phone, email, inviteToken, ...rest } = input;
+            const invitedBy = !rest.referrerId && inviteToken && share ? await share.referrerOf(inviteToken) : null;
+            return await auth.signUpStart({ ...rest, email, ...(invitedBy ? { referrerId: invitedBy } : {}) });
+          } catch (err) {
+            throw signUpTrpcError(err);
+          }
+        }),
+
+      /** Sign-up, step 1b: another code once the resend interval has passed. Same answer for either kind of address. */
+      signUpResend: publicProcedure
+        .input(z.object({ flowId: z.string().uuid() }))
+        .output(signUpAccepted)
+        .mutation(async ({ input }) => {
+          assertRegistrationOpen();
+          try {
+            return await auth.signUpResend(input);
+          } catch (err) {
+            throw signUpTrpcError(err);
+          }
+        }),
+
+      /**
+       * Sign-up, step 2: the right code makes the account, marks the email proved and opens the first session.
+       * A wrong code counts toward the owner's lockout; a used code is refused. `accountType` tells the app
+       * whether to open business verification next.
+       */
+      signUpConfirm: publicProcedure
+        .input(z.object({ flowId: z.string().uuid(), code: z.string().trim().min(1).max(12) }))
+        .output(sessionOutput.and(z.object({ accountType: z.enum(ACCOUNT_TYPES) })))
+        .mutation(async ({ input, ctx }) => {
+          assertRegistrationOpen();
+          try {
+            const done = await auth.signUpConfirm({ ...input, ip: requestIpAls.getStore() });
+            if (done.referrerId) {
+              // Attribution never blocks the account (it is already made); a refusal, or no referral tree, is logged.
+              try {
+                await requireReferral().attribute({ userId: done.session.userId, referrerId: done.referrerId });
+              } catch (err) {
+                const code = err && typeof err === 'object' && 'code' in err ? String(err.code) : 'unknown';
+                process.stderr.write(`${JSON.stringify({ level: 'warn', code, msg: 'identity.signup_referral_refused' })}\n`);
+              }
+            }
+            return { ...sessionWire(ctx, done.session), accountType: done.accountType };
+          } catch (err) {
+            throw signUpTrpcError(err);
           }
         }),
 
@@ -1541,7 +1746,8 @@ export function createIdentityRouter(
           try {
             requireMfa(ctx.principal);
             assertOperatorKycReview({ service: ctx.service, kid: ctx.principal.kid });
-            await consumePrivileged(ctx.principal.userId, input, 'kyc.approve', { recordId: input.recordId });
+            await refuseOwnKyc(input.recordId, ctx.principal.userId, input);
+            const parties = await consumePrivileged(ctx.principal.userId, input, 'kyc.approve', { recordId: input.recordId });
             return presentKyc(
               await auth.approveKycRecord({
                 recordId: input.recordId,
@@ -1552,6 +1758,7 @@ export function createIdentityRouter(
                 confirmActorId: input.confirmOperatorId,
                 approvalId: input.approvalId,
                 operationId: input.operationId,
+                approvalParties: [parties.requesterId, parties.approverId],
               }),
             );
           } catch (err) {
@@ -1574,7 +1781,8 @@ export function createIdentityRouter(
           try {
             requireMfa(ctx.principal);
             assertOperatorKycReview({ service: ctx.service, kid: ctx.principal.kid });
-            await consumePrivileged(ctx.principal.userId, input, 'kyc.reject', { recordId: input.recordId });
+            await refuseOwnKyc(input.recordId, ctx.principal.userId, input);
+            const parties = await consumePrivileged(ctx.principal.userId, input, 'kyc.reject', { recordId: input.recordId });
             return presentKyc(
               await auth.rejectKycRecord({
                 recordId: input.recordId,
@@ -1584,6 +1792,7 @@ export function createIdentityRouter(
                 confirmActorId: input.confirmOperatorId,
                 approvalId: input.approvalId,
                 operationId: input.operationId,
+                approvalParties: [parties.requesterId, parties.approverId],
               }),
             );
           } catch (err) {
@@ -2016,6 +2225,8 @@ export function createIdentityRouter(
 
     subAccounts: router({
       ...createSubAccountDeleteProcedures(options.subAccountDelete),
+      ...createSubAccountFeatureProcedures(options.subAccountFeatures),
+      ...createSubAccountEditProcedures(options.subAccountEdit),
       create: scopedProcedure('identity:write')
         .input(
           z.object({
@@ -2154,10 +2365,13 @@ export function createIdentityRouter(
         )
         .mutation(async ({ ctx, input }) => {
           try {
-            const edge = await requireReferral().attribute({
-              userId: ctx.principal.userId,
-              referrerId: input.referrerId,
-            });
+            const edge = await requireReferral().attribute(
+              {
+                userId: ctx.principal.userId,
+                referrerId: input.referrerId,
+              },
+              lateAttach(),
+            );
             return {
               userId: edge.userId,
               referrerId: edge.referrerId,
@@ -2222,21 +2436,23 @@ export function createIdentityRouter(
         .output(z.object({ hits: z.number().int(), attributed: z.boolean() }))
         .mutation(async ({ ctx, input }) => {
           try {
+            // The link owner opening their own link is refused before it counts as a visit.
+            if (ctx.principal && (await requireShare().referrerOf(input.token)) === ctx.principal.userId) {
+              throw new ReferralError('Self-referral is refused', 'referral.self');
+            }
             const rec = await requireShare().shareHits(input.token);
             let attributed = false;
-            if (ctx.principal && ctx.principal.userId !== rec.referrerId) {
+            if (ctx.principal) {
+              // A signed-in person attaches once, and only to this link's referrer (J-campaigns-05 #4).
               try {
-                await requireReferral().attribute({
-                  userId: ctx.principal.userId,
-                  referrerId: rec.referrerId,
-                });
+                await requireReferral().attribute({ userId: ctx.principal.userId, referrerId: rec.referrerId }, lateAttach());
                 attributed = true;
               } catch (err) {
-                if (err instanceof ReferralError && err.code === 'referral.already_set') {
-                  attributed = true;
-                } else {
-                  throw err;
-                }
+                if (!(err instanceof ReferralError && err.code === 'referral.already_set')) throw err;
+                // Opening the same referrer's link again is the same relationship; another referrer's link is refused.
+                const edge = await requireReferral().edgeOf(ctx.principal.userId);
+                if (edge?.referrerId !== rec.referrerId) throw err;
+                attributed = true;
               }
             }
             return { hits: rec.hits, attributed };
@@ -2263,6 +2479,59 @@ export function createIdentityRouter(
               userId: edge.userId,
               referrerId: edge.referrerId,
               attributedAt: edge.attributedAt.toISOString(),
+            };
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /** This person's short referral code, or null before they asked for one (CM-referral-01). */
+      myCode: scopedProcedure('identity:read')
+        .output(z.object({ code: z.string(), createdAt: z.string() }).nullable())
+        .query(async ({ ctx }) => {
+          try {
+            const rec = await requireReferralCodes().codeOf(ctx.principal.userId);
+            return rec ? { code: rec.code, createdAt: rec.createdAt.toISOString() } : null;
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /** Makes this person's code on the first call; repeats return the same one. Blank length refuses. */
+      createCode: scopedProcedure('identity:write')
+        .output(z.object({ code: z.string(), createdAt: z.string() }))
+        .mutation(async ({ ctx }) => {
+          try {
+            const rec = await requireReferralCodes().createCode(ctx.principal.userId);
+            return { code: rec.code, createdAt: rec.createdAt.toISOString() };
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /**
+       * Whether this person may still attach a referrer through a link, measured on the server from the account's
+       * creation (J-campaigns-05 #4 and #5). A blank owner window reads `unset`; nothing is invented.
+       */
+      attachWindow: scopedProcedure('identity:read')
+        .output(
+          z.object({
+            state: z.enum(['unset', 'open', 'closed']),
+            accountCreatedAt: z.string(),
+            windowSeconds: z.number().int().nullable(),
+            closesAt: z.string().nullable(),
+          }),
+        )
+        .query(async ({ ctx }) => {
+          try {
+            const age = await requireReferral().accountAge(ctx.principal.userId);
+            if (!age) throw new TRPCError({ code: 'NOT_FOUND', message: 'Account not found' });
+            const status = attachWindowStatus(age.createdAt, options.referralAttachWindowSeconds, age.now);
+            return {
+              state: status.state,
+              accountCreatedAt: status.accountCreatedAt.toISOString(),
+              windowSeconds: status.state === 'unset' ? null : status.windowSeconds,
+              closesAt: status.state === 'unset' ? null : status.closesAt.toISOString(),
             };
           } catch (err) {
             throw toTrpcError(err);
@@ -2683,7 +2952,7 @@ export function createIdentityRouter(
             }
 
             requireMfa(ctx.principal);
-            const confirmOperatorId = await consumePrivileged(ctx.principal.userId, input, 'affiliates.payout', {
+            const { approverId: confirmOperatorId } = await consumePrivileged(ctx.principal.userId, input, 'affiliates.payout', {
               feeEventId,
             });
 

@@ -82,7 +82,7 @@ export type VerifyResult = z.infer<typeof verifyResultSchema>;
 /** Save an address for a channel and ask the service to send it a six-digit code. A new request replaces the earlier code. */
 export function registerTarget(
   api: ApiClient,
-  channel: 'email' | 'sms',
+  channel: OutOfAppChannel,
   address: string,
   locale: string,
 ): Promise<ApiResult<RegisterResult>> {
@@ -115,6 +115,14 @@ export const channelStatus = (api: ApiClient, signal?: AbortSignal) =>
   api.query('notify', 'notify.channels', undefined, channelsSchema, { signal });
 export const mutePrefs = (api: ApiClient, signal?: AbortSignal) =>
   api.query('notify', 'notify.mutePrefs', undefined, prefsSchema, { signal });
+const pushKeySchema = z.union([
+  z.object({ publicKey: z.string().regex(/^[A-Za-z0-9_-]{16,256}$/), unsetCode: z.null() }),
+  z.object({ publicKey: z.null(), unsetCode: z.literal('notify.push_key_unset') }),
+]);
+export type PushKey = z.infer<typeof pushKeySchema>;
+/** The push gateway's public application key a browser needs to subscribe; null while push delivery is not configured. */
+export const pushKey = (api: ApiClient, signal?: AbortSignal) =>
+  api.query('notify', 'notify.pushKey', undefined, pushKeySchema, { signal });
 export const targets = (api: ApiClient, signal?: AbortSignal) =>
   api.query('notify', 'notify.targets', undefined, targetsSchema, { signal });
 export function setMute(api: ApiClient, channel: OutOfAppChannel, muted: boolean): Promise<ApiResult<MutePref[]>> {
@@ -204,8 +212,13 @@ export const priceAlertSchema = z.object({
   expiresAt: date.nullable().optional(),
   // Added by C-alerts-scan-01b: further level conditions that must hold together with the main one.
   extras: z.array(z.object({ condition: z.enum(['greater_than', 'less_than']), targetPrice: z.string().min(1).max(64) })).optional(),
+  // Added by C-alerts-scan-01c: a repeating alert stays active and counts its triggers. A service that sends none means once.
+  frequency: z.enum(['once', 'every_crossing']).optional(),
+  fireCount: z.number().int().min(0).optional(),
+  lastFiredAt: date.nullable().optional(),
 });
 export type PriceAlert = z.infer<typeof priceAlertSchema>;
+export type AlertFrequency = 'once' | 'every_crossing';
 
 export const alertEvaluationSchema = z.object({
   markSource: z.enum(['dark', 'live']),
@@ -235,6 +248,8 @@ export interface AlertIntent {
   expiresAt?: string;
   /** Further level conditions on the same market; the alert triggers only when the main one and all of these hold. */
   extras?: AlertExtra[];
+  /** Left out, the alert triggers once. `every_crossing` is for a crossing condition only. */
+  frequency?: AlertFrequency;
 }
 
 export type AlertExtra = NonNullable<PriceAlert['extras']>[number];
@@ -242,6 +257,9 @@ export type AlertExtra = NonNullable<PriceAlert['extras']>[number];
 /** The side a condition looks at. `crossing` looks at both, so it sends `above`, which the service ignores for it. */
 export const directionOfCondition = (condition: AlertCondition): AlertDirection =>
   condition === 'less_than' || condition === 'crossing_down' ? 'below' : 'above';
+/** True for the conditions that watch a crossing, the only ones that can repeat. */
+export const isCrossing = (condition: AlertCondition): boolean =>
+  condition === 'crossing' || condition === 'crossing_up' || condition === 'crossing_down';
 const levelOfDirection = (direction: AlertDirection): AlertCondition => (direction === 'above' ? 'greater_than' : 'less_than');
 
 /**
@@ -250,7 +268,7 @@ const levelOfDirection = (direction: AlertDirection): AlertCondition => (directi
  */
 export function isIntent(
   row: Pick<PriceAlert, 'kind' | 'marketId' | 'direction' | 'targetPrice'> &
-    Partial<Pick<PriceAlert, 'condition' | 'name' | 'message' | 'expiresAt' | 'extras'>>,
+    Partial<Pick<PriceAlert, 'condition' | 'name' | 'message' | 'expiresAt' | 'extras' | 'frequency'>>,
   intent: AlertIntent,
 ): boolean {
   const wanted = intent.condition ?? levelOfDirection(intent.direction);
@@ -260,6 +278,7 @@ export function isIntent(
     row.marketId === intent.marketId &&
     stored === wanted &&
     canonicalPrice(row.targetPrice) === canonicalPrice(intent.targetPrice) &&
+    (row.frequency ?? 'once') === (intent.frequency ?? 'once') &&
     (intent.name === undefined || (row.name ?? '') === intent.name) &&
     (intent.message === undefined || (row.message ?? '') === intent.message) &&
     (intent.expiresAt === undefined || (row.expiresAt != null && Date.parse(row.expiresAt) === Date.parse(intent.expiresAt))) &&
@@ -302,6 +321,7 @@ export function createPriceAlert(
       ...(intent.message ? { message: intent.message } : {}),
       ...(intent.expiresAt ? { expiresAt: intent.expiresAt } : {}),
       ...(intent.extras && intent.extras.length > 0 ? { extras: intent.extras } : {}),
+      ...(intent.frequency && intent.frequency !== 'once' ? { frequency: intent.frequency } : {}),
     },
     z.object({
       alert: priceAlertSchema.refine(
@@ -389,6 +409,8 @@ export const deletePriceAlert = (api: ApiClient, id: string): Promise<ApiResult<
   api.mutate('notify', 'notify.deleteAlert', { id }, z.object({ deleted: z.boolean() }));
 
 export const alertTriggerSchema = z.object({
+  /** Which trigger of the alert this is, from 1; a repeating alert has one row for each. A service that sends none means 1. */
+  seq: z.number().int().min(1).optional(),
   alertId: z.string().uuid(),
   marketId: z.string().min(1).max(64),
   condition: z.enum(ALERT_CONDITIONS),

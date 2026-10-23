@@ -17,6 +17,8 @@ import {
   type SupportBulkChange,
   type SupportBulkPolicy,
   type SupportBulkResult,
+  type SupportMergePreview,
+  type SupportMergeResult,
   type SupportAttachmentStatus,
   type SupportTicketPriority,
   type SupportAwaitingMine,
@@ -71,7 +73,26 @@ import {
   type QueueResult,
 } from './operator-queue.js';
 import { SUPPORT_SETTLE_REFUSE, checkSupportSettlement, type SupportForbiddenSettlementAct } from './settlement-refuse.js';
-import { MemorySupportStore, type AttachmentMeta, type KbFeedbackVote, type SupportStore, type TicketRating } from './store.js';
+import {
+  FEEDBACK_COMMENT_MAX,
+  READER_ACTOR_PREFIX,
+  SEARCH_QUERY_CONTRACT_MAX,
+  SUPPORT_ASSISTANT_MODEL_UNSET,
+  SUPPORT_FEEDBACK_RATE_EXCEEDED,
+  SUPPORT_FEEDBACK_RATE_LIMIT_UNSET,
+  SUPPORT_FEEDBACK_REQUEST_INVALID,
+  SUPPORT_SEARCH_QUERY_TOO_LONG,
+  readerActorId,
+} from './kb-feedback.js';
+import {
+  MemorySupportStore,
+  type AttachmentMeta,
+  type KbFeedbackCount,
+  type KbFeedbackVote,
+  type KbSearchMiss,
+  type SupportStore,
+  type TicketRating,
+} from './store.js';
 import {
   DarkTicketOrderSource,
   SUPPORT_ORDER_USER_MISMATCH,
@@ -291,6 +312,22 @@ export class SupportService implements SupportContract {
     private readonly attachmentSettings: AttachmentSettingsBook = new MemoryAttachmentSettingsBook(),
     /** How many requests one bulk change may hold. Owner value; blank (null) refuses `support.bulk_cap_unset`. */
     private readonly bulkCap: number | null = null,
+    /**
+     * SP-kb-03 owner values. A blank rate refuses a public vote. A blank model
+     * refuses the answer panel. A blank search maximum leaves the contract bound.
+     * The model string is never returned, logged or sent on.
+     */
+    private readonly kbDesk: {
+      feedbackRateLimit?: number | null;
+      feedbackRateWindowSeconds?: number | null;
+      assistantModel?: string | null;
+      searchQueryMax?: number | null;
+    } = {
+      feedbackRateLimit: null,
+      feedbackRateWindowSeconds: null,
+      assistantModel: null,
+      searchQueryMax: null,
+    },
   ) {}
 
   /** The viewer's place in the desk, or null while no group exists (visibility not restricted). */
@@ -495,7 +532,8 @@ export class SupportService implements SupportContract {
       if (!visible) throw ticketNotFound();
       // An operator reads their own tickets as a customer; anything else obeys desk scope.
       if (input.asOperator === true && ticket.userId !== input.userId) await this.assertDeskVisible(input.userId, ticket.id);
-      return ticket;
+      const merge = ticket.status === 'closed' ? await this.store.findMergeBySource(ticket.id) : null;
+      return merge ? { ...ticket, mergedInto: merge.survivorId } : ticket;
     });
   }
 
@@ -849,8 +887,16 @@ export class SupportService implements SupportContract {
    */
   async searchKb(query: string, options: { limit?: number; viewer?: SupportKbViewer } = {}): Promise<SupportKbArticle[]> {
     const limit = assertListKbLimit(options.limit);
+    const q = query.trim();
+    const max = this.kbDesk.searchQueryMax;
+    if ((max != null && q.length > max) || q.length > SEARCH_QUERY_CONTRACT_MAX) {
+      throw new SupportError('search query is longer than the maximum', SUPPORT_SEARCH_QUERY_TOO_LONG);
+    }
     const viewer = options.viewer ?? ANONYMOUS_KB_VIEWER;
     const hits = searchKb(query, this.visibleKb(await this.store.listPublishedKb({ audiences: audiencesFor(viewer) }), viewer));
+    if (q.length > 0 && hits.length === 0) {
+      await this.store.recordSearchMiss({ query: q, at: this.now().toISOString() });
+    }
     return [...hits].slice(0, limit).map(toPublicKb);
   }
 
@@ -1162,6 +1208,25 @@ export class SupportService implements SupportContract {
     return (await this.staff.list()).map((member) => this.withEffectiveAvailability(member));
   }
 
+  /**
+   * The staff directory: each member with the desk groups (teams) they belong to,
+   * read from the group book (SP-agents-01 with SP-desk-04). Groups are sorted by
+   * name; a member in no group carries an empty list, never an invented team.
+   */
+  async listStaffDirectory(): Promise<(StaffMember & { groups: { id: string; name: string }[] })[]> {
+    const [members, groups] = await Promise.all([this.listStaff(), this.groups.list()]);
+    // One pass over the groups (already sorted by name) builds user id -> groups, so the directory stays linear.
+    const byUser = new Map<string, { id: string; name: string }[]>();
+    for (const g of groups) {
+      for (const userId of g.memberIds) {
+        const list = byUser.get(userId);
+        if (list) list.push({ id: g.id, name: g.name });
+        else byUser.set(userId, [{ id: g.id, name: g.name }]);
+      }
+    }
+    return members.map((member) => ({ ...member, groups: byUser.get(member.userId) ?? [] }));
+  }
+
   /** Whether the automatic offline window is an owner value or still blank. */
   staffAvailabilityPolicy(): { automaticOffline: 'set' | 'not_set'; heartbeatWindowSeconds: number | null } {
     return {
@@ -1362,6 +1427,60 @@ export class SupportService implements SupportContract {
         clientRequestId: key,
       });
     }
+  }
+
+  /**
+   * Fold a duplicate request into the one that stays (SP-tickets-07). Irreversible. Both requests must be below resolved
+   * and held by one requester account (no sharing concept exists, so a merge never puts a customer's messages under
+   * someone else's request). The move and the trail rows are one store transaction; a replay of (source, survivor)
+   * returns the stored result. A rating or an escalation case file stays on the source.
+   */
+  async mergeTickets(input: { operatorId: string; sourceId: string; survivorId: string; reason: string }): Promise<SupportMergeResult> {
+    return withSupportSpan('support.mergeTickets', { op: 'mergeTickets', ticketId: input.sourceId }, async () => {
+      if (input.sourceId === input.survivorId) {
+        throw new SupportError('a request cannot be merged into itself', 'support.merge_same_ticket');
+      }
+      await this.assertDeskVisible(input.operatorId, input.sourceId);
+      await this.assertDeskVisible(input.operatorId, input.survivorId);
+      const result = await this.store.mergeTickets(input);
+      if (result.status === 'refuse') {
+        if (result.reason === 'not_found') throw ticketNotFound();
+        throw new SupportError('these requests cannot be merged', 'support.merge_not_allowed');
+      }
+      const { merge } = result;
+      return {
+        sourceId: merge.sourceId,
+        survivorId: merge.survivorId,
+        commentsMoved: merge.commentsMoved,
+        attachmentsMoved: merge.attachmentsMoved,
+        mergedAt: merge.mergedAt,
+      };
+    });
+  }
+
+  /** What a merge would move and what stays, for the confirmation. Reads only; moves nothing. */
+  async previewMerge(input: { operatorId: string; sourceId: string; survivorId: string }): Promise<SupportMergePreview> {
+    return withSupportSpan('support.previewMerge', { op: 'previewMerge', ticketId: input.sourceId }, async () => {
+      await this.assertDeskVisible(input.operatorId, input.sourceId);
+      await this.assertDeskVisible(input.operatorId, input.survivorId);
+      const same = input.sourceId === input.survivorId;
+      const result = same ? null : await this.store.previewMerge(input);
+      if (result?.status === 'refuse') throw ticketNotFound();
+      const refusal = same
+        ? ('support.merge_same_ticket' as const)
+        : result && (result.allowed || result.alreadyMerged)
+          ? null
+          : ('support.merge_not_allowed' as const);
+      return {
+        sourceId: input.sourceId,
+        survivorId: input.survivorId,
+        refusal,
+        commentsToMove: result?.commentsToMove ?? 0,
+        attachmentsToMove: result?.attachmentsToMove ?? 0,
+        staysOnSource: { rating: result?.ratingStays ?? false, caseFile: result?.caseFileStays ?? false },
+        alreadyMerged: result?.alreadyMerged ?? false,
+      };
+    });
   }
 
   /** Assign or reassign. Only a lead, and only onto someone already on the staff list. */
@@ -1704,9 +1823,108 @@ export class SupportService implements SupportContract {
     helpful: boolean;
     clientRequestId: string;
     viewer?: SupportKbViewer;
+    comment?: string;
+    openRequest?: boolean;
+  }): Promise<KbFeedbackVote> {
+    return this.recordFeedback(input);
+  }
+
+  /**
+   * A signed-out vote, keyed by the browser's reader token. The rate is an owner
+   * value: blank refuses and stores nothing. The token is not an account and is
+   * not returned.
+   */
+  async kbFeedbackPublic(input: {
+    readerToken: string;
+    id: string;
+    helpful: boolean;
+    clientRequestId: string;
+  }): Promise<{ articleId: string; version: number; helpful: boolean }> {
+    const limit = this.kbDesk.feedbackRateLimit;
+    const windowSeconds = this.kbDesk.feedbackRateWindowSeconds;
+    const vote = await this.recordFeedback({
+      userId: readerActorId(input.readerToken),
+      id: input.id,
+      helpful: input.helpful,
+      clientRequestId: input.clientRequestId,
+      viewer: ANONYMOUS_KB_VIEWER,
+      rate: limit != null && windowSeconds != null ? { limit, windowSeconds } : 'unset',
+    });
+    return { articleId: vote.articleId, version: vote.version, helpful: vote.helpful };
+  }
+
+  /** Counts per article version for the desk. No reader id. */
+  async kbFeedbackSummary(input: { limit?: number } = {}): Promise<KbFeedbackCount[]> {
+    const limit = assertListKbLimit(input.limit);
+    return this.store.listKbFeedbackSummary(limit);
+  }
+
+  /** Searches that found nothing, newest first. The rows have no reader. */
+  async kbSearchMisses(input: { limit?: number } = {}): Promise<KbSearchMiss[]> {
+    const limit = assertListKbLimit(input.limit);
+    return this.store.listSearchMisses(limit);
+  }
+
+  /**
+   * A click on a result the caller may see. A hidden article is not recorded and
+   * answers like a miss. The same request id records one click.
+   */
+  async kbSearchClick(input: {
+    articleId: string;
+    query: string;
+    clientRequestId: string;
+    viewer?: SupportKbViewer;
+  }): Promise<{ recorded: boolean }> {
+    this.requireClientRequestId(input.clientRequestId);
+    const q = input.query.trim();
+    if (
+      q.length === 0 ||
+      q.length > SEARCH_QUERY_CONTRACT_MAX ||
+      (this.kbDesk.searchQueryMax != null && q.length > this.kbDesk.searchQueryMax)
+    ) {
+      throw new SupportError('search query is longer than the maximum', SUPPORT_SEARCH_QUERY_TOO_LONG);
+    }
+    if (await this.store.hasSearchClick(input.clientRequestId)) return { recorded: true };
+    const viewer = input.viewer ?? ANONYMOUS_KB_VIEWER;
+    const article = await this.store.getPublishedKb(input.articleId);
+    if (!article || !kbAudienceVisibleTo(article.audience, viewer)) return { recorded: false };
+    await this.store.recordSearchClick({
+      query: q,
+      articleId: input.articleId,
+      clientRequestId: input.clientRequestId,
+      at: this.now().toISOString(),
+    });
+    return { recorded: true };
+  }
+
+  /**
+   * The answer panel. A blank model refuses and builds nothing. When the owner
+   * has set one, the answer is the ranked articles themselves: this service
+   * calls no model and returns no provider name.
+   */
+  async kbAnswer(query: string, options: { limit?: number; viewer?: SupportKbViewer } = {}): Promise<{ sources: SupportKbArticle[] }> {
+    if (!this.kbDesk.assistantModel?.trim()) {
+      throw new SupportError('the assistant model is not set', SUPPORT_ASSISTANT_MODEL_UNSET);
+    }
+    return { sources: await this.searchKb(query, options) };
+  }
+
+  private async recordFeedback(input: {
+    userId: string;
+    id: string;
+    helpful: boolean;
+    clientRequestId: string;
+    viewer?: SupportKbViewer;
+    comment?: string;
+    openRequest?: boolean;
+    rate?: { limit: number; windowSeconds: number } | 'unset';
   }): Promise<KbFeedbackVote> {
     return withSupportSpan('support.kbFeedback', { op: 'kbFeedback' }, async () => {
       this.requireClientRequestId(input.clientRequestId);
+      const comment = input.comment?.trim() ?? '';
+      if (comment.length > FEEDBACK_COMMENT_MAX) {
+        throw new SupportError('feedback comment is too long', 'support.feedback_comment_too_long');
+      }
       // A vote on an article the reader may not see answers like a vote on a missing one.
       const article = await this.store.getPublishedKb(input.id);
       if (article && !kbAudienceVisibleTo(article.audience, input.viewer ?? ANONYMOUS_KB_VIEWER)) {
@@ -1717,8 +1935,19 @@ export class SupportService implements SupportContract {
         articleId: input.id,
         helpful: input.helpful,
         clientRequestId: input.clientRequestId,
+        comment: comment || null,
+        openRequest: input.openRequest === true,
+        ...(input.rate !== undefined ? { rate: input.rate } : {}),
+        now: this.now().toISOString(),
       });
-      if (result.status === 'refuse') throw new SupportError('article is not published', 'support.kb.not_published');
+      if (result.status === 'refuse') {
+        if (result.reason === 'rate_unset') throw new SupportError('the feedback rate limit is not set', SUPPORT_FEEDBACK_RATE_LIMIT_UNSET);
+        if (result.reason === 'rate_exceeded') throw new SupportError('the feedback rate limit is reached', SUPPORT_FEEDBACK_RATE_EXCEEDED);
+        if (result.reason === 'request_invalid') {
+          throw new SupportError('an article request needs an unhelpful vote and a comment', SUPPORT_FEEDBACK_REQUEST_INVALID);
+        }
+        throw new SupportError('article is not published', 'support.kb.not_published');
+      }
       return result.vote;
     });
   }

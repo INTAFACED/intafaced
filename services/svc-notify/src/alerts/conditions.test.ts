@@ -15,7 +15,14 @@ import { MemoryAlertStore } from './store.js';
 import type { AlertCondition, MarkSource, PriceAlert } from './types.js';
 
 const NOW = new Date('2026-10-20T12:00:00Z');
-const LIMITS: AlertLimits = { maxExpiryDays: 30, textMaxLength: 40, maxConditions: null, triggerLogDays: null, maxActivePrice: 20 };
+const LIMITS: AlertLimits = {
+  maxExpiryDays: 30,
+  textMaxLength: 40,
+  maxConditions: null,
+  triggerLogDays: null,
+  maxActivePrice: 20,
+  repeatFrequencies: [],
+};
 
 function rig(limits: AlertLimits = LIMITS) {
   let price = '90';
@@ -49,6 +56,9 @@ const watch = (condition: AlertCondition, lastSide: PriceAlert['lastSide'] = nul
   lastSide,
   extras: [],
   updatedAt: NOW,
+  frequency: 'once' as const,
+  fireCount: 0,
+  lastFiredAt: null,
 });
 const quote = (price: string) => ({ kind: 'ok' as const, price, at: NOW });
 

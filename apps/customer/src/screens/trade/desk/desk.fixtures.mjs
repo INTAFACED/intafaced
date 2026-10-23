@@ -21,7 +21,7 @@ export const plain = (value) => {
 };
 const mulFloor = (a, b) => (a * b) / SCALE;
 
-const wireMarket = ({ base, quote, tick, lot, minAmount, minCost, open = true }) => ({
+const wireMarket = ({ base, quote, tick, lot, minAmount, minCost, open = true, band = 'not set', cap = 'not set' }) => ({
   id: `${base}/${quote}`,
   symbol: `${base}/${quote}`,
   base,
@@ -60,10 +60,30 @@ const wireMarket = ({ base, quote, tick, lot, minAmount, minCost, open = true })
     leverage: { min: null, max: null },
   },
   lifecycle: { state: open ? 'OPEN' : 'REFUSED' },
+  pairRules: {
+    tick,
+    lot,
+    minQty: minAmount,
+    minNotional: minCost,
+    maxQty: 'not set',
+    protection: { collar: band, fatFinger: 'not set', slippageCapBps: 'not set', openOrdersPerMarket: cap },
+    riskVersion: band === 'not set' && cap === 'not set' ? '0' : '1',
+  },
 });
 
 export const markets = ({ btcOpen = true } = {}) => [
-  wireMarket({ base: 'BTC', quote: 'USDT', tick: '0.01', lot: '0.00001', minAmount: '0.00001', minCost: '5', open: btcOpen }),
+  wireMarket({
+    base: 'BTC',
+    quote: 'USDT',
+    tick: '0.01',
+    lot: '0.00001',
+    minAmount: '0.00001',
+    minCost: '5',
+    open: btcOpen,
+    // TEST values: a fixture-fed band and cap, not anything published.
+    band: '0.1',
+    cap: '20',
+  }),
   wireMarket({ base: 'ETH', quote: 'USDT', tick: '0.01', lot: '0.0001', minAmount: '0.0001', minCost: '5' }),
   wireMarket({ base: 'IFC', quote: 'USDT', tick: '0.0001', lot: '0.01', minAmount: '0.01', minCost: '5' }),
   wireMarket({ base: 'BTC', quote: 'USDC', tick: '0.01', lot: '0.00001', minAmount: '0.00001', minCost: '5' }),
@@ -173,6 +193,24 @@ export const candles = (timeframe = '15m', count = 200) => {
 
 const entry = (total, used = '0') => ({ free: plain(scaled(total) - scaled(used)), used, total });
 
+/** The fields svc-trade's order preview accepts (spot/order-preview-rest.ts ALLOWED_FIELDS). */
+const PREVIEW_FIELDS = new Set([
+  'symbol',
+  'side',
+  'type',
+  'amount',
+  'price',
+  'stopPrice',
+  'exit',
+  'maxSlippageBps',
+  'timeInForce',
+  'expireAt',
+  'postOnly',
+  'reduceOnly',
+  'clientOrderId',
+  'subAccountId',
+]);
+
 /** A small stateful stand-in for the exchange REST API (the /api/v1 paths the desk calls). */
 export class Exchange {
   constructor() {
@@ -222,6 +260,7 @@ export class Exchange {
       recoveryRequired: false,
       recoveryReason: null,
       reconciliationKey: null,
+      tag: draft.tag ?? null,
       ...extra,
     };
   }
@@ -235,10 +274,9 @@ export class Exchange {
     const protection = draft.side === 'buy' ? (ask * 101n) / 100n : (bid * 99n) / 100n;
     const price = limit ? scaled(draft.price) : protection;
     // Like the real service: the fee rate comes from the owner schedule (10 bps, not the /markets listing), a buy holds
-    // price x amount and pays its fee in the base asset, and a market sell has no fee estimate at all.
+    // price x amount and pays its fee in the base asset, and a market sell holds its amount and is valued at its floor.
     const rate = ((this.opts.feeBps ?? 10n) * SCALE) / 10000n;
     const value = mulFloor(price, amount);
-    const marketSell = !limit && draft.side === 'sell';
     const fee = draft.side === 'buy' ? mulFloor(amount, rate) : mulFloor(value, rate);
     const refused = this.opts.refusal;
     return {
@@ -251,12 +289,14 @@ export class Exchange {
       holdAsset: draft.side === 'buy' ? market.quote : market.base,
       holdAmount: draft.side === 'buy' ? plain(value) : plain(amount),
       protectionPrice: limit ? null : plain(protection),
-      estimatedFee: marketSell ? null : plain(fee),
-      feeAsset: marketSell ? null : draft.side === 'buy' ? market.base : market.quote,
+      estimatedFee: plain(fee),
+      feeAsset: draft.side === 'buy' ? market.base : market.quote,
       feeBps: Number((rate * 10000n) / SCALE),
       feeRole: draft.postOnly ? 'maker' : 'taker',
       orderable: !refused,
-      refusals: refused ? [{ code: refused.code, field: 'order', message: refused.message ?? 'refused' }] : [],
+      refusals: refused
+        ? [{ code: refused.code, field: 'order', message: refused.message ?? 'refused', ...(refused.data ? { data: refused.data } : {}) }]
+        : [],
     };
   }
 
@@ -289,6 +329,13 @@ export class Exchange {
       );
     if (path === 'orders/preview' && method === 'POST') {
       if (this.opts.previewError) return json({ error: { message: 'down' } }, 503);
+      // Like the real service: the preview takes only the fields that price an order, and refuses any other.
+      const unknown = Object.keys(body ?? {}).filter((key) => !PREVIEW_FIELDS.has(key));
+      if (unknown.length > 0)
+        return json(
+          { code: 'BadRequest', message: `unsupported fields: ${unknown}`, intafacedCode: 'trade.order_preview_server_values_only' },
+          400,
+        );
       return json(this.preview(body));
     }
     if (path === 'orders' && method === 'POST') {
@@ -301,10 +348,33 @@ export class Exchange {
       if (this.opts.placeMode !== 'ok') return json(this.opts.placeMode.json, this.opts.placeMode.status);
       return json(this.commit(body));
     }
+    if (path === 'orders/batch-cancel' && method === 'POST') {
+      // Each id on its own, in order: cancelled, or refused (an id that is not open), never rolled back.
+      const results = (body?.ids ?? []).map((id, index) => {
+        const at = this.open.findIndex((order) => order.id === id);
+        if (at === -1)
+          return {
+            index,
+            orderId: id,
+            status: 'refused',
+            error: { code: 'OrderNotFound', message: 'gone', intafacedCode: 'trade.order_not_found' },
+          };
+        const [order] = this.open.splice(at, 1);
+        const cancelled = { ...order, status: 'canceled' };
+        this.releaseHold(order);
+        this.closed.unshift(cancelled);
+        return { index, orderId: id, status: 'success', order: cancelled };
+      });
+      return json({ atomic: false, results });
+    }
     if (path === 'orders' && method === 'DELETE') {
-      // Cancel every open order in one market.
-      const gone = this.open.filter((order) => order.symbol === query.symbol);
-      this.open = this.open.filter((order) => order.symbol !== query.symbol);
+      // Cancel every open order in one market, or in every market (no symbol). Every fixture market is spot, so
+      // `kind=spot` is every market here too; any other kind is refused as the service does.
+      if (query.kind !== undefined && !['spot', 'futures', 'options'].includes(query.kind))
+        return json({ code: 'BadRequest', message: 'kind', intafacedCode: 'trade.invalid_filter' }, 400);
+      const inScope = (order) => (query.symbol ? order.symbol === query.symbol : query.kind === undefined || query.kind === 'spot');
+      const gone = this.open.filter(inScope);
+      this.open = this.open.filter((order) => !inScope(order));
       const cancelled = gone.map((order) => ({ ...order, status: 'canceled' }));
       for (const order of gone) this.releaseHold(order);
       this.closed.unshift(...cancelled);
@@ -426,7 +496,14 @@ export class Exchange {
       }
     }
     if (draft.type === 'limit' && !(tif === 'IOC' || tif === 'FOK')) {
-      const order = this.wireOrder(draft, {});
+      // A resting order says what it holds, as the service does: a buy its price x amount in quote, a sell its amount.
+      const [base, quote] = draft.symbol.split('/');
+      const order = this.wireOrder(draft, {
+        hold:
+          draft.side === 'buy'
+            ? { asset: quote, amount: plain(mulFloor(scaled(draft.price), scaled(draft.amount))) }
+            : { asset: base, amount: draft.amount },
+      });
       this.open.unshift(order);
       if (draft.side === 'buy') {
         const hold = mulFloor(scaled(draft.price), scaled(draft.amount));

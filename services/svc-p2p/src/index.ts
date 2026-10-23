@@ -36,6 +36,7 @@ import { P2pErasure } from './erasure.js';
 import { assertNoLocalTestFixtures } from '@intafaced/config';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 import { instrumentKeyHealth } from './instrument-key-provider.js';
+import { parseVerificationLimits } from './verification-limits.js';
 import { createLocalTestKeyProvider } from './local-test-kms.js';
 
 // §9 — register the TracerProvider before the first span is created.
@@ -134,6 +135,13 @@ const p2p: P2pService = new P2pService(sql, ledger, bus, {
   feeBps: env.P2P_FEE_BPS,
   tradingEnabled: env.P2P_TRADING_ENABLED,
   offerLimits,
+  appealReviewHours: env.P2P_APPEAL_REVIEW_HOURS,
+  exportPolicy: {
+    maxRangeDays: env.P2P_EXPORT_MAX_RANGE_DAYS,
+    maxRows: env.P2P_EXPORT_MAX_ROWS,
+    receiptDailyQuota: env.P2P_RECEIPT_DAILY_QUOTA,
+    receiptPerTradeQuota: env.P2P_RECEIPT_PER_TRADE_QUOTA,
+  },
   /**
    * Resolved per call, not at construction. `merchants` is built FROM `p2p`
    * below, so the two cannot both exist at the same instant; this closure only
@@ -146,6 +154,8 @@ const p2p: P2pService = new P2pService(sql, ledger, bus, {
   merchantStatusOf: async (userId: string): Promise<MerchantStatus | null> => (await merchants.get(userId))?.status ?? null,
   affiliateAccrue: env.IDENTITY_URL ? createAffiliateAccrueClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : undefined,
   affiliatePayout: env.IDENTITY_URL ? createAffiliatePayoutClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : undefined,
+  verificationLimits: parseVerificationLimits(env.P2P_VERIFICATION_LIMITS),
+  securityChangeLockSeconds: env.P2P_SECURITY_CHANGE_LOCK_SECONDS,
   deadlines: {
     escrowSeconds: publishedEscrowDeadlineSeconds(env.P2P_ESCROW_DEADLINE_SECONDS),
     paymentSeconds: publishedPaymentDeadlineSeconds(env.P2P_PAYMENT_DEADLINE_SECONDS),

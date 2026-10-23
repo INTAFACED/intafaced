@@ -376,6 +376,17 @@ export const CCXT_CAPABILITY_MATRIX: readonly CcxtCapabilityRow[] = [
     notes: 'Serves this matrix + refuseArms JSON — claim ≡ wire for integrators',
   },
 
+  {
+    name: 'fetchFuturesOrderTypes',
+    method: 'GET',
+    path: '/api/v1/futures/order-types',
+    auth: 'public',
+    scope: null,
+    kind: 'supported',
+    refuseArmIds: [],
+    notes: 'Per listed futures market: order types, time in force and flags with available or refused plus the typed code (D-orders-01)',
+  },
+
   // ── Public (REST_ROUTES) ──────────────────────────────────────────────────
   route('fetchMarkets', 'supported', [], 'List listings; paper + schedule flags on wire'),
   route('fetchTicker', 'supported', [], 'BBO + last from book/tape; matching 404 is trade.no_book; never invents 24h stats'),
@@ -610,6 +621,58 @@ export const CCXT_CAPABILITY_MATRIX: readonly CcxtCapabilityRow[] = [
     refuseArmIds: [],
     notes:
       'Dead-man switch. Body {timeout: seconds}; timeout 0 disarms. Allowed timeouts are the owner-published set (blank = refuse); the credential must outlive the deadline.',
+  },
+  {
+    name: 'fetchCancelAllAfter',
+    method: 'GET',
+    path: '/api/v1/orders/cancel-all-after',
+    auth: 'private',
+    scope: 'trade:read',
+    kind: 'supported',
+    refuseArmIds: [],
+    notes: "The caller's dead-man switch (armed, timeout, triggerTime) and the owner-published timeouts (null while unpublished).",
+  },
+  {
+    name: 'fetchLedger',
+    method: 'GET',
+    path: '/api/v1/ledger',
+    auth: 'private',
+    scope: 'trade:read',
+    kind: 'supported',
+    refuseArmIds: [],
+    notes:
+      "The caller's balance changes, newest first, from svc-ledger: limit 1..200 required (blank refuses), optional code and cursor; each line carries its ledger transaction (referenceId) and entry id.",
+  },
+  {
+    name: 'createStatementExport',
+    method: 'POST',
+    path: '/api/v1/statements',
+    auth: 'private',
+    scope: 'trade:read',
+    kind: 'supported',
+    refuseArmIds: [],
+    notes:
+      "A statement of the caller's orders, trades and ledger lines for a finished range. Body {from, to, requestKey}; one job per key (the same key answers the same job, another range refuses).",
+  },
+  {
+    name: 'fetchStatementExport',
+    method: 'GET',
+    path: '/api/v1/statements/:id',
+    auth: 'private',
+    scope: 'trade:read',
+    kind: 'supported',
+    refuseArmIds: [],
+    notes: "One of the caller's statement jobs; another person's reads as not found.",
+  },
+  {
+    name: 'fetchStatementExportFile',
+    method: 'GET',
+    path: '/api/v1/statements/:id/file',
+    auth: 'private',
+    scope: 'trade:read',
+    kind: 'supported',
+    refuseArmIds: [],
+    notes: "The finished statement's CSV, with its SHA-256 in x-intafaced-sha256.",
   },
   {
     name: 'batchCancelOrders',

@@ -12,6 +12,7 @@ import type {
   SupportTicketEventKind,
   SupportTicketStatus,
 } from '@intafaced/contracts';
+import { READER_ACTOR_PREFIX, feedbackRateCutoff, feedbackRequestCopy } from './kb-feedback.js';
 import { assertKbArticle, KbCatalogError, PLATFORM_KB_SPINE, kbVersionOf, toPublicKb } from './kb-catalog.js';
 import { checkTransition, isTerminal } from './lifecycle.js';
 import { claimTicket, type ClaimResult } from './operator-queue.js';
@@ -116,6 +117,45 @@ export type SetStatusInput = {
   note?: string | null;
 };
 
+/** A merge of a duplicate request (the source) into the one that stays (the survivor). One per source. */
+export type TicketMergeRecord = {
+  sourceId: string;
+  survivorId: string;
+  actorId: string;
+  reason: string;
+  commentsMoved: number;
+  attachmentsMoved: number;
+  mergedAt: string;
+};
+
+/** Both requests below resolved and held by the same requester account. Nothing else allows a merge. */
+export function mergeAllowed(
+  source: Pick<SupportTicket, 'status' | 'userId'>,
+  survivor: Pick<SupportTicket, 'status' | 'userId'>,
+): boolean {
+  const live = (status: SupportTicketStatus) => status === 'open' || status === 'pending' || status === 'on_hold';
+  return live(source.status) && live(survivor.status) && source.userId === survivor.userId;
+}
+
+/** `not_allowed` covers a resolved or closed request, two accounts, and a source already merged elsewhere. */
+export type MergeTicketsResult =
+  | { readonly status: 'ok'; readonly merge: TicketMergeRecord; readonly replay: boolean }
+  | { readonly status: 'refuse'; readonly reason: 'not_found' | 'not_allowed' };
+
+export type MergePreviewResult =
+  | {
+      readonly status: 'ok';
+      readonly allowed: boolean;
+      readonly alreadyMerged: boolean;
+      readonly commentsToMove: number;
+      readonly attachmentsToMove: number;
+      readonly ratingStays: boolean;
+      readonly caseFileStays: boolean;
+    }
+  | { readonly status: 'refuse'; readonly reason: 'not_found' };
+
+export type MergeTicketsInput = { sourceId: string; survivorId: string; operatorId: string; reason: string };
+
 export interface SupportStore {
   createTicket(input: CreateTicketRow): Promise<SupportTicket>;
   /**
@@ -152,6 +192,16 @@ export interface SupportStore {
   releaseTicket(input: { ticketId: string; operatorId: string }): Promise<ClaimResult>;
   /** A lead moves the ticket onto a staff member. The service has already checked the role. */
   assignTicket(input: { ticketId: string; operatorId: string; assigneeId: string }): Promise<ClaimResult>;
+  /**
+   * Fold a duplicate into a survivor in ONE transaction: comments and files move, the source ends `closed`, a `merged` trail
+   * row lands on both. Keyed (source, survivor): a replay returns the stored merge and moves nothing. Both rows are locked
+   * (lower id first) so two merges cannot cross.
+   */
+  mergeTickets(input: MergeTicketsInput): Promise<MergeTicketsResult>;
+  /** What a merge would move and what stays on the source. Reads only. */
+  previewMerge(input: { sourceId: string; survivorId: string }): Promise<MergePreviewResult>;
+  /** The merge that closed this request into another, or null. */
+  findMergeBySource(sourceId: string): Promise<TicketMergeRecord | null>;
   /** Non-state-change trail row for a pure read: `grounding_read` only. */
   appendEvent(input: AppendEventInput): Promise<SupportTicketEvent>;
   /** The trail, oldest first. Omit `limit` for the full trail (tests / internal dumps). */
@@ -231,7 +281,15 @@ export interface SupportStore {
   listScanningAttachments(limit: number): Promise<AttachmentMeta[]>;
   /** Every file on one ticket, oldest first, at most `limit`. The caller has already been allowed to see the ticket. */
   listAttachmentsFor(ticketId: string, limit: number): Promise<AttachmentMeta[]>;
-  recordKbFeedback(input: { userId: string; articleId: string; helpful: boolean; clientRequestId: string }): Promise<RecordFeedbackResult>;
+  recordKbFeedback(input: RecordKbFeedbackInput): Promise<RecordFeedbackResult>;
+  /** Helpful and unhelpful counts per article version. No reader id. */
+  listKbFeedbackSummary(limit: number): Promise<KbFeedbackCount[]>;
+  /** A search that found nothing. The row has no reader. */
+  recordSearchMiss(input: { query: string; at: string }): Promise<void>;
+  listSearchMisses(limit: number): Promise<KbSearchMiss[]>;
+  hasSearchClick(clientRequestId: string): Promise<boolean>;
+  /** One row per client request id. A repeat stores nothing more. No reader column. */
+  recordSearchClick(input: { query: string; articleId: string; clientRequestId: string; at: string }): Promise<void>;
 }
 
 export type PutKbRevisionInput =
@@ -284,7 +342,61 @@ export type KbFeedbackVote = {
   version: number;
   userId: string;
   helpful: boolean;
+  /** Set only when this vote opened a request. Absent otherwise, never null. */
+  ticketId?: string;
 };
+
+export type KbFeedbackRate = { readonly limit: number; readonly windowSeconds: number };
+
+export type RecordKbFeedbackInput = {
+  userId: string;
+  articleId: string;
+  helpful: boolean;
+  clientRequestId: string;
+  comment?: string | null;
+  openRequest?: boolean;
+  /** Absent for a signed-in vote. `'unset'` writes nothing. */
+  rate?: KbFeedbackRate | 'unset';
+  now?: string;
+};
+
+export type KbFeedbackCount = {
+  articleId: string;
+  version: number;
+  helpful: number;
+  unhelpful: number;
+};
+
+/** A search with no hit. `resultCount` is 0, and there is no reader. */
+export type KbSearchMiss = { query: string; at: string; resultCount: 0 };
+
+type StoredFeedback = {
+  articleId: string;
+  version: number;
+  userId: string;
+  helpful: boolean;
+  clientRequestId: string;
+  createdAt: string;
+  comment: string | null;
+  ticketId?: string;
+};
+
+function kbFeedbackWire(row: {
+  articleId: string;
+  version: number;
+  userId: string;
+  helpful: boolean;
+  ticketId?: string | null;
+}): KbFeedbackVote {
+  const vote: KbFeedbackVote = {
+    articleId: row.articleId,
+    version: row.version,
+    userId: row.userId,
+    helpful: row.helpful,
+  };
+  if (row.ticketId) vote.ticketId = row.ticketId;
+  return vote;
+}
 
 export type CloseByOwnerResult =
   | { readonly status: 'ok'; readonly ticket: SupportTicket }
@@ -305,7 +417,8 @@ export type ReadAttachmentResult =
   { readonly status: 'ok'; readonly attachment: AttachmentMeta } | { readonly status: 'refuse'; readonly reason: 'not_found' };
 
 export type RecordFeedbackResult =
-  { readonly status: 'ok'; readonly vote: KbFeedbackVote } | { readonly status: 'refuse'; readonly reason: 'not_published' };
+  | { readonly status: 'ok'; readonly vote: KbFeedbackVote }
+  | { readonly status: 'refuse'; readonly reason: 'not_published' | 'rate_unset' | 'rate_exceeded' | 'request_invalid' };
 
 export type SetKbAudienceStoreInput = { id: string; baseRevision: number; audience: SupportKbAudience; actorId: string };
 
@@ -587,6 +700,33 @@ async function insertEvent(
   return eventFromPg(rows[0]!);
 }
 
+/** The trail note for a merge: names the other request and the operator's reason, inside the 500 bound. */
+function mergeNote(direction: 'into' | 'absorbed', otherId: string, reason: string): string {
+  return `${direction === 'into' ? 'merged into' : 'absorbed'} ${otherId}: ${reason}`;
+}
+
+type PgMerge = {
+  source_id: string;
+  survivor_id: string;
+  actor_id: string;
+  reason: string;
+  comments_moved: number;
+  attachments_moved: number;
+  merged_at: Date | string;
+};
+
+function mergeFromPg(row: PgMerge): TicketMergeRecord {
+  return {
+    sourceId: row.source_id,
+    survivorId: row.survivor_id,
+    actorId: row.actor_id,
+    reason: row.reason,
+    commentsMoved: row.comments_moved,
+    attachmentsMoved: row.attachments_moved,
+    mergedAt: toIso(row.merged_at),
+  };
+}
+
 /**
  * In-memory store for unit tests — same claim/list semantics as Postgres
  * for a single process. Not multi-replica safe (that is why production uses PG).
@@ -602,7 +742,10 @@ export class MemorySupportStore implements SupportStore {
   private readonly receipts = new Map<string, unknown>();
   private readonly ratings = new Map<string, TicketRating & { clientRequestId: string }>();
   private readonly attachments = new Map<string, AttachmentMeta & { clientRequestId: string }>();
-  private readonly feedback = new Map<string, KbFeedbackVote & { clientRequestId: string }>();
+  private readonly merges = new Map<string, TicketMergeRecord>();
+  private readonly feedback = new Map<string, StoredFeedback>();
+  private readonly searchMisses: KbSearchMiss[] = [];
+  private readonly searchClicks = new Map<string, { query: string; articleId: string }>();
 
   constructor() {
     for (const article of PLATFORM_KB_SPINE) {
@@ -762,6 +905,78 @@ export class MemorySupportStore implements SupportStore {
   async listComments(ticketId: string, options?: { limit?: number }): Promise<SupportComment[]> {
     const rows = [...(this.comments.get(ticketId) ?? [])];
     return options?.limit === undefined ? rows : rows.slice(0, options.limit);
+  }
+
+  async findMergeBySource(sourceId: string): Promise<TicketMergeRecord | null> {
+    return this.merges.get(sourceId) ?? null;
+  }
+
+  async previewMerge(input: { sourceId: string; survivorId: string }): Promise<MergePreviewResult> {
+    const source = this.tickets.get(input.sourceId);
+    const survivor = this.tickets.get(input.survivorId);
+    if (!source || !survivor) return { status: 'refuse', reason: 'not_found' };
+    const prior = this.merges.get(input.sourceId);
+    return {
+      status: 'ok',
+      allowed: mergeAllowed(source, survivor),
+      alreadyMerged: prior?.survivorId === input.survivorId,
+      commentsToMove: (this.comments.get(input.sourceId) ?? []).length,
+      attachmentsToMove: [...this.attachments.values()].filter((a) => a.ticketId === input.sourceId).length,
+      ratingStays: [...this.ratings.values()].some((r) => r.ticketId === input.sourceId),
+      caseFileStays: (this.cases.get(input.sourceId) ?? []).length > 0,
+    };
+  }
+
+  async mergeTickets(input: MergeTicketsInput): Promise<MergeTicketsResult> {
+    const source = this.tickets.get(input.sourceId);
+    const survivor = this.tickets.get(input.survivorId);
+    if (!source || !survivor) return { status: 'refuse', reason: 'not_found' };
+    const prior = this.merges.get(input.sourceId);
+    if (prior) {
+      return prior.survivorId === input.survivorId
+        ? { status: 'ok', merge: prior, replay: true }
+        : { status: 'refuse', reason: 'not_allowed' };
+    }
+    if (!mergeAllowed(source, survivor)) return { status: 'refuse', reason: 'not_allowed' };
+
+    const now = new Date().toISOString();
+    const moved = this.comments.get(input.sourceId) ?? [];
+    this.comments.set(input.sourceId, []);
+    this.comments.set(input.survivorId, [
+      ...(this.comments.get(input.survivorId) ?? []),
+      ...moved.map((c) => ({ ...c, ticketId: input.survivorId })),
+    ]);
+    let files = 0;
+    for (const a of this.attachments.values()) {
+      if (a.ticketId === input.sourceId) {
+        a.ticketId = input.survivorId;
+        files += 1;
+      }
+    }
+    this.tickets.set(input.sourceId, { ...source, status: 'closed', updatedAt: now });
+    this.tickets.set(input.survivorId, { ...survivor, updatedAt: now });
+    const merge: TicketMergeRecord = {
+      sourceId: input.sourceId,
+      survivorId: input.survivorId,
+      actorId: input.operatorId,
+      reason: input.reason,
+      commentsMoved: moved.length,
+      attachmentsMoved: files,
+      mergedAt: now,
+    };
+    this.merges.set(input.sourceId, merge);
+    const base = { actorId: input.operatorId, actorRole: 'operator' as const, at: now };
+    this.record({ ...base, ticketId: input.sourceId, kind: 'merged', note: mergeNote('into', input.survivorId, input.reason) });
+    this.record({
+      ...base,
+      ticketId: input.sourceId,
+      kind: 'status_changed',
+      fromStatus: source.status,
+      toStatus: 'closed',
+      note: 'merged',
+    });
+    this.record({ ...base, ticketId: input.survivorId, kind: 'merged', note: mergeNote('absorbed', input.sourceId, input.reason) });
+    return { status: 'ok', merge, replay: false };
   }
 
   async setStatus(input: SetStatusInput): Promise<SetStatusResult> {
@@ -1211,12 +1426,7 @@ export class MemorySupportStore implements SupportStore {
       .slice(0, limit);
   }
 
-  async recordKbFeedback(input: {
-    userId: string;
-    articleId: string;
-    helpful: boolean;
-    clientRequestId: string;
-  }): Promise<RecordFeedbackResult> {
+  async recordKbFeedback(input: RecordKbFeedbackInput): Promise<RecordFeedbackResult> {
     const stored = this.receipts.get(this.receiptKey('support.kbFeedback', input.userId, input.clientRequestId));
     if (stored) return stored as RecordFeedbackResult;
 
@@ -1225,21 +1435,69 @@ export class MemorySupportStore implements SupportStore {
     const version = kbVersionOf(article);
     const key = `${input.userId}\0${input.articleId}\0${version}`;
     const existing = this.feedback.get(key);
-    if (existing) {
-      const ok: RecordFeedbackResult = { status: 'ok', vote: existing };
-      return ok;
+    if (existing) return { status: 'ok', vote: kbFeedbackWire(existing) };
+
+    const comment = input.comment?.trim() ?? '';
+    if (input.openRequest === true && (input.helpful || comment.length === 0 || input.userId.startsWith(READER_ACTOR_PREFIX))) {
+      return { status: 'refuse', reason: 'request_invalid' };
     }
-    const vote: KbFeedbackVote & { clientRequestId: string } = {
+    const now = input.now ?? new Date().toISOString();
+    if (input.rate === 'unset') return { status: 'refuse', reason: 'rate_unset' };
+    if (input.rate) {
+      const cutoff = feedbackRateCutoff(now, input.rate.windowSeconds);
+      const recent = [...this.feedback.values()].filter((row) => row.userId === input.userId && row.createdAt > cutoff).length;
+      if (recent >= input.rate.limit) return { status: 'refuse', reason: 'rate_exceeded' };
+    }
+
+    let ticketId: string | undefined;
+    if (input.openRequest === true) {
+      const copy = feedbackRequestCopy(input.articleId, version, comment);
+      const ticket = await this.createTicket({ userId: input.userId, category: 'other', subject: copy.subject, body: copy.body });
+      ticketId = ticket.id;
+    }
+    const row: StoredFeedback = {
       articleId: input.articleId,
       version,
       userId: input.userId,
       helpful: input.helpful,
       clientRequestId: input.clientRequestId,
+      createdAt: now,
+      comment: comment || null,
+      ...(ticketId ? { ticketId } : {}),
     };
-    this.feedback.set(key, vote);
-    const ok: RecordFeedbackResult = { status: 'ok', vote };
+    this.feedback.set(key, row);
+    const ok: RecordFeedbackResult = { status: 'ok', vote: kbFeedbackWire(row) };
     this.receipts.set(this.receiptKey('support.kbFeedback', input.userId, input.clientRequestId), ok);
     return ok;
+  }
+
+  async listKbFeedbackSummary(limit: number): Promise<KbFeedbackCount[]> {
+    const grouped = new Map<string, KbFeedbackCount>();
+    for (const row of this.feedback.values()) {
+      const key = `${row.articleId}\0${row.version}`;
+      const current = grouped.get(key) ?? { articleId: row.articleId, version: row.version, helpful: 0, unhelpful: 0 };
+      if (row.helpful) current.helpful += 1;
+      else current.unhelpful += 1;
+      grouped.set(key, current);
+    }
+    return [...grouped.values()].sort((a, b) => a.articleId.localeCompare(b.articleId) || a.version - b.version).slice(0, limit);
+  }
+
+  async recordSearchMiss(input: { query: string; at: string }): Promise<void> {
+    this.searchMisses.push({ query: input.query, at: input.at, resultCount: 0 });
+  }
+
+  async listSearchMisses(limit: number): Promise<KbSearchMiss[]> {
+    return [...this.searchMisses].reverse().slice(0, limit);
+  }
+
+  async hasSearchClick(clientRequestId: string): Promise<boolean> {
+    return this.searchClicks.has(clientRequestId);
+  }
+
+  async recordSearchClick(input: { query: string; articleId: string; clientRequestId: string; at: string }): Promise<void> {
+    if (this.searchClicks.has(input.clientRequestId)) return;
+    this.searchClicks.set(input.clientRequestId, { query: input.query, articleId: input.articleId });
   }
 }
 
@@ -1443,6 +1701,93 @@ export class PostgresSupportStore implements SupportStore {
    * `money_request` that commits while this transaction waits must be visible
    * once the lock is held. No ledger write and no amount.
    */
+  async findMergeBySource(sourceId: string): Promise<TicketMergeRecord | null> {
+    const rows = await this.sql<PgMerge[]>`
+      SELECT source_id, survivor_id, actor_id, reason, comments_moved, attachments_moved, merged_at
+      FROM support.ticket_merges WHERE source_id = ${sourceId}
+    `;
+    return rows[0] ? mergeFromPg(rows[0]) : null;
+  }
+
+  async previewMerge(input: { sourceId: string; survivorId: string }): Promise<MergePreviewResult> {
+    const rows = await this.sql<{ id: string; user_id: string; status: SupportTicketStatus }[]>`
+      SELECT id, user_id, status FROM support.tickets WHERE id IN (${input.sourceId}, ${input.survivorId})
+    `;
+    const source = rows.find((r) => r.id === input.sourceId);
+    const survivor = rows.find((r) => r.id === input.survivorId);
+    if (!source || !survivor) return { status: 'refuse', reason: 'not_found' };
+    const [counts] = await this.sql<{ comments: number; files: number; rated: boolean; filed: boolean; merged: boolean }[]>`
+      SELECT
+        (SELECT count(*)::int FROM support.comments WHERE ticket_id = ${input.sourceId}) AS comments,
+        (SELECT count(*)::int FROM support.ticket_attachments WHERE ticket_id = ${input.sourceId}) AS files,
+        EXISTS (SELECT 1 FROM support.ticket_ratings WHERE ticket_id = ${input.sourceId}) AS rated,
+        EXISTS (SELECT 1 FROM support.case_files WHERE ticket_id = ${input.sourceId}) AS filed,
+        EXISTS (SELECT 1 FROM support.ticket_merges WHERE source_id = ${input.sourceId} AND survivor_id = ${input.survivorId}) AS merged
+    `;
+    return {
+      status: 'ok',
+      allowed: mergeAllowed({ status: source.status, userId: source.user_id }, { status: survivor.status, userId: survivor.user_id }),
+      alreadyMerged: counts?.merged ?? false,
+      commentsToMove: counts?.comments ?? 0,
+      attachmentsToMove: counts?.files ?? 0,
+      ratingStays: counts?.rated ?? false,
+      caseFileStays: counts?.filed ?? false,
+    };
+  }
+
+  async mergeTickets(input: MergeTicketsInput): Promise<MergeTicketsResult> {
+    return this.sql.begin(async (tx): Promise<MergeTicketsResult> => {
+      // Lower id first, so two merges over the same pair in opposite directions cannot wait on each other.
+      const ids = [input.sourceId, input.survivorId].sort();
+      const locked = await tx<{ id: string; user_id: string; status: SupportTicketStatus }[]>`
+        SELECT id, user_id, status FROM support.tickets WHERE id IN (${ids[0]!}, ${ids[1]!}) ORDER BY id FOR UPDATE
+      `;
+      const source = locked.find((r) => r.id === input.sourceId);
+      const survivor = locked.find((r) => r.id === input.survivorId);
+      if (!source || !survivor) return { status: 'refuse', reason: 'not_found' };
+
+      const [prior] = await tx<PgMerge[]>`
+        SELECT source_id, survivor_id, actor_id, reason, comments_moved, attachments_moved, merged_at
+        FROM support.ticket_merges WHERE source_id = ${input.sourceId}
+      `;
+      if (prior) {
+        return prior.survivor_id === input.survivorId
+          ? { status: 'ok', merge: mergeFromPg(prior), replay: true }
+          : { status: 'refuse', reason: 'not_allowed' };
+      }
+      if (!mergeAllowed({ status: source.status, userId: source.user_id }, { status: survivor.status, userId: survivor.user_id })) {
+        return { status: 'refuse', reason: 'not_allowed' };
+      }
+
+      const comments = await tx`UPDATE support.comments SET ticket_id = ${input.survivorId} WHERE ticket_id = ${input.sourceId}`;
+      const files = await tx`UPDATE support.ticket_attachments SET ticket_id = ${input.survivorId} WHERE ticket_id = ${input.sourceId}`;
+      await tx`UPDATE support.tickets SET status = 'closed', updated_at = now() WHERE id = ${input.sourceId}`;
+      await tx`UPDATE support.tickets SET updated_at = now() WHERE id = ${input.survivorId}`;
+      const [row] = await tx<PgMerge[]>`
+        INSERT INTO support.ticket_merges (source_id, survivor_id, actor_id, reason, comments_moved, attachments_moved)
+        VALUES (${input.sourceId}, ${input.survivorId}, ${input.operatorId}, ${input.reason}, ${comments.count}, ${files.count})
+        RETURNING source_id, survivor_id, actor_id, reason, comments_moved, attachments_moved, merged_at
+      `;
+      const base = { actorId: input.operatorId, actorRole: 'operator' as const };
+      await insertEvent(tx, { ...base, ticketId: input.sourceId, kind: 'merged', note: mergeNote('into', input.survivorId, input.reason) });
+      await insertEvent(tx, {
+        ...base,
+        ticketId: input.sourceId,
+        kind: 'status_changed',
+        fromStatus: source.status,
+        toStatus: 'closed',
+        note: 'merged',
+      });
+      await insertEvent(tx, {
+        ...base,
+        ticketId: input.survivorId,
+        kind: 'merged',
+        note: mergeNote('absorbed', input.sourceId, input.reason),
+      });
+      return { status: 'ok', merge: mergeFromPg(row!), replay: false };
+    });
+  }
+
   async setStatus(input: SetStatusInput): Promise<SetStatusResult> {
     return this.sql.begin(async (tx): Promise<SetStatusResult> => {
       const current = await tx<{ status: SupportTicketStatus; category: SupportTicket['category'] }[]>`
@@ -2188,12 +2533,7 @@ export class PostgresSupportStore implements SupportStore {
     return rows.map(attachmentFromPg);
   }
 
-  async recordKbFeedback(input: {
-    userId: string;
-    articleId: string;
-    helpful: boolean;
-    clientRequestId: string;
-  }): Promise<RecordFeedbackResult> {
+  async recordKbFeedback(input: RecordKbFeedbackInput): Promise<RecordFeedbackResult> {
     return this.sql.begin(async (tx): Promise<RecordFeedbackResult> => {
       const prior = await tx<{ result: RecordFeedbackResult }[]>`
         SELECT result FROM support.write_receipts
@@ -2202,30 +2542,80 @@ export class PostgresSupportStore implements SupportStore {
       `;
       if (prior[0]) return prior[0].result;
 
+      // One reader at a time, so two votes cannot both pass a rate check.
+      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`support.kbFeedback:${input.userId}`}, 0))`;
+
       const head = await tx<{ revision: number; published: boolean }[]>`
         SELECT revision, published FROM support.kb_articles WHERE id = ${input.articleId} FOR UPDATE
       `;
       if (!head[0] || head[0].published !== true) return { status: 'refuse', reason: 'not_published' };
       const version = Number(head[0].revision);
-      const existing = await tx<{ helpful: boolean; version: number }[]>`
-        SELECT helpful, version FROM support.kb_feedback
+      const existing = await tx<{ helpful: boolean; ticket_id: string | null }[]>`
+        SELECT helpful, ticket_id FROM support.kb_feedback
         WHERE user_id = ${input.userId} AND article_id = ${input.articleId} AND version = ${version}
         LIMIT 1
       `;
       if (existing[0]) {
-        const ok: RecordFeedbackResult = {
+        return {
           status: 'ok',
-          vote: { articleId: input.articleId, version, userId: input.userId, helpful: existing[0].helpful },
+          vote: kbFeedbackWire({
+            articleId: input.articleId,
+            version,
+            userId: input.userId,
+            helpful: existing[0].helpful,
+            ticketId: existing[0].ticket_id,
+          }),
         };
-        return ok;
+      }
+
+      const comment = input.comment?.trim() ?? '';
+      if (input.openRequest === true && (input.helpful || comment.length === 0 || input.userId.startsWith(READER_ACTOR_PREFIX))) {
+        return { status: 'refuse', reason: 'request_invalid' };
+      }
+      const now = input.now ?? new Date().toISOString();
+      if (input.rate === 'unset') return { status: 'refuse', reason: 'rate_unset' };
+      if (input.rate) {
+        const cutoff = feedbackRateCutoff(now, input.rate.windowSeconds);
+        const recent = await tx<{ n: number }[]>`
+          SELECT count(*)::int AS n FROM support.kb_feedback
+          WHERE user_id = ${input.userId} AND created_at > ${cutoff}::timestamptz
+        `;
+        if (Number(recent[0]?.n ?? 0) >= input.rate.limit) return { status: 'refuse', reason: 'rate_exceeded' };
+      }
+
+      let ticketId: string | undefined;
+      if (input.openRequest === true) {
+        const copy = feedbackRequestCopy(input.articleId, version, comment);
+        const ticket = await insertTicketWithOpened(tx, {
+          userId: input.userId,
+          category: 'other',
+          subject: copy.subject,
+          body: copy.body,
+        });
+        ticketId = ticket.id;
       }
       await tx`
-        INSERT INTO support.kb_feedback (article_id, version, user_id, helpful, client_request_id)
-        VALUES (${input.articleId}, ${version}, ${input.userId}, ${input.helpful}, ${input.clientRequestId})
+        INSERT INTO support.kb_feedback (article_id, version, user_id, helpful, client_request_id, comment, ticket_id, created_at)
+        VALUES (
+          ${input.articleId},
+          ${version},
+          ${input.userId},
+          ${input.helpful},
+          ${input.clientRequestId},
+          ${comment || null},
+          ${ticketId ?? null},
+          ${now}::timestamptz
+        )
       `;
       const ok: RecordFeedbackResult = {
         status: 'ok',
-        vote: { articleId: input.articleId, version, userId: input.userId, helpful: input.helpful },
+        vote: kbFeedbackWire({
+          articleId: input.articleId,
+          version,
+          userId: input.userId,
+          helpful: input.helpful,
+          ticketId,
+        }),
       };
       await tx`
         INSERT INTO support.write_receipts (procedure, actor_id, client_request_id, result)
@@ -2233,6 +2623,55 @@ export class PostgresSupportStore implements SupportStore {
       `;
       return ok;
     });
+  }
+
+  async listKbFeedbackSummary(limit: number): Promise<KbFeedbackCount[]> {
+    const rows = await this.sql<{ article_id: string; version: number; helpful: number; unhelpful: number }[]>`
+      SELECT article_id, version,
+        count(*) FILTER (WHERE helpful)::int AS helpful,
+        count(*) FILTER (WHERE NOT helpful)::int AS unhelpful
+      FROM support.kb_feedback
+      GROUP BY article_id, version
+      ORDER BY article_id, version
+      LIMIT ${limit}
+    `;
+    return rows.map((row) => ({
+      articleId: row.article_id,
+      version: Number(row.version),
+      helpful: Number(row.helpful),
+      unhelpful: Number(row.unhelpful),
+    }));
+  }
+
+  async recordSearchMiss(input: { query: string; at: string }): Promise<void> {
+    await this.sql`
+      INSERT INTO support.kb_search_misses (query, result_count, created_at)
+      VALUES (${input.query}, 0, ${input.at}::timestamptz)
+    `;
+  }
+
+  async listSearchMisses(limit: number): Promise<KbSearchMiss[]> {
+    const rows = await this.sql<{ query: string; created_at: Date }[]>`
+      SELECT query, created_at FROM support.kb_search_misses
+      ORDER BY created_at DESC, id DESC
+      LIMIT ${limit}
+    `;
+    return rows.map((row) => ({ query: row.query, at: toIso(row.created_at), resultCount: 0 as const }));
+  }
+
+  async hasSearchClick(clientRequestId: string): Promise<boolean> {
+    const rows = await this.sql<{ n: number }[]>`
+      SELECT 1 AS n FROM support.kb_search_clicks WHERE client_request_id = ${clientRequestId} LIMIT 1
+    `;
+    return rows.length > 0;
+  }
+
+  async recordSearchClick(input: { query: string; articleId: string; clientRequestId: string; at: string }): Promise<void> {
+    await this.sql`
+      INSERT INTO support.kb_search_clicks (query, article_id, client_request_id, created_at)
+      VALUES (${input.query}, ${input.articleId}, ${input.clientRequestId}, ${input.at}::timestamptz)
+      ON CONFLICT (client_request_id) DO NOTHING
+    `;
   }
 }
 

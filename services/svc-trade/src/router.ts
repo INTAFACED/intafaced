@@ -28,6 +28,7 @@ import {
 import { otcDeskLawStatusLine, UNPUBLISHED_OTC_DESK_LAW } from './otc/desk-law.js';
 import { OTC_DESK_LAW_RESIDUAL, OtcError } from './otc/errors.js';
 import { otcMakerRoutingStatus, OTC_MAKER_ROUTING_RESIDUAL } from './otc/maker-routing.js';
+import { listOtcMakers, selectOtcMakers, UNPUBLISHED_OTC_MAKER_DIRECTORY } from './otc/maker-directory.js';
 import { otcMidFeedStatus, OTC_MID_FEED_RESIDUAL } from './otc/mid-feed.js';
 import type { OtcDeskService } from './otc/otc-service.js';
 import { copyDetachOutput, copyFlattenOutput, copyPauseOutput, copyResumeOutput, copyStopOutput } from './copy/copy-control-wire.js';
@@ -61,6 +62,7 @@ import { insuranceAdminRouter, type InsuranceTopupAdmin } from './admin/insuranc
 import { supportTradeSummaryRouter } from './support/router.js';
 import type { SupportTradeSummaryReader } from './support/trade-summary.js';
 import type { TradeOpsAdmin } from './admin/service.js';
+import { ALGO_STOP_REASONS, algoStopReason, type AlgoStopReasonCode } from './algo/stop-reason.js';
 
 /**
  * svc-trade's API (§5.2).
@@ -208,6 +210,13 @@ function requireBankCaller(service: string | null): void {
 }
 
 /** Shared TWAP parent presentation (create/get/pause/resume/cancel). */
+const algoStopReasonSchema = z
+  .object({
+    code: z.enum(Object.keys(ALGO_STOP_REASONS) as [AlgoStopReasonCode, ...AlgoStopReasonCode[]]),
+    label: z.string(),
+  })
+  .nullable();
+
 const algoParentOutputSchema = z.object({
   id: z.string(),
   symbol: z.string(),
@@ -223,6 +232,7 @@ const algoParentOutputSchema = z.object({
   childrenEmitted: z.number().int(),
   missesRecorded: z.number().int(),
   haltReason: z.string().nullable(),
+  stopReason: algoStopReasonSchema,
   participationBps: z.number().int().nullable(),
   createdAt: z.string(),
   startedAt: z.string(),
@@ -460,9 +470,11 @@ function toTrpcError(err: unknown): TRPCError {
       case 'trade.otc_stake_unavailable':
       case 'trade.otc_no_reference_price':
       case 'trade.otc_bad_spread':
+      case 'trade.convert_bounds_not_set':
       case 'trade.rfq_allocation_refused':
       case 'trade.rfq_give_up_refused':
       case 'trade.rfq_missing_price':
+      case 'trade.otc_makers_unset':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
       default:
         return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
@@ -529,7 +541,12 @@ function toTrpcError(err: unknown): TRPCError {
       case 'trade.futures_disabled':
       case 'trade.fx_not_spot':
       case 'trade.paper_fill_refused':
+      // RC-identity-01: the person proves their email, then retries.
+      case 'trade.email_proof_required':
         return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
+      // Identity could not answer the email-proof read; nothing moved, try again.
+      case 'trade.identity_unavailable':
+        return new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: err.message, cause: err });
       case 'trade.perks_unavailable':
         return new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err.message, cause: err });
       case 'trade.dust_fill':
@@ -1061,6 +1078,23 @@ export function createTradeRouter(
         return otc.deskStatus();
       }),
 
+      /** Liquidity-provider directory and multi-select check (CB-otc-01). */
+      makers: router({
+        list: scopedProcedure('trade:read', { module: 'trade' }).query(() =>
+          otc ? otc.listMakers() : listOtcMakers(UNPUBLISHED_OTC_MAKER_DIRECTORY),
+        ),
+        select: scopedProcedure('trade:read', { module: 'trade' })
+          .input(z.object({ makerIds: z.array(z.string().max(120)).max(50) }).strict())
+          .query(({ input }) =>
+            guard(async () => {
+              if (!otc) {
+                return { makers: selectOtcMakers(UNPUBLISHED_OTC_MAKER_DIRECTORY, input.makerIds), selectCap: null };
+              }
+              return otc.selectMakers(input.makerIds);
+            }),
+          ),
+      }),
+
       quote: scopedProcedure('trade:read', { module: 'trade' })
         .input(
           /**
@@ -1129,6 +1163,31 @@ export function createTradeRouter(
           guard(async () => {
             if (!otc) throw new OtcError('OTC desk not mounted', 'trade.otc_desk_law_blank');
             return otc.settle(ctx.principal, { quoteId: input.quoteId });
+          }),
+        ),
+
+      /** Owner bounds for one-click buy and convert at OTC pricing (CB-otc-12). */
+      convertBounds: scopedProcedure('trade:read', { module: 'trade' }).query(() =>
+        otc ? otc.convertBoundsStatus() : { convert: null, oneClickBuy: null },
+      ),
+
+      /** Bounds-gated OTC quote for one-click buy / convert. The desk names the price. */
+      convertQuote: scopedProcedure('trade:read', { module: 'trade' })
+        .input(
+          z
+            .object({
+              flow: z.enum(['convert', 'oneClickBuy']),
+              side: orderSideSchema,
+              baseAsset: z.string().min(1).max(32),
+              quoteAsset: z.string().min(1).max(32),
+              qty: decimal,
+            })
+            .strict(),
+        )
+        .mutation(({ ctx, input }) =>
+          guard(async () => {
+            if (!otc) throw new OtcError('OTC desk not mounted', 'trade.otc_desk_law_blank');
+            return otc.convertQuote(ctx.principal, input);
           }),
         ),
     }),
@@ -1289,6 +1348,7 @@ export function createTradeRouter(
             parentId: z.string(),
             status: z.enum(['active', 'paused', 'cancelled', 'completed', 'halted']),
             haltReason: z.string().nullable(),
+            stopReason: algoStopReasonSchema,
             childrenEmitted: z.number().int(),
             missesRecorded: z.number().int(),
             slicesPlanned: z.number().int(),
@@ -1828,6 +1888,7 @@ function presentAlgo(parent: import('./algo/index.js').TwapParent) {
     childrenEmitted: parent.children.length,
     missesRecorded: parent.misses.length,
     haltReason: parent.haltReason,
+    stopReason: algoStopReason(parent),
     participationBps: parent.participationBps,
     createdAt: parent.createdAt.toISOString(),
     startedAt: parent.startedAt.toISOString(),

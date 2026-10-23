@@ -5,7 +5,7 @@
  * action, or a listing. Hitch: imported from index.ts so MatchingEngine is wrapped
  * without recutting engine.ts.
  */
-import { MatchingEngine } from './engine.js';
+import { MatchingEngine, type EmergencyCmd } from './engine.js';
 import { operatorRefuse, readOperatorId } from './halt.js';
 import type { MarketDelistResult, MarketExpireResult, MarketHaltResult, MarketId, VenueKillResult } from './types.js';
 
@@ -19,11 +19,7 @@ export const PERMISSIONLESS_LISTING_MESSAGE = 'permissionless listings refuse; t
 
 const FLAG = Symbol.for('intafaced.matching.rulebook-refuse');
 
-export type EmergencyCmd = {
-  readonly operatorId?: string | null;
-  readonly evidence?: string | null;
-  readonly evidenceRefs?: readonly unknown[] | null;
-};
+export type { EmergencyCmd };
 
 export type DelistCmd = {
   readonly operatorId?: string | null;

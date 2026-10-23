@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchPage, fetchTransfer } from './browser';
+import { fetchDesk, fetchPage, fetchTransfer } from './browser';
 import { ownServerFailureText } from './own-server';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -78,5 +78,15 @@ describe('what a failed on-request read says', () => {
     for (const status of [500, 502, 503])
       expect(ownServerFailureText(failure(status), 'transfer')).toContain('own server failed on this read');
     expect(ownServerFailureText(failure(null), 'transfer')).toContain('could not reach its own server');
+  });
+});
+
+describe('fetchDesk', () => {
+  it('reads the whole desk, or only the sections a part-desk page shows', async () => {
+    const fn = reply({ deskId: 'more', asOf: '2026-10-22T23:00:00.000Z', reads: {} });
+    vi.stubGlobal('fetch', fn);
+    expect(await fetchDesk('more')).not.toBeNull();
+    expect(await fetchDesk('more', undefined, ['mining'])).not.toBeNull();
+    expect(fn.mock.calls.map((c) => c[0])).toEqual(['/api/more-ops', '/api/more-ops?section=mining']);
   });
 });

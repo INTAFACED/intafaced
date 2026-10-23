@@ -10,7 +10,7 @@ import Portfolio from './Portfolio';
 export default function MoneyScreen({ path, search, params }: ScreenProps) {
   if (path.startsWith('/money/balance/'))
     return <BalanceEntries rawAsset={params.asset ?? path.slice('/money/balance/'.length)} search={search} />;
-  if (path === '/money/pnl') return <Pnl />;
+  if (path === '/money/pnl') return <Pnl search={search} />;
   if (path === '/money/activity') return <Activity search={search} />;
   if (path.startsWith('/money/activity/')) return <ActivityDetail rawId={params.id ?? path.slice('/money/activity/'.length)} />;
   return <Portfolio />;

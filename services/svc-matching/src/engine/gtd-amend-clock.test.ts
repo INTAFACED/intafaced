@@ -69,7 +69,8 @@ describe('amend applies the expiry clock', () => {
     expect(amended.cancellations.map((row) => [row.orderId, row.reason])).toEqual([[MAKER, 'expired']]);
     expect(live.engine.restingOrders(MARKET).map((row) => row.orderId)).toEqual([BID]);
     expect(live.bus.emitted('orderFilled')).toEqual([]);
-    expect(live.bus.emitted('orderCancelled').map((row) => row.payload.orderId)).toEqual([MAKER]);
+    // The event says why, so svc-trade ends the order expired whichever of the event and the inline outcome comes first.
+    expect(live.bus.emitted('orderCancelled').map((row) => [row.payload.orderId, row.payload.reason])).toEqual([[MAKER, 'expired']]);
 
     const recovered = engine(journal, () => AFTER);
     await recovered.engine.recover();

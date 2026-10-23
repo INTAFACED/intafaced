@@ -1,4 +1,5 @@
 import type { DeskModule } from '@/lib/desk/founder-call';
+import type { CommonDeskId } from './common-sections';
 import type { Part } from '@/lib/desk/part';
 import type { ModuleId as AdminModuleId } from '@/lib/modules';
 
@@ -178,6 +179,8 @@ export interface DeskSpec {
   readonly title: string;
   readonly intro: string;
   readonly sections: readonly DeskSection[];
+  /** The common eight-section set this desk shows above its own sections (`common-sections.ts`). */
+  readonly commonSet?: CommonDeskId;
 }
 
 export type CellValue = string | number | boolean | null | readonly string[];

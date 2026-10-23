@@ -10,6 +10,8 @@ import { BusinessVerification } from './BusinessVerification';
 import { Promotions } from './Promotions';
 import { Dividends } from './Dividends';
 import { OAuthConsent } from './OAuthConsent';
+import { ApiKeys } from './ApiKeys';
+import { ApiKeyCreate } from './ApiKeyCreate';
 import './account.css';
 
 export function AccountRoutes({ path }: { path: string }) {
@@ -25,6 +27,8 @@ function AccountRooms({ path }: { path: string }) {
   if (clean === '/view') return <View />;
   if (clean === '/oauth/authorize') return <OAuthConsent />;
   if (clean === '/uc/safe') return <Security />;
+  if (clean === '/uc/safe/api-keys') return <ApiKeys />;
+  if (clean === '/uc/safe/api-keys/new') return <ApiKeyCreate />;
   if (clean === '/verification') return <Verification />;
   if (clean === '/notifications') return <Notifications />;
   if (clean === '/identbusiness') return <BusinessVerification />;

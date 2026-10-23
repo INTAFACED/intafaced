@@ -215,3 +215,8 @@
 .pub-table th {
   font-weight: var(--font-weight-semibold);
 }
+
+/* Programme terms are plain text from the founders: keep their line breaks. */
+.partner-terms {
+  white-space: pre-line;
+}

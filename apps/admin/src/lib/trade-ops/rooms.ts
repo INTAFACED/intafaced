@@ -16,6 +16,12 @@ export const DESK_ROOMS: readonly DeskRoom[] = [
     job: 'Status of each market; halt, reduce-only, post-only, resume, delist.',
   },
   {
+    id: 'charts-settings',
+    href: '/trade-ops/charts/settings',
+    label: 'Charts settings',
+    job: 'Owner values the charts module enforces; a data class change needs a second founder.',
+  },
+  {
     id: 'kill-switch',
     href: '/trade-ops/kill-switch',
     label: 'Kill switch',

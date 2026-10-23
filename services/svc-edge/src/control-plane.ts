@@ -297,10 +297,11 @@ export function registerAdminRoutes(app: FastifyInstance, admin: AdminApi, match
   const operator = async (
     header: string | undefined,
     reply: { code: (n: number) => { send: (b: unknown) => unknown } },
-    kind: 'module' | 'treasury',
+    kind: 'module' | 'treasury' | 'lookup',
   ) => {
     try {
-      const principal = kind === 'treasury' ? await admin.authenticateTreasury(header) : await admin.authenticate(header);
+      const authenticate = { module: admin.authenticate, treasury: admin.authenticateTreasury, lookup: admin.authenticateLookup }[kind];
+      const principal = await authenticate(header);
       return { principal, bearer: header as string };
     } catch (err) {
       if (err instanceof AuthError) {
@@ -717,6 +718,25 @@ export function registerAdminRoutes(app: FastifyInstance, admin: AdminApi, match
       return reply.code(400).send({ error: (err as Error).message, code: 'edge.invalid_reconcile_request' });
     }
     req.log.warn({ operator: auth.principal.userId, status: res.status }, 'edge: LEDGER RECONCILE requested');
+    return reply.code(res.status).send(res.body);
+  });
+
+  /**
+   * The ledger object lookup (OPS-rules-monitoring-12): one transaction by id, or the one a business key booked.
+   * A founder's `admin:read` with a second factor (owner decision 2026-10-23), forwarded with the operator's OWN token, so svc-ledger records the lookup against the person at the
+   * keyboard before it reads. svc-ledger's answer passes through unchanged, refusals included.
+   */
+  app.get<{ Params: { txId: string } }>('/admin/ledger/transactions/:txId', async (req, reply) => {
+    const auth = await operator(req.headers.authorization, reply, 'lookup');
+    if (!auth) return reply;
+    const res = await admin.lookupTransaction(req.params.txId, auth.bearer);
+    return reply.code(res.status).send(res.body);
+  });
+
+  app.get<{ Querystring: { businessKey?: unknown } }>('/admin/ledger/trace', async (req, reply) => {
+    const auth = await operator(req.headers.authorization, reply, 'lookup');
+    if (!auth) return reply;
+    const res = await admin.traceBusinessKey(req.query?.businessKey, auth.bearer);
     return reply.code(res.status).send(res.body);
   });
 

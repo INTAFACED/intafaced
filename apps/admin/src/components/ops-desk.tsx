@@ -13,10 +13,12 @@ import {
   VendorActions,
 } from '@/components/ops-actions';
 import { CustomerBalances } from '@/components/customer-balances';
+import { DeskSectionSet } from '@/components/desk-section-set';
 import { TransferLookup, TransferRecord } from '@/components/pay-transfer';
 import { ProtocolBlockers } from '@/components/protocol-blockers';
 import type { Part } from '@/lib/desk/part';
 import { fetchDesk, fetchPage } from '@/lib/ops-desk/browser';
+import { DESKS } from '@/lib/ops-desk/catalog';
 import { ownServerFailureText } from '@/lib/ops-desk/own-server';
 import { csvFilename, exportNote, listToCsv } from '@/lib/ops-desk/csv';
 import { downloadCsv } from '@/lib/ops-desk/csv-browser';
@@ -408,7 +410,8 @@ export interface OpsDeskViewProps {
 
 export function OpsDeskView({ spec, view, loading, userId, openKey, onOpen, onRefresh, stale = false }: OpsDeskViewProps) {
   const ctx: RowActionContext = { userId, onChanged: onRefresh };
-  const counts = view ? Object.values(view.reads) : [];
+  // Only this desk's own reads: the mining desk shares the More modules read, which also answers for agents, market and the rest.
+  const counts = view ? spec.sections.flatMap((s) => s.reads.map((r) => view.reads[r.id])).filter((o) => o !== undefined) : [];
   const failed = counts.filter((o) => o.part.kind === 'failed').length;
   return (
     <div className="dk" data-testid={`ops-desk-${spec.id}`}>
@@ -435,6 +438,7 @@ export function OpsDeskView({ spec, view, loading, userId, openKey, onOpen, onRe
         </p>
       )}
       {!view && <p className="dk-why">The console could not reach its own server for this desk. Nothing is shown rather than a guess.</p>}
+      {spec.commonSet && <DeskSectionSet setId={spec.commonSet} spec={spec} view={view} />}
       <nav aria-label="Sections" className="dk-row">
         {spec.sections.map((s) => (
           <a key={s.id} href={`#${s.id}`}>
@@ -458,14 +462,15 @@ export function OpsDesk({ spec, initial, userId }: { spec: DeskSpec; initial: De
   const reload = useCallback(async () => {
     const mine = ++sequence.current;
     setLoading(true);
-    const next = await fetchDesk(spec.id);
+    // A desk page that shows part of a desk (mining) refreshes only that part.
+    const next = await fetchDesk(spec.id, undefined, spec === DESKS[spec.id] ? undefined : spec.sections.map((s) => s.id));
     if (mine === sequence.current) {
       // A failed refresh keeps the last good read on screen with its own time, rather than blanking the page.
       if (next) setView(next);
       setStale(next === null);
       setLoading(false);
     }
-  }, [spec.id]);
+  }, [spec]);
   return (
     <OpsDeskView
       spec={spec}

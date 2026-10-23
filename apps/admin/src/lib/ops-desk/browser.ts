@@ -7,9 +7,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
-export async function fetchDesk(deskId: OpsDeskId, signal?: AbortSignal): Promise<DeskView | null> {
+export async function fetchDesk(deskId: OpsDeskId, signal?: AbortSignal, sections?: readonly string[]): Promise<DeskView | null> {
+  const query = sections && sections.length > 0 ? `?${sections.map((s) => `section=${encodeURIComponent(s)}`).join('&')}` : '';
   try {
-    const res = await fetch(DESKS[deskId].endpoint, { cache: 'no-store', credentials: 'same-origin', ...(signal ? { signal } : {}) });
+    const res = await fetch(`${DESKS[deskId].endpoint}${query}`, {
+      cache: 'no-store',
+      credentials: 'same-origin',
+      ...(signal ? { signal } : {}),
+    });
     if (!res.ok) return null;
     const body: unknown = await res.json();
     return isRecord(body) && body.deskId === deskId && typeof body.asOf === 'string' && isRecord(body.reads)

@@ -29,6 +29,7 @@ import {
 import { findMarket, type DeskMarket } from './market';
 import { useNow } from './hooks';
 import type { Reference, Side } from './order-math';
+import { EmailProofNotice } from '../../../features/account/EmailProofNotice';
 
 function PairPicker({ selected }: { selected: string }) {
   const { t } = deskCopy.useCopy();
@@ -80,6 +81,10 @@ function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMark
     setTab('open');
     setJustSent(true);
   }, []);
+  const onFlatten = useCallback(
+    (amount: string) => setSuggestion((previous) => ({ price: '', amount, flatten: true, nonce: (previous?.nonce ?? 0) + 1 })),
+    [],
+  );
   const onPickPrice = useCallback(
     (price: string) => setSuggestion((previous) => ({ price, amount: '', nonce: (previous?.nonce ?? 0) + 1 })),
     [],
@@ -96,6 +101,7 @@ function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMark
         picker={picker}
         status={status}
       />
+      <EmailProofNotice />
       <div className="dk-grid">
         <aside className="dk-panel dk-left" aria-label={t('Markets')}>
           <div className="dk-fill">
@@ -119,7 +125,16 @@ function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMark
         </div>
         <BookPanel market={market} book={book} ticker={ticker} zone={timeZone} onPick={setSuggestion} onPickPrice={onPickPrice} />
       </div>
-      <BottomTabs market={market} markets={markets} openOrders={openOrders} fills={fills} balances={balances} tab={tab} onTab={setTab} />
+      <BottomTabs
+        market={market}
+        markets={markets}
+        openOrders={openOrders}
+        fills={fills}
+        balances={balances}
+        tab={tab}
+        onTab={setTab}
+        onFlatten={onFlatten}
+      />
     </div>
   );
 }

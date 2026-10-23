@@ -8,6 +8,7 @@ import type { ControlService } from '../control/service.js';
 import type { FounderAuthority } from '../founder-authority.js';
 import type { MetricsRuntime } from '../metrics/index.js';
 import type { RegistriesMountDeps } from '../registries/index.js';
+import type { DepositSettingsMountDeps } from '../custody/deposits/settings.js';
 import type { CustodyMountDeps } from '../custody/router.js';
 import type { PurchaseHoldMountDeps } from '../withdrawals/purchase-holds/router.js';
 import type { WithdrawalQuoteMountDeps } from '../withdrawals/quotes/router.js';
@@ -28,6 +29,7 @@ import { createMerchantControlRouter } from './merchant-control.js';
 import { createMerchantMetricsRouter } from './merchant-metrics.js';
 import { createPayHaltsRouter, type PayHaltsDeps } from './pay-halts.js';
 import { createB2bRampRouter } from '../b2b-ramp/router.js';
+import { createCustomerEmailNamespaceRouter } from '../customer-emails/router.js';
 
 export { findUnguardedFounderProcedures, founderProcedure, isFounderGuarded } from './founder-procedure.js';
 export { notBuilt, PayNotBuiltError } from './errors.js';
@@ -56,6 +58,7 @@ export function createPayNamespaces(deps: {
   founderAuthority: FounderAuthority;
   metrics?: MetricsRuntime;
   registries?: RegistriesMountDeps;
+  depositSettings?: DepositSettingsMountDeps;
   limits?: WithdrawalLimitsMountDeps;
   custody?: CustodyMountDeps;
   purchaseHolds?: PurchaseHoldMountDeps;
@@ -66,6 +69,8 @@ export function createPayNamespaces(deps: {
   allowlist?: AllowlistMountDeps;
   sql?: Sql;
   ledger?: Pick<LedgerClient, 'balances'>;
+  /** Chargeback transactions by key for merchantOps.disputes.funds (M-disp-01). Absent: that read refuses. */
+  disputeFundsLedger?: Pick<LedgerClient, 'getTxByKey'>;
   webhooksAllowLocalHttp?: boolean;
   webhookRetry?: WebhookRetryLimit;
   teamEmailInvite?: TeamEmailInviteLimit;
@@ -86,6 +91,7 @@ export function createPayNamespaces(deps: {
     founderAuthority: deps.founderAuthority,
     sql: deps.sql,
     ledger: deps.ledger,
+    disputeFundsLedger: deps.disputeFundsLedger,
     webhooksAllowLocalHttp: deps.webhooksAllowLocalHttp,
     webhookRetry: deps.webhookRetry,
     teamEmailInvite: deps.teamEmailInvite,
@@ -99,6 +105,7 @@ export function createPayNamespaces(deps: {
     createFounderAdminRouter(deps.founderAuthority, {
       metrics: deps.metrics,
       registries: deps.registries,
+      depositSettings: deps.depositSettings,
       limits: deps.limits,
       custody: deps.custody,
       purchaseHolds: deps.purchaseHolds,
@@ -122,6 +129,8 @@ export function createPayNamespaces(deps: {
     createMerchantOpsRouter(opsDeps), // W15: merchantOps.*  (founderAdmin.ops.* is mounted via createFounderAdminRouter above)
     // W10: b2bRamp.* refuses while pay.b2b_ramp is off, including a direct caller.
     createB2bRampRouter({ founderAuthority: deps.founderAuthority, sql: deps.sql }),
+    // M-plat-org-10: receipt preview and send. Email switches mount on the portal `merchant` router.
+    createCustomerEmailNamespaceRouter({ sql: deps.sql }),
   );
 }
 export type PayNamespacesRouter = ReturnType<typeof createPayNamespaces>;

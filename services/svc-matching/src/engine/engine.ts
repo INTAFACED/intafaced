@@ -98,6 +98,7 @@ import type {
   OrderSide,
   PriceLevelState,
   SubmitResult,
+  TriggerFact,
   TriggerOutcome,
 } from './types.js';
 
@@ -164,7 +165,19 @@ type PendingEvent =
   | { readonly sequence: number; readonly name: 'orderAccepted'; readonly payload: PayloadOf<'orderAccepted'>; readonly key: string }
   | { readonly sequence: number; readonly name: 'orderFilled'; readonly payload: PayloadOf<'orderFilled'>; readonly key: string }
   | { readonly sequence: number; readonly name: 'orderCancelled'; readonly payload: PayloadOf<'orderCancelled'>; readonly key: string }
+  | { readonly sequence: number; readonly name: 'orderTriggered'; readonly payload: PayloadOf<'orderTriggered'>; readonly key: string }
   | { readonly sequence: number; readonly name: 'spreadFilled'; readonly payload: SpreadFillEvent; readonly key: string };
+
+/**
+ * Who asks for an emergency action (halt, resume, halt-all, resume-all, expire), who confirmed it, and its evidence.
+ * The engine reads the two operators; the rulebook wrapper (rulebook-refuse.ts) refuses one without evidence.
+ */
+export type EmergencyCmd = {
+  readonly operatorId?: string | null;
+  readonly confirmOperatorId?: string | null;
+  readonly evidence?: string | null;
+  readonly evidenceRefs?: readonly unknown[] | null;
+};
 
 export class MatchingEngine {
   private readonly books = new Map<MarketId, OrderBook>();
@@ -276,6 +289,7 @@ export class MatchingEngine {
     const announced = [
       ...replayed.fills.map((row) => fillEvent(row.marketId, row.fill, row.at)),
       ...replayed.holdCancels.map((row) => cancelledEvent(row.marketId, row.cancellation)),
+      ...replayed.triggers.map((row) => triggeredEvent(row.marketId, row.orderId, row.sequence, row.trigger, row.at)),
     ];
     announced.sort((a, b) => a.sequence - b.sequence);
     await this.emit(announced);
@@ -554,12 +568,15 @@ export class MatchingEngine {
   }
 
   /**
-   * Depth for a market, or null if it has never traded.
+   * Depth for a market that holds a book. An opened market with no book yet (never traded, not delisted or expired)
+   * is a live, empty ladder, so its first order can be checked and placed. Any other market is null.
    * `limit` is required. Unset refuses (never invent 50). Owner-explicit 50 is a published window.
    */
   depth(marketId: MarketId, limit?: number | null): ReturnType<OrderBook['depth']> | null {
     const n = publishedEngineL2Limit(limit);
-    return this.existingBook(marketId)?.depth(n) ?? null;
+    const book = this.existingBook(marketId);
+    if (book) return book.depth(n);
+    return this.isListed(marketId) ? { bids: [], asks: [], sequence: 0 } : null;
   }
 
   restingOrders(marketId?: MarketId): readonly EngineLiveOrder[] {
@@ -1094,10 +1111,7 @@ export class MatchingEngine {
     return this.submit(marketId, flattenCloseOrder(cmd, net), lifecycleProof);
   }
 
-  async halt(
-    marketId: MarketId,
-    cmd: { readonly operatorId?: string | null; readonly confirmOperatorId?: string | null },
-  ): Promise<MarketHaltResult> {
+  async halt(marketId: MarketId, cmd: EmergencyCmd): Promise<MarketHaltResult> {
     return withEngineSpan('matching.halt', { marketId }, async () => {
       const operatorId = readOperatorId(cmd);
       const confirmOperatorId = readConfirmOperatorId(cmd);
@@ -1126,10 +1140,7 @@ export class MatchingEngine {
     });
   }
 
-  async resume(
-    marketId: MarketId,
-    cmd: { readonly operatorId?: string | null; readonly confirmOperatorId?: string | null },
-  ): Promise<MarketHaltResult> {
+  async resume(marketId: MarketId, cmd: EmergencyCmd): Promise<MarketHaltResult> {
     return withEngineSpan('matching.resume', { marketId }, async () => {
       const operatorId = readOperatorId(cmd);
       const confirmOperatorId = readConfirmOperatorId(cmd);
@@ -1158,7 +1169,7 @@ export class MatchingEngine {
     });
   }
 
-  async haltAll(cmd: { readonly operatorId?: string | null; readonly confirmOperatorId?: string | null }): Promise<VenueKillResult> {
+  async haltAll(cmd: EmergencyCmd): Promise<VenueKillResult> {
     return withSpan('matching.halt_all', async () => {
       const operatorId = readOperatorId(cmd);
       const confirmOperatorId = readConfirmOperatorId(cmd);
@@ -1184,7 +1195,7 @@ export class MatchingEngine {
     });
   }
 
-  async resumeAll(cmd: { readonly operatorId?: string | null; readonly confirmOperatorId?: string | null }): Promise<VenueKillResult> {
+  async resumeAll(cmd: EmergencyCmd): Promise<VenueKillResult> {
     return withSpan('matching.resume_all', async () => {
       const operatorId = readOperatorId(cmd);
       const confirmOperatorId = readConfirmOperatorId(cmd);
@@ -1403,10 +1414,7 @@ export class MatchingEngine {
     });
   }
 
-  async expire(
-    marketId: MarketId,
-    cmd: { readonly operatorId?: string | null; readonly confirmOperatorId?: string | null },
-  ): Promise<MarketExpireResult> {
+  async expire(marketId: MarketId, cmd: EmergencyCmd): Promise<MarketExpireResult> {
     return withEngineSpan('matching.expire', { marketId }, async () => {
       const operatorId = readOperatorId(cmd);
       const confirmOperatorId = readConfirmOperatorId(cmd);
@@ -1592,7 +1600,10 @@ export class MatchingEngine {
     };
 
     collect(result.fills, result.cancellations);
-    for (const triggered of result.triggered as readonly TriggerOutcome[]) collect(triggered.fills, triggered.cancellations);
+    for (const triggered of result.triggered as readonly TriggerOutcome[]) {
+      if (triggered.trigger) events.push(triggeredEvent(marketId, triggered.orderId, triggered.sequence, triggered.trigger, at));
+      collect(triggered.fills, triggered.cancellations);
+    }
 
     return events.sort((a, b) => a.sequence - b.sequence);
   }
@@ -1602,10 +1613,13 @@ export class MatchingEngine {
     for (const cancellation of result.cancellations) events.push(cancelledEvent(marketId, cancellation));
     for (const fill of result.fills) events.push(fillEvent(marketId, fill, at));
     for (const triggered of result.triggered as readonly TriggerOutcome[]) {
+      if (triggered.trigger) events.push(triggeredEvent(marketId, triggered.orderId, triggered.sequence, triggered.trigger, at));
       for (const fill of triggered.fills) events.push(fillEvent(marketId, fill, at));
       for (const cancellation of triggered.cancellations) events.push(cancelledEvent(marketId, cancellation));
     }
-    return events.sort((a, b) => a.sequence - b.sequence);
+    // An amend that fires its own stop reports that stop's fills and cancels on the result and on its trigger outcome.
+    const once = events.filter((event, index) => events.findIndex((other) => other.key === event.key) === index);
+    return once.sort((a, b) => a.sequence - b.sequence);
   }
 
   private async emit(events: readonly PendingEvent[]): Promise<void> {
@@ -1625,6 +1639,8 @@ export class MatchingEngine {
         return this.bus.publish('orderFilled', event.payload, opts);
       case 'orderCancelled':
         return this.bus.publish('orderCancelled', event.payload, opts);
+      case 'orderTriggered':
+        return this.bus.publish('orderTriggered', event.payload, opts);
       case 'spreadFilled':
         // Admission refuses spreads without a publisher, so only a journal written by a build that had one reaches
         // here. Fail the boot rather than drop a maker's fill.
@@ -1720,8 +1736,28 @@ function cancelledEvent(marketId: MarketId, cancellation: CancelledRef): Pending
       marketId,
       remainingQty: formatAmount(cancellation.remainingQty),
       sequence: cancellation.sequence,
+      // Why it left, so a consumer that hears the event before the inline outcome ends the order the same way.
+      reason: cancellation.reason,
     },
     key: `matching.order.cancelled:${marketId}:${cancellation.sequence}`,
+  };
+}
+
+/** A stop fired: which price it watched, its stop price and the price that reached it. Its fills and cancels follow. */
+function triggeredEvent(marketId: MarketId, orderId: OrderId, sequence: number, trigger: TriggerFact, at: string): PendingEvent {
+  return {
+    sequence,
+    name: 'orderTriggered',
+    payload: {
+      orderId,
+      marketId,
+      sequence,
+      triggerBy: trigger.by,
+      stopPrice: formatAmount(trigger.stopPrice),
+      referencePrice: formatAmount(trigger.reference),
+      ts: at,
+    },
+    key: `matching.order.triggered:${marketId}:${sequence}`,
   };
 }
 

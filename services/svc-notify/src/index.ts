@@ -28,6 +28,8 @@ import { ChannelSettings } from './ops-config/channel-settings.js';
 import { PostgresChannelSettingsStore } from './ops-config/channel-settings.pg.js';
 import { MessageTemplates } from './ops-config/templates.js';
 import { PostgresTemplateStore } from './ops-config/templates.pg.js';
+import { ContactPolicy } from './ops-config/contact-policy.js';
+import { PostgresContactPolicyStore } from './ops-config/contact-policy.pg.js';
 import { PostgresTargetRateLimiter } from './target-rate-limit.js';
 import { NotifyService } from './notify-service.js';
 import { createNotifyRouter, type NotifyRouter } from './router.js';
@@ -191,6 +193,7 @@ const templates = new MessageTemplates(new PostgresTemplateStore(sql), opsApprov
   status: () => channels.status(),
   disabled: () => channelSettings.disabled(),
 });
+const contactPolicy = new ContactPolicy(new PostgresContactPolicyStore(sql), opsApprovals, commandLog);
 const maxAttempts = publishedMaxDeliveryAttempts(env.NOTIFY_MAX_DELIVERY_ATTEMPTS);
 const dispatcher = new NotificationDispatcher(channels, targets, deliveries, {
   maxAttempts,
@@ -229,6 +232,7 @@ const notify = new NotifyService(
     notices,
     channelSettings,
     templates,
+    contactPolicy,
     recipientHealth,
     quarantineThreshold,
   },
@@ -280,6 +284,7 @@ const alerts = new AlertService(
     maxConditions: env.NOTIFY_ALERT_MAX_CONDITIONS ?? null,
     triggerLogDays: env.NOTIFY_ALERT_TRIGGER_LOG_DAYS ?? null,
     maxActivePrice: env.NOTIFY_ALERT_MAX_ACTIVE_PRICE ?? null,
+    repeatFrequencies: env.NOTIFY_ALERT_FREQUENCIES ?? [],
   },
   new PostgresAlertTriggerLog(sql),
 );

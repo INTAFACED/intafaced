@@ -35,6 +35,22 @@ const messages = {
   'Open your offers and choose one to review. Changing an offer after it is published is not available.':
     'Open your offers and choose one to review. Changing an offer after it is published is not available.',
   'Go to my offers': 'Go to my offers',
+  'Sign in so this page can check whether your account is a founder account.':
+    'Sign in so this page can check whether your account is a founder account.',
+  'Checking founder access…': 'Checking founder access…',
+  'Founder access could not be checked': 'Founder access could not be checked',
+  'The account service did not answer, so this page offers no console link. Your sign-in is not lost; try again.':
+    'The account service did not answer, so this page offers no console link. Your sign-in is not lost; try again.',
+  'Founder access for this account has been revoked, so this page offers no console link.':
+    'Founder access for this account has been revoked, so this page offers no console link.',
+  'Founder accounts are not configured on this platform, so this page offers no console link.':
+    'Founder accounts are not configured on this platform, so this page offers no console link.',
+  'This page is for founders. Your account is not a founder account, and your own tools are in the app.':
+    'This page is for founders. Your account is not a founder account, and your own tools are in the app.',
+  'Nothing to open here': 'Nothing to open here',
+  'Open merchant admin': 'Open merchant admin',
+  'Your business team, roles and settings are managed in merchant admin.':
+    'Your business team, roles and settings are managed in merchant admin.',
 } as const;
 
 export const appCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCopy('customer.app', messages, {
@@ -53,6 +69,22 @@ export const appCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCop
     'Open your offers and choose one to review. Changing an offer after it is published is not available.':
       'Abre tus ofertas y elige una para revisarla. Cambiar una oferta ya publicada no está disponible.',
     'Go to my offers': 'Ir a mis ofertas',
+    'Sign in so this page can check whether your account is a founder account.':
+      'Inicia sesión para que esta página compruebe si tu cuenta es de fundador.',
+    'Checking founder access…': 'Comprobando el acceso de fundador…',
+    'Founder access could not be checked': 'No se pudo comprobar el acceso de fundador',
+    'The account service did not answer, so this page offers no console link. Your sign-in is not lost; try again.':
+      'El servicio de cuentas no respondió, así que esta página no ofrece enlace a la consola. No has perdido tu sesión; vuelve a intentarlo.',
+    'Founder access for this account has been revoked, so this page offers no console link.':
+      'El acceso de fundador de esta cuenta fue revocado, así que esta página no ofrece enlace a la consola.',
+    'Founder accounts are not configured on this platform, so this page offers no console link.':
+      'Las cuentas de fundador no están configuradas en esta plataforma, así que esta página no ofrece enlace a la consola.',
+    'This page is for founders. Your account is not a founder account, and your own tools are in the app.':
+      'Esta página es para fundadores. Tu cuenta no es de fundador y tus herramientas están en la aplicación.',
+    'Nothing to open here': 'Nada que abrir aquí',
+    'Open merchant admin': 'Abrir la administración del comercio',
+    'Your business team, roles and settings are managed in merchant admin.':
+      'El equipo, los roles y los ajustes de tu empresa se gestionan en la administración del comercio.',
     'Separate team desk': 'Mesa independiente del equipo',
     'Open the operator console': 'Abrir la consola del operador',
     'Open Team': 'Abrir Team',
@@ -75,6 +107,22 @@ export const appCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCop
     Retry: 'Reintentar',
   },
   fr: {
+    'Sign in so this page can check whether your account is a founder account.':
+      'Connectez-vous pour que cette page vérifie si votre compte est un compte fondateur.',
+    'Checking founder access…': 'Vérification de l’accès fondateur…',
+    'Founder access could not be checked': 'L’accès fondateur n’a pas pu être vérifié',
+    'The account service did not answer, so this page offers no console link. Your sign-in is not lost; try again.':
+      'Le service des comptes n’a pas répondu ; cette page ne propose donc aucun lien vers la console. Votre connexion n’est pas perdue ; réessayez.',
+    'Founder access for this account has been revoked, so this page offers no console link.':
+      'L’accès fondateur de ce compte a été révoqué ; cette page ne propose donc aucun lien vers la console.',
+    'Founder accounts are not configured on this platform, so this page offers no console link.':
+      'Les comptes fondateurs ne sont pas configurés sur cette plateforme ; cette page ne propose donc aucun lien vers la console.',
+    'This page is for founders. Your account is not a founder account, and your own tools are in the app.':
+      'Cette page est réservée aux fondateurs. Votre compte n’est pas un compte fondateur, et vos outils sont dans l’application.',
+    'Nothing to open here': 'Rien à ouvrir ici',
+    'Open merchant admin': 'Ouvrir l’administration marchande',
+    'Your business team, roles and settings are managed in merchant admin.':
+      'L’équipe, les rôles et les réglages de votre entreprise se gèrent dans l’administration marchande.',
     'This room could not open': 'Cet espace n’a pas pu s’ouvrir',
     'The interface encountered an error': 'L’interface a rencontré une erreur',
     'Reload the app': 'Recharger l’application',

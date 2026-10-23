@@ -167,6 +167,12 @@ If the channel has no credentials, registration still records the address and
 returns `{ status: 'refused', code: 'channel.not_configured' }` — the truth,
 rather than a green tick over silence.
 
+A browser registers itself as a push address from `/notifications?view=settings`
+("Allow notifications on this device"). It asks the browser's permission only on
+that press, then subscribes with the public key from `notify.pushKey` and sends
+the subscription to `registerTarget` as the address. With no key (`notify.push_key_unset`)
+the app shows the permission state and the `vendor.push` notice and registers nothing.
+
 ## API
 
 ### Guest outreach emails
@@ -229,6 +235,7 @@ notify's owned records; ops owns submission/contact erasure and authorization.
 | `notify.markRead`        | `notify:write` | `{ ids: uuid[] }`                                                               | `{ marked }`                                                                                                                                                                                                         |
 | `notify.markAllRead`     | `notify:write` | —                                                                               | `{ marked }`                                                                                                                                                                                                         |
 | `notify.channels`        | `notify:read`  | —                                                                               | per-channel availability + missing env + §13 `socket` id (null for in-app)                                                                                                                                           |
+| `notify.pushKey`         | public         | —                                                                               | `{ publicKey, unsetCode }`: the push gateway's public application key a browser subscribes with; `null` with `notify.push_key_unset` unless key, gateway URL and token are set                                       |
 | `notify.targets`         | `notify:read`  | —                                                                               | the caller's registered addresses                                                                                                                                                                                    |
 | `notify.registerTarget`  | `notify:write` | `{ channel, address, locale? }`                                                 | `{ status, channel, code, expiresAt }` — rate-limited (`channel.register_rate_limited`)                                                                                                                              |
 | `notify.verifyTarget`    | `notify:write` | `{ channel, code }`                                                             | `{ verified, code }` — rate-limited (`channel.verify_rate_limited`)                                                                                                                                                  |
@@ -286,25 +293,26 @@ _None._
 
 **Consumes**
 
-| Subject                                   | Consumer (durable)                | Effect                                                                       |
-| ----------------------------------------- | --------------------------------- | ---------------------------------------------------------------------------- |
-| `intafaced.trade.fill.settled`            | `notify-fill-settled`             | Inbox row for the fill owner                                                 |
-| `intafaced.trade.order.updated`           | `notify-order-updated`            | Inbox row on cancelled / rejected / expired only                             |
-| `intafaced.trade.position.updated`        | `notify-position-updated`         | **Critical** inbox row + fan-out on liquidation only                         |
-| `intafaced.p2p.escrow.locked`             | `notify-p2p-escrow-locked`        | Inbox rows for seller and buyer                                              |
-| `intafaced.p2p.escrow.released`           | `notify-p2p-escrow-released`      | Inbox rows when escrow releases to buyer                                     |
-| `intafaced.p2p.escrow.refunded`           | `notify-p2p-escrow-refunded`      | Inbox rows when escrow returns to seller                                     |
-| `intafaced.p2p.trade.disputed`            | `notify-p2p-trade-disputed`       | Inbox row for the opener only (no counterparty on payload)                   |
-| `intafaced.identity.kyc.approved`         | `notify-kyc-approved`             | Inbox row when verification tier is granted                                  |
-| `intafaced.identity.rank.updated`         | `notify-rank-updated`             | Inbox row when rank changes                                                  |
-| `intafaced.token.stake.created`           | `notify-stake-created`            | Inbox row when a stake is locked                                             |
-| `intafaced.bank.margin_call.created`      | `notify-bank-margin-called`       | **Critical** inbox row + fan-out when a loan is called                       |
-| `intafaced.bank.personal_request.created` | `notify-personal-request-created` | Inbox row `pay.request_created` for the person asked to pay                  |
-| `intafaced.bank.personal_request.settled` | `notify-personal-request-settled` | Inbox row `pay.request_paid` for the person who was paid                     |
-| `intafaced.support.ticket.resolved`       | `notify-support-ticket-resolved`  | Inbox row `support.rate_request` asking the owner to rate a resolved request |
-| `intafaced.agents.action.rejected`        | `notify-agent-action-rejected`    | Inbox row when a guardrail refuses an agent action                           |
-| `intafaced.agents.action.completed`       | `notify-agent-action-completed`   | Inbox row on completion / session_close only                                 |
-| `intafaced.ledger.freeze.updated`         | `notify-ledger-freeze-updated`    | One audience-all inbox notice when the posting freeze is set or cleared      |
+| Subject                                   | Consumer (durable)                | Effect                                                                                                       |
+| ----------------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `intafaced.trade.fill.settled`            | `notify-fill-settled`             | Inbox row for the fill owner                                                                                 |
+| `intafaced.trade.order.updated`           | `notify-order-updated`            | Inbox row on cancelled / rejected / expired only                                                             |
+| `intafaced.trade.position.updated`        | `notify-position-updated`         | **Critical** inbox row + fan-out on liquidation only                                                         |
+| `intafaced.p2p.escrow.locked`             | `notify-p2p-escrow-locked`        | Inbox rows for seller and buyer                                                                              |
+| `intafaced.p2p.escrow.released`           | `notify-p2p-escrow-released`      | Inbox rows when escrow releases to buyer                                                                     |
+| `intafaced.p2p.escrow.refunded`           | `notify-p2p-escrow-refunded`      | Inbox rows when escrow returns to seller                                                                     |
+| `intafaced.p2p.trade.disputed`            | `notify-p2p-trade-disputed`       | Inbox row for the opener only (no counterparty on payload)                                                   |
+| `intafaced.identity.kyc.approved`         | `notify-kyc-approved`             | Inbox row when verification tier is granted                                                                  |
+| `intafaced.identity.rank.updated`         | `notify-rank-updated`             | Inbox row when rank changes                                                                                  |
+| `intafaced.token.stake.created`           | `notify-stake-created`            | Inbox row when a stake is locked                                                                             |
+| `intafaced.bank.margin_call.created`      | `notify-bank-margin-called`       | **Critical** inbox row + fan-out when a loan is called                                                       |
+| `intafaced.bank.personal_request.created` | `notify-personal-request-created` | Inbox row `pay.request_created` for the person asked to pay                                                  |
+| `intafaced.bank.personal_request.settled` | `notify-personal-request-settled` | Inbox row `pay.request_paid` for the person who was paid                                                     |
+| `intafaced.bank.personal_transfer.posted` | `notify-personal-transfer-posted` | Inbox rows `pay.transfer_received` (recipient) and `pay.transfer_sent` (sender) for one posted personal send |
+| `intafaced.support.ticket.resolved`       | `notify-support-ticket-resolved`  | Inbox row `support.rate_request` asking the owner to rate a resolved request                                 |
+| `intafaced.agents.action.rejected`        | `notify-agent-action-rejected`    | Inbox row when a guardrail refuses an agent action                                                           |
+| `intafaced.agents.action.completed`       | `notify-agent-action-completed`   | Inbox row on completion / session_close only                                                                 |
+| `intafaced.ledger.freeze.updated`         | `notify-ledger-freeze-updated`    | One audience-all inbox notice when the posting freeze is set or cleared                                      |
 
 ### Posting-freeze notice (audience `all`)
 
@@ -598,7 +606,16 @@ a row. A redelivery reuses the same key and cannot double-send.
   fired it, when, the inbox item) after the inbox has it and before the alert is marked fired, keyed by the alert so a retry
   after a crash writes it once. `notify.alertTriggers` reads the person's own rows, newest first, for all alerts or one. How long
   rows are kept is `NOTIFY_ALERT_TRIGGER_LOG_DAYS`; blank writes no log, the read refuses `notify.alert_trigger_log_retention_unset`,
-  and alerts still fire. The sweep prunes rows past the retention. Migration 0021.
+  and alerts still fire. The sweep prunes rows past the retention. Migration 0021; migration 0022 moved the log to `alert_fires`,
+  keyed by alert and fire number (`seq`).
+- Trigger frequency (C-alerts-scan-01c): `frequency` is `once` (the default: the alert triggers and is done) or `every_crossing`
+  (a crossing alert stays active and triggers each time the mark crosses the level again; `fireCount` and `lastFiredAt` say how
+  often). Only a crossing condition can repeat (`alert.frequency_needs_crossing`). Which repeating frequencies exist is
+  `NOTIFY_ALERT_FREQUENCIES`; no default: blank leaves every alert one-shot and refuses a repeating one
+  `notify.alert_frequency_unset`. Each trigger has its own inbox key (`<alertId>:n<fire number>`) and trigger-log row, and the count is
+  taken only if it is still the number the sweep read, so a sweep retried after a crash counts the same crossing once. Known limit: a crash between the inbox write and the count, followed by the mark reversing before the retry, loses the
+  announcement of the next crossing (it reuses the same number); never a double send. Close-based
+  timing (once per candle close) needs the candle-close flag from svc-ws and is not built. Migration 0022.
 - Quota (C-alerts-scan-03a): `NOTIFY_ALERT_MAX_ACTIVE_PRICE` is the most price alerts one person may hold open, active or
   paused. No default: blank refuses every price alert create `notify.alert_quota_unset`; at the cap a create is refused
   `alert.quota_reached` (precondition, nothing stored). Triggered, expired, cancelled and deleted alerts do not use a place,
@@ -649,24 +666,25 @@ is actually open.
 
 ## Environment
 
-| Variable                                | Default | Notes                                                                                                                                   |
-| --------------------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `NOTIFY_{EMAIL,PUSH,SMS}_GATEWAY_URL`   | —       | Unset ⇒ the channel refuses `channel.not_configured`.                                                                                   |
-| `NOTIFY_{EMAIL,PUSH,SMS}_GATEWAY_TOKEN` | —       | ≥16 chars. A URL without a token refuses to boot: it is an open relay.                                                                  |
-| `NOTIFY_REQUIRED_CHANNELS`              | —       | Subset of `email,push,sms`, or `none`. **Mandatory in staging/prod.**                                                                   |
-| `NOTIFY_GATEWAY_TIMEOUT_MS`             | `5000`  | Budget for one gateway call. Max **25000** (claim-lease ceiling) so a lease always outlasts one attempt.                                |
-| `NOTIFY_MAX_DELIVERY_ATTEMPTS`          | —       | 1–5, at or below the bus `maxDeliver`. Blank refuses `notify.max_delivery_attempts_unset` — never invent 3. Owner may set 3 explicitly. |
-| `NOTIFY_SMS_MAX_CHARS`                  | `480`   | Three GSM segments.                                                                                                                     |
-| `NOTIFY_VERIFY_TTL_MINUTES`             | —       | 1–120. Blank refuses `notify.verify_ttl_unset` — never invent 15. Owner may set 15 explicitly.                                          |
-| `NOTIFY_VERIFY_CODE_PEPPER`             | —       | Required. Blank refuses `notify.verify_code_pepper_unset` — no default. HMAC key for confirmation codes.                                |
-| `TRADE_URL`                             | —       | Unset ⇒ alert marks stay dark. Set ⇒ public ticker mark source (live wiring).                                                           |
-| `MATCHING_URL`                          | —       | Unset ⇒ venue halt unwired (not allFine, not invented halt). Set ⇒ consume GET /markets. Never POST /halt-all.                          |
-| `NOTIFY_INCIDENT_SILENCE`               | `false` | Latch: matching-open is not allFine until `NOTIFY_INCIDENT_ALL_CLEAR`.                                                                  |
-| `NOTIFY_INCIDENT_ALL_CLEAR`             | `false` | Explicit recovered. Halt / unavailable matching still refuse allFine.                                                                   |
-| `NOTIFY_INBOX_PAGE_SIZE`                | —       | 1–100. Served by `notify.inboxPolicy`; blank reports `notify.list_limit_unset` — never invent 20.                                       |
-| `NOTIFY_INBOX_UNREAD_CAP`               | —       | Bell "<cap>+" ceiling. Blank reports `notify.unread_cap_unset` — never invent 99; the bell then shows the exact count.                  |
-| `NOTIFY_INBOX_RETENTION_DAYS`           | —       | Blank keeps every row, and `inboxPolicy` says so (`retention: keeps_every_row`).                                                        |
-| `NOTIFY_QUARANTINE_FAILURE_THRESHOLD`   | —       | Consecutive terminal send failures that quarantine an address. Blank quarantines nobody (`notify.quarantine_threshold_unset`).          |
+| Variable                                | Default | Notes                                                                                                                                                               |
+| --------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NOTIFY_{EMAIL,PUSH,SMS}_GATEWAY_URL`   | —       | Unset ⇒ the channel refuses `channel.not_configured`.                                                                                                               |
+| `NOTIFY_{EMAIL,PUSH,SMS}_GATEWAY_TOKEN` | —       | ≥16 chars. A URL without a token refuses to boot: it is an open relay.                                                                                              |
+| `NOTIFY_PUSH_PUBLIC_KEY`                | —       | Push gateway's public application key, served by `notify.pushKey` so a browser can subscribe. Given only with the push URL and token; else `notify.push_key_unset`. |
+| `NOTIFY_REQUIRED_CHANNELS`              | —       | Subset of `email,push,sms`, or `none`. **Mandatory in staging/prod.**                                                                                               |
+| `NOTIFY_GATEWAY_TIMEOUT_MS`             | `5000`  | Budget for one gateway call. Max **25000** (claim-lease ceiling) so a lease always outlasts one attempt.                                                            |
+| `NOTIFY_MAX_DELIVERY_ATTEMPTS`          | —       | 1–5, at or below the bus `maxDeliver`. Blank refuses `notify.max_delivery_attempts_unset` — never invent 3. Owner may set 3 explicitly.                             |
+| `NOTIFY_SMS_MAX_CHARS`                  | `480`   | Three GSM segments.                                                                                                                                                 |
+| `NOTIFY_VERIFY_TTL_MINUTES`             | —       | 1–120. Blank refuses `notify.verify_ttl_unset` — never invent 15. Owner may set 15 explicitly.                                                                      |
+| `NOTIFY_VERIFY_CODE_PEPPER`             | —       | Required. Blank refuses `notify.verify_code_pepper_unset` — no default. HMAC key for confirmation codes.                                                            |
+| `TRADE_URL`                             | —       | Unset ⇒ alert marks stay dark. Set ⇒ public ticker mark source (live wiring).                                                                                       |
+| `MATCHING_URL`                          | —       | Unset ⇒ venue halt unwired (not allFine, not invented halt). Set ⇒ consume GET /markets. Never POST /halt-all.                                                      |
+| `NOTIFY_INCIDENT_SILENCE`               | `false` | Latch: matching-open is not allFine until `NOTIFY_INCIDENT_ALL_CLEAR`.                                                                                              |
+| `NOTIFY_INCIDENT_ALL_CLEAR`             | `false` | Explicit recovered. Halt / unavailable matching still refuse allFine.                                                                                               |
+| `NOTIFY_INBOX_PAGE_SIZE`                | —       | 1–100. Served by `notify.inboxPolicy`; blank reports `notify.list_limit_unset` — never invent 20.                                                                   |
+| `NOTIFY_INBOX_UNREAD_CAP`               | —       | Bell "<cap>+" ceiling. Blank reports `notify.unread_cap_unset` — never invent 99; the bell then shows the exact count.                                              |
+| `NOTIFY_INBOX_RETENTION_DAYS`           | —       | Blank keeps every row, and `inboxPolicy` says so (`retention: keeps_every_row`).                                                                                    |
+| `NOTIFY_QUARANTINE_FAILURE_THRESHOLD`   | —       | Consecutive terminal send failures that quarantine an address. Blank quarantines nobody (`notify.quarantine_threshold_unset`).                                      |
 
 An empty string is treated as absent, because that is what `docker compose`
 interpolates an unset variable to — otherwise an unwired gateway would fail

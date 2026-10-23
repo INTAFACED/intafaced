@@ -6,6 +6,11 @@ export const securityCopy = defineCopy(
     title: 'Security',
     description: 'Passkeys, two-step sign-in and where you’re signed in.',
     passkeys: 'Passkeys',
+    stepUpBody:
+      'This change needs your second step first. Confirm it is you with your authenticator code or a passkey, and the change goes ahead.',
+    stepUpConfirm: 'Confirm it is you',
+    stepUpChanged: 'This page changed while you confirmed. Close this and try the change again.',
+    stepUpWhy: 'This changes how you sign in, so we check it is you first.',
     add: 'Add passkey',
     addBody: 'Use your device or security key. Account registration is sent only after the browser ceremony and a current-account check.',
     empty: 'No passkeys yet',
@@ -32,14 +37,20 @@ export const securityCopy = defineCopy(
     replacement: 'Starting a new setup replaces any pending setup for this account. It does not recover an unconfirmed confirmation.',
     continue: 'Continue this authenticator setup',
     setupReady: 'Authenticator setup is ready. Confirmation is still required.',
-    setupBody: 'Add the setup key to your app, then enter its current six-digit code. Save your recovery codes before leaving.',
+    setupBody: 'Add the setup key to your app, then enter its current six-digit code.',
     setupKey: 'Authenticator setup key',
     showKey: 'Show setup key',
     hideKey: 'Hide setup key',
     uri: 'Setup URI',
     code: 'Six-digit authenticator code',
     confirm: 'Confirm authenticator',
-    recoveryCodes: 'Show recovery codes · save before leaving',
+    recoveryTitle: 'Your recovery codes',
+    recoveryOnce:
+      'Each code signs you in once if you lose your phone. Write them down or keep them somewhere safe: this page shows them only now.',
+    recoveryUnknown:
+      'We could not tell whether your authenticator was turned on. If it was, these are its recovery codes, so keep them. The Security checklist at the top of this page shows whether it is on. If it shows it is off, these codes do nothing: contact Support with the references above.',
+    recoverySaved: 'I saved them',
+    recoveryCheck: 'I wrote these codes down or stored them somewhere safe',
     confirmationAccepted: 'The service accepted the original authenticator confirmation. Save your recovery codes before leaving.',
     newSetup: 'Review a new setup',
     globalBody: 'Sign out of every device, including this one.',
@@ -89,6 +100,11 @@ export const securityCopy = defineCopy(
       title: 'Seguridad',
       description: 'Claves de acceso, configuración del autenticador y sesiones abiertas.',
       passkeys: 'Claves de acceso',
+      stepUpBody:
+        'Este cambio necesita antes tu segundo paso. Confirma que eres tú con el código de tu autenticador o una clave de acceso y el cambio continúa.',
+      stepUpConfirm: 'Confirmar que eres tú',
+      stepUpChanged: 'Esta página cambió mientras confirmabas. Cierra esto y vuelve a intentar el cambio.',
+      stepUpWhy: 'Esto cambia cómo inicias sesión, así que primero comprobamos que eres tú.',
       add: 'Añadir clave de acceso',
       addBody:
         'Usa tu dispositivo o llave de seguridad. El registro de cuenta se envía solo después del proceso del navegador y de comprobar la cuenta actual.',
@@ -118,15 +134,20 @@ export const securityCopy = defineCopy(
         'Una nueva configuración reemplaza cualquier configuración pendiente de esta cuenta. No recupera una confirmación sin resultado conocido.',
       continue: 'Continuar esta configuración',
       setupReady: 'La configuración del autenticador está lista. Aún debes confirmarla.',
-      setupBody:
-        'Añade la clave a tu aplicación e introduce su código actual de seis dígitos. Guarda los códigos de recuperación antes de salir.',
+      setupBody: 'Añade la clave a tu aplicación e introduce su código actual de seis dígitos.',
       setupKey: 'Clave de configuración del autenticador',
       showKey: 'Mostrar clave de configuración',
       hideKey: 'Ocultar clave de configuración',
       uri: 'URI de configuración',
       code: 'Código de seis dígitos del autenticador',
       confirm: 'Confirmar autenticador',
-      recoveryCodes: 'Mostrar códigos de recuperación · guardar antes de salir',
+      recoveryTitle: 'Tus códigos de recuperación',
+      recoveryOnce:
+        'Cada código te deja entrar una vez si pierdes el teléfono. Anótalos o guárdalos en un lugar seguro: esta página solo los muestra ahora.',
+      recoveryUnknown:
+        'No pudimos saber si tu autenticador quedó activado. Si lo está, estos son sus códigos de recuperación, así que guárdalos. La lista de seguridad al principio de esta página muestra si está activo. Si muestra que está desactivado, estos códigos no sirven: contacta con Soporte con las referencias de arriba.',
+      recoverySaved: 'Los he guardado',
+      recoveryCheck: 'Anoté estos códigos o los guardé en un lugar seguro',
       confirmationAccepted:
         'El servicio aceptó la confirmación original del autenticador. Guarda los códigos de recuperación antes de salir.',
       newSetup: 'Revisar una nueva configuración',
@@ -183,6 +204,11 @@ export const securityCopy = defineCopy(
       title: 'Sécurité',
       description: 'Clés d’accès, configuration de l’authentificateur et sessions ouvertes.',
       passkeys: 'Clés d’accès',
+      stepUpBody:
+        'Ce changement demande d’abord votre deuxième étape. Confirmez que c’est bien vous avec le code de votre authentificateur ou une clé d’accès, et le changement continue.',
+      stepUpConfirm: 'Confirmer que c’est vous',
+      stepUpChanged: 'Cette page a changé pendant votre confirmation. Fermez ceci et réessayez le changement.',
+      stepUpWhy: 'Cela change votre façon de vous connecter, nous vérifions donc d’abord que c’est bien vous.',
       add: 'Ajouter une clé d’accès',
       addBody:
         'Utilisez votre appareil ou votre clé de sécurité. L’enregistrement du compte est envoyé uniquement après la procédure du navigateur et la vérification du compte actuel.',
@@ -212,15 +238,20 @@ export const securityCopy = defineCopy(
         'Une nouvelle configuration remplace toute configuration en attente pour ce compte. Elle ne résout pas une confirmation au résultat inconnu.',
       continue: 'Continuer cette configuration',
       setupReady: 'La configuration de l’authentificateur est prête. La confirmation reste nécessaire.',
-      setupBody:
-        'Ajoutez la clé à votre application, puis saisissez son code actuel à six chiffres. Enregistrez vos codes de récupération avant de quitter cette vue.',
+      setupBody: 'Ajoutez la clé à votre application, puis saisissez son code actuel à six chiffres.',
       setupKey: 'Clé de configuration de l’authentificateur',
       showKey: 'Afficher la clé de configuration',
       hideKey: 'Masquer la clé de configuration',
       uri: 'URI de configuration',
       code: 'Code de l’authentificateur à six chiffres',
       confirm: 'Confirmer l’authentificateur',
-      recoveryCodes: 'Afficher les codes de récupération · enregistrer avant de quitter',
+      recoveryTitle: 'Vos codes de récupération',
+      recoveryOnce:
+        'Chaque code vous permet de vous connecter une fois si vous perdez votre téléphone. Notez-les ou gardez-les en lieu sûr : cette page ne les montre que maintenant.',
+      recoveryUnknown:
+        'Nous n’avons pas pu savoir si votre authentificateur a été activé. S’il l’est, voici ses codes de récupération : gardez-les. La liste de sécurité en haut de cette page indique s’il est actif. S’il est indiqué comme désactivé, ces codes ne servent à rien : contactez l’assistance avec les références ci-dessus.',
+      recoverySaved: 'Je les ai enregistrés',
+      recoveryCheck: 'J’ai noté ces codes ou je les ai gardés en lieu sûr',
       confirmationAccepted:
         'Le service a accepté la confirmation initiale de l’authentificateur. Enregistrez vos codes de récupération avant de quitter cette vue.',
       newSetup: 'Examiner une nouvelle configuration',

@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { isWriteBlockCode } from './ledger/write-block.js';
 import {
   LEDGER_FEE_REVENUE_WINDOW_INVALID,
   DEFAULT_SERVICE_BODY_BIND_MODE,
@@ -43,6 +44,7 @@ import { LEDGER_DOOR_CALLERS, type LedgerDoor } from './door-callers.js';
 import { RECIPE_REQUIRED_CODE, assertKnownRecipePost } from './recipe-gate.js';
 import type { LedgerService } from './service.js';
 import { userCopy } from './user-copy.js';
+import { REGISTRY_REFUSALS } from './ledger/supported-assets.js';
 
 /**
  * Plain S2S HTTP surface used by service ledger-clients.
@@ -95,6 +97,10 @@ export function httpError(err: unknown): { status: number; body: Record<string, 
   if (err instanceof LedgerError && err.code === 'ledger.idempotency_conflict') {
     return { status: 409, body: { message: err.message, code: err.code } };
   }
+  // 503: the store cannot take a write right now. Nothing was booked; retry with the SAME key.
+  if (err instanceof LedgerError && isWriteBlockCode(err.code)) {
+    return { status: 503, body: { message: err.code, code: err.code } };
+  }
   if (err instanceof LedgerError && err.code === 'ledger.frozen') {
     return { status: 412, body: { message: userCopy(err.code), code: err.code } };
   }
@@ -113,6 +119,11 @@ export function httpError(err: unknown): { status: number; body: Record<string, 
       err.code === 'ledger.history_cursor_invalid' ||
       err.code === RECIPE_REQUIRED_CODE)
   ) {
+    return { status: 400, body: { message: err.message, code: err.code } };
+  }
+  // The registry's refusals (W-balances-05): the asset as asked is unknown, unpublished or the request malformed.
+  // The caller's to fix or to show; never a fault in this service.
+  if (err instanceof LedgerError && REGISTRY_REFUSALS.has(err.code)) {
     return { status: 400, body: { message: err.message, code: err.code } };
   }
   if (err instanceof LedgerError) return { status: 500, body: { message: userCopy(err.code), code: err.code } };
@@ -527,6 +538,15 @@ export function registerS2sHttp(app: FastifyInstance, ledger: LedgerService, int
   app.post('/trpc/history', guarded('history', handleS2sHistory));
   // Paged sibling, same `guarded` door (U5a).
   app.post('/trpc/historyPage', guarded('historyPage', handleS2sHistoryPage));
+  // The asset and network registry (W-balances-05). Reads, same `guarded` door.
+  app.post(
+    '/trpc/assetsList',
+    guarded('assetsList', (svc, body) => svc.listAssets(body ?? {}).then((assets) => ({ assets }))),
+  );
+  app.post(
+    '/trpc/assetsGet',
+    guarded('assetsGet', (svc, body) => svc.getAsset(body)),
+  );
   // Fee revenue per asset. Same `guarded` door; the caller list names svc-ops alone.
   app.post('/trpc/feeRevenue', guarded('feeRevenue', handleS2sFeeRevenue));
   app.post(
