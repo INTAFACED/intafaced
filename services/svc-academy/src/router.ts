@@ -11,6 +11,8 @@ import {
   academyPublicVideoSchema,
   academyPublicCourseCardSchema,
   academyPublicCourseSchema,
+  academyCourseEnrolmentSchema,
+  academyEnrolCourseInputSchema,
   academyPublicHubSchema,
 } from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
@@ -765,6 +767,7 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.assessment_unpublished':
     case 'academy.pass_mark_unset':
     case 'academy.certificate_unpublished':
+    case 'academy.enrolment_closed':
     case 'academy.verify_rate_unset':
     case 'academy.verify_address_unset':
     case 'academy.video_captions_unpublished':
@@ -2186,6 +2189,20 @@ export function createAcademyRouter(
       .input(z.object({ pathSlug: z.string().min(1).max(64) }))
       .output(enrollmentOut)
       .mutation(({ input, ctx }) => guard(() => academy.enrollCertPath({ userId: ctx.principal!.userId, pathSlug: input.pathSlug }))),
+
+    /** AC-enrolment-01: Enrol now from a course page. A repeat while enrolled answers with the same enrolment. */
+    enrolCourse: scopedProcedure('academy:write', { module: 'academy' })
+      .input(academyEnrolCourseInputSchema)
+      .output(academyCourseEnrolmentSchema)
+      .mutation(({ input, ctx }) =>
+        guard(() => academy.enrolCourse({ userId: ctx.principal!.userId, slug: input.slug, track: input.track })),
+      ),
+
+    /** AC-enrolment-01: the terms of enrolling in a course (tracks, start date, seats, closed reason) and the caller's own enrolment. */
+    courseEnrolment: scopedProcedure('academy:read', { module: 'academy' })
+      .input(z.object({ slug: z.string().min(1).max(64) }).strict())
+      .output(academyCourseEnrolmentSchema)
+      .query(({ input, ctx }) => guard(() => academy.courseEnrolment({ userId: ctx.principal.userId, slug: input.slug }))),
 
     markCurriculumComplete: scopedProcedure('academy:write', { module: 'academy' })
       .input(z.object({ itemSlug: z.string().min(1).max(120) }))

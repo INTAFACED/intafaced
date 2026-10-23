@@ -41,6 +41,8 @@ import { randomPublicId, isPublicId } from './certs/public-id.js';
 import { ReleaseAccess } from './release/access.js';
 import { FeaturedSlot } from './curriculum/featured.js';
 import { publicCourse } from './curriculum/public-catalogue.js';
+import { assertTrackOpen, courseEnrolmentView, publishedCourse } from './curriculum/course-enrolment.js';
+import type { AcademyCourseEnrolment, AcademyEnrolmentTrack } from '@intafaced/contracts';
 import { normaliseHolderName } from './certs/holder-name.js';
 import { PROGRAMME_SLUGS } from './curriculum/programmes.js';
 import {
@@ -1655,6 +1657,29 @@ export class AcademyService {
       ...(this.options.programmeCatalog ? { catalog: this.options.programmeCatalog } : {}),
     });
     return { userId: row.userId, pathSlug: row.pathSlug, enrolledAt: row.enrolledAt };
+  }
+
+  /** AC-enrolment-01: the terms of enrolling in a course and the caller's own active enrolment in it. */
+  async courseEnrolment(input: { userId: string; slug: string }): Promise<AcademyCourseEnrolment> {
+    const path = publishedCourse(input.slug);
+    const active = (await this.customer.myEnrollments(input.userId)).find((row) => row.pathSlug === path) ?? null;
+    return courseEnrolmentView(path, active);
+  }
+
+  /**
+   * Enrol now on the free track. The certificate needs no published definition for this: the free track is the course
+   * itself. A repeat while enrolled returns the same enrolment (one active row per learner and course); programme
+   * prerequisites still apply.
+   */
+  async enrolCourse(input: { userId: string; slug: string; track: AcademyEnrolmentTrack }): Promise<AcademyCourseEnrolment> {
+    const path = publishedCourse(input.slug);
+    assertTrackOpen(input.track);
+    const row = await this.customer.enrollCertPath({
+      userId: input.userId,
+      pathSlug: path,
+      ...(this.options.programmeCatalog ? { catalog: this.options.programmeCatalog } : {}),
+    });
+    return courseEnrolmentView(path, row);
   }
 
   myCompletions(input: { userId: string; limit: number | null | undefined; cursor?: string | null }) {

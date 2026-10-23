@@ -187,6 +187,53 @@ describe('academy customer learning reads and writes', () => {
     expect(rows[0]).toEqual({ n: 2, active: 1 });
   });
 
+  it('enrols in a course on the free track once, refuses the unpriced certificate track, and keeps progress across a leave', async () => {
+    const academy = service();
+    // Markets has no published certificate, so Programmes refuses it; the free course track does not need one.
+    await expect(academy.enrollCertPath({ userId: USER, pathSlug: 'markets' })).rejects.toMatchObject({
+      code: 'academy.certificate_unpublished',
+    });
+    const before = await academy.courseEnrolment({ userId: USER, slug: 'markets' });
+    expect(before).toMatchObject({ slug: 'markets', startsAt: null, seatCap: null, seatsRemaining: null, closed: null, enrolment: null });
+    expect(before.tracks).toEqual([
+      { track: 'audit', free: true, closed: null },
+      { track: 'certificate', free: false, closed: 'no_price' },
+    ]);
+    expect(before.activationMail).toBe('vendor.email');
+    await expect(academy.enrolCourse({ userId: USER, slug: 'markets', track: 'certificate' })).rejects.toMatchObject({
+      code: 'academy.enrolment_closed',
+      message: expect.stringContaining('reason=no_price'),
+    });
+    await expect(academy.enrolCourse({ userId: USER, slug: 'no-such-course', track: 'audit' })).rejects.toMatchObject({
+      code: 'academy.course_not_found',
+    });
+    const caller = createAcademyRouter(academy).createCaller(signed());
+    const [first, second] = await Promise.all([
+      caller.enrolCourse({ slug: 'markets', track: 'audit' }),
+      caller.enrolCourse({ slug: 'markets', track: 'audit' }),
+    ]);
+    expect(first.enrolment).toMatchObject({ track: 'audit' });
+    expect(second.enrolment).toEqual(first.enrolment);
+    expect(await caller.courseEnrolment({ slug: 'markets' })).toEqual(first);
+    const active = await sql<Array<{ n: number }>>`
+      SELECT COUNT(*)::int AS n FROM academy.cert_enrollments WHERE user_id = ${USER} AND path_slug = 'markets'
+    `;
+    expect(active[0]?.n).toBe(1);
+    expect((await academy.courseEnrolment({ userId: OTHER, slug: 'markets' })).enrolment).toBeNull();
+
+    await academy.markCurriculumComplete({ userId: USER, itemSlug: 'markets-reading-the-book' });
+    await academy.leaveCertPath({ userId: USER, pathSlug: 'markets', clientRequestId: 'leave-markets' });
+    expect((await academy.courseEnrolment({ userId: USER, slug: 'markets' })).enrolment).toBeNull();
+    const again = await academy.enrolCourse({ userId: USER, slug: 'markets', track: 'audit' });
+    expect(again.enrolment).not.toBeNull();
+    expect((await academy.myCompletions({ userId: USER, limit: 10 })).items.map((row) => row.itemSlug)).toEqual([
+      'markets-reading-the-book',
+    ]);
+    await expect(createAcademyRouter(academy).createCaller(anonymous()).courseEnrolment({ slug: 'markets' })).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+    });
+  });
+
   it('refuses an unmet programme prerequisite and enrols when it is met or empty', async () => {
     const gated = service({ programmeCatalog: WITH_PREREQ, certCatalog: [FOUNDATIONS_V1, TEST_MARKETS_CERT] });
     await expect(gated.enrollCertPath({ userId: USER, pathSlug: 'markets' })).rejects.toMatchObject({

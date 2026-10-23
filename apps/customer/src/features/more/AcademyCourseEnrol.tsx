@@ -1,0 +1,172 @@
+import { useRef, useState } from 'react';
+import {
+  academyCourseEnrolmentSchema,
+  type AcademyCourseEnrolment,
+  type AcademyEnrolmentClosedReason,
+  type AcademyEnrolmentTrack,
+} from '@intafaced/contracts/academy-catalogue';
+import type { ApiResult } from '../../shared/api';
+import { useResource } from '../../shared/resource';
+import { ServiceOffNotice } from '../../shared/service-off';
+import { Loading } from '../../shared/ui';
+import { usePreferences } from '../../shared/preferences';
+import { useApi } from '../session/session';
+import { academyLmsCopy as copy } from './academy-lms-copy';
+import { formatDay } from './academy-lms';
+import { AcademyRefusal, GuardedButton } from './AcademyLmsParts';
+
+type Failure = Extract<ApiResult<never>, { ok: false }>;
+type T = (typeof copy)['t'];
+
+const CLOSED_KEYS = {
+  unpublished: 'closedUnpublished',
+  hidden: 'closedHidden',
+  no_price: 'closedNoPrice',
+  window_not_started: 'closedWindowNotStarted',
+  window_ended: 'closedWindowEnded',
+  full: 'closedFull',
+} as const satisfies Record<AcademyEnrolmentClosedReason, string>;
+const TRACK_KEYS = { audit: 'trackAudit', certificate: 'trackCertificate' } as const satisfies Record<AcademyEnrolmentTrack, string>;
+
+export const closedReasonText = (t: T, reason: AcademyEnrolmentClosedReason) => t(CLOSED_KEYS[reason]);
+
+/**
+ * Enrol now on the course page (AC-enrolment-01), signed in. The terms come from the service: tracks with their closed
+ * reasons, the start date, seats only when a cap exists. One press sends one request and the button stays off until
+ * the stored state has been read again, so the page shows what Academy recorded rather than what was asked.
+ */
+export function AcademyCourseEnrol({ slug }: { slug: string }) {
+  const api = useApi();
+  const terms = useResource(
+    (signal) => api.query('academy', 'courseEnrolment', { slug }, academyCourseEnrolmentSchema, { signal }),
+    `course-enrolment:${slug}`,
+  );
+  const [sending, setSending] = useState(false);
+  // A second press before React re-renders still finds the first one in flight: one press, one request.
+  const inFlight = useRef(false);
+  const [refusal, setRefusal] = useState<Failure | null>(null);
+  const enrol = async (track: AcademyEnrolmentTrack) => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setSending(true);
+    setRefusal(null);
+    const sent = await api.mutate('academy', 'enrolCourse', { slug, track }, academyCourseEnrolmentSchema);
+    if (!sent.ok) setRefusal(sent);
+    inFlight.current = false;
+    setSending(false);
+    terms.reload();
+  };
+  if (terms.resource.status === 'loading') return <Loading />;
+  if (terms.resource.status === 'failed') return <AcademyRefusal failure={terms.resource.failure} retry={terms.reload} />;
+  return <CourseEnrolView terms={terms.resource.data} sending={sending} refusal={refusal} onEnrol={enrol} />;
+}
+
+/** The enrol block as data says it. Pure: state arrives as props. */
+export function CourseEnrolView({
+  terms,
+  sending,
+  refusal,
+  onEnrol,
+}: {
+  terms: AcademyCourseEnrolment;
+  sending: boolean;
+  refusal: Failure | null;
+  onEnrol: (track: AcademyEnrolmentTrack) => void;
+}) {
+  const { t, Copy } = copy.useCopy();
+  const { language } = usePreferences();
+  const openTracks = terms.tracks.filter((row) => row.closed === null);
+  const [chosen, setChosen] = useState<AcademyEnrolmentTrack | null>(openTracks[0]?.track ?? null);
+  const enrolled = terms.enrolment;
+  const reason = terms.closed
+    ? closedReasonText(t, terms.closed)
+    : chosen === null
+      ? t('enrolChooseTrack')
+      : sending
+        ? t('enrolSending')
+        : null;
+  return (
+    <div className="academy-lms-stack" data-academy-enrol={terms.slug}>
+      <dl className="academy-enrol-terms">
+        <dt>
+          <Copy k="enrolStart" />
+        </dt>
+        <dd>
+          {terms.startsAt ? (
+            <time dateTime={terms.startsAt}>
+              <Copy k="enrolOpensOn" params={{ date: formatDay(terms.startsAt, language) }} />
+            </time>
+          ) : (
+            <Copy k="enrolSelfPaced" />
+          )}
+        </dd>
+        <dt>
+          <Copy k="enrolSeats" />
+        </dt>
+        <dd>
+          {terms.seatCap === null ? (
+            <Copy k="enrolSeatsNotSet" />
+          ) : (
+            <Copy k="enrolSeatsLeft" params={{ remaining: terms.seatsRemaining ?? 0, cap: terms.seatCap }} />
+          )}
+        </dd>
+      </dl>
+      {enrolled ? (
+        <>
+          <p role="status">
+            <time dateTime={enrolled.enrolledAt}>
+              <Copy k="enrolledOnTrack" params={{ track: t(TRACK_KEYS[enrolled.track]), date: formatDay(enrolled.enrolledAt, language) }} />
+            </time>
+          </p>
+          {terms.activationMail && <ServiceOffNotice code={terms.activationMail} action={t('enrolActivationMail')} role="status" />}
+        </>
+      ) : (
+        <>
+          {terms.closed && <p role="status">{closedReasonText(t, terms.closed)}</p>}
+          <fieldset className="academy-enrol-tracks">
+            <legend>
+              <Copy k="enrolTracks" />
+            </legend>
+            {terms.tracks.map((row) => {
+              const id = `academy-enrol-${terms.slug}-${row.track}`;
+              return (
+                <div key={row.track}>
+                  <label htmlFor={id}>
+                    <input
+                      id={id}
+                      type="radio"
+                      name={`academy-enrol-${terms.slug}`}
+                      value={row.track}
+                      checked={chosen === row.track}
+                      disabled={row.closed !== null || terms.closed !== null}
+                      aria-describedby={row.closed ? `${id}-closed` : undefined}
+                      onChange={() => setChosen(row.track)}
+                    />{' '}
+                    {t(TRACK_KEYS[row.track])}
+                    {row.free && (
+                      <span className="muted">
+                        {' · '}
+                        <Copy k="trackFree" />
+                      </span>
+                    )}
+                  </label>
+                  {row.closed && (
+                    <small id={`${id}-closed`} className="muted">
+                      {' '}
+                      {closedReasonText(t, row.closed)}
+                    </small>
+                  )}
+                </div>
+              );
+            })}
+          </fieldset>
+          <GuardedButton reason={reason} reasonId={`academy-enrol-${terms.slug}-reason`} onClick={() => chosen && onEnrol(chosen)}>
+            <Copy k="enrolNow" />
+          </GuardedButton>
+        </>
+      )}
+      {/* A lost reply after the enrolment was stored reads back as enrolled: the stored state wins over the failed send. */}
+      {refusal && !enrolled && <AcademyRefusal failure={refusal} />}
+    </div>
+  );
+}

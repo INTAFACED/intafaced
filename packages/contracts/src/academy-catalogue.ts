@@ -74,3 +74,55 @@ export type AcademyPublicCourseCard = z.infer<typeof academyPublicCourseCardSche
 /** `publicHub`: the item staff chose for the hub's featured slot, or null when nobody chose one. Never auto-promoted. */
 export const academyPublicHubSchema = z.object({ featured: academyCurriculumSummarySchema.nullable() });
 export type AcademyPublicHub = z.infer<typeof academyPublicHubSchema>;
+
+/**
+ * AC-enrolment-01: enrolling in one course from its page. `audit` is the free track; `certificate` is the paid track and
+ * stays closed with `no_price` until the owner publishes a price (AC-commerce-01). A closed course or track carries its
+ * reason, never a guess.
+ */
+export const ACADEMY_ENROLMENT_TRACKS = ['audit', 'certificate'] as const;
+export type AcademyEnrolmentTrack = (typeof ACADEMY_ENROLMENT_TRACKS)[number];
+export const ACADEMY_ENROLMENT_CLOSED_REASONS = [
+  'unpublished',
+  'hidden',
+  'no_price',
+  'window_not_started',
+  'window_ended',
+  'full',
+] as const;
+export type AcademyEnrolmentClosedReason = (typeof ACADEMY_ENROLMENT_CLOSED_REASONS)[number];
+
+const isoInstant = z.string().datetime({ offset: true });
+
+/**
+ * `courseEnrolment` (signed in): the terms of enrolling and the caller's own enrolment. `startsAt` null means the course
+ * is self-paced and opens when you enrol. `seatCap` null means no cap is set, and then `seatsRemaining` is null too.
+ * `activationMail` names the outside piece the activation mail needs while it is switched off; null once it is sent.
+ */
+export const academyCourseEnrolmentSchema = z
+  .object({
+    slug: z.enum(ACADEMY_CURRICULUM_PATHS),
+    startsAt: isoInstant.nullable(),
+    seatCap: z.number().int().positive().nullable(),
+    seatsRemaining: z.number().int().nonnegative().nullable(),
+    closed: z.enum(ACADEMY_ENROLMENT_CLOSED_REASONS).nullable(),
+    tracks: z
+      .array(
+        z.object({
+          track: z.enum(ACADEMY_ENROLMENT_TRACKS),
+          free: z.boolean(),
+          closed: z.enum(ACADEMY_ENROLMENT_CLOSED_REASONS).nullable(),
+        }),
+      )
+      .min(1),
+    enrolment: z.object({ track: z.enum(ACADEMY_ENROLMENT_TRACKS), enrolledAt: isoInstant }).nullable(),
+    activationMail: z.literal('vendor.email').nullable(),
+  })
+  .refine((row) => row.seatCap !== null || row.seatsRemaining === null, { message: 'seatsRemaining without a seat cap' });
+export type AcademyCourseEnrolment = z.infer<typeof academyCourseEnrolmentSchema>;
+
+/** `enrolCourse` input. A repeat while enrolled answers with the same enrolment; nothing is created twice. */
+export const academyEnrolCourseInputSchema = z
+  .object({ slug: z.string().min(1).max(64), track: z.enum(ACADEMY_ENROLMENT_TRACKS) })
+  .strict();
+export type AcademyEnrolCourseInput = z.infer<typeof academyEnrolCourseInputSchema>;
