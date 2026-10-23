@@ -119,6 +119,35 @@ describe('createTestDatabase', () => {
     }
   });
 
+  it.runIf(live)(
+    'drop() with a statement still in flight on a new connection raises no unhandled rejection',
+    async () => {
+      // A connection that has just opened looks up array types before its first statement, and postgres.js never
+      // handles that promise. drop() used to destroy the pool on the next tick, so a lookup in flight became an
+      // unhandled CONNECTION_DESTROYED and failed a suite whose tests had all passed (svc-pay custody policy suite).
+      const unhandled: unknown[] = [];
+      const record = (reason: unknown) => void unhandled.push(reason);
+      process.on('unhandledRejection', record);
+      try {
+        for (let i = 0; i < 12; i++) {
+          const db = await createTestDatabase({ service: 'trade', url: ADMIN });
+          // The pool's one open connection is busy, so the next statement opens a second one.
+          const busy = db.sql`SELECT pg_sleep(0.05)`.catch(() => undefined);
+          const late = db.sql`SELECT 1 AS one`.catch((e: unknown) => e);
+          await new Promise((r) => setTimeout(r, i % 6));
+          await db.drop();
+          await busy;
+          expect(await late).toEqual([{ one: 1 }]);
+        }
+        await new Promise((r) => setTimeout(r, 100));
+      } finally {
+        process.off('unhandledRejection', record);
+      }
+      expect(unhandled).toEqual([]);
+    },
+    60_000,
+  );
+
   it.runIf(live)('drops its database on drop(), leaving nothing behind', async () => {
     const db = await createTestDatabase({ service: 'trade', url: ADMIN });
     const admin = postgres(ADMIN, { max: 1, onnotice: () => undefined });
