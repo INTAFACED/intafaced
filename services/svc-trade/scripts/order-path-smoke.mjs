@@ -378,6 +378,85 @@ async function openMarketInMatching(contracts, marketId) {
   if (!res.ok || json?.accepted !== true)
     throw new Error(`matching open for ${marketId} not accepted ${res.status}: ${text.slice(0, 400)}`);
   log(`SEED matching open (local-test founders ${requester.handle} + ${approver.handle}, approval ${approved.approvalId})`);
+  return { requesterMfa, approverMfa };
+}
+
+/** One svc-trade tRPC call as the edge would forward it for `principal`. */
+async function tradeCall(contracts, kind, procedure, input, principal) {
+  const encoded = contracts.encodePrincipal(principal);
+  const headers = {
+    accept: 'application/json',
+    'content-type': 'application/json',
+    'x-intafaced-principal': encoded,
+    'x-intafaced-principal-sig': contracts.signPrincipalHeader(encoded, EDGE, REGION),
+    'x-intafaced-region': REGION,
+  };
+  const url = `${TRADE.replace(/\/$/, '')}/trpc/${procedure}`;
+  const res =
+    kind === 'query'
+      ? await fetch(`${url}?input=${encodeURIComponent(JSON.stringify(input))}`, { headers })
+      : await fetch(url, { method: 'POST', headers, body: JSON.stringify(input) });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`trade ${procedure} failed ${res.status}: ${text.slice(0, 400)}`);
+  return JSON.parse(text).result.data;
+}
+
+/**
+ * SMOKE RIG ONLY, not owner values: a priced order needs the pair's price band and a resting order its open-order cap
+ * (J-cex-spot-04; blank refuses trade.price_band_unset / trade.open_orders_cap_unset). The two smoke founders publish
+ * them through svc-trade's own door (admin.risk.set), one proposing and the other approving at identity, as
+ * `tooling/scripts/local-test-gates.mjs` does for the local stack. The band is wide (half the middle price either
+ * side) so a rerun's leftover quotes never push the smoke's own prices out of it.
+ */
+const SMOKE_PAIR_LIMITS = { collar: '0.5', throttle: '20' };
+
+async function publishSmokePairLimits(contracts, marketId, { requesterMfa, approverMfa }) {
+  // The founders' sessions carry an identity operator scope; svc-trade's operator desk checks `admin:*` itself.
+  const operator = { ...requesterMfa, scopes: [...new Set([...(requesterMfa.scopes ?? []), 'admin:read', 'admin:write'])] };
+  const current = await tradeCall(contracts, 'query', 'admin.risk.get', { market: marketId }, operator);
+  const fields = ['collar', 'fatFinger', 'slippageCap', 'throttle', 'circuitBreaker'];
+  const limits = Object.fromEntries(fields.map((f) => [f, SMOKE_PAIR_LIMITS[f] ?? current[f] ?? null]));
+  if (fields.every((f) => limits[f] === (current[f] ?? null))) return log(`SEED pair limits ${SYMBOL} already published`);
+  const body = { market: marketId, limits, expectedVersion: current.version, reason: 'local-test: CX-8 smoke pair limits' };
+  // The hash svc-trade recomputes on consume: canonical JSON (keys sorted, no spaces) of the action and its body.
+  const canonical = (v) =>
+    v === null || typeof v !== 'object'
+      ? JSON.stringify(v)
+      : `{${Object.keys(v)
+          .filter((k) => v[k] !== undefined)
+          .sort()
+          .map((k) => `${JSON.stringify(k)}:${canonical(v[k])}`)
+          .join(',')}}`;
+  const payloadHash = `sha256:${createHash('sha256')
+    .update(canonical({ actionType: 'trade.risk_set', ...body }))
+    .digest('hex')}`;
+  const proposed = await identityCall(
+    contracts,
+    'actionApproval.propose',
+    {
+      actionType: 'trade.risk_set',
+      targetService: 'svc-trade',
+      targetId: marketId,
+      expectedVersion: current.version,
+      payloadHash,
+      policyVersion: 'local-test:cx8-smoke-policy-v1',
+    },
+    requesterMfa,
+  );
+  const approved = await identityCall(
+    contracts,
+    'actionApproval.approve',
+    { approvalId: proposed.approvalId, expectedPayloadHash: payloadHash },
+    approverMfa,
+  );
+  const row = await tradeCall(
+    contracts,
+    'mutation',
+    'admin.risk.set',
+    { ...body, approvalId: approved.approvalId, operationId: approved.operationId },
+    operator,
+  );
+  log(`SEED pair limits ${SYMBOL} (local-test: band ${row.collar}, cap ${row.throttle}, version ${row.version})`);
 }
 
 /**
@@ -440,7 +519,8 @@ async function seedMarketAndFunds(contracts) {
     `;
     log(`SEED market ${SYMBOL}`);
     await publishSmokeLifecycleAuthority(contracts, market.id);
-    await openMarketInMatching(contracts, market.id);
+    const founders = await openMarketInMatching(contracts, market.id);
+    await publishSmokePairLimits(contracts, market.id, founders);
     await registerLocalTestTraders(contracts);
   } finally {
     await sql.end({ timeout: 2 });
