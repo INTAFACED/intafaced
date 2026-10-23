@@ -25,7 +25,7 @@ jobs:
       github.event_name == 'pull_request_target' ||
       (github.event.issue.pull_request && contains(github.event.comment.body, 'Independent review: PASS'))
     runs-on: ubuntu-latest
-    timeout-minutes: 5 # healthy run: seconds
+    timeout-minutes: 8 # healthy run: seconds; waiting out a running seal takes up to 4 min (SEAL_POLLS in the script)
     permissions:
       contents: read
       statuses: write # the `Independent review` status
