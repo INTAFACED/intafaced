@@ -68,6 +68,9 @@ export const helpCopy = defineCopy(
     requestSignInBody: 'A support request belongs to your account, so it needs a sign-in. Your search stays on this page.',
     requestSignIn: 'Sign in',
     requestSignInClose: 'Not now',
+    switchedOffTitle: 'The help centre is switched off',
+    switchedOffBody:
+      'The owner has switched the published answers off on this site, so none are shown. You can still reach a person below.',
   } as const,
   {
     es: {
