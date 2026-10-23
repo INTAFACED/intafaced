@@ -10,7 +10,7 @@ export const ACCOUNT_GAPS: readonly Unavailable[] = [
     id: 'accounts.list',
     label: 'A list or search of restricted accounts',
     reason:
-      'Identity records each restriction in the account’s control history but has no read that lists restricted accounts or searches by email or name. Inspect an account by its id.',
+      'Identity records each restriction in the account’s control history but has no read that lists restricted accounts. Find a customer by handle or email above, or inspect an account by its id.',
     need: 18,
   },
   {
