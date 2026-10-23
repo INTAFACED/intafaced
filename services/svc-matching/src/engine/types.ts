@@ -436,7 +436,6 @@ export interface EngineSurveillanceCase {
   readonly status: 'open';
 }
 
-/** What a stop order did once its trigger fired. */
 /** Why a stop fired: the reference it watches, its stop price, and the reference price that reached it. */
 export interface TriggerFact {
   readonly by: 'last' | 'mark' | 'index';
@@ -444,6 +443,10 @@ export interface TriggerFact {
   readonly reference: Amount;
 }
 
+/**
+ * What a stop order did once its trigger fired. A stop already through its price on arrival executes as the submitted
+ * order itself: its entry carries only the trigger (no fills or cancels of its own; those are on the submit result).
+ */
 export interface TriggerOutcome {
   readonly orderId: OrderId;
   /** Present when the book activated the stop; the event that says why it fired is built from it. */
@@ -477,8 +480,6 @@ export interface SubmitResult {
   readonly rejected?: RejectReason;
   readonly cancellations: readonly CancelledRef[];
   readonly triggered: readonly TriggerOutcome[];
-  /** Present when the submitted stop was already at or through its stop price, so it went to the book on arrival. */
-  readonly arrivalTrigger?: TriggerFact;
   /** Present when this submit expired a self-rest. Evidence only — not a fine. */
   readonly surveillanceCases?: readonly EngineSurveillanceCase[];
 }

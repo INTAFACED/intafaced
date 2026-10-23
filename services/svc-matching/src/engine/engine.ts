@@ -289,6 +289,7 @@ export class MatchingEngine {
     const announced = [
       ...replayed.fills.map((row) => fillEvent(row.marketId, row.fill, row.at)),
       ...replayed.holdCancels.map((row) => cancelledEvent(row.marketId, row.cancellation)),
+      ...replayed.triggers.map((row) => triggeredEvent(row.marketId, row.orderId, row.sequence, row.trigger, row.at)),
     ];
     announced.sort((a, b) => a.sequence - b.sequence);
     await this.emit(announced);
@@ -1598,9 +1599,6 @@ export class MatchingEngine {
       for (const cancellation of cancellations) events.push(cancelledEvent(marketId, cancellation));
     };
 
-    if (result.arrivalTrigger && result.sequence !== null) {
-      events.push(triggeredEvent(marketId, orderId, result.sequence, result.arrivalTrigger, at));
-    }
     collect(result.fills, result.cancellations);
     for (const triggered of result.triggered as readonly TriggerOutcome[]) {
       if (triggered.trigger) events.push(triggeredEvent(marketId, triggered.orderId, triggered.sequence, triggered.trigger, at));
@@ -1619,7 +1617,9 @@ export class MatchingEngine {
       for (const fill of triggered.fills) events.push(fillEvent(marketId, fill, at));
       for (const cancellation of triggered.cancellations) events.push(cancelledEvent(marketId, cancellation));
     }
-    return events.sort((a, b) => a.sequence - b.sequence);
+    // An amend that fires its own stop reports that stop's fills and cancels on the result and on its trigger outcome.
+    const once = events.filter((event, index) => events.findIndex((other) => other.key === event.key) === index);
+    return once.sort((a, b) => a.sequence - b.sequence);
   }
 
   private async emit(events: readonly PendingEvent[]): Promise<void> {

@@ -472,6 +472,8 @@ describe('events', () => {
 
     await engine.amend(MARKET, { orderId: stop, expectedVersion: 1, stopPrice: parseAmount('100') });
 
+    // The fill the fired stop made is published once, though the amend reports it on the result and on the trigger.
+    expect(bus.emitted('orderFilled')).toHaveLength(1);
     const triggered = bus.emitted('orderTriggered');
     expect(triggered).toHaveLength(1);
     expect(triggered[0]!.payload).toMatchObject({ orderId: stop, stopPrice: '100', referencePrice: '100' });
@@ -566,6 +568,23 @@ describe('recovery', () => {
     expect(recoveredFills.map((e) => e.idempotencyKey)).toEqual(liveFills.map((e) => e.idempotencyKey));
     expect(recoveredFills.map((e) => e.payload.sequence)).toEqual(liveFills.map((e) => e.payload.sequence));
     expect(recoveryBus.emitted('orderAccepted')).toHaveLength(0);
+  });
+
+  it('republishes a stop trigger on recovery with its original key and price', async () => {
+    const { journal, bus, engine } = build();
+    await engine.submit(MARKET, order({ account: 'b1', side: 'buy', qty: '1', price: '99' }));
+    await engine.submit(MARKET, order({ account: 'b2', side: 'buy', qty: '5', price: '98' }));
+    await engine.submit(MARKET, order({ account: 'st', type: 'stop', side: 'sell', qty: '1', stopPrice: '99' }));
+    await engine.submit(MARKET, order({ account: 'tk', side: 'sell', qty: '1', price: '99' }));
+    const live = bus.emitted('orderTriggered');
+    expect(live).toHaveLength(1);
+
+    const recoveryBus = new MemoryEventBus('svc-matching');
+    const recovered = new MatchingEngine({ journal, bus: recoveryBus, clock: fixedClock(), snapshotEvery: 0 });
+    await recovered.recover();
+    const again = recoveryBus.emitted('orderTriggered');
+    expect(again.map((e) => e.idempotencyKey)).toEqual(live.map((e) => e.idempotencyKey));
+    expect(again.map((e) => e.payload)).toEqual(live.map((e) => e.payload));
   });
 
   it('recover after journal fsync without emit republishes the same fill, not a new one', async () => {

@@ -365,9 +365,9 @@ export class OrderBook {
     const isStop = order.type === 'stop' || order.type === 'stop_limit';
     const triggersNow = isStop && (this.isTriggered(stopView(order)) || this.alreadyAtStop(stopView(order)));
     // A stop already at or through its price goes straight to the book; say so with the last price it met.
-    const arrivalTrigger: TriggerFact | null =
+    const arrival: TriggerFact | null =
       triggersNow && this.lastTradePrice !== null
-        ? { by: readTriggerBy(order), stopPrice: order.stopPrice as Amount, reference: this.lastTradePrice }
+        ? triggerFact(readTriggerBy(order), order.stopPrice as Amount, this.lastTradePrice)
         : null;
 
     if (isStop && !triggersNow) {
@@ -446,8 +446,10 @@ export class OrderBook {
       fills: outcome.fills,
       resting: outcome.resting,
       cancellations: [...displaced, ...expired, ...outcome.cancellations, ...reduceCancels, ...ocoCancels],
-      triggered,
-      ...(arrivalTrigger ? { arrivalTrigger } : {}),
+      // The arrival is reported like any other trigger, so every composer (bracket, OCO) carries it to the event.
+      triggered: arrival
+        ? [{ orderId: order.orderId, sequence, fills: [], resting: null, cancellations: [], trigger: arrival }, ...triggered]
+        : triggered,
       ...(surveillanceCases.length > 0 ? { surveillanceCases } : {}),
     };
   }
@@ -1273,7 +1275,7 @@ export class OrderBook {
 
   /** Activate a stop and record why: the reference it watches reached its stop price at `reference`. */
   private fire(stop: StopOrder, reference: Amount): TriggerOutcome {
-    return { ...this.activate(stop), trigger: { by: stop.triggerBy, stopPrice: stop.stopPrice, reference } };
+    return { ...this.activate(stop), trigger: triggerFact(stop.triggerBy, stop.stopPrice, reference) };
   }
 
   private activate(stop: StopOrder): TriggerOutcome {
@@ -2000,6 +2002,11 @@ export class OrderBook {
 
     return book;
   }
+}
+
+/** One shape for why a stop fired, whether it fired on the book or on arrival. */
+function triggerFact(by: TriggerFact['by'], stopPrice: Amount, reference: Amount): TriggerFact {
+  return { by, stopPrice, reference };
 }
 
 function collectSurveillance(fromMatch: readonly EngineSurveillanceCase[], triggered: readonly TriggerOutcome[]): EngineSurveillanceCase[] {
