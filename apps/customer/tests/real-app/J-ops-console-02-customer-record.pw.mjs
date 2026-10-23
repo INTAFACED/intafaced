@@ -5,11 +5,12 @@ import { makeContext } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { FOUNDER_VAULT_NAME } from '../../../../tooling/scripts/local-test-founders.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 
-// J-ops-console-02 step #3: /accounts/:userId shows money, trade, pay, cards and tickets tabs for one account; each read loads
-// or refuses on its own, and a part no service can read for one account names why. The account looked at is the stack's
+// J-ops-console-02 steps #3 and #4: /accounts/:userId shows the risk card (no ruleset exists, so no risk level) and the
+// money, trade, pay, cards and tickets tabs for one account; each read loads or refuses on its own, and a part no service
+// can read for one account names why. The account looked at is the stack's
 // second TEST founder, an account that always exists on the stack.
 
-test('J-ops-console-02 #3 one customer record: five tabs, each loading or refusing on its own', async ({ page }) => {
+test('J-ops-console-02 #3 #4 one customer record: the risk card, and five tabs each loading or refusing on its own', async ({ page }) => {
   test.setTimeout(240_000);
   const ctx = await makeContext({ log: () => {} });
   const vault = JSON.parse(readFileSync(path.join(ctx.paths.stateDir, FOUNDER_VAULT_NAME), 'utf8'));
@@ -23,6 +24,11 @@ test('J-ops-console-02 #3 one customer record: five tabs, each loading or refusi
   await page.waitForURL((url) => url.pathname === `/accounts/${customer}`, { timeout: 60_000 });
   await expect(page.getByTestId('customer-record-id')).toHaveText(customer);
   for (const tab of ['money', 'trade', 'pay', 'cards', 'tickets']) await expect(page.getByTestId(`customer-tab-${tab}`)).toBeVisible();
+
+  // Step #4, the risk card: no risk ruleset exists, so the record says there is no risk level and why, never a made-up score.
+  const risk = page.getByTestId('customer-risk-card');
+  await expect(risk).toContainText('Risk: No risk level');
+  await expect(risk).toContainText('No risk ruleset exists');
 
   // Money: the balance read answers or refuses in words; it is never blank.
   const balances = page.getByTestId('read-bank.customer-balances');

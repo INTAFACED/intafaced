@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { readData } from '@/lib/ops-desk/model';
 import { moduleForPage } from '@/lib/modules';
-import { CUSTOMER_TABS, customerId, customerTab, tabPlan } from './record';
+import { CUSTOMER_TABS, RISK_CARD, customerId, customerTab, tabPlan } from './record';
 
 const USER = '0b6f7a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b';
 const service = (path: string) => readFileSync(fileURLToPath(new URL(`../../../../../services/${path}`, import.meta.url)), 'utf8');
@@ -77,5 +77,13 @@ describe('what each tab reads', () => {
       shape: 'record',
     });
     expect(readData(mode!, null)).toBeNull();
+  });
+});
+
+describe('risk card', () => {
+  it('states that there is no risk level and why, with no score, band or colour', () => {
+    expect(RISK_CARD.title).toBe('No risk level');
+    expect(RISK_CARD.reason).toContain('No risk ruleset exists');
+    expect(`${RISK_CARD.title} ${RISK_CARD.reason}`).not.toMatch(/\b(low|medium|high|score of|\d+\s*\/\s*\d+)\b/i);
   });
 });

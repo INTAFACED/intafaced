@@ -32,3 +32,14 @@ export function customerTab(raw: string | string[] | undefined): CustomerTab | n
   if (raw === undefined) return 'money';
   return typeof raw === 'string' && (CUSTOMER_TABS as readonly string[]).includes(raw) ? (raw as CustomerTab) : null;
 }
+
+/**
+ * The risk card (OPS-rules-monitoring-11, J-ops-console-02 #4). A risk level comes from scoring an account against a risk
+ * ruleset on svc-pay's risk scale (OPS-rules-monitoring-02). No service holds a ruleset or a scale, so no account has a
+ * risk level: the card says so on every record and never shows a made-up score, band or colour.
+ */
+export const RISK_CARD = {
+  title: 'No risk level',
+  reason:
+    'No risk ruleset exists: svc-pay holds no risk rulesets or risk scale (OPS-rules-monitoring-02), so no account can be scored. When one is published, this card shows the level and the rules behind it.',
+} as const;
