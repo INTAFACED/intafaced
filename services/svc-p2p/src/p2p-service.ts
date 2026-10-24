@@ -739,6 +739,8 @@ export interface TradeRecord {
   fiatSentAt: Date | null;
   resolvedAt: Date | null;
   settledAt: Date | null;
+  /** The ad's terms text copied at take; later ad edits never change it. Null on orders placed before 0015. */
+  termsSnapshot: string | null;
 }
 
 export interface DisputeRecord {
@@ -799,6 +801,7 @@ interface TradeRow {
   fiat_sent_at: Date | null;
   resolved_at: Date | null;
   settled_at: Date | null;
+  terms_snapshot: string | null;
 }
 
 interface OfferRow {
@@ -4388,6 +4391,7 @@ function toTrade(row: TradeRow): TradeRecord {
     fiatSentAt: row.fiat_sent_at,
     resolvedAt: row.resolved_at,
     settledAt: row.settled_at,
+    termsSnapshot: row.terms_snapshot,
   };
 }
 
