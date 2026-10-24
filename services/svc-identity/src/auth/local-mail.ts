@@ -66,6 +66,11 @@ function localMailBody(message: LocalMailMessage): string {
   if (purpose === 'handle-recovery') {
     return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} handle=${(message.handle ?? '').replace(/\s+/g, '')}\n`;
   }
+  if (purpose === 'withdraw-address-approval') {
+    // The detail is a plain line; spaces become underscores so the line stays one field per word.
+    const detail = (message.detail ?? '').replace(/[^A-Za-z0-9.:,()_-]+/g, '_');
+    return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} detail=${detail} link=approveAddress?token=${encodeURIComponent(message.code)}\n`;
+  }
   const link =
     purpose === 'email-confirm'
       ? `confirm-email?token=${encodeURIComponent(message.code)}`

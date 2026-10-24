@@ -89,6 +89,48 @@ export const securityLockSchema = z
   })
   .strict();
 export type SecurityLockView = z.infer<typeof securityLockSchema>;
+/**
+ * A mail another service asks identity to send to a customer's own proved address (`POST /internal/mail`, service
+ * credentials). Identity holds the address, so the caller names the account and never sees or sends one. Each purpose
+ * has one link shape that identity builds from `token`, and one caller allowed to ask for it:
+ * - `withdraw-address-approval` (svc-bank, W-withdraw new-address approval): `approveAddress?token=<token>`.
+ *
+ * `key` is the caller's business key (for example `address-approval:<addressId>:<n>`). The same key with the same body
+ * answers with the first mail and sends nothing more; the same key with a different body is refused
+ * (`identity.mail_key_conflict`). `detail` is a short plain line shown in the mail (for example the network and the
+ * address's first and last characters) so the customer can see what they approve.
+ */
+export const SERVICE_MAIL_PATH = '/internal/mail' as const;
+export const serviceMailPurposeSchema = z.enum(['withdraw-address-approval']);
+export type ServiceMailPurpose = z.infer<typeof serviceMailPurposeSchema>;
+export const serviceMailRequestSchema = z
+  .object({
+    key: z
+      .string()
+      .min(8)
+      .max(200)
+      .regex(/^[A-Za-z0-9:._-]+$/),
+    userId: z.string().guid(),
+    purpose: serviceMailPurposeSchema,
+    /** The secret the link carries. Identity never logs it and clears it from its outbox once the mail is handed off. */
+    token: z
+      .string()
+      .min(16)
+      .max(256)
+      .regex(/^[A-Za-z0-9_-]+$/),
+    detail: z
+      .string()
+      .min(1)
+      .max(120)
+      .regex(/^[A-Za-z0-9 .:,()_-]+$/)
+      .optional(),
+    /** When the link stops working, as the caller enforces it. Shown in the mail; at most seven days ahead. */
+    expiresAt: z.string().datetime({ offset: true }),
+  })
+  .strict();
+export type ServiceMailRequest = z.infer<typeof serviceMailRequestSchema>;
+export const serviceMailAcceptedSchema = z.object({ accepted: z.literal(true), mailId: z.string().guid() }).strict();
+export type ServiceMailAccepted = z.infer<typeof serviceMailAcceptedSchema>;
 /** The step-up door for an unlock request (see `CUSTOMER_STEP_UP_DOORS`). Locking needs none: it only takes power away. */
 export const SECURITY_LOCK_UNLOCK_STEP_UP_SCOPE = 'identity.step_up.security_lock_unlock' as const;
 export const SECURITY_LOCK_UNLOCK_STEP_UP_PURPOSE = 'account.securityLock.unlock' as const;
