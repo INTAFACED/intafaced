@@ -13,7 +13,8 @@ export type ApprovalEndpoint =
   | '/api/more-ops'
   | '/api/protocol-ops'
   | '/api/bank-ops'
-  | '/api/identity-ops/keys';
+  | '/api/identity-ops/keys'
+  | '/api/more-ops/waves';
 
 export interface StepPayload {
   readonly step: StepName;

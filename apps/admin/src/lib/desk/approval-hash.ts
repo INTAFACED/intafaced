@@ -3,6 +3,9 @@ import { marketTargetId, poolTargetId } from '@intafaced/contracts/protocol-ops'
 import { normaliseCostAmount } from '@/lib/venue-economics/model';
 import type { DeskRequest } from './approval-packet';
 
+/** The verb svc-identity binds a waitlist wave release to (`waitlist.waves.release`). */
+export const WAVE_RELEASE_TARGET = 'waitlist.wave.release';
+
 /**
  * How a console request becomes an identity approval, and how the target service recomputes the same hash.
  *
@@ -15,6 +18,7 @@ import type { DeskRequest } from './approval-packet';
  *     and `('academy.residency.decide', { id, decision })`
  *   - svc-market takedown `marketActionPayloadHash('market.takedown', { listingId, reason })`
  *   - svc-identity key rotation `identityActionPayloadHash('identity.auth_key_rotate', { keyId })` / `('identity.auth_key_remove_old', { keyIds })`;
+ *     waitlist wave release `identityActionPayloadHash('waitlist.wave.release', { wave, size })`;
  *     account unfreeze `identityUnfreezePayloadHash` = `identityActionPayloadHash(userId, { reason })`
  *     (`{ targetId, ...fields }`: the first key is `targetId`)
  *   - svc-bank card freeze `bankActionPayloadHash('bank.ops.setCardStatus', { cardId, status })` (sorted fields, nested under `fields`;
@@ -86,6 +90,9 @@ export function payloadHashFor(request: DeskRequest): string {
       return shaIdentity('identity.auth_key_rotate', { keyId: request.keyId });
     case 'identity.auth_key.remove_old':
       return shaIdentity('identity.auth_key_remove_old', { keyIds: request.keyIds });
+    // svc-identity `waitlist.waves.release`: { targetId: 'waitlist.wave.release', wave, size }, in this order.
+    case 'campaigns.waitlist.wave_release':
+      return shaIdentity(WAVE_RELEASE_TARGET, { wave: request.wave, size: request.size });
     // svc-ops `approvalPayloadHash('ops.venue_cost.record', { period, category, amount, asset, sourceNote })`, fields in this order.
     case 'ops.venue_cost.record':
       return sha('ops.venue_cost.record', {
@@ -231,6 +238,16 @@ export function proposeInputFor(request: DeskRequest): ProposeInput {
       const verb = request.kind === 'identity.auth_key.rotate' ? 'identity.auth_key_rotate' : 'identity.auth_key_remove_old';
       return { actionType: verb, targetService: 'svc-identity', targetId: verb, expectedVersion: '1', payloadHash, policyVersion: 'v1' };
     }
+    // svc-identity consumes a wave release against its own verb as the target id, at version 1.
+    case 'campaigns.waitlist.wave_release':
+      return {
+        actionType: WAVE_RELEASE_TARGET,
+        targetService: 'svc-identity',
+        targetId: WAVE_RELEASE_TARGET,
+        expectedVersion: '1',
+        payloadHash,
+        policyVersion: 'v1',
+      };
     // svc-ops consumes against the month and line. Its target service is not on identity's operator list, so both founders are needed.
     case 'ops.venue_cost.record':
       return {
