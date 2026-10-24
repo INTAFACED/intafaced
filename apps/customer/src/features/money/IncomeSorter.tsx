@@ -1,12 +1,12 @@
 import { Button } from '../../shared/ui';
 import type { Space } from './client';
 import { amount, date, NoRows, ResourceView, Section, useBankRead, type ActionSpec } from './components';
-import type { sorterSchema } from './contracts';
+import type { sorterListSchema } from './contracts';
 import { sorterCopy } from './sorter-copy';
 import { bpToPercent, percentToBp, sorterLegs } from './sorter-model';
 import type { z } from 'zod';
 
-type Sorter = z.infer<typeof sorterSchema>;
+type Sorter = z.infer<typeof sorterListSchema>['sorters'][number];
 const RUNS_SHOWN = 5;
 const fieldName = (spaceId: string) => `share-${spaceId}`;
 
@@ -59,7 +59,7 @@ export function IncomeSorter({ spaces, open }: { spaces: Space[]; open: (spec: A
     open({
       title: t('stopTitle', { asset: sorter.assetId }),
       procedure: 'sorter.cancel',
-      facts: sorter.legs.map((leg) => [nameOf(leg.spaceId), bpToPercent(leg.shareBp)]),
+      facts: sorter.legs.map((leg) => [leg.spaceName || nameOf(leg.spaceId), bpToPercent(leg.shareBp)]),
       notes: [t('stopNote')],
       input: () => ({ sorterId: sorter.id }),
       submit: t('stop'),
@@ -112,7 +112,10 @@ export function IncomeSorter({ spaces, open }: { spaces: Space[]; open: (spec: A
 function SorterCard({ sorter, nameOf, stop }: { sorter: Sorter; nameOf: (spaceId: string) => string; stop: () => void }) {
   const { t } = sorterCopy.useCopy();
   const runs = useBankRead('sorter.runs', { sorterId: sorter.id, limit: RUNS_SHOWN });
-  const total = sorter.legs.reduce((sum, leg) => sum + leg.shareBp, 0);
+  // A share into a space archived since stays in the account, so it counts toward what stays.
+  const total = sorter.legs.filter((leg) => !leg.archived).reduce((sum, leg) => sum + leg.shareBp, 0);
+  // The bank names every target, archived ones too; the page's own list of spaces holds only live ones.
+  const spaceName = (spaceId: string) => sorter.legs.find((leg) => leg.spaceId === spaceId)?.spaceName || nameOf(spaceId);
   const status = (value: 'pending' | 'settled' | 'rejected') => t(value);
   return (
     <article className="money-record" data-testid="income-sorter-card" data-asset={sorter.assetId} data-id={sorter.id}>
@@ -124,7 +127,10 @@ function SorterCard({ sorter, nameOf, stop }: { sorter: Sorter; nameOf: (spaceId
       </header>
       <ul className="money-list">
         {sorter.legs.map((leg) => (
-          <li key={leg.spaceId}>{t('leg', { share: bpToPercent(leg.shareBp), space: nameOf(leg.spaceId) })}</li>
+          <li key={leg.spaceId} data-archived={leg.archived || undefined}>
+            {t('leg', { share: bpToPercent(leg.shareBp), space: spaceName(leg.spaceId) })}
+            {leg.archived && <span className="money-caption"> {t('archived', { space: spaceName(leg.spaceId) })}</span>}
+          </li>
         ))}
         {total < 10_000 && <li>{t('rest', { share: bpToPercent(10_000 - total) })}</li>}
       </ul>
@@ -143,7 +149,11 @@ function SorterCard({ sorter, nameOf, stop }: { sorter: Sorter; nameOf: (spaceId
                 <ul className="money-list">
                   {run.legs.map((leg) => (
                     <li key={leg.position} data-status={leg.status}>
-                      {t('runLeg', { amount: amount(leg.amount, sorter.assetId), space: nameOf(leg.spaceId), status: status(leg.status) })}
+                      {t('runLeg', {
+                        amount: amount(leg.amount, sorter.assetId),
+                        space: spaceName(leg.spaceId),
+                        status: status(leg.status),
+                      })}
                     </li>
                   ))}
                 </ul>

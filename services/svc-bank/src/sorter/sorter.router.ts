@@ -24,6 +24,11 @@ const sorterView = z.object({
   cancelledAt: z.string().nullable(),
 });
 
+/** A live sorter on the list: each leg names its space and says whether it was archived since (its share then stays). */
+const listedView = sorterView.extend({
+  legs: z.array(z.object({ spaceId: z.string(), shareBp: z.number().int(), spaceName: z.string(), archived: z.boolean() })),
+});
+
 const runView = z.object({
   id: z.string(),
   creditTransferId: z.string(),
@@ -46,11 +51,11 @@ const runView = z.object({
   ),
 });
 
-const viewOf = (sorter: IncomeSorter) => ({
+const viewOf = <S extends IncomeSorter>(sorter: S) => ({
   id: sorter.id,
   assetId: sorter.assetId,
   status: sorter.status,
-  legs: sorter.legs,
+  legs: sorter.legs as S['legs'],
   createdAt: sorter.createdAt.toISOString(),
   cancelledAt: sorter.cancelledAt?.toISOString() ?? null,
 });
@@ -83,7 +88,7 @@ export function createSorterRouter(bank: BankServices, guard: Guard) {
             z.object({ state: z.literal('set'), minCredit: amountString }),
             z.object({ state: z.literal('not_set'), code: z.literal('bank.sorter_terms_unset') }),
           ]),
-          sorters: z.array(sorterView),
+          sorters: z.array(listedView),
         }),
       )
       .query(({ ctx }) =>
