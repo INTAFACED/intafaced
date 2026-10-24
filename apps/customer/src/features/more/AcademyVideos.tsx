@@ -8,30 +8,17 @@ import { t as copyText, Text } from './copy';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import { academyPaths, lessonHrefFor, isAcademyPath } from './academy-lms';
 import { AcademyRefusal, pathLabel } from './AcademyLmsParts';
+import { AcademyVideoPlayer } from './AcademyVideoPlayer';
 
 const video = z.object({ slug: z.string(), title: z.string(), path: z.string() });
-const playbackSchema = z.object({ slug: z.string(), playbackUrl: z.string().url(), expiresAt: z.string(), grant: z.string() });
 
-/** Video library: recordings grouped by path, one player, and a way back to the matching lesson. */
+/** Video library: recordings grouped by path, the player for the chosen one, and a way back to the matching lesson. */
 export function AcademyVideos() {
   const api = useApi(),
     { userId } = useSession();
   const { t, Copy } = copy.useCopy();
   const [selected, setSelected] = useState(new URLSearchParams(window.location.search).get('video') ?? '');
   const list = useResource((signal) => api.query('academy', 'videos', undefined, z.array(video), { signal }), `videos:${userId}`);
-  const playback = useResource(
-    (signal) =>
-      selected
-        ? api.query(
-            'academy',
-            'videoPlayback',
-            { slug: selected },
-            playbackSchema.refine((p) => p.slug === selected),
-            { signal },
-          )
-        : Promise.resolve({ ok: true as const, data: null }),
-    `video:${userId}:${selected}`,
-  );
   return (
     <div className="more-columns">
       <Panel title={copyText('academy.video.library')}>
@@ -74,33 +61,12 @@ export function AcademyVideos() {
       </Panel>
       <Panel title={copyText('academy.playback')}>
         <div className="academy-lms-stack">
-          {playback.resource.status === 'failed' ? (
-            <AcademyRefusal failure={playback.resource.failure} retry={playback.reload} />
+          {selected ? (
+            <AcademyVideoPlayer key={selected} videoSlug={selected} />
           ) : (
-            <Read resource={playback.resource} retry={playback.reload} empty={copyText('academy.choose.a.video')}>
-              {(p) =>
-                p ? (
-                  Date.parse(p.expiresAt) > Date.now() && p.playbackUrl.startsWith('https:') ? (
-                    <>
-                      <video controls style={{ width: '100%' }} src={p.playbackUrl} aria-label={t('playerLabel')} />
-                      <p className="muted">
-                        <Text k="academy.playback.grant.expires" />
-                        {p.expiresAt}.
-                      </p>
-                    </>
-                  ) : (
-                    <>
-                      <p>
-                        <Text k="academy.the.playback.grant.is.expired.or.cannot" />
-                      </p>
-                      <Button variant="secondary" onClick={playback.reload}>
-                        <Copy k="requestNewLink" />
-                      </Button>
-                    </>
-                  )
-                ) : null
-              }
-            </Read>
+            <p className="muted">
+              <Text k="academy.choose.a.video" />
+            </p>
           )}
           {selected && (
             <a className="academy-learning-link" href={lessonHrefFor(selected)}>

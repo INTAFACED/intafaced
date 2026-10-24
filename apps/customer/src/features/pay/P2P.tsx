@@ -2,7 +2,6 @@ import { payCopy, PayCopy, payRefusal } from './copy';
 import { useMemo, useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { displayAmount } from '../../shared/money';
 import { Button, DataTable } from '@intafaced/ui';
 import { EmptyState, Field, Page } from './ui-kit';
 import { createPersonalPayApi, type PersonalPayApi } from './pay-api';
@@ -16,7 +15,6 @@ import {
   ReviewedAction,
   Status,
   MutationResult,
-  PayTime,
 } from './components';
 import { id, type Trade } from './schemas';
 import { useP2PView, type P2PView } from './p2p-view';
@@ -25,12 +23,13 @@ import { P2POrder } from './P2POrder';
 import { orderCopy } from './p2p-order-copy';
 import { P2PCounterparty } from './P2PCounterparty';
 import { p2pReturn } from './p2p-return';
-import { DisputeProgress, EscrowPath, OrderFilterTabs, TradeStatus } from './personal/P2PDepth';
+import { DisputeProgress, EscrowPath } from './personal/P2PDepth';
 import { OrderChat } from './personal/OrderChat';
-import { UnreadBadge, useUnreadCounts } from './personal/Unread';
 import { OfferForm } from './personal/OfferForm';
-import { filterOrders, orderCounts, type OrderFilter } from './personal/p2p-model';
+import { OrderHistory } from './personal/OrderHistory';
+import { OrderReceipt } from './personal/OrderReceipt';
 import { p2pDepth } from './personal/p2p-depth-copy';
+import { P2PEligibilityPanel } from './personal/Eligibility';
 
 export function P2P({ path }: { path: string }) {
   const view = useP2PView();
@@ -50,7 +49,7 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
   const showOrders = current === '/uc/order' || current === '/p2p/orders';
   const showMine = current === '/uc/ad' || current === '/p2p/offers';
   const showMethods = current === '/p2p/methods' || params.get('view') === 'methods';
-  const showAccess = params.get('view') === 'access';
+  const showAccess = current === '/p2p/access' || params.get('view') === 'access';
   const publish = current === '/uc/ad/create' || current === '/uc/ad/update' || current === '/p2p/offers/new';
   const counterparty = params.get('userId') ?? params.get('userid') ?? (current === '/checkuser' ? params.get('id') : null);
   const inspectionReturn = p2pReturn(params.get('returnTo'));
@@ -119,7 +118,7 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
         <a href="/p2p?view=methods" aria-current={showMethods ? 'page' : undefined}>
           <PayCopy k="paymentMethods" />
         </a>
-        <a href="/p2p?view=access" aria-current={showAccess ? 'page' : undefined}>
+        <a href="/p2p/access" aria-current={showAccess ? 'page' : undefined}>
           <PayCopy k="tradingAccess" />
         </a>
       </nav>
@@ -157,7 +156,7 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
           </EmptyState>
         )
       ) : showOrders ? (
-        <OrderList pay={pay} userId={userId} />
+        <OrderHistory pay={pay} userId={userId} />
       ) : current === '/uc/ad/update' && !id.safeParse(params.get('offerId')).success ? (
         <OfferForm pay={pay} userId={userId} mode="edit" offerId={null} />
       ) : publish ? (
@@ -166,11 +165,20 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
           <PublishAvailability pay={pay} />
         </div>
       ) : showAccess ? (
-        <TradingProgramme pay={pay} userId={userId} />
+        <div className="stack">
+          <P2PEligibilityPanel pay={pay} userId={userId} />
+          <TradingProgramme pay={pay} userId={userId} />
+        </div>
       ) : showMethods ? (
         <PaymentMethods pay={pay} userId={userId} />
+      ) : showMine ? (
+        <P2POffers pay={pay} userId={userId} mine />
       ) : (
-        <P2POffers pay={pay} userId={userId} mine={showMine} />
+        <div className="stack">
+          {/* An open ad has the same checks beside its take form; the hub lists them all. */}
+          {params.get('offerId') ? null : <P2PEligibilityPanel pay={pay} userId={userId} />}
+          <P2POffers pay={pay} userId={userId} mine={false} />
+        </div>
       )}
     </Page>
   );
@@ -228,75 +236,6 @@ function PublishAvailability({ pay }: { pay: PersonalPayApi }) {
     </div>
   );
 }
-function OrderList({ pay, userId }: { pay: PersonalPayApi; userId: string | null }) {
-  const [limit, setLimit] = useState(50);
-  const [bucket, setBucket] = useState<OrderFilter>('all');
-  const list = useResource((signal) => pay.trades(limit, signal), `pay:orders:${userId}:${limit}`);
-  return (
-    <PaySection
-      title={payCopy.t('yourOrders')}
-      description={payCopy.t('terminalStatusAndLedgerSettlementTimeStay')}
-      action={
-        <Button variant="secondary" onClick={list.reload}>
-          <PayCopy k="refreshOrders" />
-        </Button>
-      }
-    >
-      <PayState resource={list.resource} retry={list.reload} empty={payCopy.t('noP2pOrdersReturned')}>
-        {(all) => {
-          const rows = filterOrders(all, bucket);
-          return (
-            <>
-              <OrderFilterTabs value={bucket} counts={orderCounts(all)} onChange={setBucket} />
-              {rows.length === 0 ? <p className="muted">{p2pDepth.t('ordersNone')}</p> : null}
-              <OrderRows pay={pay} userId={userId} rows={rows} />
-              <PayPagination count={all.length} limit={limit} setLimit={setLimit} />
-            </>
-          );
-        }}
-      </PayState>
-    </PaySection>
-  );
-}
-function OrderRows({ pay, userId, rows }: { pay: PersonalPayApi; userId: string | null; rows: Trade[] }) {
-  const unread = useUnreadCounts(pay, rows);
-  return (
-    <DataTable
-      headers={[payCopy.t('order'), payCopy.t('you'), payCopy.t('assetQuantity'), payCopy.t('externalPayment'), payCopy.t('status'), '']}
-      label={payCopy.t('yourP2pOrders')}
-    >
-      {rows.map((trade) => (
-        <tr key={trade.id}>
-          <td>
-            {trade.id.slice(0, 8)}
-            <small className="pay-cell-note">
-              <PayTime value={trade.createdAt} />
-            </small>
-          </td>
-          <td>{trade.buyerId === userId ? payCopy.t('buy') : payCopy.t('sell')}</td>
-          <td className="numeric">
-            {displayAmount(trade.amount)} {trade.asset}
-          </td>
-          <td className="numeric">
-            {displayAmount(trade.fiatAmount)} {trade.fiatCurrency}
-          </td>
-          <td>
-            <TradeStatus status={trade.status} />
-            <small className="pay-cell-note">
-              {trade.settledAt ? payCopy.t('ledgerSettled') : payCopy.t('ledgerSettlementNotConfirmed')}
-            </small>
-          </td>
-          <td>
-            <a className="text-link" href={`/chat?tradeId=${encodeURIComponent(trade.id)}`}>
-              <PayCopy k="open2" />
-            </a>{' '}
-            <UnreadBadge count={unread[trade.id]} />
-          </td>
-        </tr>
-      ))}
-    </DataTable>
-  );
-}
 function OrderDetail({ pay, tradeId, userId }: { pay: PersonalPayApi; tradeId: string; userId: string | null }) {
   return (
     <P2POrder
@@ -309,6 +248,7 @@ function OrderDetail({ pay, tradeId, userId }: { pay: PersonalPayApi; tradeId: s
       renderSecondary={(trade, reload) => (
         <>
           <EscrowPath trade={trade} userId={userId} />
+          <OrderReceipt pay={pay} trade={trade} />
           <OrderPaymentDetails key={trade.id + ':' + trade.status} trade={trade} pay={pay} userId={userId} />
           <OrderChat pay={pay} trade={trade} userId={userId} />
           <OrderDispute trade={trade} pay={pay} reloadOrder={reload} />

@@ -44,7 +44,11 @@ export const LIMIT_FIELDS: readonly LimitFieldInfo[] = [
   },
 ];
 
-/** The five operator limits svc-trade enforces on the order path. Blank means unset: the check does nothing and no number is invented. */
+/**
+ * The operator limits svc-trade enforces on the order path: five on every market, plus what a futures order reads: the
+ * open-interest pair and the dynamic price range. Blank means unset: a check does nothing (an open-interest limit
+ * refuses every futures open, and a blank range leaves the static band) and no number is invented.
+ */
 export type OperatorLimitField = keyof RiskLimitValues;
 
 export interface EngineCheck {
@@ -55,6 +59,11 @@ export interface EngineCheck {
   /** How the value is written, one line. */
   readonly unit: string;
   readonly kind: 'decimal' | 'integer';
+  /**
+   * Read by the futures order path only. On other markets the room shows it as not applying and never sends it, so the
+   * service keeps whatever it holds.
+   */
+  readonly futuresOnly?: true;
 }
 
 export const ENGINE_CHECKS: readonly EngineCheck[] = [
@@ -98,15 +107,88 @@ export const ENGINE_CHECKS: readonly EngineCheck[] = [
     unit: 'Whole number.',
     kind: 'integer',
   },
+  {
+    id: 'open_interest_limit',
+    field: 'oiLimit',
+    name: 'Open-interest limit',
+    what: 'The most open interest the market may carry: open positions plus what live opening orders can still fill. An open past it is refused with the room left. While blank, every futures open on the market is refused. Closing is never refused.',
+    unit: 'In the base asset, up to 18 places.',
+    kind: 'decimal',
+    futuresOnly: true,
+  },
+  {
+    id: 'open_interest_share',
+    field: 'oiShareBps',
+    name: 'Open-interest share per account',
+    what: 'The largest part of the open-interest limit one account may hold. An open past it is refused with the room left. While blank, every futures open on the market is refused.',
+    unit: 'Whole basis points, 1 to 10000: 1000 is 10%.',
+    kind: 'integer',
+    futuresOnly: true,
+  },
+  {
+    id: 'price_range_max',
+    field: 'priceRangeMax',
+    name: 'Price range: widest band',
+    what: 'While the futures price trades away from the mark, new orders may be priced inside a band wider than the usual one, but never wider than this. Resting orders keep the band they were accepted under. Set with the trigger and the cadence; with all three blank the band is the usual one.',
+    unit: 'A fraction of the mark above 0 and below 1: 0.2 is 20%.',
+    kind: 'decimal',
+    futuresOnly: true,
+  },
+  {
+    id: 'price_range_trigger',
+    field: 'priceRangeTrigger',
+    name: 'Price range: trigger',
+    what: 'How far the middle of the futures book must be from the mark before the band widens. Past it, the band is the usual one plus that distance.',
+    unit: 'A fraction of the mark, 0 up to below 1: 0.01 is 1%.',
+    kind: 'decimal',
+    futuresOnly: true,
+  },
+  {
+    id: 'price_range_cadence',
+    field: 'priceRangeCadenceSeconds',
+    name: 'Price range: cadence',
+    what: 'How often the band is worked out again. A band not worked out within two cadences (or two runs of the futures jobs, when those are slower) falls back to the usual one.',
+    unit: 'Whole seconds, 1 to 86400.',
+    kind: 'integer',
+    futuresOnly: true,
+  },
 ];
+
+/** The three values of the dynamic price range: all set, or all blank. */
+export const PRICE_RANGE_FIELDS = ['priceRangeMax', 'priceRangeTrigger', 'priceRangeCadenceSeconds'] as const;
+
+/** Whether a check applies to a market of this kind, so the room offers and sends it there. */
+export function appliesTo(check: EngineCheck, kind: MarketRow['kind'] | undefined): boolean {
+  return !check.futuresOnly || kind === 'futures';
+}
+
+/** The form values to send for a market of this kind: a check that does not apply is left out, never sent blank. */
+export function valuesFor(
+  values: Readonly<Record<OperatorLimitField, string>>,
+  kind: MarketRow['kind'] | undefined,
+): Partial<Record<OperatorLimitField, string>> {
+  return Object.fromEntries(ENGINE_CHECKS.filter((c) => appliesTo(c, kind)).map((c) => [c.field, values[c.field]]));
+}
 
 const LIMIT_DEC = /^(?:0|[1-9]\d*)(?:\.\d{1,18})?$/;
 const LIMIT_INT = /^(?:0|[1-9]\d*)$/;
+/** The ledger's amount column holds below 10^20 whole units at 18 places, so a longer whole part cannot be stored. */
+const LEDGER_WHOLE_DIGITS = 20;
+
+type FuturesOnlyField = 'oiLimit' | 'oiShareBps' | (typeof PRICE_RANGE_FIELDS)[number];
+/**
+ * What `admin.risk.set` takes: the five limits always, and the futures-only values only when they are sent. One left out
+ * keeps its current value, so a form or approval that never knew of it cannot clear it.
+ */
+export type RiskLimitsWrite = Omit<RiskLimitValues, FuturesOnlyField> & Partial<Pick<RiskLimitValues, FuturesOnlyField>>;
+
+/** Above 0 and below 1, up to 18 places. */
+const FRACTION_BELOW_ONE = /^0\.\d{1,18}$/;
 
 /** The write svc-trade `admin.risk.set` takes, once the form has checked it. */
 export interface RiskSetBody {
   readonly market: string;
-  readonly limits: RiskLimitValues;
+  readonly limits: RiskLimitsWrite;
   readonly expectedVersion: string;
   readonly reason: string;
 }
@@ -116,36 +198,73 @@ export type RiskSetCheck =
 
 /**
  * Check a change to the operator limits of one market against the version the desk read. A blank field is unset (null);
- * nothing is filled in. Mirrors the service's own rules so a bad value is refused here, with the same words, before a
+ * nothing is filled in. A missing one of the five is blank too; a missing futures-only field is left out of the write,
+ * so the service keeps it. Mirrors the service's own rules so a bad value is refused here, with the same words, before a
  * proposal is made. The service checks again.
  */
 export function checkRiskSet(
   current: RiskCurrent,
-  values: Readonly<Record<OperatorLimitField, string>>,
+  values: Readonly<Partial<Record<OperatorLimitField, string>>>,
   reasonInput: unknown,
 ): RiskSetCheck {
-  const next: Record<OperatorLimitField, string | null> = {
-    collar: null,
-    fatFinger: null,
-    slippageCap: null,
-    throttle: null,
-    circuitBreaker: null,
-  };
+  const next: Partial<Record<OperatorLimitField, string | null>> = {};
   for (const check of ENGINE_CHECKS) {
-    const raw = (values[check.field] ?? '').trim();
+    const sent = values[check.field];
+    if (sent === undefined && check.futuresOnly) continue;
+    const raw = (sent ?? '').trim();
+    next[check.field] = null;
     if (raw === '') continue;
     const good = check.kind === 'decimal' ? LIMIT_DEC.test(raw) : LIMIT_INT.test(raw);
     if (!good) return { ok: false, code: 'risk_limits.bad_value', message: `${check.name}: ${check.unit} No signs, exponents or spaces.` };
     if (check.field === 'slippageCap' && (Number(raw) < 1 || Number(raw) > 5000))
       return { ok: false, code: 'risk_limits.bad_value', message: 'Slippage cap must be a whole number of basis points from 1 to 5000.' };
+    if (check.field === 'oiShareBps' && (Number(raw) < 1 || Number(raw) > 10_000))
+      return {
+        ok: false,
+        code: 'risk_limits.bad_value',
+        message: 'Open-interest share must be a whole number of basis points from 1 to 10000.',
+      };
+    if (check.field === 'oiLimit' && raw.split('.')[0]!.length > LEDGER_WHOLE_DIGITS)
+      return {
+        ok: false,
+        code: 'risk_limits.bad_value',
+        message: `Open-interest limit must have at most ${LEDGER_WHOLE_DIGITS} digits before the point.`,
+      };
+    if (check.field === 'priceRangeMax' && !(FRACTION_BELOW_ONE.test(raw) && /[1-9]/.test(raw)))
+      return {
+        ok: false,
+        code: 'risk_limits.bad_value',
+        message: 'Price range widest band must be a fraction of the mark above 0 and below 1, for example 0.2.',
+      };
+    if (check.field === 'priceRangeTrigger' && !(raw === '0' || FRACTION_BELOW_ONE.test(raw)))
+      return {
+        ok: false,
+        code: 'risk_limits.bad_value',
+        message: 'Price range trigger must be a fraction of the mark from 0 up to below 1, for example 0.01.',
+      };
+    if (check.field === 'priceRangeCadenceSeconds' && (Number(raw) < 1 || Number(raw) > 86_400))
+      return {
+        ok: false,
+        code: 'risk_limits.bad_value',
+        message: 'Price range cadence must be a whole number of seconds from 1 to 86400.',
+      };
     next[check.field] = raw;
   }
-  const unchanged = ENGINE_CHECKS.every((c) => next[c.field] === current[c.field]);
+  // The range only works whole: as it would stand after this write (a value left out keeps the current one).
+  const range = PRICE_RANGE_FIELDS.map((f) => (next[f] === undefined ? current[f] : next[f]));
+  const rangeSet = range.filter((v) => v !== null).length;
+  if (rangeSet !== 0 && rangeSet !== PRICE_RANGE_FIELDS.length)
+    return {
+      ok: false,
+      code: 'risk_limit_not_exact',
+      message: 'The price range is the widest band, the trigger and the cadence together: set all three, or clear all three.',
+    };
+  const unchanged = ENGINE_CHECKS.every((c) => next[c.field] === undefined || next[c.field] === current[c.field]);
   if (unchanged) return { ok: false, code: 'risk_limits.no_change', message: 'These are already the current limits.' };
   const reason = typeof reasonInput === 'string' ? reasonInput.trim() : '';
   if (reason.length < 12 || reason.length > 500)
     return { ok: false, code: 'risk_limits.bad_reason', message: 'The reason must be 12 to 500 characters; it is kept in the audit.' };
-  return { ok: true, body: { market: current.marketId, limits: next, expectedVersion: current.version, reason } };
+  return { ok: true, body: { market: current.marketId, limits: next as RiskLimitsWrite, expectedVersion: current.version, reason } };
 }
 
 /** The text of each limit as the form shows it: unset is an empty box, never a zero. */
@@ -154,7 +273,7 @@ export function limitText(value: string | null): string {
 }
 
 export const FUTURES_NOTE =
-  'Futures limits, auto-deleveraging (ADL) and the insurance fund are not shown: futures are switched off (TRADE_FUTURES_ENABLED stays off), so there is nothing to read or change. Operator controls for them are not built.';
+  'The open-interest limit, the per-account share and the dynamic price range are set with the operator limits on a futures market. With either open-interest value blank, every futures open on that market is refused; with the price range blank, new orders keep the usual band. On other markets they are shown as not applying. Auto-deleveraging (ADL) and the insurance fund have no operator controls in this room.';
 
 // ── exact decimal helpers (BigInt, no floats) ────────────────────────────────
 

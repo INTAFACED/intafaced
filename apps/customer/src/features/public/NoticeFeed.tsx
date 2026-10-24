@@ -29,6 +29,12 @@ function NoticeCard({ notice, link }: { notice: Notice; link: boolean }) {
       <h2>{notice.title}</h2>
       <p className="muted">
         {t(`kind_${notice.kind}` as const)}
+        {notice.category ? (
+          <>
+            {' · '}
+            <span data-testid="notice-category">{notice.category.name}</span>
+          </>
+        ) : null}
         {phase ? ` · ${t(`maintenance_${phase}` as const)}` : ''}
         {notice.publishedAt ? ` · ${t('published', { date: day(notice.publishedAt) ?? '' })}` : ''}
         {from || to ? ` · ${t('window', { from: from ?? t('windowNotSet'), to: to ?? t('windowNotSet') })}` : ''}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react';
 import { AmountInput, Button, confirmWithStepUp, refusalCopy, useSession } from './deps';
 import type { ApiResult } from './deps';
 import { payCopy } from './copy';
@@ -9,7 +9,9 @@ import { createGlobalApi } from './global-api';
 import {
   amountProblem,
   askedField,
+  canRecall,
   destinationsFrom,
+  hasLeft,
   progressOf,
   recipientKey,
   type ComplianceField,
@@ -17,6 +19,7 @@ import {
   proofProblem,
   type GlobalHold,
   type GlobalQuote,
+  type GlobalReceipt,
   type GlobalSend,
   type Recipient,
   type SendDraft,
@@ -60,10 +63,19 @@ const toBase64 = (file: File): Promise<string> =>
  * The banner on a held send: what the team asked for and, when it asked for a file, the upload. It says nothing about
  * why the send was held, and it offers an upload only inside the limits the service published.
  */
-function HoldPanel({ sendId, global }: { sendId: string; global: ReturnType<typeof createGlobalApi> }) {
+function HoldPanel({
+  sendId,
+  global,
+  onCancelled,
+}: {
+  sendId: string;
+  global: ReturnType<typeof createGlobalApi>;
+  onCancelled: () => void;
+}) {
   const { t: g } = globalCopy.useCopy();
   const [hold, setHold] = useState<Load<GlobalHold>>(loading);
   const [busy, setBusy] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [problem, setProblem] = useState<Say | string | null>(null);
   useEffect(() => {
     const controller = new AbortController();
@@ -108,8 +120,19 @@ function HoldPanel({ sendId, global }: { sendId: string; global: ReturnType<type
     }
   }
 
+  /** Cancelling moves nothing (nothing was taken while it is on hold), so it needs no confirmation code. */
+  async function cancel() {
+    setCancelling(true);
+    setProblem(null);
+    const result = await global.cancel(sendId);
+    setCancelling(false);
+    if (result.ok) onCancelled();
+    else setProblem(sayFor(result.code, result.message));
+  }
+
   const data = hold.state === 'ready' ? hold.data : null;
   const shown = typeof problem === 'string' ? { title: problem, body: '' } : problem;
+  const open = data !== null && (data.state === 'requested' || data.state === 'under_review');
   return (
     <div className="pay-block" role="status" data-testid="global-hold">
       <h4 className="pay-section-title">{g('holdTitle')}</h4>
@@ -136,11 +159,144 @@ function HoldPanel({ sendId, global }: { sendId: string; global: ReturnType<type
           <p className="pay-hint">{g('holdOff')}</p>
         )
       ) : null}
+      {data ? (
+        <p className="pay-hint" data-testid="global-hold-autocancel">
+          {data.autoCancel.state === 'published' && data.autoCancel.at
+            ? g('holdCancelAt', { time: data.autoCancel.at })
+            : g('holdCancelUnset', { code: 'bank.global_hold_cancel_unset' })}
+        </p>
+      ) : null}
+      {open ? (
+        <Button variant="secondary" disabled={cancelling} onClick={() => void cancel()} data-testid="global-cancel">
+          {cancelling ? g('cancelling') : g('cancelSend')}
+        </Button>
+      ) : null}
       {shown ? (
         <p className="pay-problem" role="alert">
           {shown.title} {shown.body}
         </p>
       ) : null}
+    </div>
+  );
+}
+
+/** Hands the receipt to the browser as a file, named as the service named it. */
+function saveFile(receipt: GlobalReceipt) {
+  const url = URL.createObjectURL(new Blob([receipt.text], { type: 'text/plain;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = receipt.fileName;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+/** The signed receipt of a send that left: downloaded as a file, with its ledger record and hash shown beside it. */
+function ReceiptPanel({ sendId, global }: { sendId: string; global: ReturnType<typeof createGlobalApi> }) {
+  const { t: g } = globalCopy.useCopy();
+  const [receipt, setReceipt] = useState<Load<GlobalReceipt> | null>(null);
+  async function download() {
+    setReceipt(loading);
+    const result = await global.receipt(sendId);
+    setReceipt(settle(result));
+    if (result.ok) saveFile(result.data);
+  }
+  return (
+    <div data-testid="global-receipt">
+      <Button variant="secondary" disabled={receipt?.state === 'loading'} onClick={() => void download()}>
+        {g('receipt')}
+      </Button>
+      {receipt?.state === 'ready' ? (
+        <p className="pay-hint">
+          <span data-testid="global-receipt-ledger">{g('receiptLedger', { id: receipt.data.ledgerTxId })}</span>
+          <br />
+          <span data-testid="global-receipt-hash">{g('receiptHash', { hash: receipt.data.sha256 })}</span>
+          <br />
+          <span>{g('receiptSigned', { signature: receipt.data.signature })}</span>
+        </p>
+      ) : null}
+      {receipt?.state === 'failed' ? (
+        <p className="pay-problem" role="alert">
+          {sayFor(receipt.code, receipt.message).title} {sayFor(receipt.code, receipt.message).body}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/** The word for each state a send can be in: the compiler checks every state has one. */
+const STATUS_WORD = {
+  submitted: 'statusSubmitted',
+  held: 'statusHeld',
+  sent: 'statusSent',
+  on_the_way: 'statusOnTheWay',
+  arrived: 'statusArrived',
+  failed: 'statusFailed',
+  cancelled: 'statusCancelled',
+  returned: 'statusReturned',
+  refunded: 'statusRefunded',
+} as const satisfies Record<GlobalSend['status'], string>;
+
+/**
+ * Sent to the wrong person or with wrong details: says what can be asked (the receiving bank must agree, it is not
+ * guaranteed, and it takes time) and keeps the customer's request on the send. Nothing moves from here.
+ */
+function RecallPanel({ send, global, onAsked }: { send: GlobalSend; global: ReturnType<typeof createGlobalApi>; onAsked: () => void }) {
+  const { t: g } = globalCopy.useCopy();
+  const id = useId();
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<Say | null>(null);
+  if (send.recallReason) {
+    return (
+      <p className="pay-hint" data-testid="global-recall-status">
+        {canRecall(send.status) ? g('recallAsked', { reason: send.recallReason }) : g('recallAnswered', { reason: send.recallReason })}
+      </p>
+    );
+  }
+  if (!canRecall(send.status)) return null;
+  async function ask(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setProblem(null);
+    const result = await global.recall({ id: send.id, reason: reason.trim() });
+    setBusy(false);
+    if (result.ok) onAsked();
+    else setProblem(sayFor(result.code, result.message));
+  }
+  return (
+    <div data-testid="global-recall">
+      {open ? (
+        <form className="pay-block" noValidate onSubmit={(event) => void ask(event)}>
+          <h4 className="pay-section-title">{g('recallTitle')}</h4>
+          <p className="pay-hint" data-testid="global-recall-what">
+            {g('recallWhat')}
+          </p>
+          <label className="pay-field__label" htmlFor={id}>
+            {g('recallReason')}
+          </label>
+          <textarea
+            id={id}
+            className="pay-text"
+            maxLength={500}
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+            data-testid="global-recall-reason"
+          />
+          <Button type="submit" variant="secondary" disabled={busy || !reason.trim()} data-testid="global-recall-send">
+            {busy ? g('recallSending') : g('recallSend')}
+          </Button>
+          {problem ? (
+            <p className="pay-problem" role="alert">
+              {problem.title} {problem.body}
+            </p>
+          ) : null}
+        </form>
+      ) : (
+        <Button variant="secondary" onClick={() => setOpen(true)} data-testid="global-recall-open">
+          {g('recallOpen')}
+        </Button>
+      )}
     </div>
   );
 }
@@ -175,6 +331,15 @@ export function GlobalCard() {
       }),
     [global],
   );
+  // A TEST stand-in's label goes beside every number it gives; a failed read shows no label rather than a guess.
+  const [standIn, setStandIn] = useState<string | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    void global.partner(controller.signal).then((result) => {
+      if (!controller.signal.aborted && result.ok) setStandIn(result.data.standIn);
+    });
+    return () => controller.abort();
+  }, [global]);
   useEffect(() => {
     const controller = new AbortController();
     void global.corridors(controller.signal).then((result) => {
@@ -384,20 +549,7 @@ export function GlobalCard() {
     sourceOfFunds: g('askedSource'),
     reference: g('askedReference'),
   };
-  const statusWord = (status: GlobalSend['status']) =>
-    g(
-      status === 'submitted'
-        ? 'statusSubmitted'
-        : status === 'held'
-          ? 'statusHeld'
-          : status === 'sent'
-            ? 'statusSent'
-            : status === 'on_the_way'
-              ? 'statusOnTheWay'
-              : status === 'arrived'
-                ? 'statusArrived'
-                : 'statusFailed',
-    );
+  const statusWord = (status: GlobalSend['status']) => g(STATUS_WORD[status]);
   const unavailable = corridors.state === 'failed' ? sayFor(corridors.code, corridors.message) : null;
   const trackSteps = [g('statusSent'), g('statusOnTheWay'), g('statusArrived')];
   const limits = destination?.corridor;
@@ -408,6 +560,11 @@ export function GlobalCard() {
   return (
     <div className="pay-body" data-testid="global-card">
       {unavailable ? <Reason title={unavailable.title}>{unavailable.body}</Reason> : null}
+      {standIn ? (
+        <p className="pay-hint" role="note" data-testid="global-stand-in">
+          {g('standIn', { label: standIn })}
+        </p>
+      ) : null}
       <Steps
         items={[
           t('globalStepDestination'),
@@ -752,8 +909,20 @@ export function GlobalCard() {
             {history.data.map((row) => (
               <li key={row.id} data-status={row.status}>
                 {g('historyLine', { amount: row.amount, asset: row.assetId, currency: row.toCurrency, status: statusWord(row.status) })}
-                {row.status === 'failed' ? ` — ${g('failedWhy')}` : row.status === 'held' ? null : ` (${progressOf(row.status)}/3)`}
-                {row.status === 'held' ? <HoldPanel sendId={row.id} global={global} /> : null}
+                {row.status === 'failed'
+                  ? ` — ${g('failedWhy')}`
+                  : row.status === 'cancelled'
+                    ? ` — ${g(row.cancelledBy === 'auto' ? 'cancelledAuto' : 'cancelledByYou')}`
+                    : row.status === 'returned'
+                      ? ` — ${g('returnedBody')}`
+                      : row.status === 'refunded'
+                        ? ` — ${g('refundedBody', { amount: row.amount, asset: row.assetId })}`
+                        : row.status === 'held'
+                          ? null
+                          : ` (${progressOf(row.status)}/3)`}
+                {row.status === 'held' ? <HoldPanel sendId={row.id} global={global} onCancelled={() => void loadHistory()} /> : null}
+                {hasLeft(row.status) ? <ReceiptPanel sendId={row.id} global={global} /> : null}
+                {hasLeft(row.status) ? <RecallPanel send={row} global={global} onAsked={() => void loadHistory()} /> : null}
               </li>
             ))}
           </ul>

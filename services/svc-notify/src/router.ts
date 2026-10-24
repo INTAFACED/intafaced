@@ -2,7 +2,15 @@ import { z } from 'zod';
 import { guestNotificationsRouter } from './guests/router.js';
 import { statusPageRouter, type StatusPageDeps } from './status-page/router.js';
 import type { GuestNotificationService } from './guests/service.js';
-import { router, publicProcedure, scopedProcedure, TRPCError, STATUS_COMPONENTS_MAX } from '@intafaced/contracts';
+import {
+  router,
+  publicProcedure,
+  scopedProcedure,
+  TRPCError,
+  STATUS_COMPONENTS_MAX,
+  NOTICE_CATEGORY_ID,
+  noticeCategorySchema,
+} from '@intafaced/contracts';
 import {
   NotifyAnnouncementUnsetError,
   NotifyListLimitUnsetError,
@@ -55,6 +63,8 @@ import { QuietHoursError } from './preferences/quiet-hours.js';
 import { RecentDeliveriesError } from './preferences/recent.js';
 import {
   INCIDENT_PHASES,
+  MAINTENANCE_REMINDER_MINUTES_MAX,
+  MAINTENANCE_REMINDERS_MAX,
   NOTICE_ASSET_PATTERN,
   NOTICE_NETWORK_PATTERN,
   NoticeError,
@@ -420,6 +430,7 @@ const noticeWireOutput = z.object({
   network: z.string().nullable(),
   phase: z.enum(INCIDENT_PHASES).nullable(),
   changelog: changelogOutput.nullable(),
+  category: noticeCategorySchema.nullable(),
 });
 
 const noticeAsset = z.string().regex(NOTICE_ASSET_PATTERN);
@@ -1148,13 +1159,21 @@ export function createNotifyRouter(
           z.object({
             kind: z.enum(['announcement', 'maintenance', 'incident', 'changelog']).optional(),
             limit: z.number().int().min(1),
+            /** The id of the last notice of the page before: answers the page after it. */
+            after: z.string().uuid().optional(),
           }),
         )
         .output(z.array(noticeWireOutput))
         .query(async ({ input }) => {
           if (!notify.notices) return [];
           try {
-            return [...(await notify.notices.notices({ kind: input.kind ?? null, limit: Math.min(input.limit, NOTICES_LIST_LIMIT_MAX) }))];
+            return [
+              ...(await notify.notices.notices({
+                kind: input.kind ?? null,
+                limit: Math.min(input.limit, NOTICES_LIST_LIMIT_MAX),
+                after: input.after ?? null,
+              })),
+            ];
           } catch (err) {
             typedRefusal(err);
           }
@@ -1284,6 +1303,13 @@ export function createNotifyRouter(
             network: noticeNetwork.nullable().optional(),
             phase: z.enum(INCIDENT_PHASES).nullable().optional(),
             changelog: changelogInput.nullable().optional(),
+            reminderOffsets: z
+              .array(z.number().int().min(1).max(MAINTENANCE_REMINDER_MINUTES_MAX))
+              .max(MAINTENANCE_REMINDERS_MAX)
+              .nullable()
+              .optional(),
+            /** One id from the founders' category list (statusPage.configure noticeCategories). */
+            category: z.string().regex(NOTICE_CATEGORY_ID).nullable().optional(),
             clientRequestId: z.string().min(1).max(128),
           }),
         )
@@ -1292,6 +1318,51 @@ export function createNotifyRouter(
           if (!notify.notices) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.notices_unavailable' });
           try {
             return await notify.notices.draft(ctx.principal.userId, input);
+          } catch (err) {
+            typedRefusal(err);
+          }
+        }),
+
+      /**
+       * The founders' notice desk: drafts and published notices, newest written first, with the incident fields and the
+       * author. Drafts never leave this door; the signed-out reads list published rows only.
+       */
+      operatorNotices: scopedProcedure('admin:write', { module: 'notify' })
+        .input(
+          z.object({ kind: z.enum(['announcement', 'maintenance', 'incident', 'changelog']).optional(), limit: z.number().int().min(1) }),
+        )
+        .output(
+          z.array(
+            noticeWireOutput.extend({
+              impact: statusImpact.nullable(),
+              components: z.array(z.string()),
+              parentId: z.string().uuid().nullable(),
+              resolves: z.boolean(),
+              authorId: z.string(),
+              createdAt: z.string(),
+            }),
+          ),
+        )
+        .query(async ({ input }) => {
+          if (!notify.notices) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.notices_unavailable' });
+          try {
+            return (await notify.notices.operatorNotices({ kind: input.kind ?? null, limit: input.limit })).map((n) => ({
+              ...n,
+              components: [...n.components],
+            }));
+          } catch (err) {
+            typedRefusal(err);
+          }
+        }),
+
+      /** What identity's approval for one draft's publish has to carry: action, target, version and payload hash. */
+      noticeProposal: scopedProcedure('admin:write', { module: 'notify' })
+        .input(z.object({ id: z.string().uuid() }))
+        .output(proposalOutput.extend({ actionType: z.literal('notify.notice.publish'), targetService: z.literal('svc-notify') }))
+        .query(async ({ input }) => {
+          if (!notify.notices) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.notices_unavailable' });
+          try {
+            return await notify.notices.publishProposal(input.id);
           } catch (err) {
             typedRefusal(err);
           }

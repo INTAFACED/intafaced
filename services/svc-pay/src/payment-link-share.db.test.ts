@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
-import { createTestDatabase, postgresAvailable, type TestDatabase } from '@intafaced/db/testing';
+import { createTestDatabase, type TestDatabase } from '@intafaced/db/testing';
 import { MemoryLedger, parseAmount } from '@intafaced/ledger-client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { PayError, PayService } from './payment-service.js';
@@ -23,8 +23,6 @@ const migrations = readdirSync(drizzleDir)
   .map((name) => readFileSync(join(drizzleDir, name), 'utf8'));
 
 const OWNER = '11111111-1111-4111-8111-111111111111';
-const databaseUrl = process.env.TEST_DATABASE_URL ?? 'postgres://test:test@127.0.0.1:55432/intafaced_test';
-const available = await postgresAvailable(databaseUrl);
 
 async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
   const envUrl = process.env.TEST_DATABASE_URL?.trim();
@@ -37,8 +35,7 @@ async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> 
   return { url: container.getConnectionUri(), stop: async () => void (await container.stop()) };
 }
 
-// runIf runs this block when Postgres is up and skips only when it is absent.
-describe.runIf(available)('payment link share', () => {
+describe('payment link share', () => {
   let adminStop: () => Promise<void> = async () => undefined;
   let db: TestDatabase | undefined;
   let sql!: TestDatabase['sql'];

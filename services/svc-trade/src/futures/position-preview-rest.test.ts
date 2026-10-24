@@ -57,6 +57,9 @@ function appWith(input: {
   priceBand?: string | null;
   slippageCapBps?: number | null;
   maxOrder?: number | null;
+  riskTierFor?: Parameters<typeof registerPositionPreviewRest>[1]['riskTierFor'];
+  openInterestFor?: Parameters<typeof registerPositionPreviewRest>[1]['openInterestFor'];
+  priceBandInForce?: Parameters<typeof registerPositionPreviewRest>[1]['priceBandInForce'];
 }) {
   const app = Fastify();
   const liquidation = input.liquidation;
@@ -71,6 +74,9 @@ function appWith(input: {
     slippageCapBps: async () => (input.slippageCapBps === undefined ? 50 : input.slippageCapBps),
     maxOrder: () => (input.maxOrder === undefined ? 1000 : input.maxOrder),
     ...(liquidation === undefined ? {} : { liquidationPriceFor: async () => (liquidation === null ? null : parseAmount(liquidation)) }),
+    ...(input.riskTierFor ? { riskTierFor: input.riskTierFor } : {}),
+    ...(input.openInterestFor ? { openInterestFor: input.openInterestFor } : {}),
+    ...(input.priceBandInForce ? { priceBandInForce: input.priceBandInForce } : {}),
   });
   return app;
 }
@@ -218,6 +224,70 @@ describe('POST /api/v1/positions/preview', () => {
     await app.close();
   });
 
+  it('shows the band in force with its width and why: wider while the dynamic range has widened it (D-instruments-08)', async () => {
+    const widened = appWith({
+      mark: '100',
+      cap: '5',
+      liquidation: '80',
+      priceBandInForce: async () => ({
+        fraction: parseAmount('0.08'),
+        staticFraction: parseAmount('0.05'),
+        source: 'dynamic',
+        reason: 'widened',
+        max: parseAmount('0.2'),
+        premium: parseAmount('0.03'),
+        checkedAt: new Date('2026-10-23T12:00:30.000Z'),
+        changedAt: new Date('2026-10-23T12:00:00.000Z'),
+      }),
+    });
+    const inside = await widened.inject({
+      method: 'POST',
+      url: '/api/v1/positions/preview',
+      headers: headers(),
+      payload: { ...payload, type: 'limit', limitPrice: '107' },
+    });
+    expect(inside.json()).toMatchObject({
+      band: {
+        fraction: '0.08',
+        low: '92',
+        high: '108',
+        staticFraction: '0.05',
+        source: 'dynamic',
+        reason: 'widened',
+        max: '0.2',
+        premium: '0.03',
+        changedAt: '2026-10-23T12:00:00.000Z',
+      },
+      orderPrice: '107',
+      orderable: true,
+    });
+    const outside = await widened.inject({
+      method: 'POST',
+      url: '/api/v1/positions/preview',
+      headers: headers(),
+      payload: { ...payload, type: 'limit', limitPrice: '109' },
+    });
+    expect(outside.json().refusals).toEqual([
+      expect.objectContaining({ code: 'trade.futures_price_outside_band', message: expect.stringContaining('92 to 108') }),
+    ]);
+    await widened.close();
+    // Unwired, the static band with its reason.
+    const plain = appWith({ mark: '100', cap: '5', liquidation: '80' });
+    const res = await plain.inject({ method: 'POST', url: '/api/v1/positions/preview', headers: headers(), payload });
+    expect(res.json().band).toEqual({
+      fraction: '0.05',
+      low: '95',
+      high: '105',
+      staticFraction: '0.05',
+      source: 'static',
+      reason: 'price_range_unset',
+      max: null,
+      premium: null,
+      changedAt: null,
+    });
+    await plain.close();
+  });
+
   it('above the max-order the size line refuses and names the split; blank band and max-order refuse their own lines', async () => {
     const app = appWith({ mark: '100', cap: '5', liquidation: '80', maxOrder: 150 });
     const response = await app.inject({ method: 'POST', url: '/api/v1/positions/preview', headers: headers(), payload });
@@ -235,6 +305,168 @@ describe('POST /api/v1/positions/preview', () => {
       'trade.max_order_unset',
     ]);
     await blank.close();
+  });
+
+  it('names the margin tier the order carries the side into, and whether the order must confirm it', async () => {
+    const asked: unknown[] = [];
+    const app = appWith({
+      mark: '100',
+      cap: '5',
+      liquidation: '80',
+      riskTierFor: async (input) => {
+        asked.push({ userId: input.userId, market: input.market.id, side: input.side, size: input.size, mark: input.markPrice });
+        return {
+          currentTier: 1,
+          projectedTier: 2,
+          maintenanceBps: 100,
+          notional: parseAmount('200'),
+          confirmRequired: true,
+          tiers: 4,
+          depthNotional: parseAmount('1000'),
+        };
+      },
+    });
+    const response = await app.inject({ method: 'POST', url: '/api/v1/positions/preview', headers: headers(), payload });
+    expect(response.json()).toMatchObject({
+      riskTier: { current: 1, projected: 2, maintenanceBps: 100, maintenanceRate: '0.01', notional: '200', confirmRequired: true },
+      // Asking for a confirm is not a refusal: the order goes through once the trader names the tier.
+      orderable: true,
+      refusals: [],
+    });
+    expect(asked).toEqual([{ userId: USER, market: MARKET.id, side: 'long', size: parseAmount('2'), mark: parseAmount('100') }]);
+    await app.close();
+  });
+
+  it('an unreadable tier is named on the tier line; without a mark nothing is rated', async () => {
+    const { FuturesError } = await import('./position-service.js');
+    const unread = appWith({
+      mark: '100',
+      cap: '5',
+      liquidation: '80',
+      riskTierFor: async () => {
+        throw new FuturesError('depth unreadable', 'trade.depth_unknown', 503);
+      },
+    });
+    const response = await unread.inject({ method: 'POST', url: '/api/v1/positions/preview', headers: headers(), payload });
+    expect(response.json()).toMatchObject({
+      riskTier: null,
+      orderable: false,
+      refusals: [{ code: 'trade.depth_unknown', field: 'tier', message: 'depth unreadable' }],
+    });
+    let called = false;
+    const markless = appWith({
+      mark: null,
+      cap: '5',
+      riskTierFor: async () => {
+        called = true;
+        throw new Error('not reached');
+      },
+    });
+    const none = await markless.inject({ method: 'POST', url: '/api/v1/positions/preview', headers: headers(), payload });
+    expect(none.json().riskTier).toBeNull();
+    expect(called).toBe(false);
+    // Any other failure is named on the tier line too; the rest of the preview still answers.
+    const broken = appWith({
+      mark: '100',
+      cap: '5',
+      liquidation: '80',
+      riskTierFor: async () => {
+        throw new Error('connection reset');
+      },
+    });
+    const named = await broken.inject({ method: 'POST', url: '/api/v1/positions/preview', headers: headers(), payload });
+    expect(named.statusCode).toBe(200);
+    expect(named.json()).toMatchObject({
+      initialMargin: '50',
+      riskTier: null,
+      refusals: [{ code: 'trade.risk_tier_unavailable', field: 'tier' }],
+    });
+    await broken.close();
+    await unread.close();
+    await markless.close();
+  });
+
+  it('shows the open-interest room before Confirm, and an order past it is refused on the open-interest line', async () => {
+    const asked: unknown[] = [];
+    const room = (accountCommitted: string) => ({
+      limit: parseAmount('1000'),
+      shareBps: 1000,
+      accountCap: parseAmount('100'),
+      marketCommitted: parseAmount('300'),
+      accountCommitted: parseAmount(accountCommitted),
+      room: parseAmount('100') - parseAmount(accountCommitted),
+      binding: 'account' as const,
+    });
+    const fits = appWith({
+      mark: '100',
+      cap: '5',
+      liquidation: '80',
+      openInterestFor: async (input) => {
+        asked.push({ userId: input.userId, market: input.market.id });
+        return room('97');
+      },
+    });
+    const ok = await fits.inject({ method: 'POST', url: '/api/v1/positions/preview', headers: headers(), payload });
+    expect(ok.json()).toMatchObject({
+      openInterest: {
+        limit: '1000',
+        shareBps: 1000,
+        accountCap: '100',
+        accountCommitted: '97',
+        marketCommitted: '300',
+        room: '3',
+        binding: 'account',
+      },
+      orderable: true,
+      refusals: [],
+    });
+    expect(asked).toEqual([{ userId: USER, market: MARKET.id }]);
+    const over = appWith({ mark: '100', cap: '5', liquidation: '80', openInterestFor: async () => room('99') });
+    const refused = await over.inject({ method: 'POST', url: '/api/v1/positions/preview', headers: headers(), payload });
+    expect(refused.json()).toMatchObject({
+      openInterest: { room: '1' },
+      orderable: false,
+      refusals: [{ code: 'trade.oi_share_limit', field: 'openInterest' }],
+    });
+    expect(refused.json().refusals[0].message).toContain(`room left 1 ${MARKET.baseAsset}`);
+    await fits.close();
+    await over.close();
+  });
+
+  it('a blank open-interest limit, or a room that cannot be read, is named on its line', async () => {
+    const { FuturesError } = await import('./position-service.js');
+    const blank = appWith({
+      mark: '100',
+      cap: '5',
+      liquidation: '80',
+      openInterestFor: async () => {
+        throw new FuturesError('no open-interest limit is published', 'trade.oi_limit_unset', 503);
+      },
+    });
+    const unset = await blank.inject({ method: 'POST', url: '/api/v1/positions/preview', headers: headers(), payload });
+    expect(unset.json()).toMatchObject({
+      openInterest: null,
+      orderable: false,
+      refusals: [{ code: 'trade.oi_limit_unset', field: 'openInterest', message: 'no open-interest limit is published' }],
+    });
+    const broken = appWith({
+      mark: '100',
+      cap: '5',
+      liquidation: '80',
+      openInterestFor: async () => {
+        throw new Error('connection reset');
+      },
+    });
+    const named = await broken.inject({ method: 'POST', url: '/api/v1/positions/preview', headers: headers(), payload });
+    expect(named.statusCode).toBe(200);
+    expect(named.json()).toMatchObject({ openInterest: null, refusals: [{ code: 'trade.oi_room_unavailable', field: 'openInterest' }] });
+    // Unwired, the field is absent rather than a pretend null.
+    const unwired = appWith({ mark: '100', cap: '5', liquidation: '80' });
+    const absent = await unwired.inject({ method: 'POST', url: '/api/v1/positions/preview', headers: headers(), payload });
+    expect('openInterest' in absent.json()).toBe(false);
+    await blank.close();
+    await broken.close();
+    await unwired.close();
   });
 
   it('refuses JSON-number money inputs', async () => {

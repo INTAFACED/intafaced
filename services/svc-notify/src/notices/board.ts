@@ -5,7 +5,7 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto';
-import type { ActionApproval, ActionApprovalConsumeInput } from '@intafaced/contracts';
+import type { ActionApproval, ActionApprovalConsumeInput, NoticeCategory } from '@intafaced/contracts';
 import type { CommandLog } from '../preferences/account.js';
 import {
   ChangelogError,
@@ -48,6 +48,7 @@ export const NOTICE_NETWORK_PATTERN = /^[a-z0-9][a-z0-9-]{1,39}$/;
 export type NoticeCode =
   | 'notify.notices_unavailable'
   | 'notify.notices_limit_invalid'
+  | 'notify.notices_cursor_unknown'
   | 'notify.notice_not_found'
   | 'notify.notice_kind_unknown'
   | 'notify.notice_copy_unset'
@@ -62,6 +63,9 @@ export type NoticeCode =
   | 'notify.notice_scope_invalid'
   | 'notify.notice_phase_unset'
   | 'notify.notice_phase_invalid'
+  | 'notify.notice_incident_resolved'
+  | 'notify.notice_reminders_invalid'
+  | 'status.category_unknown'
   | ChangelogCode;
 
 export class NoticeError extends Error {
@@ -89,6 +93,8 @@ export type NoticeWire = {
   readonly phase: IncidentPhase | null;
   /** Changelog entries only: area, breaking flag, dates, examples and retirements. Null on every other kind. */
   readonly changelog: Changelog | null;
+  /** The category it was filed under, as the founders' list named it then; null for none. */
+  readonly category: NoticeCategory | null;
 };
 
 export type NoticeRow = {
@@ -116,12 +122,44 @@ export type NoticeRow = {
   phase: IncidentPhase | null;
   /** Changelog only. Null on a notice that carries none, including changelog entries written before this field. */
   changelog: Changelog | null;
+  /** The category from the founders' list, stored as written. Null, or absent on rows written before this field, for none. */
+  category?: NoticeCategory | null;
+  /**
+   * Maintenance only: minutes before the start at which subscribers are reminded, one reminder per offset. Empty (or
+   * absent on rows written before this field) means none.
+   */
+  reminderOffsets?: readonly number[];
   authorId: string;
   clientRequestId: string;
   publishClientRequestId: string | null;
   approvalId: string | null;
   createdAt: Date;
 };
+
+/** A notice as the founders' desk reads it: drafts too, with the incident fields and who wrote it. */
+export type OperatorNotice = NoticeWire & {
+  readonly reminderOffsets: readonly number[];
+  readonly impact: IncidentImpact | null;
+  readonly components: readonly StatusComponent[];
+  readonly parentId: string | null;
+  readonly resolves: boolean;
+  readonly authorId: string;
+  readonly createdAt: string;
+};
+
+/** What the second person's approval has to carry to publish one draft. */
+export type NoticePublishProposal = {
+  readonly actionType: typeof NOTICE_PUBLISH_ACTION;
+  readonly targetService: 'svc-notify';
+  readonly targetId: string;
+  readonly expectedVersion: string;
+  readonly payloadHash: string;
+};
+
+/** A bound on the open incident entries the desk carries beyond its page: a storage bound, not an owner value. */
+const OPEN_THREADS_MAX = 500;
+
+export const NOTICE_PUBLISH_ACTION = 'notify.notice.publish';
 
 export type NoticeStatusRead = {
   readonly incidents: readonly NoticeWire[];
@@ -138,6 +176,20 @@ export type FundingNotices = {
   readonly maintenance: readonly NoticeWire[];
 };
 
+/**
+ * Whether a consumed approval fails the four-eyes rule for this publisher: no second founder approved it, the approver is
+ * the one publishing or the one who asked, it was a same-person approval, or it is not in a spendable state.
+ */
+export function fourEyesRefused(approval: ActionApproval, publisherId: string): boolean {
+  return (
+    approval.approverId == null ||
+    approval.approverId === publisherId ||
+    approval.approverId === approval.requesterId ||
+    approval.kind === 'same_person' ||
+    (approval.status !== 'CONSUMED' && approval.status !== 'APPROVED')
+  );
+}
+
 export interface NoticeApprovalConsumer {
   consume(input: ActionApprovalConsumeInput): Promise<ActionApproval>;
 }
@@ -146,9 +198,25 @@ export interface NoticeStore {
   insert(row: NoticeRow): Promise<void>;
   findByDraftRequest(authorId: string, clientRequestId: string): Promise<NoticeRow | null>;
   findById(id: string): Promise<NoticeRow | null>;
-  listPublished(kind: NoticeKind | null, limit: number): Promise<readonly NoticeRow[]>;
+  /**
+   * Published rows, newest first (ties by id). With `after`, only the rows that come after that position in the same
+   * order: the next page of a paged read.
+   */
+  listPublished(kind: NoticeKind | null, limit: number, after?: NoticeCursor): Promise<readonly NoticeRow[]>;
   /** Published incident and maintenance rows, newest first, for the status feed. */
   listPublishedForStatus(limit: number): Promise<readonly NoticeRow[]>;
+  /** Published maintenance with reminder offsets that starts after `at`, soonest first: the reminder sweep's work list. */
+  listUpcomingMaintenance(at: Date, limit: number): Promise<readonly NoticeRow[]>;
+  /** Drafts and published rows, newest created first: the founders' desk. */
+  listAll(kind: NoticeKind | null, limit: number): Promise<readonly NoticeRow[]>;
+  /** Whether a published entry resolved this incident. */
+  resolved(rootId: string): Promise<boolean>;
+  /** Every published incident no published entry has resolved, with all its entries (drafts too), at most `limit` rows. */
+  openIncidentThreads(limit: number): Promise<readonly NoticeRow[]>;
+  /**
+   * Marks a draft published. For an update it holds the incident while it checks that no published entry resolved it
+   * (`notify.notice_incident_resolved`), so two publishes at once cannot both land after a resolution.
+   */
   markPublished(id: string, patch: { publishedAt: Date; approvalId: string; publishClientRequestId: string }): Promise<void>;
   approvalOutcome(approvalId: string): Promise<'published' | 'refused_same_operator' | null>;
   recordApproval(
@@ -160,6 +228,9 @@ export interface NoticeStore {
 }
 
 export const NOTICES_LIST_LIMIT_MAX = 50;
+
+/** Where a page of published notices ends: the last notice's publish time and id. */
+export type NoticeCursor = { readonly publishedAt: Date; readonly id: string };
 
 export function clampNoticeLimit(limit: number): number {
   if (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 1) {
@@ -187,6 +258,20 @@ export function toNoticeWire(row: NoticeRow): NoticeWire {
     network: row.network,
     phase: row.phase,
     changelog: row.changelog,
+    category: row.category ?? null,
+  };
+}
+
+export function toOperatorNotice(row: NoticeRow): OperatorNotice {
+  return {
+    ...toNoticeWire(row),
+    reminderOffsets: row.reminderOffsets ?? [],
+    impact: row.impact,
+    components: row.components,
+    parentId: row.parentId,
+    resolves: row.resolves,
+    authorId: row.authorId,
+    createdAt: row.createdAt.toISOString(),
   };
 }
 
@@ -212,8 +297,31 @@ function payloadHash(row: NoticeRow): string {
     ...(status ? { status } : {}),
     ...(scope ? { scope } : {}),
     ...(row.changelog ? { changelog: row.changelog } : {}),
+    ...(row.reminderOffsets?.length ? { reminders: row.reminderOffsets } : {}),
+    ...(row.category ? { category: row.category } : {}),
   });
   return `sha256:${createHash('sha256').update(payload).digest('hex')}`;
+}
+
+/** At most this many reminders on one window, each 1 minute to 30 days before its start: storage bounds, not owner values. */
+export const MAINTENANCE_REMINDERS_MAX = 10;
+export const MAINTENANCE_REMINDER_MINUTES_MAX = 43_200;
+
+/**
+ * Reminder offsets belong to maintenance alone and need its start. None given is none: no reminder is ever invented.
+ * Stored distinct and largest first, so the same offsets in another order are the same draft.
+ */
+function reminderFields(kind: NoticeKind, input: readonly number[] | null | undefined, startsAt: Date | null): number[] {
+  const offsets = [...new Set(input ?? [])].sort((a, b) => b - a);
+  if (offsets.length === 0) return [];
+  if (
+    kind !== 'maintenance' ||
+    startsAt === null ||
+    offsets.length > MAINTENANCE_REMINDERS_MAX ||
+    offsets.some((o) => !Number.isInteger(o) || o < 1 || o > MAINTENANCE_REMINDER_MINUTES_MAX)
+  )
+    throw new NoticeError('notify.notice_reminders_invalid');
+  return offsets;
 }
 
 const CHANGELOG_ROWS_MAX = 500;
@@ -261,10 +369,13 @@ export class MemoryNoticeStore implements NoticeStore {
     return this.rows.get(id) ?? null;
   }
 
-  async listPublished(kind: NoticeKind | null, limit: number): Promise<readonly NoticeRow[]> {
+  async listPublished(kind: NoticeKind | null, limit: number, after?: NoticeCursor): Promise<readonly NoticeRow[]> {
+    const order = (a: { publishedAt: Date | null; id: string }, b: { publishedAt: Date | null; id: string }) =>
+      (b.publishedAt?.getTime() ?? 0) - (a.publishedAt?.getTime() ?? 0) || a.id.localeCompare(b.id);
     return [...this.rows.values()]
       .filter((row) => row.status === 'published' && (kind == null || row.kind === kind))
-      .sort((a, b) => (b.publishedAt?.getTime() ?? 0) - (a.publishedAt?.getTime() ?? 0) || a.id.localeCompare(b.id))
+      .filter((row) => !after || order(row, after) > 0)
+      .sort(order)
       .slice(0, limit);
   }
 
@@ -275,9 +386,47 @@ export class MemoryNoticeStore implements NoticeStore {
       .slice(0, limit);
   }
 
+  async listUpcomingMaintenance(at: Date, limit: number): Promise<readonly NoticeRow[]> {
+    return [...this.rows.values()]
+      .filter(
+        (row) =>
+          row.status === 'published' &&
+          row.kind === 'maintenance' &&
+          row.startsAt !== null &&
+          row.startsAt.getTime() > at.getTime() &&
+          (row.reminderOffsets?.length ?? 0) > 0,
+      )
+      .sort((a, b) => a.startsAt!.getTime() - b.startsAt!.getTime() || a.id.localeCompare(b.id))
+      .slice(0, limit);
+  }
+
+  async listAll(kind: NoticeKind | null, limit: number): Promise<readonly NoticeRow[]> {
+    return [...this.rows.values()]
+      .filter((row) => kind == null || row.kind === kind)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || a.id.localeCompare(b.id))
+      .slice(0, limit);
+  }
+
+  async resolved(rootId: string): Promise<boolean> {
+    return [...this.rows.values()].some((row) => row.parentId === rootId && row.status === 'published' && row.resolves);
+  }
+
+  async openIncidentThreads(limit: number): Promise<readonly NoticeRow[]> {
+    const rows = [...this.rows.values()];
+    const open = new Set<string>();
+    for (const row of rows)
+      if (row.kind === 'incident' && row.parentId === null && row.status === 'published' && !(await this.resolved(row.id)))
+        open.add(row.id);
+    return rows
+      .filter((row) => open.has(row.id) || (row.parentId !== null && open.has(row.parentId)))
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || a.id.localeCompare(b.id))
+      .slice(0, limit);
+  }
+
   async markPublished(id: string, patch: { publishedAt: Date; approvalId: string; publishClientRequestId: string }): Promise<void> {
     const row = this.rows.get(id);
     if (!row || row.status !== 'draft') throw new NoticeError('notify.notice_published_immutable');
+    if (row.parentId !== null && (await this.resolved(row.parentId))) throw new NoticeError('notify.notice_incident_resolved');
     row.status = 'published';
     row.publishedAt = patch.publishedAt;
     row.approvalId = patch.approvalId;
@@ -308,7 +457,38 @@ export class NoticeBoard {
     private readonly now: () => Date = () => new Date(),
     /** The status page's own components, which a notice may name beside the built-in ones. None when no page is wired. */
     private readonly pageComponents: () => Promise<readonly string[]> = async () => [],
+    /** Told once a notice is published (status subscriptions fan it out). A failure there never undoes the publish. */
+    private readonly onPublished: (row: NoticeRow) => Promise<void> = async () => undefined,
+    /** Of these maintenance windows, the ones an operator marked completed or cancelled: no longer open, whatever their planned end. */
+    private readonly closedMaintenance: (ids: readonly string[]) => Promise<ReadonlySet<string>> = async () => new Set(),
+    /** The founders' notice categories; null when none is set, so a notice names none. */
+    private readonly noticeCategories: () => Promise<readonly NoticeCategory[] | null> = async () => null,
   ) {}
+
+  /** Published rows for the status reads, without maintenance an operator has closed. */
+  private async publishedForStatus(): Promise<readonly NoticeRow[]> {
+    const rows = await this.store.listPublishedForStatus(STATUS_FEED_ROWS_MAX);
+    const windows = rows.filter((row) => row.kind === 'maintenance').map((row) => row.id);
+    if (windows.length === 0) return rows;
+    const closed = await this.closedMaintenance(windows);
+    return closed.size === 0 ? rows : rows.filter((row) => !closed.has(row.id));
+  }
+
+  /** One maintenance notice, draft or published, or null when there is none by that id. */
+  async maintenanceNotice(id: string): Promise<NoticeRow | null> {
+    const row = await this.store.findById(id);
+    return row && row.kind === 'maintenance' ? row : null;
+  }
+
+  /** Maintenance notices, drafts too, newest written first: the founders' maintenance desk. */
+  async maintenanceRows(limit: number): Promise<readonly NoticeRow[]> {
+    return this.store.listAll('maintenance', clampNoticeLimit(limit));
+  }
+
+  /** Published windows with reminder offsets that have not started at `at`, soonest first: the reminder sweep's work list. */
+  async upcomingMaintenance(at: Date, limit: number): Promise<readonly NoticeRow[]> {
+    return this.store.listUpcomingMaintenance(at, limit);
+  }
 
   async draft(
     authorId: string,
@@ -326,6 +506,8 @@ export class NoticeBoard {
       network?: string | null;
       phase?: string | null;
       changelog?: ChangelogInput | null;
+      reminderOffsets?: readonly number[] | null;
+      category?: string | null;
       clientRequestId: string;
     },
   ): Promise<NoticeWire> {
@@ -337,6 +519,9 @@ export class NoticeBoard {
     if (!title || !body) throw new NoticeError('notify.notice_copy_unset');
     const status = await this.statusFields({ ...input, kind: input.kind });
     const changelog = changelogFields(input.kind, input.changelog);
+    const startsAt = parseOptionalInstant(input.startsAt, 'notify.notice_copy_unset');
+    const reminderOffsets = reminderFields(input.kind, input.reminderOffsets, startsAt);
+    const category = await this.categoryField(input.kind, input.category);
     const row: NoticeRow = {
       id: randomUUID(),
       kind: input.kind,
@@ -344,11 +529,13 @@ export class NoticeBoard {
       body,
       status: 'draft',
       publishedAt: null,
-      startsAt: parseOptionalInstant(input.startsAt, 'notify.notice_copy_unset'),
+      startsAt,
       endsAt: parseOptionalInstant(input.endsAt, 'notify.notice_copy_unset'),
       version: 1,
       ...status,
       changelog,
+      reminderOffsets,
+      category,
       authorId,
       clientRequestId: input.clientRequestId,
       publishClientRequestId: null,
@@ -357,6 +544,18 @@ export class NoticeBoard {
     };
     await this.store.insert(row);
     return toNoticeWire(row);
+  }
+
+  /**
+   * Categories file announcements: one must be on the founders' list as it stands, and with no list set none is. Stored
+   * with its name as listed. Incidents, maintenance and changelog entries carry their kind alone.
+   */
+  private async categoryField(kind: NoticeKind, id: string | null | undefined): Promise<NoticeCategory | null> {
+    if (id === null || id === undefined || id === '') return null;
+    if (kind !== 'announcement') throw new NoticeError('status.category_unknown');
+    const listed = (await this.noticeCategories())?.find((c) => c.id === id);
+    if (!listed) throw new NoticeError('status.category_unknown');
+    return { id: listed.id, name: listed.name };
   }
 
   /**
@@ -394,6 +593,7 @@ export class NoticeBoard {
     if (parentId !== null) {
       parent = await this.store.findById(parentId);
       if (!parent || parent.kind !== 'incident' || parent.parentId !== null) throw new NoticeError('notify.notice_parent_invalid');
+      if (await this.resolvedIncident(parentId)) throw new NoticeError('notify.notice_incident_resolved');
     }
     const scope = this.scopeFields(input, incident, resolves, parent);
     return { impact: impact as IncidentImpact | null, components: components as StatusComponent[], parentId, resolves, ...scope };
@@ -436,12 +636,84 @@ export class NoticeBoard {
     return { asset, network, phase: phase as IncidentPhase | null };
   }
 
-  async notices(input: { kind?: string | null; limit: number }): Promise<readonly NoticeWire[]> {
+  /** A resolved incident is final: a published entry closed it, and a recurrence is a new incident. */
+  private resolvedIncident(rootId: string): Promise<boolean> {
+    return this.store.resolved(rootId);
+  }
+
+  /**
+   * The founders' desk: drafts and published notices, newest written first. For incidents it also carries every entry of
+   * each incident still open, however old, so an open incident never drops off the desk that resolves it.
+   */
+  async operatorNotices(input: { kind?: string | null; limit: number }): Promise<readonly OperatorNotice[]> {
     const limit = clampNoticeLimit(input.limit);
     const kind = input.kind == null || input.kind === '' ? null : input.kind;
     if (kind != null && !isKind(kind)) throw new NoticeError('notify.notice_kind_unknown');
-    const rows = await this.store.listPublished(kind, limit);
-    return rows.map(toNoticeWire);
+    const rows = new Map((await this.store.listAll(kind, limit)).map((row) => [row.id, row]));
+    if (kind === null || kind === 'incident')
+      for (const row of await this.store.openIncidentThreads(OPEN_THREADS_MAX)) if (!rows.has(row.id)) rows.set(row.id, row);
+    return [...rows.values()].map(toOperatorNotice);
+  }
+
+  /** The exact approval a draft's publish spends: the founder asks identity for one bound to this, a different founder approves it. */
+  async publishProposal(id: string): Promise<NoticePublishProposal> {
+    const row = await this.store.findById(id);
+    if (!row) throw new NoticeError('notify.notice_not_found');
+    if (row.status === 'published') throw new NoticeError('notify.notice_published_immutable');
+    // No approval is asked for an update that could never be published.
+    if (row.parentId !== null && (await this.resolvedIncident(row.parentId))) throw new NoticeError('notify.notice_incident_resolved');
+    return {
+      actionType: NOTICE_PUBLISH_ACTION,
+      targetService: 'svc-notify',
+      targetId: row.id,
+      expectedVersion: String(row.version),
+      payloadHash: payloadHash(row),
+    };
+  }
+
+  /**
+   * Published notices, newest first. `after` is the id of the last notice of the page before: the read then answers the
+   * page that follows it. An id that is not a published notice of that kind refuses `notify.notices_cursor_unknown`
+   * rather than starting again from the top.
+   */
+  async notices(input: { kind?: string | null; limit: number; after?: string | null }): Promise<readonly NoticeWire[]> {
+    return (await this.noticesPage(input)).notices;
+  }
+
+  /** One page of `notices` and the id to read the next page after, or `null` when nothing follows this page. */
+  async noticesPage(input: {
+    kind?: string | null;
+    limit: number;
+    after?: string | null;
+  }): Promise<{ notices: readonly NoticeWire[]; next: string | null }> {
+    const limit = clampNoticeLimit(input.limit);
+    const kind = input.kind == null || input.kind === '' ? null : input.kind;
+    if (kind != null && !isKind(kind)) throw new NoticeError('notify.notice_kind_unknown');
+    let cursor: NoticeCursor | undefined;
+    if (input.after != null) {
+      const row = await this.store.findById(input.after.toLowerCase());
+      if (!row || row.status !== 'published' || row.publishedAt === null || (kind !== null && row.kind !== kind)) {
+        throw new NoticeError('notify.notices_cursor_unknown');
+      }
+      cursor = { publishedAt: row.publishedAt, id: row.id };
+    }
+    // One row more than the page says whether another page follows.
+    const rows = await this.store.listPublished(kind, limit + 1, cursor);
+    const page = rows.slice(0, limit).map(toNoticeWire);
+    return { notices: page, next: rows.length > limit ? (page.at(-1)?.id ?? null) : null };
+  }
+
+  /** A published notice as its subscriber fan-out takes it, or null when there is none by that id. */
+  async publishedForFanOut(id: string): Promise<NoticeRow | null> {
+    const row = await this.store.findById(id);
+    return row && row.status === 'published' ? row : null;
+  }
+
+  /** An incident as a postmortem needs it: unknown unless it is a published first entry, then open or resolved. */
+  async incidentState(id: string): Promise<'unknown' | 'open' | 'resolved'> {
+    const row = await this.store.findById(id);
+    if (!row || row.kind !== 'incident' || row.parentId !== null || row.status !== 'published') return 'unknown';
+    return (await this.resolvedIncident(id)) ? 'resolved' : 'open';
   }
 
   async notice(id: string): Promise<NoticeWire> {
@@ -470,7 +742,7 @@ export class NoticeBoard {
   }
 
   async noticeStatus(at: Date = this.now()): Promise<NoticeStatusRead> {
-    const published = await this.store.listPublishedForStatus(STATUS_FEED_ROWS_MAX);
+    const published = await this.publishedForStatus();
     return {
       // An incident is open until an update closes it; its updates are not listed again.
       incidents: openIncidentRoots(published, at).map(toNoticeWire),
@@ -487,7 +759,7 @@ export class NoticeBoard {
   async fundingNotices(input: { asset: string; network: string }, at: Date = this.now()): Promise<FundingNotices> {
     if (!NOTICE_ASSET_PATTERN.test(input.asset) || !NOTICE_NETWORK_PATTERN.test(input.network))
       throw new NoticeError('notify.notice_scope_invalid');
-    const published = await this.store.listPublishedForStatus(STATUS_FEED_ROWS_MAX);
+    const published = await this.publishedForStatus();
     const onScope = (row: NoticeRow) => row.asset === input.asset && row.network === input.network;
     const incidents = openIncidentRoots(published, at)
       .filter(onScope)
@@ -512,7 +784,7 @@ export class NoticeBoard {
   /** The same feed over another set of components: the public status page's own. Notices naming other components are cut to these. */
   async statusFeedFor(components: readonly string[], input: { days: number }, at: Date = this.now()): Promise<StatusFeed> {
     const days = clampStatusDays(input.days);
-    const rows = await this.store.listPublishedForStatus(STATUS_FEED_ROWS_MAX);
+    const rows = await this.publishedForStatus();
     return buildStatusFeed(rows, at, days, components);
   }
 
@@ -543,6 +815,8 @@ export class NoticeBoard {
     if (row.parentId) {
       const parent = await this.store.findById(row.parentId);
       if (!parent || parent.status !== 'published') return fail('notify.notice_parent_invalid');
+      // An update drafted before another one resolved the incident is not published after it.
+      if (await this.resolvedIncident(row.parentId)) return fail('notify.notice_incident_resolved');
     }
     if (!this.approvals) return fail('notify.notice_publish_approval_unavailable');
     const spent = await this.store.approvalOutcome(input.approvalId);
@@ -560,27 +834,28 @@ export class NoticeBoard {
     } catch {
       return fail('notify.notice_approval_spent');
     }
-    const sameOperator =
-      approval.approverId == null ||
-      approval.approverId === publisherId ||
-      approval.approverId === approval.requesterId ||
-      approval.kind === 'same_person' ||
-      (approval.status !== 'CONSUMED' && approval.status !== 'APPROVED');
-    if (sameOperator) {
+    if (fourEyesRefused(approval, publisherId)) {
       await this.store.recordApproval(input.approvalId, row.id, publisherId, 'refused_same_operator');
       return fail('notify.notice_publish_same_operator');
     }
     const recorded = await this.store.recordApproval(input.approvalId, row.id, publisherId, 'published');
     if (recorded === 'exists') return fail('notify.notice_approval_spent');
-    await this.store.markPublished(row.id, {
-      publishedAt: this.now(),
-      approvalId: input.approvalId,
-      publishClientRequestId: input.clientRequestId,
-    });
+    try {
+      await this.store.markPublished(row.id, {
+        publishedAt: this.now(),
+        approvalId: input.approvalId,
+        publishClientRequestId: input.clientRequestId,
+      });
+    } catch (err) {
+      if (err instanceof NoticeError) return fail(err.code);
+      throw err;
+    }
     const published = await this.store.findById(row.id);
     if (!published) return fail('notify.notice_not_found');
     const wire = toNoticeWire(published);
     await this.commands.put(publisherId, 'publishNotice', input.clientRequestId, { ok: true, notice: wire } satisfies PublishReplay);
+    // Fan-out runs after the answer, so a slow subscriber endpoint never holds the publish.
+    void this.onPublished(published).catch(() => console.error('notify.notice_fanout_failed', published.id));
     return wire;
   }
 }

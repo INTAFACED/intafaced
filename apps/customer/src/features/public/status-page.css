@@ -89,9 +89,71 @@
   margin: 0;
   font-size: var(--text-15);
 }
+.status-postmortem {
+  display: grid;
+  gap: var(--spacing-4);
+  padding-top: var(--spacing-8);
+  border-top: 1px solid var(--color-border);
+}
+.status-postmortem h4 {
+  margin: 0;
+  font-size: var(--text-14);
+}
+.status-postmortem__body {
+  margin: 0;
+  white-space: pre-wrap;
+}
 .status-timeline {
   margin: 0;
   padding-left: var(--spacing-20);
   display: grid;
   gap: var(--spacing-4);
+}
+
+.status-subscribe__channels {
+  margin: 0.5rem 0 1rem;
+  padding-left: 1.25rem;
+  color: var(--muted, inherit);
+}
+
+.status-subscribe__form {
+  display: grid;
+  gap: 0.75rem;
+  max-width: 32rem;
+}
+
+.status-subscribe__components {
+  display: grid;
+  gap: 0.375rem;
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.status-subscribe__component {
+  padding-left: 1.5rem;
+}
+
+.status-subscribe__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.status-subscribe__facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.25rem 1rem;
+  margin: 0 0 1rem;
+}
+
+.status-share textarea,
+.status-share input {
+  width: 100%;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.8125rem;
+}
+
+.status-share__preview {
+  margin: 0.75rem 0;
 }
