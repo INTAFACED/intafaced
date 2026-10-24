@@ -468,6 +468,15 @@ export function openSecret(sealed: string): string {
   return Buffer.concat([decipher.update(Buffer.from(parts[4] ?? '', 'base64url')), decipher.final()]).toString('utf8');
 }
 
+function sameOrigin(before: string | null, after: string | null): boolean {
+  if (before === null || after === null) return before === after;
+  try {
+    return new URL(before).origin === new URL(after).origin;
+  } catch {
+    return false;
+  }
+}
+
 function httpUrl(raw: string): string {
   let url: URL;
   try {
@@ -515,9 +524,12 @@ export function parseIntegrations(raw: unknown, previous: readonly StoredIntegra
       throw new OpsError(OPS_CHANNEL_TARGET_UNSET, 'A channel is email, sms, push, webhook, chat or paging. Nothing was saved.');
     }
     const kind = row.kind as ChannelKind;
-    const prior = previous.find((integration) => integration.id === id && integration.kind === kind);
     const address = textOrNull(row.address);
     const url = textOrNull(row.url);
+    const found = previous.find((integration) => integration.id === id && integration.kind === kind);
+    // A stored secret only goes back to the origin it was entered for. A new host must be given its secrets again,
+    // or a masked credential could be re-aimed at any server.
+    const prior = found && sameOrigin(found.url, url) ? found : undefined;
     const basicUser = textOrNull(row.basicUser);
     const basicPasswordIn = textOrNull(row.basicPassword);
     const bearerIn = textOrNull(row.bearer);

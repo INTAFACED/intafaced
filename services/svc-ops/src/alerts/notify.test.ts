@@ -8,6 +8,7 @@ import {
   OPS_MATCHER_INVALID,
   OPS_MUTE_TIMING_UNSET,
   OPS_ALERT_CHANNEL_KEY_UNSET,
+  OPS_CHANNEL_SECRET_UNSET,
   OPS_CHANNEL_TARGET_UNSET,
   OPS_IDEMPOTENCY_CONFLICT,
 } from '../codes.js';
@@ -277,6 +278,48 @@ describe('alert desk idempotency (review fixes)', () => {
       const input = { contactId: 'hook-desk', integrationId: 'hook', key: 'test-key-0003', ...who };
       await expect(store.testChannel(input)).rejects.toMatchObject({ code: OPS_ALERT_CHANNEL_KEY_UNSET });
       expect(await store.attempts('hook-desk', 10)).toEqual([]);
+    } finally {
+      if (previous === undefined) delete process.env.OPS_ALERT_CHANNEL_KEY;
+      else process.env.OPS_ALERT_CHANNEL_KEY = previous;
+    }
+  });
+});
+
+describe('alert channel secrets (security review)', () => {
+  it('does not carry a stored secret to a new host', async () => {
+    const previous = process.env.OPS_ALERT_CHANNEL_KEY;
+    process.env.OPS_ALERT_CHANNEL_KEY = 'notify-test-key';
+    const who = { actor: 'operator-1', reason: 'review fix', at: '2026-10-23T00:00:00.000Z' };
+    try {
+      const store = createMemoryNotify();
+      const hook = { id: 'hook', kind: 'webhook', bearer: 'provider-token' };
+      await store.saveContact({
+        id: 'pager',
+        name: 'Pager',
+        integrations: [{ ...hook, url: 'https://hooks.example.com/a', secret: 'signing-secret' }],
+        key: 'contact-key-10',
+        ...who,
+      });
+      // Same origin, blank secrets: kept.
+      await store.saveContact({
+        id: 'pager',
+        name: 'Pager',
+        expectedVersion: 1,
+        integrations: [{ id: 'hook', kind: 'webhook', url: 'https://hooks.example.com/b' }],
+        key: 'contact-key-11',
+        ...who,
+      });
+      // Another host, blank secrets: refused.
+      await expect(
+        store.saveContact({
+          id: 'pager',
+          name: 'Pager',
+          expectedVersion: 2,
+          integrations: [{ id: 'hook', kind: 'webhook', url: 'https://attacker.example.net/x' }],
+          key: 'contact-key-12',
+          ...who,
+        }),
+      ).rejects.toMatchObject({ code: OPS_CHANNEL_SECRET_UNSET });
     } finally {
       if (previous === undefined) delete process.env.OPS_ALERT_CHANNEL_KEY;
       else process.env.OPS_ALERT_CHANNEL_KEY = previous;
