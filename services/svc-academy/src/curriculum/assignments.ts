@@ -352,7 +352,7 @@ export class CourseAssignments {
         submittedAt: s.submitted_at.toISOString(),
         late: row.due_at !== null && s.submitted_at.getTime() > row.due_at.getTime(),
       })),
-      grade: await learnerGradeOf(sql, itemId, userId, row.points!),
+      grade: await learnerGradeOf(sql, itemId, userId),
       nextVersion: (rows[0]?.version ?? 0) + 1,
     };
   }

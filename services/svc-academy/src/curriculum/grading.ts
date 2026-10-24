@@ -57,9 +57,11 @@ type HandIn = {
 };
 
 /** The learner's newest grade, with when they read it. Null before staff grade. */
-export async function learnerGradeOf(sql: Db, itemId: string, userId: string, points: string): Promise<AcademyLearnerGrade | null> {
-  const [row] = await sql<Array<{ version: number; n: number; score: string; comment: string | null; at: Date; read_at: Date | null }>>`
-    SELECT s.version, g.n, g.score::text AS score, g.comment, g.at, r.read_at
+export async function learnerGradeOf(sql: Db, itemId: string, userId: string): Promise<AcademyLearnerGrade | null> {
+  const [row] = await sql<
+    Array<{ version: number; n: number; score: string; points: string; comment: string | null; at: Date; read_at: Date | null }>
+  >`
+    SELECT s.version, g.n, g.score::text AS score, g.points::text AS points, g.comment, g.at, r.read_at
     FROM academy.assignment_submissions s
     JOIN academy.assignment_grade_events g ON g.submission_id = s.id
     LEFT JOIN academy.assignment_feedback_reads r ON r.grade_event_id = g.id
@@ -72,7 +74,7 @@ export async function learnerGradeOf(sql: Db, itemId: string, userId: string, po
     version: row.version,
     n: row.n,
     score: canonicalPrice(row.score)!,
-    points: canonicalPrice(points)!,
+    points: canonicalPrice(row.points)!,
     comment: row.comment,
     gradedAt: row.at.toISOString(),
     readAt: row.read_at?.toISOString() ?? null,
@@ -137,8 +139,8 @@ export class AssignmentGrading {
       if (input.n > 1 && !input.reason) throw new AcademyError('changing a grade needs a reason', 'academy.reason_required');
       await this.lease(tx, handIn.submission_id, input.operatorId, input.now, seconds);
       await tx`
-        INSERT INTO academy.assignment_grade_events (submission_id, n, score, comment, actor, reason, at)
-        VALUES (${handIn.submission_id}, ${input.n}, ${input.score}, ${comment}, ${input.operatorId}, ${reason}, ${input.now})
+        INSERT INTO academy.assignment_grade_events (submission_id, n, score, points, comment, actor, reason, at)
+        VALUES (${handIn.submission_id}, ${input.n}, ${input.score}, ${handIn.points}, ${comment}, ${input.operatorId}, ${reason}, ${input.now})
       `;
       await tx`UPDATE academy.assignment_submissions SET state = 'graded' WHERE id = ${handIn.submission_id}`;
       await tx`DELETE FROM academy.assignment_grader_leases WHERE submission_id = ${handIn.submission_id}`;

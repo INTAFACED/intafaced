@@ -231,6 +231,19 @@ describe('grading hand-ins (AC-assignments-02)', () => {
     await grade(item.id, id, { n: 2, score: '9', reason: 'TEST regraded' });
     await grading().markRead({ itemId: item.id, version: 1, n: 1, userId: L, now: later(10) });
     expect((await assignments().learnerView({ itemId: item.id, userId: L })).grade).toMatchObject({ n: 2, score: '9', readAt: null });
+    // A brief saved later with other points leaves a grade out of the points it was given against.
+    await assignments().save({
+      itemId: item.id,
+      revision: 1,
+      instructions: 'Size one trade.',
+      points: '5',
+      dueAt: null,
+      text: 'required',
+      file: 'off',
+      operatorId: A,
+      now: later(11),
+    });
+    expect((await assignments().learnerView({ itemId: item.id, userId: L })).grade).toMatchObject({ score: '9', points: '10' });
     await expect(grading().markRead({ itemId: item.id, version: 1, n: 1, userId: OUTSIDER, now: NOW })).rejects.toMatchObject({
       code: 'academy.enrolment_required',
     });
