@@ -341,6 +341,7 @@ export type TakeFailure =
   | 'methodRetired'
   | 'nonInstantRefused'
   | 'buyingPaused'
+  | 'shortBalance'
   | 'ownOffer'
   | 'unavailable'
   | 'blocked'
@@ -386,6 +387,9 @@ export const DEFINITE_TAKE_CODES: ReadonlySet<string> = new Set([
   'p2p.non_instant_not_accepted',
   // Buying paused after cancelled orders: checked before anything is reserved.
   'p2p.buying_restricted',
+  // Selling into a buy ad from a short balance: the lock's only attempt was refused and the order voided, nothing held.
+  'p2p.insufficient_balance',
+  'p2p.offer_unfunded',
   'p2p.invalid_amount',
   'p2p.amount_below_min',
   'p2p.amount_above_max',
@@ -473,12 +477,15 @@ export function takeFailureKind(failure: { reason: string; code?: string; status
       return 'nonInstantRefused';
     case 'p2p.buying_restricted':
       return 'buyingPaused';
+    case 'p2p.insufficient_balance':
+      return 'shortBalance';
     case 'pay.take_own_offer':
     case 'p2p.self_trade':
       return 'ownOffer';
     case 'pay.take_offer_unavailable':
     case 'p2p.offer_not_active':
     case 'p2p.offer_not_found':
+    case 'p2p.offer_unfunded':
     case 'p2p.trading_disabled':
       return 'unavailable';
     case 'p2p.blocked':

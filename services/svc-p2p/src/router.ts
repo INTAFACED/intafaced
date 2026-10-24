@@ -601,6 +601,10 @@ function toTrpcError(err: unknown): TRPCError {
       case 'p2p.active_order_cap':
       // Buying is paused after too many cancelled orders; the error data says until when.
       case 'p2p.buying_restricted':
+      // Selling into a buy ad from a balance that falls short: nothing was held; the error data says by how much.
+      case 'p2p.insufficient_balance':
+      // A sell ad whose maker holds less than it offers: the order was voided and nothing is held.
+      case 'p2p.offer_unfunded':
       case 'p2p.idempotency_conflict':
       case 'p2p.idempotency_in_progress':
       case 'p2p.erase_blocked':

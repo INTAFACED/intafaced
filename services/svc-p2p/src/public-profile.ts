@@ -33,6 +33,8 @@ export function createIdentityPublicProfile(
       try {
         response = await fetchFn(target, {
           method: 'GET',
+          // A redirect would carry the signed request somewhere else: refuse it, as the other identity reads do.
+          redirect: 'error',
           headers: sign('', { method: 'GET', url: new URL(target), contentType: '' }),
           signal: AbortSignal.timeout(3_000),
         });

@@ -7,7 +7,6 @@ import { describe, expect, it, beforeAll, beforeEach, afterAll } from 'vitest';
 import { MemoryEventBus, type Envelope, type EventName, type Payload, type PublishOptions } from '@intafaced/events';
 import {
   MemoryLedger,
-  InsufficientFundsError,
   formatAmount,
   parseAmount as amt,
   recipes,
@@ -677,6 +676,32 @@ describe('svc-p2p escrow', () => {
 
       await p2p.confirmFiatReceived(trade.id, TAKER);
       expect(await availableOf(MAKER)).toBe('99');
+      await expectBooksClosed();
+    });
+
+    it('refuses a TAKER selling into a buy offer from a short balance with their own figures, and holds nothing (J-p2p-02 #2)', async () => {
+      await fund(TAKER, '30');
+      const offer = await p2p.createOffer({
+        makerId: MAKER,
+        side: 'buy',
+        asset: ASSET,
+        fiatCurrency: 'USD',
+        priceType: 'fixed',
+        price: amt('1'),
+        minAmt: amt('10'),
+        maxAmt: amt('500'),
+        methods: ['sepa'],
+      });
+      const tradeId = crypto.randomUUID();
+      const refused = await p2p
+        .takeOffer({ offerId: offer.id, takerId: TAKER, amount: amt('100'), method: 'sepa', tradeId })
+        .catch((error: unknown) => error);
+
+      expect(refused).toBeInstanceOf(P2pError);
+      expect(refused).toMatchObject({ code: 'p2p.insufficient_balance', limit: { until: null, available: '30', shortBy: '70' } });
+      expect((await p2p.getTrade(tradeId)).resolution).toBe('voided');
+      expect(await availableOf(TAKER)).toBe('30');
+      expect(await escrowOf(TAKER)).toBe('0');
       await expectBooksClosed();
     });
   });
@@ -2183,7 +2208,10 @@ describe('svc-p2p escrow', () => {
         releaseSecond();
         const failure = await taking;
         await cancelling;
-        expect(failure).toBeInstanceOf(InsufficientFundsError);
+        // A maker short on their own sell ad: the buyer reads a typed refusal, never the maker's figures.
+        expect(failure).toBeInstanceOf(P2pError);
+        expect(failure).toMatchObject({ code: 'p2p.offer_unfunded' });
+        expect(failure).not.toHaveProperty('limit.available');
       }
       expect((await p2p.getTrade(tradeId)).resolution).toBe('voided');
       expect(await availableOf(MAKER)).toBe('1000');

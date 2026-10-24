@@ -193,6 +193,8 @@ export type P2pErrorCode =
   | 'p2p.quote_changed'
   | 'p2p.active_order_cap'
   | 'p2p.buying_restricted'
+  | 'p2p.insufficient_balance'
+  | 'p2p.offer_unfunded'
   | 'p2p.pair_limit_exceeded'
   | 'p2p.method_delisted'
   | 'p2p.offer_not_found'
@@ -355,6 +357,18 @@ export type P2pErrorCode =
 export const NATURAL_PERSON_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 export const isNaturalPersonId = (id: string | null | undefined): boolean => typeof id === 'string' && NATURAL_PERSON_ID.test(id);
+
+/** The seller's own figures on a refused lock: what is free now and how much more the order needs. */
+function shortBalance(err: InsufficientFundsError, asset: string): P2pError {
+  const free = parseAmount(err.availableBalance);
+  const available = formatAmount(free);
+  const shortBy = formatAmount(sub(parseAmount(err.requested), free));
+  return new P2pError(
+    `Your free ${asset} balance is ${available}, ${shortBy} short of this order; nothing was held`,
+    'p2p.insufficient_balance',
+    { until: null, available, shortBy },
+  );
+}
 
 export class P2pError extends Error {
   constructor(
@@ -1921,7 +1935,19 @@ export class P2pService {
         span.setAttribute('intafaced.buyerId', reserved.buyerId);
         span.setAttribute('intafaced.fiatAmount', formatAmount(reserved.fiatAmount));
 
-        return this.ensureEscrowed(reserved.id);
+        try {
+          return await this.ensureEscrowed(reserved.id);
+        } catch (err) {
+          // ensureEscrowed throws a funds refusal only after the lock's first and only attempt was refused and the order
+          // voided, so both codes below mean nothing is held (the customer app counts them as definite).
+          if (err instanceof InsufficientFundsError) {
+            // P-trade-orders-06: the taker sells into a buy ad from a balance that falls short; they hear by how much.
+            if (reserved.sellerId === input.takerId) throw shortBalance(err, reserved.asset);
+            // The maker of a sell ad holds less than it offers: the buyer is told the ad cannot fill, never its figures.
+            throw new P2pError('This ad cannot fill this order right now; nothing was held', 'p2p.offer_unfunded');
+          }
+          throw err;
+        }
       },
     );
   }
