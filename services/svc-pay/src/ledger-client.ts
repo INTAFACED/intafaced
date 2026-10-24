@@ -1,5 +1,12 @@
-import { createHttpLedgerClient, type HttpLedgerOptions, type LedgerClient } from '@intafaced/ledger-client';
-import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import { ASSET_PRECISION_UNSET, serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
+import {
+  createHttpLedgerClient,
+  createLedgerTransport,
+  LedgerError,
+  type HttpLedgerOptions,
+  type LedgerClient,
+} from '@intafaced/ledger-client';
+import type { ReceiptAssetPlaces } from './merchant-ops/receipt-branding.js';
 
 /**
  * Budgets for svc-ledger calls.
@@ -59,4 +66,42 @@ export function createLedgerClient(
     getTx: (txId) => reader.getTx(txId),
     getTxByKey: (idempotencyKey) => reader.getTxByKey(idempotencyKey),
   };
+}
+
+/**
+ * Decimal places for one asset, as the ledger registry has published them (`/trpc/assetsGet`).
+ * Same signing and read budget as a balance read. A null or blank precision, or the registry's
+ * `ledger.asset_precision_unset`, is null: the caller refuses that code and does not invent a count.
+ * Any other failure is thrown, so a down ledger is not read as zero places.
+ */
+export function createReceiptAssetPlaces(
+  baseUrl: string,
+  internalSecret: string,
+  s2s?: { signer: ServiceSigner; mode: ServiceAuthMode },
+): ReceiptAssetPlaces {
+  const call = createLedgerTransport({
+    baseUrl,
+    sign: serviceCallSigner({ service: 'svc-pay', audience: 'svc-ledger', legacySecret: internalSecret, s2s }),
+    fetch: (input, init) => globalThis.fetch(input, init),
+    ...READ_BUDGET,
+  });
+  return async (assetId) => {
+    try {
+      const row = await call<{ precision?: unknown }>('/trpc/assetsGet', { assetId });
+      return publishedPlaces(row?.precision);
+    } catch (error) {
+      if (error instanceof LedgerError && error.code === ASSET_PRECISION_UNSET) return null;
+      throw error;
+    }
+  };
+}
+
+/** The registry's own precision field. Blank is unset. A number is returned as published, even out of range. */
+function publishedPlaces(precision: unknown): number | null {
+  if (precision === null || precision === undefined) return null;
+  if (typeof precision === 'string' && precision.trim() === '') return null;
+  if (typeof precision !== 'number' || !Number.isFinite(precision)) {
+    throw new Error('published asset precision is not a number');
+  }
+  return precision;
 }

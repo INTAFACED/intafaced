@@ -1995,13 +1995,6 @@ export const WIRING_SOCKETS = [
       'svc-notify writes the dispute-status notice in the PP-send-request-18 svc-notify PR, idempotent by event id. No publisher exists yet, so no user is promised a receipt by this event today.',
   },
   {
-    event: 'p2pTradeFiatSent',
-    missing: 'publisher',
-    class: 'A',
-    reason:
-      "Declared by the P-trade-orders-23 events PR. svc-p2p publishes it through its outbox in the same transaction as the state change (svc-p2p PR, next). svc-notify (notify-p2p-trade-fiat-sent) is waiting on it for the seller's buyer-paid notice.",
-  },
-  {
     event: 'p2pChatMessageSent',
     missing: 'publisher',
     class: 'A',

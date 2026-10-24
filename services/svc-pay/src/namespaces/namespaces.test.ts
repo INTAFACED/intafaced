@@ -165,6 +165,7 @@ describe('W0 namespaces are mounted', () => {
     expect(src).toMatch(
       /createPayNamespaces\(\{\s*founderAuthority,\s*metrics,\s*registries: \{ sql, approvals: actionApprovals \},\s*sql,/,
     );
+    expect(src).toContain('receiptPlaces: createReceiptAssetPlaces(');
     expect(src).toContain('startMetricsRefresher(metrics.projector');
     expect(src).toContain('const haltStore = new PayHaltStore(sql, loadHaltAutoTripConfig(process.env), rails);');
     expect(src).toContain('retryAdoptConfig');

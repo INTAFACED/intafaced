@@ -791,14 +791,45 @@ export async function setBookHalt(ctx, symbol, halted) {
 // ── 2c. Supported assets and networks (two-person approval) ─────────────────
 
 /**
+ * Decimal places the local stack publishes for one asset. Read from the labelled TEST profile.
+ * Blank is not a place count: publishing refuses rather than inventing one.
+ */
+function labelledTestPrecision(assetId) {
+  const dir = path.join(REPO, 'tooling', 'profiles', 'test-owner-values');
+  const key = `LEDGER_ASSET_PRECISION_${assetId}`;
+  let text = '';
+  if (fs.existsSync(dir)) {
+    for (const name of fs.readdirSync(dir)) {
+      if (!name.endsWith('.json')) continue;
+      const profile = readJson(path.join(dir, name), null);
+      const raw = profile?.values?.[key]?.value;
+      if (typeof raw === 'string' && raw.trim() !== '') {
+        text = raw.trim();
+        break;
+      }
+    }
+  }
+  if (text === '') {
+    throw new Error(`TEST precision for ${assetId} is blank in tooling/profiles/test-owner-values/`);
+  }
+  if (!/^(0|[1-9]\d*)$/.test(text)) {
+    throw new Error(`TEST precision for ${assetId} is not an integer in tooling/profiles/test-owner-values/`);
+  }
+  const places = Number(text);
+  if (places > 18) throw new Error(`TEST precision for ${assetId} is above 18`);
+  return places;
+}
+
+/**
  * LOCAL TEST registry rows: not owner values. The ledger's asset registry starts blank (W-balances-05), and with no
  * published row the address book offers no asset and refuses every save. Both networks are EVM chains, the only
- * address form the address book checks today.
+ * address form the address book checks today. USDT's places are the labelled TEST value, not a count chosen here.
  */
 export const TEST_ASSET_ROWS = ['USDT', 'USDC'].map((id) => ({
   id,
   kind: 'crypto',
-  precision: 6,
+  // USDT places are the labelled TEST value. USDC keeps the row this file already published.
+  precision: id === 'USDT' ? labelledTestPrecision('USDT') : 6,
   networks: [
     { networkId: 'ethereum', label: 'TEST Ethereum' },
     { networkId: 'base', label: 'TEST Base' },

@@ -68,7 +68,7 @@ import { PayError, PayService } from './payment-service.js';
 import { startPayoutReconciler } from './payout-reconciler.js';
 import { UserMoneyService, openWithdrawalHolds } from './user-money-service.js';
 import { WalletPay, failClosedWalletPublish } from './wallet/wallet-pay.js';
-import { createLedgerClient } from './ledger-client.js';
+import { createLedgerClient, createReceiptAssetPlaces } from './ledger-client.js';
 import { BankPayoutAbsentAdapter } from './rails/bank-payout.js';
 import { CardSandboxAdapter } from './rails/card-sandbox.js';
 import { CryptoNativeAdapter } from './rails/crypto-native.js';
@@ -619,6 +619,8 @@ export const appRouter = mergeRouters(
     metrics,
     registries: { sql, approvals: actionApprovals },
     sql,
+    // Places come from the published ledger asset registry. Null or blank stays unset.
+    receiptPlaces: createReceiptAssetPlaces(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, s2sKey),
     depositSettings: { sql, approvals: actionApprovals },
     limits: { sql, approvals: actionApprovals },
     custody: {
