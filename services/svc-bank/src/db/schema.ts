@@ -1170,6 +1170,33 @@ export const cashOutRequests = bank.table('cash_out_requests', {
   createdAt: createdAt(),
 });
 
+/** One send intent over a bank rail (J-bank-04 #1, migration 0058). Kept refused with its code; never held or posted. */
+export const railSendIntents = bank.table('rail_send_intents', {
+  id: uuid('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  fromSpaceId: uuid('from_space_id').notNull(),
+  assetId: text('asset_id').notNull(),
+  amount: amount('amount').notNull(),
+  rail: text('rail').notNull(),
+  recipient: jsonb('recipient').notNull(),
+  status: text('status').notNull(),
+  refusalCode: text('refusal_code'),
+  createdAt: createdAt(),
+});
+
+/** One saved bank-rail recipient (J-bank-04 #2, migration 0059). One live row per destination; removed rows stay. */
+export const railPayees = bank.table('rail_payees', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: text('user_id').notNull(),
+  nickname: text('nickname').notNull(),
+  country: text('country').notNull(),
+  rail: text('rail').notNull(),
+  recipient: jsonb('recipient').notNull(),
+  destinationKey: text('destination_key').notNull(),
+  createdAt: createdAt(),
+  removedAt: tstz('removed_at'),
+});
+
 /** Address custody issued. Not a locally derived key and not a balance. */
 export const depositAddresses = bank.table(
   'deposit_addresses',

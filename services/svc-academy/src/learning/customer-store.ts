@@ -406,7 +406,7 @@ export class AcademyCustomerStore {
     clientRequestId: string;
     spine?: readonly VideoSpineEntry[];
     now?: Date;
-  }): Promise<VideoProgressRow> {
+  }): Promise<VideoProgressRow & { previousSeconds: number | null; replayed: boolean }> {
     const clientRequestId = input.clientRequestId.trim();
     if (!clientRequestId) throw new AcademyError('clientRequestId is required', 'academy.cert_invalid');
     const spine = input.spine ?? listVideoSpine();
@@ -429,7 +429,12 @@ export class AcademyCustomerStore {
         SELECT video_slug, position_seconds FROM academy.video_progress_requests
          WHERE user_id = ${input.userId} AND client_request_id = ${clientRequestId}
       `;
-      if (replay[0]) return { videoSlug: replay[0].video_slug, positionSeconds: replay[0].position_seconds };
+      if (replay[0]) {
+        return { videoSlug: replay[0].video_slug, positionSeconds: replay[0].position_seconds, previousSeconds: null, replayed: true };
+      }
+      const before = await tx<Array<{ position_seconds: number }>>`
+        SELECT position_seconds FROM academy.video_progress WHERE user_id = ${input.userId} AND video_slug = ${input.videoSlug}
+      `;
       await tx`
         INSERT INTO academy.video_progress (user_id, video_slug, position_seconds, updated_at)
         VALUES (${input.userId}, ${input.videoSlug}, ${position}, ${now})
@@ -441,7 +446,12 @@ export class AcademyCustomerStore {
         INSERT INTO academy.video_progress_requests (user_id, client_request_id, video_slug, position_seconds)
         VALUES (${input.userId}, ${clientRequestId}, ${input.videoSlug}, ${position})
       `;
-      return { videoSlug: input.videoSlug, positionSeconds: position };
+      return {
+        videoSlug: input.videoSlug,
+        positionSeconds: position,
+        previousSeconds: before[0]?.position_seconds ?? null,
+        replayed: false,
+      };
     });
   }
 

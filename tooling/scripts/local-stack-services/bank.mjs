@@ -1,3 +1,12 @@
+import { loadProfile } from '../owner-settings.mjs';
+
+/** One labelled TEST value from this service's profile file; a missing one names the file instead of a bare TypeError. */
+function testValue(name) {
+  const entry = loadProfile().values[name];
+  if (!entry) throw new Error(`${name} is missing from tooling/profiles/test-owner-values/bank.json.`);
+  return entry.value;
+}
+
 export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
   name: 'bank',
   env: () => ({
@@ -37,6 +46,25 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     // LOCAL TEST values: how long a wallet ownership proof stays open to sign, and how long a verified one holds.
     BANK_WALLET_PROOF_WINDOW_MINUTES: '30',
     BANK_WALLET_PROOF_VALID_DAYS: '180',
+    // LOCAL TEST values from the bank profile, not owner decisions (BK-xfer-07): one made-up blocked payee, one made-up
+    // exchange account with a small allowance, and the proof files a held send may upload. Unset, every global send
+    // refuses before its quote, so the sending journeys could not reach a hold or a refusal on this stack.
+    BANK_PAYEE_CONTROLS_JSON: testValue('BANK_PAYEE_CONTROLS_JSON'),
+    BANK_EXCHANGE_ALLOWANCE_JSON: testValue('BANK_EXCHANGE_ALLOWANCE_JSON'),
+    BANK_PROOF_LIMITS_JSON: testValue('BANK_PROOF_LIMITS_JSON'),
+    // LOCAL TEST stand-in for a global-send partner (no network, pays nobody, refused under live posture): it answers
+    // from the TEST catalogue in the bank profile, so a global send can pass its corridor, quote and payee checks and post
+    // once to the stand-in's rail boundary on this stack. The send-field rules are TEST reference lengths for its methods.
+    BANK_GLOBAL_PARTNER: 'global-sim',
+    BANK_GLOBAL_SIM_JSON: testValue('BANK_GLOBAL_SIM_JSON'),
+    BANK_SEND_FIELD_RULES_JSON: testValue('BANK_SEND_FIELD_RULES_JSON'),
+    // LOCAL TEST value from the bank profile, not an owner decision (BK-xfer-06): how long a new bank-rail recipient waits
+    // before money may go to it. Unset, every send to a saved recipient refuses bank.payee_cooling_unset.
+    BANK_PAYEE_COOLING_HOURS: testValue('BANK_PAYEE_COOLING_HOURS'),
+    // LOCAL TEST value from the bank profile (BK-xfer-08): how long a global send may stay on hold before it is cancelled.
+    BANK_GLOBAL_HOLD_CANCEL_HOURS: testValue('BANK_GLOBAL_HOLD_CANCEL_HOURS'),
+    // LOCAL TEST value from the bank profile (BK-xfer-09): the fee on refunding a send the rail returned.
+    BANK_GLOBAL_REFUND_FEE: testValue('BANK_GLOBAL_REFUND_FEE'),
     // Nothing moves money in the background of a test stack.
     SCHEDULED_TRANSFERS_ENABLED: 'false',
     AUTO_INVEST_ENABLED: 'false',

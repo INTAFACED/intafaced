@@ -17,6 +17,8 @@ import {
 } from '@intafaced/ui';
 import { fmtAmount, fmtPrice } from '../../../data/format';
 import { useSession } from '../../../features/session/session';
+import type { ConditionalOrder } from './api';
+import { useConditionalOrders, useFuturesRefresh } from './data';
 import { positionsCopy } from './positions-copy';
 import { newNonce, usePendingNote, useFuturesWriter, type Writer } from './hooks';
 import { adjustmentId, closeAllPlan, leveragePresets, stateOf } from './model';
@@ -31,6 +33,7 @@ import {
   remainingIds,
   resultOf,
   settleOf,
+  signedAmount,
   startCloseAll,
   stopsRun,
   tally,
@@ -38,6 +41,9 @@ import {
   type CloseAllState,
   type CloseResult,
 } from './positions-logic';
+import { coverage, estimatedResult, legsOf, partProblem, priceProblem, sideOfMark, type Leg } from './protection-logic';
+import { TriggerFacts, triggerLine } from './TriggerFacts';
+import { triggersCopy } from './triggers-copy';
 import type { Intent } from './write';
 
 type T = ReturnType<typeof positionsCopy.useCopy>['t'];
@@ -65,7 +71,9 @@ function Frame({
   const { t } = positionsCopy.useCopy();
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent closeLabel={t('Dialog close')}>
+      {/* A tall dialog (take profit and stop loss with their sizes) scrolls inside itself on a short screen, so its title
+          and close stay reachable. */}
+      <DialogContent closeLabel={t('Dialog close')} className="max-h-[calc(100dvh-32px)] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           {description ? <DialogDescription>{description}</DialogDescription> : null}
@@ -78,7 +86,7 @@ function Frame({
 }
 
 /** What the last write said, in words: a refusal, an unknown answer (with a status check), or a block. */
-function WriteNotice({ writer, onCheck }: { writer: Writer; onCheck: () => void }) {
+export function WriteNotice({ writer, onCheck }: { writer: Writer; onCheck: () => void }) {
   const { t } = positionsCopy.useCopy();
   const { outcome, note } = writer;
   if (note.state === 'unreadable')
@@ -373,6 +381,228 @@ export function CloseDialog({ position, onClose, onDone, onRefusal }: DialogBase
   );
 }
 
+/** One leg as it stands: its status in words, its trigger and the price it is judged on, and what a fired one did. */
+function LegLine({ leg, order, contracts, t }: { leg: Leg; order: ConditionalOrder | null; contracts: string; t: T }) {
+  const words = triggersCopy.useCopy().t;
+  const name = leg === 'take_profit' ? t('Protect take profit') : t('Protect stop loss');
+  if (order === null) return <li data-leg={leg}>{t('Protect leg', { leg: name, status: t('Protect none') })}</li>;
+  const trigger = triggerLine(order, words);
+  const covers = coverage(order, contracts);
+  return (
+    <li data-leg={leg} data-status={order.status} className="flex flex-col gap-0.5">
+      <span className="font-medium">{t('Protect leg', { leg: name, status: words(`Status ${order.status}`) })}</span>
+      {trigger ? <span className="text-fg-2">{trigger}</span> : null}
+      {covers === null ? null : covers.whole ? (
+        <span className="text-fg-2">{t('Protect covers whole')}</span>
+      ) : (
+        <span className="text-fg-2">
+          {t('Protect covers part', {
+            part: fmtAmount(covers.part, { places: 8 }),
+            size: fmtAmount(contracts, { places: 8 }),
+            rest: fmtAmount(covers.rest, { places: 8 }),
+          })}
+        </span>
+      )}
+      <TriggerFacts order={order} />
+    </li>
+  );
+}
+
+/**
+ * A position's take profit and stop loss (J-derivatives-03 steps 1, 2, 6). Saving replaces both legs, so the fields
+ * start from what is armed, and nothing is sent until that has been read. The dialog stays open after a save and keeps
+ * reading; once a leg fires and the position closes, the Orders tab keeps the record.
+ */
+export function ProtectionDialog({ position, onClose, onRefusal }: Omit<DialogBase, 'onDone'>) {
+  const { t } = positionsCopy.useCopy();
+  const writer = useFuturesWriter();
+  const read = useConditionalOrders(true);
+  const refresh = useFuturesRefresh();
+  const orders = read.status === 'ready' ? read.data : read.status === 'empty' ? [] : null;
+  const unreadable = read.status === 'error' || read.status === 'refused';
+  const legs = legsOf(orders ?? [], position.id);
+  const [takeProfit, setTakeProfit] = useState('');
+  const [stopLoss, setStopLoss] = useState('');
+  const [takeProfitPart, setTakeProfitPart] = useState('');
+  const [stopLossPart, setStopLossPart] = useState('');
+  const [saved, setSaved] = useState<'set' | 'removed' | 'checked' | null>(null);
+  const prefilled = useRef(false);
+  const nonce = useRef<{ key: string; nonce: string } | null>(null);
+  const asset = settleOf(position.symbol) ?? '';
+  const refusal = writer.outcome?.kind === 'refused' ? writer.outcome.refusal.code : undefined;
+  useEffect(() => {
+    if (refusal !== undefined) onRefusal?.(refusal);
+  }, [refusal, onRefusal]);
+  // The fields start from the armed legs, once: a save replaces both, so a field left as it is keeps its leg.
+  useEffect(() => {
+    if (orders === null || prefilled.current) return;
+    prefilled.current = true;
+    const tp = legs.take_profit;
+    const sl = legs.stop_loss;
+    if (tp?.status === 'armed') {
+      setTakeProfit(tp.triggerPrice ?? '');
+      if (tp.wholePosition === false) setTakeProfitPart(tp.quantity);
+    }
+    if (sl?.status === 'armed') {
+      setStopLoss(sl.triggerPrice ?? '');
+      if (sl.wholePosition === false) setStopLossPart(sl.quantity);
+    }
+  }, [orders, legs.take_profit, legs.stop_loss]);
+  const edit = (set: (v: string) => void) => (value: string) => {
+    setSaved(null);
+    set(value);
+  };
+  const problems = { take_profit: priceProblem(takeProfit), stop_loss: priceProblem(stopLoss) };
+  // A size counts only beside its leg's price: a leg with no price is not sent, so its size is never a problem.
+  const partOf = (price: string, part: string) => (price.trim() === '' ? null : partProblem(part, position.contracts));
+  const parts = { take_profit: partOf(takeProfit, takeProfitPart), stop_loss: partOf(stopLoss, stopLossPart) };
+  const anyProblem = Object.values(problems).some((p) => p !== null) || Object.values(parts).some((p) => p !== null);
+  const anyArmed = legs.take_profit?.status === 'armed' || legs.stop_loss?.status === 'armed';
+  // A fired leg is closing the position through the book; a replace would not stop it and would arm a second one.
+  const closingNow = legs.take_profit?.status === 'triggered' || legs.stop_loss?.status === 'triggered';
+  const ready = orders !== null && !unreadable && !closingNow;
+  const blocked = !ready || writer.note.state !== 'none' || position.id === null;
+
+  const save = async (tp: string | null, sl: string | null, tpPart: string | null = null, slPart: string | null = null) => {
+    if (blocked || position.id === null) return;
+    // The same request re-sends the same request id (a replay); anything new, or a send after a finished one, is a new id.
+    const key = `protect:${position.id}:${tp ?? ''}/${tpPart ?? ''}:${sl ?? ''}/${slPart ?? ''}`;
+    nonce.current = pickNonce(nonce.current, key, newNonce);
+    const result = await writer.run({
+      op: 'protection',
+      input: {
+        symbol: position.symbol,
+        positionId: position.id,
+        takeProfit: tp,
+        stopLoss: sl,
+        takeProfitQuantity: tp === null ? null : tpPart,
+        stopLossQuantity: sl === null ? null : slPart,
+        clientRequestId: `tpsl:${nonce.current.nonce}`,
+      },
+    });
+    if (result.kind === 'done') {
+      nonce.current = null;
+      setSaved(tp === null && sl === null ? 'removed' : 'set');
+      if (tp === null) {
+        setTakeProfit('');
+        setTakeProfitPart('');
+      }
+      if (sl === null) {
+        setStopLoss('');
+        setStopLossPart('');
+      }
+      refresh();
+    }
+  };
+  // An unresolved replace is sent again with the same request id, which the service replays.
+  const check = async () => {
+    if (writer.note.state !== 'pending') return;
+    const result = await writer.check(writer.note.pending);
+    if (result.kind === 'done') {
+      nonce.current = null;
+      setSaved('checked');
+      refresh();
+    }
+  };
+  const trimmed = (v: string) => (v.trim() === '' ? null : v.trim());
+
+  const field = (leg: Leg, value: string, set: (v: string) => void, part: string, setPart: (v: string) => void) => {
+    const side = sideOfMark(position, leg);
+    const size = part.trim() === '' || parts[leg] ? null : part.trim();
+    const estimate = value.trim() === '' || problems[leg] ? null : signedAmount(estimatedResult(position, value.trim(), size), 8);
+    return (
+      <div className="flex flex-col gap-2">
+        <Field
+          label={t(leg === 'take_profit' ? 'Protect field take profit' : 'Protect field stop loss', { quote: asset })}
+          hint={side === null ? undefined : t(`Protect side ${side}`)}
+          error={problems[leg] ? t('Protect problem invalid') : undefined}
+        >
+          <Input kind="decimal" value={value} onValueChange={edit(set)} precision={8} trailing={asset} disabled={orders === null} />
+          {value.trim() !== '' && !problems[leg] ? (
+            <span className="text-2xs text-fg-2">
+              {estimate === null
+                ? t('Protect estimate unknown')
+                : size === null
+                  ? t('Protect estimate', { result: estimate, asset })
+                  : t('Protect estimate part', { result: estimate, asset, size: fmtAmount(size, { places: 8 }) })}
+            </span>
+          ) : null}
+        </Field>
+        <Field
+          label={t(leg === 'take_profit' ? 'Protect part take profit' : 'Protect part stop loss')}
+          hint={t('Protect part hint', { size: fmtAmount(position.contracts, { places: 8 }) })}
+          error={parts[leg] ? t(`Protect part problem ${parts[leg]}`) : undefined}
+        >
+          <Input kind="decimal" value={part} onValueChange={edit(setPart)} precision={8} disabled={orders === null} />
+        </Field>
+      </div>
+    );
+  };
+
+  return (
+    <Frame
+      title={t('Protect title')}
+      onClose={onClose}
+      description={
+        position.markPrice === null
+          ? t('Protect line no mark', {
+              contract: position.symbol,
+              side: sideWord(t, position.side),
+              size: fmtAmount(position.contracts, { places: 8 }),
+            })
+          : t('Protect line', {
+              contract: position.symbol,
+              side: sideWord(t, position.side),
+              size: fmtAmount(position.contracts, { places: 8 }),
+              mark: fmtPrice(position.markPrice, null),
+            })
+      }
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            {t('Dialog close')}
+          </Button>
+          {anyArmed ? (
+            <Button variant="secondary" loading={writer.busy} disabled={blocked} onClick={() => void save(null, null)}>
+              {t('Protect remove')}
+            </Button>
+          ) : null}
+          <Button
+            loading={writer.busy}
+            disabled={blocked || anyProblem || (!trimmed(takeProfit) && !trimmed(stopLoss))}
+            onClick={() => void save(trimmed(takeProfit), trimmed(stopLoss), trimmed(takeProfitPart), trimmed(stopLossPart))}
+          >
+            {t('Protect save')}
+          </Button>
+        </>
+      }
+    >
+      <section aria-label={t('Protect current')} className="flex flex-col gap-1 rounded-sm border border-line p-3">
+        <h3 className="text-sm font-medium">{t('Protect current')}</h3>
+        {orders === null && !unreadable ? <p className="text-fg-2">{t('Protect loading')}</p> : null}
+        {unreadable ? <p className="text-warn">{t('Protect unreadable')}</p> : null}
+        {orders !== null ? (
+          <ul className="m-0 flex list-none flex-col gap-2 p-0">
+            <LegLine leg="take_profit" order={legs.take_profit} contracts={position.contracts} t={t} />
+            <LegLine leg="stop_loss" order={legs.stop_loss} contracts={position.contracts} t={t} />
+          </ul>
+        ) : null}
+        {closingNow ? <p className="text-warn">{t('Protect closing now')}</p> : null}
+      </section>
+      <p className="text-fg-2">{t('Protect how')}</p>
+      {field('take_profit', takeProfit, setTakeProfit, takeProfitPart, setTakeProfitPart)}
+      {field('stop_loss', stopLoss, setStopLoss, stopLossPart, setStopLossPart)}
+      <p className="text-fg-2">{t('Protect replace note')}</p>
+      {saved ? (
+        <p role="status" className="text-fg-2">
+          {t(`Protect done ${saved}`)}
+        </p>
+      ) : null}
+      {writer.outcome?.kind === 'done' ? null : <WriteNotice writer={writer} onCheck={() => void check()} />}
+    </Frame>
+  );
+}
+
 function ResultLine({ position, result, t }: { position: Position; result: CloseResult; t: T }) {
   const word =
     result.kind === 'refused' ? t('Result refused') : result.kind === 'blocked' ? t('Result blocked') : t(`Result ${result.kind}`);
@@ -515,7 +745,7 @@ export function PositionRowActions({
   locked = false,
   stale = false,
   onChanged,
-  only = ['add', 'reduce', 'leverage', 'close'],
+  only = ['add', 'reduce', 'leverage', 'protect', 'close'],
   compact = false,
 }: {
   position: Position;
@@ -543,6 +773,7 @@ export function PositionRowActions({
     add: t('Action add'),
     reduce: t('Action reduce'),
     leverage: t('Action leverage'),
+    protect: t('Action protect'),
     close: closing ? t('Action retry close') : t('Action close'),
   };
   const done = () => {
@@ -552,7 +783,9 @@ export function PositionRowActions({
   const onRefusal = (code: string | null) => code === REFUSAL_LIQUIDATING && setLiquidating(true);
   const common = { position, onClose: () => setOpen(null), onDone: done, onRefusal };
   return (
-    <div className="flex flex-col items-start gap-1">
+    // The menu and the dialogs render in portals, and React still bubbles their clicks to the table row, which would
+    // open the position's detail on top of them. Nothing in here is a click on the row.
+    <div className="flex flex-col items-start gap-1" onClick={(event) => event.stopPropagation()}>
       <div className="flex flex-nowrap items-center gap-1.5">
         {compact && shown.filter((key) => key !== 'close').length > 1 ? (
           <Menu>
@@ -586,6 +819,7 @@ export function PositionRowActions({
       {reason ? <span className="text-2xs text-fg-2">{t(`Reason ${reason}`)}</span> : null}
       {open === 'add' || open === 'reduce' ? <MarginDialog {...common} mode={open} free={free} /> : null}
       {open === 'leverage' ? <LeverageDialog {...common} cap={leverageCap} /> : null}
+      {open === 'protect' ? <ProtectionDialog {...common} /> : null}
       {open === 'close' ? <CloseDialog {...common} /> : null}
     </div>
   );

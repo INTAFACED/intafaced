@@ -331,6 +331,9 @@ export const paymentMethodSchemas = p2p.table(
     /** `FieldSpec[]` — key, label, required, pattern, lengths, sensitive, help. */
     fields: jsonb('fields').notNull(),
     enabled: boolean('enabled').notNull().default(true),
+    /** Why the operator switched it off (0022): regulation | provider_withdrawn | fraud_risk | low_demand. */
+    delistReason: text('delist_reason'),
+    delistedAt: tstz('delisted_at'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

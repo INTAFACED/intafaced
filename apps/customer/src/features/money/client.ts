@@ -44,6 +44,8 @@ export type TransferDraft = {
   note?: string;
   /** A printable payment reference. Left out when the customer wrote none. */
   reference?: string;
+  /** The single-use step-up approval for this exact send to a person (J-bank-04 #4). */
+  stepUpApprovalId?: string;
 };
 export function validateTransfer(spaces: Space[], input: TransferDraft): string | null {
   const from = spaces.find((space) => space.id === input.fromSpaceId);

@@ -597,6 +597,15 @@ async function runLoop(opts, home) {
   await ensureFunds(maker, 'maker', assets, 1);
   await ensureFunds(taker, 'taker', assets, 10);
   if (markets.some((m) => m.swap)) await prepareFuturesMaker(maker);
+  /** The top TEST margin tier the maker accepts per perp, read again on a later quote while the tiers were unreadable. */
+  const acceptedTiers = new Map();
+  const acceptedTier = async (m) => {
+    if (!acceptedTiers.has(m.symbol)) {
+      const top = await topMarginTier(maker, m);
+      if (top > 0) acceptedTiers.set(m.symbol, top);
+    }
+    return acceptedTiers.get(m.symbol);
+  };
 
   let saved = {};
   try {
@@ -627,7 +636,7 @@ async function runLoop(opts, home) {
   const quoted = new Map();
   const place = (client, m, side, price, amount, tif) =>
     m.swap
-      ? placeFutures(client, m, side, price, amount, `LTEST-${runId}-${(counter += 1)}`)
+      ? acceptedTier(m).then((tier) => placeFutures(client, m, side, price, amount, `LTEST-${runId}-${(counter += 1)}`, tier))
       : client.http('POST', '/api/v1/orders', {
           symbol: m.symbol,
           type: 'limit',
@@ -931,6 +940,10 @@ const LIVE_FUTURES = new Set(['pending', 'held', 'submitting', 'open', 'submit_u
  * does: a proved email, the published TEST agreements accepted, the TEST quiz passed, the ADL notice acknowledged.
  * Hedge mode, so the maker's bids and asks can rest at once. Each step logs what it got; a refusal stays visible, and
  * the quotes then refuse with the same code.
+ *
+ * The maker's quotes are most of the TEST book's depth, so they sit in the top margin tier of the stack's TEST ladder,
+ * and an order that crosses into a higher tier must name it (`confirmTier`, svc-trade `risk-tier-confirm.ts`): the
+ * maker accepts the top published tier of each perp (`topMarginTier`).
  */
 async function prepareFuturesMaker(maker) {
   const say = (what, r, ok) => log(`maker ${what}: ${ok ? 'ok' : `HTTP ${r.status} ${r.text.slice(0, 160)}`}`);
@@ -955,7 +968,18 @@ async function prepareFuturesMaker(maker) {
   say('ADL notice acknowledged', adl, adl.status === 200);
 }
 
-function placeFutures(client, m, side, price, amount, clientOrderId) {
+/**
+ * The top margin tier the TEST ladder publishes for one perp, which the maker accepts for its quotes; 0 while the tiers
+ * cannot be read (unpublished, or the read failed), and the quotes then refuse with the service's own code.
+ */
+async function topMarginTier(maker, m) {
+  const r = await maker.http('GET', `/api/v1/futures/tiers?symbol=${encodeURIComponent(m.symbol)}`);
+  const top = r.status === 200 && Array.isArray(r.json?.tiers) ? r.json.tiers.length : 0;
+  log(`maker accepts TEST margin tier on ${m.symbol}: ${top > 0 ? `tier ${top}` : `HTTP ${r.status} ${r.text.slice(0, 160)}`}`);
+  return top;
+}
+
+function placeFutures(client, m, side, price, amount, clientOrderId, confirmTier) {
   return client.http('POST', '/api/v1/futures/orders', {
     symbol: m.symbol,
     side,
@@ -964,6 +988,7 @@ function placeFutures(client, m, side, price, amount, clientOrderId) {
     price,
     leverage: FUTURES_QUOTE_LEVERAGE,
     clientOrderId,
+    ...(confirmTier ? { confirmTier } : {}),
   });
 }
 

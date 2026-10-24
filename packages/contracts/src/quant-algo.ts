@@ -474,3 +474,99 @@ export const quantBacktestHistorySchema = z.object({
 });
 /** A run's label: the person's own name for it. Renaming never touches the stored result. */
 export const QUANT_RUN_LABEL_MAX = 80;
+
+/**
+ * Printable report of one stored bar backtest (AL-report-03). Every section has at least one row, so a print layout
+ * has no empty section. Figures stay decimal strings or an explicit "not defined" line. Nothing here is a balance.
+ */
+export const QUANT_REPORT_SECTIONS = ['parameters', 'statistics', 'charts', 'coverage', 'warnings', 'labels'] as const;
+export const quantReportRowSchema = z.object({
+  name: z.string().min(1),
+  value: z.string().min(1),
+});
+export const quantReportSectionSchema = z.object({
+  id: z.enum(QUANT_REPORT_SECTIONS),
+  rows: z.array(quantReportRowSchema).min(1),
+});
+export const quantReportSchema = z.object({
+  runId: z.string(),
+  claimLabel: z.literal('Historical simulation — not a forecast'),
+  simulated: z.literal(true),
+  live: z.literal(false),
+  sections: z.tuple([
+    quantReportSectionSchema.extend({ id: z.literal('parameters') }),
+    quantReportSectionSchema.extend({ id: z.literal('statistics') }),
+    quantReportSectionSchema.extend({ id: z.literal('charts') }),
+    quantReportSectionSchema.extend({ id: z.literal('coverage') }),
+    quantReportSectionSchema.extend({ id: z.literal('warnings') }),
+    quantReportSectionSchema.extend({ id: z.literal('labels') }),
+  ]),
+});
+export type QuantReport = z.infer<typeof quantReportSchema>;
+
+/** Chart figures for a report or a public page: a summary of the equity series, not a second result. */
+export const quantSeriesSummarySchema = z.object({
+  points: z.number().int().nonnegative(),
+  first: z.object({ ts: z.string(), equity: decimalText }).nullable(),
+  last: z.object({ ts: z.string(), equity: decimalText }).nullable(),
+  low: decimalText.nullable(),
+  high: decimalText.nullable(),
+});
+export type QuantSeriesSummary = z.infer<typeof quantSeriesSummarySchema>;
+
+/**
+ * What a signed-out reader of a share link may see (AL-report-03). The historical-simulation label, the honesty
+ * checks, the coverage and the result figures. No account, no strategy source, no run key.
+ */
+export const quantPublicResultSchema = z
+  .object({
+    claimLabel: z.literal('Historical simulation — not a forecast'),
+    simulated: z.literal(true),
+    live: z.literal(false),
+    symbol: z.string(),
+    window: z.object({ from: z.string(), to: z.string() }),
+    coverage: quantCoverageSchema,
+    costs: quantBacktestResultSchema.shape.costs,
+    totals: quantBacktestResultSchema.shape.totals,
+    metrics: quantBacktestMetricsSchema,
+    verdict: quantBacktestResultSchema.shape.verdict,
+    checks: z.array(quantCheckSchema),
+    warnings: z.array(quantBacktestLogLineSchema),
+    charts: quantSeriesSummarySchema,
+    variantCount: z.number().int().positive().nullable(),
+  })
+  .strict();
+export type QuantPublicResult = z.infer<typeof quantPublicResultSchema>;
+
+/** How many links a run has, and whether one of them is still active. The token is never on this read. */
+export const quantShareStateSchema = z.object({
+  runId: z.string(),
+  links: z.number().int().nonnegative(),
+  active: z.boolean(),
+  seq: z.number().int().nonnegative().nullable(),
+});
+export type QuantShareState = z.infer<typeof quantShareStateSchema>;
+
+/**
+ * Creating a share link (AL-report-03). `token` and `path` are set only on the call that stored the link. A replay,
+ * including one whose reply was lost, does not show the token again. A blank embed-origin list leaves the link and
+ * refuses only the snippet.
+ */
+export const quantShareCreatedSchema = quantShareStateSchema.extend({
+  token: z.string().nullable(),
+  path: z.string().nullable(),
+  embed: z
+    .object({
+      snippet: z.string().min(1),
+      origins: z.array(z.string().min(1)).min(1),
+    })
+    .nullable(),
+  embedRefusal: z.literal('quant.embed_origins_unset').nullable(),
+});
+export type QuantShareCreated = z.infer<typeof quantShareCreatedSchema>;
+
+export const quantShareEmbedSchema = z.object({
+  snippet: z.string().min(1),
+  origins: z.array(z.string().min(1)).min(1),
+});
+export type QuantShareEmbed = z.infer<typeof quantShareEmbedSchema>;

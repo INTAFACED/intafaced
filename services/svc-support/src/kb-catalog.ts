@@ -140,6 +140,11 @@ export function toPublicKb(article: SupportKbArticle): SupportKbArticle {
     ...(article.tags != null && article.tags.length > 0 ? { tags: [...article.tags] } : {}),
     // Public is the default and stays off the wire, so an article that was never restricted reads as it always did.
     ...(article.audience != null && article.audience !== 'public' ? { audience: article.audience } : {}),
+    // Text typed in the desk (SP-kb-01). A catalogue-keyed article carries none of these.
+    ...(article.title != null && article.body != null && article.language != null
+      ? { title: article.title, body: article.body, language: article.language }
+      : {}),
+    ...(article.sectionId != null ? { sectionId: article.sectionId } : {}),
   };
 }
 
@@ -200,6 +205,11 @@ export function assertKbTopic(input: { category?: string | null; tags?: readonly
 
 const VENDOR_SMELL = /\b(binance|coinbase|kraken|okx|bybit|deriv|metatrader|tradingview)\b/i;
 
+/** Whether text a reader will see names a partner or vendor (the same list the keys are checked against). */
+export function namesVendor(text: string): boolean {
+  return VENDOR_SMELL.test(text);
+}
+
 export type KbCatalogErrorCode = 'support.kb_invalid' | 'support.kb_vendor_name' | 'support.kb_version_unknown';
 
 export class KbCatalogError extends Error {
@@ -250,9 +260,12 @@ function kbSearchScore(article: SupportKbArticle, q: string): number {
   let score = 0;
   if (labels.some((label) => label === q)) score += 300;
   else if (labels.some((label) => label.includes(q))) score += 200;
-  if (article.titleKey.toLowerCase().includes(q)) score += 100;
+  // A version typed in the desk is matched on its text; a catalogue-keyed one on its keys.
+  const title = article.title ?? article.titleKey;
+  const body = article.body ?? article.bodyKey;
+  if (title.toLowerCase().includes(q)) score += 100;
   if (article.id.toLowerCase().includes(q)) score += 80;
-  if (article.bodyKey.toLowerCase().includes(q)) score += 10;
+  if (body.toLowerCase().includes(q)) score += 10;
   return score;
 }
 

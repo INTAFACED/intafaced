@@ -6,19 +6,20 @@ import {
   parseLiquidationDesk,
   parsePosition,
   parsePositionsPage,
+  parsePriceBandView,
   parseRiskCurrent,
   parseRiskHistory,
   type AdminPositionRow,
   type InsuranceHistory,
   type LiquidationDesk,
   type PositionsPage,
+  type PriceBandView,
   type RiskCurrent,
-  type RiskLimitValues,
   type RiskVersionRow,
 } from './desk-parse';
 import { edgeCall, trpcSpec, type TradeCtx } from './edge';
 import type { Outcome } from './outcome';
-import type { RiskSetBody } from './risk-limits-model';
+import type { RiskLimitsWrite, RiskSetBody } from './risk-limits-model';
 import { RISK_SET_ACTION_TYPE, RISK_SET_POLICY_VERSION, RISK_SET_TARGET_SERVICE, riskSetPayloadHash } from './risk-set-hash';
 
 /**
@@ -52,6 +53,11 @@ export function readRiskHistory(ctx: TradeCtx, market: string): Promise<Outcome<
   return edgeCall(ctx, trpcSpec('trade', 'admin.risk.history', 'query', { market }, parseRiskHistory));
 }
 
+/** admin.risk.priceBand: a futures market's band as the job last worked it out, and each change, newest first. */
+export function readPriceBand(ctx: TradeCtx, market: string): Promise<Outcome<PriceBandView>> {
+  return edgeCall(ctx, trpcSpec('trade', 'admin.risk.priceBand', 'query', { market }, parsePriceBandView));
+}
+
 /**
  * identity actionApproval.propose for a limit change. The approval is bound to this market, the version the desk read
  * and the hash of exactly what will be written; a second founder approves it in the Approvals room.
@@ -78,7 +84,7 @@ export function proposeRiskSet(ctx: TradeCtx, body: RiskSetBody): Promise<Outcom
 
 export interface RiskSetInput {
   readonly market: string;
-  readonly limits: RiskLimitValues;
+  readonly limits: RiskLimitsWrite;
   readonly expectedVersion: string;
   readonly reason: string;
   readonly approvalId: string;

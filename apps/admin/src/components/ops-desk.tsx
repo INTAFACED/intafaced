@@ -439,13 +439,26 @@ export function OpsDeskView({ spec, view, loading, userId, openKey, onOpen, onRe
       )}
       {!view && <p className="dk-why">The console could not reach its own server for this desk. Nothing is shown rather than a guess.</p>}
       {spec.commonSet && <DeskSectionSet setId={spec.commonSet} spec={spec} view={view} />}
-      <nav aria-label="Sections" className="dk-row">
-        {spec.sections.map((s) => (
-          <a key={s.id} href={`#${s.id}`}>
-            {s.title}
-          </a>
-        ))}
-      </nav>
+      {spec.pages ? (
+        <nav aria-label="Sections" className="dk-row">
+          {spec.pages.map((p) => {
+            const here = spec.sections.length === 1 && spec.sections[0]!.id === p.id;
+            return (
+              <Link key={p.id} href={p.href} aria-current={here ? 'page' : undefined}>
+                {p.title}
+              </Link>
+            );
+          })}
+        </nav>
+      ) : (
+        <nav aria-label="Sections" className="dk-row">
+          {spec.sections.map((s) => (
+            <a key={s.id} href={`#${s.id}`}>
+              {s.title}
+            </a>
+          ))}
+        </nav>
+      )}
       {spec.sections.map((s) => (
         <SectionView key={s.id} section={s} view={view} ctx={ctx} openKey={openKey} onOpen={onOpen} />
       ))}

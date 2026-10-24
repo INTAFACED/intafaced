@@ -35,6 +35,19 @@ export function assertVideoGatePublished(gate: VideoGateConfig): void {
   }
 }
 
+/**
+ * Whether the gate needs the caller's stake read at all: not when the gate is unpublished (it refuses anyway) and not
+ * when the published minimum is zero (every stake meets it), so playback does not depend on the stake source then.
+ */
+export function videoGateNeedsStake(gate: VideoGateConfig): boolean {
+  if (!isVideoGatePublished(gate)) return false;
+  try {
+    return parseAmount(gate.minStake.trim()) > 0n;
+  } catch {
+    return false;
+  }
+}
+
 export function assertVideoEntitled(input: { readonly gate: VideoGateConfig; readonly caller: VideoCaller; readonly stake: Amount }): void {
   assertVideoGatePublished(input.gate);
   const wantTier = input.gate.minTier.trim();

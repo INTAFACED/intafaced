@@ -426,6 +426,20 @@ export type BankErrorCode =
   | 'bank.recipient_check_unset'
   /** Same (rail, railRef), (user, clientRef), or offramp id already booked with different facts. */
   | 'bank.ramp_conflict'
+  /** A send over a bank rail with a recipient field that rail's form refuses (the message names the field). Nothing kept. */
+  | 'bank.rail_send_invalid'
+  /** A send-over-a-bank-rail request id already kept on other terms, or by someone else. Nothing changed. */
+  | 'bank.rail_send_conflict'
+  /** A send over a bank rail for more than the space's available balance, read from the ledger. Nothing kept. */
+  | 'bank.rail_send_over_available'
+  /** A saved bank-rail recipient that is not the caller's, was removed, or does not exist. Not found and not yours read the same. */
+  | 'bank.payee_not_found'
+  /** The owner has not published how long a new recipient waits (`BANK_PAYEE_COOLING_HOURS`); a send to one refuses. */
+  | 'bank.payee_cooling_unset'
+  /** The recipient is inside the owner's cooling-off window; the message names when it ends. Nothing kept. */
+  | 'bank.payee_cooling_active'
+  /** An invite emails the recipient a link; no email delivery is connected, so it is refused by name. */
+  | 'bank.payee_invite_unwired'
   /**
    * Standing-order runner kill switch (`SCHEDULED_TRANSFERS_ENABLED=false`).
    *

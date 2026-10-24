@@ -74,3 +74,426 @@ export type AcademyPublicCourseCard = z.infer<typeof academyPublicCourseCardSche
 /** `publicHub`: the item staff chose for the hub's featured slot, or null when nobody chose one. Never auto-promoted. */
 export const academyPublicHubSchema = z.object({ featured: academyCurriculumSummarySchema.nullable() });
 export type AcademyPublicHub = z.infer<typeof academyPublicHubSchema>;
+
+/**
+ * AC-enrolment-01: enrolling in one course from its page. `audit` is the free track; `certificate` is the paid track and
+ * stays closed with `no_price` until the owner publishes a price (AC-commerce-01). A closed course or track carries its
+ * reason, never a guess.
+ */
+export const ACADEMY_ENROLMENT_TRACKS = ['audit', 'certificate'] as const;
+export type AcademyEnrolmentTrack = (typeof ACADEMY_ENROLMENT_TRACKS)[number];
+export const ACADEMY_ENROLMENT_CLOSED_REASONS = [
+  'unpublished',
+  'hidden',
+  'no_price',
+  'window_not_started',
+  'window_ended',
+  'full',
+] as const;
+export type AcademyEnrolmentClosedReason = (typeof ACADEMY_ENROLMENT_CLOSED_REASONS)[number];
+
+const isoInstant = z.string().datetime({ offset: true });
+
+/**
+ * `courseEnrolment` (signed in): the terms of enrolling and the caller's own enrolment. `startsAt` null means the course
+ * is self-paced and opens when you enrol. `seatCap` null means no cap is set, and then `seatsRemaining` is null too.
+ * `activationMail` names the outside piece the activation mail needs while it is switched off; null once it is sent.
+ */
+export const academyCourseEnrolmentSchema = z
+  .object({
+    slug: z.enum(ACADEMY_CURRICULUM_PATHS),
+    startsAt: isoInstant.nullable(),
+    seatCap: z.number().int().positive().nullable(),
+    seatsRemaining: z.number().int().nonnegative().nullable(),
+    closed: z.enum(ACADEMY_ENROLMENT_CLOSED_REASONS).nullable(),
+    tracks: z
+      .array(
+        z.object({
+          track: z.enum(ACADEMY_ENROLMENT_TRACKS),
+          free: z.boolean(),
+          closed: z.enum(ACADEMY_ENROLMENT_CLOSED_REASONS).nullable(),
+        }),
+      )
+      .min(1),
+    enrolment: z.object({ track: z.enum(ACADEMY_ENROLMENT_TRACKS), enrolledAt: isoInstant }).nullable(),
+    activationMail: z.literal('vendor.email').nullable(),
+  })
+  .refine((row) => (row.seatCap === null) === (row.seatsRemaining === null), {
+    message: 'seatsRemaining is set exactly when a seat cap is',
+  });
+export type AcademyCourseEnrolment = z.infer<typeof academyCourseEnrolmentSchema>;
+
+/** `enrolCourse` input. A repeat while enrolled answers with the same enrolment; nothing is created twice. */
+export const academyEnrolCourseInputSchema = z
+  .object({ slug: z.string().min(1).max(64), track: z.enum(ACADEMY_ENROLMENT_TRACKS) })
+  .strict();
+export type AcademyEnrolCourseInput = z.infer<typeof academyEnrolCourseInputSchema>;
+
+/**
+ * AC-catalogue-02: My learning, one row per course the caller is enrolled in. `completed` counts the course's items the
+ * caller has completed; `resumeItemSlug` is null until they have completed something in it, and then names
+ * where Continue goes. `firstItemSlug` is where Start course goes.
+ */
+export const ACADEMY_MY_COURSE_STATUSES = ['in_progress', 'completed', 'future_start'] as const;
+export const academyMyCourseSchema = z
+  .object({
+    slug: z.enum(ACADEMY_CURRICULUM_PATHS),
+    status: z.enum(ACADEMY_MY_COURSE_STATUSES),
+    enrolledAt: isoInstant,
+    startsAt: isoInstant.nullable(),
+    items: z.number().int().positive(),
+    completed: z.number().int().nonnegative(),
+    firstItemSlug: z.string().min(1),
+    resumeItemSlug: z.string().min(1).nullable(),
+  })
+  .refine((row) => row.completed <= row.items, { message: 'more items completed than the course has' });
+export type AcademyMyCourse = z.infer<typeof academyMyCourseSchema>;
+
+/**
+ * AC-access-grants-01: the caller's access records, one per course they may learn in. `source` says how the access was
+ * given; `expiresAt` null means it does not expire. Free enrolment is the only source today.
+ */
+export const ACADEMY_ACCESS_SOURCES = ['free', 'purchase', 'staff', 'invitation'] as const;
+export const academyAccessGrantSchema = z.object({
+  slug: z.enum(ACADEMY_CURRICULUM_PATHS),
+  source: z.enum(ACADEMY_ACCESS_SOURCES),
+  grantedAt: isoInstant,
+  expiresAt: isoInstant.nullable(),
+});
+export type AcademyAccessGrant = z.infer<typeof academyAccessGrantSchema>;
+
+/**
+ * AC-course-structure-02: the outline beside an open item, for the signed-in learner. Each item carries the caller's
+ * own release state; a locked item says why (`prerequisite` with the missing items, or `window` with when it opens,
+ * null when the window has closed) and its body is never part of the outline.
+ */
+export const ACADEMY_ITEM_STATES = ['locked', 'unlocked', 'started', 'completed'] as const;
+/**
+ * AC-progress-01: what completes an item. `view` is met by opening it (the Complete button sits on the open item);
+ * `score` needs a passing quiz attempt; `watch` needs the video watched past the course threshold.
+ */
+export const ACADEMY_COMPLETION_RULES = ['view', 'score', 'watch'] as const;
+export type AcademyCompletionRule = (typeof ACADEMY_COMPLETION_RULES)[number];
+export const academyCourseOutlineItemSchema = z.object({
+  slug: z.string().min(1),
+  title: z.string().min(1),
+  kind: z.enum(ACADEMY_CURRICULUM_KINDS),
+  state: z.enum(ACADEMY_ITEM_STATES),
+  lock: z.enum(['prerequisite', 'window']).nullable(),
+  missing: z.array(z.string().min(1)),
+  opensAt: isoInstant.nullable(),
+  rule: z.enum(ACADEMY_COMPLETION_RULES),
+  /** Whether the caller has met `rule`; a completed item stays completed either way. */
+  ruleMet: z.boolean(),
+  /** When the current completion was recorded; null while the item is not complete (or was undone). */
+  completedAt: isoInstant.nullable(),
+});
+export type AcademyCourseOutlineItem = z.infer<typeof academyCourseOutlineItemSchema>;
+export const academyCourseOutlineSchema = z.object({
+  slug: z.enum(ACADEMY_CURRICULUM_PATHS),
+  items: z.array(academyCourseOutlineItemSchema).min(1),
+});
+export type AcademyCourseOutline = z.infer<typeof academyCourseOutlineSchema>;
+
+/** `markCurriculumComplete`: the stored completion. A repeat answers with the first one; nothing is recorded twice. */
+export const academyItemCompletionSchema = z.object({ userId: z.string().uuid(), itemSlug: z.string().min(1), completedAt: isoInstant });
+export type AcademyItemCompletion = z.infer<typeof academyItemCompletionSchema>;
+
+/**
+ * AC-progress-01 Undo of the completion recorded at `completedAt` (as the outline gave it), so a late replay never undoes a
+ * newer completion. The request id is the learner's own key for this one press; a replay answers the same.
+ */
+export const academyUndoCompletionInputSchema = z
+  .object({ itemSlug: z.string().min(1).max(120), completedAt: isoInstant, clientRequestId: z.string().trim().min(1).max(200) })
+  .strict();
+/** `undoneAt` null: nothing was complete, so nothing changed. */
+export const academyUndoCompletionSchema = z.object({
+  userId: z.string().uuid(),
+  itemSlug: z.string().min(1),
+  undoneAt: isoInstant.nullable(),
+});
+export type AcademyUndoCompletion = z.infer<typeof academyUndoCompletionSchema>;
+
+/**
+ * AC-quizzes-03: a quiz as the learner reads it. `timeLimitSeconds` and `attemptLimit` are null when staff set none (no
+ * limit applies); `reviewMode` says whether a finished attempt shows each answer against the key or the score only.
+ */
+export const ACADEMY_QUIZ_REVIEW_MODES = ['answers', 'score_only'] as const;
+export type AcademyQuizReviewMode = (typeof ACADEMY_QUIZ_REVIEW_MODES)[number];
+const quizChoice = z.object({ id: z.string().min(1).max(80), text: z.string().min(1).max(500) });
+export const academyQuizSchema = z.object({
+  slug: z.string().min(1),
+  kind: z.literal('quiz'),
+  passMark: z.number().int().nonnegative(),
+  timeLimitSeconds: z.number().int().positive().nullable(),
+  attemptLimit: z.number().int().positive().nullable(),
+  reviewMode: z.enum(ACADEMY_QUIZ_REVIEW_MODES),
+  questions: z.array(
+    z.object({
+      id: z.string().min(1),
+      prompt: z.string().min(1),
+      kind: z.literal('single'),
+      points: z.number().int().positive(),
+      choices: z.array(quizChoice),
+    }),
+  ),
+});
+export type AcademyQuiz = z.infer<typeof academyQuizSchema>;
+
+/**
+ * One timed attempt. The deadline is the server's, set at Start; `secondsLeft` is counted on the server at this read, so
+ * a refresh shows the same time left. `answers` are the saved choices by question id. `result` is null while open.
+ */
+export const academyQuizAttemptSchema = z.object({
+  attemptId: z.string().uuid(),
+  slug: z.string().min(1),
+  number: z.number().int().positive(),
+  startedAt: isoInstant,
+  deadlineAt: isoInstant.nullable(),
+  secondsLeft: z.number().int().nonnegative().nullable(),
+  answers: z.record(z.string(), z.string()),
+  /**
+   * Null while open. A finished attempt on a quiz whose results staff hide until a date (AC-progress-02) carries
+   * `hiddenUntil` and no score, pass or maximum until then.
+   */
+  result: z
+    .discriminatedUnion('hidden', [
+      z.object({
+        hidden: z.literal(false),
+        score: z.number().int().nonnegative(),
+        maxScore: z.number().int().nonnegative(),
+        pass: z.boolean(),
+        finishedAt: isoInstant,
+      }),
+      z.object({ hidden: z.literal(true), hiddenUntil: isoInstant, finishedAt: isoInstant }),
+    ])
+    .nullable(),
+});
+export type AcademyQuizAttempt = z.infer<typeof academyQuizAttemptSchema>;
+
+/** A finished attempt's review: the learner's own choices against the key, or `questions: null` when the quiz shows the score only. */
+export const academyQuizReviewSchema = z.object({
+  attemptId: z.string().uuid(),
+  slug: z.string().min(1),
+  number: z.number().int().positive(),
+  score: z.number().int().nonnegative(),
+  maxScore: z.number().int().nonnegative(),
+  pass: z.boolean(),
+  finishedAt: isoInstant,
+  reviewMode: z.enum(ACADEMY_QUIZ_REVIEW_MODES),
+  questions: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        prompt: z.string().min(1),
+        choices: z.array(quizChoice),
+        chosenChoiceId: z.string().nullable(),
+        correctChoiceId: z.string(),
+        correct: z.boolean(),
+      }),
+    )
+    .nullable(),
+});
+export type AcademyQuizReview = z.infer<typeof academyQuizReviewSchema>;
+
+/** Staff publish (or, with `quiz: null`, take down) the quiz on one curriculum item, with a reason. */
+export const academySetQuizInputSchema = z
+  .object({
+    slug: z.string().min(1).max(120),
+    quiz: z
+      .object({
+        passMark: z.number().int().nonnegative().nullable(),
+        attemptLimit: z.number().int().positive().nullable(),
+        timeLimitSeconds: z.number().int().positive().nullable(),
+        reviewMode: z.enum(ACADEMY_QUIZ_REVIEW_MODES),
+        /** AC-progress-02: results stay hidden (a pending grade, no score) until this instant; null or absent shows them at once. */
+        resultsHiddenUntil: isoInstant.nullable().optional(),
+        questions: z
+          .array(
+            z.object({
+              id: z.string().min(1).max(80),
+              prompt: z.string().min(1).max(2000),
+              points: z.number().int().positive(),
+              choices: z.array(quizChoice).min(2).max(20),
+              correctChoiceId: z.string().min(1).max(80),
+            }),
+          )
+          .min(1)
+          .max(100),
+      })
+      .nullable(),
+    reason: z.string().trim().min(1).max(500),
+  })
+  .strict();
+export type AcademySetQuizInput = z.infer<typeof academySetQuizInputSchema>;
+
+/**
+ * AC-progress-02: the learner's progress page. Per enrolled course, percent complete from the items the learner can see
+ * (every published item of the course; nothing is hidden from a learner today), with a check mark per item. Percentages
+ * are decimal strings with one decimal place.
+ */
+const percent = z.string().regex(/^\d{1,3}\.\d$/);
+export const academyCourseProgressSchema = z
+  .object({
+    slug: z.enum(ACADEMY_CURRICULUM_PATHS),
+    visible: z.number().int().positive(),
+    completed: z.number().int().nonnegative(),
+    percent,
+    items: z.array(
+      z.object({
+        slug: z.string().min(1),
+        title: z.string().min(1),
+        kind: z.enum(ACADEMY_CURRICULUM_KINDS),
+        completedAt: isoInstant.nullable(),
+      }),
+    ),
+  })
+  .refine((row) => row.completed <= row.visible && row.items.length === row.visible, { message: 'progress does not add up' });
+export type AcademyCourseProgress = z.infer<typeof academyCourseProgressSchema>;
+
+/**
+ * AC-progress-02: the learner's grades. One row per quiz they have finished an attempt on, at their best score, as
+ * decimal strings. A result staff hide until a date is `pending`: no score, the date it shows. Averages are per item type
+ * over released results only (sum of points over sum of possible); no row means no average, never a zero.
+ */
+export const ACADEMY_GRADE_TYPES = ['quiz'] as const;
+const points = z.string().regex(/^\d+$/);
+export const academyGradesSchema = z.object({
+  rows: z.array(
+    z.discriminatedUnion('pending', [
+      z.object({
+        pending: z.literal(false),
+        slug: z.string().min(1),
+        title: z.string().min(1),
+        type: z.enum(ACADEMY_GRADE_TYPES),
+        attempts: z.number().int().positive(),
+        score: points,
+        possible: points,
+        percent,
+        passed: z.boolean(),
+      }),
+      z.object({
+        pending: z.literal(true),
+        slug: z.string().min(1),
+        title: z.string().min(1),
+        type: z.enum(ACADEMY_GRADE_TYPES),
+        attempts: z.number().int().positive(),
+        hiddenUntil: isoInstant,
+      }),
+    ]),
+  ),
+  averages: z.array(z.object({ type: z.enum(ACADEMY_GRADE_TYPES), percent, count: z.number().int().positive() })),
+});
+export type AcademyGrades = z.infer<typeof academyGradesSchema>;
+
+export const academyProgressPageSchema = z.object({ courses: z.array(academyCourseProgressSchema), grades: academyGradesSchema });
+export type AcademyProgressPage = z.infer<typeof academyProgressPageSchema>;
+
+/**
+ * AC-progress-02: the learner's planner. To-do items and a weekly goal are the learner's own and private. `todoLimit` is
+ * the owner's per-learner cap (null: unset, and adding refuses `academy.planner_limit_unset`). `revision` counts every
+ * to-do ever added, so a new item's key `todo:<revision>` names one add. The goal reminder's mail names `vendor.email`
+ * while Academy has no mail sender.
+ */
+export const academyPlannerTodoSchema = z.object({
+  id: z.string().uuid(),
+  text: z.string().min(1).max(200),
+  createdAt: isoInstant,
+  doneAt: isoInstant.nullable(),
+});
+export type AcademyPlannerTodo = z.infer<typeof academyPlannerTodoSchema>;
+export const academyGoalSchema = z.object({
+  itemsPerWeek: z.number().int().positive(),
+  reminder: z.boolean(),
+  setAt: isoInstant,
+  /** Items the learner completed in the seven days up to this read. */
+  doneThisWeek: z.number().int().nonnegative(),
+});
+export const academyPlannerSchema = z.object({
+  todos: z.array(academyPlannerTodoSchema),
+  todoLimit: z.number().int().positive().nullable(),
+  revision: z.number().int().nonnegative(),
+  goal: academyGoalSchema.nullable(),
+  reminderMail: z.literal('vendor.email'),
+});
+export type AcademyPlanner = z.infer<typeof academyPlannerSchema>;
+export const academyAddTodoInputSchema = z
+  .object({ clientKey: z.string().trim().min(1).max(120), text: z.string().trim().min(1).max(200) })
+  .strict();
+export const academySetTodoDoneInputSchema = z.object({ todoId: z.string().uuid(), done: z.boolean() }).strict();
+export const academyRemoveTodoInputSchema = z.object({ todoId: z.string().uuid() }).strict();
+export const academySetGoalInputSchema = z.object({ itemsPerWeek: z.number().int(), reminder: z.boolean() }).strict();
+/** Sending the goal reminder now: `sent` is false and `mail` names the missing dependency while Academy has no mail sender. */
+export const academyGoalReminderSchema = z.object({ sent: z.literal(false), mail: z.literal('vendor.email') });
+
+/**
+ * AC-videos-01: the video staff attach to one curriculum item. An item with a video completes by the `watch` rule: the
+ * stored watch position reaching the owner's threshold completes it without a button. `videoSlug` null: no video.
+ */
+export const academyItemVideoSchema = z.object({ itemSlug: z.string().min(1), videoSlug: z.string().min(1).nullable() });
+export type AcademyItemVideo = z.infer<typeof academyItemVideoSchema>;
+export const academySetItemVideoInputSchema = z
+  .object({
+    itemSlug: z.string().min(1).max(120),
+    videoSlug: z.string().min(1).max(120).nullable(),
+    reason: z.string().trim().min(1).max(500),
+  })
+  .strict();
+
+/** One caption cue, in whole milliseconds from the start of the video. */
+export const academyVideoCueSchema = z.object({
+  startMs: z.number().int().nonnegative(),
+  endMs: z.number().int().positive(),
+  text: z.string().min(1).max(1000),
+});
+export type AcademyVideoCue = z.infer<typeof academyVideoCueSchema>;
+/** A BCP 47 language tag, such as `en` or `pt-BR`. */
+const languageTag = z.string().regex(/^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$/);
+export const academyVideoTrackSchema = z.object({
+  language: languageTag,
+  label: z.string().min(1).max(60),
+  cues: z.array(academyVideoCueSchema),
+});
+export type AcademyVideoTrack = z.infer<typeof academyVideoTrackSchema>;
+
+/**
+ * AC-videos-01: what the player needs besides the signed playback URL. Caption tracks come as cues (the transcript is the
+ * same cues, so it follows the chosen language); an empty list means the video has no captions. `renditions` lists only
+ * the files that exist. `saveEverySeconds` is the owner's position save interval (null: unset, so the position is saved
+ * on pause and on leaving only); `watchThresholdSeconds` is the owner's watch threshold (null: unset, and a watch item
+ * cannot complete). Behind the same tier and stake gate as playback.
+ */
+export const academyVideoPlayerSchema = z.object({
+  slug: z.string().min(1),
+  title: z.string().min(1),
+  renditions: z.array(z.object({ id: z.literal('original') })).min(1),
+  tracks: z.array(academyVideoTrackSchema),
+  saveEverySeconds: z.number().int().positive().nullable(),
+  watchThresholdSeconds: z.number().int().positive().nullable(),
+});
+export type AcademyVideoPlayer = z.infer<typeof academyVideoPlayerSchema>;
+/** Staff replace every caption track of one video, with a reason. Each track is a WebVTT file in UTF-8; `[]` removes them. */
+export const academySetVideoTracksInputSchema = z
+  .object({
+    videoSlug: z.string().min(1).max(120),
+    tracks: z
+      .array(z.object({ language: languageTag, label: z.string().trim().min(1).max(60), vtt: z.string().min(1).max(200_000) }))
+      .max(12),
+    reason: z.string().trim().min(1).max(500),
+  })
+  .strict();
+
+/** The learner's stored watch position. `completedItems`: the watch items this save completed (a set only says so). */
+export const academyVideoPositionSchema = z.object({
+  videoSlug: z.string().min(1),
+  positionSeconds: z.number().int().nonnegative().nullable(),
+});
+export const academyVideoPositionSavedSchema = academyVideoPositionSchema.extend({ completedItems: z.array(z.string().min(1)) });
+/** A signed, expiring playback URL for one video, as the wire carries it; `grant` binds it to the caller. */
+export const academyVideoPlaybackSchema = z.object({
+  slug: z.string().min(1),
+  playbackUrl: z.string().url(),
+  expiresAt: isoInstant,
+  grant: z.string().min(1),
+});
+export type AcademyVideoPlayback = z.infer<typeof academyVideoPlaybackSchema>;

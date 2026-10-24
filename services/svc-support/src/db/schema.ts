@@ -148,10 +148,37 @@ export const kbArticleVersions = schema.table(
     tags: jsonb('tags').$type<string[] | null>(),
     /** Who may read this generation: public, signed_in or staff. */
     audience: text('audience').notNull().default('public'),
+    /** Text typed in the desk (0032). All three null for a catalogue-keyed version. */
+    title: text('title'),
+    body: text('body'),
+    language: text('language'),
+    /** The section this generation is filed under (0032). */
+    sectionId: text('section_id'),
   },
   (t) => [primaryKey({ columns: [t.id, t.version] })],
 );
 export type KbArticleVersionRow = typeof kbArticleVersions.$inferSelect;
+
+/** Help library categories (0032). Created by support staff, never seeded; retired, never deleted. */
+export const kbCategories = schema.table('kb_categories', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  position: integer('position').notNull(),
+  retired: boolean('retired').notNull().default(false),
+  updatedBy: text('updated_by').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+});
+
+/** Sections under a category (0032). */
+export const kbSections = schema.table('kb_sections', {
+  id: text('id').primaryKey(),
+  categoryId: text('category_id').notNull(),
+  name: text('name').notNull(),
+  position: integer('position').notNull(),
+  retired: boolean('retired').notNull().default(false),
+  updatedBy: text('updated_by').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+});
 
 /** First result of an owner write, keyed by procedure + actor + client request. */
 export const writeReceipts = schema.table(

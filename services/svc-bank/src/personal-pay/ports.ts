@@ -122,6 +122,13 @@ export interface BillPorts {
 }
 
 export interface GlobalPorts {
+  /** Set only by the TEST stand-in (`global-sim.ts`): its catalogue's TEST label, shown beside every number it gives. */
+  readonly standIn?: { readonly label: string };
+  /**
+   * Set only by the TEST stand-in: whether a send is screened, put on hold before anything is posted
+   * (`GlobalHoldService.screen`). Screened once: after its hold is released, the send carries on.
+   */
+  readonly review?: { readonly waits: (send: { readonly assetId: string; readonly amount: string }) => boolean };
   readonly corridors: CorridorPort;
   readonly bic: BicDirectoryPort;
   readonly fx: FxPort;
