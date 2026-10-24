@@ -134,6 +134,7 @@ const en = {
   sUnknown:
     'We didn’t get an answer, so we don’t know yet whether it was sent. Confirm again: it finishes this same withdrawal and never sends twice.',
   sRefused: 'The transfer was refused and nothing moved.',
+  sScreening: 'Nothing was sent: screening a send against sanctions lists isn’t connected yet, so every send waits until it is.',
   sReference: 'Reference: {code}',
   aEyebrow: 'Money',
   aTitle: 'Withdrawal addresses',
@@ -427,6 +428,8 @@ const es = {
   sUnknown:
     'No recibimos respuesta, así que aún no sabemos si se envió. Confirma de nuevo: termina este mismo retiro y nunca envía dos veces.',
   sRefused: 'La transferencia fue rechazada y no se movió nada.',
+  sScreening:
+    'No se envió nada: la revisión de un envío frente a listas de sanciones aún no está conectada, así que todo envío espera hasta que lo esté.',
   sReference: 'Referencia: {code}',
   aEyebrow: 'Dinero',
   aTitle: 'Direcciones de retiro',
@@ -722,6 +725,8 @@ const fr = {
   sUnknown:
     'Nous n’avons pas reçu de réponse, nous ne savons donc pas encore si l’envoi a eu lieu. Confirme à nouveau : cela termine ce même retrait et n’envoie jamais deux fois.',
   sRefused: 'Le transfert a été refusé et rien n’a bougé.',
+  sScreening:
+    'Rien n’a été envoyé : le contrôle d’un envoi face aux listes de sanctions n’est pas encore connecté, donc tout envoi attend qu’il le soit.',
   sReference: 'Référence : {code}',
   aEyebrow: 'Argent',
   aTitle: 'Adresses de retrait',

@@ -107,6 +107,7 @@ import { KybApplicationService, readKybApplicationDueDays } from './kyb-applicat
 import { KYB_DOC_KEY_ENV, KybDocumentService, parseKybDocKey } from './kyb-documents.js';
 import { KybInformationRequestService } from './kyb-information-requests.js';
 import { KYB_MALWARE_SCANNER_ENV, openKybMalwareScanner } from './kyb-malware-scan.js';
+import { SCREENING_SCREENER_ENV, openScreeningScreener } from './screening/local-test-screener.js';
 import { SubMerchantService } from './submerchants.js';
 import { createSubMerchantRouter } from './submerchant-router.js';
 import { createSubscriptionRouter } from './subscription-router.js';
@@ -329,6 +330,8 @@ const payGuards = buildPayGuards({
   kycTierOf: kycTierSource,
   limitSource,
   custodyPolicyMode: loadCustodyPolicyMode(process.env),
+  // No screener is connected: blank refuses every custodial send. `local-test` is the test stack's stand-in (dev/test only).
+  screening: openScreeningScreener({ appEnv: process.env.APP_ENV, setting: process.env[SCREENING_SCREENER_ENV] }) ?? undefined,
 });
 const conversion = new ConversionService({
   sql,

@@ -94,7 +94,7 @@ export function WithdrawForm() {
     setConfirming(true);
   }
 
-  async function sendInside(token: string, clientRef: string) {
+  async function sendInside(token: string, clientRef: string, unanswered: boolean) {
     const answer = await api.mutate(
       'pay',
       'withdrawal.create',
@@ -108,15 +108,26 @@ export function WithdrawForm() {
       held.reload();
       return answer;
     }
-    // A named refusal from svc-pay is final: nothing moved, the dialog closes and the form says why. A new send is a new one.
-    if (answer.code?.startsWith('pay.') && answer.code !== 'pay.rail_outcome_unknown') {
-      setRefusal(answer.code === 'pay.withdrawal_self_send' ? t('dSelf') : `${t('sRefused')} ${t('sReference', { code: answer.code })}`);
+    // svc-pay's own code, from the error data or the front of its message (a guard refusal carries it there).
+    const payCode = [answer.code, answer.message].map((v) => /^pay\.[a-z0-9_.]+/.exec(v ?? '')?.[0]).find(Boolean);
+    const words =
+      payCode === 'pay.withdrawal_self_send'
+        ? t('dSelf')
+        : payCode === 'pay.guard_screening_unavailable'
+          ? `${t('sScreening')} ${t('sReference', { code: payCode })}`
+          : payCode
+            ? `${t('sRefused')} ${t('sReference', { code: payCode })}`
+            : null;
+    // A named refusal of a first ask is final: nothing was claimed, the dialog closes and the form says why. A new send is a
+    // new one. After an ask whose answer was lost, the earlier send may still have landed, so the reference is kept.
+    if (words && payCode !== 'pay.rail_outcome_unknown' && !unanswered) {
+      setRefusal(words);
       setOpen(null);
       return { ok: true as const, data: null };
     }
     // No answer, or svc-pay does not know yet: the send may have happened. Keep the reference so confirming again finishes it.
     setOpen((now) => (now && now.clientRef === clientRef ? { ...now, unanswered: true } : now));
-    return { ...answer, message: t('sUnknown') };
+    return { ...answer, message: words && payCode !== 'pay.rail_outcome_unknown' ? `${words} ${t('sUnknown')}` : t('sUnknown') };
   }
   return (
     <div className="bd-stack" data-testid="withdraw-form">
@@ -245,11 +256,7 @@ export function WithdrawForm() {
             </div>
           </div>
         ) : (
-          <DisabledAction
-            variant="primary"
-            label={inside ? t('sSend') : t('fReview')}
-            reason={inside ? t('sNeedAmount') : t('fReason')}
-          />
+          <DisabledAction variant="primary" label={inside ? t('sSend') : t('fReview')} reason={inside ? t('sNeedAmount') : t('fReason')} />
         )}
         {refusal && (
           <p className="failure" role="alert" data-testid="withdraw-refusal">
@@ -269,7 +276,7 @@ export function WithdrawForm() {
       {confirming && open && (
         <WithdrawStepUp
           why={t('sWhy', { amount: shown(amount.trim()), asset })}
-          run={(token) => sendInside(token, open.clientRef)}
+          run={(token) => sendInside(token, open.clientRef, open.unanswered)}
           onDone={() => setConfirming(false)}
           onCancel={() => setConfirming(false)}
         />
