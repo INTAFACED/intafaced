@@ -30,6 +30,7 @@ import {
   TRADE_FILLS_MINE_LIMIT_UNSET,
   TRADE_ORDER_HISTORY_LIMIT_UNSET,
 } from './trade-service.js';
+import { tradeServiceSource } from './trade-service/source.testkit.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -62,8 +63,8 @@ describe('fills.mine / orders.history limit unset refuse (no invented 100)', () 
   });
 
   it('trade-service.ts does not invent 100 via default param or clamp', () => {
-    const src = readFileSync(join(HERE, 'trade-service.ts'), 'utf8');
-    expect(src).not.toMatch(/async myFills\([^)]*limit = 100/);
+    const src = tradeServiceSource();
+    expect(src).not.toMatch(/async (?:function )?myFills\([^)]*limit = 100/);
     expect(src).toMatch(/async myFills\(principal: Principal, limit: number/);
     expect(src).toMatch(/publishedFillsMineLimit\(limit\)/);
     expect(src).not.toMatch(/input\.limit \?\? 100/);

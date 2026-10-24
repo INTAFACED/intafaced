@@ -33,6 +33,7 @@ import {
 
 import { TradeError } from '../spot/types.js';
 import { PUBLISHED_TEST_FEE_SCHEDULE, READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor } from '../spot/testing.js';
+import { tradeServiceSource } from '../spot/trade-service/source.testkit.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -127,7 +128,7 @@ describe('pre-trade credit hitch (source) — no invented caps, no flatten', () 
 
   it('router.ts / trade-service.ts / position-service.ts / index.ts not recut', () => {
     const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
-    const tradeSrc = readFileSync(join(here, '..', 'spot', 'trade-service.ts'), 'utf8');
+    const tradeSrc = tradeServiceSource();
     const posSrc = readFileSync(join(here, 'position-service.ts'), 'utf8');
     const indexSrc = readFileSync(join(here, '..', 'index.ts'), 'utf8');
     expect(routerSrc).not.toMatch(/pretrade-credit/);

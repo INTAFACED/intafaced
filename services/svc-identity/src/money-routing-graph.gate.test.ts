@@ -108,10 +108,11 @@ describe('money-routing graph gate (D26-P1-I1)', () => {
   });
 
   it('svc-trade placeOrder still consults identity ownership before storing the label', () => {
-    const trade = readFileSync(join(monorepo, 'services/svc-trade/src/spot/trade-service.ts'), 'utf8');
+    // Placement lives in svc-trade's spot/trade-service/order-place.ts since its split by area.
+    const trade = readFileSync(join(monorepo, 'services/svc-trade/src/spot/trade-service/order-place.ts'), 'utf8');
     const ownership = readFileSync(join(monorepo, 'services/svc-trade/src/spot/sub-account-ownership.ts'), 'utf8');
     expect(ownership).toMatch(/assertSubAccountOwned/);
     expect(ownership).toMatch(/\/internal\/sub-accounts\//);
-    expect(trade).toMatch(/assertSubAccountOwned\(this\.subAccounts/);
+    expect(trade).toMatch(/assertSubAccountOwned\((?:this|svc)\.subAccounts/);
   });
 });

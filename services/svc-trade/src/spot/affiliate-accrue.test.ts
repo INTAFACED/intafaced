@@ -11,6 +11,7 @@ import {
   NoopAffiliateAccrue,
   type AffiliateFeeLeg,
 } from './affiliate-accrue.js';
+import { tradeServiceSource } from './trade-service/source.testkit.js';
 
 const HOUSE = '11111111-1111-4111-8111-111111111111';
 const MAKER = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -115,9 +116,9 @@ describe('createAffiliateAccrueClient', () => {
 describe('settleFill wires accrue after ledger post (D26-P1-O2)', () => {
   it('classic tradeFill and MM fill both call notifyAffiliateAccrue after post', () => {
     const here = dirname(fileURLToPath(import.meta.url));
-    const src = readFileSync(join(here, 'trade-service.ts'), 'utf8');
+    const src = tradeServiceSource();
     expect(src).toMatch(/notifyAffiliateAccrue/);
-    const posts = [...src.matchAll(/await this\.ledger\.post\(/g)];
+    const posts = [...src.matchAll(/await (?:this|svc)\.ledger\.post\(/g)];
     expect(posts.length).toBeGreaterThanOrEqual(2);
     expect(src).toMatch(/recipes\.tradeFill/);
     expect(src).toMatch(/recipes\.marketMakerMakerFill/);

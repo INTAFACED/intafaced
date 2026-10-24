@@ -1,199 +1,3 @@
-import { createHash } from 'node:crypto';
-import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
-import {
-  TradingControlError,
-  canonicalPayload,
-  type TradingAdmissionPort,
-  type TradingOperationKind,
-} from '../controls/trading-controls.js';
-import type { BotVerificationPolicy } from '../algo/bots-verification.js';
-import { businessPayload } from '../controls/business-payload.js';
-import type { Timeframe } from '@intafaced/exchange-contract';
-import type { EventBus } from '@intafaced/events';
-import { requireScope, type Principal } from '@intafaced/auth';
-import {
-  formatAmount,
-  InsufficientFundsError,
-  LedgerError,
-  mul,
-  mulBps,
-  orderHoldAccount,
-  parseAmount,
-  recipes,
-  sub,
-  userAvailable,
-  type Amount,
-  type LedgerClient,
-} from '@intafaced/ledger-client';
-import { withMoneySpan } from '../tracing.js';
-import {
-  queryCandlesFromFills,
-  queryTakerVolumeFromFills,
-  assertCandleRangeWithinCap,
-  exportOhlcv,
-  OHLC_RECENT_ROW_CAP,
-} from './candles.js';
-import { listAlgoParents, type AlgoListQuery } from '../algo/algo-list.js';
-import { deriveAlgoResultFromTotals, loadAlgoChildFillTotals, type AlgoResult } from '../algo/algo-result.js';
-import { newestSchedulerHeartbeat, readSchedulerState, type AlgoSchedulerView } from '../algo/scheduler-heartbeat.js';
-import { listOptionsCatalogue, type OptionsCatalogueQuery } from './options-catalogue.js';
-import {
-  optionsExercises as optionsExercisesDoor,
-  optionsMarginPreview as optionsMarginPreviewDoor,
-  optionsPositions as optionsPositionsDoor,
-} from './options-doors.js';
-import { exportRfqHistory, listRfqHistory, type RfqListQuery } from '../otc/rfq-history.js';
-import { cancelScaleGroup, createScaleGroup, getScaleGroup, type ScaleCreateInput } from './scale-group.js';
-import { appendOrderEvent, listAlgoReports, parentIdFromClientOrder, type OrderEventKind } from '../orders/order-events.js';
-import { FeeScheduleError, UNPUBLISHED_FEE_SCHEDULE, type OwnerFeeSchedule } from './fee-schedule.js';
-import { feeScheduleAt as feeScheduleAtStore } from './fee-schedule-store.js';
-import { fillPayAmounts, fillReceivablesSurviveFees, ratesForFill as feeRatesForFill } from './fees.js';
-import { publicTapePrint } from './public-tape.js';
-import { fillIdFor, fillLegIdFor, orderIdFor } from './ids.js';
-import { ocoLegParent, settlementOrderId } from './oco-legs.js';
-import { readOcoIntent } from './oco-intent.js';
-import {
-  assertMarketOpen,
-  assertNotional,
-  assertPrice,
-  assertQty,
-  assertSettlementRails,
-  assertSpotSurface,
-  assertTradable,
-  holdFor,
-  protectionPriceFor,
-  sellProtectionPriceFor,
-  requireSupportedType,
-} from './risk.js';
-import { slippageToleranceFor } from './slippage-tolerance.js';
-import { resolveOptionsListing } from './options-listing.js';
-import { resolveDatedFuturesListing } from '../futures/dated-futures.js';
-import { resolveFuturesFamily } from '../futures/contract-family.js';
-import { checkInsuranceFundedForListing } from '../futures/insurance-listing-gate.js';
-import { assertOperatorRiskOnPlace, operatorSlippageCapBps, type Touch } from '../admin/risk.js';
-import { recordMarketStatusTransition } from '../admin/status-history.js';
-import { assertProductionUnsettledAssetClassListing } from './forex-settlement.js';
-import {
-  HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS,
-  classifyHoldPostError,
-  orderHoldIdempotencyKey,
-  type HoldRead,
-  type HoldUnknownAlert,
-  type HoldUnknownSweepResult,
-} from './hold-outcome.js';
-import { toFill, toMarket, toOrder, type FillRow, type MarketRow, type OrderRow } from './rows.js';
-import { loadListedMarketRows, loadMarketBySymbol } from '../futures/futures-reads.js';
-import type { RankPerksSource } from './rank-perks.js';
-import { fireAffiliateAccrue, affiliateLegsAfterFill, NoopAffiliateAccrue, type AffiliateAccruePort } from './affiliate-accrue.js';
-import { fireAffiliatePayout, NoopAffiliatePayout, type AffiliatePayoutPort } from './affiliate-payout.js';
-import {
-  DROP_COPY_SOURCE_RFQ,
-  dropCopySourceForBookOrder,
-  fireDropCopyFill,
-  NoopDropCopyIngest,
-  type DropCopyFillWire,
-  type DropCopyHitchSource,
-  type DropCopyIngestPort,
-} from './drop-copy-ingest.js';
-import { NoSubAccounts, assertSubAccountOwned, type SubAccountOwnershipSource } from './sub-account-ownership.js';
-import { holdLeft } from './order-holds.js';
-import { assertEmailProved, type EmailProofSource } from './email-proof.js';
-import {
-  MatchingNoBookError,
-  type EngineAmendResult,
-  type EngineDepth,
-  type EngineCancellation,
-  type EngineFill,
-  type EngineSubmitRequest,
-  type EngineSubmitResult,
-  type MatchingClient,
-} from './matching-client.js';
-import { judgeEngineSequence, probeEngineSequence } from './sequence-guard.js';
-import {
-  acceptConvertQuote,
-  buildFirmConvertQuote,
-  estimateConvert,
-  estimateConvertForSpend,
-  presentBoundConvertFill,
-  presentConvertQuote,
-  requireConvertQuoteTtlMs,
-  requireConvertSpreadBps,
-  type BoundConvertFill,
-  type ConvertQuoteResult,
-  type ConvertTradeWire,
-} from '../convert/quote.js';
-import {
-  checkMaxOpenOrders,
-  checkMaxOrder,
-  checkMaxOrderNotional,
-  resolveAdmissionLimits,
-  resolveOpenOrdersCap,
-} from '../futures/pretrade-limits.js';
-import { convertSettleIdsFor } from '../convert/ids.js';
-import { convertCustomerHoldKey, planConvertSettle, postConvertSettle, releaseStrandedHouseHold } from '../convert/settle.js';
-import { SqlConvertQuoteStore, type ConvertQuoteStore } from '../convert/quote-store.js';
-import {
-  bindConvertClientId,
-  exportConvertHistory,
-  listConvertHistory,
-  markConvertRefusal,
-  readConvertStatus,
-  type ConvertListQuery,
-} from '../convert/convert-history.js';
-import { isHouseMmAccount } from '../mm/seed-market.js';
-import { recoverMatchingAccountId } from '../mm/fill-account.js';
-import { HOUSE_MM_USER_UUID } from './ids.js';
-import {
-  attributionFromOrder,
-  attributionFromPrincipal,
-  houseMmAttribution,
-  requireAuthAttribution,
-  withFillLedgerAttribution,
-  withLedgerAttribution,
-  type AuthAttribution,
-} from './auth-attribution.js';
-import {
-  presentAlgoProgress,
-  SqlTwapParentStore,
-  TwapEngine,
-  type AlgoProgressView,
-  type AlgoQuotedMark,
-  type CreateTwapInput,
-  type TwapParent,
-  type TwapParentStore,
-} from '../algo/index.js';
-import { captureAlgoPlaceGrant, parseAlgoPlaceGrant, principalFromAlgoGrant } from '../algo/durable-principal.js';
-import { gateAlgoCreate } from '../algo/create-gate.js';
-import { DEFAULT_ALGO_MARK_POLICY, type AlgoMarkPolicy } from '../algo/mark-gate.js';
-import { alignLookbackVolumes, sliceCount, timeframeForSliceInterval } from '../algo/volume-plan.js';
-import type { TwapParentRecord } from '../algo/parent-store.js';
-import { hydrateAlgoFromStore, hydrateAlgoIfMissing, persistAlgoCancelAttempt, persistAlgoMutation } from '../algo/hydrate-on-mutate.js';
-import type { MarketLifecyclePort } from '../market-lifecycle.js';
-import type { QuotedMarkSource } from '../futures/liquidation-tick.js';
-import { createLifecycleAdmissionProof, type LifecycleAdmissionProof } from '../lifecycle-proof.js';
-import {
-  TradeError,
-  type FillRecord,
-  type Market,
-  type MarketKind,
-  type OrderAmendment,
-  type OrderRecord,
-  type OrderSide,
-  type OrderStatus,
-  type AmendOrderOutcome,
-  type AmendOutcomeCode,
-  type AmendPriority,
-  type ReplaceOrderOutcome,
-  type ReplaceOutcomeCode,
-  type OrderType,
-  type RecoveryReason,
-  type PublicTapePrint,
-  type ReconcileResult,
-  type TimeInForce,
-  type TradeErrorCode,
-} from './types.js';
-
 /**
  * svc-trade — THE PRODUCT LAYER (§5.2).
  *
@@ -221,10 +25,120 @@ import {
  * `amend_released`. Remainder owed back is derived from fills plus that column.
  */
 
-/** True only when `trade.fills` is empty and the order row claims no fill. */
-export function fillsProveNoFill(filledQty: Amount, fills: { count: number; qty: Amount }): boolean {
-  return fills.count === 0 && fills.qty === 0n && filledQty === 0n;
-}
+import type { Sql } from 'postgres';
+import { TradingControlError, type TradingAdmissionPort, type TradingOperationKind } from '../controls/trading-controls.js';
+import type { BotVerificationPolicy } from '../algo/bots-verification.js';
+import type { Timeframe } from '@intafaced/exchange-contract';
+import type { EventBus } from '@intafaced/events';
+import { requireScope, type Principal } from '@intafaced/auth';
+import { formatAmount, InsufficientFundsError, parseAmount, type Amount, type LedgerClient } from '@intafaced/ledger-client';
+import { queryTakerVolumeFromFills } from './candles.js';
+import { listAlgoParents, type AlgoListQuery } from '../algo/algo-list.js';
+import { type AlgoResult } from '../algo/algo-result.js';
+import { type AlgoSchedulerView } from '../algo/scheduler-heartbeat.js';
+import { listOptionsCatalogue, type OptionsCatalogueQuery } from './options-catalogue.js';
+import {
+  optionsExercises as optionsExercisesDoor,
+  optionsMarginPreview as optionsMarginPreviewDoor,
+  optionsPositions as optionsPositionsDoor,
+} from './options-doors.js';
+import { exportRfqHistory, listRfqHistory, type RfqListQuery } from '../otc/rfq-history.js';
+import { cancelScaleGroup, createScaleGroup, getScaleGroup, type ScaleCreateInput } from './scale-group.js';
+import { appendOrderEvent, listAlgoReports, parentIdFromClientOrder, type OrderEventKind } from '../orders/order-events.js';
+import { UNPUBLISHED_FEE_SCHEDULE, type OwnerFeeSchedule } from './fee-schedule.js';
+import { feeScheduleAt as feeScheduleAtStore } from './fee-schedule-store.js';
+import { operatorSlippageCapBps, type Touch } from '../admin/risk.js';
+import { type HoldRead, type HoldUnknownAlert, type HoldUnknownSweepResult } from './hold-outcome.js';
+import { toMarket, toOrder, type OrderRow } from './rows.js';
+import { loadListedMarketRows, loadMarketBySymbol } from '../futures/futures-reads.js';
+import type { RankPerksSource } from './rank-perks.js';
+import { NoopAffiliateAccrue, type AffiliateAccruePort } from './affiliate-accrue.js';
+import { NoopAffiliatePayout, type AffiliatePayoutPort } from './affiliate-payout.js';
+import { NoopDropCopyIngest, type DropCopyFillWire, type DropCopyHitchSource, type DropCopyIngestPort } from './drop-copy-ingest.js';
+import { NoSubAccounts, type SubAccountOwnershipSource } from './sub-account-ownership.js';
+import { type EmailProofSource } from './email-proof.js';
+import {
+  type EngineCancellation,
+  type EngineFill,
+  type EngineSubmitRequest,
+  type EngineSubmitResult,
+  type MatchingClient,
+} from './matching-client.js';
+import { type ConvertTradeWire } from '../convert/quote.js';
+import { checkMaxOpenOrders, checkMaxOrder, resolveAdmissionLimits, resolveOpenOrdersCap } from '../futures/pretrade-limits.js';
+import { SqlConvertQuoteStore, type ConvertQuoteStore } from '../convert/quote-store.js';
+import { exportConvertHistory, listConvertHistory, readConvertStatus, type ConvertListQuery } from '../convert/convert-history.js';
+import { type AuthAttribution } from './auth-attribution.js';
+import {
+  SqlTwapParentStore,
+  TwapEngine,
+  type AlgoProgressView,
+  type AlgoQuotedMark,
+  type TwapParent,
+  type TwapParentStore,
+} from '../algo/index.js';
+import { DEFAULT_ALGO_MARK_POLICY, type AlgoMarkPolicy } from '../algo/mark-gate.js';
+import type { TwapParentRecord } from '../algo/parent-store.js';
+import { hydrateAlgoIfMissing, persistAlgoMutation } from '../algo/hydrate-on-mutate.js';
+import type { MarketLifecyclePort } from '../market-lifecycle.js';
+import type { QuotedMarkSource } from '../futures/liquidation-tick.js';
+import { createLifecycleAdmissionProof, type LifecycleAdmissionProof } from '../lifecycle-proof.js';
+import {
+  TradeError,
+  type FillRecord,
+  type Market,
+  type MarketKind,
+  type OrderAmendment,
+  type OrderRecord,
+  type OrderSide,
+  type OrderStatus,
+  type AmendOrderOutcome,
+  type AmendOutcomeCode,
+  type AmendPriority,
+  type ReplaceOrderOutcome,
+  type ReplaceOutcomeCode,
+  type OrderType,
+  type RecoveryReason,
+  type PublicTapePrint,
+  type ReconcileResult,
+  type TimeInForce,
+  type TradeErrorCode,
+} from './types.js';
+import * as listings from './trade-service/listings.js';
+import * as convert from './trade-service/convert.js';
+import * as orderPlace from './trade-service/order-place.js';
+import * as orderChange from './trade-service/order-change.js';
+import * as fillFlow from './trade-service/fills.js';
+import * as holds from './trade-service/holds.js';
+import * as events from './trade-service/events.js';
+import * as reads from './trade-service/reads.js';
+import * as reconcile from './trade-service/reconcile.js';
+import * as twap from './trade-service/algo.js';
+
+export {
+  assertSamePlaceCommand,
+  fillsProveNoFill,
+  publishedAdminOpenOrdersLimit,
+  publishedFillsMineLimit,
+  publishedOpenOrdersLimit,
+  publishedOrderHistoryLimit,
+  publishedPublicTapeLimit,
+  PUBLIC_TAPE_LIMIT_MAX,
+  PublicTapeLimitUnsetError,
+  TRADE_PUBLIC_TAPE_LIMIT_UNSET,
+  ORDER_HISTORY_LIMIT_MAX,
+  OrderHistoryLimitUnsetError,
+  TRADE_ORDER_HISTORY_LIMIT_UNSET,
+  OPEN_ORDERS_LIMIT_MAX,
+  OpenOrdersLimitUnsetError,
+  TRADE_OPEN_ORDERS_LIMIT_UNSET,
+  FILLS_MINE_LIMIT_MAX,
+  FillsMineLimitUnsetError,
+  TRADE_FILLS_MINE_LIMIT_UNSET,
+  ADMIN_OPEN_ORDERS_LIMIT_MAX,
+  AdminOpenOrdersLimitUnsetError,
+  TRADE_ADMIN_OPEN_ORDERS_LIMIT_UNSET,
+} from './trade-service/internal.js';
 
 export interface TradeServiceOptions {
   /** Mandatory for fresh exposure; absent refuses while cancels/recovery remain. */
@@ -509,57 +423,6 @@ export interface AmendOrderInput {
   readonly expectedVersion?: number;
 }
 
-const REPLACEMENT_CLIENT_PREFIX = 'replace:';
-
-function replacementClientOrderId(clientOrderId: string): string {
-  return `${REPLACEMENT_CLIENT_PREFIX}${clientOrderId}`;
-}
-
-function replacementRequestHash(originalId: string, input: PlaceOrderInput): string {
-  const canonical = [
-    originalId,
-    input.symbol ?? '',
-    input.marketId ?? '',
-    input.side,
-    input.type,
-    formatAmount(input.qty),
-    input.price == null ? '' : formatAmount(input.price),
-    input.tif ?? 'GTC',
-    input.subAccountId ?? '',
-    input.clientOrderId ?? '',
-  ].join('|');
-  return createHash('sha256').update(canonical).digest('hex');
-}
-
-/**
- * A caller-owned identity is an idempotency fence, not permission to reinterpret
- * the command. Persisted fields are the fingerprint so retries need no second
- * table and can still resolve while mutable dependencies are unavailable.
- */
-export function assertSamePlaceCommand(
-  order: OrderRecord,
-  input: PlaceOrderInput,
-  orderType: OrderType,
-  tif: TimeInForce,
-  seeded: boolean,
-): OrderRecord {
-  const same =
-    order.clientOrderId === input.clientOrderId &&
-    order.subAccountId === (input.subAccountId ?? null) &&
-    order.side === input.side &&
-    order.type === orderType &&
-    order.qty === input.qty &&
-    order.price === (input.price ?? null) &&
-    order.tif === tif &&
-    order.seeded === seeded &&
-    order.replacementOf === (input.replacementOf ?? null) &&
-    order.replacementRequestHash === (input.replacementRequestHash ?? null);
-  if (!same) {
-    throw new TradeError('clientOrderId was already used for a different order request', 'trade.client_order_id_conflict');
-  }
-  return order;
-}
-
 export interface ListMarketInput {
   symbol: string;
   baseAsset: string;
@@ -634,116 +497,6 @@ export interface ListMarketInput {
   futuresSettleAsset?: string | null;
 }
 
-/** Blank / non-integer / out of 1..500 public-tape limit refuse. Never invent 100. */
-export const TRADE_PUBLIC_TAPE_LIMIT_UNSET = 'trade.public_tape_limit_unset' as const;
-export const PUBLIC_TAPE_LIMIT_MAX = 500;
-
-export class PublicTapeLimitUnsetError extends Error {
-  constructor(
-    message: string,
-    readonly code: typeof TRADE_PUBLIC_TAPE_LIMIT_UNSET,
-  ) {
-    super(message);
-    this.name = 'PublicTapeLimitUnsetError';
-  }
-}
-
-/** Owner-published tape window. Missing / null / non-int / out of 1..max refuses. Never invent 100. */
-export function publishedPublicTapeLimit(value: number | undefined | null): number {
-  if (value === undefined || value === null || !Number.isInteger(value) || value < 1 || value > PUBLIC_TAPE_LIMIT_MAX) {
-    throw new PublicTapeLimitUnsetError('public tape limit is unset — refuse to invent 100', TRADE_PUBLIC_TAPE_LIMIT_UNSET);
-  }
-  return value;
-}
-
-/** Blank / non-integer / out of 1..500 fills.mine / myFills limit refuse. Never invent 100. */
-export const TRADE_FILLS_MINE_LIMIT_UNSET = 'trade.fills_mine_limit_unset' as const;
-export const FILLS_MINE_LIMIT_MAX = 500;
-
-export class FillsMineLimitUnsetError extends Error {
-  constructor(
-    message: string,
-    readonly code: typeof TRADE_FILLS_MINE_LIMIT_UNSET,
-  ) {
-    super(message);
-    this.name = 'FillsMineLimitUnsetError';
-  }
-}
-
-/** Owner-published user-fills window. Missing / null / non-int / out of 1..max refuses. Never invent 100. */
-export function publishedFillsMineLimit(value: number | undefined | null): number {
-  if (value === undefined || value === null || !Number.isInteger(value) || value < 1 || value > FILLS_MINE_LIMIT_MAX) {
-    throw new FillsMineLimitUnsetError('fills.mine limit is unset — refuse to invent 100', TRADE_FILLS_MINE_LIMIT_UNSET);
-  }
-  return value;
-}
-
-/** Blank / non-integer / out of 1..500 orders.history / orderHistory limit refuse. Never invent 100. */
-export const TRADE_ORDER_HISTORY_LIMIT_UNSET = 'trade.order_history_limit_unset' as const;
-export const ORDER_HISTORY_LIMIT_MAX = 500;
-
-export class OrderHistoryLimitUnsetError extends Error {
-  constructor(
-    message: string,
-    readonly code: typeof TRADE_ORDER_HISTORY_LIMIT_UNSET,
-  ) {
-    super(message);
-    this.name = 'OrderHistoryLimitUnsetError';
-  }
-}
-
-/** Owner-published order-history window. Missing / null / non-int / out of 1..max refuses. Never invent 100. */
-export function publishedOrderHistoryLimit(value: number | undefined | null): number {
-  if (value === undefined || value === null || !Number.isInteger(value) || value < 1 || value > ORDER_HISTORY_LIMIT_MAX) {
-    throw new OrderHistoryLimitUnsetError('orders.history limit is unset — refuse to invent 100', TRADE_ORDER_HISTORY_LIMIT_UNSET);
-  }
-  return value;
-}
-
-/** Blank / non-integer / out of 1..500 adminOpenOrders limit refuse. Never invent 100. */
-export const TRADE_ADMIN_OPEN_ORDERS_LIMIT_UNSET = 'trade.admin_open_orders_limit_unset' as const;
-export const ADMIN_OPEN_ORDERS_LIMIT_MAX = 500;
-
-export class AdminOpenOrdersLimitUnsetError extends Error {
-  constructor(
-    message: string,
-    readonly code: typeof TRADE_ADMIN_OPEN_ORDERS_LIMIT_UNSET,
-  ) {
-    super(message);
-    this.name = 'AdminOpenOrdersLimitUnsetError';
-  }
-}
-
-/** Owner-published admin open-orders window. Missing / null / non-int / out of 1..max refuses. Never invent 100. */
-export function publishedAdminOpenOrdersLimit(value: number | undefined | null): number {
-  if (value === undefined || value === null || !Number.isInteger(value) || value < 1 || value > ADMIN_OPEN_ORDERS_LIMIT_MAX) {
-    throw new AdminOpenOrdersLimitUnsetError('adminOpenOrders limit is unset — refuse to invent 100', TRADE_ADMIN_OPEN_ORDERS_LIMIT_UNSET);
-  }
-  return value;
-}
-
-/** Blank / non-integer / out of 1..500 openOrders limit refuse. Never invent 100. */
-export const TRADE_OPEN_ORDERS_LIMIT_UNSET = 'trade.open_orders_limit_unset' as const;
-export const OPEN_ORDERS_LIMIT_MAX = 500;
-
-export class OpenOrdersLimitUnsetError extends Error {
-  constructor(
-    message: string,
-    readonly code: typeof TRADE_OPEN_ORDERS_LIMIT_UNSET,
-  ) {
-    super(message);
-    this.name = 'OpenOrdersLimitUnsetError';
-  }
-}
-
-/** Owner-published self open-orders window. Missing / null / non-int / out of 1..max refuses. Never invent 100. */
-export function publishedOpenOrdersLimit(value: number | undefined | null): number {
-  if (value === undefined || value === null || !Number.isInteger(value) || value < 1 || value > OPEN_ORDERS_LIMIT_MAX) {
-    throw new OpenOrdersLimitUnsetError('orders.open limit is unset — refuse to invent 100', TRADE_OPEN_ORDERS_LIMIT_UNSET);
-  }
-  return value;
-}
-
 /** Blank / non-integer / out of 1..500 markets() list limit refuse. Never invent 50. */
 export const TRADE_MARKETS_LIMIT_UNSET = 'trade.markets_limit_unset' as const;
 export const MARKETS_LIMIT_MAX = 500;
@@ -766,7 +519,117 @@ export function publishedMarketsLimit(value: number | undefined | null): number 
   return value;
 }
 
+/**
+ * `TradeService` as the area files in `trade-service/` see it: its public surface plus the private members those
+ * files run on. The class passes itself through `internal`, so only the class and its area files reach these
+ * members; any other caller still gets a compile error for them.
+ */
+export type TradeServiceInternal = { [K in keyof TradeService]: TradeService[K] } & {
+  accountAdmission: TradeService['accountAdmission'];
+  spotEnabled: TradeService['spotEnabled'];
+  futuresEnabled: TradeService['futuresEnabled'];
+  optionsSettlementAssetLaw: TradeService['optionsSettlementAssetLaw'];
+  optionsSettlementFixing: TradeService['optionsSettlementFixing'];
+  futuresSettlementFixing: TradeService['futuresSettlementFixing'];
+  futuresSettleAssets: TradeService['futuresSettleAssets'];
+  seedPlaceEnabled: TradeService['seedPlaceEnabled'];
+  slippageCapBps: TradeService['slippageCapBps'];
+  botVerification: TradeService['botVerification'];
+  algoMarkPolicy: TradeService['algoMarkPolicy'];
+  convertEnabled: TradeService['convertEnabled'];
+  convertSpreadBps: TradeService['convertSpreadBps'];
+  convertQuoteTtlMs: TradeService['convertQuoteTtlMs'];
+  convertStore: TradeService['convertStore'];
+  algoEnabled: TradeService['algoEnabled'];
+  algoJobsEnabled: TradeService['algoJobsEnabled'];
+  algoJobsIntervalMs: TradeService['algoJobsIntervalMs'];
+  now: TradeService['now'];
+  subAccounts: TradeService['subAccounts'];
+  emailProof: TradeService['emailProof'];
+  allowUnpublishedPairRules: TradeService['allowUnpublishedPairRules'];
+  algo: TradeService['algo'];
+  algoStore: TradeService['algoStore'];
+  affiliateAccrue: TradeService['affiliateAccrue'];
+  affiliatePayout: TradeService['affiliatePayout'];
+  dropCopyIngest: TradeService['dropCopyIngest'];
+  onCopyMirrorFill: TradeService['onCopyMirrorFill'];
+  onHoldUnknownAlert: TradeService['onHoldUnknownAlert'];
+  holdUnknownTakerMaxAgeMs: TradeService['holdUnknownTakerMaxAgeMs'];
+  sql: TradeService['sql'];
+  ledger: TradeService['ledger'];
+  matching: TradeService['matching'];
+  perks: TradeService['perks'];
+  bus: TradeService['bus'];
+  assertLifecycleAction: TradeService['assertLifecycleAction'];
+  algoPrincipals: TradeService['algoPrincipals'];
+  requireStandingInstructions: TradeService['requireStandingInstructions'];
+  convertExecuteFor: TradeService['convertExecuteFor'];
+  buildConvertQuote: TradeService['buildConvertQuote'];
+  placeOrderInner: TradeService['placeOrderInner'];
+  recordedFillSequence: TradeService['recordedFillSequence'];
+  refuseRestartedEngineSequence: TradeService['refuseRestartedEngineSequence'];
+  executeAdmittedOrder: TradeService['executeAdmittedOrder'];
+  placePaperOrderIsolated: TradeService['placePaperOrderIsolated'];
+  amendOutcome: TradeService['amendOutcome'];
+  applyNativeAmendHold: TradeService['applyNativeAmendHold'];
+  replaceOutcome: TradeService['replaceOutcome'];
+  applySubmitResult: TradeService['applySubmitResult'];
+  settleOutcome: TradeService['settleOutcome'];
+  finalizeOcoWhenNoLegLive: TradeService['finalizeOcoWhenNoLegLive'];
+  insertFillLeg: TradeService['insertFillLeg'];
+  settleFill: TradeService['settleFill'];
+  notifyAffiliateAccrue: TradeService['notifyAffiliateAccrue'];
+  notifyCopyMirrorFill: TradeService['notifyCopyMirrorFill'];
+  notifyDropCopyFill: TradeService['notifyDropCopyFill'];
+  notifyAffiliatePayout: TradeService['notifyAffiliatePayout'];
+  assertOwnerFeeSchedulePublished: TradeService['assertOwnerFeeSchedulePublished'];
+  feeScheduleAt: TradeService['feeScheduleAt'];
+  ratesForFill: TradeService['ratesForFill'];
+  ratesForSchedule: TradeService['ratesForSchedule'];
+  assertFillFeesPostable: TradeService['assertFillFeesPostable'];
+  fillEvidence: TradeService['fillEvidence'];
+  remainingHold: TradeService['remainingHold'];
+  finalize: TradeService['finalize'];
+  holdUnknownWaitSeconds: TradeService['holdUnknownWaitSeconds'];
+  deleteAbsentHoldUnknownPastBound: TradeService['deleteAbsentHoldUnknownPastBound'];
+  cancelAbsentHoldUnknownPastBound: TradeService['cancelAbsentHoldUnknownPastBound'];
+  orderIsTaker: TradeService['orderIsTaker'];
+  takerOlderThanCap: TradeService['takerOlderThanCap'];
+  holdUnknownSubmitRefusal: TradeService['holdUnknownSubmitRefusal'];
+  rejectBookedHoldUnknown: TradeService['rejectBookedHoldUnknown'];
+  submitBookedHoldUnknown: TradeService['submitBookedHoldUnknown'];
+  repostAbsentHold: TradeService['repostAbsentHold'];
+  noteHoldUnknown: TradeService['noteHoldUnknown'];
+  readHoldByKey: TradeService['readHoldByKey'];
+  openAndSubmit: TradeService['openAndSubmit'];
+  resumeHoldUnknown: TradeService['resumeHoldUnknown'];
+  markRecoveryRequired: TradeService['markRecoveryRequired'];
+  finalizeIfComplete: TradeService['finalizeIfComplete'];
+  publishXp: TradeService['publishXp'];
+  publishOrderUpdated: TradeService['publishOrderUpdated'];
+  refuseCancelAheadOfFill: TradeService['refuseCancelAheadOfFill'];
+  replayStoredAlgo: TradeService['replayStoredAlgo'];
+  installAlgoPlaceGrant: TradeService['installAlgoPlaceGrant'];
+  requireMarket: TradeService['requireMarket'];
+  assertOwnerOrderLimit: TradeService['assertOwnerOrderLimit'];
+  assertOpenOrdersCap: TradeService['assertOpenOrdersCap'];
+  isPendingBracketExit: TradeService['isPendingBracketExit'];
+  slippageCap: TradeService['slippageCap'];
+  bestAsk: TradeService['bestAsk'];
+  touch: TradeService['touch'];
+  bestBid: TradeService['bestBid'];
+  toEngineRequest: TradeService['toEngineRequest'];
+  noteOrderEvent: TradeService['noteOrderEvent'];
+  notePartialIfOpen: TradeService['notePartialIfOpen'];
+  refreshFilledQty: TradeService['refreshFilledQty'];
+};
+
 export class TradeService {
+  /** This service as its area files in `trade-service/` see it: see `TradeServiceInternal`. */
+  private get internal(): TradeServiceInternal {
+    return this as unknown as TradeServiceInternal;
+  }
+
   private readonly accountAdmission: TradingAdmissionPort | undefined;
   private readonly marketLifecycle?: MarketLifecyclePort;
   /** Read by the trailing-stop placement wrapper (`trailing-stop-place.ts`). */
@@ -1087,91 +950,7 @@ export class TradeService {
    * dormant until the first partial fill hit it in production.
    */
   async listMarket(input: ListMarketInput): Promise<Market> {
-    const assetClass = input.assetClass ?? 'crypto';
-    const paper = input.paper === true;
-    const status = input.status ?? 'active';
-    const kind = input.kind ?? 'spot';
-    // Contract family first: an inverse request is refused before any ledger read.
-    const familyTerms = resolveFuturesFamily({
-      kind,
-      quoteAsset: input.quoteAsset,
-      family: input.futuresFamily,
-      settleAsset: input.futuresSettleAsset,
-      configuredSettleAssets: this.futuresSettleAssets,
-      paper,
-    });
-    // D26-P1-T7 / D-S-05: modelling forex/commodities is honest; production
-    // active listing without P0-05 + fiat settle rails is the lie (§13 socket.forex-settlement).
-    // paper=true (drills) and non-active status remain allowed. Never invent settlement.
-    assertProductionUnsettledAssetClassListing({ assetClass, status, paper });
-    // DIRECTION:33 — empty insurance fund → no real-money futures list.
-    // Target size/schedule stay owner-open; any positive balance passes.
-    const insuranceGate = await checkInsuranceFundedForListing({
-      kind,
-      status,
-      paper,
-      quoteAsset: input.quoteAsset,
-      balance: (ref) => this.ledger.balance(ref),
-    });
-    if (!insuranceGate.ok) {
-      throw new TradeError(insuranceGate.reason, insuranceGate.code);
-    }
-    // trade.options: refuse kind=options until P0-05 law + D7 fixing; require
-    // complete European terms so half-listed options cannot exist.
-    // No IV surface, no pricing model, no invented settlement asset / matrix.
-    const optionTerms = resolveOptionsListing({
-      kind,
-      settlementAssetLawConfigured: this.optionsSettlementAssetLaw,
-      settlementFixingConfigured: this.optionsSettlementFixing,
-      optionType: input.optionType,
-      optionStyle: input.optionStyle,
-      strike: input.optionStrike,
-      expiryAt: input.optionExpiryAt,
-      paper,
-    });
-    const datedTerms = resolveDatedFuturesListing({
-      kind,
-      futuresContractStyle: input.futuresContractStyle,
-      expiryAt: input.futuresExpiryAt,
-      settlementFixingConfigured: this.futuresSettlementFixing,
-      paper,
-    });
-    const rows = await this.sql<MarketRow[]>`
-      INSERT INTO trade.markets (
-        symbol, base_asset, quote_asset, kind, tick_size, lot_size,
-        min_qty, max_qty, min_notional, status, maker_bps, taker_bps, listed_at,
-        asset_class, schedule, display_name, paper,
-        option_type, option_style, option_strike, option_expiry_at, settlement_fixing,
-        futures_contract_style, futures_expiry_at, futures_settlement_fixing,
-        futures_family, futures_settle_asset
-      ) VALUES (
-        ${input.symbol}, ${input.baseAsset}, ${input.quoteAsset}, ${kind},
-        ${formatAmount(input.tickSize)}::numeric, ${formatAmount(input.lotSize)}::numeric,
-        ${formatAmount(input.minQty)}::numeric,
-        ${input.maxQty == null ? null : formatAmount(input.maxQty)}::numeric,
-        ${formatAmount(input.minNotional)}::numeric,
-        ${status}, ${input.makerBps}, ${input.takerBps}, now(),
-        ${assetClass}, ${input.schedule ?? 'crypto-24x7'},
-        ${input.displayName ?? input.symbol}, ${paper},
-        ${optionTerms?.optionType ?? null},
-        ${optionTerms?.optionStyle ?? null},
-        ${optionTerms == null ? null : formatAmount(optionTerms.strike)}::numeric,
-        ${optionTerms?.expiryAt ?? null},
-        ${optionTerms?.settlementFixing ?? null},
-        ${datedTerms?.style ?? null},
-        ${datedTerms?.expiryAt ?? null},
-        ${datedTerms?.settlementFixing ?? null},
-        ${familyTerms?.family ?? null},
-        ${familyTerms?.settleAsset ?? null}
-      )
-      ON CONFLICT (symbol) DO UPDATE SET updated_at = now()
-      RETURNING id, symbol, base_asset, quote_asset, kind, tick_size, lot_size,
-                min_qty, max_qty, min_notional, status, maker_bps, taker_bps, listed_at,
-                asset_class, schedule, paper,
-                futures_contract_style, futures_expiry_at, futures_settlement_fixing,
-                futures_family, futures_settle_asset, contract_size
-    `;
-    return toMarket(rows[0] as MarketRow);
+    return listings.listMarket(this.internal, input);
   }
 
   /**
@@ -1183,46 +962,7 @@ export class TradeService {
    * lets a user out of a market the operator has frozen.
    */
   async setMarketStatus(marketId: string, status: Market['status']): Promise<Market> {
-    // Load first: FX/commodity re-activate must not bypass socket.forex-settlement,
-    // and empty-fund futures enable-to-active must refuse (DIRECTION:33).
-    const existing = await this.sql<MarketRow[]>`
-      SELECT id, symbol, base_asset, quote_asset, kind, tick_size, lot_size,
-             min_qty, max_qty, min_notional, status, maker_bps, taker_bps, listed_at,
-             asset_class, schedule, paper,
-             futures_contract_style, futures_expiry_at, futures_settlement_fixing,
-             futures_family, futures_settle_asset, contract_size
-        FROM trade.markets WHERE id = ${marketId}
-    `;
-    const current = existing[0];
-    if (!current) throw new TradeError(`market ${marketId} not found`, 'trade.market_not_found');
-    const currentMarket = toMarket(current);
-    assertProductionUnsettledAssetClassListing({
-      assetClass: current.asset_class,
-      status,
-      paper: currentMarket.paper,
-    });
-    const insuranceGate = await checkInsuranceFundedForListing({
-      kind: currentMarket.kind,
-      status,
-      paper: currentMarket.paper,
-      quoteAsset: currentMarket.quoteAsset,
-      balance: (ref) => this.ledger.balance(ref),
-    });
-    if (!insuranceGate.ok) {
-      throw new TradeError(insuranceGate.reason, insuranceGate.code);
-    }
-    const rows = await this.sql<MarketRow[]>`
-      UPDATE trade.markets SET status = ${status}, updated_at = now() WHERE id = ${marketId}
-      RETURNING id, symbol, base_asset, quote_asset, kind, tick_size, lot_size,
-                min_qty, max_qty, min_notional, status, maker_bps, taker_bps, listed_at,
-                asset_class, schedule, paper,
-                futures_contract_style, futures_expiry_at, futures_settlement_fixing,
-                futures_family, futures_settle_asset, contract_size
-    `;
-    const row = rows[0];
-    if (!row) throw new TradeError(`market ${marketId} not found`, 'trade.market_not_found');
-    await recordMarketStatusTransition(this.sql, { marketId, fromStatus: current.status, toStatus: status });
-    return toMarket(row);
+    return listings.setMarketStatus(this.internal, marketId, status);
   }
 
   /**
@@ -1247,9 +987,7 @@ export class TradeService {
   }
 
   private async convertQuoteFor(userId: string, input: ConvertQuoteRequest) {
-    const quote = await this.buildConvertQuote(userId, input);
-    await this.convertStore.saveOpen(quote);
-    return presentConvertQuote(quote);
+    return convert.convertQuoteFor(this.internal, userId, input);
   }
 
   private requireStandingInstructions() {
@@ -1269,12 +1007,7 @@ export class TradeService {
    * ledger recipes and idempotency as the interactive door; only admission differs.
    */
   async standingConvertExecute(userId: string, instructionId: string, input: ConvertExecuteRequest): Promise<ConvertTradeWire> {
-    this.requireStandingInstructions();
-    return this.convertExecuteFor(userId, input, (businessId, payload) => {
-      if (!this.accountAdmission) throw new TradingControlError('authority.unavailable');
-      if (typeof this.accountAdmission.admitStanding !== 'function') throw new TradingControlError('authority.unavailable');
-      return this.accountAdmission.admitStanding(userId, instructionId, businessId, payload);
-    });
+    return convert.standingConvertExecute(this.internal, userId, instructionId, input);
   }
 
   /**
@@ -1286,10 +1019,7 @@ export class TradeService {
   }
 
   async convertExecute(principal: Principal, input: ConvertExecuteRequest): Promise<ConvertTradeWire> {
-    requireScope(principal, 'trade:write');
-    return this.convertExecuteFor(principal.userId, input, (businessId, payload) =>
-      this.admitAccountOperation(principal, 'order.place', businessId, payload),
-    );
+    return convert.convertExecute(this.internal, principal, input);
   }
 
   private async convertExecuteFor(
@@ -1297,145 +1027,7 @@ export class TradeService {
     input: ConvertExecuteRequest,
     admit: (businessId: string, payload: unknown) => Promise<unknown>,
   ): Promise<ConvertTradeWire> {
-    return withMoneySpan(
-      'trade.convertExecute',
-      {
-        operation: 'convert',
-        userId,
-        orderId: input.quoteId,
-      },
-      async (span) => {
-        if (!this.convertEnabled) {
-          throw new TradeError('convert is disabled by the operator kill-switch', 'trade.convert_disabled');
-        }
-        requireConvertSpreadBps(this.convertSpreadBps);
-        requireConvertQuoteTtlMs(this.convertQuoteTtlMs);
-        if (!input.quoteId || input.quoteId.trim().length < 1) {
-          throw new TradeError('convert quote id is required — refuse rather than invent a mid', 'trade.convert_quote_missing');
-        }
-
-        const stored = await this.convertStore.load(input.quoteId);
-        if (!stored) {
-          throw new TradeError('convert quote not found', 'trade.convert_quote_missing');
-        }
-        if (stored.quote.userId !== userId) {
-          throw new TradeError('convert quote belongs to another user', 'trade.convert_not_owner');
-        }
-        await bindConvertClientId(this.sql, userId, stored.quote.quoteId, input.clientConvertId);
-
-        const ids = convertSettleIdsFor(stored.quote.quoteId);
-        if (stored.lifecycle === 'settled') {
-          span.setAttribute('intafaced.fill_id', ids.fillId);
-          return presentBoundConvertFill(stored.bound, { ...ids, settledAt: stored.settledAt });
-        }
-        // A convert holds and swaps customer funds: same email-proof gate as an order (RC-identity-01),
-        // for the customer's accept and for a standing schedule alike. A settled replay returned above.
-        await assertEmailProved(this.emailProof, userId);
-
-        if (input.symbol != null && input.symbol !== stored.quote.symbol) {
-          throw new TradeError('convert accept must honour the quoted symbol', 'trade.convert_price_moved');
-        }
-        if (input.side != null && input.side !== stored.quote.side) {
-          throw new TradeError('convert accept must honour the quoted side', 'trade.convert_price_moved');
-        }
-        if (input.qty != null && input.qty !== stored.quote.requestedQty) {
-          throw new TradeError('convert accept must honour the quoted quantity', 'trade.convert_price_moved');
-        }
-
-        const original = await this.accountAdmission?.original(userId, `convert:${stored.quote.quoteId}`);
-        const recordedBound = (original?.payload as { bound?: { fillPrice: string; fillNotional: string; acceptedAt: string } } | undefined)
-          ?.bound;
-        let bound: BoundConvertFill;
-        if (recordedBound) {
-          bound = {
-            quote: stored.quote,
-            fillPrice: parseAmount(recordedBound.fillPrice),
-            fillNotional: parseAmount(recordedBound.fillNotional),
-            acceptedAt: recordedBound.acceptedAt,
-          };
-        } else if (stored.lifecycle === 'bound') {
-          bound = stored.bound;
-        } else {
-          bound = acceptConvertQuote({
-            quote: stored.quote,
-            now: this.now(),
-            assertedPrice: input.maxAvgPrice ?? null,
-          });
-        }
-        // A recorded price (a `bound` quote, or one put back to `open` after a
-        // refused settle, #4676) is replayed on retry. With no customer hold
-        // booked nothing is committed yet, so the TTL applies: refuse before
-        // anything is posted or re-bound, else a top-up hours later (or a retry
-        // after a timed-out hold post) settles at a stale rate. With the hold
-        // booked, the original recovery semantics stand.
-        if (stored.lifecycle === 'bound' || (stored.lifecycle === 'open' && recordedBound)) {
-          const expiresAt = Date.parse(stored.quote.expiresAt);
-          if (this.now().getTime() > expiresAt && !(await this.ledger.getTxByKey(convertCustomerHoldKey(ids.takerOrderId)))) {
-            // A legacy attempt may have booked the house hold first: give it back.
-            await releaseStrandedHouseHold(this.ledger, planConvertSettle({ bound, ...ids, now: new Date(bound.acceptedAt) }));
-            throw new TradeError('convert quote expired — refuse rather than requote', 'trade.convert_quote_expired');
-          }
-        }
-        // Owner pre-trade max-order limit (#4725) on a FRESH accept only: a
-        // bound or admitted original is a recovery and never creates new risk.
-        if (stored.lifecycle === 'open' && !original) {
-          const resolved = resolveAdmissionLimits();
-          if ('refusal' in resolved) throw new TradeError(resolved.refusal.message, resolved.refusal.code as TradeErrorCode);
-          const refusal = checkMaxOrderNotional({
-            limits: resolved.limits,
-            quoteAsset: bound.quote.quoteAsset,
-            notional: bound.fillNotional,
-            what: 'convert',
-          });
-          if (refusal) throw new TradeError(refusal.message, refusal.code as TradeErrorCode);
-        }
-        // The quote's immutable original bound is the business payload. A retry
-        // recovers this decision rather than sampling a new price or quantity.
-        if (stored.lifecycle === 'open' || original) {
-          await admit(`convert:${stored.quote.quoteId}`, original?.payload ?? businessPayload({ quote: stored.quote, bound, ids }));
-        }
-        if (stored.lifecycle === 'open') {
-          await this.convertStore.saveBound(stored.quote, bound);
-        }
-
-        // Expiry governs the original accept, not recovery of already bound effects.
-        const plan = planConvertSettle({ bound, ...ids, now: new Date(bound.acceptedAt) });
-        try {
-          await postConvertSettle(this.ledger, plan);
-        } catch (err) {
-          // A definite refusal posted nothing that is still held (customer
-          // shortfall posts nothing; house shortfall already released the
-          // customer hold), so the quote must not stay `bound`. Unknown
-          // outcomes stay bound: effects may exist and recovery needs them.
-          if (
-            (err instanceof LedgerError && err.code === 'ledger.insufficient_funds') ||
-            (err instanceof TradeError && err.code === 'trade.convert_liquidity_unavailable')
-          ) {
-            await this.convertStore.saveOpen(stored.quote);
-            await markConvertRefusal(this.sql, stored.quote.quoteId, err.code);
-          }
-          throw err;
-        }
-        const settledAt = this.now();
-        await this.convertStore.saveSettled(stored.quote, bound, settledAt);
-        await this.notifyDropCopyFill({
-          fillId: ids.fillId,
-          orderId: ids.takerOrderId,
-          userId: bound.quote.userId,
-          marketId: bound.quote.marketId,
-          side: bound.quote.side,
-          price: formatAmount(bound.fillPrice),
-          qty: formatAmount(bound.quote.filledQty),
-          quoteAmount: formatAmount(bound.fillNotional),
-          feeAsset: bound.quote.quoteAsset,
-          feeAmount: '0',
-          ts: settledAt.toISOString(),
-          source: DROP_COPY_SOURCE_RFQ,
-        });
-        span.setAttribute('intafaced.fill_id', ids.fillId);
-        return presentBoundConvertFill(bound, { ...ids, settledAt: settledAt.toISOString() });
-      },
-    );
+    return convert.convertExecuteFor(this.internal, userId, input, admit);
   }
 
   convertList(principal: Principal, input: ConvertListQuery) {
@@ -1499,127 +1091,17 @@ export class TradeService {
   }
 
   private scalePorts() {
-    return {
-      sql: this.sql,
-      placeOrder: (principal: Principal, input: PlaceOrderInput) => this.placeOrder(principal, input),
-      cancelOrder: (principal: Principal, orderId: string) => this.cancelOrder(principal, orderId),
-      findClientOrder: (principal: Principal, input: { marketId: string; clientOrderId: string }) => this.findClientOrder(principal, input),
-      marketBySymbol: (symbol: string) => this.marketBySymbol(symbol),
-      available: async (userId: string, assetId: string) => (await this.ledger.balance(userAvailable(userId, assetId))).amount,
-    };
+    return convert.scalePorts(this.internal);
   }
 
   private async buildConvertQuote(userId: string, input: ConvertQuoteRequest) {
-    if (!this.convertEnabled) {
-      throw new TradeError('convert is disabled by the operator kill-switch', 'trade.convert_disabled');
-    }
-    const convertSpreadBps = requireConvertSpreadBps(this.convertSpreadBps);
-    const quoteTtlMs = requireConvertQuoteTtlMs(this.convertQuoteTtlMs);
-    if (!this.spotEnabled) {
-      throw new TradeError('spot trading is disabled by the operator kill-switch', 'trade.spot_disabled');
-    }
-
-    const market = await this.requireMarket(input);
-    // Convert is a spot-shaped RFQ and says so itself, rather than inheriting the
-    // order path's kind refusal — which is about to become a flag. See
-    // `assertSpotSurface`.
-    assertSpotSurface(market, 'convert');
-    assertTradable(market);
-    assertSettlementRails(market);
-    // Same schedule gate as placeOrder / TWAP create — before qty or book walk.
-    // A quote for a shut / unrecognised venue is a lie (invented mid / weekend
-    // EUR/USD fundable quote while place refuses market_closed).
-    assertMarketOpen(market, this.now());
-    if ((input.qty == null) === (input.quoteQty == null)) {
-      throw new TradeError('convert takes exactly one of qty (base amount) or quoteQty (spend)', 'trade.convert_invalid_qty');
-    }
-    // Same gate order as before: a bad base quantity refuses before the book is read.
-    if (input.qty != null) assertQty(market, input.qty);
-
-    const depth = await this.matching.depth(market.id, 50);
-    const levels = input.side === 'buy' ? depth.asks : depth.bids;
-    let requestedQty: Amount;
-    let estimate: ConvertQuoteResult;
-    if (input.quoteQty != null) {
-      // Spend: round DOWN to the lot grid so the charge can never exceed what the user typed.
-      const spend = estimateConvertForSpend({
-        side: input.side,
-        quoteQty: input.quoteQty,
-        levels,
-        convertSpreadBps,
-        tickSize: market.tickSize,
-        lotSize: market.lotSize,
-      });
-      requestedQty = spend.qty;
-      estimate = spend;
-      // Same floors an order meets: min qty and min notional (floored like a fill), then max qty.
-      if (requestedQty < market.minQty || spend.bookNotional < market.minNotional) {
-        throw new TradeError(
-          `spend ${formatAmount(input.quoteQty)} ${market.quoteAsset} buys ${formatAmount(requestedQty)} ${market.baseAsset}, below the ${formatAmount(market.minQty)} ${market.baseAsset} / ${formatAmount(market.minNotional)} ${market.quoteAsset} minimum`,
-          'trade.below_min_notional',
-        );
-      }
-      assertQty(market, requestedQty);
-    } else {
-      requestedQty = input.qty as Amount;
-      estimate = estimateConvert({
-        side: input.side,
-        qty: requestedQty,
-        levels,
-        convertSpreadBps,
-        tickSize: market.tickSize,
-      });
-    }
-
-    if (!estimate.fullyFilled) {
-      throw new TradeError(
-        `insufficient book depth to convert ${formatAmount(requestedQty)} ${market.baseAsset} — only ${formatAmount(estimate.filledQty)} available`,
-        'trade.convert_insufficient_depth',
-      );
-    }
-
-    const now = this.now();
-    return buildFirmConvertQuote({
-      quoteId: crypto.randomUUID(),
-      userId,
-      symbol: market.symbol,
-      marketId: market.id,
-      side: input.side,
-      baseAsset: market.baseAsset,
-      quoteAsset: market.quoteAsset,
-      requestedQty,
-      estimate,
-      convertSpreadBps,
-      source: { kind: 'book', symbol: market.symbol, asOf: now.toISOString() },
-      now,
-      quoteTtlMs,
-    });
+    return convert.buildConvertQuote(this.internal, userId, input);
   }
 
   // ── The order flow (§5.2) ──────────────────────────────────────────────────
 
   async placeOrder(principal: Principal, input: PlaceOrderInput): Promise<OrderRecord> {
-    return withMoneySpan(
-      'trade.placeOrder',
-      {
-        operation: 'place_order',
-        userId: principal.userId,
-        symbol: input.symbol,
-        side: input.side,
-        qty: formatAmount(input.qty),
-      },
-      async (span) => {
-        const order = await this.placeOrderInner(principal, input);
-        span.setAttribute('intafaced.order_id', order.id);
-        span.setAttribute('intafaced.order_status', order.status);
-        // User-visible lifecycle (private WS). The legacy event catalog cannot
-        // represent RECOVERY_REQUIRED, so unresolved snapshots are exposed via
-        // the REST/private projections below and are deliberately not emitted
-        // as a misleading OPEN/REJECTED event.
-        if (order.status !== 'recovery_required' && order.status !== 'hold_unknown') await this.publishOrderUpdated(order);
-        return order;
-      },
-    );
+    return orderPlace.placeOrder(this.internal, principal, input);
   }
 
   private async placeOrderInner(
@@ -1628,450 +1110,21 @@ export class TradeService {
     kind: TradingOperationKind = 'order.place',
     parentBusinessId?: string,
   ): Promise<OrderRecord> {
-    // ── 1 · AUTH + SCOPE ────────────────────────────────────────────────────
-    // First, before anything is read and long before anything is held. The
-    // tRPC router applies the same check as a `scopedProcedure`; it is repeated
-    // here so that every caller of this service — router, event consumer,
-    // future gRPC edge — passes through the same gate, rather than the gate
-    // living in one transport.
-    requireScope(principal, 'trade:write');
-    const attribution = attributionFromPrincipal(principal);
-    const userId = principal.userId;
-
-    // NO ORDERABLE PLANE AT ALL — refused before the registry is touched.
-    //
-    // This check used to be `if (!this.spotEnabled)`, and it runs BEFORE
-    // `requireMarket` on purpose: an operator who has halted the venue should be
-    // told the venue is halted, not sent on a symbol lookup that answers
-    // `market_not_found` for a market that exists. Keeping it here preserves that
-    // ordering exactly.
-    //
-    // With futures orderable there are two planes, so the pre-resolution refusal
-    // can only fire when NEITHER can take an order; the per-kind answer needs the
-    // market and comes straight after it is loaded. With `TRADE_FUTURES_ENABLED`
-    // off — the shipped default — `!spotEnabled && !futuresEnabled` reduces to
-    // `!spotEnabled` and this line behaves identically to the one it replaced.
-    if (!this.spotEnabled && !this.futuresEnabled) {
-      throw new TradeError('spot trading is disabled by the operator kill-switch', 'trade.spot_disabled');
-    }
-
-    const seeded = input.seeded === true;
-    if (seeded && !this.seedPlaceEnabled) {
-      throw new TradeError('seed/mm place is disabled by the operator kill-switch', 'trade.seed_disabled');
-    }
-
-    // ── 2 · RISK CHECKS ─────────────────────────────────────────────────────
-    const market = await this.requireMarket(input);
-
-    // Retry identity is resolved before mutable market/operator/dependency
-    // checks. A retry must find the original even after a halt or outage; it
-    // never creates new risk and cannot blind-resubmit an unresolved command.
-    if (input.clientOrderId == null || input.clientOrderId.length < 1 || input.clientOrderId.length > 64) {
-      throw new TradeError('clientOrderId is required (1–64 chars) so a retry cannot open a second hold', 'trade.client_order_id_required');
-    }
-    const orderType: OrderType = requireSupportedType(input.type);
-    let tif: TimeInForce = input.seeded === true ? 'PO' : (input.tif ?? 'GTC');
-    if (tif === 'MOC') {
-      throw new TradeError('maker-or-cancel is not yet accepted by the trade service', 'trade.invalid_tif');
-    }
-    const expectedSeeded = market.paper ? false : seeded;
-    const orderId = orderIdFor(userId, market.id, input.clientOrderId);
-    const existing = await this.findOrder(orderId);
-    if (existing) {
-      assertSamePlaceCommand(existing, input, orderType, tif, expectedSeeded);
-      // A lost hold reply left this row. The same key resolves it; it does not
-      // open a second hold and it does not return the stuck row as placed.
-      if (existing.status === 'hold_unknown') return this.resumeHoldUnknown(existing, 'retry');
-      return existing;
-    }
-    const businessId = `order:${orderId}`;
-    const request = businessPayload({ ...input, symbol: market.symbol, marketId: market.id, type: orderType, tif });
-    const original = await this.accountAdmission?.original(userId, businessId);
-    // An admitted original was granted only after the email-proof gate below passed.
-    // The decision was made at admission, so finishing it needs no second read even
-    // if the proof has lapsed since (an email change clears it).
-    if (original) {
-      const evidence = original.payload as Record<string, unknown>;
-      if (canonicalPayload(evidence.request) !== canonicalPayload(request)) throw new TradingControlError('operation.conflict');
-      await this.admitAccountOperation(principal, kind, businessId, evidence, parentBusinessId, input.subAccountId);
-      return this.executeAdmittedOrder(evidence);
-    }
-
-    // Normalize the actual command before PX-S01. Seed/mm is forced post-only,
-    // so its proof must say PLACE_POST_ONLY even when the caller omitted tif.
-    // PX-S01 is the single state gate for both projections and new risk. It is
-    // deliberately after idempotency lookup: a retry of an existing command
-    // cannot create new value and remains recoverable during an authority
-    // outage. A fresh PLACE/PLACE_POST_ONLY must have explicit authority,
-    // dossier, session, risk, and matching readiness evidence.
-    const lifecycleProof = await this.assertLifecycleAction(market, tif === 'PO' ? 'PLACE_POST_ONLY' : 'PLACE', orderType);
-
-    // The per-kind half of the kill-switch. `TRADE_SPOT_ENABLED` is the spot
-    // plane's switch and stays exactly that — it does not halt futures, and
-    // `TRADE_FUTURES_ENABLED` does not halt spot. Two planes, two switches; a
-    // single boolean standing for both would make an operator stopping one stop
-    // the other, and there is no version of that which is the honest answer.
-    if (market.kind === 'spot' && !this.spotEnabled) {
-      throw new TradeError('spot trading is disabled by the operator kill-switch', 'trade.spot_disabled');
-    }
-    // SD-5 applies before the paper branch too: a seeded command is always a
-    // priced maker command, and its proof has already been bound to PO above.
-    if (seeded && orderType !== 'limit') {
-      throw new TradeError('seed/mm orders must be limit post-only (liquidity provision only)', 'trade.seed_must_make');
-    }
-    if (tif === 'PO' && orderType !== 'limit') {
-      throw new TradeError('post-only requires a limit price', 'trade.invalid_price');
-    }
-    assertTradable(market, {
-      futuresEnabled: this.futuresEnabled,
-      optionsSettlementLawStamped: this.optionsSettlementAssetLaw.trim().length > 0,
-      now: this.now(),
-    });
-    // W4 U1: seed FX/commodity stay active in DB; place must refuse before hold.
-    assertSettlementRails(market);
-
-    // Hours/schedule refuse BEFORE paper SQL, clientOrderId, or any hold.
-    // A closed or unrecognised venue must not take funds (weekend EUR/USD used
-    // to rest a funded order until Monday). Read the clock ONCE so this request
-    // cannot straddle a session boundary and get two answers.
-    assertMarketOpen(market, this.now());
-
-    // Owner schedule before paper SQL or any hold. Listing-row 10/20 is not a
-    // schedule; unpublished is a typed refuse (same hitch as order preview).
-    await this.assertOwnerFeeSchedulePublished();
-
-    // Ownership + revoked gate (identity S2S). Before any new row or hold — a
-    // foreign or revoked id must never land on trade.orders.sub_account_id.
-    // Existing clientOrderId retries return above even if identity is down;
-    // they cannot create new risk and must remain recoverable.
-    if (input.subAccountId != null) {
-      await assertSubAccountOwned(this.subAccounts, userId, input.subAccountId);
-    }
-
-    // Stage-1 paper isolation (academy.paper-trading): a paper market must never
-    // post orderHold / tradeFill against real available balances. Live markets
-    // keep the funded path below unchanged.
-    if (market.paper) {
-      return this.placePaperOrderIsolated(principal, input, market, orderType, tif, lifecycleProof);
-    }
-    // RC-identity-01: a custodial order needs a proved email. Read per request,
-    // before any hold; retries of an existing clientOrderId returned above.
-    await assertEmailProved(this.emailProof, userId);
-    assertQty(market, input.qty);
-    // A bracket's exit for a filled entry is neither banded nor capped: refusing it would leave the position
-    // without its stop. A replacement takes the slot its original frees.
-    // The exit is the one sell placed after its entry stopped resting; nothing else borrows the exemption.
-    const protectiveExit =
-      input.side === 'sell' &&
-      (await this.isPendingBracketExit(principal.userId, input.clientOrderId, { entryDone: true, marketId: market.id }));
-    await assertOperatorRiskOnPlace(
-      this.sql,
-      market,
-      principal.userId,
-      {
-        side: input.side,
-        price: input.price ?? null,
-        qty: input.qty,
-        protective: protectiveExit,
-        rests: orderType !== 'market' && tif !== 'IOC' && tif !== 'FOK' && input.replacementOf == null && !protectiveExit,
-      },
-      () => this.touch(market.id),
-      !this.allowUnpublishedPairRules,
-    );
-
-    // SD-5: seed/mm is liquidity provision only — never take liquidity (no
-    // market orders, force post-only so the engine refuses unfair crosses).
-    if (seeded) {
-      if (orderType !== 'limit') {
-        throw new TradeError('seed/mm orders must be limit post-only (liquidity provision only)', 'trade.seed_must_make');
-      }
-      tif = 'PO';
-    }
-    if (tif === 'PO' && orderType !== 'limit') {
-      // Post-only is a promise to be a maker, and only a priced order can make
-      // it. Refused here rather than by the engine so no hold is taken first.
-      throw new TradeError('post-only requires a limit price', 'trade.invalid_price');
-    }
-
-    /**
-     * The price the order is FUNDED at, which is not always the price it is
-     * matched at:
-     *   · limit      — its own price. Fills come in at or better than it.
-     *   · market buy — a protection price derived from the best ask, and the
-     *                  order is submitted as a marketable IOC limit there, so
-     *                  the engine cannot fill above what was held.
-     *   · market sell— hold is base quantity (no funding price). The engine
-     *                  floor is the owner slippage cap under the best bid.
-     *                  A caller `minProtectionPrice` may only tighten that floor.
-     *                  No published floor is `trade.protection_unset`.
-     *                  The owner max-order check uses the best bid (what a
-     *                  sell IOC can fill), or that floor when it is higher.
-     */
-    let fundingPrice: Amount | null = null;
-    let protectionPrice: Amount | null = null;
-    // Market sell only. Limit and market-buy keep fundingPrice.
-    let marketSellLimitPrice: Amount | null = null;
-
-    if (orderType === 'limit') {
-      slippageToleranceFor(input, orderType, null);
-      if (input.price == null) throw new TradeError('a limit order requires a price', 'trade.invalid_price');
-      assertPrice(market, input.price);
-      assertNotional(market, input.price, input.qty);
-      fundingPrice = input.price;
-    } else if (input.side === 'buy') {
-      const ask = await this.bestAsk(market.id);
-      const ownerCap = await this.slippageCap(market.id);
-      protectionPrice = protectionPriceFor(market, ask, ownerCap);
-      const tolerance = slippageToleranceFor(input, orderType, ownerCap);
-      if (tolerance !== null) {
-        const tighter = protectionPriceFor(market, ask, tolerance);
-        if (tighter < protectionPrice) protectionPrice = tighter;
-      }
-      if (input.maxProtectionPrice != null && input.maxProtectionPrice < protectionPrice) {
-        if (input.maxProtectionPrice <= 0n) {
-          throw new TradeError('maxProtectionPrice must be positive', 'trade.invalid_price');
-        }
-        protectionPrice = input.maxProtectionPrice;
-      }
-      assertNotional(market, protectionPrice, input.qty);
-      fundingPrice = protectionPrice;
-    } else {
-      // Market sell. Hold stays base qty — fundingPrice remains null — but the
-      // engine path is an IOC limit at the owner floor so a sell cannot print
-      // through an unpublished or missing bid. The bid is read once and shared
-      // with the owner-limit reference below.
-      const bid = await this.bestBid(market.id);
-      const ownerCap = await this.slippageCap(market.id);
-      let floor = sellProtectionPriceFor(market, bid, ownerCap);
-      const tolerance = slippageToleranceFor(input, orderType, ownerCap);
-      if (tolerance !== null) {
-        const tighter = sellProtectionPriceFor(market, bid, tolerance);
-        if (tighter > floor) floor = tighter;
-      }
-      if (input.minProtectionPrice != null) {
-        if (input.minProtectionPrice <= 0n) {
-          throw new TradeError('minProtectionPrice must be positive', 'trade.invalid_price');
-        }
-        assertPrice(market, input.minProtectionPrice);
-        if (input.minProtectionPrice > floor) floor = input.minProtectionPrice;
-      }
-      protectionPrice = floor;
-      // A sell IOC can fill up to the best bid, so the max-order check must
-      // not undervalue the order at the slippage floor. A floor above the bid
-      // (a tightened minProtectionPrice) is the larger reference.
-      marketSellLimitPrice = bid != null && bid > floor ? bid : floor;
-    }
-
-    // Owner pre-trade max-order limit (#4725): this is the one door every
-    // placed order passes (router, replace, copy mirror, algo child). Retries of
-    // an existing order returned above, so a retry is never newly refused. Paper
-    // markets returned above too (no real money), and seeded MM is a system action.
-    // Reduce-only orders only ever shrink a position, so they are never capped.
-    // Limit and market-buy use fundingPrice. A market sell uses the best bid
-    // (or the floor when that is higher), never the floor alone.
-    if (!seeded && (input as { reduceOnly?: boolean }).reduceOnly !== true) {
-      await this.assertOwnerOrderLimit(market, input.qty, fundingPrice ?? marketSellLimitPrice ?? protectionPrice);
-      // Owner cap on resting orders per user. Only an order that can rest counts against it.
-      // A replacement takes the slot its original just freed, and a bracket exit only protects a filled entry.
-      if (orderType !== 'market' && tif !== 'IOC' && tif !== 'FOK' && input.replacementOf == null) {
-        await this.assertOpenOrdersCap(userId, input.clientOrderId);
-      }
-    }
-
-    // A market SELL holds base quantity, so `holdFor` ignores the price on that
-    // branch — the zero is never read, and passing one is what keeps the
-    // function total rather than partial.
-    const hold = holdFor(market, input.side, fundingPrice ?? 0n, input.qty);
-
-    // Rank perks are read ONCE, here, and snapshotted onto the row. Fails
-    // closed — but nothing has moved yet, which is exactly why this is the
-    // right place to be strict about a dependency being down.
-    const perks = await this.perks.perksOf(userId);
-
-    const evidence = businessPayload({
-      request,
-      market,
-      orderId,
-      userId,
-      orderType,
-      tif,
-      hold,
-      perks,
-      protectionPrice,
-      seeded,
-      attribution,
-      lifecycleProof,
-      engineRequest: this.toEngineRequest(orderId, userId, input, orderType, tif, protectionPrice, lifecycleProof),
-    });
-    await this.admitAccountOperation(principal, kind, businessId, evidence, parentBusinessId, input.subAccountId);
-    return this.executeAdmittedOrder(evidence);
+    return orderPlace.placeOrderInner(this.internal, principal, input, kind, parentBusinessId);
   }
 
   private async recordedFillSequence(marketId: string): Promise<number | undefined> {
-    const rows = await this.sql<Array<{ max_sequence: string | null }>>`
-      SELECT MAX(sequence)::text AS max_sequence
-        FROM trade.fills
-       WHERE market_id = ${marketId}
-    `;
-    const raw = rows[0]?.max_sequence;
-    return raw == null ? undefined : Number(raw);
+    return orderPlace.recordedFillSequence(this.internal, marketId);
   }
 
-  /**
-   * Refuse a new order while the engine counter is behind what is settled.
-   *
-   * The stored max is read again AFTER the depth reply: a delayed fill from the
-   * previous engine can settle while the probe is in flight, and the reply must
-   * be judged against that newer max, not the one sampled before the await.
-   * This narrows the window; it does not make admission atomic with
-   * settlement. A fill that settles after the second read is still caught by
-   * `insertFillLeg` (#899) at settlement. No epoch or restart-safety protocol
-   * is claimed here.
-   *
-   * Unknown is not missing: an outage, 5xx or malformed depth reply throws
-   * `MatchingUnavailableError` (502), never `engine_sequence_regressed`.
-   */
   private async refuseRestartedEngineSequence(market: Market): Promise<void> {
-    // A market with no stored fill is unjudged, as before: no probe.
-    const before = await this.recordedFillSequence(market.id);
-    if (before === undefined) return;
-
-    const engineSequence = await probeEngineSequence((marketId) => this.matching.depth(marketId, 1), market.id);
-
-    // Fills only grow, but take the max so a stale read can never lower the bar.
-    const after = await this.recordedFillSequence(market.id);
-    const recordedSequence = after === undefined ? before : Math.max(before, after);
-    if (judgeEngineSequence(recordedSequence, engineSequence) !== 'regression') return;
-
-    const where =
-      engineSequence === null
-        ? `the engine book is missing after fills through sequence ${recordedSequence}`
-        : `the engine sequence ${engineSequence} is behind settled sequence ${recordedSequence}`;
-    throw new TradeError(
-      `${market.symbol}: ${where}. Refusing the submit so the sequence counter does not start again and reissue a sequence stored on trade.fills.`,
-      'trade.engine_sequence_regressed',
-    );
+    return orderPlace.refuseRestartedEngineSequence(this.internal, market);
   }
 
-  /** Only called with the owner's immutable prepared payload, never public receipts. */
   private async executeAdmittedOrder(evidence: Record<string, unknown>): Promise<OrderRecord> {
-    const rawInput = evidence.request as Record<string, unknown>;
-    const input = {
-      ...rawInput,
-      qty: parseAmount(String(rawInput.qty)),
-      price: rawInput.price == null ? null : parseAmount(String(rawInput.price)),
-    } as unknown as PlaceOrderInput;
-    const rawMarket = evidence.market as Record<string, unknown>;
-    const market = { ...rawMarket } as unknown as Market;
-    for (const field of ['tickSize', 'lotSize', 'minQty', 'maxQty', 'minNotional'] as const) {
-      (market as unknown as Record<string, unknown>)[field] = rawMarket[field] == null ? null : parseAmount(String(rawMarket[field]));
-    }
-    const orderId = String(evidence.orderId),
-      userId = String(evidence.userId);
-    const orderType = evidence.orderType as OrderType,
-      tif = evidence.tif as TimeInForce;
-    const rawHold = evidence.hold as { assetId: string; amount: string };
-    const hold = { assetId: rawHold.assetId, amount: parseAmount(rawHold.amount) };
-    const perks = evidence.perks as { feeDiscountBps: number };
-    const protectionPrice = evidence.protectionPrice == null ? null : parseAmount(String(evidence.protectionPrice));
-    const seeded = evidence.seeded === true;
-    const attribution = evidence.attribution as AuthAttribution;
-    const lifecycleProof = evidence.lifecycleProof as LifecycleAdmissionProof;
-    const engineRequest = evidence.engineRequest as EngineSubmitRequest;
-    if (!(await this.findOrder(orderId))) await this.refuseRestartedEngineSequence(market);
-    // ── 2b · THE INTENT ROW ─────────────────────────────────────────────────
-    //
-    // If this crashes exactly here, whose funds are stranded? Nobody's. A
-    // `pending` row is an order with no ledger post behind it and no engine
-    // presence, so the only correct recovery is to delete it, and that is the
-    // only thing it can do.
-    //
-    // The row comes before the hold so that the hold is never the orphan: a
-    // hold posted against an order id that exists nowhere is money nobody can
-    // find. This way there is always a row pointing at the money, in every
-    // interleaving.
-    const inserted = await this.sql<Array<{ id: string }>>`
-      INSERT INTO trade.orders (
-        id, user_id, sub_account_id, market_id, client_order_id, side, type,
-        price, qty, status, tif, hold_asset, hold_amount, fee_discount_bps, protection_price, seeded, lifecycle_proof,
-        replacement_of, replacement_request_hash, session_id, api_key_id, tag
-      ) VALUES (
-        ${orderId}, ${userId}, ${input.subAccountId ?? null}, ${market.id}, ${input.clientOrderId!},
-        ${input.side}, ${orderType},
-        ${input.price == null ? null : formatAmount(input.price)}::numeric,
-        ${formatAmount(input.qty)}::numeric, 'pending', ${tif},
-        ${hold.assetId}, ${formatAmount(hold.amount)}::numeric, ${perks.feeDiscountBps},
-        ${protectionPrice === null ? null : formatAmount(protectionPrice)}::numeric,
-        ${seeded}, ${JSON.stringify(lifecycleProof)}::text::jsonb,
-        ${input.replacementOf ?? null}, ${input.replacementRequestHash ?? null},
-        ${attribution.sessionId}, ${attribution.apiKeyId}, ${input.tag ?? null}
-      )
-      ON CONFLICT (id) DO NOTHING
-      RETURNING id
-    `;
-
-    if (inserted.length === 0) {
-      // Lost a race with a concurrent identical submission. The winner owns the
-      // hold and the engine submission; return what it wrote.
-      const raced = await this.findOrder(orderId);
-      if (raced) return assertSamePlaceCommand(raced, input, orderType, tif, seeded);
-      throw new TradeError(`order ${orderId} vanished between insert and read`, 'trade.order_not_found');
-    }
-
-    // ── 3 · THE HOLD ────────────────────────────────────────────────────────
-    //
-    // Quote for buys, base for sells (§5.2). Keyed `order.hold:<orderId>` — a
-    // business key, never a random one, so a retry finds the original post.
-    try {
-      await this.ledger.post(
-        withLedgerAttribution(recipes.orderHold({ orderId, userId, assetId: hold.assetId, amount: hold.amount }), attribution),
-      );
-    } catch (err) {
-      const outcome = classifyHoldPostError(err);
-      if (outcome === 'refused' || outcome === 'unsent') {
-        // The ledger named a refusal, or the socket never connected. The post
-        // did not commit. Guarded on pending so a concurrent open is left alone.
-        await this.sql`DELETE FROM trade.orders WHERE id = ${orderId} AND status = 'pending'`;
-        throw err;
-      }
-      // UNKNOWN. A timeout can land after the hold is booked. Keep the row
-      // and read `order.hold:<orderId>`. The row was just stamped, so an
-      // absent read is still inside the in-flight bound: do not delete here.
-      await this.sql`
-        UPDATE trade.orders SET status = 'hold_unknown', updated_at = now()
-         WHERE id = ${orderId} AND status = 'pending'
-      `;
-      const read = await this.readHoldByKey(orderId);
-      if (read !== 'present') {
-        const wait = read === 'absent' ? await this.holdUnknownWaitSeconds(orderId) : null;
-        this.noteHoldUnknown({
-          orderId,
-          resolution: 'still_unknown',
-          detail:
-            read === 'absent'
-              ? `order.hold read absent with ${wait}s of in-flight wait left; row kept`
-              : 'order.hold post outcome unknown and getTxByKey did not answer; row kept',
-        });
-        throw new TradeError(
-          read === 'absent'
-            ? `order ${orderId} hold outcome is unknown; wait ${wait} seconds before treating an absent hold as dead`
-            : `order ${orderId} hold outcome is unknown; the order is kept for recovery`,
-          'trade.hold_unknown',
-        );
-      }
-    }
-
-    return this.openAndSubmit(market, orderId, engineRequest);
+    return orderPlace.executeAdmittedOrder(this.internal, evidence);
   }
 
-  /**
-   * Paper market place — Stage-1 isolation.
-   *
-   * Records an open order with zero hold. Never calls the ledger and never
-   * calls matching.submit. A later fill is refused in settleFill before any
-   * trade.fills row or tradeFill post. Live placeOrder is unchanged for
-   * non-paper markets.
-   */
   private async placePaperOrderIsolated(
     principal: Principal,
     input: PlaceOrderInput,
@@ -2080,56 +1133,7 @@ export class TradeService {
     tif: TimeInForce,
     lifecycleProof: LifecycleAdmissionProof,
   ): Promise<OrderRecord> {
-    requireScope(principal, 'trade:write');
-    const attribution = attributionFromPrincipal(principal);
-    const userId = principal.userId;
-    if (input.subAccountId != null) {
-      await assertSubAccountOwned(this.subAccounts, userId, input.subAccountId);
-    }
-    // Session already sealed in placeOrderInner (one clock). Do not re-read now().
-    assertQty(market, input.qty);
-    if (orderType === 'limit') {
-      if (input.price == null) throw new TradeError('a limit order requires a price', 'trade.invalid_price');
-      assertPrice(market, input.price);
-      assertNotional(market, input.price, input.qty);
-    }
-    // Schema requires hold columns; paper posts zero amount and never ledger-posts.
-    const holdAsset = input.side === 'buy' ? market.quoteAsset : market.baseAsset;
-    // Caller already required clientOrderId in placeOrder — never random here.
-    const orderId = orderIdFor(userId, market.id, input.clientOrderId as string);
-    const existing = await this.findOrder(orderId);
-    if (existing) return assertSamePlaceCommand(existing, input, orderType, tif, false);
-
-    const inserted = await this.sql<Array<{ id: string }>>`
-      INSERT INTO trade.orders (
-        id, user_id, sub_account_id, market_id, client_order_id, side, type,
-        price, qty, status, tif, hold_asset, hold_amount, fee_discount_bps, protection_price, seeded, lifecycle_proof,
-        replacement_of, replacement_request_hash, session_id, api_key_id, tag
-      ) VALUES (
-        ${orderId}, ${userId}, ${input.subAccountId ?? null}, ${market.id}, ${input.clientOrderId as string},
-        ${input.side}, ${orderType},
-        ${input.price == null ? null : formatAmount(input.price)}::numeric,
-        ${formatAmount(input.qty)}::numeric, 'open', ${tif},
-        ${holdAsset}, ${formatAmount(0n)}::numeric, 0,
-        null,
-        false, ${JSON.stringify(lifecycleProof)}::text::jsonb,
-        ${input.replacementOf ?? null}, ${input.replacementRequestHash ?? null},
-        ${attribution.sessionId}, ${attribution.apiKeyId}, ${input.tag ?? null}
-      )
-      ON CONFLICT (id) DO NOTHING
-      RETURNING id
-    `;
-    if (inserted.length === 0) {
-      const raced = await this.findOrder(orderId);
-      if (raced) return assertSamePlaceCommand(raced, input, orderType, tif, false);
-      throw new TradeError(`order ${orderId} vanished between insert and read`, 'trade.order_not_found');
-    }
-    // No ledger.post and no matching.submit. A zero-hold paper order on the
-    // live book is how a later fill posts tradeFill against an unfunded hold.
-    const settled = await this.findOrder(orderId);
-    if (!settled) throw new TradeError(`order ${orderId} vanished during paper place`, 'trade.order_not_found');
-    await this.publishOrderUpdated(settled);
-    return settled;
+    return orderPlace.placePaperOrderIsolated(this.internal, principal, input, market, orderType, tif, lifecycleProof);
   }
 
   /**
@@ -2142,117 +1146,7 @@ export class TradeService {
    * a fill is about to need.
    */
   async cancelOrder(principal: Principal, orderId: string): Promise<OrderRecord> {
-    return withMoneySpan('trade.cancelOrder', { operation: 'cancel_order', userId: principal.userId, orderId }, async () => {
-      requireScope(principal, 'trade:write');
-
-      const order = await this.findOrder(orderId);
-      if (!order) throw new TradeError(`order ${orderId} not found`, 'trade.order_not_found');
-      if (order.userId !== principal.userId) {
-        // Deliberately the same code a stranger's order id would produce — do
-        // not confirm the existence of another account's order.
-        throw new TradeError(`order ${orderId} not found`, 'trade.order_not_found');
-      }
-      if (order.status === 'hold_unknown') {
-        const read = await this.readHoldByKey(order.id);
-        if (read === 'unknown') {
-          this.noteHoldUnknown({
-            orderId,
-            resolution: 'still_unknown',
-            detail: 'cancel refused until order.hold can be read back',
-          });
-          throw new TradeError(`order ${orderId} hold outcome is still unknown`, 'trade.hold_unknown');
-        }
-        if (read === 'absent') {
-          const wait = await this.holdUnknownWaitSeconds(orderId);
-          if (wait > 0) {
-            this.noteHoldUnknown({
-              orderId,
-              resolution: 'still_unknown',
-              detail: `cancel refused; order.hold read absent with ${wait}s of in-flight wait left`,
-            });
-            throw new TradeError(
-              `order ${orderId} hold outcome is unknown; wait ${wait} seconds before treating an absent hold as dead`,
-              'trade.hold_unknown',
-            );
-          }
-          const cancelled = await this.cancelAbsentHoldUnknownPastBound(orderId);
-          if (cancelled === 0) {
-            const current = await this.findOrder(orderId);
-            if (current?.status === 'hold_unknown') {
-              const wait = await this.holdUnknownWaitSeconds(orderId);
-              this.noteHoldUnknown({
-                orderId,
-                resolution: 'still_unknown',
-                detail: `cancel write matched no row; ${wait}s of in-flight wait left`,
-              });
-              throw new TradeError(
-                `order ${orderId} hold outcome is unknown; wait ${wait} seconds before treating an absent hold as dead`,
-                'trade.hold_unknown',
-              );
-            }
-            throw new TradeError(`order ${orderId} is being resolved; retry`, 'trade.hold_unknown');
-          }
-          const settled = await this.findOrder(orderId);
-          if (!settled) throw new TradeError(`order ${orderId} not found`, 'trade.order_not_found');
-          return settled;
-        }
-        // Hold is booked and the engine was never given this order. Claim it,
-        // then release the full hold. Do not ask matching to cancel.
-        const claimed = await this.sql<Array<{ id: string }>>`
-          UPDATE trade.orders SET status = 'open', updated_at = now()
-           WHERE id = ${orderId} AND status = 'hold_unknown'
-           RETURNING id
-        `;
-        if (claimed.length === 0) {
-          throw new TradeError(`order ${orderId} is being resolved; retry`, 'trade.hold_unknown');
-        }
-        await this.finalize(orderId, 'cancelled');
-        const settled = await this.findOrder(orderId);
-        if (!settled) throw new TradeError(`order ${orderId} not found`, 'trade.order_not_found');
-        return settled;
-      } else if (order.status !== 'open' && order.status !== 'pending' && order.status !== 'recovery_required') {
-        throw new TradeError(`order ${orderId} is ${order.status} and cannot be cancelled`, 'trade.order_not_open');
-      }
-
-      // `cancelled: false` means the engine has no such live order — it already
-      // filled, or it never arrived (the indeterminate-submit case above).
-      // Either way the hold still has to be reconciled, so the answer is the
-      // same and this is not an error path.
-      let cancellation: Awaited<ReturnType<MatchingClient['cancel']>>;
-      try {
-        cancellation = await this.matching.cancel(order.marketId, orderId);
-      } catch (err) {
-        // A cancel timeout is itself OUTCOME_UNKNOWN. Do not release on an
-        // unproven cancel; recovery uses the stable key below.
-        await this.markRecoveryRequired(orderId, 'CANCEL_UNKNOWN');
-        throw err;
-      }
-
-      // A false cancel response claims absence, but verify that claim with the
-      // non-destructive list before releasing. If the lookup is ambiguous or
-      // still live, preserve the hold and surface a cancel recovery case.
-      if (!cancellation.cancelled) {
-        try {
-          const listed = await this.matching.listOrders(order.marketId, orderId);
-          if (listed.orders.some((candidate) => settlementOrderId(candidate.orderId) === orderId)) {
-            await this.markRecoveryRequired(orderId, 'CANCEL_UNKNOWN');
-            throw new TradeError(`order ${orderId} remains live after definitive cancel miss`, 'trade.order_not_open');
-          }
-        } catch (err) {
-          if (err instanceof TradeError) throw err;
-          await this.markRecoveryRequired(orderId, 'CANCEL_UNKNOWN');
-          throw err;
-        }
-      }
-
-      // A successful cancel or a verified engine absence is now safe to
-      // reconcile. Transport ambiguity above is deliberately kept separate and
-      // remains recovery-required.
-      await this.finalize(orderId, 'cancelled');
-
-      const settled = await this.findOrder(orderId);
-      return settled as OrderRecord;
-    });
+    return orderChange.cancelOrder(this.internal, principal, orderId);
   }
 
   /**
@@ -2264,168 +1158,7 @@ export class TradeService {
    * and never silently cancel-plus-new. Unknown matching outcome never releases.
    */
   async amendOrder(principal: Principal, orderId: string, input: AmendOrderInput): Promise<AmendOrderOutcome> {
-    return withMoneySpan('trade.amendOrder', { operation: 'amend_order', userId: principal.userId, orderId }, async () => {
-      requireScope(principal, 'trade:write');
-
-      const order = await this.findOrder(orderId);
-      if (!order || order.userId !== principal.userId) {
-        throw new TradeError(`order ${orderId} not found`, 'trade.order_not_found');
-      }
-      if (order.status === 'recovery_required') {
-        return this.amendOutcome(order, 'AMEND_UNKNOWN', order.recoveryReason ?? 'AMEND_UNKNOWN', true, false, null);
-      }
-      if (order.status !== 'open') {
-        return this.amendOutcome(order, 'NOT_AMENDABLE', 'trade.order_not_open', false, false, null);
-      }
-
-      if (input.side != null && input.side !== order.side) {
-        return this.amendOutcome(order, 'CANCEL_REPLACE', 'trade.amend_side_change', false, false, null);
-      }
-      if (input.type != null && input.type !== order.type) {
-        return this.amendOutcome(order, 'CANCEL_REPLACE', 'trade.amend_type_change', false, false, null);
-      }
-      if (input.tif != null && input.tif !== order.tif) {
-        return this.amendOutcome(order, 'CANCEL_REPLACE', 'trade.amend_tif_change', false, false, null);
-      }
-      if (input.price != null && order.price != null && input.price !== order.price) {
-        return this.amendOutcome(order, 'CANCEL_REPLACE', 'trade.amend_price_change', false, false, null);
-      }
-      if (input.marketId != null && input.marketId !== order.marketId) {
-        return this.amendOutcome(order, 'CANCEL_REPLACE', 'trade.replace_market_mismatch', false, false, null);
-      }
-
-      const market = await this.marketById(order.marketId);
-      if (!market) throw new TradeError(`market ${order.marketId} not found`, 'trade.market_not_found');
-      if (input.symbol != null && input.symbol !== market.symbol) {
-        return this.amendOutcome(order, 'CANCEL_REPLACE', 'trade.replace_market_mismatch', false, false, null);
-      }
-
-      if (market.kind !== 'spot' || market.paper) {
-        return this.amendOutcome(order, 'NOT_AMENDABLE', 'trade.market_kind_unsupported', false, false, null);
-      }
-      if (order.type !== 'limit' || order.price == null) {
-        return this.amendOutcome(order, 'NOT_AMENDABLE', 'trade.invalid_price', false, false, null);
-      }
-      if (order.tif === 'IOC' || order.tif === 'FOK') {
-        return this.amendOutcome(order, 'NOT_AMENDABLE', 'trade.order_not_open', false, false, null);
-      }
-      if (input.qty <= 0n) {
-        throw new TradeError('amend quantity must be strictly positive', 'trade.invalid_qty');
-      }
-
-      const remainingQty = sub(order.qty, order.filledQty);
-      if (remainingQty <= 0n) {
-        return this.amendOutcome(order, 'NOT_AMENDABLE', 'trade.order_not_open', false, false, null);
-      }
-      if (input.qty > remainingQty) {
-        // Qty-up needs a larger hold. Native amend will not invent one.
-        return this.amendOutcome(order, 'NOT_AMENDABLE', 'trade.amend_qty_up', false, false, null);
-      }
-
-      try {
-        assertTradable(market, {
-          futuresEnabled: this.futuresEnabled,
-          optionsSettlementLawStamped: this.optionsSettlementAssetLaw.trim().length > 0,
-        });
-        assertSettlementRails(market);
-        assertMarketOpen(market, this.now());
-        assertQty(market, input.qty);
-        assertPrice(market, order.price);
-        assertNotional(market, order.price, input.qty);
-      } catch (err) {
-        if (err instanceof TradeError) {
-          return this.amendOutcome(order, 'NOT_AMENDABLE', err.code, false, false, null);
-        }
-        throw err;
-      }
-
-      let lifecycleProof: LifecycleAdmissionProof;
-      try {
-        lifecycleProof = await this.assertLifecycleAction(market, 'AMEND');
-      } catch (err) {
-        if (err instanceof TradeError && err.code.startsWith('trade.lifecycle_')) {
-          return this.amendOutcome(order, 'LIFECYCLE_REFUSED', err.code, false, false, null);
-        }
-        if (err instanceof TradeError && (err.code === 'trade.market_halted' || err.code === 'trade.market_suspended')) {
-          return this.amendOutcome(order, 'LIFECYCLE_REFUSED', err.code, false, false, null);
-        }
-        throw err;
-      }
-
-      const newHold = holdFor(market, order.side, order.price, input.qty).amount;
-      const leftover = await this.remainingHold(this.sql, order);
-      if (leftover < newHold) {
-        return this.amendOutcome(order, 'NOT_AMENDABLE', 'trade.hold_uncovered', false, false, null);
-      }
-
-      let listed;
-      try {
-        listed = await this.matching.listOrders(order.marketId, order.id);
-      } catch {
-        await this.markRecoveryRequired(order.id, 'AMEND_UNKNOWN');
-        const frozen = (await this.findOrder(order.id)) ?? order;
-        return this.amendOutcome(frozen, 'AMEND_UNKNOWN', 'AMEND_UNKNOWN', true, false, null);
-      }
-      const live = listed.orders.find((candidate) => candidate.orderId === order.id);
-      if (!live) {
-        await this.markRecoveryRequired(order.id, 'AMEND_UNKNOWN');
-        const frozen = (await this.findOrder(order.id)) ?? order;
-        return this.amendOutcome(frozen, 'AMEND_UNKNOWN', 'AMEND_UNKNOWN', true, false, null);
-      }
-
-      const engineRemaining = parseAmount(live.remaining);
-      const expectedVersion = live.version ?? order.engineVersion;
-      if (input.expectedRemaining != null && input.expectedRemaining !== engineRemaining) {
-        return this.amendOutcome(order, 'NOT_AMENDABLE', 'trade.amend_stale', false, false, null);
-      }
-      if (input.expectedVersion != null && input.expectedVersion !== expectedVersion) {
-        return this.amendOutcome(order, 'NOT_AMENDABLE', 'trade.amend_stale', false, false, null);
-      }
-      if (engineRemaining === input.qty) {
-        await this.applyNativeAmendHold(order, market, input.qty, expectedVersion, live.sequence);
-        const settled = (await this.findOrder(order.id)) ?? order;
-        return this.amendOutcome(settled, 'IDEMPOTENT_RETRY', null, false, true, 'retained');
-      }
-      if (engineRemaining < input.qty) {
-        return this.amendOutcome(order, 'NOT_AMENDABLE', 'trade.amend_qty_up', false, false, null);
-      }
-
-      let result: EngineAmendResult;
-      try {
-        result = await this.matching.amend(order.marketId, order.id, {
-          expectedVersion,
-          qty: formatAmount(input.qty),
-          lifecycleProof,
-        });
-      } catch {
-        await this.markRecoveryRequired(order.id, 'AMEND_UNKNOWN');
-        const frozen = (await this.findOrder(order.id)) ?? order;
-        return this.amendOutcome(frozen, 'AMEND_UNKNOWN', 'AMEND_UNKNOWN', true, false, null);
-      }
-
-      if (!result.accepted) {
-        if (result.rejected?.code === 'order_not_found') {
-          await this.markRecoveryRequired(order.id, 'AMEND_UNKNOWN');
-          const frozen = (await this.findOrder(order.id)) ?? order;
-          return this.amendOutcome(frozen, 'AMEND_UNKNOWN', 'AMEND_UNKNOWN', true, false, null);
-        }
-        if (result.rejected?.code === 'version_mismatch') {
-          return this.amendOutcome(order, 'VERSION_MISMATCH', 'version_mismatch', false, false, null);
-        }
-        return this.amendOutcome(order, 'ENGINE_REFUSED', result.rejected?.code ?? 'refused', false, false, null);
-      }
-
-      await this.settleOutcome(market, result.fills, result.cancellations);
-      const afterFills = (await this.findOrder(order.id)) ?? order;
-      if (afterFills.status !== 'open' && afterFills.status !== 'recovery_required') {
-        return this.amendOutcome(afterFills, 'AMENDED', null, false, false, result.priority);
-      }
-
-      const version = result.version ?? expectedVersion + 1;
-      await this.applyNativeAmendHold(afterFills, market, input.qty, version, result.sequence);
-      const settled = (await this.findOrder(order.id)) ?? afterFills;
-      return this.amendOutcome(settled, 'AMENDED', null, false, false, result.priority);
-    });
+    return orderChange.amendOrder(this.internal, principal, orderId, input);
   }
 
   private amendOutcome(
@@ -2436,29 +1169,9 @@ export class TradeService {
     idempotent: boolean,
     priority: AmendPriority | null,
   ): AmendOrderOutcome {
-    return {
-      accepted: code === 'AMENDED' || code === 'IDEMPOTENT_RETRY',
-      idempotent,
-      code,
-      reasonCode,
-      reconciliationRequired,
-      path: 'NATIVE_AMEND',
-      priority,
-      order,
-    };
+    return orderChange.amendOutcome(this.internal, order, code, reasonCode, reconciliationRequired, idempotent, priority);
   }
 
-  /**
-   * After a proven engine remaining, shrink qty and post the exact leftover
-   * hold. Sequence is the new instruction version so it never collides with
-   * the terminal sequence-0 release.
-   *
-   * Qty is the committed fill sum plus the new remaining. `filled_qty` is a
-   * cache `refreshFilledQty` rewrites after the fill row commits and before
-   * `tradeFill` posts. Using the cache can store a qty below that sum; the
-   * overfill check then rejects every refresh and the hold slice
-   * `remainingHold` already counted stays in the order-hold account.
-   */
   private async applyNativeAmendHold(
     order: OrderRecord,
     market: Market,
@@ -2466,91 +1179,7 @@ export class TradeService {
     version: number,
     sequence: number | null,
   ): Promise<void> {
-    if (order.price == null) return;
-    // The release post commits in the ledger on its own. If it lands and this
-    // transaction then aborts, amend_released rolls back and the terminal
-    // sequence-0 release would pay the same qty-down again (an unsettled fill
-    // keeps the pot above the stale remainder, so the pot cap alone hides
-    // nothing). Survives a serialization retry: the retry's pot is already
-    // reduced, so a fresh before-balance would look like the post never landed.
-    let landedThenCrashed: unknown = null;
-    let potBeforeRelease: Amount | null = null;
-    await transaction(
-      this.sql,
-      async (tx) => {
-        const rows = await tx<OrderRow[]>`SELECT * FROM trade.orders WHERE id = ${order.id} FOR UPDATE`;
-        const row = rows[0];
-        if (!row) return;
-        const locked = toOrder(row);
-        if (locked.status !== 'open' && locked.status !== 'recovery_required') return;
-        if (locked.price == null) return;
-
-        const leftover = await this.remainingHold(tx, locked);
-        const newHold = holdFor(market, locked.side, locked.price, newRemaining).amount;
-        if (leftover < newHold) {
-          throw new TradeError(
-            `order ${locked.id} remaining hold ${formatAmount(leftover)} cannot cover amended hold ${formatAmount(newHold)}`,
-            'trade.hold_uncovered',
-          );
-        }
-        const release = sub(leftover, newHold);
-        if (release > 0n) {
-          const holdRef = orderHoldAccount(locked.userId, locked.holdAsset, locked.id);
-          const potBefore = potBeforeRelease ?? (await this.ledger.balance(holdRef)).amount;
-          potBeforeRelease = potBefore;
-          try {
-            await this.ledger.post(
-              withLedgerAttribution(
-                recipes.orderHoldRelease({
-                  orderId: locked.id,
-                  userId: locked.userId,
-                  assetId: locked.holdAsset,
-                  amount: release,
-                  sequence: version,
-                }),
-                attributionFromOrder(locked),
-              ),
-            );
-          } catch (err) {
-            // A throw after the commit: if the pot fell by this release the
-            // post landed, so record it and surface the error afterwards.
-            const potAfter = (await this.ledger.balance(holdRef)).amount;
-            if (sub(potBefore, potAfter) !== release) throw err;
-            landedThenCrashed = err;
-          }
-        }
-        const filledRows = await tx<Array<{ filled: string }>>`
-          SELECT COALESCE(SUM(qty), 0)::numeric(38, 18)::text AS filled
-            FROM trade.fills
-           WHERE order_id = ${locked.id}
-        `;
-        const committedFilled = parseAmount(filledRows[0]?.filled ?? '0');
-        const newQty = committedFilled + newRemaining;
-        const amendReleased = locked.amendReleased + release;
-        await appendOrderEvent(tx, {
-          orderId: locked.id,
-          parentId: parentIdFromClientOrder(locked.clientOrderId),
-          kind: 'amend',
-          quantity: formatAmount(newQty),
-          price: formatAmount(locked.price),
-          code: `amend:${version}`,
-        });
-        await tx`
-          UPDATE trade.orders
-             SET qty = ${formatAmount(newQty)}::numeric,
-                 amend_released = ${formatAmount(amendReleased)}::numeric,
-                 engine_version = ${version},
-                 engine_sequence = COALESCE(${sequence}, engine_sequence),
-                 status = 'open',
-                 recovery_reason = NULL,
-                 reconciliation_key = NULL,
-                 updated_at = now()
-           WHERE id = ${locked.id}
-        `;
-      },
-      { isolation: 'read committed', maxAttempts: 5 },
-    );
-    if (landedThenCrashed) throw landedThenCrashed;
+    return orderChange.applyNativeAmendHold(this.internal, order, market, newRemaining, version, sequence);
   }
 
   /**
@@ -2567,262 +1196,7 @@ export class TradeService {
    * not on the native PATCH door.
    */
   async replaceOrder(principal: Principal, originalOrderId: string, input: PlaceOrderInput): Promise<ReplaceOrderOutcome> {
-    return withMoneySpan(
-      'trade.replaceOrder',
-      { operation: 'replace_order', userId: principal.userId, orderId: originalOrderId },
-      async () => {
-        requireScope(principal, 'trade:write');
-
-        const original = await this.findOrder(originalOrderId);
-        if (!original || original.userId !== principal.userId) {
-          throw new TradeError(`order ${originalOrderId} not found`, 'trade.order_not_found');
-        }
-        if (!input.clientOrderId || input.clientOrderId.length < 1 || input.clientOrderId.length > 56) {
-          throw new TradeError('replacement clientOrderId is required (1–56 chars)', 'trade.client_order_id_required');
-        }
-
-        const market = await this.requireMarket(input);
-        if (market.id !== original.marketId) {
-          return this.replaceOutcome(original, null, 'ORIGINAL_NOT_REPLACEABLE', 'trade.replace_market_mismatch');
-        }
-        if (market.kind !== 'spot' || market.paper) {
-          return this.replaceOutcome(original, null, 'ORIGINAL_NOT_REPLACEABLE', 'trade.market_kind_unsupported');
-        }
-        const requestHash = replacementRequestHash(original.id, input);
-        const replacementClientId = replacementClientOrderId(input.clientOrderId);
-        const replacementId = orderIdFor(principal.userId, market.id, replacementClientId);
-        const requestFence = await this.sql<
-          Array<{ original_order_id: string; request_hash: string; replacement_order_id: string | null }>
-        >`
-          INSERT INTO trade.order_replace_requests
-            (user_id, market_id, client_order_id, original_order_id, request_hash)
-          VALUES
-            (${principal.userId}, ${market.id}, ${input.clientOrderId}, ${original.id}, ${requestHash})
-          ON CONFLICT (user_id, market_id, client_order_id) DO NOTHING
-          RETURNING original_order_id, request_hash, replacement_order_id
-        `;
-        const requestAlreadyExists = requestFence.length === 0;
-        if (requestAlreadyExists) {
-          const prior = await this.sql<Array<{ original_order_id: string; request_hash: string; replacement_order_id: string | null }>>`
-            SELECT original_order_id, request_hash, replacement_order_id
-              FROM trade.order_replace_requests
-             WHERE user_id = ${principal.userId}
-               AND market_id = ${market.id}
-               AND client_order_id = ${input.clientOrderId}
-          `;
-          const priorRow = prior[0];
-          if (!priorRow || priorRow.original_order_id !== original.id || priorRow.request_hash !== requestHash) {
-            return this.replaceOutcome(original, null, 'REPLACE_CONFLICT', 'trade.replace_conflict');
-          }
-        }
-        const existingReplacement = await this.findOrder(replacementId);
-        if (existingReplacement) {
-          if (existingReplacement.replacementOf !== original.id || existingReplacement.replacementRequestHash !== requestHash) {
-            return this.replaceOutcome(original, null, 'REPLACE_CONFLICT', 'trade.replace_conflict');
-          }
-          return this.replaceOutcome(
-            original,
-            existingReplacement,
-            existingReplacement.status === 'recovery_required' ? 'REPLACEMENT_SUBMIT_UNKNOWN' : 'IDEMPOTENT_RETRY',
-            existingReplacement.recoveryReason,
-            existingReplacement.status === 'recovery_required',
-            true,
-          );
-        }
-
-        if (original.status === 'recovery_required') {
-          return this.replaceOutcome(
-            original,
-            null,
-            'RECONCILIATION_REQUIRED',
-            original.recoveryReason ?? 'RECONCILIATION_REQUIRED',
-            true,
-            requestAlreadyExists,
-          );
-        }
-        if (original.filledQty > 0n) {
-          return this.replaceOutcome(original, null, 'ORIGINAL_PARTIAL', 'trade.replace_partial_original', false, requestAlreadyExists);
-        }
-        if (original.status !== 'open') {
-          return this.replaceOutcome(original, null, 'ORIGINAL_NOT_REPLACEABLE', 'trade.order_not_open', false, requestAlreadyExists);
-        }
-
-        // Ownership is checked before the original is cancelled. A replacement
-        // must never cancel a live order and then discover its new label is foreign.
-        if (input.subAccountId != null) await assertSubAccountOwned(this.subAccounts, principal.userId, input.subAccountId);
-        // Email proof before the cancel too: a refused replacement leaves the original live.
-        if (!market.paper) await assertEmailProved(this.emailProof, principal.userId);
-        const orderType = requireSupportedType(input.type);
-        assertTradable(market, {
-          futuresEnabled: this.futuresEnabled,
-          optionsSettlementLawStamped: this.optionsSettlementAssetLaw.trim().length > 0,
-        });
-        assertSettlementRails(market);
-        assertMarketOpen(market, this.now());
-        assertQty(market, input.qty);
-        if (orderType === 'limit') {
-          if (input.price == null) throw new TradeError('a limit order requires a price', 'trade.invalid_price');
-          assertPrice(market, input.price);
-          assertNotional(market, input.price, input.qty);
-        } else if (input.price != null) {
-          throw new TradeError('a market order must not carry a price', 'trade.invalid_price');
-        }
-
-        // Owner max-order limit (#4725) BEFORE the cancel: a refused replacement
-        // must leave the original order live, never cancel it and then refuse.
-        if (input.seeded !== true && (input as { reduceOnly?: boolean }).reduceOnly !== true) {
-          try {
-            let reference: Amount | null = input.price ?? null;
-            if (reference == null && input.side === 'buy') {
-              reference = protectionPriceFor(market, await this.bestAsk(market.id), await this.slippageCap(market.id));
-              const cap = input.maxProtectionPrice;
-              if (cap != null && cap > 0n && cap < reference) reference = cap;
-            }
-            await this.assertOwnerOrderLimit(market, input.qty, reference);
-          } catch (err) {
-            if (err instanceof TradeError && (err.code.startsWith('trade.limit_max_') || /^trade\.max_.+_unset$/.test(err.code))) {
-              return this.replaceOutcome(original, null, 'LIMIT_REFUSED', err.code, false, requestAlreadyExists);
-            }
-            throw err;
-          }
-        }
-
-        // A market sell with no floor must refuse before the original is cancelled.
-        if (orderType === 'market' && input.side === 'sell') {
-          try {
-            sellProtectionPriceFor(market, await this.bestBid(market.id), await this.slippageCap(market.id));
-          } catch (err) {
-            if (err instanceof TradeError && (err.code === 'trade.protection_unset' || err.code === 'trade.no_reference_price')) {
-              return this.replaceOutcome(original, null, 'ORIGINAL_NOT_REPLACEABLE', err.code, false, requestAlreadyExists);
-            }
-            throw err;
-          }
-        }
-
-        // The operator's limits for this pair (fat finger, price band, published rules) BEFORE the cancel, the same gate
-        // place runs: a replacement priced outside the band is refused with the original still live. The replacement
-        // takes the original's slot, so the open-order cap does not count it.
-        // A paper market was refused above, so this is always the funded gate.
-        try {
-          await assertOperatorRiskOnPlace(
-            this.sql,
-            market,
-            principal.userId,
-            { side: input.side, price: input.price ?? null, qty: input.qty, rests: false },
-            () => this.touch(market.id),
-            !this.allowUnpublishedPairRules,
-          );
-        } catch (err) {
-          if (err instanceof TradeError) {
-            return this.replaceOutcome(original, null, 'LIMIT_REFUSED', err.code, false, requestAlreadyExists);
-          }
-          throw err;
-        }
-
-        // Authority is required before cancel, so an unavailable PX-S01 source
-        // cannot strand the caller by cancelling an order it cannot replace.
-        try {
-          await this.assertLifecycleAction(market, input.tif === 'PO' ? 'PLACE_POST_ONLY' : 'PLACE', orderType);
-        } catch (err) {
-          if (err instanceof TradeError && err.code.startsWith('trade.lifecycle_')) {
-            return this.replaceOutcome(original, null, 'LIFECYCLE_REFUSED', err.code, false, requestAlreadyExists);
-          }
-          throw err;
-        }
-
-        let cancelled: OrderRecord;
-        try {
-          cancelled = await this.cancelOrder(principal, original.id);
-        } catch (err) {
-          const afterCancel = await this.findOrder(original.id);
-          const racedReplacement = await this.findOrder(replacementId);
-          if (racedReplacement?.replacementOf === original.id && racedReplacement.replacementRequestHash === requestHash) {
-            return this.replaceOutcome(
-              afterCancel ?? original,
-              racedReplacement,
-              racedReplacement.status === 'recovery_required' ? 'REPLACEMENT_SUBMIT_UNKNOWN' : 'IDEMPOTENT_RETRY',
-              racedReplacement.recoveryReason,
-              racedReplacement.status === 'recovery_required',
-              true,
-            );
-          }
-          if (afterCancel?.recoveryReason === 'CANCEL_UNKNOWN') {
-            return this.replaceOutcome(afterCancel, null, 'CANCEL_UNKNOWN', 'CANCEL_UNKNOWN', true, requestAlreadyExists);
-          }
-          if (afterCancel?.status === 'recovery_required') {
-            return this.replaceOutcome(
-              afterCancel,
-              null,
-              'RECONCILIATION_REQUIRED',
-              afterCancel.recoveryReason ?? 'RECONCILIATION_REQUIRED',
-              true,
-              requestAlreadyExists,
-            );
-          }
-          // The engine may already be cancelled while finalization failed at
-          // the ledger boundary. Freeze the original rather than pretending
-          // the release completed or attempting a replacement hold.
-          if (afterCancel?.status === 'open' || afterCancel?.status === 'pending') {
-            await this.markRecoveryRequired(original.id, 'RECONCILIATION_REQUIRED');
-            const frozen = (await this.findOrder(original.id)) ?? afterCancel;
-            return this.replaceOutcome(frozen, null, 'RECONCILIATION_REQUIRED', 'RECONCILIATION_REQUIRED', true, requestAlreadyExists);
-          }
-          throw err;
-        }
-        if (cancelled.status !== 'cancelled') {
-          return this.replaceOutcome(cancelled, null, 'RECONCILIATION_REQUIRED', 'RECONCILIATION_REQUIRED', true, requestAlreadyExists);
-        }
-
-        const replacementInput: PlaceOrderInput = {
-          ...input,
-          marketId: market.id,
-          clientOrderId: replacementClientId,
-          replacementOf: original.id,
-          replacementRequestHash: requestHash,
-        };
-        try {
-          const replacement = await this.placeOrder(principal, replacementInput);
-          await this.sql`
-            UPDATE trade.order_replace_requests
-               SET replacement_order_id = ${replacement.id}
-             WHERE user_id = ${principal.userId}
-               AND market_id = ${market.id}
-               AND client_order_id = ${input.clientOrderId}
-          `;
-          return this.replaceOutcome(cancelled, replacement, 'REPLACED', null, false);
-        } catch (err) {
-          const persistedReplacement = await this.findOrder(replacementId);
-          if (persistedReplacement?.replacementOf === original.id && persistedReplacement.replacementRequestHash === requestHash) {
-            if (persistedReplacement.status === 'recovery_required') {
-              await this.sql`
-                UPDATE trade.order_replace_requests
-                   SET replacement_order_id = ${persistedReplacement.id}
-                 WHERE user_id = ${principal.userId}
-                   AND market_id = ${market.id}
-                   AND client_order_id = ${input.clientOrderId}
-              `;
-              return this.replaceOutcome(
-                cancelled,
-                persistedReplacement,
-                'REPLACEMENT_SUBMIT_UNKNOWN',
-                persistedReplacement.recoveryReason,
-                true,
-              );
-            }
-            return this.replaceOutcome(cancelled, persistedReplacement, 'IDEMPOTENT_RETRY', null, false, true);
-          }
-          // The original is already cancelled. Any failure that did not persist
-          // a replacement — a refused hold, a frozen ledger, a typed trade
-          // refusal — must name REPLACEMENT_NOT_SUBMITTED and the original's
-          // final state. A bare 400 here is how a customer loses the order silently.
-          const finalOriginal = (await this.findOrder(original.id)) ?? cancelled;
-          if (err instanceof TradeError || err instanceof LedgerError) {
-            return this.replaceOutcome(finalOriginal, null, 'REPLACEMENT_NOT_SUBMITTED', err.code);
-          }
-          return this.replaceOutcome(finalOriginal, null, 'REPLACEMENT_NOT_SUBMITTED', 'REPLACEMENT_NOT_SUBMITTED');
-        }
-      },
-    );
+    return orderChange.replaceOrder(this.internal, principal, originalOrderId, input);
   }
 
   private replaceOutcome(
@@ -2833,15 +1207,7 @@ export class TradeService {
     reconciliationRequired = false,
     idempotent = false,
   ): ReplaceOrderOutcome {
-    return {
-      accepted: code === 'REPLACED' || code === 'IDEMPOTENT_RETRY',
-      idempotent,
-      code,
-      reasonCode,
-      reconciliationRequired,
-      original,
-      replacement,
-    };
+    return orderChange.replaceOutcome(this.internal, original, replacement, code, reasonCode, reconciliationRequired, idempotent);
   }
 
   /**
@@ -2849,39 +1215,7 @@ export class TradeService {
    * Sequential on purpose: each cancel is its own hold-release money path.
    */
   async cancelAllOrders(principal: Principal, marketId?: string, kind?: MarketKind): Promise<OrderRecord[]> {
-    requireScope(principal, 'trade:write');
-    // Mutation, not a list door: pull every rest for this principal. openOrders is a
-    // published page and must not silently leave orders past LIMIT uncancelled.
-    // `kind` narrows to one product's markets ("spot only" leaves futures and options orders alone).
-    const rows = marketId
-      ? await this.sql<OrderRow[]>`
-          SELECT * FROM trade.orders
-           WHERE user_id = ${principal.userId} AND status IN ('pending', 'open', 'recovery_required', 'hold_unknown') AND market_id = ${marketId}
-             AND (${kind ?? null}::text IS NULL OR market_id IN (SELECT id FROM trade.markets WHERE kind::text = ${kind ?? null}))
-           ORDER BY created_at DESC
-        `
-      : await this.sql<OrderRow[]>`
-          SELECT * FROM trade.orders
-           WHERE user_id = ${principal.userId} AND status IN ('pending', 'open', 'recovery_required', 'hold_unknown')
-             AND (${kind ?? null}::text IS NULL OR market_id IN (SELECT id FROM trade.markets WHERE kind::text = ${kind ?? null}))
-           ORDER BY created_at DESC
-        `;
-    const open = rows.map(toOrder);
-    const out: OrderRecord[] = [];
-    let holdUnknown: TradeError | null = null;
-    for (const order of open) {
-      try {
-        out.push(await this.cancelOrder(principal, order.id));
-      } catch (err) {
-        if (err instanceof TradeError && err.code === 'trade.hold_unknown') {
-          holdUnknown ??= err;
-          continue;
-        }
-        throw err;
-      }
-    }
-    if (holdUnknown) throw holdUnknown;
-    return out;
+    return orderChange.cancelAllOrders(this.internal, principal, marketId, kind);
   }
 
   /**
@@ -2890,187 +1224,31 @@ export class TradeService {
    * Engine first, then one finalize per pulled rest — unknown outcome does not release.
    */
   async massCancelOrders(principal: Principal, marketId: string): Promise<OrderRecord[]> {
-    return withMoneySpan('trade.massCancelOrders', { operation: 'mass_cancel', userId: principal.userId, marketId }, async () => {
-      requireScope(principal, 'trade:write');
-      const accountId = principal.userId;
-      if (accountId.length === 0) {
-        throw new TradeError('missing account cannot mass-cancel; trade does not invent an owner', 'trade.not_owner');
-      }
-
-      const market = await this.marketById(marketId);
-      if (!market) {
-        throw new TradeError(`market ${marketId} not found`, 'trade.market_not_found');
-      }
-
-      let result: Awaited<ReturnType<MatchingClient['massCancel']>>;
-      try {
-        result = await this.matching.massCancel(market.id, { accountId });
-      } catch (err) {
-        throw err;
-      }
-
-      if (!result.accepted) {
-        throw new TradeError(result.rejected?.message ?? 'mass-cancel refused', 'trade.order_not_open');
-      }
-
-      const out: OrderRecord[] = [];
-      // Every leg's end is recorded before any parent closes: an OCO parent closes on its second leg.
-      for (const cancellation of result.cancellations) {
-        if (cancellation.accountId === accountId)
-          await this.recordOcoLegEnd(cancellation.orderId, cancellation.remainingQty, cancellation.reason);
-      }
-      for (const cancellation of result.cancellations) {
-        if (cancellation.accountId !== accountId) continue;
-        const order = await this.findOrder(settlementOrderId(cancellation.orderId));
-        if (!order || order.userId !== principal.userId) continue;
-        if (order.status !== 'open' && order.status !== 'pending' && order.status !== 'recovery_required') continue;
-        await this.finalize(cancellation.orderId, 'cancelled');
-        const settled = await this.findOrder(order.id);
-        if (settled && !out.some((o) => o.id === settled.id)) out.push(settled);
-      }
-      return out;
-    });
+    return orderChange.massCancelOrders(this.internal, principal, marketId);
   }
 
   // ── Applying what the engine said ─────────────────────────────────────────
 
   private async applySubmitResult(market: Market, orderId: string, result: EngineSubmitResult): Promise<void> {
-    if (!result.accepted) {
-      // H8c: matching already accepted this orderId (200 then trade death).
-      // Retry is duplicate_order_id with empty fills — not a reject. Releasing
-      // would unfund a live rest. Hold stays; fills arrive on the bus.
-      if (result.rejected?.code === 'duplicate_order_id') {
-        return;
-      }
-      // A rejection is a valid answer, not a fault: post-only refusing to cross
-      // is the feature working. The order never touched the book, so the whole
-      // hold comes straight back.
-      //
-      // The reject code is recorded first because it carries no money; the
-      // release and the terminal status are done together by `finalize`, in
-      // that order, for the reason spelled out there.
-      await this.sql`
-        UPDATE trade.orders SET reject_code = ${result.rejected?.code ?? 'rejected'}, updated_at = now() WHERE id = ${orderId}
-      `;
-      await this.finalize(orderId, 'rejected');
-      return;
-    }
-
-    const accepted = await this.findOrder(orderId);
-    if (accepted) {
-      await this.noteOrderEvent(accepted, 'ack', 'ack');
-      if (result.resting?.orderId === orderId) await this.noteOrderEvent(accepted, 'rest', 'rest');
-    }
-
-    if (result.sequence !== null || result.resting?.version != null) {
-      const version = result.resting?.version ?? 1;
-      await this.sql`
-        UPDATE trade.orders
-           SET engine_sequence = COALESCE(${result.sequence}, engine_sequence),
-               engine_version = ${version},
-               updated_at = now()
-         WHERE id = ${orderId}
-      `;
-    }
-
-    // A triggered stop cannot occur while this service refuses stop orders, but
-    // the outcome is flattened rather than ignored: if the engine ever reports
-    // one, the fills and cancellations inside it settle exactly like any other,
-    // instead of being silently dropped along with somebody's money.
-    const fills: EngineFill[] = [...result.fills];
-    const cancellations: EngineCancellation[] = [...result.cancellations];
-    for (const triggered of result.triggered) {
-      fills.push(...triggered.fills);
-      cancellations.push(...triggered.cancellations);
-    }
-
-    await this.settleOutcome(market, fills, cancellations);
-
-    // The submitted order rested with a remainder → it stays open, holding the
-    // rest of its funds. It did not rest → it is done, and whatever is left of
-    // the hold goes back now rather than at some future sweep.
-    if (result.resting === null || result.resting.orderId !== orderId) {
-      await this.finalizeIfComplete(orderId);
-    }
+    return fillFlow.applySubmitResult(this.internal, market, orderId, result);
   }
 
-  /**
-   * Settle one submission's fills and cancellations, in that order.
-   *
-   * Fills first, always. A cancellation releases `hold - consumed`, and
-   * `consumed` is derived from the fills table — so releasing before the fills
-   * are recorded would hand back money a fill is about to spend.
-   */
   private async settleOutcome(market: Market, fills: readonly EngineFill[], cancellations: readonly EngineCancellation[]): Promise<void> {
-    const touched = new Set<string>();
-
-    for (const fill of [...fills].sort((a, b) => a.sequence - b.sequence)) {
-      await this.settleFill(market, fill);
-      touched.add(settlementOrderId(fill.makerOrderId));
-      touched.add(settlementOrderId(fill.takerOrderId));
-    }
-
-    // An IOC remainder, a market remainder, or a resting order pulled by
-    // self-trade prevention. §5.1 unifies them because this service does the
-    // same thing with all three: the order is done, release what is left.
-    for (const cancellation of cancellations) {
-      await this.recordOcoLegEnd(cancellation.orderId, cancellation.remainingQty, cancellation.reason);
-      await this.finalize(cancellation.orderId, 'cancelled', cancellation.reason);
-      // A leg cancellation may leave the parent open (fail closed), so only an ordinary order leaves `touched`.
-      if (ocoLegParent(cancellation.orderId) === null) touched.delete(cancellation.orderId);
-    }
-
-    // A maker that filled completely leaves the book without a cancellation —
-    // it simply is not there any more. It still has a hold to close out: a buy
-    // was funded at `ceil(price x qty)` and consumed `sum(floor(price x qty_i))`,
-    // so a wei of rounding can be left behind. Left behind is exactly what it
-    // must not be.
-    for (const id of touched) await this.finalizeIfComplete(id);
+    return fillFlow.settleOutcome(this.internal, market, fills, cancellations);
   }
 
-  /**
-   * One OCO leg left the book. The parent's single hold funds BOTH legs, so it may be released only when no leg
-   * is left resting. The engine cancels the sibling on ANY first fill, so a partly filled take-profit keeps
-   * resting on the rest of the hold while its stop-loss sibling is cancelled: releasing here would leave that
-   * leg on the book without funds. Fails closed: if the engine cannot say the other leg is gone, the hold stays
-   * and a later leg event (or the fill that completes the order) closes it.
-   * Returns true when the parent was closed.
-   */
   private async finalizeOcoWhenNoLegLive(
     marketId: string,
     legId: string,
     reason?: string | null,
     status: 'cancelled' | 'expired' = 'cancelled',
   ): Promise<boolean> {
-    const parentId = ocoLegParent(legId);
-    if (parentId === null) return false;
-    let listed: Awaited<ReturnType<MatchingClient['listOrders']>>;
-    try {
-      listed = await this.matching.listOrders(marketId);
-    } catch {
-      return false;
-    }
-    const live = new Set(listed.orders.map((row) => row.orderId));
-    if (live.has(`${parentId}:tp`) || live.has(`${parentId}:sl`)) return false;
-    // A leg that left the book without a cancellation FILLED completely, and a fill the engine has printed may
-    // not be settled here yet (a second taker can take the last of a leg before the first taker's settlement runs).
-    // Release only when the settled fills cover everything the legs executed; otherwise the hold stays and the
-    // late fill's own settlement closes the order (filled, or through the next leg event).
-    if (!(await this.ocoExecutionSettled(parentId))) return false;
-    await this.finalize(parentId, status, reason);
-    return true;
+    return fillFlow.finalizeOcoWhenNoLegLive(this.internal, marketId, legId, reason, status);
   }
 
   /** Remember how much of an OCO leg the engine had NOT executed when it cancelled the leg. Idempotent. */
   async recordOcoLegEnd(legId: string, remainingQty: string, reason?: string | null): Promise<void> {
-    const parentId = ocoLegParent(legId);
-    if (parentId === null) return;
-    const leg = legId.endsWith(':tp') ? 'tp' : 'sl';
-    await this.sql`
-      INSERT INTO trade.oco_leg_end (parent_id, leg, remaining_qty, reason)
-      VALUES (${parentId}, ${leg}, ${remainingQty}, ${reason ?? null})
-      ON CONFLICT (parent_id, leg) DO NOTHING
-    `;
+    return fillFlow.recordOcoLegEnd(this.internal, legId, remainingQty, reason);
   }
 
   /**
@@ -3080,81 +1258,9 @@ export class TradeService {
    * sibling the engine cancelled unfilled on a first fill, which executed nothing.
    */
   async ocoExecutionSettled(parentId: string, opts: { requireBothLegs?: boolean } = {}): Promise<boolean> {
-    const parent = await this.findOrder(parentId);
-    if (!parent) return false;
-    const ends = await this.sql<Array<{ leg: string; remaining_qty: string }>>`
-      SELECT leg, remaining_qty::text AS remaining_qty FROM trade.oco_leg_end WHERE parent_id = ${parentId}
-    `;
-    if (ends.length < 2 && opts.requireBothLegs !== false) return false;
-    let executed = 0n;
-    for (const end of ends) executed += parent.qty - parseAmount(end.remaining_qty);
-    return parent.filledQty >= executed;
+    return fillFlow.ocoExecutionSettled(this.internal, parentId, opts);
   }
 
-  /**
-   * Turn one match into one `tradeFill` ledger transaction (§5.2 step 3).
-   *
-   * ORDERING — the rows are committed BEFORE the ledger post, which is the
-   * opposite of the order svc-token uses for a stake, and deliberately so. The
-   * amount still owed back to a user is derived as `hold - Σ fills`, so:
-   *
-   *   · rows first  → the fills table can only ever be AHEAD of the ledger, so
-   *                   `consumed` is never understated, so a release is never
-   *                   overstated. Worst case a fill is recorded but unsettled:
-   *                   the funds stay in `hold`, nothing is lost, and re-running
-   *                   this method re-posts the same idempotency key and heals it.
-   *   · ledger first→ a crash before the row is written understates `consumed`,
-   *                   and the next release hands back money this fill already
-   *                   spent — drawn out of whatever else that user has in
-   *                   `hold`. That is one order silently paying for another.
-   *
-   * Idempotent at both layers: the ledger key is `trade.fill:<fillId>` where
-   * `fillId` derives from (market, engine sequence), and the unique index on
-   * (market, sequence, liquidity) makes a second row impossible.
-   */
-  /**
-   * Write one leg of a fill, and decide what a collision MEANS before absorbing it.
-   *
-   * ── The gap this closes ──────────────────────────────────────────────────
-   *
-   * `trade.fills` carries TWO unique keys: `fills_pkey` on `id`, and
-   * `fills_market_sequence_role_idx` on `(market_id, sequence, liquidity)`. The
-   * insert arbitrated on `id` only. Postgres applies `ON CONFLICT` to the named
-   * arbiter and to nothing else, so a row that cleared the primary key and then
-   * collided on the sequence index raised a bare 23505 — surfacing to the
-   * caller as a 500 with a Postgres string in it, and to CI as an intermittent
-   * CX-8 failure that a re-run makes disappear.
-   *
-   * ── Why this is not just a wider ON CONFLICT ─────────────────────────────
-   *
-   * Widening to `ON CONFLICT DO NOTHING` would make the symptom vanish, and
-   * that is exactly why it is wrong. The two ways to reach this collision want
-   * OPPOSITE handling:
-   *
-   *   · REDELIVERY — the same match settled twice (JetStream redelivery, a
-   *     retried submission, an operator replaying a day). `fillLegIdFor` is
-   *     derived from `(market, sequence, role)`, so the same match always
-   *     computes the same id and the same row. Nothing to do: the row is
-   *     already correct and the ledger post below is idempotent on
-   *     `trade.fill:<fillId>`. Absorb it silently.
-   *
-   *   · SEQUENCE REUSE — a DIFFERENT match claimed a `(market, sequence)` that
-   *     is already spoken for. `OrderBook.sequence` is an in-memory counter
-   *     that starts at 0 and is rebuilt by journal replay, so a book restored
-   *     without its journal while `trade.fills` still holds the old rows hands
-   *     the same sequence to a new trade. That is not a duplicate — it is the
-   *     ledger's `trade.fill:<fillId>` key aliasing two different trades onto
-   *     one transaction, and the second one silently never settling.
-   *
-   * Swallowing the second case is worse than the 500 it replaces: a 500 is at
-   * least visible. So the row is read back and compared, and only a byte-equal
-   * match is treated as a redelivery.
-   *
-   * The comparison is on the money-bearing columns — price, qty, quote amount,
-   * fee — plus both order ids and the owner. `ts`/`created_at` are excluded:
-   * they differ between the original write and a replay by construction, and
-   * comparing them would turn every legitimate redelivery into an incident.
-   */
   private async insertFillLeg(leg: {
     id: string;
     orderId: string;
@@ -3173,513 +1279,13 @@ export class TradeService {
     sequence: number;
     attribution: AuthAttribution;
   }): Promise<void> {
-    const attribution = requireAuthAttribution(leg.attribution);
-    let inserted: Array<{ id: string }>;
-    try {
-      inserted = await this.sql<Array<{ id: string }>>`
-        INSERT INTO trade.fills (
-          id, order_id, counter_order_id, market_id, user_id, side, liquidity,
-          price, qty, quote_amount, fee_asset, fee_amount, fee_bps, sequence,
-          session_id, api_key_id
-        ) VALUES (
-          ${leg.id}, ${leg.orderId}, ${leg.counterOrderId},
-          ${leg.marketId}, ${leg.userId}, ${leg.side}, ${leg.role},
-          ${formatAmount(leg.price)}::numeric, ${formatAmount(leg.qty)}::numeric, ${formatAmount(leg.quoteAmount)}::numeric,
-          ${leg.feeAsset}, ${formatAmount(leg.feeAmount)}::numeric, ${leg.feeBps}, ${leg.sequence},
-          ${attribution.sessionId}, ${attribution.apiKeyId}
-        )
-        ON CONFLICT (id) DO NOTHING
-        RETURNING id
-      `;
-    } catch (err) {
-      /**
-       * `ON CONFLICT (id)` names ONE arbiter, and Postgres applies the DO
-       * NOTHING to that index alone. A row that clears `fills_pkey` and then
-       * collides on `fills_market_sequence_role_idx` therefore RAISES rather
-       * than returning zero rows — which is the whole bug: it left the caller
-       * with a 500 carrying a Postgres string.
-       *
-       * Catching only 23505 (unique_violation). Anything else — a foreign key
-       * to a deleted order, a CHECK on a negative amount — is a different
-       * failure and must not be quietly re-interpreted as an idempotency
-       * question.
-       */
-      if ((err as { code?: string })?.code !== '23505') throw err;
-      inserted = [];
-    }
-
-    // Inserted, or the id already held this exact row. Either way we are done —
-    // the id IS the business key, so an id collision cannot be a different fill.
-    if (inserted.length > 0) return;
-
-    /**
-     * Nothing inserted. Two sub-cases, and only one of them is benign.
-     *
-     * The id conflict path is the ordinary redelivery and needs no read: the id
-     * is derived from the same three columns the sequence index covers, so a
-     * row holding this id necessarily holds this `(market, sequence, role)`.
-     * Read it back anyway — cheaply, once, off the happy path — because the
-     * whole point of this method is to stop assuming which conflict fired.
-     */
-    const [existing] = await this.sql<Array<FillRow>>`
-      SELECT * FROM trade.fills
-      WHERE market_id = ${leg.marketId} AND sequence = ${leg.sequence} AND liquidity = ${leg.role}
-      LIMIT 1
-    `;
-
-    if (!existing) {
-      // The insert did nothing and no row is there. A concurrent transaction
-      // holds it uncommitted, or something outside this service deleted it.
-      // Either way this settle has not happened and must not report success.
-      throw new TradeError(
-        `fill ${leg.sequence} on ${leg.symbol} (${leg.role}) neither inserted nor found — a concurrent writer holds it uncommitted`,
-        'trade.fill_sequence_conflict',
-      );
-    }
-
-    const same =
-      existing.id === leg.id &&
-      existing.order_id === leg.orderId &&
-      existing.counter_order_id === leg.counterOrderId &&
-      existing.user_id === leg.userId &&
-      parseAmount(existing.price) === leg.price &&
-      parseAmount(existing.qty) === leg.qty &&
-      parseAmount(existing.quote_amount) === leg.quoteAmount &&
-      parseAmount(existing.fee_amount) === leg.feeAmount &&
-      existing.fee_asset === leg.feeAsset &&
-      (existing.session_id ?? null) === attribution.sessionId &&
-      (existing.api_key_id ?? null) === attribution.apiKeyId;
-
-    // The ordinary case: this match already settled. The ledger post that
-    // follows is keyed on `trade.fill:<fillId>` and returns the original
-    // transaction, so continuing is a no-op rather than a second movement.
-    if (same) return;
-
-    /**
-     * A DIFFERENT trade already owns this sequence.
-     *
-     * Refusing is the only safe answer. Writing under a new id would leave the
-     * ledger key `trade.fill:<market>:<sequence>` pointing at whichever trade
-     * settled first, and the second trade's money would never move while its
-     * fill row claimed it had. The order fails, the hold stays intact, and the
-     * name says what to investigate.
-     */
-    throw new TradeError(
-      `fill sequence ${leg.sequence} on ${leg.symbol} (${leg.role}) is already held by a DIFFERENT match ` +
-        `(stored fill ${existing.id} for order ${existing.order_id}; this match is ${leg.id} for order ${leg.orderId}). ` +
-        `The engine's sequence counter has been reused — a book was almost certainly restored without its journal. ` +
-        `Settling would alias two trades onto one ledger idempotency key.`,
-      'trade.fill_sequence_conflict',
-    );
+    return fillFlow.insertFillLeg(this.internal, leg);
   }
 
   private async settleFill(market: Market, fill: EngineFill): Promise<void> {
-    // Before trade.fills and before any ledger post. The paper hold is zero
-    // and unfunded; a recorded match makes a later finalize throw
-    // trade.hold_uncovered. Do not fund the hold to make the post succeed.
-    if (market.paper) {
-      throw new TradeError(
-        `${market.symbol} is paper — refusing the fill before trade.fills and before any ledger post`,
-        'trade.paper_fill_refused',
-      );
-    }
-
-    const qty = parseAmount(fill.qty);
-    const price = parseAmount(fill.price);
-
-    /**
-     * FLOORED, and it has to be. The buy side was funded at `ceil(price x qty)`
-     * for the whole order; a sum of floored parts can never exceed the ceiling
-     * of the whole, so a partially filled order can never consume more hold
-     * than it was given. Ceiling the parts could, by one wei per fill, and one
-     * wei short at settlement is a fill the ledger refuses to post.
-     */
-    const quoteAmount = mul(price, qty, 'floor');
-    if (quoteAmount <= 0n) {
-      // The market's tick x lot grid is supposed to make this unreachable, and
-      // the database has a CHECK saying so. If it happens anyway the listing is
-      // wrong, and settling it is impossible — the ledger will not post a
-      // movement of nothing.
-      throw new TradeError(
-        `fill ${fill.sequence} on ${market.symbol} has a zero quote amount — check the market's tick and lot sizes`,
-        'trade.dust_fill',
-      );
-    }
-
-    // An OCO leg (`<id>:tp` / `<id>:sl`) draws on its parent's one hold: settle against the parent row.
-    fill = { ...fill, makerOrderId: settlementOrderId(fill.makerOrderId), takerOrderId: settlementOrderId(fill.takerOrderId) };
-
-    const maker = await this.findOrder(fill.makerOrderId);
-    const taker = await this.findOrder(fill.takerOrderId);
-    const makerIsHouseMm = isHouseMmAccount(fill.makerAccountId);
-
-    // House MM seed orders are not in trade.orders (seedMarket holds + matching
-    // only). User taker must still exist. MM-as-taker is residual.
-    if (!taker) {
-      throw new TradeError(
-        `fill ${fill.sequence} references an order this service does not know (${fill.makerOrderId} / ${fill.takerOrderId})`,
-        'trade.order_not_found',
-      );
-    }
-    if (!maker && !makerIsHouseMm) {
-      throw new TradeError(
-        `fill ${fill.sequence} references an order this service does not know (${fill.makerOrderId} / ${fill.takerOrderId})`,
-        'trade.order_not_found',
-      );
-    }
-
-    // ── House MM maker path (trade.mm-bot) ──────────────────────────────────
-    // Route by identity, not "order row missing". A prior partial fill inserts a
-    // stub trade.orders row; the next match must still use marketMakerMakerFill
-    // (MM pot holds), never user tradeFill against HOUSE_MM_USER_UUID.
-    const makerIsHouseMmRow = maker != null && maker.userId === HOUSE_MM_USER_UUID;
-    if (makerIsHouseMm || makerIsHouseMmRow) {
-      const rates = await this.ratesForFill(0, taker.feeDiscountBps, market.kind, market.symbol, {
-        maker: taker.createdAt,
-        taker: taker.createdAt,
-      });
-      const takerBuys = fill.takerSide === 'buy';
-      // BEFORE any fill row: fee-equal-to-receivable is permanently unpostable
-      // (recipe throws; re-run throws). Inserting first left remainingHold
-      // overstated forever — README recovery claim was false for this class.
-      this.assertFillFeesPostable(fill.sequence, market.symbol, fill.takerSide, qty, quoteAmount, rates);
-      const takerFee = mulBps(takerBuys ? qty : quoteAmount, rates.takerFeeBps);
-      const makerFee = mulBps(takerBuys ? quoteAmount : qty, rates.makerFeeBps);
-      const makerSide = takerBuys ? ('sell' as const) : ('buy' as const);
-      const makerFeeAsset = takerBuys ? market.quoteAsset : market.baseAsset;
-      const takerFeeAsset = takerBuys ? market.baseAsset : market.quoteAsset;
-      // fills.order_id FK → trade.orders. Seed path never wrote a row; insert a
-      // bookkeeping stub. Hold value lives on MM ledger pots; row hold_amount
-      // is the fill notional (orders_hold_positive_ck) for this match only.
-      // seeded=true so public tape / candles exclude house MM prints (SD-3).
-      const makerHoldAsset = takerBuys ? market.baseAsset : market.quoteAsset;
-      const makerHoldAmount = takerBuys ? qty : quoteAmount;
-      const mmAttribution = houseMmAttribution();
-      const takerAttribution = attributionFromOrder(taker);
-      await this.sql`
-        INSERT INTO trade.orders (
-          id, user_id, market_id, side, type, price, qty, status, tif,
-          hold_asset, hold_amount, fee_discount_bps, seeded, session_id, api_key_id
-        ) VALUES (
-          ${fill.makerOrderId}, ${HOUSE_MM_USER_UUID}, ${market.id}, ${makerSide}, ${'limit'},
-          ${formatAmount(price)}::numeric, ${formatAmount(qty)}::numeric, ${'open'}, ${'PO'},
-          ${makerHoldAsset}, ${formatAmount(makerHoldAmount)}::numeric, ${0}, ${true},
-          ${mmAttribution.sessionId}, ${mmAttribution.apiKeyId}
-        )
-        ON CONFLICT (id) DO NOTHING
-      `;
-
-      // Same guard as the classic path below: a sequence already owned by a
-      // different match must refuse, not silently no-op. The MM pot is still
-      // real money.
-      await this.insertFillLeg({
-        id: fillLegIdFor(market.id, fill.sequence, 'maker'),
-        orderId: fill.makerOrderId,
-        counterOrderId: taker.id,
-        marketId: market.id,
-        symbol: market.symbol,
-        userId: HOUSE_MM_USER_UUID,
-        side: makerSide,
-        role: 'maker',
-        price,
-        qty,
-        quoteAmount,
-        feeAsset: makerFeeAsset,
-        feeAmount: makerFee,
-        feeBps: rates.makerFeeBps,
-        sequence: fill.sequence,
-        attribution: mmAttribution,
-      });
-      await this.insertFillLeg({
-        id: fillLegIdFor(market.id, fill.sequence, 'taker'),
-        orderId: taker.id,
-        counterOrderId: fill.makerOrderId,
-        marketId: market.id,
-        symbol: market.symbol,
-        userId: taker.userId,
-        side: fill.takerSide,
-        role: 'taker',
-        price,
-        qty,
-        quoteAmount,
-        feeAsset: takerFeeAsset,
-        feeAmount: takerFee,
-        feeBps: rates.takerFeeBps,
-        sequence: fill.sequence,
-        attribution: takerAttribution,
-      });
-
-      await this.refreshFilledQty(taker.id);
-      await this.notePartialIfOpen(taker.id, formatAmount(qty), formatAmount(price), `fill:${fill.sequence}:taker`);
-
-      await this.ledger.post(
-        withFillLedgerAttribution(
-          recipes.marketMakerMakerFill({
-            fillId: fillIdFor(market.id, fill.sequence),
-            takerId: taker.userId,
-            makerOrderId: fill.makerOrderId,
-            takerOrderId: taker.id,
-            baseAsset: market.baseAsset,
-            quoteAsset: market.quoteAsset,
-            qty,
-            quoteAmount,
-            takerSide: fill.takerSide,
-            makerFeeBps: rates.makerFeeBps,
-            takerFeeBps: rates.takerFeeBps,
-          }),
-          mmAttribution,
-          takerAttribution,
-        ),
-      );
-
-      await this.notifyAffiliateAccrue({
-        fillId: fillIdFor(market.id, fill.sequence),
-        makerUserId: HOUSE_MM_USER_UUID,
-        takerUserId: taker.userId,
-        makerFee,
-        takerFee,
-        makerFeeAsset,
-        takerFeeAsset,
-      });
-      await this.notifyAffiliatePayout({
-        fillId: fillIdFor(market.id, fill.sequence),
-        makerUserId: HOUSE_MM_USER_UUID,
-        takerUserId: taker.userId,
-        makerFee,
-        takerFee,
-        makerFeeAsset,
-        takerFeeAsset,
-      });
-      await this.notifyCopyMirrorFill({
-        orderId: taker.id,
-        fillId: fillLegIdFor(market.id, fill.sequence, 'taker'),
-        side: fill.takerSide,
-        price,
-        qty,
-      });
-
-      const takerSettledAt = new Date().toISOString();
-      await this.bus.publish(
-        'fillSettled',
-        {
-          fillId: fillLegIdFor(market.id, fill.sequence, 'taker'),
-          orderId: taker.id,
-          userId: taker.userId,
-          marketId: market.id,
-          side: fill.takerSide,
-          liquidity: 'taker',
-          price: formatAmount(price),
-          qty: formatAmount(qty),
-          quoteAmount: formatAmount(quoteAmount),
-          feeAsset: takerFeeAsset,
-          feeAmount: formatAmount(takerFee),
-          feeBps: rates.takerFeeBps,
-          sequence: fill.sequence,
-          ts: takerSettledAt,
-        },
-        { idempotencyKey: `trade.fill.settled:${market.id}:${fill.sequence}:taker` },
-      );
-      await this.notifyDropCopyFill({
-        fillId: fillLegIdFor(market.id, fill.sequence, 'taker'),
-        orderId: taker.id,
-        userId: taker.userId,
-        marketId: market.id,
-        side: fill.takerSide,
-        price: formatAmount(price),
-        qty: formatAmount(qty),
-        quoteAmount: formatAmount(quoteAmount),
-        feeAsset: takerFeeAsset,
-        feeAmount: formatAmount(takerFee),
-        sequence: fill.sequence,
-        ts: takerSettledAt,
-        order: taker,
-      });
-      const latest = await this.findOrder(taker.id);
-      if (latest) await this.publishOrderUpdated(latest);
-      return;
-    }
-
-    // Both user orders — classic path.
-    if (!maker) {
-      throw new TradeError(
-        `fill ${fill.sequence} references an order this service does not know (${fill.makerOrderId} / ${fill.takerOrderId})`,
-        'trade.order_not_found',
-      );
-    }
-
-    // Both rates in one place: `tradeFill` posts them in one six-entry
-    // transaction, and resolving them apart would let one side's rounding drift
-    // from the other's without anything failing.
-    const rates = await this.ratesForFill(maker.feeDiscountBps, taker.feeDiscountBps, market.kind, market.symbol, {
-      maker: maker.createdAt,
-      taker: taker.createdAt,
-    });
-
-    const takerBuys = fill.takerSide === 'buy';
-    // BEFORE fill rows: same fee-exhaust guard as the MM path above. Recipe
-    // layer already refuses; without this the fills table permanently outruns
-    // the ledger and release understates remainder.
-    this.assertFillFeesPostable(fill.sequence, market.symbol, fill.takerSide, qty, quoteAmount, rates);
-    // Each side's fee comes out of what that side RECEIVES (see `tradeFill`).
-    const takerFee = mulBps(takerBuys ? qty : quoteAmount, rates.takerFeeBps);
-    const makerFee = mulBps(takerBuys ? quoteAmount : qty, rates.makerFeeBps);
-
-    const legs = [
-      {
-        role: 'maker' as const,
-        order: maker,
-        counterOrderId: taker.id,
-        side: takerBuys ? ('sell' as const) : ('buy' as const),
-        feeAsset: takerBuys ? market.quoteAsset : market.baseAsset,
-        feeAmount: makerFee,
-        feeBps: rates.makerFeeBps,
-      },
-      {
-        role: 'taker' as const,
-        order: taker,
-        counterOrderId: maker.id,
-        side: fill.takerSide,
-        feeAsset: takerBuys ? market.baseAsset : market.quoteAsset,
-        feeAmount: takerFee,
-        feeBps: rates.takerFeeBps,
-      },
-    ];
-
-    // Conflict on deterministic fill id (market+seq+role). Concurrent inline
-    // settle + NATS redelivery must not 500 on fills_pkey — that broke CX-8 L3.
-    const makerAttribution = attributionFromOrder(maker);
-    const takerAttribution = attributionFromOrder(taker);
-    for (const leg of legs) {
-      await this.insertFillLeg({
-        id: fillLegIdFor(market.id, fill.sequence, leg.role),
-        orderId: leg.order.id,
-        counterOrderId: leg.counterOrderId,
-        marketId: market.id,
-        symbol: market.symbol,
-        userId: leg.order.userId,
-        side: leg.side,
-        role: leg.role,
-        price,
-        qty,
-        quoteAmount,
-        feeAsset: leg.feeAsset,
-        feeAmount: leg.feeAmount,
-        feeBps: leg.feeBps,
-        sequence: fill.sequence,
-        attribution: leg.role === 'maker' ? makerAttribution : takerAttribution,
-      });
-    }
-
-    // Recomputed from the fills rather than incremented, so it is idempotent by
-    // construction and `filled_qty = Σ fills.qty` is true by definition rather
-    // than by hope. A test asserts it anyway.
-    for (const leg of legs) {
-      await this.refreshFilledQty(leg.order.id);
-      await this.notePartialIfOpen(leg.order.id, formatAmount(qty), formatAmount(price), `fill:${fill.sequence}:${leg.role}`);
-    }
-
-    // ── 5 · THE FILL ────────────────────────────────────────────────────────
-    //
-    // The six-entry atomic fill. Both sides' holds are drawn down and both
-    // sides' fees land in `houseFees('trade', …)` in one transaction, so there
-    // is no interleaving in which one side has paid and the other has not.
-    await this.ledger.post(
-      withFillLedgerAttribution(
-        recipes.tradeFill({
-          fillId: fillIdFor(market.id, fill.sequence),
-          makerId: maker.userId,
-          takerId: taker.userId,
-          // P0-3: name whose reservation each side is spending. These come from
-          // the order store — this service's source of truth for a fill (see the
-          // P0-2 ADR) — not from the engine event, which carries neither.
-          makerOrderId: maker.id,
-          takerOrderId: taker.id,
-          baseAsset: market.baseAsset,
-          quoteAsset: market.quoteAsset,
-          qty,
-          quoteAmount,
-          takerSide: fill.takerSide,
-          makerFeeBps: rates.makerFeeBps,
-          takerFeeBps: rates.takerFeeBps,
-        }),
-        makerAttribution,
-        takerAttribution,
-      ),
-    );
-
-    await this.notifyAffiliateAccrue({
-      fillId: fillIdFor(market.id, fill.sequence),
-      makerUserId: maker.userId,
-      takerUserId: taker.userId,
-      makerFee,
-      takerFee,
-      makerFeeAsset: takerBuys ? market.quoteAsset : market.baseAsset,
-      takerFeeAsset: takerBuys ? market.baseAsset : market.quoteAsset,
-    });
-    await this.notifyAffiliatePayout({
-      fillId: fillIdFor(market.id, fill.sequence),
-      makerUserId: maker.userId,
-      takerUserId: taker.userId,
-      makerFee,
-      takerFee,
-      makerFeeAsset: takerBuys ? market.quoteAsset : market.baseAsset,
-      takerFeeAsset: takerBuys ? market.baseAsset : market.quoteAsset,
-    });
-
-    // User-visible fill + order snapshots for private WS (not money — ledger already moved).
-    for (const leg of legs) {
-      const settledAt = new Date().toISOString();
-      await this.bus.publish(
-        'fillSettled',
-        {
-          fillId: fillLegIdFor(market.id, fill.sequence, leg.role),
-          orderId: leg.order.id,
-          userId: leg.order.userId,
-          marketId: market.id,
-          side: leg.side,
-          liquidity: leg.role,
-          price: formatAmount(price),
-          qty: formatAmount(qty),
-          quoteAmount: formatAmount(quoteAmount),
-          feeAsset: leg.feeAsset,
-          feeAmount: formatAmount(leg.feeAmount),
-          feeBps: leg.feeBps,
-          sequence: fill.sequence,
-          ts: settledAt,
-        },
-        { idempotencyKey: `trade.fill.settled:${market.id}:${fill.sequence}:${leg.role}` },
-      );
-      await this.notifyDropCopyFill({
-        fillId: fillLegIdFor(market.id, fill.sequence, leg.role),
-        orderId: leg.order.id,
-        userId: leg.order.userId,
-        marketId: market.id,
-        side: leg.side,
-        price: formatAmount(price),
-        qty: formatAmount(qty),
-        quoteAmount: formatAmount(quoteAmount),
-        feeAsset: leg.feeAsset,
-        feeAmount: formatAmount(leg.feeAmount),
-        sequence: fill.sequence,
-        ts: settledAt,
-        order: leg.order,
-      });
-      await this.notifyCopyMirrorFill({
-        orderId: leg.order.id,
-        fillId: fillLegIdFor(market.id, fill.sequence, leg.role),
-        side: leg.side,
-        price,
-        qty,
-      });
-      const latest = await this.findOrder(leg.order.id);
-      if (latest) await this.publishOrderUpdated(latest);
-    }
+    return fillFlow.settleFill(this.internal, market, fill);
   }
 
-  /**
-   * After house fees posted. Identity accrue is best-effort (412 / down / timeout
-   * must not unwind the fill). Never invents commission rates.
-   */
   private async notifyAffiliateAccrue(input: {
     fillId: string;
     makerUserId: string;
@@ -3689,7 +1295,7 @@ export class TradeService {
     makerFeeAsset: string;
     takerFeeAsset: string;
   }): Promise<void> {
-    await fireAffiliateAccrue(this.affiliateAccrue, affiliateLegsAfterFill({ ...input, houseMmUserId: HOUSE_MM_USER_UUID }));
+    return fillFlow.notifyAffiliateAccrue(this.internal, input);
   }
 
   /** After the fill is stored. Failure is logged; the settled fill stays settled. */
@@ -3704,47 +1310,18 @@ export class TradeService {
     price: Amount;
     qty: Amount;
   }): Promise<void> {
-    if (!this.onCopyMirrorFill) return;
-    try {
-      await this.onCopyMirrorFill(notice);
-    } catch (err) {
-      console.warn(
-        `svc-trade: copy mirror fill event failed orderId=${notice.orderId} — fill already settled`,
-        err instanceof Error ? err.message : String(err),
-      );
-    }
+    return fillFlow.notifyCopyMirrorFill(this.internal, notice);
   }
 
-  /**
-   * After ledger settle. Drop-copy is evidence — ingest failure must not unwind money.
-   * Source is explicit (rfq) or proveable from the order (rest). Session-only omits.
-   */
   private async notifyDropCopyFill(
     input: Omit<DropCopyFillWire, 'source'> & {
       readonly source?: DropCopyHitchSource;
       readonly order?: { readonly apiKeyId?: string | null };
     },
   ): Promise<void> {
-    const source = input.source ?? (input.order !== undefined ? dropCopySourceForBookOrder(input.order) : null);
-    if (source === null) return;
-    await fireDropCopyFill(this.dropCopyIngest, {
-      fillId: input.fillId,
-      orderId: input.orderId,
-      userId: input.userId,
-      marketId: input.marketId,
-      side: input.side,
-      price: input.price,
-      qty: input.qty,
-      quoteAmount: input.quoteAmount,
-      feeAsset: input.feeAsset,
-      feeAmount: input.feeAmount,
-      sequence: input.sequence,
-      ts: input.ts,
-      source,
-    });
+    return fillFlow.notifyDropCopyFill(this.internal, input);
   }
 
-  /** Best-effort payout after accrue; never throws. Fill already committed. */
   private async notifyAffiliatePayout(input: {
     fillId: string;
     makerUserId: string;
@@ -3754,16 +1331,13 @@ export class TradeService {
     makerFeeAsset: string;
     takerFeeAsset: string;
   }): Promise<void> {
-    await fireAffiliatePayout(this.affiliatePayout, affiliateLegsAfterFill({ ...input, houseMmUserId: HOUSE_MM_USER_UUID }));
+    return fillFlow.notifyAffiliatePayout(this.internal, input);
   }
 
   // ── Holds: the only two things that can happen to one ─────────────────────
 
-  /** Unpublished owner schedule is a typed refuse — never listing-row 10/20. */
   private async assertOwnerFeeSchedulePublished(): Promise<void> {
-    if ((await this.feeScheduleAt(this.now())).published !== true) {
-      throw new TradeError('published fee schedule is unavailable', 'trade.fee_schedule_blank');
-    }
+    return holds.assertOwnerFeeSchedulePublished(this.internal);
   }
 
   /** The owner schedule in force at `at` (a later approved version, else the boot value). */
@@ -3771,11 +1345,6 @@ export class TradeService {
     return feeScheduleAtStore(this.sql, this.feeSchedule, at);
   }
 
-  /**
-   * Rates for one match. Each side is charged at the schedule version that was in force when ITS order was placed,
-   * so a version approved after placement never re-prices an open order. The house market maker has no order
-   * of its own to date: its side takes the taker's version.
-   */
   private async ratesForFill(
     makerDiscountBps: number,
     takerDiscountBps: number,
@@ -3783,12 +1352,7 @@ export class TradeService {
     symbol?: string,
     placedAt: { readonly maker: Date; readonly taker: Date } = { maker: this.now(), taker: this.now() },
   ): Promise<{ makerFeeBps: number; takerFeeBps: number }> {
-    const makerSchedule = await this.feeScheduleAt(placedAt.maker);
-    const takerSchedule = placedAt.maker.getTime() === placedAt.taker.getTime() ? makerSchedule : await this.feeScheduleAt(placedAt.taker);
-    return {
-      makerFeeBps: this.ratesForSchedule(makerSchedule, makerDiscountBps, takerDiscountBps, kind, symbol).makerFeeBps,
-      takerFeeBps: this.ratesForSchedule(takerSchedule, makerDiscountBps, takerDiscountBps, kind, symbol).takerFeeBps,
-    };
+    return holds.ratesForFill(this.internal, makerDiscountBps, takerDiscountBps, kind, symbol, placedAt);
   }
 
   private ratesForSchedule(
@@ -3798,39 +1362,9 @@ export class TradeService {
     kind: 'spot' | 'futures' | 'options',
     symbol?: string,
   ) {
-    if (kind === 'options') {
-      throw new TradeError('options fee schedule is unpublished', 'trade.fee_product_unpublished');
-    }
-    try {
-      return feeRatesForFill(
-        schedule,
-        makerDiscountBps,
-        takerDiscountBps,
-        kind === 'futures' ? 'perpetual' : 'spot',
-        symbol === undefined ? undefined : { symbol },
-      );
-    } catch (err) {
-      if (err instanceof FeeScheduleError) {
-        const code =
-          err.code === 'trade.fee_product_unpublished' ||
-          err.code === 'trade.rebate_recipe_unavailable' ||
-          err.code === 'trade.min_fee_recipe_unavailable'
-            ? err.code
-            : 'trade.fee_schedule_blank';
-        throw new TradeError(err.message, code);
-      }
-      throw err;
-    }
+    return holds.ratesForSchedule(this.internal, schedule, makerDiscountBps, takerDiscountBps, kind, symbol);
   }
 
-  /**
-   * Refuse a match whose fees leave a side with nothing — BEFORE fill rows.
-   *
-   * `tradeFill` already throws `InvalidEntryError` for this class, but it runs
-   * after the insert. Re-running then re-throws forever while `remainingHold`
-   * treats the unposted fill as consumed. Checking here keeps the fills table
-   * from outrunning the ledger when the post cannot heal.
-   */
   private assertFillFeesPostable(
     sequence: number,
     symbol: string,
@@ -3839,503 +1373,75 @@ export class TradeService {
     quoteAmount: Amount,
     rates: { makerFeeBps: number; takerFeeBps: number },
   ): void {
-    const pays = fillPayAmounts({ takerSide, qty, quoteAmount });
-    if (
-      fillReceivablesSurviveFees({
-        ...pays,
-        makerFeeBps: rates.makerFeeBps,
-        takerFeeBps: rates.takerFeeBps,
-      })
-    ) {
-      return;
-    }
-    throw new TradeError(
-      `fill ${sequence} on ${symbol} would leave a side with nothing after fees ` +
-        `(maker ${rates.makerFeeBps} bps / taker ${rates.takerFeeBps} bps) — refuse before recording the fill`,
-      'trade.fee_exceeds_fill',
-    );
+    return holds.assertFillFeesPostable(this.internal, sequence, symbol, takerSide, qty, quoteAmount, rates);
   }
 
-  /**
-   * How much of an order's hold has NOT been spent by its fills or proven
-   * native-amend qty-down releases.
-   *
-   * Derived, never stored as a running total. `hold_amount` is written once;
-   * fills and `amend_released` are the only other inputs.
-   */
-  /**
-   * Local fill proof for operator reconcile. Empty `trade.fills` plus
-   * `filled_qty = 0` is the only "no fill" this service can prove. A lost
-   * engine fill is indistinguishable from never-filled until a fill row lands;
-   * when rows exist (or filled_qty disagrees), we refuse to pick a money winner.
-   */
   private async fillEvidence(orderId: string): Promise<{ count: number; qty: Amount }> {
-    const rows = await this.sql<Array<{ count: string; qty: string }>>`
-      SELECT COUNT(*)::text AS count, COALESCE(SUM(qty), 0)::text AS qty
-        FROM trade.fills
-       WHERE order_id = ${orderId}
-    `;
-    const countRaw = rows[0]?.count ?? '0';
-    if (!/^[0-9]+$/.test(countRaw)) {
-      throw new TradeError(`trade.fills count for ${orderId} is not an integer`, 'trade.reconcile_unknown_engine_miss');
-    }
-    return { count: Number(countRaw), qty: parseAmount(rows[0]?.qty ?? '0') };
+    return holds.fillEvidence(this.internal, orderId);
   }
 
   private async remainingHold(sql: Sql, order: OrderRecord): Promise<Amount> {
-    // A buy consumed quote, a sell consumed base. Expressed as a CASE over a
-    // bound parameter rather than a dynamic column name: the two are the same
-    // query plan, and this one cannot be turned into an injection by a future
-    // edit that forgets where `side` came from.
-    const rows = await sql<Array<{ consumed: string }>>`
-      SELECT COALESCE(SUM(CASE WHEN ${order.side === 'buy'} THEN quote_amount ELSE qty END), 0) AS consumed
-        FROM trade.fills WHERE order_id = ${order.id}
-    `;
-    const consumed = parseAmount(rows[0]?.consumed ?? '0');
-    const remaining = holdLeft(order, consumed);
-
-    if (remaining < 0n) {
-      // The fills say this order spent more than it was funded for. That is not
-      // a rounding question: either the engine matched an order it should not
-      // have, or a fill was recorded twice. Refuse to guess — releasing a
-      // negative would draw down whatever else this user has in `hold`, which
-      // is another order's money.
-      throw new TradeError(
-        `order ${order.id} consumed ${formatAmount(consumed)} against a ${formatAmount(order.holdAmount)} hold`,
-        'trade.hold_uncovered',
-      );
-    }
-
-    return remaining;
+    return holds.remainingHold(this.internal, sql, order);
   }
 
-  /**
-   * Move an order to a terminal state and give back what is left of its hold.
-   *
-   * THE RELEASE HAPPENS BEFORE THE STATUS CHANGE, and that ordering is the
-   * answer to "if this crashes exactly here, whose funds are stranded?".
-   * Terminal status is what makes this method return early, so setting it first
-   * and crashing before the release would strand the remainder behind a row
-   * that says there is nothing to do. This way a crash leaves a non-terminal
-   * row, a retry recomputes the same remainder, and the ledger's
-   * `order.release:<orderId>:0` key makes the second post a no-op.
-   *
-   * ONE RELEASE PER ORDER, EVER — sequence 0, fixed. An order reaches a
-   * terminal state exactly once, so the key never needs to vary, and a fixed
-   * key is what makes a double-release impossible rather than merely unlikely.
-   * This is the bug the "partial fill then cancel" test exists to catch: the
-   * remainder is `hold - Σ fills`, so the filled part is never released and the
-   * unfilled part is never released twice.
-   */
   private async finalize(
     orderId: string,
     status: Extract<OrderStatus, 'cancelled' | 'filled' | 'expired' | 'rejected'>,
     reason?: string | null,
   ): Promise<void> {
-    // An engine OCO leg is not an order row: it closes its parent, and only once no leg is left resting.
-    if (ocoLegParent(orderId) !== null) {
-      const parent = await this.findOrder(settlementOrderId(orderId));
-      if (parent) {
-        await this.finalizeOcoWhenNoLegLive(parent.marketId, orderId, reason, status === 'expired' ? 'expired' : 'cancelled');
-      }
-      return;
-    }
-    const outcome = await transaction(
-      this.sql,
-      async (tx): Promise<{ order: OrderRecord; status: OrderStatus } | null> => {
-        const rows = await tx<OrderRow[]>`SELECT * FROM trade.orders WHERE id = ${orderId} FOR UPDATE`;
-        const row = rows[0];
-        if (!row) return null;
-
-        const order = toOrder(row);
-        if (order.status !== 'open' && order.status !== 'pending' && order.status !== 'recovery_required') return null;
-
-        const remaining = await this.remainingHold(tx, order);
-        // A qty-down orderHoldRelease can commit under its amend version before
-        // amend_released does (a process death in that window). remainingHold
-        // still counts that money and sequence 0 is a different key, so posting
-        // `remaining` would pay it again. The pot is what can still come back;
-        // when the pot is larger (a fill row the ledger has not drawn yet) keep
-        // the derived remainder so that slice stays for tradeFill.
-        // The amount under a given idempotency key must never change between
-        // attempts: if a crashed attempt already booked sequence 0, the pot is
-        // smaller now and re-capping would change the body. Reuse the key's
-        // booked amount (post it again as a no-op); cap only a fresh release.
-        const terminalKey = `order.release:${orderId}:0`;
-        const booked = await this.ledger.getTxByKey(terminalKey);
-        let releasable: Amount;
-        if (booked) {
-          const credit = booked.entries.find((entry) => entry.direction === 'credit');
-          releasable = credit ? credit.amount : 0n;
-        } else {
-          const bookHold = (await this.ledger.balance(orderHoldAccount(order.userId, order.holdAsset, order.id))).amount;
-          releasable = bookHold < remaining ? bookHold : remaining;
-        }
-        if (releasable > 0n) {
-          // ── 6 · THE RELEASE ────────────────────────────────────────────────
-          await this.ledger.post(
-            withLedgerAttribution(
-              recipes.orderHoldRelease({
-                orderId,
-                userId: order.userId,
-                assetId: order.holdAsset,
-                amount: releasable,
-                sequence: 0,
-              }),
-              attributionFromOrder(order),
-            ),
-          );
-        }
-
-        const finalStatus: OrderStatus = order.filledQty > 0n && order.filledQty >= order.qty ? 'filled' : status;
-        const reasonCode = reason && reason.length > 0 ? reason : null;
-        await tx`
-          UPDATE trade.orders
-             SET status = ${finalStatus},
-                 reject_code = COALESCE(${reasonCode}, reject_code),
-                 updated_at = now()
-           WHERE id = ${orderId}
-        `;
-        const kind =
-          finalStatus === 'cancelled' ? 'cancel' : finalStatus === 'filled' ? 'fill' : finalStatus === 'expired' ? 'expire' : 'reject';
-        await appendOrderEvent(tx, {
-          orderId,
-          parentId: parentIdFromClientOrder(order.clientOrderId),
-          kind,
-          quantity: formatAmount(order.qty),
-          price: order.price === null ? null : formatAmount(order.price),
-          code: kind === 'reject' ? (reasonCode ?? 'reject') : kind,
-        });
-
-        return { order, status: finalStatus };
-      },
-      { isolation: 'read committed', maxAttempts: 5 },
-    );
-
-    // Published outside the transaction. An XP award is not money and must not
-    // be able to roll back a release, nor hold a database transaction open
-    // across a broker round trip.
-    if (outcome) {
-      const latest = (await this.findOrder(orderId)) ?? { ...outcome.order, status: outcome.status };
-      await this.publishOrderUpdated({ ...latest, status: outcome.status });
-      if (outcome.order.filledQty > 0n) await this.publishXp(outcome.order, outcome.status);
-    }
+    return holds.finalize(this.internal, orderId, status, reason);
   }
 
-  /**
-   * Seconds still to wait before an absent `order.hold` key on this
-   * `hold_unknown` row can no longer be in flight. 0 means a delete or cancel
-   * is allowed. Read on the database clock. Does not write `updated_at`.
-   */
   private async holdUnknownWaitSeconds(orderId: string): Promise<number> {
-    const rows = await this.sql<Array<{ wait: string }>>`
-      SELECT GREATEST(0, CEIL(${HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS}::numeric - EXTRACT(EPOCH FROM (now() - updated_at))))::text AS wait
-        FROM trade.orders WHERE id = ${orderId} AND status = 'hold_unknown'
-    `;
-    return Number(rows[0]?.wait ?? 0);
+    return holds.holdUnknownWaitSeconds(this.internal, orderId);
   }
 
-  /**
-   * Absent-hold delete, only if the row is still past the in-flight bound.
-   * Zero means a re-post touched `updated_at` after the wait read.
-   */
   private async deleteAbsentHoldUnknownPastBound(orderId: string): Promise<number> {
-    const deleted = await this.sql<Array<{ id: string }>>`
-      DELETE FROM trade.orders
-       WHERE id = ${orderId}
-         AND status = 'hold_unknown'
-         AND updated_at <= now() - make_interval(secs => ${HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS})
-      RETURNING id
-    `;
-    return deleted.length;
+    return holds.deleteAbsentHoldUnknownPastBound(this.internal, orderId);
   }
 
-  /** Absent-hold cancel, with the same bound predicate as the delete. */
   private async cancelAbsentHoldUnknownPastBound(orderId: string): Promise<number> {
-    const cancelled = await this.sql<Array<{ id: string }>>`
-      UPDATE trade.orders SET status = 'cancelled', updated_at = now()
-       WHERE id = ${orderId}
-         AND status = 'hold_unknown'
-         AND updated_at <= now() - make_interval(secs => ${HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS})
-      RETURNING id
-    `;
-    return cancelled.length;
+    return holds.cancelAbsentHoldUnknownPastBound(this.internal, orderId);
   }
 
   private orderIsTaker(order: OrderRecord): boolean {
     return order.type === 'market' || order.tif === 'IOC' || order.tif === 'FOK';
   }
 
-  /** True when a taker row is older than the cap on the database clock. */
   private async takerOlderThanCap(orderId: string): Promise<boolean> {
-    const rows = await this.sql<Array<{ age_ms: string }>>`
-      SELECT (EXTRACT(EPOCH FROM (now() - created_at)) * 1000)::text AS age_ms
-        FROM trade.orders WHERE id = ${orderId}
-    `;
-    return Number(rows[0]?.age_ms ?? '0') > this.holdUnknownTakerMaxAgeMs;
+    return holds.takerOlderThanCap(this.internal, orderId);
   }
 
-  /**
-   * Why a booked `hold_unknown` order must not be submitted. Null means the
-   * gates passed. Does not write the row.
-   */
   private async holdUnknownSubmitRefusal(order: OrderRecord, market: Market): Promise<string | null> {
-    if (market.kind === 'spot' && !this.spotEnabled) return 'spot trading is disabled';
-    try {
-      await this.assertLifecycleAction(market, order.tif === 'PO' ? 'PLACE_POST_ONLY' : 'PLACE', order.type);
-    } catch (err) {
-      return err instanceof Error ? err.message : 'lifecycle gate refused';
-    }
-    if (market.status !== 'active') return `market status is ${market.status}`;
-    if (this.orderIsTaker(order) && (await this.takerOlderThanCap(order.id))) {
-      return `taker order is older than ${this.holdUnknownTakerMaxAgeMs}ms`;
-    }
-    try {
-      assertTradable(market, {
-        futuresEnabled: this.futuresEnabled,
-        optionsSettlementLawStamped: this.optionsSettlementAssetLaw.trim().length > 0,
-        now: this.now(),
-      });
-    } catch (err) {
-      return err instanceof Error ? err.message : 'market is not tradable';
-    }
-    try {
-      assertSettlementRails(market);
-    } catch (err) {
-      return err instanceof Error ? err.message : 'settlement rails refused';
-    }
-    try {
-      assertMarketOpen(market, this.now());
-    } catch (err) {
-      return err instanceof Error ? err.message : 'market is closed';
-    }
-    return null;
+    return holds.holdUnknownSubmitRefusal(this.internal, order, market);
   }
 
-  /** Claim the booked row and release the full hold. The engine never had it. */
   private async rejectBookedHoldUnknown(order: OrderRecord, detail: string): Promise<OrderRecord> {
-    const claimed = await this.sql<Array<{ id: string }>>`
-      UPDATE trade.orders SET status = 'open', updated_at = now()
-       WHERE id = ${order.id} AND status = 'hold_unknown'
-       RETURNING id
-    `;
-    if (claimed.length === 0) {
-      const current = await this.findOrder(order.id);
-      if (current) return current;
-      throw new TradeError(`order ${order.id} vanished during hold resolution`, 'trade.order_not_found');
-    }
-    await this.finalize(order.id, 'rejected');
-    this.noteHoldUnknown({ orderId: order.id, resolution: 'booked', detail });
-    const settled = await this.findOrder(order.id);
-    if (!settled) throw new TradeError(`order ${order.id} vanished during hold resolution`, 'trade.order_not_found');
-    return settled;
+    return holds.rejectBookedHoldUnknown(this.internal, order, detail);
   }
 
   private async submitBookedHoldUnknown(order: OrderRecord): Promise<OrderRecord> {
-    if (!order.lifecycleProof) {
-      this.noteHoldUnknown({
-        orderId: order.id,
-        resolution: 'still_unknown',
-        detail: 'hold is booked but the stored lifecycle proof is missing; not submitting',
-      });
-      throw new TradeError(`order ${order.id} hold is booked but cannot be submitted`, 'trade.hold_unknown');
-    }
-    const market = await this.marketById(order.marketId);
-    if (!market) throw new TradeError(`market ${order.marketId} not found`, 'trade.market_not_found');
-    const refusal = await this.holdUnknownSubmitRefusal(order, market);
-    if (refusal) return this.rejectBookedHoldUnknown(order, `booked hold was not submitted: ${refusal}`);
-    // A stop-limit rests as a limit; its trigger lives in order_stop_trigger. Losing it here would
-    // send the order to the book live, so the stored trigger rides every resubmit.
-    const triggerRows = await this.sql<Array<{ stop_price: string }>>`
-      SELECT stop_price::text AS stop_price FROM trade.order_stop_trigger WHERE order_id = ${order.id}
-    `;
-    const storedTrigger = triggerRows[0]?.stop_price;
-    // An OCO parent rests as its two legs; its row alone would resubmit as a plain limit.
-    const ocoIntent = await readOcoIntent(this.sql, order.id);
-    const request = this.toEngineRequest(
-      order.id,
-      order.userId,
-      {
-        marketId: order.marketId,
-        side: order.side,
-        type: order.type,
-        qty: order.qty,
-        price: order.price,
-        tif: order.tif,
-        clientOrderId: order.clientOrderId ?? undefined,
-        subAccountId: order.subAccountId ?? undefined,
-        ...(storedTrigger === undefined ? {} : { stopPx: parseAmount(storedTrigger) }),
-        ...(ocoIntent ?? {}),
-      } as PlaceOrderInput,
-      order.type,
-      order.tif,
-      order.protectionPrice,
-      order.lifecycleProof,
-    );
-    return this.openAndSubmit(market, order.id, request);
+    return holds.submitBookedHoldUnknown(this.internal, order);
   }
 
-  /**
-   * The same clientOrderId is retrying and the key is still absent inside the
-   * bound. Re-post the identical hold. The sweep never calls this.
-   */
   private async repostAbsentHold(order: OrderRecord): Promise<OrderRecord> {
-    const market = await this.marketById(order.marketId);
-    if (!market) throw new TradeError(`market ${order.marketId} not found`, 'trade.market_not_found');
-    const refusal = await this.holdUnknownSubmitRefusal(order, market);
-    if (refusal || !order.lifecycleProof) {
-      const why = refusal ?? 'the stored lifecycle proof is missing';
-      this.noteHoldUnknown({
-        orderId: order.id,
-        resolution: 'still_unknown',
-        detail: `same-key retry refused to re-post order.hold: ${why}`,
-      });
-      throw new TradeError(`order ${order.id} hold outcome is unknown; ${why}`, 'trade.hold_unknown');
-    }
-    const touched = await this.sql<Array<{ id: string }>>`
-      UPDATE trade.orders SET updated_at = now()
-       WHERE id = ${order.id} AND status = 'hold_unknown'
-       RETURNING id
-    `;
-    if (touched.length === 0) {
-      const current = await this.findOrder(order.id);
-      if (current) return current;
-      throw new TradeError(`order ${order.id} vanished during hold resolution`, 'trade.order_not_found');
-    }
-    try {
-      await this.ledger.post(
-        withLedgerAttribution(
-          recipes.orderHold({
-            orderId: order.id,
-            userId: order.userId,
-            assetId: order.holdAsset,
-            amount: order.holdAmount,
-          }),
-          attributionFromOrder(order),
-        ),
-      );
-    } catch (err) {
-      const outcome = classifyHoldPostError(err);
-      const wait = await this.holdUnknownWaitSeconds(order.id);
-      this.noteHoldUnknown({
-        orderId: order.id,
-        resolution: 'still_unknown',
-        detail:
-          outcome === 'refused' || outcome === 'unsent'
-            ? `same-key retry re-post of order.hold was refused before commit; row kept; wait ${wait}s`
-            : `same-key retry re-post of order.hold did not answer; row kept; wait ${wait}s`,
-      });
-      throw new TradeError(
-        `order ${order.id} hold outcome is unknown; wait ${wait} seconds before treating an absent hold as dead`,
-        'trade.hold_unknown',
-      );
-    }
-    return this.submitBookedHoldUnknown(order);
+    return holds.repostAbsentHold(this.internal, order);
   }
 
   private noteHoldUnknown(alert: HoldUnknownAlert): void {
-    try {
-      this.onHoldUnknownAlert?.(alert);
-    } catch {
-      // The alert is a signal. A broken sink must not change the money decision.
-    }
+    return holds.noteHoldUnknown(this.internal, alert);
   }
 
-  /** `null` from getTxByKey means the hold was not booked. A throw means we still do not know. */
   private async readHoldByKey(orderId: string): Promise<HoldRead> {
-    try {
-      const tx = await this.ledger.getTxByKey(orderHoldIdempotencyKey(orderId));
-      return tx ? 'present' : 'absent';
-    } catch {
-      return 'unknown';
-    }
+    return holds.readHoldByKey(this.internal, orderId);
   }
 
-  /**
-   * The hold is known to exist (the post returned, or getTxByKey found it).
-   * Claim `open` once, then submit. A lost submit stays `recovery_required`
-   * with the hold encumbered — that path is unchanged.
-   */
   private async openAndSubmit(market: Market, orderId: string, request: EngineSubmitRequest): Promise<OrderRecord> {
-    const opened = await this.sql<Array<{ id: string }>>`
-      UPDATE trade.orders SET status = 'open', updated_at = now()
-       WHERE id = ${orderId} AND status IN ('pending', 'hold_unknown')
-       RETURNING id
-    `;
-    if (opened.length === 0) {
-      const current = await this.findOrder(orderId);
-      if (current && current.status !== 'pending' && current.status !== 'hold_unknown') return current;
-      throw new TradeError(`order ${orderId} vanished during hold resolution`, 'trade.order_not_found');
-    }
-
-    let result: EngineSubmitResult;
-    try {
-      result = await this.matching.submit(market.id, request);
-    } catch (err) {
-      // INDETERMINATE. The request failed at the transport, so the engine may
-      // or may not hold this order. Persist the frozen spine's
-      // OUTCOME_UNKNOWN/SUBMIT_UNKNOWN evidence before returning the failure;
-      // the hold stays encumbered and the retry fence now returns this row.
-      await this.markRecoveryRequired(orderId, 'SUBMIT_UNKNOWN');
-      throw err;
-    }
-
-    await this.applySubmitResult(market, orderId, result);
-    const settled = await this.findOrder(orderId);
-    if (!settled) throw new TradeError(`order ${orderId} vanished during settlement`, 'trade.order_not_found');
-    return settled;
+    return holds.openAndSubmit(this.internal, market, orderId, request);
   }
 
-  /**
-   * Same clientOrderId, or the sweep, with the row still `hold_unknown`.
-   * Booked → submit, unless a gate refuses, in which case the hold is released.
-   * Absent inside the in-flight bound stays. A retry may re-post that identical
-   * hold; the sweep never does. Absent past the bound is deleted.
-   */
   private async resumeHoldUnknown(order: OrderRecord, source: 'retry' | 'sweep'): Promise<OrderRecord> {
-    const read = await this.readHoldByKey(order.id);
-    if (read === 'unknown') {
-      this.noteHoldUnknown({
-        orderId: order.id,
-        resolution: 'still_unknown',
-        detail: 'retry read of order.hold did not answer; row kept',
-      });
-      throw new TradeError(`order ${order.id} hold outcome is still unknown`, 'trade.hold_unknown');
-    }
-    if (read === 'absent') {
-      const wait = await this.holdUnknownWaitSeconds(order.id);
-      if (wait > 0) {
-        if (source === 'retry') return this.repostAbsentHold(order);
-        this.noteHoldUnknown({
-          orderId: order.id,
-          resolution: 'still_unknown',
-          detail: `order.hold read absent with ${wait}s of in-flight wait left; row kept`,
-        });
-        throw new TradeError(
-          `order ${order.id} hold outcome is unknown; wait ${wait} seconds before treating an absent hold as dead`,
-          'trade.hold_unknown',
-        );
-      }
-      const deleted = await this.deleteAbsentHoldUnknownPastBound(order.id);
-      if (deleted === 0) {
-        const current = await this.findOrder(order.id);
-        if (current?.status === 'hold_unknown') {
-          const wait = await this.holdUnknownWaitSeconds(order.id);
-          this.noteHoldUnknown({
-            orderId: order.id,
-            resolution: 'still_unknown',
-            detail: `absent delete matched no row; ${wait}s of in-flight wait left`,
-          });
-          throw new TradeError(
-            `order ${order.id} hold outcome is unknown; wait ${wait} seconds before treating an absent hold as dead`,
-            'trade.hold_unknown',
-          );
-        }
-        if (current) return current;
-      }
-      throw new TradeError(`order ${order.id} hold was not booked`, 'trade.hold_not_booked');
-    }
-    return this.submitBookedHoldUnknown(order);
+    return holds.resumeHoldUnknown(this.internal, order, source);
   }
 
   /**
@@ -4346,193 +1452,25 @@ export class TradeService {
    * row and alerts. This pass never re-posts.
    */
   async sweepHoldUnknown(limit = 50): Promise<HoldUnknownSweepResult> {
-    const capped = Math.min(Math.max(Math.floor(limit), 1), 100);
-    const rows = await this.sql<Array<{ id: string }>>`
-      SELECT id FROM trade.orders
-       WHERE status = 'hold_unknown'
-       ORDER BY created_at ASC
-       LIMIT ${capped}
-    `;
-    const booked: string[] = [];
-    const absent: string[] = [];
-    const stillUnknown: string[] = [];
-    const alerts: HoldUnknownAlert[] = [];
-    const alert = (item: HoldUnknownAlert) => {
-      alerts.push(item);
-      this.noteHoldUnknown(item);
-    };
-
-    for (const row of rows) {
-      const order = await this.findOrder(row.id);
-      if (!order || order.status !== 'hold_unknown') continue;
-      const read = await this.readHoldByKey(order.id);
-      if (read === 'unknown') {
-        stillUnknown.push(order.id);
-        alert({
-          orderId: order.id,
-          resolution: 'still_unknown',
-          detail: 'sweep could not read order.hold; row kept',
-        });
-        continue;
-      }
-      if (read === 'absent') {
-        const wait = await this.holdUnknownWaitSeconds(order.id);
-        if (wait > 0) {
-          stillUnknown.push(order.id);
-          alert({
-            orderId: order.id,
-            resolution: 'still_unknown',
-            detail: `sweep read order.hold as absent with ${wait}s of in-flight wait left; row kept`,
-          });
-          continue;
-        }
-        const deleted = await this.deleteAbsentHoldUnknownPastBound(order.id);
-        if (deleted > 0) {
-          absent.push(order.id);
-          alert({
-            orderId: order.id,
-            resolution: 'absent',
-            detail: 'sweep read order.hold as absent past the in-flight bound; unfunded intent deleted, no release posted',
-          });
-        } else {
-          const current = await this.findOrder(order.id);
-          if (current?.status === 'hold_unknown') {
-            stillUnknown.push(order.id);
-            alert({
-              orderId: order.id,
-              resolution: 'still_unknown',
-              detail: 'sweep delete matched no row; a re-post touched the row inside the in-flight bound',
-            });
-          }
-        }
-        continue;
-      }
-      try {
-        const settled = await this.resumeHoldUnknown(order, 'sweep');
-        booked.push(order.id);
-        alert({
-          orderId: order.id,
-          resolution: 'booked',
-          detail:
-            settled.status === 'rejected'
-              ? `sweep found the hold and refused to submit; status=${settled.status}`
-              : 'sweep found the hold and submitted the order',
-        });
-      } catch (err) {
-        const current = await this.findOrder(order.id);
-        if (!current) {
-          absent.push(order.id);
-          alert({
-            orderId: order.id,
-            resolution: 'absent',
-            detail: 'sweep removed the unfunded intent while resolving the hold',
-          });
-          continue;
-        }
-        if (current.status !== 'hold_unknown') {
-          booked.push(order.id);
-          alert({
-            orderId: order.id,
-            resolution: 'booked',
-            detail: `sweep found the hold; submit ended status=${current.status}`,
-          });
-        } else {
-          stillUnknown.push(order.id);
-          alert({
-            orderId: order.id,
-            resolution: 'still_unknown',
-            detail: err instanceof Error ? err.message : 'sweep could not open the booked hold',
-          });
-        }
-      }
-    }
-
-    return { examined: rows.length, booked, absent, stillUnknown, alerts };
+    return holds.sweepHoldUnknown(this.internal, limit);
   }
 
-  /**
-   * Persist an unresolved command without touching the ledger. The
-   * reconciliation key is deterministic per order/reason, so restart/replay
-   * and client retries all converge on one recovery case.
-   */
   private async markRecoveryRequired(orderId: string, reason: RecoveryReason): Promise<void> {
-    const reconciliationKey = `trade.order.reconcile:${orderId}:${reason}`;
-    await this.sql`
-      UPDATE trade.orders
-         SET status = 'recovery_required',
-             recovery_reason = ${reason},
-             reconciliation_key = ${reconciliationKey},
-             updated_at = now()
-       WHERE id = ${orderId}
-         AND status IN ('pending', 'open', 'recovery_required')
-    `;
+    return holds.markRecoveryRequired(this.internal, orderId, reason);
   }
 
-  /** Close out an order that filled completely — no cancellation is emitted for one. */
   private async finalizeIfComplete(orderId: string): Promise<void> {
-    const order = await this.findOrder(orderId);
-    if (!order) return;
-    if (order.status !== 'open' && order.status !== 'pending' && order.status !== 'recovery_required') return;
-    if (order.filledQty < order.qty) return;
-    await this.finalize(orderId, 'filled');
+    return holds.finalizeIfComplete(this.internal, orderId);
   }
 
   // ── Events ────────────────────────────────────────────────────────────────
 
-  /**
-   * §5.2 step 4: "XP event emitted per filled order."
-   *
-   * Emitted once, at the terminal transition, keyed on the order id so a
-   * redelivery cannot pay the same achievement twice. svc-identity is the only
-   * writer of rank state (§4.1) — this service says what happened and has no
-   * opinion about what it is worth.
-   *
-   * SOCKET §13 — volume-weighted XP and rolling fee tiers. §5.2 also asks for
-   * "volume aggregates per user per window [to] feed rank + fee-tier". That is
-   * a windowed aggregation job over `fills`, which needs a window table and a
-   * schedule of its own; the fills it would read are all written here already.
-   */
   private async publishXp(order: OrderRecord, status: OrderStatus): Promise<void> {
-    await this.bus.publish(
-      'xpEarned',
-      {
-        userId: order.userId,
-        sourceModule: 'trade',
-        action: status === 'filled' ? 'order.filled' : 'order.partially_filled',
-        xpDelta: status === 'filled' ? 10 : 5,
-        meta: { orderId: order.id, marketId: order.marketId },
-      },
-      { idempotencyKey: `trade.order.xp:${order.id}` },
-    );
+    return events.publishXp(this.internal, order, status);
   }
 
-  /**
-   * Private order stream feed. Not a money path — the ledger already moved.
-   * Keyed on (order, status, filledQty) so redelivery of the same snapshot is
-   * a bus no-op while a fill that advances filledQty still ships.
-   */
   private async publishOrderUpdated(order: OrderRecord): Promise<void> {
-    // The v1 event catalog predates RECOVERY_REQUIRED. Never downgrade this
-    // state to OPEN/REJECTED on the bus; REST projections carry the additive
-    // recovery evidence until the catalog version is extended.
-    if (order.status === 'recovery_required' || order.status === 'hold_unknown') return;
-    await this.bus.publish(
-      'orderUpdated',
-      {
-        orderId: order.id,
-        userId: order.userId,
-        marketId: order.marketId,
-        status: order.status,
-        side: order.side,
-        type: order.type,
-        qty: formatAmount(order.qty),
-        filledQty: formatAmount(order.filledQty),
-        price: order.price == null ? null : formatAmount(order.price),
-        clientOrderId: order.clientOrderId,
-        ts: new Date().toISOString(),
-      },
-      { idempotencyKey: `trade.order.updated:${order.id}:${order.status}:${formatAmount(order.filledQty)}` },
-    );
+    return events.publishOrderUpdated(this.internal, order);
   }
 
   /**
@@ -4564,42 +1502,7 @@ export class TradeService {
     /** Matching STP account for the taker leg (users: userId). */
     takerAccountId?: string;
   }): Promise<void> {
-    const market = await this.marketById(input.marketId);
-    if (!market) throw new TradeError(`market ${input.marketId} not found`, 'trade.market_not_found');
-
-    const taker = await this.findOrder(settlementOrderId(input.takerOrderId));
-    if (!taker) throw new TradeError(`order ${input.takerOrderId} not found`, 'trade.order_not_found');
-
-    // Prefer event payload; then orders table. House bookkeeping UUID → house STP id.
-    // Never invent house MM from an unknown maker (empty + no house row).
-    const makerRow = await this.findOrder(settlementOrderId(input.makerOrderId));
-    const makerAccountId = recoverMatchingAccountId({
-      eventAccountId: input.makerAccountId,
-      orderUserId: makerRow?.userId,
-    });
-    const takerAccountId = recoverMatchingAccountId({
-      eventAccountId: input.takerAccountId,
-      orderUserId: taker.userId,
-    });
-
-    await withMoneySpan(
-      'trade.settleFillEvent',
-      { operation: 'settle_fill', marketId: input.marketId, symbol: market.symbol, qty: input.qty },
-      async () => {
-        await this.settleFill(market, {
-          sequence: input.sequence,
-          makerOrderId: input.makerOrderId,
-          makerAccountId,
-          takerOrderId: input.takerOrderId,
-          takerAccountId,
-          takerSide: taker.side,
-          price: input.price,
-          qty: input.qty,
-        });
-        await this.finalizeIfComplete(settlementOrderId(input.makerOrderId));
-        await this.finalizeIfComplete(settlementOrderId(input.takerOrderId));
-      },
-    );
+    return events.settleFillEvent(this.internal, input);
   }
 
   /**
@@ -4614,56 +1517,17 @@ export class TradeService {
    * the row, so both must write the same.
    */
   async releaseOnCancelEvent(orderId: string, remainingQty: string, reason?: string): Promise<void> {
-    await withMoneySpan('trade.releaseOnCancelEvent', { operation: 'release_hold', orderId }, async () => {
-      // A bare cancel event for an OCO leg never releases the shared hold: the fill that caused it (a full leg
-      // fill cancels the sibling) may still be unsettled, and the release would hand back money that fill spends.
-      // The inline outcome settles fills before cancellations and closes the parent; the hold stays until then.
-      if (ocoLegParent(orderId) !== null) return;
-      await this.refuseCancelAheadOfFill(orderId, parseAmount(remainingQty));
-      // A person's own cancel ('requested') is not an engine reason: its inline path writes none, so neither does this.
-      const engineReason = reason === 'requested' ? undefined : reason;
-      await this.finalize(orderId, engineReason === 'expired' ? 'expired' : 'cancelled', engineReason);
-    });
+    return events.releaseOnCancelEvent(this.internal, orderId, remainingQty, reason);
   }
 
-  /**
-   * The same race for an ordinary order. An IOC that partly fills produces a fill event and a cancel event
-   * for its remainder at the same moment, on two consumers. If the cancel is handled first, `finalize`
-   * finds no fill row, releases the whole hold, and the fill's `tradeFill` then fails on an empty hold:
-   * the engine matched, the money never moved, and the counterparty's order stays open with its hold.
-   * The engine says how much filled (`qty - remainingQty`); until `trade.fills` shows at least that, refuse,
-   * so the hold stays and the bus redelivers the cancel after the fill settles.
-   *
-   * If the fill never settles inside the redelivery budget, the cancel is abandoned and the hold stays with
-   * the order: money stays where it can be found rather than going back while a fill is owed. A submission
-   * also finalizes its own IOC, market and self-trade remainders inline after its fills, so this consumer is
-   * the recovery path, not the normal one. A house market-maker stub row (qty is its first fill, not the
-   * engine size) and an amend that has not committed yet read as "nothing more filled"; both behave as before.
-   */
   private async refuseCancelAheadOfFill(orderId: string, remainingQty: Amount): Promise<void> {
-    const order = await this.findOrder(orderId);
-    // The same statuses `finalize` acts on; any other is terminal and a no-op there.
-    if (!order || (order.status !== 'open' && order.status !== 'pending' && order.status !== 'recovery_required')) return;
-    const engineFilled = sub(order.qty, remainingQty);
-    if (engineFilled <= 0n) return;
-    const recorded = (await this.fillEvidence(orderId)).qty;
-    if (recorded >= engineFilled) return;
-    throw new TradeError(
-      `order ${orderId}: the engine filled ${formatAmount(engineFilled)} but ${formatAmount(recorded)} is settled; the cancel waits for the fill`,
-      'trade.cancel_ahead_of_fill',
-      { engineFilled: formatAmount(engineFilled), settled: formatAmount(recorded) },
-    );
+    return events.refuseCancelAheadOfFill(this.internal, orderId, remainingQty);
   }
 
   // ── Reads ─────────────────────────────────────────────────────────────────
 
   async getOrder(principal: Principal, orderId: string): Promise<OrderRecord> {
-    requireScope(principal, 'trade:read');
-    const order = await this.findOrder(orderId);
-    if (!order || order.userId !== principal.userId) {
-      throw new TradeError(`order ${orderId} not found`, 'trade.order_not_found');
-    }
-    return order;
+    return reads.getOrder(this.internal, principal, orderId);
   }
 
   /**
@@ -4672,45 +1536,7 @@ export class TradeService {
    * Nothing is derived for an order that was never changed: the list is empty, not invented.
    */
   async orderAmendments(principal: Principal, orderId: string): Promise<OrderAmendment[]> {
-    const order = await this.getOrder(principal, orderId);
-    const amends = await this.sql<Array<{ id: string; quantity: string | null; price: string | null; code: string; at: Date }>>`
-      SELECT id::text AS id, quantity::text AS quantity, price::text AS price, code, at
-      FROM trade.order_events
-      WHERE order_id = ${order.id} AND kind = 'amend'
-    `;
-    const links = await this.sql<Array<{ id: string; created_at: Date; direction: 'replaced_by' | 'replaces' }>>`
-      SELECT id, created_at, 'replaced_by' AS direction
-      FROM trade.orders WHERE replacement_of = ${order.id} AND user_id = ${principal.userId}::uuid
-      UNION ALL
-      SELECT id, created_at, 'replaces' AS direction
-      FROM trade.orders WHERE id = ${order.replacementOf ?? null} AND user_id = ${principal.userId}::uuid
-    `;
-    const rows: Array<OrderAmendment & { sort: number; tie: string }> = [
-      ...amends.map((a) => ({
-        kind: 'amend' as const,
-        at: new Date(a.at).toISOString(),
-        quantity: a.quantity,
-        price: a.price,
-        version: a.code.startsWith('amend:') ? a.code.slice('amend:'.length) : a.code,
-        relatedOrderId: null,
-        direction: null,
-        sort: new Date(a.at).getTime(),
-        tie: a.id.padStart(20, '0'),
-      })),
-      ...links.map((l) => ({
-        kind: 'replace' as const,
-        at: new Date(l.created_at).toISOString(),
-        quantity: null,
-        price: null,
-        version: null,
-        relatedOrderId: l.id,
-        direction: l.direction,
-        sort: new Date(l.created_at).getTime(),
-        tie: l.id,
-      })),
-    ];
-    rows.sort((x, y) => x.sort - y.sort || (x.tie < y.tie ? -1 : x.tie > y.tie ? 1 : 0));
-    return rows.map(({ sort: _s, tie: _t, ...rest }) => rest);
+    return reads.orderAmendments(this.internal, principal, orderId);
   }
 
   /**
@@ -4722,13 +1548,7 @@ export class TradeService {
     principal: Principal,
     input: { symbol?: string; marketId?: string; clientOrderId?: string },
   ): Promise<OrderRecord | null> {
-    const clientOrderId = input.clientOrderId;
-    if (clientOrderId == null || clientOrderId.length < 1) return null;
-    const market = input.marketId ? await this.marketById(input.marketId) : input.symbol ? await this.marketBySymbol(input.symbol) : null;
-    if (!market) return null;
-    const order = await this.findOrder(orderIdFor(principal.userId, market.id, clientOrderId));
-    if (!order || order.userId !== principal.userId) return null;
-    return order;
+    return reads.findClientOrder(this.internal, principal, input);
   }
 
   /**
@@ -4737,22 +1557,7 @@ export class TradeService {
    * of 1..500 refuses (never invent 100). Owner/query may pass 100 explicitly.
    */
   async openOrders(principal: Principal, marketId: string | undefined, limit: number): Promise<OrderRecord[]> {
-    requireScope(principal, 'trade:read');
-    const capped = publishedOpenOrdersLimit(limit);
-    const rows = marketId
-      ? await this.sql<OrderRow[]>`
-          SELECT * FROM trade.orders
-           WHERE user_id = ${principal.userId} AND status IN ('pending', 'open', 'recovery_required', 'hold_unknown') AND market_id = ${marketId}
-           ORDER BY created_at DESC
-           LIMIT ${capped}
-        `
-      : await this.sql<OrderRow[]>`
-          SELECT * FROM trade.orders
-           WHERE user_id = ${principal.userId} AND status IN ('pending', 'open', 'recovery_required', 'hold_unknown')
-           ORDER BY created_at DESC
-           LIMIT ${capped}
-        `;
-    return rows.map(toOrder);
+    return reads.openOrders(this.internal, principal, marketId, limit);
   }
 
   /**
@@ -4764,15 +1569,7 @@ export class TradeService {
    * Owner/query may pass 100 explicitly.
    */
   async adminOpenOrders(principal: Principal, limit: number): Promise<OrderRecord[]> {
-    requireScope(principal, 'admin:read');
-    const capped = publishedAdminOpenOrdersLimit(limit);
-    const rows = await this.sql<OrderRow[]>`
-      SELECT * FROM trade.orders
-       WHERE status IN ('pending', 'open', 'recovery_required', 'hold_unknown')
-       ORDER BY created_at DESC
-       LIMIT ${capped}
-    `;
-    return rows.map(toOrder);
+    return reads.adminOpenOrders(this.internal, principal, limit);
   }
 
   /**
@@ -4797,50 +1594,7 @@ export class TradeService {
       before?: string;
     },
   ): Promise<OrderRecord[]> {
-    requireScope(principal, 'trade:read');
-    const limit = publishedOrderHistoryLimit(input.limit);
-    // The cursor is the previous page's last order: its (created_at, id) is compared in SQL at full precision, so a
-    // page never repeats or skips an order that shares a creation instant with another. Only the caller's own order
-    // can be a cursor.
-    if (input.before !== undefined) {
-      const found = await this.sql<Array<{ id: string }>>`
-        SELECT id FROM trade.orders WHERE id = ${input.before} AND user_id = ${principal.userId}
-      `;
-      if (!found[0]) throw new TradeError('before must be the id of one of your orders', 'trade.invalid_cursor');
-    }
-    // timestamptz compare: Date carries ms precision into postgres.js.
-    const sinceDate = input.sinceMs !== undefined ? new Date(input.sinceMs) : undefined;
-    const untilDate = input.untilMs !== undefined ? new Date(input.untilMs) : undefined;
-    const closed = ['filled', 'cancelled', 'rejected', 'expired'];
-    const rows = await this.sql<OrderRow[]>`
-      SELECT * FROM trade.orders
-       WHERE user_id = ${principal.userId}
-         AND status IN ${this.sql(input.status ? [input.status] : closed)}
-         ${input.marketId ? this.sql`AND market_id = ${input.marketId}` : this.sql``}
-         ${input.side ? this.sql`AND side = ${input.side}` : this.sql``}
-         ${
-           input.type === 'market'
-             ? this.sql`AND type = 'market'`
-             : input.type === 'limit'
-               ? this.sql`AND type = 'limit' AND NOT EXISTS (SELECT 1 FROM trade.order_stop_trigger t WHERE t.order_id = trade.orders.id)`
-               : input.type === 'stop_limit'
-                 ? this.sql`AND type = 'limit' AND EXISTS (SELECT 1 FROM trade.order_stop_trigger t WHERE t.order_id = trade.orders.id)`
-                 : this.sql``
-         }
-         ${sinceDate ? this.sql`AND created_at >= ${sinceDate}` : this.sql``}
-         ${
-           // `until` names a whole millisecond and includes all of it: created_at keeps microseconds.
-           untilDate ? this.sql`AND created_at < ${untilDate}::timestamptz + interval '1 millisecond'` : this.sql``
-         }
-         ${
-           input.before !== undefined
-             ? this.sql`AND (created_at, id) < (SELECT c.created_at, c.id FROM trade.orders c WHERE c.id = ${input.before})`
-             : this.sql``
-         }
-       ORDER BY created_at DESC, id DESC
-       LIMIT ${limit}
-    `;
-    return rows.map(toOrder);
+    return reads.orderHistory(this.internal, principal, input);
   }
 
   /**
@@ -4855,37 +1609,7 @@ export class TradeService {
    * 100 explicitly.
    */
   async myFills(principal: Principal, limit: number, marketId?: string, sinceMs?: number): Promise<FillRecord[]> {
-    requireScope(principal, 'trade:read');
-    const capped = publishedFillsMineLimit(limit);
-    const sinceDate = sinceMs !== undefined ? new Date(sinceMs) : undefined;
-    const rows =
-      marketId && sinceDate
-        ? await this.sql<FillRow[]>`
-            SELECT * FROM trade.fills
-             WHERE user_id = ${principal.userId}
-               AND market_id = ${marketId}
-               AND ts >= ${sinceDate}
-             ORDER BY ts DESC LIMIT ${capped}
-          `
-        : marketId
-          ? await this.sql<FillRow[]>`
-              SELECT * FROM trade.fills
-               WHERE user_id = ${principal.userId} AND market_id = ${marketId}
-               ORDER BY ts DESC LIMIT ${capped}
-            `
-          : sinceDate
-            ? await this.sql<FillRow[]>`
-                SELECT * FROM trade.fills
-                 WHERE user_id = ${principal.userId}
-                   AND ts >= ${sinceDate}
-                 ORDER BY ts DESC LIMIT ${capped}
-              `
-            : await this.sql<FillRow[]>`
-                SELECT * FROM trade.fills
-                 WHERE user_id = ${principal.userId}
-                 ORDER BY ts DESC LIMIT ${capped}
-              `;
-    return rows.map(toFill);
+    return reads.myFills(this.internal, principal, limit, marketId, sinceMs);
   }
 
   /**
@@ -4895,17 +1619,7 @@ export class TradeService {
    * (never invent 100). Owner/query may pass 500 explicitly.
    */
   async fillsForOrder(principal: Principal, orderId: string, limit: number): Promise<FillRecord[]> {
-    requireScope(principal, 'trade:read');
-    const capped = publishedFillsMineLimit(limit);
-    const order = await this.findOrder(orderId);
-    if (!order || order.userId !== principal.userId) {
-      throw new TradeError(`order ${orderId} not found`, 'trade.order_not_found');
-    }
-    const rows = await this.sql<FillRow[]>`
-      SELECT * FROM trade.fills WHERE order_id = ${orderId} AND user_id = ${principal.userId}
-       ORDER BY ts ASC, sequence ASC, id ASC LIMIT ${capped}
-    `;
-    return rows.map(toFill);
+    return reads.fillsForOrder(this.internal, principal, orderId, limit);
   }
 
   async findOrder(orderId: string): Promise<OrderRecord | null> {
@@ -4934,234 +1648,11 @@ export class TradeService {
    * never auto-release on funded engine-miss when `trade.fills` cannot prove no fill.
    */
   async reconcileOrder(orderId: string): Promise<ReconcileResult> {
-    return withMoneySpan('trade.reconcileOrder', { operation: 'reconcile_order', orderId }, async () => {
-      const order = await this.findOrder(orderId);
-      if (!order) {
-        return {
-          orderId,
-          case: 'not_found',
-          action: 'none',
-          holdBefore: '0',
-          engineLive: null,
-          detail: 'no order row',
-        };
-      }
-
-      if (order.status !== 'pending' && order.status !== 'open' && order.status !== 'recovery_required') {
-        return {
-          orderId,
-          case: 'terminal',
-          action: 'none',
-          holdBefore: '0',
-          engineLive: null,
-          detail: `status=${order.status}`,
-        };
-      }
-
-      const holdBal = (await this.ledger.balance(orderHoldAccount(order.userId, order.holdAsset, order.id))).amount;
-      const holdBefore = formatAmount(holdBal);
-
-      // ── orphan pending: intent row, never funded ───────────────────────────
-      // Same age floor as the scheduled reconcile. Inside it, a hold post can
-      // still commit after this balance read; deleting the row would strand it.
-      if (order.status === 'pending' && holdBal === 0n) {
-        const removed = await this.sql<{ id: string }[]>`
-          DELETE FROM trade.orders
-           WHERE id = ${orderId}
-             AND status = 'pending'
-             AND updated_at <= now() - make_interval(secs => ${HOLD_UNKNOWN_IN_FLIGHT_BOUND_SECONDS})
-          RETURNING id
-        `;
-        if (removed.length === 0) {
-          const current = await this.findOrder(orderId);
-          if (!current) {
-            return {
-              orderId,
-              case: 'not_found',
-              action: 'none',
-              holdBefore,
-              engineLive: null,
-              detail: 'pending row vanished before the age-bounded delete',
-            };
-          }
-          return {
-            orderId,
-            case: 'pending_in_flight',
-            action: 'none',
-            holdBefore,
-            engineLive: null,
-            detail:
-              current.status === 'pending'
-                ? 'pending row is inside the hold in-flight bound — left in place'
-                : `status=${current.status} changed before the pending delete — left in place`,
-          };
-        }
-        return {
-          orderId,
-          case: 'orphan_pending',
-          action: 'deleted',
-          holdBefore,
-          engineLive: false,
-          detail: 'pending row with no hold — deleted (fail-closed safe)',
-        };
-      }
-
-      // Non-destructive liveness: list before any cancel.
-      const listed = await this.matching.listOrders(order.marketId, orderId);
-      const engineLive = listed.orders.some((o) => settlementOrderId(o.orderId) === orderId);
-
-      // Recovery is a lookup, not a blind resubmit. A live engine order stays
-      // unresolved and encumbered. List miss still consults trade.fills before
-      // any release — unknown fills are a named break, not a refund.
-      if (order.status === 'recovery_required') {
-        if (holdBal === 0n) {
-          await this.finalize(orderId, 'cancelled');
-          return {
-            orderId,
-            case: 'recovery_required_no_hold',
-            action: 'fail_closed',
-            holdBefore,
-            engineLive,
-            detail: engineLive
-              ? 'recovery-required order is live but has no hold — cancelled free book risk; NO hold invented'
-              : 'recovery-required order has no hold and is absent — terminalized; NO hold invented',
-          };
-        }
-        if (engineLive) {
-          return {
-            orderId,
-            case: 'recovery_required_live',
-            action: 'none',
-            holdBefore,
-            engineLive: true,
-            detail: `recovery-required (${order.recoveryReason ?? 'unknown'}) is live; hold retained pending engine outcome`,
-          };
-        }
-        const recoveryFills = await this.fillEvidence(orderId);
-        if (!fillsProveNoFill(order.filledQty, recoveryFills)) {
-          return {
-            orderId,
-            case: 'open_hold_no_engine_unknown',
-            action: 'fail_closed',
-            holdBefore,
-            engineLive: false,
-            detail: `trade.reconcile_unknown_engine_miss: recovery-required (${order.recoveryReason ?? 'unknown'}) absent from engine; trade.fills count=${recoveryFills.count} qty=${formatAmount(recoveryFills.qty)} filled_qty=${formatAmount(order.filledQty)} — hold retained`,
-          };
-        }
-        await this.finalize(orderId, 'cancelled');
-        return {
-          orderId,
-          case: 'recovery_required_absent',
-          action: 'released',
-          holdBefore,
-          engineLive: false,
-          detail: `recovery-required (${order.recoveryReason ?? 'unknown'}) absent from engine; trade.fills prove empty; remainder released once`,
-        };
-      }
-
-      // ── open (or pending-with-hold) + no ledger hold — FAIL CLOSED ────────
-      // Spec: open+engine no hold. We treat any open/pending with zero hold as
-      // fail-closed: never invent a hold. Cancel only if list says live (free book risk).
-      if (holdBal === 0n) {
-        if (engineLive) {
-          await this.matching.cancel(order.marketId, orderId);
-        }
-        // Terminalize without release (remainder already 0). Do not invent money.
-        await this.finalize(orderId, 'cancelled');
-        return {
-          orderId,
-          case: 'open_engine_no_hold',
-          action: 'fail_closed',
-          holdBefore,
-          engineLive,
-          detail: engineLive
-            ? 'open/pending with zero hold while engine list had the order — cancelled free book risk; NO hold invented'
-            : 'open/pending with zero hold and engine list miss — terminalized; NO hold invented',
-        };
-      }
-
-      // ── open+hold: list then cancel-if-live, or miss → consult fills ───────
-      // Engine miss + hold is three shapes (never live / already gone / lost
-      // fill). Order row + hold cannot tell them apart. `trade.fills` is the
-      // only local proof of no fill. No fills table row and filled_qty 0 is
-      // the existing cancel path. Anything else is unknown: refuse, no refund.
-      if (engineLive) {
-        // An OCO rests as its legs, never under the parent id: pull each leg, and release only if every pull held.
-        const legs = listed.orders.map((o) => o.orderId).filter((id) => ocoLegParent(id) === orderId);
-        if (legs.length > 0) {
-          for (const leg of legs) {
-            const pulled = await this.matching.cancel(order.marketId, leg);
-            if (!pulled.cancelled) {
-              return {
-                orderId,
-                case: 'open_hold_no_engine_unknown',
-                action: 'fail_closed',
-                holdBefore,
-                engineLive: true,
-                detail: `OCO leg ${leg} changed while reconciling; hold retained, no refund`,
-              };
-            }
-            if (pulled.cancellation) await this.recordOcoLegEnd(leg, pulled.cancellation.remainingQty, pulled.cancellation.reason);
-          }
-          if (!(await this.ocoExecutionSettled(orderId, { requireBothLegs: false }))) {
-            return {
-              orderId,
-              case: 'open_hold_no_engine_unknown',
-              action: 'fail_closed',
-              holdBefore,
-              engineLive: true,
-              detail: 'OCO legs executed more than has settled; hold retained until the late fill settles',
-            };
-          }
-        } else {
-          await this.matching.cancel(order.marketId, orderId);
-        }
-        await this.finalize(orderId, 'cancelled');
-        return {
-          orderId,
-          case: 'open_hold_engine_cleared',
-          action: 'released',
-          holdBefore,
-          engineLive: true,
-          detail: 'open+hold; engine list live then cancelled; remainder released once',
-        };
-      }
-
-      const fills = await this.fillEvidence(orderId);
-      if (!fillsProveNoFill(order.filledQty, fills)) {
-        return {
-          orderId,
-          case: 'open_hold_no_engine_unknown',
-          action: 'fail_closed',
-          holdBefore,
-          engineLive: false,
-          detail: `trade.reconcile_unknown_engine_miss: open+hold; engine list miss; trade.fills count=${fills.count} qty=${formatAmount(fills.qty)} filled_qty=${formatAmount(order.filledQty)} — hold retained, no refund`,
-        };
-      }
-
-      await this.finalize(orderId, 'cancelled');
-      return {
-        orderId,
-        case: 'open_hold_no_engine',
-        action: 'released',
-        holdBefore,
-        engineLive: false,
-        detail: 'open+hold; engine list miss; trade.fills prove empty; remainder released once',
-      };
-    });
+    return reconcile.reconcileOrder(this.internal, orderId);
   }
 
   async marketById(marketId: string): Promise<Market | null> {
-    const rows = await this.sql<MarketRow[]>`
-      SELECT id, symbol, base_asset, quote_asset, kind, tick_size, lot_size,
-             min_qty, max_qty, min_notional, status, maker_bps, taker_bps, listed_at,
-                asset_class, schedule, paper,
-                futures_contract_style, futures_expiry_at, futures_settlement_fixing,
-                futures_family, futures_settle_asset, contract_size
-        FROM trade.markets WHERE id = ${marketId}
-    `;
-    const row = rows[0];
-    return row ? toMarket(row) : null;
+    return reads.marketById(this.internal, marketId);
   }
 
   async marketBySymbol(symbol: string): Promise<Market | null> {
@@ -5181,55 +1672,7 @@ export class TradeService {
    * out of 1..500 refuses (never invent 100). Owner/HTTP may pass 100 explicitly.
    */
   async publicTape(marketId: string, limit: number, sinceMs?: number): Promise<PublicTapePrint[]> {
-    const capped = publishedPublicTapeLimit(limit);
-    const sinceDate = sinceMs !== undefined ? new Date(sinceMs) : undefined;
-    type TapeRow = {
-      id: string;
-      side: OrderSide;
-      price: string;
-      qty: string;
-      quote_amount: string;
-      sequence: number;
-      ts: Date;
-    };
-    // SD-3: exclude prints involving any seeded order (seed volume is not "real activity").
-    const rows = sinceDate
-      ? await this.sql<TapeRow[]>`
-          SELECT f.id, f.side, f.price, f.qty, f.quote_amount, f.sequence, f.ts
-            FROM trade.fills f
-            INNER JOIN trade.orders o ON o.id = f.order_id
-            INNER JOIN trade.orders c ON c.id = f.counter_order_id
-           WHERE f.market_id = ${marketId}
-             AND f.liquidity = 'taker'
-             AND f.ts >= ${sinceDate}
-             AND o.seeded = false
-             AND c.seeded = false
-           ORDER BY f.sequence DESC
-           LIMIT ${capped}
-        `
-      : await this.sql<TapeRow[]>`
-          SELECT f.id, f.side, f.price, f.qty, f.quote_amount, f.sequence, f.ts
-            FROM trade.fills f
-            INNER JOIN trade.orders o ON o.id = f.order_id
-            INNER JOIN trade.orders c ON c.id = f.counter_order_id
-           WHERE f.market_id = ${marketId}
-             AND f.liquidity = 'taker'
-             AND o.seeded = false
-             AND c.seeded = false
-           ORDER BY f.sequence DESC
-           LIMIT ${capped}
-        `;
-    return rows.map((row) =>
-      publicTapePrint({
-        id: row.id,
-        side: row.side,
-        price: parseAmount(row.price),
-        qty: parseAmount(row.qty),
-        quoteAmount: parseAmount(row.quote_amount),
-        sequence: row.sequence,
-        ts: row.ts,
-      }),
-    );
+    return reads.publicTape(this.internal, marketId, limit, sinceMs);
   }
 
   /**
@@ -5247,13 +1690,7 @@ export class TradeService {
    * The export flags the open bucket. Its 720-row slice is only a defensive guard.
    */
   async candles(marketId: string, timeframe: Timeframe, limit: number, sinceMs?: number) {
-    const endMs = this.now().getTime();
-    if (sinceMs !== undefined) assertCandleRangeWithinCap(timeframe, sinceMs, endMs, limit);
-    if (limit > OHLC_RECENT_ROW_CAP) {
-      throw new TradeError(`candle limit ${limit} is over the published cap of ${OHLC_RECENT_ROW_CAP}`, 'trade.candles_range_point_cap');
-    }
-    const rows = await queryCandlesFromFills(this.sql, { marketId, timeframe, limit, sinceMs });
-    return exportOhlcv(rows, timeframe, endMs);
+    return reads.candles(this.internal, marketId, timeframe, limit, sinceMs);
   }
 
   // ── Algo TWAP (D-S-04) — schedule emits children; parent holds no value ─────
@@ -5279,132 +1716,7 @@ export class TradeService {
       participationBps?: number;
     },
   ): Promise<TwapParent> {
-    requireScope(principal, 'trade:write');
-    if (!this.algoEnabled) {
-      throw new TradeError('algo execution is disabled by the operator kill-switch', 'trade.algo_disabled');
-    }
-    if (!this.spotEnabled) {
-      throw new TradeError('spot trading is disabled by the operator kill-switch', 'trade.spot_disabled');
-    }
-    const kind = (input.kind ?? 'twap').toLowerCase();
-    if (kind !== 'twap' && kind !== 'vwap' && kind !== 'pov') {
-      throw new TradeError(
-        `algo kind "${kind}" is not available — v1 is TWAP / VWAP / POV (icebergs still out)`,
-        'trade.algo_unsupported_kind',
-      );
-    }
-
-    // Replay returns the stored parent and does not re-run the creation gate,
-    // so a later balance change cannot turn the same clientAlgoId into a refusal.
-    const replay = await this.replayStoredAlgo(principal.userId, input.clientAlgoId);
-    if (replay) return replay;
-
-    const market = await this.requireMarket(input);
-    // TWAP is spot-only by name (see `assertSpotSurface`), not because
-    // `assertTradable` happens to refuse the kind.
-    assertSpotSurface(market, kind === 'twap' ? 'TWAP' : kind === 'vwap' ? 'VWAP' : 'POV');
-    assertTradable(market);
-    assertSettlementRails(market);
-    assertMarketOpen(market, this.now());
-    assertQty(market, input.totalQty);
-    if (input.subAccountId) {
-      await assertSubAccountOwned(this.subAccounts, principal.userId, input.subAccountId);
-    }
-    // Every child slice is a custodial order; refuse the schedule up front (RC-identity-01).
-    if (!market.paper) await assertEmailProved(this.emailProof, principal.userId);
-
-    // Refuse at creation when mark feed is blank — never accept a schedule that cannot run.
-    // Matching 404 (engine holds no book) is a named refusal, not a 500. Nothing
-    // is held or stored yet: the gate, admission and parent save all come later.
-    let depth: EngineDepth;
-    try {
-      depth = await this.matching.depth(market.id, 1);
-    } catch (err) {
-      if (err instanceof MatchingNoBookError) {
-        throw new TradeError(`${market.symbol}: matching holds no book — refusing algo at creation`, 'trade.no_book');
-      }
-      throw err;
-    }
-    const bid = depth.bids[0] ? parseAmount(depth.bids[0][0]) : null;
-    const ask = depth.asks[0] ? parseAmount(depth.asks[0][0]) : null;
-    if (bid === null || ask === null) {
-      throw new TradeError(
-        `${market.symbol}: no two-sided mark at creation — refusing algo rather than inventing a feed`,
-        'trade.algo_mark_missing',
-      );
-    }
-
-    let createInput: CreateTwapInput = {
-      marketId: market.id,
-      symbol: market.symbol,
-      side: input.side,
-      totalQty: input.totalQty,
-      durationMs: input.durationMs,
-      sliceIntervalMs: input.sliceIntervalMs,
-      limitPrice: input.limitPrice ?? null,
-      subAccountId: input.subAccountId ?? null,
-      clientAlgoId: input.clientAlgoId,
-      kind,
-    };
-
-    if (kind === 'vwap') {
-      const tf = timeframeForSliceInterval(input.sliceIntervalMs);
-      if (tf == null) {
-        throw new TradeError(
-          'VWAP sliceIntervalMs must match a listed OHLCV timeframe (1m, 5m, 1h, …) — refuse rather than invent a finer volume bucket',
-          'trade.algo_invalid_schedule',
-        );
-      }
-      const n = sliceCount(input.durationMs, input.sliceIntervalMs);
-      const nowMs = this.now().getTime();
-      const windowEndMs = Math.floor(nowMs / input.sliceIntervalMs) * input.sliceIntervalMs;
-      const candles = await queryCandlesFromFills(this.sql, {
-        marketId: market.id,
-        timeframe: tf,
-        limit: n + 2,
-        sinceMs: windowEndMs - n * input.sliceIntervalMs,
-      });
-      createInput = {
-        ...createInput,
-        volumeProfile: alignLookbackVolumes(candles, n, input.sliceIntervalMs, windowEndMs),
-      };
-    }
-
-    if (kind === 'pov') {
-      createInput = { ...createInput, participationBps: input.participationBps };
-    }
-
-    await gateAlgoCreate({
-      sql: this.sql,
-      ledger: this.ledger,
-      perks: this.perks,
-      feeSchedule: await this.feeScheduleAt(this.now()),
-      slippageCapBps: this.slippageCapBps,
-      markPolicy: this.algoMarkPolicy,
-      now: this.now(),
-      userId: principal.userId,
-      market,
-      input: createInput,
-      bid,
-      ask,
-      verification: { policy: this.botVerification, tier: principal.tier },
-    });
-
-    // A preview must not emit the store callback or expose an active parent
-    // before its durable owner admission. Children are separate decisions.
-    const { parent, plan } = this.algo.prepare(principal.userId, createInput, market.lotSize);
-    await this.admitAccountOperation(
-      principal,
-      'strategy.start',
-      `algo:${parent.id}`,
-      businessPayload({ request: input, parent, plan, grant: captureAlgoPlaceGrant(principal) }),
-      undefined,
-      input.subAccountId,
-    );
-    await this.algoStore.save({ parent, plan, grant: captureAlgoPlaceGrant(principal) });
-    this.algoPrincipals.set(principal.userId, principal);
-    this.algo.hydrate(parent, plan);
-    return parent;
+    return twap.createTwap(this.internal, principal, input);
   }
 
   async getAlgo(principal: Principal, parentId: string): Promise<TwapParent> {
@@ -5415,90 +1727,21 @@ export class TradeService {
   /** Owner recovery restores only the immutable admitted proposal. Each child
    * still needs a fresh identity decision and local trading admission. */
   async recoverAdmittedAlgo(userId: string, parentId: string): Promise<TwapParent | null> {
-    const existing = await this.algoStore.load(parentId);
-    if (existing) return existing.parent.userId === userId ? existing.parent : null;
-    if (!this.accountAdmission) throw new TradingControlError('authority.unavailable');
-    const original = await this.accountAdmission.resolve(userId, `algo:${parentId}`);
-    if (!original) return null;
-    const wire = original.payload as { parent: Record<string, unknown>; plan: string[]; grant: unknown };
-    if (
-      wire.parent?.id !== parentId ||
-      wire.parent.userId !== userId ||
-      !Array.isArray(wire.plan) ||
-      !Array.isArray(wire.parent.children) ||
-      wire.parent.children.length !== 0 ||
-      !Array.isArray(wire.parent.misses) ||
-      wire.parent.misses.length !== 0
-    )
-      throw new TradingControlError('operation.conflict');
-    const parent = {
-      ...wire.parent,
-      totalQty: parseAmount(String(wire.parent.totalQty)),
-      limitPrice: wire.parent.limitPrice == null ? null : parseAmount(String(wire.parent.limitPrice)),
-      lotSize: wire.parent.lotSize == null ? null : parseAmount(String(wire.parent.lotSize)),
-      createdAt: new Date(String(wire.parent.createdAt)),
-      startedAt: new Date(String(wire.parent.startedAt)),
-      nextDueAt: new Date(String(wire.parent.nextDueAt)),
-      projectedEndsAt: new Date(String(wire.parent.projectedEndsAt)),
-      pausedAt: null,
-      children: [],
-      misses: [],
-    } as unknown as TwapParent;
-    const record = { parent, plan: wire.plan.map(parseAmount), grant: parseAlgoPlaceGrant(wire.grant) };
-    // Recovery must never rewind a parent that another worker already advanced.
-    await this.algoStore.save(record, true);
-    const saved = await this.algoStore.load(parentId);
-    if (!saved || saved.parent.userId !== userId) throw new TradingControlError('operation.conflict');
-    this.algo.hydrate(saved.parent, saved.plan);
-    this.installAlgoPlaceGrant(saved);
-    return saved.parent;
+    return twap.recoverAdmittedAlgo(this.internal, userId, parentId);
   }
 
   async algoProgress(principal: Principal, parentId: string): Promise<AlgoProgressView> {
-    const parent = await this.getAlgo(principal, parentId);
-    // Aggregated in SQL over every child fill: no per-child page cap, and a
-    // child whose order row is gone does not fail the read.
-    const totals = await loadAlgoChildFillTotals(
-      this.sql,
-      principal.userId,
-      parent.children.map((child) => child.orderId),
-      '',
-    );
-    return presentAlgoProgress(parent, totals?.filledQty ?? 0n, await this.algoScheduler());
+    return twap.algoProgress(this.internal, principal, parentId);
   }
 
   /** Derived child-fill result. Does not write. Does not put money on the parent. */
   async algoResult(principal: Principal, parentId: string): Promise<AlgoResult> {
-    const parent = await this.getAlgo(principal, parentId);
-    const arrival = await this.algoStore.loadArrivalMark(parentId);
-    const markets = await this.sql<Array<{ quote_asset: string }>>`
-      SELECT quote_asset FROM markets WHERE id = ${parent.marketId}
-    `;
-    const quoteAsset = markets[0]?.quote_asset;
-    if (!quoteAsset) throw new TradeError(`market ${parent.marketId} not found`, 'trade.market_not_found');
-    const totals = await loadAlgoChildFillTotals(
-      this.sql,
-      principal.userId,
-      parent.children.map((child) => child.orderId),
-      quoteAsset,
-    );
-    return deriveAlgoResultFromTotals({
-      side: parent.side,
-      quoteAsset,
-      totals: totals ? [totals] : [],
-      arrivalPrice: arrival?.price ?? null,
-    });
+    return twap.algoResult(this.internal, principal, parentId);
   }
 
   /** Heartbeat read. Selects only. */
   async algoScheduler(): Promise<AlgoSchedulerView> {
-    const newestTickAt = this.algoJobsEnabled ? await newestSchedulerHeartbeat(this.sql) : null;
-    return readSchedulerState({
-      jobsEnabled: this.algoJobsEnabled,
-      intervalMs: this.algoJobsIntervalMs,
-      newestTickAt,
-      now: this.now(),
-    });
+    return twap.algoScheduler(this.internal);
   }
 
   async pauseAlgo(principal: Principal, parentId: string): Promise<TwapParent> {
@@ -5508,87 +1751,29 @@ export class TradeService {
   }
 
   async resumeAlgo(principal: Principal, parentId: string): Promise<TwapParent> {
-    requireScope(principal, 'trade:write');
-    const parent = await hydrateAlgoIfMissing(this.algo, this.algoStore, principal.userId, parentId);
-    await this.admitAccountOperation(
-      principal,
-      'strategy.start',
-      `algo.resume:${orderIdFor(principal.userId, parent.id, `${parent.nextSliceIndex}:${parent.pausedAt?.toISOString() ?? 'none'}`)}`,
-      businessPayload({ parentId, nextSliceIndex: parent.nextSliceIndex, pausedAt: parent.pausedAt }),
-    );
-    return persistAlgoMutation(this.algo, this.algoStore, this.algo.resume(principal.userId, parentId));
+    return twap.resumeAlgo(this.internal, principal, parentId);
   }
 
   async cancelAlgo(principal: Principal, parentId: string): Promise<TwapParent> {
-    requireScope(principal, 'trade:write');
-    // Install the live caller's principal BEFORE engine.cancel so cancelChild
-    // can cancel open children after a process restart. Place still refuses
-    // without a durable principal grant (SOCKET §13) — cancel is different:
-    // the user is presenting authority right now.
-    this.algoPrincipals.set(principal.userId, principal);
-    await hydrateAlgoIfMissing(this.algo, this.algoStore, principal.userId, parentId);
-    return persistAlgoCancelAttempt(this.algo, this.algoStore, principal.userId, parentId);
+    return twap.cancelAlgo(this.internal, principal, parentId);
   }
 
   /** Drive one parent's next due slice (job host / tests). */
   async tickAlgo(parentId: string) {
-    await hydrateAlgoFromStore(this.algo, this.algoStore, parentId);
-    const loaded = await this.algoStore.load(parentId);
-    if (loaded) this.installAlgoPlaceGrant(loaded);
-    const result = await this.algo.tick(parentId);
-    const live = this.algo.get(parentId);
-    if (live) await persistAlgoMutation(this.algo, this.algoStore, live);
-    return result;
+    return twap.tickAlgo(this.internal, parentId);
   }
 
   /** Drive all active algos once. Hydrates durable active parents first. */
   async tickAllAlgos() {
-    const active = await this.algoStore.listActive();
-    for (const rec of active) {
-      if (!this.algo.get(rec.parent.id)) {
-        this.algo.hydrate(rec.parent, rec.plan);
-      }
-      this.installAlgoPlaceGrant(rec);
-    }
-    await this.algo.tickAll();
-    for (const rec of active) {
-      const live = this.algo.get(rec.parent.id);
-      if (live) await persistAlgoMutation(this.algo, this.algoStore, live);
-    }
+    return twap.tickAllAlgos(this.internal);
   }
 
-  /**
-   * Same id formula as `TwapEngine.prepare`. Returns the caller's stored parent
-   * when this clientAlgoId was already admitted. A foreign row is not returned.
-   */
   private async replayStoredAlgo(userId: string, clientAlgoId: string | undefined): Promise<TwapParent | null> {
-    const trimmed = clientAlgoId?.trim();
-    if (!trimmed) return null;
-    const id = `algo-${userId.slice(0, 8)}-${trimmed}`;
-    const live = this.algo.get(id);
-    if (live) return live.userId === userId ? live : null;
-    const stored = await this.algoStore.load(id);
-    if (!stored || stored.parent.userId !== userId) return null;
-    return stored.parent;
+    return twap.replayStoredAlgo(this.internal, userId, clientAlgoId);
   }
 
-  /**
-   * Reinstall the createTwap place grant after restart. Missing/expired grant
-   * leaves the in-memory map empty so placeChild still halts.
-   */
   private installAlgoPlaceGrant(record: TwapParentRecord): void {
-    if (!record.grant) return;
-    try {
-      const restored = principalFromAlgoGrant({
-        userId: record.parent.userId,
-        grant: record.grant,
-        expiresAt: record.parent.projectedEndsAt,
-        now: this.now(),
-      });
-      this.algoPrincipals.set(restored.userId, restored);
-    } catch {
-      this.algoPrincipals.delete(record.parent.userId);
-    }
+    return twap.installAlgoPlaceGrant(this.internal, record);
   }
 
   // ── Internals ─────────────────────────────────────────────────────────────

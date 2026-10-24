@@ -21,6 +21,7 @@ import {
   withLedgerAttribution,
 } from './auth-attribution.js';
 import { TradeError } from './types.js';
+import { tradeServiceSource } from './trade-service/source.testkit.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -119,7 +120,7 @@ describe('R-auth attribution mill — stamp or refuse by name', () => {
     const mill = readFileSync(join(here, 'auth-attribution.ts'), 'utf8');
     expect(mill).not.toMatch(/randomUUID|simplewebauthn/);
     expect(mill).toContain(AUTH_ATTRIBUTION_MISSING);
-    const service = readFileSync(join(here, 'trade-service.ts'), 'utf8');
+    const service = tradeServiceSource();
     expect(service).toContain('attributionFromPrincipal');
     expect(service).toContain('insertFillLeg');
     expect(service).toContain('withFillLedgerAttribution');

@@ -10,6 +10,7 @@ import {
   NoopAffiliatePayout,
 } from './affiliate-payout.js';
 import { affiliateLegsAfterFill } from './affiliate-accrue.js';
+import { tradeServiceSource } from './trade-service/source.testkit.js';
 
 const HOUSE = '11111111-1111-4111-8111-111111111111';
 const MAKER = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -83,7 +84,7 @@ describe('createAffiliatePayoutClient', () => {
 describe('settleFill wires payout after accrue after ledger post', () => {
   it('fires payout after accrue, after tradeFill and marketMakerMakerFill', () => {
     const here = dirname(fileURLToPath(import.meta.url));
-    const src = readFileSync(join(here, 'trade-service.ts'), 'utf8');
+    const src = tradeServiceSource();
     expect(src).toMatch(/notifyAffiliatePayout/);
     expect(src).toMatch(/notifyAffiliateAccrue/);
     expect(src).toMatch(/recipes\.tradeFill/);

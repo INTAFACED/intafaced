@@ -26,6 +26,7 @@ import {
   signedSize,
   type AdmissionLimits,
 } from './pretrade-limits.js';
+import { tradeServiceSource } from '../spot/trade-service/source.testkit.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const UNIT = 1n; // one scaled unit = 1e-18
@@ -173,9 +174,9 @@ describe('wire mapping and exempt doors', () => {
     expect(ps.match(/checkOpenAdmission\(/g)).toHaveLength(1);
     const closeStart = ps.indexOf('async close(');
     expect(ps.indexOf('checkOpenAdmission(')).toBeLessThan(closeStart);
-    const trade = readFileSync(join(here, '..', 'spot', 'trade-service.ts'), 'utf8');
+    const trade = tradeServiceSource();
     expect(trade).toMatch(
-      /if \(!seeded && \(input as \{ reduceOnly\?: boolean \}\)\.reduceOnly !== true\) \{\s+await this\.assertOwnerOrderLimit/,
+      /if \(!seeded && \(input as \{ reduceOnly\?: boolean \}\)\.reduceOnly !== true\) \{\s+await (?:this|svc)\.assertOwnerOrderLimit/,
     );
   });
 });

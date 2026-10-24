@@ -14,16 +14,17 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { requireConvertQuoteTtlMs } from './quote.js';
+import { tradeServiceSource } from '../spot/trade-service/source.testkit.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 describe('unpublished convert quote TTL', () => {
   it('trade-service.ts does not git-default 15000', () => {
-    const src = readFileSync(join(HERE, '..', 'spot', 'trade-service.ts'), 'utf8');
+    const src = tradeServiceSource();
     expect(src).not.toMatch(/options\.convertQuoteTtlMs\s*\?\?\s*15_000/);
     expect(src).not.toMatch(/options\.convertQuoteTtlMs\s*\?\?\s*15000/);
     expect(src).toMatch(/this\.convertQuoteTtlMs = options\.convertQuoteTtlMs \?\? null/);
-    expect(src).toMatch(/requireConvertQuoteTtlMs\(this\.convertQuoteTtlMs\)/);
+    expect(src).toMatch(/requireConvertQuoteTtlMs\((?:this|svc)\.convertQuoteTtlMs\)/);
   });
 
   it('quote.ts refuses convert_quote_ttl_unset (never invent 15000)', () => {

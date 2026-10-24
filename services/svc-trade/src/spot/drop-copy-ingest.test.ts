@@ -17,6 +17,7 @@ import {
   type DropCopyFillWire,
   type DropCopyIngestPort,
 } from './drop-copy-ingest.js';
+import { tradeServiceSource } from './trade-service/source.testkit.js';
 
 const SECRET = 'test-internal-service-secret-32ch!!';
 const here = dirname(fileURLToPath(import.meta.url));
@@ -154,7 +155,7 @@ describe('fireDropCopyFill', () => {
 
 describe('spot settle and convert hitch sources (call-site pin)', () => {
   it('fillSettled hitch uses book-order rest; convert hitch is rfq; ui/ws/fix/algo/broker never sent', () => {
-    const tradeSrc = readFileSync(join(here, 'trade-service.ts'), 'utf8');
+    const tradeSrc = tradeServiceSource();
     const indexSrc = readFileSync(join(here, '..', 'index.ts'), 'utf8');
     const envSrc = readFileSync(join(here, '..', 'env.ts'), 'utf8');
     expect(tradeSrc).toMatch(/notifyDropCopyFill/);
