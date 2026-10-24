@@ -1,7 +1,8 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Button, Failure, Loading } from '../../shared/ui';
 import { useSession } from '../session/session';
-import { categoryPrefs, CATEGORY_CHANNELS, type CategoryPrefRow } from '../../screens/notifications/notify-api';
+import { CATEGORY_CHANNELS, type CategoryPrefRow } from '../../screens/notifications/notify-api';
+import { useCategoryPrefs } from '../../screens/notifications/use-category-prefs';
 import { useBankRead } from './components';
 import { reminderLeadChoices, rulesWrites, type ReminderRule } from './contracts';
 import { DepthPanel } from './DepthParts';
@@ -20,14 +21,32 @@ type Copy = ReturnType<typeof rulesCopy.useCopy>['t'];
 type Lead = (typeof reminderLeadChoices)[number];
 
 const leadWords = (t: Copy, lead: Lead | null) => (lead === null ? t('lead_off') : t(`lead_${lead}`));
+const isLead = (value: number): value is Lead => (reminderLeadChoices as readonly number[]).includes(value);
 
-function ReminderPanel({ rule, onSaved }: { rule: ReminderRule | null; onSaved: () => void }) {
+type Said = { kind: 'saved' | 'error'; words: string } | null;
+
+/**
+ * The reminder rule. What a save said is held by the page (`said`), not here: a save reloads the rule, and the panel is
+ * drawn again from the answer, so its message must outlive this panel.
+ */
+function ReminderPanel({
+  rule,
+  choices,
+  said,
+  setSaid,
+  onSaved,
+}: {
+  rule: ReminderRule | null;
+  choices: readonly number[];
+  said: Said;
+  setSaid: (said: Said) => void;
+  onSaved: () => void;
+}) {
   const { t } = rulesCopy.useCopy();
   const { api } = useSession();
   const [choice, setChoice] = useState<string>(rule?.leadHours ? String(rule.leadHours) : 'off');
   const [requestId, setRequestId] = useState(() => crypto.randomUUID());
   const [busy, setBusy] = useState(false);
-  const [said, setSaid] = useState<{ kind: 'saved' | 'error'; words: string } | null>(null);
   useEffect(() => setChoice(rule?.leadHours ? String(rule.leadHours) : 'off'), [rule?.leadHours, rule?.revision]);
 
   async function save(event: FormEvent) {
@@ -38,7 +57,8 @@ function ReminderPanel({ rule, onSaved }: { rule: ReminderRule | null; onSaved: 
     const answer = await api.mutate(
       'bank',
       'rules.setReminder',
-      { leadHours, expectedRevision: rule?.revision ?? 0, clientRequestId: `reminder:${rule?.revision ?? 0}:${requestId}` },
+      // One id per attempt at one choice: a retry of a lost answer is the same write, and another choice is a new one.
+      { leadHours, expectedRevision: rule?.revision ?? 0, clientRequestId: `reminder:${rule?.revision ?? 0}:${choice}:${requestId}` },
       rulesWrites.setReminder,
     );
     setBusy(false);
@@ -65,7 +85,7 @@ function ReminderPanel({ rule, onSaved }: { rule: ReminderRule | null; onSaved: 
           <span>{t('remindLabel')}</span>
           <select value={choice} onChange={(event) => setChoice(event.target.value)}>
             <option value="off">{t('lead_off')}</option>
-            {reminderLeadChoices.map((lead) => (
+            {choices.filter(isLead).map((lead) => (
               <option key={lead} value={String(lead)}>
                 {t(`lead_${lead}`)}
               </option>
@@ -92,10 +112,8 @@ function ReminderPanel({ rule, onSaved }: { rule: ReminderRule | null; onSaved: 
   );
 }
 
-type Choices = { status: 'loading' } | { status: 'failed' } | { status: 'ready'; rows: CategoryPrefRow[] };
-
 export function choiceWords(t: Copy, row: CategoryPrefRow | undefined) {
-  if (!row) return t('choiceOff');
+  if (!row) return t('choiceUnknown');
   if (row.notConnected) return `${t('choiceNotConnected')} ${t('reference', { code: row.notConnected })}`;
   if (!row.configured) return t('choicePlatformOff');
   if (row.locked) return t('choiceLocked');
@@ -105,25 +123,15 @@ export function choiceWords(t: Copy, row: CategoryPrefRow | undefined) {
 /** The account's `orders` choices, as the notification service holds them: the bank's notices are sent under them. */
 function ChoicesPanel() {
   const { t } = rulesCopy.useCopy();
-  const { api, userId } = useSession();
-  const [choices, setChoices] = useState<Choices>({ status: 'loading' });
-  const [attempt, setAttempt] = useState(0);
-  useEffect(() => {
-    if (!userId) return;
-    const controller = new AbortController();
-    void categoryPrefs(api, controller.signal).then((result) => {
-      if (controller.signal.aborted) return;
-      setChoices(result.ok ? { status: 'ready', rows: result.data.filter((row) => row.category === 'orders') } : { status: 'failed' });
-    });
-    return () => controller.abort();
-  }, [api, userId, attempt]);
+  const { load, reload } = useCategoryPrefs();
+  const choices = load.status === 'ready' ? { status: 'ready' as const, rows: load.rows.filter((row) => row.category === 'orders') } : load;
   return (
     <DepthPanel title={t('choicesTitle')} lead={t('choicesLead', { category: t('category') })}>
       {choices.status === 'loading' && <Loading />}
       {choices.status === 'failed' && (
         <p role="alert" className="error-text">
           {t('choicesFailed')}{' '}
-          <Button variant="ghost" onClick={() => (setChoices({ status: 'loading' }), setAttempt((n) => n + 1))}>
+          <Button variant="ghost" onClick={reload}>
             {t('choicesRetry')}
           </Button>
         </p>
@@ -283,12 +291,13 @@ function MoneyRulePanel({ code }: { code: string }) {
 export function Rules() {
   const { t } = rulesCopy.useCopy();
   const view = useBankRead('rules.get', undefined);
+  const [said, setSaid] = useState<Said>(null);
   if (view.resource.status === 'loading') return <Loading />;
   if (view.resource.status === 'failed') return <Failure result={view.resource.failure} retry={view.reload} />;
   const data = view.resource.data;
   return (
     <div className="bd-stack">
-      <ReminderPanel rule={data.reminder} onSaved={view.reload} />
+      <ReminderPanel rule={data.reminder} choices={data.leadChoices} said={said} setSaid={setSaid} onSaved={view.reload} />
       <DepthPanel title={t('failedTitle')} lead={t('failedLead')}>
         {null}
       </DepthPanel>

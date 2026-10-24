@@ -601,9 +601,9 @@ test(`${J} #6 saves a payment reminder rule under its business key: a replay is 
   await expect(page.getByTestId('rules-money-not-set')).toContainText('bank.rule_terms_unset');
   const rows = await spaces(who);
   await money.getByLabel('Rule name').fill('Sweep TEST');
-  await money.getByLabel('From').selectOption(main(rows).id);
-  await money.getByLabel('To').selectOption(named(rows, TRIP).id);
-  await money.getByLabel('When').selectOption({ label: 'When the balance goes over' });
+  await money.getByRole('combobox', { name: /^From/ }).selectOption(main(rows).id);
+  await money.getByRole('combobox', { name: /^To\b/ }).selectOption(named(rows, TRIP).id);
+  await money.getByRole('combobox', { name: /^When/ }).selectOption({ label: 'When the balance goes over' });
   await money.getByLabel('Balance over').fill('50');
   await money.getByLabel('Amount to move').fill('10');
   await money.getByRole('button', { name: 'Save rule' }).click();

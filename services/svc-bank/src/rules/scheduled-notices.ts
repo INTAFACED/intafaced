@@ -32,6 +32,8 @@ export const RULE_TERMS_UNSET = 'bank.rule_terms_unset';
 /** A failure older than this when the job first sees it is left to the run history; it is not news any more. */
 export const FAILURE_NOTICE_LOOKBACK_MS = 7 * 86_400_000;
 const NOTICE_PUBLISH_TIMEOUT_MS = 5_000;
+/** How long a pass holds the rows it is publishing; past it, a pass that died mid-way leaves them to the next. */
+const CLAIM_MS = 120_000;
 
 export interface ReminderRule {
   readonly ruleKey: string;
@@ -86,6 +88,8 @@ export interface ScheduledNoticePass {
   readonly failures: number;
   /** Owed notices the bus took. */
   readonly announced: number;
+  /** Owed reminders dropped because their run will no longer happen as they said. */
+  readonly dropped: number;
   /** Owed notices still waiting for the bus after this pass. */
   readonly owed: number;
 }
@@ -161,7 +165,7 @@ export class ScheduledNoticeService {
   /**
    * Save the person's reminder rule. The caller names the revision it read (0 when there is no rule yet), so of two
    * writes sent at the same revision one lands and the other refuses `bank.reminder_revision_conflict`. The same write
-   * sent again (same `clientRequestId`) reads back the row it made.
+   * sent again (same `clientRequestId`, choice and revision) reads back the row it made.
    */
   async setReminderRule(input: {
     userId: string;
@@ -197,7 +201,16 @@ export class ScheduledNoticeService {
         FROM bank.reminder_rules WHERE user_id = ${input.userId}
     `;
     const row = current[0];
-    if (row && row.client_request_id === input.clientRequestId) return toRule(row);
+    // A replay is the very write that landed: its request id, its choice and the revision it made. The same id with
+    // another choice is a different write, and is refused like any other stale one.
+    if (
+      row &&
+      row.client_request_id === input.clientRequestId &&
+      row.lead_hours === input.leadHours &&
+      row.revision === input.expectedRevision + 1
+    ) {
+      return toRule(row);
+    }
     throw new BankError(
       `The reminder rule changed since revision ${input.expectedRevision}; read it again before saving`,
       'bank.reminder_revision_conflict',
@@ -214,18 +227,18 @@ export class ScheduledNoticeService {
 
   /**
    * One pass of the notice job: owe a reminder for each active standing order whose next run falls inside its owner's
-   * lead time, owe a failure notice for each run refused in the last week, then publish what is owed, oldest first.
-   * `limit` bounds each of the three steps.
+   * lead time, owe a failure notice for each run refused in the last week, then publish what is owed. `limit` bounds
+   * each of the three steps.
    */
   async run(input: { limit: number; now?: Date }): Promise<ScheduledNoticePass> {
     const now = input.now ?? new Date();
     const reminders = await this.oweReminders(input.limit, now);
     const failures = await this.oweFailures(input.limit, now);
-    const announced = await this.announceOwed(input.limit);
+    const { announced, dropped } = await this.announceOwed(input.limit, now);
     const [{ owed }] = await this.sql<[{ owed: number }]>`
-      SELECT count(*)::int AS owed FROM bank.scheduled_notices WHERE announced_at IS NULL
+      SELECT count(*)::int AS owed FROM bank.scheduled_notices WHERE announced_at IS NULL AND dropped_at IS NULL
     `;
-    return { reminders, failures, announced, owed };
+    return { reminders, failures, announced, dropped, owed };
   }
 
   private async oweReminders(limit: number, now: Date): Promise<number> {
@@ -257,22 +270,26 @@ export class ScheduledNoticeService {
        ORDER BY s.next_run_at
        LIMIT ${limit}
     `;
-    let owed = 0;
-    for (const s of due) {
+    const owed = due.flatMap((s) => {
       const [run] = occurrencesIn(
         { startsAt: s.starts_at, cadence: s.cadence, endsAt: s.ends_at },
         s.next_run_at,
         new Date(s.next_run_at.getTime() + 1),
       );
-      if (!run) continue; // the next run is past the order's end: nothing will run, so nothing to remind of
-      const inserted = await this.sql`
-        INSERT INTO bank.scheduled_notices (schedule_id, occurrence, kind, user_id, due_at, lead_hours)
-        VALUES (${s.id}, ${run.n}, 'reminder', ${s.user_id}, ${run.at}, ${s.lead_hours})
-        ON CONFLICT (schedule_id, occurrence, kind) DO NOTHING
-      `;
-      owed += inserted.count;
-    }
-    return owed;
+      // The next run is past the order's end: nothing will run, so there is nothing to remind of.
+      return run ? [{ id: s.id, n: run.n, userId: s.user_id, at: run.at, lead: s.lead_hours }] : [];
+    });
+    if (owed.length === 0) return 0;
+    const inserted = await this.sql`
+      INSERT INTO bank.scheduled_notices (schedule_id, occurrence, kind, user_id, due_at, lead_hours)
+      SELECT w.schedule_id, w.occurrence, 'reminder', w.user_id, w.due_at, w.lead_hours
+        FROM unnest(
+          ${owed.map((o) => o.id)}::uuid[], ${owed.map((o) => o.n)}::int[], ${owed.map((o) => o.userId)}::text[],
+          ${owed.map((o) => o.at.toISOString())}::timestamptz[], ${owed.map((o) => o.lead)}::int[]
+        ) AS w(schedule_id, occurrence, user_id, due_at, lead_hours)
+      ON CONFLICT (schedule_id, occurrence, kind) DO NOTHING
+    `;
+    return inserted.count;
   }
 
   private async oweFailures(limit: number, now: Date): Promise<number> {
@@ -296,33 +313,56 @@ export class ScheduledNoticeService {
   }
 
   /**
-   * Publish owed notices, oldest first. A row is marked announced only after the bus took it; a publish that fails or
-   * hangs leaves it owed for the next pass. Redelivery is safe: each event's business key is its schedule, occurrence
-   * and kind, and svc-notify dedupes on it. With no bus wired, every row stays owed and the job says so.
+   * Publish owed notices. This pass first claims the rows it will publish (a row another pass holds is skipped), so two
+   * passes at once never send the same row. A reminder whose run will no longer happen as it said (the order was
+   * cancelled, paused or moved, or the run is already past) is dropped, not sent. A row is marked announced only after
+   * the bus took it; the first publish that fails or hangs ends the pass, its row counts one more attempt and goes to the
+   * back of the queue, and everything not yet published stays owed for the next pass. Redelivery is safe: each event's
+   * business key is its schedule, occurrence and kind, and svc-notify dedupes on it. With no bus wired, every row stays
+   * owed and the job says so.
    */
-  private async announceOwed(limit: number): Promise<number> {
-    const rows = await this.sql<NoticeRow[]>`
-      SELECT n.id, n.schedule_id, n.occurrence, n.kind, n.user_id, n.due_at, n.lead_hours, n.reason_code,
-             s.asset_id, COALESCE(e.amount, s.amount)::text AS amount
-        FROM bank.scheduled_notices n
-        JOIN bank.scheduled_transfers s ON s.id = n.schedule_id
-        LEFT JOIN bank.transfer_executions e ON n.kind = 'failed' AND e.schedule_id = n.schedule_id AND e.occurrence = n.occurrence
-       WHERE n.announced_at IS NULL
-       ORDER BY n.created_at
-       LIMIT ${limit}
-    `;
-    if (rows.length === 0) return 0;
+  private async announceOwed(limit: number, now: Date): Promise<{ announced: number; dropped: number }> {
     const sink = this.options.sink;
     if (!sink) {
+      const [{ owed }] = await this.sql<[{ owed: number }]>`
+        SELECT count(*)::int AS owed FROM bank.scheduled_notices WHERE announced_at IS NULL AND dropped_at IS NULL
+      `;
+      if (owed === 0) return { announced: 0, dropped: 0 };
       throw new BankError(
         'svc-notify is not wired for standing-order notices, so owed reminders and failures stay owed (bank.scheduled_notify_unwired)',
         'bank.scheduled_notify_unwired',
       );
     }
+    const dropped = await this.sql`
+      UPDATE bank.scheduled_notices n SET dropped_at = ${now}
+        FROM bank.scheduled_transfers s
+       WHERE s.id = n.schedule_id AND n.kind = 'reminder' AND n.announced_at IS NULL AND n.dropped_at IS NULL
+         AND (s.status <> 'active' OR s.next_run_at <> n.due_at OR n.due_at <= ${now})
+    `;
+    const claimFor = new Date(now.getTime() + CLAIM_MS);
+    const rows = await this.sql<NoticeRow[]>`
+      WITH claimed AS (
+        UPDATE bank.scheduled_notices SET claimed_until = ${claimFor}
+         WHERE id IN (
+           SELECT id FROM bank.scheduled_notices
+            WHERE announced_at IS NULL AND dropped_at IS NULL AND (claimed_until IS NULL OR claimed_until < ${now})
+            ORDER BY attempts, created_at
+            LIMIT ${limit}
+            FOR UPDATE SKIP LOCKED
+         )
+        RETURNING id, schedule_id, occurrence, kind, user_id, due_at, lead_hours, reason_code, attempts, created_at
+      )
+      SELECT c.id, c.schedule_id, c.occurrence, c.kind, c.user_id, c.due_at, c.lead_hours, c.reason_code,
+             s.asset_id, COALESCE(e.amount, s.amount)::text AS amount
+        FROM claimed c
+        JOIN bank.scheduled_transfers s ON s.id = c.schedule_id
+        LEFT JOIN bank.transfer_executions e ON c.kind = 'failed' AND e.schedule_id = c.schedule_id AND e.occurrence = c.occurrence
+       ORDER BY c.attempts, c.created_at
+    `;
     let announced = 0;
-    for (const row of rows) {
-      const amount = formatAmount(parseAmount(row.amount));
+    for (const [index, row] of rows.entries()) {
       try {
+        const amount = formatAmount(parseAmount(row.amount));
         const publish =
           row.kind === 'reminder'
             ? sink.reminder({
@@ -347,13 +387,19 @@ export class ScheduledNoticeService {
               });
         await withTimeout(publish, this.options.publishTimeoutMs ?? NOTICE_PUBLISH_TIMEOUT_MS);
         const marked = await this.sql`
-          UPDATE bank.scheduled_notices SET announced_at = now() WHERE id = ${row.id} AND announced_at IS NULL
+          UPDATE bank.scheduled_notices SET announced_at = now(), claimed_until = NULL WHERE id = ${row.id} AND announced_at IS NULL
         `;
         announced += marked.count;
       } catch (err) {
         this.options.log?.('bank.scheduled_notice_failed', { noticeId: row.id, detail: err instanceof Error ? err.message : String(err) });
+        // The bus is likely down: stop here rather than wait out a timeout for every row. The failed row goes to the
+        // back; the rest are released for the next pass.
+        await this.sql`UPDATE bank.scheduled_notices SET attempts = attempts + 1, claimed_until = NULL WHERE id = ${row.id}`;
+        const rest = rows.slice(index + 1).map((r) => r.id);
+        if (rest.length > 0) await this.sql`UPDATE bank.scheduled_notices SET claimed_until = NULL WHERE id = ANY(${rest}::uuid[])`;
+        break;
       }
     }
-    return announced;
+    return { announced, dropped: dropped.count };
   }
 }

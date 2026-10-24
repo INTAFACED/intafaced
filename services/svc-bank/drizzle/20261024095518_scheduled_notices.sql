@@ -5,9 +5,10 @@
 -- the revision it read; the same client request sent again reads back the row it made.
 --
 -- `scheduled_notices`: the outbox. One row per (schedule, occurrence, kind) is owed until the bus takes it
--- (`announced_at`), so a job that runs twice tells a person once and a lost publish is sent again. A reminder is about a
--- run that has not happened; a failure notice is about a run svc-bank already recorded as rejected. Neither moves value,
--- and no amount is stored here: the publisher reads it from the order or the run.
+-- (`announced_at`) or it is dropped (`dropped_at`), so a job that runs twice tells a person once and a lost publish is
+-- sent again. A reminder is about a run that has not happened; a failure notice is about a run svc-bank already
+-- recorded as rejected. Neither moves value, and no amount is stored here: the publisher reads it from the order or the
+-- run.
 CREATE TABLE IF NOT EXISTS "bank"."reminder_rules" (
   "user_id"            text PRIMARY KEY,
   "rule_key"           text NOT NULL,
@@ -34,7 +35,13 @@ CREATE TABLE IF NOT EXISTS "bank"."scheduled_notices" (
   "lead_hours"    integer,
   "reason_code"   text,
   "created_at"    timestamptz NOT NULL DEFAULT now(),
+  -- A pass that is publishing a row holds it until then, so two passes at once never send the same row.
+  "claimed_until" timestamptz,
+  -- Publishes the bus refused; a row that keeps failing goes to the back of the queue rather than blocking it.
+  "attempts"      integer NOT NULL DEFAULT 0,
   "announced_at"  timestamptz,
+  -- A reminder whose run will no longer happen as it said (cancelled, paused, moved or already past) is dropped, not sent.
+  "dropped_at"    timestamptz,
   CONSTRAINT "scheduled_notices_once_uq" UNIQUE ("schedule_id", "occurrence", "kind"),
   CONSTRAINT "scheduled_notices_kind_ck" CHECK ("kind" IN ('reminder', 'failed')),
   CONSTRAINT "scheduled_notices_shape_ck" CHECK (
@@ -42,5 +49,6 @@ CREATE TABLE IF NOT EXISTS "bank"."scheduled_notices" (
     OR ("kind" = 'failed' AND "lead_hours" IS NULL AND "reason_code" IS NOT NULL)
   )
 );
-CREATE INDEX IF NOT EXISTS "scheduled_notices_owed_idx" ON "bank"."scheduled_notices" ("created_at") WHERE "announced_at" IS NULL;
+CREATE INDEX IF NOT EXISTS "scheduled_notices_owed_idx" ON "bank"."scheduled_notices" ("attempts", "created_at")
+  WHERE "announced_at" IS NULL AND "dropped_at" IS NULL;
 CREATE INDEX IF NOT EXISTS "scheduled_notices_user_idx" ON "bank"."scheduled_notices" ("user_id", "created_at");

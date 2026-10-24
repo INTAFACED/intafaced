@@ -33,6 +33,6 @@ describe('rules and notifications', () => {
     expect(choiceWords(t, row({ channel: 'in_app' as never, locked: true }))).toBe('Always on');
     expect(choiceWords(t, row({ notConnected: 'vendor.push' as never }))).toContain('vendor.push');
     expect(choiceWords(t, row({ configured: false }))).toContain('Not set up');
-    expect(choiceWords(t, undefined)).toBe('Off');
+    expect(choiceWords(t, undefined)).toContain('did not say');
   });
 });

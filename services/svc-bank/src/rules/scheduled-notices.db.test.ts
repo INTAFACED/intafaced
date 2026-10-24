@@ -123,6 +123,10 @@ describe('the reminder rule', () => {
     await expect(
       bank.scheduledNotices.setReminderRule({ userId: USER, leadHours: 5, expectedRevision: 2, clientRequestId: 'r-5' }),
     ).rejects.toMatchObject({ code: 'bank.reminder_lead_invalid' });
+    // The same request id with another choice is another write, not a replay of the one that landed.
+    await expect(
+      bank.scheduledNotices.setReminderRule({ userId: USER, leadHours: 48, expectedRevision: 1, clientRequestId: 'r-3' }),
+    ).rejects.toMatchObject({ code: 'bank.reminder_revision_conflict' });
 
     expect(await bank.scheduledNotices.reminderRule(USER)).toEqual(off);
     expect(await bank.scheduledNotices.reminderRule(OTHER)).toBeNull();
@@ -150,7 +154,13 @@ describe('reminders before a run', () => {
     await bank.scheduledNotices.setReminderRule({ userId: USER, leadHours: 24, expectedRevision: 0, clientRequestId: 'r-1' });
 
     const posts = ledger.journal().length;
-    expect(await bank.scheduledNotices.run({ limit: 10, now: NOW })).toEqual({ reminders: 1, failures: 0, announced: 1, owed: 0 });
+    expect(await bank.scheduledNotices.run({ limit: 10, now: NOW })).toEqual({
+      reminders: 1,
+      failures: 0,
+      announced: 1,
+      dropped: 0,
+      owed: 0,
+    });
     expect(told.reminders).toEqual([
       {
         noticeId: expect.any(String),
@@ -163,7 +173,13 @@ describe('reminders before a run', () => {
         leadHours: 24,
       },
     ]);
-    expect(await bank.scheduledNotices.run({ limit: 10, now: at(1) })).toEqual({ reminders: 0, failures: 0, announced: 0, owed: 0 });
+    expect(await bank.scheduledNotices.run({ limit: 10, now: at(1) })).toEqual({
+      reminders: 0,
+      failures: 0,
+      announced: 0,
+      dropped: 0,
+      owed: 0,
+    });
     expect(told.reminders).toHaveLength(1);
     // A reminder is about a run, not a movement: nothing was posted.
     expect(ledger.journal()).toHaveLength(posts);
@@ -190,6 +206,74 @@ describe('reminders before a run', () => {
   });
 });
 
+describe('reminders that no longer hold', () => {
+  it('drops an owed reminder when its order is cancelled before the bus took it, and sends nothing for it', async () => {
+    const { told, sink } = recordingSink();
+    const bank = services(sink);
+    const order = await standingOrder(bank, at(10));
+    await bank.scheduledNotices.setReminderRule({ userId: USER, leadHours: 24, expectedRevision: 0, clientRequestId: 'r-1' });
+    told.down = true;
+    expect(await bank.scheduledNotices.run({ limit: 10, now: NOW })).toMatchObject({ reminders: 1, announced: 0, owed: 1 });
+    await bank.transfers.cancelSchedule(order.id);
+    told.down = false;
+    expect(await bank.scheduledNotices.run({ limit: 10, now: at(1) })).toEqual({
+      reminders: 0,
+      failures: 0,
+      announced: 0,
+      dropped: 1,
+      owed: 0,
+    });
+    expect(told.reminders).toEqual([]);
+  });
+
+  it('drops a reminder the bus never took before the run, rather than reminding after it', async () => {
+    const { told, sink } = recordingSink();
+    const bank = services(sink);
+    await standingOrder(bank, at(10));
+    await bank.scheduledNotices.setReminderRule({ userId: USER, leadHours: 24, expectedRevision: 0, clientRequestId: 'r-1' });
+    told.down = true;
+    await bank.scheduledNotices.run({ limit: 10, now: NOW });
+    told.down = false;
+    expect(await bank.scheduledNotices.run({ limit: 10, now: at(11) })).toMatchObject({ announced: 0, dropped: 1, owed: 0 });
+    expect(told.reminders).toEqual([]);
+  });
+});
+
+describe('two passes at once', () => {
+  it('send each owed notice once: a row one pass holds is skipped by the other', async () => {
+    const { told, sink } = recordingSink();
+    const bank = services(sink);
+    for (const hours of [2, 3, 4, 5]) await standingOrder(bank, at(hours));
+    await bank.scheduledNotices.setReminderRule({ userId: USER, leadHours: 24, expectedRevision: 0, clientRequestId: 'r-1' });
+    const [a, b] = await Promise.all([
+      bank.scheduledNotices.run({ limit: 10, now: NOW }),
+      bank.scheduledNotices.run({ limit: 10, now: NOW }),
+    ]);
+    expect(a.announced + b.announced).toBe(4);
+    expect(told.reminders).toHaveLength(4);
+    expect(new Set(told.reminders.map((r) => r.scheduleId)).size).toBe(4);
+  });
+
+  it('stops at the first publish the bus refuses, and sends that row after the others next time', async () => {
+    const { told, sink } = recordingSink();
+    let refuse = 1;
+    const flaky: ScheduledNoticeSink = {
+      reminder: async (n) => {
+        if (refuse-- > 0) throw new Error('bus unreachable');
+        await sink.reminder(n);
+      },
+      failed: sink.failed,
+    };
+    const bank = services(flaky);
+    const first = await standingOrder(bank, at(2));
+    const second = await standingOrder(bank, at(3));
+    await bank.scheduledNotices.setReminderRule({ userId: USER, leadHours: 24, expectedRevision: 0, clientRequestId: 'r-1' });
+    expect(await bank.scheduledNotices.run({ limit: 10, now: NOW })).toMatchObject({ reminders: 2, announced: 0, owed: 2 });
+    expect(await bank.scheduledNotices.run({ limit: 10, now: at(0.5) })).toMatchObject({ announced: 2, owed: 0 });
+    expect(told.reminders.map((r) => r.scheduleId)).toEqual([second.id, first.id]);
+  });
+});
+
 describe('failure notices', () => {
   // A run's attempt is stamped by the database clock, so these read the window around the real now.
   const now = () => new Date();
@@ -201,7 +285,13 @@ describe('failure notices', () => {
     const run = await bank.transfers.runDueTransfers({ now: now(), limit: 10 });
     expect(run.rejected).toBe(1);
 
-    expect(await bank.scheduledNotices.run({ limit: 10, now: now() })).toEqual({ reminders: 0, failures: 1, announced: 1, owed: 0 });
+    expect(await bank.scheduledNotices.run({ limit: 10, now: now() })).toEqual({
+      reminders: 0,
+      failures: 1,
+      announced: 1,
+      dropped: 0,
+      owed: 0,
+    });
     expect(told.failures).toEqual([
       {
         noticeId: expect.any(String),
@@ -225,9 +315,21 @@ describe('failure notices', () => {
     await bank.transfers.runDueTransfers({ now: now(), limit: 10 });
 
     told.down = true;
-    expect(await bank.scheduledNotices.run({ limit: 10, now: now() })).toEqual({ reminders: 0, failures: 1, announced: 0, owed: 1 });
+    expect(await bank.scheduledNotices.run({ limit: 10, now: now() })).toEqual({
+      reminders: 0,
+      failures: 1,
+      announced: 0,
+      dropped: 0,
+      owed: 1,
+    });
     told.down = false;
-    expect(await bank.scheduledNotices.run({ limit: 10, now: now() })).toEqual({ reminders: 0, failures: 0, announced: 1, owed: 0 });
+    expect(await bank.scheduledNotices.run({ limit: 10, now: now() })).toEqual({
+      reminders: 0,
+      failures: 0,
+      announced: 1,
+      dropped: 0,
+      owed: 0,
+    });
     expect(told.failures).toHaveLength(1);
 
     const unwired = services();
