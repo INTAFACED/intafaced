@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { InfoTip } from './InfoTip';
 import { moneyCopy } from './copy';
-import { Amount, Button, Skeleton, StateBlock, fmtAmount, fmtPct, fmtUsd, navigate, refusalCopy, type Loadable } from './deps';
+import { Amount, Button, Skeleton, StateBlock, Switch, fmtAmount, fmtPct, fmtUsd, navigate, refusalCopy, type Loadable } from './deps';
 import { MissingCost, basisRefusalWords } from './MissingCost';
 import {
   LOT_METHODS,
@@ -274,12 +274,11 @@ function TransfersCard({
         <h2>{t('Transfers in results')}</h2>
       </header>
       <label className="money-note">
-        <input
-          type="checkbox"
-          role="switch"
+        <Switch
+          aria-label={t('Include transfers')}
           checked={on}
           disabled={save === null || busy}
-          onChange={(event) => void save?.({ procedure: 'setIncludeTransfers', input: { include: event.target.checked } })}
+          onCheckedChange={(include: boolean) => void save?.({ procedure: 'setIncludeTransfers', input: { include } })}
         />{' '}
         {t('Include transfers')}
       </label>

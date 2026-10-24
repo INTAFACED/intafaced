@@ -217,7 +217,6 @@ const messages = {
     'On: coins you deposit count from their cost (your price, or their value when they arrived, as your settings say), and a withdrawal counts as moved out at its value when it left.',
   'Transfers off rule':
     'Off: coins you deposit and coins you withdraw are left out of every result here. Their lots stay listed, marked not counted. Moves between your own accounts never count.',
-  'Transfers saved': 'Saved. The results above now follow it.',
   'Fee column': 'Fee',
   'Fee in coin': '{amount} {asset}',
   'Fee unknown': 'Not known',

@@ -118,8 +118,8 @@
     },
     "BANK_PAYOUT_SIM_JSON": {
       "service": "bank",
-      "value": "{\"label\": \"TEST payout stand-in for the local stack: not a partner, pays nobody\", \"payouts\": [{\"asset\": \"USDT\", \"currency\": \"EUR\", \"rate\": \"0.9\", \"fee\": \"1.5\"}]}",
-      "note": "The cash-out payout stand-in's catalogue: one made-up price (USDT paid out in EUR at a TEST rate of 0.9 less a TEST fee of 1.5 EUR). It pays nobody: the amount moves to its own TEST rail boundary, and verifying an account or saying paid, failed or returned are signed calls only a test makes. Loaded only with BANK_PAYOUT_PARTNER=payout-sim."
+      "value": "{\"label\": \"TEST payout stand-in for the local stack: not a partner, pays nobody\", \"payouts\": [{\"asset\": \"USDT\", \"currency\": \"EUR\", \"rate\": \"0.9\", \"fee\": \"1.5\"}, {\"asset\": \"BTC\", \"currency\": \"EUR\", \"rate\": \"50000\", \"fee\": \"1.5\"}]}",
+      "note": "The cash-out payout stand-in's catalogue: two made-up prices (USDT paid out in EUR at a TEST rate of 0.9, and BTC at a TEST rate of 50000, each less a TEST fee of 1.5 EUR; BTC lets J-portfolio-05 make a withdrawal that moves a coin with a price). It pays nobody: the amount moves to its own TEST rail boundary, and verifying an account or saying paid, failed or returned are signed calls only a test makes. Loaded only with BANK_PAYOUT_PARTNER=payout-sim."
     },
     "BANK_DD_SIM_JSON": {
       "service": "bank",
