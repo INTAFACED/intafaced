@@ -128,6 +128,15 @@ const schema = serviceEnvSchema
       ),
 
       /**
+       * P-ads-merchant-05. Compliance's content rules for an ad's terms: a JSON
+       * object of rule class to the phrases an ad may not carry, for example
+       * `{"messenger":["telegram"],"link":["https://"]}`. Empty means no list is
+       * published and the filter is off; anything else that is not a whole list
+       * refuses every post `p2p.content_rules_invalid` (`ad-content-rules.ts`).
+       */
+      P2P_AD_CONTENT_RULES: z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), z.string().optional()),
+
+      /**
        * Largest `maxAmt` an offer may advertise — the merchant badge's first
        * real entitlement (`merchant-limits.ts` argues why the numbers are not
        * invented in code).

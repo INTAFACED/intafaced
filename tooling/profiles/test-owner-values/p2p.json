@@ -31,6 +31,11 @@
       "value": "TEST-2026-10-24",
       "note": "Advertiser terms version a person accepts before posting an ad; J-p2p-03 accepts it in the post-an-ad form."
     },
+    "P2P_AD_CONTENT_RULES": {
+      "service": "p2p",
+      "value": "{\"messenger\":[\"telegram\",\"whatsapp\",\"wechat\",\"signal app\"],\"link\":[\"http://\",\"https://\",\"www.\"],\"contact\":[\"call me\",\"text me\",\"my number\"]}",
+      "note": "TEST content rules for ad terms (rule class to phrases); J-p2p-03 #5 posts terms that name a messenger and sees the class refused."
+    },
     "P2P_MISMATCH_TOLERANCE_BPS": {
       "service": "p2p",
       "value": "50",

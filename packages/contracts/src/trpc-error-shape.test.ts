@@ -292,6 +292,15 @@ describe('errorFormatter p2p take limits', () => {
     expect(p2pLimitOf(refused('p2p.insufficient_balance', { until: null, available: '30', shortBy: 'seventy' }))).toBeUndefined();
   });
 
+  it('keeps the content rule class an ad broke, only on that refusal and only as a slug', () => {
+    expect(p2pLimitOf(refused('p2p.content_rule_violation', { until: null, ruleClass: 'messenger' }))).toEqual({
+      until: null,
+      ruleClass: 'messenger',
+    });
+    expect(p2pLimitOf(refused('p2p.content_rule_violation', { until: null, ruleClass: 'message me on telegram' }))).toBeUndefined();
+    expect(p2pLimitOf(refused('p2p.insufficient_balance', { until: null, ruleClass: 'messenger' }))).toBeUndefined();
+  });
+
   it('keeps a limit with no end time and its bounds', () => {
     expect(p2pLimitOf(refused('p2p.pair_limit_exceeded', { until: null, min: '10', max: '500', currency: 'EUR' }))).toEqual({
       until: null,
