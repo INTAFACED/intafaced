@@ -114,6 +114,8 @@ describe('buildLotBook', () => {
     const book = buildLotBook({ fills: [buy('b1', 1, 'BTC', '1', '100')], held: held({ BTC: '0.4' }), method: 'FIFO', truncated: false });
     expect(book.assets[0]).toMatchObject({ assetId: 'BTC', openQty: '1', openCostUsd: null, held: '0.4' });
     expect(book.residuals).toContain(TAX_LOT_BOOK_UNRECONCILED);
+    // The coin is named, so a figure over time leaves it unknown and nothing else.
+    expect(book.outsideAssets).toEqual(['BTC']);
   });
 
   it('no sale is a null result, not a zero', () => {

@@ -26,7 +26,10 @@ export interface PriceAtTime {
   priceAt(assetId: string, at: Date): Promise<PriceAt | null>;
 }
 
-/** Candle sizes a series is read in. */
+/**
+ * Candle sizes a series is read in, and their length: svc-trade's public candle sizes (its own table lives in
+ * exchange-contract, which svc-tax does not depend on; the prices tests read both doors with these).
+ */
 export type SeriesTimeframe = '5m' | '1h' | '4h' | '1d' | '1w';
 export const SERIES_TIMEFRAME_MS: Readonly<Record<SeriesTimeframe, number>> = {
   '5m': 300_000,
@@ -35,9 +38,6 @@ export const SERIES_TIMEFRAME_MS: Readonly<Record<SeriesTimeframe, number>> = {
   '1d': 86_400_000,
   '1w': 604_800_000,
 };
-
-/** How many candles one series read may span, from one before its start to now (svc-trade's whole-window bound). */
-export const SERIES_POINTS_PER_READ = 719;
 
 /** One market's candles over a window: open time (epoch ms) and close, oldest first. */
 export interface CloseSeries {
@@ -89,7 +89,7 @@ export function createTradePrices(baseUrl: string, fetchImpl: typeof fetch = fet
       Array.isArray(row) && typeof row[0] === 'number' && typeof row[4] === 'string' ? [[row[0], row[4]] as [number, string]] : [],
     );
   };
-  return {
+  const prices: PriceAtTime & CloseSeriesSource = {
     async closes(assetId, timeframe, from, to) {
       const frameMs = SERIES_TIMEFRAME_MS[timeframe];
       // One read: svc-trade answers a window only whole, from `since` to now in at most POINTS_PER_READ candles, so the
@@ -100,10 +100,15 @@ export function createTradePrices(baseUrl: string, fetchImpl: typeof fetch = fet
         const rows = await candles(market, timeframe, since);
         if (rows === 'no_market') continue;
         if (rows === 'too_far') throw new Error(`market data refused ${market} ${timeframe} from ${new Date(since).toISOString()}`);
-        return {
-          market,
-          candles: rows.filter(([openAt]) => openAt <= to.getTime()).map(([openAt, close]) => [openAt, parseAmount(close)] as const),
-        };
+        const series = rows.filter(([openAt]) => openAt <= to.getTime()).map(([openAt, close]) => [openAt, parseAmount(close)] as const);
+        // svc-trade leaves out a candle with no trades, so a coin that last traded before the window has no candle
+        // ended by its start. Its last price then is the price-at-time read's (which looks further back), on this market
+        // only, set as a candle ended by the start: the same last-close rule, never a later price.
+        if (!series.some(([openAt]) => openAt + frameMs <= from.getTime())) {
+          const before = await prices.priceAt(assetId, from);
+          if (before !== null && before.market === market) series.unshift([from.getTime() - frameMs, before.price]);
+        }
+        return { market, candles: series };
       }
       return null;
     },
@@ -134,4 +139,5 @@ export function createTradePrices(baseUrl: string, fetchImpl: typeof fetch = fet
       return null;
     },
   };
+  return prices;
 }

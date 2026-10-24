@@ -106,6 +106,26 @@ describe('candle series', () => {
     expect(await prices.closes('XYZ', '1h', from, to)).toBeNull();
   });
 
+  it('a coin that last traded before the window starts from that last price, on the same market, never a later one', async () => {
+    const DAY = 86_400_000;
+    const dayStart = Math.floor(from.getTime() / DAY) * DAY;
+    const { prices } = door({
+      'ETH/USDT 1h': { body: [c(HOUR - 2 * 3_600_000, '2100')] },
+      'ETH/USDT 1m': { body: [] },
+      'ETH/USDT 1d': { body: [c(dayStart - DAY, '1800')] },
+    });
+    expect(await prices.closes('ETH', '1h', from, to)).toEqual({
+      market: 'ETH/USDT',
+      candles: [
+        [from.getTime() - 3_600_000, amt('1800')],
+        [HOUR - 2 * 3_600_000, amt('2100')],
+      ],
+    });
+    // No earlier price at all: the start stays without one.
+    const none = door({ 'ETH/USDT 1h': { body: [c(HOUR - 2 * 3_600_000, '2100')] }, 'ETH/USDT 1m': { body: [] } });
+    expect((await none.prices.closes('ETH', '1h', from, to))!.candles).toEqual([[HOUR - 2 * 3_600_000, amt('2100')]]);
+  });
+
   it('throws when the window cannot be read whole, so no chart is drawn from part of it', async () => {
     const tooFar = door({ 'ETH/USDT 1h': { status: 400, body: { intafacedCode: 'trade.candles_range_point_cap' } } });
     await expect(tooFar.prices.closes('ETH', '1h', from, to)).rejects.toThrow();

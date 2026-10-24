@@ -11,7 +11,17 @@ import {
 import type { TaxLedgerReads } from './ledger-reads.js';
 import { TaxService } from './tax-service.js';
 import { buildLotBook, type Fill, type Inflow } from './lot-book.js';
-import { BookTimeline, HELD_KEY, MOVED_KEY_PREFIX, chooseInterval, closeAt, dayEdges, pnlOverTime, samplesOf } from './pnl-over-time.js';
+import {
+  BookTimeline,
+  HELD_KEY,
+  MOVED_KEY_PREFIX,
+  SWAP_KEY_PREFIX,
+  chooseInterval,
+  closeAt,
+  dayEdges,
+  pnlOverTime,
+  samplesOf,
+} from './pnl-over-time.js';
 import type { CloseSeries, CloseSeriesSource } from './prices.js';
 
 // J-portfolio-05 #4 and #5 (PF-performance-03). Every figure is hand-computed TEST data, not a real balance.
@@ -129,6 +139,86 @@ describe('pnlOverTime: the cumulative result at each moment', () => {
     const apart = run({ book: bookOf([buy, sell], { BTC: '0.75', USDT: '150' }, { inflows: [deposit], includeTransfers: false }) });
     expect(apart.points.find((p) => p.at === day(5).toISOString())!.totalUsd).toBe('40');
     expect(apart.includeTransfers).toBe(false);
+  });
+});
+
+describe('pnlOverTime: review cases', () => {
+  const noCost = (txId: string, d: number, qty: string): Inflow => ({
+    txId,
+    postedAt: day(d, 12),
+    assetId: 'BTC',
+    amount: amt(qty),
+    costUsd: null,
+    source: 'deposit',
+    reason: 'deposit.credited',
+    valuedAt: null,
+  });
+
+  it('a lot with no cost leaves the position unknown only while some of it is open', () => {
+    // Day 1 buy 1 BTC for 100 (lot b1). Day 4 a deposit of 0.5 BTC with no cost. Day 6 LIFO sells 0.5: the deposit.
+    const book = bookOf(
+      [buy, { ...sell, txId: 's6', postedAt: day(6, 12), received: { assetId: 'USDT', amount: amt('80') }, fee: 0n }],
+      { BTC: '1', USDT: '80' },
+      { inflows: [noCost('d4', 4, '0.5')], method: 'LIFO' },
+    );
+    const out = run({ book, from: day(2), to: day(10) });
+    expect(out.points.find((p) => p.at === day(5).toISOString())!.missing).toEqual([{ assetId: 'BTC', reason: 'cost_unknown' }]);
+    // After the sale only the bought lot is open, with its known cost: 1 BTC (cost 100) at the day-6 close of 160.
+    expect(out.points.find((p) => p.at === day(7).toISOString())!.unrealizedUsd).toBe('60');
+  });
+
+  it('an older sale with an unknown result leaves the line unknown, but a later range’s change still known', () => {
+    // A deposited 0.5 BTC with no cost, sold on day 2 under FIFO: its result is unknown for good.
+    const early = noCost('d0', 0, '0.5');
+    const book = bookOf(
+      [
+        { ...sell, txId: 's2', postedAt: day(2, 12), received: { assetId: 'USDT', amount: amt('60') }, fee: 0n },
+        { ...buy, postedAt: day(3, 12) },
+      ],
+      { BTC: '1', USDT: '60' },
+      { inflows: [early] },
+    );
+    const out = run({ book, from: day(5), to: day(9) });
+    expect(out.points.every((p) => p.totalUsd === null)).toBe(true);
+    // Day 5 to day 9: 1 BTC (cost 100) went from the day-4 close of 140 to the day-8 close of 180.
+    expect(out.periodUsd).toBe('40');
+    expect(out.byAsset).toEqual([{ key: 'BTC', usd: '40' }]);
+    expect(out.byMarket).toEqual([{ key: HELD_KEY, usd: '40' }]);
+    expect(sum(out.byDay!)).toBe(amt('40'));
+  });
+
+  it('a day with no price is a row not known, and nothing is refused', () => {
+    // No daily candle opens on day 9: the points from day 10 on still price from day 8's close until day 10's.
+    const series = dailyFrom(0);
+    const gap = { ...series, candles: series.candles.filter(([openAt]) => openAt < day(9).getTime() || openAt >= day(14).getTime()) };
+    const missingDays = {
+      ...series,
+      candles: series.candles.filter(([openAt]) => openAt !== day(1).getTime() && openAt !== day(0).getTime()),
+    };
+    expect(() => run({ closes: new Map([['BTC', gap]]) })).not.toThrow();
+    const out = run({ from: day(1), to: day(4), closes: new Map([['BTC', missingDays]]) });
+    expect(out.byDay!.find((r) => r.key === '2026-10-01')!.usd).toBeNull();
+    expect(out.periodUsd).not.toBeNull();
+  });
+
+  it('names a coin-for-coin swap by no market, under swap:<coin>', () => {
+    const swap: Fill = {
+      txId: 'x9',
+      postedAt: day(9, 12),
+      received: { assetId: 'ETH', amount: amt('2') },
+      paid: { assetId: 'BTC', amount: amt('0.25') },
+      fee: 0n,
+    };
+    const book = bookOf([buy, sell, swap], { BTC: '0.25', ETH: '2', USDT: '150' });
+    expect(book.sales.find((s) => s.txId === 'x9')!.market).toBeUndefined();
+    const out = run({
+      book,
+      closes: new Map([
+        ['BTC', dailyFrom(0)],
+        ['ETH', null],
+      ]),
+    });
+    expect(out.byMarket.map((r) => r.key)).toContain(`${SWAP_KEY_PREFIX}BTC`);
   });
 });
 

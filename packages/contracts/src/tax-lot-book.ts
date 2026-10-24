@@ -201,6 +201,8 @@ export const lotBookSchema = z.object({
   feesUsd: z.string().nullable(),
   termRule: z.object({ status: z.literal('unset'), code: z.literal('tax.term_rule_unset') }),
   residuals: z.array(z.string()),
+  /** Coins whose main-account lots do not reconcile with what is held: every figure for them is unknown. Absent: none. */
+  outsideAssets: z.array(z.string()).optional(),
   /** Absent from a book built without asking about spaces. */
   spaces: lotBookSpacesSchema.optional(),
   /**
@@ -270,9 +272,11 @@ export const basisWriteResultSchema = z.object({
  * their cost. Only the main account and only what counts (transfers left out stay out). A moment where a coin held then
  * has no price, or a cost or a sale result is unknown, is missing: null with what is missing named, never zero.
  *
- * The breakdown splits the change over the range (`periodUsd` = cumulative at `to` less cumulative at `from`) three
- * ways, and each way adds up to it exactly: by coin; by market (each market's sales in the range, plus the price move
- * on what is still held); by day in the customer's time zone. A part that is unknown makes the period unknown.
+ * The breakdown splits the change over the range (`periodUsd`: the sales made in the range plus the change in what the
+ * coins held were worth less their cost) three ways, and each way adds up to it exactly: by coin; by market (each
+ * market's sales in the range, plus the price move on what is still held); by day in the customer's time zone. The
+ * change is known only when every coin's part is; a day with a missing price is a row not known (null), and then the
+ * other days do not add up to the change; the coin and market splits still do.
  */
 export const pnlOverTimeInputSchema = z
   .object({
@@ -309,8 +313,9 @@ export const pnlPointSchema = z.object({
 
 export const pnlBreakdownRowSchema = z.object({
   /**
-   * The coin; the market (`BTC/USDT`, `held` for the price move on what is still held, or `moved:<coin>` for a withdrawal
-   * counted as a sale); or the day (`YYYY-MM-DD`).
+   * The coin; the market (`BTC/USDT`; `held` for the price move on what is still held; `moved:<coin>` for a withdrawal
+   * counted as a sale; `swap:<coin>` for a coin traded for another coin, whose market the fill does not name); or the
+   * day (`YYYY-MM-DD`).
    */
   key: z.string(),
   usd: z.string().nullable(),
@@ -323,7 +328,10 @@ export const pnlOverTimeSchema = z.object({
   interval: z.enum(PNL_SERIES_INTERVALS),
   includeTransfers: z.boolean(),
   points: z.array(pnlPointSchema),
-  /** Cumulative at `to` less cumulative at `from`; null when either is missing. */
+  /**
+   * The sales made in the range plus the change in the held coins' value less cost from `from` to `to`; null when any
+   * coin's part is not known. Equal to cumulative at `to` less cumulative at `from` whenever both are known.
+   */
   periodUsd: z.string().nullable(),
   /** Trading fees inside the period's figures (on the buys and sales made in it); null when one is unknown. */
   feesUsd: z.string().nullable(),

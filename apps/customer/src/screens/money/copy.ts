@@ -256,11 +256,15 @@ const messages = {
   'Breakdown period': 'Change over this range',
   'Breakdown held': 'Price move on coins still held',
   'Breakdown moved': '{asset} moved out',
+  'Breakdown swap': '{asset} traded for another coin',
+  'Breakdown rows incomplete':
+    'At least one row is not known (a price or a cost is missing), so the rows shown do not add up to the change.',
   'Breakdown fees': 'Trading fees already inside this change:',
   'Breakdown fees unknown': 'A trading fee in this range is not known.',
   'Breakdown days too many': 'Days are listed for ranges of up to {max} days. Pick a shorter range to see them.',
   'Breakdown empty': 'Nothing changed in this range.',
-  'Breakdown rule': 'The rows add up to the change over this range. One row not known makes the change not known.',
+  'Breakdown rule':
+    'The rows add up to the change over this range: the sales made in it, plus the change in what the coins held were worth less their cost. The change is not known when any coin’s part is not.',
   'Pnl days in zone': 'Days start at midnight in your time zone ({zone}).',
   'Transfers in results': 'Deposits and withdrawals',
   'Include transfers': 'Count deposits and withdrawals',

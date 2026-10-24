@@ -50,6 +50,9 @@ import { NO_CHOICES, saleRules, type ChoiceStore, type CostBasisChoices } from '
 import { isLotMethod, runLots, type LotMethod, type LotMovement } from './lots.js';
 import { isEngineMethod, type EngineMethod, type ValuedAt } from './lot-engine.js';
 
+/** Candle series reads (one per coin) run this many at a time. */
+const CANDLE_READ_PARALLEL = 8;
+
 /** The lot book also offers AVERAGE; the year pack takes FIFO, LIFO or HIFO only. */
 function requireBookMethod(raw: string): EngineMethod {
   if (!isEngineMethod(raw)) throw new TaxError(TAX_LOT_METHOD_REQUIRED, 'Caller must select FIFO, LIFO, HIFO or AVERAGE');
@@ -292,18 +295,25 @@ export class TaxService {
     const interval = chooseInterval(from, to, now);
     if (interval === null) throw new TaxError(TAX_PNL_RANGE_TOO_LONG, 'the range starts too long ago to be priced: pick a later start');
     const book = await this.lotBook({ userId: input.userId });
-    const coins = new BookTimeline(book).coins();
+    const timeline = new BookTimeline(book);
+    const coins = timeline.coins();
     const closes = new Map<string, CloseSeries | null>();
     if (coins.length > 0) {
       const source = this.closes;
       if (!source) throw new TaxError(TAX_PNL_PRICES_UNAVAILABLE, 'market data is not attached: no chart is drawn without prices');
       try {
-        await Promise.all(coins.map(async (assetId) => closes.set(assetId, await source.closes(assetId, interval, from, to))));
+        for (let i = 0; i < coins.length; i += CANDLE_READ_PARALLEL) {
+          await Promise.all(
+            coins
+              .slice(i, i + CANDLE_READ_PARALLEL)
+              .map(async (assetId) => closes.set(assetId, await source.closes(assetId, interval, from, to))),
+          );
+        }
       } catch {
         throw new TaxError(TAX_PNL_PRICES_UNAVAILABLE, 'market data could not be read: no chart is drawn from part of it');
       }
     }
-    return pnlOverTime({ book, from, to, now, interval, utcOffsetMinutes: input.utcOffsetMinutes, closes });
+    return pnlOverTime({ book, from, to, now, interval, utcOffsetMinutes: input.utcOffsetMinutes, closes, timeline });
   }
 
   private async bookWith(userId: string, preview: EngineMethod | null, saved: CostBasisChoices, choices: BookChoices): Promise<LotBook> {

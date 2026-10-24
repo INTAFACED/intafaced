@@ -92,6 +92,11 @@ export function resolveRange(ask: RangeAsk, now: number, offset: number, first: 
   return { from: new Date(local - (((local % DAY) + DAY) % DAY) - offset * 60_000).toISOString() };
 }
 
+/** A text key for a range ask, so a memo keyed on it changes only when the range does (not on `view=` or `by=`). */
+export function rangeKey(ask: RangeAsk): string {
+  return ask.kind === 'preset' ? ask.range : ask.kind === 'custom' ? `${ask.fromDay}..${ask.toDay}` : 'invalid';
+}
+
 /** The link for a range: the room's other choices (`view`, `method`, ...) stay as they are. */
 export function rangeSearch(search: string, next: { range: PnlRange } | { fromDay: string; toDay: string }): string {
   const params = new URLSearchParams(search);
@@ -182,12 +187,14 @@ export function missingOf(points: readonly PnlPoint[]): { count: number; coins: 
   return { count, coins: [...seen.values()].sort((a, b) => a.assetId.localeCompare(b.assetId) || a.reason.localeCompare(b.reason)) };
 }
 
-/** A market row's key: a market (`BTC/USDT`), `held` (the price move on what is still held), or `moved:<coin>`. */
-export type MarketKey = { kind: 'market'; market: string } | { kind: 'held' } | { kind: 'moved'; assetId: string };
+/** A market row's key: a market (`BTC/USDT`), `held` (the price move on what is still held), `moved:<coin>` or `swap:<coin>`. */
+export type MarketKey =
+  { kind: 'market'; market: string } | { kind: 'held' } | { kind: 'moved'; assetId: string } | { kind: 'swap'; assetId: string };
 
 export function marketKey(key: string): MarketKey {
   if (key === 'held') return { kind: 'held' };
   if (key.startsWith('moved:')) return { kind: 'moved', assetId: key.slice('moved:'.length) };
+  if (key.startsWith('swap:')) return { kind: 'swap', assetId: key.slice('swap:'.length) };
   return { kind: 'market', market: key };
 }
 

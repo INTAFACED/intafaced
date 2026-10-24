@@ -7,6 +7,7 @@ import {
   offsetMinutes,
   pnlChart,
   rangeFromQuery,
+  rangeKey,
   rangeSearch,
   resolveRange,
   type PnlPoint,
@@ -32,6 +33,12 @@ describe('rangeFromQuery', () => {
     expect(rangeFromQuery('?from=2026-10-20&to=2026-10-01')).toEqual({ kind: 'invalid' });
     expect(rangeFromQuery('?from=2026-10-01')).toEqual({ kind: 'invalid' });
     expect(rangeFromQuery('?from=2026-02-30&to=2026-03-01')).toEqual({ kind: 'invalid' });
+  });
+
+  it('keys a range by the range alone, not by the room’s other choices', () => {
+    expect(rangeKey(rangeFromQuery('?range=1W&by=market'))).toBe(rangeKey(rangeFromQuery('?range=1W')));
+    expect(rangeKey(rangeFromQuery('?view=realised'))).toBe('1M');
+    expect(rangeKey(rangeFromQuery('?from=2026-10-01&to=2026-10-02'))).toBe('2026-10-01..2026-10-02');
   });
 
   it('keeps the room’s other choices in the link', () => {
@@ -132,6 +139,7 @@ describe('breakdown keys', () => {
     expect(marketKey('BTC/USDT')).toEqual({ kind: 'market', market: 'BTC/USDT' });
     expect(marketKey('held')).toEqual({ kind: 'held' });
     expect(marketKey('moved:BTC')).toEqual({ kind: 'moved', assetId: 'BTC' });
+    expect(marketKey('swap:ETH')).toEqual({ kind: 'swap', assetId: 'ETH' });
     expect(breakdownFromQuery('?by=day')).toBe('day');
     expect(breakdownFromQuery('?by=nope')).toBe('asset');
   });

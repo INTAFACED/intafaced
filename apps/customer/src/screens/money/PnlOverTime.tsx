@@ -15,6 +15,7 @@ import {
   offsetMinutes,
   pnlChart,
   rangeFromQuery,
+  rangeKey,
   rangeSearch,
   resolveRange,
   type Breakdown,
@@ -314,6 +315,7 @@ function rowLabel(by: Breakdown, key: string, copy: Copy): string {
   const market = marketKey(key);
   if (market.kind === 'held') return copy.t('Breakdown held');
   if (market.kind === 'moved') return copy.t('Breakdown moved', { asset: market.assetId });
+  if (market.kind === 'swap') return copy.t('Breakdown swap', { asset: market.assetId });
   return market.market;
 }
 
@@ -388,6 +390,11 @@ function BreakdownCard({ data, search, hidden, copy }: { data: PnlOverTime; sear
           </>
         )}
       </p>
+      {rows !== null && rows.some((row) => row.usd === null) ? (
+        <p className="money-note" data-label="rows-incomplete">
+          {t('Breakdown rows incomplete')}
+        </p>
+      ) : null}
       <p className="money-note">{t('Breakdown rule')}</p>
       {by === 'day' ? <p className="money-note">{t('Pnl days in zone', { zone: `UTC${zone}` })}</p> : null}
     </section>
@@ -403,7 +410,10 @@ export function PnlOverTimeCards({ book, search, hidden }: { book: LotBook; sear
   const { t } = copy;
   const { timeZone } = usePreferences();
   const offset = useMemo(() => offsetMinutes(timeZone, Date.now()), [timeZone]);
-  const ask = useMemo(() => rangeFromQuery(search), [search]);
+  const parsed = rangeFromQuery(search);
+  const askKey = rangeKey(parsed);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- kept by the range alone: `view=` or `by=` keeps the same read
+  const ask = useMemo(() => parsed, [askKey]);
   const first = firstActivity(book);
   // Read the clock only when the range changes, so a preset's start stays put while the page is open.
   const range = useMemo(() => resolveRange(ask, Date.now(), offset, first), [ask, offset, first]);

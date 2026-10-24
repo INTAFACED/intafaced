@@ -23,6 +23,7 @@ const bookKey = (userId: string, ask: LotMethod | 'saved') => `tax-lot-book:${us
 const missingKey = (userId: string, ask: LotMethod | 'saved') => `tax-missing-basis:${userId}:${ask}`;
 /** Every over-time read asked for in this tab, so a saved choice or price reads each of them again. */
 const pnlKeys = new Set<string>();
+const PNL_KEYS_KEPT = 8;
 const refreshPnl = (env: ReturnType<typeof useDataEnv>) => {
   for (const key of pnlKeys) env.poller.refresh(key);
 };
@@ -82,7 +83,10 @@ export function usePnlOverTime(ask: { from: string; to?: string; utcOffsetMinute
       if (from === undefined || offset === undefined) return constantSource<PnlOverTime>({ status: 'empty' });
       if (!env.userId) return constantSource<PnlOverTime>({ status: 'refused', code: 'auth.required' });
       const key = `tax-pnl-over-time:${env.userId}:${from}:${to ?? 'now'}:${offset}`;
+      // The newest few ranges only: an older one is read again when it is opened again.
+      pnlKeys.delete(key);
       pnlKeys.add(key);
+      if (pnlKeys.size > PNL_KEYS_KEPT) pnlKeys.delete(pnlKeys.values().next().value!);
       const input = { from, ...(to === undefined ? {} : { to }), utcOffsetMinutes: offset };
       return env.poller.source<PnlOverTime>(key, (signal) => env.api.query('tax', 'pnlOverTime', input, pnlOverTimeSchema, { signal }), {
         intervalMs: LOT_BOOK_INTERVAL,

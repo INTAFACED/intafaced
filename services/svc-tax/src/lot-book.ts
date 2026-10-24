@@ -216,6 +216,8 @@ export interface LotBook {
   /** The short-or-long-term rule is an owner value that is not published. */
   readonly termRule: { readonly status: 'unset'; readonly code: typeof TAX_TERM_RULE_UNSET };
   readonly residuals: string[];
+  /** Coins whose main-account lots do not reconcile with what is held: every figure for them is unknown. Absent: none. */
+  readonly outsideAssets?: string[];
   /** Customer-typed positions held apart from balances. Absent when there are none. */
   readonly manualPositions?: ManualPosition[];
   /** The named spaces whose lots the book follows. Absent when the caller did not ask about spaces. */
@@ -349,7 +351,10 @@ export function buildLotBook(input: {
     if (makesLot) lotFees.set(`${fill.txId}|${fill.received.assetId}`, fee);
     if (saleKey !== null) {
       saleFees.set(saleKey, fee);
-      saleMarkets.set(saleKey, `${fill.paid!.assetId.toUpperCase()}/${fill.received.assetId.toUpperCase()}`);
+      // A sale for a dollar coin ran on the coin's market against it (BTC/USDT). A fill does not say which way round a
+      // two-coin market is listed, so a swap between two coins names no market rather than a guess.
+      if (isPar(fill.received.assetId))
+        saleMarkets.set(saleKey, `${fill.paid!.assetId.toUpperCase()}/${fill.received.assetId.toUpperCase()}`);
     }
   }
   for (const inflow of input.inflows ?? []) {
@@ -599,6 +604,7 @@ export function buildLotBook(input: {
     feesUsd: money(feesUsd),
     termRule: { status: 'unset', code: TAX_TERM_RULE_UNSET },
     residuals: [...residuals].sort(),
+    ...(outside.size === 0 ? {} : { outsideAssets: [...outside].sort() }),
     ...(input.spaces === undefined ? {} : { spaces: input.spaces }),
   };
 }
