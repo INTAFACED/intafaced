@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { userAvailable } from '../accounts.js';
 import { MemoryLedger } from '../memory-ledger.js';
 import { formatAmount, parseAmount as amt } from '../money.js';
-import { InvalidEntryError } from '../types.js';
+import { InsufficientFundsError, InvalidEntryError } from '../types.js';
 import { recipes } from './index.js';
-import { staffHoldAccount, staffHoldConfirmAccount, type StaffHoldReleaseCause } from './staff-hold.js';
+import { StaffHoldPartialConfirmError, staffHoldAccount, staffHoldConfirmAccount, type StaffHoldReleaseCause } from './staff-hold.js';
 
 const CUSTOMER = '11111111-1111-4111-8111-111111111111';
 const ASSET = 'USD';
@@ -27,6 +27,7 @@ const release = (amount: string, releaseNo: string | number, cause: StaffHoldRel
 const confirm = (amount: string, attempt: string | number = 1, confirmAccount = 'seized-funds') =>
   recipes.staffHoldConfirm({
     holdNo: 7,
+    heldRemaining: amt(amount),
     attempt,
     approvalId: 'appr-2',
     confirmAccount,
@@ -60,7 +61,7 @@ describe('staff holds on funds (ops ENGINE LC-8, LC-9)', () => {
 
   it('refuses a hold larger than available and moves nothing', async () => {
     const ledger = await funded();
-    await expect(ledger.post(place('100.01'))).rejects.toThrow();
+    await expect(ledger.post(place('100.01'))).rejects.toBeInstanceOf(InsufficientFundsError);
     expect(await bal(ledger, available())).toBe('100');
     expect(await bal(ledger, held())).toBe('0');
   });
@@ -78,8 +79,11 @@ describe('staff holds on funds (ops ENGINE LC-8, LC-9)', () => {
   });
 
   it('the expiry worker releases without an approver and says so in the meta', () => {
-    const post = release('40', 1, { kind: 'expiry' });
-    expect(post.meta).toEqual({ holdNo: '7', releaseNo: '1', cause: 'expiry' });
+    const post = release('40', 1, { kind: 'expiry', expiresAt: '2026-10-24T15:00:00Z' });
+    expect(post.meta).toEqual({ holdNo: '7', releaseNo: '1', cause: 'expiry', expiresAt: '2026-10-24T15:00:00Z' });
+    for (const bad of [undefined, '', '2026-10-24', '2026-10-24T15:00:00+01:00', 'tomorrow']) {
+      expect(() => release('40', 1, { kind: 'expiry', expiresAt: bad as string }), `expiresAt ${String(bad)}`).toThrow(InvalidEntryError);
+    }
   });
 
   it('confirm moves the remaining 25.00 once to the owner-named ops:hold-confirm account', async () => {
@@ -102,8 +106,8 @@ describe('staff holds on funds (ops ENGINE LC-8, LC-9)', () => {
     const ledger = await funded();
     await ledger.post(place());
     await ledger.post(confirm('40'));
-    await expect(ledger.post(release('40', 1))).rejects.toThrow();
-    await expect(ledger.post(confirm('0.01', 2))).rejects.toThrow();
+    await expect(ledger.post(release('40', 1))).rejects.toBeInstanceOf(InsufficientFundsError);
+    await expect(ledger.post(confirm('0.01', 2))).rejects.toBeInstanceOf(InsufficientFundsError);
     expect(await bal(ledger, held())).toBe('0');
     expect(await bal(ledger, available())).toBe('60');
   });
@@ -111,8 +115,24 @@ describe('staff holds on funds (ops ENGINE LC-8, LC-9)', () => {
   it('a release larger than what is held is refused and moves nothing', async () => {
     const ledger = await funded();
     await ledger.post(place());
-    await expect(ledger.post(release('40.01', 1))).rejects.toThrow();
+    await expect(ledger.post(release('40.01', 1))).rejects.toBeInstanceOf(InsufficientFundsError);
     expect(await bal(ledger, held())).toBe('40');
+  });
+
+  it('a confirm moves exactly what is still held, never a piece of it', () => {
+    const partial = () =>
+      recipes.staffHoldConfirm({
+        holdNo: 7,
+        attempt: 1,
+        approvalId: 'appr-2',
+        confirmAccount: 'seized-funds',
+        userId: CUSTOMER,
+        assetId: ASSET,
+        amount: amt('10'),
+        heldRemaining: amt('25'),
+      });
+    expect(partial).toThrow(StaffHoldPartialConfirmError);
+    expect(partial).toThrow(/ops\.hold_amount_exceeds_remaining/);
   });
 
   it('refuses a non-positive amount on every leg', () => {
@@ -155,6 +175,7 @@ describe('staff holds on funds (ops ENGINE LC-8, LC-9)', () => {
         userId: CUSTOMER,
         assetId: ASSET,
         amount: amt('1'),
+        heldRemaining: amt('1'),
       }),
     ).toThrow(InvalidEntryError);
     for (const bad of ['', 'Seized', 'fees:trade', 'a b', '-x', 'x'.repeat(64)]) {

@@ -782,7 +782,14 @@ function samplePosts(): Array<{ name: RecipeName; post: PostRequest }> {
     { name: 'staffHoldPlace', post: recipes.staffHoldPlace({ holdNo: 1, userId: U, assetId: 'USDT', amount: AMT }) },
     {
       name: 'staffHoldRelease',
-      post: recipes.staffHoldRelease({ holdNo: 1, releaseNo: 1, cause: { kind: 'expiry' }, userId: U, assetId: 'USDT', amount: AMT }),
+      post: recipes.staffHoldRelease({
+        holdNo: 1,
+        releaseNo: 1,
+        cause: { kind: 'expiry', expiresAt: '2026-10-24T15:00:00Z' },
+        userId: U,
+        assetId: 'USDT',
+        amount: AMT,
+      }),
     },
     {
       name: 'staffHoldConfirm',
@@ -791,6 +798,7 @@ function samplePosts(): Array<{ name: RecipeName; post: PostRequest }> {
         attempt: 1,
         approvalId: 'ap1',
         confirmAccount: 'held-funds',
+        heldRemaining: AMT,
         userId: U,
         assetId: 'USDT',
         amount: AMT,

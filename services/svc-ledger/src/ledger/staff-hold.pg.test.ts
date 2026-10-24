@@ -39,7 +39,6 @@ const migrations = readdirSync(drizzleDir)
 if (migrations.length === 0) throw new Error(`No migrations found in ${drizzleDir}`);
 
 const H8A_IMAGE = 'postgres:16-alpine';
-const CUSTOMER = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
 async function openH8aAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
   const envUrl = process.env.TEST_DATABASE_URL?.trim();
@@ -84,69 +83,82 @@ describe('staff holds on the real ledger', () => {
 
   const bal = async (account: Parameters<PostgresLedger['balance']>[0]): Promise<string> =>
     formatAmount((await engine.balance(account)).amount);
-  const available = () => userAvailable(CUSTOMER, 'USD');
-  const place = (holdNo: number, amount: string) =>
-    recipes.staffHoldPlace({ holdNo, userId: CUSTOMER, assetId: 'USD', amount: amt(amount) });
-  const release = (holdNo: number, releaseNo: number, amount: string) =>
-    recipes.staffHoldRelease({
-      holdNo,
-      releaseNo,
-      cause: { kind: 'approval', approvalId: `appr-${holdNo}-${releaseNo}` },
-      userId: CUSTOMER,
-      assetId: 'USD',
-      amount: amt(amount),
-    });
-  const confirm = (holdNo: number, attempt: number, amount: string) =>
-    recipes.staffHoldConfirm({
-      holdNo,
-      attempt,
-      approvalId: `appr-confirm-${holdNo}`,
-      confirmAccount: 'held-funds',
-      userId: CUSTOMER,
-      assetId: 'USD',
-      amount: amt(amount),
-    });
+
+  /** Each test funds its own customer with TEST 100.00 and confirms to its own slug, so it runs alone or in any order. */
+  async function customer(userId: string) {
+    await engine.post(recipes.deposit({ userId, assetId: 'USD', amount: amt('100'), rail: 'bank-sandbox', railRef: `dep-sh-${userId}` }));
+    const slug = `held-funds-${userId.slice(0, 1)}`;
+    return {
+      available: () => bal(userAvailable(userId, 'USD')),
+      held: (holdNo: number) => bal(staffHoldAccount(userId, 'USD', holdNo)),
+      confirmed: () => bal(staffHoldConfirmAccount(slug, 'USD')),
+      place: (holdNo: number, amount: string) => recipes.staffHoldPlace({ holdNo, userId, assetId: 'USD', amount: amt(amount) }),
+      release: (holdNo: number, releaseNo: number, amount: string) =>
+        recipes.staffHoldRelease({
+          holdNo,
+          releaseNo,
+          cause: { kind: 'approval', approvalId: `appr-${holdNo}-${releaseNo}` },
+          userId,
+          assetId: 'USD',
+          amount: amt(amount),
+        }),
+      confirm: (holdNo: number, attempt: number, amount: string) =>
+        recipes.staffHoldConfirm({
+          holdNo,
+          attempt,
+          approvalId: `appr-confirm-${holdNo}`,
+          confirmAccount: slug,
+          userId,
+          assetId: 'USD',
+          amount: amt(amount),
+          heldRemaining: amt(amount),
+        }),
+    };
+  }
 
   it('hold 40.00 of 100.00, release 15.00, confirm the remaining 25.00 once', async () => {
-    await engine.post(recipes.deposit({ userId: CUSTOMER, assetId: 'USD', amount: amt('100'), rail: 'bank-sandbox', railRef: 'dep-sh-1' }));
-    await engine.post(place(1, '40'));
-    await engine.post(place(1, '40'));
-    expect(await bal(available())).toBe('60');
-    expect(await bal(staffHoldAccount(CUSTOMER, 'USD', 1))).toBe('40');
+    const c = await customer('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+    await engine.post(c.place(1, '40'));
+    await engine.post(c.place(1, '40'));
+    expect(await c.available()).toBe('60');
+    expect(await c.held(1)).toBe('40');
 
-    await engine.post(release(1, 1, '15'));
-    await engine.post(release(1, 1, '15'));
-    expect(await bal(staffHoldAccount(CUSTOMER, 'USD', 1))).toBe('25');
-    expect(await bal(available())).toBe('75');
+    await engine.post(c.release(1, 1, '15'));
+    await engine.post(c.release(1, 1, '15'));
+    expect(await c.held(1)).toBe('25');
+    expect(await c.available()).toBe('75');
 
-    await engine.post(confirm(1, 1, '25'));
-    await engine.post(confirm(1, 1, '25'));
-    expect(await bal(staffHoldAccount(CUSTOMER, 'USD', 1))).toBe('0');
-    expect(await bal(staffHoldConfirmAccount('held-funds', 'USD'))).toBe('25');
-    expect(await bal(available())).toBe('75');
+    await engine.post(c.confirm(1, 1, '25'));
+    await engine.post(c.confirm(1, 1, '25'));
+    expect(await c.held(1)).toBe('0');
+    expect(await c.confirmed()).toBe('25');
+    expect(await c.available()).toBe('75');
 
-    await expect(engine.post(release(1, 2, '0.01'))).rejects.toBeInstanceOf(InsufficientFundsError);
-    await expect(engine.post(confirm(1, 2, '0.01'))).rejects.toBeInstanceOf(InsufficientFundsError);
+    await expect(engine.post(c.release(1, 2, '0.01'))).rejects.toBeInstanceOf(InsufficientFundsError);
+    await expect(engine.post(c.confirm(1, 2, '0.01'))).rejects.toBeInstanceOf(InsufficientFundsError);
   });
 
   it('a release and a confirm racing for the same remainder: exactly one posts', async () => {
-    await engine.post(place(2, '25'));
-    expect(await bal(available())).toBe('50');
-    const outcomes = await Promise.allSettled([engine.post(release(2, 1, '25')), engine.post(confirm(2, 1, '25'))]);
+    const c = await customer('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb');
+    await engine.post(c.place(2, '25'));
+    expect(await c.available()).toBe('75');
+    const outcomes = await Promise.allSettled([engine.post(c.release(2, 1, '25')), engine.post(c.confirm(2, 1, '25'))]);
     expect(outcomes.filter((o) => o.status === 'fulfilled')).toHaveLength(1);
     const refused = outcomes.find((o) => o.status === 'rejected');
     expect(refused?.status === 'rejected' ? refused.reason : undefined).toBeInstanceOf(InsufficientFundsError);
-    expect(await bal(staffHoldAccount(CUSTOMER, 'USD', 2))).toBe('0');
+    expect(await c.held(2)).toBe('0');
     const released = outcomes[0]!.status === 'fulfilled';
-    expect(await bal(available())).toBe(released ? '75' : '50');
-    expect(await bal(staffHoldConfirmAccount('held-funds', 'USD'))).toBe(released ? '25' : '50');
+    expect(await c.available()).toBe(released ? '100' : '75');
+    expect(await c.confirmed()).toBe(released ? '0' : '25');
   });
 
   it('one hold never draws on another', async () => {
-    await engine.post(place(3, '10'));
-    await engine.post(place(4, '5'));
-    await expect(engine.post(release(3, 1, '15'))).rejects.toBeInstanceOf(InsufficientFundsError);
-    expect(await bal(staffHoldAccount(CUSTOMER, 'USD', 3))).toBe('10');
-    expect(await bal(staffHoldAccount(CUSTOMER, 'USD', 4))).toBe('5');
+    const c = await customer('cccccccc-cccc-4ccc-8ccc-cccccccccccc');
+    await engine.post(c.place(3, '10'));
+    await engine.post(c.place(4, '5'));
+    await expect(engine.post(c.release(3, 1, '15'))).rejects.toBeInstanceOf(InsufficientFundsError);
+    expect(await c.held(3)).toBe('10');
+    expect(await c.held(4)).toBe('5');
+    expect(await c.available()).toBe('85');
   });
 });
