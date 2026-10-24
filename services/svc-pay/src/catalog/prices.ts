@@ -164,7 +164,8 @@ export class ProductPrices {
   async setDefault(caller: MerchantCaller, input: { productId: string; priceId: string }): Promise<MerchantPrice> {
     assertWriter(caller);
     return this.sql.begin(async (tx) => {
-      await this.product(tx, caller, input.productId, true);
+      const product = await this.product(tx, caller, input.productId, true);
+      if (product.status !== 'active') throw new MerchantOpsError('pay.product_archived', 'precondition');
       const [price] = await tx<PriceRow[]>`
         SELECT ${FIELDS(tx)} FROM pay.catalog_prices
          WHERE id = ${input.priceId}::uuid AND product_id = ${input.productId}::uuid AND merchant_id = ${caller.merchantId}`;
@@ -182,15 +183,17 @@ export class ProductPrices {
   }
 
   /**
-   * What an active price charges. A fixed price takes no amount. A customer-chosen price takes the amount the customer
+   * What an active price of an active live product charges. A fixed price takes no amount. A customer-chosen price takes the amount the customer
    * entered and refuses one below its minimum or above its maximum.
    */
   async quote(caller: MerchantCaller, input: { priceId: string; amount?: string | undefined }): Promise<PriceQuote> {
     assertPermission(caller, 'products.read');
     const sql = this.sql;
-    const [row] = await sql<PriceRow[]>`
-      SELECT ${FIELDS(sql)} FROM pay.catalog_prices WHERE id = ${input.priceId}::uuid AND merchant_id = ${caller.merchantId}`;
-    if (!row) throw priceNotFound();
+    const [row] = await sql<Array<PriceRow & { product_status: 'active' | 'archived' }>>`
+      SELECT ${FIELDS(sql)}, (SELECT p.status FROM pay.catalog_products p WHERE p.id = product_id AND p.mode = ${MODE}) AS product_status
+        FROM pay.catalog_prices WHERE id = ${input.priceId}::uuid AND merchant_id = ${caller.merchantId}`;
+    if (!row || !row.product_status) throw priceNotFound();
+    if (row.product_status !== 'active') throw new MerchantOpsError('pay.product_archived', 'precondition');
     if (row.status !== 'active') throw new MerchantOpsError('pay.price_archived', 'precondition');
     const answer = (amount: string): PriceQuote => ({ priceId: row.id, assetId: row.asset_id, amount, billing: row.billing });
     if (row.kind === 'fixed') {

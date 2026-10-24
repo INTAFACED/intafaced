@@ -5,7 +5,6 @@ import { EmptyState, Field } from '../../ui-kit';
 import { navigate } from '../../../../app/location';
 import { useResource } from '../../../../shared/resource';
 import { PaySection } from '../../components';
-import { useMerchantAccess } from '../access/MerchantAccess';
 import type { PortalApi } from '../api';
 import { Facts, Gate, MoreFooter, PortalFailure, PortalLoading, SelectField } from '../components';
 import { base64Of } from '../settings/onboarding/Application';
@@ -16,6 +15,7 @@ import { Freshness } from '../ui/Freshness';
 import { useServerList } from '../ui/useServerList';
 import { useReadAt } from '../hooks';
 import { useBodyRequestId } from '../payments/invoice-model';
+import { useMayAddProducts } from './access';
 import { ProductPrices } from './Prices';
 import { catalogCopy as c } from './copy';
 import { blankProduct, checkImage, draftProblem, imageRequestId, productBody, sizeText, type ProductDraft } from './model';
@@ -29,12 +29,6 @@ export function Products({ portal, route }: { portal: PortalApi; route: { room: 
   return <ProductList portal={portal} />;
 }
 
-/** Whether this person may add products here: the role table says so, and the business is verified (the service's rule too). */
-export function useMayAddProducts(): { allowed: boolean; unverified: boolean } {
-  const { access, can } = useMerchantAccess();
-  const unverified = access.status === 'ready' && access.kybStatus !== 'approved';
-  return { allowed: can('products.manage') && !unverified, unverified: can('products.manage') && unverified };
-}
 
 const addButton = (label: string) => (
   <Button variant="primary" nativeButton={false} role="link" render={<a href="/pay/products/new" />}>

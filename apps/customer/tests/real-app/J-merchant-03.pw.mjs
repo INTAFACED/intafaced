@@ -178,10 +178,10 @@ test(`${J} #3 a one-time TEST 20 USDC price is the default until the monthly one
     await page.getByRole('button', { name: 'Add price' }).click();
     await page.getByLabel('Billing *').selectOption({ label: billing });
     if (chosen) {
-      await page.getByLabel('Amount *').selectOption({ label: 'The customer chooses' });
+      await page.getByLabel('How the amount is set *').selectOption({ label: 'The customer chooses' });
       await page.getByLabel('Minimum *').fill(chosen.min);
       await page.getByLabel('Maximum *').fill(chosen.max);
-    } else await page.getByLabel('Price *').fill(amount);
+    } else await page.getByLabel('Amount *').fill(amount);
     await page.getByLabel('Asset *').fill('USDC');
     await page.getByRole('button', { name: 'Save price' }).click();
     await expect(page.getByRole('status').filter({ hasText: 'Price added.' })).toBeVisible();

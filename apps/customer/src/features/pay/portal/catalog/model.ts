@@ -1,5 +1,7 @@
 import { parseAmount } from '../../../../shared/money';
 import {
+  priceAmountSchema,
+  priceAssetSchema,
   productKeySchema,
   statementDescriptorSchema,
   type ProductCreateInput,
@@ -111,9 +113,7 @@ export interface PriceDraft {
 
 export const blankPrice: PriceDraft = { billing: 'one_time', kind: 'fixed', amount: '', minAmount: '', maxAmount: '', assetId: '' };
 
-const AMOUNT = /^(?:0|[1-9][0-9]{0,19})(?:\.[0-9]{1,18})?$/;
-const ASSET = /^[A-Z0-9]{1,16}$/;
-const positiveAmount = (raw: string) => AMOUNT.test(raw.trim()) && /[1-9]/.test(raw);
+const positiveAmount = (raw: string) => priceAmountSchema.safeParse(raw).success && parseAmount(raw.trim()) > 0n;
 
 /** The first thing the form would refuse, checked before anything is sent; the service checks again. */
 export function priceProblem(draft: PriceDraft): 'amountInvalid' | 'boundsInvalid' | 'assetInvalid' | null {
@@ -123,7 +123,7 @@ export function priceProblem(draft: PriceDraft): 'amountInvalid' | 'boundsInvali
     if (!positiveAmount(draft.minAmount) || !positiveAmount(draft.maxAmount)) return 'boundsInvalid';
     if (parseAmount(draft.maxAmount.trim()) < parseAmount(draft.minAmount.trim())) return 'boundsInvalid';
   }
-  if (!ASSET.test(draft.assetId.trim())) return 'assetInvalid';
+  if (!priceAssetSchema.safeParse(draft.assetId).success) return 'assetInvalid';
   return null;
 }
 

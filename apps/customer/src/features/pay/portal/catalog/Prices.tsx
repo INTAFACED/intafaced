@@ -11,9 +11,10 @@ import { formatMoney } from '../ui/format';
 import { MoneyText } from '../ui/MoneyText';
 import { useServerList } from '../ui/useServerList';
 import { useBodyRequestId } from '../payments/invoice-model';
+import { refusalText } from '../refusal';
 import { catalogCopy as c } from './copy';
 import { blankPrice, priceBody, priceProblem, type PriceDraft } from './model';
-import { useMayAddProducts } from './Products';
+import { useMayAddProducts } from './access';
 
 /**
  * A product's prices (J-merchant-03 step 3, M-catalogue-02): the list with its default, Add price, Set as default, and a
@@ -269,7 +270,7 @@ function AmountCheck({ portal, prices }: { portal: PortalApi; prices: readonly M
     setAnswer(null);
     try {
       const result = await portal.quotePrice({ priceId: current.id, amount: amount.trim() });
-      setAnswer(result.ok ? { ok: true, amount: result.data.amount, assetId: result.data.assetId } : { ok: false, text: result.message });
+      setAnswer(result.ok ? { ok: true, amount: result.data.amount, assetId: result.data.assetId } : { ok: false, text: refusalText(result) });
     } finally {
       setBusy(false);
     }
@@ -283,7 +284,10 @@ function AmountCheck({ portal, prices }: { portal: PortalApi; prices: readonly M
         <SelectField
           label={t('checkPrice')}
           value={current.id}
-          onChange={setPriceId}
+          onChange={(id) => {
+            setPriceId(id);
+            setAnswer(null);
+          }}
           options={prices.map(
             (p) =>
               [
@@ -293,7 +297,15 @@ function AmountCheck({ portal, prices }: { portal: PortalApi; prices: readonly M
           )}
         />
       )}
-      <Field label={t('checkAmount')} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
+      <Field
+        label={t('checkAmount')}
+        inputMode="decimal"
+        value={amount}
+        onChange={(e) => {
+          setAmount(e.target.value);
+          setAnswer(null);
+        }}
+      />
       <div className="pp-actions">
         <Button variant="secondary" disabled={busy || !amount.trim()} onClick={() => void check()}>
           {t('checkButton')}

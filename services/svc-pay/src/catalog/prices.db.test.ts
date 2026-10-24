@@ -269,4 +269,20 @@ describe('product prices (M-catalogue-02, J-merchant-03 step 3)', () => {
       cause: 'pay.price_archived',
     });
   });
+
+  it('takes no new price, default move or quote on an archived product', async () => {
+    const productId = await product();
+    const first = (await as(owner).merchantCatalog.prices.create(fixed(productId, '20'))).price;
+    const second = (await as(owner).merchantCatalog.prices.create(fixed(productId, '30'))).price;
+    await sql`UPDATE pay.catalog_products SET status = 'archived', version = version + 1 WHERE id = ${productId}`;
+    for (const call of [
+      () => as(owner).merchantCatalog.prices.create(fixed(productId, '1')),
+      () => as(owner).merchantCatalog.prices.setDefault({ productId, priceId: second.id }),
+      () => as(owner).merchantCatalog.prices.quote({ priceId: first.id }),
+    ]) {
+      expect(await refusal(call)).toMatchObject({ code: 'PRECONDITION_FAILED', cause: 'pay.product_archived' });
+    }
+    // Its prices still read, so old documents that name them resolve.
+    expect((await listed(productId)).map((p) => p.id)).toEqual([first.id, second.id]);
+  });
 });
