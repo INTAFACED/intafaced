@@ -99,7 +99,7 @@ import type {
 } from '@intafaced/contracts';
 import { CertIssueRules, issueDueAt } from './certs/issue-rules.js';
 import { normaliseHolderName } from './certs/holder-name.js';
-import { PROGRAMME_SLUGS } from './curriculum/programmes.js';
+import { PROGRAMME_SLUGS, type ProgrammeSlug } from './curriculum/programmes.js';
 import {
   alreadyGrantedAfterInsert,
   CertError,
@@ -1782,6 +1782,14 @@ export class AcademyService {
 
   listCertDefinitions(): CertDefinition[] {
     return [...this.certs()];
+  }
+
+  /** AC-certificates-01: each learning path's published certificate, or the refusal for a path with none. */
+  certPaths(): Array<{ path: ProgrammeSlug; certId: string | null; refusal: 'academy.certificate_unpublished' | null }> {
+    return PROGRAMME_SLUGS.map((path) => {
+      const cert = certificateForPath(path, this.certs());
+      return { path, certId: cert?.id ?? null, refusal: cert ? null : 'academy.certificate_unpublished' };
+    });
   }
 
   async enrollCertPath(input: { userId: string; pathSlug: string }): Promise<EnrollmentRecord> {

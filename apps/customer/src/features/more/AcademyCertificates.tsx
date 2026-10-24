@@ -6,10 +6,10 @@ import { usePreferences } from '../../shared/preferences';
 import { useApi, useSession } from '../session/session';
 import { Details, Read } from './common';
 import { academyLmsCopy as copy } from './academy-lms-copy';
+import { z } from 'zod';
 import {
-  academyPaths,
   academyVerifyHref,
-  certProgressRow,
+  certPathRow,
   certificateCards,
   certificateDocument,
   certificateLessons,
@@ -18,7 +18,7 @@ import {
   issueWait,
   lessonHrefFor,
   parseVerifyCode,
-  type AcademyPath,
+  type CertPathRow,
   type CertificateCard,
   type LessonSummary,
   type Tracking,
@@ -67,8 +67,6 @@ function Shelf({
   const earned = cards.filter((c) => c.state === 'earned');
   const [viewId, setViewId] = useState(param('view') || earned[0]?.definition.id || '');
   const view = cards.find((c) => c.definition.id === viewId);
-  // A path with no published certificate design still has its place on the shelf, with the service's own refusal.
-  const unpublished = academyPaths.filter((path) => !tracking.definitions.some((definition) => definition.path === path));
   return (
     <div className="academy-lms-stack">
       <Panel title={t('shelfTitle')}>
@@ -85,9 +83,7 @@ function Shelf({
             {cards.map((card) => (
               <CertificateCardView key={card.definition.id} card={card} lessons={lessons} onView={() => setViewId(card.definition.id)} />
             ))}
-            {unpublished.map((path) => (
-              <UnpublishedPathCard key={path} path={path} />
-            ))}
+            <UnpublishedPaths />
           </div>
         </section>
         <section className="academy-lms-stack" data-certificates="programmes" aria-labelledby="academy-programme-certificates">
@@ -103,38 +99,36 @@ function Shelf({
 }
 
 /**
- * A learning path with no published certificate design. Academy is asked about it, and what it answers is shown: the
- * typed refusal for an unpublished path, or whatever else it says (a failed read is never shown as "unpublished").
+ * Every learning path with no published certificate design, as Academy lists it with its typed refusal. A failed read
+ * shows the refusal it got, never "unpublished".
  */
-function UnpublishedPathCard({ path }: { path: AcademyPath }) {
+function UnpublishedPaths() {
   const api = useApi();
-  const { t } = copy.useCopy();
-  const answer = useResource(
-    (signal) => api.query('academy', 'certProgress', { certId: path }, certProgressRow, { signal }),
-    `cert-path:${path}`,
-  );
-  const code = answer.resource.status === 'failed' ? academyCodeOf(answer.resource.failure) : null;
+  const answer = useResource((signal) => api.query('academy', 'certPaths', undefined, z.array(certPathRow), { signal }), 'cert-paths');
+  if (answer.resource.status === 'loading') return <Loading />;
+  if (answer.resource.status === 'failed') return <AcademyRefusal failure={answer.resource.failure} retry={answer.reload} />;
   return (
-    <article
-      className="academy-lms-card"
-      data-certificate-path={path}
-      data-state={code === 'academy.certificate_unpublished' ? 'unpublished' : 'unknown'}
-    >
-      <h3>{pathLabel(t, path)}</h3>
-      {answer.resource.status === 'loading' ? (
-        <Loading />
-      ) : code === 'academy.certificate_unpublished' ? (
-        <>
-          <div className="academy-lms-meta">
-            <span className="academy-lms-chip" data-status="unpublished">
-              {t('stateUnpublished')}
-            </span>
-          </div>
-          <p data-code={code}>{t('pathUnpublished')}</p>
-        </>
-      ) : answer.resource.status === 'failed' ? (
-        <AcademyRefusal failure={answer.resource.failure} retry={answer.reload} />
-      ) : null}
+    <>
+      {answer.resource.data
+        .filter((row) => row.refusal !== null)
+        .map((row) => (
+          <UnpublishedPathCard key={row.path} row={row} />
+        ))}
+    </>
+  );
+}
+
+function UnpublishedPathCard({ row }: { row: CertPathRow }) {
+  const { t } = copy.useCopy();
+  return (
+    <article className="academy-lms-card" data-certificate-path={row.path} data-state="unpublished">
+      <h4>{pathLabel(t, row.path)}</h4>
+      <div className="academy-lms-meta">
+        <span className="academy-lms-chip" data-status="unpublished">
+          {t('stateUnpublished')}
+        </span>
+      </div>
+      <p data-code={row.refusal ?? undefined}>{t('pathUnpublished')}</p>
     </article>
   );
 }
@@ -147,7 +141,7 @@ function CertificateCardView({ card, lessons, onView }: { card: CertificateCard;
   const missingLesson = lessons.find((l) => l.slug === missing);
   return (
     <article className="academy-lms-card" data-certificate={card.definition.id} data-state={card.state}>
-      <h3 lang="und">{card.definition.title}</h3>
+      <h4 lang="und">{card.definition.title}</h4>
       <div className="academy-lms-meta">
         <CertificateChip state={card.state} />
       </div>
@@ -258,14 +252,16 @@ function CertificateSheet({
           </p>
           {doc.code && (
             <>
-              <p data-testid="certificate-serial">{t('sheetSerial', { code: doc.code })}</p>
+              <p data-testid="certificate-serial">
+                {t('sheetSerial')} <code lang="zxx">{doc.code}</code>
+              </p>
               <small className="muted">
                 <Copy k="sheetVerifyHint" />
               </small>
             </>
           )}
         </article>
-        <ShareCertificate code={doc.code} />
+        <ShareCertificate key={doc.code ?? doc.certId} code={doc.code} />
         {doc.code && (
           <div className="academy-learning-actions">
             <Button variant="secondary" onClick={() => onCheckCode(doc.code!)}>
@@ -334,7 +330,11 @@ export function CertificateVerifyPage({ code }: { code: string | undefined }) {
     <Panel title={t('verifyPageTitle')}>
       <div className="academy-lms-stack" data-certificate-verify={parsed.kind === 'code' ? parsed.code : ''}>
         <p className="muted">{t('verifyPageIntro')}</p>
-        {parsed.kind === 'code' ? <VerifyAnswer code={parsed.code} /> : <p role="status">{t('verifyPageNoCode')}</p>}
+        {parsed.kind === 'code' ? (
+          <VerifyAnswer code={parsed.code} />
+        ) : (
+          <p role="status">{(code ?? '').trim() ? t('verifyFormat') : t('verifyPageNoCode')}</p>
+        )}
       </div>
     </Panel>
   );
@@ -386,10 +386,7 @@ export function VerifyResult({ code, certificate }: { code: string; certificate:
         items={[
           [t('verifyCertificate'), <span lang="und">{certificate.title}</span>],
           [t('verifyHolder'), certificate.holderName ? <span lang="und">{certificate.holderName}</span> : t('holderNotShared')],
-          [
-            t('verifyIssued'),
-            <span data-testid="verify-issued">{t('issuedOn', { date: formatDay(certificate.grantedAt, language) })}</span>,
-          ],
+          [t('verifyIssued'), <span data-testid="verify-issued">{formatDay(certificate.grantedAt, language)}</span>],
           [
             t('verifyStatus'),
             <span className="academy-lms-chip" data-status={revoked ? 'revoked' : 'recorded'} data-testid="verify-status">

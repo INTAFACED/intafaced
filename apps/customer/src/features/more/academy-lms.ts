@@ -31,14 +31,19 @@ export const lessonSummary = z.object({
 export type LessonSummary = z.infer<typeof lessonSummary>;
 export const lessonCatalogue = z.array(lessonSummary).max(200);
 
-/** `path` is the learning path the certificate belongs to; null for a certificate that is not a path's. */
 export const certDefinition = z.object({
   id: ref,
   title: ref,
-  path: z.enum(academyPaths).nullable().optional(),
   requiredItemSlugs: z.array(ref),
 });
 export type CertDefinition = z.infer<typeof certDefinition>;
+/** One learning path with its published certificate, or Academy's refusal for a path with no published design. */
+export const certPathRow = z.object({
+  path: z.enum(academyPaths),
+  certId: ref.nullable(),
+  refusal: z.literal('academy.certificate_unpublished').nullable(),
+});
+export type CertPathRow = z.infer<typeof certPathRow>;
 export const certProgressRow = z.object({
   userId: z.string().guid(),
   certId: ref,

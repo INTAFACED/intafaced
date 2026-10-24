@@ -403,7 +403,7 @@ describe('verify box placement and copy', () => {
       expect(t('verifyIntro')).not.toMatch(/signed in or not|con o sin sesión|connecté ou non/i);
     }
     expect(academyLmsCopy.t('verifyIntro')).toContain('does not look at your account');
-    expect(academyLmsCopy.t('sheetVerifyHint')).toContain('Anyone with its link or this code');
+    expect(academyLmsCopy.t('sheetVerifyHint')).toContain('Anyone with its link or its serial number');
   });
 });
 
