@@ -53,10 +53,10 @@ describe('custody deposit addresses (real Postgres)', () => {
   let chain: MemoryChain | UnconfiguredChain = new MemoryChain();
 
   const service = () => new CustodyDepositService({ sql: db.sql, chain, registries: { listRoutableNetworks: async () => networks } });
-  async function setting(asset = 'USDT', net = 'ethereum', over: { minimum?: string; enabled?: boolean } = {}) {
+  async function setting(asset = 'USDT', net = 'ethereum', over: { minimum?: string; enabled?: boolean; haltNote?: string } = {}) {
     await db.sql`
-      INSERT INTO pay.custody_deposit_settings (asset_id, network_id, label, minimum_deposit, estimated_arrival_minutes, enabled, set_by)
-      VALUES (${asset}, ${net}, 'Ethereum', ${over.minimum ?? '10'}, 5, ${over.enabled ?? true}, 'test-profile')`;
+      INSERT INTO pay.custody_deposit_settings (asset_id, network_id, label, minimum_deposit, estimated_arrival_minutes, enabled, halt_note, set_by)
+      VALUES (${asset}, ${net}, 'Ethereum', ${over.minimum ?? '10'}, 5, ${over.enabled ?? true}, ${over.haltNote ?? null}, 'test-profile')`;
   }
 
   beforeAll(async () => {
@@ -71,12 +71,12 @@ describe('custody deposit addresses (real Postgres)', () => {
   beforeEach(async () => {
     networks = [network()];
     chain = new MemoryChain();
-    await db.sql`TRUNCATE pay.custody_deposit_settings, pay.custody_deposit_addresses`;
+    await db.sql`TRUNCATE pay.custody_deposit_settings, pay.custody_deposit_addresses, pay.custody_deposit_setting_events`;
   }, 30_000);
 
   describe('catalogue', () => {
     it('is empty with no owner setting, and lists a pair once its setting and a routable network exist', async () => {
-      expect(await service().catalogue()).toEqual({ entries: [] });
+      expect(await service().catalogue()).toEqual({ entries: [], halted: [] });
       await setting();
       expect((await service().catalogue()).entries).toEqual([
         {
@@ -97,7 +97,36 @@ describe('custody deposit addresses (real Postgres)', () => {
       await setting('DAI', 'ethereum', { enabled: false });
       for (const nets of [[], [network({ confirmationsRequired: null })], [network({ assetCodes: ['DAI'] })]]) {
         networks = nets;
-        expect(await service().catalogue()).toEqual({ entries: [] });
+        expect((await service().catalogue()).entries).toEqual([]);
+      }
+    });
+
+    it('names a pair the owner switched off, with the note, only where its network would otherwise take it, and issues it no address', async () => {
+      await setting();
+      await setting('DAI', 'ethereum', { enabled: false, haltNote: 'TEST maintenance' });
+      // Switched on once (its audit says so), then off with no note.
+      await setting('USDC', 'ethereum', { enabled: false });
+      await db.sql`
+        INSERT INTO pay.custody_deposit_setting_events (asset_id, network_id, action, actor_id, approver_id, dual_control, before, after, reason)
+        VALUES ('USDC', 'ethereum', 'update', 'test-founder-a', 'test-founder-b', true, ${db.sql.json({ enabled: false })},
+                ${db.sql.json({ enabled: true })}, 'TEST switch on')`;
+      // Created off and never switched on: not launched, so not mentioned.
+      await setting('EURC', 'ethereum', { enabled: false });
+      networks = [network({ assetCodes: ['USDT', 'DAI', 'USDC', 'EURC'] })];
+      const catalogue = await service().catalogue();
+      expect(catalogue.entries.map((e) => e.assetId)).toEqual(['USDT']);
+      expect(catalogue.halted).toEqual([
+        { assetId: 'DAI', networkId: 'ethereum', label: 'Ethereum', haltNote: 'TEST maintenance' },
+        { assetId: 'USDC', networkId: 'ethereum', label: 'Ethereum', haltNote: null },
+      ]);
+      expect(await service().address({ userId: ALICE, assetId: 'DAI', networkId: 'ethereum' })).toEqual({
+        state: 'refused',
+        code: 'pay.deposit_pair_unpublished',
+      });
+      // A switched-off pair on a network that is not routable, or does not list the asset, is not named at all.
+      for (const nets of [[], [network({ enabled: false, confirmationsRequired: null })], [network({ assetCodes: ['USDT'] })]]) {
+        networks = nets;
+        expect((await service().catalogue()).halted).toEqual([]);
       }
     });
 

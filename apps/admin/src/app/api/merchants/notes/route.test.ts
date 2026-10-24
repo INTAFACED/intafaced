@@ -110,7 +110,7 @@ describe('add and retract', () => {
       const res = await POST(post(body, authed()));
       expect(res.status, JSON.stringify(body)).toBe(400);
     }
-    expect(calls.filter((c) => !c.url.includes('operatorStatus'))).toHaveLength(0);
+    expect(calls.filter((c) => !c.url.includes('operatorStatus') && !c.url.includes('consoleMode.get'))).toHaveLength(0);
   });
 
   it('add sends the founder token, trims the text and never names an author', async () => {

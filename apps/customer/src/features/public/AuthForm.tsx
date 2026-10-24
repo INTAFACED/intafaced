@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
 import { SocialSignIn } from './SocialSignIn';
 import { CodeSignIn } from './CodeSignIn';
+import { DeviceApproval } from './DeviceApproval';
 import { Button, Field, Failure } from '../../shared/ui';
 import { authoredRefusal, type ApiClient, type ApiResult } from '../../shared/api';
 import { uiCopy } from '../../shared/ui-copy';
@@ -313,6 +314,11 @@ export function AuthForm({ register }: { register: boolean }) {
     void run(register ? 'register' : 'password');
   }
   const selected = journal.records.find((record) => record.localRef === selectedRef);
+  // Every factor passed on a browser this account has not trusted yet (I-signin-sessions-07): the approval step.
+  const waitingDevice =
+    result && !result.ok && result.reason !== 'uncertain' && result.code === 'auth.device_authorisation_required'
+      ? result.deviceAuthorisation
+      : undefined;
   // The second step's own words, only for a definite answer on this page.
   const secondStep =
     result && !result.ok && result.reason !== 'uncertain'
@@ -464,141 +470,151 @@ export function AuthForm({ register }: { register: boolean }) {
           <Copy k="after" />
           <span>{inviteToken ? t('invitation') : roomTitle(findRoom(destination.split(/[?#]/)[0] ?? '/money')!, requestedLocale)}</span>
         </div>
-        <form ref={form} className="form-stack" onSubmit={submit}>
-          {!register && (
-            <p className="public-auth-method">
-              <Copy k="method" />
-            </p>
-          )}
-          {register && (
-            <Field
-              label={p('Handle')}
-              name="handle"
-              autoComplete="username"
-              required
-              minLength={3}
-              maxLength={32}
-              pattern="[a-zA-Z0-9_]+"
-              disabled={pending}
-              data-public-auth-sensitive="true"
-              value={handle}
-              onChange={(event) => sameRender() && setHandle(event.target.value)}
-            />
-          )}
-          <Field
-            label={register ? p('Email') : p('Email or handle')}
-            name="identifier"
-            type={register ? 'email' : 'text'}
-            autoComplete={register ? 'email' : 'username'}
-            required
-            disabled={pending}
-            data-public-auth-sensitive="true"
-            value={identifier}
-            error={missingPasskeyIdentifier ? <SharedCopy k="passkeyIdentifier" /> : undefined}
-            onChange={(event) => {
-              if (!sameRender()) return;
-              setIdentifier(event.target.value);
-              setMissingPasskeyIdentifier(false);
-            }}
+        {waitingDevice ? (
+          <DeviceApproval
+            waiting={waitingDevice}
+            onSignedIn={() => navigate(inviteToken ? `/invite?token=${encodeURIComponent(inviteToken)}` : destination, true)}
+            onCancel={() => setResult(null)}
           />
-          <Field
-            label={p('Password')}
-            name="password"
-            type="password"
-            autoComplete={register ? 'new-password' : 'current-password'}
-            required
-            minLength={register ? 12 : 1}
-            maxLength={200}
-            hint={register ? p('At least 12 characters.') : undefined}
-            disabled={pending}
-            data-public-auth-sensitive="true"
-            value={password}
-            onChange={(event) => sameRender() && setPassword(event.target.value)}
-          />
-          {register ? (
-            <Field
-              label={p('Country code (optional)')}
-              name="region"
-              maxLength={2}
-              minLength={2}
-              placeholder={p('ISO two-letter code')}
-              disabled={pending}
-              data-public-auth-sensitive="true"
-              value={region}
-              onChange={(event) => sameRender() && setRegion(event.target.value)}
-            />
-          ) : (
-            <Field
-              label={p('Two-factor or recovery code (if enabled)')}
-              name="totp"
-              autoComplete="one-time-code"
-              disabled={pending}
-              data-public-auth-sensitive="true"
-              value={totp}
-              onChange={(event) => sameRender() && setTotp(event.target.value)}
-            />
-          )}
-          <Button type="submit" disabled={pending || restoring}>
-            {pending ? p('Connecting…') : register ? p('Create account') : p('Sign in')}
-          </Button>
-          {!register && (
-            <Button variant="secondary" disabled={pending || restoring} onClick={() => void run('options')}>
-              {p('Use a passkey')}
-            </Button>
-          )}
-          {result && !result.ok && (
-            <div lang="und">
-              {result.code === 'auth.too_many_attempts' && result.reason !== 'uncertain' ? (
-                // The per-account pause: say how long, from the service's own Retry-After.
-                <p className="failure" role="alert" lang={languageFor('locked')}>
-                  {result.retryAfterSeconds
-                    ? t('locked', { minutes: Math.max(1, Math.ceil(result.retryAfterSeconds / 60)) })
-                    : t('lockedPlain')}
+        ) : (
+          <>
+            <form ref={form} className="form-stack" onSubmit={submit}>
+              {!register && (
+                <p className="public-auth-method">
+                  <Copy k="method" />
                 </p>
-              ) : secondStep ? (
-                // The second step, on the page that asks for it. A wrong code and a used one read the same.
-                <p className="failure" role="alert" lang={languageFor(secondStep)}>
-                  {t(secondStep)}
-                </p>
-              ) : result.code === 'auth.account_frozen' && result.reason !== 'uncertain' && result.accountState ? (
-                // Sent only after the password verified: name the state and the one way forward.
-                <div className="failure" role="alert">
-                  <p lang={languageFor(result.accountState)}>{t(result.accountState)}</p>
-                  <a className="text-link" href="/help" lang={languageFor('stateHelp')}>
-                    {t('stateHelp')}
-                  </a>
-                </div>
-              ) : (
-                <Failure result={result} />
               )}
-              {result.code && <small lang="zxx">{result.code}</small>}
-            </div>
-          )}
-          <p className="muted public-auth-form-links">
-            {register ? (
-              <>
-                {p('Already have an account?')}{' '}
-                <a className="text-link" href={publicAuthHref(authContext, '/login')}>
-                  {p('Sign in')}
+              {register && (
+                <Field
+                  label={p('Handle')}
+                  name="handle"
+                  autoComplete="username"
+                  required
+                  minLength={3}
+                  maxLength={32}
+                  pattern="[a-zA-Z0-9_]+"
+                  disabled={pending}
+                  data-public-auth-sensitive="true"
+                  value={handle}
+                  onChange={(event) => sameRender() && setHandle(event.target.value)}
+                />
+              )}
+              <Field
+                label={register ? p('Email') : p('Email or handle')}
+                name="identifier"
+                type={register ? 'email' : 'text'}
+                autoComplete={register ? 'email' : 'username'}
+                required
+                disabled={pending}
+                data-public-auth-sensitive="true"
+                value={identifier}
+                error={missingPasskeyIdentifier ? <SharedCopy k="passkeyIdentifier" /> : undefined}
+                onChange={(event) => {
+                  if (!sameRender()) return;
+                  setIdentifier(event.target.value);
+                  setMissingPasskeyIdentifier(false);
+                }}
+              />
+              <Field
+                label={p('Password')}
+                name="password"
+                type="password"
+                autoComplete={register ? 'new-password' : 'current-password'}
+                required
+                minLength={register ? 12 : 1}
+                maxLength={200}
+                hint={register ? p('At least 12 characters.') : undefined}
+                disabled={pending}
+                data-public-auth-sensitive="true"
+                value={password}
+                onChange={(event) => sameRender() && setPassword(event.target.value)}
+              />
+              {register ? (
+                <Field
+                  label={p('Country code (optional)')}
+                  name="region"
+                  maxLength={2}
+                  minLength={2}
+                  placeholder={p('ISO two-letter code')}
+                  disabled={pending}
+                  data-public-auth-sensitive="true"
+                  value={region}
+                  onChange={(event) => sameRender() && setRegion(event.target.value)}
+                />
+              ) : (
+                <Field
+                  label={p('Two-factor or recovery code (if enabled)')}
+                  name="totp"
+                  autoComplete="one-time-code"
+                  disabled={pending}
+                  data-public-auth-sensitive="true"
+                  value={totp}
+                  onChange={(event) => sameRender() && setTotp(event.target.value)}
+                />
+              )}
+              <Button type="submit" disabled={pending || restoring}>
+                {pending ? p('Connecting…') : register ? p('Create account') : p('Sign in')}
+              </Button>
+              {!register && (
+                <Button variant="secondary" disabled={pending || restoring} onClick={() => void run('options')}>
+                  {p('Use a passkey')}
+                </Button>
+              )}
+              {result && !result.ok && (
+                <div lang="und">
+                  {result.code === 'auth.too_many_attempts' && result.reason !== 'uncertain' ? (
+                    // The per-account pause: say how long, from the service's own Retry-After.
+                    <p className="failure" role="alert" lang={languageFor('locked')}>
+                      {result.retryAfterSeconds
+                        ? t('locked', { minutes: Math.max(1, Math.ceil(result.retryAfterSeconds / 60)) })
+                        : t('lockedPlain')}
+                    </p>
+                  ) : secondStep ? (
+                    // The second step, on the page that asks for it. A wrong code and a used one read the same.
+                    <p className="failure" role="alert" lang={languageFor(secondStep)}>
+                      {t(secondStep)}
+                    </p>
+                  ) : result.code === 'auth.account_frozen' && result.reason !== 'uncertain' && result.accountState ? (
+                    // Sent only after the password verified: name the state and the one way forward.
+                    <div className="failure" role="alert">
+                      <p lang={languageFor(result.accountState)}>{t(result.accountState)}</p>
+                      <a className="text-link" href="/help" lang={languageFor('stateHelp')}>
+                        {t('stateHelp')}
+                      </a>
+                    </div>
+                  ) : (
+                    <Failure result={result} />
+                  )}
+                  {result.code && <small lang="zxx">{result.code}</small>}
+                </div>
+              )}
+              <p className="muted public-auth-form-links">
+                {register ? (
+                  <>
+                    {p('Already have an account?')}{' '}
+                    <a className="text-link" href={publicAuthHref(authContext, '/login')}>
+                      {p('Sign in')}
+                    </a>
+                  </>
+                ) : (
+                  <>
+                    {p('Need an account?')}{' '}
+                    <a className="text-link" href={publicAuthHref(authContext, '/register')}>
+                      {p('Create one')}
+                    </a>
+                  </>
+                )}
+              </p>
+              {!register && (
+                <a className="text-link public-auth-help" href={publicAuthHref(authContext, '/findPwd')}>
+                  {p('Recover account access')}
                 </a>
-              </>
-            ) : (
-              <>
-                {p('Need an account?')}{' '}
-                <a className="text-link" href={publicAuthHref(authContext, '/register')}>
-                  {p('Create one')}
-                </a>
-              </>
-            )}
-          </p>
-          {!register && (
-            <a className="text-link public-auth-help" href={publicAuthHref(authContext, '/findPwd')}>
-              {p('Recover account access')}
-            </a>
-          )}
-        </form>
-        {!register && <CodeSignIn />}
-        {!register && <SocialSignIn />}
+              )}
+            </form>
+            {!register && <CodeSignIn />}
+            {!register && <SocialSignIn />}
+          </>
+        )}
       </div>
     </section>
   );

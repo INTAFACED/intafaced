@@ -142,7 +142,8 @@ describe('founder admin session security boundaries', () => {
     vi.stubGlobal('fetch', fetchMock);
     const request = new Request('http://localhost:3100/api/crm', { method: 'POST', headers });
     await expect(authorizeAdminRequest(request)).resolves.toMatchObject({ session: { userId: USER_ID } });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // The founder check, then the maintenance-mode read every write makes (here unreadable, so the write is not held).
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     fetchMock.mockClear();
     await expect(
       authorizeAdminRequest(new Request(request.url, { method: 'POST', headers: { ...headers, 'x-intafaced-csrf': 'wrong' } })),
@@ -355,5 +356,95 @@ describe('founder admin session security boundaries', () => {
     expect(upstreamCodeOf({ error: { json: { message: 'Something went wrong for user 3faadae7' } } })).toBeNull();
     expect(upstreamCodeOf({ message: 'refused [ops.crm.revision_conflict] later' })).toBe('ops.crm.revision_conflict');
     expect(upstreamCodeOf(null)).toBeNull();
+  });
+});
+
+describe('maintenance mode holds console writes', () => {
+  const mode = (readOnly: boolean) =>
+    Response.json({
+      result: {
+        data: {
+          json: {
+            readOnly,
+            reason: readOnly ? 'Database maintenance window' : null,
+            revision: readOnly ? 1 : 0,
+            changedAt: readOnly ? NOW.toISOString() : null,
+            requesterId: readOnly ? USER_ID : null,
+            approverId: readOnly ? OTHER_USER_ID : null,
+            asOf: NOW.toISOString(),
+          },
+        },
+      },
+    });
+
+  function signedIn(path: string, method = 'POST'): Request {
+    vi.stubEnv('ADMIN_SESSION_SECRET', config().key.toString('base64url'));
+    vi.stubEnv('ADMIN_ORIGIN', ORIGIN);
+    vi.stubEnv('EDGE_URL', EDGE);
+    const current = session({ issuedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString() });
+    return cookieRequest({
+      method,
+      url: `${ORIGIN}${path}`,
+      cookie: `${ADMIN_COOKIE}=${sealFounderSession(current, config())}`,
+      origin: ORIGIN,
+      csrf: current.csrf,
+    });
+  }
+
+  function upstream(answer: () => Response | Promise<Response>) {
+    const fetchMock = vi.fn(async (url: string | URL | Request) =>
+      String(url).includes('consoleMode.get') ? answer() : entitlement('enabled'),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    return fetchMock;
+  }
+
+  it('refuses a write with ops.console_read_only while the mode is on, reading it as the founder', async () => {
+    const fetchMock = upstream(() => mode(true));
+    await expect(authorizeAdminRequest(signedIn('/api/crm'))).rejects.toMatchObject({ code: 'ops.console_read_only', status: 423 });
+    const read = fetchMock.mock.calls.find(([url]) => String(url).includes('consoleMode.get'));
+    expect(String(read?.[0])).toBe(`${EDGE}/api/ops/trpc/consoleMode.get`);
+    expect(new Headers((read as unknown as [string, RequestInit])[1].headers).get('authorization')).toBe(`Bearer ${ACCESS}`);
+  });
+
+  it('lets a write through while the mode is off, and never reads the mode for a read', async () => {
+    const fetchMock = upstream(() => mode(false));
+    await expect(authorizeAdminRequest(signedIn('/api/crm'))).resolves.toMatchObject({ session: { userId: USER_ID } });
+    fetchMock.mockClear();
+    await expect(authorizeAdminRequest(signedIn('/api/crm', 'GET'))).resolves.toMatchObject({ session: { userId: USER_ID } });
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('consoleMode.get'))).toBe(false);
+  });
+
+  it.each(['/api/console-mode', '/api/ledger-freeze', '/api/kill-switch', '/api/pay-halts', '/api/trade-ops/kill-switch', '/api/accounts'])(
+    'keeps %s open while the mode is on, without reading it',
+    async (path) => {
+      const fetchMock = upstream(() => mode(true));
+      await expect(authorizeAdminRequest(signedIn(path))).resolves.toMatchObject({ session: { userId: USER_ID } });
+      expect(fetchMock.mock.calls.some(([url]) => String(url).includes('consoleMode.get'))).toBe(false);
+    },
+  );
+
+  it('does not treat a look-alike path, or an account closure, as an exempt door', async () => {
+    upstream(() => mode(true));
+    for (const path of ['/api/console-mode-other', '/api/accounts/closure', '/api/accounts/tier'])
+      await expect(authorizeAdminRequest(signedIn(path))).rejects.toMatchObject({ code: 'ops.console_read_only' });
+  });
+
+  it('a refused founder never reaches svc-ops', async () => {
+    const fetchMock = vi.fn(async (url: string | URL | Request) =>
+      String(url).includes('consoleMode.get') ? mode(true) : entitlement('revoked'),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(authorizeAdminRequest(signedIn('/api/crm'))).rejects.toMatchObject({ code: 'admin.founder_required' });
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('consoleMode.get'))).toBe(false);
+  });
+
+  it.each([
+    ['svc-ops does not answer', () => Promise.reject(new Error('connect ECONNREFUSED'))],
+    ['svc-ops has no storage', () => Response.json({ error: { message: 'ops.console_mode_storage_unconfigured' } }, { status: 412 })],
+    ['svc-ops answers a shape this console does not understand', () => Response.json({ result: { data: { json: { readOnly: 'yes' } } } })],
+  ] as const)('fails open when %s: the write is not held', async (_why, answer) => {
+    upstream(answer);
+    await expect(authorizeAdminRequest(signedIn('/api/crm'))).resolves.toMatchObject({ session: { userId: USER_ID } });
   });
 });

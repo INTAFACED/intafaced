@@ -33,7 +33,11 @@ function usd(units, signed = false) {
 }
 
 const total = (balances, asset) => toUnits(balances[asset]?.total ?? '0');
-const priceAt = (decimal, percent) => fromUnits(((toUnits(decimal) * BigInt(percent)) / 100n / 10n ** 16n) * 10n ** 16n);
+/** `decimal` moved by `percent`, cut to `places` decimals (BTC/USDT steps in cents; ETH/BTC in 0.00001 BTC). */
+const priceAt = (decimal, percent, places = 2) => {
+  const step = 10n ** BigInt(18 - places);
+  return fromUnits(((toUnits(decimal) * BigInt(percent)) / 100n / step) * step);
+};
 
 async function pnl(page, query = '') {
   await page.goto(`/money/pnl${query}`);
@@ -205,4 +209,42 @@ test(`${J} #6 sells coins that arrived by deposit: the sale reaches no lot, its 
   // The ETH still held has no recorded cost either.
   const eth = main.locator('tr[data-asset="ETH"]');
   if (await eth.count()) await expect(eth.locator('[data-col="cost"]')).toHaveText('Not known');
+});
+
+test(`${J} #7 trades between two non-dollar coins: no dollar figure on either side where none is known`, async ({ page }) => {
+  const who = account();
+  await signIn(page, who);
+  // TEST: buy BTC with USDT first, so the BTC that pays for the ETH has a known cost.
+  await page.goto(deskPath('BTC/USDT'));
+  const btcAsk = (await bestPrices('BTC/USDT')).ask;
+  await reviewLimit(page, 'buy', priceAt(btcAsk, 101), '0.002');
+  await confirm(page, 'buy');
+  await settled(who);
+  // Then TEST ETH bought on the ETH/BTC book, paid in BTC: neither leg is in dollars.
+  const before = await (await api(who)).balances();
+  await page.goto(deskPath('ETH/BTC'));
+  const { ask } = await bestPrices('ETH/BTC');
+  await reviewLimit(page, 'buy', priceAt(ask, 101, 5), '0.02', 'ETH');
+  await confirm(page, 'buy');
+  await expect.poll(async () => held(await (await api(who)).balances(), 'BTC'), { timeout: 20_000 }).toBe(0n);
+  const after = await (await api(who)).balances();
+  const paid = total(before, 'BTC') - total(after, 'BTC');
+  const got = total(after, 'ETH') - total(before, 'ETH');
+  expect(paid).toBeGreaterThan(0n);
+  expect(got).toBeGreaterThan(0n);
+
+  const main = await pnl(page);
+  // The BTC that paid is a sale with no dollar proceeds, so its result is not known; never a made-up price.
+  const sale = main.locator('tr[data-sale]').filter({ hasText: 'BTC' }).first();
+  await expect(sale.locator('td').nth(0)).toHaveText(fromUnits(paid));
+  await expect(sale.locator('td').nth(1)).toHaveText('Not known');
+  await expect(sale.locator('[data-col="result"]')).not.toContainText('$');
+  // The ETH that arrived is a bought lot with no dollar cost.
+  await page.goto('/money/pnl?asset=ETH');
+  const lots = page.getByRole('region', { name: 'Lots' });
+  const lot = lots.locator('tbody tr[data-source="trade"]');
+  await expect(lot).toHaveCount(1);
+  await expect(lot.locator('[data-col="qty"]')).toHaveText(fromUnits(got));
+  await expect(lot.locator('[data-col="cost"]')).toHaveText('Cost unknown');
+  await expect(page.locator('tr[data-asset="ETH"] [data-col="cost"]')).toHaveText('Not known');
 });

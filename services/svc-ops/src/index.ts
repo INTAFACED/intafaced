@@ -7,6 +7,7 @@ import { OutreachCrm } from './outreach/crm.js';
 import { OutreachError } from './outreach/config.js';
 import { createFounderAuthority } from './outreach/authority.js';
 import { createClientIpResolver } from './outreach/client-ip.js';
+import { SqlConsoleModeStore } from './console-mode/store.js';
 import { SqlPublicSettingsBook } from './outreach/public-settings.js';
 import { createFeeRevenueClient } from './fee-revenue-client.js';
 import { createOutreachNotificationClient } from './outreach/notification-client.js';
@@ -159,6 +160,7 @@ const appRouter = createOpsRouter(
     alertDesk,
     alertHeartbeatMaxAgeSeconds: env.OPS_ALERT_HEARTBEAT_MAX_AGE_SECONDS ?? null,
     compliance: crmSql ? createPgComplianceStore(crmSql) : undefined,
+    consoleMode: crmSql ? new SqlConsoleModeStore(crmSql) : undefined,
     alertSourceUrl: env.OPS_ALERT_SOURCE_URL,
     approvals: approvalConsumer,
     protocolListing: crmSql

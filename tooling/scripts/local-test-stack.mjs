@@ -6,6 +6,8 @@
  *   pnpm local:stack:stop                 stop only the processes this script started
  *   pnpm local:fund <email|userId> <ASSET> <amount>
  *                                         credit labelled TEST funds through the real ledger
+ *   node tooling/scripts/local-test-stack.mjs chain-deposit <address> <ASSET> <amount> <confirmations> --tx <label>
+ *                                         deliver a signed TEST chain transfer to a deposit address svc-pay issued
  *   node tooling/scripts/local-test-stack.mjs status
  *
  * What it starts, all bound to 127.0.0.1, state in ~/.intafaced/local-test-stack/:
@@ -1805,6 +1807,78 @@ async function cmdFund(rawArgs) {
   say(`  available ${bal.amount} ${asset}   (read back from svc-ledger)`);
 }
 
+/**
+ * `chain-deposit <address> <ASSET> <amount> <confirmations> --tx <label> [--index <n>]`: a TEST chain transfer to a deposit
+ * address the stack issued, delivered to svc-pay's own `/webhooks/crypto-native` exactly as its chain watcher would (the
+ * stack's chain is in memory and has no watcher). Signed with this stack's crypto webhook secret. The transaction hash comes
+ * from the address and the label, so the same label to the same address is the same transfer: sending it again (with a higher confirmation count, or the same)
+ * is a repeat of one chain event, never a second deposit. svc-pay decides what it is worth; nothing here touches the ledger.
+ */
+async function cmdChainDeposit(rawArgs) {
+  const args = [...rawArgs];
+  const option = (name, re, what) => {
+    const at = args.indexOf(name);
+    if (at === -1) return undefined;
+    const value = args[at + 1];
+    args.splice(at, 2);
+    if (!value || !re.test(value)) fail(`${name} must be ${what}`, 2);
+    return value;
+  };
+  const label = option('--tx', /^[A-Za-z0-9-]{4,64}$/, '4-64 letters, digits or dashes');
+  const index = option('--index', /^\d{1,4}$/, 'a whole number');
+  if (args.some((arg) => arg.startsWith('--'))) fail(`unknown option: ${args.find((arg) => arg.startsWith('--'))}`, 2);
+  const [address, assetRaw, amountStr, confirmationsStr, ...extra] = args;
+  if (!address || !assetRaw || !amountStr || !confirmationsStr || !label || extra.length > 0)
+    fail(
+      'usage: node tooling/scripts/local-test-stack.mjs chain-deposit <address> <ASSET> <decimal-amount> <confirmations> --tx <label> [--index <n>]',
+      2,
+    );
+  const asset = assetRaw.toUpperCase();
+  if (!/^[A-Z0-9]{2,12}$/.test(asset)) fail(`bad asset id: ${assetRaw}`, 2);
+  if (!AMOUNT_RE.test(amountStr)) fail(`amount must be a plain decimal string like 100 or 12.5 (got "${amountStr}")`, 2);
+  if (!/^\d{1,4}$/.test(confirmationsStr)) fail(`confirmations must be a whole number (got "${confirmationsStr}")`, 2);
+  if (address.length > 200 || /\s/.test(address)) fail('bad deposit address', 2);
+
+  // Guards: this only ever talks to the local stack's own svc-pay.
+  if (!fs.existsSync(P.marker)) fail(`refusing: marker ${P.marker} not found. Start the stack first (pnpm local:stack).`);
+  if (readJson(P.marker).kind !== 'intafaced-local-test-stack') fail('refusing: marker file is not a local test stack marker');
+  if (!ownedAlive(readProcs().pay)) fail('refusing: the local stack svc-pay is not running. Run: pnpm local:stack');
+  assertActiveLocalStack({ stateDir: STATE, services: ['pay'] });
+  const secret = readJson(P.secrets).payCryptoWebhook;
+  if (!secret) fail('refusing: this stack has no crypto webhook secret. Run: pnpm local:stack --rebuild');
+
+  // The same label to another address is another transfer, never a repeat of the first one's.
+  const txHash = `0x${crypto.createHash('sha256').update(`local-test-chain-deposit:${address}:${label}`).digest('hex')}`;
+  const logIndex = Number(index ?? '0');
+  const body = JSON.stringify({
+    id: `chain:${txHash}:${address}:${logIndex}`,
+    type: 'captured',
+    ref: address,
+    amount: amountStr,
+    assetId: asset,
+    occurredAt: new Date().toISOString(),
+    txHash,
+    logIndex,
+    from: '0xTEST-sender',
+    confirmations: Number(confirmationsStr),
+  });
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const signature = crypto.createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex');
+  const res = await fetch(`${urlOf('pay')}/webhooks/crypto-native`, {
+    method: 'POST',
+    redirect: 'error',
+    headers: { 'content-type': 'application/json', 'x-chain-signature': signature, 'x-chain-timestamp': timestamp },
+    body,
+  });
+  const text = await res.text();
+  if (res.status !== 200) fail(`svc-pay refused the TEST chain delivery (${res.status}): ${text.slice(0, 400)}`);
+  say('TEST chain delivery to svc-pay (in-memory TEST chain, not real money)');
+  say(`  to        ${address}`);
+  say(`  amount    ${amountStr} ${asset}, ${confirmationsStr} confirmations`);
+  say(`  tx        ${txHash}:${logIndex}   (label ${label})`);
+  say(`  answer    ${text}`);
+}
+
 /** Env each local service would get. Starts nothing. Placeholder secrets only. */
 export function localTestServiceEnvs(secrets = PLAN_SECRETS) {
   return serviceDefs(secrets).map((service) => ({ name: service.name, env: service.env() }));
@@ -1844,6 +1918,7 @@ async function runCli() {
   else if (cmd === 'plan') cmdPlan(rest);
   else if (cmd === 'restart') await cmdRestart(rest);
   else if (cmd === 'fund') await cmdFund(rest);
+  else if (cmd === 'chain-deposit') await cmdChainDeposit(rest);
   else if (cmd === 'age-linked-accounts') cmdAgeLinkedAccounts(rest);
   else if (cmd === 'customer-dist') cmdCustomerDist(rest);
   else if (cmd === 'status') {

@@ -22,6 +22,16 @@ interface Entry {
 }
 
 const BY_CODE: Readonly<Record<string, Entry>> = {
+  'ops.console_read_only': {
+    title: 'The console is in maintenance mode',
+    body: 'Two founders turned on maintenance mode, so this console takes no writes. Reads still work, and so do the halts. Nothing was sent.',
+    next: 'Wait for maintenance to end, or ask two founders to turn the mode off on Tools → Maintenance mode.',
+  },
+  'ops.console_mode_storage_unconfigured': {
+    title: 'Maintenance mode has no storage',
+    body: 'svc-ops has no database configured for the console mode, so it cannot be turned on or off, and it is never on. Nothing was changed.',
+    next: 'Ask whoever runs the svc-ops host to connect its database, then start a new request.',
+  },
   'custody_approval.initiator_cannot_decide': {
     title: 'A different approver has to decide this',
     body: 'The person who started a task cannot approve or reject it. Nothing was recorded.',
@@ -964,10 +974,13 @@ export function explainRefusal(code: string | null, status: number, uncertain = 
 /**
  * Edge and ledger wrap identity's failure into a sentence that carries the typed code in square brackets
  * (`identity refused consumeForEdge (412) ... [action_approval.not_approved]`). Pull it out so the desk can
- * explain it. Returns the first known `action_approval.*` code in the text, or null.
+ * explain it. A bracketed code is identity's own and wins over the wrapper's: svc-ops sends
+ * `action_approval.identity_unwired — identity refused consume (412) ... [action_approval.not_approved]` for any refusal, and
+ * the founder must read "not approved yet", not "not connected". Otherwise the first known `action_approval.*` code, or null.
  */
 export function codeInText(text: string | null | undefined): string | null {
   if (!text) return null;
+  for (const match of text.matchAll(/\[(action_approval\.[a-z_]+)\]/g)) if (isKnownCode(match[1])) return match[1];
   for (const match of text.matchAll(/\b(action_approval\.[a-z_]+)\b/g)) if (isKnownCode(match[1])) return match[1];
   return null;
 }

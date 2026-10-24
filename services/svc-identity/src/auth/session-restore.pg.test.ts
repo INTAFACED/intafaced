@@ -14,6 +14,7 @@ import { AuthService, AuthError } from './auth-service.js';
 import { RankService } from '../rank/rank-service.js';
 import { createTestDb } from '../fixture-truncate.testkit.js';
 import { cookiePathMatches, installRefreshCookieHooks, REFRESH_COOKIE_NAME, REFRESH_COOKIE_PATHS } from './refresh-cookie.js';
+import { DEVICE_COOKIE_NAME, DEVICE_COOKIE_PATH } from './trusted-devices.js';
 import { hashToken } from './passwords.js';
 import { encodeCbor } from './cbor.js';
 import {
@@ -110,7 +111,12 @@ function softAuthenticator() {
 
 function cookieLines(res: { headers: object }): string[] {
   const raw = (res.headers as { 'set-cookie'?: unknown })['set-cookie'];
-  const lines = Array.isArray(raw) ? raw.map(String) : typeof raw === 'string' ? [raw] : [];
+  const all = Array.isArray(raw) ? raw.map(String) : typeof raw === 'string' ? [raw] : [];
+  // A sign-in also sets the browser's device key (I-signin-sessions-07); it is its own cookie, on its own path.
+  const device = all.filter((line) => line.startsWith(`${DEVICE_COOKIE_NAME}=`));
+  expect(device.length).toBeLessThanOrEqual(1);
+  for (const line of device) expect(line).toContain(`Path=${DEVICE_COOKIE_PATH}`);
+  const lines = all.filter((line) => !line.startsWith(`${DEVICE_COOKIE_NAME}=`));
   expect(lines).toHaveLength(REFRESH_COOKIE_PATHS.length);
   return lines;
 }

@@ -56,6 +56,13 @@ export const offerSchema = z.object({
   maxAmount: amount,
   remainingAmount: amount,
   methods: z.array(z.unknown()),
+  /**
+   * P-disputes-security-09: the listed methods whose money arrives within a settlement window, with the longest window
+   * any market sets (null: the published payment time applies). Instant methods are not listed.
+   */
+  nonInstantMethods: z.array(z.object({ methodId: z.string(), windowSeconds: z.number().int().positive().nullable() })).optional(),
+  /** P-disputes-security-09: the seller accepted non-instant methods when posting. */
+  acceptsNonInstant: z.boolean().optional(),
   terms: z.string(),
   status: z.enum(['active', 'paused', 'closed']),
   createdAt: z.string(),
@@ -88,6 +95,12 @@ export const displayStatuses = [
   'cancelled_by_timeout',
   'cancelled_by_dispute_ruling',
 ] as const;
+/** How money on a payment method arrives in one market (svc-p2p settlement profile). */
+export const methodSettlementSchema = z.union([
+  z.object({ instant: z.literal(true) }),
+  z.object({ instant: z.literal(false), windowSeconds: z.number().int().positive().nullable() }),
+]);
+export type MethodSettlement = z.infer<typeof methodSettlementSchema>;
 export const tradeSchema = z.object({
   id,
   offerId: id,
@@ -114,6 +127,8 @@ export const tradeSchema = z.object({
   feeBps: z.number().int().min(0).max(9_999).optional(),
   fee: amount.nullable().optional(),
   netAmount: amount.nullable().optional(),
+  /** `trades.get` only: the method's settlement profile in the market the buyer pays into, copied at take. */
+  settlement: methodSettlementSchema.optional(),
 });
 /** svc-p2p `trades.page`: one keyset page newest first, the server's tab and readable status per row, and exact per-tab counts. */
 export const orderTabs = ['in_progress', 'in_dispute', 'completed', 'cancelled'] as const;
@@ -202,6 +217,7 @@ export const methodSchema = z.object({
   label: z.string(),
   fields: z.array(z.unknown()),
   enabled: z.boolean(),
+  settlement: methodSettlementSchema.optional(),
 });
 export const fiatSchema = z.object({ code: z.string(), name: z.string(), symbol: z.string(), minorUnits: z.number().int() });
 export const tradeDestinationSchema = z.object({

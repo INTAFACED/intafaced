@@ -2,6 +2,7 @@
 import { founderMutationHeaders } from '@/lib/founder-browser';
 import type { DeskRequest } from './approval-packet';
 import { readStepReply, type StepName, type StepReply } from './approval-types';
+import { explainRefusal } from './refusal-copy';
 
 export type ApprovalEndpoint =
   | '/api/kill-switch'
@@ -15,7 +16,8 @@ export type ApprovalEndpoint =
   | '/api/protocol-ops'
   | '/api/bank-ops'
   | '/api/identity-ops/keys'
-  | '/api/more-ops/waves';
+  | '/api/more-ops/waves'
+  | '/api/console-mode';
 
 export interface StepPayload {
   readonly step: StepName;
@@ -48,6 +50,9 @@ export async function postStep(endpoint: ApprovalEndpoint, payload: StepPayload,
       ...(signal ? { signal } : {}),
     });
     const body: unknown = await res.json().catch(() => null);
+    // Maintenance mode holds the write at the gate (`{ code: 'ops.console_read_only' }`, 423): a definite "not sent".
+    if (res.status === 423 && body && typeof body === 'object' && typeof (body as { code?: unknown }).code === 'string')
+      return { ok: false, step: null, refusal: explainRefusal((body as { code: string }).code, 423, false) };
     // A session refusal from the gate is `{ code }` with no step shape: it is a definite "not sent".
     if (res.status === 401 || res.status === 403) {
       if (body && typeof body === 'object' && 'refusal' in body) return readStepReply(body);

@@ -149,6 +149,15 @@ export const features: readonly Feature[] = [
       'Real-app journeys run 39886483027 on main at dc30da1 (2026-10-23): J-bank-01 #4 creates a space and is refused at the TEST limit of 5.',
   },
   {
+    id: 'bank-direct-debits',
+    label: 'Direct debits',
+    paths: ['/bank/direct-debits'],
+    status: 'blocked',
+    reason: 'No direct debit scheme is connected (rail.bank); the scheme, failure fees and guarantee periods are owner decisions',
+    unlock: 'an owner-chosen scheme, then J-bank-06 #4 passing against it',
+    tab: 'money',
+  },
+  {
     id: 'bank-transfers',
     label: 'Bank transfers',
     paths: ['/bank/transfers'],

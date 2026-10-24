@@ -589,6 +589,43 @@ const schema = serviceEnvSchema
         return v;
       }, z.coerce.number().int().min(1).max(86400).optional()),
       /**
+       * New-device check (I-signin-sessions-07): `on` or `off`. Blank leaves it off, and the Security page says the owner
+       * has not turned it on. With it on, a sign-in from a browser with no trusted device for the account waits for
+       * approval by a mailed code or from a trusted session.
+       */
+      IDENTITY_NEW_DEVICE_CHECK: z.preprocess(
+        (v) => {
+          if (v === undefined || v === null) return undefined;
+          if (typeof v === 'string' && v.trim() === '') return undefined;
+          return v;
+        },
+        z.enum(['on', 'off']).optional(),
+      ),
+      /**
+       * Owner-published lifetime of a waiting new-device sign-in, in seconds. NO DEFAULT: with the check on and this
+       * blank, a new-device sign-in is refused (`auth.device_check_unwired`). One day is the ceiling.
+       */
+      IDENTITY_NEW_DEVICE_TTL_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(86400).optional()),
+      /**
+       * Owner-published wrong mailed codes allowed per new-device sign-in (ceiling 5). Blank: no code is mailed and only
+       * a trusted session can approve.
+       */
+      IDENTITY_NEW_DEVICE_MAX_ATTEMPTS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(5).optional()),
+      /** Owner-published seconds a device stays trusted. Blank: until the person removes it (the Security page says so). */
+      IDENTITY_TRUSTED_DEVICE_TTL_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(315360000).optional()),
+      /**
        * The owner's per-country off switch for sign-up: comma-separated ISO country codes. Blank closes none,
        * because sign-up is open everywhere the sanctions screening allows (owner decision 2026-10-22). A code
        * that is not two letters refuses boot.

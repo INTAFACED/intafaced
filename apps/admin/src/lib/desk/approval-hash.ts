@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { CONSOLE_MODE_TARGET_ID, CONSOLE_MODE_TARGET_SERVICE, consoleModeApprovalFields } from '@intafaced/contracts/ops-console-mode';
 import { marketTargetId, poolTargetId } from '@intafaced/contracts/protocol-ops';
 import { normaliseCostAmount } from '@/lib/venue-economics/model';
 import type { DeskRequest } from './approval-packet';
@@ -101,6 +102,11 @@ export function payloadHashFor(request: DeskRequest): string {
     // svc-identity `waitlist.waves.release`: { targetId: 'waitlist.wave.release', wave, size }, in this order.
     case 'campaigns.waitlist.wave_release':
       return shaIdentity(WAVE_RELEASE_TARGET, { wave: request.wave, size: request.size });
+    // svc-ops `approvalPayloadHash(action, consoleModeApprovalFields(action, reason))`: { targetId: 'console', reason } on, { targetId } off.
+    case 'ops.console_mode.on':
+      return sha(request.kind, consoleModeApprovalFields(request.kind, request.reason));
+    case 'ops.console_mode.off':
+      return sha(request.kind, consoleModeApprovalFields(request.kind, null));
     // svc-ops `approvalPayloadHash('ops.venue_cost.record', { period, category, amount, asset, sourceNote })`, fields in this order.
     case 'ops.venue_cost.record':
       return sha('ops.venue_cost.record', {
@@ -262,6 +268,17 @@ export function proposeInputFor(request: DeskRequest): ProposeInput {
         actionType: WAVE_RELEASE_TARGET,
         targetService: 'svc-identity',
         targetId: WAVE_RELEASE_TARGET,
+        expectedVersion: '1',
+        payloadHash,
+        policyVersion: 'v1',
+      };
+    // svc-ops consumes against the console itself; its target service is not on identity's operator list, so both founders are needed.
+    case 'ops.console_mode.on':
+    case 'ops.console_mode.off':
+      return {
+        actionType: request.kind,
+        targetService: CONSOLE_MODE_TARGET_SERVICE,
+        targetId: CONSOLE_MODE_TARGET_ID,
         expectedVersion: '1',
         payloadHash,
         policyVersion: 'v1',

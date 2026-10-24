@@ -38,6 +38,7 @@ const schema = (fields: unknown[], overrides: Partial<MethodSchema> = {}): Metho
   label: 'Test method',
   enabled: true,
   fields: parseFieldSpecs(fields),
+  settlement: { instant: true },
   ...overrides,
 });
 

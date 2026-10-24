@@ -44,6 +44,8 @@ import { AccountHome } from './AccountHome';
 import { AddMoney } from './AddMoney';
 import { addMoneyCopy } from './add-money-copy';
 import { LinkedAccounts } from './LinkedAccounts';
+import { DirectDebits } from './DirectDebits';
+import { directDebitsCopy } from './direct-debits-copy';
 import { linkedAccountsCopy } from './linked-accounts-copy';
 import { cashOutCopy } from './cash-out-copy';
 import { CashOut } from './CashOut';
@@ -614,6 +616,7 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
   const referenceWords = referenceIssue ? depth.t(referenceIssue === 'tooLong' ? 'referenceTooLong' : 'referenceCharacters') : null;
   return (
     <BankPage room="Transfers" description={copyText('rooms.move.available.quantities.between.spaces.or.to')}>
+      <DirectDebitsLink />
       <Section title={copyText('rooms.new.transfer')}>
         <ResourceView resource={query.resource} reload={query.reload}>
           {(spaces) => {
@@ -1445,6 +1448,27 @@ function AddMoneyRoom() {
     </BankPage>
   );
 }
+/** The way into the direct debits room from Transfers. */
+function DirectDebitsLink() {
+  const { t } = directDebitsCopy.useCopy();
+  return (
+    <p className="money-caption">
+      <a className="text-link" href="/bank/direct-debits">
+        {t('open')}
+      </a>{' '}
+      {t('openHint')}
+    </p>
+  );
+}
+/** `/bank/direct-debits`: Direct Debit mandates and collections, inside the Transfers room (J-bank-06 #4). */
+function DirectDebitsRoom() {
+  const { t } = directDebitsCopy.useCopy();
+  return (
+    <BankPage room="Transfers" title={t('title')} description={t('description')}>
+      <DirectDebits />
+    </BankPage>
+  );
+}
 /** `/bank/ramps/accounts`: linked bank accounts, inside the Ramps room. */
 function LinkedAccountsRoom() {
   const { t } = linkedAccountsCopy.useCopy();
@@ -1877,6 +1901,8 @@ export function BankRoutes({ path, search, open }: { path: string; search: strin
       return <Spaces open={open} search={search} />;
     case '/bank/transfers':
       return <Transfers open={open} search={search} />;
+    case '/bank/direct-debits':
+      return <DirectDebitsRoom />;
     case '/bank/earn':
       return <Earn open={open} />;
     case '/bank/loans':

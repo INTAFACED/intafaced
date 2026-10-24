@@ -55,7 +55,8 @@ function upstream(handlers: Record<string, (init: RequestInit, url: string) => R
   );
   return calls;
 }
-const calls = <T extends { url: string }>(c: T[]) => c.filter((x) => !x.url.includes('operatorStatus'));
+const calls = <T extends { url: string }>(c: T[]) =>
+  c.filter((x) => !x.url.includes('operatorStatus') && !x.url.includes('consoleMode.get'));
 
 afterEach(() => {
   process.env = { ...ORIGINAL_ENV };

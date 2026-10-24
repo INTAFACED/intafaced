@@ -1,5 +1,7 @@
 import { createCipheriv, createDecipheriv, randomBytes, timingSafeEqual } from 'node:crypto';
 import { accountOperatorEntitlementSchema } from '@intafaced/contracts';
+import { CONSOLE_READ_ONLY } from '@intafaced/contracts/ops-console-mode';
+import { loadConsoleMode } from '@/lib/console-mode/read';
 
 export const ADMIN_COOKIE = '__Host-intafaced-admin';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -217,6 +219,39 @@ export async function assertCurrentFounder(session: FounderSession, config: Admi
   if (status.data.status !== 'enabled' || status.data.userId !== session.userId) throw new AdminSessionError('admin.founder_required', 403);
 }
 
+/**
+ * Write doors that stay open in maintenance mode: the mode's own door (so it can be turned off), and the emergency stops, so a
+ * maintenance window never holds one up: the posting freeze, module kills, payment halts, the trading venue halt and an account
+ * freeze (each of these doors also lifts what it stops, which still needs its own second founder). A prefix door covers its
+ * sub-paths; `/api/accounts` is that one path only, so closures and tier moves stay held. Sign-in and sign-out never come here.
+ */
+export const READ_ONLY_EXEMPT_PATHS: readonly { readonly path: string; readonly prefix: boolean }[] = [
+  { path: '/api/console-mode', prefix: true },
+  { path: '/api/ledger-freeze', prefix: true },
+  { path: '/api/kill-switch', prefix: true },
+  { path: '/api/pay-halts', prefix: true },
+  { path: '/api/trade-ops/kill-switch', prefix: true },
+  { path: '/api/accounts', prefix: false },
+];
+
+/**
+ * Maintenance mode (OPS-admin-access-08): while svc-ops says the console is read-only, a console write refuses
+ * `ops.console_read_only` (423) before it reaches any service. Reads never come here.
+ *
+ * It fails open: the mode is the founders' own hold on this console, not an authority boundary (every write is still
+ * authorised by its owning service: scope, MFA, approvals). When svc-ops has no storage the mode is off by construction,
+ * and when svc-ops cannot be read (within `CONSOLE_MODE_READ_TIMEOUT_MS`) a write goes through, as it would with the mode
+ * off; the banner then says the mode is not known. Holding every desk on an svc-ops outage would couple each service's
+ * controls to svc-ops. The read is the banner's own (`loadConsoleMode`), so the two cannot disagree, and it runs only after
+ * the founder check, so a refused session never reaches svc-ops.
+ */
+export async function assertConsoleWritable(request: Request, session: FounderSession, config: AdminSessionConfig): Promise<void> {
+  const path = new URL(request.url).pathname;
+  if (READ_ONLY_EXEMPT_PATHS.some((door) => path === door.path || (door.prefix && path.startsWith(`${door.path}/`)))) return;
+  const { view } = await loadConsoleMode({ session, config });
+  if (view.kind === 'read' && view.mode.readOnly) throw new AdminSessionError(CONSOLE_READ_ONLY, 423);
+}
+
 export async function authorizeAdminRequest(request: Request): Promise<{ session: FounderSession; config: AdminSessionConfig }> {
   const config = adminSessionConfig();
   const mutation = !['GET', 'HEAD', 'OPTIONS'].includes(request.method);
@@ -224,6 +259,7 @@ export async function authorizeAdminRequest(request: Request): Promise<{ session
   const session = openFounderSession(request.headers.get('cookie'), config);
   if (mutation) assertAdminCsrf(request, session);
   await assertCurrentFounder(session, config);
+  if (mutation) await assertConsoleWritable(request, session, config);
   return { session, config };
 }
 

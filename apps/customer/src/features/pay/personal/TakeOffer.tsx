@@ -13,6 +13,7 @@ import type { Offer, TakeQuote, Trade } from '../schemas';
 import { p2pDepth } from './p2p-depth-copy';
 import { TraderName, useTraders } from './Trader';
 import { P2PEligibilityPanel } from './Eligibility';
+import { TakeSettlementNotice } from './Settlement';
 import { StepUpConfirm } from '../../money/StepUpConfirm';
 import type { StepUpBegin } from '../../account/security-step-up';
 import {
@@ -55,6 +56,8 @@ export function takeFailureText(t: CopyT, kind: TakeFailure, context: 'quote' | 
       return t('failLimitsUnset');
     case 'methodRetired':
       return t('failMethodRetired');
+    case 'nonInstantRefused':
+      return t('failNonInstant');
     case 'buyingPaused':
       return t('failBuyingPausedPlain');
     case 'ownOffer':
@@ -723,6 +726,7 @@ export function TakeOfferPanel({ offer, pay, userId }: { offer: Offer; pay: Pers
             ))}
           </select>
         </label>
+        <TakeSettlementNotice offer={offer} method={method} />
         <div className="p2p-quote" aria-live="polite" data-testid="take-quote-area">
           <h4>{t('takeQuoteTitle')}</h4>
           {shown === null ? (
