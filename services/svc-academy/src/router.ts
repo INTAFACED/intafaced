@@ -23,6 +23,7 @@ import {
   academySetCertIssueRuleInputSchema,
   academyCertIssueRuleSchema,
   academyCertIssueSchema,
+  academyCertIdSchema,
   academyItemVideoSchema,
   academySetItemVideoInputSchema,
   academySetVideoTracksInputSchema,
@@ -3218,7 +3219,7 @@ export function createAcademyRouter(
 
       /** AC-certificates-02: one certificate's stored issue rule, or null when staff have set none (the learner claims it). */
       certIssueRule: scopedProcedure('admin:read', { module: 'academy' })
-        .input(z.object({ certId: z.string().min(1).max(64) }))
+        .input(z.object({ certId: academyCertIdSchema }))
         .output(academyCertIssueRuleSchema.nullable())
         .query(({ input }) => guard(() => academy.certIssueRule(input.certId))),
 

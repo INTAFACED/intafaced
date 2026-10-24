@@ -234,18 +234,20 @@ await app.listen({ host: env.HTTP_HOST, port: env.HTTP_PORT });
  * AC-certificates-02: the issue sweep issues delayed certificates once due. One sweep at a time: a slow one is never
  * stacked under the next. Blank interval, no sweep, and delayed issue rules refuse `academy.cert_sweep_unset`.
  */
-let sweeping = false;
+let sweeping: Promise<void> | null = null;
 const certSweep =
   env.ACADEMY_CERT_ISSUE_SWEEP_SECONDS === undefined
     ? null
     : setInterval(() => {
         if (sweeping) return;
-        sweeping = true;
-        void academy
+        sweeping = academy
           .issueDueCertificates()
-          .catch((err: unknown) => app.log.error({ err }, 'certificate issue sweep failed; the next one retries'))
+          .then(
+            () => undefined,
+            (err: unknown) => app.log.error({ err }, 'certificate issue sweep failed; the next one retries'),
+          )
           .finally(() => {
-            sweeping = false;
+            sweeping = null;
           });
       }, env.ACADEMY_CERT_ISSUE_SWEEP_SECONDS * 1000);
 certSweep?.unref();
@@ -255,6 +257,8 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     void (async () => {
       if (certSweep) clearInterval(certSweep);
+      // A sweep under way finishes before the pool closes, so no issue is cut off between its grant and its cleanup.
+      await sweeping;
       await app.close();
       await bus?.close();
       await sql.end({ timeout: 5 });

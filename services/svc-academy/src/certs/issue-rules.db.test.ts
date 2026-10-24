@@ -148,7 +148,7 @@ describe('certificate issue rules', () => {
     expect(await grants()).toBe(1);
   });
 
-  it('an Undo before the delay passes drops the wait; nothing is issued for an incomplete course', async () => {
+  it('an Undo before the delay passes drops the wait at once, and completing again starts a new one', async () => {
     const academy = service();
     await rule(academy, 'delayed', 60);
     await finish(academy, T0);
@@ -161,9 +161,50 @@ describe('certificate issue rules', () => {
       itemSlug: last,
       completedAt: row!.completed_at.toISOString(),
       clientRequestId: `undo:${last}:test`,
+      now: minutes(50),
+    });
+    expect(await sql`SELECT 1 FROM academy.cert_issue_pending`).toHaveLength(0);
+    expect(await academy.issueDueCertificates(minutes(90))).toBe(0);
+    expect(await grants()).toBe(0);
+    await academy.markCurriculumComplete({ userId: USER, itemSlug: last, now: minutes(100) });
+    const again = await academy.certProgress({ userId: USER, certId: CERT, now: minutes(101) });
+    expect(again.issue.issuesAt).toEqual(minutes(160));
+  });
+
+  it('switching back to manual drops every wait, so the sweep issues nothing and finishes', async () => {
+    const academy = service();
+    await rule(academy, 'delayed', 60);
+    await finish(academy, T0);
+    await academy.setCertIssueRule({
+      certId: CERT,
+      mode: 'manual',
+      delayMinutes: null,
+      reason: 'TEST manual',
+      operatorId: OPERATOR,
+      now: minutes(1),
     });
     expect(await academy.issueDueCertificates(minutes(90))).toBe(1);
+    expect(await academy.issueDueCertificates(minutes(91))).toBe(0);
     expect(await grants()).toBe(0);
+  });
+
+  it('a learner complete before a delayed rule was set waits the delay from the rule, and a claim once due is a first grant', async () => {
+    const academy = service();
+    await finish(academy, T0);
+    await academy.setCertIssueRule({
+      certId: CERT,
+      mode: 'delayed',
+      delayMinutes: 60,
+      reason: 'TEST delayed',
+      operatorId: OPERATOR,
+      now: minutes(30),
+    });
+    const waiting = await academy.certProgress({ userId: USER, certId: CERT, now: minutes(31) });
+    expect(waiting.issue.issuesAt).toEqual(minutes(90));
+    const claimed = await academy.grantCert({ userId: USER, certId: CERT, now: minutes(90) });
+    expect(claimed.alreadyGranted).toBe(false);
+    expect(await grants()).toBe(1);
+    await academy.certProgress({ userId: USER, certId: CERT, now: minutes(91) });
     expect(await sql`SELECT 1 FROM academy.cert_issue_pending`).toHaveLength(0);
   });
 
