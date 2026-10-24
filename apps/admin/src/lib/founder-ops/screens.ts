@@ -432,7 +432,7 @@ export const SCREENS: readonly FounderScreen[] = [
     'CONFIG',
     'Inspect runtime posture and effective control configuration.',
     ['Sandbox / live mode', 'Module flags', 'Money defaults', 'Approval thresholds'],
-    'No authoritative platform settings read or global dual-control editor is exposed. Money defaults are not configured here.',
+    'This page lists the console’s own settings, svc-edge’s screening and network posture and the flag overrides, with what each blank one stops. No global dual-control editor exists, and money defaults are not configured here.',
     'Review settings',
   ),
   screen(
