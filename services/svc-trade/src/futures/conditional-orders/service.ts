@@ -120,9 +120,12 @@ export type EntryProtectionStatus = 'waiting' | 'armed' | 'done' | 'not_filled' 
 /** How long a recorded entry protection waits for its order to appear before it is closed `not_placed`. */
 const ENTRY_ORDER_WAIT_MS = 120_000;
 
-/** An entry protection leg's client id: one pair per position the order's fills land in. */
-function entryLegId(positionId: string, clientOrderId: string, leg: 'tp' | 'sl'): string {
-  return `entry:${positionId}:${clientOrderId}:${leg}`;
+/**
+ * An entry protection leg's client id: one pair per position the order's fills land in, and a fresh generation of the
+ * pair on that position for fills that settle after a leg of the last pair fired (`entry:<position>:<order>:<n>:tp`).
+ */
+function entryLegId(positionId: string, clientOrderId: string, generation: number, leg: 'tp' | 'sl'): string {
+  return generation === 0 ? `entry:${positionId}:${clientOrderId}:${leg}` : `entry:${positionId}:${clientOrderId}:${generation}:${leg}`;
 }
 
 export interface EntryProtectionView {
@@ -136,7 +139,7 @@ export interface EntryProtectionView {
   readonly status: EntryProtectionStatus;
   /** The order's settled fills the job has dealt with (armed legs for them, or found nothing open to protect). */
   readonly armedQuantity: string;
-  /** The legs' own client ids, once armed (`entry:<position>:<order>:tp` and `:sl`), on the newest position. */
+  /** The newest legs' own client ids, once armed (`entry:<position>:<order>:tp` and `:sl`, or `:<n>:tp` after a fired pair). */
   readonly takeProfitClientOrderId: string | null;
   readonly stopLossClientOrderId: string | null;
   readonly createdAt: string;
@@ -157,6 +160,7 @@ interface EntryRow {
   armed_quantity: string;
   position_id: string | null;
   earlier_quantity: string;
+  generation: number;
   created_at: Date;
   updated_at: Date;
 }
@@ -172,8 +176,8 @@ function presentEntry(row: EntryRow): EntryProtectionView {
     stopLoss: money(row.stop_loss),
     status: row.status,
     armedQuantity: formatAmount(parseAmount(row.armed_quantity)),
-    takeProfitClientOrderId: pos != null && row.take_profit != null ? entryLegId(pos, row.client_order_id, 'tp') : null,
-    stopLossClientOrderId: pos != null && row.stop_loss != null ? entryLegId(pos, row.client_order_id, 'sl') : null,
+    takeProfitClientOrderId: pos != null && row.take_profit != null ? entryLegId(pos, row.client_order_id, row.generation, 'tp') : null,
+    stopLossClientOrderId: pos != null && row.stop_loss != null ? entryLegId(pos, row.client_order_id, row.generation, 'sl') : null,
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
   };
@@ -1130,7 +1134,9 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
    * One entry protection. The legs are a linked part pair on the position the order's fills are in
    * (`entry:<position>:<order>:tp` and `:sl`), sized to the fills that position holds from this order and never above
    * the position. When that position closes and the order fills on into a new one, a new pair is armed there for the
-   * new fills. The entry row is locked, so one worker sizes it at a time, and the position row is locked as a
+   * new fills. When a leg of the pair fired (filled, failed, or was cancelled as its sibling filled) and nothing of it
+   * is still armed, fills that settle after it get a fresh generation of the pair on the same position: the trader
+   * asked for this order's fills to be protected. Legs the trader replaced or cancelled are left alone. The entry row is locked, so one worker sizes it at a time, and the position row is locked as a
    * protection replace locks it. Nothing is final while the order can still fill.
    */
   async function armEntry(id: string): Promise<void> {
@@ -1168,11 +1174,18 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
         (order.status === 'cancelled' && engine != null && settled >= engine);
       const dealt = parseAmount(entry.armed_quantity);
       const finalStatus = (): EntryProtectionStatus => (entry.position_id != null ? 'done' : settled === 0n ? 'not_filled' : 'no_position');
-      const save = async (fields: { status: EntryProtectionStatus; dealt: Amount; positionId: string | null; earlier: Amount }) => {
+      const save = async (fields: {
+        status: EntryProtectionStatus;
+        dealt: Amount;
+        positionId: string | null;
+        earlier: Amount;
+        generation?: number;
+      }) => {
         await tx`
           UPDATE trade.futures_entry_protection
           SET status = ${fields.status}, armed_quantity = ${formatAmount(fields.dealt)}, position_id = ${fields.positionId},
-              earlier_quantity = ${formatAmount(fields.earlier)}, updated_at = now()
+              earlier_quantity = ${formatAmount(fields.earlier)}, generation = ${fields.generation ?? entry.generation},
+              updated_at = now()
           WHERE id = ${entry.id}
         `;
       };
@@ -1193,16 +1206,42 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
         await save({ status: over ? finalStatus() : entry.status, dealt: settled, positionId: entry.position_id, earlier: earlierNow });
         return;
       }
+      const legIds = (generation: number) => ({
+        tp: entryLegId(pos.id, entry.client_order_id, generation, 'tp'),
+        sl: entryLegId(pos.id, entry.client_order_id, generation, 'sl'),
+      });
+      const legRows = (ids: { tp: string; sl: string }) => tx<
+        { client_order_id: string; status: string; cancel_reason: string | null; request_hash: string }[]
+      >`
+        SELECT client_order_id, status, cancel_reason, request_hash FROM trade.futures_conditional_orders
+        WHERE user_id = ${entry.user_id} AND client_order_id IN (${ids.tp}, ${ids.sl})
+      `;
       // Fills dealt with before this position (on one since closed, or with none open) are not this position's.
-      const earlier = entry.position_id === pos.id ? earlierNow : dealt;
+      let earlier = entry.position_id === pos.id ? earlierNow : dealt;
+      let generation = entry.generation;
+      let ids = legIds(generation);
+      let existing = await legRows(ids);
+      if (entry.position_id === pos.id) {
+        // The pair on this position fired and nothing of it is armed: it covered the fills dealt with so far, and the
+        // fills since then get a fresh pair of their own, sized from those fills alone.
+        const fired = existing.some(
+          (r) => r.status === 'filled' || r.status === 'failed' || (r.status === 'cancelled' && r.cancel_reason === 'linked'),
+        );
+        const live = existing.some((r) => r.status === 'armed' || r.status === 'triggered');
+        // A leg the trader replaced or cancelled was their choice: no fresh pair is armed over it.
+        const traders = existing.some(
+          (r) => r.status === 'cancelled' && (r.cancel_reason === 'cancelled' || r.cancel_reason === 'replaced'),
+        );
+        if (fired && !live && !traders) {
+          generation += 1;
+          earlier = dealt;
+          ids = legIds(generation);
+          existing = await legRows(ids);
+        }
+      }
       const size = parseAmount(pos.size);
       const ours = settled - earlier;
       const quantity = ours < size ? ours : size;
-      const ids = { tp: entryLegId(pos.id, entry.client_order_id, 'tp'), sl: entryLegId(pos.id, entry.client_order_id, 'sl') };
-      const existing = await tx<{ client_order_id: string; status: string; request_hash: string }[]>`
-        SELECT client_order_id, status, request_hash FROM trade.futures_conditional_orders
-        WHERE user_id = ${entry.user_id} AND client_order_id IN (${ids.tp}, ${ids.sl})
-      `;
       const side = closingSide(positionSide);
       const legs: Array<{ attachment: AttachmentLeg; kind: ConditionalKind; price: string | null; clientOrderId: string }> = [
         { attachment: 'take_profit', kind: 'take_profit', price: entry.take_profit, clientOrderId: ids.tp },
@@ -1240,7 +1279,7 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
           `;
         }
       }
-      await save({ status: over ? 'done' : 'armed', dealt: settled, positionId: pos.id, earlier });
+      await save({ status: over ? 'done' : 'armed', dealt: settled, positionId: pos.id, earlier, generation });
     });
   }
 

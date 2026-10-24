@@ -779,6 +779,64 @@ describe('futures conditional orders fire through the book', () => {
       expect((await legsOf())[sl]).toMatchObject({ status: 'cancelled' });
     });
 
+    it('fills after a fired leg get a fresh pair on the same position, and a leg the trader cancelled is left alone', async () => {
+      const positionId = await aliceLong('1');
+      await entryWith('entry-refire', { takeProfit: '110', stopLoss: '90' });
+      const entry = await book.place(principal(ALICE), limit(ALICE, 'buy', '1', '100', 'entry-refire'));
+      const bob = await book.place(principal(BOB), limit(BOB, 'sell', '1', '100', 'entry-refire-bob'));
+      await fill(entry.orderId, bob.orderId, '0.4');
+      await orders.evaluate({ enabled: true });
+      const tp = `entry:${positionId}:entry-refire:tp`;
+      const sl = `entry:${positionId}:entry-refire:sl`;
+      expect((await legsOf())[tp]).toMatchObject({ status: 'armed', quantity: '0.4' });
+
+      // The take profit fires on its 0.4; the position stays open on the earlier 1, and the linked stop loss goes.
+      mark = A('109');
+      const bid = await carolBid('0.4', '110');
+      mark = A('111');
+      scriptFill((await legsOf())[tp]!.id, bid, '0.4', '110');
+      await orders.evaluate({ enabled: true });
+      expect((await legsOf())[tp]).toMatchObject({ status: 'filled', closedQuantity: '0.4' });
+      expect((await legsOf())[sl]).toMatchObject({ status: 'cancelled', cancelReason: 'linked' });
+      expect(await positionOf(positionId)).toMatchObject({ status: 'open', size: '1' });
+
+      // The order fills on into the same position: those fills get a pair of their own, sized to them alone.
+      mark = A('100');
+      await fill(entry.orderId, bob.orderId, '0.3');
+      await orders.evaluate({ enabled: true });
+      const tp1 = `entry:${positionId}:entry-refire:1:tp`;
+      const sl1 = `entry:${positionId}:entry-refire:1:sl`;
+      expect((await legsOf())[tp1]).toMatchObject({ status: 'armed', quantity: '0.3', triggerPrice: '110', wholePosition: false });
+      expect((await legsOf())[sl1]).toMatchObject({ status: 'armed', quantity: '0.3', triggerPrice: '90', wholePosition: false });
+      expect(await entryRow('entry-refire')).toMatchObject({
+        status: 'armed',
+        armedQuantity: '0.7',
+        takeProfitClientOrderId: tp1,
+        stopLossClientOrderId: sl1,
+      });
+      // The new pair grows with the fills after it, and the fired pair stays as it ended.
+      await fill(entry.orderId, bob.orderId, '0.1');
+      await orders.evaluate({ enabled: true });
+      expect((await legsOf())[sl1]).toMatchObject({ status: 'armed', quantity: '0.4' });
+      expect((await legsOf())[tp]).toMatchObject({ status: 'filled', quantity: '0.4' });
+
+      // The trader cancels the new stop loss and the new take profit fires: that was their choice, so the last fill
+      // gets no third pair.
+      await orders.cancel(ALICE, (await legsOf())[sl1]!.id);
+      mark = A('109');
+      const bid2 = await carolBid('0.4', '110');
+      mark = A('111');
+      scriptFill((await legsOf())[tp1]!.id, bid2, '0.4', '110');
+      await orders.evaluate({ enabled: true });
+      expect((await legsOf())[tp1]).toMatchObject({ status: 'filled' });
+      mark = A('100');
+      await fill(entry.orderId, bob.orderId, '0.2');
+      await orders.evaluate({ enabled: true });
+      expect((await legsOf())[`entry:${positionId}:entry-refire:2:tp`]).toBeUndefined();
+      expect((await legsOf())[`entry:${positionId}:entry-refire:2:sl`]).toBeUndefined();
+      expect(await entryRow('entry-refire')).toMatchObject({ status: 'done', armedQuantity: '1', takeProfitClientOrderId: tp1 });
+    });
+
     it('covers only what the order filled, not the position it added to', async () => {
       const positionId = await aliceLong('1');
       await entryWith('entry-add', { stopLoss: '90' });

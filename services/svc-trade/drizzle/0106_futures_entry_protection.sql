@@ -8,7 +8,8 @@
 -- order may fill more), done (the order is over and its legs were armed), not_filled (the order ended with no fill),
 -- no_position (the order is over and nothing was open on its side to protect), not_placed (no order appeared under
 -- the id; the same request sent again reopens it). armed_quantity is the order's settled fills the job has dealt with;
--- position_id is the position the newest legs are on, and earlier_quantity the fills dealt with before it.
+-- position_id is the position the newest legs are on, and earlier_quantity the fills dealt with before its newest
+-- pair. generation counts the fresh pairs armed on that position after a leg of the last one fired (0: the first).
 CREATE TABLE IF NOT EXISTS "trade"."futures_entry_protection" (
   "id"               uuid            PRIMARY KEY,
   "user_id"          text            NOT NULL,
@@ -22,6 +23,7 @@ CREATE TABLE IF NOT EXISTS "trade"."futures_entry_protection" (
   "armed_quantity"   numeric(38, 18) NOT NULL DEFAULT 0,
   "position_id"      uuid,
   "earlier_quantity" numeric(38, 18) NOT NULL DEFAULT 0,
+  "generation"       integer         NOT NULL DEFAULT 0,
   "created_at"       timestamptz     NOT NULL DEFAULT now(),
   "updated_at"       timestamptz     NOT NULL DEFAULT now(),
   CONSTRAINT "futures_entry_protection_order_uq" UNIQUE ("user_id", "market_id", "client_order_id"),
@@ -33,6 +35,7 @@ CREATE TABLE IF NOT EXISTS "trade"."futures_entry_protection" (
   CONSTRAINT "futures_entry_protection_prices_ck" CHECK (
     ("take_profit" IS NULL OR "take_profit" > 0) AND ("stop_loss" IS NULL OR "stop_loss" > 0)
   ),
+  CONSTRAINT "futures_entry_protection_generation_ck" CHECK ("generation" >= 0),
   CONSTRAINT "futures_entry_protection_armed_ck" CHECK (
     "armed_quantity" >= 0 AND "earlier_quantity" >= 0 AND "earlier_quantity" <= "armed_quantity"
   )
