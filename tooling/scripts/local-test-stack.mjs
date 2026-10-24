@@ -31,6 +31,7 @@
  *   node tooling/scripts/local-test-stack.mjs expire-address-approvals <email>   TEST fixture: open approval links run out
  *   node tooling/scripts/local-test-stack.mjs expire-deposit-addresses <email>   TEST fixture: open extra deposit addresses expire
  *   node tooling/scripts/local-test-stack.mjs expire-staff-holds <email>   TEST fixture: open staff holds with an expiry reach it
+ *   node tooling/scripts/local-test-stack.mjs seed-withdrawal <email> <ASSET> <amount> --state <s> --ref <label>   TEST fixture: a withdrawal in that state
  *
  * Rules this file keeps (AGENTS.md "Money"):
  *   - Value moves ONLY through the ledger (packages/ledger-client recipes -> svc-ledger).
@@ -1907,6 +1908,111 @@ async function cmdFund(rawArgs) {
 }
 
 /**
+ * `seed-withdrawal <email-or-userId> <ASSET> <amount> --state requested|held|dispatching|broadcast --ref <label>`: one TEST
+ * withdrawal of the person's own funds, in the state a journey starts from (J-wallet-06). Sending out is switched off in
+ * svc-pay (its withdraw feature is published `blocked`), so no withdrawal can reach these states through the Withdraw form on
+ * this stack. This writes the row the way svc-pay's `withdraw` leaves it at that point and books the hold through the ledger's
+ * own recipe (`withdrawHold`, keyed on the attempt), exactly as `withdraw` does, hold first. `requested`: a row and nothing
+ * posted. `held`: the hold booked and the row held, nothing asked of a rail. `dispatching`: a send journalled `requested` with no
+ * answer (a lost reply). `broadcast`: the send journalled `accepted` with a TEST transaction reference. What the person can do
+ * next (cancel, and what that gives back) is svc-pay's own code. The same --ref is the same withdrawal.
+ */
+async function cmdSeedWithdrawal(rawArgs) {
+  const args = [...rawArgs];
+  const option = (name) => {
+    const at = args.indexOf(name);
+    if (at === -1) return undefined;
+    const value = args[at + 1];
+    args.splice(at, 2);
+    return value;
+  };
+  const state = option('--state');
+  const ref = option('--ref');
+  const [who, assetRaw, amountStr] = args;
+  const usage =
+    'usage: node tooling/scripts/local-test-stack.mjs seed-withdrawal <email-or-userId> <ASSET> <amount> --state requested|held|dispatching|broadcast --ref <label>';
+  if (!who || !assetRaw || !amountStr || !state || !ref) fail(usage, 2);
+  if (!['requested', 'held', 'dispatching', 'broadcast'].includes(state))
+    fail(`--state must be requested, held, dispatching or broadcast (got "${state}")`, 2);
+  if (!/^[A-Za-z0-9-]{4,48}$/.test(ref)) fail('--ref must be 4-48 letters, digits or dashes', 2);
+  const asset = assetRaw.toUpperCase();
+  if (!/^[A-Z0-9]{2,12}$/.test(asset)) fail(`bad asset id: ${assetRaw}`, 2);
+  if (!AMOUNT_RE.test(amountStr)) fail(`amount must be a plain decimal string like 40 or 12.5 (got "${amountStr}")`, 2);
+  const { secrets, userId } = localFixturePerson(who);
+  if (!ownedAlive(readProcs().ledger)) fail('refusing: the local stack ledger is not running. Run: pnpm local:stack');
+  const asPay = (sql, vars) =>
+    psql(secrets, sql, { db: DB_NAME, user: 'svc_pay', password: secrets.pgService, vars, tuples: true })
+      .trim()
+      .split('\n')
+      .filter((line) => line && !/^(INSERT|UPDATE) \d+( \d+)?$/.test(line));
+
+  const clientRef = `local-test-${ref}`;
+  const txRef = `0x${crypto.createHash('sha256').update(`seed-withdrawal:${ref}`).digest('hex')}`;
+  const destination = JSON.stringify({
+    kind: 'crypto',
+    ref: `0x${crypto.createHash('sha256').update(`seed-withdrawal-to:${ref}`).digest('hex').slice(0, 40)}`,
+  });
+  asPay(
+    `INSERT INTO pay.withdrawals (user_id, asset_id, amount, rail, destination, client_ref, status, attempts)
+     VALUES (:'uid', :'asset', :'amount'::numeric, 'crypto-native', :'dest'::jsonb, :'ref', 'pending', 0)
+     ON CONFLICT (user_id, client_ref) DO NOTHING`,
+    { uid: userId, asset, amount: amountStr, dest: destination, ref: clientRef },
+  );
+  const [found] = asPay(
+    `SELECT id::text || E'\\t' || status::text || E'\\t' || amount::text || E'\\t' || asset_id FROM pay.withdrawals
+      WHERE user_id = :'uid' AND client_ref = :'ref'`,
+    { uid: userId, ref: clientRef },
+  );
+  if (!found) fail('svc-pay has no row for that reference after the insert');
+  const [id, stored, storedAmount, storedAsset] = found.split('\t');
+  const load = (pkg) => import(pathToFileURL(path.join(REPO, 'packages', pkg, 'dist', 'index.js')).href);
+  const [ledgerClient, contracts] = await Promise.all([load('ledger-client'), load('contracts')]);
+  if (ledgerClient.parseAmount(storedAmount) !== ledgerClient.parseAmount(amountStr) || storedAsset !== asset)
+    fail(`--ref ${ref} already names a withdrawal of ${storedAmount} ${storedAsset}`, 2);
+
+  if (state !== 'requested' && stored === 'pending') {
+    // The hold first, as `withdraw` posts it: funds leave available for a hold that names this withdrawal and attempt 0.
+    const request = ledgerClient.recipes.withdrawHold({
+      userId,
+      assetId: asset,
+      amount: ledgerClient.parseAmount(amountStr),
+      rail: 'crypto-native',
+      withdrawalId: `${id}:0`,
+    });
+    const raw = JSON.stringify({
+      idempotencyKey: request.idempotencyKey,
+      module: request.module,
+      reason: request.reason,
+      meta: { ...request.meta, label: 'LOCAL TEST withdrawal hold, not real money' },
+      entries: request.entries.map((e) => ({ account: e.account, direction: e.direction, amount: ledgerClient.formatAmount(e.amount) })),
+    });
+    const res = await fetch(`${urlOf('ledger')}/trpc/post`, {
+      redirect: 'error',
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...contracts.serviceAuthHeadersForBody('local-test-fund', secrets.internal, raw) },
+      body: raw,
+    });
+    if (!res.ok) fail(`ledger refused the TEST hold (${res.status}): ${(await res.text()).slice(0, 400)}`);
+    asPay(
+      `UPDATE pay.withdrawals SET status = 'held', dispatch_journaled = true, updated_at = now() WHERE id = :'id' AND status = 'pending'`,
+      {
+        id,
+      },
+    );
+  }
+  if (state === 'dispatching' || state === 'broadcast') {
+    asPay(
+      `INSERT INTO pay.withdrawal_rail_attempts (withdrawal_id, attempt, outcome, rail_ref)
+       VALUES (:'id', 0, :'outcome', NULLIF(:'tx', '')) ON CONFLICT DO NOTHING`,
+      { id, outcome: state === 'broadcast' ? 'accepted' : 'requested', tx: state === 'broadcast' ? txRef : '' },
+    );
+  }
+  say(`TEST withdrawal (LOCAL TEST, not real money)`);
+  say(`  withdrawal ${id}`);
+  say(`  state      ${state}   ${asset} ${amountStr}   reference ${clientRef}`);
+}
+
+/**
  * `chain-deposit <address> <ASSET> <amount> <confirmations> --tx <label> [--index <n>]`: a TEST chain transfer to a deposit
  * address the stack issued, delivered to svc-pay's own `/webhooks/crypto-native` exactly as its chain watcher would (the
  * stack's chain is in memory and has no watcher). Signed with this stack's crypto webhook secret. The transaction hash comes
@@ -2064,6 +2170,7 @@ async function runCli() {
   else if (cmd === 'plan') cmdPlan(rest);
   else if (cmd === 'restart') await cmdRestart(rest);
   else if (cmd === 'fund') await cmdFund(rest);
+  else if (cmd === 'seed-withdrawal') await cmdSeedWithdrawal(rest);
   else if (cmd === 'chain-deposit') await cmdChainDeposit(rest);
   else if (cmd === 'chain-reorg') await cmdChainReorg(rest);
   else if (cmd === 'age-linked-accounts') cmdAgeLinkedAccounts(rest);
@@ -2078,7 +2185,7 @@ async function runCli() {
     process.exit(ok ? 0 : 1);
   } else
     fail(
-      `unknown command "${cmd}". Use: start | stop | status | fund | age-linked-accounts | expire-address-approvals | expire-deposit-addresses | expire-staff-holds | plan | restart | customer-dist`,
+      `unknown command "${cmd}". Use: start | stop | status | fund | seed-withdrawal | age-linked-accounts | expire-address-approvals | expire-deposit-addresses | expire-staff-holds | plan | restart | customer-dist`,
       2,
     );
 }

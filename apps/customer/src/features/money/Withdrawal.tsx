@@ -16,12 +16,17 @@ import {
   requestedWithdrawal,
   withdrawalFailureMessage,
   withdrawalIdSchema,
+  type CanceledWithdrawal,
   type WithdrawalRecord,
 } from './withdrawal-reads';
 import './withdrawal.css';
 
 export type WithdrawalReadContext = { current: () => boolean };
 const href = (id: string) => `/uc/withdraw?withdrawalId=${encodeURIComponent(id)}`;
+/** The status label: svc-pay's customer vocabulary when it sends it, else the stored value. */
+const statusKey = (record: WithdrawalRecord) => (record.customerStatus ? (`s_${record.customerStatus}` as const) : record.status);
+/** Still in motion: a hold sits against it. */
+const inMotion = (record: WithdrawalRecord) => record.status === 'held' || record.status === 'pending';
 
 function useHandlerCurrent(current: () => boolean) {
   const rendering = {};
@@ -145,8 +150,11 @@ function List({ current }: { current: () => boolean }) {
                           <strong className="numeric" lang="und" data-withdrawal-amount>
                             {hideBalances ? `•••• ${record.assetId}` : amount(record.amount, record.assetId)}
                           </strong>
-                          <span className={`withdrawal-status ${record.status === 'held' || record.status === 'pending' ? 'accent' : ''}`}>
-                            {t(record.status)}
+                          <span
+                            className={`withdrawal-status ${inMotion(record) ? 'accent' : ''}`}
+                            data-withdrawal-status={record.customerStatus}
+                          >
+                            {t(statusKey(record))}
                           </span>
                           <span className="withdrawal-rail" lang="und">
                             {record.rail}
@@ -206,6 +214,57 @@ function Detail({ id, current }: { id: string; current: () => boolean }) {
   const refresh = () => {
     if (active()) reload();
   };
+  const [canceling, setCanceling] = useState(false);
+  const [canceled, setCanceled] = useState<CanceledWithdrawal | null>(null);
+  const [cancelFailure, setCancelFailure] = useState<Extract<ApiResult<unknown>, { ok: false }> | null>(null);
+  async function cancel() {
+    if (!active() || canceling) return;
+    setCanceling(true);
+    setCancelFailure(null);
+    const result = await createWithdrawalReads(api, userId, current).cancel(id);
+    if (!active()) return;
+    setCanceling(false);
+    if (result.ok) setCanceled(result.data);
+    else {
+      const message = withdrawalFailureMessage(result);
+      setCancelFailure(message ? { ...result, message, messageCopy: undefined } : result);
+    }
+    // Either way the record may have moved: read it again.
+    reload();
+  }
+  /**
+   * Cancel, on every withdrawal still in motion (W-withdraw-07). svc-pay decides: when the record says it cannot be cancelled,
+   * the reason sits beside the button, and pressing it anyway answers with svc-pay's typed refusal. A finished withdrawal has
+   * nothing to cancel.
+   */
+  function cancelPart(record: WithdrawalRecord): ReactNode {
+    if (!inMotion(record)) return null;
+    const shown = record.customerStatus;
+    // An older svc-pay sends no `cancellable`: it cancels a requested withdrawal and refuses a held one.
+    const may = record.cancellable ?? record.status === 'pending';
+    const note = may
+      ? t('cancelNote')
+      : shown === 'broadcast' || shown === 'confirming'
+        ? t('broadcastNote')
+        : shown === 'dispatching' || record.status === 'pending'
+          ? t('dispatchingNote')
+          : t('heldUnknownNote');
+    return (
+      <div className="withdrawal-cancel" data-testid="withdrawal-cancel" data-cancellable={may}>
+        <p className="muted" id={`withdrawal-cancel-note-${record.id}`}>
+          {note}
+        </p>
+        <Button
+          variant="secondary"
+          disabled={canceling}
+          aria-describedby={`withdrawal-cancel-note-${record.id}`}
+          onClick={() => void cancel()}
+        >
+          {canceling ? t('canceling') : t('cancel')}
+        </Button>
+      </div>
+    );
+  }
   function facts(record: WithdrawalRecord): [string, ReactNode][] {
     return [
       [
@@ -258,9 +317,27 @@ function Detail({ id, current }: { id: string; current: () => boolean }) {
               <strong className="numeric" lang="und" data-withdrawal-amount>
                 {hideBalances ? `•••• ${record.assetId}` : amount(record.amount, record.assetId)}
               </strong>
-              <span className={record.status === 'held' || record.status === 'pending' ? 'accent' : undefined}>{t(record.status)}</span>
+              <span className={inMotion(record) ? 'accent' : undefined} data-testid="withdrawal-status" data-status={record.customerStatus}>
+                {t(statusKey(record))}
+              </span>
             </div>
             <p className="muted">{t('statusNote')}</p>
+            {canceled && (
+              <p role="status" data-testid="withdrawal-canceled">
+                {canceled.holdReleased === true
+                  ? t('canceledReleased')
+                  : canceled.holdReleased === false
+                    ? t('canceledNothing')
+                    : t('canceledUnknown')}
+              </p>
+            )}
+            {cancelFailure && (
+              <div data-testid="withdrawal-cancel-refused">
+                <Failure result={cancelFailure} retry={() => setCancelFailure(null)} />
+              </div>
+            )}
+            {cancelPart(record)}
+            {inMotion(record) && <p className="muted">{t('irreversible')}</p>}
             <dl className="withdrawal-facts">
               {facts(record).map(([label, value]) => (
                 <div key={label}>

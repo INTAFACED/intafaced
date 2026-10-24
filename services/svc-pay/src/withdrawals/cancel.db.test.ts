@@ -305,4 +305,175 @@ describe('cancel a withdrawal (real Postgres)', () => {
     expect((await history.search(USER, { limit: 10, status: 'canceled' })).items.map((i) => i.id)).toEqual([cancelled]);
     expect((await history.search(USER, { limit: 10, status: 'failed' })).items.map((i) => i.id)).toEqual([failed]);
   });
+
+  // ── W-withdraw-07: a held withdrawal, judged by its dispatch journal ──
+
+  /** A held row as `withdraw` leaves it: marked journalled, its hold booked, and optionally a journal row for its attempt. */
+  async function heldRow(journal: 'requested' | 'accepted' | null, o: { clientRef?: string; hold?: boolean } = {}): Promise<string> {
+    const id = await row('held', { clientRef: o.clientRef ?? 'w-held' });
+    await db.sql`UPDATE pay.withdrawals SET dispatch_journaled = true WHERE id = ${id}`;
+    if (o.hold !== false) await holdFor(id);
+    if (journal) {
+      await db.sql`
+        INSERT INTO pay.withdrawal_rail_attempts (withdrawal_id, attempt, outcome, rail_ref)
+        VALUES (${id}, 0, ${journal}, ${journal === 'accepted' ? 'rail-tx-1' : null})`;
+    }
+    return id;
+  }
+  const statusOf = async (id: string) =>
+    (
+      await db.sql<Array<{ status: string; failure_code: string | null }>>`
+      SELECT status::text, failure_code FROM pay.withdrawals WHERE id = ${id}`
+    )[0];
+
+  it('a held withdrawal the journal proves was never sent is cancelled: the hold goes back once, and twice is still once', async () => {
+    const id = await heldRow(null);
+    expect(await availableOf()).toBe('60');
+
+    const first = await money.cancelWithdrawal({ userId: USER, withdrawalId: id });
+    const again = await money.cancelWithdrawal({ userId: USER, withdrawalId: id });
+
+    expect(first).toMatchObject({ status: 'failed', failureCode: WITHDRAWAL_CANCELED_CODE, holdReleased: true });
+    expect(again).toMatchObject({ status: 'failed', failureCode: WITHDRAWAL_CANCELED_CODE, holdReleased: true });
+    expect(await availableOf()).toBe('100');
+    expect(await holdOf(id, 0)).toBe('0');
+    expect(await reverseTxs(id, 0)).toBe(true);
+    expect(await statusOf(id)).toEqual({ status: 'failed', failure_code: WITHDRAWAL_CANCELED_CODE });
+  });
+
+  it('a requested withdrawal with no hold says nothing went back', async () => {
+    const id = await row('pending');
+    const out = await money.cancelWithdrawal({ userId: USER, withdrawalId: id });
+    expect(out.holdReleased).toBe(false);
+    expect((await money.cancelWithdrawal({ userId: USER, withdrawalId: id })).holdReleased).toBe(false);
+  });
+
+  it('a send whose reply was lost is refused and stays held with its funds in the hold', async () => {
+    const id = await heldRow('requested');
+
+    await expect(money.cancelWithdrawal({ userId: USER, withdrawalId: id })).rejects.toMatchObject({
+      code: 'pay.withdrawal_not_cancellable',
+      detail: { state: 'dispatching' },
+    });
+
+    expect(await statusOf(id)).toEqual({ status: 'held', failure_code: null });
+    expect(await holdOf(id, 0)).toBe('40');
+    expect(await availableOf()).toBe('60');
+    expect(await reverseTxs(id, 0)).toBe(false);
+  });
+
+  it('a broadcast withdrawal is refused as broadcast and nothing moves', async () => {
+    const id = await heldRow('accepted');
+
+    await expect(money.cancelWithdrawal({ userId: USER, withdrawalId: id })).rejects.toMatchObject({
+      code: 'pay.withdrawal_not_cancellable',
+      detail: { state: 'broadcast' },
+    });
+
+    expect(await statusOf(id)).toEqual({ status: 'held', failure_code: null });
+    expect(await holdOf(id, 0)).toBe('40');
+    expect(await reverseTxs(id, 0)).toBe(false);
+  });
+
+  it('a held row with no hold on the ledger is refused, and nothing is credited', async () => {
+    const id = await heldRow(null, { hold: false });
+
+    await expect(money.cancelWithdrawal({ userId: USER, withdrawalId: id })).rejects.toMatchObject({
+      code: 'pay.withdrawal_not_cancellable',
+    });
+
+    expect(await availableOf()).toBe('100');
+    expect(await reverseTxs(id, 0)).toBe(false);
+    expect(await statusOf(id)).toEqual({ status: 'held', failure_code: null });
+  });
+
+  it('a cancel of a held row that stopped after its intent is finished by the repeat, with one reverse, and a send never resumes it', async () => {
+    const id = await heldRow(null, { clientRef: 'w-held-crash' });
+    const dying = new Proxy(ledger, {
+      get(target, prop) {
+        if (prop === 'post') {
+          return async (req: Parameters<LedgerClient['post']>[0]) => {
+            const out = await target.post(req);
+            if (req.idempotencyKey.startsWith('withdraw.reverse:')) throw new Error('process died');
+            return out;
+          };
+        }
+        const value = Reflect.get(target, prop) as unknown;
+        return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+      },
+    }) as LedgerClient;
+    const crashing = new UserMoneyService(db.sql, dying, rails, { operatorCreditRails: ['card-sandbox'] });
+    await expect(crashing.cancelWithdrawal({ userId: USER, withdrawalId: id })).rejects.toMatchObject({
+      code: 'pay.ledger_outcome_unknown',
+    });
+    expect(await statusOf(id)).toEqual({ status: 'held', failure_code: WITHDRAWAL_CANCELED_CODE });
+
+    await expect(
+      money.withdraw({
+        userId: USER,
+        assetId: 'USDT',
+        amount: amt('40'),
+        rail: 'card-sandbox',
+        destination: DESTINATION,
+        clientRef: 'w-held-crash',
+      }),
+    ).rejects.toMatchObject({ code: 'pay.withdrawal_canceled' });
+    const [attempts] = await db.sql<Array<{ n: string }>>`
+      SELECT count(*)::text AS n FROM pay.withdrawal_rail_attempts WHERE withdrawal_id = ${id}`;
+    expect(attempts!.n).toBe('0');
+
+    const done = await money.cancelWithdrawal({ userId: USER, withdrawalId: id });
+    expect(done).toMatchObject({ status: 'failed', failureCode: WITHDRAWAL_CANCELED_CODE, holdReleased: true });
+    expect(await availableOf()).toBe('100');
+    expect(await holdOf(id, 0)).toBe('0');
+  });
+
+  it('a cancel racing a send on the same reference: the lock decides, and the loser is refused', async () => {
+    const id = await heldRow(null, { clientRef: 'w-race' });
+    const [a, b] = await Promise.allSettled([
+      money.cancelWithdrawal({ userId: USER, withdrawalId: id }),
+      money.withdraw({
+        userId: USER,
+        assetId: 'USDT',
+        amount: amt('40'),
+        rail: 'card-sandbox',
+        destination: DESTINATION,
+        clientRef: 'w-race',
+      }),
+    ]);
+    const after = await statusOf(id);
+    if (a.status === 'fulfilled') {
+      // The cancel won: the send is refused and the funds are back once.
+      expect(b).toMatchObject({ status: 'rejected', reason: { code: 'pay.withdrawal_canceled' } });
+      expect(after).toEqual({ status: 'failed', failure_code: WITHDRAWAL_CANCELED_CODE });
+      expect(await availableOf()).toBe('100');
+    } else {
+      // The send won: it was sent, and the cancel was refused.
+      expect(a.reason).toMatchObject({ code: 'pay.withdrawal_not_cancellable' });
+      expect(after!.status).toBe('sent');
+      expect(await availableOf()).toBe('60');
+    }
+    expect(await holdOf(id, 0)).toBe('0');
+  });
+
+  it('withdraw marks the move into held as journalled, and the reads carry the journal', async () => {
+    const sent = await money.withdraw({
+      userId: USER,
+      assetId: 'USDT',
+      amount: amt('40'),
+      rail: 'card-sandbox',
+      destination: DESTINATION,
+      clientRef: 'w-marked',
+    });
+    const [marked] = await db.sql<Array<{ dispatch_journaled: boolean | null }>>`
+      SELECT dispatch_journaled FROM pay.withdrawals WHERE id = ${sent.id}`;
+    expect(marked!.dispatch_journaled).toBe(true);
+    expect(await money.getWithdrawal(sent.id)).toMatchObject({ status: 'sent', journal: 'accepted', dispatchJournaled: true });
+
+    const held = await heldRow('requested', { clientRef: 'w-read' });
+    const legacy = await row('held', { clientRef: 'w-legacy' });
+    const listed = new Map((await money.listWithdrawals(USER, 10)).map((w) => [w.id, w]));
+    expect(listed.get(held)).toMatchObject({ journal: 'requested', dispatchJournaled: true });
+    expect(listed.get(legacy)).toMatchObject({ journal: null, dispatchJournaled: null });
+  });
 });

@@ -1,4 +1,4 @@
-import { WITHDRAWAL_STATUSES } from './withdrawals/status.js';
+import { WITHDRAWAL_STATUSES, isCancellable, shownStatus } from './withdrawals/status.js';
 import { ELIGIBILITY_REASONS } from './withdrawals/eligibility.js';
 import { WithdrawalQuoteError, withdrawalQuoteToTrpcError } from './withdrawals/quotes/errors.js';
 import { WithdrawalApprovalError, withdrawalApprovalToTrpcError } from './withdrawals/approvals/errors.js';
@@ -223,6 +223,13 @@ const withdrawalView = z.object({
   failureCode: z.string().nullable(),
   status: z.enum(['pending', 'held', 'sent', 'failed']),
   createdAt: z.string().datetime({ offset: true }),
+  /**
+   * The row in the customer vocabulary (W-withdraw-07): a held row reads `held` while nothing was sent, `dispatching` while a
+   * send's outcome is unknown, and `broadcast` once it left. A read that did not join the dispatch journal says `held`.
+   */
+  customerStatus: z.enum(WITHDRAWAL_STATUSES),
+  /** Whether `withdrawal.cancel` would cancel it now. False whenever the answer is not proven. */
+  cancellable: z.boolean(),
 });
 
 type PaymentViewOut = z.infer<typeof paymentView>;
@@ -2165,19 +2172,21 @@ export function createPayRouter(
 
       /**
        * Cancel one of the caller's own withdrawals before anything is sent (W-withdraw-07). `trade:write`, not
-       * `trade:withdraw`: a cancel only puts the caller's own funds back and needs no step-up. Only a withdrawal with no
-       * send attempt on record can be cancelled; `sent`, `held` and `failed` answer `pay.withdrawal_not_cancellable`, and
-       * cancelling twice returns the same cancelled record. The id is checked against the caller, so another account's
-       * id reads as `pay.withdrawal_not_found`.
+       * `trade:withdraw`: a cancel only puts the caller's own funds back and needs no step-up. A requested withdrawal with
+       * no send on record, or a held one whose dispatch journal proves nothing was sent, is cancelled and its hold (if any)
+       * goes back once. A send whose outcome is unknown, a broadcast, a sent and a failed withdrawal answer
+       * `pay.withdrawal_not_cancellable`. Cancelling twice returns the same cancelled record. `holdReleased` says whether a
+       * hold went back (`null`: the ledger could not say on a repeat). The id is checked against the caller, so another
+       * account's id reads as `pay.withdrawal_not_found`.
        */
       cancel: scopedProcedure('trade:write', { module: 'ledger' })
         .input(z.object({ withdrawalId: z.string().guid() }).strict())
-        .output(withdrawalView.extend({ customerStatus: z.literal('canceled') }))
+        .output(withdrawalView.extend({ customerStatus: z.literal('canceled'), holdReleased: z.boolean().nullable() }))
         .mutation(({ ctx, input }) =>
-          wrap(async () => ({
-            ...toWithdrawalOut(await userMoney.cancelWithdrawal({ userId: ctx.principal.userId, withdrawalId: input.withdrawalId })),
-            customerStatus: 'canceled' as const,
-          })),
+          wrap(async () => {
+            const canceled = await userMoney.cancelWithdrawal({ userId: ctx.principal.userId, withdrawalId: input.withdrawalId });
+            return { ...toWithdrawalOut(canceled), customerStatus: 'canceled' as const, holdReleased: canceled.holdReleased };
+          }),
         ),
 
       /**
@@ -2408,6 +2417,8 @@ function toWithdrawalOut(row: WithdrawalRecord): WithdrawalViewOut {
     failureCode: row.failureCode,
     status: row.status,
     createdAt: row.createdAt.toISOString(),
+    customerStatus: shownStatus(row.status, row.failureCode, row.journal),
+    cancellable: isCancellable(row.status, row.failureCode, row.journal, row.dispatchJournaled),
   };
 }
 
