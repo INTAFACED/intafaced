@@ -10,7 +10,7 @@ import { TradeOpsError } from './common.js';
 import type { TradeOpsAdmin } from './service.js';
 
 const limit = z.number().int().min(1).max(200);
-const id = z.string().uuid();
+const id = z.string().guid();
 const reason = z.string().trim().min(3).max(500);
 const clientRequestId = z.string().trim().min(1).max(128);
 const nullableText = z.string().trim().min(1).max(128).nullish();
@@ -192,7 +192,7 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
       set: operatorWrite
         .input(
           z.object({
-            schedule: z.record(z.unknown()),
+            schedule: z.record(z.string(), z.unknown()),
             effectiveAt: z.string().trim().min(1).max(40),
             expectedVersion: z.string().regex(/^(?:0|[1-9]\d*)$/),
             reason,
@@ -387,7 +387,7 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
               kind: agreementKind.nullish(),
               version: z.number().int().min(1).nullish(),
               region: z.string().trim().min(1).max(16).nullish(),
-              userId: z.string().uuid().nullish(),
+              userId: z.string().guid().nullish(),
               from: z.string().nullish(),
               to: z.string().nullish(),
               cursor: z.string().nullish(),
@@ -403,7 +403,7 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
               kind: agreementKind.nullish(),
               version: z.number().int().min(1).nullish(),
               region: z.string().trim().min(1).max(16).nullish(),
-              userId: z.string().uuid().nullish(),
+              userId: z.string().guid().nullish(),
               from: z.string().nullish(),
               to: z.string().nullish(),
               reason,

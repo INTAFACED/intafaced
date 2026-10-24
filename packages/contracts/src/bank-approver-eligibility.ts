@@ -26,7 +26,7 @@ export const BANK_APPROVER_ELIGIBILITY_CALLERS: readonly ServiceName[] = ['svc-p
 export const bankApproverEligibilityInputSchema = z
   .object({
     /** The business team account whose roles decide. */
-    accountId: z.string().uuid(),
+    accountId: z.string().guid(),
     /** The person asking to approve. Bank user ids are opaque text. */
     userId: z.string().min(1).max(128),
   })

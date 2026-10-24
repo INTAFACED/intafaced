@@ -9,14 +9,14 @@ import type { ApiClient, ApiResult } from '../../shared/api';
 const date = z.string().datetime({ offset: true });
 
 export const notificationSchema = z.object({
-  id: z.string().uuid(),
+  id: z.string().guid(),
   userId: z.string(),
   kind: z.string(),
   titleKey: z.string(),
   bodyKey: z.string(),
   title: z.string(),
   body: z.string(),
-  params: z.record(z.unknown()),
+  params: z.record(z.string(), z.unknown()),
   href: z.string().nullable(),
   severity: z.enum(['info', 'action', 'critical']),
   readAt: date.nullable(),
@@ -24,7 +24,7 @@ export const notificationSchema = z.object({
 });
 export type Notification = z.infer<typeof notificationSchema>;
 
-const listSchema = z.object({ items: z.array(notificationSchema).max(100), nextCursor: z.string().uuid().nullable() });
+const listSchema = z.object({ items: z.array(notificationSchema).max(100), nextCursor: z.string().guid().nullable() });
 export type InboxPage = z.infer<typeof listSchema>;
 
 const countSchema = z.object({ count: z.number().int().nonnegative() });
@@ -196,7 +196,7 @@ export const ALERT_CONDITIONS = ['crossing', 'crossing_up', 'crossing_down', 'gr
 export type AlertCondition = (typeof ALERT_CONDITIONS)[number];
 
 export const priceAlertSchema = z.object({
-  id: z.string().uuid(),
+  id: z.string().guid(),
   userId: z.string(),
   marketId: z.string().min(1).max(64),
   kind: z.enum(ALERT_KINDS),
@@ -411,7 +411,7 @@ export const deletePriceAlert = (api: ApiClient, id: string): Promise<ApiResult<
 export const alertTriggerSchema = z.object({
   /** Which trigger of the alert this is, from 1; a repeating alert has one row for each. A service that sends none means 1. */
   seq: z.number().int().min(1).optional(),
-  alertId: z.string().uuid(),
+  alertId: z.string().guid(),
   marketId: z.string().min(1).max(64),
   condition: z.enum(ALERT_CONDITIONS),
   targetPrice: z.string().min(1).max(64),

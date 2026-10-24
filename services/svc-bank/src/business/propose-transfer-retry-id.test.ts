@@ -64,8 +64,8 @@ describe('proposeTransfer pins a required caller clientId and does not mint', ()
     const nextAt = src.indexOf('approve: scopedProcedure', doorAt);
     const body = src.slice(doorAt, nextAt === -1 ? doorAt + 1800 : nextAt);
     expect(doorAt).toBeGreaterThan(-1);
-    expect(body).toMatch(/clientId:\s*z\.string\(\)\.uuid\(\)/);
-    expect(body).not.toMatch(/clientId:\s*z\.string\(\)\.uuid\(\)\.optional\(\)/);
+    expect(body).toMatch(/clientId:\s*z\.string\(\)\.guid\(\)/);
+    expect(body).not.toMatch(/clientId:\s*z\.string\(\)\.guid\(\)\.optional\(\)/);
   });
 });
 

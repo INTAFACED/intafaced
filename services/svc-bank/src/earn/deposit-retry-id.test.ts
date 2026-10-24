@@ -64,8 +64,8 @@ describe('earn.deposit pins a required caller positionId', () => {
     const wdAt = src.indexOf("withdraw: scopedProcedure('bank:write'", doorAt);
     const body = src.slice(doorAt, wdAt);
     expect(doorAt).toBeGreaterThan(-1);
-    expect(body).toMatch(/positionId:\s*z\.string\(\)\.uuid\(\)/);
-    expect(body).not.toMatch(/positionId:\s*z\.string\(\)\.uuid\(\)\.optional\(\)/);
+    expect(body).toMatch(/positionId:\s*z\.string\(\)\.guid\(\)/);
+    expect(body).not.toMatch(/positionId:\s*z\.string\(\)\.guid\(\)\.optional\(\)/);
   });
 });
 

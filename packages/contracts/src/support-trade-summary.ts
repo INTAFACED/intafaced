@@ -53,7 +53,7 @@ export const SUPPORT_TRADE_SUMMARY_LIMIT_MAX = 500;
 
 /** A non-negative decimal string, at most 18 places: the wire rule in `instruments.ts` and `ticket-order.ts`. A number is refused. */
 const amount = z
-  .string({ invalid_type_error: 'JS number refused — amounts are decimal strings' })
+  .string({ error: (issue) => (issue.input === undefined ? undefined : 'JS number refused — amounts are decimal strings') })
   .regex(/^\d+(\.\d{1,18})?$/, 'amounts are decimal strings with at most 18 decimal places');
 
 const timestamp = z.string().datetime();
@@ -63,11 +63,11 @@ const symbol = z.string().min(1).max(64);
 export const supportTradeSummaryInputSchema = z
   .object({
     /** The customer whose trade summary is read. */
-    userId: z.string().uuid(),
+    userId: z.string().guid(),
     /** The support case (the ticket id) the agent holds on this customer. Required: there is no case-less read. */
-    caseId: z.string().uuid(),
+    caseId: z.string().guid(),
     /** The support agent making the read. Recorded in svc-trade's audit row with the case id. */
-    agentId: z.string().uuid(),
+    agentId: z.string().guid(),
     /** Rows per list (positions, liquidation events, orders). Optional so an omitted bound reaches the named refusal. */
     limit: z.number().int().positive().max(SUPPORT_TRADE_SUMMARY_LIMIT_MAX).optional(),
   })
@@ -111,7 +111,7 @@ export type SupportTradePosition = z.infer<typeof supportTradePositionSchema>;
 export const SUPPORT_TRADE_RUNG_STATES = ['planned', 'posted', 'applied', 'abandoned', 'resolved'] as const;
 export const supportTradeLiquidationSchema = z
   .object({
-    rungId: z.string().uuid(),
+    rungId: z.string().guid(),
     positionId: z.string().min(1),
     kind: z.enum(['partial', 'closing']),
     state: z.enum(SUPPORT_TRADE_RUNG_STATES),
@@ -155,10 +155,10 @@ function section<T extends z.ZodTypeAny>(item: T) {
  */
 export const supportTradeSummarySchema = z
   .object({
-    userId: z.string().uuid(),
-    caseId: z.string().uuid(),
-    agentId: z.string().uuid(),
-    auditId: z.string().uuid(),
+    userId: z.string().guid(),
+    caseId: z.string().guid(),
+    agentId: z.string().guid(),
+    auditId: z.string().guid(),
     readAt: timestamp,
     /** The bound the lists were cut to. */
     limit: z.number().int().positive().max(SUPPORT_TRADE_SUMMARY_LIMIT_MAX),

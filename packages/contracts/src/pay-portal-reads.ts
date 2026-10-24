@@ -20,7 +20,7 @@ const pageLimitSchema = z.number().int().min(1).max(200).optional();
  * including an empty object or an empty domain list. This read does not fill
  * a fee, a domain, or a brand. `feeRouting` is null when hidden for this role.
  */
-const checkoutSettingsRecordSchema = z.record(z.unknown());
+const checkoutSettingsRecordSchema = z.record(z.string(), z.unknown());
 
 export const payCheckoutSettingsGetInputSchema = z
   .object({
@@ -33,7 +33,7 @@ export const payCheckoutSettingsSchema = z.discriminatedUnion('status', [
   z
     .object({
       status: z.literal('configured'),
-      profileId: z.string().uuid(),
+      profileId: z.string().guid(),
       checkoutConfig: checkoutSettingsRecordSchema,
       /** Null = hidden for this role (never {}). An empty object is stored data. */
       feeRouting: checkoutSettingsRecordSchema.nullable(),
@@ -50,7 +50,7 @@ export const payDestinationDefaultSchema = z.enum(['unset', 'default']);
 
 export const payPayoutDestinationItemSchema = z
   .object({
-    id: z.string().uuid(),
+    id: z.string().guid(),
     merchantId: payMerchantIdSchema,
     railId: z.string().min(1).max(64),
     kind: z.string().min(1).max(32),
@@ -79,7 +79,7 @@ export const payRefundLedgerEffectSchema = z
     /** True only when the refund's ledger transaction was read back. */
     recorded: z.boolean(),
     pot: payRefundPotSchema.nullable(),
-    ledgerTxId: z.string().uuid().nullable(),
+    ledgerTxId: z.string().guid().nullable(),
     /** Ledger direction on the pot. A posted refund credits the pot (value leaves). */
     direction: z.enum(['debit', 'credit']).nullable(),
   })
@@ -89,16 +89,16 @@ const paymentStatusSchema = z.enum(['created', 'authorized', 'captured', 'settle
 
 export const payRefundItemSchema = z
   .object({
-    id: z.string().uuid(),
+    id: z.string().guid(),
     refundId: z.string().min(1).max(200),
-    paymentId: z.string().uuid(),
+    paymentId: z.string().guid(),
     merchantId: payMerchantIdSchema,
     amount: payAmountStringSchema,
     assetId: payAssetCodeSchema,
     /** Not stored on the refund event. Null until a reason is recorded. */
     reason: z.string().min(1).max(200).nullable(),
     /** Not stored on the refund event. Null until an actor id is recorded. */
-    actor: z.string().uuid().nullable(),
+    actor: z.string().guid().nullable(),
     status: payRefundStatusSchema,
     createdAt: payTimestampSchema,
     settledAt: payTimestampSchema.nullable(),
@@ -106,7 +106,7 @@ export const payRefundItemSchema = z
     ledgerEffect: payRefundLedgerEffectSchema,
     payment: z
       .object({
-        paymentId: z.string().uuid(),
+        paymentId: z.string().guid(),
         status: paymentStatusSchema,
       })
       .strict(),
@@ -124,13 +124,13 @@ export const payRefundListInputSchema = z
     assetId: payAssetCodeSchema.optional(),
     from: payTimestampSchema.optional(),
     to: payTimestampSchema.optional(),
-    paymentId: z.string().uuid().optional(),
+    paymentId: z.string().guid().optional(),
   })
   .strict();
 
 export const payRefundGetInputSchema = z
   .object({
-    refundEventId: z.string().uuid(),
+    refundEventId: z.string().guid(),
   })
   .strict();
 
@@ -148,7 +148,7 @@ const paySignedAmountStringSchema = z
 
 export const payStatementLineSchema = z
   .object({
-    id: z.string().uuid(),
+    id: z.string().guid(),
     merchantId: payMerchantIdSchema,
     at: payTimestampSchema,
     assetId: payAssetCodeSchema,
@@ -187,9 +187,9 @@ export const payStatementLineSchema = z
      * Null when the running balances are present.
      */
     runningReason: z.enum(['no_opening', 'order_ambiguous']).nullable(),
-    paymentId: z.string().uuid().nullable(),
-    settlementId: z.string().uuid().nullable(),
-    ledgerTxId: z.string().uuid(),
+    paymentId: z.string().guid().nullable(),
+    settlementId: z.string().guid().nullable(),
+    ledgerTxId: z.string().guid(),
   })
   .strict();
 export type PayStatementLine = z.infer<typeof payStatementLineSchema>;
@@ -281,12 +281,12 @@ export const payLifecycleStatusSchema = z.enum(['pending', 'posted', 'paid_out',
 
 export const payLifecycleEventSchema = z
   .object({
-    id: z.string().uuid(),
+    id: z.string().guid(),
     /** Null when `timeKnown` is false. The column recorded the fact and not the time. */
     at: payTimestampSchema.nullable(),
     timeKnown: z.boolean(),
     kind: payLifecycleKindSchema,
-    approvalId: z.string().uuid().nullable(),
+    approvalId: z.string().guid().nullable(),
     railId: z.string().min(1).max(64).nullable(),
     destinationKind: z.string().min(1).max(32).nullable(),
     destinationMasked: z.string().min(1).max(64).nullable(),
@@ -299,7 +299,7 @@ export const payLifecycleEventSchema = z
 
 export const payPayoutLifecycleSchema = z
   .object({
-    settlementId: z.string().uuid(),
+    settlementId: z.string().guid(),
     /**
      * Derived from `events` in time order. A synthetic event floors this to
      * the settlement status column when that column has no timestamp.
@@ -323,6 +323,6 @@ export type PayPayoutLifecycle = z.infer<typeof payPayoutLifecycleSchema>;
 
 export const payPayoutLifecycleInputSchema = z
   .object({
-    settlementId: z.string().uuid(),
+    settlementId: z.string().guid(),
   })
   .strict();

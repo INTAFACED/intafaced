@@ -10,7 +10,7 @@ import { composeStatementPnl, type StatementPnlFacts, type StatementPnlOwner, ty
 import { handleStatementPnlFromBook, refuseInventedCostBasis, statementPnlBookInputSchema } from './statement-pnl-book.js';
 
 const decimalString = z.string({
-  invalid_type_error: 'JS number refused — amounts are decimal strings',
+  error: (issue) => (issue.input === undefined ? undefined : 'JS number refused — amounts are decimal strings'),
 });
 
 const closedLotSchema = z.object({
