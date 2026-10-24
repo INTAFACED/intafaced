@@ -188,6 +188,12 @@ describe('a read with a time window', () => {
   });
   it('a read without a window sends exactly its own input', () => {
     expect(inputFor({ ...spec, windowDays: undefined }, NOW)).toEqual({ limit: 50 });
+    // A service that takes whole UTC days gets the N calendar days ending today, today included.
+    expect(inputFor({ ...spec, windowDays: 3, windowInUtcDays: true }, new Date('2026-10-23T15:00:00Z'))).toEqual({
+      limit: 50,
+      from: '2026-10-21',
+      to: '2026-10-23',
+    });
     const { windowDays: _w, input: _i, ...bare } = spec;
     expect(inputFor(bare, NOW)).toBeUndefined();
     expect(inputFor({ ...bare, sendEmptyInput: true }, NOW)).toEqual({});

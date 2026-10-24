@@ -13,6 +13,7 @@ import {
   sizeInBase,
   sizePlaces,
   splitPreview,
+  tierToConfirm,
 } from './ticket-logic';
 
 // TEST figures only: not market data.
@@ -120,6 +121,13 @@ describe('preview comparison', () => {
     expect(splitPreview(more)).toMatchObject({ orderable: false, refusals: [{ code: 'trade.slippage_cap_unset' }] });
     expect(openBlock({ ...base, preview: splitPreview(more) })).toBe('notOrderable');
     expect(openBlock({ ...base, preview: splitPreview(over) })).toBeNull();
+  });
+  it('the tier to confirm is the projected tier only when the review asks for it', () => {
+    const tier = { current: 1, projected: 3, maintenanceBps: 250, maintenanceRate: '0.025', notional: '650', confirmRequired: true };
+    expect(tierToConfirm({ ...preview, riskTier: tier })).toBe(3);
+    expect(tierToConfirm({ ...preview, riskTier: { ...tier, projected: 1, confirmRequired: false } })).toBeNull();
+    expect(tierToConfirm({ ...preview, riskTier: null })).toBeNull();
+    expect(tierToConfirm(preview)).toBeNull();
   });
   it('distance to liquidation follows the side', () => {
     expect(previewLiquidationDistance(preview)).toBe('17.50');

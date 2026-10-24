@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { SupportError, SupportService, assertOperatorQueueLimit } from './support-service.js';
+import { withTestCommentCap } from './comment-cap.fixture.js';
 
 const USER = '11111111-1111-4111-8111-111111111111';
 const OTHER = '22222222-2222-4222-8222-222222222222';
@@ -41,7 +42,7 @@ describe('SupportService Stage-1', () => {
   });
 
   it('comments and status without any ledger side effects', async () => {
-    const svc = new SupportService();
+    const svc = withTestCommentCap();
     const t = await svc.createTicket({
       userId: USER,
       category: 'trading',

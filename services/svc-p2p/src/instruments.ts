@@ -119,7 +119,8 @@ export type InstrumentErrorCode =
   // instruments.accessLog page size unpublished. Blank is not 100.
   | 'p2p.access_log_limit_unset'
   // purgeExpiredSnapshots batch unpublished. Blank is not 500.
-  | 'p2p.purge_snapshots_limit_unset';
+  | 'p2p.purge_snapshots_limit_unset'
+  | 'p2p.delist_reason_required';
 
 export class InstrumentError extends Error {
   constructor(

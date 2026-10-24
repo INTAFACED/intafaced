@@ -3,6 +3,7 @@ import { edgeEnvSchema, loadEnv, serviceEnvSchema, internalServiceEnvSchema, s2s
 import { CARD_ISSUER_SETTINGS } from './cards/issuer.js';
 import { parseRecoveryBatchLimit, parseRecoveryInterval } from './recovery-jobs.js';
 import { RAMP_SETTINGS } from './ramps/rails.js';
+import { GLOBAL_PARTNER_SETTINGS } from './personal-pay/global-sim.js';
 
 // This service self-mounts /trpc, so it must be able to authenticate the edge.
 // Every procedure here resolves `ctx.principal.userId` into somebody's spaces
@@ -244,6 +245,31 @@ const schema = serviceEnvSchema
       BANK_OFFRAMP_COOLING_HOURS: z.string().optional(),
 
       /**
+       * Owner-set hours a new bank-rail recipient waits before money may go to it (BK-xfer-06, J-bank-04 #2).
+       *
+       * No default. Blank / unset / not a whole number → a send to a saved recipient refuses
+       * `bank.payee_cooling_unset`. Zero is a real owner choice (no wait).
+       */
+      BANK_PAYEE_COOLING_HOURS: z.string().optional(),
+
+      /**
+       * Owner-set hours a global send may stay on a compliance hold before it is cancelled automatically, nothing posted
+       * (BK-xfer-08, J-bank-04 #6).
+       *
+       * No default. Blank / unset / not a whole number of 1 or more → nothing is cancelled automatically, and every screen
+       * says the rule is not published (`bank.global_hold_cancel_unset`).
+       */
+      BANK_GLOBAL_HOLD_CANCEL_HOURS: z.string().optional(),
+
+      /**
+       * Owner-set fee on refunding a global send the rail returned (BK-xfer-09, J-bank-04 #7), as a decimal string.
+       *
+       * No default. Blank / unset / not a decimal → no refund is made (`bank.refund_fee_unset`); a zero fee is not assumed.
+       * Only a published zero refunds: any other fee refuses `bank.refund_fee_unsupported`, as a refund has no fee entry.
+       */
+      BANK_GLOBAL_REFUND_FEE: z.string().optional(),
+
+      /**
        * Owner-set number of saved withdrawal addresses one customer may hold.
        *
        * No default. Blank / unset / zero / not a whole number → saving an address refuses
@@ -309,6 +335,18 @@ const schema = serviceEnvSchema
        * `bank.reference_rules_unset`. Boot stays up; the send is the refuse.
        */
       BANK_SEND_FIELD_RULES_JSON: z.string().optional(),
+
+      /**
+       * WHO ANSWERS A GLOBAL SEND. `none` (default) | `global-sim`.
+       *
+       * `none` leaves every global-send port unset: each send refuses by name and nothing posts. `global-sim` is a TEST
+       * stand-in for the local stack and journey tests only (`personal-pay/global-sim.ts`): it answers from the typed TEST
+       * catalogue in `BANK_GLOBAL_SIM_JSON`, pays nobody, and is refused under live posture. Same posture as
+       * `BANK_CARD_ISSUER`: choosing the stand-in has to be an act somebody performed.
+       */
+      BANK_GLOBAL_PARTNER: z.enum(GLOBAL_PARTNER_SETTINGS).default('none'),
+      /** The stand-in's TEST catalogue (corridors, rates, banks, travel-rule fields, and optionally the amounts it screens). Read only when the setting is `global-sim`. */
+      BANK_GLOBAL_SIM_JSON: z.string().optional(),
 
       /**
        * Owner-published payee controls for a global send as JSON: `{ blockedAccounts: ["..."] }`. A published empty list

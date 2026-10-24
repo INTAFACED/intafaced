@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseAmount } from '@intafaced/ledger-client';
 import { AcademyError } from '../errors.js';
-import { assertVideoEntitled, type VideoCaller } from './entitlement.js';
+import { assertVideoEntitled, videoGateNeedsStake, type VideoCaller } from './entitlement.js';
 
 const USER = '11111111-1111-4111-8111-111111111111';
 
@@ -125,5 +125,16 @@ describe('assertVideoEntitled', () => {
         stake: parseAmount('1'),
       }),
     );
+  });
+});
+
+describe('videoGateNeedsStake (AC-videos-01)', () => {
+  it('reads the stake only when a published minimum above zero could refuse it', () => {
+    expect(videoGateNeedsStake({ minTier: 'basic', minStake: '10' })).toBe(true);
+    expect(videoGateNeedsStake({ minTier: 'none', minStake: '0' })).toBe(false);
+    expect(videoGateNeedsStake({ minTier: 'none', minStake: '0.000' })).toBe(false);
+    // Unpublished or unparseable: the gate refuses by itself, so the stake source is not asked.
+    expect(videoGateNeedsStake({ minTier: '', minStake: '' })).toBe(false);
+    expect(videoGateNeedsStake({ minTier: 'basic', minStake: 'lots' })).toBe(false);
   });
 });

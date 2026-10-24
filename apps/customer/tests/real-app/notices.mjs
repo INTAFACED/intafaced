@@ -20,14 +20,37 @@ const data = (res, what) => {
   return row;
 };
 
-/** svc-notify's payload hash for an announcement or maintenance notice (no status, scope or changelog fields). */
-const payloadHash = (row) =>
-  `sha256:${createHash('sha256')
-    .update(JSON.stringify({ id: row.id, kind: row.kind, title: row.title, body: row.body, version: row.version }))
+/**
+ * svc-notify's payload hash: id, kind, title, body and version, plus the incident status fields when the draft set any.
+ * No scope or changelog fields (no journey here drafts those).
+ */
+const payloadHash = (row) => {
+  const status = row.statusFields;
+  const withStatus = status && (status.impact || status.components.length > 0 || status.parentId || status.resolves) ? { status } : {};
+  return `sha256:${createHash('sha256')
+    .update(JSON.stringify({ id: row.id, kind: row.kind, title: row.title, body: row.body, version: row.version, ...withStatus }))
     .digest('hex')}`;
+};
 
-/** A draft notice, open from now for `minutes`. Returns the stored row. */
-export async function draftNotice({ kind, title, body, minutes, key }) {
+/**
+ * A draft notice, open from now for `minutes` unless `startsAt`/`endsAt` say otherwise. Returns the stored row. An incident may name an impact and status page
+ * components, update an earlier incident (`parentId`) and close it (`resolves`).
+ */
+export async function draftNotice({
+  kind,
+  title,
+  body,
+  minutes,
+  key,
+  impact = null,
+  components = [],
+  parentId = null,
+  resolves = false,
+  startsAt = null,
+  endsAt = null,
+  category = null,
+}) {
+  if (endsAt === null && !(minutes > 0)) throw new Error('draftNotice needs `minutes` or an `endsAt`');
   const { ctx, pair } = await founders();
   const now = Date.now();
   const res = await ctx.edge.mutate(
@@ -37,13 +60,18 @@ export async function draftNotice({ kind, title, body, minutes, key }) {
       kind,
       title,
       body,
-      startsAt: new Date(now - 60_000).toISOString(),
-      endsAt: new Date(now + minutes * 60_000).toISOString(),
+      startsAt: startsAt ?? new Date(now - 60_000).toISOString(),
+      endsAt: endsAt ?? new Date(now + minutes * 60_000).toISOString(),
+      ...(impact ? { impact } : {}),
+      ...(components.length ? { components } : {}),
+      ...(parentId ? { parentId } : {}),
+      ...(resolves ? { resolves } : {}),
+      ...(category ? { category } : {}),
       clientRequestId: `journey:notice-draft:${key}`,
     },
     await pair.a.tradeOpsToken(),
   );
-  return data(res, 'notify.draftNotice');
+  return { ...data(res, 'notify.draftNotice'), statusFields: { impact, components, parentId, resolves } };
 }
 
 /** Four-eyes publish of a draft: A proposes, B approves, A publishes. Returns the published row. */
@@ -88,4 +116,25 @@ export async function openNotices() {
   // None published answers notify.announcement_unset; any other failure is not an empty board.
   if (current.json?.error?.data?.cause?.code === 'notify.announcement_unset') return { ...status, announcement: null };
   return { ...status, announcement: data(current, 'notify.announcement') };
+}
+
+/** The public notice board as a signed-out visitor reads it: published notices, newest first. */
+export async function publishedNotices() {
+  const { ctx } = await founders();
+  return data(await ctx.edge.query('notify', 'notify.notices', { limit: 50 }), 'notify.notices');
+}
+
+/** Founder `key` ('a' or 'b') publishes a draft with an approval it holds. Returns the refusal code, or null when published. */
+export async function publishAs(key, { id, approvalId, operationId }) {
+  const { ctx, pair } = await founders();
+  const res = await ctx.edge.mutate(
+    'notify',
+    'notify.publishNotice',
+    { id, clientRequestId: `journey:notice-publish:${approvalId}:${key}`, approvalId, operationId },
+    await pair[key].tradeOpsToken(),
+  );
+  if (res.json?.result?.data) return null;
+  const code = res.json?.error?.data?.cause?.code;
+  if (!code) throw new Error(`notify.publishNotice failed without a code (${res.status}): ${res.text.slice(0, 300)}`);
+  return code;
 }
