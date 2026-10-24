@@ -3,8 +3,9 @@
  * cash out to.
  *
  * A linked account is kept as the customer typed it and starts `unverified`. Only a banking partner can prove that the
- * account exists and is in the customer's name, and none is wired in this build (`rail.bank`), so nothing here moves an
- * account to `verified` and an unverified account is never usable. The IBAN is the business key: one active link per
+ * account exists and is in the customer's name (`rail.bank`): only the partner's signed call moves an account to
+ * `verified` (`verify`, J-bank-03 #4), none is wired outside the local stack's TEST stand-in, and an unverified account is
+ * never usable. The IBAN is the business key: one active link per
  * customer and IBAN, so linking the same IBAN again returns the account already linked and adds nothing. Removing keeps
  * the row with `removed_at`; linking that IBAN again later is a new account whose cooling-off starts again.
  *
@@ -204,6 +205,33 @@ export class LinkedAccountService {
     `;
     if (!rows[0]) throw new BankError('No linked bank account with this id', 'bank.linked_account_not_found');
     return viewOf(rows[0], this.coolingHours(), this.now());
+  }
+
+  /**
+   * The banking partner proved the account exists and is in the customer's name (J-bank-03 #4). Only the partner's
+   * signed call reaches this, through the cash-out service, which refuses `rail.bank` when no partner is wired. Verifying
+   * one already verified answers the same; the cooling-off still runs from when the customer linked it.
+   */
+  async verify(accountId: string): Promise<LinkedAccountView> {
+    const id = accountId.trim();
+    if (!UUID_RE.test(id)) throw new BankError('No linked bank account with this id', 'bank.linked_account_not_found');
+    // The partner names the account by the bank's own id for it, which is what it was given when asked to verify.
+    const rows = await this.sql<Row[]>`
+      UPDATE bank.linked_bank_accounts SET state = 'verified', verified_at = coalesce(verified_at, now())
+       WHERE id = ${id}::uuid AND removed_at IS NULL
+      RETURNING ${this.sql.unsafe(COLUMNS)}
+    `;
+    if (!rows[0]) throw new BankError('No linked bank account with this id', 'bank.linked_account_not_found');
+    return viewOf(rows[0], this.coolingHours(), this.now());
+  }
+
+  /** The holder and masked IBAN a payout went to, for its receipt, even if the account was unlinked since. */
+  async payoutDetails(userId: string, accountId: string): Promise<{ holderName: string; ibanMasked: string }> {
+    const rows = await this.sql<Array<{ holder_name: string; iban: string }>>`
+      SELECT holder_name, iban FROM bank.linked_bank_accounts WHERE id = ${accountId}::uuid AND user_id = ${userId}
+    `;
+    if (!rows[0]) throw new BankError('No linked bank account with this id', 'bank.linked_account_not_found');
+    return { holderName: rows[0].holder_name, ibanMasked: maskIban(rows[0].iban) };
   }
 
   /** Unlink. Removing one already removed answers the same; someone else's account, or none, is not found. */

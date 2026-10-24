@@ -416,6 +416,12 @@ export type BankErrorCode =
   | 'bank.cash_out_over_available'
   /** No linked bank account of this customer has this id. */
   | 'bank.linked_account_not_found'
+  /** No cash-out of this customer has this id. */
+  | 'bank.cash_out_not_found'
+  /** The cash-out was not paid out (refused, still processing or failed), so it has no receipt. */
+  | 'bank.cash_out_receipt_not_ready'
+  /** No receipt signing key is set, so no cash-out receipt is made. */
+  | 'bank.cash_out_receipt_signing_unset'
   /** The owner has not set how many addresses a book may hold. Saving refuses; no number is invented. */
   | 'bank.address_book_cap_unset'
   /** Dest user has no primary space — refuse before ledger-client posts. */

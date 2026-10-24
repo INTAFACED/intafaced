@@ -322,6 +322,7 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.wallet_proof_not_found': 'NOT_FOUND',
   'bank.payee_not_found': 'NOT_FOUND',
   'bank.linked_account_not_found': 'NOT_FOUND',
+  'bank.cash_out_not_found': 'NOT_FOUND',
   'bank.limit_request_self_decision': 'FORBIDDEN',
   'bank.profile_not_held': 'FORBIDDEN',
 
@@ -359,6 +360,8 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.wallet_proof_validity_unset': 'PRECONDITION_FAILED',
   'bank.linked_accounts_full': 'PRECONDITION_FAILED',
   'bank.cash_out_over_available': 'PRECONDITION_FAILED',
+  'bank.cash_out_receipt_not_ready': 'PRECONDITION_FAILED',
+  'bank.cash_out_receipt_signing_unset': 'PRECONDITION_FAILED',
   'bank.rail_send_over_available': 'PRECONDITION_FAILED',
   'bank.payee_cooling_unset': 'PRECONDITION_FAILED',
   'bank.payee_cooling_active': 'PRECONDITION_FAILED',

@@ -81,9 +81,11 @@ const script = resolve(here, 'local-test-stack.mjs');
   const profile = loadProfile().values;
   assert.equal(bank.env.BANK_GLOBAL_PARTNER, 'global-sim');
   assert.equal(bank.env.BANK_ONRAMP_RATES, 'ramp-sim');
+  assert.equal(bank.env.BANK_PAYOUT_PARTNER, 'payout-sim');
   for (const name of [
     'BANK_GLOBAL_SIM_JSON',
     'BANK_ONRAMP_SIM_JSON',
+    'BANK_PAYOUT_SIM_JSON',
     'BANK_SEND_FIELD_RULES_JSON',
     'BANK_PAYEE_COOLING_HOURS',
     'BANK_GLOBAL_HOLD_CANCEL_HOURS',
@@ -456,7 +458,7 @@ console.log('local-test-stack: customer folder override checks passed');
     source,
     /if \(!only \|\| only\.includes\('customer'\)\) await startCustomer\(\);\s*if \(!only \|\| only\.includes\('invitation'\)\) await startInvitation\(\);\s*if \(!only \|\| only\.includes\('admin'\)\) await startAdmin\(secrets\);\s*ensureMarket\(\);/,
   );
-  assert.match(source, /const order = \['admin', 'invitation', 'customer', \.\.\.serviceNames\(\)\.reverse\(\), 'nats'\];/);
+  assert.match(source, /const order = \['admin', 'invitation', 'customer', \.\.\.serviceNames\(\)\.reverse\(\), 'video-store', 'nats'\];/);
   // Its session key is canonical 32-byte base64url (apps/admin/src/lib/founder-session.ts), and it never runs in prod posture.
   assert.match(source, /s\.adminSession = crypto\.randomBytes\(32\)\.toString\('base64url'\);/);
   assert.match(source, /APP_ENV: 'dev',/);
