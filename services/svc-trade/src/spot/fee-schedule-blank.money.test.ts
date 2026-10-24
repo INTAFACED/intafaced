@@ -11,6 +11,7 @@ import { MemoryLedger, formatAmount, houseFees, parseAmount as amt, recipes, use
 import type { Market } from './types.js';
 import { READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor } from './testing.js';
 import { parseFeeScheduleJson, UNPUBLISHED_FEE_SCHEDULE } from './fee-schedule.js';
+import { tradeServiceArea, tradeServiceSource } from './trade-service/source.testkit.js';
 
 /**
  * H8a money proof — unpublished TRADE_FEE_SCHEDULE refuses before hold/fill.
@@ -72,17 +73,20 @@ async function openH8aAdmin(): Promise<{ url: string; stop: () => Promise<void> 
 
 describe('fee-schedule blank hitch (source)', () => {
   it('place asserts owner schedule before orderHold; settleFill ratesForFill before fill recipes', () => {
-    const src = readFileSync(join(here, 'trade-service.ts'), 'utf8');
-    const placeHitch = src.indexOf('this.assertOwnerFeeSchedulePublished();');
-    const orderHold = src.indexOf('recipes.orderHold({');
+    const src = tradeServiceSource();
+    // Placement and settleFill live in spot/trade-service/order-place.ts and fills.ts since the split by area.
+    const place = tradeServiceArea('order-place');
+    const placeHitch = place.indexOf('svc.assertOwnerFeeSchedulePublished();');
+    const orderHold = place.indexOf('recipes.orderHold({');
     expect(placeHitch).toBeGreaterThan(-1);
     expect(orderHold).toBeGreaterThan(-1);
     expect(placeHitch).toBeLessThan(orderHold);
 
-    const settleStart = src.indexOf('private async settleFill(');
+    const fills = tradeServiceArea('fills');
+    const settleStart = fills.indexOf('export async function settleFill(');
     expect(settleStart).toBeGreaterThan(-1);
-    const settle = src.slice(settleStart);
-    const rates = settle.indexOf('this.ratesForFill(');
+    const settle = fills.slice(settleStart);
+    const rates = settle.indexOf('svc.ratesForFill(');
     const tradeFill = settle.indexOf('recipes.tradeFill({');
     const mmFill = settle.indexOf('recipes.marketMakerMakerFill({');
     expect(rates).toBeGreaterThan(-1);

@@ -28,6 +28,7 @@ import {
   checkPositionModeMigration,
   installPositionMode,
 } from './position-mode.js';
+import { tradeServiceSource } from '../spot/trade-service/source.testkit.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -105,7 +106,7 @@ describe('position-mode hitch (source) — no flatten, matching not recut', () =
   it('router.ts / matching / position-service.ts / trade-service.ts / index.ts not recut', () => {
     const routerSrc = readFileSync(join(here, '..', 'router.ts'), 'utf8');
     const posSrc = readFileSync(join(here, 'position-service.ts'), 'utf8');
-    const tradeSrc = readFileSync(join(here, '..', 'spot', 'trade-service.ts'), 'utf8');
+    const tradeSrc = tradeServiceSource();
     const indexSrc = readFileSync(join(here, '..', 'index.ts'), 'utf8');
     expect(routerSrc).not.toMatch(/position-mode/);
     expect(routerSrc).not.toMatch(/position_mode_unset/);

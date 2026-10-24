@@ -30,6 +30,7 @@ import { installPreTradeCredit } from './pretrade-credit.js';
 import { installNativeQtyUpAmend } from '../spot/qty-up-amend.js';
 import type { Market } from '../spot/types.js';
 import { PUBLISHED_TEST_FEE_SCHEDULE, READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor } from '../spot/testing.js';
+import { tradeServiceSource } from '../spot/trade-service/source.testkit.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -298,9 +299,9 @@ describe('owner pre-trade limits (#4725, PG-hard)', () => {
     });
 
     it('algo children and replacements reach the same door (source pin)', () => {
-      const src = readFileSync(join(here, '..', 'spot', 'trade-service.ts'), 'utf8');
-      expect(src).toMatch(/placeChild:[\s\S]{0,1800}this\.placeOrderInner\(/);
-      expect(src).toMatch(/const replacement = await this\.placeOrder\(/);
+      const src = tradeServiceSource();
+      expect(src).toMatch(/placeChild:[\s\S]{0,1800}(?:this|svc)\.placeOrderInner\(/);
+      expect(src).toMatch(/const replacement = await (?:this|svc)\.placeOrder\(/);
       expect(src).toMatch(/assertOwnerOrderLimit\(market, input\.qty, fundingPrice/);
       expect(src).toMatch(/reduceOnly\?: boolean \}\)\.reduceOnly !== true/);
     });

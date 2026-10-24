@@ -9,7 +9,8 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const TRADE_SERVICE = join(here, '..', 'spot', 'trade-service.ts');
+// Placement lives in spot/trade-service/order-place.ts since the split by area.
+const TRADE_SERVICE = join(here, '..', 'spot', 'trade-service', 'order-place.ts');
 
 function stripComments(text: string): string {
   return text
@@ -24,15 +25,23 @@ describe('R-quant paper place never posts to the ledger', () => {
 
   it('routes paper markets into placePaperOrderIsolated before the hold', () => {
     expect(source).toContain('if (market.paper)');
-    expect(source).toContain('return this.placePaperOrderIsolated(');
+    expect(source).toContain('return svc.placePaperOrderIsolated(');
     expect(source).toMatch(/Stage-1 paper isolation[\s\S]*post orderHold \/ tradeFill/);
   });
 
+  it('the class method placePaperOrderIsolated only hands over to order-place.ts', () => {
+    const cls = readFileSync(join(here, '..', 'spot', 'trade-service.ts'), 'utf8');
+    const stub = cls.match(/private async placePaperOrderIsolated\([\s\S]*?\n  \}\n/);
+    expect(stub, 'placePaperOrderIsolated must exist on TradeService').not.toBeNull();
+    const body = stripComments(stub?.[0] ?? '').replace(/^[\s\S]*?\)[^{]*\{/, '');
+    expect(body.trim()).toMatch(/^return orderPlace\.placePaperOrderIsolated\(this\.internal, [^;]*\);\s*\}$/);
+  });
+
   it('placePaperOrderIsolated body has no ledger.post / orderHold / tradeFill', () => {
-    const match = source.match(/private async placePaperOrderIsolated\([\s\S]*?\n  async cancelOrder\(/);
-    expect(match, 'placePaperOrderIsolated must exist in trade-service.ts').not.toBeNull();
+    const match = source.match(/export async function placePaperOrderIsolated\([\s\S]*?\n\}\n/);
+    expect(match, 'placePaperOrderIsolated must exist in trade-service/order-place.ts').not.toBeNull();
     const body = stripComments(match?.[0] ?? '');
-    expect(body).not.toMatch(/this\.ledger\.post/);
+    expect(body).not.toMatch(/(?:this|svc)\.ledger\.post/);
     expect(body).not.toMatch(/\bledger\.post\b/);
     expect(body).not.toMatch(/recipes\.orderHold/);
     expect(body).not.toMatch(/recipes\.tradeFill/);

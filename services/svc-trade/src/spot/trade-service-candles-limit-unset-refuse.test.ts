@@ -11,13 +11,9 @@ import { TradeService } from '../controls/test-admission.js';
  * 5. Paths: trade-service.ts TradeService.candles
  * 6. RED: omitting limit returns a 500-bucket series
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { TRADE_CANDLES_FILL_LIMIT_UNSET } from './candles.js';
-
-const HERE = dirname(fileURLToPath(import.meta.url));
+import { tradeServiceSource } from './trade-service/source.testkit.js';
 
 function serviceWithUnreachableSql(): { trade: TradeService; sqlCalled: () => boolean } {
   let sqlCalled = false;
@@ -31,8 +27,8 @@ function serviceWithUnreachableSql(): { trade: TradeService; sqlCalled: () => bo
 
 describe('TradeService.candles limit unset refuse (no invented 500)', () => {
   it('trade-service.ts does not invent 500 via default param', () => {
-    const src = readFileSync(join(HERE, 'trade-service.ts'), 'utf8');
-    expect(src).not.toMatch(/async candles\([^)]*limit = 500/);
+    const src = tradeServiceSource();
+    expect(src).not.toMatch(/async (?:function )?candles\([^)]*limit = 500/);
     expect(src).toMatch(/async candles\(marketId: string, timeframe: Timeframe, limit: number/);
   });
 

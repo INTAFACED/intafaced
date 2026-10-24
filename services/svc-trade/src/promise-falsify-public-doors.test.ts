@@ -39,6 +39,7 @@ import { TradeError } from './spot/types.js';
 import { MemoryCopyFollowStore } from './copy/follow-store.js';
 import type { CopyFeeShareLaw, CopyJurisdictionLaw } from './copy/fee-share-law.js';
 import { COPY_FEE_SHARE_RESIDUAL, COPY_JURISDICTION_RESIDUAL } from './copy/errors.js';
+import { tradeServiceSource } from './spot/trade-service/source.testkit.js';
 
 const EDGE_SECRET = 'trade-promise-falsify-public-doors-edge-secret-32';
 const USER = '11111111-1111-4111-8111-111111111111';
@@ -257,7 +258,7 @@ describe('D26-P2-01a refuse-closed defaults (no invent)', () => {
   });
 
   it('TWAP create refuses blank two-sided mark rather than inventing a feed', () => {
-    const src = readFileSync(join(here, 'spot/trade-service.ts'), 'utf8');
+    const src = tradeServiceSource();
     expect(src).toMatch(/refusing algo rather than inventing a feed/);
     expect(src).toMatch(/trade\.algo_mark_missing/);
   });

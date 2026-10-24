@@ -49,15 +49,15 @@ export const RECIPE_MATRIX = {
   withdrawHold: { kind: 'live', module: 'ledger', proof: 'services/svc-pay/src/user-money-service.ts' },
   withdrawSettle: { kind: 'live', module: 'ledger', proof: 'services/svc-pay/src/user-money-service.ts' },
   withdrawReverse: { kind: 'live', module: 'ledger', proof: 'services/svc-pay/src/user-money-service.ts' },
-  tradeFill: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/spot/trade-service.ts' },
+  tradeFill: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/spot/trade-service/fills.ts' },
   tradeFillFeeCorrection: {
     kind: 'socket',
     socket: '§13',
     reason:
       '§13 — TRD-0171 posts a fee correction as a new balanced entry under trade.fill.fee.correction. It leaves the original trade.fill row. No production writer posts this yet; the recipe-gate catalog samples it and does not ledger.post.',
   },
-  orderHold: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/spot/trade-service.ts' },
-  orderHoldRelease: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/spot/trade-service.ts' },
+  orderHold: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/spot/trade-service/order-place.ts' },
+  orderHoldRelease: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/spot/trade-service/holds.ts' },
   orderHoldAmend: {
     kind: 'socket',
     socket: '§13',
@@ -66,7 +66,7 @@ export const RECIPE_MATRIX = {
   },
   marketMakerOrderHold: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/mm/seed-market.ts' },
   marketMakerOrderHoldRelease: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/mm/seed-market.ts' },
-  marketMakerMakerFill: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/spot/trade-service.ts' },
+  marketMakerMakerFill: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/spot/trade-service/fills.ts' },
   futuresMarginLock: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/futures/position-service.ts' },
   futuresMarginAdd: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/futures/position-service.ts' },
   futuresMarginRelease: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/futures/close-planner.ts' },

@@ -13,6 +13,7 @@ import {
   TRADE_FEE_SCHEDULE_ENV,
   UNPUBLISHED_FEE_SCHEDULE,
 } from './fee-schedule.js';
+import { tradeServiceSource } from './trade-service/source.testkit.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const here = dirname(fileURLToPath(import.meta.url));
@@ -154,7 +155,7 @@ describe('TRADE_FEE_SCHEDULE wiring', () => {
   });
 
   it('place/fill hitch uses owner schedule, not market.makerBps', () => {
-    const service = readFileSync(join(here, 'trade-service.ts'), 'utf8');
+    const service = tradeServiceSource();
     expect(service).toContain('assertOwnerFeeSchedulePublished');
     // The schedule is the owner's: the boot value or an approved version, resolved at the order's placement time.
     expect(service).toMatch(/feeScheduleAtStore\(this\.sql, this\.feeSchedule,/);

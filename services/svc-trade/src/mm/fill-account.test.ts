@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { mmSeedJobsArmed } from './seed-honesty.js';
 import { HOUSE_MM_USER_UUID, MM_MATCHING_ACCOUNT_ID, looksLikeAnonymousCustomerFill, recoverMatchingAccountId } from './fill-account.js';
+import { tradeServiceArea, tradeServiceSource } from '../spot/trade-service/source.testkit.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -80,10 +81,11 @@ describe('TRADE_MM_SEED_ENABLED kill is unchanged', () => {
 
 describe('production fill/event path — not tests-only', () => {
   it('settleFillEvent recovers maker and taker via recoverMatchingAccountId', () => {
-    const src = readFileSync(join(here, '..', 'spot', 'trade-service.ts'), 'utf8');
-    expect(src).toMatch(/import \{ recoverMatchingAccountId \} from '\.\.\/mm\/fill-account\.js'/);
-    expect(src).toMatch(/async settleFillEvent\([\s\S]*?const makerAccountId = recoverMatchingAccountId\(/);
-    expect(src).toMatch(/async settleFillEvent\([\s\S]*?const takerAccountId = recoverMatchingAccountId\(/);
+    // settleFillEvent lives in spot/trade-service/events.ts since the split by area.
+    const src = tradeServiceArea('events');
+    expect(src).toMatch(/import \{ recoverMatchingAccountId \} from '\.\.\/\.\.\/mm\/fill-account\.js'/);
+    expect(src).toMatch(/async function settleFillEvent\([\s\S]*?const makerAccountId = recoverMatchingAccountId\(/);
+    expect(src).toMatch(/async function settleFillEvent\([\s\S]*?const takerAccountId = recoverMatchingAccountId\(/);
   });
 
   it('orderFilled bus consumer calls settleFillEvent (live recovery path)', () => {

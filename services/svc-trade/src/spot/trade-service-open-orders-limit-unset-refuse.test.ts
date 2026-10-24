@@ -13,9 +13,7 @@ import { TradeService } from '../controls/test-admission.js';
  * 5. Paths: trade-service.ts openOrders
  * 6. RED: omitting limit returns every open order
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import type { OrderRow } from './rows.js';
@@ -25,8 +23,7 @@ import {
   publishedOpenOrdersLimit,
   TRADE_OPEN_ORDERS_LIMIT_UNSET,
 } from './trade-service.js';
-
-const HERE = dirname(fileURLToPath(import.meta.url));
+import { tradeServiceSource } from './trade-service/source.testkit.js';
 
 const READER = {
   userId: '11111111-1111-4111-8111-111111111111',
@@ -93,8 +90,8 @@ function serviceWithCapturingSql(pool: OrderRow[]): {
 
 describe('openOrders limit unset refuse (no invented 100)', () => {
   it('trade-service.ts does not invent 100 via default param or clamp', () => {
-    const src = readFileSync(join(HERE, 'trade-service.ts'), 'utf8');
-    expect(src).not.toMatch(/async openOrders\([^)]*limit = 100/);
+    const src = tradeServiceSource();
+    expect(src).not.toMatch(/async (?:function )?openOrders\([^)]*limit = 100/);
     expect(src).toMatch(/async openOrders\(principal: Principal, marketId: string \| undefined, limit: number\)/);
     expect(src).toMatch(/publishedOpenOrdersLimit\(limit\)/);
     expect(src).not.toMatch(/openOrders[\s\S]{0,400}Math\.min\(Math\.max\(limit, 1\), 500\)/);

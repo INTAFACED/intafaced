@@ -12,9 +12,6 @@ import { TradeService } from '../controls/test-admission.js';
  * 5. Paths: trade-service.ts adminOpenOrders
  * 6. RED: omitting limit returns a 100-row page
  */
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import {
@@ -23,8 +20,7 @@ import {
   publishedAdminOpenOrdersLimit,
   TRADE_ADMIN_OPEN_ORDERS_LIMIT_UNSET,
 } from './trade-service.js';
-
-const HERE = dirname(fileURLToPath(import.meta.url));
+import { tradeServiceSource } from './trade-service/source.testkit.js';
 
 const ADMIN = {
   userId: '11111111-1111-4111-8111-111111111111',
@@ -43,8 +39,8 @@ function serviceWithUnreachableSql(): { trade: TradeService; sqlCalled: () => bo
 
 describe('adminOpenOrders limit unset refuse (no invented 100)', () => {
   it('trade-service.ts does not invent 100 via default param or clamp', () => {
-    const src = readFileSync(join(HERE, 'trade-service.ts'), 'utf8');
-    expect(src).not.toMatch(/async adminOpenOrders\([^)]*limit = 100/);
+    const src = tradeServiceSource();
+    expect(src).not.toMatch(/async (?:function )?adminOpenOrders\([^)]*limit = 100/);
     expect(src).toMatch(/async adminOpenOrders\(principal: Principal, limit: number\)/);
     expect(src).toMatch(/publishedAdminOpenOrdersLimit\(limit\)/);
     expect(src).not.toMatch(/adminOpenOrders[\s\S]{0,200}Math\.min\(Math\.max\(limit, 1\), 500\)/);

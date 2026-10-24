@@ -15,6 +15,7 @@ import { acceptConvertQuote, buildFirmConvertQuote, estimateConvert } from './qu
 import { planConvertSettle } from './settle.js';
 import { convertSettleIdsFor } from './ids.js';
 import { SqlConvertQuoteStore } from './quote-store.js';
+import { tradeServiceSource } from '../spot/trade-service/source.testkit.js';
 
 /**
  * CARD B7 money proof — convert settle binds quoted in/out.
@@ -68,12 +69,12 @@ const SCOPES = ['trade:read', 'trade:write'] as const;
 
 describe('convert settle B7 hitch (source)', () => {
   it('trade-service.ts contains convertExecute + planConvertSettle + postConvertSettle', () => {
-    const src = readFileSync(join(here, '..', 'spot', 'trade-service.ts'), 'utf8');
+    const src = tradeServiceSource();
     expect(src).toMatch(/async convertExecute\(/);
     expect(src).toMatch(/planConvertSettle\(\{ bound, \.\.\.ids, now: new Date\(bound.acceptedAt\) \}\)/);
-    expect(src).toMatch(/await postConvertSettle\(this\.ledger, plan\)/);
-    expect(src).toMatch(/requireConvertSpreadBps\(this\.convertSpreadBps\)/);
-    expect(src).toMatch(/requireConvertQuoteTtlMs\(this\.convertQuoteTtlMs\)/);
+    expect(src).toMatch(/await postConvertSettle\((?:this|svc)\.ledger, plan\)/);
+    expect(src).toMatch(/requireConvertSpreadBps\((?:this|svc)\.convertSpreadBps\)/);
+    expect(src).toMatch(/requireConvertQuoteTtlMs\((?:this|svc)\.convertQuoteTtlMs\)/);
     expect(src).not.toMatch(/convertSpreadBps:\s*10\b/);
     expect(src).not.toMatch(/convertSpreadBps \?\? 10/);
     expect(src).not.toMatch(/convertQuoteTtlMs \?\? 15_000/);
