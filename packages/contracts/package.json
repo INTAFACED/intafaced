@@ -50,6 +50,10 @@
       "types": "./dist/ops-console-mode.d.ts",
       "default": "./dist/ops-console-mode.js"
     },
+    "./identity-recovery": {
+      "types": "./dist/identity-recovery.d.ts",
+      "default": "./dist/identity-recovery.js"
+    },
     "./ops-staff-holds": {
       "types": "./dist/ops-staff-holds.d.ts",
       "default": "./dist/ops-staff-holds.js"

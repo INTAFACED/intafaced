@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import { ROOT, mailedCodes, mailedLines, nextMailedCode, signUpInBrowser } from './stack.mjs';
-import { addAuthenticator } from './identity-factors.mjs';
+import { PASSKEY_ORIGIN, addAuthenticator, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
 
 // J-identity-05, in the running app (docs/roadmap/journeys.json): I lost my phone and got back in. One test per step,
 // titled "J-identity-05 #<n>". Every person is a TEST person on the local stack, signed up through the browser
@@ -362,10 +362,82 @@ test(`${J} #6 mail and inbox notices for each factor change`, async ({ page }) =
   }).toPass({ timeout: 20_000 });
 });
 
-test(`${J} #7 recovery keys set earlier (people they trust, never staff) claim the account back`, async ({ page }) => {
-  test.setTimeout(90_000);
-  const who = person('rk');
-  await signUpInBrowser(page, who);
-  await page.goto('/uc/safe');
-  await expect(page.getByRole('heading', { name: 'Recovery keys' })).toBeVisible(UNBUILT);
+/**
+ * #7 is served by two slices, one test each: RC-identity-07 (the owner sets recovery keys and names the account that
+ * receives the balances) and RC-identity-08 (after a confirmed death notice, those keys claim the trading balances for
+ * that account). The keys confirm with a passkey, so the steps run on the passkey origin. "People they trust" are the
+ * holders of the keys the owner makes; staff never hold one and are refused by every recovery door.
+ */
+test.describe('recovery keys', () => {
+  test.use({ baseURL: PASSKEY_ORIGIN });
+
+  /** The owner, with a passkey, makes two keys for people they trust and names the heir; answers the key texts. */
+  async function setUpRecovery(page, browser) {
+    const heir = person('rh');
+    const heirContext = await browser.newContext();
+    await signUpInBrowser(await heirContext.newPage(), heir);
+    await heirContext.close();
+
+    const owner = person('rk');
+    await signUpInBrowser(page, owner);
+    await virtualAuthenticator(page);
+    await addPasskey(page);
+    await page.goto('/uc/safe');
+    const card = page.locator('.security__recovery-keys');
+    await expect(page.getByRole('heading', { name: 'Recovery keys' })).toBeVisible();
+    await expect(card).toContainText('No recovery keys set. If something happens to you, your balances stay frozen.');
+    await expect(card).toContainText('Only keys you set can move your trading balances. Staff will not sell or transfer them.');
+    const keys = [];
+    for (const holder of ['Sister', 'Friend']) {
+      await card.getByLabel('Who will hold it').fill(holder);
+      await card.getByRole('button', { name: 'Make a key' }).click();
+      await expect(card).toContainText('Confirm to add this recovery key.');
+      await card.getByRole('button', { name: 'Confirm with a passkey' }).click();
+      await expect(card.getByRole('heading', { name: `Give this key to ${holder}` })).toBeVisible();
+      keys.push(await card.locator('textarea').inputValue());
+      await card.getByRole('button', { name: 'I have saved it' }).click();
+    }
+    await card.getByLabel('Their handle on INTAFACED').fill(`@${heir.handle}`);
+    await card.getByLabel('How many keys must sign').fill('2');
+    await card.getByRole('button', { name: 'Save who receives' }).click();
+    await card.getByRole('button', { name: 'Confirm with a passkey' }).click();
+    await expect(card).toContainText(`Ready: 2 of your 2 live keys together can move your balances to @${heir.handle}.`);
+    return { owner, heir, keys, card };
+  }
+
+  test(`${J} #7 (RC-identity-07) recovery keys set earlier: the owner gives keys to people they trust and names who receives`, async ({
+    page,
+    browser,
+  }) => {
+    test.setTimeout(120_000);
+    const { keys, card } = await setUpRecovery(page, browser);
+    expect(keys).toHaveLength(2);
+    for (const key of keys) expect(key).toMatch(/^INTAFACED-RECOVERY-KEY-1\.[A-Za-z0-9_-]+$/);
+    // Revoking a key takes it out at once: the setup no longer reaches its threshold.
+    await card.getByRole('button', { name: 'Revoke the key for Friend' }).click();
+    await card.getByRole('button', { name: 'Confirm with a passkey' }).click();
+    await expect(card).toContainText('Not ready. Missing: enough live keys.');
+    await page.reload();
+    await expect(card).toContainText('Revoked');
+    await expect(card).toContainText('It no longer counts.');
+  });
+
+  test(`${J} #7 (RC-identity-08) after a confirmed death notice, the keys claim the trading balances for the named account`, async ({
+    page,
+    browser,
+  }) => {
+    test.setTimeout(120_000);
+    const { heir } = await setUpRecovery(page, browser);
+    // Next slices: two staff confirm a death notice on the owner (RC-identity-02), then the heir opens the claim room,
+    // signs with both keys and the trading balances sweep to the heir's account (RC-identity-08).
+    const heirContext = await browser.newContext();
+    const heirPage = await heirContext.newPage();
+    await heirPage.goto('/login');
+    await heirPage.fill('input[name=identifier]', heir.email);
+    await heirPage.fill('input[name=password]', heir.password);
+    await heirPage.getByRole('button', { name: /^sign in$/i }).click();
+    await heirPage.goto('/money');
+    await expect(heirPage.getByRole('heading', { name: 'Recovery claim' })).toBeVisible(UNBUILT);
+    await heirContext.close();
+  });
 });
