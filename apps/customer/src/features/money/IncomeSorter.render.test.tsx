@@ -7,8 +7,9 @@ import type { sorterListSchema, sorterRunSchema } from './contracts';
 import type { z } from 'zod';
 
 /**
- * The income sorter card (BK-pots-03, J-bank-07 #4): every target space is named by the bank, an archived one too, and
- * an archived one says its share stays in the account. The page's own space list holds only live spaces.
+ * The income sorter card (BK-pots-03, J-bank-07 #4): every target space is named by the bank, an archived one too. An
+ * archived one says its share stays in the account, and that share counts toward what stays. The page's own space list
+ * holds only live spaces.
  */
 
 vi.mock('../../shared/preferences', async (original) => {
@@ -96,6 +97,8 @@ describe('IncomeSorter', () => {
     expect(legs[1]!.archived).toBe('true');
     expect(legs[1]!.text).toContain('40% into Rainy day TEST');
     expect(legs[1]!.text).toContain('Rainy day TEST was archived, so its share stays in your account.');
+    // The archived share counts toward what stays in the account.
+    expect(legs[2]).toEqual({ text: '40% stays in your account', archived: null });
     const run = host.querySelector('[data-testid="income-sorter-run"]')!.textContent;
     expect(run).toContain('40 USDT into Rainy day TEST: not moved');
     expect(host.textContent).not.toContain('no longer listed');

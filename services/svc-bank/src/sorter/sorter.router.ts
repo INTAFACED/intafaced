@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { router, scopedProcedure } from '@intafaced/contracts';
 import { formatAmount } from '@intafaced/ledger-client';
 import type { BankServices } from '../bank-service.js';
-import { SORTER_MAX_LEGS, type IncomeSorter, type ListedSorter, type SorterRun } from './income-sorter.js';
+import { SORTER_MAX_LEGS, type IncomeSorter, type SorterRun } from './income-sorter.js';
 
 /**
  * `bank.sorter.*` (BK-pots-03, J-bank-07 #4): the income sorter. A payment from another person is split across the
@@ -51,22 +51,13 @@ const runView = z.object({
   ),
 });
 
-const viewOf = (sorter: IncomeSorter) => ({
+const viewOf = <S extends IncomeSorter>(sorter: S) => ({
   id: sorter.id,
   assetId: sorter.assetId,
   status: sorter.status,
-  legs: sorter.legs,
+  legs: sorter.legs as S['legs'],
   createdAt: sorter.createdAt.toISOString(),
   cancelledAt: sorter.cancelledAt?.toISOString() ?? null,
-});
-
-const listedOf = (sorter: ListedSorter) => ({
-  ...viewOf(sorter),
-  legs: sorter.legs.map((leg) => ({
-    ...leg,
-    spaceName: sorter.spaces[leg.spaceId]?.name ?? '',
-    archived: sorter.spaces[leg.spaceId]?.archived ?? false,
-  })),
 });
 
 const runOf = (run: SorterRun) => ({
@@ -108,7 +99,7 @@ export function createSorterRouter(bank: BankServices, guard: Guard) {
               min === null
                 ? { state: 'not_set' as const, code: 'bank.sorter_terms_unset' as const }
                 : { state: 'set' as const, minCredit: formatAmount(min) },
-            sorters: (await bank.sorter.list(ctx.principal.userId)).map(listedOf),
+            sorters: (await bank.sorter.list(ctx.principal.userId)).map(viewOf),
           };
         }),
       ),

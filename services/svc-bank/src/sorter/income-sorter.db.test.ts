@@ -15,6 +15,7 @@ import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import {
+  LedgerError,
   MemoryLedger,
   stampPostAttempts,
   formatAmount,
@@ -55,6 +56,8 @@ describe('income sorter (BK-pots-03)', () => {
   let hangSorterPosts = false;
   /** When set, a sorter split's post fails with no typed code before it reaches the book: it may still land later. */
   let dropSorterPosts = false;
+  /** When set, a sorter split's post fails with this error on its one attempt, and nothing reaches the book. */
+  let failSorterPosts: (() => Error) | null = null;
 
   beforeAll(async () => {
     const url = process.env.TEST_DATABASE_URL?.trim();
@@ -76,12 +79,18 @@ describe('income sorter (BK-pots-03)', () => {
     loseSorterReplies = false;
     hangSorterPosts = false;
     dropSorterPosts = false;
+    failSorterPosts = null;
     const flaky = new Proxy(ledger, {
       get(target, prop, receiver) {
         if (prop === 'post') {
           return async (req: Parameters<LedgerClient['post']>[0]) => {
             if (hangSorterPosts && req.idempotencyKey.includes(':sorter:')) return new Promise<never>(() => {});
             if (dropSorterPosts && req.idempotencyKey.includes(':sorter:')) throw new Error('socket hang up');
+            if (failSorterPosts && req.idempotencyKey.includes(':sorter:')) {
+              const err = failSorterPosts();
+              stampPostAttempts(err, 1);
+              throw err;
+            }
             if (loseSorterReplies && req.idempotencyKey.includes(':sorter:')) {
               await target.post(req);
               throw new Error('socket hang up');
@@ -467,6 +476,33 @@ describe('income sorter (BK-pots-03)', () => {
       { status: 'settled', rejectionCode: null },
       { status: 'rejected', rejectionCode: 'bank.space_archived' },
     ]);
+  });
+
+  it('a frozen or unreachable ledger never makes a split final: it stays pending and lands once the ledger answers', async () => {
+    const { bills, savings, sorter } = await sixtyForty();
+    const unreachable = () => Object.assign(new Error('fetch failed'), { cause: { code: 'ECONNREFUSED' } });
+    for (const failure of [() => new LedgerError('postings are frozen', 'ledger.frozen'), unreachable]) {
+      failSorterPosts = failure;
+      await sql`UPDATE bank.income_sorter_run_legs SET attempted_at = attempted_at - interval '8 minutes'`;
+      if (failure === unreachable) {
+        expect(await bank.sorter.sweep(10, later())).toMatchObject({ runsDriven: 1, legsStillPending: 2 });
+      } else {
+        await bobPays('100');
+      }
+      const [run] = await caller(ADA).sorter.runs({ sorterId: sorter.id, limit: 10 });
+      expect(run!.legs.map(({ status, rejectionCode }) => ({ status, rejectionCode }))).toEqual([
+        { status: 'pending', rejectionCode: null },
+        { status: 'pending', rejectionCode: null },
+      ]);
+    }
+    failSorterPosts = null;
+    // Inside the bound the splits wait; past it they post and land, once.
+    expect(await bank.sorter.sweep(10, later())).toMatchObject({ runsDriven: 1, legsStillPending: 2 });
+    await sql`UPDATE bank.income_sorter_run_legs SET attempted_at = attempted_at - interval '8 minutes'`;
+    expect(await bank.sorter.sweep(10, later())).toEqual({ creditsRecorded: 0, runsDriven: 1, legsStillPending: 0 });
+    expect(await balanceOf(bills.id)).toBe('60');
+    expect(await balanceOf(savings.id)).toBe('40');
+    expect(sorterMoves()).toHaveLength(2);
   });
 
   it('a cancelled sorter sorts nothing new; what it sorted stays', async () => {

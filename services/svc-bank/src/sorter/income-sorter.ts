@@ -14,6 +14,7 @@ import {
   type LedgerClient,
 } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
+import { isDefiniteLedgerRefusal } from '../ledger-outcome.js';
 import { accountForSpace, type SpaceService } from '../spaces/space-service.js';
 import { withMoneySpan } from '../tracing.js';
 import { bookedTransferMatches } from '../transfers/booked-transfer.js';
@@ -63,7 +64,7 @@ export interface IncomeSorter {
 
 /** A live sorter as the person reads it: each target space's name, and whether it has been archived since. */
 export interface ListedSorter extends IncomeSorter {
-  spaces: Record<string, { name: string; archived: boolean }>;
+  legs: Array<SorterLeg & { spaceName: string; archived: boolean }>;
 }
 
 export interface SorterRunLeg {
@@ -172,12 +173,6 @@ export function parseMinCredit(raw: string | undefined): Amount | null {
   const value = raw?.trim();
   if (!value || !/^\d+(\.\d{1,18})?$/.test(value)) return null;
   return parseAmount(value);
-}
-
-function legRefusalCode(err: unknown): string {
-  if (err instanceof BankError) return err.code;
-  if (err instanceof LedgerError) return err.code;
-  return 'bank.sorter_split_failed';
 }
 
 function toSorter(row: SorterRow, legs: LegRow[]): IncomeSorter {
@@ -343,12 +338,14 @@ export class IncomeSorterService {
         JOIN bank.spaces sp ON sp.id = l.space_id
        WHERE l.sorter_id IN ${this.sql(rows.map((row) => row.id))}
     `;
-    return rows.map((row) => ({
-      ...toSorter(row, legs),
-      spaces: Object.fromEntries(
-        legs.filter((leg) => leg.sorter_id === row.id).map((leg) => [leg.space_id, { name: leg.space_name, archived: leg.space_archived }]),
-      ),
-    }));
+    return rows.map((row) => {
+      const sorter = toSorter(row, legs);
+      const space = (spaceId: string) => legs.find((leg) => leg.sorter_id === row.id && leg.space_id === spaceId)!;
+      return {
+        ...sorter,
+        legs: sorter.legs.map((leg) => ({ ...leg, spaceName: space(leg.spaceId).space_name, archived: space(leg.spaceId).space_archived })),
+      };
+    });
   }
 
   /** What each sorted credit came to, newest first. Another person's sorter reads as not found. */
@@ -478,7 +475,9 @@ export class IncomeSorterService {
       report.runsDriven += 1;
       const stuck = run.legs.filter((leg) => leg.status === 'pending');
       report.legsStillPending += stuck.length;
-      if (stuck.length) {
+      // A split waiting out the in-flight bound after a lost post is ordinary recovery. One still pending once its run is
+      // older than the bound (a frozen or unreachable ledger, a booking that is not this movement) is for an operator.
+      if (stuck.length && Date.now() - run.createdAt.getTime() >= POST_IN_FLIGHT_BOUND_SECONDS * 1000) {
         console.error(
           JSON.stringify({
             level: 'error',
@@ -515,11 +514,12 @@ export class IncomeSorterService {
    * outcome), as does a lost reply. The key is read first: a split whose earlier post landed settles on that booking,
    * whatever has happened to the spaces since, so a later archive can never mark moved money as not moved.
    *
-   * With nothing under the key, the split claims an attempt (`attempted_at`) before it posts. While an earlier attempt
-   * is younger than the ledger's in-flight bound, that post may still land, so the split is neither posted again nor
-   * refused: it waits for a later sweep to read the key. Once claimed, a refusal before the post (an archived space, no
-   * account) or a ledger refusal that proves this one attempt committed nothing (`provesPostNotCommitted`) rejects the
-   * split with its code, and its share stays in the account.
+   * With nothing under the key, the split claims an attempt (`attempted_at`) and reads the key again before it decides.
+   * While an earlier attempt is younger than the ledger's in-flight bound, that post may still land, so the split is
+   * neither posted again nor refused: it waits for a later sweep to read the key. Past the bound with nothing under the
+   * key, the book's answer is that the earlier post never committed. Then a refused space (archived, not the person's)
+   * or a typed ledger refusal that proves this one attempt committed nothing (an empty account) rejects the split with
+   * its code, and its share stays in the account. A frozen or unreachable ledger, or a failing read, leaves it pending.
    */
   private async driveLeg(run: RunRow, assetId: string, userId: string, leg: RunLegRow): Promise<void> {
     const now = new Date();
@@ -535,8 +535,10 @@ export class IncomeSorterService {
          SET status = 'rejected', rejection_code = ${code}, settled_at = ${now}
        WHERE run_id = ${run.id}::uuid AND position = ${leg.position} AND status = 'pending'
     `;
-    const booked = await this.ledger.getTxByKey(bankTransferKey('own', transferId, leg.position));
-    if (booked) {
+    /** Settle on a booking under the key, if there is one; true when the key holds anything (this movement or not). */
+    const settledOnBooking = async (): Promise<boolean> => {
+      const booked = await this.ledger.getTxByKey(bankTransferKey('own', transferId, leg.position));
+      if (!booked) return false;
       // The account itself and the space, as `accountForSpace` names a primary and a named space.
       const matches = await bookedTransferMatches(
         this.ledger,
@@ -546,19 +548,13 @@ export class IncomeSorterService {
         amount,
       );
       if (matches) await settle(booked.id);
-      return;
-    }
-    // On the database clock, in one statement, so two drivers never both post and neither reads its own claim as stale.
-    const claimed = await this.sql`
-      UPDATE bank.income_sorter_run_legs SET attempted_at = now()
-       WHERE run_id = ${run.id}::uuid AND position = ${leg.position} AND status = 'pending'
-         AND (attempted_at IS NULL OR attempted_at < now() - make_interval(secs => ${POST_IN_FLIGHT_BOUND_SECONDS}))
-      RETURNING position
-    `;
-    if (!claimed.length) return;
+      return true;
+    };
+    if (await settledOnBooking()) return;
 
-    let fromAccount: ReturnType<typeof accountForSpace>;
-    let toAccount: ReturnType<typeof accountForSpace>;
+    // Resolving the spaces posts nothing, so it comes before the claim: a failing read never stamps an attempt.
+    let accounts: { from: ReturnType<typeof accountForSpace>; to: ReturnType<typeof accountForSpace> } | null = null;
+    let refused: BankError | null = null;
     try {
       const primary = await this.spaces.findPrimary(userId, assetId);
       if (!primary) throw new BankError(`No ${assetId} account to sort from`, 'bank.space_not_found');
@@ -568,29 +564,36 @@ export class IncomeSorterService {
       if (to.assetId !== assetId) {
         throw new BankError(`Sorter asset ${assetId} does not match space asset ${to.assetId}`, 'bank.asset_mismatch');
       }
-      fromAccount = accountForSpace(from);
-      toAccount = accountForSpace(to);
+      accounts = { from: accountForSpace(from), to: accountForSpace(to) };
     } catch (err) {
-      // Nothing was posted by this attempt, and any earlier one is past the in-flight bound with nothing under the key.
-      if (err instanceof BankError) await reject(err.code);
+      if (!(err instanceof BankError)) return;
+      refused = err;
+    }
+
+    // On the database clock, in one statement, so two drivers never both post and neither reads its own claim as stale.
+    const claimed = await this.sql`
+      UPDATE bank.income_sorter_run_legs SET attempted_at = now()
+       WHERE run_id = ${run.id}::uuid AND position = ${leg.position} AND status = 'pending'
+         AND (attempted_at IS NULL OR attempted_at < now() - make_interval(secs => ${POST_IN_FLIGHT_BOUND_SECONDS}))
+      RETURNING position
+    `;
+    if (!claimed.length) return;
+    // An earlier post may have landed between the first read and the claim.
+    if (await settledOnBooking()) return;
+    if (refused) {
+      await reject(refused.code);
       return;
     }
+    const { from, to } = accounts!;
     try {
       const tx = await this.ledger.post(
-        recipes.bankTransfer({
-          transferId,
-          occurrence: leg.position,
-          from: fromAccount,
-          to: toAccount,
-          amount,
-          kind: 'manual',
-          keySpace: 'own',
-        }),
+        recipes.bankTransfer({ transferId, occurrence: leg.position, from, to, amount, kind: 'manual', keySpace: 'own' }),
       );
-      if (!(await bookedTransferMatches(this.ledger, tx, fromAccount, toAccount, amount))) return;
+      if (!(await bookedTransferMatches(this.ledger, tx, from, to, amount))) return;
       await settle(tx.id);
     } catch (err) {
-      if (provesPostNotCommitted(err)) await reject(legRefusalCode(err));
+      // Only a typed refusal the ledger makes before committing, on one attempt; a freeze or an outage is not final.
+      if (isDefiniteLedgerRefusal(err) && provesPostNotCommitted(err)) await reject((err as LedgerError).code);
     }
   }
 

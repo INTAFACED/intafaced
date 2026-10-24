@@ -112,7 +112,8 @@ export function IncomeSorter({ spaces, open }: { spaces: Space[]; open: (spec: A
 function SorterCard({ sorter, nameOf, stop }: { sorter: Sorter; nameOf: (spaceId: string) => string; stop: () => void }) {
   const { t } = sorterCopy.useCopy();
   const runs = useBankRead('sorter.runs', { sorterId: sorter.id, limit: RUNS_SHOWN });
-  const total = sorter.legs.reduce((sum, leg) => sum + leg.shareBp, 0);
+  // A share into a space archived since stays in the account, so it counts toward what stays.
+  const total = sorter.legs.filter((leg) => !leg.archived).reduce((sum, leg) => sum + leg.shareBp, 0);
   // The bank names every target, archived ones too; the page's own list of spaces holds only live ones.
   const spaceName = (spaceId: string) => sorter.legs.find((leg) => leg.spaceId === spaceId)?.spaceName || nameOf(spaceId);
   const status = (value: 'pending' | 'settled' | 'rejected') => t(value);
