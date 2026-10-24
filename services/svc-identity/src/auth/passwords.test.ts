@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   WeakPasswordError,
   algorithmOf,
+  assertPasswordNotBreached,
+  breachedPasswordScreening,
+  parseBreachedPasswords,
+  useBreachedPasswords,
   argon2Available,
   assertPasswordShape,
   generateApiKey,
@@ -117,5 +121,31 @@ describe('tokens', () => {
     expect(prefix).toBe(key.slice(0, 12));
     expect(hash).toBe(hashToken(key));
     expect(key.length).toBeGreaterThan(prefix.length + 16);
+  });
+});
+
+describe('breached-password list', () => {
+  it('reads SHA-1 digests with or without counts, skips comments, and refuses any other line', () => {
+    const list = parseBreachedPasswords(
+      '# TEST\n\n638f34801ec5d76ee0162edf72dbaa147110536d\r\n0000000000000000000000000000000000000001:42\n',
+    );
+    expect([...list]).toEqual(['638F34801EC5D76EE0162EDF72DBAA147110536D', '0000000000000000000000000000000000000001']);
+    expect(() => parseBreachedPasswords('not a digest')).toThrow('line 1 is not a SHA-1 digest');
+  });
+
+  it('refuses a listed password with its own code, and screens nothing while unset', () => {
+    try {
+      useBreachedPasswords(null);
+      expect(breachedPasswordScreening()).toBe('unset');
+      expect(() => assertPasswordNotBreached('TEST-breached-password-0001')).not.toThrow();
+      useBreachedPasswords(parseBreachedPasswords('638F34801EC5D76EE0162EDF72DBAA147110536D'));
+      expect(breachedPasswordScreening()).toBe('on');
+      expect(() => assertPasswordNotBreached('TEST-breached-password-0001')).toThrow(
+        expect.objectContaining({ code: 'auth.password_breached' }) as unknown as Error,
+      );
+      expect(() => assertPasswordNotBreached('TEST-breached-password-0002')).not.toThrow();
+    } finally {
+      useBreachedPasswords(null);
+    }
   });
 });

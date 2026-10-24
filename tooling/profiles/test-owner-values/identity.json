@@ -120,6 +120,11 @@
       "service": "identity",
       "value": "5",
       "note": "Five wrong device codes lock a new-device sign-in (J-identity-02 #5)."
+    },
+    "IDENTITY_BREACHED_PASSWORDS_FILE": {
+      "service": "identity",
+      "value": "../../tooling/profiles/test-owner-values/identity-breached-passwords.sha1",
+      "note": "A one-entry TEST breached-password list (TEST-breached-password-0001), so J-identity-03 #3 sees a breached password refused by name. A relative path is read from the services/svc-identity folder."
     }
   }
 }

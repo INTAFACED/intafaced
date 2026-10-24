@@ -12,6 +12,7 @@ import { flowSubjectHash } from './password-reset.js';
 import { killPasswordResetProofs } from '../account/contact-common.js';
 import { stubActionApprovals } from './privileged-dual-control.js';
 import { createIdentityRouter } from '../router.js';
+import { parseBreachedPasswords, useBreachedPasswords } from './passwords.js';
 import { RankService } from '../rank/rank-service.js';
 
 /**
@@ -111,10 +112,12 @@ if (!available) {
     auth.usePasswordResetPolicy(POLICY);
     auth.useMailRelayTrigger(async () => void (await auth.drainMailOutbox()));
     auth.usePasswordResetClock(() => new Date(nowMs));
+    useBreachedPasswords(null);
     await db.truncateAll();
     await rank.seedTiers();
   });
   afterAll(async () => {
+    useBreachedPasswords(null);
     await db.drop();
   });
 
@@ -170,6 +173,63 @@ if (!available) {
       // The same code still completes with an acceptable password.
       await anon().auth.completePasswordReset({ email: user.email, code: sent[0]!.code, newPassword: NEW });
       await expect(anon().auth.login({ identifier: user.email, password: NEW })).resolves.toMatchObject({ userId: user.userId });
+    });
+  });
+
+  describe("the owner's breached-password list (I-signin-sessions-04)", () => {
+    const BREACHED = 'TEST-breached-password-0001';
+    // SHA-1 of BREACHED, as a published list carries it. A TEST fixture, not an owner list.
+    const LIST = '# TEST list\n638F34801EC5D76EE0162EDF72DBAA147110536D:1\n';
+
+    it('says the list is not set, and screens nothing, until the owner sets one', async () => {
+      expect(await anon().auth.passwordScreening()).toEqual({ breachedList: 'unset' });
+      const handle = unique();
+      await expect(auth.register({ handle, email: `${handle}@example.com`, password: BREACHED })).resolves.toMatchObject({
+        userId: expect.any(String),
+      });
+      useBreachedPasswords(parseBreachedPasswords(LIST));
+      expect(await anon().auth.passwordScreening()).toEqual({ breachedList: 'on' });
+    });
+
+    it('refuses a listed password at register, change and reset by name, and changes nothing', async () => {
+      useBreachedPasswords(parseBreachedPasswords(LIST));
+      const handle = unique();
+      expect(await refusal(anon().auth.register({ handle, email: `${handle}@example.com`, password: BREACHED }))).toMatchObject({
+        trpc: 'BAD_REQUEST',
+        code: 'auth.password_breached',
+        message: expect.stringContaining('known from a data breach'),
+      });
+      expect(await db.sql`SELECT id FROM users WHERE handle = ${handle}`).toHaveLength(0);
+
+      const user = await register();
+      const before = await hashOf(user.userId);
+      await expect(
+        auth.changePassword({
+          userId: user.userId,
+          sessionId: user.sessionId,
+          actor: { delegated: false, privileged: false, mfa: false },
+          currentPassword: OLD,
+          newPassword: BREACHED,
+        }),
+      ).rejects.toMatchObject({ code: 'auth.password_breached' });
+      expect(await hashOf(user.userId)).toBe(before);
+
+      await anon().auth.requestPasswordReset({ email: user.email });
+      const code = sent.at(-1)!.code;
+      expect((await refusal(anon().auth.completePasswordReset({ email: user.email, code, newPassword: BREACHED }))).code).toBe(
+        'auth.password_breached',
+      );
+      // The refusal spends nothing: the same code completes with a password that is not listed.
+      await anon().auth.completePasswordReset({ email: user.email, code, newPassword: NEW });
+      await expect(anon().auth.login({ identifier: user.email, password: NEW })).resolves.toMatchObject({ userId: user.userId });
+    });
+
+    it('still signs in an account whose current password was listed later; only new passwords are screened', async () => {
+      const handle = unique();
+      const email = `${handle}@example.com`;
+      const made = await auth.register({ handle, email, password: BREACHED });
+      useBreachedPasswords(parseBreachedPasswords(LIST));
+      await expect(anon().auth.login({ identifier: email, password: BREACHED })).resolves.toMatchObject({ userId: made.userId });
     });
   });
 }

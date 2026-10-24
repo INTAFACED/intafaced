@@ -17,6 +17,7 @@ import {
 } from '@intafaced/auth';
 import type { EventBus } from '@intafaced/events';
 import {
+  assertPasswordNotBreached,
   assertPasswordShape,
   assertPasswordNotIdentity,
   dummyPasswordHash,
@@ -169,6 +170,7 @@ export class AuthError extends Error {
       | 'auth.sandbox_scope_not_pay'
       | 'auth.password_unchanged'
       | 'auth.password_policy'
+      | 'auth.password_breached'
       | 'auth.reset_proof_invalid'
       | 'auth.reset_unwired'
       | 'auth.email_confirm_invalid'
@@ -488,7 +490,7 @@ function policyRefusal(check: () => void): void {
   try {
     check();
   } catch (err) {
-    if (err instanceof WeakPasswordError) throw new AuthError(err.message, 'auth.password_policy');
+    if (err instanceof WeakPasswordError) throw new AuthError(err.message, err.code);
     throw err;
   }
 }
@@ -1027,6 +1029,7 @@ export class AuthService {
     policyRefusal(() => {
       assertPasswordShape(input.password);
       assertPasswordNotIdentity(input.password, input);
+      assertPasswordNotBreached(input.password);
     });
     const passwordHash = await hashPassword(input.password);
     const userId = await transaction(this.sql, (tx) => this.insertNewUser(tx, input, passwordHash));
@@ -1117,6 +1120,7 @@ export class AuthService {
     policyRefusal(() => {
       assertPasswordShape(input.password);
       assertPasswordNotIdentity(input.password, input);
+      assertPasswordNotBreached(input.password);
     });
     const passwordHash = await hashPassword(input.password);
     let userId: string;
@@ -1733,8 +1737,9 @@ export class AuthService {
     try {
       assertPasswordShape(input.newPassword);
       assertPasswordNotIdentity(input.newPassword, user);
+      assertPasswordNotBreached(input.newPassword);
     } catch (err) {
-      if (err instanceof WeakPasswordError) throw new AuthError(err.message, 'auth.password_policy');
+      if (err instanceof WeakPasswordError) throw new AuthError(err.message, err.code);
       throw err;
     }
     if (input.newPassword === input.currentPassword) {
