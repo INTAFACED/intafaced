@@ -68,11 +68,11 @@ const THREE_STEPS = {
   kycGate: 'full',
 };
 
-async function liveCampaign(name, tasks) {
+async function liveCampaign(name, tasks, over = {}) {
   const { ctx, pair } = await operators();
   const a = await pair.a.campaignsOpsToken();
   const b = await pair.b.campaignsOpsToken();
-  const made = data(await ctx.edge.mutate('campaigns', 'ops.campaigns.create', definition(name, tasks), a), 'ops.campaigns.create');
+  const made = data(await ctx.edge.mutate('campaigns', 'ops.campaigns.create', definition(name, tasks, over), a), 'ops.campaigns.create');
   data(await ctx.edge.mutate('campaigns', 'ops.campaigns.transition', { id: made.id, action: 'submit', revision: 1 }, a), 'submit');
   data(await ctx.edge.mutate('campaigns', 'ops.campaigns.transition', { id: made.id, action: 'approve', revision: 1 }, b), 'approve');
   const live = data(
@@ -308,8 +308,49 @@ test(`${J} #7 opens the reward's redemption log: the outcome, any failure reason
   await expect(rollback).toContainText('No rollback can be made');
 });
 
-test(`${J} #8 misses a day in a streak task: the streak resets at the zone boundary`, async () => {
-  // Streak tasks (daily windows in the platform time zone, a reset on a missed day) are CM-tasks-quests-01's second
-  // row and are not built yet; this step refuses at once so the run stays short.
-  throw new Error(`${J} #8 is not built yet: streak tasks (CM-tasks-quests-01, campaigns-tasks-quests-002)`);
+test(`${J} #8 misses a day in a streak task: the streak resets at the zone boundary`, async ({ page }) => {
+  test.setTimeout(240_000);
+  const { me } = state('me');
+  // A streak step: trade on three days in a row, days read in the platform time zone (the stack's TEST zone is UTC).
+  const streak = await liveCampaign(
+    `TEST streak ${tag}`,
+    {
+      steps: [{ title: 'TEST trade three days in a row', event: 'trade.fill', market: SYMBOL, side: null, count: 1, streakDays: 3 }],
+      claimWindowSeconds: 3600,
+      kycGate: 'full',
+    },
+    { startsAt: new Date(Date.now() - 7 * DAY).toISOString() },
+  );
+  await signIn(page, me);
+  await openCampaign(page, streak.id);
+  await page.getByRole('button', { name: `Join ${streak.name}` }).click();
+  await expect(page.getByTestId('campaign-joined')).toBeVisible();
+  await trade(me, 'buy');
+  await expect.poll(async () => (await progressOf(me, streak.id)).steps[0].streak.days, { timeout: 30_000 }).toBe(1);
+  await page.reload();
+  const run1 = page.getByTestId('task-streak');
+  await expect(page.getByTestId('task-step').first()).toContainText('1 of 3 days in a row');
+  await expect(run1).toHaveAttribute('data-reset', 'false');
+  await expect(run1).toContainText('Your streak resets at');
+
+  // That trading day becomes two days ago (LOCAL TEST fixture): yesterday was missed, so the run ended at midnight.
+  expect(tool('local-test-stack.mjs', 'age-task-progress', me.email, streak.id, '2')).toContain('1 join(s) and 1 counted event(s)');
+  await page.reload();
+  const reset = page.getByTestId('task-streak');
+  await expect(reset).toHaveAttribute('data-reset', 'true');
+  await expect(reset).toHaveAttribute('data-days', '0');
+  await expect(reset).toHaveAttribute('data-best', '1');
+  await expect(reset).toContainText('Streak reset');
+  await expect(reset).toContainText('the run ended at midnight in the platform time zone (days in it: 1)');
+  await expect(page.getByTestId('task-step').first()).toContainText('0 of 3 days in a row');
+  const p = await progressOf(me, streak.id);
+  expect(p.steps[0]).toMatchObject({ done: 0, complete: false, streak: { days: 0, best: 1, lastRun: 1, reset: true, resetsAt: null } });
+
+  // Trading again starts a new run of one day; the claim stays closed until three days in a row are done.
+  await trade(me, 'sell');
+  await expect.poll(async () => (await progressOf(me, streak.id)).steps[0].streak.days, { timeout: 30_000 }).toBe(1);
+  await page.reload();
+  await expect(page.getByTestId('task-streak')).toHaveAttribute('data-reset', 'false');
+  await page.getByRole('button', { name: 'Claim the reward' }).click();
+  await expect(page.getByTestId('task-refusal')).toHaveAttribute('data-code', 'campaigns.tasks_incomplete');
 });

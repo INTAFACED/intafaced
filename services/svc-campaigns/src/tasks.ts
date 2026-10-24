@@ -17,6 +17,7 @@ import { effectiveState, outsideWindow } from './campaigns.js';
 import type { ParticipantSource } from './participants.js';
 import type { PayoutSaga } from './payouts.js';
 import type { MarketNames } from './markets.js';
+import { NO_STREAK, streakOf } from './streaks.js';
 
 /**
  * Task campaigns (CM-tasks-quests-01): progress from verified bus events, the claim window, the verification gate and
@@ -111,6 +112,50 @@ export function stepMatches(step: CampaignTasks['steps'][number], fill: Pick<Fil
   return true;
 }
 
+type ProgressRow = { step_index: number; occurred_at: Date };
+
+/**
+ * Each step's state from its counted events. A plain step is done at `count` events; a streak step at `streakDays`
+ * consecutive days in the platform time zone (none while the zone is blank, and a campaign cannot go live then).
+ */
+export function stepStates(
+  tasks: CampaignTasks,
+  events: readonly ProgressRow[],
+  timeZone: string | null,
+  now: Date,
+): TaskProgress['steps'] {
+  return tasks.steps.map((s, index) => {
+    const mine = events.filter((e) => e.step_index === index);
+    if (s.streakDays) {
+      const run = timeZone
+        ? streakOf(
+            mine.map((e) => e.occurred_at),
+            timeZone,
+            now,
+          )
+        : NO_STREAK;
+      const complete = run.best >= s.streakDays;
+      return {
+        index,
+        title: s.title,
+        done: complete ? s.streakDays : Math.min(run.days, s.streakDays),
+        target: s.streakDays,
+        complete,
+        streak: {
+          days: run.days,
+          best: run.best,
+          lastRun: run.lastRun,
+          lastDay: run.lastDay,
+          resetsAt: run.resetsAt ? iso(run.resetsAt) : null,
+          reset: !complete && run.lastDay !== null && run.days === 0,
+        },
+      };
+    }
+    const n = Math.min(mine.length, s.count);
+    return { index, title: s.title, done: n, target: s.count, complete: n >= s.count, streak: null };
+  });
+}
+
 export function meetsGate(gate: KycGate, tier: CampaignParticipant['kycTier']): boolean {
   return TIER_RANK[tier] >= GATE_RANK[gate];
 }
@@ -185,14 +230,15 @@ export class TaskService {
             VALUES (${row.id}, ${row.account_id}, ${index}, ${fill.fillId}, ${at})
             ON CONFLICT DO NOTHING`;
         }
-        const counts = await tx<{ step_index: number; n: string }[]>`
-          SELECT step_index, count(*)::text AS n FROM campaigns.task_progress
-          WHERE campaign_id = ${row.id} AND account_id = ${row.account_id} GROUP BY step_index`;
-        const done = new Map(counts.map((c) => [c.step_index, Number(c.n)]));
-        if (row.tasks!.steps.every((s, i) => (done.get(i) ?? 0) >= s.count)) {
+        const events = await tx<ProgressRow[]>`
+          SELECT step_index, occurred_at FROM campaigns.task_progress
+          WHERE campaign_id = ${row.id} AND account_id = ${row.account_id}`;
+        // A late or redelivered fill can close the steps: the claim window opens when they closed here, not earlier.
+        const completedAt = new Date(Math.max(at.getTime(), this.now().getTime()));
+        if (stepStates(row.tasks!, events, timeZone, at).every((s) => s.complete)) {
           await tx`
             INSERT INTO campaigns.task_completions (campaign_id, account_id, completed_at)
-            VALUES (${row.id}, ${row.account_id}, ${at})
+            VALUES (${row.id}, ${row.account_id}, ${completedAt})
             ON CONFLICT DO NOTHING`;
         }
       });
@@ -206,24 +252,25 @@ export class TaskService {
   async progress(input: { campaignId: string; accountId: string }): Promise<TaskProgress> {
     const row = await this.taskCampaign(input.campaignId);
     const tasks = row.tasks!;
-    const [[joined], counts, [completion], [intent]] = await Promise.all([
+    const [[joined], events, [completion], [intent]] = await Promise.all([
       this.sql<{ k: string }[]>`
         SELECT participation_key AS k FROM campaigns.participations
         WHERE campaign_id = ${row.id} AND account_id = ${input.accountId}`,
-      this.sql<{ step_index: number; n: string }[]>`
-        SELECT step_index, count(*)::text AS n FROM campaigns.task_progress
-        WHERE campaign_id = ${row.id} AND account_id = ${input.accountId} GROUP BY step_index`,
+      this.sql<ProgressRow[]>`
+        SELECT step_index, occurred_at FROM campaigns.task_progress
+        WHERE campaign_id = ${row.id} AND account_id = ${input.accountId}`,
       this.sql<{ completed_at: Date }[]>`
         SELECT completed_at FROM campaigns.task_completions WHERE campaign_id = ${row.id} AND account_id = ${input.accountId}`,
       this.sql<IntentRow[]>`
         SELECT *, amount::text AS amount FROM campaigns.reward_intents
         WHERE reward_key = ${rewardKeyOf(row.id, input.accountId, PERIOD_ONCE)}`,
     ]);
-    const done = new Map(counts.map((c) => [c.step_index, Number(c.n)]));
-    const steps = tasks.steps.map((s, index) => {
-      const n = Math.min(done.get(index) ?? 0, s.count);
-      return { index, title: s.title, done: n, target: s.count, complete: n >= s.count };
-    });
+    const timeZone = this.timeZone();
+    // Streak days are read in the platform zone: blank, a streak campaign refuses rather than show 0 days.
+    if (!timeZone && tasks.steps.some((s) => s.streakDays)) {
+      throw new CampaignsError('campaigns.timezone_unset', 'The platform time zone is not set, so streak days cannot be read');
+    }
+    const steps = stepStates(tasks, events, timeZone, this.now());
     const closes =
       completion && tasks.claimWindowSeconds ? new Date(completion.completed_at.getTime() + tasks.claimWindowSeconds * 1000) : null;
     return {

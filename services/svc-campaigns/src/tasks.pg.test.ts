@@ -64,9 +64,9 @@ const person = (userId: string, over: Partial<CampaignParticipant> = {}): Campai
 
 const STEPS: CampaignTasks = {
   steps: [
-    { title: 'TEST buy BTC', event: 'trade.fill', market: 'BTC/USDT', side: 'buy', count: 1 },
-    { title: 'TEST sell BTC', event: 'trade.fill', market: 'BTC/USDT', side: 'sell', count: 1 },
-    { title: 'TEST trade twice', event: 'trade.fill', market: null, side: null, count: 2 },
+    { title: 'TEST buy BTC', event: 'trade.fill', market: 'BTC/USDT', side: 'buy', count: 1, streakDays: null },
+    { title: 'TEST sell BTC', event: 'trade.fill', market: 'BTC/USDT', side: 'sell', count: 1, streakDays: null },
+    { title: 'TEST trade twice', event: 'trade.fill', market: null, side: null, count: 2, streakDays: null },
   ],
   claimWindowSeconds: 3600,
   kycGate: 'full',
@@ -419,6 +419,76 @@ if (!db) {
       expect(paid.reward.attempts.map((a) => a.outcome)).toEqual(['withheld', 'qualified', 'posted']);
       expect(await tasks.claim({ campaignId: c.id, accountId: ME })).toMatchObject({ created: false, reward: { state: 'posted' } });
       await reconciles(parseAmount('10'));
+    });
+
+    it('a streak step counts days in a row in the zone; a missed day resets it, and a full run completes it once', async () => {
+      const streak: CampaignTasks = {
+        steps: [{ title: 'TEST trade 3 days in a row', event: 'trade.fill', market: null, side: null, count: 1, streakDays: 3 }],
+        claimWindowSeconds: 3600,
+        kycGate: 'full',
+      };
+      const c = await joined({ tasks: streak, startsAt: new Date(Date.now() - 10 * 24 * HOUR).toISOString() });
+      // Joined and traded days ago: the participation moves back, as the stack fixture does.
+      await db!.sql`UPDATE campaigns.participations SET created_at = now() - interval '6 days' WHERE campaign_id = ${c.id}`;
+      const day = (n: number) => new Date(Date.now() - n * 24 * HOUR).toISOString();
+      await tasks.onFill(fill(ME, { ts: day(5) }));
+      await tasks.onFill(fill(ME, { ts: day(4) }));
+      await tasks.onFill(fill(ME, { ts: day(4) }));
+      let [step] = (await tasks.progress({ campaignId: c.id, accountId: ME })).steps;
+      expect(step).toMatchObject({ done: 0, target: 3, complete: false, streak: { days: 0, best: 2, reset: true, resetsAt: null } });
+      // Trading again starts a new run: one day, alive until the zone midnight two days on.
+      await tasks.onFill(fill(ME));
+      [step] = (await tasks.progress({ campaignId: c.id, accountId: ME })).steps;
+      expect(step).toMatchObject({ done: 1, complete: false, streak: { days: 1, best: 2, reset: false } });
+      expect(new Date(step!.streak!.resetsAt!).getUTCHours()).toBe(0);
+      expect(await code(tasks.claim({ campaignId: c.id, accountId: ME }))).toBe('campaigns.tasks_incomplete');
+      // The two days before today as well: three in a row completes the step, and it stays done.
+      await tasks.onFill(fill(ME, { ts: day(1) }));
+      await tasks.onFill(fill(ME, { ts: day(2) }));
+      const p = await tasks.progress({ campaignId: c.id, accountId: ME });
+      expect(p.steps[0]).toMatchObject({ done: 3, complete: true, streak: { best: 3, reset: false } });
+      expect(p.completedAt).not.toBeNull();
+    });
+
+    it('a streak step counts one event a day: any other count is refused', async () => {
+      const bad: CampaignTasks = {
+        steps: [{ title: 'TEST', event: 'trade.fill', market: null, side: null, count: 2, streakDays: 3 }],
+        claimWindowSeconds: 3600,
+        kycGate: 'none',
+      };
+      expect(await code(campaigns().create({ definition: definition({ tasks: bad }), actor: A }))).toBe('campaigns.tasks_invalid');
+      const good = { ...bad, steps: [{ ...bad.steps[0]!, count: 1 }] };
+      // A streak runs every day, inside a time frame at least as long as it.
+      expect(await code(campaigns().create({ definition: definition({ tasks: good, weekdays: [1, 2, 3] }), actor: A }))).toBe(
+        'campaigns.tasks_invalid',
+      );
+      const short = { startsAt: new Date(Date.now()).toISOString(), endsAt: new Date(Date.now() + 2 * 24 * HOUR).toISOString() };
+      expect(await code(campaigns().create({ definition: definition({ tasks: good, ...short }), actor: A }))).toBe(
+        'campaigns.tasks_invalid',
+      );
+      // With the platform zone blank, the streak is not read as 0 days: progress refuses.
+      const c = await joined({ tasks: good });
+      const blank = new TaskService({
+        sql: db!.sql,
+        participants,
+        saga,
+        markets: LISTED,
+        timeZone: () => null,
+        rollbackWindowSeconds: 86_400,
+      });
+      expect(await code(blank.progress({ campaignId: c.id, accountId: ME }))).toBe('campaigns.timezone_unset');
+    });
+
+    it('a late fill that closes the steps opens the claim window when it is counted, not on its own day', async () => {
+      const c = await joined();
+      await db!.sql`UPDATE campaigns.participations SET created_at = now() - interval '3 days' WHERE campaign_id = ${c.id}`;
+      const early = new Date(Date.now() - 2 * 24 * HOUR).toISOString();
+      await tasks.onFill(fill(ME, { side: 'sell' }));
+      await tasks.onFill(fill(ME, { side: 'buy', ts: early }));
+      const p = await tasks.progress({ campaignId: c.id, accountId: ME });
+      expect(p.completed).toBe(3);
+      expect(new Date(p.completedAt!).getTime()).toBeGreaterThan(Date.now() - 60_000);
+      expect((await tasks.claim({ campaignId: c.id, accountId: ME })).reward.state).not.toBe('forfeited');
     });
 
     it("counts no fill outside the campaign's weekdays or hours", async () => {

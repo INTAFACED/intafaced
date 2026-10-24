@@ -56,8 +56,11 @@ function useFormat() {
       second: '2-digit',
       timeZoneName: 'short',
     });
+    const date = new Intl.DateTimeFormat(renderedLocale, { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' });
     return {
       when: (isoTime: string) => time.format(new Date(isoTime)),
+      /** A calendar day (`YYYY-MM-DD`) as the reader writes dates; the day is the platform zone's, so no zone shift. */
+      day: (ymd: string) => date.format(new Date(`${ymd}T00:00:00Z`)),
       /** Whole seconds in the largest unit that divides them. */
       duration: (seconds: number) => {
         const [unit, size] = UNITS.find(([, s]) => seconds % s === 0)!;
@@ -158,12 +161,31 @@ function Steps({ progress: p }: { progress: TaskProgress }) {
       <ol className="depth-list" aria-label={t('stepsLabel')}>
         {p.steps.map((s) => (
           <li key={s.index} data-testid="task-step" data-complete={s.complete ? 'true' : 'false'}>
-            <strong lang="und">{s.title}</strong>: {t('stepCount', { done: String(s.done), target: String(s.target) })},{' '}
-            {s.complete ? t('stepDone') : t('stepOpen')}
+            <strong lang="und">{s.title}</strong>:{' '}
+            {s.streak
+              ? t('streakCount', { done: String(s.done), target: String(s.target) })
+              : t('stepCount', { done: String(s.done), target: String(s.target) })}
+            , {s.complete ? t('stepDone') : t('stepOpen')}
+            {s.streak && !s.complete ? <StreakState streak={s.streak} /> : null}
           </li>
         ))}
       </ol>
     </>
+  );
+}
+
+/** A streak's run: alive until the zone midnight, or reset after a missed day. Times are the platform zone's. */
+function StreakState({ streak }: { streak: NonNullable<TaskProgress['steps'][number]['streak']> }) {
+  const { t } = campaignTasksCopy.useCopy();
+  const { when, day } = useFormat();
+  return (
+    <p data-testid="task-streak" data-days={streak.days} data-best={streak.best} data-reset={streak.reset ? 'true' : 'false'}>
+      {streak.reset
+        ? t('streakReset', { run: String(streak.lastRun), day: streak.lastDay ? day(streak.lastDay) : '' })
+        : streak.resetsAt
+          ? t('streakAlive', { when: when(streak.resetsAt) })
+          : t('streakNone')}
+    </p>
   );
 }
 

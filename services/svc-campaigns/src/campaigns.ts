@@ -358,6 +358,13 @@ export function parseDefinition(input: CampaignDefinitionInput): Definition {
   const rewardAsset = input.reward ? parseAsset(input.reward.asset, 'campaigns.reward_unset', 'The reward') : null;
   const rewardAmount = input.reward ? parseAmount(input.reward.amount, 'campaigns.reward_unset', 'The reward amount') : null;
   const tasks = input.tasks ? parseTasks(type as CampaignType, input.tasks) : null;
+  const longest = Math.max(0, ...(tasks?.steps ?? []).map((s) => s.streakDays ?? 0));
+  if (longest > 0 && (weekdays || hours)) {
+    throw new CampaignsError('campaigns.tasks_invalid', 'A streak runs every day: a streak campaign has no weekday or hour windows');
+  }
+  if (longest > 0 && startsAt && endsAt && endsAt.getTime() - startsAt.getTime() < longest * 86_400_000) {
+    throw new CampaignsError('campaigns.tasks_invalid', `The time frame is shorter than the ${longest}-day streak`);
+  }
   return {
     name: input.name.trim(),
     type: type as CampaignType,
@@ -379,6 +386,9 @@ export function parseDefinition(input: CampaignDefinitionInput): Definition {
 /** Steps belong to a `task` campaign only, and each step's market is stored as listed (`BTC/USDT`). */
 function parseTasks(type: CampaignType, input: CampaignTasks): CampaignTasks {
   if (type !== 'task') throw new CampaignsError('campaigns.tasks_invalid', 'Only a task campaign has steps');
+  if (input.steps.some((s) => s.streakDays && s.count !== 1)) {
+    throw new CampaignsError('campaigns.tasks_invalid', 'A streak step counts one event a day: its count is 1');
+  }
   return {
     steps: input.steps.map((s) => ({
       title: s.title.trim(),
@@ -386,6 +396,7 @@ function parseTasks(type: CampaignType, input: CampaignTasks): CampaignTasks {
       market: s.market ?? null,
       side: s.side ?? null,
       count: s.count,
+      streakDays: s.streakDays ?? null,
     })),
     claimWindowSeconds: input.claimWindowSeconds,
     kycGate: input.kycGate,
