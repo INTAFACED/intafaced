@@ -66,7 +66,8 @@ export function parseOnrampSim(json: string | undefined): OnrampSimCatalogue | n
   const keys = parsed.data.quotes.map((q) => `${q.country}:${q.method}:${q.asset}`);
   if (new Set(keys).size !== keys.length) return null;
   try {
-    for (const q of parsed.data.quotes) if (parseAmount(q.rate) <= 0n) return null;
+    // Both must fit the ledger's numeric(38,18), so a catalogue that cannot price refuses at boot, not at the first quote.
+    for (const q of parsed.data.quotes) if (parseAmount(q.rate) <= 0n || parseAmount(q.fee) < 0n) return null;
   } catch {
     return null;
   }

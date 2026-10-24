@@ -195,6 +195,7 @@ test(`${J} #4 accepts a price after it ran out: refused as expired, nothing kept
   await expect(row).toContainText(/You pay: 41(\.0+)? EUR/);
   await expect(row).toContainText(/Fee: 1(\.0+)? EUR/);
   await expect(row).toContainText('Price holds until');
+  const holds = (await row.innerText()).match(/Price holds until: (.+)/)?.[1];
   // Every way it does not list stays refused by name.
   await expect(page.getByTestId('method-card')).toContainText('bank.fiat_ramp_socket');
   const confirm = await ask(page, 'bank_transfer');
@@ -207,6 +208,10 @@ test(`${J} #4 accepts a price after it ran out: refused as expired, nothing kept
   await expect(refused).toContainText('bank.onramp_quote_expired');
   expect((await requests(who)).map((r) => r.method)).toEqual(['pay_by_bank', 'bank_transfer']);
   expect(await usdt(who)).toBe('50');
+  // Asking for the ways to pay again gives a fresh price, never the one that ran out.
+  await page.getByRole('button', { name: 'See ways to pay' }).click();
+  await expect(row).toContainText('TEST price from a stand-in');
+  await expect(row).not.toContainText(`Price holds until: ${holds}`);
 });
 
 test(`${J} #5 watches the requests: each with its amount and where it stands, and the balance untouched`, async ({ page }) => {

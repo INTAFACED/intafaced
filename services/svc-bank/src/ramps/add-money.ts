@@ -115,14 +115,15 @@ export class AddMoneyService {
   async methods(userId: string, input: { assetId: string; amount: string; country: string }): Promise<AddMoneyMethodView[]> {
     return Promise.all(
       ADD_MONEY_METHODS.map(async (method): Promise<AddMoneyMethodView> => {
-        const standIn = this.ramps.onrampStandInFor({ assetId: input.assetId, method, country: input.country });
         try {
           const quote = await this.ramps.onrampQuote({ userId, ...input, method });
+          // The TEST label goes only on a price the stand-in gave, never on a blank.
+          const standIn = this.ramps.onrampStandInFor({ assetId: input.assetId, method, country: input.country });
           return { method, rail: railFor(method), quote, blocker: null, standIn };
         } catch (err) {
           const code = railRefusal(err);
           if (code === null) throw err;
-          return { method, rail: railFor(method), quote: null, blocker: code, standIn };
+          return { method, rail: railFor(method), quote: null, blocker: code, standIn: null };
         }
       }),
     );

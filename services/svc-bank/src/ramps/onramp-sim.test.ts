@@ -38,13 +38,15 @@ describe('the add-money rate stand-in', () => {
     expect(onrampStandInFor('ramp-sim', CATALOGUE, { APP_ENV: 'test' })?.label).toBe('TEST add-money stand-in');
   });
 
-  it('refuses to start over a blank, unlabelled, zero-rate, duplicated or out-of-shape catalogue', () => {
+  it('refuses to start over a blank, unlabelled, zero-rate, oversized, duplicated or out-of-shape catalogue', () => {
     for (const bad of [
       undefined,
       ' ',
       '{',
       JSON.stringify({ label: 'Live rates', quoteValidSeconds: 20, quotes: [LINE] }),
       JSON.stringify({ label: 'TEST', quoteValidSeconds: 20, quotes: [{ ...LINE, rate: '0' }] }),
+      JSON.stringify({ label: 'TEST', quoteValidSeconds: 20, quotes: [{ ...LINE, fee: `1${'0'.repeat(30)}` }] }),
+      JSON.stringify({ label: 'TEST', quoteValidSeconds: 20, quotes: [{ ...LINE, rate: `1${'0'.repeat(30)}` }] }),
       JSON.stringify({ label: 'TEST', quoteValidSeconds: 20, quotes: [LINE, LINE] }),
       JSON.stringify({ label: 'TEST', quoteValidSeconds: 0, quotes: [LINE] }),
       JSON.stringify({ label: 'TEST', quoteValidSeconds: 20, quotes: [] }),

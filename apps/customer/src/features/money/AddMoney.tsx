@@ -50,7 +50,7 @@ function Method({ row, chosen, onChoose }: { row: AddMoneyOption; chosen: boolea
       </span>
       {quote && (
         <span className="money-caption">
-          {t('priceUntil')}: {date(quote.expiresAt)}
+          {t('priceUntil')}: {date(quote.expiresAt, true)}
         </span>
       )}
       {row.standIn && <small className="muted">{t('standIn', { label: row.standIn })}</small>}
@@ -63,18 +63,34 @@ function Method({ row, chosen, onChoose }: { row: AddMoneyOption; chosen: boolea
   );
 }
 
+function Refused({ title, body, reference }: { title: string; body: string; reference: string }) {
+  return (
+    <div className="failure" role="status" data-testid="add-money-refused">
+      <h3>{title}</h3>
+      <p>{body}</p>
+      <small className="muted">{reference}</small>
+    </div>
+  );
+}
+
+/** What asking answered: a kept request, a price that ran out before anything was kept, or another failure. */
+function Answer({ outcome }: { outcome: AddMoneyRequest | Refusal }) {
+  const { t } = addMoneyCopy.useCopy();
+  if (!('ok' in outcome)) return <Outcome request={outcome} />;
+  if (outcome.code !== EXPIRED) return <Failure result={outcome} />;
+  return <Refused title={t('expiredTitle')} body={t('expiredNow')} reference={t('reference', { code: EXPIRED })} />;
+}
+
 function Outcome({ request }: { request: AddMoneyRequest }) {
   const { t } = addMoneyCopy.useCopy();
   if (request.status === 'refused') {
     const expired = request.refusalCode === EXPIRED;
     return (
-      <div className="failure" role="status" data-testid="add-money-refused">
-        <h3>{expired ? t('expiredTitle') : t('refusedTitle')}</h3>
-        <p>{expired ? t('expiredBody') : t('refusedBody', { rail: request.rail })}</p>
-        <small className="muted">
-          {request.rail} · {t('reference', { code: request.refusalCode ?? '' })}
-        </small>
-      </div>
+      <Refused
+        title={expired ? t('expiredTitle') : t('refusedTitle')}
+        body={expired ? t('expiredBody') : t('refusedBody', { rail: request.rail })}
+        reference={`${request.rail} · ${t('reference', { code: request.refusalCode ?? '' })}`}
+      />
     );
   }
   const onramp = request.onramp;
@@ -172,7 +188,10 @@ export function AddMoney() {
   function seeWays() {
     setTouched(true);
     if (!asset || !amountOk(amount) || !/^[A-Za-z]{2}$/.test(country.trim())) return;
-    setAsk({ assetId: asset, amount: amount.trim(), country: country.trim().toUpperCase() });
+    const next = { assetId: asset, amount: amount.trim(), country: country.trim().toUpperCase() };
+    // The same ask again still needs fresh prices: a quote that ran out must not be offered a second time.
+    if (JSON.stringify(next) === JSON.stringify(ask)) ways.reload();
+    else setAsk(next);
     setMethod(null);
     setStep('choose');
     setOutcome(null);
@@ -285,20 +304,7 @@ export function AddMoney() {
                 {busy ? t('working') : t('ask')}
               </Button>
             </div>
-            {outcome &&
-              ('ok' in outcome ? (
-                outcome.code === EXPIRED ? (
-                  <div className="failure" role="status" data-testid="add-money-refused">
-                    <h3>{t('expiredTitle')}</h3>
-                    <p>{t('expiredNow')}</p>
-                    <small className="muted">{t('reference', { code: EXPIRED })}</small>
-                  </div>
-                ) : (
-                  <Failure result={outcome} />
-                )
-              ) : (
-                <Outcome request={outcome} />
-              ))}
+            {outcome && <Answer outcome={outcome} />}
           </div>
         </DepthPanel>
       )}

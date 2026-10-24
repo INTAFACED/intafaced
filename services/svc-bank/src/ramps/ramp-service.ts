@@ -385,12 +385,12 @@ export class RampService {
     return removeDestination(this.customerDeps(), input);
   }
 
-  /** Pay amount, fee, and rate from the quote source. Refuses when the PSP or the source is blank. */
   /** The TEST label of the stand-in that would price this ask, or null when a real source (or nothing) answers it. */
   onrampStandInFor(input: { assetId: string; method: OnrampMethod; country: string }): string | null {
     return this.onrampStandIn?.covers({ ...input, country: input.country.trim().toUpperCase() }) ? this.onrampStandIn.label : null;
   }
 
+  /** Pay amount, fee, and rate from the quote source. Refuses when the PSP or the source is blank. */
   onrampQuote(input: { userId: string; assetId: string; amount: string; method: OnrampMethod; country: string }): Promise<OnrampQuoteView> {
     return quoteOnramp(this.customerDeps(), input);
   }
