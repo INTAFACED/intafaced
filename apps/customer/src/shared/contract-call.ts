@@ -15,7 +15,7 @@
  * A screen that must narrow what it trusts (the answer must be about the signed-in account, say) passes
  * `contractSchema.refine(...)` or `.extend(...)` as `output`; the narrowing is then written once, next to the call.
  */
-import type { ZodType, ZodTypeAny, ZodTypeDef, input as ZodInput, output as ZodOutput } from 'zod';
+import type { ZodType, ZodTypeAny, input as ZodInput, output as ZodOutput } from 'zod';
 import type { ApiClient, ApiResult, RequestOptions } from './api';
 
 export type ContractProcedure<Out extends ZodTypeAny = ZodTypeAny, In extends ZodTypeAny | undefined = ZodTypeAny | undefined> = {
@@ -55,8 +55,8 @@ type CallArgs<P extends ContractProcedure> =
     ? [input?: ContractInput<P>, options?: RequestOptions]
     : [input: ContractInput<P>, options?: RequestOptions];
 
-// `ZodType<Out, ZodTypeDef, unknown>` lets a schema with a refine, a transform or a default stand in as the output.
-const asSchema = <P extends ContractProcedure>(procedure: P) => procedure.output as ZodType<ContractData<P>, ZodTypeDef, unknown>;
+// `ZodType<Out, unknown>` lets a schema with a refine, a transform or a default stand in as the output.
+const asSchema = <P extends ContractProcedure>(procedure: P) => procedure.output as ZodType<ContractData<P>, unknown>;
 
 /** A tRPC query (HTTP GET). */
 export function readContract<P extends ContractProcedure>(

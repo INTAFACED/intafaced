@@ -2,11 +2,11 @@ import { z } from 'zod';
 
 // hand-declared-ok: listSessions and the family sign-out answers are declared in svc-identity, not in packages/contracts yet
 export const deviceList = z.object({
-  userId: z.string().uuid(),
+  userId: z.string().guid(),
   sessions: z.array(
     z.object({
-      id: z.string().uuid(),
-      familyId: z.string().uuid(),
+      id: z.string().guid(),
+      familyId: z.string().guid(),
       createdAt: z.string(),
       lastUsedAt: z.string(),
       device: z.string().nullable(),
@@ -19,7 +19,7 @@ export const deviceList = z.object({
 });
 export type DeviceList = z.infer<typeof deviceList>;
 export type Device = DeviceList['sessions'][number];
-export const familyEnded = z.object({ familyId: z.string().uuid(), revoked: z.boolean() });
+export const familyEnded = z.object({ familyId: z.string().guid(), revoked: z.boolean() });
 export const othersEnded = z.object({ revokedFamilies: z.number().int().min(0) });
 
 /** A short, honest name from what the browser reported: "Chrome on Windows". Falls back to the stored device name. */

@@ -39,7 +39,7 @@ describe('affiliates.members / listMembers limit unset refuse (no invented 100)'
     expect(src).toMatch(/listMembers\(frozen, rootId, input\.limit\)/);
     expect(src).not.toMatch(/limit: z\.number\(\)\.int\(\)\.min\(1\)\.max\(500\)\.optional\(\)/);
     expect(src).toMatch(/limit: z\.number\(\)\.int\(\)\.min\(1\)\.max\(500\)/);
-    expect(src).not.toMatch(/z\.object\(\{ rootId: z\.string\(\)\.uuid\(\)\.optional\(\) \}\)\.optional\(\)/);
+    expect(src).not.toMatch(/z\.object\(\{ rootId: z\.string\(\)\.guid\(\)\.optional\(\) \}\)\.optional\(\)/);
   });
 
   it('referral-service.ts does not invent 100 via default param', () => {

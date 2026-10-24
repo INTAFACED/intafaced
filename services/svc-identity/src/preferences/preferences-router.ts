@@ -14,7 +14,7 @@ const view = z
     id: z.string(),
     name: z.string(),
     sort: z.string(),
-    filters: z.record(z.string()),
+    filters: z.record(z.string(), z.string()),
     columns: z.array(z.string()),
   })
   .strict();

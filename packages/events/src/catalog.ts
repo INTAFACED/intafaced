@@ -44,7 +44,7 @@ export const amountSchema = z.string().regex(/^\d+(\.\d{1,18})?$/, 'amount must 
  */
 export const signedAmountSchema = z.string().regex(/^-?\d+(\.\d{1,18})?$/, 'signed amount must be a decimal string (max 18dp)');
 export const assetIdSchema = z.string().min(1).max(16);
-export const userIdSchema = z.string().uuid();
+export const userIdSchema = z.string().guid();
 /**
  * Engine fill identity. UUID, required wherever a fill is named on the bus.
  *
@@ -52,7 +52,7 @@ export const userIdSchema = z.string().uuid();
  * amount. `orderFilled.sequence` orders the book; `fillSettled.fillId` names
  * the fill. A second interpretation of the same money fact is refused here.
  */
-export const engineFillIdSchema = z.string().uuid();
+export const engineFillIdSchema = z.string().guid();
 
 /**
  * An order id as the matching engine names it on the bus: a trade order uuid, or one leg of a linked OCO,
@@ -77,7 +77,7 @@ export const xpEarned = defineEvent(
     sourceModule: z.string(),
     action: z.string(),
     xpDelta: z.number().int(),
-    meta: z.record(z.unknown()).optional(),
+    meta: z.record(z.string(), z.unknown()).optional(),
   }),
   'A module awarded XP. svc-identity is the only consumer that writes rank_state.',
 );
@@ -123,7 +123,7 @@ export const kycApproved = defineEvent(
  * outbox row after the transition commits, business key identity.kyc.<verb>:<caseId>:<version>. No
  * document, image or personal detail rides on the bus: consumers re-read the case through contracts.
  */
-const kycCaseIdSchema = z.string().uuid();
+const kycCaseIdSchema = z.string().guid();
 
 export const kycSubmitted = defineEvent(
   'identity',
@@ -181,7 +181,7 @@ export const ledgerTxPosted = defineEvent(
   'posted',
   1,
   z.object({
-    txId: z.string().uuid(),
+    txId: z.string().guid(),
     module: z.string(),
     reason: z.string(),
     /** Hash chain link — consumers can verify the book independently. */
@@ -190,7 +190,7 @@ export const ledgerTxPosted = defineEvent(
     entries: z
       .array(
         z.object({
-          accountId: z.string().uuid(),
+          accountId: z.string().guid(),
           assetId: assetIdSchema,
           direction: z.enum(['debit', 'credit']),
           amount: amountSchema,
@@ -208,7 +208,7 @@ export const ledgerReconciliationFailed = defineEvent(
   'failed',
   1,
   z.object({
-    accountId: z.string().uuid(),
+    accountId: z.string().guid(),
     assetId: assetIdSchema,
     snapshotBalance: amountSchema,
     replayBalance: amountSchema,
@@ -283,7 +283,7 @@ export const stakeCreated = defineEvent(
   'created',
   1,
   z.object({
-    stakeId: z.string().uuid(),
+    stakeId: z.string().guid(),
     userId: userIdSchema,
     amount: amountSchema,
     tier: z.enum(['flex', 'm3', 'm12']),
@@ -298,7 +298,7 @@ export const buybackExecuted = defineEvent(
   'completed',
   1,
   z.object({
-    runId: z.string().uuid(),
+    runId: z.string().guid(),
     tokensBought: amountSchema,
     tokensBurned: amountSchema,
     tokensToRewards: amountSchema,
@@ -335,7 +335,7 @@ export const bankMarginCalled = defineEvent(
   'created',
   1,
   z.object({
-    loanId: z.string().uuid(),
+    loanId: z.string().guid(),
     userId: userIdSchema,
     /** Per-loan call number, from 1. The business key for at-least-once delivery. */
     sequence: z.number().int().min(1),
@@ -362,7 +362,7 @@ export const supportTicketResolved = defineEvent(
   'resolved',
   1,
   z.object({
-    ticketId: z.string().uuid(),
+    ticketId: z.string().guid(),
     /** The person who raised the request, i.e. whom to ask for a rating. */
     userId: userIdSchema,
     resolvedAt: z.string().datetime({ offset: true }),
@@ -386,7 +386,7 @@ export const blueprintCreated = defineEvent(
   'created',
   1,
   z.object({
-    blueprintId: z.string().uuid(),
+    blueprintId: z.string().guid(),
     userId: userIdSchema,
     /** Which engine build produced it. Profiles are comparable only within a version. */
     engineVersion: z.string().min(1),
@@ -401,7 +401,7 @@ export const blueprintDeleted = defineEvent(
   'deleted',
   1,
   z.object({
-    blueprintId: z.string().uuid(),
+    blueprintId: z.string().guid(),
     userId: userIdSchema,
     erasedAt: z.string().datetime({ offset: true }),
   }),
@@ -414,11 +414,11 @@ export const crewMemberCreated = defineEvent(
   'created',
   1,
   z.object({
-    crewId: z.string().uuid(),
+    crewId: z.string().guid(),
     userId: userIdSchema,
     role: crewRoleSchema,
     crewSize: z.number().int().min(1),
-    matchRunId: z.string().uuid(),
+    matchRunId: z.string().guid(),
   }),
   'Crew placement. svc-academy routes the lobby, svc-agents opens the crew channel.',
 );
@@ -560,8 +560,8 @@ export const orderUpdated = defineEvent(
   'updated',
   1,
   z.object({
-    orderId: z.string().uuid(),
-    userId: z.string().uuid(),
+    orderId: z.string().guid(),
+    userId: z.string().guid(),
     marketId: z.string(),
     status: z.enum(['pending', 'open', 'filled', 'cancelled', 'rejected', 'expired']),
     side: z.enum(['buy', 'sell']),
@@ -589,8 +589,8 @@ export const fillSettled = defineEvent(
   1,
   z.object({
     fillId: engineFillIdSchema,
-    orderId: z.string().uuid(),
-    userId: z.string().uuid(),
+    orderId: z.string().guid(),
+    userId: z.string().guid(),
     marketId: z.string(),
     side: z.enum(['buy', 'sell']),
     liquidity: z.enum(['maker', 'taker']),
@@ -628,7 +628,7 @@ export const positionUpdated = defineEvent(
   'updated',
   1,
   z.object({
-    positionId: z.string().uuid(),
+    positionId: z.string().guid(),
     userId: userIdSchema,
     marketId: z.string().min(1),
     symbol: z.string().min(1),
@@ -738,7 +738,7 @@ export const agentActionCompleted = defineEvent(
   'completed',
   1,
   z.object({
-    sessionId: z.string().uuid(),
+    sessionId: z.string().guid(),
     userId: userIdSchema,
     agentId: z.string(),
     sequence: z.number().int().min(0),
@@ -758,7 +758,7 @@ export const agentActionRejected = defineEvent(
   'rejected',
   1,
   z.object({
-    sessionId: z.string().uuid(),
+    sessionId: z.string().guid(),
     userId: userIdSchema,
     agentId: z.string(),
     sequence: z.number().int().min(0),
@@ -776,7 +776,7 @@ export const agentUsageSettled = defineEvent(
   'settled',
   1,
   z.object({
-    sessionId: z.string().uuid(),
+    sessionId: z.string().guid(),
     userId: userIdSchema,
     windowId: z.string(),
     amount: amountSchema,
@@ -795,7 +795,7 @@ export const p2pOfferCreated = defineEvent(
   'created',
   1,
   z.object({
-    offerId: z.string().uuid(),
+    offerId: z.string().guid(),
     makerId: userIdSchema,
     side: z.enum(['buy', 'sell']),
     asset: assetIdSchema,
@@ -814,8 +814,8 @@ export const p2pEscrowLocked = defineEvent(
   'locked',
   1,
   z.object({
-    tradeId: z.string().uuid(),
-    offerId: z.string().uuid(),
+    tradeId: z.string().guid(),
+    offerId: z.string().guid(),
     sellerId: userIdSchema,
     buyerId: userIdSchema,
     asset: assetIdSchema,
@@ -834,7 +834,7 @@ export const p2pEscrowReleased = defineEvent(
   'released',
   1,
   z.object({
-    tradeId: z.string().uuid(),
+    tradeId: z.string().guid(),
     sellerId: userIdSchema,
     buyerId: userIdSchema,
     asset: assetIdSchema,
@@ -853,7 +853,7 @@ export const p2pEscrowRefunded = defineEvent(
   'refunded',
   1,
   z.object({
-    tradeId: z.string().uuid(),
+    tradeId: z.string().guid(),
     sellerId: userIdSchema,
     buyerId: userIdSchema,
     asset: assetIdSchema,
@@ -870,8 +870,8 @@ export const p2pTradeDisputed = defineEvent(
   'disputed',
   2,
   z.object({
-    tradeId: z.string().uuid(),
-    disputeId: z.string().uuid(),
+    tradeId: z.string().guid(),
+    disputeId: z.string().guid(),
     openedBy: userIdSchema,
     /**
      * Version 2 (P-trade-orders-23): both parties ride on the payload so svc-notify can tell the
@@ -892,8 +892,8 @@ export const p2pDisputeResolved = defineEvent(
   'resolved',
   2,
   z.object({
-    disputeId: z.string().uuid(),
-    tradeId: z.string().uuid(),
+    disputeId: z.string().guid(),
+    tradeId: z.string().guid(),
     /** Version 2 (P-trade-orders-23): both parties get the ruling. Optional until svc-p2p fills them. */
     buyerId: userIdSchema.optional(),
     sellerId: userIdSchema.optional(),
@@ -917,7 +917,7 @@ export const p2pTradeExpired = defineEvent(
   'expired',
   2,
   z.object({
-    tradeId: z.string().uuid(),
+    tradeId: z.string().guid(),
     /** Version 2 (P-trade-orders-23): both parties get the expiry notice. Optional until svc-p2p fills them. */
     buyerId: userIdSchema.optional(),
     sellerId: userIdSchema.optional(),
@@ -939,12 +939,12 @@ export const p2pTradeFiatSent = defineEvent(
   'sent',
   1,
   z.object({
-    tradeId: z.string().uuid(),
+    tradeId: z.string().guid(),
     buyerId: userIdSchema,
     sellerId: userIdSchema,
     markedAt: z.string().datetime({ offset: true }),
   }),
-  'The buyer marked the fiat payment as sent. The seller must check and release; consumers dedupe by event id.',
+  'The buyer marked the fiat payment as sent. The seller must check and release. A trade is marked paid once, so consumers dedupe on tradeId.',
 );
 
 export const p2pChatMessageSent = defineEvent(
@@ -953,8 +953,8 @@ export const p2pChatMessageSent = defineEvent(
   'sent',
   1,
   z.object({
-    tradeId: z.string().uuid(),
-    messageId: z.string().uuid(),
+    tradeId: z.string().guid(),
+    messageId: z.string().guid(),
     senderId: userIdSchema,
     recipientId: userIdSchema,
     sentAt: z.string().datetime({ offset: true }),
@@ -969,8 +969,8 @@ export const p2pDisputeEscalated = defineEvent(
   'escalated',
   1,
   z.object({
-    disputeId: z.string().uuid(),
-    tradeId: z.string().uuid(),
+    disputeId: z.string().guid(),
+    tradeId: z.string().guid(),
     buyerId: userIdSchema,
     sellerId: userIdSchema,
     escalatedBy: z.string().min(1),
@@ -985,7 +985,7 @@ export const p2pQuoteExpired = defineEvent(
   'expired',
   1,
   z.object({
-    quoteId: z.string().uuid(),
+    quoteId: z.string().guid(),
     userId: userIdSchema,
     expiredAt: z.string().datetime({ offset: true }),
   }),
@@ -1013,7 +1013,7 @@ export const personalRequestCreated = defineEvent(
   'created',
   1,
   z.object({
-    requestId: z.string().uuid(),
+    requestId: z.string().guid(),
     payerUserId: userIdSchema,
     payeeHandle: z.string().min(1).max(32),
     amount: amountSchema,
@@ -1032,7 +1032,7 @@ export const personalRequestSettled = defineEvent(
   'settled',
   1,
   z.object({
-    requestId: z.string().uuid(),
+    requestId: z.string().guid(),
     payeeUserId: userIdSchema,
     payerHandle: z.string().min(1).max(32),
     amount: amountSchema,
@@ -1109,7 +1109,7 @@ export const personalDisputeUpdated = defineEvent(
 
 // ── core-ops: platform alert rules (OPS-alerts-01) ───────────────────────────
 
-const alertRuleIdSchema = z.string().uuid();
+const alertRuleIdSchema = z.string().guid();
 /** Stable identity of one alert instance: the rule's id and the hash of its label set. */
 const alertInstanceSchema = z.string().regex(/^[a-f0-9]{64}$/, 'instance is a sha-256 of the label set');
 
@@ -2028,14 +2028,7 @@ export const WIRING_SOCKETS = [
     missing: 'publisher',
     class: 'A',
     reason:
-      'Declared by the P-trade-orders-23 events PR. svc-p2p publishes it through its outbox in the same transaction as the state change (svc-p2p PR, next). Nothing reads it yet, so nothing is waiting on it.',
-  },
-  {
-    event: 'p2pTradeFiatSent',
-    missing: 'subscriber',
-    class: 'A',
-    reason:
-      'svc-notify turns it into the buyer-paid notice to the seller in the P-trade-orders-23 svc-notify PR, idempotent by event id. Until then no publisher exists either, so no user is promised a notice.',
+      "Declared by the P-trade-orders-23 events PR. svc-p2p publishes it through its outbox in the same transaction as the state change (svc-p2p PR, next). svc-notify (notify-p2p-trade-fiat-sent) is waiting on it for the seller's buyer-paid notice.",
   },
   {
     event: 'p2pChatMessageSent',

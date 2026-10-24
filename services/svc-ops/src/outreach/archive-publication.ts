@@ -8,7 +8,7 @@ import { erasureArchiveSchema } from './restore-privacy.js';
 export const archiveDigest = (body: string) => createHash('sha256').update(body).digest('hex');
 export const archiveReceiptSchema = z
   .object({
-    intentId: z.string().uuid(),
+    intentId: z.string().guid(),
     digest: z.string().regex(/^[a-f0-9]{64}$/),
     generation: z.number().int().positive().safe(),
     storedAt: z.string().datetime({ offset: true }),
@@ -19,7 +19,7 @@ export const publishedPacketSchema = z.object({ body: z.string().max(16 * 1024 *
 export const currentArchiveSchema = z
   .object({
     packets: z.array(publishedPacketSchema).max(10000),
-    nonce: z.string().uuid(),
+    nonce: z.string().guid(),
     generation: z.number().int().nonnegative().safe(),
     digest: z.string().regex(/^[a-f0-9]{64}$/),
     archive: erasureArchiveSchema,

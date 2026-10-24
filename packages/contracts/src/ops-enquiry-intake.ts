@@ -12,7 +12,7 @@ export const OPS_CONTACT_REASON_REQUIRED = 'ops.contact_reason_required' as cons
 export const opsEnquiryIntakeErrorCodeSchema = z.enum([OPS_SEGMENT_CAP_UNSET, OPS_IMPORT_INVALID, OPS_CONTACT_REASON_REQUIRED]);
 export type OpsEnquiryIntakeErrorCode = z.infer<typeof opsEnquiryIntakeErrorCodeSchema>;
 
-const id = z.string().uuid();
+const id = z.string().guid();
 const timestamp = z.string().datetime({ offset: true });
 const businessKey = z.string().regex(/^[A-Za-z0-9_.:-]{1,128}$/, 'Expected an opaque business key');
 

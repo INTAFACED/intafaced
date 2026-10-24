@@ -12,7 +12,7 @@ import { encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { parseAmount as amt } from '@intafaced/ledger-client';
 import { FuturesError } from '../position-service.js';
 import { conditionalTriggerScheduled, startConditionalOrderJobs } from './job.js';
-import { CONDITIONAL_ORDERS_PATH, RESTING_ORDERS_PATH, registerConditionalOrdersRest } from './rest.js';
+import { CONDITIONAL_ORDERS_PATH, ENTRY_PROTECTION_PATH, RESTING_ORDERS_PATH, registerConditionalOrdersRest } from './rest.js';
 import { FUTURES_RESTING_UNSUPPORTED, refuseFuturesRestingLimit } from './resting.js';
 import { nextTrail, triggerCrossed, validateConditional } from './validate.js';
 
@@ -160,6 +160,10 @@ describe('conditional order doors', () => {
         calls.push('protect');
         throw new Error('protect should not run');
       },
+      listEntryProtection: async (userId: string) => {
+        calls.push(`entry:${userId}`);
+        return [];
+      },
       placeResting: async () => {
         calls.push('resting');
         return refuseFuturesRestingLimit({
@@ -202,6 +206,20 @@ describe('conditional order doors', () => {
     });
     expect(response.statusCode).toBe(403);
     expect(calls).toEqual([]);
+    await app.close();
+  });
+
+  it('lists the signed account’s entry protections, and needs trade:read', async () => {
+    const calls: string[] = [];
+    const app = Fastify();
+    registerConditionalOrdersRest(app, { edgeSecret: EDGE_SECRET, serviceName: 'svc-trade', orders: door(calls) });
+    const refused = await app.inject({ method: 'GET', url: ENTRY_PROTECTION_PATH, headers: headers(['trade:write']) });
+    expect(refused.statusCode).toBe(403);
+    expect(calls).toEqual([]);
+    const listed = await app.inject({ method: 'GET', url: ENTRY_PROTECTION_PATH, headers: headers(['trade:read']) });
+    expect(listed.statusCode).toBe(200);
+    expect(listed.json()).toEqual({ protections: [] });
+    expect(calls).toEqual([`entry:${USER}`]);
     await app.close();
   });
 

@@ -273,7 +273,7 @@ export type LedgerOperatorCall = (
  */
 export type LedgerLookupPath = `/operator/transactions/${string}` | `/operator/trace?businessKey=${string}`;
 
-const LOOKUP_TX_ID = z.string().uuid();
+const LOOKUP_TX_ID = z.string().guid();
 const LOOKUP_BUSINESS_KEY = z.string().trim().min(1).max(512);
 const invalidLookup = (message: string) => ({ status: 400, body: { error: message, code: 'edge.invalid_ledger_lookup' } });
 

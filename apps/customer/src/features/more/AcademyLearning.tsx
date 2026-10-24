@@ -44,7 +44,7 @@ export const certificateDefinitions = z
   .array(z.object({ id: ref, title: ref, requiredItemSlugs: z.array(ref).refine(unique) }))
   .refine((rows) => unique(rows.map((row) => row.id)));
 export const certificateProgress = z.object({
-  userId: z.string().uuid(),
+  userId: z.string().guid(),
   certId: ref,
   title: ref,
   requiredCount: z.number().int().safe().positive(),
@@ -70,10 +70,10 @@ export function progressFor(owner: string | null | undefined, certId: string, re
       p.missingItemSlugs.join('|') === required.filter((s) => p.missingItemSlugs.includes(s)).join('|'),
   );
 }
-const completion = z.object({ userId: z.string().uuid(), itemSlug: ref, completedAt: date });
+const completion = z.object({ userId: z.string().guid(), itemSlug: ref, completedAt: date });
 const touched = z.object({ lastItemSlug: ref.nullable() });
 type Context = { owner: string; certId: string; slug: string };
-const contextSchema = z.object({ owner: z.string().uuid(), certId: z.string(), slug: ref });
+const contextSchema = z.object({ owner: z.string().guid(), certId: z.string(), slug: ref });
 const selectionKey = (owner: string) => `intafaced:academy:certificate:${owner}`;
 const originalKey = (owner: string) => `intafaced:academy:original-completion:${owner}`;
 export function selectedCertificate(owner: string | null | undefined) {

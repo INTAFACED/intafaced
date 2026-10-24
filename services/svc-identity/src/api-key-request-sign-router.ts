@@ -32,7 +32,7 @@ export function createApiKeyRequestSignRouter(sql: Sql, gate: ApiKeyFactorGate, 
       .input(
         z
           .object({
-            keyId: z.string().uuid(),
+            keyId: z.string().guid(),
             requireSignature: z.boolean().optional(),
             requireNonEmptyIpAllowlist: z.boolean().optional(),
             factorProof: optionalFactorProof,
@@ -41,7 +41,7 @@ export function createApiKeyRequestSignRouter(sql: Sql, gate: ApiKeyFactorGate, 
       )
       .output(
         z.object({
-          id: z.string().uuid(),
+          id: z.string().guid(),
           requireSignature: z.boolean(),
           requireNonEmptyIpAllowlist: z.boolean(),
           signingSecret: z.string().nullable(),
@@ -82,8 +82,8 @@ export function createApiKeyRequestSignRouter(sql: Sql, gate: ApiKeyFactorGate, 
      * The new secret is returned once. identity:write, and the caller must own the key.
      */
     rotateSigningSecret: scopedProcedure('identity:write')
-      .input(z.object({ keyId: z.string().uuid(), factorProof: optionalFactorProof }))
-      .output(z.object({ id: z.string().uuid(), signingSecret: z.string() }))
+      .input(z.object({ keyId: z.string().guid(), factorProof: optionalFactorProof }))
+      .output(z.object({ id: z.string().guid(), signingSecret: z.string() }))
       .mutation(async ({ ctx, input }) => {
         try {
           assertDelegateCannotGrant(ctx.principal.kid);

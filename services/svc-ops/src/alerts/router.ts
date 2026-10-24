@@ -69,7 +69,7 @@ const stateSchema = z.object({
 
 const historyRowSchema = z.object({
   id: z.number().int(),
-  ruleId: z.string().uuid(),
+  ruleId: z.string().guid(),
   instance: z.string(),
   epoch: z.number().int(),
   at: z.string(),
@@ -233,7 +233,7 @@ export function createAlertRulesRouter(rules: AlertRules | undefined, stateStore
       .input(
         z.object({
           limit: z.number().int().min(1).max(200).optional(),
-          ruleId: z.string().uuid().optional(),
+          ruleId: z.string().guid().optional(),
           state: z.enum(OPS_ALERT_STATES).optional(),
           since: z.string().datetime({ offset: true }).optional(),
           until: z.string().datetime({ offset: true }).optional(),
@@ -272,7 +272,7 @@ export function createAlertRulesRouter(rules: AlertRules | undefined, stateStore
       ),
 
     get: scopedProcedure('admin:read', guards)
-      .input(z.object({ id: z.string().uuid() }))
+      .input(z.object({ id: z.string().guid() }))
       .output(rule)
       .query(({ input }) =>
         guarded(async () => {
@@ -283,7 +283,7 @@ export function createAlertRulesRouter(rules: AlertRules | undefined, stateStore
       ),
 
     versions: scopedProcedure('admin:read', guards)
-      .input(z.object({ id: z.string().uuid(), limit: z.number().int().min(1).max(200).optional() }))
+      .input(z.object({ id: z.string().guid(), limit: z.number().int().min(1).max(200).optional() }))
       .output(z.object({ versions: z.array(versionSchema) }))
       .query(({ input }) =>
         guarded(async () => ({
@@ -302,7 +302,7 @@ export function createAlertRulesRouter(rules: AlertRules | undefined, stateStore
       ),
 
     update: writer
-      .input(opsAlertRuleDraftSchema.extend({ id: z.string().uuid(), expectedVersion: versionField, idempotencyKey: keyField }))
+      .input(opsAlertRuleDraftSchema.extend({ id: z.string().guid(), expectedVersion: versionField, idempotencyKey: keyField }))
       .output(rule)
       .mutation(({ ctx, input }) =>
         guarded(async () => {
@@ -314,7 +314,7 @@ export function createAlertRulesRouter(rules: AlertRules | undefined, stateStore
     setPaused: writer
       .input(
         z.object({
-          id: z.string().uuid(),
+          id: z.string().guid(),
           expectedVersion: versionField,
           paused: z.boolean(),
           reason: reasonField,
@@ -327,13 +327,13 @@ export function createAlertRulesRouter(rules: AlertRules | undefined, stateStore
       ),
 
     retire: writer
-      .input(z.object({ id: z.string().uuid(), expectedVersion: versionField, reason: reasonField, idempotencyKey: keyField }))
+      .input(z.object({ id: z.string().guid(), expectedVersion: versionField, reason: reasonField, idempotencyKey: keyField }))
       .output(rule)
       .mutation(({ ctx, input }) => guarded(async () => need().retire(input.id, input.expectedVersion, staff(ctx, input)))),
 
     /** Only an admin restores a retired rule: the treasury-grade scope, which also needs a second factor. */
     restore: writer
-      .input(z.object({ id: z.string().uuid(), expectedVersion: versionField, reason: reasonField, idempotencyKey: keyField }))
+      .input(z.object({ id: z.string().guid(), expectedVersion: versionField, reason: reasonField, idempotencyKey: keyField }))
       .output(rule)
       .mutation(({ ctx, input }) =>
         guarded(async () => {

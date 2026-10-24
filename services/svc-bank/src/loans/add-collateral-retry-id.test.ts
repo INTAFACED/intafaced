@@ -91,8 +91,8 @@ describe('addCollateral pins eventId before MAX+1 sequence allocation', () => {
     const relAt = src.indexOf("releaseExcess: scopedProcedure('bank:write'", doorAt);
     const body = src.slice(doorAt, relAt);
     expect(doorAt).toBeGreaterThan(-1);
-    expect(body).toMatch(/eventId:\s*z\.string\(\)\.uuid\(\)/);
-    expect(body).not.toMatch(/eventId:\s*z\.string\(\)\.uuid\(\)\.optional\(\)/);
+    expect(body).toMatch(/eventId:\s*z\.string\(\)\.guid\(\)/);
+    expect(body).not.toMatch(/eventId:\s*z\.string\(\)\.guid\(\)\.optional\(\)/);
     expect(body).toMatch(/eventId:\s*input\.eventId/);
   });
 });

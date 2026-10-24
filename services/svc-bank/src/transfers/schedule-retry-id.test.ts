@@ -63,8 +63,8 @@ describe('schedule pins a required caller scheduleId on INSERT', () => {
     const listAt = src.indexOf("listSchedules: scopedProcedure('bank:read'", doorAt);
     const body = src.slice(doorAt, listAt);
     expect(doorAt).toBeGreaterThan(-1);
-    expect(body).toMatch(/scheduleId:\s*z\.string\(\)\.uuid\(\)/);
-    expect(body).not.toMatch(/scheduleId:\s*z\.string\(\)\.uuid\(\)\.optional\(\)/);
+    expect(body).toMatch(/scheduleId:\s*z\.string\(\)\.guid\(\)/);
+    expect(body).not.toMatch(/scheduleId:\s*z\.string\(\)\.guid\(\)\.optional\(\)/);
   });
 });
 
