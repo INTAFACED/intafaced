@@ -19,7 +19,8 @@ import { ActionApprovalError } from './action-approval-service.js';
 import { AuthError } from './auth-service.js';
 
 /**
- * The 13 security scopes of ENGINE STP-3, and the security lock's unlock request (W-withdraw-09). Close account, contact
+ * The 13 security scopes of ENGINE STP-3, the security lock's unlock request (W-withdraw-09) and approving a new device
+ * from a trusted session (I-signin-sessions-07). Close account, contact
  * changes and payments have their own guards.
  */
 export const SECURITY_STEP_UP_SCOPES = [
@@ -34,6 +35,7 @@ export const SECURITY_STEP_UP_SCOPES = [
   'identity.step_up.limits_loosen',
   'identity.step_up.self_freeze_lift',
   'identity.step_up.trusted_device_remove',
+  'identity.step_up.trusted_device_approve',
   'identity.step_up.link_method',
   'identity.step_up.unlink_method',
   'identity.step_up.security_lock_unlock',

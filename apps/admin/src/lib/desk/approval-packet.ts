@@ -97,7 +97,10 @@ export type DeskRequest =
     }
   | { readonly kind: 'protocol.pool.restore'; readonly chainId: number; readonly poolAddress: string }
   | { readonly kind: 'protocol.market.delist'; readonly symbol: string; readonly reasonCode: string; readonly reason: string }
-  | { readonly kind: 'protocol.market.restore'; readonly symbol: string };
+  | { readonly kind: 'protocol.market.restore'; readonly symbol: string }
+  /** Console maintenance mode (svc-ops `consoleMode.set`, OPS-admin-access-08): on with a reason, off with none. Both need a second founder. */
+  | { readonly kind: 'ops.console_mode.on'; readonly reason: string }
+  | { readonly kind: 'ops.console_mode.off' };
 
 export const VENDOR_DECISIONS = ['approved', 'rejected', 'suspended'] as const;
 export type VendorDecision = (typeof VENDOR_DECISIONS)[number];
@@ -282,6 +285,15 @@ export function readDeskRequest(raw: unknown): DeskRequest | null {
       return null;
     return { kind: 'identity.auth_key.remove_old', keyIds: raw.keyIds };
   }
+  // svc-ops binds the reason to turning maintenance mode on, and nothing beyond the console itself to turning it off.
+  if (raw.kind === 'ops.console_mode.on') {
+    if (keys !== 'kind,reason' || !validReason(raw.reason)) return null;
+    return { kind: 'ops.console_mode.on', reason: raw.reason };
+  }
+  if (raw.kind === 'ops.console_mode.off') {
+    if (keys !== 'kind') return null;
+    return { kind: 'ops.console_mode.off' };
+  }
   // svc-ops binds the month, line, amount, asset and source note to the approval: a changed figure is a different request.
   if (raw.kind === 'ops.venue_cost.record') {
     if (keys !== 'amount,asset,category,kind,period,reason') return null;
@@ -445,6 +457,10 @@ export function confirmPhrase(request: DeskRequest): string {
       return `DELIST ${request.symbol}`;
     case 'protocol.market.restore':
       return `RELIST ${request.symbol}`;
+    case 'ops.console_mode.on':
+      return 'CONSOLE READ ONLY';
+    case 'ops.console_mode.off':
+      return 'CONSOLE WRITABLE';
   }
 }
 
@@ -509,6 +525,10 @@ export function describeRequest(request: DeskRequest): string {
       return `Delist market ${request.symbol} (reason code ${request.reasonCode}: "${request.reason}"). The DEX stops quoting it. This is a listing decision only; nothing on chain changes.`;
     case 'protocol.market.restore':
       return `Relist market ${request.symbol}: the DEX quotes it again.`;
+    case 'ops.console_mode.on':
+      return `Turn on maintenance mode ("${request.reason}"): this console becomes read-only. Every write refuses ops.console_read_only and a banner says so; reads still work. The halts (posting freeze, module kill, payment halts) and turning the mode off stay open. The posting freeze and every account stay as they are, and the platform keeps running.`;
+    case 'ops.console_mode.off':
+      return 'Turn off maintenance mode: this console takes writes again. Nothing else changes.';
   }
 }
 
@@ -523,6 +543,7 @@ export function requestReason(request: DeskRequest): string | null {
     case 'campaigns.waitlist.wave_release':
     case 'protocol.pool.restore':
     case 'protocol.market.restore':
+    case 'ops.console_mode.off':
       return null;
     default:
       return request.reason;

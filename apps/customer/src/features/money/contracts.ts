@@ -367,6 +367,61 @@ export const linkedAccountWrites = {
   link: z.object({ account: linkedAccountSchema, created: z.boolean() }),
   remove: z.object({ accountId: z.string(), removed: z.literal(true) }),
 };
+/** svc-bank `bank.directDebits.*` (J-bank-06 #4, BK-xfer-11): mandates, their collections and refund requests. */
+export const directDebitCollectionSchema = z.object({
+  id: z.string(),
+  mandateId: z.string(),
+  collectionId: z.string(),
+  creditorName: z.string(),
+  assetId: z.string(),
+  amount: money,
+  dueAt: z.string(),
+  status: z.enum(['upcoming', 'processing', 'collected', 'failed', 'rejected']),
+  failureCode: z.string().nullable(),
+  ledgerTxId: z.string().nullable(),
+  presentedAt: z.string(),
+  settledAt: z.string().nullable(),
+  failureFee: z.null(),
+  failureFeeBlocker: z.literal('bank.dd_failure_fee_unset').nullable(),
+  refund: z.object({
+    state: z.enum(['none', 'available', 'requested', 'closed', 'unset']),
+    endsAt: z.string().nullable(),
+    requestedAt: z.string().nullable(),
+  }),
+});
+export type DirectDebitCollection = z.infer<typeof directDebitCollectionSchema>;
+export const directDebitMandateSchema = z.object({
+  id: z.string(),
+  creditorId: z.string(),
+  creditorName: z.string(),
+  reference: z.string(),
+  assetId: z.string(),
+  status: z.enum(['active', 'blocked']),
+  blockedAt: z.string().nullable(),
+  createdAt: z.string(),
+  upcoming: z.array(directDebitCollectionSchema),
+});
+export type DirectDebitMandate = z.infer<typeof directDebitMandateSchema>;
+export const directDebitsViewSchema = z.object({
+  scheme: z.object({
+    status: z.enum(['unset', 'live']),
+    standIn: z.string().nullable(),
+    guaranteeDays: z.number().int().nullable(),
+    blocker: z.literal('rail.bank').nullable(),
+  }),
+  mandates: z.array(directDebitMandateSchema),
+  collections: z.array(directDebitCollectionSchema),
+});
+export type DirectDebitsView = z.infer<typeof directDebitsViewSchema>;
+export const directDebitWrites = {
+  block: z.object({
+    mandate: directDebitMandateSchema,
+    rejected: z.array(z.string()),
+    tooLate: z.array(z.object({ collectionId: z.string(), code: z.literal('bank.dd_too_late') })),
+  }),
+  unblock: z.object({ mandate: directDebitMandateSchema }),
+  requestRefund: z.object({ collection: directDebitCollectionSchema, created: z.boolean() }),
+};
 /** svc-bank `bank.cashOut.*` (J-bank-03): cash out to a linked bank account, with what stands in the way. */
 export const cashOutQuoteSchema = z.object({
   assetId: z.string(),
@@ -489,6 +544,7 @@ export const bankReads = {
   'accountDetails.list': z.object({ currencies: z.array(accountDetailsRowSchema) }),
   'eligibility.get': eligibilitySchema,
   'linkedAccounts.list': z.object({ accounts: z.array(linkedAccountSchema) }),
+  'directDebits.list': directDebitsViewSchema,
   'cashOut.quote': cashOutQuoteSchema,
   // The same wire shape Pay reads (J-bank-04 #3): one definition of `bank.transfers.quote`.
   'transfers.quote': transferQuoteSchema,

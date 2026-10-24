@@ -58,6 +58,17 @@ const script = resolve(here, 'local-test-stack.mjs');
   console.log('local-test-stack: one service file per started service');
 }
 
+// The bank asks the stack's own svc-pay for the deposit catalogue and addresses; without PAY_URL every deposit answer is
+// "not published" (bank.deposit_custody_unset).
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const envs = localTestServiceEnvs();
+  const bank = envs.find((service) => service.name === 'bank');
+  const pay = envs.find((service) => service.name === 'pay');
+  assert.equal(bank.env.PAY_URL, `http://127.0.0.1:${pay.env.HTTP_PORT}`);
+  console.log('local-test-stack: bank reads deposit custody from the stack svc-pay');
+}
+
 // The bank process carries its BK-xfer-07 TEST values from the bank profile, verbatim, so a global send on this
 // stack meets the same payee list, exchange allowance and proof limits as CX-8 instead of the unset refusals.
 {
@@ -82,10 +93,12 @@ const script = resolve(here, 'local-test-stack.mjs');
   assert.equal(bank.env.BANK_GLOBAL_PARTNER, 'global-sim');
   assert.equal(bank.env.BANK_ONRAMP_RATES, 'ramp-sim');
   assert.equal(bank.env.BANK_PAYOUT_PARTNER, 'payout-sim');
+  assert.equal(bank.env.BANK_DD_SCHEME, 'dd-sim');
   for (const name of [
     'BANK_GLOBAL_SIM_JSON',
     'BANK_ONRAMP_SIM_JSON',
     'BANK_PAYOUT_SIM_JSON',
+    'BANK_DD_SIM_JSON',
     'BANK_SEND_FIELD_RULES_JSON',
     'BANK_PAYEE_COOLING_HOURS',
     'BANK_GLOBAL_HOLD_CANCEL_HOURS',

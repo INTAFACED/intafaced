@@ -339,6 +339,7 @@ export type TakeFailure =
   | 'verificationLimit'
   | 'limitsUnset'
   | 'methodRetired'
+  | 'nonInstantRefused'
   | 'buyingPaused'
   | 'ownOffer'
   | 'unavailable'
@@ -381,6 +382,8 @@ export const DEFINITE_TAKE_CODES: ReadonlySet<string> = new Set([
   'p2p.verification_level_unwired',
   // A retired payment method is refused before the take reserves anything.
   'p2p.method_delisted',
+  // A non-instant method without the ad's consent rolls the take back: nothing stays reserved.
+  'p2p.non_instant_not_accepted',
   // Buying paused after cancelled orders: checked before anything is reserved.
   'p2p.buying_restricted',
   'p2p.invalid_amount',
@@ -466,6 +469,8 @@ export function takeFailureKind(failure: { reason: string; code?: string; status
       return 'limitsUnset';
     case 'p2p.method_delisted':
       return 'methodRetired';
+    case 'p2p.non_instant_not_accepted':
+      return 'nonInstantRefused';
     case 'p2p.buying_restricted':
       return 'buyingPaused';
     case 'pay.take_own_offer':
@@ -587,10 +592,12 @@ export interface OfferFormValues {
   totalAmount: string;
   methods: string[];
   terms: string;
+  /** P-disputes-security-09: the seller accepts methods that are not instant. Set at post; an edit keeps it. */
+  acceptsNonInstant: boolean;
 }
 
 export type OfferFormField = 'asset' | 'fiatCurrency' | 'price' | 'minAmount' | 'maxAmount' | 'totalAmount' | 'methods' | 'terms';
-export type OfferFormProblem = 'required' | 'invalid' | 'minTooHigh' | 'totalTooLow' | 'tooLong';
+export type OfferFormProblem = 'required' | 'invalid' | 'minTooHigh' | 'totalTooLow' | 'tooLong' | 'nonInstantConsent';
 
 export const emptyOffer = (): OfferFormValues => ({
   side: 'sell',
@@ -603,6 +610,7 @@ export const emptyOffer = (): OfferFormValues => ({
   totalAmount: '',
   methods: [],
   terms: '',
+  acceptsNonInstant: false,
 });
 
 /** An existing offer as form values. The service does not return the original total, so that field starts empty. */
@@ -617,6 +625,7 @@ export const offerToForm = (offer: Offer): OfferFormValues => ({
   totalAmount: '',
   methods: offerMethodIds(offer),
   terms: offer.terms,
+  acceptsNonInstant: offer.acceptsNonInstant ?? false,
 });
 
 const exact = (value: string): bigint | null => {
@@ -625,7 +634,14 @@ const exact = (value: string): bigint | null => {
 };
 
 /** Every problem with the form, by field. An empty object means the form is complete. */
-export function checkOfferForm(values: OfferFormValues): Partial<Record<OfferFormField, OfferFormProblem>> {
+/**
+ * `nonInstant`: the registry's method ids that are not instant in some market. A sell ad choosing one needs the seller's
+ * consent, as svc-p2p refuses `p2p.non_instant_not_accepted` without it.
+ */
+export function checkOfferForm(
+  values: OfferFormValues,
+  nonInstant: ReadonlySet<string> = new Set(),
+): Partial<Record<OfferFormField, OfferFormProblem>> {
   const problems: Partial<Record<OfferFormField, OfferFormProblem>> = {};
   if (values.asset.trim() === '') problems.asset = 'required';
   else if (!/^[A-Z0-9._-]{1,16}$/.test(values.asset.trim().toUpperCase())) problems.asset = 'invalid';
@@ -650,6 +666,8 @@ export function checkOfferForm(values: OfferFormValues): Partial<Record<OfferFor
     else if (max !== null && total < max) problems.totalAmount = 'totalTooLow';
   }
   if (values.methods.length === 0) problems.methods = 'required';
+  else if (values.side === 'sell' && !values.acceptsNonInstant && values.methods.some((method) => nonInstant.has(method.toLowerCase())))
+    problems.methods = 'nonInstantConsent';
   if (values.terms.length > 4000) problems.terms = 'tooLong';
   return problems;
 }

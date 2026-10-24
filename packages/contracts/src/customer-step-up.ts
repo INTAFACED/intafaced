@@ -464,6 +464,16 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
     fixed: {},
   },
   {
+    scope: 'identity.step_up.trusted_device_approve',
+    purpose: 'account.trustedDevice.approve',
+    clientFields: ['flowId'],
+    targetField: 'flowId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
     scope: 'identity.step_up.link_method',
     purpose: 'account.signinMethod.link',
     clientFields: ['method', 'clientRequestId'],

@@ -61,7 +61,8 @@ function upstream(handlers: Record<string, (init: RequestInit, url: string) => R
   );
   return calls;
 }
-const calls = <T extends { url: string }>(c: T[]) => c.filter((x) => !x.url.includes('operatorStatus'));
+const calls = <T extends { url: string }>(c: T[]) =>
+  c.filter((x) => !x.url.includes('operatorStatus') && !x.url.includes('consoleMode.get'));
 const sent = (c: { url: string; init: RequestInit }[], procedure: string) =>
   JSON.parse(String(calls(c).find((x) => x.url.includes(procedure))!.init.body));
 

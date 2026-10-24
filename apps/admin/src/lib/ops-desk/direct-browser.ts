@@ -1,6 +1,7 @@
 /** Browser hop for a one-operator desk action. Same-origin BFF only; no credential is held here. */
 import { founderMutationHeaders } from '@/lib/founder-browser';
 import { readStepReply, type StepReply } from '@/lib/desk/approval-types';
+import { explainRefusal } from '@/lib/desk/refusal-copy';
 import type { EscalateRequest } from './direct-model';
 
 export async function postDirect(endpoint: '/api/p2p-ops', request: EscalateRequest, signal?: AbortSignal): Promise<StepReply> {
@@ -30,6 +31,9 @@ export async function postDirect(endpoint: '/api/p2p-ops', request: EscalateRequ
       ...(signal ? { signal } : {}),
     });
     const body: unknown = await res.json().catch(() => null);
+    // Maintenance mode holds the write at the gate (`{ code: 'ops.console_read_only' }`, 423): a definite "not sent".
+    if (res.status === 423 && body && typeof body === 'object' && typeof (body as { code?: unknown }).code === 'string')
+      return { ok: false, step: null, refusal: explainRefusal((body as { code: string }).code, 423, false) };
     // A session refusal from the gate has no step shape: it is a definite "not sent".
     if ((res.status === 401 || res.status === 403) && !(body && typeof body === 'object' && 'refusal' in body)) {
       return {

@@ -227,7 +227,7 @@ describe('founder-only privacy BFF', () => {
     expect(
       (await POST(request('/api/crm/privacy', { action: 'privacyRetentionReview', input: { ...input, reviewedBy: userId } }))).status,
     ).toBe(400);
-    expect(fetcher).toHaveBeenCalledOnce();
+    expect(fetcher.mock.calls.filter(([url]) => !String(url).includes('consoleMode.get'))).toHaveLength(1);
     expect(String(fetcher.mock.calls[0]?.[0])).toContain('accountControls.operatorStatus');
     const success = await POST(request('/api/crm/privacy', { action: 'privacyRetentionReview', input }));
     expect(success.status).toBe(200);
@@ -276,7 +276,7 @@ describe('founder-only privacy BFF', () => {
     const response = await POST(request('/api/crm/privacy', { action: 'privacyRetentionReview', input }));
     expect(response.status).toBe(412);
     expect(await response.json()).toEqual({ code: 'admin.upstream_refused', upstream: 'ops.crm.revision_conflict' });
-    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher.mock.calls.filter(([url]) => !String(url).includes('consoleMode.get'))).toHaveLength(2);
   });
   it.each(['foreign', 'duplicate', 'count', 'revision', 'extra'] as const)('refuses an invalid canonical preview: %s', async (wrong) => {
     upstream({
@@ -310,7 +310,7 @@ describe('founder-only privacy BFF', () => {
     expect(
       (await POST(request('/api/crm/privacy', { action: 'privacyBegin', input: { ...begin, actorUserId: randomUUID() } }))).status,
     ).toBe(400);
-    expect(fetcher).toHaveBeenCalledOnce();
+    expect(fetcher.mock.calls.filter(([url]) => !String(url).includes('consoleMode.get'))).toHaveLength(1);
   });
   it.each(['valid', 'actor', 'canonical'] as const)(
     'binds begin receipt to canonical selection and the current founder: %s',
@@ -323,7 +323,7 @@ describe('founder-only privacy BFF', () => {
       });
       const response = await POST(request('/api/crm/privacy', { action: 'privacyBegin', input: begin }));
       expect(response.status).toBe(wrong === 'valid' ? 200 : 502);
-      expect(JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body))).toEqual(begin);
+      expect(JSON.parse(String(fetcher.mock.calls[2]?.[1]?.body))).toEqual(begin);
     },
   );
   it.each(['valid', 'intent', 'canonical', 'actor', 'revision', 'completion'] as const)(

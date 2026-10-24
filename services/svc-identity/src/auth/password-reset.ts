@@ -74,6 +74,7 @@ export type MailPurpose =
   | 'signup-existing'
   | 'login-code'
   | 'login-no-account'
+  | 'new-device-code'
   | 'withdraw-address-approval';
 
 export interface PasswordResetDeps {

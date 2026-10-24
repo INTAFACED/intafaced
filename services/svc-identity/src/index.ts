@@ -83,6 +83,7 @@ import { createServerTimeRouter } from './server-time-router.js';
 import { createTotpLifecycleRouter } from './totp-lifecycle-router.js';
 import { createSelfFreezeLiftRouter } from './self-freeze-lift-router.js';
 import { createSecurityLockRouter } from './security-lock-router.js';
+import { createTrustedDevicesRouter } from './trusted-devices-router.js';
 import { SecurityLock } from './auth/security-lock.js';
 import { SelfFreezeLift } from './auth/self-freeze-lift.js';
 import { TotpLifecycle } from './auth/totp-lifecycle.js';
@@ -388,6 +389,12 @@ auth.useLoginCodePolicy({
   requestMax: env.IDENTITY_LOGIN_CODE_REQUEST_MAX,
   requestWindowSeconds: env.IDENTITY_LOGIN_CODE_REQUEST_WINDOW_SECONDS,
 });
+auth.useNewDevicePolicy({
+  check: env.IDENTITY_NEW_DEVICE_CHECK === 'on',
+  flowTtlSeconds: env.IDENTITY_NEW_DEVICE_TTL_SECONDS,
+  maxAttempts: env.IDENTITY_NEW_DEVICE_MAX_ATTEMPTS,
+  trustedTtlSeconds: env.IDENTITY_TRUSTED_DEVICE_TTL_SECONDS,
+});
 
 const placeDoor = new PlaceDoor(sql);
 const founderPair = parseFounderPair(env.IDENTITY_FOUNDER_NITRO_USER_ID, env.IDENTITY_FOUNDER_PHANTOM_USER_ID);
@@ -648,6 +655,7 @@ export const appRouter = mergeRouters(
   createServerTimeRouter(),
   createSelfFreezeLiftRouter(selfFreezeLift, securityStepUp),
   createSecurityLockRouter(securityLock, securityStepUp),
+  createTrustedDevicesRouter(auth, securityStepUp),
   createActionApprovalRouter(actionApprovals, {
     privilegedUserIds: founderPair ?? [],
     // Fresh factor for money-out step-up: the same verification as `auth.stepUp`, token discarded.

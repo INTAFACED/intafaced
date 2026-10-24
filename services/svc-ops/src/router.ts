@@ -60,6 +60,9 @@ import {
 import { createAlertRulesRouter } from './alerts/router.js';
 import { createAlertDeskRoutes } from './alerts/overview.js';
 import type { AlertDeskStore } from './alerts/desk-store.js';
+import { ConsoleModeDesk } from './console-mode/desk.js';
+import { createConsoleModeRouter } from './console-mode/router.js';
+import type { ConsoleModeStore } from './console-mode/store.js';
 import { createProtocolListingRouter } from './protocol-listing/router.js';
 import type { ListingDesk } from './protocol-listing/wiring.js';
 import { createComplianceRouter } from './compliance/router.js';
@@ -229,6 +232,8 @@ export interface OperatorDeskConfig {
   readonly protocolListing?: ListingDesk;
   /** Durable compliance cases. Absent means every compliance call refuses `ops.compliance_storage_unconfigured`. */
   readonly compliance?: ComplianceStore;
+  /** The founder console's maintenance mode. Absent means every call refuses `ops.console_mode_storage_unconfigured`. */
+  readonly consoleMode?: ConsoleModeStore;
 }
 
 export function createOpsRouter(
@@ -807,6 +812,8 @@ export function createOpsRouter(
     alertRules: createAlertRulesRouter(desks.alertRules, desks.alertState),
 
     compliance: createComplianceRouter(desks.compliance, now),
+
+    consoleMode: createConsoleModeRouter(new ConsoleModeDesk({ store: desks.consoleMode, approvals: desks.approvals, now })),
 
     alerts: router({
       list: scopedProcedure('admin:read', guards)

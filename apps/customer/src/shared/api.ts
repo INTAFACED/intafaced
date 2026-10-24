@@ -20,7 +20,18 @@ export type ApiResult<T> =
       accountState?: 'frozen' | 'closed';
       /** Only on a P2P take limit: when it ends, the published bounds, what is left, and the open orders on the cap. */
       p2pLimit?: P2pLimit;
+      /** Only on sign-in's `auth.device_authorisation_required`: the waiting new-device sign-in this browser holds. */
+      deviceAuthorisation?: DeviceAuthorisation;
     };
+
+/** A new-device sign-in waiting for approval (svc-identity I-signin-sessions-07, contracts `deviceAuthorisationOf`). */
+export const deviceAuthorisationSchema = z.object({
+  flowId: z.string().guid(),
+  secret: z.string().min(16).max(128),
+  expiresAt: z.string().datetime({ offset: true }),
+  mailed: z.boolean(),
+});
+export type DeviceAuthorisation = z.infer<typeof deviceAuthorisationSchema>;
 
 const limitDecimal = z.string().regex(/^(0|[1-9]\d*)(\.\d+)?$/);
 /** The figures behind a P2P take limit, as svc-p2p sends them (contracts `p2pLimitOf`). Anything malformed is dropped. */
@@ -89,6 +100,7 @@ const errorEnvelope = z
                 retryAfterSeconds: z.number().int().positive().optional(),
                 accountState: z.enum(['frozen', 'closed']).optional().catch(undefined),
                 p2pLimit: p2pLimitSchema.optional().catch(undefined),
+                deviceAuthorisation: deviceAuthorisationSchema.optional().catch(undefined),
                 cause: z.object({ code: z.string().optional() }).passthrough().optional(),
               })
               .passthrough()
@@ -238,6 +250,9 @@ export function createApiClient(
           ...(error?.data?.retryAfterSeconds ? { retryAfterSeconds: error.data.retryAfterSeconds } : {}),
           ...(code === 'auth.account_frozen' && error?.data?.accountState ? { accountState: error.data.accountState } : {}),
           ...(error?.data?.p2pLimit ? { p2pLimit: error.data.p2pLimit } : {}),
+          ...(code === 'auth.device_authorisation_required' && error?.data?.deviceAuthorisation
+            ? { deviceAuthorisation: error.data.deviceAuthorisation }
+            : {}),
         };
       }
       const envelope = z.object({ result: z.object({ data: z.unknown() }) }).safeParse(body);

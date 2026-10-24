@@ -10,6 +10,7 @@ import { createTestDb } from '../fixture-truncate.testkit.js';
 import { AuthService } from './auth-service.js';
 import { ServiceMailError } from './service-mail.js';
 import { localMailLine } from './local-mail.js';
+import type { MailPurpose } from './password-reset.js';
 import { RankService } from '../rank/rank-service.js';
 
 /**
@@ -64,7 +65,7 @@ if (!available) {
   );
   auth.useLogger({ warn: () => undefined });
 
-  const sent: Array<{ email: string; code: string; purpose?: string; detail?: string; userId?: string; expiresAt: Date }> = [];
+  const sent: Array<{ email: string; code: string; purpose?: MailPurpose; detail?: string; userId?: string; expiresAt: Date }> = [];
   let nowMs = T0;
   let counter = 0;
   const account = async () => {

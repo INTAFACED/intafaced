@@ -150,6 +150,7 @@ describe('same-person approvals', () => {
       'limits_loosen',
       'self_freeze_lift',
       'trusted_device_remove',
+      'trusted_device_approve',
       'link_method',
       'unlink_method',
       'sub_account_delete',

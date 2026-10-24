@@ -78,6 +78,8 @@ export const SAME_PERSON_ACTION_TYPES = [
   'identity.step_up.limits_loosen',
   'identity.step_up.self_freeze_lift',
   'identity.step_up.trusted_device_remove',
+  // Approve a waiting new-device sign-in of the caller's own account from a trusted session (I-signin-sessions-07).
+  'identity.step_up.trusted_device_approve',
   'identity.step_up.link_method',
   'identity.step_up.unlink_method',
   // Delete one of the caller's own sub-accounts (revoke only; it moves no money). Identity mints and consumes it.

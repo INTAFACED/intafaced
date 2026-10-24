@@ -25,6 +25,7 @@ export const ANTI_PHISHING_MAIL_PURPOSES: ReadonlySet<MailPurpose> = new Set<Mai
   'handle-recovery',
   'signup-existing',
   'login-code',
+  'new-device-code',
   'withdraw-address-approval',
 ]);
 
