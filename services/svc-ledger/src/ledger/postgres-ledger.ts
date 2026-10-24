@@ -484,9 +484,11 @@ export class PostgresLedger implements LedgerClient {
     const assetId = input.assetId ?? null;
     const cursorId = cursor?.entryId ?? null;
 
-    const rows = await this.sql<Array<HistoryRow & { entry_id: string; asset_id: string; rail: unknown; order_purpose: unknown }>>`
+    const rows = await this.sql<
+      Array<HistoryRow & { entry_id: string; asset_id: string; rail: unknown; order_purpose: unknown; fill_fee: string | null }>
+    >`
       SELECT p.entry_id, p.tx_id, p.module, p.reason, p.direction, p.amount, p.asset_id, p.posted_at, p.rail,
-             o.purpose AS order_purpose
+             o.purpose AS order_purpose, f.fee AS fill_fee
         FROM (
           SELECT x.entry_id, t.id AS tx_id, t.module, t.reason, x.direction, x.amount, x.asset_id, t.posted_at,
                  t.meta -> 'rail' AS rail, a.id AS account_id, a.owner_type, a.owner_id, a.kind
@@ -532,6 +534,20 @@ export class PostgresLedger implements LedgerClient {
            ORDER BY he.id
            LIMIT 1
         ) o ON true
+        -- The fee taken from this line (see FILL_FEE_REASONS in history.ts): on the owner's own receiving line of a fill,
+        -- the trade-fee leg of the same transaction in the same asset, 0 when none was booked. Every other line: NULL.
+        -- Also after the page LIMIT.
+        LEFT JOIN LATERAL (
+          SELECT COALESCE(SUM(fe.amount), 0)::text AS fee
+            FROM ledger_entries fe
+            JOIN accounts fa ON fa.id = fe.account_id
+           WHERE fe.tx_id = p.tx_id
+             AND fe.direction = 'debit'
+             AND fa.owner_type = 'house'
+             AND fa.owner_id = 'fees:trade'
+             AND fa.asset_id = p.asset_id
+        ) f ON p.module = 'trade' AND p.reason IN ('trade.fill', 'trade.fill.mm_maker') AND p.owner_type = 'user'
+                AND p.kind = 'available' AND p.direction = 'debit'
        ORDER BY p.entry_id DESC
     `;
 
@@ -550,6 +566,7 @@ export class PostgresLedger implements LedgerClient {
         // Only the one key, and only if allow-listed: meta is free-form.
         rail: allowedHistoryRail(r.rail),
         orderId: orderIdFromHoldPurpose(r.order_purpose),
+        fee: r.fill_fee === null ? null : parseStoredAmount(r.fill_fee, 'ledger_entries.amount'),
       })),
       nextCursor: rows.length > limit && last ? encodeHistoryCursor({ entryId: last.entry_id }) : null,
     };

@@ -300,15 +300,27 @@ export function orderIdFromHoldPurpose(purpose: unknown): string | null {
 }
 
 /**
+ * ON A FILL, THE FEE. `tradeFill` and `marketMakerMakerFill` take each side's fee out of what that side receives and book
+ * it to `houseFees('trade', <that asset>)` in the same transaction, leaving the fee leg out when it is zero. The page
+ * owner's `available` line that receives a fill is that side's net amount, so its fee is the trade-fee leg of the SAME
+ * transaction in the SAME asset: the other side's fee is always in the other asset, and a self-trade receives each asset
+ * once. `fee` is that leg's amount, `0` when the transaction booked none, and `null` on every other line (a hold, a paying
+ * leg, any other reason), where the ledger has no fee to name.
+ */
+export const FILL_FEE_REASONS = ['trade.fill', 'trade.fill.mm_maker'] as const;
+
+/**
  * One entry on a page: the history shape plus the asset, which a multi-asset page needs to mean anything,
  * the `entryId` (bigserial `ledger_entries.id`, decimal string) a caller resumes from, the allow-listed `rail`,
- * and the `orderId` of the page owner's own trade order when this line belongs to one (else `null`).
+ * the `orderId` of the page owner's own trade order when this line belongs to one (else `null`), and the `fee` taken
+ * from this line when it is the owner's receiving side of a fill (else `null`).
  */
 export interface HistoryPageEntry extends HistoryEntry {
   readonly assetId: string;
   readonly entryId: string;
   readonly rail: HistoryRail | null;
   readonly orderId: string | null;
+  readonly fee: Amount | null;
 }
 
 export interface HistoryPage {
@@ -365,6 +377,7 @@ export function serializeHistoryPage(page: HistoryPage) {
       entryId: e.entryId,
       rail: e.rail,
       orderId: e.orderId,
+      fee: e.fee === null ? null : formatAmount(e.fee),
     })),
     nextCursor: page.nextCursor,
   };
