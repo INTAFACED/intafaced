@@ -23,6 +23,7 @@ import {
   termsProposal,
   TEST_TRANSFER_TERMS,
   TEST_ASSET_ROWS,
+  TEST_RETIRED_ASSET_ROW,
   TEST_DEPOSIT_NETWORKS,
   TEST_DEPOSIT_TERMS,
   TEST_HALTED_DEPOSIT,
@@ -251,6 +252,15 @@ for (const row of TEST_ASSET_ROWS) {
   assert.ok(!assetRowMatches({ ...published, precision: null }, row));
   assert.ok(!assetRowMatches(null, row));
 }
+
+// The retired TEST row: named TEST, allows nothing, lists a TEST network, and is not one of the active rows deposits use.
+assert.ok(TEST_RETIRED_ASSET_ROW.id.startsWith('TEST'));
+assert.equal(TEST_RETIRED_ASSET_ROW.state, 'retired');
+assert.deepEqual(TEST_RETIRED_ASSET_ROW.allowedActions, []);
+assert.ok(TEST_RETIRED_ASSET_ROW.networks.every((n) => n.label.startsWith('TEST ')));
+assert.ok(!TEST_ASSET_ROWS.some((row) => row.id === TEST_RETIRED_ASSET_ROW.id));
+assert.ok(assetRowMatches({ ...TEST_RETIRED_ASSET_ROW, revision: 1, updatedAt: '2026-10-24T00:00:00.000Z' }, TEST_RETIRED_ASSET_ROW));
+assert.ok(!assetRowMatches({ ...TEST_RETIRED_ASSET_ROW, state: 'active' }, TEST_RETIRED_ASSET_ROW), 'an unretired row taken as published');
 
 // TEST deposit networks and terms: labelled, decimal strings for money, every pair on a published network, and a network row
 // published once is left alone (version and clock aside) while any difference publishes it again.

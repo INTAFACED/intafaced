@@ -1,7 +1,8 @@
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
-import type { PayCustodyDepositStatus } from '@intafaced/contracts';
+import type { AssetState, PayCustodyDepositStatus, RegistryAsset } from '@intafaced/contracts';
 import { BankError } from '../errors.js';
+import { readRegistry, registryAllowsDeposit, type AssetRegistryReads } from '../assets/supported-assets.js';
 import {
   unsetCustodyDepositPort,
   type CustodyDepositAddress,
@@ -17,6 +18,17 @@ import {
 /**
  * Customer crypto deposits. Catalogue, address, and pending rows come from
  * the custody port. This service posts nothing to the ledger and derives no key.
+ *
+ * The catalogue is narrowed to svc-ledger's asset registry (W-balances-05): a pair
+ * is open, and given an address, only while the registry lists the asset as
+ * active, allowing deposits, on that network. So Deposit, Withdraw and the
+ * customer's supported-asset list read one set of rows. A custody pair the
+ * registry does not allow (retired, halted, deposits not allowed, network not
+ * listed, asset not published) stays listed as switched off with `blockedBy:
+ * 'registry'` and the asset's registry state, so the coin is still visible with
+ * its reason; it takes no new address, and its history stays readable. No
+ * registry, or an unreadable one, refuses `bank.asset_registry_unavailable`:
+ * custody alone never decides.
  */
 
 const ASSET_RE = /^[A-Za-z0-9]{1,16}$/;
@@ -34,12 +46,16 @@ export interface PublishedDepositAsset {
   }>;
 }
 
-/** A pair the owner switched off, as customers see it: no address is issued for it. */
+/** A pair switched off, as customers see it: no address is issued for it. */
 export interface HaltedDepositView {
   assetId: string;
   networkId: string;
   label: string;
   haltNote: string | null;
+  /** Present when the registry, not the owner's custody switch, keeps the pair closed. */
+  blockedBy?: 'registry';
+  /** With `blockedBy`: the asset's registry state, or null when the registry does not publish the asset. */
+  assetState?: AssetState | null;
 }
 
 export interface IssuedDepositAddress {
@@ -73,19 +89,59 @@ export interface DepositServiceOptions {
 
 export class DepositService {
   private readonly custody: CustodyDepositPort;
+  private readonly registry: AssetRegistryReads | null;
 
+  /** `registry` is svc-ledger's; absent refuses every catalogue and address read, never read as "everything allowed". */
   constructor(
     private readonly sql: Sql,
     options: DepositServiceOptions = {},
+    registry: AssetRegistryReads | null = null,
   ) {
     this.custody = options.custody ?? unsetCustodyDepositPort;
+    this.registry = registry;
   }
 
   async assets(): Promise<{ assets: PublishedDepositAsset[]; halted: HaltedDepositView[] }> {
-    const published = await this.readCatalogue();
-    if (published === null) refuseCustody('Deposit assets are not published');
-    const assets = validateCatalogue(published.assets);
-    return { assets, halted: validateHalted(published.halted, assets) };
+    const { catalogue, registry } = await this.readBoth();
+    const assets = validateCatalogue(catalogue.assets);
+    // The custody catalogue is checked whole first, so a broken one is still refused as broken; then the registry narrows it.
+    const halted = validateHalted(catalogue.halted, assets);
+    const blocked: HaltedDepositView[] = [];
+    const open = assets
+      .map((asset) => ({
+        ...asset,
+        networks: asset.networks.filter((network) => {
+          if (registryAllowsDeposit(registry, asset.assetId, network.id)) return true;
+          const state = registry.find((row) => row.id === asset.assetId)?.state ?? null;
+          blocked.push({
+            assetId: asset.assetId,
+            networkId: network.id,
+            label: network.label,
+            haltNote: null,
+            blockedBy: 'registry',
+            assetState: state,
+          });
+          return false;
+        }),
+      }))
+      .filter((asset) => asset.networks.length > 0);
+    return { assets: open, halted: [...halted, ...blocked] };
+  }
+
+  /**
+   * The custody catalogue and the registry, read together. Custody's refusal is the one reported when both fail, so
+   * "custody is not connected" is never hidden behind a registry outage.
+   */
+  private async readBoth(): Promise<{ catalogue: CustodyDepositCatalogue; registry: RegistryAsset[] }> {
+    const registry = readRegistry(this.registry).then(
+      (rows) => ({ rows }),
+      (error: unknown) => ({ error }),
+    );
+    const catalogue = await this.readCatalogue();
+    if (catalogue === null) refuseCustody('Deposit assets are not published');
+    const read = await registry;
+    if ('error' in read) throw read.error;
+    return { catalogue, registry: read.rows };
   }
 
   /** One custody read. A port that knows nothing of switched-off pairs names none. */
@@ -100,8 +156,7 @@ export class DepositService {
    * is the one later calls return. A second custody answer is not swapped in.
    */
   async address(input: { userId: string; assetId: string; networkId: string }): Promise<IssuedDepositAddress> {
-    const catalogue = await this.readCatalogue();
-    if (catalogue === null) refuseCustody('Deposit assets are not published');
+    const { catalogue, registry } = await this.readBoth();
     const assets = validateCatalogue(catalogue.assets);
     // A switched-off pair gives no address, not even one issued before it was switched off. Only this pair is looked at, so a
     // bad switched-off row elsewhere never stops the open pairs.
@@ -109,6 +164,13 @@ export class DepositService {
       throw new BankError(`Deposits of ${input.assetId} on ${input.networkId} are switched off`, 'bank.deposit_network_halted');
     }
     const network = findNetwork(assets, input.assetId, input.networkId);
+    // Before any stored address is returned: a pair the registry no longer allows (retired, halted, network dropped) gets none.
+    if (!registryAllowsDeposit(registry, network.assetId, network.networkId)) {
+      throw new BankError(
+        `${network.assetId} on ${network.networkId} is not in the supported asset list for deposits`,
+        'bank.deposit_asset_unpublished',
+      );
+    }
 
     const existing = await this.sql<AddressRow[]>`
       SELECT asset_id, network_id, address, memo, qr_payload

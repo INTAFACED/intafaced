@@ -52,9 +52,11 @@ export function DepositNetworkPicker({ asset, catalogue, networkId, onNetwork, r
       : catalogue.status === 'failed'
         ? catalogue.failure.code === 'bank.deposit_custody_unset'
           ? t('networkReason')
-          : needsVerification(catalogue)
-            ? t('networkVerify')
-            : t('networkLoadFailed')
+          : catalogue.failure.code === 'bank.asset_registry_unavailable'
+            ? t('registryUnavailable')
+            : needsVerification(catalogue)
+              ? t('networkVerify')
+              : t('networkLoadFailed')
         : networks.length === 0
           ? halted.length > 0
             ? t('allNetworksOff', { asset })
@@ -109,9 +111,26 @@ export function DepositAddressPanel({ asset, catalogue, networkId }: Omit<Props,
       {off ? (
         <div className="bd-address" role="alert" data-testid="deposit-halted">
           <strong>{t('haltedTitle', { asset, network: off.label })}</strong>
-          {off.haltNote && <p lang="und">{off.haltNote}</p>}
-          <p>{t('haltedBody')}</p>
-          <p>{t('haltedKept')}</p>
+          {off.blockedBy === 'registry' ? (
+            <>
+              <p data-testid="deposit-registry-off">
+                {off.assetState === 'retired'
+                  ? t('registryRetired', { asset })
+                  : off.assetState === 'halted'
+                    ? t('registryHalted', { asset })
+                    : t('registryNotAllowed', { asset, network: off.label })}
+              </p>
+              <a className="text-link" href="/uc/assets">
+                {t('registryLink')} ↗
+              </a>
+            </>
+          ) : (
+            <>
+              {off.haltNote && <p lang="und">{off.haltNote}</p>}
+              <p>{t('haltedBody')}</p>
+              <p>{t('haltedKept')}</p>
+            </>
+          )}
         </div>
       ) : !network ? (
         needsVerification(catalogue) ? (

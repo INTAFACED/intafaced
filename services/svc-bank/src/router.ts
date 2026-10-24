@@ -1,5 +1,8 @@
 import { z } from 'zod';
 import {
+  ASSET_ACTIONS,
+  ASSET_STATES,
+  REGISTRY_ASSET_KINDS,
   router,
   publicProcedure,
   scopedProcedure,
@@ -127,6 +130,32 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     loans,
     cards,
     ramps,
+    assets: router({
+      /**
+       * W-balances-05: svc-ledger's supported asset and network list, every state, retired included, so history that
+       * names a retired asset still resolves. The same rows the address book offers and the deposit catalogue is narrowed
+       * to. No registry, or an unreadable one, refuses `bank.asset_registry_unavailable`; never an empty list.
+       */
+      list: scopedProcedure('bank:read', { module: 'bank' })
+        .output(
+          z.object({
+            assets: z.array(
+              z
+                .object({
+                  assetId: z.string(),
+                  kind: z.enum(REGISTRY_ASSET_KINDS),
+                  precision: z.number().int().nonnegative(),
+                  networks: z.array(z.object({ networkId: z.string(), label: z.string() }).strict()),
+                  defaultNetworkId: z.string().nullable(),
+                  allowedActions: z.array(z.enum(ASSET_ACTIONS)),
+                  state: z.enum(ASSET_STATES),
+                })
+                .strict(),
+            ),
+          }),
+        )
+        .query(() => guard(async () => ({ assets: await bank.supportedAssets.list() }))),
+    }),
     deposits: router({
       /**
        * Assets custody says can be paid in, and the pairs the owner switched off. A blank port refuses
@@ -149,8 +178,21 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
                 ),
               }),
             ),
-            /** Pairs the owner switched off, with the owner's note (null: the standard line only). They take no address. */
-            halted: z.array(z.object({ assetId: z.string(), networkId: z.string(), label: z.string(), haltNote: z.string().nullable() })),
+            /**
+             * Pairs switched off, with the owner's note (null: the standard line only). They take no address. `blockedBy:
+             * 'registry'` marks a pair the supported asset list does not allow, with the asset's state there (null: the
+             * list does not publish the asset), so the coin stays visible with its reason.
+             */
+            halted: z.array(
+              z.object({
+                assetId: z.string(),
+                networkId: z.string(),
+                label: z.string(),
+                haltNote: z.string().nullable(),
+                blockedBy: z.literal('registry').optional(),
+                assetState: z.enum(ASSET_STATES).nullable().optional(),
+              }),
+            ),
           }),
         )
         .query(() => guard(async () => bank.deposits.assets())),

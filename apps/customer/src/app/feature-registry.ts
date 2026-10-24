@@ -119,6 +119,15 @@ export const features: readonly Feature[] = [
     tab: 'money',
   },
   {
+    id: 'supported-assets',
+    label: 'Supported assets',
+    paths: ['/uc/assets'],
+    status: 'blocked',
+    reason: 'svc-ledger’s asset registry through svc-bank; unproven on main',
+    unlock: 'J-wallet-01 #5 green in the Real-app journeys run on main',
+    tab: 'money',
+  },
+  {
     id: 'repeat-buy',
     label: 'Repeat buy',
     paths: ['/portfolio/:asset/repeat-buy'],

@@ -14,6 +14,7 @@ import { str } from '../../data/decimal';
 import { ReportedTime } from './bank-context';
 import { depositAssets, depositHistory, depositTotal } from './deposit-model';
 import { depositCopy } from './deposit-copy';
+import { supportedAssetsCopy } from './supported-assets-copy';
 import { DepthPanel } from './DepthParts';
 import { useHoldings } from './holdings';
 import './bank-depth.css';
@@ -63,7 +64,16 @@ export function Deposit() {
   const rows = depositHistory(items, onlyAsset && asset ? asset : null);
   const total = onlyAsset && asset ? depositTotal(rows) : null;
   return (
-    <Page eyebrow={t('eyebrow')} title={t('title')} description={t('lead')}>
+    <Page
+      eyebrow={t('eyebrow')}
+      title={t('title')}
+      description={t('lead')}
+      actions={
+        <a className="text-link" href="/uc/assets">
+          {supportedAssetsCopy.t('linkLabel')} ↗
+        </a>
+      }
+    >
       <DepositMethods />
       <div className="bd-columns">
         <div className="bd-stack">

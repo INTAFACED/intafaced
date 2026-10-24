@@ -167,4 +167,37 @@ describe('deposit network picker', () => {
     expect(host.textContent).toContain('We could not load the networks');
     expect(button('Try again')).toBeDefined();
   });
+
+  it('a pair the supported asset list does not allow is listed switched off with that reason, and no address is asked for', async () => {
+    const off = (assetState: 'retired' | 'halted' | 'active' | null) => ({
+      status: 'ready',
+      data: {
+        assets: [],
+        halted: [{ assetId: 'USDT', networkId: 'tron', label: 'Tron', haltNote: null, blockedBy: 'registry', assetState }],
+      },
+    });
+    await mount(<DepositAddressPanel asset="USDT" catalogue={off('retired') as never} networkId="tron" />);
+    expect(host.textContent).toContain('Deposits of USDT on Tron are switched off');
+    expect(host.querySelector('[data-testid="deposit-registry-off"]')!.textContent).toContain(
+      'USDT is retired from the supported asset list',
+    );
+    expect(host.querySelector('a[href="/uc/assets"]')).not.toBeNull();
+    // The owner's "switched back on" promise is not made for a registry closure.
+    expect(host.textContent).not.toContain('credited after deposits are switched back on');
+    expect(button('Show my deposit address')).toBeUndefined();
+    await act(async () => root!.render(<DepositAddressPanel asset="USDT" catalogue={off('halted') as never} networkId="tron" />));
+    expect(host.textContent).toContain('Deposits of USDT are paused in the supported asset list');
+    await act(async () => root!.render(<DepositAddressPanel asset="USDT" catalogue={off(null) as never} networkId="tron" />));
+    expect(host.textContent).toContain('The supported asset list does not take deposits of USDT on Tron');
+    expect(address).not.toHaveBeenCalled();
+  });
+
+  it('an unreadable supported asset list is named in the picker, with a retry', async () => {
+    const failed = { status: 'failed', failure: { ok: false, reason: 'error', message: 'x', code: 'bank.asset_registry_unavailable' } };
+    await mount(
+      <DepositNetworkPicker asset="USDT" catalogue={failed as never} networkId="" onNetwork={() => undefined} reload={() => undefined} />,
+    );
+    expect(host.textContent).toContain('The list of supported assets and networks could not be read');
+    expect(host.querySelector('select')!.disabled).toBe(true);
+  });
 });

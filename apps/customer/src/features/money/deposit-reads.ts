@@ -22,12 +22,17 @@ export const depositNetworkSchema = z.object({
 });
 export type DepositNetworkView = z.infer<typeof depositNetworkSchema>;
 
-/** A pair the owner switched off: listed so the person sees why, never given an address. `haltNote` is the owner's line, as written. */
+/**
+ * A pair switched off: listed so the person sees why, never given an address. `haltNote` is the owner's line, as written.
+ * `blockedBy: 'registry'` is a pair the supported asset list does not allow, with the asset's state there (null: not listed).
+ */
 export const depositHaltedSchema = z.object({
   assetId: z.string().min(1),
   networkId: z.string().min(1),
   label: z.string().min(1),
   haltNote: z.string().min(1).nullable(),
+  blockedBy: z.literal('registry').optional(),
+  assetState: z.enum(['active', 'halted', 'retired']).nullable().optional(),
 });
 export type DepositHaltedView = z.infer<typeof depositHaltedSchema>;
 
