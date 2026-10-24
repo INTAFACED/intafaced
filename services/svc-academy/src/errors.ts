@@ -304,7 +304,21 @@ export type AcademyErrorCode =
   /** AC-programmes-01: no programme at that address. */
   | 'academy.programme_not_found'
   /** AC-programmes-01: a new programme at an address another programme has. */
-  | 'academy.programme_slug_taken';
+  | 'academy.programme_slug_taken'
+  /** AC-rooms-01: the owner has not set how long a discussion post may be. */
+  | 'academy.post_limit_unset'
+  /** AC-rooms-01: a post or reply longer than the owner's limit. */
+  | 'academy.post_too_long'
+  /** AC-rooms-01: the owner has not set how large a post's image may be. */
+  | 'academy.attachment_limit_unset'
+  /** AC-rooms-01: a post's image over the owner's size limit. */
+  | 'academy.attachment_too_large'
+  /** AC-rooms-01: a file attached to a post that is not one of the image types, by its declared type or its content. */
+  | 'academy.attachment_type_refused'
+  /** AC-rooms-01: no discussion post or reply with that id the reader may open. */
+  | 'academy.post_not_found'
+  /** AC-rooms-01: the action belongs to someone else (only the asker marks the accepted answer). */
+  | 'academy.permission_denied';
 
 export class AcademyError extends Error {
   constructor(
@@ -476,6 +490,13 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.programme_too_large',
   'academy.programme_not_found',
   'academy.programme_slug_taken',
+  'academy.post_limit_unset',
+  'academy.post_too_long',
+  'academy.attachment_limit_unset',
+  'academy.attachment_too_large',
+  'academy.attachment_type_refused',
+  'academy.post_not_found',
+  'academy.permission_denied',
 ] as const;
 
 /** L3 — catalog size. */

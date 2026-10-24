@@ -178,6 +178,10 @@
       "types": "./dist/academy-courses.d.ts",
       "default": "./dist/academy-courses.js"
     },
+    "./academy-discussion": {
+      "types": "./dist/academy-discussion.d.ts",
+      "default": "./dist/academy-discussion.js"
+    },
     "./academy-programmes": {
       "types": "./dist/academy-programmes.d.ts",
       "default": "./dist/academy-programmes.js"

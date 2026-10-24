@@ -187,7 +187,15 @@ export type RefusalKey =
   | 'refReviewTaskNotFound'
   | 'refReviewAlreadySent'
   | 'refFileUnavailable'
-  | 'refGradeNotFound';
+  | 'refGradeNotFound'
+  | 'refPostLimitUnset'
+  | 'refPostTooLong'
+  | 'refAttachmentLimitUnset'
+  | 'refAttachmentTooLarge'
+  | 'refAttachmentTypeRefused'
+  | 'refPostNotFound'
+  | 'refPermissionDenied'
+  | 'refTopicNotFound';
 
 /** Which sentence words a typed Academy refusal, or null when Academy did not type it (a dropped connection, a sign-in problem). */
 export function academyRefusalKey(failure: Pick<Failure, 'code' | 'message'>): RefusalKey | null {
@@ -305,6 +313,22 @@ export function academyRefusalKey(failure: Pick<Failure, 'code' | 'message'>): R
       return 'refFileUnavailable';
     case 'academy.submission_not_found':
       return 'refGradeNotFound';
+    case 'academy.post_limit_unset':
+      return 'refPostLimitUnset';
+    case 'academy.post_too_long':
+      return 'refPostTooLong';
+    case 'academy.attachment_limit_unset':
+      return 'refAttachmentLimitUnset';
+    case 'academy.attachment_too_large':
+      return 'refAttachmentTooLarge';
+    case 'academy.attachment_type_refused':
+      return 'refAttachmentTypeRefused';
+    case 'academy.post_not_found':
+      return 'refPostNotFound';
+    case 'academy.permission_denied':
+      return 'refPermissionDenied';
+    case 'academy.topic_not_found':
+      return 'refTopicNotFound';
     default:
       return null;
   }

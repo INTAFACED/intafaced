@@ -128,6 +128,24 @@ const schema = serviceEnvSchema
       ),
 
       /**
+       * AC-rooms-01: the longest discussion post or reply, in characters. Blank / unset is unpublished: posting refuses
+       * `academy.post_limit_unset`.
+       */
+      ACADEMY_POST_MAX_CHARS: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1).max(20_000)]),
+      ),
+
+      /**
+       * AC-rooms-01: the largest image, in bytes, one discussion post may carry. Blank / unset is unpublished: a post with an
+       * image refuses `academy.attachment_limit_unset`; a post without one is not affected.
+       */
+      ACADEMY_POST_IMAGE_MAX_BYTES: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1).max(786_432)]),
+      ),
+
+      /**
        * AC-certificates-02: seconds between issue sweeps, which issue delayed certificates once due. Blank / unset is
        * unpublished: no sweep runs and a delayed issue rule refuses `academy.cert_sweep_unset`.
        */

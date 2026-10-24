@@ -25,6 +25,7 @@ import { academyLearningCopy } from './academy-learning-copy';
 import { AcademyCoursePage, AcademyHub } from './AcademyHub';
 import { AcademyAssignment } from './AcademyAssignment';
 import { AcademyProgrammePage } from './AcademyCourseProgrammes';
+import { AcademyDiscussionCourses, AcademyDiscussionPage, AcademyDiscussionThread } from './AcademyDiscussion';
 import { AcademyAccessGrants, AcademyMyLearning } from './AcademyMyLearning';
 import { AcademyCourseProgress, AcademyPlanner } from './AcademyProgressPage';
 import { AcademyCourseOutline } from './AcademyCourseOutline';
@@ -71,7 +72,9 @@ function Academy({ route, slug, initialPath }: { route: AcademyRoute; slug?: str
         ? 'Learning'
         : route.kind === 'programme'
           ? 'Programmes'
-          : '';
+          : route.kind === 'discussion'
+            ? 'Rooms'
+            : '';
   const [selection, setSelection] = useState({ owner: userId, id: selectedCertificate(userId) });
   const selected = selection.owner === userId ? selection.id : selectedCertificate(userId);
   useEffect(() => {
@@ -107,6 +110,12 @@ function Academy({ route, slug, initialPath }: { route: AcademyRoute; slug?: str
         <AcademyCoursePage slug={route.slug} signedIn />
       ) : route.kind === 'assignment' ? (
         <AcademyAssignment key={route.itemId} slug={route.slug ?? ''} itemId={route.itemId ?? ''} />
+      ) : route.kind === 'discussion' ? (
+        route.postId ? (
+          <AcademyDiscussionThread key={route.postId} courseSlug={route.courseSlug} postId={route.postId} />
+        ) : (
+          <AcademyDiscussionPage key={route.courseSlug} courseSlug={route.courseSlug} />
+        )
       ) : route.kind === 'programme' ? (
         <AcademyProgrammePage key={route.slug} slug={route.slug} />
       ) : route.kind === 'progress' ? (
@@ -127,7 +136,10 @@ function Academy({ route, slug, initialPath }: { route: AcademyRoute; slug?: str
       ) : tab === 'Certificates' ? (
         <Certificates selected={selected} setSelected={chooseCertificate} action={action} />
       ) : tab === 'Rooms' ? (
-        <AcademyRooms action={action} />
+        <>
+          <AcademyDiscussionCourses />
+          <AcademyRooms action={action} />
+        </>
       ) : tab === 'Videos' ? (
         <AcademyVideos />
       ) : (

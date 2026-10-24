@@ -61,6 +61,11 @@ const verifyRate = () =>
 // `LOCAL_STACK_ACADEMY_PROGRAMME_MAX=off` leaves it blank.
 const programmeMax = () => (process.env.LOCAL_STACK_ACADEMY_PROGRAMME_MAX === 'off' ? {} : { ACADEMY_PROGRAMME_MAX_COURSES: '4' });
 
+// LOCAL TEST discussion limits (TEST owner values): 4000 characters a post, a 256 KiB image (J-academy-08 #2).
+// `LOCAL_STACK_ACADEMY_POST_LIMITS=off` leaves both blank.
+const postLimits = () =>
+  process.env.LOCAL_STACK_ACADEMY_POST_LIMITS === 'off' ? {} : { ACADEMY_POST_MAX_CHARS: '4000', ACADEMY_POST_IMAGE_MAX_BYTES: '262144' };
+
 export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
   name: 'academy',
   env: () => ({
@@ -79,6 +84,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     ...graderLease(),
     ...certSweep(),
     ...programmeMax(),
+    ...postLimits(),
     ...verifyRate(),
   }),
 });

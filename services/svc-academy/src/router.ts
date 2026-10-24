@@ -22,6 +22,22 @@ import {
   academySetQuizInputSchema,
   academySetCertIssueRuleInputSchema,
   academySaveProgrammeInputSchema,
+  academySaveDiscussionTopicInputSchema,
+  academyDiscussionTopicSchema,
+  academyDiscussionCourseSchema,
+  academyDiscussionCoursesInputSchema,
+  academyDiscussionTopicsSchema,
+  academyDiscussionTopicsInputSchema,
+  academyDiscussionPostSchema,
+  academyDiscussionPostsInputSchema,
+  academyDiscussionReplySchema,
+  academyDiscussionThreadSchema,
+  academyDiscussionThreadInputSchema,
+  academyCreateDiscussionPostInputSchema,
+  academyReplyDiscussionPostInputSchema,
+  academyAcceptDiscussionReplyInputSchema,
+  academyDiscussionToggleInputSchema,
+  academyStaffDiscussionThreadSchema,
   academyProgrammeRecordSchema,
   academyProgrammeSchema,
   academyProgrammeInputSchema,
@@ -935,6 +951,7 @@ function toTrpcError(err: unknown): TRPCError {
       return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
 
     case 'academy.enrolment_required':
+    case 'academy.permission_denied':
       return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
 
     case 'academy.price_unset':
@@ -951,13 +968,19 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.file_unavailable':
     case 'academy.grader_lease_unset':
     case 'academy.programme_limit_unset':
+    case 'academy.post_limit_unset':
+    case 'academy.attachment_limit_unset':
       return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
 
     case 'academy.programme_not_found':
+    case 'academy.post_not_found':
       return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
 
     case 'academy.outline_too_large':
     case 'academy.programme_too_large':
+    case 'academy.post_too_long':
+    case 'academy.attachment_too_large':
+    case 'academy.attachment_type_refused':
     case 'academy.item_has_no_lesson':
     case 'academy.import_too_large':
     case 'academy.lesson_blocks_invalid':
@@ -2746,6 +2769,60 @@ export function createAcademyRouter(
       .output(academyProgrammeSchema)
       .query(({ input, ctx }) => guard(() => academy.programme({ userId: ctx.principal!.userId, slug: input.slug }))),
 
+    /** AC-rooms-01: the published courses the caller is enrolled in, each a way into its discussion. */
+    discussionCourses: scopedProcedure('academy:read', { module: 'academy' })
+      .input(academyDiscussionCoursesInputSchema)
+      .output(z.array(academyDiscussionCourseSchema))
+      .query(({ input, ctx }) => guard(() => academy.discussion.courses(ctx.principal!.userId, input.limit))),
+
+    /** AC-rooms-01: a course's discussion topics, pinned first, with the default General topic. Enrolled learners only. */
+    discussionTopics: scopedProcedure('academy:read', { module: 'academy' })
+      .input(academyDiscussionTopicsInputSchema)
+      .output(academyDiscussionTopicsSchema)
+      .query(({ input, ctx }) => guard(() => academy.discussion.topics({ userId: ctx.principal!.userId, courseSlug: input.courseSlug }))),
+
+    /** AC-rooms-01: one topic's posts, newest first. */
+    discussionPosts: scopedProcedure('academy:read', { module: 'academy' })
+      .input(academyDiscussionPostsInputSchema)
+      .output(z.array(academyDiscussionPostSchema))
+      .query(({ input, ctx }) => guard(() => academy.discussion.posts({ ...input, userId: ctx.principal!.userId }))),
+
+    /** AC-rooms-01: one post with its image and replies, the accepted answer first. */
+    discussionThread: scopedProcedure('academy:read', { module: 'academy' })
+      .input(academyDiscussionThreadInputSchema)
+      .output(academyDiscussionThreadSchema)
+      .query(({ input, ctx }) => guard(() => academy.discussion.thread({ userId: ctx.principal!.userId, postId: input.postId }))),
+
+    /** AC-rooms-01: post a question or a discussion; a retry with the same client request id is the same post. */
+    createDiscussionPost: scopedProcedure('academy:write', { module: 'academy' })
+      .input(academyCreateDiscussionPostInputSchema)
+      .output(academyDiscussionPostSchema)
+      .mutation(({ input, ctx }) => guard(() => academy.discussion.createPost({ ...input, userId: ctx.principal!.userId, now: new Date() }))),
+
+    /** AC-rooms-01: reply to a post (one level). */
+    replyDiscussionPost: scopedProcedure('academy:write', { module: 'academy' })
+      .input(academyReplyDiscussionPostInputSchema)
+      .output(academyDiscussionReplySchema)
+      .mutation(({ input, ctx }) => guard(() => academy.discussion.reply({ ...input, userId: ctx.principal!.userId, now: new Date() }))),
+
+    /** AC-rooms-01: the asker marks one reply as the accepted answer; marking another moves the mark. */
+    acceptDiscussionReply: scopedProcedure('academy:write', { module: 'academy' })
+      .input(academyAcceptDiscussionReplyInputSchema)
+      .output(z.object({ postId: z.string(), acceptedReplyId: z.string() }))
+      .mutation(({ input, ctx }) => guard(() => academy.discussion.accept({ ...input, userId: ctx.principal!.userId }))),
+
+    /** AC-rooms-01: follow a post or stop; a repeat changes nothing. */
+    followDiscussionPost: scopedProcedure('academy:write', { module: 'academy' })
+      .input(academyDiscussionToggleInputSchema)
+      .output(z.object({ postId: z.string(), on: z.boolean() }))
+      .mutation(({ input, ctx }) => guard(() => academy.discussion.follow({ ...input, userId: ctx.principal!.userId, now: new Date() }))),
+
+    /** AC-rooms-01: like a post or a reply, or take it back; a repeat changes nothing. */
+    likeDiscussionPost: scopedProcedure('academy:write', { module: 'academy' })
+      .input(academyDiscussionToggleInputSchema)
+      .output(z.object({ postId: z.string(), on: z.boolean(), likes: z.number().int().nonnegative() }))
+      .mutation(({ input, ctx }) => guard(() => academy.discussion.like({ ...input, userId: ctx.principal!.userId, now: new Date() }))),
+
     myCerts: scopedProcedure('academy:read', { module: 'academy' })
       .input(z.object({ limit: z.number().optional() }).optional())
       .output(z.array(certGrantOut))
@@ -3285,6 +3362,20 @@ export function createAcademyRouter(
         .input(academySaveProgrammeInputSchema)
         .output(academyProgrammeRecordSchema)
         .mutation(({ input, ctx }) => guard(() => academy.saveProgramme({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-rooms-01: create a course discussion topic, or change its title, pin and position, with a reason. */
+      saveDiscussionTopic: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academySaveDiscussionTopicInputSchema)
+        .output(academyDiscussionTopicSchema)
+        .mutation(({ input, ctx }) =>
+          guard(() => academy.discussion.saveTopic({ ...input, operatorId: ctx.principal!.userId, now: new Date() })),
+        ),
+
+      /** AC-rooms-01: a post and its replies with the account behind each, anonymous or not. */
+      discussionThread: scopedProcedure('admin:read', { module: 'academy' })
+        .input(academyDiscussionThreadInputSchema)
+        .output(academyStaffDiscussionThreadSchema)
+        .query(({ input }) => guard(() => academy.discussion.staffThread(input.postId))),
 
       /** AC-programmes-01: the programmes staff made, newest first. */
       programmes: scopedProcedure('admin:read', { module: 'academy' })
