@@ -514,11 +514,14 @@ export async function ensureOperators(ctx) {
 
 /** Short-lived access token for this operator's live session, carrying an `admin:compliance` operator scope. */
 async function mintOperatorToken(ctx, op, scopes = ['admin:compliance']) {
-  const minted = await ctx.tokens.issueAccessToken(
+  return (await mintSessionToken(ctx, op, scopes, 300)).token;
+}
+
+async function mintSessionToken(ctx, op, scopes, ttlSeconds) {
+  return ctx.tokens.issueAccessToken(
     { userId: op.userId, sessionId: op.sessionId, scopes, tier: 'none', mfa: true },
-    { secret: ctx.secrets.jwt, issuer: 'intafaced', audience: 'intafaced.api', accessTtlSeconds: 300 },
+    { secret: ctx.secrets.jwt, issuer: 'intafaced', audience: 'intafaced.api', accessTtlSeconds: ttlSeconds },
   );
-  return minted.token;
 }
 
 /** Sign both operators in with their second factor. Returns { a, b } sessions with minted tokens. */
@@ -549,6 +552,27 @@ export async function approverSessions(ctx) {
   const ops = {};
   for (const { key, ...f } of pair) ops[key] = { ...f, lastStep: Number(steps[key] ?? 0) };
   return signInPair(ctx, ops, () => writePrivate(stepsFile, { ...readJson(stepsFile, {}), a: ops.a.lastStep, b: ops.b.lastStep }));
+}
+
+/**
+ * The founder console's LOCAL TEST treasury credential (ADMIN_TREASURY_TOKEN): founder a signs in with their second
+ * factor, and that fresh session gets `admin:treasury`, which svc-edge's treasury doors check together with the second
+ * factor and a live session. Founder sessions never carry that scope, so without this the stack's console shows the
+ * treasury doors parked. The stack's own JWT secret signs it, so it is valid nowhere else. Null until the founder pair
+ * is enrolled.
+ */
+export async function consoleTreasuryToken(ctx, { ttlSeconds }) {
+  const a = founderSignIns(readJson(path.join(ctx.paths.stateDir, FOUNDER_VAULT_NAME), null)).find((f) => f.key === 'a');
+  if (!a) return null;
+  const stepsFile = path.join(ctx.paths.stateDir, FOUNDER_STEPS_NAME);
+  const op = { ...a, lastStep: Number(readJson(stepsFile, {}).a ?? 0) };
+  try {
+    await operatorLogin(ctx, op);
+  } finally {
+    // Identity may have spent the step even when the login then failed: never hand it to the next tool.
+    writePrivate(stepsFile, { ...readJson(stepsFile, {}), a: op.lastStep });
+  }
+  return mintSessionToken(ctx, op, ['admin:treasury'], ttlSeconds);
 }
 
 /**
