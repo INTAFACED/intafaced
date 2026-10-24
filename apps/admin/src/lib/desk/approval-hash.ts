@@ -114,6 +114,18 @@ export function payloadHashFor(request: DeskRequest): string {
     // svc-identity `identityTierPayloadHash`: { targetId, action: 'tier_move', tierId, reason }, in this order.
     case 'identity.account.tier_move':
       return shaIdentity(request.userId, { action: 'tier_move', tierId: request.tierId, reason: request.reason });
+    // svc-identity `identityLimitPayloadHash`: { targetId, action: 'limit_override', rail, assetId, perTx, rolling24h, expiresAt,
+    // reason }, in this order, a null figure as ''.
+    case 'identity.account.limit_override':
+      return shaIdentity(request.userId, {
+        action: 'limit_override',
+        rail: request.rail,
+        assetId: request.assetId,
+        perTx: request.perTx ?? '',
+        rolling24h: request.rolling24h ?? '',
+        expiresAt: request.expiresAt,
+        reason: request.reason,
+      });
     case 'academy.ambassador.appoint':
       return sha('academy.ambassador.appoint', { userId: request.userId });
     case 'academy.residency.decide':
@@ -292,6 +304,16 @@ export function proposeInputFor(request: DeskRequest): ProposeInput {
     case 'identity.account.tier_move':
       return {
         actionType: 'identity.account_tier_move',
+        targetService: 'svc-identity',
+        targetId: request.userId,
+        expectedVersion: request.version,
+        payloadHash,
+        policyVersion: 'v1',
+      };
+    // svc-identity's limit override is bound to the account, at the override version the founder read. Founder-only at identity.
+    case 'identity.account.limit_override':
+      return {
+        actionType: 'identity.change_limit',
         targetService: 'svc-identity',
         targetId: request.userId,
         expectedVersion: request.version,

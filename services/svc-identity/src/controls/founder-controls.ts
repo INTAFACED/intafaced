@@ -306,6 +306,18 @@ type UnfreezeApproval =
   | { readonly approverId: string; readonly refusal: null }
   | { readonly approverId?: undefined; readonly refusal: 'restriction_approval_mismatch' | 'restriction_approval_consumed' };
 
+/** What a stored identity approval must be bound to before it is spent. */
+export interface IdentityApprovalWant {
+  readonly approvalId: string;
+  readonly actionType: string;
+  readonly payloadHash: string;
+  readonly targetId: string;
+  readonly expectedVersion: string;
+  readonly actorId: string;
+  readonly requestId: string;
+  readonly now: Date;
+}
+
 export class FounderControls {
   private configured = false;
   constructor(
@@ -417,6 +429,21 @@ export class FounderControls {
       if (error instanceof FounderControlError) throw error;
       throw storageError(error);
     }
+  }
+
+  /**
+   * Spends a founder-level identity approval for a desk outside this class (the limit overrides), on that desk's
+   * transaction: bound to the action, account, payload and version, given by a different founder who is still a live
+   * founder now, and consumed once.
+   */
+  async spendFounderApproval(
+    tx: Sql,
+    want: IdentityApprovalWant,
+  ): Promise<{ readonly approverId: string; readonly refusal: null } | { readonly refusal: 'mismatch' | 'consumed' }> {
+    const bound = await this.consumeIdentityApproval(tx, want, false);
+    if (bound.refusal) return bound;
+    if (!(await this.isLiveFounder(bound.approverId, tx))) return { refusal: 'mismatch' };
+    return this.consumeIdentityApproval(tx, want);
   }
 
   private async actor(
@@ -792,16 +819,7 @@ export class FounderControls {
    */
   private async consumeIdentityApproval(
     tx: Sql,
-    want: {
-      readonly approvalId: string;
-      readonly actionType: string;
-      readonly payloadHash: string;
-      readonly targetId: string;
-      readonly expectedVersion: string;
-      readonly actorId: string;
-      readonly requestId: string;
-      readonly now: Date;
-    },
+    want: IdentityApprovalWant,
     spend = true,
   ): Promise<{ readonly approverId: string; readonly refusal: null } | { readonly refusal: 'mismatch' | 'consumed' }> {
     const approval = await sqlGetApprovalForUpdate(tx, want.approvalId);

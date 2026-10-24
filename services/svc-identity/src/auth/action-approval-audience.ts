@@ -66,6 +66,11 @@ export const IDENTITY_ARCHIVE_ACTION_TYPE = 'identity.account_archive';
  */
 export const IDENTITY_TIER_MOVE_ACTION_TYPE = 'identity.account_tier_move';
 /**
+ * A customer limit override above the owner ceiling (J-ops-console-04 #12). Founder-level, as fee and limit policy; identity
+ * also re-checks at consumption that the approver is a live founder.
+ */
+export const IDENTITY_LIMIT_CHANGE_ACTION_TYPE = 'identity.change_limit';
+/**
  * Trade-ops operator permission. The trade desk's operator token is `admin:write` plus MFA.
  * There is no separate `trade:ops` scope. `market:ops` and `support:ops` are not this permission.
  */
@@ -77,7 +82,7 @@ export const FOUNDER_ACTION_PREFIXES: readonly string[] = ['pay.', 'matching.', 
 /** Individual types outside those namespaces that are treasury or fee/limit policy. */
 export const FOUNDER_ACTION_TYPES: readonly string[] = [
   'identity.change_fee_tier',
-  'identity.change_limit',
+  IDENTITY_LIMIT_CHANGE_ACTION_TYPE,
   IDENTITY_TIER_MOVE_ACTION_TYPE,
   IDENTITY_ARCHIVE_ACTION_TYPE,
   'affiliates.payout',

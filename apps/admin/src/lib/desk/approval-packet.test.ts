@@ -369,3 +369,35 @@ describe('identity account tier move requests', () => {
     expect(requestReason(move)).toBe(move.reason);
   });
 });
+
+describe('identity account limit override requests', () => {
+  const raise = {
+    kind: 'identity.account.limit_override',
+    userId: '0b6f7a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b',
+    rail: 'withdrawal',
+    assetId: 'USDT',
+    perTx: '2000',
+    rolling24h: null,
+    expiresAt: '2026-10-25T12:00:00.000Z',
+    reason: 'Customer is moving house this week',
+    version: '0',
+  } as const;
+  it('reads exactly the account, rail, asset, figures, end time, reason and version', () => {
+    expect(readDeskRequest(raise)).toEqual(raise);
+    expect(readDeskRequest({ ...raise, rail: 'deposit' })).toBeNull();
+    expect(readDeskRequest({ ...raise, assetId: 'usdt' })).toBeNull();
+    expect(readDeskRequest({ ...raise, perTx: '0' })).toBeNull();
+    expect(readDeskRequest({ ...raise, perTx: 2000 })).toBeNull();
+    expect(readDeskRequest({ ...raise, perTx: null })).toBeNull();
+    // Only the canonical instant: another spelling of the same time would hash differently.
+    expect(readDeskRequest({ ...raise, expiresAt: '2026-10-25T14:00:00+02:00' })).toBeNull();
+    expect(readDeskRequest({ ...raise, reason: 'too short' })).toBeNull();
+    expect(readDeskRequest({ ...raise, extra: '1' })).toBeNull();
+  });
+  it('names the account in the phrase and the figures and end time in the description', () => {
+    expect(confirmPhrase(raise)).toBe('RAISE LIMIT 0b6f7a3e');
+    expect(describeRequest(raise)).toContain('per transaction 2000, over 24 hours the base figure');
+    expect(describeRequest(raise)).toContain('until 2026-10-25T12:00:00.000Z');
+    expect(requestReason(raise)).toBe(raise.reason);
+  });
+});

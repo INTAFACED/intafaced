@@ -16,6 +16,7 @@ import {
   IDENTITY_CLOSE_ACTION_TYPE,
   IDENTITY_REOPEN_ACTION_TYPE,
   IDENTITY_TIER_MOVE_ACTION_TYPE,
+  IDENTITY_LIMIT_CHANGE_ACTION_TYPE,
   IDENTITY_UNFREEZE_ACTION_TYPE,
 } from '../../../../../services/svc-identity/src/auth/action-approval-audience';
 import { payActionPayloadHash } from '../../../../../services/svc-pay/src/action-approval-consume';
@@ -402,6 +403,46 @@ describe('identity account tier move', () => {
       targetId: userId,
       expectedVersion: '2',
       payloadHash: payloadHashFor(move),
+      policyVersion: 'v1',
+    });
+  });
+});
+
+describe('identity account limit override', () => {
+  const userId = '0b6f7a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b';
+  const raise = {
+    kind: 'identity.account.limit_override' as const,
+    userId,
+    rail: 'withdrawal' as const,
+    assetId: 'USDT',
+    perTx: null,
+    rolling24h: '8000',
+    expiresAt: '2026-10-25T12:00:00.000Z',
+    reason: 'Customer is moving house this week',
+    version: '3',
+  };
+  it('hash equals identity’s identityLimitPayloadHash: account, action, rail, asset, figures (null as blank), end time, reason', () => {
+    expect(payloadHashFor(raise)).toBe(
+      identityActionPayloadHash(userId, {
+        action: 'limit_override',
+        rail: 'withdrawal',
+        assetId: 'USDT',
+        perTx: '',
+        rolling24h: '8000',
+        expiresAt: raise.expiresAt,
+        reason: raise.reason,
+      }),
+    );
+    for (const patch of [{ perTx: '8000' }, { rolling24h: '8001' }, { expiresAt: '2026-10-25T12:00:01.000Z' }, { assetId: 'BTC' }])
+      expect(payloadHashFor({ ...raise, ...patch })).not.toBe(payloadHashFor(raise));
+  });
+  it('is proposed against the account at the override version the founder read, under the founder-only limit type', () => {
+    expect(proposeInputFor(raise)).toEqual({
+      actionType: IDENTITY_LIMIT_CHANGE_ACTION_TYPE,
+      targetService: 'svc-identity',
+      targetId: userId,
+      expectedVersion: '3',
+      payloadHash: payloadHashFor(raise),
       policyVersion: 'v1',
     });
   });
