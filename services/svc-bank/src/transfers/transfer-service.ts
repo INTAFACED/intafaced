@@ -16,7 +16,7 @@ import { BankError } from '../errors.js';
 import { assertExecutionsListLimit, assertSchedulesListLimit } from '../owner-list-limit.js';
 import { assertTransferDueLimit } from '../job-batch-limit.js';
 import { RECIPIENT_CANNOT_RECEIVE_MESSAGE, accountForSpace, type SpaceService } from '../spaces/space-service.js';
-import { MAX_CATCH_UP_PER_PASS, dueOccurrence, lastOccurrenceBefore, planDue, occurrenceStart, type Cadence } from './schedule.js';
+import { MAX_CATCH_UP_PER_PASS, dueOccurrence, lastOccurrenceBefore, planDue, occurrenceStart, type ScheduleCadence } from './schedule.js';
 import { withMoneySpan, withSpan } from '../tracing.js';
 
 /**
@@ -56,11 +56,13 @@ export interface ScheduleRecord {
   fromSpaceId: string;
   toSpaceId: string;
   amount: Amount;
-  cadence: Cadence;
+  cadence: ScheduleCadence;
   startsAt: Date;
   endsAt: Date | null;
   nextRunAt: Date;
   status: 'active' | 'paused' | 'cancelled' | 'completed';
+  /** Starts at 1; each edit of the amount or end date adds one, and an edit must name the revision it read. */
+  revision: number;
 }
 
 interface ScheduleRow {
@@ -70,11 +72,12 @@ interface ScheduleRow {
   from_space_id: string;
   to_space_id: string;
   amount: string;
-  cadence: Cadence;
+  cadence: ScheduleCadence;
   starts_at: Date;
   ends_at: Date | null;
   next_run_at: Date;
   status: ScheduleRecord['status'];
+  revision: number;
 }
 
 function toSchedule(row: ScheduleRow): ScheduleRecord {
@@ -90,6 +93,7 @@ function toSchedule(row: ScheduleRow): ScheduleRecord {
     endsAt: row.ends_at,
     nextRunAt: row.next_run_at,
     status: row.status,
+    revision: row.revision,
   };
 }
 
@@ -103,10 +107,26 @@ function toSchedule(row: ScheduleRow): ScheduleRecord {
  * firing on the first set of dates, or past an end the retry tried to set.
  */
 function sameScheduleWindow(storedStartsAt: Date, storedEndsAt: Date | null, startsAt: Date, endsAt: Date | null | undefined): boolean {
-  if (storedStartsAt.getTime() !== startsAt.getTime()) return false;
-  const requestedEnd = endsAt ?? null;
-  if (storedEndsAt === null || requestedEnd === null) return storedEndsAt === requestedEnd;
-  return storedEndsAt.getTime() === requestedEnd.getTime();
+  return storedStartsAt.getTime() === startsAt.getTime() && sameEnd(storedEndsAt, endsAt ?? null);
+}
+
+function sameEnd(a: Date | null, b: Date | null): boolean {
+  return a === null || b === null ? a === b : a.getTime() === b.getTime();
+}
+
+/**
+ * The owner-set minutes before the next run after which a standing order can no longer be edited. Blank, unset or
+ * not a whole number refuses `bank.schedule_edit_cutoff_unset`: no window is invented. Zero is a real owner choice.
+ */
+export function parseScheduleEditCutoff(raw: string | undefined): number {
+  const text = raw?.trim() ?? '';
+  if (!/^\d{1,6}$/.test(text)) {
+    throw new BankError(
+      'Standing order edits are not open: the edit cutoff is not published (BANK_SCHEDULE_EDIT_CUTOFF_MINUTES)',
+      'bank.schedule_edit_cutoff_unset',
+    );
+  }
+  return Number(text);
 }
 
 export type FiringOutcome = 'settled' | 'rejected' | 'already-fired' | 'stopped' | 'busy';
@@ -174,6 +194,8 @@ export class TransferService {
     private readonly sql: Sql,
     private readonly ledger: LedgerClient,
     private readonly spaces: SpaceService,
+    /** `BANK_SCHEDULE_EDIT_CUTOFF_MINUTES`, read only when an edit is asked for. */
+    private readonly scheduleTerms: { readonly editCutoffMinutes?: string } = {},
   ) {}
 
   // ── One-off transfer ───────────────────────────────────────────────────────
@@ -305,7 +327,7 @@ export class TransferService {
     fromSpaceId: string;
     toUserId: string;
     amount: Amount;
-    cadence: Cadence;
+    cadence: ScheduleCadence;
     startsAt: Date;
     endsAt?: Date | null;
     scheduleId: string;
@@ -335,7 +357,7 @@ export class TransferService {
     fromSpaceId: string;
     toSpaceId: string;
     amount: Amount;
-    cadence: Cadence;
+    cadence: ScheduleCadence;
     startsAt: Date;
     endsAt?: Date | null;
     scheduleId: string;
@@ -345,6 +367,10 @@ export class TransferService {
     }
     if (input.fromSpaceId === input.toSpaceId) {
       throw new BankError('A standing order needs two different spaces', 'bank.same_space');
+    }
+    if (input.cadence === 'once' && input.endsAt) {
+      // A one-off has one date. An end date on it would be a second, unused instruction a retry has to match.
+      throw new BankError('A one-off payment has a date and no end date', 'bank.validation_failed');
     }
 
     const from = await this.spaces.get(input.fromSpaceId);
@@ -368,24 +394,34 @@ export class TransferService {
       )
       ON CONFLICT (id) DO NOTHING
       RETURNING id, user_id, asset_id, from_space_id, to_space_id, amount, cadence,
-                starts_at, ends_at, next_run_at, status
+                starts_at, ends_at, next_run_at, status, revision
     `;
     if (rows.length > 0) return toSchedule(rows[0]!);
 
     const existing = await this.sql<ScheduleRow[]>`
       SELECT id, user_id, asset_id, from_space_id, to_space_id, amount, cadence,
-             starts_at, ends_at, next_run_at, status
+             starts_at, ends_at, next_run_at, status, revision
         FROM bank.scheduled_transfers WHERE id = ${scheduleId}
     `;
     const row = existing[0];
     if (!row) throw new BankError(`Schedule ${scheduleId} disappeared after a conflict`, 'bank.schedule_not_found');
+    // An edited order is compared on the terms it was created with: a retry of the create carries those, not the edit's.
+    const original =
+      row.revision > 1
+        ? (
+            await this.sql<Array<{ amount: string; ends_at: Date | null }>>`
+              SELECT amount, ends_at FROM bank.schedule_revisions WHERE schedule_id = ${scheduleId} AND revision = 1
+            `
+          )[0]
+        : { amount: row.amount, ends_at: row.ends_at };
     if (
+      !original ||
       row.user_id !== input.userId ||
       row.from_space_id !== input.fromSpaceId ||
       row.to_space_id !== input.toSpaceId ||
-      parseAmount(row.amount) !== input.amount ||
+      parseAmount(original.amount) !== input.amount ||
       row.cadence !== input.cadence ||
-      !sameScheduleWindow(row.starts_at, row.ends_at, input.startsAt, input.endsAt)
+      !sameScheduleWindow(row.starts_at, original.ends_at, input.startsAt, input.endsAt)
     ) {
       throw new BankError(
         `Schedule ${scheduleId} already exists on different terms — a retry must carry the same instruction`,
@@ -407,7 +443,7 @@ export class TransferService {
   async getSchedule(scheduleId: string): Promise<ScheduleRecord> {
     const rows = await this.sql<ScheduleRow[]>`
       SELECT id, user_id, asset_id, from_space_id, to_space_id, amount, cadence,
-             starts_at, ends_at, next_run_at, status
+             starts_at, ends_at, next_run_at, status, revision
         FROM bank.scheduled_transfers WHERE id = ${scheduleId}
     `;
     const row = rows[0];
@@ -419,11 +455,108 @@ export class TransferService {
     const page = assertSchedulesListLimit(limit);
     const rows = await this.sql<ScheduleRow[]>`
       SELECT id, user_id, asset_id, from_space_id, to_space_id, amount, cadence,
-             starts_at, ends_at, next_run_at, status
+             starts_at, ends_at, next_run_at, status, revision
         FROM bank.scheduled_transfers WHERE user_id = ${userId} ORDER BY created_at DESC
        LIMIT ${page}
     `;
     return rows.map(toSchedule);
+  }
+
+  /**
+   * Change a standing order's amount or end date (BK-xfer-10). The recipient, the spaces, the cadence and the start stay
+   * as they were: occurrence N is defined by `(startsAt, cadence, N)`, so changing either would re-number the
+   * occurrences already run and the business keys they posted under.
+   *
+   * The caller names the revision it read. The update is one statement guarded by that revision, so of two edits sent
+   * at the same revision exactly one lands; the other refuses `bank.schedule_revision_conflict` and changes nothing. The
+   * same edit sent again (a retry of one that landed) reads back the revision it made and is answered with it.
+   *
+   * No edit of an active order inside the owner-set cutoff before its next run (`bank.schedule_cutoff`), and none at all
+   * while the cutoff is not published (`bank.schedule_edit_cutoff_unset`). A paused order has no run coming, so the
+   * cutoff does not apply to it. An end at or before the next run closes the window, and the order is completed. A run takes the row lock and claims with the amount it finds
+   * under it, so a run and an edit are ordered by that lock: the run uses the instruction as it stood, never half of it.
+   *
+   * What the order said before each edit is kept in `bank.schedule_revisions`, so what the person authorised survives.
+   * Nothing is posted here. If this crashes exactly here, whose funds are stranded? No one's: the edit and its history
+   * row commit together or not at all, and no value moves.
+   */
+  async updateSchedule(input: {
+    scheduleId: string;
+    userId: string;
+    revision: number;
+    amount: Amount;
+    endsAt: Date | null;
+    now?: Date;
+  }): Promise<ScheduleRecord> {
+    const now = input.now ?? new Date();
+    const cutoffMinutes = parseScheduleEditCutoff(this.scheduleTerms.editCutoffMinutes);
+    if (input.amount <= 0n) throw new BankError('A standing order amount must be above zero', 'bank.validation_failed');
+    return transaction(
+      this.sql,
+      async (tx) => {
+        const rows = await tx<ScheduleRow[]>`
+          SELECT id, user_id, asset_id, from_space_id, to_space_id, amount, cadence,
+                 starts_at, ends_at, next_run_at, status, revision
+            FROM bank.scheduled_transfers WHERE id = ${input.scheduleId} FOR UPDATE
+        `;
+        const row = rows[0];
+        if (!row || row.user_id !== input.userId) {
+          throw new BankError(`Schedule ${input.scheduleId} not found`, 'bank.schedule_not_found');
+        }
+        const current = toSchedule(row);
+        // A retry of the edit that made this revision: same values, one revision on. Answered, not refused.
+        if (current.revision === input.revision + 1 && current.amount === input.amount && sameEnd(current.endsAt, input.endsAt)) {
+          return current;
+        }
+        if (current.revision !== input.revision) {
+          throw new BankError(
+            `Schedule ${input.scheduleId} is at revision ${current.revision}, not ${input.revision}: read it again before editing`,
+            'bank.schedule_revision_conflict',
+          );
+        }
+        if (current.status !== 'active' && current.status !== 'paused') {
+          throw new BankError(`Schedule ${input.scheduleId} is ${current.status} and cannot be edited`, 'bank.schedule_inactive');
+        }
+        if (current.cadence === 'once' && input.endsAt !== null) {
+          throw new BankError('A one-off payment has a date and no end date', 'bank.validation_failed');
+        }
+        if (input.endsAt !== null && input.endsAt.getTime() <= Math.max(now.getTime(), current.startsAt.getTime())) {
+          throw new BankError('The end date must be after today and after the first payment', 'bank.validation_failed');
+        }
+        if (current.status === 'active' && current.nextRunAt.getTime() - now.getTime() < cutoffMinutes * 60_000) {
+          throw new BankError(
+            `The next payment is due ${current.nextRunAt.toISOString()}; edits close ${cutoffMinutes} minutes before it`,
+            'bank.schedule_cutoff',
+          );
+        }
+        await tx`
+          INSERT INTO bank.schedule_revisions (schedule_id, revision, amount, ends_at, replaced_by)
+          VALUES (${current.id}, ${current.revision}, ${formatAmount(current.amount)}::numeric, ${current.endsAt}, ${input.userId})
+        `;
+        // `next_run_at` is the next occurrence not yet run, and the end is exclusive: an end at or before it leaves none.
+        const closes = input.endsAt !== null && input.endsAt.getTime() <= current.nextRunAt.getTime();
+        const updated = await tx<ScheduleRow[]>`
+          UPDATE bank.scheduled_transfers
+             SET amount = ${formatAmount(input.amount)}::numeric, ends_at = ${input.endsAt},
+                 status = ${closes ? 'completed' : current.status},
+                 revision = revision + 1, updated_at = now()
+           WHERE id = ${current.id} AND revision = ${current.revision}
+           RETURNING id, user_id, asset_id, from_space_id, to_space_id, amount, cadence,
+                     starts_at, ends_at, next_run_at, status, revision
+        `;
+        return toSchedule(updated[0]!);
+      },
+      { isolation: 'read committed', maxAttempts: 5 },
+    );
+  }
+
+  /** Earlier revisions of one standing order, newest first: what it said before each edit. */
+  async scheduleRevisions(scheduleId: string): Promise<Array<{ revision: number; amount: Amount; endsAt: Date | null; replacedAt: Date }>> {
+    const rows = await this.sql<Array<{ revision: number; amount: string; ends_at: Date | null; replaced_at: Date }>>`
+      SELECT revision, amount, ends_at, replaced_at FROM bank.schedule_revisions
+       WHERE schedule_id = ${scheduleId} ORDER BY revision DESC LIMIT 100
+    `;
+    return rows.map((r) => ({ revision: r.revision, amount: parseAmount(r.amount), endsAt: r.ends_at, replacedAt: r.replaced_at }));
   }
 
   /**
@@ -474,7 +607,7 @@ export class TransferService {
         UPDATE bank.scheduled_transfers SET status = 'paused', updated_at = now()
          WHERE id = ${scheduleId} AND status = 'active'
          RETURNING id, user_id, asset_id, from_space_id, to_space_id, amount, cadence,
-                   starts_at, ends_at, next_run_at, status
+                   starts_at, ends_at, next_run_at, status, revision
       `;
 
       const row = rows[0];
@@ -533,7 +666,7 @@ export class TransferService {
           // but "limited to" is not a property to rely on in a money service.
           const locked = await tx<ScheduleRow[]>`
             SELECT id, user_id, asset_id, from_space_id, to_space_id, amount, cadence,
-                   starts_at, ends_at, next_run_at, status
+                   starts_at, ends_at, next_run_at, status, revision
               FROM bank.scheduled_transfers WHERE id = ${scheduleId} FOR UPDATE
           `;
           const row = locked[0];
@@ -608,7 +741,7 @@ export class TransferService {
                    updated_at = now()
              WHERE id = ${scheduleId} AND status = 'paused'
              RETURNING id, user_id, asset_id, from_space_id, to_space_id, amount, cadence,
-                       starts_at, ends_at, next_run_at, status
+                       starts_at, ends_at, next_run_at, status, revision
           `;
 
           return { schedule: toSchedule(updated[0]!), skipped };
@@ -663,7 +796,7 @@ export class TransferService {
 
     const due = await this.sql<ScheduleRow[]>`
       SELECT id, user_id, asset_id, from_space_id, to_space_id, amount, cadence,
-             starts_at, ends_at, next_run_at, status
+             starts_at, ends_at, next_run_at, status, revision
         FROM bank.scheduled_transfers
        WHERE status = 'active' AND next_run_at <= ${now}
        ORDER BY next_run_at ASC
@@ -676,7 +809,7 @@ export class TransferService {
     const dueIds = due.map((row) => row.id);
     const stranded = await this.sql<ScheduleRow[]>`
       SELECT s.id, s.user_id, s.asset_id, s.from_space_id, s.to_space_id, s.amount, s.cadence,
-             s.starts_at, s.ends_at, s.next_run_at, s.status
+             s.starts_at, s.ends_at, s.next_run_at, s.status, s.revision
         FROM bank.scheduled_transfers s
        WHERE NOT (s.id = ANY(${dueIds}::uuid[]))
          AND EXISTS (
@@ -901,17 +1034,23 @@ export class TransferService {
         // here, no value moves, and the next pass picks the occurrence up again if
         // it is still owed. `driveSchedule` reads `busy` as "do not advance the
         // watermark": the pass that owns the lock may still roll back.
-        const live = await tx<Array<{ status: string }>>`
-          SELECT status FROM bank.scheduled_transfers WHERE id = ${schedule.id} FOR UPDATE SKIP LOCKED
+        //
+        // The amount comes from under the same lock. An edit (`updateSchedule`) takes this row lock too, so a claim made
+        // here carries the instruction as it stands now, not as it stood when the pass selected the schedule.
+        const live = await tx<Array<{ status: string; amount: string }>>`
+          SELECT status, amount FROM bank.scheduled_transfers WHERE id = ${schedule.id} FOR UPDATE SKIP LOCKED
         `;
         if (live.length === 0) return 'busy' as const;
         const isActive = live[0]?.status === 'active';
 
         let executionId: string;
+        // What this occurrence posts: the amount on its claim row, which is what the person reads in the run history.
+        let claimAmount: Amount;
         if (isActive) {
+          claimAmount = parseAmount(live[0]!.amount);
           const claimed = await tx<Array<{ id: string }>>`
             INSERT INTO bank.transfer_executions (schedule_id, occurrence, amount, status)
-            VALUES (${schedule.id}, ${occurrence}, ${formatAmount(schedule.amount)}::numeric, 'pending')
+            VALUES (${schedule.id}, ${occurrence}, ${formatAmount(claimAmount)}::numeric, 'pending')
             ON CONFLICT (schedule_id, occurrence) DO NOTHING
             RETURNING id
           `;
@@ -921,26 +1060,28 @@ export class TransferService {
             // row still `pending` means a process died in a way that committed the
             // claim without the post, so re-drive it — the ledger post is
             // idempotent, which makes re-driving strictly safe.
-            const existing = await tx<Array<{ id: string; status: string }>>`
-              SELECT id, status FROM bank.transfer_executions
+            const existing = await tx<Array<{ id: string; status: string; amount: string }>>`
+              SELECT id, status, amount FROM bank.transfer_executions
                WHERE schedule_id = ${schedule.id} AND occurrence = ${occurrence} FOR UPDATE
             `;
             const row = existing[0];
             if (!row || row.status !== 'pending') return 'already-fired' as const;
             executionId = row.id;
+            claimAmount = parseAmount(row.amount);
           } else {
             executionId = claimed[0]!.id;
           }
         } else {
           // Cancel/pause is not a reversal: an already-pending claim still
           // finishes. Unclaimed future firings must not start.
-          const existing = await tx<Array<{ id: string; status: string }>>`
-            SELECT id, status FROM bank.transfer_executions
+          const existing = await tx<Array<{ id: string; status: string; amount: string }>>`
+            SELECT id, status, amount FROM bank.transfer_executions
              WHERE schedule_id = ${schedule.id} AND occurrence = ${occurrence} FOR UPDATE
           `;
           const row = existing[0];
           if (!row || row.status !== 'pending') return 'stopped' as const;
           executionId = row.id;
+          claimAmount = parseAmount(row.amount);
         }
 
         let from: Awaited<ReturnType<SpaceService['get']>>;
@@ -984,7 +1125,7 @@ export class TransferService {
           throw err;
         }
 
-        return this.settle(tx, executionId, schedule, from, to, occurrence);
+        return this.settle(tx, executionId, { ...schedule, amount: claimAmount }, from, to, occurrence);
       },
       // `read committed` is correct here because the ordering between competing
       // runs is already established by the unique index on (schedule,
@@ -1065,7 +1206,7 @@ export class TransferService {
   }
 
   /** When occurrence `n` of a schedule is due — exposed for operator tooling and tests. */
-  static occurrenceAt(startsAt: Date, cadence: Cadence, occurrence: number): Date {
+  static occurrenceAt(startsAt: Date, cadence: ScheduleCadence, occurrence: number): Date {
     return occurrenceStart(startsAt, cadence, occurrence);
   }
 }

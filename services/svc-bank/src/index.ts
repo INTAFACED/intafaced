@@ -112,6 +112,7 @@ const bus = await JetStreamEventBus.connect({
 const bank = createBankServices(sql, ledger, history, {
   nativeAssetId: env.TOKEN_ASSET_ID,
   payeeCoolingHours: env.BANK_PAYEE_COOLING_HOURS,
+  scheduleEditCutoffMinutes: env.BANK_SCHEDULE_EDIT_CUTOFF_MINUTES,
   holdCancelHours: env.BANK_GLOBAL_HOLD_CANCEL_HOURS,
   receiptSecret: env.INTERNAL_SERVICE_SECRET,
   refundFee: env.BANK_GLOBAL_REFUND_FEE,

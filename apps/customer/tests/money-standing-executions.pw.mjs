@@ -21,8 +21,11 @@ function instructionRows(principal = ownerA, count = 20) {
     assetId: 'USDT',
     amount: `${index + 11}.${String(index + 1).padStart(18, '0')}`,
     cadence: 'monthly',
+    startsAt: `2026-11-${String((index % 20) + 1).padStart(2, '0')}T12:00:00.000Z`,
+    endsAt: null,
     nextRunAt: `2026-11-${String((index % 20) + 1).padStart(2, '0')}T12:00:00.000Z`,
     status: 'active',
+    revision: 1,
   }));
 }
 function executionRows(instruction, count = 4) {

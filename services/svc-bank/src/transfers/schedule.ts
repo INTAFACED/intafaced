@@ -16,6 +16,14 @@ export const CADENCES = ['daily', 'weekly', 'monthly'] as const;
 export type Cadence = (typeof CADENCES)[number];
 
 /**
+ * What a standing order may be: a recurring cadence, or `once` — a single payment on a future date (BK-xfer-10). A
+ * one-off has exactly one occurrence, 0, on `startsAt`, so its key is the same `(schedule, 0)` business key and the
+ * schedule completes after it. `Cadence` stays the recurring three: auto-invest and bills share it and have no once.
+ */
+export const SCHEDULE_CADENCES = [...CADENCES, 'once'] as const;
+export type ScheduleCadence = (typeof SCHEDULE_CADENCES)[number];
+
+/**
  * How far a catch-up pass may go in one run.
  *
  * A schedule whose `startsAt` is years in the past would otherwise fire hundreds
@@ -35,7 +43,7 @@ export const MAX_CATCH_UP_PER_PASS = 12;
  * clamps only in the short months and returns to the 31st afterwards, which is
  * what "the 31st of every month" means to the person who set it.
  */
-export function occurrenceStart(startsAt: Date, cadence: Cadence, occurrence: number): Date {
+export function occurrenceStart(startsAt: Date, cadence: ScheduleCadence, occurrence: number): Date {
   if (!Number.isInteger(occurrence) || occurrence < 0) {
     throw new RangeError(`Occurrence must be a non-negative integer, got ${occurrence}`);
   }
@@ -43,6 +51,9 @@ export function occurrenceStart(startsAt: Date, cadence: Cadence, occurrence: nu
   const DAY_MS = 24 * 60 * 60 * 1000;
 
   switch (cadence) {
+    case 'once':
+      if (occurrence > 0) throw new RangeError(`A one-off payment has only occurrence 0, got ${occurrence}`);
+      return startsAt;
     case 'daily':
       return new Date(startsAt.getTime() + occurrence * DAY_MS);
     case 'weekly':
@@ -79,12 +90,13 @@ export function occurrenceStart(startsAt: Date, cadence: Cadence, occurrence: nu
  * because clamping makes it non-uniform — a closed-form inverse would be wrong
  * in exactly the short months where a bug costs a user their rent transfer.
  */
-export function dueOccurrence(startsAt: Date, cadence: Cadence, now: Date): number | null {
+export function dueOccurrence(startsAt: Date, cadence: ScheduleCadence, now: Date): number | null {
   if (now.getTime() < startsAt.getTime()) return null;
 
   const DAY_MS = 24 * 60 * 60 * 1000;
   const elapsed = now.getTime() - startsAt.getTime();
 
+  if (cadence === 'once') return 0;
   if (cadence === 'daily') return Math.floor(elapsed / DAY_MS);
   if (cadence === 'weekly') return Math.floor(elapsed / (7 * DAY_MS));
 
@@ -97,8 +109,9 @@ export function dueOccurrence(startsAt: Date, cadence: Cadence, now: Date): numb
   return n;
 }
 
-/** The last occurrence index still inside the schedule's window, or null if none. */
-export function lastOccurrenceBefore(startsAt: Date, cadence: Cadence, endsAt: Date | null): number | null {
+/** The last occurrence index still inside the schedule's window, or null if none. A one-off's window is occurrence 0. */
+export function lastOccurrenceBefore(startsAt: Date, cadence: ScheduleCadence, endsAt: Date | null): number | null {
+  if (cadence === 'once') return 0;
   if (!endsAt) return null;
   if (endsAt.getTime() <= startsAt.getTime()) return null;
   const n = dueOccurrence(startsAt, cadence, new Date(endsAt.getTime() - 1));
@@ -125,7 +138,7 @@ export interface DuePlan {
  */
 export function planDue(input: {
   startsAt: Date;
-  cadence: Cadence;
+  cadence: ScheduleCadence;
   endsAt: Date | null;
   /** Highest occurrence already recorded (settled OR rejected), or null if none. */
   lastFired: number | null;

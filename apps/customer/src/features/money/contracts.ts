@@ -8,8 +8,11 @@ export const scheduleSchema = z.object({
   assetId: z.string(),
   amount: money,
   cadence: z.string(),
+  startsAt: z.string(),
+  endsAt: z.string().nullable(),
   nextRunAt: z.string(),
   status: z.string(),
+  revision: z.number().int().positive(),
 });
 export const poolSchema = z.object({
   id: z.string(),
@@ -533,6 +536,13 @@ export const bankWrites = {
   'transfers.pause': z.object({ status: z.string(), nextRunAt: z.string() }),
   'transfers.resume': z.object({ status: z.string(), nextRunAt: z.string(), skipped: z.array(z.number().int()) }),
   'transfers.cancel': z.object({ cancelled: z.literal(true) }),
+  'transfers.updateSchedule': z.object({
+    id: z.string(),
+    revision: z.number().int(),
+    amount: money,
+    endsAt: z.string().nullable(),
+    nextRunAt: z.string(),
+  }),
   'earn.deposit': z.object({ positionId: z.string(), maturesAt: z.string().nullable() }),
   'earn.withdraw': z.object({ positionId: z.string(), principal: money }),
   'loans.open': z.object({ loanId: z.string(), status: z.string(), ltvBps: z.number().int(), drawLedgerTxId: z.string() }),
@@ -670,6 +680,18 @@ export function bankWriteForReview(procedure: BankWrite, input: Record<string, u
           paid > 0n &&
           paid <= parseAmount(input.amount) &&
           (parseAmount(row.remainingPrincipal) !== 0n || parseAmount(row.remainingInterest) !== 0n || row.closed)
+        );
+      }
+      case 'transfers.updateSchedule': {
+        const row = data as z.infer<(typeof bankWrites)['transfers.updateSchedule']>;
+        return (
+          row.id === input.scheduleId &&
+          typeof input.revision === 'number' &&
+          row.revision === input.revision + 1 &&
+          exact(row.amount, input.amount) &&
+          (input.endsAt === null
+            ? row.endsAt === null
+            : row.endsAt !== null && typeof input.endsAt === 'string' && Date.parse(row.endsAt) === Date.parse(input.endsAt))
         );
       }
       case 'loans.close': {

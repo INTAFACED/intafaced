@@ -69,6 +69,12 @@ const en = {
   destinationGone: 'That address is no longer saved. Refresh the list. Nothing was changed.',
   labelInvalid: 'The name must be 1 to 64 characters, with no space at either end and no control characters. Nothing was changed.',
   memberHasPending: 'This person still has a payment waiting. Decide or cancel it before removing them.',
+  scheduleChanged:
+    'This standing order changed since you opened it, so your edit was not applied. Nothing was changed. Refresh to see its current amount and end date, then edit again.',
+  scheduleCutoff: 'The next run is too close to change this order now. Nothing was changed. Try again after that run.',
+  scheduleEditOff: 'Changing standing orders is not set up on this service. Nothing was changed.',
+  scheduleInactive: 'This standing order has ended or was cancelled, so it cannot be changed. Nothing was changed.',
+  scheduleNotFound: 'That standing order could not be found. Refresh your standing orders. Nothing was changed.',
 } as const;
 const es = {
   cardNotFound: 'No se encontró esa tarjeta. Actualiza tus tarjetas e inténtalo de nuevo.',
@@ -135,6 +141,13 @@ const es = {
   labelInvalid:
     'El nombre debe tener de 1 a 64 caracteres, sin espacios al principio ni al final ni caracteres de control. No se cambió nada.',
   memberHasPending: 'Esta persona aún tiene un pago esperando. Decide o cancela esos pagos antes de quitarla.',
+  scheduleChanged:
+    'Esta orden permanente cambió desde que la abriste, así que tu edición no se aplicó. No se cambió nada. Actualiza para ver su importe y fecha de fin actuales y edítala de nuevo.',
+  scheduleCutoff:
+    'La próxima ejecución está demasiado cerca para cambiar esta orden ahora. No se cambió nada. Inténtalo después de esa ejecución.',
+  scheduleEditOff: 'Cambiar órdenes permanentes no está configurado en este servicio. No se cambió nada.',
+  scheduleInactive: 'Esta orden permanente terminó o se canceló, así que no se puede cambiar. No se cambió nada.',
+  scheduleNotFound: 'No se encontró esa orden permanente. Actualiza tus órdenes permanentes. No se cambió nada.',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
   cardNotFound: 'Cette carte est introuvable. Actualisez vos cartes et réessayez.',
@@ -202,6 +215,13 @@ const fr = {
   labelInvalid:
     'Le nom doit compter de 1 à 64 caractères, sans espace au début ou à la fin ni caractère de contrôle. Rien n’a été modifié.',
   memberHasPending: 'Cette personne a encore un paiement en attente. Décidez-en ou annulez-le avant de la retirer.',
+  scheduleChanged:
+    'Cet ordre permanent a changé depuis son ouverture, votre modification n’a donc pas été appliquée. Rien n’a été modifié. Actualisez pour voir son montant et sa date de fin actuels, puis modifiez-le à nouveau.',
+  scheduleCutoff:
+    'La prochaine exécution est trop proche pour modifier cet ordre maintenant. Rien n’a été modifié. Réessayez après cette exécution.',
+  scheduleEditOff: 'La modification des ordres permanents n’est pas configurée sur ce service. Rien n’a été modifié.',
+  scheduleInactive: 'Cet ordre permanent est terminé ou annulé, il ne peut donc pas être modifié. Rien n’a été modifié.',
+  scheduleNotFound: 'Cet ordre permanent est introuvable. Actualisez vos ordres permanents. Rien n’a été modifié.',
 } satisfies Record<keyof typeof en, string>;
 
 export const moneyRefusalCopy = defineCopy('customer.money.refusals', en, { es, fr });
@@ -262,6 +282,11 @@ const WORDS: Readonly<Record<string, Key>> = {
   'bank.destination_label_taken': 'labelTaken',
   'bank.withdraw_destination_missing': 'destinationGone',
   'bank.ramp_invalid_destination': 'labelInvalid',
+  'bank.schedule_revision_conflict': 'scheduleChanged',
+  'bank.schedule_cutoff': 'scheduleCutoff',
+  'bank.schedule_edit_cutoff_unset': 'scheduleEditOff',
+  'bank.schedule_inactive': 'scheduleInactive',
+  'bank.schedule_not_found': 'scheduleNotFound',
 };
 
 /**
@@ -295,6 +320,8 @@ export const REFUSAL_CHECKED_WRITES: ReadonlySet<string> = new Set([
   'transfers.toUser',
   // A single label UPDATE: every refusal comes before it changes anything.
   'ramps.destinations.rename',
+  // One UPDATE in a transaction, after every check: a refusal changes nothing.
+  'transfers.updateSchedule',
 ]);
 
 /** The code's sentence key. A few sentences depend on which write was refused. */

@@ -12,7 +12,8 @@ import {
   amount,
   funds,
   bps,
-  cadenceField,
+  endsField,
+  scheduleCadenceField,
   Continuation,
   date,
   iso,
@@ -322,6 +323,20 @@ function Spaces({ open, search }: { open: (spec: ActionSpec) => void; search: st
     </BankPage>
   );
 }
+/** A one-off has no end date, and an end at or before the first run would never fire. */
+function scheduleWindowIssue(input: Record<string, unknown>): string | null {
+  if (typeof input.endsAt !== 'string') return null;
+  if (input.cadence === 'once') return copyText('components.last.run.hint');
+  return typeof input.startsAt === 'string' && Date.parse(input.endsAt) <= Date.parse(input.startsAt)
+    ? copyText('components.choose.an.end.after.first.run')
+    : null;
+}
+/** An ISO instant as the local `datetime-local` value the form shows. */
+function localInput(at: string): string {
+  const d = new Date(at);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 function ScheduleActions({
   row,
   open,
@@ -340,6 +355,44 @@ function ScheduleActions({
       {' '}
       {row.status !== 'cancelled' && (
         <>
+          {(row.status === 'active' || row.status === 'paused') && (
+            <Button
+              variant="secondary"
+              disabled={disabled}
+              onClick={() =>
+                protectedOpen({
+                  title: copyText('rooms.edit.standing.order'),
+                  procedure: 'transfers.updateSchedule',
+                  fields: [positiveMoney(row.assetId), ...(row.cadence === 'once' ? [] : [endsField])],
+                  initial: { amount: row.amount, ...(row.endsAt ? { endsAt: localInput(row.endsAt) } : {}) },
+                  formFacts: [[copyText('rooms.revision'), String(row.revision)]],
+                  facts: [
+                    [copyText('rooms.schedule'), row.id],
+                    [copyText('rooms.revision'), String(row.revision)],
+                    [copyText('rooms.current.amount'), amount(row.amount, row.assetId)],
+                  ],
+                  notes: [copyText('rooms.edit.changes.future.runs'), copyText('rooms.edit.revision.note')],
+                  validate: (input) =>
+                    typeof input.endsAt === 'string' && Date.parse(input.endsAt) <= Math.max(Date.now(), Date.parse(row.startsAt))
+                      ? copyText('components.choose.an.end.after.first.run')
+                      : null,
+                  input: (values) => ({
+                    scheduleId: row.id,
+                    revision: row.revision,
+                    amount: values.amount,
+                    // The form shows minutes: an end left as it was keeps the stored instant, seconds included.
+                    endsAt: !values.endsAt
+                      ? null
+                      : row.endsAt && values.endsAt === localInput(row.endsAt)
+                        ? row.endsAt
+                        : iso(values.endsAt),
+                  }),
+                })
+              }
+            >
+              <Text k="rooms.edit" />
+            </Button>
+          )}
           <Button
             variant="secondary"
             disabled={disabled}
@@ -684,7 +737,7 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
                               ]
                             : []),
                           positiveMoney(from.assetId),
-                          ...(scheduled ? [cadenceField, startsField] : []),
+                          ...(scheduled ? [scheduleCadenceField, startsField, endsField] : []),
                         ],
                         facts: [
                           [depth.t('from'), from.name],
@@ -705,6 +758,7 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
                           ...(!scheduled && (cleanText(note) || cleanText(reference)) ? [depth.t('messageSaved')] : []),
                         ],
                         validate: (input) =>
+                          scheduleWindowIssue(input) ??
                           validateTransfer(spaces, { ...input, transferId: 'review-reference' } as Parameters<typeof validateTransfer>[1]),
                         ...(!scheduled ? { transferSpaces: spaces } : {}),
                         ...(!scheduled && destination === 'user'
@@ -731,7 +785,12 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
                           ...(destination === 'space' ? { toSpaceId: values.toSpaceId } : { toUserId: recipient!.userId }),
                           amount: values.amount,
                           ...(scheduled
-                            ? { scheduleId: requestId, cadence: values.cadence, startsAt: iso(values.startsAt!) }
+                            ? {
+                                scheduleId: requestId,
+                                cadence: values.cadence,
+                                startsAt: iso(values.startsAt!),
+                                ...(values.endsAt ? { endsAt: iso(values.endsAt) } : {}),
+                              }
                             : {
                                 transferId: requestId,
                                 ...(cleanText(note) ? { note: cleanText(note) } : {}),

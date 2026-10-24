@@ -121,6 +121,15 @@ export function scheduleBinding(i: ScheduleCommon & { toSpaceId: string }): Door
   };
 }
 
+/**
+ * An edit of a standing order to someone else's space asks for the same approval a new one would, over the terms the
+ * order will have after the edit. The operation is the edit at the revision it read, so an approval spent on creating
+ * the order (or on an earlier edit) is not replayed for this one.
+ */
+export function scheduleEditBinding(i: ScheduleCommon & { toSpaceId: string; revision: number }): DoorBinding {
+  return { ...scheduleBinding(i), operationKey: `${i.scheduleId}:edit:${i.revision}` };
+}
+
 /** Lines sorted by (toSpaceId, amount) so the client's row order cannot split the hash. */
 export function payrollLines(lines: ReadonlyArray<{ toSpaceId: string; amount: string }>): string {
   return JSON.stringify(
