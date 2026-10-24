@@ -58,6 +58,7 @@ const en = {
   'campaigns.kyc_required': 'This reward needs {gate} before it can be claimed. Nothing about your documents is kept by this campaign.',
   'campaigns.claim_expired': 'The claim window closed, so this reward is forfeited.',
   'campaigns.budget_exhausted': 'This campaign’s budget has no room left for another reward.',
+  'campaigns.budget_asset_mismatch': 'This campaign’s budget and reward are in different assets, so nothing can be claimed.',
   'campaigns.reward_saga_unwired': 'Rewards cannot be paid: payments are not connected. Nothing was claimed.',
   'campaigns.participant_unread': 'Your account could not be checked for this claim. Nothing was claimed; try again.',
   'campaigns.claim_window_unset': 'This campaign has no claim window set, so nothing can be claimed.',
@@ -122,6 +123,8 @@ const es = {
   'campaigns.kyc_required': 'Esta recompensa necesita {gate} para poder reclamarse. Esta campaña no guarda nada de tus documentos.',
   'campaigns.claim_expired': 'El plazo para reclamar se cerró, así que esta recompensa se pierde.',
   'campaigns.budget_exhausted': 'El presupuesto de esta campaña no tiene sitio para otra recompensa.',
+  'campaigns.budget_asset_mismatch':
+    'El presupuesto y la recompensa de esta campaña están en activos distintos, así que no se puede reclamar nada.',
   'campaigns.reward_saga_unwired': 'No se pueden pagar recompensas: los pagos no están conectados. No se reclamó nada.',
   'campaigns.participant_unread': 'No se pudo comprobar tu cuenta para esta reclamación. No se reclamó nada; inténtalo de nuevo.',
   'campaigns.claim_window_unset': 'Esta campaña no tiene plazo para reclamar, así que no se puede reclamar nada.',
@@ -186,6 +189,8 @@ const fr = {
   'campaigns.kyc_required': 'Cette récompense demande {gate} avant d’être réclamée. Cette campagne ne garde rien de vos documents.',
   'campaigns.claim_expired': 'Le délai pour réclamer est fermé : cette récompense est perdue.',
   'campaigns.budget_exhausted': 'Le budget de cette campagne n’a plus de place pour une autre récompense.',
+  'campaigns.budget_asset_mismatch':
+    'Le budget et la récompense de cette campagne sont dans des actifs différents : rien ne peut être réclamé.',
   'campaigns.reward_saga_unwired':
     'Les récompenses ne peuvent pas être payées : les paiements ne sont pas connectés. Rien n’a été réclamé.',
   'campaigns.participant_unread': 'Votre compte n’a pas pu être vérifié pour cette réclamation. Rien n’a été réclamé ; réessayez.',

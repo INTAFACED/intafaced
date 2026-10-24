@@ -13,7 +13,7 @@ import type {
 } from '@intafaced/contracts/campaigns-catalogue';
 import type { CampaignParticipant } from '@intafaced/contracts';
 import { CampaignsError } from './codes.js';
-import { effectiveState } from './campaigns.js';
+import { effectiveState, outsideWindow } from './campaigns.js';
 import type { ParticipantSource } from './participants.js';
 import type { PayoutSaga } from './payouts.js';
 import type { MarketNames } from './markets.js';
@@ -42,6 +42,9 @@ type TaskCampaignRow = {
   state: string;
   starts_at: Date | null;
   ends_at: Date | null;
+  weekdays: number[] | null;
+  hours_from: string | null;
+  hours_to: string | null;
   budget_asset: string | null;
   budget_limit: string | null;
   reward_asset: string | null;
@@ -119,6 +122,8 @@ export interface TaskServiceOptions {
   saga: PayoutSaga | null;
   /** Null while svc-trade is not configured: a step that names a market counts no fill. */
   markets: MarketNames | null;
+  /** The owner's platform time zone the campaign windows are read in, or null while blank. */
+  timeZone: () => string | null;
   /** Owner value: the rollback window shown on every reward record. Null reads "not set". */
   rollbackWindowSeconds: number | null;
   now?: () => Date;
@@ -129,6 +134,7 @@ export class TaskService {
   private readonly participants: ParticipantSource;
   private readonly saga: PayoutSaga | null;
   private readonly markets: MarketNames | null;
+  private readonly timeZone: () => string | null;
   private readonly rollbackWindowSeconds: number | null;
   private readonly now: () => Date;
 
@@ -137,6 +143,7 @@ export class TaskService {
     this.participants = options.participants;
     this.saga = options.saga;
     this.markets = options.markets;
+    this.timeZone = options.timeZone;
     this.rollbackWindowSeconds = options.rollbackWindowSeconds;
     this.now = options.now ?? (() => new Date());
   }
@@ -151,12 +158,19 @@ export class TaskService {
     const at = new Date(fill.ts);
     if (Number.isNaN(at.getTime())) return 0;
     const rows = await this.sql<(TaskCampaignRow & { account_id: string })[]>`
-      SELECT c.id, c.type, c.state, c.starts_at, c.ends_at, c.budget_asset, c.budget_limit::text AS budget_limit,
-        c.reward_asset, c.reward_amount::text AS reward_amount, c.tasks, p.account_id
+      SELECT c.id, c.type, c.state, c.starts_at, c.ends_at, c.weekdays, c.hours_from, c.hours_to, c.budget_asset,
+        c.budget_limit::text AS budget_limit, c.reward_asset, c.reward_amount::text AS reward_amount, c.tasks, p.account_id
       FROM campaigns.participations p JOIN campaigns.campaigns c ON c.id = p.campaign_id
       WHERE lower(p.account_id) = lower(${fill.userId}) AND c.type = 'task' AND c.tasks IS NOT NULL
         AND p.created_at <= ${at} AND c.state IN ('scheduled', 'active')`;
-    const live = rows.filter((row) => row.tasks && effectiveState(row as never, at) === 'active');
+    // A fill counts only while the campaign runs: live, and inside its weekdays and hours in the platform time zone.
+    const timeZone = this.timeZone();
+    const live = rows.filter(
+      (row) =>
+        row.tasks &&
+        effectiveState(row as never, at) === 'active' &&
+        (!(row.weekdays || (row.hours_from && row.hours_to)) || (timeZone !== null && outsideWindow(row, at, timeZone) === null)),
+    );
     // The market is named only when a step needs it; an unreachable market list throws, so the fill comes again.
     const named = live.some((row) => row.tasks!.steps.some((s) => s.market)) && this.markets;
     const match = { side: fill.side, symbol: named ? await named.symbolOf(fill.marketId) : null };
@@ -232,7 +246,8 @@ export class TaskService {
   async claim(input: { campaignId: string; accountId: string }): Promise<TaskClaimResult> {
     const key = rewardKeyOf(input.campaignId, input.accountId, PERIOD_ONCE);
     const existing = await this.intent(key);
-    if (existing) return { reward: await this.record(existing), created: false };
+    // A reward withheld while the account was not active is looked at again on a later claim; any other stands.
+    if (existing && existing.state !== 'withheld') return { reward: await this.record(existing), created: false };
     if (!this.saga) throw new CampaignsError('campaigns.reward_saga_unwired', 'Rewards cannot be paid: the ledger is not connected');
     const row = await this.taskCampaign(input.campaignId);
     const tasks = row.tasks!;
@@ -262,7 +277,7 @@ export class TaskService {
       throw new CampaignsError('campaigns.kyc_required', `This reward needs ${tasks.kycGate} verification before it can be claimed`);
     }
     if (who.status !== 'active') {
-      const made = await this.write(row, input.accountId, key, 'withheld', 'account.frozen');
+      const made = await this.write(row, input.accountId, key, 'withheld', `account.${who.status}`);
       return { reward: await this.record(made.intent), created: made.created };
     }
     const made = await this.write(row, input.accountId, key, 'qualified', null);
@@ -284,9 +299,15 @@ export class TaskService {
     return transaction(this.sql, async (tx) => {
       const [locked] = await tx<{ budget_limit: string | null }[]>`
         SELECT budget_limit::text AS budget_limit FROM campaigns.campaigns WHERE id = ${row.id} FOR UPDATE`;
-      const [first] = await tx<IntentRow[]>`SELECT *, amount::text AS amount FROM campaigns.reward_intents WHERE reward_key = ${key}`;
-      if (first) return { intent: first, created: false };
+      const [first] = await tx<
+        IntentRow[]
+      >`SELECT *, amount::text AS amount FROM campaigns.reward_intents WHERE reward_key = ${key} FOR UPDATE`;
+      // Only a withheld reward moves on, and only to another state: the account became active, or the window closed.
+      if (first && (first.state !== 'withheld' || state === 'withheld')) return { intent: first, created: false };
       if (state === 'qualified') {
+        if (row.budget_asset !== row.reward_asset) {
+          throw new CampaignsError('campaigns.budget_asset_mismatch', 'The budget and the reward are in different assets');
+        }
         const [drawn] = await tx<{ total: string }[]>`
           SELECT COALESCE(sum(amount), 0)::text AS total FROM campaigns.reward_intents
           WHERE campaign_id = ${row.id} AND state NOT IN ('failed', 'forfeited', 'withheld')`;
@@ -295,10 +316,14 @@ export class TaskService {
           throw new CampaignsError('campaigns.budget_exhausted', 'This campaign’s budget has no room for another reward');
         }
       }
-      const [made] = await tx<IntentRow[]>`
-        INSERT INTO campaigns.reward_intents (reward_key, campaign_id, account_id, period, asset, amount, state, reason)
-        VALUES (${key}, ${row.id}, ${accountId}, ${PERIOD_ONCE}, ${row.reward_asset!}, ${row.reward_amount!}, ${state}, ${reason})
-        RETURNING *, amount::text AS amount`;
+      const [made] = first
+        ? await tx<IntentRow[]>`
+            UPDATE campaigns.reward_intents SET state = ${state}, reason = ${reason}, updated_at = now()
+            WHERE reward_key = ${key} RETURNING *, amount::text AS amount`
+        : await tx<IntentRow[]>`
+            INSERT INTO campaigns.reward_intents (reward_key, campaign_id, account_id, period, asset, amount, state, reason)
+            VALUES (${key}, ${row.id}, ${accountId}, ${PERIOD_ONCE}, ${row.reward_asset!}, ${row.reward_amount!}, ${state}, ${reason})
+            RETURNING *, amount::text AS amount`;
       const outcome = state === 'qualified' ? 'qualified' : state;
       await tx`INSERT INTO campaigns.redemption_attempts (reward_key, outcome, reason) VALUES (${key}, ${outcome}, ${reason})`;
       await tx`
@@ -409,8 +434,8 @@ export class TaskService {
   /** A task campaign a customer may see, with steps. Anything else reads `campaign.unknown`, or `campaigns.no_tasks`. */
   private async taskCampaign(id: string): Promise<TaskCampaignRow> {
     const [row] = await this.sql<TaskCampaignRow[]>`
-      SELECT id, type, state, starts_at, ends_at, budget_asset, budget_limit::text AS budget_limit, reward_asset,
-        reward_amount::text AS reward_amount, tasks
+      SELECT id, type, state, starts_at, ends_at, weekdays, hours_from, hours_to, budget_asset,
+        budget_limit::text AS budget_limit, reward_asset, reward_amount::text AS reward_amount, tasks
       FROM campaigns.campaigns WHERE id = ${id} AND state IN ('scheduled', 'active', 'paused', 'ended', 'closed')`;
     if (!row) throw new CampaignsError('campaign.unknown', 'No such campaign');
     if (!row.tasks) throw new CampaignsError('campaigns.no_tasks', 'This campaign has no steps to complete');

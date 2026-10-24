@@ -55,12 +55,14 @@ const tasks = new TaskService({
   participants,
   saga,
   markets,
+  timeZone: () => timeZone,
   rollbackWindowSeconds: env.CAMPAIGNS_ROLLBACK_WINDOW_SECONDS ?? null,
 });
 
 const appRouter = createCampaignsRouter(drops, campaigns, tasks);
 const edgeContext = createEdgeContext({ secret: env.EDGE_PRINCIPAL_SECRET, ...edgeTrustFromEnv(env), serviceName: env.SERVICE_NAME });
 
+let bus: JetStreamEventBus | null = null;
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
 
 app.get('/health', async () => ({ ok: true, service: env.SERVICE_NAME }));
@@ -91,28 +93,38 @@ await app.register(fastifyTRPCPlugin, {
 });
 
 /**
- * Task progress reads settled spot fills. svc-campaigns owns no stream: svc-trade creates `trade`'s. A failed connect is
- * logged, not fatal: the durable consumer picks the events up from the stream once it attaches.
+ * Task progress reads settled spot fills. svc-campaigns owns no stream: svc-trade creates `trade`'s. A failed connect or
+ * attach is logged, not fatal, and tried again: the durable consumer picks the events up from the stream once it attaches.
  */
-const bus = await JetStreamEventBus.connect({
-  servers: env.NATS_URL,
-  producer: env.SERVICE_NAME,
-  streamPrefix: env.NATS_STREAM_PREFIX,
-}).catch((err: unknown) => {
-  app.log.error({ err }, 'svc-campaigns could not reach the bus: task progress is not counted');
-  return null;
-});
-if (bus) {
-  await bus
-    .subscribe(
+const BUS_RETRY_MS = 15_000;
+let busRetry: NodeJS.Timeout | null = null;
+let stopping = false;
+async function attachBus(): Promise<void> {
+  let connected: JetStreamEventBus | null = null;
+  try {
+    connected = await JetStreamEventBus.connect({
+      servers: env.NATS_URL,
+      producer: env.SERVICE_NAME,
+      streamPrefix: env.NATS_STREAM_PREFIX,
+    });
+    await connected.subscribe(
       'fillSettled',
       async (fill) => {
         await tasks.onFill(fill);
       },
       { durable: 'campaigns-task-fill-settled' },
-    )
-    .catch((err: unknown) => app.log.error({ err }, 'svc-campaigns could not attach to trade.fill.settled: task progress is not counted'));
+    );
+    bus = connected;
+  } catch (err) {
+    app.log.error({ err }, 'svc-campaigns could not attach to trade.fill.settled: task progress waits, trying again');
+    await connected?.close().catch(() => undefined);
+    if (!stopping) {
+      busRetry = setTimeout(() => void attachBus(), BUS_RETRY_MS);
+      busRetry.unref();
+    }
+  }
 }
+await attachBus();
 
 // The reconciler: posts open rewards and fundings again under their own keys. Blank owner value: none runs.
 const reconciler =
@@ -134,7 +146,9 @@ app.log.info({ port: env.HTTP_PORT, participants: participantsWired, ledger: Boo
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     void (async () => {
+      stopping = true;
       if (reconciler) clearInterval(reconciler);
+      if (busRetry) clearTimeout(busRetry);
       await app.close();
       await bus?.close();
       await sql.end({ timeout: 2 });

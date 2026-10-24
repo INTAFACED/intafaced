@@ -15,7 +15,7 @@ import {
 } from '@intafaced/ledger-client';
 import type { CampaignParticipant } from '@intafaced/contracts';
 import type { CampaignDefinitionInput, CampaignTasks } from '@intafaced/contracts/campaigns-catalogue';
-import { CampaignService } from './campaigns.js';
+import { CampaignService, zonedClock } from './campaigns.js';
 import { CampaignsError } from './codes.js';
 import { PayoutSaga, REWARD_REASON, answerOf } from './payouts.js';
 import { createMarketNames, type MarketNames } from './markets.js';
@@ -209,6 +209,7 @@ if (!db) {
         participants,
         saga,
         markets: LISTED,
+        timeZone: () => 'UTC',
         rollbackWindowSeconds: 86_400,
         now: () => clock ?? new Date(),
       });
@@ -257,7 +258,14 @@ if (!db) {
       await tasks.onFill(fill(ME, { marketId: '0b6f6a8e-4d1c-4f7a-9a31-5c2e7d9b1aff' }));
       expect((await tasks.progress({ campaignId: c.id, accountId: ME })).steps.map((s) => s.done)).toEqual([0, 0, 1]);
       // Without svc-trade wired, a market step counts nothing.
-      const unwired = new TaskService({ sql: db!.sql, participants, saga, markets: null, rollbackWindowSeconds: 86_400 });
+      const unwired = new TaskService({
+        sql: db!.sql,
+        participants,
+        saga,
+        markets: null,
+        timeZone: () => 'UTC',
+        rollbackWindowSeconds: 86_400,
+      });
       await unwired.onFill(fill(ME));
       expect((await tasks.progress({ campaignId: c.id, accountId: ME })).steps.map((s) => s.done)).toEqual([0, 0, 2]);
       // An unreachable list throws before anything is written, so the bus delivers the fill again.
@@ -266,6 +274,7 @@ if (!db) {
         participants,
         saga,
         markets: { symbolOf: () => Promise.reject(new Error('market list read failed: HTTP 503')) },
+        timeZone: () => 'UTC',
         rollbackWindowSeconds: 86_400,
       });
       const again = fill(ME);
@@ -394,6 +403,65 @@ if (!db) {
       expect(await book.getTxByKey(`reward:${claimed.reward.rewardKey}`)).toBeNull();
     });
 
+    it('pays a withheld reward once the account is active again, inside the window', async () => {
+      const c = await joined();
+      await earnFees('10');
+      await fundPot('TEST-pot-6', '10');
+      await complete(c.id);
+      people.set(ME, person(ME, { status: 'frozen' }));
+      const withheld = await tasks.claim({ campaignId: c.id, accountId: ME });
+      expect(withheld.reward).toMatchObject({ state: 'withheld', reason: 'account.frozen' });
+      // Still frozen: the same withheld reward, nothing new.
+      expect(await tasks.claim({ campaignId: c.id, accountId: ME })).toMatchObject({ created: false, reward: { state: 'withheld' } });
+      people.set(ME, person(ME));
+      const paid = await tasks.claim({ campaignId: c.id, accountId: ME });
+      expect(paid.reward.state).toBe('posted');
+      expect(paid.reward.attempts.map((a) => a.outcome)).toEqual(['withheld', 'qualified', 'posted']);
+      expect(await tasks.claim({ campaignId: c.id, accountId: ME })).toMatchObject({ created: false, reward: { state: 'posted' } });
+      await reconciles(parseAmount('10'));
+    });
+
+    it("counts no fill outside the campaign's weekdays or hours", async () => {
+      // The campaign runs today only: a fill tomorrow is outside it.
+      const c = await joined({ weekdays: [zonedClock(new Date(), 'UTC').weekday] });
+      await tasks.onFill(fill(ME, { ts: new Date(Date.now() + 24 * HOUR).toISOString() }));
+      expect((await tasks.progress({ campaignId: c.id, accountId: ME })).steps.map((s) => s.done)).toEqual([0, 0, 0]);
+      await tasks.onFill(fill(ME));
+      expect((await tasks.progress({ campaignId: c.id, accountId: ME })).steps.map((s) => s.done)).toEqual([1, 0, 1]);
+    });
+
+    it('a funding approved but never posted (a crash after the approval) is posted by the reconciler', async () => {
+      await earnFees('10');
+      await tasks.requestFunding({ reference: 'TEST-pot-7', sourceModule: 'trade', asset: 'USDT', amount: '10', actor: A });
+      await db!.sql`UPDATE campaigns.pot_fundings SET state = 'posting', approved_by = ${B} WHERE reference = 'TEST-pot-7'`;
+      expect((await saga.reconcile()).fundings).toBe(1);
+      expect((await tasks.fundings()).find((f) => f.reference === 'TEST-pot-7')?.state).toBe('posted');
+      expect((await book.balance(rewardsEngine('USDT'))).amount).toBe(parseAmount('10'));
+    });
+
+    it('a budget in another asset than the reward cannot go live', async () => {
+      const s = campaigns();
+      const c = await s.create({ definition: definition({ budget: { asset: 'BTC', limit: '1' } }), actor: A });
+      expect((await s.validate({ id: c.id })).missing).toContainEqual({ code: 'campaigns.budget_asset_mismatch', field: 'budget' });
+    });
+
+    it('a lost create reply sent again returns the same task draft; a transition shows what the budget has left', async () => {
+      const s = campaigns();
+      const d = definition();
+      const first = await s.create({ definition: d, actor: A });
+      expect((await s.create({ definition: d, actor: A })).id).toBe(first.id);
+      await earnFees('10');
+      await fundPot('TEST-pot-8', '10');
+      await s.transition({ id: first.id, action: 'submit', revision: 1, actor: A });
+      await s.transition({ id: first.id, action: 'approve', revision: 1, actor: B });
+      await s.transition({ id: first.id, action: 'activate', revision: 1, actor: A });
+      await s.join({ campaignId: first.id, accountId: ME });
+      await complete(first.id);
+      await tasks.claim({ campaignId: first.id, accountId: ME });
+      const paused = await s.transition({ id: first.id, action: 'pause', revision: 1, actor: A });
+      expect(paused.budget?.left).toBe('90');
+    });
+
     it('refuses a claim the budget has no room for', async () => {
       const c = await joined({ budget: { asset: 'USDT', limit: '10' } });
       await campaigns().join({ campaignId: c.id, accountId: YOU });
@@ -436,8 +504,10 @@ describe('task rules', () => {
 
   it("names a fill's market from the market list once, and throws when the list is unreachable", async () => {
     let reads = 0;
+    let clock = 0;
     const names = createMarketNames({
       tradeUrl: 'http://trade.test',
+      now: () => clock,
       fetch: (async (url: URL) => {
         reads += 1;
         expect(url.toString()).toBe('http://trade.test/api/v1/markets?limit=500');
@@ -447,7 +517,12 @@ describe('task rules', () => {
     expect(await names.symbolOf(BTC_USDT)).toBe('BTC/USDT');
     expect(await names.symbolOf(BTC_USDT)).toBe('BTC/USDT');
     expect(reads).toBe(1);
+    // An unknown id reads the list again only after a minute, and two at once share one read.
+    clock = 60_000;
+    expect(await Promise.all([names.symbolOf(ETH_USDT), names.symbolOf(ETH_USDT)])).toEqual([null, null]);
+    expect(reads).toBe(2);
     expect(await names.symbolOf(ETH_USDT)).toBeNull();
+    expect(reads).toBe(2);
     const down = createMarketNames({
       tradeUrl: 'http://trade.test',
       fetch: (async () => new Response('', { status: 503 })) as unknown as typeof fetch,

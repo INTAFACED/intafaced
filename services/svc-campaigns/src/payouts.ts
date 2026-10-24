@@ -1,5 +1,6 @@
 import type postgres from 'postgres';
 import { transaction } from '@intafaced/db';
+import { POST_DEADLINE_SECONDS } from './ledger-client.js';
 import {
   LedgerError,
   classifyPostOutcome,
@@ -36,6 +37,10 @@ type Sql = postgres.Sql;
 export const REWARD_REASON = 'campaigns.task.reward';
 /** States the reconciler may post again. `posting` only once its last attempt is older than the interval (a crash). */
 const RETRYABLE = ['qualified', 'pending_funding', 'pending_retry', 'unknown'] as const;
+const OPEN = [...RETRYABLE, 'posting'] as const;
+
+/** A `posting` row is taken again only once its attempt can no longer be waiting on the ledger. */
+const inFlightAfter = (reconcileAfterSeconds: number | null) => Math.max(reconcileAfterSeconds ?? 0, POST_DEADLINE_SECONDS);
 
 export type PostAnswer =
   { state: 'posted'; txId: string } | { state: 'pending_funding' | 'pending_retry' | 'unknown' | 'failed'; reason: string };
@@ -89,7 +94,7 @@ export class PayoutSaga {
    * is older than the interval); a claim takes only a fresh `qualified` one. Returns false when another attempt holds it.
    */
   async attempt(rewardKey: string, { retry = false }: { retry?: boolean } = {}): Promise<boolean> {
-    const stale = this.reconcileAfterSeconds ?? 0;
+    const stale = inFlightAfter(this.reconcileAfterSeconds);
     const [row] = await this.sql<IntentRow[]>`
       UPDATE campaigns.reward_intents
       SET state = 'posting', attempts = attempts + 1, last_attempt_at = now(), updated_at = now()
@@ -122,16 +127,20 @@ export class PayoutSaga {
   private async recordIntent(rewardKey: string, answer: PostAnswer): Promise<void> {
     await transaction(this.sql, async (tx) => {
       if (answer.state === 'posted') {
-        await tx`
+        // The ledger booked it: that answer stands over any open state an overlapping attempt wrote first.
+        const booked = await tx`
           UPDATE campaigns.reward_intents SET state = 'posted', reason = NULL, ledger_tx_id = ${answer.txId},
             posted_at = now(), updated_at = now()
-          WHERE reward_key = ${rewardKey} AND state = 'posting'`;
-        await tx`INSERT INTO campaigns.redemption_attempts (reward_key, outcome) VALUES (${rewardKey}, 'posted')`;
+          WHERE reward_key = ${rewardKey} AND state IN ${tx(OPEN)}`;
+        if (booked.count > 0) {
+          await tx`INSERT INTO campaigns.redemption_attempts (reward_key, outcome) VALUES (${rewardKey}, 'posted')`;
+        }
         return;
       }
-      await tx`
+      const moved = await tx`
         UPDATE campaigns.reward_intents SET state = ${answer.state}, reason = ${answer.reason}, updated_at = now()
         WHERE reward_key = ${rewardKey} AND state = 'posting'`;
+      if (moved.count === 0) return;
       const outcome = answer.state === 'unknown' ? 'unknown' : 'refused';
       await tx`
         INSERT INTO campaigns.redemption_attempts (reward_key, outcome, reason) VALUES (${rewardKey}, ${outcome}, ${answer.reason})`;
@@ -140,7 +149,7 @@ export class PayoutSaga {
 
   /** One approved pot funding. Only `posting` rows post; a refusal is final for that reference. */
   async fund(reference: string, { retry = false }: { retry?: boolean } = {}): Promise<boolean> {
-    const stale = this.reconcileAfterSeconds ?? 0;
+    const stale = inFlightAfter(this.reconcileAfterSeconds);
     const [row] = await this.sql<FundingRow[]>`
       UPDATE campaigns.pot_fundings SET attempts = attempts + 1, last_attempt_at = now(), updated_at = now(), state = 'posting'
       WHERE reference = ${reference} AND approved_by IS NOT NULL AND (
@@ -167,7 +176,7 @@ export class PayoutSaga {
     if (answer.state === 'posted') {
       await this.sql`
         UPDATE campaigns.pot_fundings SET state = 'posted', reason = NULL, ledger_tx_id = ${answer.txId}, updated_at = now()
-        WHERE reference = ${reference} AND state = 'posting'`;
+        WHERE reference = ${reference} AND state IN ('posting', 'unknown')`;
     } else {
       // The fee account not covering it, or a proven refusal, ends this funding; anything else stays open.
       const final = answer.state === 'failed' || answer.state === 'pending_funding';
@@ -187,14 +196,15 @@ export class PayoutSaga {
     const after = this.reconcileAfterSeconds;
     const intents = await this.sql<{ reward_key: string }[]>`
       SELECT reward_key FROM campaigns.reward_intents
-      WHERE state IN ${this.sql([...RETRYABLE, 'posting'])}
+      WHERE state IN ${this.sql(OPEN)}
         AND (last_attempt_at IS NULL OR last_attempt_at < now() - make_interval(secs => ${after}))
       ORDER BY created_at LIMIT ${limit}`;
     let posted = 0;
     for (const { reward_key } of intents) if (await this.attempt(reward_key, { retry: true })) posted += 1;
     const fundings = await this.sql<{ reference: string }[]>`
       SELECT reference FROM campaigns.pot_fundings
-      WHERE state IN ('posting', 'unknown') AND last_attempt_at < now() - make_interval(secs => ${after})
+      WHERE state IN ('posting', 'unknown')
+        AND (last_attempt_at IS NULL OR last_attempt_at < now() - make_interval(secs => ${after}))
       ORDER BY created_at LIMIT ${limit}`;
     let funded = 0;
     for (const { reference } of fundings) if (await this.fund(reference, { retry: true })) funded += 1;

@@ -77,6 +77,7 @@ const STATUS: Record<CampaignsRefusalCode | CampaignRefusalCode, TRPCError['code
   'campaigns.kyc_required': 'FORBIDDEN',
   'campaigns.claim_expired': 'CONFLICT',
   'campaigns.budget_exhausted': 'CONFLICT',
+  'campaigns.budget_asset_mismatch': 'PRECONDITION_FAILED',
   'campaigns.funding_unknown': 'NOT_FOUND',
   'campaigns.funding_reference_taken': 'CONFLICT',
   'owner.decision': 'PRECONDITION_FAILED',

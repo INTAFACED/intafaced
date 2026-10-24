@@ -12,6 +12,8 @@ import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@in
  *   - reads: 3s per attempt, 1 retry, 5s for the whole call.
  */
 const POST_BUDGET = { timeoutMs: 10_000, retries: 2, deadlineMs: 25_000 } as const;
+/** No post through this client is still waiting after this long: the reconciler takes a `posting` row only past it. */
+export const POST_DEADLINE_SECONDS = Math.ceil(POST_BUDGET.deadlineMs / 1000) + 5;
 const READ_BUDGET = { timeoutMs: 3_000, retries: 1, deadlineMs: 5_000 } as const;
 
 export function createLedgerClient(

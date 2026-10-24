@@ -46,6 +46,7 @@ export const CAMPAIGN_REFUSAL_CODES = [
   'campaigns.kyc_required',
   'campaigns.claim_expired',
   'campaigns.budget_exhausted',
+  'campaigns.budget_asset_mismatch',
   'campaigns.reward_saga_unwired',
   'campaigns.funding_unknown',
   'campaigns.funding_reference_taken',

@@ -131,6 +131,21 @@ export function parseTimeZone(raw: string | undefined): string | null {
 const WEEKDAY: Record<string, number> = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };
 
 /** The weekday (Monday 1) and HH:MM of an instant in a time zone. */
+/**
+ * Whether a moment falls outside the campaign's weekdays or daily hours, read in the platform time zone. `to` is
+ * exclusive; 24:00 runs to midnight. A window does not cross midnight.
+ */
+export function outsideWindow(
+  row: Pick<CampaignRow, 'weekdays' | 'hours_from' | 'hours_to'>,
+  at: Date,
+  timeZone: string,
+): 'day' | 'hour' | null {
+  const clock = zonedClock(at, timeZone);
+  if (row.weekdays && !row.weekdays.includes(clock.weekday)) return 'day';
+  if (row.hours_from && row.hours_to && (clock.hhmm < row.hours_from || clock.hhmm >= row.hours_to)) return 'hour';
+  return null;
+}
+
 export function zonedClock(at: Date, timeZone: string): { weekday: number; hhmm: string } {
   const parts = new Intl.DateTimeFormat('en-GB', {
     timeZone,
@@ -168,6 +183,9 @@ export function gateOf(row: CampaignRow, timeZone: string | null): CampaignGate[
   if (!row.starts_at || !row.ends_at) missing.push({ code: 'campaigns.time_frame_unset', field: 'timeFrame' });
   if (!timeZone) missing.push({ code: 'campaigns.timezone_unset', field: 'timeZone' });
   if (!row.reward_asset || row.reward_amount === null) missing.push({ code: 'campaigns.reward_unset', field: 'reward' });
+  if (row.budget_asset && row.reward_asset && row.budget_asset !== row.reward_asset) {
+    missing.push({ code: 'campaigns.budget_asset_mismatch', field: 'budget' });
+  }
   if (row.tasks && row.tasks.claimWindowSeconds === null) {
     missing.push({ code: 'campaigns.claim_window_unset', field: 'claimWindow' });
   }
@@ -408,12 +426,21 @@ function sameDefinition(r: CampaignRow, d: Definition): boolean {
     JSON.stringify(r.weekdays) === JSON.stringify(d.weekdays) &&
     r.hours_from === d.hoursFrom &&
     r.hours_to === d.hoursTo &&
-    JSON.stringify(r.participation) === JSON.stringify(d.participation) &&
+    canonical(r.participation) === canonical(d.participation) &&
     r.budget_asset === d.budgetAsset &&
     amount(r.budget_limit) === amount(d.budgetLimit) &&
     r.reward_asset === d.rewardAsset &&
     amount(r.reward_amount) === amount(d.rewardAmount) &&
-    JSON.stringify(r.tasks) === JSON.stringify(d.tasks)
+    canonical(r.tasks) === canonical(d.tasks)
+  );
+}
+
+/** jsonb keeps its own key order, so stored and parsed objects are compared with their keys sorted. */
+function canonical(value: unknown): string {
+  return JSON.stringify(value, (_key, v: unknown) =>
+    v && typeof v === 'object' && !Array.isArray(v)
+      ? Object.fromEntries(Object.entries(v as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+      : v,
   );
 }
 
@@ -489,7 +516,8 @@ export class CampaignService {
             budget_limit = ${d.budgetLimit}, reward_asset = ${d.rewardAsset}, reward_amount = ${d.rewardAmount},
             tasks = ${d.tasks ? tx.json(d.tasks as unknown as postgres.JSONValue) : null},
             revision = revision + 1, updated_at = now()
-          WHERE id = ${input.id} RETURNING *`;
+          WHERE id = ${input.id}
+          RETURNING *, (SELECT budget_drawn FROM campaigns.campaign_rows WHERE id = ${input.id}) AS budget_drawn`;
         await audit(tx, input.actor, 'campaign.update', input.id, { name: d.name, type: d.type });
         return toCampaign(out!, this.timeZone(), this.now());
       });
@@ -561,7 +589,8 @@ export class CampaignService {
           approved_by = ${set.approved_by ?? row.approved_by},
           approved_revision = ${set.approved_revision ?? row.approved_revision},
           updated_at = now()
-        WHERE id = ${input.id} RETURNING *`;
+        WHERE id = ${input.id}
+        RETURNING *, (SELECT budget_drawn FROM campaigns.campaign_rows WHERE id = ${input.id}) AS budget_drawn`;
       await audit(tx, input.actor, `campaign.${input.action}`, input.id, { from: current, to, revision: row.revision });
       return toCampaign(out!, timeZone, now);
     });
@@ -719,14 +748,9 @@ export class CampaignService {
         const [code, message] = ELIGIBILITY_REFUSAL[answer];
         throw new CampaignsError(code, message);
       }
-      const clock = zonedClock(now, timeZone);
-      if (row.weekdays && !row.weekdays.includes(clock.weekday)) {
-        throw new CampaignsError('campaign.outside_window', 'This campaign does not run today');
-      }
-      // `to` is exclusive; 24:00 runs to midnight. A window does not cross midnight.
-      if (row.hours_from && row.hours_to && (clock.hhmm < row.hours_from || clock.hhmm >= row.hours_to)) {
-        throw new CampaignsError('campaign.outside_window', 'This campaign does not run at this hour');
-      }
+      const outside = outsideWindow(row, now, timeZone);
+      if (outside === 'day') throw new CampaignsError('campaign.outside_window', 'This campaign does not run today');
+      if (outside === 'hour') throw new CampaignsError('campaign.outside_window', 'This campaign does not run at this hour');
       const [made] = await tx<ParticipationRow[]>`
         INSERT INTO campaigns.participations (participation_key, campaign_id, account_id, revision)
         VALUES (${key}, ${input.campaignId}, ${input.accountId}, ${row.revision})

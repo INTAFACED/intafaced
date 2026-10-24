@@ -32,8 +32,8 @@ import {
  * TRADE_URL reaches svc-trade's public market list, to name the market a fill's id points at. Unset: a step that names
  * a market counts no fill (logged); a step for any market still counts.
  *
- * NATS_URL is the bus task progress is read from (`trade.fill.settled`). Unreachable at boot: the service runs and logs
- * that no progress is counted; JetStream keeps the events for the durable consumer once it attaches.
+ * NATS_URL is the bus task progress is read from (`trade.fill.settled`). Unreachable at boot: the service runs, logs and
+ * tries again every 15 seconds; JetStream keeps the events for the durable consumer once it attaches.
  *
  * CAMPAIGNS_RECONCILE_AFTER_SECONDS (owner value) is how long after an attempt the reconciler posts an open reward or
  * funding again under the same key. Blank: no reconciler runs, open intents wait, and /ready says

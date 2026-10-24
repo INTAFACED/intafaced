@@ -27,6 +27,7 @@ const CLAIM_CODES = [
   'campaigns.kyc_required',
   'campaigns.claim_expired',
   'campaigns.budget_exhausted',
+  'campaigns.budget_asset_mismatch',
   'campaigns.reward_saga_unwired',
   'campaigns.participant_unread',
   'campaigns.claim_window_unset',
