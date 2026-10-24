@@ -122,7 +122,7 @@ function P2PCurrent({ path, view }: { path: string; view: P2PView }) {
         <a href="/uc/ad" aria-current={showMine || inspectionMine ? 'page' : undefined}>
           <PayCopy k="yourOffers" />
         </a>
-        <a href="/p2p?view=methods" aria-current={showMethods ? 'page' : undefined}>
+        <a href="/p2p/methods" aria-current={showMethods ? 'page' : undefined}>
           <PayCopy k="paymentMethods" />
         </a>
         <a href="/p2p/access" aria-current={showAccess ? 'page' : undefined}>

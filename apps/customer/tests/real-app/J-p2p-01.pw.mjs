@@ -104,7 +104,7 @@ test('J-p2p-01 #1 the P2P hub opens from More, lists every requirement, and a ta
     ['Offers', '/p2p'],
     ['Your orders', '/uc/order'],
     ['Your offers', '/uc/ad'],
-    ['Payment methods', '/p2p?view=methods'],
+    ['Payment methods', '/p2p/methods'],
     ['Trading access', '/p2p/access'],
   ])
     await expect(rooms.getByRole('link', { name, exact: true })).toHaveAttribute('href', href);

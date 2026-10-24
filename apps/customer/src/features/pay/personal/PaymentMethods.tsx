@@ -113,7 +113,8 @@ function countryName(code: string, everywhere: string): string {
 function Catalogue({ methods }: { methods: Method[] }) {
   const { t } = methodsCopy.useCopy();
   const countries = useMemo(() => [...new Set(methods.map((method) => method.country))].sort(), [methods]);
-  const [country, setCountry] = useState(countries[0] ?? '');
+  // A real country first: methods registered for every country show under each one too.
+  const [country, setCountry] = useState(countries.find((code) => code !== EVERYWHERE) ?? countries[0] ?? '');
   const shown = methods.filter((method) => method.country === country || (country !== EVERYWHERE && method.country === EVERYWHERE));
   return (
     <div className="form-stack" data-testid="methods-catalogue">
