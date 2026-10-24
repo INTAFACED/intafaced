@@ -43,6 +43,7 @@ import '../features/account/dividends-copy';
 import '../features/pay/p2p-counterparty-copy';
 import '../features/pay/p2p-offer-copy';
 import '../features/pay/p2p-order-copy';
+import '../features/pay/p2p-release-copy';
 import '../features/pay/personal/p2p-depth-copy';
 import '../features/public/help-copy';
 import '../screens/notifications/alerts-copy';
@@ -131,6 +132,7 @@ const CHECKED = new Set([
   'pay.p2p.counterparty',
   'pay.p2p.offer',
   'pay.p2p.order',
+  'pay.p2p.release',
   'pay.p2p.depth',
   'public.help',
   'notifications.alerts',

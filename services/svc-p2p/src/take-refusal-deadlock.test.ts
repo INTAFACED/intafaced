@@ -84,6 +84,7 @@ const migrations = [
   '0022_p2p_method_delist_reason.sql',
   '0023_p2p_take_step_ups.sql',
   '20261024075545_p2p_non_instant_methods.sql',
+  '20261024111016_p2p_release_step_ups.sql',
 ].map((file) => readFileSync(join(here, '..', 'drizzle', file), 'utf8'));
 
 const SELLER = '11111111-1111-4111-8111-111111111111';

@@ -49,6 +49,8 @@ function payWith(order: Trade): PersonalPayApi {
   return {
     viewer: BUYER,
     trade: async () => ({ ok: true, data: order }),
+    // The other side by handle (J-p2p-02 #2): this order's counterparty has no public profile here.
+    reputation: async () => ({ ok: true, data: { handle: null, profile: { status: 'absent' } } }),
     contacts: () => new Promise(() => undefined),
     guard: { status: () => null, restore: async () => undefined, knownProof: () => null },
   } as unknown as PersonalPayApi;

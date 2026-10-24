@@ -29,6 +29,8 @@ import { ELIGIBILITY_CHECK_IDS, ELIGIBILITY_STATES, TakeGateError, unwiredTakeGa
 import { DELIST_REASONS, type InstrumentService } from './instrument-service.js';
 import { assertModerator, isModerationConfigured, isModerator } from './moderation-auth.js';
 import { TakeStepUpError, unwiredTakeStepUp, type TakeStepUp, type TakeStepUpCaller } from './take-step-up.js';
+import { unwiredReleaseStepUp, type ReleaseStepUp } from './release-step-up.js';
+import type { PublicProfileLookup } from './public-profile.js';
 import { moderationHonestySchema, moderationOnPublicDoor } from './moderation-honesty.js';
 import {
   ceilingOnWire,
@@ -69,9 +71,7 @@ export type P2pRouterOptions = {
    * Public handle and member-since from identity. Unset → reputation.get names
    * `p2p.public_profile_unwired` and returns nulls. Never a made-up handle.
    */
-  publicProfile?: {
-    lookup(userId: string): Promise<{ handle: string; memberSince: string; verificationLevel?: string | null } | null>;
-  };
+  publicProfile?: PublicProfileLookup;
   /**
    * Fan-out for a new chat message. Unset → the message is stored and the
    * response names `p2p.chat_notify_unwired`. svc-notify is a different service.
@@ -99,6 +99,8 @@ export type P2pRouterOptions = {
    * a missing wire never means "no confirmation needed".
    */
   takeStepUp?: TakeStepUp;
+  /** P-trade-orders-07 and -16: the seller's fresh confirmation of a release. Unset refuses every release. */
+  releaseStepUp?: ReleaseStepUp;
 };
 
 /**
@@ -233,6 +235,17 @@ const tradeDetailOutput = tradeOutput.extend({
   netAmount: amountString.nullable(),
   /** P-disputes-security-09: the method's profile in the market the buyer pays into, copied at take. */
   settlement: settlementOutput,
+  /**
+   * P-trade-orders-16: while the escrow is held, the split a release would post (the same `mulBps` on the frozen rate),
+   * so the seller reviews what the buyer gets and the fee before releasing. Null once the order is no longer held.
+   */
+  releasePreview: z.object({ fee: amountString, netAmount: amountString }).nullable(),
+  /**
+   * P-trade-orders-12: what of this order is still in escrow, from the record: the escrowed amount while it is held, and
+   * while a decided release or refund has not yet been posted; zero once the ledger posted it, and for a void. Null while
+   * the order is `created`: the lock is not provably done, so no amount is claimed either way.
+   */
+  escrowHeld: amountString.nullable(),
 });
 
 const blockQuoteOutput = z.object({
@@ -797,6 +810,7 @@ export function createP2pRouter(
   const disputeResolveRequiresApproval = options.disputeResolveRequiresApproval === true;
   const takeGate = options.takeGate ?? unwiredTakeGate();
   const takeStepUp = options.takeStepUp ?? unwiredTakeStepUp();
+  const releaseStepUp = options.releaseStepUp ?? unwiredReleaseStepUp();
   const stepUpCaller = (principal: Principal): TakeStepUpCaller => ({
     userId: principal.userId,
     sessionId: principal.sid,
@@ -1097,6 +1111,16 @@ export function createP2pRouter(
         .query(() => enabledFiat().map((f) => ({ code: f.code, name: f.name, symbol: f.symbol, minorUnits: f.minorUnits }))),
     }),
 
+    /**
+     * P-trade-orders-22, read only: the published house fee. Charged once, when an order is released, off the released
+     * amount; an order keeps the rate it was taken under. Signed-out callers can read it, as the fee page does.
+     */
+    fees: router({
+      schedule: publicProcedure
+        .output(z.object({ feeBps: z.number().int().nonnegative(), chargedOn: z.literal('release'), basis: z.literal('released_amount') }))
+        .query(() => guard(async () => ({ ...p2p.publishedFee(), chargedOn: 'release' as const, basis: 'released_amount' as const }))),
+    }),
+
     offers: router({
       create: merchantApiProcedure('p2p:write')
         .input(
@@ -1358,6 +1382,19 @@ export function createP2pRouter(
           }),
         ),
 
+      /**
+       * Until when this session's releases need no new confirmation (P-trade-orders-07, -16), or null when the next one
+       * does. A take's confirmation never counts here. An API key is refused: it never confirms a release.
+       */
+      releaseStepUpWindow: merchantApiProcedure('p2p:read')
+        .output(z.object({ confirmedUntil: z.string().datetime().nullable() }))
+        .query(async ({ ctx }) =>
+          guard(async () => {
+            const { confirmedUntil } = await releaseStepUp.window(stepUpCaller(ctx.principal));
+            return { confirmedUntil: confirmedUntil?.toISOString() ?? null };
+          }),
+        ),
+
       /** Take an offer → `escrowLock`. The first money path in this router. */
       take: merchantApiProcedure('p2p:write')
         .input(
@@ -1408,12 +1445,35 @@ export function createP2pRouter(
         .output(tradeOutput)
         .mutation(async ({ ctx, input }) => guard(async () => toTradeOut(await p2p.markFiatSent(input.tradeId, ctx.principal.userId)))),
 
-      /** Seller confirms the fiat landed → `escrowRelease`. */
+      /**
+       * Seller confirms the fiat landed → `escrowRelease`, confirmed with identity's single-use approval of this release,
+       * or inside this session's ten-minute release window (P-trade-orders-07). A second press on an order this seller
+       * already released returns that order and asks for nothing: the release was decided once and nothing more moves.
+       */
       confirmReceived: merchantApiProcedure('p2p:write')
-        .input(z.object({ tradeId: z.string().guid() }))
+        .input(
+          z.object({
+            tradeId: z.string().guid(),
+            /** P-trade-orders-07: identity's single-use confirmation of exactly this release. */
+            stepUpApprovalId: z.string().min(1).max(128).optional(),
+          }),
+        )
         .output(tradeOutput)
         .mutation(async ({ ctx, input }) =>
-          guard(async () => toTradeOut(await p2p.confirmFiatReceived(input.tradeId, ctx.principal.userId))),
+          guard(async () => {
+            const current = await p2p.getTrade(input.tradeId);
+            if (current.buyerId !== ctx.principal.userId && current.sellerId !== ctx.principal.userId) {
+              throw unknownTrade(input.tradeId);
+            }
+            const seller = current.sellerId === ctx.principal.userId;
+            if (seller && current.status === 'released' && current.resolution === 'released') return toTradeOut(current);
+            // Only the seller of a held escrow can release it, so only then is a confirmation asked for (and spent). Every
+            // other caller or state gets the service's own refusal, and nothing moves.
+            if (seller && (current.status === 'escrowed' || current.status === 'fiat_sent')) {
+              await releaseStepUp.assertConfirmed(stepUpCaller(ctx.principal), input.tradeId, input.stepUpApprovalId);
+            }
+            return toTradeOut(await p2p.confirmFiatReceived(input.tradeId, ctx.principal.userId));
+          }),
         ),
 
       /** Cancel → `escrowRefund`, in full, to the seller. */
@@ -1441,6 +1501,8 @@ export function createP2pRouter(
               feeBps: trade.feeBps,
               ...releaseSplit(trade),
               settlement: trade.settlement,
+              releasePreview: releasePreview(trade),
+              escrowHeld: escrowHeld(trade),
             };
           }),
         ),
@@ -3416,6 +3478,21 @@ function toDisputeOut(d: DisputeRecord, viewerId: string | null): z.infer<typeof
     fourEyes: d.fourEyes ?? null,
     lastSeenByModeratorAt: d.lastSeenByModeratorAt?.toISOString() ?? null,
   };
+}
+
+/** The order's escrow still held: all of it until the decision is posted, none after, and none for a void (never locked). */
+function escrowHeld(trade: { status: string; resolution: string | null; settledAt: Date | null; amount: Amount }): string | null {
+  if (trade.resolution === 'voided') return '0';
+  if (trade.status === 'created') return null;
+  if (trade.resolution === null || trade.settledAt === null) return formatAmount(trade.amount);
+  return '0';
+}
+
+/** What a release of a held escrow would post, by the same rule as `releaseSplit`. Null when nothing is held. */
+function releasePreview(trade: { status: string; amount: Amount; feeBps: number }): { fee: string; netAmount: string } | null {
+  if (trade.status !== 'escrowed' && trade.status !== 'fiat_sent') return null;
+  const split = releaseSplit({ resolution: 'released', amount: trade.amount, feeBps: trade.feeBps });
+  return split.fee !== null && split.netAmount !== null ? { fee: split.fee, netAmount: split.netAmount } : null;
 }
 
 /**

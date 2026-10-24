@@ -134,6 +134,10 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'token.invalid': 'signedOut',
   'token.malformed': 'signedOut',
   'mfa.required': 'stepUp',
+  // A money action that needs a fresh passkey or authenticator check first (P2P take and release, P-trade-orders-07).
+  'auth.step_up_required': 'stepUp',
+  'auth.step_up_expired': 'stepUp',
+  'auth.step_up_failed': 'stepUp',
   'auth.mfa_required': 'mfaRequired',
   'auth.invalid_credentials': 'signInMismatch',
   'auth.too_many_attempts': 'tooManyTries',

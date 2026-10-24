@@ -1113,6 +1113,14 @@ export class P2pService {
   private readonly takeLimits: TakeLimits | undefined;
   private tradingEnabled: boolean;
 
+  /**
+   * P-trade-orders-22 (read only): the house take every new order freezes at take, charged once on release and taken off
+   * the released amount. Unset refuses `p2p.fee_bps_unset`, as a take does; never a made-up rate.
+   */
+  publishedFee(): { feeBps: number } {
+    return { feeBps: publishedFeeBps(this.feeBps) };
+  }
+
   constructor(
     private readonly sql: Sql,
     private readonly ledger: LedgerClient,

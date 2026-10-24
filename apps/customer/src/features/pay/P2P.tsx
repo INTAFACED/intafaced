@@ -21,6 +21,7 @@ import { displayAmount } from '../../shared/money';
 import { useP2PView, type P2PView } from './p2p-view';
 import { P2POffers } from './P2POffers';
 import { P2POrder } from './P2POrder';
+import { ReleaseAction } from './p2p-release';
 import { orderCopy } from './p2p-order-copy';
 import { P2PCounterparty } from './P2PCounterparty';
 import { p2pReturn } from './p2p-return';
@@ -421,30 +422,14 @@ export function OrderActions({
           />
         )}
         {trade.sellerId === userId && trade.status === 'fiat_sent' && (
-          <ReviewedAction
-            title={payCopy.t('releaseEscrow')}
-            variant="primary"
-            description={payCopy.t('confirmOnlyAfterTheExternalPaymentHas')}
-            review={
-              <div className="p2p-order-review">
-                <PayDetails
-                  values={[
-                    ...reviewValues,
-                    [t('gross'), <PayAmount value={trade.amount} unit={trade.asset} label={t('gross')} />],
-                    [t('releaseTo'), <span lang="zxx">{trade.buyerId}</span>],
-                    [
-                      payCopy.t('paymentToVerify'),
-                      <PayAmount value={trade.fiatAmount} unit={trade.fiatCurrency} label={payCopy.t('paymentToVerify')} />,
-                    ],
-                    [payCopy.t('paymentMethod'), <span lang="zxx">{trade.method}</span>],
-                  ]}
-                />
-                <p className="muted">
-                  <Copy k="releaseTerms" />
-                </p>
-              </div>
-            }
-            perform={(current) => perform('confirmReceived', current)}
+          <ReleaseAction
+            trade={trade}
+            pay={pay}
+            release={async (current, stepUpApprovalId) => {
+              const result = await pay.manageTrade(trade.id, 'confirmReceived', undefined, { expected: trade, current }, stepUpApprovalId);
+              onOutcome(result);
+              return result;
+            }}
             onConfirmed={reload}
             disabled={locked}
           />

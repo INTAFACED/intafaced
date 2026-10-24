@@ -129,6 +129,10 @@ export const tradeSchema = z.object({
   netAmount: amount.nullable().optional(),
   /** `trades.get` only: the method's settlement profile in the market the buyer pays into, copied at take. */
   settlement: methodSettlementSchema.optional(),
+  /** `trades.get` only: while the escrow is held, the split a release would post (null once it is not held). */
+  releasePreview: z.object({ fee: amount, netAmount: amount }).nullable().optional(),
+  /** `trades.get` only: what of this order is still in escrow (zero once the release or refund posted; null while `created`). */
+  escrowHeld: amount.nullable().optional(),
 });
 /** svc-p2p `trades.page`: one keyset page newest first, the server's tab and readable status per row, and exact per-tab counts. */
 export const orderTabs = ['in_progress', 'in_dispute', 'completed', 'cancelled'] as const;

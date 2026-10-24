@@ -259,6 +259,18 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
     fixed: {},
   },
   {
+    // svc-p2p releaseStepUpPayloadHash: the order whose escrow goes to the buyer. Its coin, amount and buyer are fixed
+    // at take and cannot change, so the order id names the whole release.
+    scope: 'p2p.step_up.trades.confirmReceived',
+    purpose: 'trades.confirmReceived',
+    clientFields: ['tradeId'],
+    targetField: 'tradeId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
     scope: 'pay.step_up.payoutDestination.set',
     purpose: 'payoutDestination.set',
     clientFields: ['merchantId', 'railId', 'kind', 'ref'],

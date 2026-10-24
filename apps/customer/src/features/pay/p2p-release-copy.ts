@@ -1,0 +1,88 @@
+import { defineCopy } from '../../shared/i18n';
+const en = {
+  release: 'Release to the buyer',
+  releaseWhy: 'Release only after the money is in your own bank account. A release cannot be undone.',
+  releaseTo: 'Release to',
+  gross: 'Leaves your escrow',
+  buyerGets: 'The buyer gets',
+  fee: 'Service fee',
+  feeUnread: 'Not shown: this page could not read the fee for this order. Refresh the order before releasing.',
+  checklist: 'Before you release',
+  inMyBank: 'The payment shows as completed in my own bank account, not only in a message or a screenshot',
+  amountMatches: 'I received {amount} {currency}, the exact amount of this order',
+  senderTerms: 'The money came from the buyer’s own account, as this order’s terms require',
+  noReversal: 'My bank shows no hold, reversal or pending status on this payment',
+  stillProtected: 'I understand the coins stay in escrow, protected, until I release them, and a release cannot be taken back',
+  notTicked: 'Tick each line to release.',
+  notConfirmed: 'Confirm it’s you to release.',
+  stepUpWhy:
+    'Releasing sends the coins in escrow to the buyer for good, so it needs a fresh check that it’s you. One check covers your next releases here for up to ten minutes.',
+  stepUpCode: 'Authenticator code',
+  stepUpCodeHint: 'The 6 digits your authenticator app shows now.',
+  stepUpCodeShort: 'Enter the 6 digits from your authenticator app.',
+  stepUpNoFactor:
+    'Releasing needs your authenticator app or a passkey, and none is saved on this account. Add one in Security first; a release without one is refused and the coins stay in escrow.',
+  stepUpSendWithout: 'Release without a check',
+  stepUpDone: 'You confirmed it’s you for this release.',
+  stepUpCovered: 'You confirmed it’s you here, so this release needs no new check until {time}.',
+  stepUpNone: 'No check was given. The release is refused unless one is saved on this account.',
+} as const;
+const es = {
+  release: 'Liberar al comprador',
+  releaseWhy: 'Libera solo cuando el dinero esté en tu propia cuenta bancaria. Una liberación no se puede deshacer.',
+  releaseTo: 'Liberar a',
+  gross: 'Sale de tu depósito',
+  buyerGets: 'El comprador recibe',
+  fee: 'Comisión del servicio',
+  feeUnread: 'No se muestra: esta página no pudo leer la comisión de este pedido. Actualiza el pedido antes de liberar.',
+  checklist: 'Antes de liberar',
+  inMyBank: 'El pago figura como completado en mi propia cuenta bancaria, no solo en un mensaje o una captura',
+  amountMatches: 'Recibí {amount} {currency}, el importe exacto de este pedido',
+  senderTerms: 'El dinero llegó desde la propia cuenta del comprador, como exigen las condiciones de este pedido',
+  noReversal: 'Mi banco no muestra retención, devolución ni estado pendiente en este pago',
+  stillProtected:
+    'Entiendo que las monedas siguen en el depósito, protegidas, hasta que las libere, y que una liberación no se puede revertir',
+  notTicked: 'Marca cada línea para liberar.',
+  notConfirmed: 'Confirma que eres tú para liberar.',
+  stepUpWhy:
+    'Liberar envía al comprador las monedas del depósito de forma definitiva, así que necesita una nueva comprobación de que eres tú. Una comprobación cubre tus próximas liberaciones aquí durante hasta diez minutos.',
+  stepUpCode: 'Código del autenticador',
+  stepUpCodeHint: 'Los 6 dígitos que muestra ahora tu app de autenticación.',
+  stepUpCodeShort: 'Introduce los 6 dígitos de tu app de autenticación.',
+  stepUpNoFactor:
+    'Liberar requiere tu app de autenticación o una clave de acceso, y esta cuenta no tiene ninguna. Añade una en Seguridad primero; una liberación sin ella se rechaza y las monedas siguen en el depósito.',
+  stepUpSendWithout: 'Liberar sin comprobación',
+  stepUpDone: 'Confirmaste que eres tú para esta liberación.',
+  stepUpCovered: 'Ya confirmaste que eres tú aquí, así que esta liberación no necesita otra comprobación hasta {time}.',
+  stepUpNone: 'No se dio ninguna comprobación. La liberación se rechaza salvo que la cuenta tenga una guardada.',
+} satisfies Record<keyof typeof en, string>;
+const fr = {
+  release: 'Libérer à l’acheteur',
+  releaseWhy: 'Ne libérez qu’une fois l’argent arrivé sur votre propre compte bancaire. Une libération est définitive.',
+  releaseTo: 'Libérer à',
+  gross: 'Sort de votre séquestre',
+  buyerGets: 'L’acheteur reçoit',
+  fee: 'Frais de service',
+  feeUnread: 'Non affiché : cette page n’a pas pu lire les frais de cette commande. Actualisez la commande avant de libérer.',
+  checklist: 'Avant de libérer',
+  inMyBank: 'Le paiement apparaît comme effectué sur mon propre compte bancaire, pas seulement dans un message ou une capture',
+  amountMatches: 'J’ai reçu {amount} {currency}, le montant exact de cette commande',
+  senderTerms: 'L’argent vient du propre compte de l’acheteur, comme l’exigent les conditions de cette commande',
+  noReversal: 'Ma banque n’indique ni blocage, ni annulation, ni statut en attente sur ce paiement',
+  stillProtected:
+    'Je comprends que les pièces restent sous séquestre, protégées, jusqu’à ce que je les libère, et qu’une libération ne peut pas être reprise',
+  notTicked: 'Cochez chaque ligne pour libérer.',
+  notConfirmed: 'Confirmez que c’est vous pour libérer.',
+  stepUpWhy:
+    'Libérer envoie définitivement les pièces du séquestre à l’acheteur : il faut donc vérifier à nouveau que c’est vous. Une vérification couvre vos prochaines libérations ici pendant dix minutes au plus.',
+  stepUpCode: 'Code de l’authentificateur',
+  stepUpCodeHint: 'Les 6 chiffres affichés maintenant par votre application d’authentification.',
+  stepUpCodeShort: 'Saisissez les 6 chiffres de votre application d’authentification.',
+  stepUpNoFactor:
+    'Libérer demande votre application d’authentification ou une clé d’accès, et ce compte n’en a aucune. Ajoutez-en une dans Sécurité d’abord ; une libération sans elle est refusée et les pièces restent sous séquestre.',
+  stepUpSendWithout: 'Libérer sans vérification',
+  stepUpDone: 'Vous avez confirmé que c’est vous pour cette libération.',
+  stepUpCovered: 'Vous avez déjà confirmé que c’est vous ici : cette libération ne demande pas de nouvelle vérification avant {time}.',
+  stepUpNone: 'Aucune vérification donnée. La libération est refusée sauf si le compte en a une enregistrée.',
+} satisfies Record<keyof typeof en, string>;
+export const releaseCopy = defineCopy('pay.p2p.release', en, { es, fr });

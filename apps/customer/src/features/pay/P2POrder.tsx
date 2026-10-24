@@ -13,7 +13,14 @@ import { TradeStatus } from './personal/P2PDepth';
 import { OrderSettlement } from './personal/Settlement';
 import { percentOf } from './portal/payments/payment-model';
 import { ContactActions } from './personal/ContactActions';
+import { CounterpartyName } from './P2PCounterparty';
 import './p2p-order.css';
+
+/** The other side of the order by their handle (J-p2p-02 #2), never their account id. */
+function OrderCounterparty({ pay, userId }: { pay: PersonalPayApi; userId: string }) {
+  const reputation = useResource((signal) => pay.reputation(userId, signal), `pay:reputation:${userId}`);
+  return <CounterpartyName resource={reputation.resource} />;
+}
 
 /**
  * What a released order came to, from the order record alone. "Released" is the recorded decision; the ledger pays out
@@ -38,6 +45,15 @@ export function OrderResult({ trade, seller }: { trade: Trade; seller: boolean }
               ? [
                   [t('youSent'), t('sentValue', quantity)],
                   [t('youReceivedExternal'), fiat],
+                  // J-p2p-02 #6: the fee this release took, at the rate frozen at take, off the released amount.
+                  ...(trade.fee && trade.feeBps !== undefined
+                    ? ([
+                        [
+                          t('serviceFee'),
+                          t('serviceFeeRateValue', { amount: displayAmount(trade.fee), asset: trade.asset, rate: percentOf(trade.feeBps) }),
+                        ],
+                      ] satisfies [string, string][])
+                    : []),
                 ]
               : trade.netAmount && trade.fee && trade.feeBps !== undefined
                 ? [
@@ -235,6 +251,11 @@ export function P2POrder({
                   </div>
                 </div>
                 {trade.status === 'released' ? <OrderResult trade={trade} seller={seller} /> : null}
+                {!held && typeof trade.escrowHeld === 'string' ? (
+                  <p className="muted" data-testid="order-escrow-held">
+                    <Copy k="escrowHeld" /> <PayAmount value={trade.escrowHeld} unit={trade.asset} label={t('escrowHeld')} />
+                  </p>
+                ) : null}
                 <p className="muted p2p-order-instruction">
                   <Copy
                     k={
@@ -269,7 +290,7 @@ export function P2POrder({
                       ],
                       [payCopy.t('deadline'), trade.deadlineAt ? <PayTime value={trade.deadlineAt} /> : payCopy.t('notSupplied')],
                       [payCopy.t('ledgerSettlement'), trade.settledAt ? <PayTime value={trade.settledAt} /> : payCopy.t('notConfirmed')],
-                      [t('counterparty'), <span lang="zxx">{seller ? trade.buyerId : trade.sellerId}</span>],
+                      [t('counterparty'), <OrderCounterparty pay={pay} userId={seller ? trade.buyerId : trade.sellerId} />],
                       [
                         t('terms'),
                         trade.terms?.trim() ? (
