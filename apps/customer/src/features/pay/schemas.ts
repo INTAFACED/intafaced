@@ -204,13 +204,10 @@ export const tradeDestinationSchema = z.object({
   label: z.string(),
   details: z.record(z.string()),
   /** Each detail's label from the method schema, in its order. */
-  fields: z.array(z.object({ key: z.string(), label: z.string() })).optional(),
+  fields: z.array(z.object({ key: z.string(), label: z.string() })),
   attachedAt: z.string(),
   /** The seller changed or removed this destination after the order was placed; the order still pays the details above. */
-  payeeChange: z
-    .object({ kind: z.enum(['changed', 'removed']) })
-    .nullable()
-    .optional(),
+  payeeChange: z.object({ kind: z.enum(['changed', 'removed']) }).nullable(),
 });
 export const moderationSchema = z.discriminatedUnion('status', [
   z.object({ status: z.literal('absent'), code: z.literal('p2p.moderation_unreachable') }),

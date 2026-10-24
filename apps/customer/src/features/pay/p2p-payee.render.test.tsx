@@ -58,11 +58,11 @@ const destination = (payeeChange: TradeDestination['payeeChange']): TradeDestina
   payeeChange,
 });
 
-async function revealed(data: TradeDestination, userId: string = BUYER) {
+async function revealed(data: TradeDestination, userId: string = BUYER, status: Trade['status'] = 'escrowed') {
   const pay = { destination: async () => ({ ok: true, data }) } as unknown as PersonalPayApi;
   root = createRoot(host);
   const mounted = root;
-  await act(async () => mounted.render(<OrderPaymentDetails trade={trade} pay={pay} userId={userId} />));
+  await act(async () => mounted.render(<OrderPaymentDetails trade={{ ...trade, status }} pay={pay} userId={userId} />));
   await act(async () => host.querySelector('button')!.click());
   await act(async () => undefined);
   return host;
@@ -78,7 +78,7 @@ describe('P2P payee card (J-p2p-01 #6)', () => {
       ['IBAN', 'X'],
       ['bic', 'Y'],
     ]);
-    expect(destinationRows({ details: { iban: 'X' } })).toEqual([['iban', 'X']]);
+    expect(destinationRows({ details: { iban: 'X' }, fields: [] })).toEqual([['iban', 'X']]);
   });
 
   it('shows the account holder and number with the payee-name rule, and no change notice while they match', async () => {
@@ -87,7 +87,7 @@ describe('P2P payee card (J-p2p-01 #6)', () => {
     expect(card.textContent).toContain('TEST Seller');
     expect(card.textContent).toContain('DE00 TEST 0000');
     expect(card.querySelector('[data-testid="order-payee-name-rule"]')!.textContent).toContain(
-      'Enter the account holder exactly as shown here',
+      'Enter the payee’s name and account exactly as shown here',
     );
     expect(card.querySelector('[data-testid="order-payee-changed"]')).toBeNull();
   });
@@ -124,5 +124,12 @@ describe('P2P payee card (J-p2p-01 #6)', () => {
         ],
       }),
     ).toEqual([['IBAN', 'X']]);
+  });
+
+  it('after the buyer has paid, the change notice says what to do if they paid elsewhere, not to hold the payment', async () => {
+    const card = await revealed(destination({ kind: 'changed' }), BUYER, 'fiat_sent');
+    const notice = card.querySelector('[data-testid="order-payee-changed"]')!.textContent;
+    expect(notice).toContain('If you paid to any other details');
+    expect(notice).not.toContain('do not pay');
   });
 });

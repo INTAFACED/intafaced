@@ -259,7 +259,7 @@ function OrderDetail({ pay, tradeId, userId }: { pay: PersonalPayApi; tradeId: s
 }
 /** The agreed destination's values under the server's labels, in the server's order; any other key under its own name. */
 export function destinationRows(data: Pick<TradeDestination, 'details' | 'fields'>): [string, string][] {
-  const named = (data.fields ?? []).filter((field) => Object.hasOwn(data.details, field.key));
+  const named = data.fields.filter((field) => Object.hasOwn(data.details, field.key));
   const known = new Set(named.map((field) => field.key));
   const rest = Object.keys(data.details).filter((key) => !known.has(key));
   return [
@@ -269,8 +269,8 @@ export function destinationRows(data: Pick<TradeDestination, 'details' | 'fields
 }
 export function OrderPaymentDetails({ trade, pay, userId }: { trade: Trade; pay: PersonalPayApi; userId: string | null }) {
   const order = orderCopy.useCopy();
-  // The payee rule and the change notice are for the one who pays; the seller sees their own details plainly.
-  const isBuyer = userId !== null && userId === trade.buyerId;
+  // The payee rule and the change notice are for whoever is not the seller; the seller sees their own details plainly.
+  const isBuyer = userId !== null && userId !== trade.sellerId;
   const [requested, setRequested] = useState(false);
   const destination = useResource(
     (signal) =>
@@ -288,7 +288,7 @@ export function OrderPaymentDetails({ trade, pay, userId }: { trade: Trade; pay:
               {isBuyer && data.payeeChange ? (
                 <div data-testid="order-payee-changed">
                   <PayNotice title={order.t(data.payeeChange.kind === 'removed' ? 'payeeRemovedTitle' : 'payeeChangedTitle')}>
-                    {order.t('payeeChangedBody')}
+                    {order.t(trade.status === 'escrowed' ? 'payeeChangedBody' : 'payeeChangedAfterPaidBody')}
                   </PayNotice>
                 </div>
               ) : null}

@@ -610,7 +610,7 @@ test('J-p2p-01 #6 the payment details name the seller’s account holder and num
   await expect(card).toContainText(state.seller.handle);
   await expect(card).toContainText('IBAN');
   await expect(card).not.toContainText('account_holder');
-  await expect(card.getByTestId('order-payee-name-rule')).toContainText('Enter the account holder exactly as shown here');
+  await expect(card.getByTestId('order-payee-name-rule')).toContainText('Enter the payee’s name and account exactly as shown here');
   await expect(card.getByTestId('order-payee-changed')).toHaveCount(0);
 
   // The seller changes their saved account mid-order: the buyer is told, and the order still pays the agreed one.
@@ -629,4 +629,10 @@ test('J-p2p-01 #6 the payment details name the seller’s account holder and num
   );
   await expect(after).toContainText('Pay to the details shown here');
   await expect(after).not.toContainText(switched);
+
+  // Put the seller's account back, so the later steps pay the account the ad was placed with.
+  await s.mutate('instruments.update', {
+    instrumentId: saved.id,
+    details: { account_holder: state.seller.handle, iban: TEST_IBAN },
+  });
 });
