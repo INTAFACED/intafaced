@@ -108,6 +108,7 @@ describe('business document review BFF', () => {
       { action: 'review', applicationId: 'x', documentId: DOCUMENT, verdict: 'accepted' },
       { action: 'review', applicationId: APPLICATION, documentId: DOCUMENT, verdict: 'maybe' },
       { action: 'review', applicationId: APPLICATION, documentId: DOCUMENT, verdict: 'rejected' },
+      { action: 'review', applicationId: APPLICATION, documentId: DOCUMENT, verdict: 'rejected', reason: '🚫🚫' },
       { action: 'review', applicationId: APPLICATION, documentId: DOCUMENT, verdict: 'accepted', reason: 'TEST fine' },
       { action: 'delete', applicationId: APPLICATION, documentId: DOCUMENT },
     ]) {

@@ -127,7 +127,11 @@ function toTrpcError(err: unknown): unknown {
     ) {
       return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
     }
-    if (err.code === 'pay.kyb_document_already_reviewed' || err.code === 'pay.kyb_document_not_current') {
+    if (
+      err.code === 'pay.kyb_document_already_reviewed' ||
+      err.code === 'pay.kyb_document_not_current' ||
+      err.code === 'pay.kyb_application_decided'
+    ) {
       return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
     }
     if (err.code === 'pay.kyb_application_not_found' || err.code === 'pay.kyb_document_not_found') {

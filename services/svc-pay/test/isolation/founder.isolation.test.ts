@@ -304,7 +304,11 @@ describe('G: founder-only procedures', () => {
     it('merchant sessions, API keys, and callers without admin:compliance are refused on every compliance procedure', async () => {
       const inputFor = (path: string): unknown => {
         const merchantId = w.e.A.merchantId;
-        if (path === 'kyb.decisionBinding') return { merchantId };
+        if (path === 'kyb.decisionBinding' || path === 'kyb.documents.reviewView') return { merchantId };
+        if (path === 'kyb.documents.review') {
+          return { applicationId: randomUUID(), documentId: randomUUID(), verdict: 'rejected', reason: 'isolation drill' };
+        }
+        if (path === 'kyb.documents.file') return { applicationId: randomUUID(), documentId: randomUUID() };
         if (path === 'kyb.decide') {
           return { merchantId, decision: 'rejected', reason: 'isolation drill', approvalId: 'appr-1', operationId: 'op-1' };
         }

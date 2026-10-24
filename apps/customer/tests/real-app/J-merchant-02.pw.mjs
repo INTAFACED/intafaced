@@ -196,7 +196,7 @@ test(`${J} #2 the owner chooses the legal entity type; changing it returns the a
   expect(refused).toEqual([]);
 });
 
-test(`${J} #3 the owner adds the people and documents a sole trader is asked for; a file over the limit or of a wrong type is refused before it is sent; each row reads Pending, then Verified or Invalid with the reason once INTAFACED reviews it`, async ({
+test(`${J} #3 the owner adds the people and documents a sole trader is asked for; a file over the limit or of a wrong type is refused before it is sent; each row reads Pending, then Verified or Invalid with the reason once INTAFACED reviews it, and an Invalid one takes a new file`, async ({
   page,
   browser,
 }) => {
@@ -276,9 +276,12 @@ test(`${J} #3 the owner adds the people and documents a sole trader is asked for
   await expect(review).toContainText('Sent for review');
   const opened = desk.context().waitForEvent('page');
   await review.getByRole('button', { name: 'Open the file for Test proof of identity' }).click();
-  expect((await opened).url()).toMatch(/^blob:/);
+  // The tab opens on the click and then shows the file's bytes.
+  const tab = await opened;
+  await expect.poll(() => tab.url()).toMatch(/^blob:/);
   await review.getByRole('button', { name: 'Mark Test proof of identity Verified' }).click();
-  await expect(review.getByRole('row', { name: /Test proof of identity/ })).toContainText('Verified');
+  await expect(review.getByRole('button', { name: 'Mark Test proof of identity Verified' })).toHaveCount(0);
+  await expect(review.getByRole('row', { name: /Test proof of identity/ })).toContainText('Reviewed by');
   const addressRow = review.getByRole('row', { name: /Test proof of address/ });
   await expect(addressRow.getByRole('button', { name: 'Mark Test proof of address Invalid' })).toBeDisabled();
   await addressRow.getByLabel('Reason, if Invalid (the merchant reads it)').fill('TEST the address is cut off at the bottom');
@@ -291,5 +294,16 @@ test(`${J} #3 the owner adds the people and documents a sole trader is asked for
   const invalid = reviewed.getByRole('row', { name: /Test proof of address/ });
   await expect(invalid).toContainText('Invalid');
   await expect(invalid).toContainText('Reason: TEST the address is cut off at the bottom');
+
+  // Still under review, the owner answers Invalid with a new file for that document only.
+  await expect(app).toContainText('INTAFACED marked a document Invalid. Send a new file for it under Documents');
+  await expect(reviewed.locator('input[type=file]')).toHaveCount(1);
+  await invalid
+    .getByLabel('Choose a file for Test proof of address')
+    .setInputFiles({ name: 'address-whole.png', mimeType: 'image/png', buffer: Buffer.from('TEST png, the whole page') });
+  await invalid.getByRole('button', { name: 'Send' }).click();
+  await expect(reviewed.getByRole('row', { name: /Test proof of address/ })).toContainText('Pending');
+  await expect(reviewed.locator('input[type=file]')).toHaveCount(0);
+  expect(uploads).toHaveLength(3);
   expect(refused).toEqual([]);
 });

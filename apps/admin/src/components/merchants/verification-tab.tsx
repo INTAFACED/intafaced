@@ -87,7 +87,7 @@ export function VerificationTab({ result, here }: { result: PayCallResult<KybDoc
                     {row.rejectionReason ? <p className="mp-hint">Reason given: {row.rejectionReason}</p> : null}
                     {row.reviewedBy && row.reviewedAt ? (
                       <p className="mp-hint">
-                        By founder <code title={row.reviewedBy}>{row.reviewedBy.slice(0, 8)}</code>, {formatUtc(row.reviewedAt)}
+                        Reviewed by <code title={row.reviewedBy}>{row.reviewedBy.slice(0, 8)}</code>, {formatUtc(row.reviewedAt)}
                       </p>
                     ) : null}
                   </td>
@@ -101,6 +101,7 @@ export function VerificationTab({ result, here }: { result: PayCallResult<KybDoc
                           applicationId={application.applicationId}
                           documentId={row.document.id}
                           name={documentWords(row.key)}
+                          contentType={row.document.contentType}
                         />
                       </>
                     ) : (
@@ -108,14 +109,16 @@ export function VerificationTab({ result, here }: { result: PayCallResult<KybDoc
                     )}
                   </td>
                   <td>
-                    {row.document && row.state === 'provided' ? (
+                    {row.document && row.state === 'provided' && application.reviewable ? (
                       <DocumentVerdict
                         applicationId={application.applicationId}
                         documentId={row.document.id}
                         name={documentWords(row.key)}
                       />
                     ) : (
-                      <span className="mp-muted">{row.document ? 'Given' : 'Nothing to review'}</span>
+                      <span className="mp-muted">
+                        {!row.document ? 'Nothing to review' : row.state === 'provided' ? 'Closed: the application is decided' : 'Given'}
+                      </span>
                     )}
                   </td>
                 </tr>

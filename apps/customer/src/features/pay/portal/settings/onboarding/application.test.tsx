@@ -258,6 +258,21 @@ describe('after the review', () => {
     expect(out).toContain('Start a new application');
     expect(out).toContain('Start the application');
   });
+  it('while under review, a document marked Invalid takes a new file and nothing else does', () => {
+    const rows = ready(
+      checklist([
+        { key: 'certificate_of_incorporation', state: 'accepted', rejectionReason: null, document: doc },
+        { key: 'proof_of_address', state: 'rejected', rejectionReason: 'TEST cut off', document: doc },
+      ]),
+    );
+    const out = html({ application: ready(sent), kybStatus: 'pending', kybRef: ref, checklist: rows });
+    expect(out).toContain('INTAFACED marked a document Invalid. Send a new file for it under Documents');
+    expect(out).toContain('Choose a file for Proof of address');
+    expect(out).not.toContain('Choose a file for Certificate of incorporation');
+    expect(out).not.toContain('Send application for review');
+    const decided = html({ application: ready(sent), kybStatus: 'rejected', kybRef: ref, checklist: rows });
+    expect(decided).not.toContain('Choose a file for Proof of address');
+  });
   it('an approved application reads Approved and offers nothing to start', () => {
     const out = html({ application: ready(sent), kybStatus: 'approved', kybRef: ref });
     expect(out).toContain('Approved');

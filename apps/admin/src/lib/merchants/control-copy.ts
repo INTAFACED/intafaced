@@ -124,7 +124,7 @@ export const CONTROL_COPY: Record<string, PlainRefusal> = {
   // ── business verification documents (J-merchant-02 step 3) ──
   'pay.kyb_document_already_reviewed': {
     title: 'This document already has a verdict',
-    body: 'A verdict is final for that file. The merchant answers a rejection by sending a new one.',
+    body: 'A verdict is final for that file. While the application is under review, the merchant answers Invalid by sending a new file for that document.',
     next: 'Reload the Verification tab to see the verdict in force.',
   },
   'pay.kyb_document_not_current': {
@@ -150,16 +150,16 @@ export const CONTROL_COPY: Record<string, PlainRefusal> = {
   'pay.kyb_document_unreadable': {
     title: 'This file does not open',
     body: 'It does not open with the current document key, or it does not match the digest recorded when it was sent.',
-    next: 'Reject it and ask the merchant to send the file again, and tell engineering.',
+    next: 'Mark it Invalid with that reason so the merchant sends the file again, and tell engineering.',
   },
   'pay.kyb_application_not_found': {
     title: 'That application does not exist',
     body: 'The service has no business application with that id.',
     next: 'Reload the Verification tab.',
   },
-  'mfa.required': {
-    title: 'Sign in with your second factor first',
-    body: 'Reviewing business documents needs a sign-in that used your authenticator.',
-    next: 'Sign out, sign in again with your code, and retry. Nothing was changed.',
+  'pay.kyb_application_decided': {
+    title: 'This application is already decided',
+    body: 'INTAFACED approved or turned down this application, so its documents take no more verdicts.',
+    next: 'Reload the Verification tab. A turned-down merchant starts a new application.',
   },
 };

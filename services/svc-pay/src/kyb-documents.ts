@@ -22,7 +22,9 @@ import type { KybEntityTypeService } from './kyb-entity-types.js';
  * number. Bytes are encrypted before they reach the database with a key from the environment (`PAY_KYB_DOC_KEY`,
  * 32 bytes as base64 or 64 hex characters); without it the upload refuses. The checklist shows metadata only; the
  * bytes come back out only to a compliance reviewer (`file`), and each such read is recorded. A reviewer gives each
- * upload one verdict (`review`). The automatic document check is an outside service and is shown as not connected.
+ * upload one verdict (`review`) while its application is a draft or still under review. An application under review
+ * takes a new file only for a document marked Invalid; the rest stays as sent. The automatic document check is an
+ * outside service and is shown as not connected.
  * Uploads at or below the application's `documents_after_seq` (set by a restart or a type change) no longer count.
  */
 
@@ -55,6 +57,38 @@ function decrypt(key: Buffer, sealed: Buffer, nonce: Buffer, additional: Buffer)
   decipher.setAuthTag(sealed.subarray(sealed.length - 16));
   return Buffer.concat([decipher.update(sealed.subarray(0, sealed.length - 16)), decipher.final()]);
 }
+
+/** An application as an upload or a verdict needs it. `under_review`: sent, and its verification is still pending. */
+interface OpenApplication {
+  state: 'draft' | 'submitted';
+  entity_type: never;
+  country: string;
+  documents_after_seq: string;
+  under_review: boolean;
+}
+
+/** Read with the caller's connection; `lock` takes a share lock on the application and its merchant (a decision waits). */
+async function openApplication(q: Sql, applicationId: string, lock: boolean): Promise<OpenApplication> {
+  const [app] = lock
+    ? await q<OpenApplication[]>`
+        SELECT a.state, a.entity_type, a.country, a.documents_after_seq,
+               (a.state = 'submitted' AND m.kyb_status = 'pending' AND m.kyb_ref = a.kyb_ref) AS under_review
+          FROM pay.kyb_applications a JOIN pay.merchants m ON m.id = a.merchant_id
+         WHERE a.id = ${applicationId}
+           FOR SHARE OF a, m
+      `
+    : await q<OpenApplication[]>`
+        SELECT a.state, a.entity_type, a.country, a.documents_after_seq,
+               (a.state = 'submitted' AND m.kyb_status = 'pending' AND m.kyb_ref = a.kyb_ref) AS under_review
+          FROM pay.kyb_applications a JOIN pay.merchants m ON m.id = a.merchant_id
+         WHERE a.id = ${applicationId}
+      `;
+  if (!app) throw new KybError('No such application', 'pay.kyb_application_not_found');
+  return app;
+}
+
+/** Length as people count it (code points), the way PostgreSQL's `length()` checks the stored reason. */
+const charCount = (text: string): number => [...text].length;
 
 export interface DocumentRow {
   id: string;
@@ -114,7 +148,7 @@ export class KybDocumentService {
 
   /** Every document the type requires, with the latest upload's state. Refuses when the type's requirements are no longer published. */
   async checklist(applicationId: string): Promise<KybDocumentChecklistView> {
-    const app = await this.application(applicationId);
+    const app = await openApplication(this.sql, applicationId, false);
     const requirements = await this.entityTypes.requirements(app.entity_type, app.country);
     const docs = await currentDocuments(this.sql, applicationId, app.documents_after_seq);
     const latest = new Map(docs.map((d) => [d.document_key, d]));
@@ -127,11 +161,13 @@ export class KybDocumentService {
   }
 
   /**
-   * Store one document for a required key of an open draft. Refusals, in order: rules unset, key unset, application
-   * submitted, key not on the type's list, content type not accepted, bytes over the cap. Sending the bytes that are
-   * already the key's latest returns that row; any other bytes, including an earlier file sent again, become the new
-   * latest. The application row is read under a share lock, so a submit in flight either finishes first (refused) or
-   * waits for this upload; a lock per (application, key) serialises uploads of one document.
+   * Store one document for a required key of an open draft, or a new file for a document marked Invalid on an
+   * application still under review. Refusals, in order: rules unset, key unset, application submitted (and not a
+   * resend of an Invalid document), key not on the type's list, content type not accepted, bytes over the cap.
+   * Sending the bytes that are already the key's latest returns that row, unless that row was marked Invalid
+   * (`pay.kyb_document_same_file`); any other bytes, including an earlier file sent again, become the new latest. The
+   * application and its merchant are read under a share lock, so a submit or a decision in flight either finishes
+   * first or waits for this upload; a lock per (application, key) serialises uploads of one document.
    */
   async upload(input: {
     applicationId: string;
@@ -147,8 +183,8 @@ export class KybDocumentService {
     if (!this.docKey) {
       throw new KybError('The document encryption key is not set', 'pay.kyb_doc_key_unset');
     }
-    const app = await this.application(input.applicationId);
-    if (app.state !== 'draft') {
+    const app = await openApplication(this.sql, input.applicationId, false);
+    if (app.state !== 'draft' && !app.under_review) {
       throw new KybError('The application is submitted and cannot be changed', 'pay.kyb_application_submitted');
     }
     const requirements = await this.entityTypes.requirements(app.entity_type, app.country);
@@ -175,13 +211,7 @@ export class KybDocumentService {
     return transaction(
       this.sql,
       async (tx) => {
-        const [open] = await tx<Array<{ state: 'draft' | 'submitted'; entity_type: string; country: string; documents_after_seq: string }>>`
-          SELECT state, entity_type, country, documents_after_seq FROM pay.kyb_applications WHERE id = ${input.applicationId} FOR SHARE
-        `;
-        if (!open) throw new KybError('No such application', 'pay.kyb_application_not_found');
-        if (open.state !== 'draft') {
-          throw new KybError('The application is submitted and cannot be changed', 'pay.kyb_application_submitted');
-        }
+        const open = await openApplication(tx, input.applicationId, true);
         // A type change or restart that committed after the checks above cleared what this upload was picked for.
         if (
           open.entity_type !== app.entity_type ||
@@ -197,7 +227,16 @@ export class KybDocumentService {
            WHERE application_id = ${input.applicationId} AND document_key = ${input.key} AND seq > ${open.documents_after_seq}
            ORDER BY seq DESC LIMIT 1
         `;
-        if (latest && latest.sha256 === sha256) return toRow(input.key, latest);
+        // Once sent, only a document marked Invalid takes a new file, and only while the application is under review.
+        if (open.state !== 'draft' && !(open.under_review && latest?.state === 'rejected')) {
+          throw new KybError('The application is submitted and cannot be changed', 'pay.kyb_application_submitted');
+        }
+        if (latest && latest.sha256 === sha256) {
+          if (latest.state === 'rejected') {
+            throw new KybError('This is the file that was marked Invalid; send a different one', 'pay.kyb_document_same_file');
+          }
+          return toRow(input.key, latest);
+        }
         const [stored] = await tx<DocumentRow[]>`
           INSERT INTO pay.kyb_documents (application_id, document_key, content_type, byte_length, sha256, ciphertext, nonce, uploaded_by)
           VALUES (${input.applicationId}, ${input.key}, ${contentType}, ${bytes.length}, ${sha256}, ${ciphertext}, ${nonce}, ${input.actorId})
@@ -215,9 +254,16 @@ export class KybDocumentService {
    * asks for, with who gave each verdict and when. A type no longer published still lists the keys that were sent.
    */
   async reviewView(merchantId: string): Promise<KybDocumentReviewView> {
-    const [merchant] = await this.sql<Array<{ id: string }>>`SELECT id FROM pay.merchants WHERE id = ${merchantId}`;
+    // One snapshot: a verdict landing between the reads cannot show a waiting row with a reviewer.
+    return transaction(this.sql, (tx) => this.reviewViewIn(tx, merchantId), { isolation: 'repeatable read', maxAttempts: 3 });
+  }
+
+  private async reviewViewIn(q: Sql, merchantId: string): Promise<KybDocumentReviewView> {
+    const [merchant] = await q<Array<{ id: string; kyb_status: string; kyb_ref: string | null }>>`
+      SELECT id, kyb_status, kyb_ref FROM pay.merchants WHERE id = ${merchantId}
+    `;
     if (!merchant) throw new KybError(`No merchant ${merchantId}`, 'pay.merchant_not_found');
-    const [app] = await this.sql<
+    const [app] = await q<
       Array<{
         id: string;
         entity_type: never;
@@ -225,15 +271,16 @@ export class KybDocumentService {
         state: 'draft' | 'submitted';
         documents_after_seq: string;
         submitted_at: Date | null;
+        kyb_ref: string | null;
       }>
     >`
-      SELECT id, entity_type, country, state, documents_after_seq, submitted_at FROM pay.kyb_applications
+      SELECT id, entity_type, country, state, documents_after_seq, submitted_at, kyb_ref FROM pay.kyb_applications
        WHERE merchant_id = ${merchantId}
        ORDER BY (state = 'draft') DESC, created_at DESC
        LIMIT 1
     `;
     if (!app) return { merchantId, application: null, rows: [], vendorCheck: VENDOR_CHECK };
-    const docs = await currentDocuments(this.sql, app.id, app.documents_after_seq);
+    const docs = await currentDocuments(q, app.id, app.documents_after_seq);
     let published: string[] = [];
     try {
       published = (await this.entityTypes.requirements(app.entity_type, app.country)).documentKeys;
@@ -242,8 +289,8 @@ export class KybDocumentService {
     }
     const keys = [...new Set([...published, ...docs.map((d) => d.document_key)])];
     const reviews = docs.length
-      ? await this.sql<Array<{ document_id: string; actor_id: string; created_at: Date }>>`
-          SELECT document_id, actor_id, created_at FROM pay.kyb_document_reviews WHERE document_id IN ${this.sql(docs.map((d) => d.id))}
+      ? await q<Array<{ document_id: string; actor_id: string; created_at: Date }>>`
+          SELECT document_id, actor_id, created_at FROM pay.kyb_document_reviews WHERE document_id IN ${q(docs.map((d) => d.id))}
         `
       : [];
     const latest = new Map(docs.map((d) => [d.document_key, d]));
@@ -256,6 +303,7 @@ export class KybDocumentService {
         country: app.country,
         state: app.state,
         submittedAt: app.submitted_at?.toISOString() ?? null,
+        reviewable: app.state === 'draft' || (merchant.kyb_status === 'pending' && merchant.kyb_ref === app.kyb_ref),
       },
       rows: keys.map((key) => {
         const doc = latest.get(key);
@@ -268,8 +316,9 @@ export class KybDocumentService {
 
   /**
    * One verdict on the upload `documentId`, by a compliance reviewer. The upload must still be its key's current one
-   * (a newer file or a restart makes it `pay.kyb_document_not_current`). The same verdict and reason again return the
-   * row unchanged; any other verdict on a reviewed upload is `pay.kyb_document_already_reviewed`.
+   * (a newer file or a restart makes it `pay.kyb_document_not_current`), and its application a draft or still under
+   * review (a decided one is `pay.kyb_application_decided`). The same verdict and reason again return the row
+   * unchanged; any other verdict on a reviewed upload is `pay.kyb_document_already_reviewed`.
    */
   async review(input: {
     applicationId: string;
@@ -279,16 +328,16 @@ export class KybDocumentService {
     actorId: string;
   }): Promise<KybDocumentRow> {
     const reason = input.verdict === 'rejected' ? (input.reason?.trim() ?? '') : null;
-    if (input.verdict === 'rejected' && (!reason || reason.length < 3)) {
+    if (input.verdict === 'rejected' && (!reason || charCount(reason) < 3 || charCount(reason) > 1000)) {
       throw new KybError('A rejection needs the reason the business reads', 'pay.kyb_review_reason_required');
     }
     return transaction(
       this.sql,
       async (tx) => {
-        const [app] = await tx<Array<{ documents_after_seq: string }>>`
-          SELECT documents_after_seq FROM pay.kyb_applications WHERE id = ${input.applicationId} FOR SHARE
-        `;
-        if (!app) throw new KybError('No such application', 'pay.kyb_application_not_found');
+        const app = await openApplication(tx, input.applicationId, true);
+        if (app.state !== 'draft' && !app.under_review) {
+          throw new KybError('INTAFACED already decided this application', 'pay.kyb_application_decided');
+        }
         const [doc] = await tx<Array<DocumentRow & { seq: string }>>`
           SELECT id, seq, document_key, content_type, byte_length, sha256, state, rejection_reason, created_at
             FROM pay.kyb_documents WHERE id = ${input.documentId} AND application_id = ${input.applicationId}
@@ -348,15 +397,5 @@ export class KybDocumentService {
       sha256: doc.sha256,
       bytesBase64: bytes.toString('base64'),
     };
-  }
-
-  private async application(
-    applicationId: string,
-  ): Promise<{ entity_type: never; country: string; state: 'draft' | 'submitted'; documents_after_seq: string }> {
-    const [app] = await this.sql<Array<{ entity_type: never; country: string; state: 'draft' | 'submitted'; documents_after_seq: string }>>`
-      SELECT entity_type, country, state, documents_after_seq FROM pay.kyb_applications WHERE id = ${applicationId}
-    `;
-    if (!app) throw new KybError('No such application', 'pay.kyb_application_not_found');
-    return app;
   }
 }

@@ -3,30 +3,51 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { StateBlock } from '@/components/merchants/ui';
 import { openKybDocument, reviewKybDocument, type KybReply } from '@/lib/merchants/kyb-review-client';
-import { KYB_REASON_MAX, KYB_REASON_MIN } from '@/lib/merchants/kyb-review-model';
+import { KYB_REASON_MAX, KYB_REASON_MIN, reasonLength } from '@/lib/merchants/kyb-review-model';
 
 type Problem = Extract<KybReply<unknown>, { ok: false }>;
 
 const INLINE_TYPES = new Set(['application/pdf', 'image/png', 'image/jpeg', 'image/gif', 'image/webp']);
 
-/** Opens the file in a new tab from its bytes. Each open is recorded by svc-pay with the founder who opened it. */
-export function OpenDocument({ applicationId, documentId, name }: { applicationId: string; documentId: string; name: string }) {
+/**
+ * Opens the file in a new tab from its bytes. Each open is recorded by svc-pay with the reviewer who opened it. The tab
+ * opens on the click itself, before the bytes arrive, so a popup blocker cannot swallow it after the wait; a blocked
+ * or failed tab falls back to saving the file.
+ */
+export function OpenDocument({
+  applicationId,
+  documentId,
+  name,
+  contentType,
+}: {
+  applicationId: string;
+  documentId: string;
+  name: string;
+  contentType: string;
+}) {
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<Problem | null>(null);
+  // A blob URL runs with this console's origin, so only kinds that cannot carry script open in a tab; any other kind
+  // the owner accepts (HTML, SVG…) is saved as a download and never rendered here.
+  const inline = INLINE_TYPES.has(contentType.toLowerCase());
   async function open() {
+    const tab = inline ? window.open('', '_blank') : null;
+    if (tab) tab.opener = null;
     setBusy(true);
     setProblem(null);
     const reply = await openKybDocument({ applicationId, documentId });
     setBusy(false);
-    if (!reply.ok) return setProblem(reply);
+    if (!reply.ok) {
+      tab?.close();
+      return setProblem(reply);
+    }
     const bytes = Uint8Array.from(atob(reply.data.bytesBase64), (c) => c.charCodeAt(0));
     const type = reply.data.contentType.toLowerCase();
-    // A blob URL runs with this console's origin, so only kinds that cannot carry script open in a tab; any other kind
-    // the owner accepts (HTML, SVG…) is saved as a download and never rendered here.
-    const inline = INLINE_TYPES.has(type);
-    const url = URL.createObjectURL(new Blob([bytes], { type: inline ? type : 'application/octet-stream' }));
-    if (inline) window.open(url, '_blank', 'noopener');
+    const show = tab && INLINE_TYPES.has(type);
+    const url = URL.createObjectURL(new Blob([bytes], { type: show ? type : 'application/octet-stream' }));
+    if (show) tab.location.href = url;
     else {
+      tab?.close();
       const link = document.createElement('a');
       link.href = url;
       link.download = `${reply.data.key}-${reply.data.sha256.slice(0, 12)}`;
@@ -56,9 +77,9 @@ export function DocumentVerdict({ applicationId, documentId, name }: { applicati
   const [problem, setProblem] = useState<Problem | null>(null);
   const trimmed = reason.trim();
   const rejectWhy =
-    trimmed.length < KYB_REASON_MIN
+    reasonLength(trimmed) < KYB_REASON_MIN
       ? 'Write the reason the merchant will read first.'
-      : trimmed.length > KYB_REASON_MAX
+      : reasonLength(trimmed) > KYB_REASON_MAX
         ? `The reason is too long (at most ${KYB_REASON_MAX} characters).`
         : null;
   async function give(verdict: 'accepted' | 'rejected') {

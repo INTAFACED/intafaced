@@ -83,16 +83,24 @@ export const KYB_DOCUMENT_VERDICTS = ['accepted', 'rejected'] as const;
 export const kybDocumentVerdictSchema = z.enum(KYB_DOCUMENT_VERDICTS);
 export type KybDocumentVerdict = z.infer<typeof kybDocumentVerdictSchema>;
 
+/** Length as people count it (code points), the way the stored reason is checked. */
+const charCount = (text: string): number => [...text].length;
+
 /**
- * Review the upload `documentId`, which must still be its key's current upload. A rejection carries the reason the
- * business reads; an acceptance carries none. A verdict is final for that upload: the business sends a new file.
+ * Review the upload `documentId`, which must still be its key's current upload, on an application that is a draft or
+ * still under review. A rejection carries the reason the business reads; an acceptance carries none. A verdict is
+ * final for that upload: the business answers Invalid with a new file for that document.
  */
 export const kybDocumentReviewInputSchema = z
   .object({
     applicationId: applicationIdSchema,
     documentId: z.string().guid(),
     verdict: kybDocumentVerdictSchema,
-    reason: z.string().trim().min(3).max(1000).nullish(),
+    reason: z
+      .string()
+      .trim()
+      .refine((text) => charCount(text) >= 3 && charCount(text) <= 1000, 'a reason is 3 to 1000 characters')
+      .nullish(),
   })
   .strict()
   .refine((input) => (input.verdict === 'rejected') === Boolean(input.reason), {
@@ -118,6 +126,8 @@ export const kybDocumentReviewViewSchema = z
         country: z.string().length(2),
         state: z.enum(['draft', 'submitted']),
         submittedAt: z.string().nullable(),
+        /** False once INTAFACED decided a sent application: verdicts are closed and the business starts again. */
+        reviewable: z.boolean(),
       })
       .strict()
       .nullable(),

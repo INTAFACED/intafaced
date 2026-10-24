@@ -20,6 +20,7 @@ const view: KybDocumentReviewView = {
     country: 'DE',
     state: 'submitted',
     submittedAt: '2026-10-24T06:20:00.000Z',
+    reviewable: true,
   },
   rows: [
     {
@@ -53,14 +54,23 @@ describe('verification tab', () => {
     expect(out).toContain('Waiting for review');
     expect(out).toContain('Mark Test proof of identity Verified');
     expect(out).toContain('Mark Test proof of identity Invalid');
-    expect(out).toContain('Invalid');
+    const [, identity = '', address = ''] = out.split('data-testid="kyb-document"');
+    expect(address).toMatch(/>Invalid</);
+    expect(address).not.toContain('Mark Test proof of address Invalid');
+    expect(identity).toMatch(/>Waiting for review</);
     expect(out).toContain('Reason given: TEST cut off at the bottom');
-    expect(out).toContain('By founder <code title="99999999-9999-4999-8999-999999999999">99999999</code>');
+    expect(out).toContain('Reviewed by <code title="99999999-9999-4999-8999-999999999999">99999999</code>');
     expect(out).not.toContain('Mark Test proof of address Verified');
     expect(out).toContain('Not sent');
     expect(out).toContain('Open the file for Test proof of identity');
     expect(out).not.toContain('Open the file for Test trade licence');
     expect(out).toContain('No automatic document check');
+  });
+  it('takes no verdict once INTAFACED decided the application', () => {
+    const decided = html({ kind: 'ok', data: { ...view, application: { ...view.application!, reviewable: false } } });
+    expect(decided).not.toContain('Mark Test proof of identity Verified');
+    expect(decided).toContain('Closed: the application is decided');
+    expect(decided).toContain('Open the file for Test proof of identity');
   });
   it('says plainly when the merchant has no application, and shows a failed read as a failure', () => {
     expect(html({ kind: 'ok', data: { ...view, application: null, rows: [] } })).toContain('No business application');

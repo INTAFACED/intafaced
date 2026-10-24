@@ -2,6 +2,9 @@
 export const KYB_REASON_MIN = 3;
 export const KYB_REASON_MAX = 1000;
 
+/** Characters as people count them (code points), the way svc-pay checks the stored reason. */
+export const reasonLength = (text: string): number => [...text].length;
+
 /** The merchant reads these words next to each document (apps/customer: Needed, Pending, Verified, Invalid). */
 export const KYB_DOCUMENT_STATE_WORDS: Record<string, string> = {
   missing: 'Not sent',

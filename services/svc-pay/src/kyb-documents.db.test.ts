@@ -480,6 +480,71 @@ describe('kyb documents', () => {
       await expect(sql`DELETE FROM pay.kyb_document_reviews`).rejects.toThrow(/append-only/);
     });
 
+    /** The application as sent and waiting for INTAFACED's decision, set straight in the tables. */
+    const submit = async (id: string, kybStatus = 'pending') => {
+      await sql`UPDATE pay.kyb_applications SET state = 'submitted', kyb_ref = ${`application:${id}`}, submitted_at = now() WHERE id = ${id}`;
+      await sql`UPDATE pay.merchants SET kyb_status = ${kybStatus}, kyb_ref = ${`application:${id}`} WHERE id = ${merchantId}`;
+    };
+
+    it('under review, the business answers Invalid with a new file for that document only, and not with the same file', async () => {
+      const { id, owner, deed, address } = await sent();
+      await submit(id);
+      const desk = await reviewer();
+      expect((await desk.kyb.documents.reviewView({ merchantId })).application).toMatchObject({ state: 'submitted', reviewable: true });
+      await desk.kyb.documents.review({ applicationId: id, documentId: deed, verdict: 'accepted' });
+      await desk.kyb.documents.review({ applicationId: id, documentId: address, verdict: 'rejected', reason: 'TEST cut off' });
+
+      const same = { applicationId: id, key: 'proof_of_address', contentType: PDF, bytesBase64: b64('the address') } as const;
+      expect(await rejection(owner.kyb.documents.upload(same))).toMatchObject({
+        code: 'BAD_REQUEST',
+        cause: expect.objectContaining({ code: 'pay.kyb_document_same_file' }),
+      });
+      expect(
+        await rejection(owner.kyb.documents.upload({ applicationId: id, key: 'trust_deed', contentType: PDF, bytesBase64: b64('x') })),
+      ).toMatchObject({ cause: expect.objectContaining({ code: 'pay.kyb_application_submitted' }) });
+
+      const resent = await owner.kyb.documents.upload({ ...same, bytesBase64: b64('the whole address') });
+      expect(resent.row).toMatchObject({ key: 'proof_of_address', state: 'provided', rejectionReason: null });
+      const rows = (await desk.kyb.documents.reviewView({ merchantId })).rows;
+      expect(rows.map((r) => [r.key, r.state])).toEqual([
+        ['trust_deed', 'accepted'],
+        ['proof_of_address', 'provided'],
+      ]);
+      await desk.kyb.documents.review({ applicationId: id, documentId: resent.row.document!.id, verdict: 'accepted' });
+      expect((await owner.kyb.documents.checklist({ applicationId: id })).rows.map((r) => r.state)).toEqual(['accepted', 'accepted']);
+    });
+
+    it('once INTAFACED decides, verdicts and new files are refused', async () => {
+      const { id, owner, deed, address } = await sent();
+      await (
+        await reviewer()
+      ).kyb.documents.review({ applicationId: id, documentId: address, verdict: 'rejected', reason: 'TEST cut off' });
+      await submit(id, 'rejected');
+      const desk = await reviewer();
+      expect((await desk.kyb.documents.reviewView({ merchantId })).application).toMatchObject({ reviewable: false });
+      expect(await rejection(desk.kyb.documents.review({ applicationId: id, documentId: deed, verdict: 'accepted' }))).toMatchObject({
+        code: 'CONFLICT',
+        cause: expect.objectContaining({ code: 'pay.kyb_application_decided' }),
+      });
+      expect(
+        await rejection(
+          owner.kyb.documents.upload({ applicationId: id, key: 'proof_of_address', contentType: PDF, bytesBase64: b64('another') }),
+        ),
+      ).toMatchObject({ cause: expect.objectContaining({ code: 'pay.kyb_application_submitted' }) });
+      expect((await sql<Array<{ state: string }>>`SELECT state FROM pay.kyb_documents WHERE id = ${deed}`)[0]?.state).toBe('provided');
+    });
+
+    it('a reason counts characters as people do: two emoji are too short', async () => {
+      const { id, deed } = await sent();
+      expect(
+        await rejection(
+          (await reviewer()).kyb.documents.review({ applicationId: id, documentId: deed, verdict: 'rejected', reason: '🚫🚫' }),
+        ),
+      ).toMatchObject({ code: 'BAD_REQUEST' });
+      const n = await sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM pay.kyb_document_reviews`;
+      expect(n[0]?.n).toBe('0');
+    });
+
     it('an unknown merchant is not found, and a merchant with no application reads empty', async () => {
       const desk = await reviewer();
       expect(await rejection(desk.kyb.documents.reviewView({ merchantId: STRANGER }))).toMatchObject({ code: 'NOT_FOUND' });

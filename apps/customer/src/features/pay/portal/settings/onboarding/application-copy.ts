@@ -120,6 +120,8 @@ const en = {
   submitBody: 'INTAFACED reviews your application. You can’t change it once it is sent. Live payments stay off until it is approved.',
   submitNeeded: 'Finish every part listed under Still needed first.',
   submittedNote: 'INTAFACED is reviewing your application. You don’t need to do anything.',
+  resendNote:
+    'INTAFACED marked a document Invalid. Send a new file for it under Documents; the rest of your application stays with INTAFACED.',
   approvedNote: 'INTAFACED approved this application. Your business is verified.',
   rejectedNote: 'INTAFACED turned this application down. Start a new one below and send what was asked for.',
   againTitle: 'Start a new application',
@@ -140,6 +142,7 @@ const en = {
   rType: 'This kind of file isn’t accepted.',
   rDocUnknown: 'This document isn’t asked for this business type.',
   rDocEmpty: 'The file is empty. Choose another.',
+  rSameFile: 'This is the file that was marked Invalid. Send a different file.',
   rNotFound: 'This application can’t be found. Reload the page.',
   rChanged: 'The application changed while the file was being sent, so it wasn’t kept. Send it again if it is still asked for.',
   rKybInvalid: 'Your business is already verified or under review, so a new application can’t start.',

@@ -4,7 +4,7 @@ import { kybDocumentFileSchema, kybDocumentsUploadResultSchema } from '@intaface
 import { fromFailure, json } from '@/lib/merchants/bff';
 import { payCall, type PayCallContext } from '@/lib/merchants/pay-call';
 import { isUuid } from '@/lib/founder-ops/read-model';
-import { KYB_REASON_MAX, KYB_REASON_MIN } from '@/lib/merchants/kyb-review-model';
+import { KYB_REASON_MAX, KYB_REASON_MIN, reasonLength } from '@/lib/merchants/kyb-review-model';
 import { moduleDisabledResponse } from '@/lib/modules';
 
 /**
@@ -49,7 +49,7 @@ export async function POST(request: Request) {
       const verdict = body.verdict;
       const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
       if (verdict !== 'accepted' && verdict !== 'rejected') throw bad();
-      if (verdict === 'rejected' && (reason.length < KYB_REASON_MIN || reason.length > KYB_REASON_MAX)) throw bad();
+      if (verdict === 'rejected' && (reasonLength(reason) < KYB_REASON_MIN || reasonLength(reason) > KYB_REASON_MAX)) throw bad();
       if (verdict === 'accepted' && reason.length > 0) throw bad();
       const result = await payCall(
         ctx,
