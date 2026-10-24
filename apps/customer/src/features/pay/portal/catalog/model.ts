@@ -1,3 +1,4 @@
+import { parseAmount } from '../../../../shared/money';
 import {
   productKeySchema,
   statementDescriptorSchema,
@@ -96,4 +97,44 @@ export async function imageRequestId(file: Blob): Promise<string> {
   bytes[8] = (bytes[8]! & 0x3f) | 0x80;
   const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+/** The Add price form as typed. Amounts stay strings: decimal text on the wire, never a float. */
+export interface PriceDraft {
+  billing: 'one_time' | 'monthly';
+  kind: 'fixed' | 'customer_chosen';
+  amount: string;
+  minAmount: string;
+  maxAmount: string;
+  assetId: string;
+}
+
+export const blankPrice: PriceDraft = { billing: 'one_time', kind: 'fixed', amount: '', minAmount: '', maxAmount: '', assetId: '' };
+
+const AMOUNT = /^(?:0|[1-9][0-9]{0,19})(?:\.[0-9]{1,18})?$/;
+const ASSET = /^[A-Z0-9]{1,16}$/;
+const positiveAmount = (raw: string) => AMOUNT.test(raw.trim()) && /[1-9]/.test(raw);
+
+/** The first thing the form would refuse, checked before anything is sent; the service checks again. */
+export function priceProblem(draft: PriceDraft): 'amountInvalid' | 'boundsInvalid' | 'assetInvalid' | null {
+  if (draft.kind === 'fixed') {
+    if (!positiveAmount(draft.amount)) return 'amountInvalid';
+  } else {
+    if (!positiveAmount(draft.minAmount) || !positiveAmount(draft.maxAmount)) return 'boundsInvalid';
+    if (parseAmount(draft.maxAmount.trim()) < parseAmount(draft.minAmount.trim())) return 'boundsInvalid';
+  }
+  if (!ASSET.test(draft.assetId.trim())) return 'assetInvalid';
+  return null;
+}
+
+/** What Save price sends, without its request id (added per body by the form). A monthly price is always fixed. */
+export function priceBody(draft: PriceDraft, productId: string) {
+  const kind = draft.billing === 'monthly' ? 'fixed' : draft.kind;
+  return {
+    productId,
+    billing: draft.billing,
+    kind,
+    assetId: draft.assetId.trim(),
+    ...(kind === 'fixed' ? { amount: draft.amount.trim() } : { minAmount: draft.minAmount.trim(), maxAmount: draft.maxAmount.trim() }),
+  };
 }

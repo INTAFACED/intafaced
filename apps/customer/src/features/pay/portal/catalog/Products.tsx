@@ -16,6 +16,7 @@ import { Freshness } from '../ui/Freshness';
 import { useServerList } from '../ui/useServerList';
 import { useReadAt } from '../hooks';
 import { useBodyRequestId } from '../payments/invoice-model';
+import { ProductPrices } from './Prices';
 import { catalogCopy as c } from './copy';
 import { blankProduct, checkImage, draftProblem, imageRequestId, productBody, sizeText, type ProductDraft } from './model';
 
@@ -362,6 +363,7 @@ export function ProductDetail({ portal, productId }: { portal: PortalApi; produc
           ) : (
             <p className="muted">{t('noImage')}</p>
           )}
+          <ProductPrices portal={portal} product={product} />
         </div>
       )}
     </Gate>

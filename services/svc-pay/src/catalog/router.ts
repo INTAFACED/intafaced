@@ -1,5 +1,12 @@
 import type { Sql } from 'postgres';
 import {
+  priceCreateInputSchema,
+  priceListInputSchema,
+  priceListSchema,
+  priceQuoteInputSchema,
+  priceQuoteSchema,
+  priceSchema,
+  priceSetDefaultInputSchema,
   productCreateInputSchema,
   productGetInputSchema,
   productImageFileSchema,
@@ -18,6 +25,7 @@ import { resolveMerchantCaller } from '../merchant-ops/roles.js';
 import { ownMerchantRead } from '../own-merchant-read.js';
 import { teamMemberWrite } from '../team-member-write.js';
 import type { ProductImageRule } from './image-rules.js';
+import { ProductPrices } from './prices.js';
 import { ProductCatalog } from './products.js';
 
 export interface CatalogMountDeps {
@@ -26,16 +34,17 @@ export interface CatalogMountDeps {
 }
 
 /**
- * `merchantCatalog.*`: the business's product catalogue (M-catalogue-01). The business is the caller's own, resolved
+ * `merchantCatalog.*`: the business's product catalogue and its prices (M-catalogue-01, M-catalogue-02). The business is the caller's own, resolved
  * from the signed principal and never taken from the request. Reads take the merchant read scope; writes take
  * `pay:write`, or `pay:onboard` for an active member of a verified business (`teamMemberWrite`), and then the role
  * table (`products.manage`). Without a database every procedure refuses `pay.merchant_ops_unavailable`.
  */
 export function createMerchantCatalogRouter(deps: CatalogMountDeps | undefined) {
   const catalog = deps ? new ProductCatalog(deps.sql, deps.imageRule) : null;
+  const prices = deps ? new ProductPrices(deps.sql) : null;
   const need = () => {
-    if (!catalog || !deps) throw new MerchantOpsError('pay.merchant_ops_unavailable', 'unavailable');
-    return { catalog, sql: deps.sql };
+    if (!catalog || !prices || !deps) throw new MerchantOpsError('pay.merchant_ops_unavailable', 'unavailable');
+    return { catalog, prices, sql: deps.sql };
   };
   const read = ownMerchantRead();
   const write = teamMemberWrite(() => need().sql);
@@ -56,6 +65,24 @@ export function createMerchantCatalogRouter(deps: CatalogMountDeps | undefined) 
           .input(productCreateInputSchema)
           .output(z.object({ product: productSchema, replayed: z.boolean() }).strict())
           .mutation(({ ctx, input }) => wrapOps(async () => need().catalog.create(await callerOf(ctx), input))),
+      }),
+      prices: router({
+        list: read
+          .input(priceListInputSchema)
+          .output(priceListSchema)
+          .query(({ ctx, input }) => wrapOps(async () => need().prices.list(await callerOf(ctx), input))),
+        create: write
+          .input(priceCreateInputSchema)
+          .output(z.object({ price: priceSchema, replayed: z.boolean() }).strict())
+          .mutation(({ ctx, input }) => wrapOps(async () => need().prices.create(await callerOf(ctx), input))),
+        setDefault: write
+          .input(priceSetDefaultInputSchema)
+          .output(priceSchema)
+          .mutation(({ ctx, input }) => wrapOps(async () => need().prices.setDefault(await callerOf(ctx), input))),
+        quote: read
+          .input(priceQuoteInputSchema)
+          .output(priceQuoteSchema)
+          .query(({ ctx, input }) => wrapOps(async () => need().prices.quote(await callerOf(ctx), input))),
       }),
       images: router({
         rules: read
