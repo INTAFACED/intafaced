@@ -202,13 +202,33 @@ test(`${J} #6 sells coins that arrived by deposit: the sale reaches no lot, its 
   await expect(sale).toBeVisible();
   await expect(sale.locator('td').nth(0)).toHaveText('0.02');
   await expect(sale.locator('td').nth(2)).toHaveText('Not known');
-  await expect(sale.locator('[data-col="result"]')).toHaveText(/^(Part has no cost|Cost unknown)$/);
+  // The deposit is a lot with no cost and the whole sale drew on it: the result is unknown and all 0.02 is named as sold
+  // with no cost (Missing cost, PF-cost-basis-04).
+  await expect(sale.locator('[data-col="result"]')).toHaveText('Cost unknown Unknown share: 0.02 ETH sold with no cost');
+  await expect(sale.locator('[data-col="result"] [data-effect="unknown-share"]')).toHaveCount(1);
   // Never a made-up cost: the realised total is blank as soon as one sale's result is unknown.
   await expect(main.locator('[data-figure="realised"]')).toHaveText('Not known');
   await expect(main.getByRole('list', { name: 'Why some figures are not known' })).toBeVisible();
   // The ETH still held has no recorded cost either.
   const eth = main.locator('tr[data-asset="ETH"]');
   if (await eth.count()) await expect(eth.locator('[data-col="cost"]')).toHaveText('Not known');
+
+  // With balances hidden (the eye on Money) the quantity inside that sentence is masked too, as every figure on the page is.
+  const eye = async (name) => {
+    await page.goto('/money');
+    const written = page.waitForResponse((res) => res.url().includes('preferences.set') && res.request().method() === 'POST');
+    await page.getByRole('button', { name }).first().click();
+    expect((await written).status()).toBe(200);
+  };
+  await eye('Hide balances');
+  try {
+    const hidden = await pnl(page);
+    await expect(hidden.locator('tr[data-sale]').filter({ hasText: 'ETH' }).first().locator('[data-effect="unknown-share"]')).toHaveText(
+      'Unknown share: •••• ETH sold with no cost',
+    );
+  } finally {
+    await eye('Show balances');
+  }
 });
 
 test(`${J} #7 trades between two non-dollar coins: no dollar figure on either side where none is known`, async ({ page }) => {
