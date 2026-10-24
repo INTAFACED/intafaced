@@ -14,7 +14,7 @@ import { recordLookup, type LookupActor, type LookupRecorder } from './operator-
 
 export const LEDGER_TX_NOT_FOUND = 'ledger.tx_not_found' as const;
 
-export const operatorTxGetInputSchema = z.object({ txId: z.string().uuid() }).strict();
+export const operatorTxGetInputSchema = z.object({ txId: z.string().guid() }).strict();
 export type OperatorTxGetInput = z.infer<typeof operatorTxGetInputSchema>;
 
 const decimal = z.string().regex(/^-?\d+(\.\d{1,18})?$/);

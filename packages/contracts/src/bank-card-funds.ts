@@ -7,7 +7,7 @@ import { payAmountStringSchema, payAssetCodeSchema } from './merchant-control.js
  * card balance. Every figure is read from the ledger and carried as a decimal string, never a JSON number.
  * Programme transfers and the funding model setting are left for a later contracts PR.
  */
-const id = z.string().uuid();
+const id = z.string().guid();
 const timestamp = z.string().datetime({ offset: true });
 
 /** Signed decimal string, used only for a reconciliation difference. */

@@ -8,7 +8,7 @@ import { useSession } from '../session/session';
 import { marketPurchasesCopy as copy } from './market-purchases-copy';
 import './market-purchases.css';
 
-const id = z.string().uuid();
+const id = z.string().guid();
 const time = z.string().datetime({ offset: true });
 // Mounted Market purchase rows are decimal strings and native asset identifiers.
 const purchase = z.object({

@@ -60,7 +60,7 @@ export function createCustodyUtxoRouters(
         .output(consolidationViewSchema)
         .mutation(({ ctx, input }) => wrap(() => service.consolidate(actorOf(ctx), input))),
       consolidations: founder
-        .input(z.object({ walletId: z.string().uuid(), limit: z.number().int().min(1).max(200) }).strict())
+        .input(z.object({ walletId: z.string().guid(), limit: z.number().int().min(1).max(200) }).strict())
         .output(z.array(consolidationViewSchema))
         .query(({ input }) => wrap(() => service.listConsolidations(input.walletId, input.limit))),
     }),

@@ -59,7 +59,7 @@ export type ApiKeyCreateInput = z.infer<typeof apiKeyCreateInputSchema>;
 
 export const apiKeyRecordSchema = z
   .object({
-    id: z.string().uuid(),
+    id: z.string().guid(),
     name: z.string(),
     prefix: z.string(),
     mode: z.enum(['live', 'sandbox']),

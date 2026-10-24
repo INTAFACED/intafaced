@@ -12,11 +12,11 @@ const amount = z
   .string()
   .trim()
   .regex(/^\d+(\.\d{1,18})?$/);
-const ask = { assetId: z.string().trim().min(1).max(16), amount, linkedAccountId: z.string().uuid() };
+const ask = { assetId: z.string().trim().min(1).max(16), amount, linkedAccountId: z.string().guid() };
 
 const account = z
   .object({
-    accountId: z.string().uuid(),
+    accountId: z.string().guid(),
     label: z.string(),
     holderName: z.string(),
     ibanMasked: z.string(),
@@ -66,7 +66,7 @@ export function createCashOutRouter(bank: Pick<BankServices, 'cashOut'>, guard: 
 
     /** Ask to cash out, behind the step-up scope. The request id is the business key of one ask. */
     start: scopedProcedure('trade:withdraw', { module: 'bank' })
-      .input(z.object({ requestId: z.string().uuid(), ...ask }).strict())
+      .input(z.object({ requestId: z.string().guid(), ...ask }).strict())
       .output(request)
       .mutation(({ ctx, input }) => guard(async () => bank.cashOut.start(ctx.principal.userId, input))),
 

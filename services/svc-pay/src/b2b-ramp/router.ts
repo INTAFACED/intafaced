@@ -30,11 +30,11 @@ const stateSchema = z.object({
   deferred: z.tuple([z.literal('intake'), z.literal('batches'), z.literal('executions'), z.literal('events')]),
 });
 
-const merchantStatusSchema = stateSchema.extend({ merchantId: z.string().uuid() });
+const merchantStatusSchema = stateSchema.extend({ merchantId: z.string().guid() });
 
 const creditSchema = z.object({
-  creditId: z.string().uuid(),
-  merchantId: z.string().uuid(),
+  creditId: z.string().guid(),
+  merchantId: z.string().guid(),
   bankLineId: z.string(),
   amount: z.string(),
   asset: z.string(),
@@ -43,7 +43,7 @@ const creditSchema = z.object({
 });
 
 const creditInputSchema = z.object({
-  merchantId: z.string().uuid(),
+  merchantId: z.string().guid(),
   bankLineId: z.string().min(1),
   amount: z.string(),
   asset: z.string(),
@@ -120,7 +120,7 @@ export function createB2bRampRouter(deps: B2bRampRouterDeps) {
   return router({
     b2bRamp: router({
       status: read
-        .input(z.object({ merchantId: z.string().uuid() }))
+        .input(z.object({ merchantId: z.string().guid() }))
         .output(merchantStatusSchema)
         .query(async ({ ctx, input }) => {
           try {
@@ -151,7 +151,7 @@ export function createB2bRampRouter(deps: B2bRampRouterDeps) {
           }
         }),
       get: read
-        .input(z.object({ creditId: z.string().uuid() }))
+        .input(z.object({ creditId: z.string().guid() }))
         .output(creditSchema)
         .query(async ({ ctx, input }) => {
           try {
