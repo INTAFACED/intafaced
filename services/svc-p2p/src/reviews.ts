@@ -308,6 +308,25 @@ export async function listReviews(
   return { reviews: page.map(toReview), nextCursor };
 }
 
+/**
+ * One trade's two reviews as one of its parties sees them: the one they wrote (hidden or not, it is theirs) and the one
+ * written about them (null while hidden). Anyone else gets the same not-found as a missing trade.
+ */
+export async function tradeReviews(
+  sql: Sql,
+  input: { tradeId: string; viewerId: string },
+): Promise<{ mine: ReviewRecord | null; theirs: ReviewRecord | null }> {
+  const trades = await sql<Array<{ buyer_id: string; seller_id: string }>>`
+    SELECT buyer_id, seller_id FROM p2p.p2p_trades WHERE id = ${input.tradeId}
+  `;
+  const trade = trades[0];
+  if (!trade || (trade.buyer_id !== input.viewerId && trade.seller_id !== input.viewerId)) throw missingTrade(input.tradeId);
+  const rows = await sql<ReviewRow[]>`SELECT * FROM p2p.order_reviews WHERE trade_id = ${input.tradeId}`;
+  const mine = rows.find((row) => row.author_id === input.viewerId);
+  const theirs = rows.find((row) => row.subject_id === input.viewerId && !row.hidden);
+  return { mine: mine ? toReview(mine) : null, theirs: theirs ? toReview(theirs) : null };
+}
+
 /** Visible reviews about this person. Null when there are none — not 0 and 0. */
 export async function reviewRatingOf(sql: Sql, subjectId: string): Promise<ReviewRatingCounts | null> {
   const rows = await sql<Array<{ good: number; bad: number }>>`

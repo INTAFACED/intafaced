@@ -287,6 +287,31 @@ describe('svc-p2p order reviews (P-ads-merchant-21)', () => {
     expect(card.rating).toBeNull();
   });
 
+  it('gives each party of a trade their own review and the visible one about them, and a stranger not-found', async () => {
+    await fund(MAKER, '1000');
+    const trade = await released();
+    expect(await caller(TAKER, ['p2p:read']).reviews.forTrade({ tradeId: trade.id })).toEqual({ mine: null, theirs: null });
+    const buyer = await caller(TAKER).reviews.leave({ tradeId: trade.id, rating: 'good', comment: 'released fast' });
+    const seller = await caller(MAKER).reviews.leave({ tradeId: trade.id, rating: 'bad', explanation: 'paid late' });
+    expect(await caller(TAKER, ['p2p:read']).reviews.forTrade({ tradeId: trade.id })).toMatchObject({
+      mine: { id: buyer.id, rating: 'good' },
+      theirs: { id: seller.id, rating: 'bad', explanation: 'paid late' },
+    });
+    // Hidden: still the author's own, gone from the one it is about.
+    await caller(MOD, ['p2p:read'], [MOD]).reviews.moderate({ reviewId: seller.id, reason: 'TEST abusive' });
+    expect((await caller(TAKER, ['p2p:read']).reviews.forTrade({ tradeId: trade.id })).theirs).toBeNull();
+    expect((await caller(MAKER, ['p2p:read']).reviews.forTrade({ tradeId: trade.id })).mine).toMatchObject({ id: seller.id, hidden: true });
+    // A stranger, and a trade that does not exist, look the same.
+    const strange = await caller(OTHER, ['p2p:read'])
+      .reviews.forTrade({ tradeId: trade.id })
+      .catch((e: unknown) => e);
+    const missing = await caller(OTHER, ['p2p:read'])
+      .reviews.forTrade({ tradeId: crypto.randomUUID() })
+      .catch((e: unknown) => e);
+    expect(strange).toMatchObject({ code: 'NOT_FOUND' });
+    expect(missing).toMatchObject({ code: 'NOT_FOUND' });
+  });
+
   it('refuses a system:p2p-backstop session with admin:compliance and writes no audit row', async () => {
     await fund(MAKER, '1000');
     const trade = await released();

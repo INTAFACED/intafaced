@@ -713,8 +713,8 @@ const merchantEventOutput = z.object({
 });
 
 const reviewOutput = z.object({
-  id: z.string().uuid(),
-  tradeId: z.string().uuid(),
+  id: z.string().guid(),
+  tradeId: z.string().guid(),
   authorId: z.string(),
   subjectId: z.string(),
   rating: z.enum(['good', 'bad']),
@@ -2875,7 +2875,7 @@ export function createP2pRouter(
       leave: merchantApiProcedure('p2p:write')
         .input(
           z.object({
-            tradeId: z.string().uuid(),
+            tradeId: z.string().guid(),
             rating: z.enum(['good', 'bad']),
             comment: z.string().max(2000).optional(),
             explanation: z.string().max(2000).optional(),
@@ -2899,7 +2899,7 @@ export function createP2pRouter(
       edit: merchantApiProcedure('p2p:write')
         .input(
           z.object({
-            tradeId: z.string().uuid(),
+            tradeId: z.string().guid(),
             rating: z.enum(['good', 'bad']).optional(),
             comment: z.string().max(2000).optional(),
             explanation: z.string().max(2000).optional(),
@@ -2921,7 +2921,7 @@ export function createP2pRouter(
         ),
 
       reply: merchantApiProcedure('p2p:write')
-        .input(z.object({ tradeId: z.string().uuid(), text: z.string().max(2000) }))
+        .input(z.object({ tradeId: z.string().guid(), text: z.string().max(2000) }))
         .output(reviewOutput)
         .mutation(async ({ ctx, input }) =>
           guard(async () =>
@@ -2932,7 +2932,7 @@ export function createP2pRouter(
       list: merchantApiProcedure('p2p:read')
         .input(
           z.object({
-            userId: z.string().uuid(),
+            userId: z.string().guid(),
             /** Omitted so a missing page reaches `p2p.review_list_limit_unset`, not a Zod "Required". Blank is not 50. */
             limit: z.number().int().min(1).max(200).optional(),
             cursor: z.string().max(200).nullable().optional(),
@@ -2951,8 +2951,19 @@ export function createP2pRouter(
           }),
         ),
 
+      /** The order page's review panel: the viewer's own review of this trade and the visible one about them. */
+      forTrade: merchantApiProcedure('p2p:read')
+        .input(z.object({ tradeId: z.string().guid() }))
+        .output(z.object({ mine: reviewOutput.nullable(), theirs: reviewOutput.nullable() }))
+        .query(async ({ ctx, input }) =>
+          guard(async () => {
+            const both = await p2p.orderReviewsForTrade({ tradeId: input.tradeId, viewerId: requireUser(ctx) });
+            return { mine: both.mine && toReviewOut(both.mine), theirs: both.theirs && toReviewOut(both.theirs) };
+          }),
+        ),
+
       moderate: merchantApiProcedure('p2p:read')
-        .input(z.object({ reviewId: z.string().uuid(), reason: z.string().min(1).max(2000) }))
+        .input(z.object({ reviewId: z.string().guid(), reason: z.string().min(1).max(2000) }))
         .output(reviewOutput)
         .mutation(async ({ ctx, input }) =>
           guard(async () => {

@@ -81,6 +81,7 @@ import {
   moderateReview,
   replyReview,
   reviewRatingOf,
+  tradeReviews,
   type ReviewRating,
   type ReviewRatingCounts,
   type ReviewRecord,
@@ -4129,6 +4130,14 @@ export class P2pService {
   }): Promise<{ reviews: ReviewRecord[]; nextCursor: string | null }> {
     const limit = assertReviewListLimit(input.limit);
     return this.asReview(() => listReviews(this.sql, { ...input, limit }));
+  }
+
+  /** P-ads-merchant-21: this trade's review by the viewer and the visible one about them. Parties only. */
+  async orderReviewsForTrade(input: {
+    tradeId: string;
+    viewerId: string;
+  }): Promise<{ mine: ReviewRecord | null; theirs: ReviewRecord | null }> {
+    return this.asReview(() => tradeReviews(this.sql, input));
   }
 
   /** Visible good/bad counts. Null when nothing is visible — not 0 and 0. */
