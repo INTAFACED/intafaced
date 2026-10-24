@@ -81,7 +81,11 @@ if (!(await postgresAvailable(URL))) {
     store.auditConsumed({ ...row, at }),
   );
   const api = createStepUpRouter(new CustomerStepUpService(db.sql, store, auth, clock));
-  const guard = new SecurityStepUp({ sql: db.sql, approvals, secondFactor: (userId) => auth.customerStepUpMaterial(userId) });
+  const guard = new SecurityStepUp({
+    sql: db.sql,
+    approvals,
+    secondFactor: (userId) => auth.customerStepUpMaterial(userId, 'security_change'),
+  });
 
   let n = 0;
   const unique = () => `ssu${process.pid}${++n}`;
@@ -133,7 +137,7 @@ if (!(await postgresAvailable(URL))) {
 
   describe('SecurityStepUp.require', () => {
     it('names the 13 STP-3 scopes, the security lock unlock and new-device approval, and each has a door the guard can bind', () => {
-      expect(new Set(SECURITY_STEP_UP_SCOPES).size).toBe(15);
+      expect(new Set(SECURITY_STEP_UP_SCOPES).size).toBe(17);
       for (const scope of SECURITY_STEP_UP_SCOPES) expect(doorForScope(scope)?.scope).toBe(scope);
     });
 

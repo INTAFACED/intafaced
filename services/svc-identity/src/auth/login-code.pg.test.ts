@@ -240,6 +240,27 @@ if (!available) {
       expect(session).toMatchObject({ userId: who.userId });
     });
 
+    it('a code never signs in an account that asks for a passkey after the first step (I-signin-sessions-10)', async () => {
+      const who = await account();
+      const stored = { credentialId: 'cred-test-a', publicKey: 'AQID', counter: 0, createdAt: new Date(T0).toISOString() };
+      await db.sql`UPDATE users SET webauthn_creds = ${db.sql.json([stored])}, passkey_second_step = true WHERE id = ${who.userId}`;
+      const { flowId } = await anon().auth.loginCodeRequest({ identifier: who.email });
+      const [code] = codesTo(who.email);
+      const before = await sessionsOf(who.userId);
+      const err = (await anon()
+        .auth.loginWithCode({ flowId, code: code! })
+        .then(
+          () => undefined,
+          (e: unknown) => e,
+        )) as {
+        cause?: { code?: string; details?: { secondStep?: { totp: boolean; passkey: { allowCredentials: Array<{ id: string }> } } } };
+      };
+      expect(err.cause?.code).toBe('auth.mfa_required');
+      expect(err.cause?.details?.secondStep?.totp).toBe(false);
+      expect(err.cause?.details?.secondStep?.passkey.allowCredentials.map((c) => c.id)).toEqual(['cred-test-a']);
+      expect(await sessionsOf(who.userId)).toBe(before);
+    });
+
     it('refuses every name the same way while a setting is blank, and a phone number names the switched-off provider', async () => {
       const who = await account();
       expect(await refusal(anon().auth.loginCodeRequest({ identifier: '+44 7700 900123' }))).toMatchObject({

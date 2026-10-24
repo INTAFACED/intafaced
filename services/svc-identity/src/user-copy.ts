@@ -57,6 +57,8 @@ const LOCAL_COPY: Readonly<Record<string, string>> = {
   'identity.phone_missing': 'There is no phone number on this account.',
   'identity.passkey_limit': 'This account has reached the number of passkeys it can hold. Remove one to add another.',
   'identity.passkey_label_invalid': 'Use 1 to 64 characters for a passkey name, with no control characters.',
+  'identity.passkey_purposes_invalid': 'Choose signing in, moving money out or security changes, or none for every action.',
+  'auth.second_step_expired': 'This sign-in step timed out. Enter your password again.',
   'identity.step_up_required': 'Confirm this change with your passkey or authenticator code first.',
   'identity.totp_label_invalid': 'Use a name of 1 to 64 characters, without hidden or control characters.',
   'identity.second_factor_required': 'Add a passkey or authenticator app first, then confirm this change with it.',

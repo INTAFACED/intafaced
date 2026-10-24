@@ -396,6 +396,28 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
     fixed: {},
   },
   {
+    // `purposes` is the sorted, comma-joined set (`money_out,security_change,signin`), empty for "every action".
+    scope: 'identity.step_up.passkey_purposes',
+    purpose: 'account.passkey.purposes',
+    clientFields: ['credentialId', 'purposes', 'clientRequestId'],
+    targetField: 'credentialId',
+    targetRequired: true,
+    emptyOk: ['purposes'],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
+    // `on` is `on` or `off`.
+    scope: 'identity.step_up.passkey_second_step',
+    purpose: 'account.passkey.secondStep',
+    clientFields: ['on', 'clientRequestId'],
+    targetField: 'clientRequestId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
     scope: 'identity.step_up.totp_replace',
     purpose: 'account.totp.replace',
     clientFields: ['clientRequestId'],

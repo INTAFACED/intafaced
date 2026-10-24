@@ -38,6 +38,8 @@ export interface StoredWebAuthnCredential {
   counter: number;
   transports?: string[];
   createdAt: string;
+  /** The actions this passkey answers for (passkey-purposes.ts); absent or empty for every action. */
+  purposes?: string[];
 }
 
 export interface RegistrationOptionsJSON {
@@ -109,7 +111,7 @@ export function b64urlDecode(input: string): Buffer {
 
 // ── challenge store ──────────────────────────────────────────────────────────
 
-export type ChallengeKind = 'registration' | 'authentication' | 'step-up';
+export type ChallengeKind = 'registration' | 'authentication' | 'step-up' | 'second-step';
 
 export interface ChallengeEntry {
   challenge: string;
