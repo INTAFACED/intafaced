@@ -397,15 +397,75 @@ test(`${J} #5 an import dry run lists line-numbered errors and writes nothing, a
   expect(refused).toEqual([]);
 });
 
-// Step 6 comes with M-adv-payments-core-21's test and live copy and channel availability. Until then it fails at its first
-// check, quickly.
+// Channel and store availability (the second half of step 6) waits on M-adv-org-access-05's stores; until they exist the
+// step fails at that check, quickly.
 const unbuilt = { timeout: 5000 };
 
 test(`${J} #6 copying the catalogue between test and live reports created and skipped ids, and a second run makes no duplicates`, async ({
   page,
 }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(180_000);
   const state = journey();
-  await signInOwner(page, state, '/pay/products');
-  await page.getByRole('button', { name: 'Copy to live' }).click(unbuilt);
+  const own = await signInOwner(page, state, '/pay/products');
+  const refused = refusedPayCalls(page);
+
+  // The test catalogue is its own: empty while live holds step 5's products.
+  await page.getByLabel('Catalogue').selectOption({ label: 'Test catalogue' });
+  await expect(page).toHaveURL(/\/pay\/products\?mode=test$/);
+  await expect(page.getByText('No products yet')).toBeVisible();
+
+  // Two test products by import: one with the id step 5 gave a live mug, one new.
+  await page.getByRole('link', { name: 'Import products' }).click();
+  await expect(page).toHaveURL(/\/pay\/products\/import\?mode=test$/);
+  await expect(page.getByRole('note').filter({ hasText: 'These products join your test catalogue.' })).toBeVisible();
+  const lines = ['name,type,product_id', `TEST Sample mug,physical,mug-${own.handle}`, `TEST Sample guide,digital,guide-${own.handle}`];
+  await page
+    .getByLabel('Products file (CSV)')
+    .setInputFiles({ name: 'TEST-test-products.csv', mimeType: 'text/csv', buffer: Buffer.from(`${lines.join('\n')}\n`) });
+  await page.getByRole('button', { name: 'Check file' }).click();
+  await page.getByRole('button', { name: 'Import 2 products' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Imported 2 products.' })).toBeVisible();
+  await page.getByRole('link', { name: 'Back to products' }).click();
+  await expect(page).toHaveURL(/\/pay\/products\?mode=test$/);
+  const testList = page.getByRole('region', { name: 'Your products' });
+  await expect(testList.getByText('TEST Sample mug', { exact: true })).toBeVisible();
+  await expect(testList.getByText('TEST Sample guide', { exact: true })).toBeVisible();
+
+  // Copy to live: the guide is made, the mug is skipped because live already uses its id.
+  const copy = async () => {
+    await page.getByRole('button', { name: 'Copy to live' }).click();
+    await page.getByRole('group', { name: 'Copy to live' }).getByRole('button', { name: 'Copy to live' }).click();
+  };
+  await copy();
+  await expect(page.getByRole('status').filter({ hasText: '1 copied to the live catalogue, 1 skipped.' })).toBeVisible();
+  const created = page.getByRole('region', { name: 'Copied' });
+  await expect(created.getByText('TEST Sample guide', { exact: true })).toBeVisible();
+  await expect(created).toContainText(`guide-${own.handle}`);
+  const skipped = page.getByRole('region', { name: 'Skipped' });
+  await expect(skipped.getByRole('row').filter({ hasText: 'TEST Sample mug' })).toContainText(
+    'A product in the live catalogue already has this product ID.',
+  );
+
+  // A second copy makes nothing: both are reported as skipped, the guide as copied before.
+  await copy();
+  await expect(page.getByRole('status').filter({ hasText: '0 copied to the live catalogue, 2 skipped.' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Copied' })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Skipped' }).getByRole('row').filter({ hasText: 'TEST Sample guide' })).toContainText(
+    'Already in the live catalogue: copied before.',
+  );
+
+  // Live holds the guide once, and its page says where it came from.
+  await page.getByLabel('Catalogue').selectOption({ label: 'Live catalogue' });
+  const liveList = page.getByRole('region', { name: 'Your products' });
+  await expect(liveList.getByText('TEST Sample guide', { exact: true })).toHaveCount(1);
+  await expect(liveList.getByText('TEST Sample mug', { exact: true })).toHaveCount(0);
+  await liveList.getByRole('row').filter({ hasText: 'TEST Sample guide' }).getByRole('link').last().click();
+  const facts = page.locator('dl.pp-facts');
+  await expect(facts).toContainText('Live catalogue');
+  await expect(facts.getByRole('link', { name: 'Its product in the test catalogue' })).toBeVisible();
+  expect(refused).toEqual([]);
+
+  // Channel availability: an item unavailable in a store refuses there. Stores are not built yet.
+  await page.goto('/pay/settings/stores');
+  await expect(page.getByRole('heading', { name: 'Stores' })).toBeVisible(unbuilt);
 });

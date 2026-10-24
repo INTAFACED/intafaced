@@ -330,6 +330,7 @@ function toTrpcError(err: unknown): TRPCError {
       // half of the credential was right (including "key ok, origin wrong").
       return new TRPCError({ code: 'UNAUTHORIZED', message, cause: err });
     case 'auth.mfa_required':
+    case 'auth.second_step_expired':
       return new TRPCError({ code: 'UNAUTHORIZED', message, cause: err });
     case 'auth.too_many_attempts':
       // Per-account lockout (attempt-lockout.ts): retrying now cannot help, retrying later can.
@@ -1329,6 +1330,44 @@ export function createIdentityRouter(
         .mutation(async ({ input, ctx }) => {
           try {
             const session = await auth.login({ ...input, deviceKey: presentedDeviceKey(ctx, input.deviceKey) });
+            return sessionWire(ctx, session);
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /**
+       * The second step by passkey (I-signin-sessions-10). `login` answered `auth.mfa_required` with a passkey challenge
+       * (`secondStep.passkey`) once the password verified; the assertion over it opens a two-factor session. A passkey of
+       * another account, or one bound to other actions, answers `auth.webauthn_invalid` and counts on the MFA lockout.
+       */
+      loginSecondStepPasskey: publicProcedure
+        .input(
+          z.object({
+            credential: z.object({
+              id: z.string().min(1),
+              rawId: z.string().min(1),
+              type: z.literal('public-key'),
+              response: z.object({
+                clientDataJSON: z.string().min(1),
+                authenticatorData: z.string().min(1),
+                signature: z.string().min(1),
+                userHandle: z.string().nullish(),
+              }),
+              clientExtensionResults: z.record(z.string(), z.unknown()).optional(),
+            }),
+            deviceKey: z.string().min(16).max(128).optional(),
+          }),
+        )
+        .output(sessionOutput)
+        .mutation(async ({ input, ctx }) => {
+          if (!webauthnEnabled) throw new TRPCError({ code: 'FORBIDDEN', message: 'WebAuthn is disabled' });
+          try {
+            const session = await auth.loginSecondStepPasskey({
+              credential: input.credential,
+              ip: requestIpAls.getStore(),
+              deviceKey: presentedDeviceKey(ctx, input.deviceKey),
+            });
             return sessionWire(ctx, session);
           } catch (err) {
             throw toTrpcError(err);

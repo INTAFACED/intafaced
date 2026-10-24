@@ -29,6 +29,7 @@ const en = {
   status_credited: 'Credited',
   status_below_minimum: 'Below minimum',
   status_held_for_screening: 'Held for review',
+  status_held_for_release: 'Held for release',
   status_rejected: 'Rejected',
   status_reversed: 'Reversed',
   status_needs_review: 'Needs review',
@@ -37,8 +38,11 @@ const en = {
   reason_unknown_asset: 'This is not the asset the address was issued for, so it was not credited.',
   reason_minimum_unset: 'Waiting: this network has no minimum deposit set.',
   reason_confirmations_unset: 'Waiting: this network has no confirmation count published.',
-  reason_chain_reorg: 'The network rewrote the block this deposit was in, so the credit was taken back.',
+  reason_chain_reorg:
+    'The network rewrote the block this deposit was in, so it did not arrive. Anything credited from it was taken back once.',
   reason_reversal_unfunded: 'The network rewrote this deposit, but the funds are already spent, so support is reviewing it.',
+  reason_address_expired:
+    'Sent to one of your deposit addresses after it expired. The funds are safe and wait for support to release them to you.',
 } as const;
 
 const es = {
@@ -70,6 +74,7 @@ const es = {
   status_credited: 'Acreditado',
   status_below_minimum: 'Bajo el mínimo',
   status_held_for_screening: 'En revisión',
+  status_held_for_release: 'Retenido hasta su liberación',
   status_rejected: 'Rechazado',
   status_reversed: 'Revertido',
   status_needs_review: 'Requiere revisión',
@@ -78,8 +83,10 @@ const es = {
   reason_unknown_asset: 'No es el activo para el que se emitió la dirección; no se acreditó.',
   reason_minimum_unset: 'En espera: esta red no tiene un depósito mínimo fijado.',
   reason_confirmations_unset: 'En espera: esta red no tiene un número de confirmaciones publicado.',
-  reason_chain_reorg: 'La red reescribió el bloque de este depósito, así que se retiró el abono.',
+  reason_chain_reorg: 'La red reescribió el bloque de este depósito, así que no llegó. Lo que se abonó por él se retiró una sola vez.',
   reason_reversal_unfunded: 'La red reescribió este depósito, pero los fondos ya se gastaron, así que soporte lo está revisando.',
+  reason_address_expired:
+    'Se envió a una de tus direcciones de depósito después de que caducara. Los fondos están a salvo y esperan a que soporte te los libere.',
 } satisfies Record<keyof typeof en, string>;
 
 const fr = {
@@ -111,6 +118,7 @@ const fr = {
   status_credited: 'Crédité',
   status_below_minimum: 'Sous le minimum',
   status_held_for_screening: 'En examen',
+  status_held_for_release: 'Retenu jusqu’à libération',
   status_rejected: 'Rejeté',
   status_reversed: 'Annulé',
   status_needs_review: 'À examiner',
@@ -119,8 +127,11 @@ const fr = {
   reason_unknown_asset: 'Ce n’est pas l’actif pour lequel l’adresse a été émise ; non crédité.',
   reason_minimum_unset: 'En attente : ce réseau n’a pas de dépôt minimum fixé.',
   reason_confirmations_unset: 'En attente : ce réseau n’a pas de nombre de confirmations publié.',
-  reason_chain_reorg: 'Le réseau a réécrit le bloc de ce dépôt, le crédit a donc été repris.',
+  reason_chain_reorg:
+    'Le réseau a réécrit le bloc de ce dépôt, il n’est donc pas arrivé. Ce qui a été crédité pour lui a été repris une seule fois.',
   reason_reversal_unfunded: 'Le réseau a réécrit ce dépôt, mais les fonds sont déjà dépensés ; le support l’examine.',
+  reason_address_expired:
+    'Envoyé à l’une de vos adresses de dépôt après son expiration. Les fonds sont en sécurité et attendent que le support vous les libère.',
 } satisfies Record<keyof typeof en, string>;
 
 export const depositRecordsCopy = defineCopy('customer.bank.deposit.records', en, { es, fr });

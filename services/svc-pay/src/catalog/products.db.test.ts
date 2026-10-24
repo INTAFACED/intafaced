@@ -239,21 +239,20 @@ describe('product catalogue (M-catalogue-01, J-merchant-03 steps 1 and 2)', () =
       code: 'NOT_FOUND',
       cause: 'pay.product_not_found',
     });
-    // A typed product ID in the address, and a test-mode row read from the live portal, are missing too.
+    // A typed product ID in the address is missing too.
     expect(await refusal(() => as(owner).merchantCatalog.products.get({ productId: 'tee-classic' }))).toMatchObject({
       code: 'NOT_FOUND',
       cause: 'pay.product_not_found',
     });
+    // A test-mode row stays out of the live list and reads by its id as a test product (step 6's test catalogue).
     const [testRow] = await sql<Array<{ id: string }>>`
       INSERT INTO pay.catalog_products (merchant_id, mode, product_key, request_id, request_hash, name, type, created_by)
       VALUES (${merchant}, 'test', 'test-only-tee', ${nid()}, ${'0'.repeat(64)}, 'TEST Test-mode tee', 'physical', ${owner})
       RETURNING id`;
-    expect(await refusal(() => as(owner).merchantCatalog.products.get({ productId: testRow!.id }))).toMatchObject({
-      code: 'NOT_FOUND',
-      cause: 'pay.product_not_found',
-    });
+    expect((await as(owner).merchantCatalog.products.get({ productId: testRow!.id })).mode).toBe('test');
     const mine = await as(owner).merchantCatalog.products.list({ limit: 50 });
     expect(mine.items.every((p) => p.name !== 'TEST Their tee')).toBe(true);
+    expect(mine.items.every((p) => p.name !== 'TEST Test-mode tee')).toBe(true);
   });
 
   it('pages newest first without skipping or repeating a product', async () => {

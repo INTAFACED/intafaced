@@ -299,6 +299,17 @@ describe('support.tradeSummary', () => {
     ]);
   });
 
+  it('shows a stop-market as a stop, beside a stop-limit that stays one', async () => {
+    const { stop } = await seedAlice();
+    const stopMarket = await order(ALICE, { status: 'open', market: SPOT, price: '47760', at: '2026-10-07T00:00:00Z' });
+    await db.sql`INSERT INTO trade.order_stop_trigger (order_id, user_id, stop_price, kind) VALUES (${stopMarket}, ${ALICE}, '48000', 'stop')`;
+    const res = await call(reader(), 'svc-support', ask());
+    expect(res.status).toBe(200);
+    const items = res.body.result.data.orders.items as Array<{ orderId: string; type: string }>;
+    expect(items.find((o) => o.orderId === stopMarket)?.type).toBe('stop');
+    expect(items.find((o) => o.orderId === stop)?.type).toBe('stop_limit');
+  });
+
   it('shows an order whose outcome is unknown as recoveryRequired, not as plain open', async () => {
     const id = await order(ALICE, { status: 'recovery_required', recovery: true, at: '2026-10-04T00:00:00Z' });
     const res = await call(reader(), 'svc-support', ask());

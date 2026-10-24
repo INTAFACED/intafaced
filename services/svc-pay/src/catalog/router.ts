@@ -1,5 +1,7 @@
 import type { Sql } from 'postgres';
 import {
+  catalogCopyInputSchema,
+  catalogCopySchema,
   priceChoicesInputSchema,
   priceChoicesSchema,
   priceCreateInputSchema,
@@ -36,6 +38,7 @@ import { resolveMerchantCaller } from '../merchant-ops/roles.js';
 import { ownMerchantRead } from '../own-merchant-read.js';
 import { teamMemberWrite } from '../team-member-write.js';
 import type { ProductImageRule } from './image-rules.js';
+import { CatalogCopier } from './copy.js';
 import { ProductImports } from './import.js';
 import { ProductPrices } from './prices.js';
 import { ProductCatalog } from './products.js';
@@ -47,7 +50,7 @@ export interface CatalogMountDeps {
 
 /**
  * `merchantCatalog.*`: the business's product catalogue and its prices (M-catalogue-01, M-catalogue-02,
- * M-adv-payments-core-20, the import of M-adv-payments-core-21). The business is the caller's own, resolved
+ * M-adv-payments-core-20, the import, test catalogue and copy of M-adv-payments-core-21). The business is the caller's own, resolved
  * from the signed principal and never taken from the request. Reads take the merchant read scope; writes take
  * `pay:write`, or `pay:onboard` for an active member of a verified business (`teamMemberWrite`), and then the role
  * table (`products.manage`). Without a database every procedure refuses `pay.merchant_ops_unavailable`.
@@ -56,9 +59,10 @@ export function createMerchantCatalogRouter(deps: CatalogMountDeps | undefined) 
   const catalog = deps ? new ProductCatalog(deps.sql, deps.imageRule) : null;
   const prices = deps ? new ProductPrices(deps.sql) : null;
   const imports = deps ? new ProductImports(deps.sql) : null;
+  const copier = deps ? new CatalogCopier(deps.sql) : null;
   const need = () => {
-    if (!catalog || !prices || !imports || !deps) throw new MerchantOpsError('pay.merchant_ops_unavailable', 'unavailable');
-    return { catalog, prices, imports, sql: deps.sql };
+    if (!catalog || !prices || !imports || !copier || !deps) throw new MerchantOpsError('pay.merchant_ops_unavailable', 'unavailable');
+    return { catalog, prices, imports, copier, sql: deps.sql };
   };
   const read = ownMerchantRead();
   const write = teamMemberWrite(() => need().sql);
@@ -130,6 +134,10 @@ export function createMerchantCatalogRouter(deps: CatalogMountDeps | undefined) 
           .output(priceQuoteSchema)
           .query(({ ctx, input }) => wrapOps(async () => need().prices.quote(await callerOf(ctx), input))),
       }),
+      copy: write
+        .input(catalogCopyInputSchema)
+        .output(catalogCopySchema)
+        .mutation(({ ctx, input }) => wrapOps(async () => need().copier.copy(await callerOf(ctx), input))),
       images: router({
         rules: read
           .input(z.object({}).strict())

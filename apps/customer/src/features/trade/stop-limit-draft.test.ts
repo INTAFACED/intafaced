@@ -24,3 +24,12 @@ describe('stop-limit draft', () => {
     expect(draftSchema.safeParse({ ...base, type: 'limit' }).success).toBe(false);
   });
 });
+
+describe('stop-market draft', () => {
+  const market = { ...base, type: 'stop', price: undefined } as const;
+  it('needs a stop price and names no price: the service places it at its protection price', () => {
+    expect(draftSchema.safeParse(market).success).toBe(true);
+    expect(draftSchema.safeParse({ ...market, stopPrice: undefined }).success).toBe(false);
+    expect(draftSchema.safeParse({ ...market, price: '69000' }).success).toBe(false);
+  });
+});

@@ -236,6 +236,9 @@ export const spaceOutput = z.object({
   name: z.string(),
   goalTarget: z.string().nullable(),
   lockedUntil: z.string().nullable(),
+  /** An early unlock still waiting (BK-pots-02): when the pot opens, and when its owner asked. Null when none waits. */
+  unlocksAt: z.string().nullable(),
+  unlockRequestedAt: z.string().nullable(),
   /** Read from the ledger at request time. Not stored, not cached. */
   balance: amountString,
   /** The ledger account this space is a view of — so a client can verify us. */

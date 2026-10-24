@@ -36,6 +36,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     }),
     BANK_ACCOUNT_CURRENCIES: 'USDT,USDC,BTC,ETH',
     BANK_SPACE_LIMIT: '5',
+    // LOCAL TEST value from the bank profile (BK-pots-02): how long an early unlock of a locked space waits. Unset, every
+    // early unlock refuses bank.space_unlock_rule_unset and the space stays locked to its date.
+    BANK_SPACE_UNLOCK_WAIT_HOURS: testValue('BANK_SPACE_UNLOCK_WAIT_HOURS'),
     BANK_ACCOUNT_DETAILS_CURRENCIES: 'EUR,GBP,USD',
     // LOCAL TEST values, not owner decisions: how many withdrawal addresses one person may save, and how long a
     // new one waits before money may leave to it. Unset, the address book refuses saves and lists every row as
@@ -50,6 +53,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     BANK_WALLET_PROOF_VALID_DAYS: '180',
     // LOCAL TEST value: how long an emailed link that approves a new withdrawal address works (J-wallet-04 #5).
     BANK_ADDRESS_APPROVAL_LINK_MINUTES: '30',
+    // LOCAL TEST values: how many deposit addresses one person may hold open per asset and network (small, so J-wallet-02 #4
+    // reaches it), and how long an extra one lasts. Unset, making another deposit address refuses by name.
+    BANK_DEPOSIT_ADDRESS_CAP: '3',
+    BANK_DEPOSIT_ADDRESS_EXPIRY_DAYS: '30',
     // LOCAL TEST values from the bank profile, not owner decisions (BK-xfer-07): one made-up blocked payee, one made-up
     // exchange account with a small allowance, and the proof files a held send may upload. Unset, every global send
     // refuses before its quote, so the sending journeys could not reach a hold or a refusal on this stack.

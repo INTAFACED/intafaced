@@ -151,6 +151,51 @@ export function deviceAuthorisationOf(cause: unknown): { flowId: string; secret:
   return { flowId: d.flowId, secret: d.secret, expiresAt: d.expiresAt, mailed: d.mailed };
 }
 
+export type SecondStepPasskeyOptions = {
+  challenge: string;
+  timeout?: number;
+  rpId?: string;
+  allowCredentials: Array<{ id: string; type: 'public-key'; transports?: string[] }>;
+  userVerification?: 'required' | 'preferred' | 'discouraged';
+};
+
+const B64URL = /^[A-Za-z0-9_-]{1,1400}$/;
+
+/**
+ * The second steps an `auth.mfa_required` sign-in may answer with (I-signin-sessions-10): `totp` when the account has an
+ * authenticator, and `passkey`, the options for a single-use challenge bound to the account whose password just
+ * verified, when it has a passkey for sign-in. Sent only after the password verified, so the credential ids go to
+ * someone who already proved the first factor. Any other shape, or any other code, is dropped.
+ */
+export function secondStepOf(cause: unknown): { totp: boolean; passkey: SecondStepPasskeyOptions | null } | undefined {
+  if (!cause || typeof cause !== 'object' || !('code' in cause) || cause.code !== 'auth.mfa_required') return undefined;
+  const details = 'details' in cause ? cause.details : undefined;
+  if (!details || typeof details !== 'object' || !('secondStep' in details)) return undefined;
+  const d = details.secondStep as Record<string, unknown> | null;
+  if (!d || typeof d.totp !== 'boolean') return undefined;
+  const raw = d.passkey as Record<string, unknown> | null | undefined;
+  if (raw === null || raw === undefined) return { totp: d.totp, passkey: null };
+  if (typeof raw.challenge !== 'string' || !B64URL.test(raw.challenge) || !Array.isArray(raw.allowCredentials)) return undefined;
+  const allowCredentials: SecondStepPasskeyOptions['allowCredentials'] = [];
+  for (const item of raw.allowCredentials as Array<Record<string, unknown>>) {
+    if (!item || typeof item.id !== 'string' || !B64URL.test(item.id) || item.type !== 'public-key') return undefined;
+    const transports = Array.isArray(item.transports) ? item.transports.filter((t): t is string => typeof t === 'string') : undefined;
+    allowCredentials.push({ id: item.id, type: 'public-key', ...(transports ? { transports } : {}) });
+  }
+  if (allowCredentials.length === 0) return undefined;
+  const uv = raw.userVerification;
+  return {
+    totp: d.totp,
+    passkey: {
+      challenge: raw.challenge,
+      allowCredentials,
+      ...(typeof raw.timeout === 'number' && Number.isFinite(raw.timeout) ? { timeout: raw.timeout } : {}),
+      ...(typeof raw.rpId === 'string' ? { rpId: raw.rpId } : {}),
+      ...(uv === 'required' || uv === 'preferred' || uv === 'discouraged' ? { userVerification: uv } : {}),
+    },
+  };
+}
+
 const BLOCKER_CODE = /^[a-z][a-z0-9_.]*$/;
 
 const ALGO_MONEY_CODES = new Set(['trade.algo_insufficient_balance', 'trade.algo_balance_unreadable']);
@@ -361,6 +406,7 @@ const t = initTRPC.context<Context>().create({
     const spend = spendFiguresOf(cause);
     const accountState = accountStateOf(cause);
     const deviceAuthorisation = deviceAuthorisationOf(cause);
+    const secondStep = secondStepOf(cause);
     const p2pLimit = p2pLimitOf(cause);
     return {
       ...shape,
@@ -387,6 +433,8 @@ const t = initTRPC.context<Context>().create({
         ...(accountState ? { accountState } : {}),
         // Only on `auth.device_authorisation_required`: the waiting new-device sign-in.
         ...(deviceAuthorisation ? { deviceAuthorisation } : {}),
+        // Only on sign-in's `auth.mfa_required`: which second steps answer it, with a passkey challenge when one does.
+        ...(secondStep ? { secondStep } : {}),
         ...(blockers ? { blockers } : {}),
         ...(algo ? { algo } : {}),
         // Only on `pay.guard_withdrawal_limit_exceeded`.

@@ -821,6 +821,11 @@ export interface CustodyDepositReceiver {
     amount: Amount;
     confirmations: number;
   }): Promise<{ state: 'unmatched' } | { state: 'recorded' }>;
+  /**
+   * The chain took a transfer back (W-deposit-06): reverse its credit once, or close the record if nothing was credited.
+   * `unmatched` is an address no customer holds; `unknown` is a customer address with no record of that transfer.
+   */
+  reverse?(input: { address: string; txHash: string; outputIndex: number }): Promise<{ state: 'unmatched' | 'unknown' | 'recorded' }>;
 }
 
 export interface PayServiceOptions {

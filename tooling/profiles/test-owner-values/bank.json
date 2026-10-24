@@ -31,6 +31,11 @@
       "value": "5",
       "note": "TEST number of live named spaces per account, small so a journey can reach the limit."
     },
+    "BANK_SPACE_UNLOCK_WAIT_HOURS": {
+      "service": "bank",
+      "value": "24",
+      "note": "TEST hours an early unlock of a locked space waits before it opens (J-bank-07 #2); not an owner decision."
+    },
     "BANK_ACCOUNT_DETAILS_CURRENCIES": {
       "service": "bank",
       "value": "EUR,GBP,USD",
@@ -90,6 +95,16 @@
       "service": "bank",
       "value": "30",
       "note": "How many minutes an emailed link that approves a new withdrawal address works (J-wallet-04 #5)."
+    },
+    "BANK_DEPOSIT_ADDRESS_CAP": {
+      "service": "bank",
+      "value": "3",
+      "note": "TEST number of deposit addresses one person may hold open for one asset on one network, the first included; small so a journey can reach it (J-wallet-02 #4)."
+    },
+    "BANK_DEPOSIT_ADDRESS_EXPIRY_DAYS": {
+      "service": "bank",
+      "value": "30",
+      "note": "TEST days an extra deposit address stays open before it expires (J-wallet-02 #4)."
     },
     "BANK_PAYEE_CONTROLS_JSON": {
       "service": "bank",

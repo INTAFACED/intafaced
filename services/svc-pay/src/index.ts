@@ -366,6 +366,8 @@ const connectBus = (): Promise<JetStreamEventBus | null> => {
 const custodyDepositBook = new CustodyDepositBook({
   sql,
   postDeposit: (input) => userMoney.postCustodyDeposit(input),
+  // W-deposit-06: a credited deposit the chain took back is reversed once, or sent to review when the funds were spent.
+  reverseDeposit: (input) => userMoney.reverseCustodyDeposit(input),
   registries: createRegistryReader(sql),
   // W-deposit-09: one announcement per credited deposit, keyed by the deposit; the book records it and retries what it did not.
   announceCredit: async (credit) => {

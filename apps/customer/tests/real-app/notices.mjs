@@ -22,12 +22,14 @@ const data = (res, what) => {
 
 /**
  * svc-notify's payload hash: id, kind, title, body and version, plus the incident status fields when the draft set any,
- * the category when it names one and the audience when it is not everyone. No scope, changelog or reminder fields (no
- * journey here drafts those).
+ * the asset, network and phase as stored (an update keeps its incident's pair) when it has any, the category when it names
+ * one and the audience when it is not everyone. No changelog or reminder fields (no journey here drafts those).
  */
 const payloadHash = (row) => {
   const status = row.statusFields;
   const withStatus = status && (status.impact || status.components.length > 0 || status.parentId || status.resolves) ? { status } : {};
+  const [asset, network, phase] = [row.asset ?? null, row.network ?? null, row.phase ?? null];
+  const withScope = asset !== null || phase !== null ? { scope: { asset, network, phase } } : {};
   const withCategory = row.category ? { category: row.category } : {};
   const withAudience = row.audience && row.audience !== 'everyone' ? { audience: row.audience } : {};
   return `sha256:${createHash('sha256')
@@ -39,6 +41,7 @@ const payloadHash = (row) => {
         body: row.body,
         version: row.version,
         ...withStatus,
+        ...withScope,
         ...withCategory,
         ...withAudience,
       }),
@@ -48,7 +51,8 @@ const payloadHash = (row) => {
 
 /**
  * A draft notice, open from now for `minutes` unless `startsAt`/`endsAt` say otherwise. Returns the stored row. An incident may name an impact and status page
- * components, update an earlier incident (`parentId`) and close it (`resolves`).
+ * components, update an earlier incident (`parentId`) and close it (`resolves`). A funding incident or maintenance window names
+ * one `asset` on one `network` (the registry's spelling, e.g. USDT and ethereum), and every incident entry its `phase`.
  */
 export async function draftNotice({
   kind,
@@ -64,6 +68,9 @@ export async function draftNotice({
   endsAt = null,
   category = null,
   audience = null,
+  asset = null,
+  network = null,
+  phase = null,
 }) {
   if (endsAt === null && !(minutes > 0)) throw new Error('draftNotice needs `minutes` or an `endsAt`');
   const { ctx, pair } = await founders();
@@ -83,6 +90,8 @@ export async function draftNotice({
       ...(resolves ? { resolves } : {}),
       ...(category ? { category } : {}),
       ...(audience ? { audience } : {}),
+      ...(asset ? { asset, network } : {}),
+      ...(phase ? { phase } : {}),
       clientRequestId: `journey:notice-draft:${key}`,
     },
     await pair.a.tradeOpsToken(),

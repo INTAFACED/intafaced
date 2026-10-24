@@ -8,6 +8,8 @@
  *                                         credit labelled TEST funds through the real ledger
  *   node tooling/scripts/local-test-stack.mjs chain-deposit <address> <ASSET> <amount> <confirmations> --tx <label>
  *                                         deliver a signed TEST chain transfer to a deposit address svc-pay issued
+ *   node tooling/scripts/local-test-stack.mjs chain-reorg <address> --tx <label>
+ *                                         the TEST chain takes that transfer back (a reorg), as the watcher would report it
  *   node tooling/scripts/local-test-stack.mjs status
  *
  * What it starts, all bound to 127.0.0.1, state in ~/.intafaced/local-test-stack/:
@@ -27,6 +29,7 @@
  *   pnpm local:stack customer-dist --clear   go back to this checkout's own build
  *   node tooling/scripts/local-test-stack.mjs age-linked-accounts <email> <hours>   TEST fixture: past a cooling-off
  *   node tooling/scripts/local-test-stack.mjs expire-address-approvals <email>   TEST fixture: open approval links run out
+ *   node tooling/scripts/local-test-stack.mjs expire-deposit-addresses <email>   TEST fixture: open extra deposit addresses expire
  *
  * Rules this file keeps (AGENTS.md "Money"):
  *   - Value moves ONLY through the ledger (packages/ledger-client recipes -> svc-ledger).
@@ -1707,6 +1710,35 @@ function cmdAgeLinkedAccounts(args) {
 }
 
 /**
+ * `expire-deposit-addresses <email-or-userId>`: the TEST person's open extra deposit addresses (W-deposit-02) expire now, in
+ * custody (svc-pay, whose stored expiry decides a late deposit) and in the bank's list alike, so a journey can show, as
+ * J-wallet-02 #4 does, that a deposit to an expired address is held for release, without waiting the TEST window out. The
+ * first address never expires and is left alone. It credits nothing, releases nothing and moves no value.
+ */
+function cmdExpireDepositAddresses(args) {
+  const [who] = args;
+  if (!who) fail('usage: node tooling/scripts/local-test-stack.mjs expire-deposit-addresses <email-or-userId>', 2);
+  const { secrets, userId } = localFixturePerson(who);
+  const expire = (schema, role) =>
+    psql(
+      secrets,
+      `UPDATE ${schema}.${schema === 'pay' ? 'custody_deposit_addresses' : 'deposit_addresses'}
+          SET expires_at = now() - interval '1 minute'
+        WHERE user_id = :'uid' AND address_index > 0 AND expires_at > now() RETURNING address`,
+      { db: DB_NAME, user: role, password: secrets.pgService, vars: { uid: userId }, tuples: true },
+    )
+      .trim()
+      .split('\n')
+      // psql prints the UPDATE tag after the addresses; count the addresses alone.
+      .filter((line) => line && !/^UPDATE \d+$/.test(line));
+  const custody = expire('pay', 'svc_pay');
+  const listed = expire('bank', 'svc_bank');
+  say(
+    `  ${custody.length} extra deposit address(es) of ${who} now expired in custody, ${listed.length} in the bank list (LOCAL TEST fixture)`,
+  );
+}
+
+/**
  * `expire-address-approvals <email-or-userId>`: the TEST person's open withdrawal-address approval links (W-withdraw-09)
  * run out now, so a journey can show, as J-wallet-04 #5 does, that an expired link is refused and a new one is needed,
  * without waiting the TEST lifetime out. Both times move back by the same amount, so a link stays as long as it was
@@ -1858,18 +1890,7 @@ async function cmdFund(rawArgs) {
  * is a repeat of one chain event, never a second deposit. svc-pay decides what it is worth; nothing here touches the ledger.
  */
 async function cmdChainDeposit(rawArgs) {
-  const args = [...rawArgs];
-  const option = (name, re, what) => {
-    const at = args.indexOf(name);
-    if (at === -1) return undefined;
-    const value = args[at + 1];
-    args.splice(at, 2);
-    if (!value || !re.test(value)) fail(`${name} must be ${what}`, 2);
-    return value;
-  };
-  const label = option('--tx', /^[A-Za-z0-9-]{4,64}$/, '4-64 letters, digits or dashes');
-  const index = option('--index', /^\d{1,4}$/, 'a whole number');
-  if (args.some((arg) => arg.startsWith('--'))) fail(`unknown option: ${args.find((arg) => arg.startsWith('--'))}`, 2);
+  const { args, label, index } = chainArgs(rawArgs);
   const [address, assetRaw, amountStr, confirmationsStr, ...extra] = args;
   if (!address || !assetRaw || !amountStr || !confirmationsStr || !label || extra.length > 0)
     fail(
@@ -1882,18 +1903,9 @@ async function cmdChainDeposit(rawArgs) {
   if (!/^\d{1,4}$/.test(confirmationsStr)) fail(`confirmations must be a whole number (got "${confirmationsStr}")`, 2);
   if (address.length > 200 || /\s/.test(address)) fail('bad deposit address', 2);
 
-  // Guards: this only ever talks to the local stack's own svc-pay.
-  if (!fs.existsSync(P.marker)) fail(`refusing: marker ${P.marker} not found. Start the stack first (pnpm local:stack).`);
-  if (readJson(P.marker).kind !== 'intafaced-local-test-stack') fail('refusing: marker file is not a local test stack marker');
-  if (!ownedAlive(readProcs().pay)) fail('refusing: the local stack svc-pay is not running. Run: pnpm local:stack');
-  assertActiveLocalStack({ stateDir: STATE, services: ['pay'] });
-  const secret = readJson(P.secrets).payCryptoWebhook;
-  if (!secret) fail('refusing: this stack has no crypto webhook secret. Run: pnpm local:stack --rebuild');
-
-  // The same label to another address is another transfer, never a repeat of the first one's.
-  const txHash = `0x${crypto.createHash('sha256').update(`local-test-chain-deposit:${address}:${label}`).digest('hex')}`;
+  const txHash = chainTxHash(address, label);
   const logIndex = Number(index ?? '0');
-  const body = JSON.stringify({
+  const text = await deliverChainEvent({
     id: `chain:${txHash}:${address}:${logIndex}`,
     type: 'captured',
     ref: address,
@@ -1905,6 +1917,48 @@ async function cmdChainDeposit(rawArgs) {
     from: '0xTEST-sender',
     confirmations: Number(confirmationsStr),
   });
+  say('TEST chain delivery to svc-pay (in-memory TEST chain, not real money)');
+  say(`  to        ${address}`);
+  say(`  amount    ${amountStr} ${asset}, ${confirmationsStr} confirmations`);
+  say(`  tx        ${txHash}:${logIndex}   (label ${label})`);
+  say(`  answer    ${text}`);
+}
+
+/**
+ * The `--tx <label>` and `--index <n>` options `chain-deposit` and `chain-reorg` share, so one label always names the same
+ * transfer in both. Returns the positional arguments left.
+ */
+function chainArgs(rawArgs) {
+  const args = [...rawArgs];
+  const option = (name, re, what) => {
+    const at = args.indexOf(name);
+    if (at === -1) return undefined;
+    const value = args[at + 1];
+    args.splice(at, 2);
+    if (!value || !re.test(value)) fail(`${name} must be ${what}`, 2);
+    return value;
+  };
+  const label = option('--tx', /^[A-Za-z0-9-]{4,64}$/, '4-64 letters, digits or dashes');
+  const index = option('--index', /^\d{1,4}$/, 'a whole number');
+  if (args.some((arg) => arg.startsWith('--'))) fail(`unknown option: ${args.find((arg) => arg.startsWith('--'))}`, 2);
+  return { args, label, index };
+}
+
+/** The TEST transaction hash of `label` to `address`: the same label to the same address is the same transfer, another address another one. */
+function chainTxHash(address, label) {
+  return `0x${crypto.createHash('sha256').update(`local-test-chain-deposit:${address}:${label}`).digest('hex')}`;
+}
+
+/** Signs one chain watcher event with this stack's crypto webhook secret and delivers it to the stack's own svc-pay. Returns its answer. */
+async function deliverChainEvent(event) {
+  // Guards: this only ever talks to the local stack's own svc-pay.
+  if (!fs.existsSync(P.marker)) fail(`refusing: marker ${P.marker} not found. Start the stack first (pnpm local:stack).`);
+  if (readJson(P.marker).kind !== 'intafaced-local-test-stack') fail('refusing: marker file is not a local test stack marker');
+  if (!ownedAlive(readProcs().pay)) fail('refusing: the local stack svc-pay is not running. Run: pnpm local:stack');
+  assertActiveLocalStack({ stateDir: STATE, services: ['pay'] });
+  const secret = readJson(P.secrets).payCryptoWebhook;
+  if (!secret) fail('refusing: this stack has no crypto webhook secret. Run: pnpm local:stack --rebuild');
+  const body = JSON.stringify(event);
   const timestamp = Math.floor(Date.now() / 1000).toString();
   const signature = crypto.createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex');
   const res = await fetch(`${urlOf('pay')}/webhooks/crypto-native`, {
@@ -1915,9 +1969,34 @@ async function cmdChainDeposit(rawArgs) {
   });
   const text = await res.text();
   if (res.status !== 200) fail(`svc-pay refused the TEST chain delivery (${res.status}): ${text.slice(0, 400)}`);
-  say('TEST chain delivery to svc-pay (in-memory TEST chain, not real money)');
-  say(`  to        ${address}`);
-  say(`  amount    ${amountStr} ${asset}, ${confirmationsStr} confirmations`);
+  return text;
+}
+
+/**
+ * `chain-reorg <address> --tx <label> [--index <n>]`: the TEST chain takes back the transfer `chain-deposit` delivered with
+ * that label to that address, as a chain watcher reports a reorg (W-deposit-06): a `chain.reorged` event to svc-pay's own
+ * `/webhooks/crypto-native`, signed with the stack's secret. svc-pay decides what that means (closed, reversed through the
+ * ledger, or needs review when the funds were spent); nothing here touches the ledger. A repeat is the same report.
+ */
+async function cmdChainReorg(rawArgs) {
+  const { args, label, index } = chainArgs(rawArgs);
+  const [address, ...extra] = args;
+  if (!address || !label || extra.length > 0)
+    fail('usage: node tooling/scripts/local-test-stack.mjs chain-reorg <address> --tx <label> [--index <n>]', 2);
+  if (address.length > 200 || /\s/.test(address)) fail('bad deposit address', 2);
+  const txHash = chainTxHash(address, label);
+  const logIndex = Number(index ?? '0');
+  const text = await deliverChainEvent({
+    id: `reorg:${txHash}:${address}:${logIndex}`,
+    type: 'chain.reorged',
+    ref: address,
+    occurredAt: new Date().toISOString(),
+    txHash,
+    logIndex,
+    confirmations: 0,
+  });
+  say('TEST chain reorg delivered to svc-pay (in-memory TEST chain, not real money)');
+  say(`  at        ${address}`);
   say(`  tx        ${txHash}:${logIndex}   (label ${label})`);
   say(`  answer    ${text}`);
 }
@@ -1962,8 +2041,10 @@ async function runCli() {
   else if (cmd === 'restart') await cmdRestart(rest);
   else if (cmd === 'fund') await cmdFund(rest);
   else if (cmd === 'chain-deposit') await cmdChainDeposit(rest);
+  else if (cmd === 'chain-reorg') await cmdChainReorg(rest);
   else if (cmd === 'age-linked-accounts') cmdAgeLinkedAccounts(rest);
   else if (cmd === 'expire-address-approvals') cmdExpireAddressApprovals(rest);
+  else if (cmd === 'expire-deposit-addresses') cmdExpireDepositAddresses(rest);
   else if (cmd === 'customer-dist') cmdCustomerDist(rest);
   else if (cmd === 'status') {
     const ok = await healthTable({ gateMarket: true });
@@ -1972,7 +2053,7 @@ async function runCli() {
     process.exit(ok ? 0 : 1);
   } else
     fail(
-      `unknown command "${cmd}". Use: start | stop | status | fund | age-linked-accounts | expire-address-approvals | plan | restart | customer-dist`,
+      `unknown command "${cmd}". Use: start | stop | status | fund | age-linked-accounts | expire-address-approvals | expire-deposit-addresses | plan | restart | customer-dist`,
       2,
     );
 }

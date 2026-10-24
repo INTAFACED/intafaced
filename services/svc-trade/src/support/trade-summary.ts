@@ -106,16 +106,18 @@ export function toSupportPosition(row: PositionRow): SupportTradePosition {
 interface OrderReadRow extends OrderRow {
   symbol: string;
   has_stop_trigger: boolean;
+  /** The stored stop kind: `stop` for a stop-market, `stop_limit` otherwise; null with no stop. */
+  stop_kind?: string | null;
 }
 
-/** The customer order view narrowed to the contract. A stop-limit shows as one, as it does on the customer's own list. */
+/** The customer order view narrowed to the contract. A stop-limit or stop-market shows as one, as it does on the customer's own list. */
 export function toSupportOrder(row: OrderReadRow): SupportTradeOrder {
   const view = presentCcxtOrder(toOrder(row), row.symbol);
   return {
     orderId: view.id,
     symbol: view.symbol,
     side: view.side,
-    type: row.has_stop_trigger && view.type === 'limit' ? 'stop_limit' : view.type,
+    type: row.has_stop_trigger && view.type === 'limit' ? (row.stop_kind === 'stop' ? 'stop' : 'stop_limit') : view.type,
     status: view.status,
     qty: view.amount,
     filledQty: view.filled,
@@ -196,7 +198,7 @@ export class SupportTradeSummaryReader {
              ORDER BY r.created_at DESC, r.rung_id DESC
              LIMIT ${limit + 1}`;
           const orders = await tx<OrderReadRow[]>`
-            SELECT o.*, m.symbol, (t.order_id IS NOT NULL) AS has_stop_trigger
+            SELECT o.*, m.symbol, (t.order_id IS NOT NULL) AS has_stop_trigger, t.kind AS stop_kind
               FROM trade.orders o
               JOIN trade.markets m ON m.id = o.market_id
               LEFT JOIN trade.order_stop_trigger t ON t.order_id = o.id

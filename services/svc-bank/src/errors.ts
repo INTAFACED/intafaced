@@ -349,6 +349,18 @@ export type BankErrorCode =
   | 'bank.deposit_network_halted'
   /** Custody returned more incoming deposits than this door will publish. None are dropped. */
   | 'bank.deposit_pending_unbounded'
+  /** BANK_DEPOSIT_ADDRESS_CAP is not published, so no extra deposit address is made (W-deposit-02). */
+  | 'bank.deposit_address_cap_unset'
+  /** The person already holds the owner's cap of open deposit addresses for this asset on this network. */
+  | 'bank.deposit_address_cap_reached'
+  /** BANK_DEPOSIT_ADDRESS_EXPIRY_DAYS is not published, so an extra address would have no expiry: none is made. */
+  | 'bank.deposit_address_expiry_unset'
+  /** Every address number (up to 9999) for this person, asset and network has been used; numbers are never reused. */
+  | 'bank.deposit_address_numbers_used'
+  /** No deposit address of this person has that asset, network and number. */
+  | 'bank.deposit_address_not_found'
+  /** A deposit address label must be 1 to 40 characters with no space at either end, or empty to clear it. */
+  | 'bank.deposit_address_label_invalid'
   | 'bank.ramp_invalid_amount'
   /**
    * Asset id is blank or not a usable crypto ledger symbol. The crypto half
@@ -782,6 +794,12 @@ export type BankErrorCode =
   | 'bank.space_limit_unset'
   /** The account already holds the owner's number of live named spaces. */
   | 'bank.space_limit_reached'
+  /** A pot change that cannot be: a goal of zero or less, a lock date not in the future or earlier than the lock, or the primary space (BK-pots-02). */
+  | 'bank.space_change_invalid'
+  /** The owner has not set how long an early unlock waits (`BANK_SPACE_UNLOCK_WAIT_HOURS`), so the pot stays locked to its date (BK-pots-02). */
+  | 'bank.space_unlock_rule_unset'
+  /** An early unlock was asked for, or withdrawn, on a pot that is not locked now (BK-pots-02). */
+  | 'bank.space_not_locked'
   /** The profile a bank call names is not one the caller holds: an unknown or closed business, or one they are not a member of. */
   | 'bank.profile_not_held'
   /** A business profile has no company account of its own in this build, so there is no company terms, currency or detail to show. */

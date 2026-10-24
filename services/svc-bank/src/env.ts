@@ -338,6 +338,22 @@ const schema = serviceEnvSchema
       BANK_ADDRESS_BOOK_CAP: z.string().optional(),
 
       /**
+       * Owner-set number of deposit addresses one customer may hold open for one asset on one network, the first included
+       * (W-deposit-02), a whole number from 1 to 9999.
+       *
+       * No default. Blank / unset / out of range → making another address refuses `bank.deposit_address_cap_unset`.
+       */
+      BANK_DEPOSIT_ADDRESS_CAP: z.string().optional(),
+
+      /**
+       * Owner-set days an extra deposit address stays open before it expires (W-deposit-02), a whole number from 1 to 9999. A
+       * deposit that first reaches it after that is held for release.
+       *
+       * No default. Blank / unset / out of range → making another address refuses `bank.deposit_address_expiry_unset`.
+       */
+      BANK_DEPOSIT_ADDRESS_EXPIRY_DAYS: z.string().optional(),
+
+      /**
        * Owner-set minutes a wallet ownership proof offer stays open for signing (W-withdraw-17).
        *
        * No default. Blank / unset / zero / not a whole number → starting a proof refuses
@@ -395,6 +411,13 @@ const schema = serviceEnvSchema
        * `bank.space_limit_reached` with the number. Boot stays up; the create is the refuse.
        */
       BANK_SPACE_LIMIT: z.string().optional(),
+
+      /**
+       * Owner-set hours an early pot unlock waits before the pot opens (BK-pots-02), 0 to 8760. NO DEFAULT. Blank / unset /
+       * not a whole number → asking to unlock a pot before its lock date refuses `bank.space_unlock_rule_unset` and the pot
+       * stays locked to its date. Boot stays up; the ask is the refuse.
+       */
+      BANK_SPACE_UNLOCK_WAIT_HOURS: z.string().optional(),
 
       /**
        * Owner-published rules for the purpose, source of funds and reference of a global send, as JSON: `{ reference:

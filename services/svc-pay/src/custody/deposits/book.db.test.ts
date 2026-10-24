@@ -6,6 +6,10 @@ import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { NetworkState } from '../../registries/policy.js';
+import { UserMoneyService } from '../../user-money-service.js';
+import { RailRegistry } from '../../rails/registry.js';
+import { CryptoNativeAdapter } from '../../rails/crypto-native.js';
+import { MemoryChain } from '../../rails/chain-port.js';
 import { CustodyDepositBook } from './book.js';
 
 /** The customer deposit record and its crediting against a real Postgres and the memory ledger. TEST figures only. */
@@ -96,7 +100,7 @@ describe('custody deposit record (real Postgres)', () => {
     ledger = new MemoryLedger();
     failPost = false;
     logs.length = 0;
-    await db.sql`TRUNCATE pay.custody_deposits, pay.custody_deposit_settings, pay.custody_deposit_addresses`;
+    await db.sql`TRUNCATE pay.custody_deposits, pay.custody_deposit_settings, pay.custody_deposit_addresses, pay.custody_deposit_reorgs`;
     await db.sql`INSERT INTO pay.custody_deposit_addresses (user_id, asset_id, network_id, address) VALUES (${ALICE}, 'USDT', 'ethereum', ${ADDRESS})`;
     await setting();
   }, 30_000);
@@ -305,6 +309,258 @@ describe('custody deposit record (real Postgres)', () => {
     expect(posts()).toHaveLength(5);
     expect(new Set(credited.map((r) => r.ledger_tx_id)).size).toBe(5);
     await expect(db.sql`UPDATE pay.custody_deposits SET status = 'credited' WHERE output_index = 9`).rejects.toThrow();
+  });
+
+  describe('a transfer the chain takes back (W-deposit-06)', () => {
+    // The real engines: the credit and its reversal post through UserMoneyService, so the keys are the ones production uses.
+    let failReverse = false;
+    const engines = () =>
+      new UserMoneyService(
+        db.sql,
+        ledger,
+        new RailRegistry([
+          new CryptoNativeAdapter({ chain: new MemoryChain(), secret: SECRET, minConfirmations: 6, toleranceSeconds: 300 }),
+        ]),
+        { operatorCreditRails: [] },
+      );
+    const reorging = (wired = true) => {
+      const money = engines();
+      return new CustodyDepositBook({
+        sql: db.sql,
+        postDeposit: (input) => money.postCustodyDeposit(input),
+        ...(wired
+          ? {
+              reverseDeposit: async (input: Parameters<UserMoneyService['reverseCustodyDeposit']>[0]) => {
+                if (failReverse) throw new Error('ledger timeout');
+                return money.reverseCustodyDeposit(input);
+              },
+            }
+          : {}),
+        registries: { listRoutableNetworks: async () => networks },
+        log: (msg, extra) => logs.push({ msg, extra }),
+      });
+    };
+    const reorg = (over: Partial<{ address: string; txHash: string; outputIndex: number }> = {}) => ({
+      address: ADDRESS,
+      txHash: TX,
+      outputIndex: 0,
+      ...over,
+    });
+    const reversals = () => ledger.journal().filter((t) => t.reason === 'deposit.reversed');
+    const row = async () =>
+      (
+        await db.sql<Array<{ status: string; reason: string | null; ledger_tx_id: string | null; reversal_ledger_tx_id: string | null }>>`
+          SELECT status, reason, ledger_tx_id, reversal_ledger_tx_id FROM pay.custody_deposits`
+      )[0]!;
+    /** Takes `amount` out of Alice's available TEST balance into a withdrawal hold, as a withdrawal would. */
+    async function spend(amount: string) {
+      await ledger.post(
+        recipes.withdrawHold({
+          userId: ALICE,
+          assetId: 'USDT',
+          amount: parseAmount(amount),
+          rail: 'crypto-native',
+          withdrawalId: `test-spend-${amount}`,
+        }),
+      );
+    }
+    beforeEach(() => {
+      failReverse = false;
+    });
+
+    it('a credited deposit is reversed once: one depositReverse under its business key, the balance drops by the amount once', async () => {
+      const b = reorging();
+      await b.receive(seen());
+      expect(await balance()).toBe(parseAmount('25'));
+      const outcomes = await Promise.all(Array.from({ length: 3 }, () => b.reverse(reorg())));
+      expect(outcomes.every((o) => o.state === 'recorded' && o.status === 'reversed' && o.reason === 'chain_reorg')).toBe(true);
+      await reorging().reverse(reorg({ txHash: TX.toLowerCase() }));
+      expect(reversals()).toHaveLength(1);
+      expect(reversals()[0]!.idempotencyKey).toBe(`deposit.reverse:crypto-native:ethereum:${TX.toLowerCase()}:0`);
+      expect(await balance()).toBe(0n);
+      const after = await row();
+      expect(after).toMatchObject({ status: 'reversed', reason: 'chain_reorg' });
+      expect(after.ledger_tx_id).toBe(posts()[0]!.id);
+      expect(after.reversal_ledger_tx_id).toBe(reversals()[0]!.id);
+    });
+
+    it('a deposit not yet credited is closed reversed and posts nothing', async () => {
+      const b = reorging();
+      await b.receive(seen({ confirmations: 2 }));
+      expect(await b.reverse(reorg())).toEqual({ state: 'recorded', status: 'reversed', reason: 'chain_reorg' });
+      expect(posts()).toHaveLength(0);
+      expect(reversals()).toHaveLength(0);
+      // Later sightings of the reversed transfer at full depth do not credit it.
+      expect(await b.settleOpen()).toBe(0);
+    });
+
+    it('a reversed transfer seen again is never credited on its own: review, with an alert', async () => {
+      const b = reorging();
+      await b.receive(seen({ confirmations: 2 }));
+      await b.reverse(reorg());
+      logs.length = 0;
+      expect(await b.receive(seen())).toMatchObject({ status: 'needs_review', reason: 'chain_reorg' });
+      expect(await b.receive(seen())).toMatchObject({ status: 'needs_review', reason: 'chain_reorg' });
+      expect(await b.settleOpen()).toBe(0);
+      expect(posts()).toHaveLength(0);
+      expect(logs.filter((l) => l.extra?.alert === true)).toHaveLength(1);
+      // Reported again, it closes again, still with nothing posted.
+      expect(await b.reverse(reorg())).toMatchObject({ status: 'reversed' });
+      expect(posts()).toHaveLength(0);
+    });
+
+    it('a reorg that arrives before its sighting is kept: the late sighting goes to review, never credited', async () => {
+      const b = reorging();
+      expect(await b.reverse(reorg())).toEqual({ state: 'unknown' });
+      logs.length = 0;
+      expect(await b.receive(seen())).toMatchObject({ status: 'needs_review', reason: 'chain_reorg' });
+      expect(posts()).toHaveLength(0);
+      expect(logs.some((l) => l.extra?.alert === true)).toBe(true);
+      // Another position at the same address is not touched by it.
+      expect(await b.receive(seen({ outputIndex: 1 }))).toMatchObject({ status: 'credited' });
+    });
+
+    it('a settled outcome another instance remembered is checked against the row, so a reorg elsewhere is not hidden', async () => {
+      const a = reorging();
+      const other = reorging();
+      await a.receive(seen({ amount: parseAmount('2') }));
+      expect(await other.receive(seen({ amount: parseAmount('2') }))).toMatchObject({ status: 'below_minimum' });
+      await a.reverse(reorg());
+      expect(await other.receive(seen({ amount: parseAmount('2') }))).toMatchObject({ status: 'needs_review', reason: 'chain_reorg' });
+    });
+
+    it('a token the address was not issued for keeps its rejection through a reorg; the credited row is the one answered', async () => {
+      const b = reorging();
+      await b.receive(seen({ assetId: 'DAI' }));
+      await b.receive(seen());
+      expect(await b.reverse(reorg())).toEqual({ state: 'recorded', status: 'reversed', reason: 'chain_reorg' });
+      expect(await db.sql`SELECT asset_id, status, reason FROM pay.custody_deposits ORDER BY asset_id`).toEqual([
+        { asset_id: 'DAI', status: 'rejected', reason: 'unknown_asset' },
+        { asset_id: 'USDT', status: 'reversed', reason: 'chain_reorg' },
+      ]);
+      expect(reversals()).toHaveLength(1);
+    });
+
+    it('a reversed credit seen again stays reversed with an alert: its credit key is spent', async () => {
+      const b = reorging();
+      await b.receive(seen());
+      await b.reverse(reorg());
+      logs.length = 0;
+      expect(await reorging().receive(seen())).toMatchObject({ status: 'reversed' });
+      expect(posts()).toHaveLength(1);
+      expect(reversals()).toHaveLength(1);
+      expect(logs.some((l) => l.extra?.alert === true)).toBe(true);
+      expect(await balance()).toBe(0n);
+    });
+
+    it('funds already spent: needs_review with an alert, nothing posted, never a negative balance; covered later, it reverses once', async () => {
+      const b = reorging();
+      await b.receive(seen());
+      await spend('20');
+      logs.length = 0;
+      expect(await b.reverse(reorg())).toEqual({ state: 'recorded', status: 'needs_review', reason: 'reversal_unfunded' });
+      expect(reversals()).toHaveLength(0);
+      expect(await balance()).toBe(parseAmount('5'));
+      expect(logs.some((l) => l.extra?.alert === true && l.extra.depositId)).toBe(true);
+      expect(await db.sql`SELECT reversal_started_at FROM pay.custody_deposits`).toEqual([{ reversal_started_at: null }]);
+      // Topped up (TEST), a later reorg delivery reverses it, once.
+      await ledger.post(recipes.deposit({ userId: ALICE, assetId: 'USDT', amount: parseAmount('20'), rail: 'test', railRef: 'top-up' }));
+      expect(await b.reverse(reorg())).toMatchObject({ status: 'reversed', reason: 'chain_reorg' });
+      expect(reversals()).toHaveLength(1);
+      expect(await balance()).toBe(0n);
+    });
+
+    it('a ledger failure leaves the reversal started and the row no longer credited; the next pass finishes it, once', async () => {
+      const b = reorging();
+      await b.receive(seen());
+      failReverse = true;
+      await expect(b.reverse(reorg())).rejects.toThrow('ledger timeout');
+      // Not `credited` any more: a sweep or an announcement does not treat it as money that stays.
+      expect(await db.sql`SELECT status, reason, reversal_started_at IS NOT NULL AS started FROM pay.custody_deposits`).toEqual([
+        { status: 'needs_review', reason: 'chain_reorg', started: true },
+      ]);
+      expect(await b.receive(seen())).toMatchObject({ status: 'needs_review' });
+      failReverse = false;
+      // No reorg redelivery needed: the watcher tick's settle pass finishes it under the same key.
+      await reorging().settleOpen();
+      expect(await row()).toMatchObject({ status: 'reversed', reason: 'chain_reorg' });
+      await reorging().reverse(reorg());
+      expect(reversals()).toHaveLength(1);
+      expect(await balance()).toBe(0n);
+    });
+
+    it('a crash after the reversal posted and before the flip finds the first reversal and flips once', async () => {
+      const b = reorging();
+      await b.receive(seen());
+      await engines().reverseCustodyDeposit({
+        userId: ALICE,
+        assetId: 'USDT',
+        amount: parseAmount('25'),
+        networkId: 'ethereum',
+        txHash: TX.toLowerCase(),
+        outputIndex: 0,
+      });
+      await db.sql`UPDATE pay.custody_deposits SET reversal_started_at = now(), status = 'needs_review', reason = 'chain_reorg'`;
+      expect(await reorging().reverse(reorg())).toMatchObject({ status: 'reversed' });
+      expect(reversals()).toHaveLength(1);
+      expect(await balance()).toBe(0n);
+    });
+
+    it('a credit a crash cut short is finished first, then reversed: one credit, one reversal', async () => {
+      const b = reorging();
+      failPost = true;
+      await expect(
+        new CustodyDepositBook({
+          sql: db.sql,
+          postDeposit: async () => {
+            throw new Error('ledger timeout');
+          },
+          registries: { listRoutableNetworks: async () => networks },
+        }).receive(seen()),
+      ).rejects.toThrow('ledger timeout');
+      failPost = false;
+      expect(await db.sql`SELECT status, credit_started_at IS NOT NULL AS started FROM pay.custody_deposits`).toEqual([
+        { status: 'confirming', started: true },
+      ]);
+      expect(await b.reverse(reorg())).toMatchObject({ status: 'reversed', reason: 'chain_reorg' });
+      expect(posts()).toHaveLength(1);
+      expect(reversals()).toHaveLength(1);
+      expect(await balance()).toBe(0n);
+    });
+
+    it('unwired, a credited row refuses and stays credited; a never-credited one still closes', async () => {
+      await reorging().receive(seen());
+      await expect(reorging(false).reverse(reorg())).rejects.toThrow('pay.deposit_reverse_unwired');
+      expect(await row()).toMatchObject({ status: 'credited' });
+      await reorging().receive(seen({ outputIndex: 1, confirmations: 1 }));
+      expect(await reorging(false).reverse(reorg({ outputIndex: 1 }))).toMatchObject({ status: 'reversed' });
+    });
+
+    it('an address no customer holds is unmatched; a customer address with no such transfer is unknown; nothing is written', async () => {
+      expect(await reorging().reverse(reorg({ address: '0x00000000000000000000000000000000000000ff' }))).toEqual({ state: 'unmatched' });
+      expect(await reorging().reverse(reorg())).toEqual({ state: 'unknown' });
+      expect(await db.sql`SELECT 1 FROM pay.custody_deposits`).toHaveLength(0);
+    });
+
+    it('the invariant: every reversed credit has exactly one reversal post, and the table refuses a reversal with no credit', async () => {
+      const b = reorging();
+      for (let i = 0; i < 4; i++) await b.receive(seen({ outputIndex: i }));
+      for (let i = 0; i < 4; i++) await b.reverse(reorg({ outputIndex: i }));
+      await b.reverse(reorg({ outputIndex: 2 }));
+      const rows = await db.sql<Array<{ reversal_ledger_tx_id: string }>>`
+        SELECT reversal_ledger_tx_id FROM pay.custody_deposits WHERE status = 'reversed' AND reversal_ledger_tx_id IS NOT NULL`;
+      expect(rows).toHaveLength(4);
+      expect(reversals()).toHaveLength(4);
+      expect(new Set(rows.map((r) => r.reversal_ledger_tx_id)).size).toBe(4);
+      expect(await balance()).toBe(0n);
+      await b.receive(seen({ outputIndex: 7, confirmations: 1 }));
+      await expect(
+        db.sql`UPDATE pay.custody_deposits SET status = 'reversed', reversal_ledger_tx_id = 'x', reversed_at = now() WHERE output_index = 7`,
+      ).rejects.toThrow();
+      await expect(
+        db.sql`UPDATE pay.custody_deposits SET credited_at = now(), ledger_tx_id = 'x' WHERE output_index = 7`,
+      ).rejects.toThrow();
+    });
   });
 
   describe('announcing a credit for the inbox (W-deposit-09)', () => {
