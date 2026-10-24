@@ -136,7 +136,9 @@ export type PayCustodyDepositAddressReply = z.infer<typeof payCustodyDepositAddr
  * is the one state that posted a `deposit`. `below_minimum`, `rejected` and `needs_review` never credit on their own;
  * `held_for_screening` and `reversed` are written by the hold and reorg slice (W-deposit-06), and are listed here so a reader
  * never meets a state it cannot name. `held_for_release` (reason `address_expired`) is a deposit that first reached an extra
- * address after its expiry (W-deposit-02): never credited on its own, kept for a support or compliance release.
+ * address after its expiry (W-deposit-02): never credited on its own, kept for a support or compliance release. `on_hold`
+ * (reason `address_frozen`) is a deposit to an address compliance froze (W-compliance-notices-03): never credited while the
+ * freeze stands, and judged again once a second founder unfreezes it.
  */
 export const PAY_CUSTODY_DEPOSIT_STATUSES = [
   'detected',
@@ -145,6 +147,7 @@ export const PAY_CUSTODY_DEPOSIT_STATUSES = [
   'below_minimum',
   'held_for_screening',
   'held_for_release',
+  'on_hold',
   'rejected',
   'reversed',
   'needs_review',
@@ -159,7 +162,8 @@ export const PAY_CUSTODY_DEPOSIT_PENDING_STATUSES = ['detected', 'confirming'] a
  * `amount_mismatch` is a finalized amount that differs from the one first seen; `unknown_asset` is a token the address was not
  * issued for. `chain_reorg` is a credit reversed because the chain rewrote the block it was read from; `reversal_unfunded` is
  * a reversal the balance could not cover (the funds were already spent), left for a person to resolve. `address_expired` is a
- * deposit that first reached an extra address after its expiry (`held_for_release`).
+ * deposit that first reached an extra address after its expiry (`held_for_release`). `address_frozen` is a deposit to an
+ * address compliance froze (`on_hold`).
  */
 export const PAY_CUSTODY_DEPOSIT_REASONS = [
   'below_minimum',
@@ -170,6 +174,7 @@ export const PAY_CUSTODY_DEPOSIT_REASONS = [
   'chain_reorg',
   'reversal_unfunded',
   'address_expired',
+  'address_frozen',
 ] as const;
 export type PayCustodyDepositReason = (typeof PAY_CUSTODY_DEPOSIT_REASONS)[number];
 

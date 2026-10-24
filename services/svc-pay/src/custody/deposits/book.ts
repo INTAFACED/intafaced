@@ -44,6 +44,12 @@ import type { RegistryReader } from '../../registries/read-api.js';
  *   delivery from before the reorg look the same): a never-credited one goes to review, a reversed credit stays reversed,
  *   each with an alert. Every reorg is kept by position (`custody_deposit_reorgs`), so a sighting that arrives after its
  *   reorg goes to review too. A rejected row (a token the address was not issued for) keeps its rejection.
+ * - A DEPOSIT ADDRESS COMPLIANCE FROZE (W-compliance-notices-03, `custody_deposit_address_freezes`): a deposit to it that is not
+ *   credited yet is `on_hold` (reason `address_frozen`) and is never credited while the freeze stands. It still follows its
+ *   confirmations. The credit start refuses while a freeze is open; a credit that already started is finished, because it may
+ *   already be in the ledger. `release` lifts the freeze (after a second founder's unfreeze) and puts its held rows back to be
+ *   judged in one transaction, so each is credited once under its usual key; `settleOpen` releases any held row whose
+ *   address has no open freeze.
  * - A transfer first seen at an extra address after its expiry (W-deposit-02) is `held_for_release` with reason
  *   `address_expired`: recorded, never credited on its own and never dropped, left for a support or compliance release. One
  *   first seen before the expiry is judged and credited as any other, however long it takes to confirm.
@@ -157,6 +163,8 @@ const COLUMNS =
   'id, user_id, asset_id, network_id, address, tx_hash, output_index, amount, confirmations, confirmations_required, minimum_deposit, status, reason, detected_at, credited_at, credit_started_at, reversal_started_at';
 const ASSET_RE = /^[A-Za-z0-9]{1,16}$/;
 const OPEN = new Set<PayCustodyDepositStatus>(PAY_CUSTODY_DEPOSIT_PENDING_STATUSES);
+/** A reversal still `unsure` this long after it started (three in-flight bounds, so three rounds at least) raises an alert. */
+export const REVERSAL_UNSURE_ALERT_SECONDS = 3 * POST_IN_FLIGHT_BOUND_SECONDS;
 
 export class CustodyDepositBook {
   /**
@@ -204,7 +212,9 @@ export class CustodyDepositBook {
     }
     const judged = await this.settle(row);
     const outcome = { state: 'recorded' as const, status: judged.status, reason: judged.reason };
-    if (!OPEN.has(judged.status) && !judged.reversal_started_at) this.settled.set(memoKey, { id: judged.id, outcome });
+    if (!OPEN.has(judged.status) && judged.status !== 'on_hold' && !judged.reversal_started_at) {
+      this.settled.set(memoKey, { id: judged.id, outcome });
+    }
     return outcome;
   }
 
@@ -302,8 +312,18 @@ export class CustodyDepositBook {
     });
     if (outcome.state === 'unsure') {
       // A refusal after a retried post: an earlier attempt may still commit, so the reversal stays started and is tried
-      // again once the bound has passed.
-      this.deps.log?.('custody deposit reversal unsure: a retried post was refused; left started', { depositId: current.id });
+      // again once the bound has passed. Still unsure after a few rounds, it is an alert: a person reads the ledger.
+      const [age] = await sql<Array<{ stuck: boolean }>>`
+        SELECT reversal_started_at <= now() - make_interval(secs => ${REVERSAL_UNSURE_ALERT_SECONDS}) AS stuck
+          FROM pay.custody_deposits WHERE id = ${current.id}`;
+      if (age?.stuck) {
+        this.deps.log?.('custody deposit reversal still unsure after several rounds: check the ledger by its key', {
+          alert: true,
+          depositId: current.id,
+        });
+      } else {
+        this.deps.log?.('custody deposit reversal unsure: a retried post was refused; left started', { depositId: current.id });
+      }
       return this.reload(current.id);
     }
     if (outcome.state === 'unfunded') {
@@ -342,6 +362,15 @@ export class CustodyDepositBook {
           err: err instanceof Error ? err.message : String(err),
         });
       }
+    }
+    // Held rows whose address has no open freeze (the lift releases its own in its transaction, so these are rows held by a
+    // freeze that was lifted outside it): judged again below. A failure here leaves them held and does not stop the pass.
+    try {
+      await this.unhold(this.deps.sql, this.deps.sql`TRUE`);
+    } catch (err) {
+      this.deps.log?.('custody deposits on hold could not be checked for a lifted freeze', {
+        err: err instanceof Error ? err.message : String(err),
+      });
     }
     const rows = await this.deps.sql<Row[]>`
       SELECT ${this.deps.sql.unsafe(COLUMNS)} FROM pay.custody_deposits
@@ -523,7 +552,8 @@ export class CustodyDepositBook {
         });
         return existing;
       }
-      if (!OPEN.has(existing.status) || existing.credit_started_at) return existing;
+      // A held row keeps following its confirmations, so it is judged on its real depth once released.
+      if ((!OPEN.has(existing.status) && existing.status !== 'on_hold') || existing.credit_started_at) return existing;
       if (parseAmount(existing.amount) !== input.amount) {
         const flagged = await tx<Row[]>`
           UPDATE pay.custody_deposits SET status = 'needs_review', reason = 'amount_mismatch', updated_at = now()
@@ -533,7 +563,8 @@ export class CustodyDepositBook {
       }
       if (conf <= existing.confirmations) return existing;
       const moved = await tx<Row[]>`
-        UPDATE pay.custody_deposits SET confirmations = ${conf}, status = 'confirming', updated_at = now()
+        UPDATE pay.custody_deposits
+           SET confirmations = ${conf}, status = CASE WHEN status = 'on_hold' THEN 'on_hold' ELSE 'confirming' END, updated_at = now()
          WHERE id = ${existing.id} RETURNING ${sql.unsafe(COLUMNS)}`;
       return moved[0]!;
     });
@@ -544,6 +575,7 @@ export class CustodyDepositBook {
     if (!OPEN.has(row.status)) return row;
     const { sql } = this.deps;
     if (row.credit_started_at) return this.credit(row, row.confirmations_required ?? 0, row.minimum_deposit ?? '');
+    if (await this.frozen(row)) return this.hold(row);
     const [required, minimum] = await Promise.all([this.requiredConfirmations(row), this.minimumDeposit(row)]);
 
     if (required === null) return this.park(row, null, minimum, 'confirmations_unset');
@@ -577,8 +609,16 @@ export class CustodyDepositBook {
       const started = await sql<Row[]>`
         UPDATE pay.custody_deposits
            SET credit_started_at = now(), reason = NULL, confirmations_required = ${required}, minimum_deposit = ${minimum}, updated_at = now()
-         WHERE id = ${row.id} AND status IN ('detected', 'confirming') RETURNING ${sql.unsafe(COLUMNS)}`;
-      if (!started[0]) return this.reload(row.id);
+         WHERE id = ${row.id} AND status IN ('detected', 'confirming')
+           AND NOT EXISTS (
+             SELECT 1 FROM pay.custody_deposit_address_freezes f
+              WHERE f.network_id = custody_deposits.network_id AND f.address = lower(custody_deposits.address) AND f.unfrozen_at IS NULL)
+         RETURNING ${sql.unsafe(COLUMNS)}`;
+      if (!started[0]) {
+        // Frozen between the judgement and the start: held, never credited.
+        const now = await this.reload(row.id);
+        return OPEN.has(now.status) && !now.credit_started_at && (await this.frozen(now)) ? this.hold(now) : now;
+      }
     }
     const tx = await this.deps.postDeposit({
       userId: row.user_id,
@@ -603,6 +643,85 @@ export class CustodyDepositBook {
       return credited[0];
     }
     return this.reload(row.id);
+  }
+
+  /** True while the row's address has an open compliance freeze. */
+  private async frozen(row: Pick<Row, 'network_id' | 'address'>): Promise<boolean> {
+    const rows = await this.deps.sql`
+      SELECT 1 FROM pay.custody_deposit_address_freezes
+       WHERE network_id = ${row.network_id} AND address = ${row.address.toLowerCase()} AND unfrozen_at IS NULL`;
+    return rows.length > 0;
+  }
+
+  private async hold(row: Row): Promise<Row> {
+    const { sql } = this.deps;
+    const held = await sql<Row[]>`
+      UPDATE pay.custody_deposits SET status = 'on_hold', reason = 'address_frozen', updated_at = now()
+       WHERE id = ${row.id} AND status IN ('detected', 'confirming') AND credit_started_at IS NULL RETURNING ${sql.unsafe(COLUMNS)}`;
+    return held[0] ?? (await this.reload(row.id));
+  }
+
+  /**
+   * Compliance froze `address` (W-compliance-notices-03): every deposit to it that is still on its way and not started is held
+   * now, so the customer sees it on hold at once. Returns how many were held. Nothing is posted.
+   */
+  async holdAddress(networkId: string, address: string): Promise<number> {
+    const { sql } = this.deps;
+    const held = await sql`
+      UPDATE pay.custody_deposits SET status = 'on_hold', reason = 'address_frozen', updated_at = now()
+       WHERE network_id = ${networkId} AND lower(address) = ${address.toLowerCase()}
+         AND status IN ('detected', 'confirming') AND credit_started_at IS NULL
+         AND EXISTS (
+           SELECT 1 FROM pay.custody_deposit_address_freezes f
+            WHERE f.network_id = ${networkId} AND f.address = ${address.toLowerCase()} AND f.unfrozen_at IS NULL)
+       RETURNING id`;
+    return held.length;
+  }
+
+  /**
+   * Lift the freeze on `address` (`lift` runs the freeze table's own update) and put its held deposits back to be judged, in
+   * one transaction, so a lift never commits with its deposits still held and no other pass can claim them first. Then each
+   * one that is due is credited once, under its usual key; a credit the ledger did not answer stays started and `settleOpen`
+   * finishes it. Returns what `lift` returned, how many were released and how many credited now.
+   */
+  async release<T>(
+    networkId: string,
+    address: string,
+    lift: (tx: Sql) => Promise<T>,
+  ): Promise<{ lifted: T; released: number; credited: number }> {
+    const { lifted, rows } = await this.deps.sql.begin(async (tx) => {
+      const lifted = await lift(tx as unknown as Sql);
+      const rows = await this.unhold(tx as unknown as Sql, tx`network_id = ${networkId} AND lower(address) = ${address.toLowerCase()}`);
+      return { lifted, rows };
+    });
+    let credited = 0;
+    for (const row of rows) {
+      try {
+        if ((await this.settle(row)).status === 'credited') credited += 1;
+      } catch (err) {
+        this.deps.log?.('custody deposit released but not credited yet', {
+          depositId: row.id,
+          err: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    return { lifted, released: rows.length, credited };
+  }
+
+  /** Put held rows matching `where` whose address has no open freeze back to `confirming` (or `detected`). */
+  private async unhold(sql: Sql, where: ReturnType<Sql>): Promise<Row[]> {
+    return sql<Row[]>`
+      UPDATE pay.custody_deposits d
+         SET status = CASE WHEN d.confirmations > 0 THEN 'confirming' ELSE 'detected' END, reason = NULL, updated_at = now()
+       WHERE ${where} AND d.status = 'on_hold'
+         AND NOT EXISTS (
+           SELECT 1 FROM pay.custody_deposit_address_freezes f
+            WHERE f.network_id = d.network_id AND f.address = lower(d.address) AND f.unfrozen_at IS NULL)
+       RETURNING ${sql.unsafe(
+         COLUMNS.split(', ')
+           .map((c) => `d.${c}`)
+           .join(', '),
+       )}`;
   }
 
   private async park(row: Row, required: number | null, minimum: string | null, reason: PayCustodyDepositReason): Promise<Row> {

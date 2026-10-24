@@ -676,6 +676,7 @@ export const appRouter = mergeRouters(
     // Places come from the published ledger asset registry. Null or blank stays unset.
     receiptPlaces: createReceiptAssetPlaces(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, s2sKey),
     depositSettings: { sql, approvals: actionApprovals },
+    depositFreezes: { sql, approvals: actionApprovals, book: custodyDepositBook },
     categoryPolicy: { sql, approvals: actionApprovals },
     catalog: { sql, imageRule: readProductImageRule(process.env) },
     limits: { sql, approvals: actionApprovals },

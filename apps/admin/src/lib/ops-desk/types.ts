@@ -135,7 +135,9 @@ export type RowAction =
   /** Opening a rejected standing-order transfer reads its full record from svc-bank (`ops.transferDetail`), on request. */
   | 'pay.transfer.detail'
   /** Opening one KYC document's contents from identity's vault (`kyc.getDocument`), with a second founder's approval. */
-  | 'identity.kyc_document.open';
+  | 'identity.kyc_document.open'
+  /** Freezing one deposit address (one founder), or lifting its freeze with a second founder (svc-pay `founderAdmin.depositFreezes`). */
+  | 'pay.deposit_address';
 
 /** A control that belongs to a whole section rather than to a row (it needs a typed target). */
 export type SectionAction = 'academy.ambassador.appoint' | 'bank.card.status' | 'pay.transfer.lookup' | 'bank.customer.balances';

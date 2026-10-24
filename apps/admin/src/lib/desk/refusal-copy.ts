@@ -197,6 +197,26 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'Identity checked the approval against this account, its current version and the reason, and they differ, or the approval was made or signed by someone it does not accept for this account. Nothing was changed and the approval was not used.',
     next: 'Read the account again and make a new request.',
   },
+  'deposit_freeze.address_unknown': {
+    title: 'That is not one of this account’s deposit addresses',
+    body: 'svc-pay found no deposit address of this account on that network matching it. Nothing was changed.',
+    next: 'Read the account’s deposit addresses again and pick the row from there.',
+  },
+  'deposit_freeze.already_frozen': {
+    title: 'This deposit address is already frozen',
+    body: 'svc-pay already holds an open freeze on this address, so nothing new was placed. Deposits to it stay on hold.',
+    next: 'Read the deposit addresses again to see the freeze, who placed it and why.',
+  },
+  'deposit_freeze.not_frozen': {
+    title: 'This deposit address is not frozen',
+    body: 'svc-pay holds no open freeze on this address, so there was nothing to lift. Nothing was changed and the approval was not used.',
+    next: 'Read the deposit addresses again: if an earlier run went through and its answer was lost, the freeze is already lifted.',
+  },
+  'deposit_freeze.freeze_changed': {
+    title: 'The freeze changed since it was read',
+    body: 'The approval is for one freeze, and the address now has a different one (it was lifted and placed again), or someone lifted it first. Nothing was changed.',
+    next: 'Read the deposit addresses again and make a new request for the freeze that is open now.',
+  },
   restriction_approval_consumed: {
     title: 'That approval was already used',
     body: 'An approval runs once. Nothing was changed by this attempt.',
@@ -1198,5 +1218,8 @@ export function codeInText(text: string | null | undefined): string | null {
   if (!text) return null;
   for (const match of text.matchAll(/\[(action_approval\.[a-z_]+)\]/g)) if (isKnownCode(match[1])) return match[1];
   for (const match of text.matchAll(/\b(action_approval\.[a-z_]+)\b/g)) if (isKnownCode(match[1])) return match[1];
+  // svc-pay's deposit address freezes put their code first: `deposit_freeze.not_frozen: …`.
+  const freeze = /^(deposit_freeze\.[a-z_]+):/.exec(text)?.[1];
+  if (freeze && isKnownCode(freeze)) return freeze;
   return null;
 }

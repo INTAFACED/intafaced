@@ -17,6 +17,7 @@ import {
   IDENTITY_TIER_MOVE_ACTION_TYPE,
   IDENTITY_UNFREEZE_ACTION_TYPE,
 } from '../../../../../services/svc-identity/src/auth/action-approval-audience';
+import { payActionPayloadHash } from '../../../../../services/svc-pay/src/action-approval-consume';
 import { payloadHashFor, proposeInputFor } from './approval-hash';
 
 /**
@@ -268,6 +269,41 @@ describe('identity signing-key changes', () => {
     expect(payloadHashFor({ kind: 'identity.auth_key.rotate', keyId: 'k2' })).not.toBe(
       payloadHashFor({ kind: 'identity.auth_key.rotate', keyId: 'k3' }),
     );
+  });
+});
+
+describe('pay deposit address unfreeze', () => {
+  const request = {
+    kind: 'pay.deposit_address.unfreeze' as const,
+    userId: '0b6f7a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b',
+    networkId: 'ethereum',
+    address: '0x00000000000000000000000000000000000000A1',
+    freezeId: '7d8c9b0a-1b2c-4d3e-8f4a-5b6c7d8e9f0a',
+    reason: 'Source cleared by compliance',
+  };
+  it('hash equals svc-pay’s own function over the freeze, the account, the address (lower case) and the reason', () => {
+    // svc-pay `unfreezeApprovalFields`, in its order.
+    expect(payloadHashFor(request)).toBe(
+      payActionPayloadHash('pay.deposit_address_unfreeze', {
+        freezeId: request.freezeId,
+        userId: request.userId,
+        networkId: 'ethereum',
+        address: request.address.toLowerCase(),
+        reason: request.reason,
+      }),
+    );
+    expect(payloadHashFor({ ...request, freezeId: '8d8c9b0a-1b2c-4d3e-8f4a-5b6c7d8e9f0a' })).not.toBe(payloadHashFor(request));
+    expect(payloadHashFor({ ...request, reason: 'Another reason entirely' })).not.toBe(payloadHashFor(request));
+  });
+  it('is proposed against svc-pay’s own verb at version 1', () => {
+    expect(proposeInputFor(request)).toEqual({
+      actionType: 'pay.deposit_address_unfreeze',
+      targetService: 'svc-pay',
+      targetId: 'pay.deposit_address_unfreeze',
+      expectedVersion: '1',
+      payloadHash: payloadHashFor(request),
+      policyVersion: 'v1',
+    });
   });
 });
 
