@@ -214,6 +214,11 @@ if (!available) {
       expect(principal.scopes).not.toContain('pay:read');
       expect(principal.stp).toEqual(['pay:refund']);
       expect(principal.mfa).toBe(true);
+      // The step-up token names the same sign-in and device as the session it was minted from.
+      const signedIn = await verifyAccessToken(session.accessToken, tokenConfig);
+      expect(principal.fam).toBeDefined();
+      expect(principal.fam).toBe(signedIn.fam);
+      expect(principal.dev).toBe(signedIn.dev);
       const audit = await db.sql<Array<{ scopes: string[]; factor: string }>>`
         SELECT scopes, factor FROM pay_step_up_mints WHERE user_id = ${session.userId}
       `;

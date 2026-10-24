@@ -1256,6 +1256,17 @@ export class AuthService {
     return device.deviceKey ? { ...session, deviceKey: device.deviceKey } : session;
   }
 
+  /**
+   * The sign-in (`fam`) and trusted device (`dev`) of the user's own session, for a token minted from it outside
+   * sign-in and refresh (step-up). A session that is not the user's, or is gone, gives neither.
+   */
+  private async sessionClaimsOf(userId: string, sessionId: string): Promise<{ familyId: string | null; trustedDeviceId: string | null }> {
+    const rows = await this.sql<Array<{ family_id: string; trusted_device_id: string | null }>>`
+      SELECT family_id, trusted_device_id FROM sessions WHERE id = ${sessionId} AND user_id = ${userId}
+    `;
+    return { familyId: rows[0]?.family_id ?? null, trustedDeviceId: rows[0]?.trusted_device_id ?? null };
+  }
+
   private async issueSession(
     userId: string,
     options: { device?: string | undefined; ip?: string | undefined; mfa: boolean; trustedDeviceId?: string | null },
@@ -1268,12 +1279,13 @@ export class AuthService {
         const [user] = await tx<Array<{ status: string }>>`SELECT status FROM users WHERE id = ${userId} FOR UPDATE`;
         if (!user || user.status !== 'active') throw new AuthError('Account is unavailable', 'auth.account_frozen');
         return tx<
-          Array<{ id: string }>
-        >`INSERT INTO sessions (user_id, refresh_hash, device, ip, user_agent, mfa, expires_at, trusted_device_id) VALUES (${userId}, ${hashToken(refreshToken)}, ${options.device ?? null}, ${options.ip ?? currentRequestIp()}, ${currentUserAgent()}, ${options.mfa}, ${expiresAt}, ${options.trustedDeviceId ?? null}) RETURNING id`;
+          Array<{ id: string; family_id: string }>
+        >`INSERT INTO sessions (user_id, refresh_hash, device, ip, user_agent, mfa, expires_at, trusted_device_id) VALUES (${userId}, ${hashToken(refreshToken)}, ${options.device ?? null}, ${options.ip ?? currentRequestIp()}, ${currentUserAgent()}, ${options.mfa}, ${expiresAt}, ${options.trustedDeviceId ?? null}) RETURNING id, family_id`;
       },
       { isolation: 'read committed' },
     );
     const sessionId = inserted[0]!.id;
+    const familyId = inserted[0]!.family_id;
     void syncNavigatorSessionOpen(this.sql, sessionId, userId);
     // Pay is not on the sign-in path. A slow or refused claim must not delay or fail the session.
     void this.claimConfirmedEmailInvites(userId).catch((err: unknown) => {
@@ -1282,7 +1294,7 @@ export class AuthService {
     const tier = await this.kycTier(userId);
     const scopes = await this.scopesFor(userId, options.mfa, sessionId);
     const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
-      { userId, sessionId, scopes, tier, mfa: options.mfa },
+      { userId, sessionId, scopes, tier, mfa: options.mfa, familyId, trustedDeviceId: options.trustedDeviceId ?? null },
       this.tokens,
     );
     return { accessToken, refreshToken, expiresAt: accessExpiresAt, sessionId, userId, mfaRequired: false };
@@ -1398,7 +1410,15 @@ export class AuthService {
       await this.recordFounderScopeGrant(tx, session.user_id, sessionId, decided.founder, decided.granted);
       const scopes = decided.scopes;
       const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
-        { userId: session.user_id, sessionId, scopes, tier, mfa: session.mfa },
+        {
+          userId: session.user_id,
+          sessionId,
+          scopes,
+          tier,
+          mfa: session.mfa,
+          familyId: session.family_id,
+          trustedDeviceId: session.trusted_device_id,
+        },
         this.tokens,
       );
       return {
@@ -1468,15 +1488,33 @@ export class AuthService {
     if (Date.now() - session.rotated_at.getTime() > this.reuseGraceMs) return null;
     const nextToken = this.openSealedSuccessor(session.rotated_at, session.successor_refresh);
     if (!nextToken) return null;
-    const rows = await tx<Array<{ id: string; user_id: string; revoked: boolean; mfa: boolean; expires_at: Date }>>`
-      SELECT id, user_id, revoked, mfa, expires_at FROM sessions WHERE id = ${session.successor_id} FOR UPDATE
+    const rows = await tx<
+      Array<{
+        id: string;
+        user_id: string;
+        revoked: boolean;
+        mfa: boolean;
+        expires_at: Date;
+        family_id: string;
+        trusted_device_id: string | null;
+      }>
+    >`
+      SELECT id, user_id, revoked, mfa, expires_at, family_id, trusted_device_id FROM sessions WHERE id = ${session.successor_id} FOR UPDATE
     `;
     const successor = rows[0];
     if (!successor || successor.revoked || successor.expires_at.getTime() < Date.now()) return null;
     const tier = await this.kycTier(successor.user_id, tx);
     const scopes = successor.user_id === session.user_id && peekedScopes ? peekedScopes : this.defaultScopes();
     const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
-      { userId: successor.user_id, sessionId: successor.id, scopes, tier, mfa: successor.mfa },
+      {
+        userId: successor.user_id,
+        sessionId: successor.id,
+        scopes,
+        tier,
+        mfa: successor.mfa,
+        familyId: successor.family_id,
+        trustedDeviceId: successor.trusted_device_id,
+      },
       this.tokens,
     );
     return {
@@ -1527,9 +1565,11 @@ export class AuthService {
         expires_at: Date;
         rotated_at: Date | null;
         successor_id: string | null;
+        family_id: string;
+        trusted_device_id: string | null;
       }>
     >`
-      SELECT id, user_id, revoked, mfa, expires_at, rotated_at, successor_id
+      SELECT id, user_id, revoked, mfa, expires_at, rotated_at, successor_id, family_id, trusted_device_id
       FROM sessions WHERE id = ${session.successor_id} FOR UPDATE
     `;
     const successor = rows[0];
@@ -1541,7 +1581,15 @@ export class AuthService {
     const tier = await this.kycTier(successor.user_id, tx);
     const scopes = successor.user_id === session.user_id && peekedScopes ? peekedScopes : this.defaultScopes();
     const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
-      { userId: successor.user_id, sessionId: successor.id, scopes, tier, mfa: successor.mfa },
+      {
+        userId: successor.user_id,
+        sessionId: successor.id,
+        scopes,
+        tier,
+        mfa: successor.mfa,
+        familyId: successor.family_id,
+        trustedDeviceId: successor.trusted_device_id,
+      },
       this.tokens,
     );
     return {
@@ -2698,8 +2746,9 @@ export class AuthService {
     const scopes = [...pay];
     for (const scope of STEP_UP_SCOPES) if (!scopes.includes(scope)) scopes.push(scope);
     const tier = await this.kycTier(input.userId);
+    const claims = await this.sessionClaimsOf(input.userId, input.sessionId);
     const { token, expiresAt } = await issueAccessToken(
-      { userId: input.userId, sessionId: input.sessionId, scopes, tier, mfa: true },
+      { userId: input.userId, sessionId: input.sessionId, scopes, tier, mfa: true, ...claims },
       { ...this.tokens, accessTtlSeconds: Math.min(this.tokens.accessTtlSeconds, STEP_UP_TTL_SECONDS) },
     );
     return { accessToken: token, expiresAt, scopes };
@@ -2731,6 +2780,7 @@ export class AuthService {
       VALUES (${randomUUID()}, ${input.userId}, ${input.sessionId}, ${input.merchantId}, ${[...requested]}, ${factor})
     `;
     const tier = await this.kycTier(input.userId);
+    const claims = await this.sessionClaimsOf(input.userId, input.sessionId);
     const { token, expiresAt } = await issueAccessToken(
       {
         userId: input.userId,
@@ -2738,6 +2788,7 @@ export class AuthService {
         scopes,
         tier,
         mfa: true,
+        ...claims,
         stepUpScopes: requested,
       },
       { ...this.tokens, accessTtlSeconds: Math.min(this.tokens.accessTtlSeconds, PAY_STEP_UP_ACCESS_TTL_SECONDS) },
