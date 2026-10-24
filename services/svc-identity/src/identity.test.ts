@@ -3,7 +3,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, beforeEach, afterAll } from 'vitest';
 import { MemoryEventBus } from '@intafaced/events';
-import { emailProofSchema } from '@intafaced/contracts';
+import { campaignParticipantSchema, emailProofSchema } from '@intafaced/contracts';
 import { postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db';
 import { verifyAccessToken, hasScope, SESSION_SCOPES } from '@intafaced/auth';
 import { checkAccess, screeningFailClosedFromEnv, UNSET_SCREENING_LIST } from '@intafaced/config';
@@ -1652,6 +1652,31 @@ if (!available) {
         auth.approveKycRecord({ recordId: '00000000-0000-4000-8000-000000000000', reviewerId: 'op', approvalParties: [] }),
       ).rejects.toMatchObject({
         code: 'auth.not_found',
+      });
+    });
+
+    describe('campaign participant for the participation rules (CM-eligibility-rules-01)', () => {
+      it('an unknown or malformed user is null, never eligible', async () => {
+        expect(await auth.campaignParticipant('00000000-0000-4000-8000-000000000000')).toBeNull();
+        expect(await auth.campaignParticipant('not-a-uuid')).toBeNull();
+      });
+
+      it('carries the account type, region, status and tier, and nothing else', async () => {
+        const session = await register();
+        const fresh = await auth.campaignParticipant(session.userId);
+        expect(campaignParticipantSchema.parse(fresh)).toEqual(fresh);
+        expect(fresh).toMatchObject({ userId: session.userId, accountType: 'individual', status: 'active', kycTier: 'none' });
+        await db.sql`UPDATE profiles SET account_type = 'business', region = 'fr' WHERE user_id = ${session.userId}`;
+        await db.sql`UPDATE users SET status = 'frozen' WHERE id = ${session.userId}`;
+        expect(await auth.campaignParticipant(session.userId)).toEqual({
+          userId: session.userId,
+          accountType: 'business',
+          region: 'FR',
+          status: 'frozen',
+          kycTier: 'none',
+        });
+        await db.sql`UPDATE profiles SET region = NULL WHERE user_id = ${session.userId}`;
+        expect((await auth.campaignParticipant(session.userId))?.region).toBeNull();
       });
     });
 
