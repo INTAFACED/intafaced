@@ -14,6 +14,8 @@ import type { PortalApi } from '../api';
 import { parsePortalRoute } from '../routes';
 import { ProductCreate, ProductList } from './Products';
 import { ProductImport } from './ProductImport';
+import { CatalogCopyControl } from './CatalogCopy';
+import { inMode } from './mode';
 import { SubscriptionPriceFact, SubscriptionPricePicker } from './SubscriptionPrice';
 import { productImageUploadInputSchema } from '@intafaced/contracts/merchant-catalog';
 import {
@@ -96,6 +98,19 @@ describe('product catalogue (J-merchant-03 steps 1 and 2)', () => {
       expect(refused, role).not.toContain('Products file (CSV)');
       expect(refused, role).toContain('The owner, an admin or a developer can add them.');
     }
+  });
+  it('offers Copy to live from the test catalogue and Copy to test from live, to who may add products only (step 6)', () => {
+    const drawCopy = (access: Access, from: 'live' | 'test') =>
+      renderToStaticMarkup(
+        <MerchantAccessContext.Provider value={{ access, can: (need: Parameters<typeof allows>[1]) => allows(access, need) } as never}>
+          <CatalogCopyControl portal={portal} from={from} />
+        </MerchantAccessContext.Provider>,
+      );
+    expect(drawCopy(ready('admin'), 'test')).toContain('Copy to live');
+    expect(drawCopy(ready('admin'), 'live')).toContain('Copy to test');
+    for (const role of ['finance', 'viewer'] as const) expect(drawCopy(ready(role), 'test'), role).toBe('');
+    expect(inMode('/pay/products/new', 'test')).toBe('/pay/products/new?mode=test');
+    expect(inMode('/pay/products/new', 'live')).toBe('/pay/products/new');
   });
   it('keeps Save off while the name is empty, and asks an event for its time and place', () => {
     expect(draftProblem(blankProduct())).toBe('nameRequired');
