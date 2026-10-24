@@ -54,7 +54,15 @@ import { planClose } from './close-planner.js';
 import type { DerivativesAccessGate } from './derivatives-access.js';
 import { planLiquidation, unrealizedPnl } from './liquidation-planner.js';
 import { defaultLiquidationId, type DepthNotionalSource, type MarkRequest, type MarkSource } from './liquidation-tick.js';
-import { FuturesLadderError, planLadderRung, type FuturesLadderPolicy } from './maintenance-ladder.js';
+import { DEPTH_UNKNOWN, FuturesLadderError, planLadderRung, type FuturesLadderPolicy } from './maintenance-ladder.js';
+import { tierCrossing, type RiskTierCrossing } from './risk-tier-confirm.js';
+import {
+  openInterestRefusal,
+  openInterestRoom,
+  openInterestUnsetRefusal,
+  type OpenInterestLimits,
+  type OpenInterestRoom,
+} from './open-interest-limits.js';
 import { liquidationPriceFor } from './liquidation-price.js';
 import {
   DEFAULT_FUTURES_MARK_POLICY,
@@ -333,9 +341,15 @@ export interface PositionServiceDeps {
     matching: MatchingClient | null;
     enabled: boolean;
     priceBand: Amount | null;
+    /** The band a new order is held to now, under the operator's dynamic range (D-instruments-08); absent is the static band. */
+    priceBandFor?: (marketId: string) => Promise<Amount>;
     lifecycleProof: ((marketId: string) => Promise<LifecycleAdmissionProof>) | null;
     /** The perpetual rates an account pays now (owner schedule less rank discount). Absent refuses opening orders. */
     feeRates?: ((userId: string) => Promise<FeeRates>) | null;
+    /** A market open's slippage cap in bps (operator per market, else the owner's); null refuses market opens. */
+    slippageCapBps?: (marketId: string) => Promise<number | null>;
+    /** The operator's open-interest limits for a market (D-margin-05); null when either is blank, which refuses opens. */
+    openInterestLimits?: (marketId: string) => Promise<OpenInterestLimits | null>;
   };
 }
 
@@ -426,6 +440,7 @@ export class PositionService {
   private readonly afterMarginLedgerPost: ((request: string) => Promise<void>) | null;
   private readonly now: () => Date;
   private readonly matched: MatchedFuturesOrders;
+  private readonly openInterestLimits: ((marketId: string) => Promise<OpenInterestLimits | null>) | null;
 
   constructor(
     private readonly sql: Sql,
@@ -438,12 +453,14 @@ export class PositionService {
     this.afterMarginLedgerPost = deps.afterMarginLedgerPost ?? null;
     this.now = deps.now ?? (() => new Date());
     const matchedOrders = deps.matchedOrders;
+    this.openInterestLimits = matchedOrders?.openInterestLimits ?? null;
     this.matched = new MatchedFuturesOrders({
       sql,
       ledger,
       matching: matchedOrders?.matching ?? null,
       enabled: matchedOrders?.enabled ?? false,
       priceBand: matchedOrders?.priceBand ?? null,
+      ...(matchedOrders?.priceBandFor ? { priceBandFor: matchedOrders.priceBandFor } : {}),
       maxLeverage: this.maxLeverage,
       now: this.now,
       markFor: async (marketId, symbol, at, size) => (await this.markFor(marketId, symbol, at, size)).price,
@@ -459,8 +476,107 @@ export class PositionService {
       admission: deps.accountAdmission,
       publishPosition: (positionId) => this.publishPositionById(positionId),
       feeRates: matchedOrders?.feeRates ?? null,
+      ...(matchedOrders?.slippageCapBps ? { slippageCapBps: matchedOrders.slippageCapBps } : {}),
       assertCollateralCredit: (input) => this.assertMatchedCollateralCredit(input),
+      ...(deps.ladder ? { riskTier: (input) => this.riskTierCrossing(input) } : {}),
+      ...(matchedOrders?.openInterestLimits ? { openInterest: (input) => this.openInterestRoom(input) } : {}),
     });
+  }
+
+  /**
+   * The open-interest room this account has on a market (`open-interest-limits.ts`): what every open (or closing)
+   * position and live opening order commits on the market, and on this account, against the operator's two limits. Either limit blank
+   * refuses `trade.oi_limit_unset`; unwired (tests that build the service by hand) refuses the same way.
+   */
+  async openInterestRoom(input: {
+    userId: string;
+    marketId: string;
+    symbol: string;
+    lotSize: Amount | null;
+    /** The order being checked once its own row is written: left out, since it is the order being sized. */
+    excludeOrderId?: string;
+  }): Promise<OpenInterestRoom> {
+    const limits = this.openInterestLimits ? await this.openInterestLimits(input.marketId) : null;
+    if (!limits) {
+      const unset = openInterestUnsetRefusal(input.symbol);
+      throw new FuturesError(unset.message, unset.code, unset.status);
+    }
+    const exclude = input.excludeOrderId ? this.sql`AND id <> ${input.excludeOrderId}` : this.sql``;
+    const [row] = await this.sql<
+      { market_positions: string | null; market_orders: string | null; account_positions: string | null; account_orders: string | null }[]
+    >`
+      SELECT
+        (SELECT sum(size) FROM trade.positions
+          WHERE market_id = ${input.marketId} AND status IN ('open', 'closing'))::text AS market_positions,
+        (SELECT sum(qty - filled_qty) FROM trade.futures_orders
+          WHERE market_id = ${input.marketId} AND NOT reduce_only
+            AND status IN ('pending', 'held', 'submitting', 'open', 'submit_unknown') ${exclude})::text AS market_orders,
+        (SELECT sum(size) FROM trade.positions
+          WHERE market_id = ${input.marketId} AND user_id = ${input.userId} AND status IN ('open', 'closing'))::text AS account_positions,
+        (SELECT sum(qty - filled_qty) FROM trade.futures_orders
+          WHERE market_id = ${input.marketId} AND user_id = ${input.userId} AND NOT reduce_only
+            AND status IN ('pending', 'held', 'submitting', 'open', 'submit_unknown') ${exclude})::text AS account_orders
+    `;
+    const sum = (a: string | null | undefined, b: string | null | undefined): Amount =>
+      (parseAmount(a ?? '0') + parseAmount(b ?? '0')) as Amount;
+    return openInterestRoom({
+      limits,
+      marketCommitted: sum(row?.market_positions, row?.market_orders),
+      accountCommitted: sum(row?.account_positions, row?.account_orders),
+      lotSize: input.lotSize,
+    });
+  }
+
+  /**
+   * The margin tier a side's exposure sits in now and would sit in with `qty` more (`risk-tier-confirm.ts`), rated at
+   * `mark` against the depth the liquidation tick reads. Exposure is the open position's size plus what the side's
+   * live opening orders can still fill, since those fill into the same position. An unset ladder refuses
+   * `trade.ladder_unset` and an unreadable depth `trade.depth_unknown`: with either, no tier can be named.
+   */
+  async riskTierCrossing(input: {
+    userId: string;
+    marketId: string;
+    symbol: string;
+    side: 'long' | 'short';
+    qty: Amount;
+    mark: Amount;
+    /** The order being rated once its own row is written: left out of the exposure, since `qty` is that order. */
+    excludeOrderId?: string;
+    /** The depth an earlier rating in the same request read; absent reads it now. */
+    depthNotional?: Amount;
+  }): Promise<RiskTierCrossing> {
+    const ladder = this.deps.ladder;
+    if (!ladder?.policy) {
+      throw new FuturesError(
+        'the owner has not published the maintenance tiers, so no margin tier can be named',
+        'trade.ladder_unset',
+        503,
+      );
+    }
+    let depthNotional: Amount | null = input.depthNotional ?? null;
+    if (depthNotional === null) {
+      try {
+        depthNotional = await ladder.depth.depthNotional({ marketId: input.marketId, side: input.side, symbol: input.symbol });
+      } catch {
+        depthNotional = null;
+      }
+    }
+    if (depthNotional == null || depthNotional <= 0n) {
+      throw new FuturesError('the book depth the margin tiers are rated against is unreadable — nothing was held', DEPTH_UNKNOWN, 503);
+    }
+    const bookSide = input.side === 'long' ? 'buy' : 'sell';
+    const [row] = await this.sql<{ position: string | null; orders: string | null }[]>`
+      SELECT
+        (SELECT sum(size) FROM trade.positions
+          WHERE user_id = ${input.userId} AND market_id = ${input.marketId} AND side = ${input.side}
+            AND status IN ('open', 'closing'))::text AS position,
+        (SELECT sum(qty - filled_qty) FROM trade.futures_orders
+          WHERE user_id = ${input.userId} AND market_id = ${input.marketId} AND side = ${bookSide} AND NOT reduce_only
+            AND status IN ('pending', 'held', 'submitting', 'open', 'submit_unknown')
+            ${input.excludeOrderId ? this.sql`AND id <> ${input.excludeOrderId}` : this.sql``})::text AS orders
+    `;
+    const exposure = parseAmount(row?.position ?? '0') + parseAmount(row?.orders ?? '0');
+    return tierCrossing({ policy: ladder.policy, depthNotional, mark: input.mark, exposure: exposure as Amount, qty: input.qty });
   }
 
   private requireLeverageCap(): Amount {
@@ -520,6 +636,7 @@ export class PositionService {
   async collateralFigures(
     userId: string,
     asset: string,
+    db: Sql | TransactionSql = this.sql,
   ): Promise<{
     free: Amount;
     posted: Amount;
@@ -542,11 +659,11 @@ export class PositionService {
       const row = snapshot.find((b) => b.account.assetId === asset && b.account.kind === kind && (b.account.purpose ?? '') === purpose);
       return row && row.amount > 0n ? row.amount : 0n;
     };
-    const positions = await this.sql<{ id: string; margin_initial: string }[]>`
+    const positions = await db<{ id: string; margin_initial: string }[]>`
       SELECT id, margin_initial FROM trade.positions
        WHERE user_id = ${userId} AND margin_asset = ${asset} AND status IN ('open', 'closing')
     `;
-    const orders = await this.sql<OrderRow[]>`
+    const orders = await db<OrderRow[]>`
       SELECT * FROM trade.futures_orders
        WHERE user_id = ${userId} AND hold_asset = ${asset} AND status IN ('pending', 'held', 'submitting', 'open', 'submit_unknown')
     `;
@@ -577,97 +694,71 @@ export class PositionService {
   }
 
   /**
-   * An opening order's hold answers to the owner's haircut like an at-mark open did: the account's posted cash, cut,
-   * must cover everything it has committed, the new order's hold included. Blank refuses `trade.haircut_unset`; short
-   * refuses `trade.haircut_credit_short`; a read that fails refuses `trade.collateral_unreadable` (503). Nothing is held.
+   * The account's collateral figures for a credit check. A read that fails refuses `trade.collateral_unreadable` (503):
+   * it says nothing about the owner's haircut, and the request may be retried. A blank haircut refuses
+   * `trade.haircut_unset`.
    */
-  private async assertMatchedCollateralCredit(input: { userId: string; asset: string }): Promise<void> {
+  private async collateralForCredit(
+    userId: string,
+    asset: string,
+    db: Sql | TransactionSql = this.sql,
+  ): Promise<Awaited<ReturnType<PositionService['collateralFigures']>> & { haircutBps: number }> {
     let figures: Awaited<ReturnType<PositionService['collateralFigures']>>;
     try {
-      figures = await this.collateralFigures(input.userId, input.asset);
+      figures = await this.collateralFigures(userId, asset, db);
     } catch (err) {
       if (err instanceof FuturesError) throw err;
-      // The service could not read the account, which says nothing about the owner's haircut: a 5xx, retried.
       throw new FuturesError('collateral could not be read — refusing with no margin hold', COLLATERAL_UNREADABLE, 503);
     }
     if (figures.haircutBps === null) {
       throw new FuturesError('TRADE_COLLATERAL_HAIRCUT_BPS is unset — refuse rather than invent a haircut', HAIRCUT_UNSET, 400);
     }
-    // The same rule as the at-mark open: posted cash, cut, covers everything committed (this order's hold included).
-    const decision = decideOpenCredit({ postedCash: figures.posted, initialMargin: figures.committed, haircutBps: figures.haircutBps });
-    if (!decision.ok) {
-      throw new FuturesError(
-        'posted collateral, after the haircut, is below the margin already committed plus this order’s hold — nothing was held',
-        HAIRCUT_CREDIT_SHORT,
-        400,
-      );
-    }
+    return { ...figures, haircutBps: figures.haircutBps };
   }
 
   /**
-   * credit(available + Σ position collateral pots) must cover Σ margin_initial + the new
-   * requirement. The pots are read from the ledger, never from `margin_current`: that column is a mirror and can drift
-   * from what the ledger holds, and no service-held figure may decide how much credit a customer has. A shortfall or a failed read refuses and
-   * posts nothing. `additionalInitialMargin` is the new open's IM, or the IM
-   * delta when setLeverage is raising margin.
+   * Serialises the credit checks of one account's cash in one asset that write their requirement after they check
+   * (a leverage change writes the position's new initial margin when its transaction commits). Held until `db`'s
+   * transaction ends, so a check that waits on it reads that requirement. An opening order's check only passes through
+   * the lock: its row exists before its check, so a leverage change that takes the lock after it already counts it.
    */
-  private async assertAggregateHaircutCredit(input: {
-    userId: string;
-    asset: string;
-    additionalInitialMargin: Amount;
-    available?: Amount;
-  }): Promise<void> {
-    let haircutBps: number;
-    try {
-      haircutBps = requireOwnerHaircutBps(readOwnerHaircutBps());
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'TRADE_COLLATERAL_HAIRCUT_BPS is unset — refuse rather than invent a haircut';
-      throw new FuturesError(message, HAIRCUT_UNSET, 400);
-    }
+  private async lockCollateral(db: TransactionSql, userId: string, asset: string): Promise<void> {
+    await db`SELECT pg_advisory_xact_lock(hashtextextended(${`trade.collateral:${userId}:${asset}`}, 0))`;
+  }
 
-    let rows: ReadonlyArray<{ id: string; margin_initial: string }>;
-    try {
-      rows = await this.sql<{ id: string; margin_initial: string }[]>`
-        SELECT id, margin_initial
-        FROM trade.positions
-        WHERE user_id = ${input.userId}
-          AND margin_asset = ${input.asset}
-          AND status IN ('open', 'closing')
-      `;
-    } catch (err) {
-      if (err instanceof FuturesError) throw err;
-      throw new FuturesError('collateral credit could not be read — refusing with no margin lock', HAIRCUT_UNSET, 400);
-    }
-
-    let available = input.available;
-    if (available === undefined) {
-      try {
-        available = (await this.ledger.balance(userAvailable(input.userId, input.asset))).amount;
-      } catch (err) {
-        if (err instanceof FuturesError) throw err;
-        throw new FuturesError('collateral credit could not be read — refusing with no margin lock', HAIRCUT_UNSET, 400);
-      }
-    }
-
-    let sumCurrent = 0n;
-    let sumInitial = 0n;
-    try {
-      for (const row of rows) {
-        sumInitial += parseAmount(String(row.margin_initial));
-        const pot = (await this.ledger.balance(positionCollateralAccount(input.userId, input.asset, row.id))).amount;
-        if (pot > 0n) sumCurrent += pot;
-      }
-    } catch (err) {
-      if (err instanceof FuturesError) throw err;
-      throw new FuturesError('collateral credit could not be read — refusing with no margin lock', HAIRCUT_UNSET, 400);
-    }
-
+  /**
+   * One rule for every credit check: the account's posted cash (free, position pots and order holds, from one ledger
+   * read), cut by the owner's haircut, covers everything committed (positions' initial margin and what live orders
+   * commit) plus `additional`, this request's new requirement. The figures come from the ledger, never from
+   * `margin_current`: that column is a mirror and can drift from what the ledger holds.
+   */
+  private assertHaircutCredit(
+    figures: { posted: Amount; committed: Amount; haircutBps: number },
+    additional: Amount,
+    message?: string,
+  ): void {
     const decision = decideOpenCredit({
-      postedCash: (available + sumCurrent) as Amount,
-      initialMargin: (sumInitial + input.additionalInitialMargin) as Amount,
-      haircutBps,
+      postedCash: figures.posted,
+      initialMargin: (figures.committed + additional) as Amount,
+      haircutBps: figures.haircutBps,
     });
-    if (!decision.ok) throw new FuturesError(decision.reason, HAIRCUT_CREDIT_SHORT, 400);
+    if (!decision.ok) throw new FuturesError(message ?? decision.reason, HAIRCUT_CREDIT_SHORT, 400);
+  }
+
+  /**
+   * An opening order's hold answers to the owner's haircut like an at-mark open did. A split order's children not yet
+   * written are passed as `additionalHold`; a written row already counts its own. Nothing is held on a refusal.
+   */
+  private async assertMatchedCollateralCredit(input: { userId: string; asset: string; additionalHold?: Amount }): Promise<void> {
+    // Wait out a leverage change that is writing its new margin, then read: the lock is taken and let go at once, so no
+    // connection is held while the ledger is read.
+    await this.sql.begin((tx) => this.lockCollateral(tx, input.userId, input.asset));
+    const figures = await this.collateralForCredit(input.userId, input.asset);
+    this.assertHaircutCredit(
+      figures,
+      (input.additionalHold ?? 0n) as Amount,
+      'posted collateral, after the haircut, is below the margin already committed plus this order’s hold — nothing was held',
+    );
   }
 
   /**
@@ -1064,6 +1155,16 @@ export class PositionService {
     return this.matched.place(principal, input, context);
   }
 
+  /** The reduce-only order a fired conditional order places for its trader (`MatchedFuturesOrders.placeOnInstruction`). */
+  async placeMatchedOnInstruction(input: PlaceMatchedOrderInput, instructionId: string) {
+    return this.matched.placeOnInstruction(input, instructionId);
+  }
+
+  /** An opening order above the max-order, placed as children of at most the cap (`MatchedFuturesOrders.placeSplit`). */
+  async placeMatchedSplit(principal: Principal, input: PlaceMatchedOrderInput, context: { readonly region?: string | null } = {}) {
+    return this.matched.placeSplit(principal, input, context);
+  }
+
   /** The caller's own matched futures orders (`MatchedFuturesOrders.listForUser`). */
   async listMatchedOrders(
     userId: string,
@@ -1348,13 +1449,15 @@ export class PositionService {
         symbol: string;
         kind: string;
         status: string;
+        base_asset: string;
         quote_asset: string;
+        lot_size: string | null;
         futures_contract_style: 'perpetual' | 'dated' | null;
         futures_expiry_at: Date | null;
         futures_settlement_fixing: string | null;
       }[]
     >`
-      SELECT id, symbol, kind, status, quote_asset,
+      SELECT id, symbol, kind, status, base_asset, quote_asset, lot_size,
              futures_contract_style, futures_expiry_at, futures_settlement_fixing
       FROM trade.markets
       WHERE symbol = ${input.symbol}
@@ -1482,11 +1585,7 @@ export class PositionService {
       entryPrice,
       leverage,
     });
-    await this.assertAggregateHaircutCredit({
-      userId: input.userId,
-      asset: m.quote_asset,
-      additionalInitialMargin: margin,
-    });
+    this.assertHaircutCredit(await this.collateralForCredit(input.userId, m.quote_asset), margin);
     if (!principal || principal.userId !== input.userId) throw new TradingControlError('auth.credential_denied');
     if (!this.deps.accountAdmission) throw new TradingControlError('authority.unavailable');
     // Owner pre-trade limits (#4725), before the margin lock. A retry of an
@@ -1508,6 +1607,18 @@ export class PositionService {
         limitRefusal.code,
         limitRefusal.code.endsWith('_unset') ? 400 : PRETRADE_LIMIT_HTTP_STATUS,
       );
+    // The open-interest limits an opening order through the book answers to (D-margin-05), wherever they are wired.
+    // The room counts live opening orders as well: orders placed while matching was on may still rest after it is off.
+    if (this.openInterestLimits) {
+      const room = await this.openInterestRoom({
+        userId: input.userId,
+        marketId: m.id,
+        symbol: m.symbol,
+        lotSize: m.lot_size == null ? null : parseAmount(m.lot_size),
+      });
+      const over = openInterestRefusal(room, input.size, m.base_asset);
+      if (over) throw new FuturesError(over.message, over.code, over.status);
+    }
     const evidence = businessPayload({
       request: input,
       market: { id: m.id, symbol: m.symbol, quote_asset: m.quote_asset },
@@ -1814,26 +1925,17 @@ export class PositionService {
 
         if (delta > 0n) {
           this.refuseIfFuturesExposureOff();
-          let availableAmount: Amount;
-          try {
-            availableAmount = (await this.ledger.balance(userAvailable(input.userId, row.margin_asset))).amount;
-          } catch (err) {
-            if (err instanceof FuturesError) throw err;
-            throw new FuturesError('collateral credit could not be read — refusing with no margin lock', HAIRCUT_UNSET, 400);
-          }
-          if (availableAmount < delta) {
+          // Held until this transaction writes the new initial margin, so an opening order's check waits and counts it.
+          await this.lockCollateral(tx, input.userId, row.margin_asset);
+          const figures = await this.collateralForCredit(input.userId, row.margin_asset, tx);
+          if (figures.free < delta) {
             throw new FuturesError(
-              `need ${formatAmount(delta)} ${row.margin_asset} extra isolated margin, have ${formatAmount(availableAmount)}`,
+              `need ${formatAmount(delta)} ${row.margin_asset} extra isolated margin, have ${formatAmount(figures.free)}`,
               LEVERAGE_INSUFFICIENT_MARGIN,
               400,
             );
           }
-          await this.assertAggregateHaircutCredit({
-            userId: input.userId,
-            asset: row.margin_asset,
-            additionalInitialMargin: delta,
-            available: availableAmount,
-          });
+          this.assertHaircutCredit(figures, delta);
           ledgerAttempted = true;
           await this.ledger.post(
             recipes.futuresMarginAdd({

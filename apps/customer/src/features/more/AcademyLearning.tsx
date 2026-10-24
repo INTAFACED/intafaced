@@ -12,9 +12,11 @@ import { isAcademyPath, rememberLastLesson } from './academy-lms';
 import { useAcademyTracking } from './academy-tracking';
 import { AcademyCatalogue } from './AcademyCatalogue';
 import { academyLmsCopy } from './academy-lms-copy';
-import { kindLabel, pathLabel } from './AcademyLmsParts';
+import { AcademyRefusal, kindLabel, pathLabel } from './AcademyLmsParts';
 import { Assessment } from './AcademyAssessment';
-import { LessonVideoLink, ReaderHeader, ReaderPager } from './AcademyReaderParts';
+import { LockedItemNotice, ReaderHeader, ReaderPager } from './AcademyReaderParts';
+import { ItemVideo } from './AcademyVideoPlayer';
+import { academyCodeOf, missingItems } from './academy-flows';
 import './academy-learning.css';
 
 const ref = z.string().min(1);
@@ -69,6 +71,7 @@ export function progressFor(owner: string | null | undefined, certId: string, re
   );
 }
 const completion = z.object({ userId: z.string().uuid(), itemSlug: ref, completedAt: date });
+const touched = z.object({ lastItemSlug: ref.nullable() });
 type Context = { owner: string; certId: string; slug: string };
 const contextSchema = z.object({ owner: z.string().uuid(), certId: z.string(), slug: ref });
 const selectionKey = (owner: string) => `intafaced:academy:certificate:${owner}`;
@@ -118,12 +121,15 @@ export function AcademyLearning({
   certId,
   chooseCertificate,
   action,
+  onProgress,
 }: {
   slug?: string;
   initialPath?: string;
   certId: string;
   chooseCertificate: (id: string) => void;
   action: ActionControls;
+  /** A quiz attempt was scored or a watched video completed an item, so a course rule may now be met. */
+  onProgress?: () => void;
 }) {
   const api = useApi(),
     { userId } = useSession(),
@@ -221,13 +227,20 @@ export function AcademyLearning({
   );
   const overview = useAcademyTracking();
   const openedLesson = reader.resource.status === 'ready' ? reader.resource.data?.slug : undefined;
+  // One reader on screen is one visit: the key is this reader's mount, so an effect run twice for the same lesson
+  // (a remount check, a session refresh) is one opening, and opening the lesson again later is another.
+  const visit = useRef(`${Date.now().toString(36)}`);
   useEffect(() => {
-    if (openedLesson) rememberLastLesson(userId, openedLesson);
+    if (!openedLesson) return;
+    rememberLastLesson(userId, openedLesson);
+    // Academy keeps where this account last read, so Continue opens the same item on any device. A failed write leaves
+    // the lesson readable and Continue where it was; it is not worth a notice on the lesson.
+    void api.mutate('academy', 'touchLesson', { slug: openedLesson, clientRequestId: `open:${openedLesson}:${visit.current}` }, touched);
   }, [userId, openedLesson]);
   const pending = originalPending(userId);
   const receipt = action.result?.ok ? completion.safeParse(action.result.data) : null;
   const receiptMatches = receipt?.success && receipt.data.userId === userId && receipt.data.itemSlug === slug;
-  const certificateLink = `/academy?${new URLSearchParams({ ...(certId ? { cert: certId } : {}), section: 'certificates' })}`;
+  const certificateLink = `/academy/certificates${certId ? `?${new URLSearchParams({ cert: certId })}` : ''}`;
   function review(lesson: z.infer<typeof item>) {
     const expected = { ...context.current },
       originalLocale = language;
@@ -426,99 +439,109 @@ export function AcademyLearning({
           <Panel title={copyText('academy.learning.item')}>
             <div className="academy-learning-stack">
               {recovery}
-              <Read resource={reader.resource} retry={reader.reload}>
-                {(lesson) =>
-                  lesson && (
-                    <>
-                      <div>
-                        <h2 lang="und">{lesson.title}</h2>
-                        <div className="academy-learning-meta">
-                          <span>
-                            <Copy k="readingMinutes" params={{ minutes: lesson.estimatedMinutes }} />
-                          </span>
-                          <span>
-                            {isAcademyPath(lesson.path) ? pathLabel(lms, lesson.path) : lesson.path} · {kindLabel(lms, lesson.kind)}
-                          </span>
+              {/* A lesson held by its course start or window is refused in words; the outline beside it says when it opens. */}
+              {reader.resource.status === 'failed' && academyCodeOf(reader.resource.failure) === 'academy.prerequisite_unmet' ? (
+                <LockedItemNotice
+                  missing={missingItems(reader.resource.failure.message)}
+                  lessons={overview.resource.status === 'ready' ? overview.resource.data.lessons : []}
+                />
+              ) : reader.resource.status === 'failed' ? (
+                <AcademyRefusal failure={reader.resource.failure} retry={reader.reload} />
+              ) : (
+                <Read resource={reader.resource} retry={reader.reload}>
+                  {(lesson) =>
+                    lesson && (
+                      <>
+                        <div>
+                          <h2 lang="und">{lesson.title}</h2>
+                          <div className="academy-learning-meta">
+                            <span>
+                              <Copy k="readingMinutes" params={{ minutes: lesson.estimatedMinutes }} />
+                            </span>
+                            <span>
+                              {isAcademyPath(lesson.path) ? pathLabel(lms, lesson.path) : lesson.path} · {kindLabel(lms, lesson.kind)}
+                            </span>
+                          </div>
                         </div>
-                      </div>
-                      <Read resource={overview.resource} retry={overview.reload}>
-                        {(data) => <ReaderHeader slug={lesson.slug} path={lesson.path} lessons={data.lessons} tracking={data.tracking} />}
-                      </Read>
-                      <LessonVideoLink slug={lesson.slug} />
-                      {lesson.fellBack && (
-                        <p className="muted">
-                          <Copy
-                            k="languageFallback"
-                            params={{ language: lesson.locale === 'en' ? t('englishBodyLanguage') : lesson.locale }}
-                          />
-                        </p>
-                      )}
-                      <section>
-                        <h3>
-                          <Text k="academy.learning.objectives" />
-                        </h3>
-                        <ul lang="und">
-                          {lesson.objectives.map((o) => (
-                            <li key={o}>{o}</li>
-                          ))}
-                        </ul>
-                      </section>
-                      <article className="more-body" lang={lesson.locale}>
-                        <LessonBody body={lesson.body} title={lesson.title} />
-                      </article>
-                      <section>
-                        <h3>
-                          <Text k="academy.key.terms" />
-                        </h3>
-                        <div lang="und">
-                          <Details items={lesson.keyTerms.map((term) => [term.term, term.definition])} />
-                        </div>
-                      </section>
-                      <Assessment slug={lesson.slug} prompts={lesson.selfCheck} />
-                      {receiptMatches && receipt?.success && (
-                        <section className="academy-learning-receipt" aria-label={t('completionReceipt')}>
-                          <h3>
-                            <Copy k="completionReceipt" />
-                          </h3>
-                          <p>
-                            <Copy k="completionBoundary" />
-                          </p>
-                          <Details
-                            items={[
-                              [
-                                t('recordedAt'),
-                                <time dateTime={receipt.data.completedAt} lang="zxx">
-                                  {receipt.data.completedAt}
-                                </time>,
-                              ],
-                              [t('originalLesson'), <span lang="und">{lesson.title}</span>],
-                              [copyText('common.acting.as.account'), <code lang="zxx">{receipt.data.userId}</code>],
-                            ]}
-                          />
+                        <Read resource={overview.resource} retry={overview.reload}>
+                          {(data) => <ReaderHeader slug={lesson.slug} path={lesson.path} lessons={data.lessons} tracking={data.tracking} />}
+                        </Read>
+                        <ItemVideo itemSlug={lesson.slug} onCompleted={onProgress} />
+                        {lesson.fellBack && (
                           <p className="muted">
-                            <Copy k="receiptUnavailable" />
+                            <Copy
+                              k="languageFallback"
+                              params={{ language: lesson.locale === 'en' ? t('englishBodyLanguage') : lesson.locale }}
+                            />
                           </p>
+                        )}
+                        <section>
+                          <h3>
+                            <Text k="academy.learning.objectives" />
+                          </h3>
+                          <ul lang="und">
+                            {lesson.objectives.map((o) => (
+                              <li key={o}>{o}</li>
+                            ))}
+                          </ul>
                         </section>
-                      )}
-                      <div className="academy-learning-actions">
-                        <Button disabled={action.disabled} onClick={() => review(lesson)}>
-                          <Copy k="reviewCompletion" />
-                        </Button>
-                        <a
-                          className="academy-learning-link"
-                          href={certId ? certificateLink : `/academy?${new URLSearchParams({ path: lesson.path })}`}
-                        >
-                          <Copy k={certId ? 'returnCertificate' : 'returnLibrary'} />
-                        </a>
-                      </div>
-                      {lesson.kind === 'workbook' && <Workbook slug={lesson.slug} />}
-                      <Read resource={overview.resource} retry={overview.reload}>
-                        {(data) => <ReaderPager slug={lesson.slug} path={lesson.path} lessons={data.lessons} certId={certId} />}
-                      </Read>
-                    </>
-                  )
-                }
-              </Read>
+                        <article className="more-body" lang={lesson.locale}>
+                          <LessonBody body={lesson.body} title={lesson.title} />
+                        </article>
+                        <section>
+                          <h3>
+                            <Text k="academy.key.terms" />
+                          </h3>
+                          <div lang="und">
+                            <Details items={lesson.keyTerms.map((term) => [term.term, term.definition])} />
+                          </div>
+                        </section>
+                        <Assessment slug={lesson.slug} prompts={lesson.selfCheck} onFinished={onProgress} />
+                        {receiptMatches && receipt?.success && (
+                          <section className="academy-learning-receipt" aria-label={t('completionReceipt')}>
+                            <h3>
+                              <Copy k="completionReceipt" />
+                            </h3>
+                            <p>
+                              <Copy k="completionBoundary" />
+                            </p>
+                            <Details
+                              items={[
+                                [
+                                  t('recordedAt'),
+                                  <time dateTime={receipt.data.completedAt} lang="zxx">
+                                    {receipt.data.completedAt}
+                                  </time>,
+                                ],
+                                [t('originalLesson'), <span lang="und">{lesson.title}</span>],
+                                [copyText('common.acting.as.account'), <code lang="zxx">{receipt.data.userId}</code>],
+                              ]}
+                            />
+                            <p className="muted">
+                              <Copy k="receiptUnavailable" />
+                            </p>
+                          </section>
+                        )}
+                        <div className="academy-learning-actions">
+                          <Button disabled={action.disabled} onClick={() => review(lesson)}>
+                            <Copy k="reviewCompletion" />
+                          </Button>
+                          <a
+                            className="academy-learning-link"
+                            href={certId ? certificateLink : `/academy?${new URLSearchParams({ path: lesson.path })}`}
+                          >
+                            <Copy k={certId ? 'returnCertificate' : 'returnLibrary'} />
+                          </a>
+                        </div>
+                        {lesson.kind === 'workbook' && <Workbook slug={lesson.slug} />}
+                        <Read resource={overview.resource} retry={overview.reload}>
+                          {(data) => <ReaderPager slug={lesson.slug} path={lesson.path} lessons={data.lessons} certId={certId} />}
+                        </Read>
+                      </>
+                    )
+                  }
+                </Read>
+              )}
             </div>
           </Panel>
         </div>
@@ -603,7 +626,7 @@ function inlineText(text: string): ReactNode {
       ),
     );
 }
-function LessonBody({ body, title }: { body: string; title: string }) {
+export function LessonBody({ body, title }: { body: string; title: string }) {
   return (
     <>
       {body

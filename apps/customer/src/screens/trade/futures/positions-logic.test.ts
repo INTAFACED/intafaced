@@ -91,7 +91,7 @@ describe('gateActions', () => {
   it('allows everything on a healthy open position', () => {
     expect(Object.values(gate()).every((x) => x === null)).toBe(true);
   });
-  it('plane off and an unresolved request block all four', () => {
+  it('plane off and an unresolved request block every action', () => {
     expect(Object.values(gate({ planeOff: true })).every((x) => x === 'planeOff')).toBe(true);
     expect(Object.values(gate({ writerLocked: true })).every((x) => x === 'writerLocked')).toBe(true);
   });
@@ -100,11 +100,13 @@ describe('gateActions', () => {
     expect(g.add).toBeNull();
     expect(g.reduce).toBe('liquidating');
     expect(g.leverage).toBe('liquidating');
+    expect(g.protect).toBe('liquidating');
     expect(g.close).toBe('liquidating');
   });
   it('a stale read blocks mark-priced actions but not adding margin, and not retrying a close', () => {
     const open = gate({ stale: true });
     expect(open.add).toBeNull();
+    expect(open.protect).toBe('stale');
     expect(open.close).toBe('stale');
     expect(gate({ stale: true }, { status: 'closing' }).close).toBeNull();
   });

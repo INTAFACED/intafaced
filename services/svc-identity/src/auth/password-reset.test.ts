@@ -12,6 +12,7 @@ import { publishedPasswordResetTtlSeconds } from './password-reset.js';
 import { stubActionApprovals } from './privileged-dual-control.js';
 import { createIdentityRouter } from '../router.js';
 import { RankService } from '../rank/rank-service.js';
+import { SecurityLock } from './security-lock.js';
 
 /**
  * Signed-out password reset (S13, D-38). ACC-0017, ACC-0064, ACC-0172.
@@ -163,6 +164,24 @@ if (!available) {
       const outbox = await db.sql`SELECT * FROM mail_outbox`;
       expect(JSON.stringify(outbox)).not.toContain(sent[0]!.code);
       await expect(anon().auth.refresh({ refreshToken: user.refreshToken })).resolves.toMatchObject({ userId: user.userId });
+    });
+
+    it('refuses a correct proof while the security lock holds: the hash stays, the code stays usable, and the time shows', async () => {
+      const user = await register();
+      const before = await hashOf(user.userId);
+      const lock = new SecurityLock(db.sql, 3600);
+      await lock.lock(user.userId, { kind: 'self', userId: user.userId });
+      const asked = await lock.requestUnlock(user.userId);
+      await anon().auth.requestPasswordReset({ email: user.email });
+
+      const refused = await refusal(anon().auth.completePasswordReset({ email: user.email, code: sent[0]!.code, newPassword: NEW }));
+
+      expect(refused).toMatchObject({ trpc: 'PRECONDITION_FAILED', code: 'identity.security_locked' });
+      expect(await hashOf(user.userId)).toBe(before);
+      const flows = await db.sql<Array<{ status: string }>>`SELECT status FROM auth_flows WHERE user_id = ${user.userId}`;
+      expect(flows.map((f) => f.status)).toEqual(['code_sent']);
+      expect(asked.unlocksAt).not.toBeNull();
+      await expect(anon().auth.login({ identifier: user.email, password: OLD })).resolves.toMatchObject({ userId: user.userId });
     });
 
     it('leaves the hash unchanged when the code is wrong, and the old password still signs in', async () => {

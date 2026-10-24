@@ -129,6 +129,12 @@ export type AcademyErrorCode =
   | 'academy.video_not_found'
   /** Watch position is negative, not an integer, or past a set duration. */
   | 'academy.video_position_out_of_range'
+  /** Captions track was asked for and the owner has not published a URL. */
+  | 'academy.video_captions_unpublished'
+  /** Transcript was asked for and the owner has not published text. */
+  | 'academy.video_transcript_unpublished'
+  /** Seconds of stored position that count as watched. Blank is not zero. */
+  | 'academy.watch_threshold_unset'
   /** Leave found no enrolment for this caller. */
   | 'academy.enrollment_not_found'
   /** Operator completionsByItem path is not a curriculum path. */
@@ -156,9 +162,70 @@ export type AcademyErrorCode =
   | 'academy.verify_address_unset'
   /** certVerify over the published per-address limit. */
   | 'academy.verify_rate_limited'
+  /** The item has a prerequisite, so whether it is open depends on the reader's own record: sign in. */
+  | 'academy.sign_in_required'
   | 'academy.holder_name_invalid'
   /** AC-articles-02: a slug equal to a reserved academy tab. */
-  | 'academy.slug_reserved';
+  | 'academy.slug_reserved'
+  /** AC-catalogue-03: no published course by that slug. A draft gets the same answer as a missing one. */
+  | 'academy.course_not_found'
+  /** AC-enrolment-01: the course or the chosen track is closed for enrolment; the message carries `reason=<reason>`. */
+  | 'academy.enrolment_closed'
+  /** The item's course rule (pass its quiz, watch its video) is not met, so it cannot be marked complete. */
+  | 'academy.completion_rule_unmet'
+  /** A request id already answered a different request (another item, another action). */
+  | 'academy.request_reused'
+  /** AC-quizzes-03: no attempt of the caller's with this id. */
+  | 'academy.attempt_not_found'
+  /** The attempt is finished or past its deadline, so it takes no more answers. */
+  | 'academy.attempt_closed'
+  /** The attempt is still open, so there is nothing to review. */
+  | 'academy.attempt_open'
+  /** A timed or staff-published quiz is taken with Start, not sent in one go. */
+  | 'academy.attempt_required'
+  /** AC-progress-02: the result is hidden until its date; the response says so rather than a number. */
+  | 'academy.grades_hidden'
+  /** The owner has not set how many to-do items a learner may keep. */
+  | 'academy.planner_limit_unset'
+  /** The learner already keeps as many to-do items as the owner allows. */
+  | 'academy.planner_full'
+  /** No to-do item of the caller's with this id. */
+  | 'academy.todo_not_found'
+  /** The goal is out of bounds, or there is no goal with its reminder on to send. */
+  | 'academy.goal_invalid'
+  /** A caption file is not WebVTT, or two tracks of one video share a language. */
+  | 'academy.captions_invalid'
+  /** AC-course-structure-01: the slug is already a course's, a shipped course's or a lesson's address. */
+  | 'academy.course_slug_taken'
+  /** The course moved on since the editor read it. */
+  | 'academy.course_revision_stale'
+  /** Only a draft's details are edited on the desk. */
+  | 'academy.course_not_editable'
+  /** The lifecycle has no such move from the course's state. */
+  | 'academy.item_transition_illegal'
+  /** A paid course has no price, so it is not published. */
+  | 'academy.price_unset'
+  /** The course's outline is empty, so it is not published. */
+  | 'academy.course_outline_empty'
+  | 'academy.courses_list_limit_unset'
+  /** AC-course-structure-02: the owner has not set the outline section and item limits. */
+  | 'academy.outline_limits_unset'
+  /** The outline has more sections or items than the owner allows. */
+  | 'academy.outline_too_large'
+  /** The outline names a section or item id this course does not hold. */
+  | 'academy.outline_item_unknown'
+  /** AC-course-structure-03: the lesson has a newer revision than the one the editor read. */
+  | 'academy.revision_stale'
+  /** No such revision of this lesson. */
+  | 'academy.lesson_revision_unknown'
+  /** A subheader or a link holds no lesson. */
+  | 'academy.item_has_no_lesson'
+  /** An item with a lesson does not become a subheader or a link. */
+  | 'academy.item_kind_locked'
+  /** The owner has not set the lesson import size limit. */
+  | 'academy.import_limit_unset'
+  /** The lesson file is over the owner's size limit; it was not parsed. */
+  | 'academy.import_too_large';
 
 export class AcademyError extends Error {
   constructor(
@@ -238,6 +305,9 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.seconds_out_of_range',
   'academy.video_not_found',
   'academy.video_position_out_of_range',
+  'academy.video_captions_unpublished',
+  'academy.video_transcript_unpublished',
+  'academy.watch_threshold_unset',
   'academy.enrollment_not_found',
   'academy.path_not_found',
   'academy.metrics_range_invalid',
@@ -254,8 +324,39 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.verify_rate_unset',
   'academy.verify_address_unset',
   'academy.verify_rate_limited',
+  'academy.sign_in_required',
   'academy.holder_name_invalid',
   'academy.slug_reserved',
+  'academy.course_not_found',
+  'academy.enrolment_closed',
+  'academy.completion_rule_unmet',
+  'academy.request_reused',
+  'academy.attempt_not_found',
+  'academy.attempt_closed',
+  'academy.attempt_open',
+  'academy.attempt_required',
+  'academy.grades_hidden',
+  'academy.planner_limit_unset',
+  'academy.planner_full',
+  'academy.todo_not_found',
+  'academy.goal_invalid',
+  'academy.captions_invalid',
+  'academy.course_slug_taken',
+  'academy.course_revision_stale',
+  'academy.course_not_editable',
+  'academy.item_transition_illegal',
+  'academy.price_unset',
+  'academy.course_outline_empty',
+  'academy.courses_list_limit_unset',
+  'academy.outline_limits_unset',
+  'academy.outline_too_large',
+  'academy.outline_item_unknown',
+  'academy.revision_stale',
+  'academy.lesson_revision_unknown',
+  'academy.item_has_no_lesson',
+  'academy.item_kind_locked',
+  'academy.import_limit_unset',
+  'academy.import_too_large',
 ] as const;
 
 /** L3 — catalog size. */

@@ -76,6 +76,7 @@ import { bindCollar, installCollarPlace } from './spot/collar-place.js';
 import { bindCombo, installComboPlace } from './spot/combo-place.js';
 import { memoryOutcomeCatalogue, registerOutcomesRest } from './outcomes-rest.js';
 import { registerPositionPreviewRest } from './futures/position-preview-rest.js';
+import { resolveAdmissionLimits } from './futures/pretrade-limits.js';
 import { registerGreeksWhatIfRest } from './greeks/what-if-rest.js';
 import { registerDeltaHedgeRest } from './greeks/delta-hedge-rest.js';
 import { registerQuantLiveDeployRest } from './quant/live-deploy-rest.js';
@@ -84,6 +85,15 @@ import { registerSpotOrderPreviewRest } from './spot/order-preview-rest.js';
 import { parseFeeScheduleJson } from './spot/fee-schedule.js';
 import { feeScheduleAt } from './spot/fee-schedule-store.js';
 import { PositionService, FuturesError } from './futures/position-service.js';
+import { readOpenInterestLimits } from './futures/open-interest-limits.js';
+import {
+  bandInForce,
+  readPriceRangeSettings,
+  runPriceBandTick,
+  sqlPriceBandStore,
+  staticBandInForce,
+  type BandInForce,
+} from './futures/dynamic-price-band.js';
 import {
   ADL_DISCLOSURE_VERSION,
   assertAdlDisclosureAcked,
@@ -100,7 +110,7 @@ import {
   readEligibilityState,
   sqlEligibilityStore,
 } from './futures/derivatives-eligibility.js';
-import { assertOperatorRiskOnPlace, currentRiskForMarkets } from './admin/risk.js';
+import { assertOperatorRiskOnPlace, currentRisk, currentRiskForMarkets, operatorSlippageCapBps } from './admin/risk.js';
 import { presentPairRisk } from './spot/pair-rules.js';
 import {
   acceptAgreement,
@@ -151,7 +161,7 @@ import { startAlgoJobs } from './algo/algo-jobs.js';
 import { recordSchedulerHeartbeat, schedulerInstanceId } from './algo/scheduler-heartbeat.js';
 import { startOptionsExerciseJobs } from './spot/options-exercise-jobs.js';
 import { checkEngineSequences, describeRegressions, describeUnavailable, probeEngineSequence } from './spot/sequence-guard.js';
-import { formatAmount, parseAmount } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 import { parseOtcDeskLawJson } from './otc/desk-law.js';
 import { createOtcMidSourceFromConfig } from './otc/venue-mid-source.js';
@@ -552,6 +562,27 @@ const riskAgreements = sqlRiskAgreementStore(sql);
 const derivativesEligibility = sqlEligibilityStore(sql);
 const derivativesGate = derivativesAccessGate({ agreements: riskAgreements, eligibility: derivativesEligibility });
 const futuresPriceBand = parsePriceBand(env.TRADE_FUTURES_PRICE_BAND);
+// D-instruments-08: the operator's dynamic price range on the market's limits row, worked out by the futures.price_band
+// job below. Anything short of a fresh working for the limits in force, an unreadable read included, is the static band.
+const priceBands = sqlPriceBandStore(sql);
+const futuresBandInForce = async (staticBand: Amount, marketId: string): Promise<BandInForce> => {
+  try {
+    const risk = await currentRisk(sql, marketId);
+    return bandInForce({
+      staticBand,
+      settings: readPriceRangeSettings(risk),
+      riskVersion: risk?.version ?? '0',
+      current: await priceBands.current(marketId),
+      now: new Date(),
+      jobIntervalMs: env.TRADE_FUTURES_LIQ_INTERVAL_MS,
+    });
+  } catch (err) {
+    app.log.error({ err, marketId }, 'the futures price band in force could not be read; the static band applies');
+    return staticBandInForce(staticBand, 'unreadable');
+  }
+};
+const futuresSlippageCapBps = async (marketId: string): Promise<number | null> =>
+  (await operatorSlippageCapBps(sql, marketId)) ?? env.TRADE_MARKET_SLIPPAGE_CAP_BPS ?? null;
 /** The perpetual rates an account pays now: the owner's schedule in force (TRADE_FEE_SCHEDULE `perpetual`) less its rank discount. */
 const futuresFeeRates = async (userId: string) =>
   perpetualFeeRates(await feeScheduleAt(sql, feeSchedule, new Date()), (await perks.perksOf(userId)).feeDiscountBps);
@@ -571,9 +602,18 @@ const positions = new PositionService(sql, ledger, {
     matching,
     enabled: env.TRADE_FUTURES_MATCHING_ENABLED,
     priceBand: futuresPriceBand,
+    ...(futuresPriceBand !== null
+      ? {
+          priceBandFor: async (marketId: string) => (await futuresBandInForce(futuresPriceBand, marketId)).fraction,
+        }
+      : {}),
     lifecycleProof: (marketId) => trade.placeLifecycleProofForMarket(marketId),
     // The owner's perpetual block in force now, less the account's rank discount; an order keeps what it was accepted at.
     feeRates: futuresFeeRates,
+    // As spot reads it: the operator's per-market cap, else the owner's; both blank refuses every market open.
+    slippageCapBps: futuresSlippageCapBps,
+    // The operator's open-interest limit and per-account share on the market's limits row; either blank refuses opens.
+    openInterestLimits: async (marketId) => readOpenInterestLimits(await currentRisk(sql, marketId)),
   },
   assertDerivativesAccess: derivativesGate,
   assertAdlDisclosureAcked: async (userId) => {
@@ -607,6 +647,39 @@ futuresJobs.host.every('futures.order_band', env.TRADE_FUTURES_LIQ_INTERVAL_MS, 
     );
   }
 });
+// The dynamic price range (D-instruments-08): each market whose operator range is set is worked out once per its cadence,
+// from the mark and the futures book's own mid, and the band in force and every change to it are kept.
+futuresJobs.host.every('futures.price_band', env.TRADE_FUTURES_LIQ_INTERVAL_MS, async () => {
+  const tick = await runPriceBandTick({
+    staticBand: futuresPriceBand,
+    markets: () => sql<{ id: string; symbol: string }[]>`SELECT id, symbol FROM trade.markets WHERE kind = 'futures' ORDER BY id`,
+    limitsFor: async (marketIds) => {
+      const rows = await currentRiskForMarkets(sql, marketIds);
+      return new Map([...rows].map(([id, risk]) => [id, { version: risk.version, settings: readPriceRangeSettings(risk) }]));
+    },
+    // The mark as the public ticker publishes it: a mark that fails the marking policy (stale, or too thin) is none.
+    mark: async (marketId, symbol) => {
+      const mark = await futuresJobs.publicMark(marketId, symbol);
+      return mark == null ? null : parseAmount(mark.price);
+    },
+    bookMid: async (marketId) => {
+      // The futures book's own mid, read as the trailing-stop pump reads a book (a thin or one-sided book is null).
+      const mid = await trailingMarkSource.markPrice({ marketId, at: new Date() });
+      return mid == null ? null : parseAmount(mid);
+    },
+    store: priceBands,
+    now: () => new Date(),
+  });
+  for (const item of tick.failed) {
+    app.log.error({ job: 'futures.price_band', marketId: item.marketId, err: item.message }, 'the futures price band was not worked out');
+  }
+  for (const item of tick.worked.filter((w) => w.changed)) {
+    app.log.info(
+      { job: 'futures.price_band', marketId: item.marketId, band: item.band, reason: item.reason },
+      'futures price band changed',
+    );
+  }
+});
 futuresJobs.host.every('futures.fill_waits', env.TRADE_FUTURES_LIQ_INTERVAL_MS, async () => {
   const retry = await positions.retryWaitingMatchedFills(MATCHED_FILL_RETRY_BATCH);
   for (const item of retry.failed) {
@@ -626,6 +699,11 @@ const conditionalOrders = createConditionalOrderService({
   },
   closeQuantity: (userId, positionId, input) => positions.closeQuantity(userId, positionId, input),
   placeLimit: refuseFuturesRestingLimit,
+  // While futures orders go through the book the at-mark close is retired: a fired order places one reduce-only order
+  // there instead, on the trader's standing instruction. A reduce-only order carries its position's leverage.
+  placeReduce: env.TRADE_FUTURES_MATCHING_ENABLED
+    ? (input, instructionId) => positions.placeMatchedOnInstruction({ ...input, leverage: 0n, reduceOnly: true }, instructionId)
+    : null,
 });
 const conditionalJobs = startConditionalOrderJobs({
   config: conditionalJobsConfig,
@@ -886,6 +964,14 @@ registerPositionPreviewRest(app, {
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
   markForMarket: (marketId, symbol) => futuresJobs.publicMark(marketId, symbol),
   leverageCap: maxLeverage,
+  // The band, slippage cap and max-order the order path holds an open to, read the same way it reads them.
+  priceBand: futuresPriceBand,
+  ...(futuresPriceBand !== null ? { priceBandInForce: (marketId: string) => futuresBandInForce(futuresPriceBand, marketId) } : {}),
+  slippageCapBps: futuresSlippageCapBps,
+  maxOrder: () => {
+    const resolved = resolveAdmissionLimits();
+    return 'refusal' in resolved ? null : resolved.limits.maxOrder;
+  },
   // The rate an opening order would keep as taker, from the same schedule the order path reads.
   takerFeeBps: async (userId) => (await futuresFeeRates(userId)).takerBps,
   // The liquidation tick's own ladder and depth (`liquidation-price.ts`); no published ladder or no readable depth is
@@ -900,7 +986,12 @@ registerPositionPreviewRest(app, {
     } catch {
       return null;
     }
-  },
+  }, // The tier the order path would rate this order into, and whether it would ask for confirmTier (D-orders-10).
+  riskTierFor: ({ userId, market, side, size, markPrice }) =>
+    positions.riskTierCrossing({ userId, marketId: market.id, symbol: market.symbol, side, qty: size, mark: markPrice }),
+  // The open-interest room the order path would size this open against (D-margin-05).
+  openInterestFor: ({ userId, market }) =>
+    positions.openInterestRoom({ userId, marketId: market.id, symbol: market.symbol, lotSize: market.lotSize }),
 });
 // The tier table and the margin and P&L calculator read the same ladder and depth as the liquidation tick and the
 // preview, and the same taker rate as the order path (`risk-calculator.ts`).
@@ -1108,6 +1199,7 @@ registerPrivateRest(app, {
     ? {
         futuresOrders: {
           place: (principal, input, context) => positions.placeMatchedOrder(principal, input, context),
+          placeSplit: (principal, input, context) => positions.placeMatchedSplit(principal, input, context),
           cancel: (principal, orderId) => positions.cancelMatchedOrder(principal, orderId),
           list: (principal, input) => positions.listMatchedOrders(principal.userId, input),
         },

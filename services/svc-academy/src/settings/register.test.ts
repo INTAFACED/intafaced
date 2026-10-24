@@ -9,6 +9,9 @@ import { createAcademyRouter } from '../router.js';
 import { PENDING_OWNER_SETTINGS, settingsRegister, type SettingsEnv } from './register.js';
 
 const FULL: SettingsEnv = {
+  ACADEMY_OUTLINE_MAX_SECTIONS: 20,
+  ACADEMY_OUTLINE_MAX_ITEMS: 200,
+  ACADEMY_LESSON_IMPORT_MAX_BYTES: 8192,
   ACADEMY_MAX_ROOM_CAPACITY: 7,
   ACADEMY_PAPER_MARKETS_LIMIT: 3,
   TRADE_URL: 'http://trade.test',
@@ -19,6 +22,8 @@ const FULL: SettingsEnv = {
   ACADEMY_VIDEO_S3_SECRET_KEY: 's',
   ACADEMY_VIDEO_S3_REGION: 'r',
   ACADEMY_VIDEO_URL_TTL_SECONDS: 11,
+  ACADEMY_VIDEO_WATCH_THRESHOLD_SECONDS: 15,
+  ACADEMY_VIDEO_POSITION_SAVE_SECONDS: 5,
   ACADEMY_CERT_VERIFY_RATE_MAX: 2,
   ACADEMY_CERT_VERIFY_RATE_WINDOW_SECONDS: 13,
   ACADEMY_AMBASSADOR_IFC_PAY_LAW_JSON: '{"published":true}',
@@ -68,6 +73,14 @@ describe('settingsRegister (AC-order-02)', () => {
     expect(row({}, 'video_storage').refusalCode).toBe('academy.video_storage_unconfigured');
     expect(row({}, 'video_s3_region').refusalCode).toBe('academy.video_s3_region_unset');
     expect(row({}, 'video_url_ttl').refusalCode).toBe('academy.video_url_ttl_unset');
+    expect(row({}, 'watch_threshold').refusalCode).toBe('academy.watch_threshold_unset');
+    expect(row({}, 'section_limit')).toMatchObject({ state: 'not_set', store: 'env', refusalCode: 'academy.outline_limits_unset' });
+    expect(row({}, 'item_limit')).toMatchObject({ state: 'not_set', store: 'env', refusalCode: 'academy.outline_limits_unset' });
+    expect(row({}, 'lesson_import_size_limit')).toMatchObject({
+      state: 'not_set',
+      store: 'env',
+      refusalCode: 'academy.import_limit_unset',
+    });
     expect(row({}, 'cert_verify_rate').refusalCode).toBe('academy.verify_rate_unset');
     expect(row({}, 'ambassador_ifc_pay_law').refusalCode).toBe('academy.ambassador_pay.rates_unset');
     expect(row({}, 'ambassador_revenue_share_law').refusalCode).toBe('academy.ambassador_revenue_share.rates_unset');
@@ -87,6 +100,8 @@ describe('settingsRegister (AC-order-02)', () => {
     expect(row({ ...FULL, ACADEMY_MAX_ROOM_CAPACITY: 0 }, 'room_capacity').state).toBe('not_set');
     expect(row({ ...FULL, ACADEMY_PAPER_MARKETS_LIMIT: -1 }, 'paper_markets_limit').state).toBe('not_set');
     expect(row({ ...FULL, ACADEMY_VIDEO_URL_TTL_SECONDS: 1.5 }, 'video_url_ttl').state).toBe('not_set');
+    expect(row({ ...FULL, ACADEMY_VIDEO_WATCH_THRESHOLD_SECONDS: 0 }, 'watch_threshold').state).toBe('not_set');
+    expect(row({ ...FULL, ACADEMY_VIDEO_POSITION_SAVE_SECONDS: 0 }, 'video_position_save').state).toBe('not_set');
   });
 
   it('video storage needs all four parts', () => {

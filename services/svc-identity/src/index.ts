@@ -20,6 +20,8 @@ import { assertProdTotpKey, assertSigningEncKey, parseTotpSecretKey } from './au
 import { RankService } from './rank/rank-service.js';
 import { ReferralService } from './affiliates/referral-service.js';
 import { ShareService } from './affiliates/share-service.js';
+import { ReferralCodeService, parseReferralCodeLength } from './affiliates/referral-code.js';
+import { parseAttachWindowSeconds } from './affiliates/attach-window.js';
 import { FreezeService } from './affiliates/freeze-service.js';
 import { SqlAccrualStore } from './affiliates/accrual-store.js';
 import { parseAccrualTierLawJson } from './affiliates/commission-rate-law.js';
@@ -72,6 +74,8 @@ import { createWorkItemsRouter } from './work-items.js';
 import { createServerTimeRouter } from './server-time-router.js';
 import { createTotpLifecycleRouter } from './totp-lifecycle-router.js';
 import { createSelfFreezeLiftRouter } from './self-freeze-lift-router.js';
+import { createSecurityLockRouter } from './security-lock-router.js';
+import { SecurityLock } from './auth/security-lock.js';
 import { SelfFreezeLift } from './auth/self-freeze-lift.js';
 import { TotpLifecycle } from './auth/totp-lifecycle.js';
 import { SqlPendingTotpEnrolmentStore } from './auth/pending-totp-store.js';
@@ -88,6 +92,8 @@ import { installApiKeyIpExchange, requestIpAls } from './auth/auth-service-ip.js
 import { installRefreshCookieHooks } from './auth/refresh-cookie.js';
 import { installApiKeyRequestSignExchange } from './auth/api-key-request-sign.js';
 import { createApiKeyRequestSignRouter } from './api-key-request-sign-router.js';
+import { createDeveloperKeysRouter } from './developer-keys-router.js';
+import { parseApiKeyCapByTier, passkeyMintRule } from './auth/developer-keys.js';
 import { installApiKeyProductExchange, requestProductAls } from './auth/auth-service-product.js';
 import { installApiKeyAccountExchange } from './auth/bind-api-key-account.js';
 import { bootKycVault } from './kyc/boot-vault.js';
@@ -378,6 +384,8 @@ auth.useFounderSessionScopes(env.IDENTITY_FOUNDER_SESSION_SCOPES);
 
 const referral = new ReferralService(sql);
 const share = new ShareService(sql);
+const referralCodes = new ReferralCodeService(sql, parseReferralCodeLength(env.IDENTITY_REFERRAL_CODE_LENGTH));
+const referralAttachWindowSeconds = parseAttachWindowSeconds(env.IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS);
 const freeze = new FreezeService(sql);
 const accruals = new SqlAccrualStore(sql);
 /** Fail boot on malformed owner rates — never invent commission percentages. */
@@ -439,9 +447,15 @@ const actionApprovals = new ActionApprovalService(
 const customerStepUp = new CustomerStepUpService(sql, stepUpStore, auth);
 const securityStepUp = new SecurityStepUp({ sql, approvals: actionApprovals, secondFactor: requireEnrolledSecondFactor(sql) });
 const selfFreezeLift = new SelfFreezeLift(sql, env.IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS);
+const securityLock = new SecurityLock(sql, env.IDENTITY_SECURITY_LOCK_UNLOCK_WAIT_SECONDS);
 await sql`SELECT frozen FROM sub_accounts LIMIT 0`.catch(() => {
   throw new Error(
     'identity schema is out of date: sub_accounts.frozen is missing — apply drizzle/0044_sub_account_frozen.sql before starting svc-identity',
+  );
+});
+await sql`SELECT id FROM account_security_locks LIMIT 0`.catch(() => {
+  throw new Error(
+    'identity schema is out of date: account_security_locks is missing — apply drizzle/0072_account_security_locks.sql before starting svc-identity',
   );
 });
 await sql`SELECT id FROM account_closures LIMIT 0`.catch(() => {
@@ -520,6 +534,8 @@ export const appRouter = mergeRouters(
     social: new SocialSignin(sql, { providers: new Map(), flowTtlSeconds: env.IDENTITY_SOCIAL_FLOW_TTL_SECONDS }),
     referral,
     share,
+    referralCodes,
+    referralAttachWindowSeconds,
     freeze,
     accruals,
     accrualTierLaw,
@@ -546,6 +562,13 @@ export const appRouter = mergeRouters(
   createApiKeyRotateRouter(sql, auth, auth, signingEncKey),
   createApiKeyExpireRouter(sql),
   createApiKeyRevokeAllRouter(sql),
+  createDeveloperKeysRouter({
+    sql,
+    gate: auth,
+    kycTier: (userId, executor) => auth.kycTier(userId, executor),
+    capByTier: parseApiKeyCapByTier(env.IDENTITY_API_KEYS_MAX_BY_TIER),
+    mayMint: passkeyMintRule(sql),
+  }),
   createGrantsRouter(sql),
   createSessionRevokeAllRouter(sql),
   createSessionRevokeRouter(sql),
@@ -557,7 +580,14 @@ export const appRouter = mergeRouters(
   createDisableUserRouter(founderControls),
   createFounderControlsRouter(founderControls),
   createOperatorOpsRouter(sql),
-  createPreferencesRouter(sql, { displayCurrencies: env.IDENTITY_DISPLAY_CURRENCIES }),
+  createPreferencesRouter(sql, {
+    displayCurrencies: env.IDENTITY_DISPLAY_CURRENCIES,
+    watchlists: {
+      listCap: env.IDENTITY_WATCHLIST_LIST_CAP ?? null,
+      symbolCap: env.IDENTITY_WATCHLIST_SYMBOL_CAP ?? null,
+      savedScreenCap: env.IDENTITY_SAVED_SCREEN_CAP ?? null,
+    },
+  }),
   createMembershipRouter(env.IDENTITY_MEMBERSHIP_TIERS),
   createOAuthRouter(
     new OAuthService(sql, { codeTtlSeconds: env.OAUTH_CODE_TTL_SECONDS, accessTokenTtlSeconds: env.OAUTH_ACCESS_TOKEN_TTL_SECONDS }),
@@ -592,6 +622,7 @@ export const appRouter = mergeRouters(
   createWorkItemsRouter(sql),
   createServerTimeRouter(),
   createSelfFreezeLiftRouter(selfFreezeLift, securityStepUp),
+  createSecurityLockRouter(securityLock, securityStepUp),
   createActionApprovalRouter(actionApprovals, {
     privilegedUserIds: founderPair ?? [],
     // Fresh factor for money-out step-up: the same verification as `auth.stepUp`, token discarded.
@@ -634,6 +665,7 @@ const identityRequestContext = createIdentityRequestContext({
 const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 });
 auth.useLogger(app.log);
 selfFreezeLift.useLogger(app.log);
+securityLock.useLogger(app.log);
 account.useLog({
   warn(obj, msg) {
     app.log.warn(obj, msg);
@@ -833,6 +865,26 @@ app.get<{ Params: { userId: string } }>('/internal/email-proof/:userId', async (
     return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
   }
   return proof;
+});
+
+/**
+ * The customer security lock (W-withdraw-09), `securityLockSchema`. A service that moves money out or changes a
+ * withdrawal address reads it per request and refuses while `locked` is true; it keeps no copy. Service credentials only.
+ * Unknown user → 404, which the caller refuses on. A read error is a 500, which the caller also refuses on.
+ */
+app.get<{ Params: { userId: string } }>('/internal/security-lock/:userId', async (req, reply) => {
+  if (serviceOfRequest(req, env.INTERNAL_SERVICE_SECRET, env.INTERNAL_SERVICE_BODY_BIND, doorS2s).service === null) {
+    return reply.code(401).send({ error: 'service credentials required', code: 'identity.unauthenticated' });
+  }
+  const userId = req.params.userId;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) {
+    return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
+  }
+  const view = await securityLock.read(userId);
+  if (!view) {
+    return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
+  }
+  return view;
 });
 
 /**

@@ -1,0 +1,67 @@
+.academy-public-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: end;
+}
+.academy-public-cards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+@media (max-width: 640px) {
+  .academy-public-controls {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.academy-course-outcomes {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 1.25em;
+  list-style: disc;
+}
+
+.academy-enrol-terms {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 0;
+}
+.academy-enrol-terms dd {
+  margin: 0;
+}
+.academy-enrol-tracks {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+/* The app resets native inputs to appearance: none; the track choice keeps the browser's own radio. */
+.academy-enrol-tracks input[type='radio'] {
+  appearance: auto;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+}
+
+.academy-outline {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 1.25em;
+}
+.academy-outline a[aria-current='page'] {
+  font-weight: 600;
+}
+.academy-outline-nav {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+}

@@ -1,7 +1,8 @@
 import { copy, t as copyText, Text } from './copy';
 import { Page, Panel, EmptyState } from '../../shared/ui';
 import { useSession } from '../session/session';
-import { Academy } from './Academy';
+import { AcademyRoom } from './Academy';
+import { academyRoute } from './academy-lms';
 import { Agents } from './Agents';
 import { Blueprint } from './Blueprint';
 import { Campaigns } from './Campaigns';
@@ -16,6 +17,8 @@ import { miningCopy } from './mining-copy';
 import { predictionCatalogueCopy } from './prediction-catalogue-copy';
 import { matchMoreRoute, type MoreRoomId } from './more-room-routes';
 import { moreRoomRoutesCopy } from './more-room-routes-copy';
+import { PaperRoom } from './paper-mode';
+import { preservePaperHref } from './trade-context';
 import type { ReactNode } from 'react';
 import './more.css';
 export function MoreRoutes({ path }: { path: string }) {
@@ -44,21 +47,27 @@ function MoreRooms({ path }: { path: string }) {
         </a>
       </Panel>
     );
+  // Set when the path is one of the six rooms of the set, so `?simulated=true` labels it and refuses its actions.
+  let room: MoreRoomId | undefined;
   if (p === '/academy' || p.startsWith('/academy/')) {
     title = copyText('moreroutes.academy');
     description = copyText('moreroutes.learn.practise.and.join.hosted.sessions');
-    let slug = url.searchParams.get('slug') ?? undefined;
-    try {
-      if (p.split('/')[2]) slug = decodeURIComponent(p.split('/')[2]!);
-    } catch {
-      slug = undefined;
-    }
-    content = <Academy key={`${p}:${url.search}`} slug={slug} initialPath={url.searchParams.get('path') ?? undefined} />;
+    content = (
+      <AcademyRoom
+        key={`${p}:${url.search}`}
+        pathname={p}
+        search={url.search}
+        route={academyRoute(p)}
+        slug={url.searchParams.get('slug') ?? undefined}
+        initialPath={url.searchParams.get('path') ?? undefined}
+      />
+    );
   } else if (p === '/agents') {
     title = copyText('moreroutes.agents');
     description = copyText('moreroutes.permissions.bounded.engine.sessions.and.your.activity');
     content = <Agents paper={paper} />;
   } else if (p === '/blueprint') {
+    room = 'blueprint';
     title = copyText('moreroutes.identity.blueprint');
     description = copyText('moreroutes.a.profile.you.can.keep.private.share');
     content = <Blueprint path={path} />;
@@ -67,10 +76,12 @@ function MoreRooms({ path }: { path: string }) {
     description = copyText('moreroutes.your.campaign.participation');
     content = <Campaigns />;
   } else if (p === '/launch' || p === '/uc/innovation/myorders') {
+    room = 'launch';
     title = p === '/launch' ? copyText('moreroutes.launch') : copyText('moreroutes.my.launch.orders');
     description = <launchCopy.Copy k="scope" />;
     content = <Launch orders={p !== '/launch'} />;
   } else if (p === '/market' || p === '/market/mine' || p === '/market/strategy') {
+    room = 'market';
     title =
       p === '/market'
         ? copyText('moreroutes.market')
@@ -80,14 +91,17 @@ function MoreRooms({ path }: { path: string }) {
     description = copyText('moreroutes.published.catalogue.terms.and.your.seller.workspace');
     content = <Market key={p} mine={p === '/market/mine'} strategy={p === '/market/strategy'} />;
   } else if (p === '/predict') {
+    room = 'predict';
     title = copyText('moreroutes.prediction');
     description = <predictionCatalogueCopy.Copy k="scope" />;
     content = <Prediction />;
   } else if (p === '/mining') {
+    room = 'mining';
     title = copyText('moreroutes.mining');
     description = <miningCopy.Copy k="scope" />;
     content = <Mining />;
   } else if (p === '/token') {
+    room = 'token';
     title = copyText('moreroutes.token');
     description = copyText('moreroutes.exact.stake.records.access.and.governance');
     content = <Token />;
@@ -101,23 +115,33 @@ function MoreRooms({ path }: { path: string }) {
     // A section or a record of one of the six rooms: /mining/workers, /market/:listingId and so on.
     const hit = matchMoreRoute(p);
     if (hit) {
-      const room = ROOM_PAGES[hit.route.room];
+      room = hit.route.room;
+      const page = ROOM_PAGES[room];
       title = moreRoomRoutesCopy.t(hit.route.title);
-      description = room.description();
+      description = page.description();
       content =
         hit.route.kind === 'part' ? (
-          room.content(path, paper)
+          page.content(path, paper)
         ) : (
           <Panel title={moreRoomRoutesCopy.t(hit.invalid ? 'badIdTitle' : 'detailTitle')}>
             <EmptyState title={moreRoomRoutesCopy.t(hit.invalid ? 'badIdTitle' : 'detailTitle')}>
               {moreRoomRoutesCopy.t(hit.invalid ? 'badIdBody' : 'detailBody')}
             </EmptyState>
-            <a className="text-link" href={room.href}>
+            <a className="text-link" href={preservePaperHref(page.href, paper)}>
               {moreRoomRoutesCopy.t('open')}
             </a>
           </Panel>
         );
     }
+  }
+  if (room) {
+    const live = new URL(url);
+    live.searchParams.delete('simulated');
+    content = (
+      <PaperRoom paper={paper} liveHref={live.pathname + live.search + live.hash}>
+        {content}
+      </PaperRoom>
+    );
   }
   return (
     <div className="more-feature">

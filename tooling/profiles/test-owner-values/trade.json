@@ -1,0 +1,70 @@
+{
+  "label": "TEST: CX-8 rig and local test stack only. Not an owner decision and not a product default.",
+  "values": {
+    "TRADE_MARKET_SLIPPAGE_CAP_BPS": {
+      "service": "trade",
+      "value": "150",
+      "note": "Worst price a market buy may be funded at above the best ask."
+    },
+    "TRADE_CONVERT_SPREAD_BPS": {
+      "service": "trade",
+      "value": "25",
+      "note": "House edge on convert quotes."
+    },
+    "TRADE_CANCEL_ALL_AFTER_TIMEOUTS_SEC": {
+      "service": "trade",
+      "value": "10,30,60,120",
+      "note": "Dead-man switch timeouts."
+    },
+    "TRADE_CANCEL_ALL_AFTER_SWEEP_INTERVAL_MS": {
+      "service": "trade",
+      "value": "1000",
+      "note": "One second sweep so journeys finish fast."
+    },
+    "TRADE_FEE_SCHEDULE": {
+      "service": "trade",
+      "value": "{\"published\": true, \"version\": \"test-zero-fee\", \"makerBps\": \"0\", \"takerBps\": \"0\", \"perpetual\": {\"makerBps\": \"0\", \"takerBps\": \"0\"}}",
+      "note": "Zero fee schedule, spot and perpetual, so the order paths post no fee. Without the perpetual block futures orders refuse."
+    },
+    "TRADE_COLLATERAL_HAIRCUT_BPS": {
+      "service": "trade",
+      "value": "0",
+      "note": "Cash in the settle asset counts in full, so futures opens are held only by their margin."
+    },
+    "TRADE_MAX_ORDER": {
+      "service": "trade",
+      "value": "1000000",
+      "note": "Order notional cap, quote units."
+    },
+    "TRADE_MAX_POSITION": {
+      "service": "trade",
+      "value": "1000000",
+      "note": "Futures position cap, quote units."
+    },
+    "TRADE_MAX_LOSS": {
+      "service": "trade",
+      "value": "1000000",
+      "note": "Futures loss cap, quote units."
+    },
+    "TRADE_COPY_FEE_SHARE_LAW": {
+      "service": "trade",
+      "value": "{\"published\": true, \"leaderShareBps\": 1000, \"earningsCapPerFollower\": \"1000.00\", \"decayRoundTrips\": 50, \"decayShareBps\": 5000}",
+      "note": "The fee share D26-P0-02 published in .env.example: 10% of the trading fee on copied orders, capped at 1000 per follower, halved after 50 round trips."
+    },
+    "TRADE_COPY_JURISDICTION_LAW": {
+      "service": "trade",
+      "value": "{\"published\": true, \"allowedRegions\": [\"DE\", \"FR\", \"GB\", \"ID\", \"NL\", \"SG\"]}",
+      "note": "TEST fixture, never a product default (ADR 2026-08-12: test fixtures may use codes). Counsel has supplied no list, so live stays blank and refuses. US is left off so a refusal can be seen."
+    },
+    "TRADE_COPY_DISCLOSURE_LAW": {
+      "service": "trade",
+      "value": "{\"published\": true, \"version\": \"TEST-2026-10-23\", \"text\": \"TEST disclosure, not owner text. Copy trading can lose money. A leader's past results are not a promise of future results. Every copied order is your own order, placed in your name, with your own trading fee. Only copy what you can afford to lose.\"}",
+      "note": "Copy risk disclosure text and version a follower accepts."
+    },
+    "TRADE_COPY_METRIC_DEFINITIONS": {
+      "service": "trade",
+      "value": "{\"published\": true, \"version\": \"TEST-2026-10-23\", \"definitions\": {\"publishedReturn\": \"TEST definition: the leader's published return over the window shown, in percent.\", \"maximumDrawdown\": \"TEST definition: the largest fall from a peak over the same window, in percent.\"}}",
+      "note": "What a lead page's return and drawdown mean. Win rate and Sharpe ratio stay undefined, so they read Not set."
+    }
+  }
+}

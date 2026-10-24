@@ -36,7 +36,12 @@ export const rooms: readonly Room[] = [
   { path: '/help', title: 'Help centre', description: 'Find answers and contact support', area: 'public' },
   { path: '/helplist', title: 'Help centre', description: 'Published help', area: 'public', alias: '/help' },
   { path: '/helpdetail', title: 'Help article', description: 'Published guidance', area: 'public', hidden: true },
+  { path: '/help/category/:id', title: 'Help topic', description: 'Sections of one help topic', area: 'public', hidden: true },
+  { path: '/help/section/:id', title: 'Help section', description: 'Published answers in one section', area: 'public', hidden: true },
   { path: '/status', title: 'Platform status', description: 'Trading mode of each market', area: 'public' },
+  { path: '/status/confirm', title: 'Confirm status updates', description: 'Start status emails', area: 'public', hidden: true },
+  { path: '/status/manage', title: 'Status updates', description: 'Choose what you are told about', area: 'public', hidden: true },
+  { path: '/status/unsubscribe', title: 'Stop status updates', description: 'Leave status emails', area: 'public', hidden: true },
   { path: '/notice', title: 'Notices', description: 'Product announcements', area: 'public' },
   { path: '/notice/:id', title: 'Notice', description: 'Product announcement', area: 'public', hidden: true },
   { path: '/announcement', title: 'Notices', description: 'Product announcements', area: 'public', alias: '/notice' },
@@ -62,9 +67,9 @@ export const rooms: readonly Room[] = [
     area: 'public',
     hidden: true,
   },
-  { path: '/lab', title: 'Campaigns', description: 'Public activities', area: 'public' },
-  { path: '/lab/detail/:id', title: 'Campaign', description: 'Activity details', area: 'public', hidden: true },
-  { path: '/bzb', title: 'Campaigns', description: 'Public activities', area: 'public', alias: '/lab' },
+  { path: '/lab', title: 'Lab', description: 'Entries the owner publishes', area: 'public' },
+  { path: '/lab/detail/:id', title: 'Lab entry', description: 'One Lab entry', area: 'public', hidden: true },
+  { path: '/bzb', title: 'Lab', description: 'Entries the owner publishes', area: 'public', alias: '/lab' },
   { path: '/home', title: 'Home', description: 'Your money and markets', door: 'Home', area: 'home', screen: 'home' },
   { path: '/money', title: 'Money', description: 'Holdings and available funds', door: 'Assets', area: 'money', screen: 'money' },
   {
@@ -417,6 +422,15 @@ export const rooms: readonly Room[] = [
   },
   { path: '/p2p', title: 'Person-to-person', description: 'Offers, orders and counterparties', door: 'Pay', area: 'pay' },
   { path: '/ctc', title: 'Person-to-person', description: 'Offers and orders', door: 'Pay', area: 'pay', alias: '/p2p' },
+  // The P2P Trading access room: what a person needs before taking an ad (eligibility) and their programme standing.
+  {
+    path: '/p2p/access',
+    title: 'Person-to-person',
+    description: 'Offers, orders and counterparties',
+    door: 'Pay',
+    area: 'pay',
+    hidden: true,
+  },
   { path: '/uc/ad', title: 'My offers', description: 'Manage your person-to-person offers', door: 'Pay', area: 'pay' },
   { path: '/uc/ad/create', title: 'Create offer', description: 'Publish a person-to-person offer', door: 'Pay', area: 'pay', hidden: true },
   { path: '/uc/ad/update', title: 'Edit offer', description: 'Review a person-to-person offer', door: 'Pay', area: 'pay', hidden: true },
@@ -639,6 +653,32 @@ export const rooms: readonly Room[] = [
     hidden: true,
   },
   { path: '/more', title: 'More', description: 'Explore the rest of Intafaced', door: 'More', area: 'more', screen: 'more' },
+  // Academy tabs and the progress page (AC-order-01, IA-SPEC 2.9). Exact rows win over the reader pattern below them.
+  ...(
+    [
+      ['learning', 'Academy learning'],
+      ['certificates', 'Academy certificates'],
+      ['rooms', 'Academy rooms'],
+      ['videos', 'Academy videos'],
+      ['programmes', 'Academy programmes'],
+      ['progress', 'Academy progress'],
+    ] as const
+  ).map(([slug, title]) => ({
+    path: `/academy/${slug}`,
+    title,
+    description: 'Rooms, learning and certifications' as const,
+    door: 'More' as const,
+    area: 'more' as const,
+    hidden: true,
+  })),
+  {
+    path: '/academy/learning/course/:slug',
+    title: 'Academy course',
+    description: 'Rooms, learning and certifications',
+    door: 'More',
+    area: 'more',
+    hidden: true,
+  },
   { path: '/academy/:slug', title: 'Academy reader', description: 'Read a learning path', door: 'More', area: 'more', hidden: true },
   {
     path: '/market/strategy',
@@ -755,6 +795,25 @@ export const rooms: readonly Room[] = [
     area: 'more',
     hidden: true,
   },
+  // Any deeper address under one of the six rooms reaches the More routes, which answer it with the "no customer route" panel
+  // and a link to /more (MC-order-01). Kept after every section and record row, so a real page always matches first.
+  ...(
+    [
+      ['predict', 'Prediction markets', 'Browse and trade predictions'],
+      ['market', 'Market', 'Browse available listings'],
+      ['launch', 'Launch', 'Issue and list an asset'],
+      ['token', 'Token', 'Access and staking'],
+      ['mining', 'Mining', 'Pool activity and payouts'],
+      ['blueprint', 'Identity Blueprint', 'Your profile and connected intelligence'],
+    ] as const
+  ).map(([slug, title, description]) => ({
+    path: `/${slug}/*`,
+    title,
+    description,
+    door: 'More' as const,
+    area: 'more' as const,
+    hidden: true,
+  })),
   { path: '/uc/innovation/myorders', title: 'Launch orders', description: 'Your asset launch orders', door: 'More', area: 'more' },
   { path: '/uc', title: 'Account', description: 'Your account and security', area: 'person', alias: '/uc/account' },
   {
@@ -766,6 +825,20 @@ export const rooms: readonly Room[] = [
   },
   { path: '/uc/account', title: 'Account', description: 'Your profile and account ID', area: 'person', screen: 'account' },
   { path: '/uc/safe', title: 'Security', description: 'Passkeys, sign-in checks and your devices', area: 'person', screen: 'account' },
+  {
+    path: '/uc/safe/api-keys',
+    title: 'API keys',
+    description: 'Keys for your own programs to read and trade',
+    area: 'person',
+    screen: 'account',
+  },
+  {
+    path: '/uc/safe/api-keys/new',
+    title: 'Create an API key',
+    description: 'A new key with only the permissions it needs',
+    area: 'person',
+    screen: 'account',
+  },
   { path: '/verification', title: 'Verification', description: 'Verification status and documents', area: 'person', screen: 'account' },
   { path: '/identbusiness', title: 'Business verification', description: 'Open a verified company account', area: 'person' },
   { path: '/view', title: 'Display', description: 'Theme, language and display preferences', area: 'person', screen: 'account' },

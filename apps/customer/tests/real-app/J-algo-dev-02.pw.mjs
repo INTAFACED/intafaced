@@ -1,11 +1,12 @@
 import { test, expect } from '@playwright/test';
-import { EDGE, journeyState } from './stack.mjs';
+import { journeyState } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
+import { closedBarsSince, tapeWindow, utcMinute } from './tape.mjs';
 
 // J-algo-dev-02, in the running app (docs/roadmap/journeys.json): check that a backtest result is honest before trusting
 // or sharing it. One test per step this build serves, titled "J-algo-dev-02 #<n>", run in order on one TEST developer
 // who starts signed in, verified, with a saved signal-rules strategy and one completed backtest. The out-of-sample
-// criteria and the holdout come from the local stack's TEST owner values (tooling/profiles/test-owner-values.json):
+// criteria and the holdout come from the local stack's TEST owner values (tooling/profiles/test-owner-values/quant.json):
 // minimum one round trip, minimum return 0 %, maximum drawdown 10 %, the holdout the last 15 minutes, and the maximum
 // shortfall left blank on purpose. Every figure in Algo dev is simulated; nothing here moves money.
 const J = 'J-algo-dev-02';
@@ -17,21 +18,6 @@ function developer() {
   const who = run.read().account;
   if (!who) throw new Error(`${J} #1 made no account, so this step has no one to act as`);
   return who;
-}
-
-/** A UTC minute as a datetime-local value, `minutesAgo` before the current minute. */
-function utcMinute(minutesAgo) {
-  const at = Math.floor(Date.now() / 60_000) * 60_000 - minutesAgo * 60_000;
-  return new Date(at).toISOString().slice(0, 16);
-}
-
-/** The TEST market maker's closed 1m bars of BTC/USDT since a datetime-local UTC minute, read from Edge's public route. */
-async function closedBarsSince(minute) {
-  const since = Date.parse(`${minute}:00Z`);
-  const res = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=1m&since=${since}&limit=720`);
-  if (!res.ok) return [];
-  const rows = await res.json();
-  return rows.filter(([at]) => at >= since && at + 60_000 <= Date.now());
 }
 
 /** Saves a new signal-rules strategy on 1 minute bars of BTC/USDT at version 1. Every figure is a TEST simulation input. */
@@ -86,14 +72,7 @@ test(`${J} #1 sets the one-third preset: the out-of-sample part is the latest th
   run.reset({ account: who });
   await signIn(page, developer());
   await saveSignalStrategy(page, STRATEGY);
-  const window = { from: utcMinute(WINDOW_MINUTES), to: utcMinute(0) };
-  await expect
-    .poll(async () => (await closedBarsSince(window.from)).filter(([at]) => at < Date.parse(`${window.to}:00Z`)).length, {
-      timeout: 12 * 60_000,
-      intervals: [15_000],
-      message: 'the window needs at least 8 closed TEST bars of BTC/USDT; is the TEST market maker running (pnpm local:market)?',
-    })
-    .toBeGreaterThanOrEqual(8);
+  const window = await tapeWindow(WINDOW_MINUTES);
   let room = await backtestForm(page, STRATEGY, window);
   await room.getByTestId('quant-backtest-run').click();
   await expect(room.getByTestId('quant-bar-result')).toBeVisible();
@@ -245,10 +224,13 @@ test(`${J} #4 opens the checks panel: overfitting, look-ahead and repainting fin
     await expect(gap).toHaveAttribute('data-status', Number(measured) > 5 ? 'warning' : 'clear');
   }
 
-  // Sensitivity: the same run from one bar later, made by the service, with how far the return moved.
+  // Sensitivity: the same run from one bar later, made by the service, with how far the return moved. "One bar later" is
+  // the window's second traded bar, so a window that opens in a gap of the tape still starts one bar later.
   const offset = check('bar_offset');
   await expect(offset).toHaveAttribute('data-threshold', '1');
-  await expect(offset).toHaveAttribute('data-offsetfrom', new Date(Date.parse(`${window.from}:00Z`) + 60_000).toISOString());
+  const [, second] = (await closedBarsSince(window.from)).filter(([at]) => at < Date.parse(`${window.to}:00Z`));
+  if (!second) throw new Error(`${J} #1's window holds fewer than two closed bars, so there is no later bar to start from`);
+  await expect(offset).toHaveAttribute('data-offsetfrom', new Date(second[0]).toISOString());
   const shift = Number(await offset.getAttribute('data-shiftpercent'));
   await expect(offset).toHaveAttribute('data-status', shift > 1 ? 'warning' : 'clear');
 

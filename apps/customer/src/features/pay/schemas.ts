@@ -59,7 +59,23 @@ export const offerSchema = z.object({
   terms: z.string(),
   status: z.enum(['active', 'paused', 'closed']),
   createdAt: z.string(),
+  /** Board reads, floating ads only: the market reference, or null when no market feed prices the pair. */
+  referencePrice: amount.nullable().optional(),
 });
+/** One board page (`offers.page`): continue with `nextCursor` under the same filters and sort. */
+export const offerPageSchema = z.object({ offers: z.array(offerSchema), nextCursor: z.string().nullable() });
+export type OfferPage = z.infer<typeof offerPageSchema>;
+export const BOARD_SORTS = ['price_asc', 'price_desc'] as const;
+export type BoardSort = (typeof BOARD_SORTS)[number];
+/** What the board asks the service for. Everything is filtered and sorted there, so paging never misses a row. */
+export type BoardQuery = {
+  asset?: string;
+  fiatCurrency?: string;
+  side?: 'buy' | 'sell';
+  methodId?: string;
+  fiatAmount?: string;
+  sort?: BoardSort;
+};
 export const tradeSchema = z.object({
   id,
   offerId: id,
@@ -78,6 +94,61 @@ export const tradeSchema = z.object({
   escrowedAt: z.string().nullable(),
   resolvedAt: z.string().nullable(),
   settledAt: z.string().nullable(),
+});
+/** svc-p2p `trades.page`: one keyset page newest first, the server's tab and readable status per row, and exact per-tab counts. */
+export const orderTabs = ['in_progress', 'in_dispute', 'completed', 'cancelled'] as const;
+export const orderPageSchema = z.object({
+  trades: z.array(
+    tradeSchema.extend({
+      tab: z.enum(orderTabs),
+      displayStatus: z.enum([
+        'waiting_for_escrow',
+        'waiting_for_buyer_to_pay',
+        'waiting_for_seller_to_release',
+        'appealing',
+        'completed',
+        'completed_by_dispute_ruling',
+        'cancelled',
+        'cancelled_by_timeout',
+        'cancelled_by_dispute_ruling',
+      ]),
+    }),
+  ),
+  nextCursor: z.string().nullable(),
+  counts: z.object({
+    in_progress: z.number().int().nonnegative(),
+    in_dispute: z.number().int().nonnegative(),
+    completed: z.number().int().nonnegative(),
+    cancelled: z.number().int().nonnegative(),
+  }),
+});
+/** svc-p2p `trades.export`: the CSV the service generated, its row count and its per-pair totals as decimal strings. */
+export const orderExportSchema = z.object({
+  csv: z.string(),
+  rows: z.number().int().nonnegative(),
+  format: z.literal('csv'),
+  totals: z.array(z.object({ asset, fiatCurrency: z.string(), amount, fiatAmount: amount })),
+});
+/** svc-p2p `trades.receipt`: one released trade, the caller's own side only, and what is left of the download quotas. */
+export const orderReceiptSchema = z.object({
+  receipt: z.object({
+    tradeId: id,
+    offerId: id,
+    role: z.enum(['buyer', 'seller']),
+    asset,
+    amount,
+    fiatCurrency: z.string(),
+    fiatAmount: amount,
+    price: amount,
+    feeBps: z.number().int().nonnegative(),
+    method: z.string(),
+    createdAt: z.string(),
+    escrowedAt: z.string().nullable(),
+    fiatSentAt: z.string().nullable(),
+    resolvedAt: z.string().nullable(),
+  }),
+  dailyRemaining: z.number().int().nonnegative(),
+  tradeRemaining: z.number().int().nonnegative(),
 });
 /** svc-p2p `chat.messages.list`: oldest first; `nextCursor` is set while a full page was returned. */
 export const chatMessageSchema = z.object({
@@ -197,6 +268,8 @@ export const reputationSchema = z
       .optional(),
   })
   .refine((record) => record.completed + record.cancelled <= record.tradesTotal && record.disputesLost <= record.disputed);
+/** `trades.stepUpWindow`: until when this session's takes need no new confirmation, or null. */
+export const takeStepUpWindowSchema = z.object({ confirmedUntil: z.string().datetime({ offset: true }).nullable() });
 /** What `trades.quote` returns: exact figures for one take, before anything is locked. */
 export const takeQuoteSchema = z.object({
   amount: positiveAmount,
@@ -206,7 +279,13 @@ export const takeQuoteSchema = z.object({
   fee: amount,
   netAmount: amount,
   reservationExpiresAt: z.string().datetime({ offset: true }),
+  /** Set only on a locked quote (`trades.lockQuote`): the take names it, and `reservationExpiresAt` is when it ends. */
+  quoteId: id.optional(),
 });
+/** What `trades.lockQuote` returns: the quote held until `expiresAt`. */
+export const lockedQuoteSchema = takeQuoteSchema
+  .omit({ reservationExpiresAt: true, quoteId: true })
+  .extend({ quoteId: id, expiresAt: z.string().datetime({ offset: true }), expiresInMs: z.number().int().nonnegative() });
 export const p2pStandingSchema = z.object({
   userId: z.string(),
   status: z.enum(['applied', 'approved', 'rejected', 'suspended', 'withdrawn']),
@@ -215,6 +294,23 @@ export const p2pStandingSchema = z.object({
   appliedAt: z.string(),
   decidedAt: z.string().nullable(),
 });
+/** `access.eligibility`: each check before a take, in the service's order. `fix` is an app path or null. */
+export const p2pEligibilitySchema = z.object({
+  checks: z.array(
+    z.object({
+      id: z.enum(['verification', 'contact', 'jurisdiction', 'deposit', 'risk']),
+      state: z.enum(['met', 'not_met', 'unknown']),
+      reason: z.string(),
+      fix: z.string().nullable(),
+    }),
+  ),
+  canTake: z.boolean(),
+  notice: z.object({ version: z.string(), acceptedAt: z.string().nullable() }).nullable(),
+});
+export type P2PEligibility = z.infer<typeof p2pEligibilitySchema>;
+/** `risk.notice` / `risk.accept`: the owner-published notice version and when this person accepted it. */
+export const p2pRiskNoticeSchema = z.object({ version: z.string(), acceptedAt: z.string().nullable() });
+export type P2PRiskNotice = z.infer<typeof p2pRiskNoticeSchema>;
 export const p2pApiAccessSchema = z.object({
   eligible: z.boolean(),
   credential: z.enum(['session', 'api_key']),
@@ -458,6 +554,10 @@ export const webhookDeliverySchema = z.object({
 });
 export type Offer = z.infer<typeof offerSchema>;
 export type Trade = z.infer<typeof tradeSchema>;
+export type OrderPage = z.infer<typeof orderPageSchema>;
+export type OrderTab = (typeof orderTabs)[number];
+export type OrderExport = z.infer<typeof orderExportSchema>;
+export type OrderReceipt = z.infer<typeof orderReceiptSchema>;
 export type ChatMessage = z.infer<typeof chatMessageSchema>;
 export type ChatPage = z.infer<typeof chatPageSchema>;
 export type ChatSent = z.infer<typeof chatSentSchema>;

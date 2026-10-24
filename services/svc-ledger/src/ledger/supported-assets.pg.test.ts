@@ -235,6 +235,31 @@ describe('supported asset and network registry (Postgres)', () => {
     expect(await db!.sql`SELECT operation_id FROM asset_edits`).toHaveLength(2);
   });
 
+  it('asks identity for the revision it read before the same operation landed, never the one that operation wrote', async () => {
+    // The interleaving that made the concurrent test flaky (#5978), forced: request B's first read that looks for its
+    // operation finds nothing, then request A applies the same operation in full, then B goes on. B must not read A's revision 1 and ask
+    // identity to consume against it; it asks for revision 0, as approved, and is refused unattested like any retry.
+    identity.approve('ap-1', usdt(), 0);
+    let first = true;
+    const raceSql = new Proxy(db!.sql, {
+      async apply(target, self, args: unknown[]) {
+        const rows = await Reflect.apply(target, self, args);
+        const strings = args[0];
+        const isQuery = Array.isArray(strings) && 'raw' in strings;
+        if (first && isQuery && /\basset_edits\b/.test(strings.join('?'))) {
+          first = false;
+          await apply('ap-1', 'asset-edit:USDT:1', usdt());
+        }
+        return rows;
+      },
+    });
+    await expect(
+      applyAssetEdit(raceSql, identity.consumer, OPERATOR, { approvalId: 'ap-1', operationId: 'asset-edit:USDT:1', edit: usdt() }),
+    ).rejects.toMatchObject({ code: 'action_approval.not_founders' });
+    expect(identity.calls.map((c) => c.expectedVersion)).toEqual(['0', '0']);
+    expect(await db!.sql`SELECT revision FROM asset_edits`).toEqual([{ revision: 1 }]);
+  });
+
   it('answers a retry with the row its operation produced, not a later one', async () => {
     identity.approve('ap-1', usdt(), 0);
     const first = await apply('ap-1', 'asset-edit:USDT:1', usdt());

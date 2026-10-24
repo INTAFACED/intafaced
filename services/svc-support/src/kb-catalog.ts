@@ -140,6 +140,11 @@ export function toPublicKb(article: SupportKbArticle): SupportKbArticle {
     ...(article.tags != null && article.tags.length > 0 ? { tags: [...article.tags] } : {}),
     // Public is the default and stays off the wire, so an article that was never restricted reads as it always did.
     ...(article.audience != null && article.audience !== 'public' ? { audience: article.audience } : {}),
+    // Text typed in the desk (SP-kb-01). A catalogue-keyed article carries none of these.
+    ...(article.title != null && article.body != null && article.language != null
+      ? { title: article.title, body: article.body, language: article.language }
+      : {}),
+    ...(article.sectionId != null ? { sectionId: article.sectionId } : {}),
   };
 }
 
@@ -200,6 +205,11 @@ export function assertKbTopic(input: { category?: string | null; tags?: readonly
 
 const VENDOR_SMELL = /\b(binance|coinbase|kraken|okx|bybit|deriv|metatrader|tradingview)\b/i;
 
+/** Whether text a reader will see names a partner or vendor (the same list the keys are checked against). */
+export function namesVendor(text: string): boolean {
+  return VENDOR_SMELL.test(text);
+}
+
 export type KbCatalogErrorCode = 'support.kb_invalid' | 'support.kb_vendor_name' | 'support.kb_version_unknown';
 
 export class KbCatalogError extends Error {
@@ -242,7 +252,27 @@ export function listPlatformKb(): readonly SupportKbArticle[] {
 }
 
 /**
- * Search by id substring or key fragment. Empty query → latest per id.
+ * How closely one article matches a query. A label (tag or category) outranks
+ * a title, which outranks the body. Zero means it is not a hit.
+ */
+function kbSearchScore(article: SupportKbArticle, q: string): number {
+  const labels = [...(article.tags ?? []), ...(article.category ? [article.category] : [])].map((label) => label.toLowerCase());
+  let score = 0;
+  if (labels.some((label) => label === q)) score += 300;
+  else if (labels.some((label) => label.includes(q))) score += 200;
+  // A version typed in the desk is matched on its text; a catalogue-keyed one on its keys.
+  const title = article.title ?? article.titleKey;
+  const body = article.body ?? article.bodyKey;
+  if (title.toLowerCase().includes(q)) score += 100;
+  if (article.id.toLowerCase().includes(q)) score += 80;
+  if (body.toLowerCase().includes(q)) score += 10;
+  return score;
+}
+
+/**
+ * Search by id, title, body, tag or category. Empty query → latest per id, in
+ * catalog order. A non-empty query is ranked: a labelled article comes before
+ * one that only mentions the word in the body. Ties keep catalog order.
  * Empty catalog and unknown queries stay empty — never a default article.
  * Duplicate ids collapse to the highest version (search is latest-only).
  */
@@ -251,9 +281,11 @@ export function searchKb(query: string, catalog: readonly SupportKbArticle[] = P
   const unique = latestById(catalog);
   const q = query.trim().toLowerCase();
   if (!q) return unique.map((a) => ({ ...a }));
-  return unique.filter(
-    (a) => a.id.toLowerCase().includes(q) || a.titleKey.toLowerCase().includes(q) || a.bodyKey.toLowerCase().includes(q),
-  );
+  return unique
+    .map((article, index) => ({ article, index, score: kbSearchScore(article, q) }))
+    .filter((row) => row.score > 0)
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .map((row) => ({ ...row.article }));
 }
 
 /**

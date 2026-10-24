@@ -73,6 +73,27 @@ const schema = serviceEnvSchema
        * support.bulk_cap_unset and the desk says so. Never defaulted.
        */
       SUPPORT_BULK_CAP: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
+      /**
+       * How many comments a requester may add to one request (SP-api-01). Blank is an owner value left unset: a
+       * requester's comment refuses support.comment_cap_unset. Operators are not capped. Never defaulted.
+       */
+      SUPPORT_COMMENT_CAP: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
+      /**
+       * How many votes one signed-out reader may cast in the window below.
+       * Either one blank refuses a public vote with support.feedback_rate_limit_unset. Never defaulted.
+       */
+      SUPPORT_FEEDBACK_RATE_LIMIT: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
+      SUPPORT_FEEDBACK_RATE_WINDOW_SECONDS: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
+      /**
+       * Switches the help answer panel on. The value is never returned or sent on.
+       * Blank refuses support.assistant_model_unset. Never defaulted.
+       */
+      SUPPORT_ASSISTANT_MODEL: z.preprocess((v) => (v === '' ? undefined : v), z.string().min(1).optional()),
+      /**
+       * Tighter than the contract bound of 200 on a search query. Blank leaves that bound.
+       * A longer query refuses support.search_query_too_long. Never defaulted.
+       */
+      SUPPORT_SEARCH_QUERY_MAX: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
       STAFF_HEARTBEAT_WINDOW_SECONDS: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
     }),
   );

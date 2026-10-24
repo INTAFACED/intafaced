@@ -7,14 +7,18 @@ import { ConfirmEmail } from './ConfirmEmail';
 import { Invitation } from './Invitation';
 import { DevelopersRoutes } from '../developers/DevelopersRoutes';
 import { PublicHelp as Help } from './PublicHelp';
+import { HelpLibrary } from './HelpLibrary';
+import { helpLibraryPath } from './help-library';
 import { findRoom, roomTitle } from '../../app/navigation';
 import { publicAuthContext, publicAuthHref } from './auth-context';
 import './public.css';
 import { publicCopy } from './public-copy';
 import { PasswordRecovery } from './PasswordRecovery';
-import { AboutPage, AppPage, CampaignsOverview, NoticePage, PartnerPage, RoomDirectory } from './PublicPages';
+import { AboutPage, AppPage, NoticePage, PartnerPage, RoomDirectory } from './PublicPages';
+import { LabPage } from './LabPage';
 import { pagesCopy } from './public-pages-copy';
 import { StatusPage } from './StatusPage';
+import { StatusSubscriptionPage } from './StatusSubscription';
 
 function Brand() {
   return (
@@ -56,6 +60,7 @@ export function PublicHeader({ path }: { path: string }) {
 export function PublicRoutes({ path }: { path: string }) {
   const { t } = publicCopy.useCopy();
   const auth = path.startsWith('/login') || path === '/register';
+  const library = helpLibraryPath(path);
   return (
     <div className="public-shell">
       <PublicHeader path={path} />
@@ -72,6 +77,8 @@ export function PublicRoutes({ path }: { path: string }) {
           <Invitation />
         ) : path === '/help' || path === '/helpdetail' ? (
           <Help />
+        ) : library ? (
+          <HelpLibrary at={library} />
         ) : path === '/findPwd' ? (
           <PasswordRecovery />
         ) : path === '/about-us' ? (
@@ -80,6 +87,8 @@ export function PublicRoutes({ path }: { path: string }) {
           <DevelopersRoutes path={path} />
         ) : path === '/status' ? (
           <StatusPage />
+        ) : path === '/status/confirm' || path === '/status/manage' || path === '/status/unsubscribe' ? (
+          <StatusSubscriptionPage mode={path.slice('/status/'.length) as 'confirm' | 'manage' | 'unsubscribe'} />
         ) : path === '/partner' ? (
           <PartnerPage />
         ) : path === '/notice' || path === '/announcement' ? (
@@ -89,9 +98,9 @@ export function PublicRoutes({ path }: { path: string }) {
         ) : path === '/app' ? (
           <AppPage />
         ) : path === '/lab' ? (
-          <CampaignsOverview />
+          <LabPage />
         ) : path.startsWith('/lab/detail/') ? (
-          <CampaignsOverview detail />
+          <LabPage detail />
         ) : (
           <PublicInformation path={path} />
         )}

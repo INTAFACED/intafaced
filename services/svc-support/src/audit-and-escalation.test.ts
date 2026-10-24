@@ -5,6 +5,7 @@ import { listPlatformKb } from './kb-catalog.js';
 import { MemorySupportStore, type SupportStore } from './store.js';
 import { IDENTITY_GROUNDING_UNWIRED, IdentityGroundingUnwiredError } from './identity-grounding-honesty.js';
 import { SupportError, SupportService } from './support-service.js';
+import { withTestCommentCap } from './comment-cap.fixture.js';
 
 const USER = '11111111-1111-4111-8111-111111111111';
 const OTHER = '99999999-9999-4999-8999-999999999999';
@@ -23,7 +24,7 @@ const frozen: AccountState = { userId: USER, status: 'frozen', kycTier: 'basic' 
 
 function desk(accounts: AccountStateSource = new FixedAccountState(frozen)) {
   const store = new MemorySupportStore();
-  return { store, accounts, support: new SupportService(store, accounts) };
+  return { store, accounts, support: withTestCommentCap(store, accounts) };
 }
 
 async function openTicket(support: SupportService) {
@@ -299,6 +300,11 @@ describe('escalation carries its case file', () => {
       mergeTickets: (i) => base.mergeTickets(i),
       previewMerge: (i) => base.previewMerge(i),
       findMergeBySource: (id) => base.findMergeBySource(id),
+      listKbFeedbackSummary: (limit) => base.listKbFeedbackSummary(limit),
+      recordSearchMiss: (input) => base.recordSearchMiss(input),
+      listSearchMisses: (limit) => base.listSearchMisses(limit),
+      hasSearchClick: (clientRequestId) => base.hasSearchClick(clientRequestId),
+      recordSearchClick: (input) => base.recordSearchClick(input),
     };
     const support = new SupportService(store, new FixedAccountState({ userId: USER, status: 'active', kycTier: 'basic' }));
     const t = await support.createTicket({

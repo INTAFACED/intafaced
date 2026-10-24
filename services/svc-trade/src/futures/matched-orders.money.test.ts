@@ -28,7 +28,7 @@ import type { Principal } from '@intafaced/auth';
 import type { EngineCancelResult, EngineSubmitRequest, EngineSubmitResult, MatchingClient } from '../spot/matching-client.js';
 import type { LifecycleAdmissionProof } from '../lifecycle-proof.js';
 import type { TradingAdmissionPort } from '../controls/trading-controls.js';
-import { MatchedFuturesOrders, type MatchedOrdersDeps, type PlaceMatchedOrderInput } from './matched-orders.js';
+import { MatchedFuturesOrders, splitRequestTag, type MatchedOrdersDeps, type PlaceMatchedOrderInput } from './matched-orders.js';
 import type { FeeRates } from './matched-order-plan.js';
 import { PositionService } from './position-service.js';
 import { memoryMarkBook } from './mark-source.js';
@@ -1190,6 +1190,40 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
       expect((await orderRow(alice.orderId)).status).toBe('open');
     });
 
+    it('a wider band in force takes a limit the static band refuses, sends that band as the collar, and a narrower band later does not cancel it (D-instruments-08)', async () => {
+      // Mark 100: the static 5% band is 95 to 105; the dynamic range has widened it to 20%, 80 to 120.
+      const wide = build({ priceBandFor: async () => A('0.2') });
+      await expect(
+        build().place(
+          principal(ALICE),
+          order({ userId: ALICE, side: 'buy', qty: A('1'), limitPrice: A('110'), clientOrderId: 'dyn-static' }),
+        ),
+      ).rejects.toMatchObject({ code: 'trade.futures_price_outside_band', message: expect.stringContaining('95 to 105') });
+      await expect(
+        wide.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('1'), limitPrice: A('125'), clientOrderId: 'dyn-out' })),
+      ).rejects.toMatchObject({ code: 'trade.futures_price_outside_band', message: expect.stringContaining('80 to 120') });
+      expect(engine.submits).toHaveLength(0);
+      const placed = await wide.place(
+        principal(ALICE),
+        order({ userId: ALICE, side: 'buy', qty: A('1'), limitPrice: A('110'), clientOrderId: 'dyn-in' }),
+      );
+      const [stored] = await sql<{ band_low: string; band_high: string }[]>`
+        SELECT band_low::numeric::text AS band_low, band_high::numeric::text AS band_high FROM trade.futures_orders WHERE id = ${placed.orderId}`;
+      expect([A(stored!.band_low), A(stored!.band_high)]).toEqual([A('80'), A('120')]);
+      expect(engine.submits[0]).toMatchObject({ price: '110', collar: true, min: '80', max: '120' });
+      // The band narrows back to the static one for new orders; the sweep holds the resting order to the band it was
+      // accepted under (its stored 20%), so it stays on the book.
+      const narrowed = build({ priceBandFor: async () => A('0.05') });
+      expect(await narrowed.cancelOutsideBand()).toEqual({ cancelled: [], skipped: [] });
+      expect((await orderRow(placed.orderId)).status).toBe('open');
+      // Past its own band it comes off, as any resting order does: mark 92 is 73.6 to 110.4, mark 91 is 72.8 to 109.2.
+      mark = A('92');
+      expect((await narrowed.cancelOutsideBand()).cancelled).toEqual([]);
+      mark = A('91');
+      expect((await narrowed.cancelOutsideBand()).cancelled).toEqual([placed.orderId]);
+      await assertBooksAgree();
+    });
+
     it.each([
       ['buy', '0.0007', '7.77'],
       ['sell', '0.0013', '3.33'],
@@ -1328,6 +1362,259 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
     });
   });
 
+  describe('size and price controls (D-orders-06): slippage cap, price correction, split', () => {
+    const saved: Record<string, string | undefined> = {};
+    const ENV = ['TRADE_MAX_ORDER', 'TRADE_MAX_POSITION', 'TRADE_MAX_LOSS'] as const;
+    beforeEach(() => {
+      for (const key of ENV) {
+        saved[key] = process.env[key];
+        delete process.env[key];
+      }
+    });
+    afterEach(() => {
+      for (const key of ENV) {
+        if (saved[key] === undefined) delete process.env[key];
+        else process.env[key] = saved[key];
+      }
+    });
+
+    async function held(userId: string): Promise<bigint> {
+      return A('1000') - (await bal(userAvailable(userId, USDT)));
+    }
+
+    it('a blank slippage cap refuses a market open before any hold, and a limit open still places', async () => {
+      const svc = build({ slippageCapBps: async () => null });
+      await expect(
+        svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', type: 'market', qty: A('1'), clientOrderId: 'cap-blank' })),
+      ).rejects.toMatchObject({ code: 'trade.slippage_cap_unset', status: 503 });
+      expect(engine.submits).toHaveLength(0);
+      expect(await held(ALICE)).toBe(0n);
+      // Out of the cap's own range is not a cap either: it never means "no cap".
+      const odd = build({ slippageCapBps: async () => 0 });
+      await expect(
+        odd.place(principal(ALICE), order({ userId: ALICE, side: 'buy', type: 'market', qty: A('1'), clientOrderId: 'cap-zero' })),
+      ).rejects.toMatchObject({ code: 'trade.slippage_cap_unset' });
+      await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('1'), clientOrderId: 'cap-blank-limit' }));
+      expect(engine.submits).toHaveLength(1);
+    });
+
+    it('a set cap tighter than the band sends and holds a market open at the cap, not the band edge', async () => {
+      const svc = build({ slippageCapBps: async () => 50 });
+      const buy = await svc.place(
+        principal(ALICE),
+        order({ userId: ALICE, side: 'buy', type: 'market', qty: A('1'), clientOrderId: 'cap-buy' }),
+      );
+      expect(buy.limitPrice).toBe('100.5');
+      expect(engine.submits[0]!.price).toBe('100.5');
+      const hold = orderHoldAmount({ side: 'buy', qty: A('1'), limit: A('100.5'), mark: A('100'), leverage: A('10') });
+      expect(buy.holdAmount).toBe(formatAmount(hold));
+      expect(await held(ALICE)).toBe(hold);
+      const sell = await svc.place(
+        principal(BOB),
+        order({ userId: BOB, side: 'sell', type: 'market', qty: A('1'), clientOrderId: 'cap-sell' }),
+      );
+      expect(sell.limitPrice).toBe('99.5');
+      // The same request again is the same order: no second submit, no second hold.
+      await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', type: 'market', qty: A('1'), clientOrderId: 'cap-buy' }));
+      expect(engine.submits).toHaveLength(2);
+      expect(await held(ALICE)).toBe(hold);
+    });
+
+    it('a limit outside the band refuses naming both edges; adjust moves it to the edge and a retry replays it', async () => {
+      const svc = build();
+      await expect(
+        svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('1'), limitPrice: A('120'), clientOrderId: 'pc-reject' })),
+      ).rejects.toMatchObject({ code: 'trade.futures_price_outside_band', message: expect.stringContaining('95 to 105') });
+      await expect(
+        svc.place(
+          principal(ALICE),
+          order({ userId: ALICE, side: 'buy', qty: A('1'), limitPrice: A('120'), priceCorrection: 'nudge', clientOrderId: 'pc-bad' }),
+        ),
+      ).rejects.toMatchObject({ code: 'trade.price_correction_invalid' });
+      expect(engine.submits).toHaveLength(0);
+      expect(await held(ALICE)).toBe(0n);
+
+      const asked = order({
+        userId: ALICE,
+        side: 'buy',
+        qty: A('1'),
+        limitPrice: A('120'),
+        priceCorrection: 'adjust',
+        clientOrderId: 'pc-adj',
+      });
+      const placed = await svc.place(principal(ALICE), asked);
+      expect(placed.limitPrice).toBe('105');
+      expect(engine.submits[0]!.price).toBe('105');
+      // The mark moved since: the retry still names the same order (it is moved with the band it was stored with).
+      mark = A('102');
+      const again = await svc.place(principal(ALICE), asked);
+      expect(again.orderId).toBe(placed.orderId);
+      expect(engine.submits).toHaveLength(1);
+      // A limit inside the band is never moved by adjust.
+      const inside = await svc.place(
+        principal(BOB),
+        order({ userId: BOB, side: 'sell', qty: A('1'), limitPrice: A('101'), priceCorrection: 'adjust', clientOrderId: 'pc-in' }),
+      );
+      expect(inside.limitPrice).toBe('101');
+    });
+
+    it('an order above the max-order is placed as children keyed :1..N within the cap, and the same request never places twice', async () => {
+      process.env.TRADE_MAX_ORDER = '1050';
+      const svc = build();
+      const big = order({ userId: ALICE, side: 'buy', qty: A('25'), clientOrderId: 'split-a' });
+      // One order of 25 at 100 is 2500 against a max-order of 1050; children are sized at the band's high edge (105).
+      await expect(svc.place(principal(ALICE), big)).rejects.toMatchObject({ code: 'trade.limit_max_order' });
+      expect(engine.submits).toHaveLength(0);
+
+      const out = await svc.placeSplit(principal(ALICE), big);
+      expect(out.parts).toBe(3);
+      expect(out.stopped).toBeNull();
+      const tag = splitRequestTag(big);
+      expect(tag).toMatch(/^[0-9a-f]{8}$/);
+      expect(out.orders.map((o) => [o.clientOrderId, o.qty])).toEqual([
+        [`split-a:1:${tag}`, '10'],
+        [`split-a:2:${tag}`, '10'],
+        [`split-a:3:${tag}`, '5'],
+      ]);
+      const hold = out.orders.reduce((sum, o) => sum + A(o.holdAmount), 0n);
+      expect(await held(ALICE)).toBe(hold);
+      await assertBooksAgree();
+
+      // The same request after the mark moved: the same three children, nothing sent or held again.
+      mark = A('125');
+      const again = await svc.placeSplit(principal(ALICE), big);
+      expect(again.orders.map((o) => o.orderId)).toEqual(out.orders.map((o) => o.orderId));
+      expect(engine.submits).toHaveLength(3);
+      expect(await held(ALICE)).toBe(hold);
+    });
+
+    it('the mark rising inside the band between the plan and a child does not refuse that child for size', async () => {
+      process.env.TRADE_MAX_ORDER = '1050';
+      // The plan reads 100; every child's own check reads 104, still inside the 5 percent band.
+      let reads = 0;
+      const svc = build({ markFor: async () => (reads++ === 0 ? A('100') : A('104')) });
+      const out = await svc.placeSplit(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('20'), clientOrderId: 'drift' }));
+      expect(out.orders.map((o) => [o.qty, o.markPrice])).toEqual([
+        ['10', '104'],
+        ['10', '104'],
+      ]);
+    });
+
+    it('a crash after child 2 of 3: the same request places only child 3', async () => {
+      process.env.TRADE_MAX_ORDER = '1050';
+      const svc = build();
+      const whole = order({ userId: ALICE, side: 'buy', qty: A('25'), clientOrderId: 'crash' });
+      const tag = splitRequestTag(whole);
+      // What a crashed attempt left behind: the first two children, placed by key.
+      await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('10'), clientOrderId: `crash:1:${tag}` }));
+      await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('10'), clientOrderId: `crash:2:${tag}` }));
+      const out = await svc.placeSplit(principal(ALICE), whole);
+      expect(out.orders.map((o) => o.qty)).toEqual(['10', '10', '5']);
+      expect(engine.submits).toHaveLength(3);
+      expect(engine.submits[2]!.qty).toBe('5');
+      await assertBooksAgree();
+    });
+
+    it('children that would not all pass together place none: free balance, max-position', async () => {
+      process.env.TRADE_MAX_ORDER = '1050';
+      const svc = build();
+      // 120 at 100 and 10x holds 1200 together; each child of 10 holds about 100, and 1000 is free.
+      await expect(
+        svc.placeSplit(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('120'), clientOrderId: 'too-much' })),
+      ).rejects.toMatchObject({ code: 'trade.futures_margin_insufficient' });
+      process.env.TRADE_MAX_POSITION = '5000';
+      await expect(
+        svc.placeSplit(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('60'), clientOrderId: 'too-big' })),
+      ).rejects.toMatchObject({ code: 'trade.limit_max_position' });
+      expect(engine.submits).toHaveLength(0);
+      expect(await held(ALICE)).toBe(0n);
+      expect(await sql`SELECT 1 FROM trade.futures_orders`).toHaveLength(0);
+    });
+
+    it('a split refuses what it cannot split: reduce-only, a lot over the cap, too many children, no key', async () => {
+      process.env.TRADE_MAX_ORDER = '1050';
+      const svc = build();
+      await expect(
+        svc.placeSplit(principal(ALICE), order({ userId: ALICE, side: 'sell', qty: A('25'), reduceOnly: true, clientOrderId: 'ro' })),
+      ).rejects.toMatchObject({ code: 'trade.split_opening_only' });
+      await expect(
+        svc.placeSplit(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('25'), clientOrderId: '  ' })),
+      ).rejects.toMatchObject({ code: 'trade.client_order_id_required' });
+      await expect(
+        svc.placeSplit(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('25'), leverage: A('0'), clientOrderId: 'lev0' })),
+      ).rejects.toMatchObject({ code: 'trade.leverage_invalid' });
+      // 260 is 26 children of 10 (1050 at 105): more than one request places.
+      await expect(
+        svc.placeSplit(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('260'), clientOrderId: 'many' })),
+      ).rejects.toMatchObject({ code: 'trade.limit_max_order', message: expect.stringContaining('26 orders') });
+      process.env.TRADE_MAX_ORDER = '0';
+      await expect(
+        svc.placeSplit(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('1'), clientOrderId: 'zero' })),
+      ).rejects.toMatchObject({ code: 'trade.limit_max_order', message: expect.stringContaining('one lot') });
+      expect(await held(ALICE)).toBe(0n);
+    });
+
+    it('an order within the max-order through the split door is one order under its own key', async () => {
+      process.env.TRADE_MAX_ORDER = '1050';
+      const svc = build();
+      const small = order({ userId: ALICE, side: 'buy', qty: A('5'), clientOrderId: 'small' });
+      const out = await svc.placeSplit(principal(ALICE), small);
+      expect(out).toMatchObject({ parts: 1, orders: [{ clientOrderId: `small:1:${splitRequestTag(small)}`, qty: '5' }], stopped: null });
+    });
+
+    it('a key names one request: another size, price or side under it, or a single order under it, refuses before anything', async () => {
+      process.env.TRADE_MAX_ORDER = '1050';
+      const svc = build();
+      // A crash after child 1 of a 25 split; then the same key with 40, a new price, or the other side.
+      const first = order({ userId: ALICE, side: 'buy', qty: A('25'), clientOrderId: 'k' });
+      await svc.place(
+        principal(ALICE),
+        order({ userId: ALICE, side: 'buy', qty: A('10'), clientOrderId: `k:1:${splitRequestTag(first)}` }),
+      );
+      for (const other of [
+        { ...first, qty: A('40') },
+        { ...first, limitPrice: A('99') },
+        { ...first, priceCorrection: 'adjust' },
+        { ...first, side: 'sell' as const },
+      ]) {
+        await expect(svc.placeSplit(principal(ALICE), other)).rejects.toMatchObject({
+          code: 'trade.client_order_id_conflict',
+          status: 409,
+        });
+      }
+      await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('1'), clientOrderId: 'single' }));
+      await expect(
+        svc.placeSplit(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('25'), clientOrderId: 'single' })),
+      ).rejects.toMatchObject({ code: 'trade.client_order_id_conflict' });
+      expect(engine.submits).toHaveLength(2);
+      // A key that only shares the prefix is not a child: `k:x` is its own request.
+      const prefixed = await svc.placeSplit(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('5'), clientOrderId: 'k:x' }));
+      expect(prefixed.orders).toHaveLength(1);
+      // And the first request finishes: child 1 replays, children 2 and 3 are placed.
+      const done = await svc.placeSplit(principal(ALICE), first);
+      expect(done.orders.map((o) => o.qty)).toEqual(['10', '10', '5']);
+      expect(engine.submits).toHaveLength(5);
+    });
+
+    it('a whole order off the lot step refuses before any child; a child refused later names the children already live', async () => {
+      process.env.TRADE_MAX_ORDER = '1050';
+      const svc = build();
+      await expect(
+        svc.placeSplit(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('25.00005'), clientOrderId: 'off-lot' })),
+      ).rejects.toMatchObject({ code: 'trade.close_quantity_lot_step' });
+      expect(engine.submits).toHaveLength(0);
+
+      // Child 2's own check reads a mark past the band its size was planned at (100 at the plan, 110 after child 1).
+      let reads = 0;
+      const drifting = build({ markFor: async () => (reads++ < 2 ? A('100') : A('110')) });
+      const out = await drifting.placeSplit(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('25'), clientOrderId: 'stops' }));
+      expect(out.orders.map((o) => o.qty)).toEqual(['10']);
+      expect(out.stopped).toMatchObject({ child: 2, code: expect.stringMatching(/^trade\./) });
+      expect(await held(ALICE)).toBe(A(out.orders[0]!.holdAmount));
+      await assertBooksAgree();
+    });
+  });
+
   describe('collateral (D-margin-02): what an opening order is posted from, and the owner’s haircut', () => {
     const saved: Record<string, string | undefined> = {};
     const ENV = ['TRADE_COLLATERAL_HAIRCUT_BPS', 'TRADE_FUTURES_ENABLED', 'TRADE_FUTURES_JOBS_ENABLED'] as const;
@@ -1348,6 +1635,7 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
     function positions(ledgerPort: LedgerClient = ledger): PositionService {
       const marks = memoryMarkBook();
       marks.set({ marketId: MARKET, symbol: SYMBOL, price: '100', quality: 'mid', asOfMs: NOW.getTime() });
+      marks.set({ marketId: ETH_MARKET, symbol: ETH_SYMBOL, price: '100', quality: 'mid', asOfMs: NOW.getTime() });
       return new PositionService(sql, ledgerPort, {
         marks: marks.source(),
         profitSource: null,
@@ -1428,6 +1716,111 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
       const figures = await svc.collateralFigures(ALICE, USDT);
       expect(figures.committed <= figures.credit!).toBe(true);
       expect(await bal(userAvailable(ALICE, USDT))).toBe(A('1000') - A('500') * BigInt(2 - refused.length));
+      await assertBooksAgree();
+    });
+
+    it('a leverage change counts what live opening orders hold and commit, so it cannot spend credit they rely on', async () => {
+      process.env.TRADE_COLLATERAL_HAIRCUT_BPS = '1000';
+      const svc = positions();
+      // Posted is 1000 (120 free, 20 in the position, 860 held), committed 880, credit 900: 20 of buying power left.
+      const target = await aliceWithRestingOrder(svc);
+      expect(await svc.collateralFigures(ALICE, USDT)).toMatchObject({ free: A('120'), committed: A('880'), buyingPower: A('20') });
+      // 2x needs 80 more. The 120 free covers it, and so would the haircut without the order (126 against 100), but not
+      // with it: 900 against 960. Nothing moves.
+      await expect(svc.setLeverage({ ...target, leverage: A('2'), clientAdjustmentId: 'lev-2x' }, principal(ALICE))).rejects.toMatchObject({
+        code: 'trade.haircut_credit_short',
+      });
+      expect(parseAmount((await positionsOf(ALICE))[0]!.margin_current)).toBe(A('20'));
+      expect(await bal(userAvailable(ALICE, USDT))).toBe(A('120'));
+      // 5x needs exactly the 20 left: it fits.
+      await svc.setLeverage({ ...target, leverage: A('5'), clientAdjustmentId: 'lev-5x' }, principal(ALICE));
+      expect(parseAmount((await positionsOf(ALICE))[0]!.margin_current)).toBe(A('40'));
+      expect((await svc.collateralFigures(ALICE, USDT)).buyingPower).toBe(0n);
+      await assertBooksAgree();
+    });
+
+    /** Alice with a 2 at 100, 10x position (initial margin 20) and an opening order resting on 860: 20 of credit left. */
+    async function aliceWithRestingOrder(svc: PositionService) {
+      const buy = await svc.placeMatchedOrder(
+        principal(ALICE),
+        order({ userId: ALICE, side: 'buy', qty: A('2'), clientOrderId: 'pos-open' }),
+      );
+      const sell = await build().place(
+        principal(BOB),
+        order({ userId: BOB, side: 'sell', qty: A('2'), limitPrice: A('100'), clientOrderId: 'pos-bob' }),
+      );
+      await build().settleFill({
+        marketId: MARKET,
+        makerOrderId: buy.orderId,
+        takerOrderId: sell.orderId,
+        price: '100',
+        qty: '2',
+        sequence: 1,
+      });
+      await svc.placeMatchedOrder(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('86'), clientOrderId: 'pos-rest' }));
+      const [position] = await positionsOf(ALICE);
+      return { userId: ALICE, symbol: SYMBOL, positionId: position!.id };
+    }
+
+    const ETH_MARKET = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+    const ETH_SYMBOL = 'ETH/USDT-PERP';
+
+    it('an opening order checked while a leverage change is still writing waits for it, so both cannot take the last of the credit', async () => {
+      process.env.TRADE_COLLATERAL_HAIRCUT_BPS = '1000';
+      await sql`
+        INSERT INTO trade.markets (
+          id, symbol, base_asset, quote_asset, kind, tick_size, lot_size, min_qty, min_notional,
+          maker_bps, taker_bps, status, display_name, listed_at
+        ) VALUES (
+          ${ETH_MARKET}, ${ETH_SYMBOL}, 'ETH', 'USDT', 'futures', '0.01', '0.0001', '0.0001', '1', 10, 20, 'active', 'ETH perpetual', now()
+        )
+      `;
+      const target = await aliceWithRestingOrder(positions());
+      // The leverage change has passed its check and stops at its margin post, its new initial margin not yet written.
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => (release = resolve));
+      let posting!: () => void;
+      const reachedPost = new Promise<void>((resolve) => (posting = resolve));
+      const slowPost = withLedger({
+        post: async (req: Parameters<LedgerClient['post']>[0]) => {
+          posting();
+          await gate;
+          return ledger.post(req);
+        },
+      });
+      // 5x needs 20 more; an order of 2 at 100, 10x, on another market holds 20. Either fits alone, both do not.
+      const leverage = positions(slowPost).setLeverage({ ...target, leverage: A('5'), clientAdjustmentId: 'race-5x' }, principal(ALICE));
+      await reachedPost;
+      const placing = positions().placeMatchedOrder(
+        principal(ALICE),
+        order({ userId: ALICE, symbol: ETH_SYMBOL, side: 'buy', qty: A('2'), clientOrderId: 'race-eth' }),
+      );
+      // Given time, an order that did not wait would be placed on credit the leverage change has already taken.
+      await Promise.race([placing.catch(() => undefined), new Promise((resolve) => setTimeout(resolve, 500))]);
+      release();
+      await leverage;
+      await expect(placing).rejects.toMatchObject({ code: 'trade.haircut_credit_short' });
+      expect(parseAmount((await positionsOf(ALICE))[0]!.margin_current)).toBe(A('40'));
+      const figures = await positions().collateralFigures(ALICE, USDT);
+      expect(figures).toMatchObject({ committed: A('900'), credit: A('900'), buyingPower: 0n });
+      await assertBooksAgree();
+    });
+
+    it('a leverage change whose collateral read fails refuses trade.collateral_unreadable (503) and moves nothing', async () => {
+      process.env.TRADE_COLLATERAL_HAIRCUT_BPS = '1000';
+      const target = await aliceWithRestingOrder(positions());
+      const down = positions(withLedger({ balances: async () => Promise.reject(new Error('ledger down')) }));
+      await expect(
+        down.setLeverage({ ...target, leverage: A('5'), clientAdjustmentId: 'down-5x' }, principal(ALICE)),
+      ).rejects.toMatchObject({
+        code: 'trade.collateral_unreadable',
+        status: 503,
+      });
+      expect(parseAmount((await positionsOf(ALICE))[0]!.margin_current)).toBe(A('20'));
+      expect(await bal(userAvailable(ALICE, USDT))).toBe(A('120'));
+      // The same request goes through once the ledger reads again.
+      await positions().setLeverage({ ...target, leverage: A('5'), clientAdjustmentId: 'down-5x' }, principal(ALICE));
+      expect(parseAmount((await positionsOf(ALICE))[0]!.margin_current)).toBe(A('40'));
       await assertBooksAgree();
     });
 
@@ -1543,6 +1936,374 @@ describe('svc-trade matched futures orders (slice 6, PG-backed)', () => {
         order({ userId: ALICE, side: 'buy', qty: A('1'), clientOrderId: 'k-cash', collateralClass: 'cash' }),
       );
       expect(await ordersOf(ALICE)).toHaveLength(1);
+    });
+  });
+
+  describe('the confirm step before a higher margin tier (D-orders-10, J-derivatives-02 #6)', () => {
+    // Depth 1,000 USDT: tier 1 holds up to 50 USDT of notional (0.5 at 100), tier 2 up to 200 (2), tier 3 the rest.
+    const POLICY = {
+      tiers: [
+        { uptoDepthBps: 500, maintenanceBps: 50 },
+        { uptoDepthBps: 2_000, maintenanceBps: 100 },
+        { uptoDepthBps: Number.MAX_SAFE_INTEGER, maintenanceBps: 500 },
+      ],
+      marginCallBps: 12_000,
+      targetBps: 15_000,
+      maxTrancheBps: 2_500,
+    };
+    let depth: bigint | null;
+    beforeEach(() => {
+      depth = A('1000');
+    });
+
+    function tiered(overrides: Partial<MatchedOrdersDeps> = {}): MatchedFuturesOrders {
+      const positions = new PositionService(sql, ledger, {
+        marks: memoryMarkBook().source(),
+        profitSource: null,
+        maxLeverage: A('10'),
+        now: () => NOW,
+        ladder: {
+          depth: {
+            depthNotional: async () => {
+              if (depth === null) throw new Error('depth read failed');
+              return depth;
+            },
+          },
+          policy: POLICY,
+        },
+      });
+      return build({ riskTier: (input) => positions.riskTierCrossing(input), ...overrides });
+    }
+
+    async function ordersOf(userId: string) {
+      return sql<{ client_order_id: string; qty: string }[]>`
+        SELECT client_order_id, qty FROM trade.futures_orders WHERE user_id = ${userId} ORDER BY created_at, client_order_id
+      `;
+    }
+
+    it('an order that stays in tier 1 places without a confirm', async () => {
+      const placed = await tiered().place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('0.4'), clientOrderId: 't1' }));
+      expect(placed.status).toBe('open');
+      expect(engine.submits).toHaveLength(1);
+    });
+
+    it('adding size past the tier the side sits in refuses naming the new tier and its leverage; nothing is held', async () => {
+      const svc = tiered();
+      await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('0.4'), clientOrderId: 'add-1' }));
+      const free = await bal(userAvailable(ALICE, USDT));
+      // The resting 0.4 can still fill into the position, so 0.4 more is 80 USDT: tier 2.
+      const add = order({ userId: ALICE, side: 'buy', qty: A('0.4'), clientOrderId: 'add-2' });
+      const refused = svc.place(principal(ALICE), add);
+      await expect(refused).rejects.toMatchObject({ code: 'trade.risk_limit_confirm_required', status: 409 });
+      await expect(refused).rejects.toThrow(
+        'this order moves the position from tier 1 into tier 2 (maintenance 1.00%) at 10x leverage; every tier answers to the listing cap of 10x. Send confirmTier 2 to place it',
+      );
+      expect(engine.submits).toHaveLength(1);
+      expect(await bal(userAvailable(ALICE, USDT))).toBe(free);
+      expect((await ordersOf(ALICE)).map((o) => o.client_order_id)).toEqual(['add-1']);
+
+      // A confirm for a lower tier is no confirm for this one.
+      await expect(svc.place(principal(ALICE), { ...add, confirmTier: 1 })).rejects.toMatchObject({
+        code: 'trade.risk_limit_confirm_required',
+      });
+      // The same request naming tier 2 goes ahead under the same key.
+      const placed = await svc.place(principal(ALICE), { ...add, confirmTier: 2 });
+      expect(placed.clientOrderId).toBe('add-2');
+      expect(engine.submits).toHaveLength(2);
+      await assertBooksAgree();
+
+      // Inside tier 2 no confirm is asked again; past it, the next tier is.
+      await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('0.5'), clientOrderId: 'add-3' }));
+      await expect(
+        svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('1'), clientOrderId: 'add-4', confirmTier: 2 })),
+      ).rejects.toThrow('from tier 2 into tier 3 (maintenance 5.00%)');
+    });
+
+    it('a filled position counts, and the other side and other accounts do not', async () => {
+      const svc = tiered();
+      const a = await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('0.4'), clientOrderId: 'pos-a' }));
+      const b = await svc.place(principal(BOB), order({ userId: BOB, side: 'sell', qty: A('0.4'), clientOrderId: 'pos-b' }));
+      await svc.settleFill({ marketId: MARKET, makerOrderId: a.orderId, takerOrderId: b.orderId, price: '100', qty: '0.4', sequence: 7 });
+      expect(parseAmount((await positionsOf(ALICE))[0]!.size)).toBe(A('0.4'));
+      // Carol has nothing: her 0.4 stays in tier 1 whatever Alice holds.
+      await svc.place(principal(CAROL), order({ userId: CAROL, side: 'buy', qty: A('0.4'), clientOrderId: 'pos-c' }));
+      await expect(
+        svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('0.2'), clientOrderId: 'pos-a2' })),
+      ).rejects.toMatchObject({ code: 'trade.risk_limit_confirm_required' });
+      await assertBooksAgree();
+    });
+
+    it('a first order straight into a high tier asks too, naming the tier it opens in', async () => {
+      const big = order({ userId: ALICE, side: 'buy', qty: A('3'), clientOrderId: 'big' });
+      await expect(tiered().place(principal(ALICE), big)).rejects.toThrow('this order opens the position in tier 3 (maintenance 5.00%)');
+      expect(engine.submits).toHaveLength(0);
+      expect(await bal(userAvailable(ALICE, USDT))).toBe(A('1000'));
+      expect((await tiered().place(principal(ALICE), { ...big, confirmTier: 3 })).status).toBe('open');
+    });
+
+    it('two orders placed together cannot each stay inside the tier and together cross it: the later rating refuses', async () => {
+      const positions = new PositionService(sql, ledger, {
+        marks: memoryMarkBook().source(),
+        profitSource: null,
+        maxLeverage: A('10'),
+        now: () => NOW,
+        ladder: { depth: { depthNotional: async () => A('1000') }, policy: POLICY },
+      });
+      // Order B (0.3) is placed in full while order A (0.3) is between its first rating and writing its row: each alone
+      // stays in tier 1 (30 of 50), together they are 60, tier 2.
+      let racing = true;
+      const svc: MatchedFuturesOrders = build({
+        riskTier: async (input) => {
+          const crossing = await positions.riskTierCrossing(input);
+          if (racing && input.excludeOrderId === undefined) {
+            racing = false;
+            await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('0.3'), clientOrderId: 'race-b' }));
+          }
+          return crossing;
+        },
+      });
+      const a = order({ userId: ALICE, side: 'buy', qty: A('0.3'), clientOrderId: 'race-a' });
+      await expect(svc.place(principal(ALICE), a)).rejects.toMatchObject({ code: 'trade.risk_limit_confirm_required', status: 409 });
+      // A's row is kept, refused before its hold posted; only B rests and holds.
+      const rows = await sql<{ client_order_id: string; status: string; refusal_code: string | null }[]>`
+        SELECT client_order_id, status, refusal_code FROM trade.futures_orders WHERE user_id = ${ALICE} ORDER BY client_order_id
+      `;
+      expect(rows).toEqual([
+        { client_order_id: 'race-a', status: 'refused', refusal_code: 'trade.risk_limit_confirm_required' },
+        { client_order_id: 'race-b', status: 'open', refusal_code: null },
+      ]);
+      expect(engine.submits).toHaveLength(1);
+      await assertBooksAgree();
+    });
+
+    it('a confirmTier above the ladder names no tier and refuses before any hold', async () => {
+      await expect(
+        tiered().place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('0.1'), clientOrderId: 'tier-9', confirmTier: 9 })),
+      ).rejects.toMatchObject({ code: 'trade.confirm_tier_invalid', status: 400 });
+      expect(engine.submits).toHaveLength(0);
+      expect(await ordersOf(ALICE)).toHaveLength(0);
+    });
+
+    it('an unreadable depth refuses before any hold: no tier can be named', async () => {
+      depth = null;
+      await expect(
+        tiered().place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('0.1'), clientOrderId: 'no-depth' })),
+      ).rejects.toMatchObject({ code: 'trade.depth_unknown', status: 503 });
+      expect(engine.submits).toHaveLength(0);
+      expect(await bal(userAvailable(ALICE, USDT))).toBe(A('1000'));
+      expect(await ordersOf(ALICE)).toHaveLength(0);
+    });
+
+    it('a reduce-only order is never asked to confirm a tier', async () => {
+      const svc = tiered();
+      const a = await svc.place(
+        principal(ALICE),
+        order({ userId: ALICE, side: 'buy', qty: A('3'), clientOrderId: 'ro-a', confirmTier: 3 }),
+      );
+      const b = await svc.place(principal(BOB), order({ userId: BOB, side: 'sell', qty: A('3'), clientOrderId: 'ro-b', confirmTier: 3 }));
+      await svc.settleFill({ marketId: MARKET, makerOrderId: a.orderId, takerOrderId: b.orderId, price: '100', qty: '3', sequence: 9 });
+      const close = await svc.place(
+        principal(ALICE),
+        order({ userId: ALICE, side: 'sell', qty: A('1'), clientOrderId: 'ro-close', reduceOnly: true, type: 'market' }),
+      );
+      expect(close.reduceOnly).toBe(true);
+    });
+
+    describe('through the split door', () => {
+      const saved = process.env.TRADE_MAX_ORDER;
+      afterEach(() => {
+        if (saved === undefined) delete process.env.TRADE_MAX_ORDER;
+        else process.env.TRADE_MAX_ORDER = saved;
+      });
+
+      it('the whole order is rated before any child is placed, and a confirm places every child', async () => {
+        process.env.TRADE_MAX_ORDER = '105';
+        const svc = tiered();
+        const whole = order({ userId: ALICE, side: 'buy', qty: A('3'), clientOrderId: 'split-tier' });
+        await expect(svc.placeSplit(principal(ALICE), whole)).rejects.toMatchObject({
+          code: 'trade.risk_limit_confirm_required',
+          status: 409,
+        });
+        expect(engine.submits).toHaveLength(0);
+        expect(await ordersOf(ALICE)).toHaveLength(0);
+
+        const out = await svc.placeSplit(principal(ALICE), { ...whole, confirmTier: 3 });
+        expect(out.stopped).toBeNull();
+        expect(out.orders.map((o) => o.qty)).toEqual(['1', '1', '1']);
+        // The confirm is not part of the request's identity: the same request again replays the same children.
+        const tag = splitRequestTag(whole);
+        expect(out.orders.map((o) => o.clientOrderId)).toEqual([1, 2, 3].map((n) => `split-tier:${n}:${tag}`));
+        await assertBooksAgree();
+      });
+    });
+  });
+
+  describe('open-interest and share limits (D-margin-05, J-derivatives-02 #7)', () => {
+    // A market limit of 10 BTC, and at most 10% of it (1 BTC) per account.
+    let limits: { limit: bigint; shareBps: number } | null;
+    beforeEach(() => {
+      limits = { limit: A('10'), shareBps: 1_000 };
+    });
+
+    function positionsWithLimits(): PositionService {
+      return new PositionService(sql, ledger, {
+        marks: memoryMarkBook().source(),
+        profitSource: null,
+        maxLeverage: A('10'),
+        now: () => NOW,
+        matchedOrders: {
+          matching: null,
+          enabled: false,
+          priceBand: null,
+          lifecycleProof: null,
+          openInterestLimits: async () => limits as never,
+        },
+      });
+    }
+
+    function limited(overrides: Partial<MatchedOrdersDeps> = {}): MatchedFuturesOrders {
+      const positions = positionsWithLimits();
+      return build({ openInterest: (input) => positions.openInterestRoom(input), ...overrides });
+    }
+
+    async function liveOrders(userId: string) {
+      return sql<{ client_order_id: string; status: string; refusal_code: string | null }[]>`
+        SELECT client_order_id, status, refusal_code FROM trade.futures_orders WHERE user_id = ${userId} ORDER BY client_order_id
+      `;
+    }
+
+    it('an open past the account share refuses with the room left; nothing is held or written', async () => {
+      const svc = limited();
+      await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('0.6'), clientOrderId: 'oi-1' }));
+      const free = await bal(userAvailable(ALICE, USDT));
+      // The resting 0.6 counts: 0.5 more is 1.1 of a 1 BTC share.
+      const over = svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('0.5'), clientOrderId: 'oi-2' }));
+      await expect(over).rejects.toMatchObject({ code: 'trade.oi_share_limit', status: 422 });
+      await expect(over).rejects.toThrow(
+        "this order would take your open interest on this market to 1.1 BTC, past the 1 BTC one account may hold (10% of the market's limit of 10 BTC); room left 0.4 BTC",
+      );
+      expect(engine.submits).toHaveLength(1);
+      expect(await bal(userAvailable(ALICE, USDT))).toBe(free);
+      expect((await liveOrders(ALICE)).map((o) => o.client_order_id)).toEqual(['oi-1']);
+      // The room it named places; exactly at the share is allowed.
+      await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('0.4'), clientOrderId: 'oi-3' }));
+      expect(engine.submits).toHaveLength(2);
+      await assertBooksAgree();
+    });
+
+    it("filled positions count on both sides, and another account's share is its own", async () => {
+      const svc = limited();
+      const a = await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('1'), clientOrderId: 'oi-pa' }));
+      const b = await svc.place(principal(BOB), order({ userId: BOB, side: 'sell', qty: A('1'), clientOrderId: 'oi-pb' }));
+      await svc.settleFill({ marketId: MARKET, makerOrderId: a.orderId, takerOrderId: b.orderId, price: '100', qty: '1', sequence: 11 });
+      await expect(
+        svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('0.0001'), clientOrderId: 'oi-pa2' })),
+      ).rejects.toMatchObject({ code: 'trade.oi_share_limit' });
+      await expect(
+        svc.place(principal(BOB), order({ userId: BOB, side: 'sell', qty: A('0.0001'), clientOrderId: 'oi-pb2' })),
+      ).rejects.toMatchObject({ code: 'trade.oi_share_limit' });
+      // Carol holds nothing yet: her whole share is open to her.
+      await svc.place(principal(CAROL), order({ userId: CAROL, side: 'buy', qty: A('1'), clientOrderId: 'oi-pc' }));
+      await assertBooksAgree();
+    });
+
+    it("the market's limit refuses with the market's room when it is the nearer one", async () => {
+      limits = { limit: A('2'), shareBps: 10_000 };
+      const svc = limited();
+      await svc.place(principal(BOB), order({ userId: BOB, side: 'sell', qty: A('1.5'), clientOrderId: 'oi-mb' }));
+      await expect(
+        svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('0.6'), clientOrderId: 'oi-ma' })),
+      ).rejects.toThrow("this order would take the market's open interest to 2.1 BTC, past its limit of 2 BTC; room left 0.5 BTC");
+      await expect(
+        svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('0.6'), clientOrderId: 'oi-ma' })),
+      ).rejects.toMatchObject({ code: 'trade.oi_limit', status: 422 });
+    });
+
+    it('a blank limit refuses every open on the market before any hold; a close still goes', async () => {
+      const svc = limited();
+      const a = await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('0.5'), clientOrderId: 'oi-ua' }));
+      const b = await svc.place(principal(BOB), order({ userId: BOB, side: 'sell', qty: A('0.5'), clientOrderId: 'oi-ub' }));
+      await svc.settleFill({ marketId: MARKET, makerOrderId: a.orderId, takerOrderId: b.orderId, price: '100', qty: '0.5', sequence: 12 });
+      limits = null;
+      const free = await bal(userAvailable(CAROL, USDT));
+      await expect(
+        svc.place(principal(CAROL), order({ userId: CAROL, side: 'buy', qty: A('0.1'), clientOrderId: 'oi-uc' })),
+      ).rejects.toMatchObject({ code: 'trade.oi_limit_unset', status: 503 });
+      expect(await bal(userAvailable(CAROL, USDT))).toBe(free);
+      expect(await liveOrders(CAROL)).toHaveLength(0);
+      // Reduce-only never meets the limit: a trader can always leave.
+      const close = await svc.place(
+        principal(ALICE),
+        order({ userId: ALICE, side: 'sell', qty: A('0.5'), clientOrderId: 'oi-close', reduceOnly: true, type: 'market' }),
+      );
+      expect(close.reduceOnly).toBe(true);
+    });
+
+    it('two opens placed together near the share: the later check, after its row is written, refuses', async () => {
+      const positions = positionsWithLimits();
+      let racing = true;
+      const svc: MatchedFuturesOrders = build({
+        openInterest: async (input) => {
+          const room = await positions.openInterestRoom(input);
+          if (racing && input.excludeOrderId === undefined) {
+            racing = false;
+            await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('0.6'), clientOrderId: 'oi-race-b' }));
+          }
+          return room;
+        },
+      });
+      // Each 0.6 alone fits the 1 BTC share; together they are 1.2.
+      await expect(
+        svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('0.6'), clientOrderId: 'oi-race-a' })),
+      ).rejects.toMatchObject({ code: 'trade.oi_share_limit' });
+      expect(await liveOrders(ALICE)).toEqual([
+        { client_order_id: 'oi-race-a', status: 'refused', refusal_code: 'trade.oi_share_limit' },
+        { client_order_id: 'oi-race-b', status: 'open', refusal_code: null },
+      ]);
+      expect(engine.submits).toHaveLength(1);
+      await assertBooksAgree();
+    });
+
+    it('a limit blanked between the first check and the row check refuses the order and keeps its row, refused', async () => {
+      const positions = positionsWithLimits();
+      const svc = build({
+        openInterest: async (input) => {
+          if (input.excludeOrderId !== undefined) limits = null;
+          return positions.openInterestRoom(input);
+        },
+      });
+      await expect(
+        svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('0.1'), clientOrderId: 'oi-blanked' })),
+      ).rejects.toMatchObject({ code: 'trade.oi_limit_unset', status: 503 });
+      // Refused, so it no longer counts in anyone's open interest, and nothing was held.
+      expect(await liveOrders(ALICE)).toEqual([{ client_order_id: 'oi-blanked', status: 'refused', refusal_code: 'trade.oi_limit_unset' }]);
+      expect(await bal(userAvailable(ALICE, USDT))).toBe(A('1000'));
+      await assertBooksAgree();
+    });
+
+    describe('through the split door', () => {
+      const saved = process.env.TRADE_MAX_ORDER;
+      afterEach(() => {
+        if (saved === undefined) delete process.env.TRADE_MAX_ORDER;
+        else process.env.TRADE_MAX_ORDER = saved;
+      });
+
+      it('the whole order is checked before any child is placed', async () => {
+        process.env.TRADE_MAX_ORDER = '50';
+        const svc = limited();
+        await expect(
+          svc.placeSplit(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('1.2'), clientOrderId: 'oi-split' })),
+        ).rejects.toMatchObject({ code: 'trade.oi_share_limit' });
+        expect(engine.submits).toHaveLength(0);
+        expect(await liveOrders(ALICE)).toHaveLength(0);
+        const out = await svc.placeSplit(
+          principal(ALICE),
+          order({ userId: ALICE, side: 'buy', qty: A('1'), clientOrderId: 'oi-split-ok' }),
+        );
+        expect(out.stopped).toBeNull();
+        expect(out.orders.length).toBeGreaterThan(1);
+        await assertBooksAgree();
+      });
     });
   });
 });

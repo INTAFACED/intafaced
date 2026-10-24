@@ -61,6 +61,15 @@ export function priceBandAround(mark: Amount, band: Amount): PriceBand {
   return { low: mark - delta, high: mark + delta };
 }
 
+/**
+ * The band fraction an order was accepted under, from the mark and high edge stored on it. Rounded up, so the band it
+ * gives around that mark reaches the stored edge. Zero when the row holds no band above its mark.
+ */
+export function bandFractionOf(mark: Amount, high: Amount): Amount {
+  if (mark <= 0n || high <= mark) return 0n;
+  return ((high - mark) * SCALE + mark - 1n) / mark;
+}
+
 export function limitWithinBand(limit: Amount, band: PriceBand): boolean {
   return limit >= band.low && limit <= band.high;
 }
@@ -68,6 +77,71 @@ export function limitWithinBand(limit: Amount, band: PriceBand): boolean {
 /** A market order is an IOC limit at the band edge on its own side, so it never fills outside the band. */
 export function protectiveLimit(side: OrderSide, band: PriceBand): Amount {
   return side === 'buy' ? band.high : band.low;
+}
+
+/**
+ * A slippage cap the order path honours: a whole number of bps from 1 to 5000, the range `admin.risk.set` and the spot
+ * reader take. Anything else, null included, is no cap, and a market open refuses `trade.slippage_cap_unset`.
+ */
+export function honouredSlippageCapBps(cap: number | null | undefined): number | null {
+  return typeof cap === 'number' && Number.isInteger(cap) && cap >= 1 && cap <= 5000 ? cap : null;
+}
+
+/**
+ * The protective limit of a market OPEN: the band edge, or nearer the mark when the slippage cap is tighter. The cap's
+ * distance rounds down, so the limit never sits past the cap. A market close keeps the band edge (`protectiveLimit`):
+ * reducing risk is never held to a tighter price than the band.
+ */
+export function marketOpenLimit(side: OrderSide, mark: Amount, band: PriceBand, slippageCapBps: number): Amount {
+  const delta = (mark * BigInt(slippageCapBps)) / 10_000n;
+  if (side === 'buy') {
+    const capped = mark + delta;
+    return capped < band.high ? capped : band.high;
+  }
+  const capped = mark - delta;
+  return capped > band.low ? capped : band.low;
+}
+
+/**
+ * The most children one split request places. A request bound, not a money limit: it keeps one call from planning,
+ * looking up and placing an unbounded number of orders. Max-position still bounds the total.
+ */
+export const SPLIT_MAX_CHILDREN = 25;
+
+/**
+ * An opening order above the owner's max-order notional as children of at most the cap each: as many full children as
+ * fit, then the rest. Each child is the largest lot multiple whose notional at `sizedAt` is within the cap. The order
+ * path passes the band's high edge around the mark, so a child stays within the cap at its own check unless the mark
+ * moves further than the owner's band before it is placed. Not splittable when one lot is already over the cap
+ * (`lot_over_cap`) or when it would take more than `SPLIT_MAX_CHILDREN` children (`too_many_children`).
+ */
+export function splitPlan(input: {
+  qty: Amount;
+  /** The price each child's notional is valued at: the band's high edge around the mark on the order path. */
+  sizedAt: Amount;
+  maxOrderNotional: Amount;
+  lotSize: Amount | null;
+  /** The child size an earlier attempt of the same request already used: a retry keeps it, so its keys still match. */
+  childSize?: Amount;
+}): { ok: true; parts: Amount[] } | { ok: false; reason: 'lot_over_cap' | 'too_many_children'; children?: bigint } {
+  let child = input.childSize ?? (input.maxOrderNotional * SCALE) / input.sizedAt;
+  if (input.childSize === undefined && input.lotSize !== null && input.lotSize > 0n) child -= child % input.lotSize;
+  if (child <= 0n) return { ok: false, reason: 'lot_over_cap' };
+  if (input.qty <= child) return { ok: true, parts: [input.qty] };
+  const full = input.qty / child;
+  const rest = input.qty - full * child;
+  const children = full + (rest > 0n ? 1n : 0n);
+  if (children > BigInt(SPLIT_MAX_CHILDREN)) return { ok: false, reason: 'too_many_children', children };
+  const parts: Amount[] = Array.from({ length: Number(full) }, () => child);
+  if (rest > 0n) parts.push(rest);
+  return { ok: true, parts };
+}
+
+/** A limit outside the band, moved to the nearer edge (the order's `priceCorrection: 'adjust'`). Inside, unchanged. */
+export function correctToBand(limit: Amount, band: PriceBand): Amount {
+  if (limit > band.high) return band.high;
+  if (limit < band.low) return band.low;
+  return limit;
 }
 
 /** How far a price is worse than the mark for this side. Zero when it is at or better than the mark. */

@@ -1,0 +1,159 @@
+.status-overall--operational {
+  border-left-color: var(--color-positive);
+}
+.status-overall--degraded,
+.status-overall--maintenance,
+.status-overall--no_data {
+  border-left-color: var(--color-warning);
+}
+.status-overall--partial_outage,
+.status-overall--major_outage {
+  border-left-color: var(--color-negative);
+}
+.status-group {
+  display: grid;
+  gap: var(--spacing-8);
+}
+.status-group h3 {
+  margin: 0;
+  font-size: var(--text-15);
+}
+.pub-card ul.status-components {
+  list-style: none;
+  padding: 0;
+  gap: var(--spacing-12);
+}
+.status-component {
+  display: grid;
+  gap: var(--spacing-4);
+  padding-bottom: var(--spacing-12);
+  border-bottom: 1px solid var(--color-border);
+}
+.status-component__head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--spacing-8);
+}
+.status-component__basis {
+  font-size: var(--text-13);
+}
+.status-chip {
+  font-size: var(--text-13);
+  padding: 0 var(--spacing-8);
+  border-radius: var(--radius-8);
+  border: 1px solid var(--color-border);
+}
+.status-chip--operational {
+  color: var(--color-positive);
+}
+.status-chip--degraded,
+.status-chip--maintenance,
+.status-chip--no_data {
+  color: var(--color-warning);
+}
+.status-chip--partial_outage,
+.status-chip--major_outage {
+  color: var(--color-negative);
+}
+.status-uptime {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  gap: 2px;
+  flex-wrap: wrap;
+}
+.status-uptime__day {
+  width: 8px;
+  height: 24px;
+  border-radius: 2px;
+  border: 1px solid var(--color-border);
+}
+.status-uptime__day--operational {
+  background: var(--color-positive);
+}
+.status-uptime__day--degraded,
+.status-uptime__day--maintenance {
+  background: var(--color-warning);
+}
+.status-uptime__day--partial_outage,
+.status-uptime__day--major_outage {
+  background: var(--color-negative);
+}
+.status-incident {
+  display: grid;
+  gap: var(--spacing-4);
+}
+.status-incident h3 {
+  margin: 0;
+  font-size: var(--text-15);
+}
+.status-postmortem {
+  display: grid;
+  gap: var(--spacing-4);
+  padding-top: var(--spacing-8);
+  border-top: 1px solid var(--color-border);
+}
+.status-postmortem h4 {
+  margin: 0;
+  font-size: var(--text-14);
+}
+.status-postmortem__body {
+  margin: 0;
+  white-space: pre-wrap;
+}
+.status-timeline {
+  margin: 0;
+  padding-left: var(--spacing-20);
+  display: grid;
+  gap: var(--spacing-4);
+}
+
+.status-subscribe__channels {
+  margin: 0.5rem 0 1rem;
+  padding-left: 1.25rem;
+  color: var(--muted, inherit);
+}
+
+.status-subscribe__form {
+  display: grid;
+  gap: 0.75rem;
+  max-width: 32rem;
+}
+
+.status-subscribe__components {
+  display: grid;
+  gap: 0.375rem;
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.status-subscribe__component {
+  padding-left: 1.5rem;
+}
+
+.status-subscribe__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.status-subscribe__facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.25rem 1rem;
+  margin: 0 0 1rem;
+}
+
+.status-share textarea,
+.status-share input {
+  width: 100%;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.8125rem;
+}
+
+.status-share__preview {
+  margin: 0.75rem 0;
+}

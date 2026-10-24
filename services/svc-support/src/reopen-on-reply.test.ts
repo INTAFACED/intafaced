@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { SupportService } from './support-service.js';
+import { withTestCommentCap } from './comment-cap.fixture.js';
 
 const USER = '11111111-1111-4111-8111-111111111111';
 const OTHER = '22222222-2222-4222-8222-222222222222';
@@ -12,7 +13,7 @@ const OP = '33333333-3333-4333-8333-333333333333';
  * queue — a comment nobody would pick up.
  */
 describe('a user reply on resolved reopens the same ticket', () => {
-  async function resolvedTicket(svc = new SupportService()) {
+  async function resolvedTicket(svc = withTestCommentCap()) {
     const ticket = await svc.createTicket({
       userId: USER,
       category: 'account',
@@ -60,7 +61,7 @@ describe('a user reply on resolved reopens the same ticket', () => {
   });
 
   it('keeps the earlier comments — reopen is not a second ticket', async () => {
-    const svc = new SupportService();
+    const svc = withTestCommentCap();
     const ticket = await svc.createTicket({ userId: USER, category: 'account', subject: 'Cannot sign in', body: 'Details' });
     await svc.comment({ userId: USER, ticketId: ticket.id, body: 'More context before resolve.' });
     await svc.setStatus({ operatorId: OP, ticketId: ticket.id, status: 'resolved' });
@@ -81,7 +82,7 @@ describe('a user reply on resolved reopens the same ticket', () => {
 
 describe('a user cannot grow a closed ticket', () => {
   it('refuses the owner with a code, and stores no comment', async () => {
-    const svc = new SupportService();
+    const svc = withTestCommentCap();
     const ticket = await svc.createTicket({ userId: USER, category: 'other', subject: 'Q', body: 'B' });
     await svc.setStatus({ operatorId: OP, ticketId: ticket.id, status: 'closed' });
 
@@ -93,7 +94,7 @@ describe('a user cannot grow a closed ticket', () => {
   });
 
   it('still answers a stranger with not_found — terminal is not an existence leak', async () => {
-    const svc = new SupportService();
+    const svc = withTestCommentCap();
     const ticket = await svc.createTicket({ userId: USER, category: 'other', subject: 'Q', body: 'B' });
     await svc.setStatus({ operatorId: OP, ticketId: ticket.id, status: 'closed' });
 
@@ -107,7 +108,7 @@ describe('a user cannot grow a closed ticket', () => {
   });
 
   it('lets an operator annotate a closed ticket without reopening it', async () => {
-    const svc = new SupportService();
+    const svc = withTestCommentCap();
     const ticket = await svc.createTicket({ userId: USER, category: 'other', subject: 'Q', body: 'B' });
     await svc.setStatus({ operatorId: OP, ticketId: ticket.id, status: 'closed' });
     await expect(svc.comment({ userId: OP, ticketId: ticket.id, body: 'Filed for retention.', asOperator: true })).resolves.toMatchObject({

@@ -148,10 +148,37 @@ export const kbArticleVersions = schema.table(
     tags: jsonb('tags').$type<string[] | null>(),
     /** Who may read this generation: public, signed_in or staff. */
     audience: text('audience').notNull().default('public'),
+    /** Text typed in the desk (0032). All three null for a catalogue-keyed version. */
+    title: text('title'),
+    body: text('body'),
+    language: text('language'),
+    /** The section this generation is filed under (0032). */
+    sectionId: text('section_id'),
   },
   (t) => [primaryKey({ columns: [t.id, t.version] })],
 );
 export type KbArticleVersionRow = typeof kbArticleVersions.$inferSelect;
+
+/** Help library categories (0032). Created by support staff, never seeded; retired, never deleted. */
+export const kbCategories = schema.table('kb_categories', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  position: integer('position').notNull(),
+  retired: boolean('retired').notNull().default(false),
+  updatedBy: text('updated_by').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+});
+
+/** Sections under a category (0032). */
+export const kbSections = schema.table('kb_sections', {
+  id: text('id').primaryKey(),
+  categoryId: text('category_id').notNull(),
+  name: text('name').notNull(),
+  position: integer('position').notNull(),
+  retired: boolean('retired').notNull().default(false),
+  updatedBy: text('updated_by').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow(),
+});
 
 /** First result of an owner write, keyed by procedure + actor + client request. */
 export const writeReceipts = schema.table(
@@ -208,10 +235,39 @@ export const kbFeedback = schema.table(
     userId: text('user_id').notNull(),
     helpful: boolean('helpful').notNull(),
     clientRequestId: text('client_request_id').notNull(),
+    /** Set when the reader added a comment. Never required for a plain vote. */
+    comment: text('comment'),
+    /** The request opened from an unhelpful vote, when they asked for one. */
+    ticketId: uuid('ticket_id').references(() => tickets.id, { onDelete: 'restrict' }),
     createdAt: createdAt(),
   },
   (t) => [
     uniqueIndex('kb_feedback_user_article_version_idx').on(t.userId, t.articleId, t.version),
     uniqueIndex('kb_feedback_user_request_idx').on(t.userId, t.clientRequestId),
+    index('kb_feedback_reader_at_idx').on(t.userId, t.createdAt),
   ],
+);
+
+/**
+ * A search that found nothing. The query, a zero count and the time.
+ * No reader column: the log must not identify who searched.
+ */
+export const kbSearchMisses = schema.table('kb_search_misses', {
+  id: pk(),
+  query: text('query').notNull(),
+  resultCount: integer('result_count').notNull().default(0),
+  createdAt: createdAt(),
+});
+
+/** A click on a search result, keyed by the caller's request id. No reader column. */
+export const kbSearchClicks = schema.table(
+  'kb_search_clicks',
+  {
+    id: pk(),
+    query: text('query').notNull(),
+    articleId: text('article_id').notNull(),
+    clientRequestId: text('client_request_id').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('kb_search_clicks_request_uq').on(t.clientRequestId)],
 );

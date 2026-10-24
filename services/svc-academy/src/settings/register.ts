@@ -37,6 +37,9 @@ export interface SettingRow {
 /** The env subset the register reads. Every field optional: absent means blank. */
 export interface SettingsEnv {
   readonly ACADEMY_MAX_ROOM_CAPACITY?: number | undefined;
+  readonly ACADEMY_OUTLINE_MAX_SECTIONS?: number | undefined;
+  readonly ACADEMY_OUTLINE_MAX_ITEMS?: number | undefined;
+  readonly ACADEMY_LESSON_IMPORT_MAX_BYTES?: number | undefined;
   readonly ACADEMY_PAPER_MARKETS_LIMIT?: number | undefined;
   readonly TRADE_URL?: string | undefined;
   readonly ACADEMY_STREAM_PROVIDER?: 'none' | 'livekit' | undefined;
@@ -46,6 +49,8 @@ export interface SettingsEnv {
   readonly ACADEMY_VIDEO_S3_SECRET_KEY?: string | undefined;
   readonly ACADEMY_VIDEO_S3_REGION?: string | undefined;
   readonly ACADEMY_VIDEO_URL_TTL_SECONDS?: number | undefined;
+  readonly ACADEMY_VIDEO_WATCH_THRESHOLD_SECONDS?: number | undefined;
+  readonly ACADEMY_VIDEO_POSITION_SAVE_SECONDS?: number | undefined;
   readonly ACADEMY_CERT_VERIFY_RATE_MAX?: number | undefined;
   readonly ACADEMY_CERT_VERIFY_RATE_WINDOW_SECONDS?: number | undefined;
   readonly ACADEMY_AMBASSADOR_IFC_PAY_LAW_JSON?: string | undefined;
@@ -66,7 +71,6 @@ export const PENDING_OWNER_SETTINGS: readonly string[] = [
   'upload_size_limit',
   'upload_type_list',
   'lease_length',
-  'watch_threshold',
   'dwell_seconds',
   'expiry_duration',
   'nudge_timings',
@@ -74,8 +78,6 @@ export const PENDING_OWNER_SETTINGS: readonly string[] = [
   'custom_role_count',
   'mail_recipient_limit',
   'mail_digest_limit',
-  'section_limit',
-  'item_limit',
   'assistant_provider',
 ];
 
@@ -137,6 +139,21 @@ export function settingsRegister(env: SettingsEnv): readonly SettingRow[] {
       refusalCode: 'academy.video_url_ttl_unset',
     },
     {
+      key: 'watch_threshold',
+      state: state(positiveInt(env.ACADEMY_VIDEO_WATCH_THRESHOLD_SECONDS)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.watch_threshold_unset',
+    },
+    {
+      // Blank refuses nothing: the player saves on pause and on leaving only, and says so.
+      key: 'video_position_save',
+      state: state(positiveInt(env.ACADEMY_VIDEO_POSITION_SAVE_SECONDS)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: null,
+    },
+    {
       // Both halves or nothing: index.ts wires the limiter only when both are set.
       key: 'cert_verify_rate',
       state: state(positiveInt(env.ACADEMY_CERT_VERIFY_RATE_MAX) && positiveInt(env.ACADEMY_CERT_VERIFY_RATE_WINDOW_SECONDS)),
@@ -157,6 +174,27 @@ export function settingsRegister(env: SettingsEnv): readonly SettingRow[] {
       store: 'refuse_closed',
       readOnly: true,
       refusalCode: 'academy.ambassador_revenue_share.rates_unset',
+    },
+    {
+      key: 'section_limit',
+      state: state(positiveInt(env.ACADEMY_OUTLINE_MAX_SECTIONS)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.outline_limits_unset',
+    },
+    {
+      key: 'item_limit',
+      state: state(positiveInt(env.ACADEMY_OUTLINE_MAX_ITEMS)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.outline_limits_unset',
+    },
+    {
+      key: 'lesson_import_size_limit',
+      state: state(positiveInt(env.ACADEMY_LESSON_IMPORT_MAX_BYTES)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.import_limit_unset',
     },
     {
       // No store and no recipe: always not set, always refuse-closed.

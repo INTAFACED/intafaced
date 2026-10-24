@@ -12,9 +12,11 @@
  *   Postgres 16 (own data dir) · NATS JetStream · svc-ledger · svc-identity ·
  *   svc-matching · svc-trade · svc-pay · svc-bank · the services behind the Customer's
  *   More door, Notifications and P2P (svc-token, -p2p, -academy, -support, -market,
- *   -notify, -agents, -blueprint, -quant, -execution, -tax) · svc-edge · a small Customer
- *   static server + reverse proxy on http://127.0.0.1:3210 · the founder console (apps/admin,
- *   a production Next build) on http://127.0.0.1:3100
+ *   -notify, -agents, -blueprint, -quant, -execution, -tax) · svc-ops (the outreach intake and CRM) ·
+ *   svc-protocol (the Web3 rooms' read side; no chain node) ·
+ *   svc-edge · a small Customer static server + reverse proxy on http://127.0.0.1:3210 · the same
+ *   for the public invitation site (apps/invitation) on http://127.0.0.1:3220 · the founder console
+ *   (apps/admin, a production Next build) on http://127.0.0.1:3100
  *
  *   pnpm local:stack plan                 print services, ports and Edge wiring; changes nothing
  *   pnpm local:stack --only a,b           start only the named services (plus Postgres/NATS)
@@ -42,7 +44,28 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { marketStatus } from './local-test-market.mjs';
-import { profileEnvFor } from './owner-settings.mjs';
+import { serveVideoStore } from './local-video-store.mjs';
+import academy from './local-stack-services/academy.mjs';
+import agents from './local-stack-services/agents.mjs';
+import bank from './local-stack-services/bank.mjs';
+import blueprint from './local-stack-services/blueprint.mjs';
+import edge from './local-stack-services/edge.mjs';
+import execution from './local-stack-services/execution.mjs';
+import identity from './local-stack-services/identity.mjs';
+import ledger from './local-stack-services/ledger.mjs';
+import market from './local-stack-services/market.mjs';
+import matching from './local-stack-services/matching.mjs';
+import miningPool from './local-stack-services/mining-pool.mjs';
+import notify from './local-stack-services/notify.mjs';
+import ops from './local-stack-services/ops.mjs';
+import p2p from './local-stack-services/p2p.mjs';
+import pay from './local-stack-services/pay.mjs';
+import protocol from './local-stack-services/protocol.mjs';
+import quant from './local-stack-services/quant.mjs';
+import support from './local-stack-services/support.mjs';
+import tax from './local-stack-services/tax.mjs';
+import token from './local-stack-services/token.mjs';
+import trade from './local-stack-services/trade.mjs';
 import {
   FOUNDER_VAULT_NAME,
   enrolledFounderPair,
@@ -68,18 +91,6 @@ import {
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const REPO = path.resolve(path.dirname(SCRIPT), '..', '..');
-
-/** Named values from the labelled TEST profile (tooling/profiles/test-owner-values.json). A missing name fails the start. */
-function testProfileValues(names) {
-  const profile = JSON.parse(fs.readFileSync(path.join(REPO, 'tooling', 'profiles', 'test-owner-values.json'), 'utf8'));
-  return Object.fromEntries(
-    names.map((name) => {
-      const entry = profile.values[name];
-      if (!entry || typeof entry.value !== 'string') throw new Error(`the TEST profile has no value for ${name}`);
-      return [name, entry.value];
-    }),
-  );
-}
 const STATE = localStackState();
 const P = {
   marker: path.join(STATE, 'LOCAL-TEST-STACK.json'),
@@ -96,6 +107,7 @@ const P = {
   natsVerified: path.join(STATE, 'nats-verified.json'),
   buildStamp: path.join(STATE, 'build-stamp.json'),
   customerDist: path.join(REPO, 'apps', 'customer', 'dist'),
+  invitationDist: path.join(REPO, 'apps', 'invitation', 'dist'),
   customerDistFile: path.join(STATE, 'customer-dist.json'),
   admin: path.join(REPO, 'apps', 'admin'),
   adminBuildId: path.join(REPO, 'apps', 'admin', '.next', 'BUILD_ID'),
@@ -125,7 +137,14 @@ const PORTS = {
   execution: 14516,
   tax: 14517,
   'mining-pool': 14518,
+  // The outreach intake behind the invitation site, and the founders' CRM.
+  ops: 14519,
+  // The Web3 rooms' read side (no chain node on this stack).
+  protocol: 14520,
+  // LOCAL TEST stand-in for the object store Academy signs video URLs for (local-video-store.mjs).
+  'video-store': 14521,
   customer: 3210,
+  invitation: 3220,
   admin: 3100,
 };
 const HOST = '127.0.0.1';
@@ -134,6 +153,7 @@ const CUSTOMER_ORIGIN = `http://${HOST}:${PORTS.customer}`;
 // server is also reachable as localhost. Passkeys: open this one. Everything else works on either.
 const CUSTOMER_LOCALHOST_ORIGIN = `http://localhost:${PORTS.customer}`;
 const ADMIN_ORIGIN = `http://${HOST}:${PORTS.admin}`;
+const INVITATION_ORIGIN = `http://${HOST}:${PORTS.invitation}`;
 const DB_NAME = 'intafaced_local_test';
 const DB_ADMIN = 'local_test_admin';
 // One Postgres schema + one login role (svc_<schema>) per service that owns tables.
@@ -153,7 +173,10 @@ const SCHEMAS = [
   'market',
   'blueprint',
   'quant',
+  'tax',
   'mining_pool',
+  'ops',
+  'protocol',
 ];
 // A schema whose service is named differently (svc-mining-pool owns schema mining_pool).
 const SCHEMA_SERVICE = { mining_pool: 'mining-pool' };
@@ -246,6 +269,8 @@ const SECRET_NAMES = [
   'payCardWebhook',
   'identityTotp', // identity's TOTP sealing key; lets the labelled local test operators enrol a second factor
   'identityFlowSubject', // identity's key for sign-up and recovery flows (address identifier and code hash)
+  'notifyStatusLink', // notify's key for the signed links in status subscription mail
+  'academyVideoStore', // the TEST video store's signing key, shared with academy (local-video-store.mjs)
 ];
 
 function loadOrCreateSecrets() {
@@ -542,6 +567,8 @@ const BACKEND_PKGS = [
   'svc-execution',
   'svc-tax',
   'svc-mining-pool',
+  'svc-ops',
+  'svc-protocol',
 ];
 
 function gitHead() {
@@ -705,6 +732,20 @@ function ensureAdminBuilt(rebuild) {
   writePrivate(P.buildStamp, JSON.stringify({ ...now, adminHead: head }, null, 2));
 }
 
+const INVITATION_SOURCE_PATHS = ['apps/invitation', 'packages', 'pnpm-lock.yaml'];
+
+/** The invitation site is rebuilt when its own source, a package or the lockfile changed since its last build, or on --rebuild. */
+function ensureInvitationBuilt(rebuild) {
+  const head = gitHead();
+  const stamp = fs.existsSync(P.buildStamp) ? readJson(P.buildStamp) : {};
+  const built = fs.existsSync(path.join(P.invitationDist, 'index.html'));
+  if (!rebuild && built && sourceUnchangedSince(stamp.invitationHead, head, INVITATION_SOURCE_PATHS)) return;
+  say('  build: invitation site (apps/invitation)…');
+  runPnpm(['--filter', '@intafaced/invitation...', 'build'], 'build-invitation');
+  const now = fs.existsSync(P.buildStamp) ? readJson(P.buildStamp) : {};
+  writePrivate(P.buildStamp, JSON.stringify({ ...now, invitationHead: head }, null, 2));
+}
+
 function ensureBuilt(rebuild) {
   const act = activeCustomerDist();
   if (act.error) fail(`customer folder override is unusable: ${act.error}\n  Fix it, or run: pnpm local:stack customer-dist --clear`);
@@ -810,471 +851,72 @@ const EDGE_UPSTREAMS = {
   QUANT_URL: 'quant',
   TAX_URL: 'tax',
   MINING_POOL_URL: 'mining-pool',
+  OPS_URL: 'ops',
+  PROTOCOL_URL: 'protocol',
 };
 
 /** Edge upstreams that are intentionally not started, each with the reason. The Customer app calls none of them except where noted. */
 const EDGE_ABSENT = {
-  PROTOCOL_URL: 'Protocol Plane (custody and chain); needs MPC custody and chain providers. The Customer app never calls it.',
-  DEX_URL: 'On-chain DEX; needs chain RPC. The Customer app never calls it.',
-  INDEXER_URL: 'Chain indexer; needs chain RPC. The Customer app never calls it.',
-  OPS_URL: 'Back-office CRM and analytics for operators; not a customer door.',
+  DEX_URL: 'On-chain DEX; needs chain RPC. The Web3 rooms show it as a service that did not answer.',
+  INDEXER_URL: 'Chain indexer; needs chain RPC. The Web3 rooms show it as a service that did not answer.',
   CONNECT_URL: 'Operator data-lake door; not a customer door.',
 };
 
+/**
+ * The services the stack starts, in start order. Each service's env lives in its own file,
+ * tooling/scripts/local-stack-services/<name>.mjs, so a slice changes only its service's file.
+ * Every file gets the same wiring helpers below; a new service adds its file and one line here.
+ */
+const SERVICES = [
+  ledger,
+  identity,
+  matching,
+  trade,
+  pay,
+  bank,
+  // ── Services behind the Customer's More door, Notifications, P2P and Trade tools ──
+  // Same wiring as above: commonEnv() (edge principal, internal service secret, screening
+  // pass-through), own schema + role, loopback only. Anything that needs a real outside
+  // provider is left unconnected on purpose; each limit is listed in docs/LOCAL-TEST-STACK.md.
+  token,
+  p2p,
+  academy,
+  support,
+  ops,
+  market,
+  notify,
+  agents,
+  blueprint,
+  quant,
+  execution,
+  tax,
+  miningPool,
+  protocol,
+  edge,
+];
+
 function serviceDefs(secrets) {
-  const c = (name, port) => commonEnv(secrets, name, port);
-  return [
-    {
-      name: 'ledger',
-      env: () => ({
-        ...c('svc-ledger', PORTS.ledger),
-        DATABASE_URL: dbUrl('svc_ledger', secrets),
-        LEDGER_POSTING_ENABLED: 'true',
-        // Required, no default. LOCAL TEST value chosen for this stack only, not an owner decision.
-        RECONCILE_CRON_MINUTES: '60',
-        // Asset registry edits consume a founder approval from identity; without it they refuse identity_unwired.
-        IDENTITY_URL: urlOf('identity'),
-      }),
-    },
-    {
-      name: 'identity',
-      env: () => ({
-        ...c('svc-identity', PORTS.identity),
-        DATABASE_URL: dbUrl('svc_identity', secrets),
-        LEDGER_URL: urlOf('ledger'),
-        REGISTRATION_OPEN: 'true',
-        // LOCAL TEST ONLY: passkeys on. Relying-party ID must be a hostname, so use localhost and open
-        // http://localhost:3210 for passkeys. Not the production relying party.
-        WEBAUTHN_ENABLED: 'true',
-        WEBAUTHN_RP_ID: 'localhost',
-        WEBAUTHN_RP_NAME: 'INTAFACED (LOCAL TEST)',
-        WEBAUTHN_ORIGIN: CUSTOMER_LOCALHOST_ORIGIN,
-        IDENTITY_TRADE_ADMISSION_SECRET: secrets.tradeAdmission,
-        IDENTITY_PAY_ADMISSION_SECRET: secrets.payAdmission,
-        // Owner pay-scope grant. Identity asks pay at login. Unset leaves sessions without pay:*.
-        PAY_URL: urlOf('pay'),
-        // Edge reads each caller's current account authority with this key; without it
-        // Edge refuses every signed-in token as 'invalid' and forwards anonymously.
-        IDENTITY_EDGE_AUTHORITY_SECRET: secrets.edgeAuthority,
-        // LOCAL TEST ONLY (Nitro, option B, 2026-10-13). Required, no default, owner-unpublished: how long a
-        // two-person action approval lives. 600 s is a local test value, not an owner decision. The labelled
-        // local test operators (tooling/scripts/local-test-gates.mjs) use it to open markets and verify
-        // test accounts; "LOCAL TEST — not a real approval".
-        IDENTITY_ACTION_APPROVAL_TTL_SECONDS: '600',
-        // LOCAL TEST ONLY. The identity service refuses email confirmation until a mail
-        // transport, a lifetime, and a rate budget are published. local-outbox is refused
-        // at boot unless APP_ENV is exactly dev or test. These numbers are for this stack,
-        // not an owner decision. The confirm link is written to the outbox file, labelled
-        // LOCAL-TEST, and the merchant populate step reads it back through auth.confirmEmail.
-        IDENTITY_MAIL_TRANSPORT: 'local-outbox',
-        IDENTITY_LOCAL_MAIL_OUTBOX: path.join(STATE, 'email-outbox.log'),
-        IDENTITY_EMAIL_CONFIRM_TTL_SECONDS: '600',
-        IDENTITY_EMAIL_CONFIRM_RATE_MAX: '5',
-        IDENTITY_EMAIL_CONFIRM_RATE_WINDOW_SECONDS: '3600',
-        // LOCAL TEST ONLY. Sign-up refuses until the owner publishes its numbers (I-signin-sessions-18,
-        // I-kyc-compliance-06). These are for this stack, not owner decisions: a code lives 10 minutes, five wrong
-        // codes lock it, a new code after 30 seconds, ten sign-ups per address an hour. AQ is closed so the
-        // journey can show the per-country switch refusing; it says nothing about any real country.
-        IDENTITY_FLOW_SUBJECT_KEY: secrets.identityFlowSubject,
-        IDENTITY_SIGNUP_MIN_AGE_YEARS: '18',
-        IDENTITY_SIGNUP_CODE_TTL_SECONDS: '600',
-        IDENTITY_SIGNUP_CODE_MAX_ATTEMPTS: '5',
-        IDENTITY_SIGNUP_RESEND_SECONDS: '30',
-        IDENTITY_SIGNUP_REQUEST_MAX: '10',
-        IDENTITY_SIGNUP_REQUEST_WINDOW_SECONDS: '3600',
-        IDENTITY_SIGNUP_CLOSED_COUNTRIES: 'AQ',
-        // Sealing key for operator second factors (TOTP). Generated per machine in secrets.json.
-        IDENTITY_TOTP_SECRET_KEY: secrets.identityTotp,
-        // LOCAL TEST, not the lead's grant (which founder holds which scope is the lead's call for a real stack). The
-        // operator reads the founder console makes: svc-bank's desks (admin:read), svc-p2p's
-        // operator lists (admin:compliance) and svc-market's vendor desk (market:ops), plus the operator desk's write
-        // scope (admin:write) for svc-trade's copy leader listing, which the copy journeys need to list a TEST leader.
-        // Identity adds them only to a founder's own signed-in session with a second factor, never to an API key or a
-        // sub-account. admin:write is the operator desk's whole write scope, so on this stack it also opens the other
-        // operator write doors (svc-identity's payout and accrual, svc-trade's insurance top-up and mass cancel), on
-        // TEST funds only. support:ops, admin:treasury, trade:withdraw and pay:* stay off.
-        IDENTITY_FOUNDER_SESSION_SCOPES: 'admin:read,admin:write,admin:compliance,market:ops',
-        // Sub-account cap: an explicit LOCAL TEST value, not an owner limit (the owner has not published one; blank
-        // refuses every create with auth.sub_account_cap_unset). 10 live sub-accounts per account on this stack only.
-        IDENTITY_MAX_SUB_ACCOUNTS: '10',
-        // The closure checks a close runs first (customer closure and the console's staff close): svc-bank, svc-trade and
-        // svc-p2p answer for their own open products and balances, signed with this stack's shared service secret.
-        IDENTITY_CLOSURE_BANK_URL: urlOf('bank'),
-        IDENTITY_CLOSURE_TRADE_URL: urlOf('trade'),
-        IDENTITY_CLOSURE_P2P_URL: urlOf('p2p'),
-        // LOCAL TEST account tiers (J-ops-console-04 #11), labelled TEST, never an owner decision: the owner has published no
-        // tiers (blank refuses every move with identity.account_tiers_unset). TEST Premier leaves its monthly fee blank on
-        // purpose, so the console shows a tier that cannot be assigned (identity.tier_terms_unset).
-        // One copy: the labelled TEST value in tooling/profiles/test-owner-values.json.
-        IDENTITY_ACCOUNT_TIERS: readJson(path.join(REPO, 'tooling', 'profiles', 'test-owner-values.json')).values.IDENTITY_ACCOUNT_TIERS
-          .value,
-        // LOCAL TEST founder pair only: local_test_founder_a / local_test_founder_b from
-        // <state>/founders.json. Absent until that vault exists. Never the Docker vault.
-        ...identityFounderEnv(),
-      }),
-    },
-    {
-      name: 'matching',
-      env: () => ({
-        ...c('svc-matching', PORTS.matching),
-        MATCHING_ENGINE_ENABLED: 'true',
-        MATCHING_SNAPSHOT_EVERY: '0', // required, owner-unpublished; 0 = snapshotting off (no magnitude invented)
-        MATCHING_JOURNAL_PATH: path.join(P.data, 'matching', 'engine_journal.ndjson'),
-        // Opening a market needs a two-person approval that matching consumes from identity
-        // (services/svc-matching/src/action-approval-consume.ts). Without this it refuses by name.
-        IDENTITY_URL: urlOf('identity'),
-        // Matching reads order:<id> holds read-only from the ledger at boot; without it a journal with resting orders boots closed (matching.hold_check_unwired).
-        LEDGER_URL: urlOf('ledger'),
-        // Opening a market also requires BOTH the proposer and the approver to be on this list (security fix #4742;
-        // unset, nobody can open a market). LOCAL TEST: the two labelled operators of local-test-gates.mjs, read
-        // from operators.json. They exist only after `local-test-gates.mjs operators`, so the first time restart
-        // matching afterwards (pnpm local:stack:restart matching). Harmless before #4742 merges.
-        // svc-matching refuses to boot with fewer than two operator ids, so a fresh state boots on two placeholder
-        // ids that match no account; `local-test-gates.mjs operators` then restart matching swaps in the real two.
-        MATCHING_OPERATOR_IDS: localOperatorIds() || PLACEHOLDER_OPERATOR_IDS,
-      }),
-    },
-    {
-      name: 'trade',
-      env: () => ({
-        ...c('svc-trade', PORTS.trade),
-        DATABASE_URL: dbUrl('svc_trade', secrets),
-        LEDGER_URL: urlOf('ledger'),
-        IDENTITY_URL: urlOf('identity'),
-        MATCHING_URL: urlOf('matching'),
-        TOKEN_URL: urlOf('token'), // OTC stake tiers; picked up the next time trade restarts
-        IDENTITY_ADMISSION_SECRET: secrets.tradeAdmission,
-        // LOCAL TEST owner risk limits, not owner decisions: the stack stands in for the owner
-        // under Nitro's 2026-10-13 option B. pretrade-credit.ts only requires them to be published
-        // integers; it does not compare orders against them. Test funds only.
-        // LOCAL TEST tape history (local-test-market.mjs history): svc-trade's signed route that moves TEST tape fills
-        // into the past. svc-trade refuses to start with it outside APP_ENV dev/test (spot/local-test-tape.ts).
-        TRADE_LOCAL_TEST_TAPE_RETIME: 'on',
-        TRADE_MAX_ORDER: '1000000',
-        TRADE_MAX_POSITION: '5000000',
-        TRADE_MAX_LOSS: '100000',
-        // LOCAL TEST, not an owner decision (option B, 2026-10-13): realistic retail-exchange commercial values.
-        // Market buys are funded at bestAsk x (1 + cap) and refuse trade.slippage_cap_unset without it
-        // (services/svc-trade/src/env.ts TRADE_MARKET_SLIPPAGE_CAP_BPS): 50 bps.
-        TRADE_MARKET_SLIPPAGE_CAP_BPS: '50',
-        // House edge on Convert quotes; convert.quote refuses trade.convert_spread_unset without it: 20 bps.
-        TRADE_CONVERT_SPREAD_BPS: '20',
-        // How long a firm Convert quote binds; refuses trade.convert_quote_ttl_unset without it: 15 s.
-        TRADE_CONVERT_QUOTE_TTL_MS: '15000',
-        // LOCAL TEST, not an owner decision (option B, 2026-10-13): the dead-man switch (cancel-all-after) timeouts, in
-        // seconds, as retail exchanges publish them (OKX accepts 10 to 120). Without them arming refuses
-        // trade.cancel_all_after_unset. The sweep runs every second here so a journey does not wait on the 5 s default.
-        TRADE_CANCEL_ALL_AFTER_TIMEOUTS_SEC: '10,30,60,120',
-        TRADE_CANCEL_ALL_AFTER_SWEEP_INTERVAL_MS: '1000',
-        // LOCAL TEST, not an owner decision (option B, 2026-10-13). Fee schedule reference: OKX's public
-        // regular-user spot tier, maker 8 bps, taker 10 bps, no maker rebate (makerRebateBps omitted).
-        // Without it trade refuses every order with 400 trade.fee_schedule_blank
-        // (services/svc-trade/src/spot/fee-schedule.ts, trade-service.ts assertOwnerFeeSchedulePublished).
-        // The perpetual block is LOCAL TEST too: the regular-tier perpetual rates OKX is widely reported to publish,
-        // maker 2 bps and taker 5 bps (not checked against its own page). Futures orders keep these rates; without the
-        // block they refuse trade.fee_product_unpublished (svc-trade futures/matched-order-plan.ts perpetualFeeRates).
-        TRADE_FEE_SCHEDULE: JSON.stringify({
-          published: true,
-          version: 'local-test:okx-regular-spot-reference',
-          makerBps: '8',
-          takerBps: '10',
-          perpetual: { makerBps: '2', takerBps: '5' },
-        }),
-        // LOCAL TEST futures, not owner decisions (option B, 2026-10-13), for the derivatives journeys. The one listing is
-        // the labelled TEST perpetual `local-test-gates.mjs futures` lists (`test = true`, shown only with TRADE_FUTURES_TEST_SEED).
-        // Opens refuse trade.futures_unconfigured without a profit source, and liquidation prices stay unknown without
-        // the ladder. The ladder is the coarse mechanism-test table (ladder-policy.test-harness.ts), not a risk opinion.
-        TRADE_FUTURES_ENABLED: 'true',
-        TRADE_FUTURES_TEST_SEED: 'true',
-        TRADE_FUTURES_JOBS_ENABLED: 'true',
-        TRADE_FUTURES_PROFIT_SOURCE: 'house:futures-loss:available',
-        TRADE_FUTURES_LADDER_POLICY: JSON.stringify(TEST_FUTURES_LADDER_POLICY),
-        // The code's own ceiling (DIRECTION §1); the TEST listing caps itself lower. Markets show orderable only with it.
-        TRADE_FUTURES_MAX_LEVERAGE: '10',
-        // Futures orders through the one book (futures ADR 2026-10-20): no open at mark. The TEST perpetual is marked
-        // from the TEST spot book it names, so its own empty book can take a first order; the band is a LOCAL TEST 5%.
-        TRADE_FUTURES_MATCHING_ENABLED: 'true',
-        TRADE_FUTURES_PRICE_BAND: '0.05',
-        // LOCAL TEST collateral haircut, not an owner decision: 0 bps on cash in the settle asset, as large venues are widely
-        // reported to count USDT margin in full. Without it every futures open refuses trade.haircut_unset.
-        TRADE_COLLATERAL_HAIRCUT_BPS: '0',
-        TRADE_FUTURES_INDEX_SPOT_MARKETS: 'BTC/USDT:USDT=BTC/USDT',
-        // LOCAL TEST, not owner decisions: copy trading's leader fee share, country list, risk disclosure and lead-page
-        // metric definitions, read from the labelled TEST profile so the copy journeys run on TEST money. Each one
-        // blank refuses by name (services/svc-trade/src/env.ts); production stays blank until the owner sets it.
-        ...testProfileValues([
-          'TRADE_COPY_FEE_SHARE_LAW',
-          'TRADE_COPY_JURISDICTION_LAW',
-          'TRADE_COPY_DISCLOSURE_LAW',
-          'TRADE_COPY_METRIC_DEFINITIONS',
-        ]),
-      }),
-    },
-    {
-      name: 'pay',
-      env: () => ({
-        ...c('svc-pay', PORTS.pay),
-        DATABASE_URL: dbUrl('svc_pay', secrets),
-        LEDGER_URL: urlOf('ledger'),
-        IDENTITY_URL: urlOf('identity'),
-        IDENTITY_ADMISSION_SECRET: secrets.payAdmission,
-        PAY_CRYPTO_WEBHOOK_SECRET: secrets.payCryptoWebhook,
-        PAY_CARD_SANDBOX_WEBHOOK_SECRET: secrets.payCardWebhook,
-        PAY_CRYPTO_WATCHER_ENABLED: 'false', // no chain RPC in the local stack
-        PAY_ALLOW_SANDBOX_RAILS: 'false',
-        // Required, no default. LOCAL TEST values copied from .env.example.
-        PAY_OPERATOR_CREDIT_RAILS: 'card-sandbox',
-        PAY_MIN_CONFIRMATIONS: '6',
-        PAY_WEBHOOK_TOLERANCE_SECONDS: '300',
-        PAY_CHECKOUT_SESSION_TTL_SECONDS: '900',
-        PAY_CHECKOUT_MAX_OPEN_SESSIONS: '25',
-        PAY_LINK_DEFAULT_TTL_DAYS: '30',
-        PAY_LINK_MAX_TTL_DAYS: '365',
-        // LOCAL-TEST value, not INTAFACED pricing. 250 bps is a labelled stand-in so the local portal can show a fee. The product stays unset wherever this variable is absent.
-        PAY_MERCHANT_STARTER_FEE_BPS: '250',
-      }),
-    },
-    {
-      name: 'bank',
-      env: () => ({
-        ...c('svc-bank', PORTS.bank),
-        DATABASE_URL: dbUrl('svc_bank', secrets),
-        LEDGER_URL: urlOf('ledger'),
-        IDENTITY_URL: urlOf('identity'),
-        TRADE_URL: urlOf('trade'),
-        // Required, no default (owner-unpublished). Inert LOCAL TEST placeholders so the service can
-        // boot: the jobs they size are all switched off below, so no batch size is ever exercised.
-        LOAN_QUOTE_ASSET_ID: 'USDT',
-        TRANSFER_BATCH_SIZE: '1',
-        LOAN_SWEEP_BATCH_SIZE: '1',
-        // LOCAL TEST, not owner decisions (BK-acct-01, BK-acct-03, BK-pots-01): blank refuses each by name, so the
-        // J-bank-01 journey can read labelled TEST account terms, add and remove a currency, make spaces up to a TEST
-        // limit and see the account details per currency switched off with rail.bank (no banking partner here).
-        BANK_ACCOUNT_TERMS_JSON: JSON.stringify({
-          tier: 'TEST base tier',
-          version: 'local-test-1',
-          currency: 'USDT',
-          monthlyFee: '0',
-          minimumBalance: '0',
-          overdraftFee: null,
-          included: ['TEST spaces for your goals', 'TEST moves between your spaces'],
-        }),
-        BANK_ACCOUNT_CURRENCIES: 'USDT,USDC,BTC,ETH',
-        BANK_SPACE_LIMIT: '5',
-        BANK_ACCOUNT_DETAILS_CURRENCIES: 'EUR,GBP,USD',
-        // LOCAL TEST values, not owner decisions: how many withdrawal addresses one person may save, and how long a
-        // new one waits before money may leave to it. Unset, the address book refuses saves and lists every row as
-        // blocked (bank.offramp_cooling_unset).
-        // LOCAL TEST card simulator (no issuer, no network): cards can be issued, frozen and closed, so the console's
-        // account close (J-ops-console-04 #7) can be proved against an account that holds a card. Never a live issuer.
-        BANK_CARD_ISSUER: 'card-sim',
-        BANK_ADDRESS_BOOK_CAP: '10',
-        BANK_OFFRAMP_COOLING_HOURS: '24',
-        // LOCAL TEST values: how long a wallet ownership proof stays open to sign, and how long a verified one holds.
-        BANK_WALLET_PROOF_WINDOW_MINUTES: '30',
-        BANK_WALLET_PROOF_VALID_DAYS: '180',
-        // Nothing moves money in the background of a test stack.
-        SCHEDULED_TRANSFERS_ENABLED: 'false',
-        AUTO_INVEST_ENABLED: 'false',
-        INTEREST_ACCRUAL_ENABLED: 'false',
-        LOAN_ACCRUAL_ENABLED: 'false',
-        LOAN_RISK_SWEEP_ENABLED: 'false',
-      }),
-    },
-    // ── Services behind the Customer's More door, Notifications, P2P and Trade tools ──
-    // Same wiring as above: commonEnv() (edge principal, internal service secret, screening
-    // pass-through), own schema + role, loopback only. Anything that needs a real outside
-    // provider is left unconnected on purpose; each limit is listed in docs/LOCAL-TEST-STACK.md.
-    {
-      name: 'token',
-      env: () => ({
-        ...c('svc-token', PORTS.token),
-        DATABASE_URL: dbUrl('svc_token', secrets),
-        LEDGER_URL: urlOf('ledger'),
-        IDENTITY_URL: urlOf('identity'),
-        TRADE_URL: urlOf('trade'),
-        // Nothing mints, distributes or buys back in the background of a test stack.
-        EMISSIONS_AUTO_TICK: 'false',
-        YIELD_JOB_ENABLED: 'false',
-        BUYBACK_JOB_ENABLED: 'false',
-      }),
-    },
-    {
-      name: 'p2p',
-      env: () => ({
-        ...c('svc-p2p', PORTS.p2p),
-        DATABASE_URL: dbUrl('svc_p2p', secrets),
-        LEDGER_URL: urlOf('ledger'),
-        IDENTITY_URL: urlOf('identity'),
-        // Offer caps stay unset (owner-unpublished). P2P_FEE_BPS=0 is an explicit LOCAL TEST free cut:
-        // parseOwnerIntegerEnv accepts 0, and trades.take posts a 0 bps cut instead of refusing fee_bps_unset.
-        // The clocks below have no default and the service will not boot without them; they are LOCAL TEST
-        // values (the figures the service's own messages name), not owner decisions.
-        // LOCAL_TEST_KMS is this service only. The key file is written under the stack state dir on first boot.
-        LOCAL_TEST_KMS: '1',
-        LOCAL_TEST_KMS_DIR: path.join(STATE, 'p2p-kms'),
-        P2P_FEE_BPS: '0',
-        P2P_ESCROW_DEADLINE_SECONDS: '120',
-        P2P_PAYMENT_DEADLINE_SECONDS: '900',
-        P2P_RELEASE_DEADLINE_SECONDS: '1800',
-        P2P_DISPUTE_SLA_SECONDS: '604800',
-        P2P_DISPUTE_ESCALATION_RECHECK_SECONDS: '3600',
-        P2P_SWEEP_INTERVAL_SECONDS: '30',
-        P2P_INSTRUMENT_RETENTION_DAYS: '90',
-      }),
-    },
-    {
-      name: 'academy',
-      env: () => ({
-        ...c('svc-academy', PORTS.academy),
-        DATABASE_URL: dbUrl('svc_academy', secrets),
-        TOKEN_URL: urlOf('token'),
-        IDENTITY_URL: urlOf('identity'),
-        TRADE_URL: urlOf('trade'),
-        ACADEMY_STREAM_PROVIDER: 'none', // no LiveKit / video storage: live classes and video stay unconnected
-      }),
-    },
-    {
-      name: 'support',
-      env: () => ({
-        ...c('svc-support', PORTS.support),
-        DATABASE_URL: dbUrl('svc_support', secrets),
-        IDENTITY_URL: urlOf('identity'),
-      }),
-    },
-    {
-      name: 'market',
-      env: () => ({
-        ...c('svc-market', PORTS.market),
-        DATABASE_URL: dbUrl('svc_market', secrets),
-        TOKEN_URL: urlOf('token'),
-        LEDGER_URL: urlOf('ledger'),
-        IDENTITY_URL: urlOf('identity'),
-        // MARKET_HOUSE_COMMISSION_BPS is owner-unpublished: left unset.
-      }),
-    },
-    {
-      name: 'notify',
-      env: () => ({
-        ...c('svc-notify', PORTS.notify),
-        DATABASE_URL: dbUrl('svc_notify', secrets),
-        // Publishing a notice spends a four-eyes approval held by identity; without it every publish refuses.
-        IDENTITY_URL: urlOf('identity'),
-        TRADE_URL: urlOf('trade'),
-        MATCHING_URL: urlOf('matching'),
-        // In-app inbox only. No email, push or SMS gateway exists locally, so those channels refuse honestly.
-        NOTIFY_REQUIRED_CHANNELS: 'none',
-        // Required, no default. LOCAL TEST values: attempts only matter for out-of-app delivery (none here);
-        // the verification-code lifetime is the .env.example value.
-        NOTIFY_MAX_DELIVERY_ATTEMPTS: '3',
-        NOTIFY_VERIFY_TTL_MINUTES: '15',
-        // LOCAL TEST only: how many price alerts one person may hold. Production has no value until the owner sets one,
-        // and every create is refused (notify.alert_quota_unset) until then.
-        NOTIFY_ALERT_MAX_ACTIVE_PRICE: '20',
-        // LOCAL TEST only: the inbox page size and the unread badge cap. Production has neither until the owner sets them,
-        // and the inbox refuses (notify.list_limit_unset, notify.unread_cap_unset) until then.
-        NOTIFY_INBOX_PAGE_SIZE: '20',
-        NOTIFY_INBOX_UNREAD_CAP: '99',
-      }),
-    },
-    {
-      name: 'agents',
-      env: () => ({
-        ...c('svc-agents', PORTS.agents),
-        DATABASE_URL: dbUrl('svc_agents', secrets),
-        LEDGER_URL: urlOf('ledger'),
-        IDENTITY_URL: urlOf('identity'),
-        ACADEMY_URL: urlOf('academy'),
-        SUPPORT_URL: urlOf('support'),
-        TRADE_URL: urlOf('trade'),
-        PAY_URL: urlOf('pay'),
-        // Required, no default (owner-unpublished). Inert LOCAL TEST placeholders: metering is off,
-        // so no usage fee is ever charged.
-        AGENTS_FEE_ASSET_ID: 'USDT',
-        AGENTS_USAGE_WINDOW_MINUTES: '60',
-        AGENTS_METERING_ENABLED: 'false',
-        // No model provider is connected: "upstream" pointed at a closed loopback port, so every
-        // model call fails with a connection error instead of returning invented text. The service's
-        // built-in "mock" provider is deliberately not used.
-        AGENTS_PROVIDER: 'upstream',
-        AGENTS_UPSTREAM_BASE_URL: UNUSED,
-        AGENTS_UPSTREAM_API_KEY: 'not-connected-local-test',
-      }),
-    },
-    {
-      name: 'blueprint',
-      env: () => ({
-        ...c('svc-blueprint', PORTS.blueprint),
-        DATABASE_URL: dbUrl('svc_blueprint', secrets),
-        // The neural engine is an outside provider. "http" at a closed loopback port means the engine
-        // is unreachable and requests fail; the stub engine ("mock") is deliberately not used.
-        BLUEPRINT_ENGINE_MODE: 'http',
-        BLUEPRINT_ENGINE_URL: UNUSED,
-      }),
-    },
-    {
-      name: 'quant',
-      // The strategy library, run records and disclosures live in its own schema; no data lake or venue vault is connected.
-      // Bar backtests read this stack's own TEST candles and published fee schedule from trade's public routes.
-      // The out-of-sample criteria and the holdout are the TEST profile's labelled values (tooling/profiles/test-owner-values.json).
-      env: () => ({
-        ...c('svc-quant', PORTS.quant),
-        DATABASE_URL: dbUrl('svc_quant', secrets),
-        TRADE_URL: urlOf('trade'),
-        ...profileEnvFor('quant', 'dev'),
-      }),
-    },
-    {
-      name: 'execution',
-      env: () => ({
-        ...c('svc-execution', PORTS.execution),
-        TRADE_URL: urlOf('trade'),
-        MATCHING_URL: urlOf('matching'),
-        EXECUTION_EMS_STORE_PATH: path.join(P.data, 'execution', 'ems-orders.ndjson'),
-        // EXECUTION_VENUE_IDS empty: no outside venue, so nothing can route off-platform.
-      }),
-    },
-    {
-      // Profit and loss reads api.query('tax','lotBook'); the lot book is the caller's own fills over ledger reads.
-      // TAX_JURISDICTION_MAP_JSON stays blank (owner config): the year pack refuses by name, lotBook is not gated by it.
-      // TRADE_URL: svc-trade's public candles price a deposit or reward when it arrived. TAX_DEPOSIT_BASIS is LOCAL TEST
-      // `customer` (tooling/profiles/test-owner-values.json): an arrival's cost stays unknown until the customer enters one.
-      name: 'tax',
-      env: () => ({ ...c('svc-tax', PORTS.tax), LEDGER_URL: urlOf('ledger'), TRADE_URL: urlOf('trade'), TAX_DEPOSIT_BASIS: 'customer' }),
-    },
-    {
-      // Share ingest and reads over its own schema. The pool fee and the PPLNS window are the owner's blank settings and
-      // stay unset (the service refuses by name), and MINING_PAYOUT_INTERVAL_MS stays unset, so no epoch job pays anything.
-      name: 'mining-pool',
-      entry: 'server.js', // dist/index.js only re-exports; server.js listens
-      env: () => ({
-        ...c('svc-mining-pool', PORTS['mining-pool']),
-        DATABASE_URL: dbUrl('svc_mining_pool', secrets),
-        LEDGER_URL: urlOf('ledger'),
-      }),
-    },
-    {
-      name: 'edge',
-      env: () => {
-        const env = {
-          ...c('svc-edge', PORTS.edge),
-          IDENTITY_OWNERSHIP_SECRET: secrets.edgeAuthority,
-          EDGE_ALLOWED_ORIGINS: `${CUSTOMER_ORIGIN},${CUSTOMER_LOCALHOST_ORIGIN}`,
-          EDGE_RATE_LIMIT_ENABLED: 'true',
-          // Required, no default. LOCAL TEST values (generous: the UI polls).
-          EDGE_RATE_LIMIT_MAX: '1200',
-          EDGE_RATE_LIMIT_WINDOW_MS: '60000',
-          EDGE_BODY_LIMIT_BYTES: '1048576',
-          EDGE_KILL_STATE_PATH: path.join(P.data, 'edge-kill-state.json'),
-        };
-        for (const [k, service] of Object.entries(EDGE_UPSTREAMS)) env[k] = urlOf(service);
-        for (const k of Object.keys(EDGE_ABSENT)) env[k] = UNUSED; // nothing listens; answers 502 by design
-        // Screening: pass through ONLY what is already in the caller's environment.
-        // Never set, default or invent a sanctions list.
-        return env;
-      },
-    },
-  ];
+  const ctx = {
+    c: (name, port) => commonEnv(secrets, name, port),
+    secrets,
+    dbUrl,
+    urlOf,
+    PORTS,
+    STATE,
+    P,
+    UNUSED,
+    CUSTOMER_ORIGIN,
+    CUSTOMER_LOCALHOST_ORIGIN,
+    INVITATION_ORIGIN,
+    identityFounderEnv,
+    opsOutreachEnv,
+    localOperatorIds,
+    PLACEHOLDER_OPERATOR_IDS,
+    TEST_FUTURES_LADDER_POLICY,
+    EDGE_UPSTREAMS,
+    EDGE_ABSENT,
+  };
+  return SERVICES.map((service) => service(ctx));
 }
 
 // Screening comes from the caller's environment, else from a file that exists only on
@@ -1366,6 +1008,28 @@ function identityFounderEnv() {
   return founderIdentityEnv(vault);
 }
 
+/**
+ * The outreach intake's configuration for this stack: the local test founder pair (absent until it is enrolled, so the
+ * intake refuses ops.crm.configuration_unverified until then) and LOCAL TEST review settings, never owner decisions.
+ */
+function opsOutreachEnv() {
+  const pinned = identityFounderEnv();
+  const founders = [pinned.IDENTITY_FOUNDER_NITRO_USER_ID, pinned.IDENTITY_FOUNDER_PHANTOM_USER_ID];
+  if (!founders.every(Boolean)) return {};
+  return {
+    OPS_OUTREACH_CONFIG: JSON.stringify({
+      founders,
+      initialOwnerUserId: founders[0],
+      // LOCAL TEST: a one-day continuation, Monday to Friday review at 09:00 Europe/London.
+      continuationTtlSeconds: 86_400,
+      timeZone: 'Europe/London',
+      businessWeekdays: [1, 2, 3, 4, 5],
+      reviewHour: 9,
+      reviewMinute: 0,
+    }),
+  };
+}
+
 async function startNodeService(def) {
   const env = def.env();
   const port = Number(env.HTTP_PORT);
@@ -1377,6 +1041,12 @@ async function startNodeService(def) {
   if (def.name === 'identity') writeFounderPinStamp(STATE, env);
   const entry = path.join(REPO, 'services', `svc-${def.name}`, 'dist', def.entry ?? 'index.js');
   const pid = startProc(def.name, [process.execPath, entry], env, path.join(REPO, 'services', `svc-${def.name}`));
+  if (def.name === 'ops') {
+    // Which founder pair svc-ops read at start, so a later start can tell when the pair changed.
+    const procs = readProcs();
+    procs.ops.outreachConfig = env.OPS_OUTREACH_CONFIG ?? null;
+    writeProcs(procs);
+  }
   await waitHealthy(def.name, url, pid);
 }
 
@@ -1416,6 +1086,16 @@ async function ensureLocalTestFounders() {
   if (!foundersEnrolled(readVault())) fail('local test founder pair did not enrol');
 }
 
+/** svc-ops reads the founder pair at start. When it started before the pair was enrolled, or with another pair, restart it. */
+async function pinOpsFounders() {
+  const procs = readProcs();
+  const wanted = opsOutreachEnv().OPS_OUTREACH_CONFIG;
+  if (!ownedAlive(procs.ops) || !wanted || procs.ops.outreachConfig === wanted) return;
+  say('  ops: restarting so the outreach intake knows the local test founder pair');
+  await stopProc('ops', procs.ops);
+  await startNodeService(serviceDefs(readJson(P.secrets)).find((d) => d.name === 'ops'));
+}
+
 async function startCustomer() {
   const procs = readProcs();
   const url = `${CUSTOMER_ORIGIN}/`;
@@ -1423,6 +1103,29 @@ async function startCustomer() {
   if (await portOpen(PORTS.customer)) fail(`port ${PORTS.customer} (customer) is in use by a process this script did not start`);
   const pid = startProc('customer', [process.execPath, SCRIPT, '__serve-customer'], baseEnv(), REPO);
   await waitHealthy('customer', url, pid, 20_000);
+}
+
+/** The LOCAL TEST video store (local-video-store.mjs): signed, expiring reads of the TEST video Academy plays. */
+async function startVideoStore(secrets) {
+  const procs = readProcs();
+  const url = `${urlOf('video-store')}/health`;
+  if (ownedAlive(procs['video-store']) && (await httpGet(url, 2000)).status === 200) return;
+  if (await portOpen(PORTS['video-store']))
+    fail(`port ${PORTS['video-store']} (video-store) is in use by a process this script did not start`);
+  const env = { ...baseEnv(), LOCAL_VIDEO_STORE_SECRET: secrets.academyVideoStore };
+  const pid = startProc('video-store', [process.execPath, SCRIPT, '__serve-video-store'], env, REPO);
+  await waitHealthy('video-store', url, pid, 20_000);
+}
+
+/** The public invitation site (apps/invitation), served like the Customer app so its intake reaches svc-ops through Edge. */
+async function startInvitation() {
+  const procs = readProcs();
+  const url = `${INVITATION_ORIGIN}/`;
+  if (ownedAlive(procs.invitation) && (await httpGet(url, 2000)).status === 200) return;
+  if (!fs.existsSync(path.join(P.invitationDist, 'index.html'))) fail('invitation build missing; run with --rebuild');
+  if (await portOpen(PORTS.invitation)) fail(`port ${PORTS.invitation} (invitation) is in use by a process this script did not start`);
+  const pid = startProc('invitation', [process.execPath, SCRIPT, '__serve-invitation'], baseEnv(), REPO);
+  await waitHealthy('invitation', url, pid, 20_000);
 }
 
 /** The founder console's env: the four settings apps/admin needs to sign founders in on a local http origin. */
@@ -1497,12 +1200,26 @@ async function healthTable({ gateMarket = false } = {}) {
     const r = await httpGet(`${urlOf(n)}/health`, 2500);
     rows.push([`svc-${n}`, PORTS[n], procs[n]?.pid ?? '-', r.status === 200 ? 'ok' : `DOWN (${r.status})`]);
   }
+  const store = await httpGet(`${urlOf('video-store')}/health`, 2500);
+  rows.push([
+    'video-store',
+    PORTS['video-store'],
+    procs['video-store']?.pid ?? '-',
+    store.status === 200 ? 'ok (TEST)' : `DOWN (${store.status})`,
+  ]);
   const cust = await httpGet(`${CUSTOMER_ORIGIN}/`, 2500);
   rows.push([
     'customer',
     PORTS.customer,
     procs.customer?.pid ?? '-',
     cust.status === 200 && cust.text.includes(BANNER_TEXT) ? 'ok (banner on)' : `DOWN (${cust.status})`,
+  ]);
+  const invitation = await httpGet(`${INVITATION_ORIGIN}/`, 2500);
+  rows.push([
+    'invitation',
+    PORTS.invitation,
+    procs.invitation?.pid ?? '-',
+    invitation.status === 200 && invitation.text.includes(BANNER_TEXT) ? 'ok (banner on)' : `DOWN (${invitation.status})`,
   ]);
   const admin = await httpGet(`${ADMIN_ORIGIN}/login`, 4000);
   rows.push(['admin', PORTS.admin, procs.admin?.pid ?? '-', admin.status === 200 ? 'ok' : `DOWN (${admin.status})`]);
@@ -1521,7 +1238,7 @@ function onlyFlag(flags) {
   const at = flags.indexOf('--only');
   if (at === -1) return null;
   const names = (flags[at + 1] ?? '').split(',').filter(Boolean);
-  const known = [...serviceNames(), 'customer', 'admin'];
+  const known = [...serviceNames(), 'video-store', 'customer', 'invitation', 'admin'];
   const bad = names.filter((n) => !known.includes(n));
   if (names.length === 0 || bad.length)
     fail(`--only needs a comma list of: ${known.join(', ')}${bad.length ? ` (unknown: ${bad.join(', ')})` : ''}`, 2);
@@ -1565,6 +1282,7 @@ async function cmdStart(flags) {
   const only = onlyFlag(flags);
   ensureNatsBinary();
   ensureBuilt(flags.includes('--rebuild'));
+  ensureInvitationBuilt(flags.includes('--rebuild'));
   ensurePostgres(secrets);
   const wanted = serviceDefs(secrets).filter((d) => !only || only.includes(d.name));
   // Migrate only what is about to start: a service that is already running was migrated when it started.
@@ -1582,15 +1300,19 @@ async function cmdStart(flags) {
   } catch (err) {
     fail(err instanceof Error ? err.message : String(err));
   }
+  // Academy's env points at the video store, so `--only academy` starts it too.
+  if (!only || only.includes('video-store') || only.includes('academy')) await startVideoStore(secrets);
   for (const def of wanted) await startNodeService(def);
   try {
     await ensureLocalTestFounders();
+    if (!only || only.includes('ops')) await pinOpsFounders();
   } catch (err) {
     fail(err instanceof Error ? err.message : String(err));
   }
   if (activeCustomerDist().error || !fs.existsSync(path.join(activeCustomerDist().dir, 'index.html')))
     fail('customer build missing; run with --rebuild');
   if (!only || only.includes('customer')) await startCustomer();
+  if (!only || only.includes('invitation')) await startInvitation();
   if (!only || only.includes('admin')) await startAdmin(secrets);
   ensureMarket();
   say('');
@@ -1613,6 +1335,7 @@ async function cmdStart(flags) {
       : '  Founders: pair not pinned (identity and edge must both be up)',
   );
   say(`  Open: ${CUSTOMER_ORIGIN}   (register, sign in, then: pnpm local:fund <email> USDT 1000)`);
+  say(`  Invitation site: ${INVITATION_ORIGIN}   (the public join and partner enquiry forms)`);
   say(`  Founder console: ${ADMIN_ORIGIN}   (local_test_founder_a / _b; credentials in ${FOUNDER_VAULT_NAME})`);
   say(`  Stop: pnpm local:stack:stop`);
   if (!allOk) process.exit(1);
@@ -1634,7 +1357,7 @@ function ensureMarket() {
 
 async function cmdStop(names = []) {
   const procs = readProcs();
-  const order = ['admin', 'customer', ...serviceNames().reverse(), 'nats'];
+  const order = ['admin', 'invitation', 'customer', ...serviceNames().reverse(), 'video-store', 'nats'];
   const only = names.length ? names : null;
   let bad = false;
   for (const name of order) {
@@ -1705,7 +1428,7 @@ function cmdPlan(flags) {
 
 /** Stop the named services (plain stop, leaves Postgres and the rest alone), then start whatever is not running. */
 async function cmdRestart(names) {
-  const known = [...serviceNames(), 'customer', 'admin'];
+  const known = [...serviceNames(), 'video-store', 'customer', 'invitation', 'admin'];
   const bad = names.filter((n) => !known.includes(n));
   if (names.length === 0 || bad.length)
     fail(`restart needs service names from: ${known.join(', ')}${bad.length ? ` (unknown: ${bad.join(', ')})` : ''}`, 2);
@@ -1758,7 +1481,13 @@ function indexWithBanner(dist) {
   return html.replace(/<body([^>]*)>/i, (m) => `${m}${BANNER_HTML}`);
 }
 
-function serveCustomer(port = PORTS.customer) {
+/** The two static sites this stack serves, each with `/api/*` passed to Edge. The invitation site has no folder override. */
+const SITES = {
+  customer: { label: 'Customer', origin: CUSTOMER_ORIGIN, dist: () => activeCustomerDist() },
+  invitation: { label: 'invitation', origin: INVITATION_ORIGIN, dist: () => ({ dir: P.invitationDist, error: null }) },
+};
+
+function serveCustomer(port = PORTS.customer, site = SITES.customer) {
   const edge = { host: HOST, port: PORTS.edge };
   const send = (res, status, type, body, extra = {}) => {
     res.writeHead(status, { 'content-type': type, 'content-length': Buffer.byteLength(body), 'cache-control': 'no-store', ...extra });
@@ -1771,7 +1500,7 @@ function serveCustomer(port = PORTS.customer) {
       res.writeHead(403);
       return void res.end();
     }
-    const url = new URL(req.url, CUSTOMER_ORIGIN);
+    const url = new URL(req.url, site.origin);
     const p = url.pathname;
 
     if (p === '/api' || p === '/ws') return send(res, 404, 'text/plain; charset=utf-8', 'not found');
@@ -1800,7 +1529,7 @@ function serveCustomer(port = PORTS.customer) {
     if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, 'text/plain; charset=utf-8', 'method not allowed');
 
     // The folder is resolved on every request, so "customer-dist <path>" / "--clear" take effect at once.
-    const active = activeCustomerDist();
+    const active = site.dist();
     if (active.error) {
       return send(
         res,
@@ -1848,7 +1577,7 @@ function serveCustomer(port = PORTS.customer) {
     try {
       html = indexWithBanner(dist);
     } catch {
-      return send(res, 503, 'text/plain; charset=utf-8', `No Customer build found in ${dist}. Run: pnpm local:stack --rebuild`);
+      return send(res, 503, 'text/plain; charset=utf-8', `No ${site.label} build found in ${dist}. Run: pnpm local:stack --rebuild`);
     }
     res.writeHead(200, { 'content-type': MIME['.html'], 'content-length': Buffer.byteLength(html), 'cache-control': 'no-store' });
     res.end(req.method === 'HEAD' ? undefined : html);
@@ -2010,7 +1739,10 @@ async function runCli() {
   const [cmd = 'start', ...rest] = process.argv.slice(2);
   if (cmd === '__serve-customer')
     serveCustomer(Number(rest[0]) || PORTS.customer); // the port argument is for tests only
+  else if (cmd === '__serve-invitation') serveCustomer(PORTS.invitation, SITES.invitation);
   else if (cmd === '__serve-admin') await serveAdmin();
+  else if (cmd === '__serve-video-store')
+    serveVideoStore({ host: HOST, port: PORTS['video-store'], secretKey: process.env.LOCAL_VIDEO_STORE_SECRET ?? '' });
   else if (cmd === 'start' && rest[0] === 'customer-dist')
     cmdCustomerDist(rest.slice(1)); // pnpm local:stack customer-dist <path>
   else if (cmd === 'start') await cmdStart(rest);

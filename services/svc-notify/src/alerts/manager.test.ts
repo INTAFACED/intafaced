@@ -21,6 +21,8 @@ const LIMITS: AlertLimits = {
   triggerLogDays: null,
   maxActivePrice: 20,
   repeatFrequencies: [],
+  burstWindowMinutes: null,
+  burstMaxTriggers: null,
 };
 const base = { userId: 'u1', marketId: 'BTC-USD', direction: 'above' as const, targetPrice: '100' };
 
@@ -67,6 +69,8 @@ describe('edit', () => {
       triggerLogDays: null,
       maxActivePrice: 20,
       repeatFrequencies: [],
+      burstWindowMinutes: null,
+      burstMaxTriggers: null,
     });
     const row = await blank.create(base, NOW);
     await expect(blank.edit('u1', row.id, { message: 'hi' }, LATER)).rejects.toMatchObject({ code: 'notify.alert_text_limit_unset' });

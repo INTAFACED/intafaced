@@ -71,6 +71,42 @@ const schema = serviceEnvSchema
       ),
 
       /**
+       * AC-progress-02: how many to-do items one learner may keep in the planner. Blank / unset is unpublished: adding
+       * refuses `academy.planner_limit_unset`. Never invent a cap.
+       */
+      ACADEMY_PLANNER_TODO_LIMIT: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1).max(10_000)]),
+      ),
+
+      /**
+       * AC-course-structure-02: how many sections one course outline may hold. Blank / unset is unpublished: saving an
+       * outline refuses `academy.outline_limits_unset`. Never invent a limit.
+       */
+      ACADEMY_OUTLINE_MAX_SECTIONS: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1).max(1000)]),
+      ),
+      /**
+       * AC-course-structure-02: how many items a learner can open (subheaders are labels and are not counted) one course
+       * outline may hold in all. Blank / unset is unpublished: saving an outline refuses `academy.outline_limits_unset`.
+       */
+      ACADEMY_OUTLINE_MAX_ITEMS: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1).max(1000)]),
+      ),
+
+      /**
+       * AC-course-structure-03: the largest lesson file, in bytes, the Academy desk imports. Blank / unset is
+       * unpublished: an import refuses `academy.import_limit_unset`, and a larger file refuses `academy.import_too_large`
+       * before it is parsed.
+       */
+      ACADEMY_LESSON_IMPORT_MAX_BYTES: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1).max(1_048_576)]),
+      ),
+
+      /**
        * Stage-1 tournament ladder kill-switch (mirrors flag `academy.tournament`).
        * When false, season/standing procedures refuse `academy.tournament_disabled`.
        */
@@ -144,6 +180,26 @@ const schema = serviceEnvSchema
        * looks published. Never invent seconds.
        */
       ACADEMY_VIDEO_URL_TTL_SECONDS: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1).max(3600)]),
+      ),
+      /**
+       * Owner-published seconds of stored watch position that count as
+       * watched (AC-videos-01). Blank / unset is unpublished —
+       * `videoProgress.watched` refuses `academy.watch_threshold_unset`.
+       * Zero is not a threshold: it would mark a video watched before any
+       * position was stored. Never invent a fraction of the duration.
+       */
+      ACADEMY_VIDEO_WATCH_THRESHOLD_SECONDS: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1).max(86_400)]),
+      ),
+      /**
+       * Owner-published seconds between watch-position saves while a video
+       * plays (AC-videos-01). Blank / unset: the player saves on pause and on
+       * leaving only, and says the interval is not set.
+       */
+      ACADEMY_VIDEO_POSITION_SAVE_SECONDS: z.preprocess(
         (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
         z.union([z.undefined(), z.coerce.number().int().min(1).max(3600)]),
       ),

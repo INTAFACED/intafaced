@@ -11,18 +11,36 @@
  */
 import { createHash } from 'node:crypto';
 import { SAME_PERSON_ACTION_TYPES, type SamePersonActionType } from './action-approval.js';
-import { ANTI_PHISHING_STEP_UP_PURPOSE, ANTI_PHISHING_STEP_UP_SCOPE } from './identity.js';
+import {
+  ANTI_PHISHING_STEP_UP_PURPOSE,
+  ANTI_PHISHING_STEP_UP_SCOPE,
+  SECURITY_LOCK_UNLOCK_STEP_UP_PURPOSE,
+  SECURITY_LOCK_UNLOCK_STEP_UP_SCOPE,
+} from './identity.js';
 
 /** How long the user has to answer the passkey or authenticator after begin. */
 export const CUSTOMER_STEP_UP_CHALLENGE_TTL_SECONDS = 120;
 
 const AMOUNT_RE = /^\d+(\.\d{1,18})?$/;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** A send's note as svc-bank `plainNote` keeps it: trimmed, not blank, plain text up to 140 characters. */
+const sendNote = (value: string) =>
+  value !== '' && value === value.trim() && [...value].length <= 140 && !/[\u0000-\u001F\u007F]/.test(value);
+/** A payment reference as svc-bank `plainReference` keeps it: trimmed, not blank, printable ASCII up to 64. */
+const sendReference = (value: string) => value !== '' && value === value.trim() && value.length <= 64 && /^[\x20-\x7E]+$/.test(value);
 
 export type CustomerStepUpDoor = {
   readonly scope: SamePersonActionType;
   readonly purpose: string;
   /** Field names the client sends. `actor` is added by identity and is not here. */
   readonly clientFields: readonly string[];
+  /**
+   * Fields the bank door hashes only when they are set (a send's note, payment reference, or the request it settles),
+   * each with the shape the bank accepts after its own normalising. Sent, a field must already be in that shape (so the
+   * two hashes are the same bytes) and is hashed as sent; left out, it is not in the hash, exactly as svc-bank builds it.
+   */
+  readonly optionalFields?: Readonly<Record<string, (value: string) => boolean>>;
   readonly amountField?: string;
   readonly targetField?: string;
   /** When false, `target` may be omitted and the target field is the empty string. */
@@ -37,6 +55,8 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
     scope: 'bank.step_up.transfers.toUser',
     purpose: 'transfers.toUser',
     clientFields: ['transferId', 'fromSpaceId', 'toUserId', 'assetId', 'amount'],
+    // svc-bank toUserBinding: note, reference and requestId join the hash only when the send carries them.
+    optionalFields: { note: sendNote, reference: sendReference, requestId: (value) => UUID_RE.test(value) },
     amountField: 'amount',
     targetField: 'toUserId',
     targetRequired: true,
@@ -48,6 +68,8 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
     scope: 'bank.step_up.transfers.create',
     purpose: 'transfers.create',
     clientFields: ['transferId', 'fromSpaceId', 'toSpaceId', 'assetId', 'amount'],
+    // svc-bank createTransferBinding: note and reference join the hash only when the transfer carries them.
+    optionalFields: { note: sendNote, reference: sendReference },
     amountField: 'amount',
     targetField: 'toSpaceId',
     targetRequired: true,
@@ -220,6 +242,20 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
     targetRequired: true,
     emptyOk: [],
     decimalFields: [],
+    fixed: {},
+  },
+  {
+    // svc-p2p takeStepUpPayloadHash: the reviewed ad, coin amount and method exactly as `trades.take` carries them; a
+    // held quote joins the hash when the take names one. The order id is the take's idempotency key and is not hashed.
+    scope: 'p2p.step_up.trades.take',
+    purpose: 'trades.take',
+    clientFields: ['offerId', 'amount', 'method'],
+    optionalFields: { quoteId: (value) => UUID_RE.test(value) },
+    amountField: 'amount',
+    targetField: 'offerId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: ['amount'],
     fixed: {},
   },
   {
@@ -477,6 +513,16 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
     decimalFields: [],
     fixed: {},
   },
+  {
+    scope: SECURITY_LOCK_UNLOCK_STEP_UP_SCOPE,
+    purpose: SECURITY_LOCK_UNLOCK_STEP_UP_PURPOSE,
+    clientFields: ['clientRequestId'],
+    targetField: 'clientRequestId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+  },
 ];
 
 export function doorForScope(scope: string): CustomerStepUpDoor | undefined {
@@ -554,13 +600,21 @@ export function bindCustomerStepUp(actor: string, input: CustomerStepUpBeginInpu
   if (input.purpose !== door.purpose) return { ok: false, code: 'step_up.purpose' };
 
   const keys = Object.keys(input.fields);
-  if (keys.includes('actor') || keys.length !== door.clientFields.length || door.clientFields.some((key) => !keys.includes(key))) {
+  const optional = door.optionalFields ?? {};
+  const sentOptional = keys.filter((key) => Object.hasOwn(optional, key));
+  if (
+    keys.includes('actor') ||
+    keys.length !== door.clientFields.length + sentOptional.length ||
+    door.clientFields.some((key) => !keys.includes(key))
+  ) {
     return { ok: false, code: 'step_up.fields' };
   }
   for (const key of door.clientFields) {
     const value = input.fields[key];
     if (value === undefined || !fieldShapeOk(door, key, value)) return { ok: false, code: 'step_up.fields' };
   }
+  // A padded, blank or over-long optional value would hash bytes the bank never hashes, so the approval could not be spent.
+  for (const key of sentOptional) if (!optional[key]!(input.fields[key]!)) return { ok: false, code: 'step_up.fields' };
 
   if (door.amountField) {
     const sent = input.fields[door.amountField];
@@ -582,6 +636,7 @@ export function bindCustomerStepUp(actor: string, input: CustomerStepUpBeginInpu
 
   const fields: Record<string, string> = { actor };
   for (const key of door.clientFields) fields[key] = input.fields[key]!;
+  for (const key of sentOptional) fields[key] = input.fields[key]!;
   return {
     ok: true,
     scope: door.scope,

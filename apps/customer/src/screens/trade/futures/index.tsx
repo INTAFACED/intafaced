@@ -18,6 +18,7 @@ import { HistoryTab } from './HistoryTab';
 import { MarginCallsTab } from './MarginCallsTab';
 import { ModeStrip } from './ModeStrip';
 import { OrdersTab } from './OrdersTab';
+import { TriggersTable } from './TriggersTable';
 import { PositionDetail } from './PositionDetail';
 import { PositionsTable } from './PositionsTable';
 import { RiskSummary, freeOf } from './RiskSummary';
@@ -29,6 +30,7 @@ import {
   useClosedPositions,
   useFundingRate,
   useFuturesMarkets,
+  useConditionalOrders,
   useFuturesOrders,
   useFuturesRefresh,
   useMarginCalls,
@@ -66,6 +68,7 @@ export default function FuturesScreen({ search }: ScreenProps) {
   const events = useAdlEvents(tab === 'adl');
   const openOrders = useFuturesOrders('open', tab === 'orders');
   const allOrders = useFuturesOrders('all', tab === 'orders');
+  const triggers = useConditionalOrders(tab === 'orders');
   const tiers = useRiskTiers(symbol, tab === 'tiers');
   const collateral = useCollateral(tab === 'collateral');
 
@@ -165,6 +168,7 @@ export default function FuturesScreen({ search }: ScreenProps) {
         </TabsPanel>
         <TabsPanel value="orders">
           <OrdersTab open={openOrders} all={allOrders} onChanged={refresh} />
+          <TriggersTable triggers={triggers} onChanged={refresh} />
         </TabsPanel>
         <TabsPanel value="history">
           <HistoryTab closed={closed} />
