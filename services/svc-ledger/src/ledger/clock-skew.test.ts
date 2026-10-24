@@ -11,7 +11,14 @@ import { registerOperatorHttp } from '../operator-http.js';
 import { stubApprovalConsumer } from './action-approval-consume.js';
 import { LedgerService } from '../service.js';
 import { httpError } from '../s2s-http.js';
-import { SKEW_BOUND_UNSET, WRITES_BLOCKED_CLOCK_SKEW, assessClockSkew, parseClockSkewBoundMs, readDatabaseNow } from './clock-skew.js';
+import {
+  SKEW_BOUND_UNSET,
+  WRITES_BLOCKED_CLOCK_SKEW,
+  assessClockSkew,
+  parseClockSkewBoundMs,
+  readDatabaseNow,
+  sampleClocks,
+} from './clock-skew.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const migrations = readdirSync(join(here, '..', '..', 'drizzle'))
@@ -22,6 +29,20 @@ const migrations = readdirSync(join(here, '..', '..', 'drizzle'))
 const APP = new Date('2026-10-23T00:00:00.000Z');
 const DB = new Date('2026-10-23T00:00:00.000Z');
 const USER = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+describe('sampleClocks', () => {
+  it('does not count the database round trip as skew', async () => {
+    let t = APP.getTime();
+    const now = () => new Date(t);
+    const sampled = await sampleClocks(now, async () => {
+      t += 40;
+      const db = new Date(t);
+      t += 40;
+      return db;
+    });
+    expect(assessClockSkew({ boundMs: 0, ...sampled })).toMatchObject({ ok: true, skewMs: '0' });
+  });
+});
 
 describe('parseClockSkewBoundMs', () => {
   it('treats blank as unset, not as zero and not as a default window', () => {

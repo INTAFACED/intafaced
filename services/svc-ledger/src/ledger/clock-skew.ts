@@ -72,6 +72,20 @@ export function assessClockSkew(input: {
   return { ok: true, code: null, boundMs: bound.toString(), ...view };
 }
 
+/**
+ * App clock at the midpoint of the database read, so the round trip itself is not
+ * counted as skew (a bound of 0 must not block every write on one host).
+ */
+export async function sampleClocks(
+  now: () => Date,
+  readNow: () => Promise<Date>,
+): Promise<{ readonly appNow: Date; readonly databaseNow: Date }> {
+  const before = now().getTime();
+  const databaseNow = await readNow();
+  const after = now().getTime();
+  return { appNow: new Date(before + Math.floor((after - before) / 2)), databaseNow };
+}
+
 export async function readDatabaseNow(sql: Sql): Promise<Date> {
   const [row] = await sql<{ at: Date | string }[]>`select clock_timestamp() as at`;
   const at = row?.at;

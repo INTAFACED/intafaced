@@ -1,7 +1,7 @@
 import type { Sql } from 'postgres';
 import { recordOperatorAccess, type OperatorAccessEntry } from './ledger/operator-owner-balances.js';
 import { toWriteBlockError } from './ledger/write-block.js';
-import { assessClockSkew, readDatabaseNow, type ClockSkewView } from './ledger/clock-skew.js';
+import { assessClockSkew, readDatabaseNow, sampleClocks, type ClockSkewView } from './ledger/clock-skew.js';
 import {
   LedgerError,
   type AccountRef,
@@ -96,8 +96,7 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
   async clockSkew(): Promise<ClockSkewView> {
     return assessClockSkew({
       boundMs: this.clockSkewBoundMs,
-      appNow: this.now(),
-      databaseNow: await this.readDatabaseNow(this.sql),
+      ...(await sampleClocks(this.now, () => this.readDatabaseNow(this.sql))),
     });
   }
 

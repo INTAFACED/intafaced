@@ -21,7 +21,7 @@ import {
   type PostRequest,
   type PostedEntry,
 } from '@intafaced/ledger-client';
-import { assessClockSkew, readDatabaseNow, WRITES_BLOCKED_CLOCK_SKEW } from './clock-skew.js';
+import { assessClockSkew, readDatabaseNow, sampleClocks, WRITES_BLOCKED_CLOCK_SKEW } from './clock-skew.js';
 import { frozenMessage } from './freeze.js';
 import {
   HISTORY_MAX_ENTRIES,
@@ -635,11 +635,7 @@ export class PostgresLedger implements LedgerClient {
     if (bound === undefined || bound === null) return;
     const now = this.options.now ?? (() => new Date());
     const readNow = this.options.readDatabaseNow ?? readDatabaseNow;
-    const skew = assessClockSkew({
-      boundMs: bound,
-      appNow: now(),
-      databaseNow: await readNow(tx),
-    });
+    const skew = assessClockSkew({ boundMs: bound, ...(await sampleClocks(now, () => readNow(tx))) });
     if (!skew.ok && skew.code === WRITES_BLOCKED_CLOCK_SKEW) {
       throw new LedgerError(`ledger writes are blocked: ${skew.code}`, skew.code);
     }
