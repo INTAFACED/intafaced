@@ -27,7 +27,7 @@ const price = z.string().regex(/^\d+(\.\d{1,18})?$/);
 const candleRow = z.tuple([z.number().int(), price, price, price, price, z.string()]);
 const publishedFees = z.object({
   version: z.string().min(1),
-  fees: z.record(z.object({ makerBps: z.number().int().nonnegative(), takerBps: z.number().int().nonnegative() })),
+  fees: z.record(z.string(), z.object({ makerBps: z.number().int().nonnegative(), takerBps: z.number().int().nonnegative() })),
 });
 
 type Fetch = (url: string, init?: { signal?: AbortSignal }) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;

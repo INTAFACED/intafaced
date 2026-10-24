@@ -68,7 +68,7 @@ export const verifyCertificate = (api: ApiClient, code: string, signal?: AbortSi
 
 // ----------------------------------------------------------------- enrolments
 
-const enrolmentRow = z.object({ userId: z.string().uuid(), pathSlug: ref, enrolledAt: isoDate });
+const enrolmentRow = z.object({ userId: z.string().guid(), pathSlug: ref, enrolledAt: isoDate });
 export type Enrolment = z.infer<typeof enrolmentRow>;
 
 /** Active enrolments on this account. The service lists only programmes not left. */

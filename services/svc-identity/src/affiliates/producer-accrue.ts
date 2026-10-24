@@ -31,7 +31,7 @@ export type AffiliateProducerService = keyof typeof AFFILIATE_PRODUCER_SOURCE_BY
 
 export const AFFILIATE_PRODUCER_PATH = '/internal/affiliates/accrue';
 
-const UUID = z.string().uuid();
+const UUID = z.string().guid();
 const FEE_AMOUNT = z.string().regex(/^(0|[1-9]\d*)(\.\d{1,18})?$/);
 const SOURCE_MODULE = z.enum(['trade', 'pay']);
 

@@ -334,11 +334,12 @@ describe('svc-p2p take limits (P-trade-orders-03, P-disputes-security-15)', () =
     const [oldest] = await sql<
       { until: Date }[]
     >`SELECT resolved_at + interval '24 hours' AS until FROM p2p.p2p_trades WHERE id = ${first.id}`;
+    // Each attempt starts only when awaited, so the second cannot reject unhandled while the first is pending.
     for (const attempt of [
-      p2p.quoteTake({ offerId: offer.id, takerId: TAKER, method: 'sepa', amount: parseAmount('20') }),
-      take(p2p, offer.id),
+      () => p2p.quoteTake({ offerId: offer.id, takerId: TAKER, method: 'sepa', amount: parseAmount('20') }),
+      () => take(p2p, offer.id),
     ]) {
-      const refused = await refusal(attempt);
+      const refused = await refusal(attempt());
       expect(refused.code).toBe('p2p.buying_restricted');
       expect(refused.limit).toEqual({ until: oldest!.until.toISOString(), cap: '2', windowHours: '24' });
     }
