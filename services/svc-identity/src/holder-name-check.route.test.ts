@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import Fastify from 'fastify';
 import { IDENTITY_HOLDER_NAME_CHECK_PATH, holderNameCheckSchema, retainRawBody, serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { FounderControlError } from './controls/founder-controls.js';
 import { registerHolderNameCheck, type HolderNameChecker } from './holder-name-check.js';
 
 const SECRET = 'h'.repeat(32);
@@ -10,6 +11,8 @@ function checker(seen: string[]): HolderNameChecker {
   return {
     async holderNameCheck({ userId, name }) {
       seen.push(name);
+      if (name === 'unreadable') throw new FounderControlError('identity.details_unreadable', 'identity.details_unreadable');
+      if (name === 'db down') throw new Error('connection refused');
       if (userId !== ADA) return null;
       return { userId, outcome: name === 'Ada Lovelace' ? 'match' : 'mismatch' };
     },
@@ -53,6 +56,11 @@ describe('POST /internal/holder-name-check (P-ads-merchant-18)', () => {
     expect(mismatch.body).not.toContain('Ada King');
 
     expect((await server.inject(post({ userId: '22222222-2222-4222-8222-222222222222', name: 'Ada' }))).statusCode).toBe(404);
+    // A record identity cannot read is typed, never an answer about the name.
+    const unreadable = await server.inject(post({ userId: ADA, name: 'unreadable' }));
+    expect([unreadable.statusCode, unreadable.json().code]).toEqual([503, 'identity.details_unreadable']);
+    const down = await server.inject(post({ userId: ADA, name: 'db down' }));
+    expect([down.statusCode, down.json().code]).toEqual([503, 'identity.holder_name_unavailable']);
     expect((await server.inject(post({ userId: ADA }))).statusCode).toBe(400);
     expect((await server.inject(post({ userId: ADA, name: '' }))).statusCode).toBe(400);
     expect((await server.inject(post({ userId: 'not-a-uuid', name: 'Ada' }))).statusCode).toBe(400);

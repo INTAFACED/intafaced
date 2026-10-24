@@ -8,7 +8,7 @@ import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import type { Context, CustomerDetailsEditInput } from '@intafaced/contracts';
 import { createTestDatabase } from '../fixture-truncate.testkit.js';
 import { FounderControls, parseFounderPair } from './founder-controls.js';
-import { CustomerDetailsDesk } from './customer-details.js';
+import { CustomerDetailsDesk, holderNameKey } from './customer-details.js';
 
 const url = process.env.TEST_DATABASE_URL ?? 'postgres://intafaced_ops:intafaced_ops@localhost:5433/intafaced_test';
 const migrationDirectory = join(dirname(fileURLToPath(import.meta.url)), '../../drizzle');
@@ -216,6 +216,8 @@ if (!available) {
       for (const name of ['Anna-Lena Müller', 'anna lena muller', '  ANNA  LENA  MÜLLER ', 'Anna-Lena Mu\u0308ller']) {
         expect(await desk.holderNameCheck({ userId: target, name })).toEqual({ userId: target, outcome: 'match' });
       }
+      // A phone keyboard's hyphen (U+2010) is a dash like any other.
+      expect(await desk.holderNameCheck({ userId: target, name: 'Anna\u2010Lena Muller' })).toMatchObject({ outcome: 'match' });
       for (const name of ['Müller Anna-Lena', 'Anna Müller', 'Anna-Lena Müllerr']) {
         expect(await desk.holderNameCheck({ userId: target, name })).toEqual({ userId: target, outcome: 'mismatch' });
       }
@@ -224,6 +226,20 @@ if (!available) {
       await desk.edit(first, { ...edit({ city: 'Leeds' }), userId: other });
       expect(await desk.holderNameCheck({ userId: other, name: 'Leeds' })).toMatchObject({ outcome: 'unverified' });
       expect(await desk.holderNameCheck({ userId: randomUUID(), name: 'Anna-Lena Müller' })).toBeNull();
+      // A frozen, closed or archived account takes no new destination, whatever its name.
+      await db.sql`UPDATE users SET status = 'frozen' WHERE id = ${target}`;
+      expect(await desk.holderNameCheck({ userId: target, name: 'Anna-Lena Müller' })).toEqual({ userId: target, outcome: 'inactive' });
+      await db.sql`UPDATE users SET status = 'closed' WHERE id = ${target}`;
+      expect(await desk.holderNameCheck({ userId: target, name: 'Anna-Lena Müller' })).toMatchObject({ outcome: 'inactive' });
+    });
+
+    it('drops accents from Latin letters only, so a name in another script keeps its vowel marks', () => {
+      expect(holderNameKey('Søren Kierkegaard')).toBe(holderNameKey('Soren Kierkegaard'));
+      expect(holderNameKey('Straße')).toBe('strasse');
+      expect(holderNameKey('O‘Brien')).toBe(holderNameKey("O'Brien"));
+      // Kiran and Karan differ only by a vowel sign.
+      expect(holderNameKey('किरण')).not.toBe(holderNameKey('करण'));
+      expect(holderNameKey('किरण')).toBe('किरण');
     });
 
     it('is unconfigured without the key, and refuses a record the key cannot open', async () => {

@@ -60,20 +60,26 @@ export const EMPTY_CUSTOMER_DETAILS: CustomerDetails = customerDetailsSchema.par
   Object.fromEntries(CUSTOMER_DETAIL_KEYS.map((key) => [key, null])),
 );
 
+/** Latin letters NFKD leaves whole, spelled as their usual ASCII stand-ins. */
+const LATIN_FOLD: Readonly<Record<string, string>> = { ø: 'o', ł: 'l', đ: 'd', ð: 'd', þ: 'th', æ: 'ae', œ: 'oe', ß: 'ss', ı: 'i' };
+
 /**
- * A name as the own-name rule compares it: compatibility-decomposed with accents dropped, lower case, the separators
- * `-`, `'`, `’`, `.` and `,` read as spaces, and runs of space collapsed. The words and their order still count, so
- * "Anna-Lena Müller" matches "anna lena muller" and not "Müller Anna-Lena". Exact after this, never fuzzy: a looser
- * tolerance is an owner decision the rule does not have yet.
+ * A name as the own-name rule compares it: compatibility-decomposed, accents dropped from Latin letters only (in other
+ * scripts a mark can be a vowel, so it stays), lower case, the Latin letters NFKD keeps whole folded (ø o, ß ss, æ ae),
+ * every dash, apostrophe, full stop and comma read as a space, and runs of space collapsed. The words and their order
+ * still count, so "Anna-Lena Müller" matches "anna lena muller" and not "Müller Anna-Lena". Exact after this, never
+ * fuzzy: a looser tolerance is an owner decision the rule does not have yet.
  */
 export function holderNameKey(name: string): string {
   return name
     .normalize('NFKD')
-    .replace(/\p{M}/gu, '')
+    .replace(/(\p{Script=Latin})\p{M}+/gu, '$1')
     .toLowerCase()
-    .replace(/[-'’.,]/g, ' ')
+    .replace(/[øłđðþæœßı]/g, (letter) => LATIN_FOLD[letter] ?? letter)
+    .replace(/[\p{Pd}'‘’ʼ`´.,]/gu, ' ')
     .replace(/\s+/g, ' ')
-    .trim();
+    .trim()
+    .normalize('NFC');
 }
 
 export class CustomerDetailsDesk {
@@ -370,17 +376,22 @@ export class CustomerDetailsDesk {
   /**
    * The own-name rule (P-ads-merchant-18): is `name` this account's verified legal name? Only the outcome leaves identity.
    * The legal name is verified because a change to it applies only when the other founder passes its compliance review.
-   * Null when identity has no such account. No row, or a row with no legal name, is `unverified`; an unset key is
-   * `unconfigured`; a row the key cannot open refuses `identity.details_unreadable`. Read-only: no founder, no row written.
+   * Null when identity has no such account; a frozen, closed or archived one is `inactive`. No row, or a row with no legal
+   * name, is `unverified`; an unset key is `unconfigured`; a row the key cannot open refuses `identity.details_unreadable`.
+   * The answer's userId is lower case. Read-only: no founder, no row written.
    */
   async holderNameCheck(raw: HolderNameCheckInput): Promise<HolderNameCheck | null> {
     const input = holderNameCheckInputSchema.parse(raw);
     const userId = input.userId.toLowerCase();
-    const [user] = await this.sql<Array<{ id: string }>>`SELECT id FROM users WHERE id = ${userId}`;
-    if (!user) return null;
+    const [row] = await this.sql<Array<Partial<Sealed> & { live: boolean }>>`
+      SELECT u.status = 'active' AND u.archived_at IS NULL AS live, d.ciphertext, d.nonce, d.key_id
+        FROM users u LEFT JOIN customer_details d ON d.user_id = u.id
+       WHERE u.id = ${userId}`;
+    if (!row) return null;
+    // A frozen, closed or archived account takes no new destination, whatever its name.
+    if (!row.live) return { userId, outcome: 'inactive' };
     if (!this.key) return { userId, outcome: 'unconfigured' };
-    const [row] = await this.sql<Sealed[]>`SELECT ciphertext, nonce, key_id FROM customer_details WHERE user_id = ${userId}`;
-    const legalName = row ? this.unseal(row, customerDetailsSchema).legalName : null;
+    const legalName = row.ciphertext ? this.unseal(row as Sealed, customerDetailsSchema).legalName : null;
     const verified = legalName === null ? '' : holderNameKey(legalName);
     if (verified === '') return { userId, outcome: 'unverified' };
     return { userId, outcome: holderNameKey(input.name) === verified ? 'match' : 'mismatch' };
