@@ -223,12 +223,18 @@ describe('svc-pay list/history limit unset refuse', () => {
 
   it('services no longer default list/history limit to 50/100', () => {
     const pay = readFileSync(join(ROOT, 'services/svc-pay/src/payment-service.ts'), 'utf8');
-    const listPayStart = pay.indexOf('async listPayments(');
-    const listPay = pay.slice(listPayStart, pay.indexOf('async createProfile(', listPayStart));
+    // Since the split by area, a moved method's body is an exported function in payment-service/<area>.ts.
+    const area = (file: string, fn: string): string => {
+      const src = readFileSync(join(ROOT, 'services/svc-pay/src/payment-service', file), 'utf8');
+      const start = src.indexOf(`export async function ${fn}(`);
+      expect(start, `${fn} missing from ${file}`).toBeGreaterThanOrEqual(0);
+      const end = src.indexOf('\nexport ', start + 1);
+      return src.slice(start, end === -1 ? undefined : end);
+    };
+    const listPay = area('payment-reads.ts', 'listPayments');
     expect(listPay).toContain('assertPaymentListLimit');
     expect(listPay).not.toMatch(/\?\? 50/);
-    const histStart = pay.indexOf('async history(');
-    const hist = pay.slice(histStart, pay.indexOf('async clearingBalance(', histStart));
+    const hist = area('payment-reads.ts', 'history');
     expect(hist).toContain('assertPaymentHistoryLimit');
     expect(hist).toContain('LIMIT ${limit}');
     expect(hist).not.toMatch(/\?\? 50/);
@@ -239,8 +245,7 @@ describe('svc-pay list/history limit unset refuse', () => {
     expect(listLinks).toContain('assertPaymentLinkListLimit');
     expect(listLinks).toContain('LIMIT ${page + 1}');
     expect(listLinks).not.toMatch(/\?\? 50/);
-    const listSetStart = pay.indexOf('async listSettlements(');
-    const listSet = pay.slice(listSetStart, pay.indexOf('async getPayment(', listSetStart));
+    const listSet = area('payouts.ts', 'listSettlements');
     expect(listSet).toContain('assertSettlementListLimit');
     expect(listSet).not.toMatch(/\?\? 50/);
 

@@ -41,6 +41,7 @@ import { registerSubscriptionCycleRoutes } from './subscriptions/internal-cycle-
 import type { UserMoneyService } from './user-money-service.js';
 import { RailRegistry } from './rails/registry.js';
 import { CardSandboxAdapter } from './rails/card-sandbox.js';
+import { payServiceSource } from './payment-service/source.testkit.js';
 
 const EDGE_SECRET = 'pay-promise-falsify-public-doors-edge-secret-32';
 const INTERNAL_SECRET = 'pay-promise-falsify-public-doors-internal-secret';
@@ -555,7 +556,7 @@ describe('D26-P2-01b public doors — dispute refuse invent reverse-money', () =
   it('dispute case doors exist; merchant REST has no reverse-money chargeback door', () => {
     const routerSrc = readFileSync(join(here, 'router.ts'), 'utf8');
     const restSrc = readFileSync(join(here, 'public-rest.ts'), 'utf8');
-    const paySrc = readFileSync(join(here, 'payment-service.ts'), 'utf8');
+    const paySrc = payServiceSource();
 
     expect(routerSrc).toMatch(/openDispute|contestDispute|getDispute/);
     expect(routerSrc).not.toMatch(/recipes\.chargeback/);
