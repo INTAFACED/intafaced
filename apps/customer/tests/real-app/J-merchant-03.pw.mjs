@@ -330,17 +330,76 @@ test(`${J} #4 replacing a price a subscription uses keeps the subscription on th
   expect(refused.filter((r) => !r.includes('merchantCatalog.products.delete'))).toEqual([]);
 });
 
-// Steps 5 and 6 come with their slices (the import, and M-adv-payments-core-21). Until then each fails at its first
+test(`${J} #5 an import dry run lists line-numbered errors and writes nothing, and a commit writes once`, async ({ page }) => {
+  test.setTimeout(180_000);
+  const state = journey();
+  const own = await signInOwner(page, state, '/pay/products');
+  const refused = refusedPayCalls(page);
+  await page.getByRole('link', { name: 'Import products' }).click();
+  await expect(page).toHaveURL(/\/pay\/products\/import$/);
+  const file = page.getByLabel('Products file (CSV)');
+  const csv = (lines) => ({ name: 'TEST-products.csv', mimeType: 'text/csv', buffer: Buffer.from(`${lines.join('\n')}\n`) });
+
+  // A file with three bad lines: each is named by its line, and nothing is written.
+  const mug = `mug-${own.handle}`;
+  await file.setInputFiles(
+    csv([
+      'name,type,product_id,unit_label',
+      `TEST Mug,physical,${mug},mug`,
+      'TEST Toy,toy,,',
+      `TEST Poster again,physical,poster-${own.handle},`,
+      ',digital,,',
+    ]),
+  );
+  await page.getByRole('button', { name: 'Check file' }).click();
+  await expect(page.getByRole('alert').filter({ hasText: '3 problems found. Nothing was written.' })).toBeVisible();
+  const problems = page.getByRole('region', { name: 'Problems in the file' }).getByRole('row');
+  await expect(problems).toHaveCount(4);
+  await expect(problems.nth(1)).toContainText('3');
+  await expect(problems.nth(1)).toContainText('type');
+  await expect(problems.nth(1)).toContainText('This value is not one this column allows.');
+  await expect(problems.nth(2)).toContainText('4');
+  await expect(problems.nth(2)).toContainText('A product in your catalogue already has this ID.');
+  await expect(problems.nth(3)).toContainText('5');
+  await expect(problems.nth(3)).toContainText('This cell is required.');
+  await expect(page.getByRole('button', { name: /^Import \d/ })).toHaveCount(0);
+  await page.goto('/pay/products');
+  await expect(page.getByText('No active products')).toBeVisible();
+
+  // The fixed file is checked clean, then imported once.
+  const good = csv([
+    'name,type,product_id,unit_label,event_starts_at,event_location',
+    `TEST Mug,physical,${mug},mug,,`,
+    'TEST Workshop,event,,,2026-12-01T19:00:00Z,"TEST Hall, Room 2"',
+    'TEST Guide,digital,,,,',
+  ]);
+  await page.goto('/pay/products/import');
+  await file.setInputFiles(good);
+  await page.getByRole('button', { name: 'Check file' }).click();
+  await expect(page.getByRole('status').filter({ hasText: '3 products are ready to import. Nothing has been written yet.' })).toBeVisible();
+  await page.getByRole('button', { name: 'Import 3 products' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Imported 3 products.' })).toBeVisible();
+  const made = page.getByRole('region', { name: 'Products from this file' });
+  for (const name of ['TEST Mug', 'TEST Workshop', 'TEST Guide']) await expect(made.getByText(name, { exact: true })).toBeVisible();
+  await expect(made).toContainText(mug);
+
+  // The same file again is a replay: it says when it was imported, offers no import, and makes nothing.
+  await page.goto('/pay/products/import');
+  await file.setInputFiles(good);
+  await page.getByRole('button', { name: 'Check file' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'This file was already imported, so nothing new was made.' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Import \d/ })).toHaveCount(0);
+  await page.goto('/pay/products');
+  const list = page.getByRole('region', { name: 'Your products' });
+  await expect(list.getByText('TEST Mug', { exact: true })).toHaveCount(1);
+  await expect(list.getByText('TEST Workshop', { exact: true })).toHaveCount(1);
+  await expect(list.getByText('TEST Guide', { exact: true })).toHaveCount(1);
+  expect(refused).toEqual([]);
+});
+
+// Step 6 comes with M-adv-payments-core-21's test and live copy and channel availability. Until then it fails at its first
 // check, quickly.
 const unbuilt = { timeout: 5000 };
-
-test(`${J} #5 an import dry run lists line-numbered errors and writes nothing, and a commit writes once`, async ({ page }) => {
-  test.setTimeout(120_000);
-  const state = journey();
-  await signInOwner(page, state, '/pay/products');
-  await page.getByRole('link', { name: 'Import products' }).click(unbuilt);
-  await expect(page).toHaveURL(/\/pay\/products\/import$/, unbuilt);
-});
 
 test(`${J} #6 copying the catalogue between test and live reports created and skipped ids, and a second run makes no duplicates`, async ({
   page,

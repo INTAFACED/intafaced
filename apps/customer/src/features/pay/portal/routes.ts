@@ -58,6 +58,7 @@ export const PORTAL_ROOMS = [
   'invoice-new',
   'products',
   'product-new',
+  'product-import',
   'product',
 ] as const;
 export type PortalRoom = (typeof PORTAL_ROOMS)[number];
@@ -132,7 +133,13 @@ export function parsePortalRoute(path: string): PortalRoute | null {
   if (a === 'money') return b === undefined ? { room: 'money' } : b === 'activity' ? { room: 'money-activity' } : null;
   if (a === 'reports') return b === undefined ? { room: 'reports' } : b === 'exports' ? { room: 'report-exports' } : null;
   if (a === 'products')
-    return b === undefined ? { room: 'products' } : b === 'new' ? { room: 'product-new' } : { room: 'product', param: decode(b) };
+    return b === undefined
+      ? { room: 'products' }
+      : b === 'new'
+        ? { room: 'product-new' }
+        : b === 'import'
+          ? { room: 'product-import' }
+          : { room: 'product', param: decode(b) };
   if (a === 'links') return b === undefined ? { room: 'links' } : b === 'new' ? { room: 'link-new' } : { room: 'link', param: decode(b) };
   if (a === 'refunds')
     return b === undefined ? { room: 'refunds' } : b === 'new' ? { room: 'refund-new' } : { room: 'refund', param: decode(b) };

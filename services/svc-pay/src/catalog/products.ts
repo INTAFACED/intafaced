@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import type { Sql } from 'postgres';
+import type { Sql, TransactionSql } from 'postgres';
 import { PRODUCT_IMAGE_TYPES, type MerchantProduct, type ProductCreateInput, type ProductImageRules } from '@intafaced/contracts';
 import { MerchantOpsError } from '../merchant-ops/errors.js';
 import { iso } from '../merchant-ops/money.js';
@@ -26,7 +26,7 @@ const MODE = 'live' as const;
 
 type ImageType = (typeof PRODUCT_IMAGE_TYPES)[number];
 
-interface ProductRow {
+export interface ProductRow {
   id: string;
   product_key: string;
   mode: 'live' | 'test';
@@ -46,12 +46,12 @@ interface ProductRow {
   cursor_ts: string;
 }
 
-const FIELDS = (sql: Sql) => sql`
+export const FIELDS = (sql: Sql | TransactionSql) => sql`
   id, product_key, mode, request_hash, name, type, unit_label, statement_descriptor, event_starts_at, event_location,
   image_id, status, version, created_by, created_at, updated_at,
   to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_ts`;
 
-const view = (row: ProductRow): MerchantProduct => ({
+export const view = (row: ProductRow): MerchantProduct => ({
   id: row.id,
   productKey: row.product_key,
   mode: row.mode,
@@ -77,7 +77,7 @@ export function assertWriter(caller: MerchantCaller): void {
 }
 
 /** What a create asked for, so a replay can tell the same request from a reused id. */
-function requestHash(input: ProductCreateInput): string {
+export function requestHash(input: ProductCreateInput): string {
   const canonical = {
     productKey: input.productKey ?? null,
     name: input.name,
@@ -91,7 +91,7 @@ function requestHash(input: ProductCreateInput): string {
 }
 
 /** `prod_` and 16 base32 characters: what svc-pay names a product the business did not name. */
-function generatedKey(): string {
+export function generatedKey(): string {
   const alphabet = 'abcdefghijklmnopqrstuvwxyz234567';
   return `prod_${[...randomBytes(16)].map((b) => alphabet[b % 32]).join('')}`;
 }

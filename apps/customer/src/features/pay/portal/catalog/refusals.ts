@@ -28,4 +28,7 @@ registerRefusals({
   'pay.product_has_prices': () => catalogCopy.t('rHasPrices'),
   'pay.product_deleted': () => catalogCopy.t('rProductDeleted'),
   'pay.subscription_price_terms_differ': () => catalogCopy.t('rSubscriptionPriceTerms'),
+  'pay.product_import_invalid': () => catalogCopy.t('rImportInvalid'),
+  'pay.product_import_empty': () => catalogCopy.t('rImportEmpty'),
+  'pay.product_import_too_many_rows': () => catalogCopy.t('rImportTooManyRows'),
 });

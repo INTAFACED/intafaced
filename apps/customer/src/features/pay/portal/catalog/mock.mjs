@@ -181,6 +181,58 @@ export function createCatalogMock(ctx) {
           if (found.status !== status) Object.assign(found, { status, version: found.version + 1, updatedAt: iso(Date.now()) });
           return ok(route, strip(found));
         }
+        case 'merchantCatalog.products.import': {
+          // A plain stand-in: one product a line, no quoted cells. svc-pay reads full CSV and checks every column.
+          state.productImports ??= [];
+          const earlier = state.productImports.find((i) => i.csv === input.csv);
+          if (earlier)
+            return ok(route, {
+              ...earlier.answer,
+              replayed: true,
+              products: earlier.answer.products.filter((p) => state.products.some((x) => x.id === p.id)),
+            });
+          const [header = '', ...lines] = input.csv.split(/\r?\n/);
+          const columns = header.split(',').map((c) => c.trim().toLowerCase());
+          const rows = lines.map((text, i) => ({ line: i + 2, cells: text.split(',') })).filter((r) => r.cells.some((c) => c.trim()));
+          if (!rows.length) return refuse(route, 400, 'pay.product_import_empty');
+          const cell = (row, column) => row.cells[columns.indexOf(column)]?.trim() ?? '';
+          const problems = [];
+          for (const row of rows) {
+            if (!cell(row, 'name')) problems.push({ line: row.line, column: 'name', problem: 'value_required' });
+            if (!['physical', 'digital', 'service', 'event'].includes(cell(row, 'type').toLowerCase()))
+              problems.push({ line: row.line, column: 'type', problem: 'value_invalid' });
+            if (cell(row, 'product_id') && state.products.some((p) => p.productKey === cell(row, 'product_id')))
+              problems.push({ line: row.line, column: 'product_id', problem: 'id_taken' });
+          }
+          const base = { fileSha256: 'a'.repeat(64), rows: rows.length, problems, problemCount: problems.length };
+          if (!input.commit || problems.length) {
+            if (input.commit) return refuse(route, 400, 'pay.product_import_invalid');
+            return ok(route, { ...base, imported: false, replayed: false, importedAt: null, products: [] });
+          }
+          const at = iso(Date.now());
+          const first = state.products.length;
+          const made = rows
+            .map((row, i) => ({
+              id: hex('c1', first + i + 2),
+              productKey: cell(row, 'product_id') || `prod_test${String(first + i + 1).padStart(12, 'a')}`,
+              mode: 'live',
+              name: cell(row, 'name'),
+              type: cell(row, 'type').toLowerCase(),
+              unitLabel: cell(row, 'unit_label') || null,
+              statementDescriptor: cell(row, 'statement_descriptor') || null,
+              event: null,
+              imageId: null,
+              status: 'active',
+              version: 1,
+              createdAt: at,
+              createdBy: USER_ID,
+              updatedAt: at,
+            }))
+            .map((product) => (state.products.unshift({ ...product, requestId: product.id }), product));
+          const answer = { ...base, imported: true, replayed: false, importedAt: at, products: made };
+          state.productImports.push({ csv: input.csv, answer });
+          return ok(route, answer);
+        }
         case 'merchantCatalog.products.delete': {
           const at = state.products.findIndex((p) => p.id === input.productId);
           if (at < 0) return refuse(route, 404, 'pay.product_not_found');

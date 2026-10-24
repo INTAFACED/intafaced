@@ -10,6 +10,7 @@ export const catalogContract: ContractPart = {
       method: 'createProduct',
       run: (p) => p.createProduct({ requestId: 'c3000001-0000-4000-8000-000000000001', name: 'TEST Poster', type: 'physical' }),
     },
+    { method: 'importProducts', run: (p) => p.importProducts({ csv: 'name,type\nTEST Mug,physical\nTEST Toy,toy\n', commit: false }) },
     { method: 'prices', run: (p) => p.prices('c1000001-0000-4000-8000-000000000001', undefined) },
     { method: 'monthlyPriceChoices', run: (p) => p.monthlyPriceChoices('USDC', '20') },
     {

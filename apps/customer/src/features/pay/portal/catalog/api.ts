@@ -10,6 +10,7 @@ import {
   productImageFileSchema,
   productImageRulesSchema,
   productImageSchema,
+  productImportSchema,
   productSchema,
   type PriceCreateInput,
   type PriceReplaceInput,
@@ -18,7 +19,7 @@ import {
 import type { PortalTools } from '../api-tools';
 import './refusals';
 
-// The product catalogue and its prices (J-merchant-03 steps 1 to 4, M-catalogue-01 and -02, M-adv-payments-core-20): svc-pay `merchantCatalog.*`, parsed with the
+// The product catalogue and its prices (J-merchant-03 steps 1 to 5, M-catalogue-01 and -02, M-adv-payments-core-20 and -21): svc-pay `merchantCatalog.*`, parsed with the
 // service's own schemas. The business is the signed-in person's own; the service resolves it and checks the role.
 
 const created = z.object({ product: productSchema, replayed: z.boolean() }).strict();
@@ -45,6 +46,8 @@ export const catalogApi = ({ query, mutate, list }: PortalTools) => ({
   replacePrice: (input: PriceReplaceInput) => mutate('merchantCatalog.prices.replace', input, priceReplaceSchema),
   priceUsage: (priceId: string, signal?: AbortSignal) => query('merchantCatalog.prices.usage', { priceId }, priceUsageSchema, signal),
   pricedProduct: (priceId: string, signal?: AbortSignal) => query('merchantCatalog.prices.get', { priceId }, pricedProductSchema, signal),
+  /** A dry run (`commit: false`) checks the file and writes nothing; a commit writes all of it or none. */
+  importProducts: (input: { csv: string; commit: boolean }) => mutate('merchantCatalog.products.import', input, productImportSchema),
   /** Active monthly fixed prices with one asset and amount: the ones a subscription on a mandate with those terms can start on. */
   monthlyPriceChoices: (assetId: string, amount: string, signal?: AbortSignal) =>
     query('merchantCatalog.prices.choices', { billing: 'monthly', kind: 'fixed', assetId, amount, limit: 100 }, priceChoicesSchema, signal),

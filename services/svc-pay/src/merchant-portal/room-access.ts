@@ -72,6 +72,7 @@ const EXTRA: Partial<Record<(typeof MERCHANT_PORTAL_ROOMS)[number], readonly Act
   'checkout-settings': [{ id: 'checkout.save', need: { kind: 'owner', activeAccount: false } }],
   products: [productManage],
   'product-new': [productManage],
+  'product-import': [productManage],
   product: [productManage],
 };
 

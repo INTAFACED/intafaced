@@ -65,6 +65,7 @@ export const MERCHANT_PORTAL_ROOMS = [
   'invoice-new',
   'products',
   'product-new',
+  'product-import',
   'product',
 ] as const;
 

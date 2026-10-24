@@ -16,23 +16,30 @@ import { useServerList } from '../ui/useServerList';
 import { useReadAt, useUrlParam } from '../hooks';
 import { useBodyRequestId } from '../payments/invoice-model';
 import { useMayAddProducts } from './access';
+import { ProductImport } from './ProductImport';
 import { ProductPrices } from './Prices';
 import { catalogCopy as c } from './copy';
 import { blankProduct, checkImage, draftProblem, imageRequestId, productBody, sizeText, type ProductDraft } from './model';
 
 const productHref = (id: string) => `/pay/products/${encodeURIComponent(id)}`;
 
-/** `/pay/products`, `/pay/products/new` and `/pay/products/:productId` (J-merchant-03 steps 1, 2 and 4). */
+/** `/pay/products`, `/pay/products/new`, `/pay/products/import` and `/pay/products/:productId` (J-merchant-03 steps 1, 2, 4 and 5). */
 export function Products({ portal, route }: { portal: PortalApi; route: { room: string; param?: string } }) {
   if (route.room === 'product-new') return <ProductCreate portal={portal} />;
+  if (route.room === 'product-import') return <ProductImport portal={portal} />;
   if (route.room === 'product' && route.param) return <ProductDetail portal={portal} productId={route.param} />;
   return <ProductList portal={portal} />;
 }
 
-const addButton = (label: string) => (
-  <Button variant="primary" nativeButton={false} role="link" render={<a href="/pay/products/new" />}>
-    {label}
-  </Button>
+const addButton = (label: string, importLabel: string) => (
+  <div className="pp-actions">
+    <Button variant="primary" nativeButton={false} role="link" render={<a href="/pay/products/new" />}>
+      {label}
+    </Button>
+    <Button variant="secondary" nativeButton={false} role="link" render={<a href="/pay/products/import" />}>
+      {importLabel}
+    </Button>
+  </div>
 );
 
 /**
@@ -69,11 +76,11 @@ export function ProductList({ portal }: { portal: PortalApi }) {
           status === 'archived' ? (
             <EmptyState title={t('emptyArchivedTitle')}>{t('emptyArchivedBody')}</EmptyState>
           ) : (
-            <EmptyActive portal={portal} add={may.allowed ? addButton(t('add')) : undefined} />
+            <EmptyActive portal={portal} add={may.allowed ? addButton(t('add'), t('importLink')) : undefined} />
           )
         ) : (
           <>
-            {may.allowed && <div className="pp-actions">{addButton(t('add'))}</div>}
+            {may.allowed && addButton(t('add'), t('importLink'))}
             <EntityList
               label={t('listLabel')}
               rows={list.state.items}

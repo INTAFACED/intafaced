@@ -6,14 +6,16 @@ import { Products } from './Products';
 
 const t = catalogCopy.t;
 
-/** The product catalogue: the list, Add a product and one product (J-merchant-03). Every role reads; the page gates adding. */
+/** The product catalogue: the list, Add a product, Import products and one product (J-merchant-03). Every role reads; the page gates adding. */
 const products: RoomDef = {
   header: (route) =>
     route.room === 'products'
       ? { title: t('productsTitle'), purpose: t('productsPurpose') }
       : route.room === 'product-new'
         ? { title: t('newTitle'), purpose: t('newPurpose') }
-        : { title: t('productTitle'), purpose: t('productPurpose') },
+        : route.room === 'product-import'
+          ? { title: t('importTitle'), purpose: t('importPurpose') }
+          : { title: t('productTitle'), purpose: t('productPurpose') },
   here: '/pay/products',
   render: (route, { portal }) => (
     <WithAccount>
@@ -29,5 +31,6 @@ const products: RoomDef = {
 export const catalogRooms: RoomTable = {
   products,
   'product-new': products,
+  'product-import': products,
   product: products,
 };
