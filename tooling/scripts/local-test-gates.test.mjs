@@ -262,6 +262,11 @@ for (const n of TEST_DEPOSIT_NETWORKS) {
   assert.equal(typeof n.feeEstimateAmount, 'string');
   const published = { ...n, assetCodes: [...n.assetCodes].reverse(), version: 3, updatedAt: '2026-10-24T00:00:00.000Z' };
   assert.ok(networkRowMatches(published, n), `${n.networkId} published again on every run`);
+  assert.ok(
+    networkRowMatches({ ...published, assetCodes: [...n.assetCodes, 'ETH'] }, n),
+    'another asset on the network is not a difference',
+  );
+  assert.ok(!networkRowMatches({ ...published, assetCodes: ['USDC'] }, n), `${n.networkId} missing a TEST asset taken as published`);
   assert.ok(!networkRowMatches({ ...published, enabled: false }, n), `${n.networkId} switched off taken as published`);
   assert.ok(!networkRowMatches({ ...published, confirmationsRequired: null }, n));
   assert.ok(!networkRowMatches(null, n));

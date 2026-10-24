@@ -1769,7 +1769,7 @@ async function cmdFund(rawArgs) {
  * `chain-deposit <address> <ASSET> <amount> <confirmations> --tx <label> [--index <n>]`: a TEST chain transfer to a deposit
  * address the stack issued, delivered to svc-pay's own `/webhooks/crypto-native` exactly as its chain watcher would (the
  * stack's chain is in memory and has no watcher). Signed with this stack's crypto webhook secret. The transaction hash comes
- * from the label, so the same label is the same transfer: sending it again (with a higher confirmation count, or the same)
+ * from the address and the label, so the same label to the same address is the same transfer: sending it again (with a higher confirmation count, or the same)
  * is a repeat of one chain event, never a second deposit. svc-pay decides what it is worth; nothing here touches the ledger.
  */
 async function cmdChainDeposit(rawArgs) {
@@ -1784,8 +1784,9 @@ async function cmdChainDeposit(rawArgs) {
   };
   const label = option('--tx', /^[A-Za-z0-9-]{4,64}$/, '4-64 letters, digits or dashes');
   const index = option('--index', /^\d{1,4}$/, 'a whole number');
-  const [address, assetRaw, amountStr, confirmationsStr] = args;
-  if (!address || !assetRaw || !amountStr || !confirmationsStr || !label)
+  if (args.some((arg) => arg.startsWith('--'))) fail(`unknown option: ${args.find((arg) => arg.startsWith('--'))}`, 2);
+  const [address, assetRaw, amountStr, confirmationsStr, ...extra] = args;
+  if (!address || !assetRaw || !amountStr || !confirmationsStr || !label || extra.length > 0)
     fail(
       'usage: node tooling/scripts/local-test-stack.mjs chain-deposit <address> <ASSET> <decimal-amount> <confirmations> --tx <label> [--index <n>]',
       2,
@@ -1804,7 +1805,8 @@ async function cmdChainDeposit(rawArgs) {
   const secret = readJson(P.secrets).payCryptoWebhook;
   if (!secret) fail('refusing: this stack has no crypto webhook secret. Run: pnpm local:stack --rebuild');
 
-  const txHash = `0x${crypto.createHash('sha256').update(`local-test-chain-deposit:${label}`).digest('hex')}`;
+  // The same label to another address is another transfer, never a repeat of the first one's.
+  const txHash = `0x${crypto.createHash('sha256').update(`local-test-chain-deposit:${address}:${label}`).digest('hex')}`;
   const logIndex = Number(index ?? '0');
   const body = JSON.stringify({
     id: `chain:${txHash}:${address}:${logIndex}`,

@@ -1015,12 +1015,14 @@ async function payFounderSave(ctx, sessions, { preview, previewInput, save, inpu
   return { row, approvalId: ids.approvalId ?? null };
 }
 
-/** True when the registry row already says what the TEST network says (version and clock aside). */
+/**
+ * True when the registry row already carries the TEST network (version and clock aside). Assets listed beyond the TEST ones are
+ * someone else's and do not count as a difference.
+ */
 export function networkRowMatches(row, want) {
   if (!row) return false;
-  const pick = (r) =>
-    JSON.stringify([r.displayName, [...r.assetCodes].sort(), r.confirmationsRequired, r.enabled, r.feeEstimateSource, r.feeEstimateAmount]);
-  return pick(row) === pick(want);
+  const pick = (r) => JSON.stringify([r.displayName, r.confirmationsRequired, r.enabled, r.feeEstimateSource, r.feeEstimateAmount]);
+  return pick(row) === pick(want) && want.assetCodes.every((code) => row.assetCodes.includes(code));
 }
 
 /**
@@ -1052,7 +1054,9 @@ export async function publishDepositTerms(ctx) {
       });
     // A new entry must be created switched off; switching it on is its own dual-controlled edit.
     if (!row) row = (await save({ ...want, enabled: false, expectedVersion: null, reason })).row;
-    const r = await save({ ...want, expectedVersion: row.version, reason });
+    // Keep any asset already listed on the network beside the TEST ones.
+    const assetCodes = [...new Set([...row.assetCodes, ...want.assetCodes])].sort();
+    const r = await save({ ...want, assetCodes, expectedVersion: row.version, reason });
     out.push({ what, status: 'published', approvalId: r.approvalId });
     ctx.log(`deposit network ${want.networkId}: ${want.assetCodes.join(', ')} published (${MARKERS.label})`);
   }
@@ -1068,9 +1072,9 @@ export async function publishDepositTerms(ctx) {
       continue;
     }
     const reason = `${MARKERS.label}: TEST deposit terms`;
-    if (!row || !same(row)) {
-      // Created (or corrected) switched off first: a new pair must be inert, and an edit of one that is on would need a switch.
-      const change = { ...want, enabled: false, haltNote: null, expectedVersion: row?.version ?? null, reason };
+    if (!row) {
+      // A new pair must be created switched off; switching it on (with the TEST terms) is its own dual-controlled change.
+      const change = { ...want, enabled: false, haltNote: null, expectedVersion: null, reason };
       row = (
         await payFounderSave(ctx, sessions, {
           preview: 'founderAdmin.depositSettings.preview',
@@ -1738,7 +1742,6 @@ async function main() {
       for (const r of await openBooks(ctx)) say(`  open      ${r.symbol.padEnd(10)} accepted`);
       for (const r of await publishTransferTerms(ctx)) say(`  terms     ${r.assetId.padEnd(10)} published`);
       for (const r of await publishAssetRegistry(ctx)) say(`  asset     ${r.assetId.padEnd(10)} ${r.status}`);
-      for (const r of await publishDepositTerms(ctx)) say(`  deposits  ${r.what}: ${r.status}`);
       for (const r of await publishPairRisk(ctx))
         say(`  limits    ${r.symbol.padEnd(10)} ${r.changed ? `version ${r.version}` : 'already published'}`);
       sayCharts(await publishCharts(ctx));
@@ -1750,6 +1753,8 @@ async function main() {
       // before it (every journeys shard stopped here in run 231).
       for (const r of await publishP2pMethods(ctx))
         say(`  p2p       ${r.methodId} ${r.country} ${r.changed ? 'registered' : 'already registered'}`);
+      // Last: a svc-pay refusal here stops nothing the trading and transfer journeys need.
+      for (const r of await publishDepositTerms(ctx)) say(`  deposits  ${r.what}: ${r.status}`);
     } else if (cmd === 'kyb') {
       const out = await seedPayKybRequirements(ctx);
       for (const t of out.types) say(`  kyb       ${t.entityType} ${t.changed ? 'published' : 'already published'}`);
