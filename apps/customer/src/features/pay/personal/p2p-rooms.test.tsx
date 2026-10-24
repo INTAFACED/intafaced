@@ -224,7 +224,13 @@ it('marks the pressed offer and order tabs', () => {
 });
 
 const pending = () => new Promise<never>(() => {});
-const stubPay = { fiat: pending, methods: pending, offer: pending, advertiserTerms: pending } as unknown as PersonalPayApi;
+const stubPay = {
+  fiat: pending,
+  methods: pending,
+  offer: pending,
+  advertiserTerms: pending,
+  levelLimits: pending,
+} as unknown as PersonalPayApi;
 
 it('shows the whole create form, with review off until it is complete', () => {
   const out = renderToString(<OfferForm pay={stubPay} userId={SELLER} mode="create" offerId={null} />);

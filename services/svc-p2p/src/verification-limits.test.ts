@@ -323,7 +323,9 @@ describe('svc-p2p verification limits and security-change sell lock (P-disputes-
 
   it('caps the maker when a seller fills their buy ad, and refuses a numeric table', async () => {
     const capped = service({ verificationLimits: limits(row('0', '25', '30', '40')) });
-    const offer = await buy(capped, 'basic');
+    // Posted before this table was published: a buy ad past its maker's level now refuses at post
+    // (P-ads-merchant-02), so the take is the guard for the ads already listed.
+    const offer = await buy(service(), 'basic');
     await fund(TAKER, '100');
     const under = await capped.takeOffer({
       offerId: offer.id,
@@ -355,7 +357,7 @@ describe('svc-p2p verification limits and security-change sell lock (P-disputes-
     ).rejects.toMatchObject({ code: 'p2p.verification_order_max' });
 
     const broken = service({ verificationLimits: parseVerificationLimits('1') });
-    const untyped = await buy(broken, 'basic');
+    const untyped = await buy(service(), 'basic');
     await expect(
       broken.quoteTake({ offerId: untyped.id, takerId: TAKER, amount: parseAmount('26'), method: 'sepa', tier: 'institutional' }),
     ).rejects.toMatchObject({ code: 'p2p.verification_limits_invalid' });
@@ -371,7 +373,7 @@ describe('svc-p2p verification limits and security-change sell lock (P-disputes-
     ).rejects.toMatchObject({ code: 'p2p.verification_limits_invalid' });
 
     const missing = service({ verificationLimits: limits(row('0', '1000', '1000', '1000')) });
-    const bare = await buy(missing);
+    const bare = await buy(service());
     await expect(
       missing.takeOffer({
         offerId: bare.id,

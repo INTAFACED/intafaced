@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { test, expect } from '@playwright/test';
-import { api, fund, journeyState, tool } from './stack.mjs';
+import { api, fromUnits, fund, journeyState, tool, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { METHOD, p2p, refusalCode, testInstrument } from './p2p.mjs';
 
@@ -53,6 +53,9 @@ async function adsMarked(state, marker) {
 }
 
 /** Fills the post-an-ad form for a sell ad of USDT for EUR, paid by the stack's TEST bank transfer. */
+/** A decimal string as the customer app shows amounts: the whole part grouped by thousands (1000 is 1,000). */
+const grouped = (decimal) => decimal.replace(/^\d+/, (whole) => whole.replace(/\B(?=(\d{3})+$)/g, ','));
+
 async function fillAd(page, terms) {
   const form = page.getByTestId('offer-form');
   await expect(form).toBeVisible();
@@ -167,11 +170,27 @@ test('J-p2p-03 #4 a total above the free balance refuses with the free amount, a
   await expect(form.getByTestId('offer-available')).toContainText('Free to sell: 1,000 USDT');
 });
 
-test('J-p2p-03 #4 the per-order limits for my level are shown, and a maximum above them refuses', async () => {
+test('J-p2p-03 #4 the per-order limits for my level are shown, and a buy ad whose orders pass them refuses', async ({ page }) => {
   const state = journey();
   const s = await advertiser(state);
-  const levels = await s.bare.query('merchants.limitsByLevel');
-  expect(levels.status, 'svc-p2p has no per-level order limits yet (P-ads-merchant-02)').toBe(200);
+  // The level's per-order band, as svc-p2p reads it from the published table (TEST profile: 0.5 to 500 EUR).
+  const level = await s.bare.query('limits.verification');
+  expect(level.status, 'svc-p2p does not read the per-order limits for my level').toBe(200);
+  const { currency, orderMin, orderMax } = level.body.result.data;
+  // On a buy ad I am the buyer in every order, so my level caps each one: one coin past the level's maximum refuses.
+  const marker = `${state.marker}-level`;
+  const over = fromUnits((toUnits(orderMax) * 10n ** 18n) / toUnits(AD.price) + 10n ** 18n);
+  const refused = await s.raw.mutate('offers.create', {
+    ...sellAd(state, { side: 'buy', maxAmount: over, totalAmount: over, terms: `TEST terms ${marker}` }),
+    idempotencyKey: `${J}:level:${state.seller.handle}`,
+  });
+  expect(refusalCode(refused), 'a buy ad past my level was not refused (P-ads-merchant-02)').toBe('p2p.verification_order_max');
+  expect(refused.body.error.data.p2pLimit).toEqual({ until: null, min: orderMin, max: orderMax, currency });
+  expect(await adsMarked(state, marker)).toHaveLength(0);
+  // The form shows the same band before anything is posted.
+  await signIn(page, state.seller);
+  await page.goto('/uc/ad/create');
+  await expect(page.getByTestId('offer-level-limits')).toContainText(`): ${grouped(orderMin)} to ${grouped(orderMax)} ${currency}.`);
 });
 
 test('J-p2p-03 #5 a flagged phrase in the terms refuses with the rule class, and nothing is posted', async () => {
