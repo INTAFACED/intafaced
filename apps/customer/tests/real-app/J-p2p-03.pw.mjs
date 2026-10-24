@@ -203,6 +203,10 @@ test('J-p2p-03 #5 a flagged phrase in the terms refuses with the rule class, and
   });
   if (flagged.status === 200) await s.mutate('offers.close', { offerId: flagged.body.result.data.id });
   expect(refusalCode(flagged), 'ad terms are not screened yet (P-ads-merchant-05)').toBe('p2p.content_rule_violation');
+  // The refusal names the rule class, never the phrase it matched, and nothing is listed.
+  expect(flagged.body.error.message).toContain('"messenger"');
+  expect(flagged.body.error.message).not.toMatch(/telegram/i);
+  expect(await adsMarked(state, marker)).toHaveLength(0);
 });
 
 test('J-p2p-03 #6 the summary lists every field; confirming twice posts one ad, listed on the board and in My Ads', async ({ page }) => {

@@ -98,6 +98,7 @@ import {
   type PriceType,
   type ReferencePriceSource,
 } from './pricing.js';
+import { brokenRuleClass, type AdContentRules } from './ad-content-rules.js';
 import {
   buyAdRangeRefusal,
   isVerificationTier,
@@ -205,6 +206,8 @@ import {
 
 export type P2pErrorCode =
   | 'p2p.non_instant_not_accepted'
+  | 'p2p.content_rule_violation'
+  | 'p2p.content_rules_invalid'
   | 'p2p.dispute_before_settlement'
   | 'p2p.quote_not_found'
   | 'p2p.quote_mismatch'
@@ -794,6 +797,8 @@ export interface P2pServiceOptions {
    * leave posting as it was.
    */
   sellBalanceAtPost?: boolean;
+  /** P-ads-merchant-05. Compliance's content rules for an ad's terms. Absent: no list is published, the filter is off. */
+  adContentRules?: AdContentRules;
 }
 
 /**
@@ -1227,6 +1232,7 @@ export class P2pService {
   private readonly paymentRail: PaymentRail | null;
   private readonly advertiserTerms: AdvertiserTerms | undefined;
   private readonly sellBalanceAtPost: boolean;
+  private readonly adContentRules: AdContentRules;
   private tradingEnabled: boolean;
 
   /**
@@ -1268,6 +1274,7 @@ export class P2pService {
     this.paymentRail = options.paymentRail ?? null;
     this.advertiserTerms = options.advertiserTerms;
     this.sellBalanceAtPost = options.sellBalanceAtPost === true;
+    this.adContentRules = options.adContentRules ?? { status: 'absent' };
   }
 
   /** P-ads-merchant-01: the advertiser terms version to accept and the caller's acceptance, or `p2p.config_unset`. */
@@ -1651,10 +1658,11 @@ export class P2pService {
     totalAmt: Amount,
     retry: { idempotencyKey: string | undefined; offerId: string | undefined },
     shownTermsVersion: string | undefined,
-    buyRange?: BuyAdRange,
+    content: { buyRange?: BuyAdRange; terms?: string },
   ): Promise<void> {
     const checkBalance = this.sellBalanceAtPost && side === 'sell';
-    if (!this.advertiserTerms && !checkBalance && !buyRange) return;
+    const checkContent = this.adContentRules.status !== 'absent';
+    if (!this.advertiserTerms && !checkBalance && !content.buyRange && !checkContent) return;
     if (retry.idempotencyKey) {
       const published = await this.sql<{ subject_id: string | null }[]>`
         SELECT subject_id FROM p2p.write_keys
@@ -1665,12 +1673,27 @@ export class P2pService {
         SELECT id FROM p2p.offers WHERE id = ${retry.offerId} AND maker_id = ${makerId}`;
       if (published[0]) return;
     }
-    if (buyRange) this.assertBuyAdRange(buyRange);
+    this.assertAdContent(content.terms);
+    if (content.buyRange) this.assertBuyAdRange(content.buyRange);
     const [, free] = await Promise.all([
       this.advertiserTerms?.assertAccepted(makerId, shownTermsVersion),
       checkBalance ? this.sellBalance(makerId, asset) : null,
     ]);
     if (free !== null && compare(totalAmt, free) > 0) throw shortOf(free, totalAmt, asset, "this ad's total; nothing was posted");
+  }
+
+  /**
+   * P-ads-merchant-05. An ad's terms are screened against compliance's content rules (`ad-content-rules.ts`). The
+   * refusal names the rule class and never the matched phrase, so it cannot be used to read the list.
+   */
+  private assertAdContent(terms: string | undefined): void {
+    if (this.adContentRules.status === 'invalid') {
+      throw new P2pError('The published ad content rules are not a whole list, so no ad can be screened', 'p2p.content_rules_invalid');
+    }
+    const ruleClass = terms === undefined ? null : brokenRuleClass(this.adContentRules, terms);
+    if (ruleClass) {
+      throw new P2pError(`The ad's terms break the "${ruleClass}" content rule; nothing was saved`, 'p2p.content_rule_violation');
+    }
   }
 
   /**
@@ -1812,16 +1835,20 @@ export class P2pService {
       totalAmt,
       { idempotencyKey, offerId: clientOfferId },
       input.advertiserTermsVersion,
-      input.side === 'buy'
-        ? {
-            tier: input.makerTier,
-            fiatCurrency,
-            priceType: input.priceType,
-            price: input.price,
-            minAmt: input.minAmt,
-            maxAmt: input.maxAmt,
-          }
-        : undefined,
+      {
+        terms: input.terms,
+        buyRange:
+          input.side === 'buy'
+            ? {
+                tier: input.makerTier,
+                fiatCurrency,
+                priceType: input.priceType,
+                price: input.price,
+                minAmt: input.minAmt,
+                maxAmt: input.maxAmt,
+              }
+            : undefined,
+      },
     );
     const createHashValue = requestHash([
       input.makerId,
@@ -4457,6 +4484,8 @@ export class P2pService {
         }
         const methods = input.methods ?? offer.methods;
         const terms = input.terms ?? offer.terms;
+        // Edited terms are screened as new ones are; terms the edit leaves alone are not re-judged.
+        if (input.terms !== undefined) this.assertAdContent(input.terms);
         if (!Array.isArray(methods) || methods.length === 0) {
           throw new PricingError(resolveP2pCopy(P2P_COPY.offerMethodsRequired), 'p2p.offer_methods_required');
         }

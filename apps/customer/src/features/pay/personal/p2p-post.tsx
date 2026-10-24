@@ -175,7 +175,10 @@ function refusalKey(failure: Failure | null) {
     case 'p2p.instrument_kms_required':
       return 'keyOff' as const;
     case 'p2p.verification_limits_invalid':
+    case 'p2p.content_rules_invalid':
       return 'refusedConfig' as const;
+    case 'p2p.content_rule_violation':
+      return 'refusedContent' as const;
     case 'p2p.verification_limit_currency':
       return 'refusedLevelCurrency' as const;
     case 'p2p.verification_level_unwired':

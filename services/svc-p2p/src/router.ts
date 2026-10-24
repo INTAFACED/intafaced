@@ -596,6 +596,7 @@ function toTrpcError(err: unknown): TRPCError {
       case 'p2p.late_settlements_list_limit_unset':
       case 'p2p.trade_list_limit_unset':
       case 'p2p.config_unset':
+      case 'p2p.content_rules_invalid':
       case 'p2p.export_format_unbuilt':
       case 'p2p.ops_offers_limit_unset':
       case 'p2p.ops_trades_limit_unset':

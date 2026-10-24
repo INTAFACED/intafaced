@@ -125,6 +125,9 @@ describe('OfferSummary', () => {
     act(() => root?.unmount());
     root = null;
     expect((await render(summary('p2p.idempotency_conflict'))).textContent).toContain('This form already sent an ad');
+    act(() => root?.unmount());
+    root = null;
+    expect((await render(summary('p2p.content_rule_violation'))).textContent).toContain('Your terms include something an ad may not carry');
   });
 });
 
