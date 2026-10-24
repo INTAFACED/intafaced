@@ -132,11 +132,17 @@ export interface PnlChart {
   high: string;
 }
 
+/** One moment on a line over time: a USD figure, or null where it is missing. */
+export interface LinePoint {
+  at: string;
+  usd: string | null;
+}
+
 /**
- * The line, in whole-number coordinates made with bigint division (no money value becomes a float). The x axis is time,
- * so a gap keeps its width. Null when no point has a figure or the points span no time.
+ * A line over time, in whole-number coordinates made with bigint division (no money value becomes a float). The x axis is
+ * time, so a gap keeps its width. Null when no point has a figure or the points span no time.
  */
-export function pnlChart(points: readonly PnlPoint[], width: number, height: number): PnlChart | null {
+export function lineChart(points: readonly LinePoint[], width: number, height: number): PnlChart | null {
   const first = points[0];
   const last = points[points.length - 1];
   if (!first || !last) return null;
@@ -144,7 +150,7 @@ export function pnlChart(points: readonly PnlPoint[], width: number, height: num
   const span = BigInt(Date.parse(last.at)) - t0;
   if (span <= 0n) return null;
   const known = points.flatMap((point) => {
-    const usd = dec(point.totalUsd);
+    const usd = dec(point.usd);
     return usd === null ? [] : [usd];
   });
   const top = maxOf(known);
@@ -157,7 +163,7 @@ export function pnlChart(points: readonly PnlPoint[], width: number, height: num
   const runs: ChartPoint[][] = [];
   let run: ChartPoint[] = [];
   for (const point of points) {
-    const usd = dec(point.totalUsd);
+    const usd = dec(point.usd);
     if (usd === null) {
       if (run.length > 0) runs.push(run);
       run = [];
@@ -170,9 +176,14 @@ export function pnlChart(points: readonly PnlPoint[], width: number, height: num
   return {
     runs,
     zeroY: zeroOnChart ? String(yOf(ZERO)) : null,
-    low: points.find((p) => dec(p.totalUsd) === bottom)!.totalUsd!,
-    high: points.find((p) => dec(p.totalUsd) === top)!.totalUsd!,
+    low: points.find((p) => dec(p.usd) === bottom)!.usd!,
+    high: points.find((p) => dec(p.usd) === top)!.usd!,
   };
+}
+
+/** The cumulative profit and loss line's points (J-portfolio-05 #4). */
+export function pnlLinePoints(points: readonly PnlPoint[]): LinePoint[] {
+  return points.map((point) => ({ at: point.at, usd: point.totalUsd }));
 }
 
 /** Every coin a missing point names, once per reason, and how many points are missing. */

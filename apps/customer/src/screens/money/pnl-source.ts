@@ -13,6 +13,7 @@ import {
   type MissingBasis,
 } from './pnl-model';
 import { pnlOverTimeSchema, type PnlOverTime } from './pnl-time-model';
+import { BANK_VALUE_HISTORY_UNAVAILABLE, VALUE_PRICES_DOWN, bankValueOverTimeSchema, type BankValueOverTime } from './value-time-model';
 
 const LOT_BOOK_INTERVAL = 60_000;
 
@@ -92,6 +93,38 @@ export function usePnlOverTime(ask: { from: string; to?: string; utcOffsetMinute
         intervalMs: LOT_BOOK_INTERVAL,
       });
     }, [env, from, to, offset]),
+  );
+}
+
+/** The bank's own answers that it cannot read now: they arrive as a 503, which the poller would read as a broken link. */
+const VALUE_DOWN = [VALUE_PRICES_DOWN, BANK_VALUE_HISTORY_UNAVAILABLE];
+/** A range that ended before now cannot change but by a late posting, so it is read again rarely. */
+const PAST_RANGE_INTERVAL = 15 * 60_000;
+
+/**
+ * `bank.portfolio.valueOverTime`: what the caller's main account and Spaces were worth over a range, and the
+ * change-in-value bridge. `null`: nothing to ask (the room says why).
+ */
+export function useValueOverTime(ask: { from: string; to?: string } | null): Loadable<BankValueOverTime> {
+  const env = useDataEnv();
+  const from = ask?.from;
+  const to = ask?.to;
+  return useSource(
+    useMemo(() => {
+      if (from === undefined) return constantSource<BankValueOverTime>({ status: 'empty' });
+      if (!env.userId) return constantSource<BankValueOverTime>({ status: 'refused', code: 'auth.required' });
+      const input = { from, ...(to === undefined ? {} : { to }) };
+      return env.poller.source<BankValueOverTime>(
+        `bank-value-over-time:${env.userId}:${from}:${to ?? 'now'}`,
+        async (signal) => {
+          const result = await env.api.query('bank', 'portfolio.valueOverTime', input, bankValueOverTimeSchema, { signal });
+          if (result.ok) return result;
+          const down = VALUE_DOWN.find((code) => result.code === code || result.message.includes(code));
+          return down ? { ok: false, reason: result.reason, code: down, status: 409 } : result;
+        },
+        { intervalMs: to !== undefined && Date.parse(to) <= Date.now() ? PAST_RANGE_INTERVAL : LOT_BOOK_INTERVAL },
+      );
+    }, [env, from, to]),
   );
 }
 

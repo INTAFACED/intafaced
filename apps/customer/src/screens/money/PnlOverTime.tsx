@@ -1,53 +1,28 @@
-import { useMemo, useState, type PointerEvent } from 'react';
+import { useMemo } from 'react';
 import { moneyCopy } from './copy';
-import { Amount, Button, Skeleton, StateBlock, fmtUsd, navigate, refusalCopy } from './deps';
+import { Amount, Skeleton, StateBlock, fmtUsd, refusalCopy } from './deps';
 import type { LotBook } from './pnl-model';
 import { usePnlOverTime } from './pnl-source';
 import {
   BREAKDOWNS,
   BREAKDOWN_MAX_DAYS,
-  PNL_RANGES,
   breakdownFromQuery,
-  dayOf,
   firstActivity,
   marketKey,
   missingOf,
+  pnlLinePoints,
   offsetMinutes,
-  pnlChart,
   rangeFromQuery,
   rangeKey,
-  rangeSearch,
   resolveRange,
   type Breakdown,
   type PnlOverTime,
-  type PnlRange,
 } from './pnl-time-model';
+import { INTERVAL_COPY, LINE_H, RangePicker, TimeLine, go } from './time-line';
 import { stamp } from './time';
 import { usePreferences } from '../../shared/preferences';
 
 type Copy = ReturnType<typeof moneyCopy.useCopy>;
-
-const W = 1000;
-const H = 240;
-
-const RANGE_COPY: Record<PnlRange, 'Range 1D' | 'Range 1W' | 'Range 1M' | 'Range 1Y' | 'Range all'> = {
-  '1D': 'Range 1D',
-  '1W': 'Range 1W',
-  '1M': 'Range 1M',
-  '1Y': 'Range 1Y',
-  all: 'Range all',
-};
-
-const INTERVAL_COPY: Record<
-  PnlOverTime['interval'],
-  'Point every 5m' | 'Point every 1h' | 'Point every 4h' | 'Point every 1d' | 'Point every 1w'
-> = {
-  '5m': 'Point every 5m',
-  '1h': 'Point every 1h',
-  '4h': 'Point every 4h',
-  '1d': 'Point every 1d',
-  '1w': 'Point every 1w',
-};
 
 const MISSING_COPY: Record<PnlOverTime['points'][number]['missing'][number]['reason'], 'Missing no price' | 'Missing cost unknown'> = {
   no_price: 'Missing no price',
@@ -72,175 +47,21 @@ function usdText(value: string | null, copy: Copy): string {
   return value === null ? copy.t('Not known') : fmtUsd(value, { showPlus: true });
 }
 
-function go(search: string) {
-  navigate(`/money/pnl${search === '' ? '' : `?${search}`}`, true);
-}
-
-/** The preset switch and the two dates of a custom range. Both live in the link, like the result view. */
-function RangePicker({ search, offset, copy }: { search: string; offset: number; copy: Copy }) {
-  const { t } = copy;
-  const ask = rangeFromQuery(search);
-  const today = dayOf(Date.now(), offset);
-  const [fromDay, setFromDay] = useState(ask.kind === 'custom' ? ask.fromDay : '');
-  const [toDay, setToDay] = useState(ask.kind === 'custom' ? ask.toDay : today);
-  const ready = fromDay !== '' && toDay !== '' && fromDay <= toDay;
-  return (
-    <div className="money-pnl-range">
-      <div className="money-alloc__switch" role="group" aria-label={t('Pnl range')}>
-        {PNL_RANGES.map((option) => (
-          <button
-            key={option}
-            type="button"
-            className="money-alloc__opt"
-            aria-pressed={ask.kind === 'preset' && ask.range === option}
-            onClick={() => go(rangeSearch(search, { range: option }))}
-          >
-            {t(RANGE_COPY[option])}
-          </button>
-        ))}
-      </div>
-      <form
-        className="money-pnl-range__dates"
-        aria-label={t('Pnl custom range')}
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (ready) go(rangeSearch(search, { fromDay, toDay }));
-        }}
-      >
-        <label className="money-note-form__label">
-          {t('Range from')}{' '}
-          <input
-            type="date"
-            className="money-note-form__input"
-            value={fromDay}
-            max={today}
-            onChange={(event) => setFromDay(event.target.value)}
-          />
-        </label>
-        <label className="money-note-form__label">
-          {t('Range to')}{' '}
-          <input
-            type="date"
-            className="money-note-form__input"
-            value={toDay}
-            max={today}
-            onChange={(event) => setToDay(event.target.value)}
-          />
-        </label>
-        <Button type="submit" variant="secondary" size={40} disabled={!ready}>
-          {t('Show range')}
-        </Button>
-      </form>
-    </div>
-  );
-}
-
-/**
- * The cumulative line (J-portfolio-05 #4). Time runs along the bottom, so a missing stretch is a gap of its real width,
- * never a drop to zero. Hovering names the nearest point; the table under it carries every point for anyone who cannot
- * see the line.
- */
+/** The cumulative line (J-portfolio-05 #4). */
 function PnlLine({ data, hidden, copy }: { data: PnlOverTime; hidden: boolean; copy: Copy }) {
-  const { t } = copy;
   const { timeZone } = usePreferences();
-  const chart = useMemo(() => pnlChart(data.points, W, H), [data.points]);
-  const [hover, setHover] = useState<number | null>(null);
-  const t0 = Date.parse(data.points[0]?.at ?? '');
-  const span = Date.parse(data.points[data.points.length - 1]?.at ?? '') - t0;
-  const label = t('Pnl chart label', { from: stamp(data.from, timeZone), to: stamp(data.to, timeZone) });
-  const pick = (event: PointerEvent<SVGSVGElement>) => {
-    const box = event.currentTarget.getBoundingClientRect();
-    if (box.width <= 0 || !(span > 0)) return;
-    const at = t0 + ((event.clientX - box.left) / box.width) * span;
-    let best = 0;
-    data.points.forEach((point, index) => {
-      if (Math.abs(Date.parse(point.at) - at) < Math.abs(Date.parse(data.points[best]!.at) - at)) best = index;
-    });
-    setHover(best);
-  };
-  const focus = hover === null ? null : data.points[hover]!;
-  if (!chart) return <p className="money-note">{t('Pnl chart none')}</p>;
+  const points = useMemo(() => pnlLinePoints(data.points), [data.points]);
   return (
-    <figure className="money-pnl-chart">
-      <div className="money-pnl-chart__plot">
-        <svg
-          viewBox={`0 0 ${W} ${H}`}
-          preserveAspectRatio="none"
-          role="img"
-          aria-label={label}
-          data-chart="pnl-cumulative"
-          onPointerMove={pick}
-          onPointerLeave={() => setHover(null)}
-        >
-          {chart.zeroY !== null ? (
-            <line
-              x1="0"
-              x2={W}
-              y1={chart.zeroY}
-              y2={chart.zeroY}
-              stroke="var(--if-line-stronger)"
-              strokeDasharray="6 6"
-              vectorEffect="non-scaling-stroke"
-            />
-          ) : null}
-          {chart.runs.map((run, index) =>
-            run.length === 1 ? (
-              <line
-                key={index}
-                x1={run[0]!.x}
-                x2={run[0]!.x}
-                y1={run[0]!.y}
-                y2={run[0]!.y}
-                stroke="var(--if-lime)"
-                strokeWidth="8"
-                strokeLinecap="round"
-                vectorEffect="non-scaling-stroke"
-                data-run={index}
-              />
-            ) : (
-              <polyline
-                key={index}
-                points={run.map((p) => `${p.x},${p.y}`).join(' ')}
-                fill="none"
-                stroke="var(--if-lime)"
-                strokeWidth="2"
-                strokeLinejoin="round"
-                vectorEffect="non-scaling-stroke"
-                data-run={index}
-              />
-            ),
-          )}
-          {focus && span > 0 ? (
-            <line
-              x1={String(Math.round(((Date.parse(focus.at) - t0) / span) * W))}
-              x2={String(Math.round(((Date.parse(focus.at) - t0) / span) * W))}
-              y1="0"
-              y2={H}
-              stroke="var(--if-line-stronger)"
-              vectorEffect="non-scaling-stroke"
-            />
-          ) : null}
-        </svg>
-        {focus ? (
-          <p className="money-pnl-chart__tip" role="status" data-at={focus.at}>
-            {stamp(focus.at, timeZone)}:{' '}
-            {focus.totalUsd === null ? (
-              t('Pnl point missing')
-            ) : (
-              <Amount value={fmtUsd(focus.totalUsd, { showPlus: true })} hidden={hidden} />
-            )}
-          </p>
-        ) : null}
-      </div>
-      <figcaption className="money-pnl-chart__axis">
-        <span>{stamp(data.from, timeZone)}</span>
-        <span>
-          {t('Pnl chart low')} <Amount value={fmtUsd(chart.low, { showPlus: true })} hidden={hidden} /> · {t('Pnl chart high')}{' '}
-          <Amount value={fmtUsd(chart.high, { showPlus: true })} hidden={hidden} />
-        </span>
-        <span>{stamp(data.to, timeZone)}</span>
-      </figcaption>
-    </figure>
+    <TimeLine
+      points={points}
+      from={data.from}
+      to={data.to}
+      label={copy.t('Pnl chart label', { from: stamp(data.from, timeZone), to: stamp(data.to, timeZone) })}
+      chart="pnl-cumulative"
+      signed
+      hidden={hidden}
+      copy={copy}
+    />
   );
 }
 
@@ -425,7 +246,7 @@ export function PnlOverTimeCards({ book, search, hidden }: { book: LotBook; sear
   } else if (range === null || result.status === 'empty') {
     body = <p className="money-note">{t('Range nothing yet')}</p>;
   } else if (result.status === 'loading') {
-    body = <Skeleton width="100%" height={H} className="bg-field" />;
+    body = <Skeleton width="100%" height={LINE_H} className="bg-field" />;
   } else if (result.status === 'error') {
     body = (
       <StateBlock

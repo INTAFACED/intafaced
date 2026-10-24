@@ -41,7 +41,14 @@ import { eventPersonalTransferNotices } from './transfers/transfer-notices.js';
 import { eventScheduledNotices } from './rules/scheduled-notices.js';
 import { tickerPriceSource } from './loans/prices.js';
 import { httpTickerSource } from './portfolio/portfolio-service.js';
-import { createLedgerAssetRegistry, createLedgerClient, createLedgerHistory, createLedgerHistoryPages } from './ledger-client.js';
+import { httpCloseSeries } from './portfolio/candles.js';
+import {
+  createLedgerAssetRegistry,
+  createLedgerClient,
+  createLedgerHistory,
+  createLedgerHistoryPages,
+  createLedgerHoldingsHistory,
+} from './ledger-client.js';
 import { createAffiliateAccrueClient } from './affiliate-accrue.js';
 import { createAffiliatePayoutClient } from './affiliate-payout.js';
 import { createBankRouter, type BankRouter } from './router.js';
@@ -235,6 +242,9 @@ const bank = createBankServices(sql, ledger, history, {
     tickers: httpTickerSource({ baseUrl: env.TRADE_URL }),
     // The entries behind a balance: svc-ledger `historyPage`, read only.
     pages: createLedgerHistoryPages(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s),
+    // Value over time: svc-ledger `holdingsHistory` and svc-trade's public candles, both read only.
+    history: createLedgerHoldingsHistory(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s),
+    closes: httpCloseSeries({ baseUrl: env.TRADE_URL }),
   },
   autoInvest: {
     enabled: env.AUTO_INVEST_ENABLED,

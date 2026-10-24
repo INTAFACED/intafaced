@@ -4,12 +4,25 @@ import {
   accountPurpose,
   DECIMALS,
   formatAmount,
+  LedgerError,
   parseAmount,
   type Amount,
   type Balance,
   type LedgerClient,
 } from '@intafaced/ledger-client';
+import {
+  BANK_VALUE_HISTORY_TOO_LARGE,
+  BANK_VALUE_HISTORY_UNAVAILABLE,
+  BANK_VALUE_RANGE_INVALID,
+  BANK_VALUE_RANGE_TOO_LONG,
+  LEDGER_HOLDINGS_HISTORY_TOO_LARGE,
+  type BankValueOverTime,
+  type LedgerHoldingsHistory,
+} from '@intafaced/contracts';
 import { BankError } from '../errors.js';
+import type { LedgerHoldingsHistoryReads } from '../ledger-client.js';
+import type { CloseSeries, CloseSeriesSource } from './candles.js';
+import { bucketOf, chooseInterval, coinsOf, gridOf, valueOverTime } from './value-history.js';
 import {
   ActivityLookupBoundedError,
   ActivityUnavailableError,
@@ -199,7 +212,21 @@ export interface PortfolioServiceOptions {
   tickers?: TickerSource;
   /** svc-ledger `historyPage`, read only. Unset = `balanceEntries` refuses `ActivityUnavailableError`. */
   pages?: LedgerHistoryPages;
+  /** svc-ledger `holdingsHistory`, read only. Unset = `valueOverTime` refuses `bank.value_history_unavailable`. */
+  history?: LedgerHoldingsHistoryReads;
+  /** svc-trade's public candles. Unset = `valueOverTime` refuses `bank.prices_unavailable` once a coin needs a price. */
+  closes?: CloseSeriesSource;
   now?: () => Date;
+}
+
+/** Ledger history reads and candle reads run this many at a time. */
+const VALUE_READ_PARALLEL = 8;
+
+async function inBatches<T, R>(items: readonly T[], each: (item: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = [];
+  for (let i = 0; i < items.length; i += VALUE_READ_PARALLEL)
+    out.push(...(await Promise.all(items.slice(i, i + VALUE_READ_PARALLEL).map(each))));
+  return out;
 }
 
 /** Entries read per ledger page, and the most pages read for one balance before it is called too long to prove. */
@@ -230,11 +257,15 @@ export interface BalanceEntriesPage {
 /** The slice of SpaceService the total needs: the user's named Spaces (live, plus archived ones that still hold value). */
 export interface SpaceLister {
   namedSpaces(userId: string): Promise<SpaceRecord[]>;
+  /** Every named Space the user has owned, archived ones too: for a history read (value over time). */
+  allNamedSpaces?(userId: string): Promise<SpaceRecord[]>;
 }
 
 export class PortfolioService {
   private readonly tickers: TickerSource | undefined;
   private readonly pages: LedgerHistoryPages | undefined;
+  private readonly history: LedgerHoldingsHistoryReads | undefined;
+  private readonly closes: CloseSeriesSource | undefined;
   private readonly now: () => Date;
 
   constructor(
@@ -244,7 +275,66 @@ export class PortfolioService {
   ) {
     this.tickers = options.tickers;
     this.pages = options.pages;
+    this.history = options.history;
+    this.closes = options.closes;
     this.now = options.now ?? (() => new Date());
+  }
+
+  /**
+   * What the caller's holdings were worth over a range, and the change-in-value bridge between its ends (J-portfolio-05
+   * #6-#7). The same accounts as the Money total (main account and every named Space of this user, from svc-bank's own
+   * table, so no other owner is ever read), replayed from svc-ledger's holdings history and valued from svc-trade's
+   * candles. Read only; self only: `userId` is the verified principal.
+   */
+  async valueOverTime(userId: string, input: { from: string; to?: string }): Promise<BankValueOverTime> {
+    const now = this.now();
+    const from = new Date(input.from);
+    const asked = input.to === undefined ? now : new Date(input.to);
+    const to = asked.getTime() > now.getTime() ? now : asked;
+    if (!(from.getTime() < to.getTime()))
+      throw new BankError('The range must start before it ends, and before now', BANK_VALUE_RANGE_INVALID);
+    const interval = chooseInterval(from, to, now);
+    if (interval === null) throw new BankError('The range starts too long ago to be priced: pick a later start', BANK_VALUE_RANGE_TOO_LONG);
+    const grid = gridOf(from, to, now, interval);
+    if (grid === null) throw new BankError('The range is shorter than one step of its chart: pick a longer one', BANK_VALUE_RANGE_INVALID);
+    if (!this.history) throw new BankError('Value history is not available right now', BANK_VALUE_HISTORY_UNAVAILABLE);
+    const history = this.history;
+
+    const owners: Array<{ ownerType: 'user' | 'subaccount'; ownerId: string }> = [
+      { ownerType: 'user', ownerId: userId },
+      // Archived Spaces too: one emptied back to main inside the range held value before it, and its half of the move
+      // back must cancel the main account's half.
+      ...(await this.everyNamedOf(userId)).map((s) => ({ ownerType: 'subaccount' as const, ownerId: s.id })),
+    ];
+    let histories: LedgerHoldingsHistory[];
+    try {
+      histories = await inBatches(owners, (owner) =>
+        history.holdingsHistory({ ...owner, from: grid.samples[0]!.toISOString(), bucketSeconds: bucketOf(interval) }),
+      );
+    } catch (err) {
+      if (err instanceof LedgerError && err.code === LEDGER_HOLDINGS_HISTORY_TOO_LARGE) {
+        throw new BankError(
+          'Too much has happened since this range starts to show at once: pick a later start',
+          BANK_VALUE_HISTORY_TOO_LARGE,
+        );
+      }
+      throw new BankError('Value history is not available right now', BANK_VALUE_HISTORY_UNAVAILABLE);
+    }
+
+    const coins = coinsOf(histories);
+    const closes = new Map<string, CloseSeries | null>();
+    if (coins.length > 0) {
+      const source = this.closes;
+      if (!source) throw unavailable();
+      const end = grid.samples[grid.samples.length - 1]!;
+      try {
+        const series = await inBatches(coins, (assetId) => source.closes(assetId, interval, grid.samples[0]!, end));
+        coins.forEach((assetId, i) => closes.set(assetId, series[i]!));
+      } catch {
+        throw unavailable();
+      }
+    }
+    return valueOverTime({ histories, interval, samples: grid.samples, live: grid.live, closes });
   }
 
   /**
@@ -452,6 +542,11 @@ export class PortfolioService {
     const space = (await this.namedOf(userId)).find((s) => s.id.toLowerCase() === wanted);
     if (!space) throw new BankError('That account is not yours', 'bank.space_not_found');
     return this.ledger.balances('subaccount', space.id);
+  }
+
+  private async everyNamedOf(userId: string): Promise<SpaceRecord[]> {
+    const rows = this.spaces.allNamedSpaces ? await this.spaces.allNamedSpaces(userId) : await this.spaces.namedSpaces(userId);
+    return rows.filter((s) => s.kind === 'named' && s.userId === userId);
   }
 
   private async namedOf(userId: string): Promise<SpaceRecord[]> {

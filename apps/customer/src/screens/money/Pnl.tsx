@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { InfoTip } from './InfoTip';
 import { moneyCopy } from './copy';
 import { Amount, Button, Skeleton, StateBlock, Switch, fmtAmount, fmtPct, fmtUsd, navigate, refusalCopy, type Loadable } from './deps';
@@ -34,6 +34,8 @@ import {
 } from './pnl-model';
 import { useBasisOverride, useLotBook, useMissingBasis, useSaveLotChoice, type BasisOutcome, type LotChoice } from './pnl-source';
 import { PnlOverTimeCards } from './PnlOverTime';
+import { firstActivity } from './pnl-time-model';
+import { ValueOverTimeCards } from './ValueOverTime';
 import { useMoneyPortfolio } from './portfolio-source';
 import { stamp } from './time';
 import { usePreferences } from '../../shared/preferences';
@@ -907,6 +909,9 @@ export default function Pnl({ search = '' }: { search?: string }) {
   const figures = useMemo(() => (book.status === 'ready' ? pnlFigures(book.data, rows, Date.now()) : null), [book, rows]);
 
   let body;
+  // What follows the value cards; they keep one place on the page, so a book that loads never re-mounts them.
+  let after: ReactNode = null;
+  let pnlShown = false;
   if (book.status === 'loading') {
     body = <Skeleton width="100%" height={160} className="bg-field" />;
   } else if (book.status === 'error') {
@@ -949,6 +954,7 @@ export default function Pnl({ search = '' }: { search?: string }) {
       />
     );
   } else {
+    pnlShown = true;
     const reasons = book.data.residuals.flatMap((code) => (RESIDUAL_COPY[code] ? [RESIDUAL_COPY[code]!] : []));
     const data = book.data;
     // Choices are made on the saved book, never on a preview, and only where they can be saved.
@@ -1015,6 +1021,10 @@ export default function Pnl({ search = '' }: { search?: string }) {
         ) : null}
         <TransfersCard book={data} save={canChoose ? transfers.save : null} busy={transfers.busy} message={transfers.message} copy={copy} />
         <PnlOverTimeCards book={data} search={search} hidden={hideBalances} />
+      </>
+    );
+    after = (
+      <>
         {reasons.length > 0 ? (
           <ul className="money-note" aria-label={t('Why some figures are not known')}>
             {[...new Set(reasons)].map((key) => (
@@ -1055,6 +1065,15 @@ export default function Pnl({ search = '' }: { search?: string }) {
       <MethodSwitch method={method} onChange={pick} copy={copy} />
       <p className="money-note">{t('Pnl method rule')}</p>
       {body}
+      {/* What the money was worth comes from the bank alone, so it shows without trades or when the lot book cannot be read;
+          it carries the range switch itself when the profit and loss cards are not shown. */}
+      <ValueOverTimeCards
+        search={search}
+        first={book.status === 'ready' ? firstActivity(book.data) : null}
+        picker={!pnlShown}
+        hidden={hideBalances}
+      />
+      {after}
       <p className="money-note">
         <a
           href="/money"

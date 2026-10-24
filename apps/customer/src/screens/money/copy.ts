@@ -266,6 +266,29 @@ const messages = {
   'Breakdown rule':
     'The rows add up to the change over this range: the sales made in it, plus the change in what the coins held were worth less their cost. The change is not known when any coin’s part is not.',
   'Pnl days in zone': 'Days start at midnight in your time zone ({zone}).',
+  // Value over time and the change-in-value bridge (J-portfolio-05 #6 and #7)
+  'Value over time': 'What your money was worth',
+  'Value over time rule':
+    'Each point is what your main account and Spaces held at that moment, valued at the last closed price. Dollar coins count as 1 USD. A moment when a coin you held had no price is missing, never zero.',
+  'Value over time unreadable': 'Couldn’t load what your money was worth over time',
+  'Value chart label': 'What your money was worth from {from} to {to}',
+  'Value point total': 'Worth',
+  'Value points table': 'Every point on the worth line',
+  'Value history too large': 'Too much has happened since this range starts to show it at once. Pick a later start.',
+  'Value all needs a start': '“All” starts at your first trade, and there is none yet. Pick another range, or two dates.',
+  'Value history unavailable': 'Your money’s history can’t be read right now. Try again later.',
+  Bridge: 'Change in value',
+  'Bridge range': 'From {from} to {to}',
+  'Bridge opening': 'Worth at the start',
+  'Bridge deposits': 'Deposits',
+  'Bridge withdrawals': 'Withdrawals',
+  'Bridge fees': 'Fees',
+  'Bridge other': 'Other money in and out',
+  'Bridge market': 'Market move',
+  'Bridge closing': 'Worth at the end',
+  'Bridge unknown': 'Not known, because there is no price at that time for: {assets}.',
+  'Bridge rule':
+    'The worth at the start, plus deposits, less withdrawals and fees, plus other money in and out (transfers with other people, payments, rewards), plus the market move, is the worth at the end. The market move is what is left: what prices and your trades did. Moves between your own accounts cancel out.',
   'Transfers in results': 'Deposits and withdrawals',
   'Include transfers': 'Count deposits and withdrawals',
   'Transfers on rule':
