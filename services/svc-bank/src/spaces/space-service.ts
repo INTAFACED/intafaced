@@ -33,6 +33,8 @@ export function requireSpaceLimit(raw: string | undefined): number {
 export interface SpaceServiceOptions {
   /** The owner's space limit, read on each call so a change takes effect without a restart. */
   readonly spaceLimit?: () => string | undefined;
+  /** The owner's early-unlock wait in hours (`BANK_SPACE_UNLOCK_WAIT_HOURS`), read on each ask. */
+  readonly unlockWaitHours?: () => string | undefined;
 }
 
 /** One message for frozen, closed and unknown. Never says which. */
@@ -64,6 +66,10 @@ export interface SpaceRecord {
   name: string;
   goalTarget: Amount | null;
   lockedUntil: Date | null;
+  /** When the owner confirmed an early unlock (BK-pots-02); null when none is asked for. */
+  unlockRequestedAt: Date | null;
+  /** When that early unlock takes effect, never later than `lockedUntil`. Set together with `unlockRequestedAt`. */
+  unlocksAt: Date | null;
   archivedAt: Date | null;
 }
 
@@ -75,6 +81,8 @@ interface SpaceRow {
   name: string;
   goal_target: string | null;
   locked_until: Date | null;
+  unlock_requested_at: Date | null;
+  unlocks_at: Date | null;
   archived_at: Date | null;
 }
 
@@ -87,6 +95,8 @@ function toRecord(row: SpaceRow): SpaceRecord {
     name: row.name,
     goalTarget: row.goal_target === null ? null : parseAmount(row.goal_target),
     lockedUntil: row.locked_until,
+    unlockRequestedAt: row.unlock_requested_at,
+    unlocksAt: row.unlocks_at,
     archivedAt: row.archived_at,
   };
 }
@@ -107,6 +117,31 @@ function orderSpaces(spaces: readonly SpaceRecord[], groupByAsset: boolean): Spa
  */
 export function accountForSpace(space: Pick<SpaceRecord, 'id' | 'userId' | 'assetId' | 'kind'>): AccountRef {
   return space.kind === 'primary' ? userAvailable(space.userId, space.assetId) : subAccountAvailable(space.id, space.assetId);
+}
+
+/**
+ * When a pot's lock ends, or null when it is not locked at `now`. A lock runs to `lockedUntil`; an early unlock the owner
+ * asked for ends it at `unlocksAt` instead (BK-pots-02). Debits, the list and the pot page all read this one answer.
+ */
+export function lockEnd(space: Pick<SpaceRecord, 'lockedUntil' | 'unlocksAt'>, now: Date): Date | null {
+  if (!space.lockedUntil || space.lockedUntil <= now) return null;
+  if (space.unlocksAt && space.unlocksAt <= now) return null;
+  return space.unlocksAt ?? space.lockedUntil;
+}
+
+/** Owner-set hours an early unlock waits before the pot opens (BK-pots-02). */
+export const BANK_SPACE_UNLOCK_WAIT_HOURS_ENV = 'BANK_SPACE_UNLOCK_WAIT_HOURS';
+
+/** Unset, blank or not a whole number of hours (0 to 8760) refuses `bank.space_unlock_rule_unset`. No default. */
+export function requireUnlockWaitHours(raw: string | undefined): number {
+  const trimmed = raw?.trim() ?? '';
+  if (!/^[0-9]{1,4}$/.test(trimmed) || Number.parseInt(trimmed, 10) > 8760) {
+    throw new BankError(
+      'The owner has not set how long an early unlock waits, so the pot stays locked until its date',
+      'bank.space_unlock_rule_unset',
+    );
+  }
+  return Number.parseInt(trimmed, 10);
 }
 
 /** What the user holds in their main account: available balances above zero, optionally for one asset. */
@@ -173,14 +208,14 @@ export class SpaceService {
       INSERT INTO bank.spaces (user_id, asset_id, kind, name)
       VALUES (${userId}, ${assetId}, 'primary', ${name})
       ON CONFLICT DO NOTHING
-      RETURNING id, user_id, asset_id, kind, name, goal_target, locked_until, archived_at
+      RETURNING id, user_id, asset_id, kind, name, goal_target, locked_until, unlock_requested_at, unlocks_at, archived_at
     `;
 
     const inserted = rows[0];
     if (inserted) return toRecord(inserted);
 
     const existing = await db<SpaceRow[]>`
-      SELECT id, user_id, asset_id, kind, name, goal_target, locked_until, archived_at
+      SELECT id, user_id, asset_id, kind, name, goal_target, locked_until, unlock_requested_at, unlocks_at, archived_at
         FROM bank.spaces WHERE user_id = ${userId} AND asset_id = ${assetId} AND kind = 'primary'
     `;
     const row = existing[0];
@@ -210,7 +245,7 @@ export class SpaceService {
     const id = userId.trim();
     if (!id) return null;
     const rows = await this.sql<SpaceRow[]>`
-      SELECT id, user_id, asset_id, kind, name, goal_target, locked_until, archived_at
+      SELECT id, user_id, asset_id, kind, name, goal_target, locked_until, unlock_requested_at, unlocks_at, archived_at
         FROM bank.spaces
        WHERE user_id = ${id} AND asset_id = ${assetId} AND kind = 'primary' AND archived_at IS NULL
     `;
@@ -314,7 +349,7 @@ export class SpaceService {
         ${input.goalTarget === undefined || input.goalTarget === null ? null : formatAmount(input.goalTarget)}::numeric,
         ${input.lockedUntil ?? null}
       )
-      RETURNING id, user_id, asset_id, kind, name, goal_target, locked_until, archived_at
+      RETURNING id, user_id, asset_id, kind, name, goal_target, locked_until, unlock_requested_at, unlocks_at, archived_at
     `;
     return toRecord(rows[0]!);
   }
@@ -340,7 +375,7 @@ export class SpaceService {
    */
   async find(spaceId: string, db: Sql = this.sql): Promise<SpaceRecord | null> {
     const rows = await db<SpaceRow[]>`
-      SELECT id, user_id, asset_id, kind, name, goal_target, locked_until, archived_at
+      SELECT id, user_id, asset_id, kind, name, goal_target, locked_until, unlock_requested_at, unlocks_at, archived_at
         FROM bank.spaces WHERE id = ${spaceId}
     `;
     const row = rows[0];
@@ -365,12 +400,12 @@ export class SpaceService {
   async namedSpaces(userId: string, assetId?: string): Promise<SpaceRecord[]> {
     const rows = assetId
       ? await this.sql<SpaceRow[]>`
-          SELECT id, user_id, asset_id, kind, name, goal_target, locked_until, archived_at
+          SELECT id, user_id, asset_id, kind, name, goal_target, locked_until, unlock_requested_at, unlocks_at, archived_at
             FROM bank.spaces WHERE user_id = ${userId} AND asset_id = ${assetId} AND archived_at IS NULL
             ORDER BY kind DESC, name ASC
         `
       : await this.sql<SpaceRow[]>`
-          SELECT id, user_id, asset_id, kind, name, goal_target, locked_until, archived_at
+          SELECT id, user_id, asset_id, kind, name, goal_target, locked_until, unlock_requested_at, unlocks_at, archived_at
             FROM bank.spaces WHERE user_id = ${userId} AND archived_at IS NULL
             ORDER BY asset_id ASC, kind DESC, name ASC
         `;
@@ -387,12 +422,12 @@ export class SpaceService {
   async allNamedSpaces(userId: string, assetId?: string): Promise<SpaceRecord[]> {
     const rows = assetId
       ? await this.sql<SpaceRow[]>`
-          SELECT id, user_id, asset_id, kind, name, goal_target, locked_until, archived_at
+          SELECT id, user_id, asset_id, kind, name, goal_target, locked_until, unlock_requested_at, unlocks_at, archived_at
             FROM bank.spaces WHERE user_id = ${userId} AND asset_id = ${assetId} AND kind = 'named'
             ORDER BY asset_id ASC, name ASC, id ASC
         `
       : await this.sql<SpaceRow[]>`
-          SELECT id, user_id, asset_id, kind, name, goal_target, locked_until, archived_at
+          SELECT id, user_id, asset_id, kind, name, goal_target, locked_until, unlock_requested_at, unlocks_at, archived_at
             FROM bank.spaces WHERE user_id = ${userId} AND kind = 'named'
             ORDER BY asset_id ASC, name ASC, id ASC
         `;
@@ -403,13 +438,13 @@ export class SpaceService {
     const page = assertSpacesListLimit(limit);
     const rows = assetId
       ? await this.sql<SpaceRow[]>`
-          SELECT id, user_id, asset_id, kind, name, goal_target, locked_until, archived_at
+          SELECT id, user_id, asset_id, kind, name, goal_target, locked_until, unlock_requested_at, unlocks_at, archived_at
             FROM bank.spaces WHERE user_id = ${userId} AND asset_id = ${assetId} AND archived_at IS NULL AND removed_at IS NULL
             ORDER BY kind DESC, name ASC
            LIMIT ${page}
         `
       : await this.sql<SpaceRow[]>`
-          SELECT id, user_id, asset_id, kind, name, goal_target, locked_until, archived_at
+          SELECT id, user_id, asset_id, kind, name, goal_target, locked_until, unlock_requested_at, unlocks_at, archived_at
             FROM bank.spaces WHERE user_id = ${userId} AND archived_at IS NULL AND removed_at IS NULL
             ORDER BY asset_id ASC, kind DESC, name ASC
            LIMIT ${page}
@@ -508,11 +543,12 @@ export class SpaceService {
   async resolveForDebit(spaceId: string, now: Date, db: Sql = this.sql): Promise<SpaceRecord> {
     const space = await this.get(spaceId, db);
     if (space.archivedAt) throw new BankError(`Space "${space.name}" is archived`, 'bank.space_archived');
-    if (space.lockedUntil && space.lockedUntil > now) {
+    const until = lockEnd(space, now);
+    if (until) {
       // A self-imposed lock. Product policy, enforced here — the ledger has no
       // opinion about it, which is right: a user locking themselves out of their
       // own money is a rule about the product, not a property of the book.
-      throw new BankError(`Space "${space.name}" is locked until ${space.lockedUntil.toISOString()}`, 'bank.space_locked');
+      throw new BankError(`Space "${space.name}" is locked until ${until.toISOString()}`, 'bank.space_locked');
     }
     return space;
   }
@@ -595,13 +631,13 @@ export class SpaceService {
   private async fundedArchived(userId: string, assetId?: string): Promise<SpaceRecord[]> {
     const rows = assetId
       ? await this.sql<SpaceRow[]>`
-          SELECT id, user_id, asset_id, kind, name, goal_target, locked_until, archived_at
+          SELECT id, user_id, asset_id, kind, name, goal_target, locked_until, unlock_requested_at, unlocks_at, archived_at
             FROM bank.spaces
            WHERE user_id = ${userId} AND asset_id = ${assetId} AND kind = 'named' AND archived_at IS NOT NULL
            ORDER BY name ASC
         `
       : await this.sql<SpaceRow[]>`
-          SELECT id, user_id, asset_id, kind, name, goal_target, locked_until, archived_at
+          SELECT id, user_id, asset_id, kind, name, goal_target, locked_until, unlock_requested_at, unlocks_at, archived_at
             FROM bank.spaces
            WHERE user_id = ${userId} AND kind = 'named' AND archived_at IS NOT NULL
            ORDER BY asset_id ASC, name ASC
@@ -615,13 +651,113 @@ export class SpaceService {
     return funded;
   }
 
-  /** Set or clear the savings target. A goal, never a holding. */
-  async setGoal(spaceId: string, goalTarget: Amount | null): Promise<SpaceRecord> {
-    await this.sql`
-      UPDATE bank.spaces
-         SET goal_target = ${goalTarget === null ? null : formatAmount(goalTarget)}::numeric, updated_at = now()
+  /**
+   * Read one named, live pot of this owner under a row lock for a change of its goal or lock. Refuses the primary space
+   * (the account itself has no goal or lock), an archived pot and another owner's pot, the last as not found.
+   */
+  private async ownPotForUpdate(tx: Sql, spaceId: string, userId: string): Promise<SpaceRecord> {
+    const rows = await tx<SpaceRow[]>`
+      SELECT id, user_id, asset_id, kind, name, goal_target, locked_until, unlock_requested_at, unlocks_at, archived_at
+        FROM bank.spaces
        WHERE id = ${spaceId}
+       FOR UPDATE
     `;
-    return this.get(spaceId);
+    const row = rows[0];
+    if (!row || row.user_id !== userId) throw new BankError(`Space ${spaceId} not found`, 'bank.space_not_found');
+    const space = toRecord(row);
+    if (space.kind === 'primary') {
+      throw new BankError('The primary space is the account itself; goals and locks belong to pots', 'bank.space_change_invalid');
+    }
+    if (space.archivedAt) throw new BankError(`Space "${space.name}" is archived`, 'bank.space_archived');
+    return space;
+  }
+
+  /** One pot change in a read-committed transaction: the row lock in `ownPotForUpdate` orders racing changes. */
+  private underRowLock<T>(fn: (tx: Sql) => Promise<T>): Promise<T> {
+    return transaction(this.sql, fn, { isolation: 'read committed' });
+  }
+
+  /** Set, change or clear the savings target of one of the owner's pots. A goal, never a holding: nothing moves. */
+  async setGoal(spaceId: string, userId: string, goalTarget: Amount | null): Promise<SpaceRecord> {
+    if (goalTarget !== null && goalTarget <= 0n) {
+      throw new BankError('A goal is an amount above zero; clear it to have none', 'bank.space_change_invalid');
+    }
+    return this.underRowLock(async (tx) => {
+      await this.ownPotForUpdate(tx, spaceId, userId);
+      const rows = await tx<SpaceRow[]>`
+        UPDATE bank.spaces
+           SET goal_target = ${goalTarget === null ? null : formatAmount(goalTarget)}::numeric, updated_at = now()
+         WHERE id = ${spaceId}
+        RETURNING id, user_id, asset_id, kind, name, goal_target, locked_until, unlock_requested_at, unlocks_at, archived_at
+      `;
+      return toRecord(rows[0]!);
+    });
+  }
+
+  /**
+   * Lock one of the owner's pots until a later date, or keep a lock for longer (BK-pots-02). A lock never gets shorter
+   * here: ending it sooner is an early unlock, which waits out the owner's window. A new lock date replaces any early
+   * unlock still waiting, since the owner has chosen to keep the money in. The same date again changes nothing.
+   */
+  async setLock(spaceId: string, userId: string, lockedUntil: Date, now: Date): Promise<SpaceRecord> {
+    if (!(lockedUntil > now)) throw new BankError('A lock date must be in the future', 'bank.space_change_invalid');
+    return this.underRowLock(async (tx) => {
+      const space = await this.ownPotForUpdate(tx, spaceId, userId);
+      const current = lockEnd(space, now);
+      if (current && space.lockedUntil && lockedUntil < space.lockedUntil) {
+        throw new BankError(
+          `Space "${space.name}" is locked until ${space.lockedUntil.toISOString()}; to end the lock sooner, ask for an early unlock`,
+          'bank.space_change_invalid',
+        );
+      }
+      if (space.lockedUntil?.getTime() === lockedUntil.getTime() && space.unlocksAt === null) return space;
+      const rows = await tx<SpaceRow[]>`
+        UPDATE bank.spaces
+           SET locked_until = ${lockedUntil}, unlock_requested_at = NULL, unlocks_at = NULL, updated_at = now()
+         WHERE id = ${spaceId}
+        RETURNING id, user_id, asset_id, kind, name, goal_target, locked_until, unlock_requested_at, unlocks_at, archived_at
+      `;
+      return toRecord(rows[0]!);
+    });
+  }
+
+  /**
+   * The owner confirmed they want a locked pot opened before its date (BK-pots-02). The pot stays locked for the owner's
+   * waiting window (`BANK_SPACE_UNLOCK_WAIT_HOURS`) and opens then, or at its own date if that comes first. A blank
+   * window refuses `bank.space_unlock_rule_unset` and writes nothing: no waiting length is invented. Asking again while
+   * one waits returns that one, so a repeated press never restarts the clock.
+   */
+  async requestUnlock(spaceId: string, userId: string, now: Date): Promise<SpaceRecord> {
+    return this.underRowLock(async (tx) => {
+      const space = await this.ownPotForUpdate(tx, spaceId, userId);
+      if (!lockEnd(space, now)) throw new BankError(`Space "${space.name}" is not locked`, 'bank.space_not_locked');
+      if (space.unlocksAt) return space;
+      const hours = requireUnlockWaitHours(this.options.unlockWaitHours?.());
+      const waited = new Date(now.getTime() + hours * 3_600_000);
+      const unlocksAt = space.lockedUntil && space.lockedUntil < waited ? space.lockedUntil : waited;
+      const rows = await tx<SpaceRow[]>`
+        UPDATE bank.spaces
+           SET unlock_requested_at = ${now}, unlocks_at = ${unlocksAt}, updated_at = now()
+         WHERE id = ${spaceId}
+        RETURNING id, user_id, asset_id, kind, name, goal_target, locked_until, unlock_requested_at, unlocks_at, archived_at
+      `;
+      return toRecord(rows[0]!);
+    });
+  }
+
+  /** Withdraw an early unlock that is still waiting: the pot stays locked to its date. None waiting changes nothing. */
+  async cancelUnlock(spaceId: string, userId: string, now: Date): Promise<SpaceRecord> {
+    return this.underRowLock(async (tx) => {
+      const space = await this.ownPotForUpdate(tx, spaceId, userId);
+      if (!space.unlocksAt) return space;
+      if (!lockEnd(space, now)) throw new BankError(`Space "${space.name}" is already unlocked`, 'bank.space_not_locked');
+      const rows = await tx<SpaceRow[]>`
+        UPDATE bank.spaces
+           SET unlock_requested_at = NULL, unlocks_at = NULL, updated_at = now()
+         WHERE id = ${spaceId}
+        RETURNING id, user_id, asset_id, kind, name, goal_target, locked_until, unlock_requested_at, unlocks_at, archived_at
+      `;
+      return toRecord(rows[0]!);
+    });
   }
 }

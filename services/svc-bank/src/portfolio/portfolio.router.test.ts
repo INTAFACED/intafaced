@@ -93,6 +93,8 @@ const space = (id: string, userId: string, kind: SpaceRecord['kind'] = 'named', 
   name: id,
   goalTarget: null,
   lockedUntil: null,
+  unlockRequestedAt: null,
+  unlocksAt: null,
   archivedAt: null,
 });
 

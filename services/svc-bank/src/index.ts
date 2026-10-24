@@ -271,6 +271,7 @@ const bank = createBankServices(sql, ledger, history, {
   accountTerms: env.BANK_ACCOUNT_TERMS_JSON,
   accountCurrencies: env.BANK_ACCOUNT_CURRENCIES,
   spaceLimit: env.BANK_SPACE_LIMIT,
+  spaceUnlockWaitHours: env.BANK_SPACE_UNLOCK_WAIT_HOURS,
   /** Account details and the eligibility statement: owner-published lists, no banking partner wired (`rail.bank`). */
   accountDetails: {
     currencies: env.BANK_ACCOUNT_DETAILS_CURRENCIES,
