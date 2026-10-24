@@ -295,6 +295,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     notices: options.requestNotices,
     transferNotices: options.transferNotices,
     onCreditPosted: (credit) => sorter.sortCredit(credit),
+    securityLock: options.ramps?.securityLock,
   });
   const assetPauses = new AssetPauseService(sql);
   // The supply pause lives in the deposit path so auto-invest cannot go around it.

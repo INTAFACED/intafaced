@@ -36,6 +36,7 @@ describe('internal withdrawal settlement (Postgres)', () => {
   let ledger: MemoryLedger;
   let recipients: ReturnType<typeof memoryRecipientState>;
   let bank: BankServices;
+  let locked: boolean;
 
   beforeAll(async () => {
     const url = process.env.TEST_DATABASE_URL?.trim();
@@ -70,15 +71,18 @@ describe('internal withdrawal settlement (Postgres)', () => {
         };
       },
     });
+    locked = false;
     bank = createBankServices(sql, stamped, memoryLedgerHistory(ledger), {
       nativeAssetId: 'IFC',
       recipients,
+      ramps: { securityLock: { read: async () => ({ locked, unlocksAt: null }) } },
       handles: memoryPartyHandles({ [ADA]: 'ada', [BOB]: 'bob' }),
     });
     await ledger.post(recipes.deposit({ userId: ADA, assetId: 'USDT', amount: parseAmount('100'), rail: 'test', railRef: 'ada-1' }));
     await sql`INSERT INTO bank.personal_transfer_terms (asset_id, per_transfer_limit, daily_limit, fee) VALUES ('USDT', 50, 1000, 0)`;
   });
 
+  const open = { read: async () => ({ locked: false, unlocksAt: null }) };
   const available = async (userId: string) => formatAmount((await ledger.balance(userAvailable(userId, 'USDT'))).amount);
   const sends = () => ledger.journal().filter((tx) => tx.idempotencyKey.startsWith('bank.transfer.p2p:withdraw:'));
   const settle = (withdrawalId: string, amount: string, service = bank.personalPay) =>
@@ -157,6 +161,21 @@ describe('internal withdrawal settlement (Postgres)', () => {
     expect(sends()).toHaveLength(1);
   });
 
+  it('refuses while the sender security lock holds, before anything is written; a send that posted before answers as it did', async () => {
+    const first = await settle(W1, '20');
+    locked = true;
+    expect(await settle(W1, '20')).toEqual(first);
+    expect(await settle(W2, '10')).toEqual({ state: 'refused', code: 'bank.security_locked' });
+    expect(sends()).toHaveLength(1);
+    expect(await sql`SELECT 1 FROM bank.personal_transfers WHERE transfer_id = ${`withdraw:${W2}`}`).toHaveLength(0);
+  });
+
+  it('with no security lock wired, every withdrawal is refused (never "no lock")', async () => {
+    const unwired = createBankServices(sql, ledger, memoryLedgerHistory(ledger), { nativeAssetId: 'IFC', recipients });
+    expect(await settle(W1, '20', unwired.personalPay)).toEqual({ state: 'refused', code: 'bank.security_lock_unset' });
+    expect(sends()).toHaveLength(0);
+  });
+
   it('keeps the person-to-person limits: above the per-transfer limit is refused and nothing posts', async () => {
     expect(await settle(W1, '60')).toEqual({ state: 'refused', code: 'bank.personal_transfer_limit_exceeded' });
     expect(sends()).toHaveLength(0);
@@ -179,8 +198,8 @@ describe('internal withdrawal settlement (Postgres)', () => {
       sql,
       {
         getTx: (id) => ledger.getTx(id),
-        // The first read-back after the lost answer does not see the post yet (it is still landing).
-        getTxByKey: async (key) => (++lookups === 1 ? null : ledger.getTxByKey(key)),
+        // Before the send, and in the first read-back after the lost answer, the post is not seen yet (it is still landing).
+        getTxByKey: async (key) => (++lookups <= 2 ? null : ledger.getTxByKey(key)),
         balance: (ref) => ledger.balance(ref),
       },
       {
@@ -192,7 +211,7 @@ describe('internal withdrawal settlement (Postgres)', () => {
         },
       },
       bank.spaces,
-      { handles: memoryPartyHandles({ [ADA]: 'ada', [BOB]: 'bob' }) },
+      { handles: memoryPartyHandles({ [ADA]: 'ada', [BOB]: 'bob' }), securityLock: open },
     );
     await expect(settle(W2, '30', flaky)).rejects.toThrow('timeout');
     expect(sends()).toHaveLength(1);
@@ -214,6 +233,7 @@ describe('internal withdrawal settlement (Postgres)', () => {
         },
       },
       bank.spaces,
+      { securityLock: open },
     );
     expect(await settle(W1, '20', refusing)).toEqual(first);
     expect(sends()).toHaveLength(1);

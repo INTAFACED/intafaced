@@ -28,6 +28,7 @@ import { PartyHandleUnavailableError, type PartyHandlePort } from './party-handl
 import type { PersonalRequestNotices } from './request-notices.js';
 import type { PersonalTransferNotices } from './transfer-notices.js';
 import type { IncomingCredit } from '../sorter/income-sorter.js';
+import { assertSecurityLockOpen, unconfiguredSecurityLock, type SecurityLockPort } from '../security-lock.js';
 
 const NOTE_MAX = 140;
 const REFERENCE_MAX = 64;
@@ -241,6 +242,11 @@ export class PersonalPayService {
       onCreditPosted?: (credit: IncomingCredit) => Promise<unknown>;
       /** How long a send waits for `onCreditPosted`. Tests shorten it. */
       sortTimeoutMs?: number;
+      /**
+       * The owner's security lock (W-withdraw-09), asked by `settleWithdrawal` only: a withdrawal to an address is refused
+       * while it holds. Unset refuses every such withdrawal (`bank.security_lock_unset`), never "no lock".
+       */
+      securityLock?: SecurityLockPort;
       now?: () => Date;
     } = {},
   ) {}
@@ -397,6 +403,10 @@ export class PersonalPayService {
     `;
     const earlierInFlight = earlier !== undefined && now.getTime() - earlier.created_at.getTime() < POST_IN_FLIGHT_BOUND_SECONDS * 1000;
     try {
+      // A withdrawal to an address while the owner's security lock holds is refused before anything is written, unless this
+      // key already holds the send (a replay of one that posted before the lock was set answers as it did).
+      if (!(await this.ledger.getTxByKey(bankTransferKey('p2p', input.transferId, 0))))
+        await assertSecurityLockOpen(this.options.securityLock ?? unconfiguredSecurityLock(), input.fromUserId, 'a withdrawal');
       // No edge stands in front of this door, so the sender's own account state is asked here, as it is for a receiver.
       await this.spaces.assertCanReceive(input.fromUserId).catch((err: unknown) => {
         if (err instanceof BankError && err.code === 'bank.recipient_cannot_receive')
