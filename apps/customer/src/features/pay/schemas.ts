@@ -387,12 +387,11 @@ export const p2pLevelLimitsSchema = z.object({
 export type P2PLevelLimits = z.infer<typeof p2pLevelLimitsSchema>;
 /** P-ads-merchant-12: the posting checklist for one fiat, every check with the person's value and the target. */
 export const p2pPostingEligibilitySchema = z.object({
-  asset: z.string().nullable(),
   fiatCurrency: z.string(),
   policy: z.enum(['thresholds', 'none', 'unset', 'invalid']),
   checks: z.array(
     z.object({
-      id: z.enum(['advertiser_terms', 'kyc_tier', 'completed_orders', 'completion_rate']),
+      id: z.enum(['kyc_tier', 'completed_orders', 'completion_rate']),
       state: z.enum(['met', 'not_met', 'unknown']),
       current: z.string().nullable(),
       required: z.string().nullable(),

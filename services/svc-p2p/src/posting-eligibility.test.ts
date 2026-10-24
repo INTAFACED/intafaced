@@ -5,7 +5,6 @@ import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
 import { MemoryLedger, parseAmount, recipes } from '@intafaced/ledger-client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { AdvertiserTermsAcceptances, createAdvertiserTerms } from './advertiser-terms.js';
 import { InstrumentService } from './instrument-service.js';
 import { ANY_COUNTRY } from './instruments.js';
 import { P2pService } from './p2p-service.js';
@@ -67,14 +66,11 @@ describe('svc-p2p posting thresholds at post, and the posting checklist (P-ads-m
     await db?.drop();
   }, 30_000);
 
-  const service = (postingThresholds: PostingThresholds | null = THRESHOLDS, termsVersion?: string | null) =>
+  const service = (postingThresholds: PostingThresholds | null = THRESHOLDS) =>
     new P2pService(sql, ledger, new MemoryEventBus('svc-p2p'), {
       instruments,
       feeBps: 0,
       ...(postingThresholds === null ? {} : { postingThresholds }),
-      ...(termsVersion === undefined
-        ? {}
-        : { advertiserTerms: createAdvertiserTerms({ acceptances: new AdvertiserTermsAcceptances(sql), version: termsVersion }) }),
     });
 
   let n = 0;
@@ -149,19 +145,13 @@ describe('svc-p2p posting thresholds at post, and the posting checklist (P-ads-m
     ).toBe('invalid');
   });
 
-  it('puts the advertiser terms first on the checklist: unknown while unpublished, then not met, then met', async () => {
-    expect((await service(THRESHOLDS, null).postingEligibility({ userId: MAKER, tier: 'basic', fiatCurrency: 'USD' })).checks).toEqual([
-      { id: 'advertiser_terms', state: 'unknown', current: null, required: null, reason: 'p2p.config_unset' },
-    ]);
-    const p2p = service(THRESHOLDS, 'TEST-1');
-    expect((await p2p.postingEligibility({ userId: MAKER, tier: 'basic', fiatCurrency: 'USD' })).checks).toEqual([
-      { id: 'advertiser_terms', state: 'not_met', current: null, required: 'TEST-1', reason: 'p2p.terms_not_accepted' },
-    ]);
-    await p2p.acceptAdvertiserTerms(MAKER, 'TEST-1');
-    expect((await p2p.postingEligibility({ userId: MAKER, tier: 'basic', fiatCurrency: 'USD' })).checks[0]).toMatchObject({
-      state: 'met',
-      current: 'TEST-1',
+  it('reads the fiat in capitals, as a post stores it, so the checklist and the post agree', async () => {
+    const p2p = service(parsePostingThresholds(JSON.stringify({ EUR: { minKycTier: 'full' } })));
+    expect((await p2p.postingEligibility({ userId: MAKER, tier: 'basic', fiatCurrency: 'eur' })).checks[0]).toMatchObject({
+      id: 'kyc_tier',
+      state: 'not_met',
     });
+    await expect(p2p.createOffer(ad('eur', 'basic'))).rejects.toMatchObject({ code: 'p2p.posting_threshold_not_met' });
   });
 
   it('answers a retry of an ad posted before the thresholds were published', async () => {
