@@ -38,6 +38,7 @@ import {
   type ConditionalStatus,
   type CreateConditionalInput,
   type ParsedConditional,
+  type TriggerSource,
 } from './validate.js';
 
 export interface ConditionalOrderView {
@@ -59,8 +60,8 @@ export interface ConditionalOrderView {
   readonly status: ConditionalStatus;
   readonly cancelReason: string | null;
   readonly failureReason: string | null;
-  /** The price a trigger is judged against. Only the published mark is wired. */
-  readonly triggerSource: 'mark';
+  /** The price a trigger is judged against: the published mark, or the futures book's last trade. */
+  readonly triggerSource: TriggerSource;
   /** The order a fired conditional order placed in the book, once placed. */
   readonly closeOrderId: string | null;
   /**
@@ -251,6 +252,7 @@ interface OrderRow {
   limit_price: string | null;
   trailing_distance: string | null;
   trail_extreme: string | null;
+  trigger_source: TriggerSource;
   reduce_only: boolean;
   attachment: AttachmentLeg | null;
   part_leg: boolean;
@@ -313,7 +315,7 @@ function present(row: OrderRow): ConditionalOrderView {
     status: row.status,
     cancelReason: row.cancel_reason,
     failureReason: row.failure_reason,
-    triggerSource: 'mark',
+    triggerSource: row.trigger_source ?? 'mark',
     closeOrderId: fired.orderId ?? fired.restingOrderId ?? null,
     firedQuantity: fired.qty == null ? null : formatAmount(parseAmount(fired.qty)),
     closedQuantity: fired.closed == null ? null : formatAmount(parseAmount(fired.closed)),
@@ -448,6 +450,7 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
       trailExtreme: Amount | null;
       attachment: AttachmentLeg | null;
       partLeg?: boolean;
+      triggerSource?: TriggerSource;
       requestHash: string;
     },
   ): Promise<OrderRow> {
@@ -455,7 +458,7 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
     const [row] = await tx<OrderRow[]>`
       INSERT INTO trade.futures_conditional_orders (
         id, user_id, market_id, position_id, client_order_id, kind, side, quantity,
-        trigger_price, limit_price, trailing_distance, trail_extreme, reduce_only,
+        trigger_price, limit_price, trailing_distance, trail_extreme, trigger_source, reduce_only,
         attachment, part_leg, status, request_hash
       ) VALUES (
         ${id}, ${input.userId}, ${input.marketId}, ${input.positionId}, ${input.clientOrderId},
@@ -464,11 +467,43 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
         ${input.limitPrice == null ? null : formatAmount(input.limitPrice)},
         ${input.trailingDistance == null ? null : formatAmount(input.trailingDistance)},
         ${input.trailExtreme == null ? null : formatAmount(input.trailExtreme)},
-        true, ${input.attachment}, ${input.partLeg === true}, 'armed', ${input.requestHash}
+        ${input.triggerSource ?? 'mark'}, true, ${input.attachment}, ${input.partLeg === true}, 'armed', ${input.requestHash}
       )
       RETURNING *
     `;
     return { ...row!, symbol: input.symbol };
+  }
+
+  /**
+   * The price a trigger is judged on now. The mark is the published one. The last trade is the price of the futures
+   * book's newest trade on the market, by engine sequence: settled fills, and fills still waiting to settle (a
+   * liquidation step or a review on a position parks them), so a fast market is seen as it trades. A last-trade trigger
+   * moves only when the book trades. Null when there is none.
+   */
+  async function sourcePrice(source: TriggerSource, marketId: string, symbol: string): Promise<string | null> {
+    if (source === 'mark') return deps.publishedMark(marketId, symbol);
+    const [last] = await sql<{ price: string }[]>`
+      SELECT price FROM (
+        (SELECT engine_sequence, price FROM trade.futures_order_fills
+          WHERE market_id = ${marketId} ORDER BY engine_sequence DESC LIMIT 1)
+        UNION ALL
+        (SELECT engine_sequence, price FROM trade.futures_fill_waits
+          WHERE market_id = ${marketId} ORDER BY engine_sequence DESC LIMIT 1)
+      ) newest
+      ORDER BY engine_sequence DESC
+      LIMIT 1
+    `;
+    return last ? formatAmount(parseAmount(last.price)) : null;
+  }
+
+  function sourceMissing(source: TriggerSource): FuturesError {
+    return source === 'mark'
+      ? new FuturesError('published mark is missing — a trail is not armed at an invented price', 'trade.mark_missing', 409)
+      : new FuturesError(
+          'this market has not traded yet, so there is no last price to judge a trigger on',
+          'trade.last_price_missing',
+          409,
+        );
   }
 
   async function create(userId: string, raw: CreateConditionalInput): Promise<{ order: ConditionalOrderView; replay: boolean }> {
@@ -497,15 +532,28 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
 
     let triggerPrice = parsed.triggerPrice;
     let trailExtreme: Amount | null = null;
+    // A trail starts from the price it is judged on. A last-trade trigger needs a trade to judge it on. A mark-judged
+    // stop with no published mark yet waits for one, as it always has.
+    const startRaw = await sourcePrice(parsed.triggerSource, position.id, position.symbol);
+    const needsPrice = parsed.kind === 'trailing_stop' || parsed.triggerSource === 'last';
+    if (needsPrice && startRaw == null) throw sourceMissing(parsed.triggerSource);
+    // A trigger already crossed on its own source would fire on the next tick: that is a market close, not a stop.
+    if (
+      parsed.triggerPrice != null &&
+      startRaw != null &&
+      triggerCrossed({ kind: parsed.kind, side: parsed.side, mark: parseAmount(startRaw), trigger: parsed.triggerPrice })
+    ) {
+      throw new FuturesError(
+        `the trigger is already reached on the ${parsed.triggerSource === 'last' ? 'last trade' : 'mark price'}, so it would fire at once`,
+        'trade.conditional_already_crossed',
+        400,
+      );
+    }
     if (parsed.kind === 'trailing_stop' && parsed.trailingDistance != null) {
-      const markRaw = await deps.publishedMark(position.id, position.symbol);
-      if (markRaw == null) {
-        throw new FuturesError('published mark is missing — a trail is not armed at an invented price', 'trade.mark_missing', 409);
-      }
       const trailed = nextTrail({
         side: parsed.side,
-        extreme: parseAmount(markRaw),
-        mark: parseAmount(markRaw),
+        extreme: parseAmount(startRaw!),
+        mark: parseAmount(startRaw!),
         distance: parsed.trailingDistance,
       });
       if (trailed.trigger <= 0n) {
@@ -530,6 +578,7 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
         trailingDistance: parsed.trailingDistance,
         trailExtreme,
         attachment: null,
+        triggerSource: parsed.triggerSource,
         requestHash: hash,
       });
       return { order: present(row), replay: false };
@@ -1322,7 +1371,8 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
       ORDER BY o.created_at, o.id
     `;
     let fired = 0;
-    const marks = new Map<string, string | null>();
+    // One read per market and source on a tick.
+    const prices = new Map<string, string | null>();
     for (const row of rows) {
       if (row.position_id != null) {
         const [pos] = await sql<{ status: string }[]>`
@@ -1338,19 +1388,20 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
           continue;
         }
       }
-      if (!marks.has(row.market_id)) {
-        marks.set(row.market_id, await deps.publishedMark(row.market_id, row.symbol));
-      }
-      const markRaw = marks.get(row.market_id);
-      if (markRaw == null) continue;
-      const mark = parseAmount(markRaw);
+      const source: TriggerSource = row.trigger_source ?? 'mark';
+      const priceKey = `${source}:${row.market_id}`;
+      if (!prices.has(priceKey)) prices.set(priceKey, await sourcePrice(source, row.market_id, row.symbol));
+      const priceRaw = prices.get(priceKey);
+      if (priceRaw == null) continue;
+      // The price on the order's own source: the mark, or the last trade.
+      const price = parseAmount(priceRaw);
       let trigger = row.trigger_price == null ? null : parseAmount(row.trigger_price);
       if (row.kind === 'trailing_stop') {
         if (row.trail_extreme == null || row.trailing_distance == null) continue;
         const trailed = nextTrail({
           side: row.side,
           extreme: parseAmount(row.trail_extreme),
-          mark,
+          mark: price,
           distance: parseAmount(row.trailing_distance),
         });
         if (trailed.trigger <= 0n) continue;
@@ -1369,7 +1420,7 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
         }
         trigger = trailed.trigger;
       }
-      if (trigger == null || !triggerCrossed({ kind: row.kind, side: row.side, mark, trigger })) continue;
+      if (trigger == null || !triggerCrossed({ kind: row.kind, side: row.side, mark: price, trigger })) continue;
       const key = deps.placeReduce ? bookKey(row.id) : `fire:${row.id}`;
       const claimed = await sql.begin(async (tx) => {
         // One leg of a linked pair at a time: while its sibling is closing, this one waits (and is cancelled if it

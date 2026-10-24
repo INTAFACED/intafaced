@@ -9,7 +9,7 @@
     "OPS_RESTORE_ARCHIVE_URL": {
       "service": "ops",
       "value": "http://archive.test.invalid/restore",
-      "note": "TEST joint-restore archive URL. Nothing is behind it and the archive is not probed, so no backup is listed; it only lets restore steps run on the test stack."
+      "note": "TEST joint-restore archive URL. Nothing is behind it, so the probe finds no backup list and none is listed; it only lets restore steps run on the test stack."
     }
   }
 }

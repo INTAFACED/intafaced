@@ -311,20 +311,37 @@ describe('support desk owner procedures', () => {
     expect(related).toEqual(['kb-supportbe-beta', 'kb-supportbe-delta']);
     expect(await service.kbRelated({ id: 'kb-supportbe-gamma' })).toEqual([]);
 
-    const hidden = await refuse(
-      service.kbFeedback({ userId: OWNER, id: 'kb-supportbe-gamma', helpful: true, clientRequestId: 'fb-hidden' }),
+    // Votes are bound by the owner's rate; a blank one refuses (kb-feedback.test.ts).
+    const voter = new SupportService(
+      new PostgresSupportStore(sql),
+      undefined,
+      desk(),
+      undefined,
+      undefined,
+      null,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      null,
+      { feedbackRateLimit: 100, feedbackRateWindowSeconds: 3600 },
     );
+    const hidden = await refuse(voter.kbFeedback({ userId: OWNER, id: 'kb-supportbe-gamma', helpful: true, clientRequestId: 'fb-hidden' }));
     expect(hidden.code).toBe('support.kb.not_published');
     const hiddenVotes = await sql<
       { n: number }[]
     >`SELECT count(*)::int AS n FROM support.kb_feedback WHERE article_id = 'kb-supportbe-gamma'`;
     expect(hiddenVotes[0]!.n).toBe(0);
 
-    const vote = await service.kbFeedback({ userId: OWNER, id: 'kb-supportbe-alpha', helpful: true, clientRequestId: 'fb-1' });
+    const vote = await voter.kbFeedback({ userId: OWNER, id: 'kb-supportbe-alpha', helpful: true, clientRequestId: 'fb-1' });
     expect(vote).toMatchObject({ articleId: 'kb-supportbe-alpha', version: 1, helpful: true });
-    const repeat = await service.kbFeedback({ userId: OWNER, id: 'kb-supportbe-alpha', helpful: false, clientRequestId: 'fb-2' });
-    expect(repeat).toEqual(vote);
-    const replay = await service.kbFeedback({ userId: OWNER, id: 'kb-supportbe-alpha', helpful: false, clientRequestId: 'fb-1' });
+    expect(vote.earlier).toBeUndefined();
+    const repeat = await voter.kbFeedback({ userId: OWNER, id: 'kb-supportbe-alpha', helpful: false, clientRequestId: 'fb-2' });
+    expect(repeat).toEqual({ ...vote, earlier: true });
+    const replay = await voter.kbFeedback({ userId: OWNER, id: 'kb-supportbe-alpha', helpful: false, clientRequestId: 'fb-1' });
     expect(replay).toEqual(vote);
     const votes = await sql<
       { n: number }[]

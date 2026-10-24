@@ -2205,6 +2205,49 @@ describe('affiliates createShare / revokeShare / shareHits', () => {
     });
   });
 
+  it('attachWindow runs again from a lapsed relationship (reopenedAt), measured from the lapse, not sign-up', async () => {
+    const reopened = new Date(Date.now() - 60_000);
+    const referral = {
+      accountAge: async () => ({ createdAt: new Date(Date.now() - 86_400_000), reopenedAt: reopened, now: new Date() }),
+    } as unknown as import('./affiliates/referral-service.js').ReferralService;
+    const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, referral, referralAttachWindowSeconds: 600 });
+    expect(await api.createCaller(await ctx(['identity:read'])).affiliates.attachWindow()).toMatchObject({
+      state: 'open',
+      reopenedAt: reopened.toISOString(),
+      closesAt: new Date(reopened.getTime() + 600_000).toISOString(),
+    });
+  });
+
+  it('myLapse reads the caller only and invents no end date while the period is blank; the lapse log needs an operator with a second factor', async () => {
+    const at = new Date('2026-10-24T03:00:00Z');
+    const ended = { userId: USER, referrerId: VISITOR, attributedAt: at, lastActivityAt: at, periodSeconds: 600, lapsedAt: at };
+    const asked: string[] = [];
+    const referralLapse = {
+      standingOf: async (userId: string) => {
+        asked.push(userId);
+        return { state: 'unset' as const };
+      },
+      latestOf: async () => ended,
+      log: async () => [ended],
+    } as unknown as import('./affiliates/referral-lapse.js').ReferralLapseService;
+    const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, referralLapse });
+    const mine = await api.createCaller(await ctx(['identity:read'])).affiliates.myLapse();
+    expect(mine).toEqual({
+      state: 'unset',
+      periodSeconds: null,
+      lastActivityAt: null,
+      endsAt: null,
+      ended: { ...ended, attributedAt: at.toISOString(), lastActivityAt: at.toISOString(), lapsedAt: at.toISOString() },
+    });
+    expect(asked).toEqual([USER]);
+    const customer = api.createCaller(await ctx(['identity:read']));
+    expect(codeOf(await customer.affiliates.lapseLog({ limit: 10 }).catch((e: unknown) => e))).toBe('FORBIDDEN');
+    const noFactor = api.createCaller(await ctx(['admin:compliance'], { userId: OPERATOR, mfa: false }));
+    expect(codeOf(await noFactor.affiliates.lapseLog({ limit: 10 }).catch((e: unknown) => e))).toBe('UNAUTHORIZED');
+    const operator = api.createCaller(await ctx(['admin:compliance'], { userId: OPERATOR }));
+    expect(await operator.affiliates.lapseLog({ limit: 10 })).toHaveLength(1);
+  });
+
   it('createCode refuses with referral.code_length_unset while the owner length is blank', async () => {
     const referralCodes = new (await import('./affiliates/referral-code.js')).ReferralCodeService(
       { unsafe: () => undefined } as never,

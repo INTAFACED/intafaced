@@ -1646,6 +1646,11 @@ export function createTradeRouter(
               profit: z.string().max(64).optional(),
               copiers: z.string().max(64).optional(),
               rank: z.string().max(64).optional(),
+              // A ranked category or the trending row: accepted only so it can be refused by name (CB-copy-23).
+              category: z.string().max(64).optional(),
+              trending: z.boolean().optional(),
+              marketMode: z.string().max(16).optional(),
+              q: z.string().max(200).optional(),
             })
             .optional(),
         )
@@ -1656,6 +1661,32 @@ export function createTradeRouter(
             publishedCopyPageLimit(query.limit, 'trade.copy_leaders_limit_unset', 'listLeaders');
             if (!copy) return { leaders: [], nextCursor: null };
             return copy.listLeaders(ctx.principal, query);
+          }),
+        ),
+
+      /** One listed leader's page: listing facts and the metrics the owner defined. Not listed → NOT_FOUND. */
+      leaderProfile: scopedProcedure('trade:read', { module: 'trade' })
+        .input(z.object({ leaderRef: z.string().min(1).max(80) }))
+        .query(({ ctx, input }) =>
+          guard(async () => {
+            if (!copy) throw new CopyError('Leader not found', 'trade.copy_leader_not_found');
+            return copy.leaderProfile(ctx.principal, input);
+          }),
+        ),
+
+      /** One listed leader's own spot trades, newest first. Limit is required. */
+      leaderTrades: scopedProcedure('trade:read', { module: 'trade' })
+        .input(
+          z.object({
+            leaderRef: z.string().min(1).max(80),
+            limit: z.number().optional(),
+            cursor: z.string().max(64).optional(),
+          }),
+        )
+        .query(({ ctx, input }) =>
+          guard(async () => {
+            if (!copy) throw new CopyError('Leader not found', 'trade.copy_leader_not_found');
+            return copy.leaderTrades(ctx.principal, input);
           }),
         ),
 
@@ -1683,6 +1714,7 @@ export function createTradeRouter(
               clientRequestId: z.string().min(1).max(200),
               leaderUserId: z.string().min(1).max(120),
               displayName: z.string().min(1).max(200),
+              marketMode: z.enum(['spot', 'futures', 'bot', 'signal']).optional(),
               recordKind: z.enum(['verified_live', 'paper', 'backtest', 'imported', 'self_reported']),
               state: z.enum(['unlisted', 'listed', 'suspended', 'delisted']).optional(),
               tenureStart: z.string().max(40).nullable().optional(),

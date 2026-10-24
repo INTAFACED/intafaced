@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import {
   contactChannels,
+  feedbackSummary,
   helpCentre,
   publishText,
   saveCategory,
@@ -24,6 +25,23 @@ test.describe.configure({ mode: 'serial' });
 async function visitor(browser) {
   const context = await browser.newContext({ baseURL: ORIGIN, viewport: { width: 1440, height: 900 } });
   return context.newPage();
+}
+
+/** The page's text once no answer or contact read is loading and three reads 500 ms apart agree. */
+async function settled(main) {
+  const reads = [];
+  await expect
+    .poll(
+      async () => {
+        const text = await main.innerText();
+        reads.push(text);
+        const last = reads.slice(-3);
+        return last.length === 3 && last.every((t) => t === text) && !/Loading (this answer|contact details)/.test(text);
+      },
+      { intervals: [500] },
+    )
+    .toBe(true);
+  return reads.at(-1);
 }
 
 /** The contact card says "not set" for each detail the owner has not published, and no mailto link is drawn for a blank address. */
@@ -344,9 +362,9 @@ test(`${J} #7 a staff-only answer reads as an address that never existed, and is
       for (const id of [answer.id, `j01-${RUN}-never-existed`]) {
         await page.goto(`/helpdetail?id=${id}`);
         await expect(main.getByRole('heading', { level: 1, name: 'No answer found' })).toBeVisible();
-        await expect(main.getByText('Loading this answer')).toHaveCount(0);
-        await expect(main.getByText('Loading contact details')).toHaveCount(0);
-        seen.push((await main.innerText()).replaceAll(id, '<id>'), await main.getByTestId('help-sign-in').count());
+        // Signed in, the read runs again once the session's token is fresh: compare the page only once it holds still.
+        const text = await settled(main);
+        seen.push(text.replaceAll(id, '<id>'), await main.getByTestId('help-sign-in').count());
       }
       expect(seen[0]).toBe(seen[2]);
       expect(seen[1]).toBe(seen[3]);
@@ -363,5 +381,85 @@ test(`${J} #7 a staff-only answer reads as an address that never existed, and is
   } finally {
     await page?.context().close();
     await made.cleanup?.();
+  }
+});
+
+test(`${J} #8 a "No" vote with a comment sent as a request: one confirmation, one request naming the answer, one vote; over the rate, refused`, async ({
+  browser,
+}) => {
+  // Six answers of the run's own. The stack's TEST vote rate is 5 an hour per account (tooling/profiles/test-owner-values).
+  const category = { id: `j01-${RUN}-fb`, name: `TEST ${J} ${RUN} feedback`, position: 9004, reason: `TEST ${J} #8` };
+  const section = { id: `j01-${RUN}-fb1`, categoryId: category.id, name: `TEST feedback ${RUN}`, position: 0, reason: category.reason };
+  const made = [];
+  let page = null;
+  await saveCategory(category);
+  try {
+    await saveSection(section);
+    for (let n = 0; n < 6; n += 1)
+      made.push(
+        await publishText({
+          id: `j01-${RUN}-fb-${n}`,
+          title: `TEST Feedback answer ${n} ${RUN}`,
+          body: `TEST Answer ${n} for the vote step.`,
+          language: 'en',
+          sectionId: section.id,
+          baseRevision: 0,
+        }),
+      );
+    const [first, ...rest] = made;
+    page = await visitor(browser);
+    const main = page.locator('main');
+    const card = main.getByTestId('help-feedback');
+
+    // Signed out, the card asks for a sign-in that comes back to this answer.
+    const who = await signUp(page, 'j01f');
+    await page.context().clearCookies();
+    await page.goto(`/helpdetail?id=${first.id}`);
+    await expect(main.getByRole('heading', { level: 1, name: first.title })).toBeVisible();
+    await card.getByRole('link', { name: 'Sign in to rate' }).click();
+    await page.fill('input[name=identifier]', who.email);
+    await page.fill('input[name=password]', who.password);
+    await page.getByRole('button', { name: /^sign in$/i }).click();
+    await expect(page).toHaveURL(new RegExp(`/helpdetail\\?id=${first.id}$`));
+
+    // "No", a comment, "send this as a request": one confirmation and a link to the one request.
+    const comment = `TEST The steps in ${first.id} did not work for me`;
+    await card.getByRole('button', { name: 'No', exact: true }).click();
+    await card.getByLabel('What was missing? (optional)').fill(comment);
+    await card.getByLabel('Send this as a support request').check();
+    await card.getByRole('button', { name: 'Send', exact: true }).dblclick();
+    const done = card.getByTestId('help-feedback-done');
+    await expect(done).toHaveText(/your support request is open/);
+    await expect(done).toHaveCount(1);
+    const votes = async (id) => (await feedbackSummary()).filter((row) => row.articleId === id);
+    expect(await votes(first.id)).toEqual([{ articleId: first.id, version: first.revision, helpful: 0, unhelpful: 1 }]);
+
+    // The request's first message names the answer and carries the comment.
+    await done.getByRole('link', { name: 'Open your request' }).click();
+    await expect(page).toHaveURL(/\/support\?request=/);
+    await expect(page.locator('main').getByText(`This request is about help article ${first.id}`)).toBeVisible();
+    await expect(page.locator('main').getByText(comment)).toBeVisible();
+
+    // A second vote on the same version is answered with the first one and stored nothing.
+    await page.goto(`/helpdetail?id=${first.id}`);
+    await card.getByRole('button', { name: 'Yes', exact: true }).click();
+    await expect(card.getByTestId('help-feedback-done')).toHaveText(/first vote stands/);
+    expect(await votes(first.id)).toEqual([{ articleId: first.id, version: first.revision, helpful: 0, unhelpful: 1 }]);
+
+    // Four more votes reach the rate; the next is refused in plain words and stored nothing.
+    for (const answer of rest.slice(0, 4)) {
+      await page.goto(`/helpdetail?id=${answer.id}`);
+      await card.getByRole('button', { name: 'Yes', exact: true }).click();
+      await expect(card.getByTestId('help-feedback-done')).toHaveText('Thank you. Your vote is kept.');
+    }
+    const over = rest[4];
+    await page.goto(`/helpdetail?id=${over.id}`);
+    await card.getByRole('button', { name: 'Yes', exact: true }).click();
+    await expect(card).toContainText('You have rated many answers in a short time, so this vote was not kept.');
+    expect(await votes(over.id)).toEqual([]);
+  } finally {
+    await page?.context().close();
+    for (const row of made) await unpublish(row.id, row.revision);
+    await saveCategory({ ...category, retired: true, reason: `TEST ${J} #8 retire the run's topic` });
   }
 });

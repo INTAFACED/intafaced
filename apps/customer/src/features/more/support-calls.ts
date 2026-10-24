@@ -39,6 +39,10 @@ const feedbackSchema = z.object({
   version: z.number().int().positive(),
   userId: z.string().guid(),
   helpful: z.boolean(),
+  /** Present only when this vote opened a request. */
+  ticketId: z.string().guid().optional(),
+  /** The account had already voted on this version: the first vote stands. */
+  earlier: z.literal(true).optional(),
 });
 
 export function readRating(api: ApiClient, ticketId: string, userId: string | null, signal?: AbortSignal) {
@@ -106,13 +110,19 @@ export async function attachFile(
 
 export async function sendArticleFeedback(
   api: ApiClient,
-  input: { articleId: string; userId: string | null; helpful: boolean; clientRequestId: string },
+  input: { articleId: string; userId: string | null; helpful: boolean; clientRequestId: string; comment?: string; openRequest?: boolean },
 ) {
   return plainSupportResult(
     await api.mutate(
       'support',
       'kbFeedback',
-      { id: input.articleId, helpful: input.helpful, clientRequestId: input.clientRequestId },
+      {
+        id: input.articleId,
+        helpful: input.helpful,
+        clientRequestId: input.clientRequestId,
+        ...(input.comment ? { comment: input.comment } : {}),
+        ...(input.openRequest ? { openRequest: true } : {}),
+      },
       feedbackSchema.refine((row) => row.articleId === input.articleId && row.userId === input.userId, mismatch()),
     ),
   );

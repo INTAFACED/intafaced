@@ -21,6 +21,7 @@ import type {
   PlaceOrderInput,
   Protection,
   ProtectionInput,
+  StopInput,
 } from './api';
 import { futuresRefusal, type FuturesRefusal } from './refusals';
 
@@ -35,7 +36,9 @@ export type Intent =
       input: ProtectionInput & { symbol: string };
     }
   /** Cancel one armed take profit, stop loss or stop. The order's own id names it, so a second send changes nothing. */
-  | { op: 'cancel-trigger'; input: { symbol: string; id: string } };
+  | { op: 'cancel-trigger'; input: { symbol: string; id: string } }
+  /** Arm one stop on a position. Its client id names it, so a second send replays the one armed. */
+  | { op: 'place-trigger'; input: StopInput };
 
 export type Operation = Intent['op'];
 
@@ -49,6 +52,8 @@ export function intentId(intent: Intent): string {
       return intent.input.clientRequestId;
     case 'cancel-trigger':
       return `cancel-trigger:${intent.input.id}`;
+    case 'place-trigger':
+      return intent.input.clientOrderId;
     default:
       return intent.input.clientAdjustmentId;
   }
@@ -157,7 +162,7 @@ export interface WriteResult {
   stopped?: FuturesSplit['stopped'];
   /** A take-profit and stop-loss replace: the legs now armed. */
   protection?: Protection;
-  /** A cancelled take profit, stop loss or stop, as it now stands. */
+  /** A cancelled take profit, stop loss or stop, or a stop just armed, as it now stands. */
   trigger?: ConditionalOrder;
 }
 
@@ -170,6 +175,10 @@ async function sendAdjustment(api: FuturesApi, intent: Exclude<Intent, { op: 'op
     const cancelled = await api.cancelConditional(intent.input.id);
     return cancelled.ok ? { ok: true, data: { trigger: cancelled.data } } : cancelled;
   }
+  if (intent.op === 'place-trigger') {
+    const armed = await api.createConditional(intent.input);
+    return armed.ok ? { ok: true, data: { trigger: armed.data } } : armed;
+  }
   const result = await sendPosition(api, intent);
   return result.ok ? { ok: true, data: { position: result.data } } : result;
 }
@@ -180,7 +189,7 @@ export function send(api: FuturesApi, intent: Intent): Promise<ApiResult<WriteRe
 
 function sendPosition(
   api: FuturesApi,
-  intent: Exclude<Intent, { op: 'open' | 'close' | 'protection' | 'cancel-trigger' }>,
+  intent: Exclude<Intent, { op: 'open' | 'close' | 'protection' | 'cancel-trigger' | 'place-trigger' }>,
 ): Promise<ApiResult<Position>> {
   switch (intent.op) {
     case 'leverage':

@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -37,8 +37,17 @@ const ROUTER: Record<ReadSpec['module'], string | null> = {
 };
 const personalPayRouter = () =>
   readFileSync(fileURLToPath(new URL('../../../../../services/svc-bank/src/personal-pay/router.ts', import.meta.url)), 'utf8');
-const source = (service: string) =>
-  readFileSync(fileURLToPath(new URL(`../../../../../services/${service}/src/router.ts`, import.meta.url)), 'utf8');
+// svc-bank's router.ts composes one router file per area from src/router/; those files are read with it.
+const source = (service: string) => {
+  const src = fileURLToPath(new URL(`../../../../../services/${service}/src`, import.meta.url));
+  const areas = existsSync(join(src, 'router'))
+    ? readdirSync(join(src, 'router'))
+        .filter((name) => name.endsWith('.router.ts'))
+        .sort()
+        .map((name) => readFileSync(join(src, 'router', name), 'utf8'))
+    : [];
+  return [...areas, readFileSync(join(src, 'router.ts'), 'utf8')].join('\n');
+};
 
 // The transfer record is read on request, so it sits in no section; it is held to the same rules as every other read.
 const all = [
@@ -407,7 +416,9 @@ describe('every read names a QUERY that exists in the owning router (drift guard
       expect(ops, `${factory} has an ops group`).not.toBeNull();
       from = start + ops!.index;
     } else if (parts.length === 2) {
-      const group = new RegExp(`(\\b${parts[0]}: router\\(|const ${parts[0]} = router\\()`).exec(text);
+      const group = new RegExp(
+        `(\\b${parts[0]}: router\\(|const ${parts[0]} = router\\(|export function create${parts[0]![0]!.toUpperCase()}${parts[0]!.slice(1)}Router\\()`,
+      ).exec(text);
       expect(group, `${service} has a ${parts[0]} group`).not.toBeNull();
       from = group!.index;
     }

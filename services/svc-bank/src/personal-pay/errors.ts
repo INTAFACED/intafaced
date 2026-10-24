@@ -258,6 +258,13 @@ export function personalPayError(code: string, detail?: string): PersonalPayErro
         'PRECONDITION_FAILED',
         PSP_BLOCKER,
       );
+    case 'bank.global_payout_uncovered':
+      return new PersonalPayError(
+        'No payout partner pays out to this destination: socket.psp-partners. Nothing was posted.',
+        code,
+        'PRECONDITION_FAILED',
+        PSP_BLOCKER,
+      );
     case 'bank.global_payout_refused':
       return new PersonalPayError('The payout rail refused this send. Nothing remains posted.', code, 'PRECONDITION_FAILED', PSP_BLOCKER);
     case 'bank.global_travel_rule_undecided':

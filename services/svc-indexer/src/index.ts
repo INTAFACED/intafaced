@@ -6,6 +6,7 @@ import { env } from './env.js';
 import { NullChainSource } from './chain/memory-source.js';
 import { EvmChainSource } from './chain/evm/source.js';
 import { parseExplorerListLimit } from './explorer/blocks.js';
+import { parseTxDropWindow } from './explorer/tx.js';
 import { PostgresProjectionStore } from './projection/postgres-store.js';
 import { Indexer } from './indexer.js';
 import { shutdownIndexer } from './shutdown.js';
@@ -142,6 +143,13 @@ export const appRouter = createIndexerRouter({
     blocks: (q) => store.explorerBlocks(q),
     atHeight: (h) => store.explorerAtHeight(h),
     block: (q) => store.explorerBlock(q),
+  },
+  txs: {
+    dropWindow: parseTxDropWindow(env.INDEXER_TX_DROP_WINDOW_SECONDS),
+    indexed: (hash) => store.explorerTx(hash),
+    pendingSince: (hash) => store.explorerTxPendingSince(hash),
+    notePending: (hash, at) => store.noteExplorerTxPending(hash, at),
+    lookup: (hash) => (evmSource ? evmSource.lookupExplorerTx(hash) : Promise.resolve(null)),
   },
 });
 export type AppRouter = typeof appRouter;

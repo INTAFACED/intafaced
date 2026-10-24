@@ -264,6 +264,114 @@ test(`${J} #4 attaches a take profit and a stop loss to an opening order: the or
   await expect(row).toContainText(SIZE);
 });
 
+/** The position's stop order dialog, opened from its row's Manage menu in the Positions tab. */
+async function stopDialog(page) {
+  await page.getByRole('tab', { name: 'Positions' }).click();
+  await page.getByRole('button', { name: `Manage ${SYMBOL}` }).click();
+  await page.getByRole('menuitem', { name: 'Stop order' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Stop order' });
+  await expect(dialog).toBeVisible();
+  return dialog;
+}
+
+test(`${J} #5 places a stop market, a stop limit and a trailing stop judged on the last trade or the mark: armed and listed; the index, a field a kind does not take and an exit that would enlarge are refused`, async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const me = await api(account());
+  const { positionId } = run.read();
+  const PART = '0.004';
+  const mark = await markOf(me);
+  const below = away(mark, -300);
+  const limitAt = away(mark, -350);
+  // 3% of the mark, in whole units of price.
+  const distance = fromUnits(((mark * 300n) / 10_000n / 10n ** 18n) * 10n ** 18n);
+  await desk(page);
+  const dialog = await stopDialog(page);
+  const listed = dialog.getByRole('region', { name: 'Stops working on this position' });
+  const arm = async (kind, source, fields) => {
+    await dialog.getByRole('button', { name: kind, exact: true }).click();
+    await dialog.getByRole('button', { name: source, exact: true }).click();
+    await dialog.getByLabel('Size to close').fill(PART);
+    for (const [label, value] of fields) await dialog.getByLabel(label).fill(value);
+    const sent = page.waitForResponse((r) => r.url().endsWith('/futures/conditional-orders') && r.request().method() === 'POST');
+    await dialog.getByRole('button', { name: 'Arm stop' }).click();
+    return sent;
+  };
+
+  // A stop market judged on the last trade.
+  const market = await arm('Stop market', 'Last trade', [[/^Trigger price/, below]]);
+  expect(market.status(), await market.text()).toBe(201);
+  expect(market.request().postDataJSON()).toMatchObject({
+    kind: 'stop_market',
+    side: 'sell',
+    quantity: PART,
+    triggerSource: 'last',
+    reduceOnly: true,
+  });
+  await expect(dialog.getByText('Armed. It is listed here and in the Orders tab')).toBeVisible();
+  await expect(listed.locator('[data-stop="stop_market"]')).toContainText(`Stop market for ${PART}: Armed`);
+  await expect(listed.locator('[data-stop="stop_market"]')).toContainText('judged on the last traded price');
+
+  // A stop limit and a trailing stop judged on the mark.
+  const limit = await arm('Stop limit', 'Mark', [
+    [/^Trigger price/, below],
+    [/^Limit price/, limitAt],
+  ]);
+  expect(limit.status(), await limit.text()).toBe(201);
+  expect(limit.request().postDataJSON()).toMatchObject({ kind: 'stop_limit', limitPrice: limitAt, triggerSource: 'mark' });
+  const trailing = await arm('Trailing stop', 'Mark', [[/^Trailing distance/, distance]]);
+  expect(trailing.status(), await trailing.text()).toBe(201);
+  expect(trailing.request().postDataJSON()).toMatchObject({ kind: 'trailing_stop', trailingDistance: distance });
+  expect(trailing.request().postDataJSON().triggerPrice).toBeUndefined();
+  await expect(listed.locator('[data-stop="stop_limit"]')).toContainText('judged on the mark price');
+  await expect(listed.locator('[data-stop="trailing_stop"]')).toContainText(`Trailing stop for ${PART}: Armed`);
+
+  // The index is not published here: the choice says so, and the service refuses it by name.
+  await dialog.getByRole('button', { name: 'Index', exact: true }).click();
+  await expect(dialog.getByText('The index price is not published on this exchange')).toBeVisible();
+  await dialog.getByRole('button', { name: 'Arm stop' }).click();
+  await expect(dialog.getByText('The index price is not published here', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('trade.trigger_source_unset')).toBeVisible();
+
+  // More than the position holds is refused in the field, before anything is sent.
+  await dialog.getByRole('button', { name: 'Mark', exact: true }).click();
+  await dialog.getByLabel('Size to close').fill('5');
+  await expect(dialog.getByText('That is more than the position holds.')).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Arm stop' })).toBeDisabled();
+
+  // Through the API: a trailing stop given a trigger, and a buy stop on a long (it would enlarge), are refused.
+  const extra = await me.post('/api/v1/futures/conditional-orders', {
+    market: SYMBOL,
+    kind: 'trailing_stop',
+    side: 'sell',
+    quantity: PART,
+    trailingDistance: distance,
+    triggerPrice: below,
+    clientOrderId: `${J}-extra-${Date.now()}`,
+  });
+  expect(extra.body).toMatchObject({ error: 'trade.conditional_field_unsupported' });
+  const enlarge = await me.post('/api/v1/futures/conditional-orders', {
+    market: SYMBOL,
+    kind: 'stop_market',
+    side: 'buy',
+    quantity: PART,
+    triggerPrice: away(mark, 300),
+    clientOrderId: `${J}-enlarge-${Date.now()}`,
+  });
+  expect(enlarge.body).toMatchObject({ error: 'trade.conditional_would_increase' });
+
+  // The three stops, as the service has them; then they are cancelled so the next step's pair is the only protection.
+  const { body } = await me.get('/api/v1/futures/conditional-orders');
+  const stops = body.orders.filter((o) => o.positionId === positionId && o.attachment === null && o.status === 'armed');
+  expect(stops.map((o) => [o.kind, o.triggerSource, o.quantity]).sort()).toEqual([
+    ['stop_limit', 'mark', PART],
+    ['stop_market', 'last', PART],
+    ['trailing_stop', 'mark', PART],
+  ]);
+  for (const stop of stops) expect((await me.delete(`/api/v1/futures/conditional-orders/${stop.id}`)).status).toBe(200);
+});
+
 test(`${J} #6 the mark crosses a trigger: armed, triggered, filled through a reduce-only order in the book, once; the other leg cancelled`, async ({
   page,
 }) => {

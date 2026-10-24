@@ -94,6 +94,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     // every link attach (referral.attach_window_unset) and every new code (referral.code_length_unset).
     IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS: testValue('IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS'),
     IDENTITY_REFERRAL_CODE_LENGTH: testValue('IDENTITY_REFERRAL_CODE_LENGTH'),
+    // LOCAL TEST referral lapse period and sweep cadence (J-campaigns-05 #7), same profile. Blank period refuses the sweep
+    // (referral.lapse_period_unset); a blank cadence leaves the sweep timer off.
+    IDENTITY_REFERRAL_LAPSE_PERIOD_SECONDS: testValue('IDENTITY_REFERRAL_LAPSE_PERIOD_SECONDS'),
+    IDENTITY_REFERRAL_LAPSE_SWEEP_SECONDS: testValue('IDENTITY_REFERRAL_LAPSE_SWEEP_SECONDS'),
     // LOCAL TEST founder pair only: local_test_founder_a / local_test_founder_b from
     // <state>/founders.json. Absent until that vault exists. Never the Docker vault.
     ...identityFounderEnv(),

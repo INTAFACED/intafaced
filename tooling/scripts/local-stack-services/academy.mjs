@@ -29,6 +29,17 @@ const outlineLimits = () =>
 // (J-academy-11 #5). `LOCAL_STACK_ACADEMY_IMPORT_LIMIT=off` leaves it blank.
 const importLimit = () => (process.env.LOCAL_STACK_ACADEMY_IMPORT_LIMIT === 'off' ? {} : { ACADEMY_LESSON_IMPORT_MAX_BYTES: '8192' });
 
+// LOCAL TEST upload limits (TEST owner values, not decisions): 1 MiB, WebM video, PDF and PNG handouts (J-academy-11 #7).
+// `LOCAL_STACK_ACADEMY_UPLOAD_LIMITS=off` leaves them blank, so the "upload limits not set" refusal can be seen too.
+const uploadLimits = () =>
+  process.env.LOCAL_STACK_ACADEMY_UPLOAD_LIMITS === 'off'
+    ? {}
+    : {
+        ACADEMY_UPLOAD_MAX_BYTES: '1048576',
+        ACADEMY_UPLOAD_VIDEO_TYPES: 'video/webm',
+        ACADEMY_UPLOAD_HANDOUT_TYPES: 'application/pdf,image/png',
+      };
+
 export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
   name: 'academy',
   env: () => ({
@@ -42,5 +53,6 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     ...videoStorage({ secrets, urlOf }),
     ...outlineLimits(),
     ...importLimit(),
+    ...uploadLimits(),
   }),
 });

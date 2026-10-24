@@ -172,15 +172,60 @@ export const cardInput = z.object({
 });
 
 /**
- * Authenticated read of someone else's share card.
+ * Authenticated card read.
  *
- * `userId` is the SUBJECT — whose card. The viewer is always the signed
- * principal; the service applies `blueprints.visibility` on top of
- * `blueprint:read` (packages/auth scopes). This is not a public unfurl URL.
+ * `userId` is the subject of the old visibility link. `shareId` is one share
+ * of one card (MC-blueprint-01). At least one is required. The viewer is still
+ * the signed principal. A share id does not skip the visibility rule.
  */
-export const cardOfInput = z.object({
-  userId: z.string().guid(),
-  size: cardSizeSchema.default('portrait'),
+export const cardOfInput = z
+  .object({
+    userId: z.string().guid().optional(),
+    shareId: z.string().guid().optional(),
+    size: cardSizeSchema.default('portrait'),
+  })
+  .refine((value) => value.userId !== undefined || value.shareId !== undefined, {
+    message: 'A subject or a share is required',
+  });
+
+/** One share of one card size. The id is the `:cardId` on `/blueprint/shared/:cardId`. */
+export const cardShareSchema = z.object({
+  id: z.string().guid(),
+  size: cardSizeSchema,
+  createdAt: z.string().datetime({ offset: true }),
+  revokedAt: z.string().datetime({ offset: true }).nullable(),
+  state: z.enum(['active', 'revoked']),
+  /** How many times the card was opened through this share. Not a viewer count. */
+  openCount: z.number().int().min(0),
+});
+export type CardShare = z.infer<typeof cardShareSchema>;
+
+/**
+ * Who opened a share, without a name, handle, avatar or account id.
+ * The two kinds are the words the screen shows (MC-blueprint-01).
+ */
+export const openerKindSchema = z.enum(['crew member', 'signed-in account']);
+export type OpenerKind = z.infer<typeof openerKindSchema>;
+
+export const cardOpenerSchema = z.object({
+  kind: openerKindSchema,
+  firstOpened: z.string().datetime({ offset: true }),
+  lastOpened: z.string().datetime({ offset: true }),
+  openCount: z.number().int().min(1),
+});
+export type CardOpener = z.infer<typeof cardOpenerSchema>;
+
+export const cardShareExportSchema = cardShareSchema.extend({
+  openers: z.array(cardOpenerSchema),
+});
+export type CardShareExport = z.infer<typeof cardShareExportSchema>;
+
+export const createShareInput = z.object({
+  size: cardSizeSchema,
+});
+
+export const shareIdInput = z.object({
+  shareId: z.string().guid(),
 });
 
 /**
@@ -326,6 +371,26 @@ export const blueprintExportSchema = z.object({
   ),
   mentorMatches: z.array(mentorMatchSchema),
   mentoringOthers: z.array(mentorMatchSchema),
+  /**
+   * The caller's shares and each share's opener rows (MC-blueprint-01).
+   * Opener rows carry a kind, times and a count. They do not carry an account id.
+   * Empty when the caller has no shares.
+   * Schema version stays 2: the customer export parser still requires that
+   * literal and drops keys it does not know.
+   */
+  shares: z.array(cardShareExportSchema),
+  /**
+   * The caller's own opens of other accounts' shares: the rows erase removes as
+   * the viewer (MC-blueprint-01). No owner account id.
+   */
+  cardsOpened: z.array(
+    z.object({
+      shareId: z.string().guid(),
+      firstOpened: z.string().datetime({ offset: true }),
+      lastOpened: z.string().datetime({ offset: true }),
+      openCount: z.number().int().min(1),
+    }),
+  ),
 });
 export type BlueprintExport = z.infer<typeof blueprintExportSchema>;
 
@@ -338,6 +403,10 @@ export const eraseReceiptSchema = z.object({
     matchRuns: z.number().int().min(0),
     mentorMatches: z.number().int().min(0),
     emptiedCrews: z.number().int().min(0),
+    /** Shares this account owned, plus nothing else. */
+    shares: z.number().int().min(0),
+    /** Opens this account made, and opens of shares this account owned. */
+    cardOpens: z.number().int().min(0),
   }),
 });
 export type EraseReceipt = z.infer<typeof eraseReceiptSchema>;
@@ -352,14 +421,18 @@ export interface BlueprintContract {
   get(input: { userId: string }): Promise<BlueprintRecord | null>;
   card(input: { userId: string; size: CardSize }): Promise<CardRender>;
   /**
-   * Visibility-gated card read. `viewerId` is the caller; `subjectUserId` is
-   * whose card. Self always succeeds (same as `card`). Other viewers: `public`
-   * any authenticated principal, `crew` same crew, `private` not found.
-   * Denied and missing are the same error — existence of a private Blueprint
-   * is not enumerable.
+   * Visibility-gated card read. Without `shareId`, `subjectUserId` is whose card
+   * (self always succeeds; `public` any authenticated principal; `crew` same crew;
+   * `private` not found). With `shareId`, the subject is the share's owner; a
+   * mismatched subject is the same not-found as a missing share (MC-blueprint-01).
+   * Denied and missing are the same error — a private Blueprint is not enumerable.
    */
-  cardFor(input: { viewerId: string; subjectUserId: string; size: CardSize }): Promise<CardRender>;
+  cardFor(input: { viewerId: string; subjectUserId?: string; size: CardSize; shareId?: string }): Promise<CardRender>;
   setVisibility(input: { userId: string; visibility: Visibility }): Promise<BlueprintRecord>;
+  createShare(input: { userId: string; size: CardSize }): Promise<CardShare>;
+  listShares(input: { userId: string }): Promise<CardShare[]>;
+  revokeShare(input: { userId: string; shareId: string }): Promise<CardShare>;
+  shareOpeners(input: { userId: string; shareId: string }): Promise<CardOpener[]>;
   export(input: { userId: string }): Promise<BlueprintExport>;
   erase(input: { userId: string }): Promise<EraseReceipt>;
 }

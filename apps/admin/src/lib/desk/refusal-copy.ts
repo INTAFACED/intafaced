@@ -718,6 +718,46 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'A block of this lesson is over the lesson format’s limits, so it was refused before it was stored.',
     next: 'Shorten the lesson or split the section, then try again. Nothing was changed.',
   },
+  'academy.upload_limits_unset': {
+    title: 'The upload limits are not set',
+    body: 'The owner has not set the largest file the desk uploads, or the video or handout types it accepts, so no file is uploaded.',
+    next: 'The owner sets the limits for this deployment. Nothing was sent.',
+  },
+  'academy.upload_too_large': {
+    title: 'The file is over the size limit',
+    body: 'This file is larger than the owner allows, so no upload address was issued.',
+    next: 'Choose a smaller file. Nothing was sent.',
+  },
+  'academy.upload_type_refused': {
+    title: 'This file type is not accepted',
+    body: 'The owner does not accept this type for this kind of file, or its content cannot be checked.',
+    next: 'Choose a file of an accepted type. Nothing was sent.',
+  },
+  'academy.file_type_mismatch': {
+    title: 'The file is not what it says it is',
+    body: 'svc-academy read the stored file back and its content is not the type it was declared as, so it was refused.',
+    next: 'Upload the file as the type it really is. Learners never see a refused file.',
+  },
+  'academy.upload_incomplete': {
+    title: 'The file has not fully arrived',
+    body: 'Storage does not hold the whole file yet, so it was not checked.',
+    next: 'Send the file again. Nothing was published.',
+  },
+  'academy.media_not_found': {
+    title: 'No such upload',
+    body: 'svc-academy has no upload with this id.',
+    next: 'Read the item again. Nothing was changed.',
+  },
+  'academy.video_storage_unconfigured': {
+    title: 'File storage is not set up',
+    body: 'This deployment has no object store for course files, so nothing can be uploaded.',
+    next: 'The owner sets up storage for this deployment. Nothing was sent.',
+  },
+  'academy.item_video_missing': {
+    title: 'Upload the video first',
+    body: 'Captions belong to a video, and this item has no checked video yet.',
+    next: 'Upload and check the video, then add its captions. Nothing was saved.',
+  },
   'owner.decision': {
     title: 'Waiting for an owner decision',
     body: 'This path needs a choice the owner has not made yet, so it is off. Nothing was sent anywhere.',

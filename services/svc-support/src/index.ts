@@ -12,6 +12,7 @@ import { SqlHelpCentreBook } from './help-centre.js';
 import { SqlKbLibraryBook } from './kb-library.js';
 import { createIdentityApprovalClient } from './action-approval-consume.js';
 import { SqlGroupBook } from './desk-groups.js';
+import { SqlViewBook } from './desk-views.js';
 import { SqlPropertiesBook } from './desk-properties.js';
 import { SqlLifecycleBook } from './ticket-lifecycle.js';
 import { JetStreamEventBus } from '@intafaced/events';
@@ -169,6 +170,10 @@ const support = new SupportService(
     searchQueryMax: env.SUPPORT_SEARCH_QUERY_MAX ?? null,
   },
   env.SUPPORT_COMMENT_CAP ?? null,
+  new SqlViewBook(sql, {
+    personal: env.SUPPORT_VIEW_PERSONAL_CAP ?? null,
+    shared: env.SUPPORT_VIEW_SHARED_CAP ?? null,
+  }),
 );
 const loop = createTicketKbLoopObserver();
 const appRouter = createSupportRouter(

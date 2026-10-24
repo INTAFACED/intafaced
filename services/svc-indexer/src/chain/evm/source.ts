@@ -3,6 +3,7 @@ import type { Address, Hex, PublicClient } from 'viem';
 import { assertValidBlock, type ChainBlock, type ChainHead, type ChainSource } from '../source.js';
 import { decodeVenueLogs, type RawLog } from './decode.js';
 import { ChainUnavailableError, classifyChainError, isBlockNotFound, isZeroAddress } from './availability.js';
+import { lookupExplorerTx, readBlockTransactions, transactionHashes } from './explorer-txs.js';
 import { withSpan } from '../../tracing.js';
 
 /**
@@ -350,6 +351,9 @@ export class EvmChainSource implements ChainSource {
     // Request shape is not enough — refuse answers that name another block.
     assertLogsBoundToBlock(logs, { hash, venue: this.venue, height, rpcUrl: this.rpcUrl });
 
+    const hashes = transactionHashes(header.transactions, hash, this.rpcUrl);
+    const transactions = hashes.length === 0 ? [] : await readBlockTransactions(this.client, hashes, hash, this.rpcUrl);
+
     const block: ChainBlock = {
       chainId: this.chainId,
       height,
@@ -365,6 +369,7 @@ export class EvmChainSource implements ChainSource {
         txCount: header.transactions.length,
         size: Number(header.size),
       },
+      transactions,
     };
 
     // The port's own validation, run on this adapter's output. An adapter is
@@ -372,6 +377,11 @@ export class EvmChainSource implements ChainSource {
     // so where it can still be blamed.
     assertValidBlock(block);
     return block;
+  }
+
+  /** D-explorer-02. `null` means the node does not know the hash. Transport failure throws. */
+  lookupExplorerTx(hash: string) {
+    return lookupExplorerTx(this.client, hash, this.rpcUrl);
   }
 
   /**

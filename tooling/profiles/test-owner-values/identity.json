@@ -31,6 +31,16 @@
       "value": "8",
       "note": "Eight characters per short referral code."
     },
+    "IDENTITY_REFERRAL_LAPSE_PERIOD_SECONDS": {
+      "service": "identity",
+      "value": "3600",
+      "note": "One hour without a fee event ends a referral relationship, so the journey can age one account past it (J-campaigns-05 #7)."
+    },
+    "IDENTITY_REFERRAL_LAPSE_SWEEP_SECONDS": {
+      "service": "identity",
+      "value": "5",
+      "note": "The lapse sweep runs every five seconds on the stack."
+    },
     "IDENTITY_WATCHLIST_LIST_CAP": {
       "service": "identity",
       "value": "10",

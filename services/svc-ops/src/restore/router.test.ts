@@ -61,7 +61,7 @@ function desk(over: { target?: string | null } = {}) {
 }
 
 describe('restore saga procedures', () => {
-  it('lists no backups and names why, because the archive is not probed', async () => {
+  it('lists no backups when the archive URL is blank or no probe is wired', async () => {
     const api = createOpsRouter(new OpsService(), undefined, { now: () => '2026-10-20T12:00:00.000Z' }).createCaller(await signed());
     expect(await api.restore.backups()).toEqual({
       asOf: '2026-10-20T12:00:00.000Z',
@@ -73,6 +73,41 @@ describe('restore saga procedures', () => {
       await signed(),
     );
     expect((await set.restore.backups()).reason).toBe(OPS_RESTORE_ARCHIVE_UNPROBED);
+  });
+
+  it('lists a probed manifest and keeps a failed probe empty', async () => {
+    const row = { id: 'full-9', kind: 'full' as const, sequence: '9', takenAt: '2026-10-20T12:00:00.000Z' };
+    const listed = createOpsRouter(new OpsService(), undefined, {
+      now: () => '2026-10-20T12:00:00.000Z',
+      restoreArchiveUrl: 'https://archive.example/restore',
+      restoreArchiveProbe: async () => ({ probed: true, backups: [row] }),
+    }).createCaller(await signed());
+    expect(await listed.restore.backups()).toEqual({
+      asOf: '2026-10-20T12:00:00.000Z',
+      archive: { configured: true, probed: true, code: null },
+      backups: [row],
+      reason: 'The archive listed these backups.',
+    });
+    const empty = createOpsRouter(new OpsService(), undefined, {
+      restoreArchiveUrl: 'https://archive.example/restore',
+      restoreArchiveProbe: async () => ({ probed: true, backups: [] }),
+    }).createCaller(await signed());
+    expect(await empty.restore.backups()).toMatchObject({
+      archive: { probed: true, code: null },
+      backups: [],
+      reason: 'The archive listed no backups.',
+    });
+    const failed = createOpsRouter(new OpsService(), undefined, {
+      restoreArchiveUrl: 'https://archive.example/restore',
+      restoreArchiveProbe: async () => {
+        throw new Error('down');
+      },
+    }).createCaller(await signed());
+    expect(await failed.restore.backups()).toMatchObject({
+      archive: { configured: true, probed: false, code: OPS_RESTORE_ARCHIVE_UNPROBED },
+      backups: [],
+      reason: OPS_RESTORE_ARCHIVE_UNPROBED,
+    });
   });
 
   it('refuses the writes without admin:treasury and the reads without admin:read', async () => {

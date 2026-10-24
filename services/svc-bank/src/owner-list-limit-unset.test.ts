@@ -17,6 +17,7 @@ import {
   assertSchedulesListLimit,
   assertSpacesListLimit,
 } from './owner-list-limit.js';
+import { bankRouterSource } from './router/router-source.js';
 
 /**
  * Owner-list page size is refuse-closed when unset.
@@ -159,9 +160,9 @@ describe('svc-bank owner lists refuse unset limit', () => {
   });
 
   it('tRPC owner lists pass optional input.limit — omit is not 50', () => {
-    const router = readFileSync(join(ROOT, 'services/svc-bank/src/router.ts'), 'utf8');
+    const router = bankRouterSource();
 
-    const spacesList = sliceFn(router, 'const spaces = router({', 'unnamed: scopedProcedure');
+    const spacesList = sliceFn(router, 'export function createSpacesRouter(', 'unnamed: scopedProcedure');
     expect(spacesList).toContain('limit: z.number().int().min(1).max(200).optional()');
     expect(spacesList).toContain('overview(userId, input.assetId, input.limit)');
     expect(spacesList).not.toMatch(/\?\? 50/);
@@ -171,7 +172,7 @@ describe('svc-bank owner lists refuse unset limit', () => {
     expect(schedules).toContain('listSchedules(ctx.principal.userId, input?.limit)');
     expect(schedules).not.toMatch(/\?\? 50/);
 
-    const positions = sliceFn(router, 'positions: scopedProcedure', 'const analytics = router');
+    const positions = sliceFn(router, 'positions: scopedProcedure', 'export function createAnalyticsRouter(');
     expect(positions).toContain('limit: z.number().int().min(1).max(200).optional()');
     expect(positions).toContain('positionsOf(ctx.principal.userId, input?.limit)');
     expect(positions).not.toMatch(/\?\? 50/);
@@ -204,7 +205,7 @@ describe('svc-bank owner lists refuse unset limit', () => {
     expect(autoInvestList).toContain('listRules(ctx.principal.userId, input?.limit)');
     expect(autoInvestList).not.toMatch(/\?\? 50/);
 
-    const businessList = sliceFn(router, 'const business = router({', 'create: scopedProcedure');
+    const businessList = sliceFn(router, 'export function createBusinessRouter(', 'create: scopedProcedure');
     expect(businessList).toContain('limit: z.number().int().min(1).max(200).optional()');
     expect(businessList).toContain('accountsOf(ctx.principal.userId, input?.limit)');
     expect(businessList).not.toMatch(/\?\? 50/);

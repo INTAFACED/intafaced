@@ -707,6 +707,8 @@ services:
       TRADE_COPY_JURISDICTION_LAW: ${TRADE_COPY_JURISDICTION_LAW:-}
       # TRD-0773 disclosure wording. Empty = unpublished. Compose does not invent text.
       TRADE_COPY_DISCLOSURE_LAW: ${TRADE_COPY_DISCLOSURE_LAW:-}
+      # CB-copy-02 lead-page metric definitions. Empty = no metric number shown.
+      TRADE_COPY_METRIC_DEFINITIONS: ${TRADE_COPY_METRIC_DEFINITIONS:-}
       # PTX-M21 fee/rebate schedule — pass-through, no compose default.
       # Blank host → order preview refuses (never invent bps).
       TRADE_FEE_SCHEDULE: ${TRADE_FEE_SCHEDULE:-}
@@ -1075,6 +1077,11 @@ services:
       BLUEPRINT_CREW_CAPACITY: ${BLUEPRINT_CREW_CAPACITY:-}
       BLUEPRINT_MENTOR_SHORTLIST_SIZE: ${BLUEPRINT_MENTOR_SHORTLIST_SIZE:-}
       BLUEPRINT_SEASON: ${BLUEPRINT_SEASON:-}
+      # Active shares per account and opener-list page size (MC-blueprint-01).
+      # Empty pass-through. Blank stays refuse-closed. 0 is a deliberate cap
+      # or an empty page. Never invent a count.
+      BLUEPRINT_SHARES_PER_OWNER: ${BLUEPRINT_SHARES_PER_OWNER:-}
+      BLUEPRINT_OPENS_LIST_LIMIT: ${BLUEPRINT_OPENS_LIST_LIMIT:-}
       # The card rasterizer. DELIBERATELY has no default: unset means this
       # deployment has no renderer, and the service says so with a typed code
       # while still serving the full vector card. A default pointing at a host
@@ -1727,6 +1734,9 @@ services:
       ACADEMY_OUTLINE_MAX_SECTIONS: ${ACADEMY_OUTLINE_MAX_SECTIONS:-}
       ACADEMY_OUTLINE_MAX_ITEMS: ${ACADEMY_OUTLINE_MAX_ITEMS:-}
       ACADEMY_LESSON_IMPORT_MAX_BYTES: ${ACADEMY_LESSON_IMPORT_MAX_BYTES:-}
+      ACADEMY_UPLOAD_MAX_BYTES: ${ACADEMY_UPLOAD_MAX_BYTES:-}
+      ACADEMY_UPLOAD_VIDEO_TYPES: ${ACADEMY_UPLOAD_VIDEO_TYPES:-}
+      ACADEMY_UPLOAD_HANDOUT_TYPES: ${ACADEMY_UPLOAD_HANDOUT_TYPES:-}
       # Owner-published seconds between watch-position saves while playing.
       # Empty = unset: the player saves on pause and on leaving only.
       ACADEMY_VIDEO_POSITION_SAVE_SECONDS: ${ACADEMY_VIDEO_POSITION_SAVE_SECONDS:-}
@@ -1882,6 +1892,9 @@ services:
       # invent one.
       INDEXER_BATCH_SIZE: ${INDEXER_BATCH_SIZE:-}
       INDEXER_EXPLORER_LIST_LIMIT: ${INDEXER_EXPLORER_LIST_LIMIT:-}
+      # No :-seconds: unset must not invent a drop window. tx.get refuses
+      # indexer.tx_drop_window_unset when a previously seen hash disappears.
+      INDEXER_TX_DROP_WINDOW_SECONDS: ${INDEXER_TX_DROP_WINDOW_SECONDS:-}
       INDEXER_INGEST_ENABLED: ${INDEXER_INGEST_ENABLED:-true}
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4013']

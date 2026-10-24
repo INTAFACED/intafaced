@@ -33,6 +33,7 @@ function payload(over: Record<string, unknown> = {}) {
 async function app(opts: { law?: typeof publishedLaw | undefined } = {}) {
   const parent = new Map<string, string>([[PAYER, BENE0]]);
   const store = new MemoryAccrualStore();
+  const active: string[] = [];
   const f = Fastify({ logger: false });
   registerAffiliateProducerAccrue(f, {
     internalSecret: SECRET,
@@ -40,9 +41,10 @@ async function app(opts: { law?: typeof publishedLaw | undefined } = {}) {
     freeze: { frozenIds: async () => new Set<string>() },
     accruals: store,
     accrualTierLaw: opts.law,
+    activity: { recordFeeEvent: async (userId: string) => void active.push(userId) },
   });
   await f.ready();
-  return { f, store };
+  return { f, store, active };
 }
 
 describe('D26-P1-O2 S2S producer accrue', () => {
@@ -85,7 +87,7 @@ describe('D26-P1-O2 S2S producer accrue', () => {
   });
 
   it('403 when sourceModule does not match the producer (no identity default)', async () => {
-    const { f, store } = await app({ law: publishedLaw });
+    const { f, store, active } = await app({ law: publishedLaw });
     const body = JSON.stringify(payload({ sourceModule: 'pay' }));
     const res = await f.inject({
       method: 'POST',
@@ -96,11 +98,13 @@ describe('D26-P1-O2 S2S producer accrue', () => {
     expect(res.statusCode).toBe(403);
     expect(res.json()).toMatchObject({ code: 'affiliate.accrual.producer_module_mismatch' });
     expect(await store.listByFeeEvent(FEE)).toEqual([]);
+    // A refused caller records no activity.
+    expect(active).toEqual([]);
     await f.close();
   });
 
-  it('412 unpublished law — rates_unset, no rows', async () => {
-    const { f, store } = await app({ law: undefined });
+  it('412 unpublished law — rates_unset, no rows, yet the fee event still counts as activity for the referral lapse', async () => {
+    const { f, store, active } = await app({ law: undefined });
     const body = JSON.stringify(payload());
     const res = await f.inject({
       method: 'POST',
@@ -112,6 +116,7 @@ describe('D26-P1-O2 S2S producer accrue', () => {
     expect(res.json()).toMatchObject({ code: 'affiliate.accrual.rates_unset' });
     expect(String(res.json().residual)).toMatch(/DIRECTION §8/);
     expect(await store.listByFeeEvent(FEE)).toEqual([]);
+    expect(active).toEqual([PAYER]);
     await f.close();
   });
 

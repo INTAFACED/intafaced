@@ -2,7 +2,8 @@
  * LOCAL TEST video store: a stand-in for the S3-compatible object store svc-academy signs playback URLs for
  * (AC-videos-01). It serves a fixed set of TEST objects, and only when a request carries a valid, unexpired AWS
  * Signature V4 query signed with the stack's TEST key, so the stack exercises the same signed, short-lived URLs a real
- * store would. No upload, no listing, no other bucket. Never part of a real environment.
+ * store would. It also takes signed PUTs of course media under `courses/` (AC-videos-02), kept in the stack's state
+ * folder. No listing, no other bucket. Never part of a real environment.
  */
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import fs from 'node:fs';
@@ -80,13 +81,18 @@ function byteRange(header, size) {
   return start > end ? 'invalid' : { start, end };
 }
 
-export function serveVideoStore({ host, port, secretKey }) {
+/** Uploaded course media: only under this prefix, and at most this many bytes per object. */
+const UPLOAD_PREFIX = 'courses/';
+const UPLOAD_MAX_BYTES = 64 * 1024 * 1024;
+
+export function serveVideoStore({ host, port, secretKey, uploadsDir = null }) {
+  const uploaded = (key) => (uploadsDir ? path.join(uploadsDir, createHash('sha256').update(key).digest('hex')) : null);
   const server = http.createServer((req, res) => {
     const deny = (status, why) => {
       res.writeHead(status, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
       res.end(`LOCAL TEST video store: ${why}\n`);
     };
-    if (req.method !== 'GET' && req.method !== 'HEAD') return deny(405, 'only GET and HEAD');
+    if (req.method !== 'GET' && req.method !== 'HEAD' && req.method !== 'PUT') return deny(405, 'only GET, HEAD and PUT');
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? `${host}:${port}`}`);
     if (url.pathname === '/health') return deny(200, 'ok');
     const rawPath = (req.url ?? '/').split('?')[0];
@@ -97,7 +103,34 @@ export function serveVideoStore({ host, port, secretKey }) {
     } catch {
       return deny(400, 'bad object key');
     }
-    const object = objectKey !== null && Object.hasOwn(VIDEO_STORE_OBJECTS, objectKey) ? VIDEO_STORE_OBJECTS[objectKey] : undefined;
+    if (req.method === 'PUT') {
+      const refusal = presignRefusal({ method: 'PUT', rawPath, query: url.searchParams, host: req.headers.host ?? '', secretKey });
+      if (refusal) return deny(403, refusal);
+      if (!objectKey?.startsWith(UPLOAD_PREFIX) || !uploadsDir) return deny(403, 'uploads go under courses/ only');
+      const chunks = [];
+      let size = 0;
+      req.on('data', (chunk) => {
+        size += chunk.length;
+        if (size > UPLOAD_MAX_BYTES) req.destroy();
+        else chunks.push(chunk);
+      });
+      req.on('end', () => {
+        fs.mkdirSync(uploadsDir, { recursive: true });
+        const file = uploaded(objectKey);
+        fs.writeFileSync(file, Buffer.concat(chunks));
+        fs.writeFileSync(`${file}.type`, String(req.headers['content-type'] ?? 'application/octet-stream'));
+        res.writeHead(200, { 'cache-control': 'no-store' });
+        res.end();
+      });
+      return;
+    }
+    const stored = objectKey?.startsWith(UPLOAD_PREFIX) && uploaded(objectKey);
+    const object =
+      objectKey !== null && Object.hasOwn(VIDEO_STORE_OBJECTS, objectKey)
+        ? VIDEO_STORE_OBJECTS[objectKey]
+        : stored && fs.existsSync(stored)
+          ? { file: stored, type: fs.readFileSync(`${stored}.type`, 'utf8') }
+          : undefined;
     const refusal = presignRefusal({ method: 'GET', rawPath, query: url.searchParams, host: req.headers.host ?? '', secretKey });
     if (refusal) return deny(403, refusal);
     if (!object) return deny(404, 'no such object');
