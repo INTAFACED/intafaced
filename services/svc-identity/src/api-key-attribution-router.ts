@@ -136,8 +136,8 @@ export function createApiKeyAttributionRouter(auth: AuthService) {
           z.object({
             accessToken: z.string(),
             expiresAt: z.string(),
-            userId: z.string().uuid(),
-            keyId: z.string().uuid(),
+            userId: z.string().guid(),
+            keyId: z.string().guid(),
             scopes: z.array(z.string()),
             mode: z.enum(['live', 'sandbox']),
             attribution: surfacesView,

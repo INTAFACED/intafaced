@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
 
-export const sharedCardSelection = z.object({ userId: z.string().uuid(), size: z.enum(['portrait', 'landscape']) }).strict();
+export const sharedCardSelection = z.object({ userId: z.string().guid(), size: z.enum(['portrait', 'landscape']) }).strict();
 export type SharedCardSelection = z.infer<typeof sharedCardSelection>;
 export const sharedCardDimensions = { portrait: { width: 1080, height: 1350 }, landscape: { width: 1200, height: 630 } } as const;
 export function sharedCardResponse(selection: SharedCardSelection) {

@@ -18,10 +18,7 @@ import { decimalSchema, parseAmount, formatAmount } from '../../shared/money';
 import { dailyHistoryWindow, deriveUtc8Daily, DailyHistoryError } from './daily-history';
 import { planZonedDaily, deriveZonedDaily, ZonedDailyError } from './zoned-daily-history';
 
-const positive = decimalSchema.refine(
-  (value) => parseAmount(value) > 0n,
-  () => ({ message: copy.t('expectedAPositiveExactDecimalString') }),
-);
+const positive = decimalSchema.refine((value) => parseAmount(value) > 0n, { error: () => copy.t('expectedAPositiveExactDecimalString') });
 export const listingSchema = marketSchema.extend({
   orderable: z.boolean(),
   precision: z.object({ price: positive, amount: positive }),
@@ -86,7 +83,7 @@ export const LEDGER_PAGE_LIMIT = 200;
 
 /** A statement export job: one per request key, built once; `rows` and `sha256` once it is finished. */
 export const statementJobSchema = z.object({
-  id: z.string().uuid(),
+  id: z.string().guid(),
   requestKey: z.string(),
   from: z.string().datetime({ offset: true }),
   to: z.string().datetime({ offset: true }),
@@ -420,7 +417,9 @@ export function createTradeApi(api: ApiClient, now: () => number = Date.now) {
     balances: (signal?: AbortSignal) =>
       api.rest(
         '/account/balance',
-        balancesSchema.extend({ balances: z.record(z.object({ free: decimalSchema, used: decimalSchema, total: decimalSchema })) }),
+        balancesSchema.extend({
+          balances: z.record(z.string(), z.object({ free: decimalSchema, used: decimalSchema, total: decimalSchema })),
+        }),
         { signal },
       ),
     orders: (kind: 'open' | 'closed', symbol?: string, limit = 100, signal?: AbortSignal, since?: number) =>

@@ -12,11 +12,11 @@ import { SESSION_CURRENT_USE_LOGOUT } from './session-families-router.js';
 export function createSessionRevokeRouter(sql: Sql) {
   return router({
     revokeSession: scopedProcedure('identity:write')
-      .input(z.object({ userId: z.string().uuid(), sessionId: z.string().uuid() }))
+      .input(z.object({ userId: z.string().guid(), sessionId: z.string().guid() }))
       .output(
         z.object({
-          userId: z.string().uuid(),
-          sessionId: z.string().uuid(),
+          userId: z.string().guid(),
+          sessionId: z.string().guid(),
           revoked: z.boolean(),
         }),
       )

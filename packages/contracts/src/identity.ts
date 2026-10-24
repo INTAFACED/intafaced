@@ -44,7 +44,7 @@ export type KycTierValue = z.infer<typeof kycTierSchema>;
  * and the agent read one contract rather than two that agree by luck.
  */
 export const accountStateSchema = z.object({
-  userId: z.string().uuid(),
+  userId: z.string().guid(),
   /** `identity.users.status` — the freeze/close fact, read never written here. */
   status: z.enum(['active', 'frozen', 'closed']),
   /** Highest approved, unexpired tier. Derived by identity, not stored twice. */
@@ -61,7 +61,7 @@ export type AccountState = z.infer<typeof accountStateSchema>;
  */
 export const emailProofSchema = z
   .object({
-    userId: z.string().uuid(),
+    userId: z.string().guid(),
     emailProof: z.enum(['accepted', 'missing']),
   })
   .strict();
@@ -77,7 +77,7 @@ export type EmailProof = z.infer<typeof emailProofSchema>;
  */
 export const securityLockSchema = z
   .object({
-    userId: z.string().uuid(),
+    userId: z.string().guid(),
     /** True while the lock holds: set, and either no unlock requested or the requested time not reached. */
     locked: z.boolean(),
     lockedAt: z.string().datetime({ offset: true }).nullable(),
@@ -110,7 +110,7 @@ export const rankPerksSchema = z.object({
 export type RankPerks = z.infer<typeof rankPerksSchema>;
 
 export const rankStateSchema = z.object({
-  userId: z.string().uuid(),
+  userId: z.string().guid(),
   rank: z.number().int().min(0),
   xp: z.string(),
   seasonXp: z.string(),
@@ -119,27 +119,27 @@ export const rankStateSchema = z.object({
 });
 export type RankState = z.infer<typeof rankStateSchema>;
 
-export const getRankInput = z.object({ userId: z.string().uuid() });
-export const getPerksInput = z.object({ userId: z.string().uuid() });
+export const getRankInput = z.object({ userId: z.string().guid() });
+export const getPerksInput = z.object({ userId: z.string().guid() });
 
 export const awardXpInput = z.object({
-  userId: z.string().uuid(),
+  userId: z.string().guid(),
   sourceModule: z.string().min(1),
   action: z.string().min(1),
   xpDelta: z.number().int(),
   /** Dedupe key — the same achievement must never be paid twice. */
   idempotencyKey: z.string().min(8),
-  meta: z.record(z.unknown()).optional(),
+  meta: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const principalSummarySchema = z.object({
-  userId: z.string().uuid(),
+  userId: z.string().guid(),
   handle: z.string(),
   tier: kycTierSchema,
   region: z.string().length(2).nullable(),
   rank: z.number().int(),
   modes: z.array(z.enum(['trader', 'merchant', 'creator', 'student'])),
-  blueprintId: z.string().uuid().nullable(),
+  blueprintId: z.string().guid().nullable(),
 });
 export type PrincipalSummary = z.infer<typeof principalSummarySchema>;
 
@@ -179,8 +179,8 @@ export const BASE_PERKS: RankPerks = {
  * `parentUserId` to the edge principal and refuses when `revoked`.
  */
 export const subAccountOwnershipSchema = z.object({
-  id: z.string().uuid(),
-  parentUserId: z.string().uuid(),
+  id: z.string().guid(),
+  parentUserId: z.string().guid(),
   revoked: z.boolean(),
 });
 export type SubAccountOwnership = z.infer<typeof subAccountOwnershipSchema>;
@@ -193,8 +193,8 @@ export type SubAccountOwnership = z.infer<typeof subAccountOwnershipSchema>;
  * flatten, and this snapshot must not leak or invent them.
  */
 export const apiKeyOwnershipSchema = z.object({
-  id: z.string().uuid(),
-  userId: z.string().uuid(),
+  id: z.string().guid(),
+  userId: z.string().guid(),
   revoked: z.boolean(),
 });
 export type ApiKeyOwnership = z.infer<typeof apiKeyOwnershipSchema>;
@@ -206,8 +206,8 @@ export type ApiKeyOwnership = z.infer<typeof apiKeyOwnershipSchema>;
  * `revoked`. No scopes, no jurisdiction or tier — those live on the user.
  */
 export const sessionOwnershipSchema = z.object({
-  id: z.string().uuid(),
-  userId: z.string().uuid(),
+  id: z.string().guid(),
+  userId: z.string().guid(),
   revoked: z.boolean(),
 });
 export type SessionOwnership = z.infer<typeof sessionOwnershipSchema>;

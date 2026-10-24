@@ -142,7 +142,7 @@ const maintenanceWire = (w: MaintenanceWindow) =>
     })),
   });
 
-const incidentIdInput = z.object({ incidentId: z.string().uuid() }).strict();
+const incidentIdInput = z.object({ incidentId: z.string().guid() }).strict();
 
 const postmortemWire = (p: Postmortem) => postmortemOutput.parse(p);
 
@@ -309,7 +309,7 @@ export function statusPageRouter(deps?: StatusPageDeps) {
           ),
         ),
       forIncidents: scopedProcedure('admin:write', { module: 'notify' })
-        .input(z.object({ incidentIds: z.array(z.string().uuid()).max(POSTMORTEMS_LIST_MAX) }).strict())
+        .input(z.object({ incidentIds: z.array(z.string().guid()).max(POSTMORTEMS_LIST_MAX) }).strict())
         .output(z.array(postmortemOutput))
         .query(({ input }) =>
           call(async ({ postmortems }) => (await requirePostmortems(postmortems).forIncidents(input.incidentIds)).map(postmortemWire)),
@@ -318,7 +318,7 @@ export function statusPageRouter(deps?: StatusPageDeps) {
         .input(
           z
             .object({
-              incidentId: z.string().uuid(),
+              incidentId: z.string().guid(),
               body: z.string().min(1).max(POSTMORTEM_BODY_MAX),
               expectedVersion: z.number().int().min(0),
             })
@@ -336,7 +336,7 @@ export function statusPageRouter(deps?: StatusPageDeps) {
         .input(
           z
             .object({
-              incidentId: z.string().uuid(),
+              incidentId: z.string().guid(),
               approvalId: z.string().min(1).max(128),
               operationId: z.string().min(1).max(128),
             })
@@ -371,7 +371,7 @@ export function statusPageRouter(deps?: StatusPageDeps) {
         .input(
           z
             .object({
-              id: z.string().uuid(),
+              id: z.string().guid(),
               to: z.enum(['verifying', 'completed', 'cancelled', 'in_progress']),
               reason: z.string().min(1).max(500),
             })

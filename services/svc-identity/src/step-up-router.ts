@@ -22,7 +22,7 @@ const webauthnShape = z.object({
     signature: z.string().min(1),
     userHandle: z.string().nullish(),
   }),
-  clientExtensionResults: z.record(z.unknown()).optional(),
+  clientExtensionResults: z.record(z.string(), z.unknown()).optional(),
 });
 
 const beginInput = z
@@ -37,7 +37,7 @@ const beginInput = z
 
 const completeInput = z
   .object({
-    challengeId: z.string().uuid(),
+    challengeId: z.string().guid(),
     totpCode: z
       .string()
       .regex(/^\d{6}$/)
@@ -50,7 +50,7 @@ const completeInput = z
   });
 
 const ceremonyOutput = z.object({
-  challengeId: z.string().uuid(),
+  challengeId: z.string().guid(),
   expiresAt: z.string().datetime({ offset: true }),
   scope: z.string(),
   purpose: z.string(),
@@ -75,7 +75,7 @@ const ceremonyOutput = z.object({
 });
 
 const approvalOutput = z.object({
-  stepUpApprovalId: z.string().uuid(),
+  stepUpApprovalId: z.string().guid(),
   expiresAt: z.string().datetime({ offset: true }),
   scope: z.string(),
   purpose: z.string(),

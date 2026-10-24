@@ -1028,6 +1028,7 @@ describe('personal bill pay and global send', () => {
     const balance = async () => (await ledger.balance(userAvailable(USER, 'USDT'))).amount;
     const sendOne = (key: string) =>
       me.global.send({ ...sendBody, idempotencyKey: key, amount: '10', fromSpaceId: space.id, recipientId: saved.id });
+    const apart = () => new Promise((resolve) => setTimeout(resolve, 5));
     const turnBack = (id: string) => reverseFromRail(ledger, id, userAvailable(USER, 'USDT'), 'test-payout-rail', parseAmount('10'));
 
     // The ledger is away as the refund posts: the send stays returned and nothing is credited; the retry credits once.
@@ -1077,6 +1078,7 @@ describe('personal bill pay and global send', () => {
     // The send's value was already turned back before the rail returned it: the refund is not posted or recorded.
     const third = await sendOne('send-refund-03');
     await turnBack(third.id);
+    await apart();
     await opsA.global.ops.recordReturn({ sendId: third.id, returnRef: 'TEST-RET-R3' });
     await expect(opsB.global.ops.refundReturn({ sendId: third.id })).rejects.toMatchObject({
       cause: { code: 'bank.refund_already_reversed' },

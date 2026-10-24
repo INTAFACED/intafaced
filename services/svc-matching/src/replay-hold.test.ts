@@ -89,7 +89,7 @@ class DedupingTimeoutOnce implements EventBus {
     const key = opts.idempotencyKey ?? '';
     this.attempts.push(key);
     const existing = this.stored.get(key);
-    if (existing) return existing as Awaited<ReturnType<MemoryEventBus['publish']>>;
+    if (existing) return existing as Envelope<Payload<K>>;
     const env = await this.inner.publish(name, payload, opts);
     this.stored.set(key, env);
     if (name === 'orderFilled' && !this.failed) {

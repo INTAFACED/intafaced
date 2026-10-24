@@ -3,7 +3,7 @@ import type { Context } from './trpc.js';
 
 const id = z
   .string()
-  .uuid()
+  .guid()
   .transform((value) => value.toLowerCase());
 const revision = z.number().int().positive();
 const timestamp = z.string().datetime({ offset: true });

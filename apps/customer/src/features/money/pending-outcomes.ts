@@ -23,10 +23,10 @@ const referenceNames = new Set([
 ]);
 const pendingSchema = z
   .object({
-    reference: z.string().uuid(),
+    reference: z.string().guid(),
     title: z.string(),
     procedure: z.string(),
-    recordRefs: z.record(z.string()).refine((refs) => Object.keys(refs).every((key) => referenceNames.has(key))),
+    recordRefs: z.record(z.string(), z.string()).refine((refs) => Object.keys(refs).every((key) => referenceNames.has(key))),
   })
   .strict();
 export type PendingOutcome = z.infer<typeof pendingSchema>;
