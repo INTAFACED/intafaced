@@ -28,6 +28,7 @@ import { MerchantService } from './merchant-service.js';
 import { createIdentityApprovalClient, unwiredApprovalConsumer } from './action-approval-consume.js';
 import { createTakeStepUp } from './take-step-up.js';
 import { createReleaseStepUp } from './release-step-up.js';
+import { createInstrumentStepUp } from './instrument-step-up.js';
 import { createIdentityHolderNameRule } from './holder-name.js';
 import { createIdentityPublicProfile } from './public-profile.js';
 import { OpsReads } from './ops/ops-reads.js';
@@ -241,6 +242,7 @@ const actionApprovals = env.IDENTITY_URL
 const takeStepUp = createTakeStepUp({ sql, approvals: actionApprovals });
 // P-trade-orders-07 and -16: a release is confirmed the same way; one confirmation covers that session's releases for ten minutes.
 const releaseStepUp = createReleaseStepUp({ sql, approvals: actionApprovals });
+const instrumentStepUp = createInstrumentStepUp({ sql, approvals: actionApprovals });
 
 export const appRouter = createP2pRouter(
   p2p,
@@ -257,6 +259,7 @@ export const appRouter = createP2pRouter(
     takeGate,
     takeStepUp,
     releaseStepUp,
+    instrumentStepUp,
     // The other side of an order by their handle; without IDENTITY_URL reputation.get says the profile is unwired.
     ...(env.IDENTITY_URL ? { publicProfile: createIdentityPublicProfile(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) } : {}),
   },
