@@ -4,12 +4,12 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PersonalPayApi } from '../pay-api';
 import type { Offer, PostOfferInput } from '../schemas';
-import { AdvertiserTermsSheet, LevelLimits, OfferReceipt, OfferSummary, postInput } from './p2p-post';
+import { AdvertiserTermsSheet, LevelLimits, OfferReceipt, OfferSummary, PostingChecklist, postInput } from './p2p-post';
 import { emptyOffer } from './p2p-model';
 
 /**
- * J-p2p-03 #2, #4, #6 (P-ads-merchant-01, -02): the summary, the advertiser terms, the level's per-order limits and the
- * receipt of a posted ad.
+ * J-p2p-03 #1, #2, #4, #6 (P-ads-merchant-01, -02, -12): the posting checklist, the summary, the advertiser terms, the
+ * level's per-order limits and the receipt of a posted ad.
  */
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -192,6 +192,83 @@ describe('LevelLimits and a buy ad beyond them', () => {
       />,
     );
     expect(page.textContent).toContain('Each order on this buy ad must be between 0.5 and 500 EUR at your level');
+  });
+});
+
+describe('PostingChecklist', () => {
+  it('asks for a fiat first, then lists each check with your value and the target', async () => {
+    const postingEligibility = vi.fn(async () => ({
+      ok: true as const,
+      data: {
+        asset: null,
+        fiatCurrency: 'EUR',
+        policy: 'thresholds' as const,
+        checks: [
+          {
+            id: 'advertiser_terms' as const,
+            state: 'not_met' as const,
+            current: null,
+            required: 'TEST-1',
+            reason: 'p2p.terms_not_accepted',
+          },
+          { id: 'kyc_tier' as const, state: 'met' as const, current: 'full', required: 'basic', reason: 'posting.met' },
+          {
+            id: 'completed_orders' as const,
+            state: 'not_met' as const,
+            current: '2',
+            required: '5',
+            reason: 'p2p.posting_threshold_not_met',
+          },
+          { id: 'completion_rate' as const, state: 'unknown' as const, current: null, required: '90', reason: 'p2p.completion_rate_none' },
+        ],
+      },
+    }));
+    const pay = { postingEligibility } as unknown as PersonalPayApi;
+    const blank = await render(<PostingChecklist pay={pay} fiatCurrency="" />);
+    expect(blank.querySelector('[data-testid="posting-checklist"]')!.textContent).toContain('Pick a fiat currency');
+    expect(postingEligibility).not.toHaveBeenCalled();
+    act(() => root?.unmount());
+    root = null;
+    const page = await render(<PostingChecklist pay={pay} fiatCurrency="EUR" />);
+    expect(postingEligibility).toHaveBeenCalledWith('EUR', expect.anything());
+    const list = page.querySelector('[data-testid="posting-checklist"]')!;
+    expect(list.textContent).toContain('What posting an ad in EUR needs');
+    expect(list.querySelector('[data-check="advertiser_terms"]')!.textContent).toContain('Not met. You: not accepted. Needed: TEST-1.');
+    expect(list.querySelector('[data-check="kyc_tier"]')!.textContent).toContain('Met. You: full. Needed: basic.');
+    expect(list.querySelector('[data-check="completed_orders"]')!.textContent).toContain('You: 2. Needed: 5.');
+    expect(list.querySelector('[data-check="completion_rate"]')!.textContent).toContain(
+      'Cannot be checked. You: not available. Needed: 90%.',
+    );
+  });
+
+  it('says a fiat with nothing published, and a fiat with no threshold, plainly', async () => {
+    const answer = (policy: 'unset' | 'none') =>
+      ({
+        postingEligibility: vi.fn(async () => ({ ok: true as const, data: { asset: null, fiatCurrency: 'GBP', policy, checks: [] } })),
+      }) as unknown as PersonalPayApi;
+    expect((await render(<PostingChecklist pay={answer('unset')} fiatCurrency="GBP" />)).textContent).toContain(
+      'has not published posting requirements for GBP, so ads in GBP are refused',
+    );
+    act(() => root?.unmount());
+    root = null;
+    expect((await render(<PostingChecklist pay={answer('none')} fiatCurrency="GBP" />)).textContent).toContain(
+      'There is no posting threshold for GBP',
+    );
+  });
+
+  it('says a post below a threshold in the room’s words', async () => {
+    const page = await render(
+      <OfferSummary
+        input={input}
+        methodLabels={['TEST bank transfer']}
+        termsNote={null}
+        failure={{ ok: false, reason: 'error', message: 'x', code: 'p2p.posting_threshold_not_met' }}
+        posting={false}
+        onConfirm={() => {}}
+        onBack={() => {}}
+      />,
+    );
+    expect(page.textContent).toContain('Your account does not meet what posting an ad in this currency needs');
   });
 });
 

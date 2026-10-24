@@ -91,9 +91,25 @@ test('J-p2p-03 #1 Post an ad shows the posting checklist for the coin and fiat, 
   expect(checks.length).toBeGreaterThan(0);
   for (const check of checks)
     expect(check).toMatchObject({ id: expect.any(String), state: expect.stringMatching(/^(met|not_met|unknown)$/) });
+  // TEST thresholds for EUR (tooling/profiles/test-owner-values/p2p.json): a verified level and no finished orders, both
+  // with the person's value and the target. The advertiser terms are not accepted yet.
+  expect(checklist.body.result.data.policy).toBe('thresholds');
+  const byId = Object.fromEntries(checks.map((check) => [check.id, check]));
+  expect(byId.advertiser_terms).toMatchObject({ state: 'not_met', current: null, required: expect.any(String) });
+  expect(byId.kyc_tier).toMatchObject({ state: 'met', current: expect.any(String), required: 'basic' });
+  expect(byId.completed_orders).toMatchObject({ state: 'met', current: '0', required: '0' });
+
+  // In the app: the checklist asks for a fiat, then shows each requirement with both numbers.
   await signIn(page, seller);
   await page.goto('/uc/ad/create');
-  await expect(page.getByTestId('posting-checklist')).toBeVisible(UNBUILT);
+  const panel = page.getByTestId('posting-checklist');
+  await expect(panel).toBeVisible(UNBUILT);
+  await expect(panel).toContainText('Pick a fiat currency');
+  await page.getByTestId('offer-form').getByLabel('Fiat currency').selectOption('EUR');
+  await expect(panel).toContainText('What posting an ad in EUR needs');
+  await expect(panel.locator('[data-check="completed_orders"]')).toContainText('Met. You: 0. Needed: 0.');
+  await expect(panel.locator('[data-check="kyc_tier"]')).toContainText('Needed: basic.');
+  await expect(panel.locator('[data-check="advertiser_terms"]')).toContainText('Not met. You: not accepted.');
 });
 
 test('J-p2p-03 #2 posting before accepting the advertiser terms refuses and opens them with their version; accepting records it', async ({

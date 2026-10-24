@@ -18,7 +18,7 @@ import {
 import { settlementCopy } from './settlement-copy';
 import { P2PReason } from './P2PDepth';
 import { Button } from '@intafaced/ui';
-import { AdvertiserTermsSheet, LevelLimits, OfferReceipt, OfferSummary, SellAvailability, postInput } from './p2p-post';
+import { AdvertiserTermsSheet, LevelLimits, OfferReceipt, OfferSummary, PostingChecklist, SellAvailability, postInput } from './p2p-post';
 import { postCopy } from './p2p-post-copy';
 import './p2p-depth.css';
 
@@ -363,6 +363,7 @@ function Fields({
             {shown('fiatCurrency') ? <small className="error-text">{shown('fiatCurrency')}</small> : null}
           </label>
         </div>
+        {mode === 'create' ? <PostingChecklist pay={pay} fiatCurrency={problems.fiatCurrency ? '' : values.fiatCurrency.trim()} /> : null}
         <div>
           <span className="p2p-legend">{t('fieldPriceType')}</span>
           <div className="p2p-radio-row" role="radiogroup" aria-label={t('fieldPriceType')}>
