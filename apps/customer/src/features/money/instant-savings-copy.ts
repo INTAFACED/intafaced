@@ -21,15 +21,18 @@ const en = {
   yours: 'Your savings in {asset}',
   saved: 'Saved',
   earned: 'Interest earned',
-  earnedNote: 'Every day of interest the bank has paid you from these savings, added up.',
+  earnedNote: 'Every itemised day of interest the bank has paid you from these savings, added up.',
   days: 'Interest by day',
   day: '{date}: {amount} at {rate}',
   noDays: 'No interest paid. The first day’s interest comes the day after you open.',
-  more: 'Showing the latest {count} days.',
+  earlier: 'Show earlier days',
+  noEarlier: 'No earlier days.',
+  nothingSaved: 'Nothing saved here now. Interest already paid stays listed.',
+  unitemised:
+    '{count} paid days of this saving come from before interest was recorded per person, so anything you earned on them is not in this total.',
   withdraw: 'Take back to my account',
   withdrawTitle: 'Take {amount} back to your account',
   withdrawNote: 'The whole amount moves back to your account. Interest already paid stays yours.',
-  position: 'Saving',
 } as const;
 
 const es = {
@@ -52,15 +55,18 @@ const es = {
   yours: 'Tu ahorro en {asset}',
   saved: 'Ahorrado',
   earned: 'Intereses ganados',
-  earnedNote: 'Todos los días de intereses que el banco te ha pagado de este ahorro, sumados.',
+  earnedNote: 'Todos los días de intereses desglosados que el banco te ha pagado de este ahorro, sumados.',
   days: 'Intereses por día',
   day: '{date}: {amount} al {rate}',
   noDays: 'Ningún interés pagado. Los intereses del primer día llegan el día después de abrir.',
-  more: 'Se muestran los últimos {count} días.',
+  earlier: 'Ver días anteriores',
+  noEarlier: 'No hay días anteriores.',
+  nothingSaved: 'Ahora no hay nada ahorrado aquí. Los intereses ya pagados siguen en la lista.',
+  unitemised:
+    '{count} días pagados de este ahorro son de antes de que los intereses se registraran por persona, así que lo que ganaste en ellos no está en este total.',
   withdraw: 'Devolver a mi cuenta',
   withdrawTitle: 'Devolver {amount} a tu cuenta',
   withdrawNote: 'Todo el importe vuelve a tu cuenta. Los intereses ya pagados siguen siendo tuyos.',
-  position: 'Ahorro',
 } satisfies Record<keyof typeof en, string>;
 
 const fr = {
@@ -83,15 +89,18 @@ const fr = {
   yours: 'Ton épargne en {asset}',
   saved: 'Épargné',
   earned: 'Intérêts gagnés',
-  earnedNote: 'Chaque jour d’intérêts que la banque t’a versé depuis cette épargne, additionné.',
+  earnedNote: 'Chaque jour d’intérêts détaillé que la banque t’a versé depuis cette épargne, additionné.',
   days: 'Intérêts par jour',
   day: '{date} : {amount} à {rate}',
   noDays: 'Aucun intérêt versé. Les intérêts du premier jour arrivent le lendemain de l’ouverture.',
-  more: 'Les {count} derniers jours sont affichés.',
+  earlier: 'Voir les jours précédents',
+  noEarlier: 'Aucun jour précédent.',
+  nothingSaved: 'Rien n’est épargné ici pour le moment. Les intérêts déjà versés restent listés.',
+  unitemised:
+    '{count} jours versés de cette épargne datent d’avant l’enregistrement des intérêts par personne, donc ce que tu y as gagné n’est pas dans ce total.',
   withdraw: 'Reprendre sur mon compte',
   withdrawTitle: 'Reprendre {amount} sur ton compte',
   withdrawNote: 'Tout le montant revient sur ton compte. Les intérêts déjà versés restent à toi.',
-  position: 'Épargne',
 } satisfies Record<keyof typeof en, string>;
 
 export const instantSavingsCopy = defineCopy('customer.money.instant-savings', en, { es, fr });

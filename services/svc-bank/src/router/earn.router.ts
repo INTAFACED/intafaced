@@ -119,20 +119,24 @@ export function createEarnRouter(c: BankRouterContext) {
           poolId: z.string().guid(),
           /** Page size. Optional so omit reaches `bank.earn_interest_list_limit_unset`; blank is not 50. */
           limit: z.number().int().min(1).max(200).optional(),
+          /** Older days only: the oldest day of the page before (a date, exclusive). */
+          before: z.string().date().optional(),
         }),
       )
       .output(
         z.object({
           days: z.array(z.object({ date: z.string(), rateBps: z.number().int(), amount: amountString, ledgerTxId: z.string() })),
           total: amountString,
+          unitemisedDays: z.number().int(),
         }),
       )
       .query(async ({ ctx, input }) =>
         guard(async () => {
-          const history = await bank.earn.interestHistory(ctx.principal.userId, input.poolId, input.limit);
+          const history = await bank.earn.interestHistory(ctx.principal.userId, input.poolId, input.limit, input.before);
           return {
             days: history.days.map((d) => ({ ...d, amount: formatAmount(d.amount) })),
             total: formatAmount(history.total),
+            unitemisedDays: history.unitemisedDays,
           };
         }),
       ),

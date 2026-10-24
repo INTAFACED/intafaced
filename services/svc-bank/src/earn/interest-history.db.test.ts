@@ -100,6 +100,11 @@ describe('earn.interestHistory', () => {
     const one = await bank.earn.interestHistory(USER, pool.id, 1);
     expect(one.days.map((d) => d.date)).toEqual(['2026-03-04']);
     expect(formatAmount(one.total)).toBe('3');
+    // Older pages go back from the oldest day shown, to nothing.
+    const older = await bank.earn.interestHistory(USER, pool.id, 2, '2026-03-04');
+    expect(older.days.map((d) => d.date)).toEqual(['2026-03-03', '2026-03-02']);
+    expect((await bank.earn.interestHistory(USER, pool.id, 2, '2026-03-02')).days).toEqual([]);
+    expect(history.unitemisedDays).toBe(0);
   });
 
   it('a day planned but not yet posted is not shown as paid', async () => {
@@ -119,11 +124,27 @@ describe('earn.interestHistory', () => {
     expect(await main(USER)).toBe('1');
   });
 
+  it('a paid day with no stored plan (before migration 0032) is counted as not itemised, never guessed into a total', async () => {
+    const bank = services();
+    const pool = await instantAccess(bank);
+    await fund(USER, '1000');
+    await bank.earn.deposit({ positionId: randomUUID(), poolId: pool.id, userId: USER, amount: amt('1000'), now: OPENED });
+    await bank.earn.accrue({ poolId: pool.id, at: day(1) });
+    await sql`
+      INSERT INTO bank.interest_accruals (pool_id, accrual_date, rate_bps, paid_amount, recipients, ledger_tx_id)
+      VALUES (${pool.id}, '2026-02-01', 3650, 5, 3, 'tx-before-0032')
+    `;
+    const history = await bank.earn.interestHistory(USER, pool.id, 50);
+    expect(history.days.map((d) => d.date)).toEqual(['2026-03-02']);
+    expect(formatAmount(history.total)).toBe('1');
+    expect(history.unitemisedDays).toBe(1);
+  });
+
   it('refuses a blank page size and an unknown pool, and someone with no position sees no days', async () => {
     const bank = services();
     const pool = await instantAccess(bank);
     await expect(bank.earn.interestHistory(USER, pool.id)).rejects.toMatchObject({ code: 'bank.earn_interest_list_limit_unset' });
     await expect(bank.earn.interestHistory(USER, randomUUID(), 50)).rejects.toMatchObject({ code: 'bank.pool_not_found' });
-    expect(await bank.earn.interestHistory(USER, pool.id, 50)).toEqual({ days: [], total: 0n });
+    expect(await bank.earn.interestHistory(USER, pool.id, 50)).toEqual({ days: [], total: 0n, unitemisedDays: 0 });
   });
 });

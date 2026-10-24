@@ -954,34 +954,52 @@ export class EarnService {
    *
    * Each row is that day's accrual record: the rate snapshotted for the day and this person's payout from the plan the
    * day posted (one payout per person per pool per day, whatever their number of positions). Only days with a ledger
-   * transaction count, so a planned day that has not posted yet is not shown as paid. `total` sums every paid day, not
-   * just this page, and equals what the ledger credited this person from the pool. Days written before the stored plan
-   * (migration 0032) carry no per-person split and are not listed.
+   * transaction count, so a planned day that has not posted yet is not shown as paid. `before` (a day, exclusive) pages
+   * back through older days. `total` sums every itemised paid day, not just this page, and equals what the ledger
+   * credited this person from the pool on those days. Paid days written before the stored plan (migration 0032) carry no
+   * per-person split: they are counted in `unitemisedDays` for the pool, never guessed into anyone's figures.
    */
   async interestHistory(
     userId: string,
     poolId: string,
     limit?: number,
-  ): Promise<{ days: Array<{ date: string; rateBps: number; amount: Amount; ledgerTxId: string }>; total: Amount }> {
+    before?: string,
+  ): Promise<{
+    days: Array<{ date: string; rateBps: number; amount: Amount; ledgerTxId: string }>;
+    total: Amount;
+    unitemisedDays: number;
+  }> {
     const page = assertEarnInterestListLimit(limit);
     await this.pool(poolId);
-    const days = await this.sql<Array<{ date: string; rate_bps: number; amount: string; ledger_tx_id: string }>>`
-      SELECT a.accrual_date::text AS date, a.rate_bps::int AS rate_bps, p.amount, a.ledger_tx_id
-        FROM bank.interest_accruals a
-        CROSS JOIN LATERAL jsonb_to_recordset(a.planned_payouts) AS p("userId" text, amount text)
-       WHERE a.pool_id = ${poolId} AND a.ledger_tx_id IS NOT NULL AND p."userId" = ${userId}
-       ORDER BY a.accrual_date DESC
-       LIMIT ${page}
-    `;
-    const [sum] = await this.sql<Array<{ total: string }>>`
-      SELECT COALESCE(SUM(p.amount::numeric), 0)::text AS total
-        FROM bank.interest_accruals a
-        CROSS JOIN LATERAL jsonb_to_recordset(a.planned_payouts) AS p("userId" text, amount text)
-       WHERE a.pool_id = ${poolId} AND a.ledger_tx_id IS NOT NULL AND p."userId" = ${userId}
-    `;
+    // The containment test is served by the GIN index on the plan; the lateral expansion then reads one person's payout.
+    const mine = this.sql.json([{ userId }] as never);
+    const [days, [sum], [unitemised]] = await Promise.all([
+      this.sql<Array<{ date: string; rate_bps: number; amount: string; ledger_tx_id: string }>>`
+        SELECT a.accrual_date::text AS date, a.rate_bps::int AS rate_bps, p.amount, a.ledger_tx_id
+          FROM bank.interest_accruals a
+          CROSS JOIN LATERAL jsonb_to_recordset(a.planned_payouts) AS p("userId" text, amount text)
+         WHERE a.pool_id = ${poolId} AND a.ledger_tx_id IS NOT NULL AND a.planned_payouts @> ${mine}
+           AND p."userId" = ${userId}
+           ${before ? this.sql`AND a.accrual_date < ${before}::date` : this.sql``}
+         ORDER BY a.accrual_date DESC
+         LIMIT ${page}
+      `,
+      this.sql<Array<{ total: string }>>`
+        SELECT COALESCE(SUM(p.amount::numeric), 0)::text AS total
+          FROM bank.interest_accruals a
+          CROSS JOIN LATERAL jsonb_to_recordset(a.planned_payouts) AS p("userId" text, amount text)
+         WHERE a.pool_id = ${poolId} AND a.ledger_tx_id IS NOT NULL AND a.planned_payouts @> ${mine}
+           AND p."userId" = ${userId}
+      `,
+      this.sql<Array<{ days: number }>>`
+        SELECT count(*)::int AS days FROM bank.interest_accruals
+         WHERE pool_id = ${poolId} AND ledger_tx_id IS NOT NULL AND planned_payouts IS NULL AND paid_amount > 0
+      `,
+    ]);
     return {
       days: days.map((d) => ({ date: d.date, rateBps: d.rate_bps, amount: parseAmount(d.amount), ledgerTxId: d.ledger_tx_id })),
       total: parseAmount(sum?.total ?? '0'),
+      unitemisedDays: unitemised?.days ?? 0,
     };
   }
 

@@ -68,17 +68,17 @@ async function bank(who) {
 }
 
 let jobCtx;
-/** One signed call to a bank job door, as the stack's own tooling makes it. */
-async function job(path, body = {}) {
+/** One call to svc-bank signed with the stack's service secret: as `caller`, to `path` under the bank's own URL. */
+async function signed(path, body, caller) {
   jobCtx ??= import('../../../../tooling/scripts/local-test-gates.mjs').then((gates) => gates.makeContext({ log: () => {} }));
   const ctx = await jobCtx;
   const raw = JSON.stringify(body);
-  const res = await fetch(`${ctx.url('bank')}/internal/jobs/${path}`, {
+  const res = await fetch(`${ctx.url('bank')}/${path}`, {
     method: 'POST',
     redirect: 'error',
     headers: {
       'content-type': 'application/json',
-      ...ctx.contracts.serviceAuthHeadersForBody('local-test-stack', ctx.secrets.internal, raw),
+      ...ctx.contracts.serviceAuthHeadersForBody(caller, ctx.secrets.internal, raw),
     },
     body: raw,
     signal: AbortSignal.timeout(30_000),
@@ -87,6 +87,8 @@ async function job(path, body = {}) {
   if (res.status !== 200) throw new Error(`${path} refused: ${res.status} ${JSON.stringify(parsed).slice(0, 300)}`);
   return parsed;
 }
+/** One signed call to a bank job door, as the stack's own tooling makes it. */
+const job = (path, body = {}) => signed(`internal/jobs/${path}`, body, 'local-test-stack');
 /**
  * Runner passes until nothing is due, as a scheduler would call it: the stack's TEST batch is one schedule a pass. Other
  * journeys' orders share this stack, so this stops after 30 passes and the step checks this person's own record.
@@ -582,19 +584,8 @@ test(`${J} #4 keeps a bills pot: a TEST bill of 8 from a pot holding 5 is refuse
  * sign it. The stack has no accrual timer, so a day is paid only when a test asks for it.
  */
 async function accrue(poolId, at) {
-  jobCtx ??= import('../../../../tooling/scripts/local-test-gates.mjs').then((gates) => gates.makeContext({ log: () => {} }));
-  const ctx = await jobCtx;
-  const raw = JSON.stringify({ poolId, at: at.toISOString() });
-  const res = await fetch(`${ctx.url('bank')}/trpc/ops.accrueInterest`, {
-    method: 'POST',
-    redirect: 'error',
-    headers: { 'content-type': 'application/json', ...ctx.contracts.serviceAuthHeadersForBody('svc-bank', ctx.secrets.internal, raw) },
-    body: raw,
-    signal: AbortSignal.timeout(30_000),
-  });
-  const parsed = await res.json().catch(() => null);
-  if (res.status !== 200) throw new Error(`ops.accrueInterest refused: ${res.status} ${JSON.stringify(parsed).slice(0, 300)}`);
-  return parsed.result.data.results[0];
+  const answer = await signed('trpc/ops.accrueInterest', { poolId, at: at.toISOString() }, 'svc-bank');
+  return answer.result.data.results[0];
 }
 
 test(`${J} #5 uses instant-access savings: the bank's rate, TEST 10 saved, three days of interest that add up to what the account was paid, then taken back`, async ({
@@ -634,7 +625,7 @@ test(`${J} #5 uses instant-access savings: the bank's rate, TEST 10 saved, three
   // passed over: a day is paid once, to whoever saved before it began.
   const paidBefore = toUnits(main(await spaces(who)).balance);
   const days = [];
-  for (let ahead = 1; days.length < 3 && ahead <= 60; ahead += 1) {
+  for (let ahead = 1; days.length < 3 && ahead <= 400; ahead += 1) {
     const at = new Date(Date.now() + ahead * 24 * 60 * 60 * 1000);
     const day = await accrue(pool.id, at);
     if (!day.alreadyAccrued) days.push(day.date);
@@ -668,4 +659,9 @@ test(`${J} #5 uses instant-access savings: the bank's rate, TEST 10 saved, three
   const left = await api.query('earn.positions', { limit: 50 });
   expect(left.data.filter((row) => row.poolId === pool.id)).toEqual([]);
   expect(toUnits(main(await spaces(who)).balance)).toBe(paidBefore + total + toUnits('10'));
+  // The interest already paid stays listed.
+  await page.reload();
+  await expect(card.getByTestId('instant-savings-position')).toHaveCount(0);
+  await expect(card.getByTestId('instant-savings-day')).toHaveCount(3);
+  await expect(card.getByTestId('instant-savings-earned')).toHaveAttribute('data-amount', history.data.total);
 });

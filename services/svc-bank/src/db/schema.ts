@@ -333,6 +333,8 @@ export const interestAccruals = bank.table(
     /** ONE ACCRUAL PER POOL PER DAY, forever. */
     uniqueIndex('interest_accruals_pool_date_idx').on(t.poolId, t.accrualDate),
     index('interest_accruals_date_idx').on(t.accrualDate),
+    /** One person's paid days by containment on the stored plan (earn.interestHistory). */
+    index('interest_accruals_planned_payouts_idx').using('gin', sql`${t.plannedPayouts} jsonb_path_ops`),
   ],
 );
 

@@ -756,6 +756,7 @@ export const bankReads = {
   'earn.interestHistory': z.object({
     days: z.array(z.object({ date: z.string(), rateBps: z.number().int(), amount: money, ledgerTxId: z.string() })),
     total: money,
+    unitemisedDays: z.number().int(),
   }),
   'loans.products': z.array(productSchema),
   'loans.list': z.array(loanSchema),

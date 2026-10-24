@@ -9,6 +9,7 @@ import {
   assertBusinessPendingListLimit,
   assertCardAuthorizationsListLimit,
   assertCardsListLimit,
+  assertEarnInterestListLimit,
   assertEarnPositionsListLimit,
   assertExecutionsListLimit,
   assertLoansListLimit,
@@ -61,6 +62,7 @@ describe('svc-bank owner lists refuse unset limit', () => {
   it('asserts refuse blank / NaN / 0 — never invent 50', () => {
     refuseBank(assertSpacesListLimit, 'bank.spaces_list_limit_unset');
     refuseBank(assertEarnPositionsListLimit, 'bank.earn_positions_list_limit_unset');
+    refuseBank(assertEarnInterestListLimit, 'bank.earn_interest_list_limit_unset');
     refuseBank(assertLoansListLimit, 'bank.loans_list_limit_unset');
     refuseBank(assertCardsListLimit, 'bank.cards_list_limit_unset');
     refuseBank(assertCardAuthorizationsListLimit, 'bank.card_authorizations_list_limit_unset');
@@ -76,6 +78,7 @@ describe('svc-bank owner lists refuse unset limit', () => {
   it('accepts owner-published 50 and caps at 200', () => {
     expect(assertSpacesListLimit(50)).toBe(50);
     expect(assertEarnPositionsListLimit(50)).toBe(50);
+    expect(assertEarnInterestListLimit(31)).toBe(31);
     expect(assertLoansListLimit(1)).toBe(1);
     expect(assertCardsListLimit(200)).toBe(200);
     expect(assertCardAuthorizationsListLimit(201)).toBe(200);

@@ -22,6 +22,9 @@ vi.mock('./components', async (original) => {
     useBankRead: (procedure: string) => ({ resource: reads[procedure] ?? { status: 'loading' }, reload: () => undefined }),
   };
 });
+vi.mock('../session/session', () => ({
+  useSession: () => ({ api: { query: async () => ({ ok: false, reason: 'error', message: 'unused' }) } }),
+}));
 import { InstantSavings } from './InstantSavings';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -53,6 +56,7 @@ beforeEach(() => {
           { date: '2026-03-03', rateBps: 400, amount: '0.10958904', ledgerTxId: 'tx-2' },
         ],
         total: '0.32876712',
+        unitemisedDays: 0,
       },
     },
   };
@@ -99,9 +103,45 @@ describe('InstantSavings', () => {
   });
 
   it('says no interest has been paid before the first day', async () => {
-    reads['earn.interestHistory'] = { status: 'ready', data: { days: [], total: '0' } };
+    reads['earn.interestHistory'] = { status: 'ready', data: { days: [], total: '0', unitemisedDays: 0 } };
     await mount();
     expect(host.querySelector('[data-testid="instant-savings-day"]')).toBeNull();
     expect(host.textContent).toContain('No interest paid. The first day’s interest comes the day after you open.');
+  });
+
+  it('keeps the interest already paid listed after the savings go back to the account', async () => {
+    reads['earn.positions'] = { status: 'ready', data: [] };
+    await mount();
+    expect(host.querySelector('[data-testid="instant-savings-position"]')).toBeNull();
+    expect(host.textContent).toContain('Nothing saved here now. Interest already paid stays listed.');
+    expect(host.querySelectorAll('[data-testid="instant-savings-day"]')).toHaveLength(2);
+    expect(host.querySelector('[data-testid="instant-savings-earned"]')!.getAttribute('data-amount')).toBe('0.32876712');
+  });
+
+  it('shows nothing of a pool the person never saved in, and names days that are not itemised', async () => {
+    reads['earn.positions'] = { status: 'ready', data: [] };
+    reads['earn.interestHistory'] = { status: 'ready', data: { days: [], total: '0', unitemisedDays: 4 } };
+    await mount();
+    expect(host.querySelector('[data-testid="instant-savings-mine"]')).toBeNull();
+    reads['earn.positions'] = {
+      status: 'ready',
+      data: [{ id: '33333333-3333-4333-8333-333333333333', poolId: POOL, assetId: 'USDT', principal: '1000', maturesAt: null }],
+    };
+    act(() => root?.unmount());
+    await mount();
+    expect(host.querySelector('[data-testid="instant-savings-unitemised"]')!.textContent).toContain('4 paid days of this saving');
+  });
+
+  it('offers older days once a page is full', async () => {
+    const days = Array.from({ length: 31 }, (_, i) => ({
+      date: `2026-03-${String(31 - i).padStart(2, '0')}`,
+      rateBps: 400,
+      amount: '0.1',
+      ledgerTxId: `tx-${i}`,
+    }));
+    reads['earn.interestHistory'] = { status: 'ready', data: { days, total: '3.1', unitemisedDays: 0 } };
+    await mount();
+    const button = [...host.querySelectorAll('button')].find((b) => b.textContent === 'Show earlier days');
+    expect(button).toBeTruthy();
   });
 });
