@@ -173,6 +173,7 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.auto_invest_inactive': 'CONFLICT',
   'bank.auto_invest_invalid_threshold': 'CONFLICT',
   'bank.auto_invest_roundup_exists': 'CONFLICT',
+  'bank.auto_invest_target_invalid': 'BAD_REQUEST',
   'bank.auto_invest_run_failed': 'CONFLICT',
   'bank.auto_invest_below_threshold': 'CONFLICT',
   'bank.business_closed': 'CONFLICT',

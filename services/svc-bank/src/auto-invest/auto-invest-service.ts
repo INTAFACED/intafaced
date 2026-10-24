@@ -1,12 +1,13 @@
 import type { Sql } from 'postgres';
-import { LedgerError, formatAmount, parseAmount, userAvailable, type Amount, type LedgerClient } from '@intafaced/ledger-client';
+import { LedgerError, formatAmount, parseAmount, recipes, userAvailable, type Amount, type LedgerClient } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import { assertAutoInvestBatchLimit } from '../job-batch-limit.js';
 import { isDefiniteLedgerRefusal } from '../ledger-outcome.js';
 import { assertAutoInvestListLimit } from '../owner-list-limit.js';
 import type { EarnService } from '../earn/earn-service.js';
-import type { SpaceService } from '../spaces/space-service.js';
+import { accountForSpace, type SpaceService } from '../spaces/space-service.js';
 import { withMoneySpan } from '../tracing.js';
+import { bookedTransferMatches } from '../transfers/booked-transfer.js';
 import type { Cadence } from '../transfers/schedule.js';
 
 /**
@@ -25,9 +26,11 @@ import type { Cadence } from '../transfers/schedule.js';
  *   dca              scheduled buy of another asset — REQUIRES a convert port
  *                    that supplies a real rate. Absent the port, create and run
  *                    both refuse `bank.auto_invest_rate_unset`. No §8 invent.
- *   card_roundup     spare change after a card capture → same-asset earn pool.
- *                    Fires from the capture hook, not the runner. Cross-asset
- *                    destination refuses `bank.auto_invest_rate_unset`.
+ *   card_roundup     spare change after a card capture → same-asset earn pool,
+ *                    or one of the person's own named spaces of that asset
+ *                    (own-space `bankTransfer`, BK-pots-02). Fires from the
+ *                    capture hook, not the runner. Cross-asset destination
+ *                    refuses `bank.auto_invest_rate_unset`.
  *
  * ═════════════════════════════════════════════════════════════════════════════
  * WHAT IS NOT HERE
@@ -98,6 +101,7 @@ export type RoundUpOutcome =
   | { readonly status: 'none'; readonly amount: Amount }
   | { readonly status: 'skipped'; readonly amount: Amount; readonly reason: string }
   | { readonly status: 'settled'; readonly amount: Amount; readonly positionId: string }
+  | { readonly status: 'settled'; readonly amount: Amount; readonly spaceId: string; readonly ledgerTxId: string }
   | { readonly status: 'refused'; readonly amount: Amount; readonly reason: string };
 
 export interface AutoInvestRule {
@@ -107,6 +111,8 @@ export interface AutoInvestRule {
   assetId: string;
   threshold: Amount | null;
   targetPoolId: string | null;
+  /** A card round-up into one of the person's own named spaces. Exactly one of this and `targetPoolId` on a round-up. */
+  targetSpaceId: string | null;
   buyAssetId: string | null;
   amount: Amount | null;
   cadence: Cadence | null;
@@ -143,6 +149,7 @@ interface RuleRow {
   asset_id: string;
   threshold: string | null;
   target_pool_id: string | null;
+  target_space_id: string | null;
   buy_asset_id: string | null;
   amount: string | null;
   cadence: Cadence | null;
@@ -172,6 +179,7 @@ function toRule(row: RuleRow): AutoInvestRule {
     assetId: row.asset_id,
     threshold: row.threshold === null ? null : parseAmount(row.threshold),
     targetPoolId: row.target_pool_id,
+    targetSpaceId: row.target_space_id ?? null,
     buyAssetId: row.buy_asset_id,
     amount: row.amount === null ? null : parseAmount(row.amount),
     cadence: row.cadence,
@@ -260,7 +268,7 @@ export class AutoInvestService {
         ${input.userId}, 'threshold_sweep', ${input.assetId},
         ${formatAmount(input.threshold)}::numeric, ${input.targetPoolId}::uuid, 'active'
       )
-      RETURNING id, user_id, kind, asset_id, threshold, target_pool_id, buy_asset_id,
+      RETURNING id, user_id, kind, asset_id, threshold, target_pool_id, target_space_id, buy_asset_id,
                 amount, cadence, next_run_at, status, created_at
     `;
     return toRule(rows[0]!);
@@ -303,26 +311,31 @@ export class AutoInvestService {
         ${input.userId}, 'dca', ${input.spendAssetId}, ${input.buyAssetId},
         ${formatAmount(input.amount)}::numeric, ${input.cadence}, ${input.startsAt}, 'active'
       )
-      RETURNING id, user_id, kind, asset_id, threshold, target_pool_id, buy_asset_id,
+      RETURNING id, user_id, kind, asset_id, threshold, target_pool_id, target_space_id, buy_asset_id,
                 amount, cadence, next_run_at, status, created_at
     `;
     return toRule(rows[0]!);
   }
 
   /**
-   * Card round-up — spare change after capture into a same-asset earn pool.
+   * Card round-up — spare change after capture into a same-asset earn pool, or
+   * into one of the person's own named spaces of that asset (BK-pots-02).
    *
    * `amount` on the row is the granularity (round-to), not a balance.
    * A different `buyAssetId` is the convert half and refuses by name rather
-   * than inventing a rate so the instruction can look live.
+   * than inventing a rate so the instruction can look live. Exactly one target.
    */
   async createCardRoundUp(input: {
     userId: string;
     assetId: string;
     granularity: Amount;
-    targetPoolId: string;
+    targetPoolId?: string;
+    targetSpaceId?: string;
     buyAssetId?: string;
   }): Promise<AutoInvestRule> {
+    if (!input.targetPoolId === !input.targetSpaceId) {
+      throw new BankError('A card round-up goes into exactly one pool or one space', 'bank.auto_invest_target_invalid');
+    }
     if (input.buyAssetId && input.buyAssetId !== input.assetId) {
       throw new BankError(
         'Card round-up into another asset needs a convert rate counterparty — rates are not invented here (§8 / bank.auto_invest_rate_unset)',
@@ -332,24 +345,29 @@ export class AutoInvestService {
     if (input.granularity <= 0n) {
       throw new BankError('A card round-up needs a positive granularity', 'bank.auto_invest_invalid_threshold');
     }
-    const pool = await this.earn.pool(input.targetPoolId);
-    if (pool.status !== 'open') {
-      throw new BankError(`Pool "${pool.name}" is closed`, 'bank.pool_closed');
-    }
-    if (pool.assetId !== input.assetId) {
-      throw new BankError(`Round-up asset ${input.assetId} does not match pool asset ${pool.assetId}`, 'bank.asset_mismatch');
+    if (input.targetPoolId) {
+      const pool = await this.earn.pool(input.targetPoolId);
+      if (pool.status !== 'open') {
+        throw new BankError(`Pool "${pool.name}" is closed`, 'bank.pool_closed');
+      }
+      if (pool.assetId !== input.assetId) {
+        throw new BankError(`Round-up asset ${input.assetId} does not match pool asset ${pool.assetId}`, 'bank.asset_mismatch');
+      }
+    } else {
+      await this.ownTargetSpace(input.userId, input.targetSpaceId!, input.assetId);
     }
     await this.spaces.ensurePrimary(input.userId, input.assetId);
 
     try {
       const rows = await this.sql<RuleRow[]>`
         INSERT INTO bank.auto_invest_rules
-          (user_id, kind, asset_id, target_pool_id, amount, status)
+          (user_id, kind, asset_id, target_pool_id, target_space_id, amount, status)
         VALUES (
           ${input.userId}, 'card_roundup', ${input.assetId},
-          ${input.targetPoolId}::uuid, ${formatAmount(input.granularity)}::numeric, 'active'
+          ${input.targetPoolId ?? null}::uuid, ${input.targetSpaceId ?? null}::uuid,
+          ${formatAmount(input.granularity)}::numeric, 'active'
         )
-        RETURNING id, user_id, kind, asset_id, threshold, target_pool_id, buy_asset_id,
+        RETURNING id, user_id, kind, asset_id, threshold, target_pool_id, target_space_id, buy_asset_id,
                   amount, cadence, next_run_at, status, created_at
       `;
       return toRule(rows[0]!);
@@ -376,7 +394,7 @@ export class AutoInvestService {
     }
 
     const rows = await this.sql<RuleRow[]>`
-      SELECT id, user_id, kind, asset_id, threshold, target_pool_id, buy_asset_id,
+      SELECT id, user_id, kind, asset_id, threshold, target_pool_id, target_space_id, buy_asset_id,
              amount, cadence, next_run_at, status, created_at
         FROM bank.auto_invest_rules
        WHERE user_id = ${input.userId}
@@ -414,15 +432,20 @@ export class AutoInvestService {
         `;
         let runId: string;
         if (claimed.length === 0) {
-          const existing = await this.sql<Array<{ id: string; status: AutoInvestRunStatus; position_id: string | null }>>`
-            SELECT id, status, position_id FROM bank.auto_invest_runs
+          const existing = await this.sql<
+            Array<{ id: string; status: AutoInvestRunStatus; position_id: string | null; ledger_tx_id: string | null }>
+          >`
+            SELECT id, status, position_id, ledger_tx_id FROM bank.auto_invest_runs
              WHERE rule_id = ${rule.id}::uuid AND client_run_id = ${clientRunId}
           `;
           const prior = existing[0];
+          if (prior?.status === 'settled' && rule.targetSpaceId && prior.ledger_tx_id) {
+            return { status: 'settled', amount: spare, spaceId: rule.targetSpaceId, ledgerTxId: prior.ledger_tx_id };
+          }
           if (prior?.status === 'settled' && prior.position_id) {
             return { status: 'settled', amount: spare, positionId: prior.position_id };
           }
-          // earn.deposit is idempotent on this run id. Retry pending and rejected; do not mint another id.
+          // earn.deposit and the space transfer are idempotent on this run. Retry pending and rejected; do not mint another id.
           if (prior && (prior.status === 'pending' || prior.status === 'rejected')) {
             runId = prior.id;
           } else {
@@ -431,6 +454,8 @@ export class AutoInvestService {
         } else {
           runId = claimed[0]!.id;
         }
+
+        if (rule.targetSpaceId) return this.roundUpIntoSpace(rule, rule.targetSpaceId, runId, clientRunId, spare);
 
         const now = new Date();
         try {
@@ -469,10 +494,87 @@ export class AutoInvestService {
     );
   }
 
+  /**
+   * Spare change into the person's own space: one own-space `bankTransfer` from the account itself, keyed by the run's
+   * client id (`roundup:<rule>:<authorization>`, longer than any id `transfers.create` accepts, so no transfer of the
+   * person's can take the key). The same capture re-driven posts under the same key, so it moves once.
+   */
+  private async roundUpIntoSpace(
+    rule: AutoInvestRule,
+    spaceId: string,
+    runId: string,
+    transferId: string,
+    spare: Amount,
+  ): Promise<RoundUpOutcome> {
+    const now = new Date();
+    try {
+      const primary = await this.spaces.ensurePrimary(rule.userId, rule.assetId);
+      const from = await this.spaces.resolveForDebit(primary.id, now);
+      const to = await this.spaces.resolveForCredit(spaceId, { actingUserId: rule.userId });
+      if (to.userId !== rule.userId || to.kind !== 'named') {
+        throw new BankError(`Space ${spaceId} not found`, 'bank.space_not_found');
+      }
+      if (to.assetId !== rule.assetId) {
+        throw new BankError(`Round-up asset ${rule.assetId} does not match space asset ${to.assetId}`, 'bank.asset_mismatch');
+      }
+      const fromAccount = accountForSpace(from);
+      const toAccount = accountForSpace(to);
+      const tx = await this.ledger.post(
+        recipes.bankTransfer({
+          transferId,
+          occurrence: 0,
+          from: fromAccount,
+          to: toAccount,
+          amount: spare,
+          kind: 'manual',
+          keySpace: 'own',
+        }),
+      );
+      // A ledger in `detect` mode answers a reused key with the original transaction. Only this movement settles the
+      // run; anything else under the key leaves the outcome unknown and the run pending.
+      if (!(await bookedTransferMatches(this.ledger, tx, fromAccount, toAccount, spare))) {
+        return { status: 'refused', amount: spare, reason: 'bank.ledger_outcome_unknown' };
+      }
+      await this.sql`
+        UPDATE bank.auto_invest_runs
+           SET status = 'settled',
+               ledger_tx_id = ${tx.id},
+               rejection_code = NULL,
+               settled_at = ${now}
+         WHERE id = ${runId}::uuid
+      `;
+      return { status: 'settled', amount: spare, spaceId, ledgerTxId: tx.id };
+    } catch (err) {
+      if (!isDefiniteRunRefusal(err)) {
+        return { status: 'refused', amount: spare, reason: 'bank.ledger_outcome_unknown' };
+      }
+      const code = runRefusalCode(err);
+      await this.sql`
+        UPDATE bank.auto_invest_runs
+           SET status = 'rejected', rejection_code = ${code}, settled_at = ${now}
+         WHERE id = ${runId}::uuid AND status IN ('pending', 'rejected')
+      `;
+      return { status: 'refused', amount: spare, reason: code };
+    }
+  }
+
+  /** The person's own live named space of `assetId`. Another person's space reads as not found. */
+  private async ownTargetSpace(userId: string, spaceId: string, assetId: string): Promise<void> {
+    const space = await this.spaces.get(spaceId);
+    if (space.userId !== userId) throw new BankError(`Space ${spaceId} not found`, 'bank.space_not_found');
+    if (space.kind !== 'named') {
+      throw new BankError('Spare change comes from the account itself, so it cannot go back into it', 'bank.auto_invest_target_invalid');
+    }
+    if (space.archivedAt) throw new BankError(`Space "${space.name}" is archived`, 'bank.space_archived');
+    if (space.assetId !== assetId) {
+      throw new BankError(`Round-up asset ${assetId} does not match space asset ${space.assetId}`, 'bank.asset_mismatch');
+    }
+  }
+
   async listRules(userId: string, limit?: number): Promise<AutoInvestRule[]> {
     const page = assertAutoInvestListLimit(limit);
     const rows = await this.sql<RuleRow[]>`
-      SELECT id, user_id, kind, asset_id, threshold, target_pool_id, buy_asset_id,
+      SELECT id, user_id, kind, asset_id, threshold, target_pool_id, target_space_id, buy_asset_id,
              amount, cadence, next_run_at, status, created_at
         FROM bank.auto_invest_rules
        WHERE user_id = ${userId}
@@ -484,7 +586,7 @@ export class AutoInvestService {
 
   async getRule(ruleId: string): Promise<AutoInvestRule> {
     const rows = await this.sql<RuleRow[]>`
-      SELECT id, user_id, kind, asset_id, threshold, target_pool_id, buy_asset_id,
+      SELECT id, user_id, kind, asset_id, threshold, target_pool_id, target_space_id, buy_asset_id,
              amount, cadence, next_run_at, status, created_at
         FROM bank.auto_invest_rules WHERE id = ${ruleId}
     `;
@@ -516,7 +618,7 @@ export class AutoInvestService {
     const rows = await this.sql<RuleRow[]>`
       UPDATE bank.auto_invest_rules SET status = 'paused', updated_at = now()
        WHERE id = ${ruleId} AND status = 'active'
-       RETURNING id, user_id, kind, asset_id, threshold, target_pool_id, buy_asset_id,
+       RETURNING id, user_id, kind, asset_id, threshold, target_pool_id, target_space_id, buy_asset_id,
                  amount, cadence, next_run_at, status, created_at
     `;
     if (rows.length === 0) {
@@ -534,7 +636,7 @@ export class AutoInvestService {
     const rows = await this.sql<RuleRow[]>`
       UPDATE bank.auto_invest_rules SET status = 'active', updated_at = now()
        WHERE id = ${ruleId} AND status = 'paused'
-       RETURNING id, user_id, kind, asset_id, threshold, target_pool_id, buy_asset_id,
+       RETURNING id, user_id, kind, asset_id, threshold, target_pool_id, target_space_id, buy_asset_id,
                  amount, cadence, next_run_at, status, created_at
     `;
     if (rows.length === 0) {
@@ -557,7 +659,7 @@ export class AutoInvestService {
     const report: AutoInvestRunReport = { considered: 0, settled: 0, skipped: 0, rejected: 0, failures: [] };
 
     const rules = await this.sql<RuleRow[]>`
-      SELECT id, user_id, kind, asset_id, threshold, target_pool_id, buy_asset_id,
+      SELECT id, user_id, kind, asset_id, threshold, target_pool_id, target_space_id, buy_asset_id,
              amount, cadence, next_run_at, status, created_at
         FROM bank.auto_invest_rules
        WHERE status = 'active'

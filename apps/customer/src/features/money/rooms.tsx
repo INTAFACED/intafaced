@@ -21,6 +21,7 @@ import {
   positiveMoney,
   ResourceView,
   Section,
+  scheduleWindowIssue,
   startsField,
   useBankRead,
   usePageLimit,
@@ -41,6 +42,7 @@ import { OwnerCards } from './Cards';
 import { OwnerRailRecords } from './RailRecords';
 import { railCopy } from './rail-copy';
 import { SelectedSpace } from './SelectedSpace';
+import { SpaceInflows } from './SpaceInflows';
 import { AccountHome } from './AccountHome';
 import { AddMoney } from './AddMoney';
 import { addMoneyCopy } from './add-money-copy';
@@ -220,6 +222,7 @@ function Spaces({ open, search }: { open: (spec: ActionSpec) => void; search: st
         owner={userId ?? ''}
         reload={spaces.reload}
         actions={(space) => <SpaceActions space={space} open={open} />}
+        below={(space, all) => <SpaceInflows space={space} spaces={all} open={open} />}
       />
       <Section
         title={context.status === 'none' ? copyText('rooms.your.spaces') : <spaceCopy.Copy k="other" />}
@@ -335,13 +338,6 @@ function Spaces({ open, search }: { open: (spec: ActionSpec) => void; search: st
   );
 }
 /** A one-off has no end date, and an end at or before the first run would never fire. */
-function scheduleWindowIssue(input: Record<string, unknown>): string | null {
-  if (typeof input.endsAt !== 'string') return null;
-  if (input.cadence === 'once') return copyText('components.last.run.hint');
-  return typeof input.startsAt === 'string' && Date.parse(input.endsAt) <= Date.parse(input.startsAt)
-    ? copyText('components.choose.an.end.after.first.run')
-    : null;
-}
 /** An ISO instant as the local `datetime-local` value the form shows. */
 function localInput(at: string): string {
   const d = new Date(at);

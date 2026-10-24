@@ -456,6 +456,10 @@ export function createTransfersRouter(c: BankRouterContext) {
             status: z.string(),
             /** The revision an edit must name. */
             revision: z.number().int(),
+            /** The caller's own space the order pays from. */
+            fromSpaceId: z.string(),
+            /** The caller's own space it pays into, or null when it pays another person. */
+            toSpaceId: z.string().nullable(),
           }),
         ),
       )
@@ -472,6 +476,8 @@ export function createTransfersRouter(c: BankRouterContext) {
             nextRunAt: s.nextRunAt.toISOString(),
             status: s.status,
             revision: s.revision,
+            fromSpaceId: s.fromSpaceId,
+            toSpaceId: s.ownToSpaceId,
           }));
         }),
       ),

@@ -314,6 +314,7 @@ export type RoundUpOutcome =
   | { readonly status: 'none'; readonly amount: Amount }
   | { readonly status: 'skipped'; readonly amount: Amount; readonly reason: string }
   | { readonly status: 'settled'; readonly amount: Amount; readonly positionId: string }
+  | { readonly status: 'settled'; readonly amount: Amount; readonly spaceId: string; readonly ledgerTxId: string }
   | { readonly status: 'refused'; readonly amount: Amount; readonly reason: string };
 
 export type CaptureSettledHook = (event: {

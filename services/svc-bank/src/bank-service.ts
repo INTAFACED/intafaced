@@ -276,7 +276,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     records: activityRecords,
     transferFacts: { forTransfers: (userId, txIds) => personalPay.factsFor(userId, txIds) },
   });
-  const statements = new StatementService(activity, options.activity?.cursorSecret);
+  const statements = new StatementService(activity, options.activity?.cursorSecret, spaces);
   // No banking partner = every currency answers unavailable with `rail.bank`; no details are made up.
   const accountDetails = new AccountDetailsService(options.accountDetails ?? {});
   const accountTerms = () => parseAccountTerms(options.accountTerms);

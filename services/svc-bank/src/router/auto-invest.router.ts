@@ -15,6 +15,7 @@ export function createAutoInvestRouter(c: BankRouterContext) {
     assetId: z.string(),
     threshold: amountString.nullable(),
     targetPoolId: z.string().nullable(),
+    targetSpaceId: z.string().nullable(),
     buyAssetId: z.string().nullable(),
     amount: amountString.nullable(),
     cadence: z.enum(['daily', 'weekly', 'monthly']).nullable(),
@@ -30,6 +31,7 @@ export function createAutoInvestRouter(c: BankRouterContext) {
       assetId: r.assetId,
       threshold: r.threshold === null ? null : formatAmount(r.threshold),
       targetPoolId: r.targetPoolId,
+      targetSpaceId: r.targetSpaceId,
       buyAssetId: r.buyAssetId,
       amount: r.amount === null ? null : formatAmount(r.amount),
       cadence: r.cadence,
@@ -92,7 +94,8 @@ export function createAutoInvestRouter(c: BankRouterContext) {
       ),
 
     /**
-     * Card round-up. Same-asset spare change → earn pool on capture.
+     * Card round-up. Same-asset spare change → an earn pool, or one of the caller's own named spaces (BK-pots-02), on
+     * capture. Exactly one of `targetPoolId` and `targetSpaceId`, else `bank.auto_invest_target_invalid`.
      * `buyAssetId` that differs from `assetId` refuses `bank.auto_invest_rate_unset`
      * — the surface exists so the dishonest half is named, not silent.
      */
@@ -101,7 +104,8 @@ export function createAutoInvestRouter(c: BankRouterContext) {
         z.object({
           assetId: z.string().min(1).max(16),
           granularity: amountString,
-          targetPoolId: z.string().guid(),
+          targetPoolId: z.string().guid().optional(),
+          targetSpaceId: z.string().guid().optional(),
           buyAssetId: z.string().min(1).max(16).optional(),
         }),
       )
@@ -112,7 +116,8 @@ export function createAutoInvestRouter(c: BankRouterContext) {
             userId: ctx.principal.userId,
             assetId: input.assetId,
             granularity: parseAmount(input.granularity),
-            targetPoolId: input.targetPoolId,
+            ...(input.targetPoolId ? { targetPoolId: input.targetPoolId } : {}),
+            ...(input.targetSpaceId ? { targetSpaceId: input.targetSpaceId } : {}),
             ...(input.buyAssetId ? { buyAssetId: input.buyAssetId } : {}),
           });
           return mapRule(rule);

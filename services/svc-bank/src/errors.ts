@@ -538,6 +538,7 @@ export type BankErrorCode =
   | 'bank.auto_invest_invalid_threshold'
   /** Second live card_roundup on the same (user, asset). Pause/cancel first. */
   | 'bank.auto_invest_roundup_exists'
+  | 'bank.auto_invest_target_invalid'
   | 'bank.auto_invest_run_failed'
   | 'bank.auto_invest_below_threshold'
   | 'bank.auto_invest_disabled'

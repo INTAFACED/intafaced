@@ -17,12 +17,15 @@ export function SelectedSpace({
   owner,
   reload,
   actions,
+  below,
 }: {
   context: SpaceContext;
   resource: Resource<Space[]>;
   owner: string;
   reload: () => void;
   actions: (space: Space) => ReactNode;
+  /** The rest of the space's own page, under its goal: what flows into it and its statement. */
+  below?: (space: Space, all: Space[]) => ReactNode;
 }) {
   const { Copy, t, languageFor, directionFor } = spaceCopy.useCopy();
   const { timeZone } = usePreferences();
@@ -140,6 +143,7 @@ export function SelectedSpace({
             </div>
           </dl>
           <GoalProgress balance={space.balance} target={space.goalTarget} assetId={space.assetId} />
+          {below && resource.status === 'ready' && below(space, resource.data)}
         </>
       ) : (
         <>

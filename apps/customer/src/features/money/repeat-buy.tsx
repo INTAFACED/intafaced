@@ -66,6 +66,7 @@ export function AutoInvestRules({ asset, open }: { asset?: string; open: (spec: 
                 returned.assetId === rule.assetId &&
                 returned.buyAssetId === rule.buyAssetId &&
                 returned.targetPoolId === rule.targetPoolId &&
+                (returned.targetSpaceId ?? null) === (rule.targetSpaceId ?? null) &&
                 returned.cadence === rule.cadence &&
                 returned.createdAt === rule.createdAt &&
                 sameQuantity(returned.amount, rule.amount) &&

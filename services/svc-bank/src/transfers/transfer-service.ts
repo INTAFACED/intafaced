@@ -451,15 +451,22 @@ export class TransferService {
     return toSchedule(row);
   }
 
-  async listSchedules(userId: string, limit?: number): Promise<ScheduleRecord[]> {
+  /**
+   * The caller's standing orders, newest first. `ownToSpaceId` is the destination only when it is one of the caller's
+   * own spaces (a space page lists what flows into it); an order to another person never names their space.
+   */
+  async listSchedules(userId: string, limit?: number): Promise<Array<ScheduleRecord & { ownToSpaceId: string | null }>> {
     const page = assertSchedulesListLimit(limit);
-    const rows = await this.sql<ScheduleRow[]>`
-      SELECT id, user_id, asset_id, from_space_id, to_space_id, amount, cadence,
-             starts_at, ends_at, next_run_at, status, revision
-        FROM bank.scheduled_transfers WHERE user_id = ${userId} ORDER BY created_at DESC
+    const rows = await this.sql<Array<ScheduleRow & { own_to_space_id: string | null }>>`
+      SELECT t.id, t.user_id, t.asset_id, t.from_space_id, t.to_space_id, t.amount, t.cadence,
+             t.starts_at, t.ends_at, t.next_run_at, t.status, t.revision,
+             CASE WHEN s.user_id = t.user_id THEN t.to_space_id END AS own_to_space_id
+        FROM bank.scheduled_transfers t
+        LEFT JOIN bank.spaces s ON s.id = t.to_space_id
+       WHERE t.user_id = ${userId} ORDER BY t.created_at DESC
        LIMIT ${page}
     `;
-    return rows.map(toSchedule);
+    return rows.map((row) => ({ ...toSchedule(row), ownToSpaceId: row.own_to_space_id ?? null }));
   }
 
   /**

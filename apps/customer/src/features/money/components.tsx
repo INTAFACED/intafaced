@@ -223,6 +223,14 @@ export const endsField: ActionField = {
     Number.isFinite(Date.parse(value)) && Date.parse(value) > Date.now() ? null : copyText('components.choose.an.end.after.first.run'),
 };
 export const iso = (value: string) => new Date(value).toISOString();
+/** A standing order's last run must follow its first, and a one-off has no last run. */
+export function scheduleWindowIssue(input: Record<string, unknown>): string | null {
+  if (typeof input.endsAt !== 'string') return null;
+  if (input.cadence === 'once') return copyText('components.last.run.hint');
+  return typeof input.startsAt === 'string' && Date.parse(input.endsAt) <= Date.parse(input.startsAt)
+    ? copyText('components.choose.an.end.after.first.run')
+    : null;
+}
 const outputNames: Record<string, string> = {
   get ledgerTxId() {
     return copyText('components.ledger.transaction');

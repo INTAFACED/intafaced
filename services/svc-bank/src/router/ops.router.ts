@@ -588,6 +588,9 @@ export function createOpsRouter(c: BankRouterContext) {
             amount: amountString,
             reason: z.string().optional(),
             positionId: z.string().optional(),
+            /** A round-up into one of the person's own spaces: that space and the transfer that moved it. */
+            spaceId: z.string().optional(),
+            ledgerTxId: z.string().optional(),
           }),
           confirmOperatorId: z.string(),
         }),
@@ -625,7 +628,11 @@ export function createOpsRouter(c: BankRouterContext) {
               status: result.roundUp.status,
               amount: formatAmount(result.roundUp.amount),
               ...(result.roundUp.status === 'skipped' || result.roundUp.status === 'refused' ? { reason: result.roundUp.reason } : {}),
-              ...(result.roundUp.status === 'settled' ? { positionId: result.roundUp.positionId } : {}),
+              ...(result.roundUp.status === 'settled'
+                ? 'positionId' in result.roundUp
+                  ? { positionId: result.roundUp.positionId }
+                  : { spaceId: result.roundUp.spaceId, ledgerTxId: result.roundUp.ledgerTxId }
+                : {}),
             },
             confirmOperatorId,
           };
