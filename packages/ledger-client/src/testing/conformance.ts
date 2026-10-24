@@ -507,6 +507,40 @@ export function runLedgerConformance(name: string, createHarness: () => Promise<
         expect(await heldTotal(USER_B, 'BTC')).toBe('0');
       });
 
+      it('trade fill with a maker rebate: paid from the same fill taker fee, the house keeps the rest', async () => {
+        await fund(USER_A, 'USDT', '1000');
+        await fund(USER_B, 'BTC', '2');
+        await ledger.post(recipes.orderHold({ orderId: 'taker-r1', userId: USER_A, assetId: 'USDT', amount: amt('900') }));
+        await ledger.post(recipes.orderHold({ orderId: 'maker-r1', userId: USER_B, assetId: 'BTC', amount: amt('1') }));
+
+        const rebateFill = recipes.tradeFill({
+          fillId: 'conformance-r1',
+          makerId: USER_B,
+          takerId: USER_A,
+          makerOrderId: 'maker-r1',
+          takerOrderId: 'taker-r1',
+          baseAsset: 'BTC',
+          quoteAsset: 'USDT',
+          qty: amt('1'),
+          quoteAmount: amt('900'),
+          takerSide: 'buy',
+          makerFeeBps: 0,
+          takerFeeBps: 10,
+          makerRebateBps: 5,
+        });
+        const tx = await ledger.post(rebateFill);
+        const again = await ledger.post(rebateFill);
+
+        expect(again.id).toBe(tx.id);
+        expect(tx.entries).toHaveLength(6);
+        expect(await balanceOf(USER_B, 'USDT')).toBe('900');
+        expect(await balanceOf(USER_B, 'BTC')).toBe('1.0005');
+        expect(await balanceOf(USER_A, 'BTC')).toBe('0.999');
+        expect(formatAmount((await ledger.balance(houseFees('trade', 'BTC'))).amount)).toBe('0.0005');
+        expect(await heldTotal(USER_A, 'USDT')).toBe('0');
+        expect(await heldTotal(USER_B, 'BTC')).toBe('0');
+      });
+
       it('p2p escrow: lock → release strands nothing', async () => {
         await fund(USER_A, 'USDT', '500');
         await ledger.post(recipes.escrowLock({ tradeId: 'c-t1', sellerId: USER_A, buyerId: USER_B, assetId: 'USDT', amount: amt('500') }));

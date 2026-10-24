@@ -46,7 +46,7 @@ export const FEE_REVENUE_PATHS = {
     kind: 'recipe',
     recipe: 'tradeFill',
     feeModule: 'trade',
-    note: 'Maker/taker bps on fill → houseFees(trade).',
+    note: 'Maker/taker bps on fill → houseFees(trade). A maker rebate is paid out of the same fill taker fee; the house keeps the rest.',
   },
   'trade.spot.fill_fee_correction': {
     kind: 'recipe',
