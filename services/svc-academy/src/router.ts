@@ -871,6 +871,7 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.outline_too_large':
     case 'academy.item_has_no_lesson':
     case 'academy.import_too_large':
+    case 'academy.lesson_blocks_invalid':
       return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
 
     case 'academy.lesson_revision_unknown':

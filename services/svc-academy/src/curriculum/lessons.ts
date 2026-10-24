@@ -29,11 +29,14 @@ import {
   ACADEMY_LESSON_BLOCK_TYPES,
   ACADEMY_LESSON_FORMAT,
   academyLessonBlockSchema,
+  academyLessonBlocksSchema,
 } from '@intafaced/contracts';
 import { AcademyError } from '../errors.js';
 import type { CourseRecords } from './courses.js';
 
 const REVISIONS_SHOWN = 50;
+/** Titles are at most 120 characters, so 50 of them keep the section block far under the 20,000-character block limit. */
+const NEIGHBOURS_SHOWN = 50;
 
 type ItemRow = {
   id: string;
@@ -100,9 +103,23 @@ export function templateDraft(input: {
     { type: 'text', markdown: '## The idea\n\n(Explain the idea in your own words, with one example.)' },
     { type: 'text', markdown: '## Try it\n\n(Write one short practice step.)' },
   ];
-  if (input.neighbours.length > 0)
-    blocks.push({ type: 'text', markdown: `## In this section\n\n${input.neighbours.map((t) => `- ${t}`).join('\n')}` });
+  if (input.neighbours.length > 0) {
+    const shown = input.neighbours.slice(0, NEIGHBOURS_SHOWN).map((t) => `- ${t}`);
+    const more = input.neighbours.length - NEIGHBOURS_SHOWN;
+    if (more > 0) shown.push(`- and ${more} more`);
+    blocks.push({ type: 'text', markdown: `## In this section\n\n${shown.join('\n')}` });
+  }
   return blocks;
+}
+
+/** Every stored lesson must read back: blocks are checked against the wire schema before they are written. */
+function checkBlocks(blocks: readonly AcademyLessonBlock[]): void {
+  const parsed = academyLessonBlocksSchema.safeParse(blocks);
+  if (!parsed.success)
+    throw new AcademyError(
+      `the lesson blocks do not fit the lesson format: ${parsed.error.issues[0]?.message ?? 'invalid'}`,
+      'academy.lesson_blocks_invalid',
+    );
 }
 
 /** The model-backed path waits for the owner to choose a provider: the allowlisted `owner.decision` refusal. */
@@ -320,6 +337,7 @@ export class LessonRecords {
         itemTitle: item.title,
         neighbours: place!.neighbours,
       });
+      checkBlocks(blocks);
       await tx`
         INSERT INTO academy.lesson_drafts (item_id, based_on_revision, kind, blocks, state, created_by, created_at)
         VALUES (${item.id}, ${input.revision}, 'template', ${tx.json(blocks as never)}, 'open', ${input.operatorId}, ${input.now})
@@ -462,6 +480,7 @@ export class LessonRecords {
     actor: string,
     at: Date,
   ): Promise<void> {
+    checkBlocks(blocks);
     await tx`
       INSERT INTO academy.lesson_revisions (item_id, revision, source, from_revision, from_item_id, blocks, actor, at)
       VALUES (${itemId}, ${revision}, ${source}, ${fromRevision}, ${fromItemId}, ${tx.json(blocks as never)}, ${actor}, ${at})

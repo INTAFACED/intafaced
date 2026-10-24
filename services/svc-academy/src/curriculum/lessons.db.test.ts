@@ -414,6 +414,68 @@ describe('the authoring assistant (AC-course-structure-04)', () => {
     ).rejects.toMatchObject({ code: 'academy.draft_not_found' });
   });
 
+  it('a section of 200 long-titled items drafts, reads and accepts inside the block limit', async () => {
+    const big = new CourseRecords(db.sql, { maxSections: 5, maxItems: 250 });
+    const course = await big.create({
+      slug: 'long-section',
+      title: 'Long section',
+      summary: null,
+      thumbnailUrl: null,
+      pricing: 'free',
+      price: null,
+      priceAsset: null,
+      operatorId: A,
+      now: NOW,
+    });
+    const title = (i: number) => `${String(i).padStart(3, '0')} ${'x'.repeat(116)}`;
+    const detail = await big.saveOutline({
+      courseId: course.id,
+      revision: 1,
+      sections: [
+        {
+          title: 'Everything',
+          items: Array.from({ length: 200 }, (_, i) => ({ kind: 'lesson' as const, title: title(i), indent: 0, url: null })),
+        },
+      ],
+      operatorId: A,
+      now: NOW,
+    });
+    const item = detail.outline[0]!.items[0]!;
+    const records = new LessonRecords(db.sql, big);
+    const drafted = await records.assistantDraft({ itemId: item.id, revision: 0, path: 'template', operatorId: A, now: NOW });
+    const section = drafted.draft!.blocks.at(-1)!;
+    expect(section.type).toBe('text');
+    const markdown = section.type === 'text' ? section.markdown : '';
+    expect(markdown.length).toBeLessThanOrEqual(20_000);
+    expect(markdown).toContain(`- ${title(50)}`);
+    expect(markdown).not.toContain(title(51));
+    expect(markdown.endsWith('- and 149 more')).toBe(true);
+    expect((await records.get(item.id)).draft).toEqual(drafted.draft);
+    const accepted = await records.decideDraft({
+      itemId: item.id,
+      basedOnRevision: 0,
+      kind: 'template',
+      decision: 'accept',
+      operatorId: A,
+      now: LATER,
+    });
+    expect(accepted.revisions[0]).toMatchObject({ revision: 1, source: 'assisted', blocks: drafted.draft!.blocks });
+  });
+
+  it('a stored draft over the block limit is refused by name on accept and writes no revision', async () => {
+    const { lesson } = await draftWithOutline();
+    await db.sql`
+      INSERT INTO academy.lesson_drafts (item_id, based_on_revision, kind, blocks, state, created_by, created_at)
+      VALUES (${lesson.id}, 0, 'template', ${db.sql.json(text('x'.repeat(20_001)) as never)}, 'open', ${A}, ${NOW})
+    `;
+    await expect(
+      lessons().decideDraft({ itemId: lesson.id, basedOnRevision: 0, kind: 'template', decision: 'accept', operatorId: A, now: NOW }),
+    ).rejects.toMatchObject({ code: 'academy.lesson_blocks_invalid' });
+    const after = await lessons().get(lesson.id);
+    expect(after.revisions).toEqual([]);
+    expect(after.draft).toMatchObject({ basedOnRevision: 0, kind: 'template' });
+  });
+
   it('a draft from an old revision is not accepted over newer words; it can be discarded', async () => {
     const { lesson } = await draftWithOutline();
     await lessons().assistantDraft({ itemId: lesson.id, revision: 0, path: 'template', operatorId: A, now: NOW });
