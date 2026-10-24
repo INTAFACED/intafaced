@@ -83,8 +83,8 @@ import { spendRouter } from './spend/routes.js';
  */
 
 const actionOutput = z.object({
-  id: z.string().uuid(),
-  sessionId: z.string().uuid(),
+  id: z.string().guid(),
+  sessionId: z.string().guid(),
   agentId: z.string(),
   sequence: z.number().int(),
   kind: z.enum(['session_open', 'session_close', 'completion', 'embedding', 'tool_call', 'usage_settlement']),
@@ -101,7 +101,7 @@ const actionOutput = z.object({
   refusalCode: z.string().nullable(),
   /** i18n key + params. The surface renders; this service never ships prose. */
   messageKey: z.string(),
-  messageParams: z.record(z.union([z.string(), z.number()])),
+  messageParams: z.record(z.string(), z.union([z.string(), z.number()])),
   occurredAt: z.string(),
 });
 
@@ -223,7 +223,7 @@ const supportUnansweredOutput = z.object({
 });
 
 const sessionOutput = z.object({
-  id: z.string().uuid(),
+  id: z.string().guid(),
   agentId: z.string(),
   guardrailVersion: z.number().int(),
   status: z.enum(['open', 'closed']),
@@ -420,7 +420,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
           z.object({
             items: z.array(
               z.object({
-                id: z.string().uuid(),
+                id: z.string().guid(),
                 agentId: z.string(),
                 userId: z.string(),
                 status: z.enum(['open', 'closed']),
@@ -611,7 +611,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
         ),
 
       close: scopedProcedure('agents:execute', { module: 'agents' })
-        .input(z.object({ sessionId: z.string().uuid() }))
+        .input(z.object({ sessionId: z.string().guid() }))
         .output(sessionOutput)
         .mutation(({ ctx, input }) =>
           guard(async () => {
@@ -633,7 +633,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
         ),
 
       log: scopedProcedure('agents:read', { module: 'agents' })
-        .input(z.object({ sessionId: z.string().uuid(), limit: z.number().int().min(1).max(500).optional() }))
+        .input(z.object({ sessionId: z.string().guid(), limit: z.number().int().min(1).max(500).optional() }))
         .output(z.array(actionOutput))
         .query(({ ctx, input }) =>
           guard(async () => {
@@ -652,7 +652,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
           z.object({
             items: z.array(
               z.object({
-                id: z.string().uuid(),
+                id: z.string().guid(),
                 agentId: z.string(),
                 status: z.enum(['open', 'closed']),
                 openedAt: z.string(),
@@ -702,7 +702,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
       complete: scopedProcedure('agents:execute', { module: 'agents' })
         .input(
           z.object({
-            sessionId: z.string().uuid(),
+            sessionId: z.string().guid(),
             requestId: z.string().min(8).max(200),
             task: z.string().min(1),
             system: z.string().max(20_000).optional(),
@@ -752,7 +752,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
     usage: router({
       /** What the current window would cost if it settled now. Bills nothing. */
       current: scopedProcedure('agents:read', { module: 'agents' })
-        .input(z.object({ sessionId: z.string().uuid() }))
+        .input(z.object({ sessionId: z.string().guid() }))
         .output(z.object({ windowId: z.string(), pending: z.string(), sessionTotal: z.string(), assetId: z.string() }))
         .query(({ ctx, input }) =>
           guard(async () => {
@@ -778,7 +778,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
        * Unsigned 401. Wrong HMAC caller (svc-trade) 403.
        */
       settle: settleWriteProcedure
-        .input(z.object({ sessionId: z.string().uuid(), windowId: z.string().min(1) }))
+        .input(z.object({ sessionId: z.string().guid(), windowId: z.string().min(1) }))
         .output(z.object({ amount: z.string(), assetId: z.string(), chargeKey: z.string(), settled: z.boolean() }))
         .mutation(({ input }) =>
           guard(async () => {
@@ -801,7 +801,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
        * for a single known window id.
        */
       settleSession: settleWriteProcedure
-        .input(z.object({ sessionId: z.string().uuid() }))
+        .input(z.object({ sessionId: z.string().guid() }))
         .output(
           z.object({
             assetId: z.string(),
@@ -998,6 +998,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
                   published: z.literal(true),
                   matrix: z
                     .record(
+                      z.string(),
                       z.object({
                         maxSignals: z.number().int().min(0).max(100),
                         tools: z.array(z.string().min(1).max(120)).max(100),
@@ -1055,6 +1056,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
                   published: z.literal(true),
                   matrix: z
                     .record(
+                      z.string(),
                       z.object({
                         maxSignals: z.number().int().min(0).max(100),
                         tools: z.array(z.string().min(1).max(120)).max(100),
@@ -1193,6 +1195,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
                   published: z.literal(true),
                   matrix: z
                     .record(
+                      z.string(),
                       z.object({
                         maxSignals: z.number().int().min(0).max(100),
                         tools: z.array(z.string().min(1).max(120)).max(100),
@@ -1342,6 +1345,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
                   published: z.literal(true),
                   matrix: z
                     .record(
+                      z.string(),
                       z.object({
                         maxSignals: z.number().int().min(0).max(100),
                         tools: z.array(z.string().min(1).max(120)).max(100),
@@ -1697,7 +1701,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
                 z.object({ published: z.literal(false) }),
                 z.object({
                   published: z.literal(true),
-                  matrix: z.record(z.array(z.string().min(1).max(120)).max(100)).default({}),
+                  matrix: z.record(z.string(), z.array(z.string().min(1).max(120)).max(100)).default({}),
                 }),
               ])
               .nullable()
@@ -1745,7 +1749,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
                 z.object({ published: z.literal(false) }),
                 z.object({
                   published: z.literal(true),
-                  matrix: z.record(z.array(z.string().min(1).max(120)).max(100)).default({}),
+                  matrix: z.record(z.string(), z.array(z.string().min(1).max(120)).max(100)).default({}),
                 }),
               ])
               .nullable()
@@ -1984,7 +1988,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
                 z.object({ published: z.literal(false) }),
                 z.object({
                   published: z.literal(true),
-                  matrix: z.record(z.array(z.string().min(1).max(120)).max(100)).default({}),
+                  matrix: z.record(z.string(), z.array(z.string().min(1).max(120)).max(100)).default({}),
                 }),
               ])
               .nullable()
@@ -2320,7 +2324,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
                 z.object({ published: z.literal(false) }),
                 z.object({
                   published: z.literal(true),
-                  matrix: z.record(z.array(z.string().min(1).max(120)).max(100)).default({}),
+                  matrix: z.record(z.string(), z.array(z.string().min(1).max(120)).max(100)).default({}),
                 }),
               ])
               .nullable()
@@ -2367,7 +2371,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
                 z.object({ published: z.literal(false) }),
                 z.object({
                   published: z.literal(true),
-                  matrix: z.record(z.array(z.string().min(1).max(120)).max(100)).default({}),
+                  matrix: z.record(z.string(), z.array(z.string().min(1).max(120)).max(100)).default({}),
                 }),
               ])
               .nullable()
@@ -2545,7 +2549,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
                 z.object({ published: z.literal(false) }),
                 z.object({
                   published: z.literal(true),
-                  matrix: z.record(z.array(z.string().min(1).max(120)).max(100)).default({}),
+                  matrix: z.record(z.string(), z.array(z.string().min(1).max(120)).max(100)).default({}),
                 }),
               ])
               .nullable()
@@ -2632,7 +2636,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
                 z.object({ published: z.literal(false) }),
                 z.object({
                   published: z.literal(true),
-                  matrix: z.record(z.array(z.string().min(1).max(120)).max(100)).default({}),
+                  matrix: z.record(z.string(), z.array(z.string().min(1).max(120)).max(100)).default({}),
                 }),
               ])
               .nullable()
@@ -2701,7 +2705,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
                       z.object({
                         status: z.literal('read'),
                         state: z.object({
-                          userId: z.string().uuid(),
+                          userId: z.string().guid(),
                           status: z.enum(['active', 'frozen', 'closed']),
                           kycTier: z.enum(['none', 'basic', 'full', 'institutional']),
                         }),

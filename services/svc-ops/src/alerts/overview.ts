@@ -102,7 +102,7 @@ export function createAlertDeskRoutes(deps: AlertDeskDeps) {
         asOf: z.string(),
         items: z.array(
           z.object({
-            ruleId: z.string().uuid(),
+            ruleId: z.string().guid(),
             ruleName: z.string().nullable(),
             instance: z.string(),
             state: z.enum(['pending', 'firing']),
@@ -396,7 +396,7 @@ export function createAlertDeskRoutes(deps: AlertDeskDeps) {
           findings: z
             .array(
               z.object({
-                ruleId: z.string().uuid(),
+                ruleId: z.string().guid(),
                 name: z.string(),
                 missing: z.array(z.object({ kind: z.enum(['annotation', 'label']), key: z.string(), mode: z.enum(['detect', 'enforce']) })),
               }),

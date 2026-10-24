@@ -52,8 +52,10 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
       },
       z
         .number({
-          required_error: 'INDEXER_CHAIN_ID is unset — will not echo Anvil 31337 as live',
-          invalid_type_error: 'INDEXER_CHAIN_ID must be a positive integer (blank/unset must not echo Anvil 31337 as live)',
+          error: (issue) =>
+            issue.input === undefined
+              ? 'INDEXER_CHAIN_ID is unset — will not echo Anvil 31337 as live'
+              : 'INDEXER_CHAIN_ID must be a positive integer (blank/unset must not echo Anvil 31337 as live)',
         })
         .int()
         .positive(),
@@ -75,8 +77,10 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
       },
       z
         .string({
-          required_error: 'INDEXER_RPC_URL is unset — will not invent http://evm:8545 as live',
-          invalid_type_error: 'INDEXER_RPC_URL must be a non-empty RPC URL (blank/unset must not invent http://evm:8545 as live)',
+          error: (issue) =>
+            issue.input === undefined
+              ? 'INDEXER_RPC_URL is unset — will not invent http://evm:8545 as live'
+              : 'INDEXER_RPC_URL must be a non-empty RPC URL (blank/unset must not invent http://evm:8545 as live)',
         })
         .min(1),
     ),
@@ -99,9 +103,10 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
       },
       z
         .string({
-          required_error:
-            'INDEXER_VENUE_ADDRESS is unset — will not publish fixture CLOB 0x0116686E2291dbd5e317F47faDBFb43B599786Ef as venue',
-          invalid_type_error: 'INDEXER_VENUE_ADDRESS must be a 20-byte hex address (blank/unset must not invent fixture CLOB as venue)',
+          error: (issue) =>
+            issue.input === undefined
+              ? 'INDEXER_VENUE_ADDRESS is unset — will not publish fixture CLOB 0x0116686E2291dbd5e317F47faDBFb43B599786Ef as venue'
+              : 'INDEXER_VENUE_ADDRESS must be a 20-byte hex address (blank/unset must not invent fixture CLOB as venue)',
         })
         .regex(/^0x[0-9a-fA-F]{40}$/, 'must be a 20-byte hex address'),
     ),
@@ -131,9 +136,10 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
       },
       z
         .number({
-          required_error: 'INDEXER_START_HEIGHT is unset — will not publish genesis-0 as the venue deployment block',
-          invalid_type_error:
-            'INDEXER_START_HEIGHT must be an integer ≥ 0 (blank/unset must not publish genesis-0 as the venue deployment block)',
+          error: (issue) =>
+            issue.input === undefined
+              ? 'INDEXER_START_HEIGHT is unset — will not publish genesis-0 as the venue deployment block'
+              : 'INDEXER_START_HEIGHT must be an integer ≥ 0 (blank/unset must not publish genesis-0 as the venue deployment block)',
         })
         .int()
         .min(0),
@@ -165,8 +171,10 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
       },
       z
         .number({
-          required_error: 'INDEXER_FINALITY_DEPTH is unset — will not publish prune bound 64 as live',
-          invalid_type_error: 'INDEXER_FINALITY_DEPTH must be an integer 1–10000 (blank/unset must not publish prune bound 64 as live)',
+          error: (issue) =>
+            issue.input === undefined
+              ? 'INDEXER_FINALITY_DEPTH is unset — will not publish prune bound 64 as live'
+              : 'INDEXER_FINALITY_DEPTH must be an integer 1–10000 (blank/unset must not publish prune bound 64 as live)',
         })
         .int()
         .min(1)
@@ -211,8 +219,10 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
       },
       z
         .number({
-          required_error: 'INDEXER_BATCH_SIZE is unset — will not publish blocks-per-pass 200 as live',
-          invalid_type_error: 'INDEXER_BATCH_SIZE must be an integer 1–10000 (blank/unset must not publish blocks-per-pass 200 as live)',
+          error: (issue) =>
+            issue.input === undefined
+              ? 'INDEXER_BATCH_SIZE is unset — will not publish blocks-per-pass 200 as live'
+              : 'INDEXER_BATCH_SIZE must be an integer 1–10000 (blank/unset must not publish blocks-per-pass 200 as live)',
         })
         .int()
         .min(1)

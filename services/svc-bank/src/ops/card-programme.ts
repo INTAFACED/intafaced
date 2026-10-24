@@ -128,7 +128,7 @@ export function setCardStatusProcedure(
   return scopedProcedure('admin:treasury')
     .input(
       z.object({
-        cardId: z.string().uuid(),
+        cardId: z.string().guid(),
         status: z.enum(['frozen', 'active']),
         reason: z.string(),
         approvalId: z.string().max(128).nullish(),
@@ -136,7 +136,7 @@ export function setCardStatusProcedure(
         clientRequestId: z.string().min(1),
       }),
     )
-    .output(z.object({ cardId: z.string().uuid(), status: z.enum(['frozen', 'active']), frozenBy: z.enum(['operator']).nullable() }))
+    .output(z.object({ cardId: z.string().guid(), status: z.enum(['frozen', 'active']), frozenBy: z.enum(['operator']).nullable() }))
     .mutation(({ input }) =>
       guard(() =>
         bank.cards.setOperatorStatus({

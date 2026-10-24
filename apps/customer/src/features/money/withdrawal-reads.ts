@@ -6,8 +6,8 @@ import { withdrawalCopy } from './withdrawal-copy';
 // Published svc-pay withdrawalView. A record is a projection, not a balance
 // book, a delivery receipt or settlement evidence for another original action.
 export const withdrawalSchema = z.object({
-  id: z.string().uuid(),
-  userId: z.string().uuid(),
+  id: z.string().guid(),
+  userId: z.string().guid(),
   assetId: z.string().min(1).max(16),
   amount: z
     .string()
@@ -25,7 +25,7 @@ export const withdrawalSchema = z.object({
 export type WithdrawalRecord = z.infer<typeof withdrawalSchema>;
 export const withdrawalIdSchema = z
   .string()
-  .uuid()
+  .guid()
   .transform((value) => value.toLowerCase());
 const limitSchema = z.number().int().min(1).max(200);
 type FailureKey = 'invalidId' | 'invalidOwner' | 'invalidWindow' | 'signedOut';

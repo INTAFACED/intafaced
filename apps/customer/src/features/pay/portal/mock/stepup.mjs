@@ -31,6 +31,8 @@ export function createStepUpMock(ctx, { mode = 'ok' } = {}) {
   const spent = new Set();
   let challenge = null;
   let issued = 0;
+  const begun = new Map();
+  const approvals = new Map();
   const encode = (value) => Buffer.from(value).toString('base64url');
   return {
     minted,
@@ -51,7 +53,33 @@ export function createStepUpMock(ctx, { mode = 'ok' } = {}) {
       if (token.expiresAt <= Date.now()) return { status: 401, code: '', message: 'Token expired' };
       return null;
     },
+    /** True once for an approval `stepUp.complete` issued for this payout destination (svc-pay consumes it). */
+    spendDestinationApproval(id, destination) {
+      const held = approvals.get(id);
+      approvals.delete(id);
+      return Boolean(
+        held &&
+        ['merchantId', 'railId', 'kind', 'ref'].every((k) => held.fields[k] === destination[k]) &&
+        held.scope === 'pay.step_up.payoutDestination.set',
+      );
+    },
     async handle(procedure, input, route) {
+      if (procedure === 'stepUp.begin') {
+        if (mode === 'keys') return refuse(route, 403, '', 'API keys and sub-accounts cannot confirm a payment');
+        const challengeId = `00000000-0000-4000-8000-${String(++issued).padStart(12, '0')}`;
+        begun.set(challengeId, { scope: input.scope, fields: input.fields ?? {} });
+        return ok(route, { challengeId, totp: true, webauthn: null });
+      }
+      if (procedure === 'stepUp.complete') {
+        const started = begun.get(input.challengeId);
+        // One answer per challenge, right or wrong, as identity does: a retry begins again.
+        begun.delete(input.challengeId);
+        if (!started) return refuse(route, 401, 'auth.step_up_expired', 'That confirmation expired');
+        if (input.totpCode !== TEST_TOTP_CODE) return refuse(route, 401, 'auth.mfa_invalid', 'Invalid two-factor code');
+        const stepUpApprovalId = `TEST-approval-${issued}`;
+        approvals.set(stepUpApprovalId, started);
+        return ok(route, { stepUpApprovalId });
+      }
       if (procedure === 'auth.stepUpOptions') {
         challenge = encode(`TEST-challenge-${++issued}`);
         return ok(route, { challenge, timeout: 60000, userVerification: 'preferred', allowCredentials: [] });

@@ -41,7 +41,7 @@ describe('p2p.disputes product pin', () => {
     const router = read('router.ts');
     expect(schema).toMatch(/p2pDisputes[\s\S]*chatThreadId:\s*uuid\('chat_thread_id'\)/);
     expect(service).toMatch(/INSERT INTO p2p\.p2p_disputes[\s\S]*chat_thread_id/);
-    expect(router).toMatch(/chatThreadId:\s*z\.string\(\)\.uuid\(\)/);
+    expect(router).toMatch(/chatThreadId:\s*z\.string\(\)\.guid\(\)/);
     expect(router).toMatch(/p2p\.chat_thread_unset/);
   });
 });
