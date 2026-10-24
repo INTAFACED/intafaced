@@ -39,5 +39,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     PAY_PRODUCT_IMAGE_MAX_BYTES: '500000',
     // LOCAL-TEST value (tooling/profiles/test-owner-values/pay.json): the largest hosted checkout logo, 100 KB.
     PAY_CHECKOUT_LOGO_MAX_BYTES: '100000',
+    // LOCAL-TEST value (tooling/profiles/test-owner-values/pay.json): the risk band the hosted checkout routes with.
+    PAY_CHECKOUT_RISK_BAND: 'low',
+    // LOCAL-TEST value (same file): the success fraction smart routing reads for the crypto rail.
+    PAY_CHECKOUT_SUCCESS_RATES: 'crypto-native:0.9',
   }),
 });

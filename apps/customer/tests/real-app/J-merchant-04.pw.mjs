@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
-import { ROOT, journeyState } from './stack.mjs';
+import { ROOT, journeyState, tool } from './stack.mjs';
 import { forgetSession } from './identity-factors.mjs';
 import { businessReadyPerson, openBusiness, refusedPayCalls, signInWithCode, verifiedBusiness } from './merchant.mjs';
 
@@ -276,4 +276,125 @@ test(`${J} #3 the owner copies the full address, the QR and the payment button; 
   } finally {
     await payer.close();
   }
+});
+
+/** The payer's hosted page (no INTAFACED session): the session page's acceptance reference, after Continue. */
+async function payerContinues(payerPage, country = 'DE') {
+  await payerPage.getByLabel('Country').fill(country);
+  await payerPage.getByRole('button', { name: /continue/i }).click();
+  await expect(payerPage.getByRole('heading', { level: 1 })).toBeVisible();
+  await expect(payerPage.getByText('Send exactly this amount to')).toBeVisible();
+  return (await payerPage.locator('.reference code').textContent())?.trim();
+}
+
+test(`${J} #4 the payer opens the link: the fixed amount and asset before confirming; an expired, used-up or turned-off link opens a plain state and no payment; a link with no amount asks for one`, async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(420_000);
+  const state = journey();
+  if (!state.toteLinkId) throw new Error(`${J} #2 made no link, so this step has none for the payer to open`);
+  await signInOwner(page, state, `/pay/links/${state.toteLinkId}`);
+  const refused = refusedPayCalls(page);
+  const toteAddress = await page.getByTestId('link-address').getByRole('link', { name: 'Open the link' }).getAttribute('href');
+
+  // A link for one payment of TEST 5 USDT, and the create request it sent (replayed below for a short-lived link).
+  await page.goto('/pay/links/new');
+  await page.getByLabel('Link label *').fill('TEST Single print');
+  await page.getByLabel('Fixed amount', { exact: true }).fill('5');
+  await page.getByRole('combobox', { name: /^Asset/ }).selectOption('USDT');
+  await page.getByLabel('Maximum completed payments').fill('1');
+  const created = page.waitForRequest((request) => request.url().includes('merchant.createLink') && request.method() === 'POST');
+  await page.getByRole('button', { name: 'Create link' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Create link' }).click();
+  await expect(page.getByRole('heading', { name: 'Your link is ready' })).toBeVisible();
+  const printAddress = await page.getByTestId('link-address').getByRole('link', { name: 'Open the link' }).getAttribute('href');
+  const sent = await created;
+
+  // A link that expires 20 seconds from now: the same request with its own key and an expiry the form does not offer.
+  const body = JSON.parse(sent.postData() ?? '{}');
+  const input = body.json ?? body;
+  Object.assign(input, {
+    label: 'TEST Flash sale',
+    idempotencyKey: `j-merchant-04-flash-${Date.now()}`,
+    expiresAt: new Date(Date.now() + 20_000).toISOString(),
+  });
+  delete input.maxUses;
+  const headers = Object.fromEntries(
+    Object.entries(await sent.allHeaders()).filter(
+      ([name]) => !name.startsWith(':') && !['cookie', 'content-length', 'host'].includes(name),
+    ),
+  );
+  const flash = await page.evaluate(
+    async ({ url, data, headers }) => {
+      const response = await fetch(url, { method: 'POST', body: data, headers, credentials: 'include' });
+      return { status: response.status, text: await response.text() };
+    },
+    { url: sent.url(), data: JSON.stringify(body), headers },
+  );
+  expect(flash.status).toBe(200);
+  const flashToken = /"checkoutUrl":"[^"]*token=(pl_[A-Za-z0-9_-]+)/.exec(flash.text)?.[1];
+  expect(flashToken).toBeTruthy();
+  const flashAddress = printAddress.replace(/token=pl_[A-Za-z0-9_-]+/, `token=${flashToken}`);
+
+  // A link with no amount: the payer names it.
+  await page.goto('/pay/links/new');
+  await page.getByLabel('Link label *').fill('TEST Tip jar');
+  await page.getByRole('combobox', { name: /^Asset/ }).selectOption('USDT');
+  await page.getByRole('button', { name: 'Create link' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Create link' }).click();
+  await expect(page.getByRole('heading', { name: 'Your link is ready' })).toBeVisible();
+  const tipAddress = await page.getByTestId('link-address').getByRole('link', { name: 'Open the link' }).getAttribute('href');
+  expect(refused).toEqual([]);
+
+  const payer = await browser.newContext();
+  try {
+    const payerPage = await payer.newPage();
+
+    // The fixed amount and asset show before the payer confirms anything; Continue opens the payment's own reference.
+    await payerPage.goto(toteAddress);
+    await expect(payerPage.getByRole('heading', { name: 'TEST Tote bag' })).toBeVisible();
+    await expect(payerPage.locator('.amount')).toHaveText('25.00 USDC');
+    await expect(payerPage.getByLabel('Amount')).toHaveCount(0);
+    const toteReference = await payerContinues(payerPage);
+    expect(toteReference).toMatch(/^addr_usdc_[0-9a-f-]{36}$/);
+    await expect(payerPage.locator('.amount')).toHaveText('25.00 USDC');
+
+    // One payment uses the single-payment link up: paid in full by a TEST transfer, it then opens a plain state.
+    await payerPage.goto(printAddress);
+    await expect(payerPage.locator('.amount')).toHaveText('5.00 USDT');
+    const printReference = await payerContinues(payerPage);
+    const sessionUrl = payerPage.url();
+    tool('local-test-stack.mjs', 'chain-deposit', printReference, 'USDT', '5', '12', '--tx', `j-merchant-04-print-${Date.now()}`);
+    await expect(async () => {
+      await payerPage.goto(sessionUrl);
+      await expect(payerPage.getByText('Payment received')).toBeVisible({ timeout: 2_000 });
+    }).toPass({ timeout: 60_000 });
+    await payerPage.goto(printAddress);
+    await expect(payerPage.getByRole('heading', { name: 'Link already used' })).toBeVisible();
+    await expect(payerPage.getByRole('button', { name: /continue/i })).toHaveCount(0);
+
+    // Past its expiry the link opens a plain state and no payment form.
+    await payerPage.goto(flashAddress);
+    await expect(async () => {
+      await payerPage.goto(flashAddress);
+      await expect(payerPage.getByRole('heading', { name: 'Link expired' })).toBeVisible({ timeout: 2_000 });
+    }).toPass({ timeout: 60_000 });
+    await expect(payerPage.getByRole('button', { name: /continue/i })).toHaveCount(0);
+
+    // With no amount on the link, the payer is asked for one, and the payment is for what they named.
+    await payerPage.goto(tipAddress);
+    await expect(payerPage.locator('.amount')).toHaveText('Choose an amount');
+    await payerPage.getByLabel(/Amount/).fill('3');
+    const tipReference = await payerContinues(payerPage);
+    expect(tipReference).toMatch(/^addr_usdt_/);
+    await expect(payerPage.locator('.amount')).toHaveText('3.00 USDT');
+  } finally {
+    await payer.close();
+  }
+
+  // The owner sees the single-payment link used once of once.
+  await page.goto('/pay/links');
+  const print = page.getByRole('row').filter({ hasText: 'TEST Single print' });
+  await expect(print).toContainText('1 of 1');
 });
