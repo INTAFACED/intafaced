@@ -300,8 +300,9 @@ const retentionTimer = setInterval(() => {
 retentionTimer.unref();
 
 // Staff holds (LC-9): release what is left of each hold whose stored expiry has passed, then settle any post whose answer
-// was lost or that the posting freeze turned back. Neither ever sends anything but a stored request under its stored key.
-// Each runs on its own, so a failing expiry pass never stops settlement.
+// was lost or that the posting freeze turned back, then read again the keys of posts declared lost in the last day. None
+// ever sends anything but a stored request under its stored key. Each runs on its own, so a failing pass never stops the
+// next.
 const holdWarn = (step: string) => (error: unknown) => {
   const code = error instanceof OpsError ? error.code : 'ops.hold_worker_unavailable';
   app.log.warn({ code, step }, 'Staff hold worker will retry on the next tick');
@@ -312,6 +313,7 @@ const holdTimer = setInterval(() => {
   holdRun = (async () => {
     await staffHolds.expireDue().catch(holdWarn('expiry'));
     await staffHolds.resolve().catch(holdWarn('settle'));
+    await staffHolds.recheckLost().catch(holdWarn('recheck'));
   })().finally(() => {
     holdRun = null;
   });

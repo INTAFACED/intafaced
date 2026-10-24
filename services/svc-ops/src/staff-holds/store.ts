@@ -51,6 +51,16 @@ export interface MovementRow {
   readonly uncertain: boolean;
   readonly at: string;
   readonly lastAttemptAt: string | null;
+  /** When the answer was recorded; null while the movement is open. */
+  readonly settledAt: string | null;
+  /** When the settling worker last looked at the movement: it works through the oldest-looked-at first. */
+  readonly checkedAt: string | null;
+}
+
+/** A movement refused `ledger.post_lost`, still worth reading again. */
+export interface LostMovement {
+  readonly holdNo: string;
+  readonly requestKey: string;
 }
 
 export interface NewHold {
@@ -97,6 +107,8 @@ export interface LockedHold {
   settle(requestKey: string, outcome: AttemptOutcome, hold: { remaining: string; state: StaffHoldState }): Promise<void>;
   /** Count one more post sent under the movement's key. The movement is `settling` from here until its answer is recorded. */
   attempt(requestKey: string, at: string): Promise<void>;
+  /** Note that the settling worker looked at the movement now. */
+  check(requestKey: string, at: string): Promise<void>;
 }
 
 export interface StaffHoldStore {
@@ -108,14 +120,46 @@ export interface StaffHoldStore {
   lock<T>(holdNo: string, fn: (locked: LockedHold) => Promise<T>): Promise<T | null>;
   /**
    * Holds whose expiry has passed and that still hold something (`active` or `partially_released`), with no movement
-   * open and no expiry release the ledger refused.
+   * open and no expiry release the ledger refused since the hold last changed.
    */
   expired(nowIso: string, limit: number): Promise<string[]>;
-  /** Holds with a movement that is `settling` or `pending_retry`. */
-  unsettled(limit: number): Promise<string[]>;
+  /**
+   * Holds with a movement that is `settling`, or `pending_retry` and due again at `nowIso` (`retryWaitMs`), the one looked
+   * at longest ago first.
+   */
+  unsettled(nowIso: string, limit: number): Promise<string[]>;
+  /**
+   * Movements declared `ledger.post_lost` (uncertain) at or after `lostSince` and not looked at since `checkedBefore`, the
+   * one looked at longest ago first.
+   */
+  lost(lostSince: string, checkedBefore: string, limit: number): Promise<LostMovement[]>;
 }
 
 const placeKey = (holdNo: string) => `ops:hold:${holdNo}`;
+
+/**
+ * How long a `pending_retry` movement (the posting freeze, or a request that never left this process) waits after its
+ * `attempts`-th send before it is sent again: 5 s after the first, twice as long after each further one, up to a minute,
+ * so a ledger that is down or misaddressed is not asked every tick. The SQL store applies the same rule in `unsettled`.
+ */
+export const RETRY_FIRST_WAIT_MS = 5_000;
+export const RETRY_LONGEST_WAIT_MS = 60_000;
+export const retryWaitMs = (attempts: number) => Math.min(RETRY_FIRST_WAIT_MS * 2 ** Math.max(0, attempts - 1), RETRY_LONGEST_WAIT_MS);
+/** Whether a `pending_retry` movement has waited `retryWaitMs` since its last send (anything else is always due). */
+export const retryDue = (m: MovementRow, nowMs: number) =>
+  m.status !== 'pending_retry' || m.lastAttemptAt === null || Date.parse(m.lastAttemptAt) + retryWaitMs(m.attempts) <= nowMs;
+/**
+ * An expiry release the ledger refused is not tried again until another movement on the hold posts after it: a release
+ * found in the book after it was declared lost changes what is held, so the next expiry release is sized from the
+ * corrected amount.
+ */
+export const expiryBlocked = (movements: readonly MovementRow[]) =>
+  movements.some(
+    (e) =>
+      e.cause === 'expiry' &&
+      e.status === 'refused' &&
+      !movements.some((m) => m.status === 'posted' && m.settledAt !== null && e.settledAt !== null && m.settledAt > e.settledAt),
+  );
 
 /* ------------------------------------------------------------------ memory */
 
@@ -162,6 +206,8 @@ export class MemoryStaffHoldStore implements StaffHoldStore {
       uncertain: false,
       at: input.at,
       lastAttemptAt: null,
+      settledAt: null,
+      checkedAt: null,
     };
     this.holds.set(holdNo, hold);
     this.movements.push(movement);
@@ -201,18 +247,27 @@ export class MemoryStaffHoldStore implements StaffHoldStore {
             uncertain: false,
             at: input.at,
             lastAttemptAt: null,
+            settledAt: null,
+            checkedAt: null,
           };
           this.movements.push(row);
           return row;
         },
         settle: async (requestKey, outcome, next) => {
-          update(requestKey, { status: outcome.status, uncertain: outcome.uncertain, txId: outcome.txId, code: outcome.code });
+          update(requestKey, {
+            status: outcome.status,
+            uncertain: outcome.uncertain,
+            txId: outcome.txId,
+            code: outcome.code,
+            settledAt: outcome.at,
+          });
           this.holds.set(holdNo, { ...this.holds.get(holdNo)!, remaining: next.remaining, state: next.state });
         },
         attempt: async (requestKey, at) => {
           const m = this.movements.find((r) => r.requestKey === requestKey)!;
           update(requestKey, { status: 'settling', attempts: m.attempts + 1, lastAttemptAt: at });
         },
+        check: async (requestKey, at) => update(requestKey, { checkedAt: at }),
       });
     });
     this.queues.set(
@@ -225,23 +280,29 @@ export class MemoryStaffHoldStore implements StaffHoldStore {
   async expired(nowIso: string, limit: number) {
     return [...this.holds.values()]
       .filter((h) => h.expiresAt !== null && h.expiresAt <= nowIso && (h.state === 'active' || h.state === 'partially_released'))
-      .filter(
-        (h) =>
-          !this.movements.some(
-            (m) =>
-              m.holdNo === h.holdNo &&
-              (m.status === 'settling' || m.status === 'pending_retry' || (m.cause === 'expiry' && m.status === 'refused')),
-          ),
-      )
+      .filter((h) => {
+        const own = this.movements.filter((m) => m.holdNo === h.holdNo);
+        return !own.some((m) => m.status === 'settling' || m.status === 'pending_retry') && !expiryBlocked(own);
+      })
       .slice(0, limit)
       .map((h) => h.holdNo);
   }
 
-  async unsettled(limit: number) {
-    return [...new Set(this.movements.filter((m) => m.status === 'settling' || m.status === 'pending_retry').map((m) => m.holdNo))].slice(
-      0,
-      limit,
-    );
+  async unsettled(nowIso: string, limit: number) {
+    const open = this.movements
+      .filter((m) => (m.status === 'settling' || m.status === 'pending_retry') && retryDue(m, Date.parse(nowIso)))
+      .sort((a, b) => (a.checkedAt ?? a.at).localeCompare(b.checkedAt ?? b.at));
+    return [...new Set(open.map((m) => m.holdNo))].slice(0, limit);
+  }
+
+  async lost(lostSince: string, checkedBefore: string, limit: number) {
+    return this.movements
+      .filter((m) => m.status === 'refused' && m.code === 'ledger.post_lost' && m.uncertain)
+      .filter((m) => m.settledAt !== null && m.settledAt >= lostSince)
+      .filter((m) => m.checkedAt === null || m.checkedAt <= checkedBefore)
+      .sort((a, b) => (a.checkedAt ?? a.settledAt!).localeCompare(b.checkedAt ?? b.settledAt!))
+      .slice(0, limit)
+      .map((m) => ({ holdNo: m.holdNo, requestKey: m.requestKey }));
   }
 }
 
@@ -281,6 +342,8 @@ type MovementDb = {
   uncertain: boolean;
   created_at: Date | string;
   last_attempt_at: Date | string | null;
+  settled_at: Date | string | null;
+  checked_at: Date | string | null;
 };
 
 const isoOf = (v: Date | string) => new Date(v).toISOString();
@@ -323,6 +386,8 @@ const movementOf = (r: MovementDb): MovementRow => ({
   uncertain: r.uncertain,
   at: isoOf(r.created_at),
   lastAttemptAt: isoOrNull(r.last_attempt_at),
+  settledAt: isoOrNull(r.settled_at),
+  checkedAt: isoOrNull(r.checked_at),
 });
 
 const movementsOf = async (sql: Sql | TransactionSql, holdNos: readonly string[]): Promise<MovementRow[]> => {
@@ -421,6 +486,9 @@ export class SqlStaffHoldStore implements StaffHoldStore {
              WHERE request_key = ${requestKey}
           `;
         },
+        check: async (requestKey, at) => {
+          await tx`UPDATE ops.staff_hold_movements SET checked_at = ${at} WHERE request_key = ${requestKey}`;
+        },
       });
     }) as Promise<T | null>;
   }
@@ -430,19 +498,41 @@ export class SqlStaffHoldStore implements StaffHoldStore {
       SELECT hold_no FROM ops.staff_holds
        WHERE expires_at IS NOT NULL AND expires_at <= ${nowIso} AND state IN ('active', 'partially_released')
          AND NOT EXISTS (
-           SELECT 1 FROM ops.staff_hold_movements m
-            WHERE m.hold_no = staff_holds.hold_no
-              AND (m.status IN ('settling', 'pending_retry') OR (m.cause = 'expiry' AND m.status = 'refused'))
+           SELECT 1 FROM ops.staff_hold_movements m WHERE m.hold_no = staff_holds.hold_no AND m.status IN ('settling', 'pending_retry')
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM ops.staff_hold_movements e
+            WHERE e.hold_no = staff_holds.hold_no AND e.cause = 'expiry' AND e.status = 'refused'
+              AND NOT EXISTS (
+                SELECT 1 FROM ops.staff_hold_movements p
+                 WHERE p.hold_no = e.hold_no AND p.status = 'posted' AND p.settled_at > e.settled_at
+              )
          )
        ORDER BY expires_at LIMIT ${limit}
     `;
     return rows.map((r) => String(r.hold_no));
   }
 
-  async unsettled(limit: number) {
+  async unsettled(nowIso: string, limit: number) {
+    // retryWaitMs in SQL: 5 s doubled per send after the first, at most 60 s.
     const rows = await this.sql<{ hold_no: string }[]>`
-      SELECT DISTINCT hold_no FROM ops.staff_hold_movements WHERE status IN ('settling', 'pending_retry') ORDER BY hold_no LIMIT ${limit}
+      SELECT hold_no FROM ops.staff_hold_movements
+       WHERE status = 'settling'
+          OR (status = 'pending_retry' AND (last_attempt_at IS NULL OR last_attempt_at
+                + make_interval(secs => least(${RETRY_FIRST_WAIT_MS / 1000} * power(2, greatest(attempts - 1, 0)), ${RETRY_LONGEST_WAIT_MS / 1000}))
+                <= ${nowIso}::timestamptz))
+       GROUP BY hold_no ORDER BY min(coalesce(checked_at, created_at)), hold_no LIMIT ${limit}
     `;
     return rows.map((r) => String(r.hold_no));
+  }
+
+  async lost(lostSince: string, checkedBefore: string, limit: number) {
+    const rows = await this.sql<{ hold_no: string; request_key: string }[]>`
+      SELECT hold_no, request_key FROM ops.staff_hold_movements
+       WHERE status = 'refused' AND code = 'ledger.post_lost' AND uncertain AND settled_at >= ${lostSince}
+         AND (checked_at IS NULL OR checked_at <= ${checkedBefore})
+       ORDER BY coalesce(checked_at, settled_at), hold_no LIMIT ${limit}
+    `;
+    return rows.map((r) => ({ holdNo: String(r.hold_no), requestKey: r.request_key }));
   }
 }
