@@ -53,13 +53,13 @@ function localMailBody(message: LocalMailMessage): string {
   if (purpose === 'email-change-notice') {
     return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} notice=address-changed\n`;
   }
-  if (purpose === 'reset-no-account' || purpose === 'handle-recovery-no-account') {
+  if (purpose === 'reset-no-account' || purpose === 'handle-recovery-no-account' || purpose === 'login-no-account') {
     return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} notice=no-account\n`;
   }
   if (purpose === 'signup-existing') {
     return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} notice=already-registered\n`;
   }
-  if (purpose === 'signup-code') {
+  if (purpose === 'signup-code' || purpose === 'login-code') {
     // A six-digit code the person types, not a link.
     return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} code=${message.code.replace(/\D/g, '')}\n`;
   }

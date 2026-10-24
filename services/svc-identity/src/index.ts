@@ -379,6 +379,14 @@ auth.useSignUpPolicy({
   requestWindowSeconds: env.IDENTITY_SIGNUP_REQUEST_WINDOW_SECONDS,
   closedCountries: env.IDENTITY_SIGNUP_CLOSED_COUNTRIES,
 });
+// Sign-in by a mailed code uses the same outbox and relay. Any blank number refuses every code sign-in the same way.
+auth.useLoginCodePolicy({
+  codeTtlSeconds: env.IDENTITY_LOGIN_CODE_TTL_SECONDS,
+  maxAttempts: env.IDENTITY_LOGIN_CODE_MAX_ATTEMPTS,
+  resendSeconds: env.IDENTITY_LOGIN_CODE_RESEND_SECONDS,
+  requestMax: env.IDENTITY_LOGIN_CODE_REQUEST_MAX,
+  requestWindowSeconds: env.IDENTITY_LOGIN_CODE_REQUEST_WINDOW_SECONDS,
+});
 
 const placeDoor = new PlaceDoor(sql);
 const founderPair = parseFounderPair(env.IDENTITY_FOUNDER_NITRO_USER_ID, env.IDENTITY_FOUNDER_PHANTOM_USER_ID);

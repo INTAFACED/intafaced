@@ -11,6 +11,7 @@ import {
 import { AuthError as GuardError, requireMfa } from '@intafaced/auth';
 import { requestIpAls } from './auth/auth-service-ip.js';
 import { ACCOUNT_TYPES, SignUpError } from './auth/sign-up.js';
+import { LoginCodeError } from './auth/login-code.js';
 import type { RefreshCookieBag } from './auth/refresh-cookie.js';
 
 declare module '@intafaced/contracts' {
@@ -449,6 +450,29 @@ function signUpTrpcError(err: unknown): TRPCError {
       return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
     default:
       return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
+  }
+}
+
+const loginCodeAccepted = z.object({
+  accepted: z.literal(true),
+  flowId: z.string().guid(),
+  resendAfterSeconds: z.number().int().positive(),
+});
+
+/** Code sign-in refusals: a lockout or an early resend is 429 with its seconds, a blank setting or switched-off mail 412. */
+function loginCodeTrpcError(err: unknown): TRPCError {
+  if (!(err instanceof LoginCodeError)) return toTrpcError(err);
+  switch (err.code) {
+    case 'auth.too_many_attempts':
+    case 'identity.resend_too_soon':
+      return new TRPCError({ code: 'TOO_MANY_REQUESTS', message: err.message, cause: err });
+    case 'auth.codes_unwired':
+    case 'vendor.email':
+    case 'vendor.sms':
+      return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
+    case 'auth.code_invalid':
+    case 'auth.code_expired':
+      return new TRPCError({ code: 'UNAUTHORIZED', message: err.message, cause: err });
   }
 }
 
@@ -1222,6 +1246,55 @@ export function createIdentityRouter(
             return sessionWire(ctx, session);
           } catch (err) {
             throw toTrpcError(err);
+          }
+        }),
+
+      /**
+       * Sign-in by a mailed code, step 1 (I-signin-sessions-19, -20). Takes an email or handle and answers the same
+       * for every name, with no session: only an active account is mailed a six-digit code.
+       */
+      loginCodeRequest: publicProcedure
+        .input(z.object({ identifier: z.string().trim().min(1).max(320) }))
+        .output(loginCodeAccepted)
+        .mutation(async ({ input }) => {
+          try {
+            return await auth.loginCodeRequest(input);
+          } catch (err) {
+            throw loginCodeTrpcError(err);
+          }
+        }),
+
+      /** Sign-in by a mailed code, step 1b: a new code once the resend interval has passed; the old one stops working. */
+      loginCodeResend: publicProcedure
+        .input(z.object({ flowId: z.string().guid() }))
+        .output(loginCodeAccepted)
+        .mutation(async ({ input }) => {
+          try {
+            return await auth.loginCodeResend(input);
+          } catch (err) {
+            throw loginCodeTrpcError(err);
+          }
+        }),
+
+      /**
+       * Sign-in by a mailed code, step 2: the right code opens one session. A wrong code counts toward the owner's
+       * lockout, a used one is refused, and an account with an authenticator still answers `auth.mfa_required` until
+       * its code comes too (the mailed code stays unspent meanwhile).
+       */
+      loginWithCode: publicProcedure
+        .input(
+          z.object({
+            flowId: z.string().guid(),
+            code: z.string().trim().min(1).max(12),
+            totpCode: z.string().trim().min(1).max(64).optional(),
+          }),
+        )
+        .output(sessionOutput)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            return sessionWire(ctx, await auth.loginWithCode({ ...input, ip: requestIpAls.getStore() }));
+          } catch (err) {
+            throw loginCodeTrpcError(err);
           }
         }),
 

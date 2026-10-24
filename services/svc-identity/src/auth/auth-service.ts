@@ -42,6 +42,15 @@ import {
   type SignUpStart,
 } from './sign-up.js';
 import {
+  checkLoginCode,
+  consumeLoginCode,
+  requestLoginCode,
+  resendLoginCode,
+  type LoginCodeAccepted,
+  type LoginCodeDeps,
+  type LoginCodePolicy,
+} from './login-code.js';
+import {
   completePasswordReset,
   publishedPasswordResetTtlSeconds,
   relayMailOutbox,
@@ -693,6 +702,62 @@ export class AuthService {
       ...(input.ip ? { ip: input.ip } : {}),
     });
     return { session, accountType: draft.accountType, referrerId: draft.referrerId };
+  }
+
+  /** Owner numbers for sign-in by a mailed code (login-code.ts). The mail port, the flow key and the clock are the recovery flows' own. */
+  useLoginCodePolicy(policy: LoginCodePolicy): void {
+    this.loginCodePolicy = policy;
+  }
+
+  private loginCodePolicy: LoginCodePolicy = {};
+
+  private loginCodeDeps(): LoginCodeDeps {
+    return {
+      ...this.loginCodePolicy,
+      sql: this.sql,
+      mail: this.passwordResetMail,
+      subjectKey: this.flowSubjectKey,
+      notifyUnknown: this.resetNotifyUnknown,
+      now: this.passwordResetNow,
+      log: this.log,
+      afterCommit: this.mailRelayTrigger,
+    };
+  }
+
+  /** Code sign-in step 1: the same answer for every name; an active account is mailed a code. */
+  async loginCodeRequest(input: { identifier: string }): Promise<LoginCodeAccepted> {
+    return requestLoginCode(this.loginCodeDeps(), input);
+  }
+
+  /** Code sign-in step 1b: a new code once the resend interval has passed; the old one stops working. */
+  async loginCodeResend(input: { flowId: string }): Promise<LoginCodeAccepted> {
+    return resendLoginCode(this.loginCodeDeps(), input);
+  }
+
+  /**
+   * Code sign-in step 2. The right code proves the mailbox; an account with an authenticator still needs its code,
+   * counted and checked as on password sign-in, and the mailed code stays unspent until that passes. The code is then
+   * spent with a compare-and-swap, so it opens one session at most.
+   */
+  async loginWithCode(input: { flowId: string; code: string; totpCode?: string; device?: string; ip?: string }): Promise<SessionTokens> {
+    const deps = this.loginCodeDeps();
+    const { userId } = await checkLoginCode(deps, input);
+    const [user] = await this.sql<
+      Array<{ id: string; status: string; totp_secret: string | null }>
+    >`SELECT id, status, totp_secret FROM users WHERE id = ${userId}`;
+    if (!user) throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
+    // The code proved the mailbox, so the state is named as on password sign-in.
+    if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen', accountStateOf(user.status));
+    let mfa = false;
+    if (user.totp_secret) {
+      if (!input.totpCode) throw new AuthError('Two-factor code required', 'auth.mfa_required');
+      await this.reserve(user.id, 'mfa');
+      await this.verifyMfaCode(user.id, user.totp_secret, input.totpCode);
+      mfa = true;
+      await recordSuccess(this.sql, user.id, 'mfa');
+    }
+    await consumeLoginCode(deps, input);
+    return this.issueSession(user.id, { device: input.device, ip: input.ip, mfa });
   }
 
   private emailConfirmDeps() {
