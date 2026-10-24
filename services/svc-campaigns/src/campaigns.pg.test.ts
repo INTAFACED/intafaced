@@ -221,6 +221,9 @@ if (!db) {
       expect((await service().join({ campaignId: c.id, accountId: ME })).created).toBe(true);
       now = new Date('2026-10-26T00:00:00Z');
       expect((await service().get({ id: c.id, accountId: ME })).state).toBe('ended');
+      // My join again after the end returns my participation; a new one refuses.
+      expect((await service().join({ campaignId: c.id, accountId: ME })).created).toBe(false);
+      expect(await code(service().join({ campaignId: c.id, accountId: 'account-late' }))).toBe('campaign.not_active');
       expect((await service().catalogue(ME)).campaigns).toEqual([]);
     });
 

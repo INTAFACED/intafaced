@@ -39,6 +39,7 @@ describe('rooms with no backing service', () => {
   it('Campaigns opens on the catalogue reading the published campaigns, not on an empty list', () => {
     const html = renderToStaticMarkup(<Campaigns />);
     expect(html).toContain('Reading the published campaigns');
+    expect(html).not.toContain('No campaign can be listed');
     expect(html).not.toContain('Coming soon');
   });
   it('Launch lays out seven issuer steps and blocks all but the check and the draft', () => {

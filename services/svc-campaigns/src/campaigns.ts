@@ -540,9 +540,10 @@ export class CampaignService {
     return transaction(this.sql, async (tx) => {
       const [row] = await tx<CampaignRow[]>`SELECT * FROM campaigns.campaigns WHERE id = ${input.campaignId} FOR SHARE`;
       const now = this.now();
-      if (!row || !toView(row, timeZone, now, null)) throw new CampaignsError('campaign.unknown', 'No such campaign');
+      // The caller's own participation comes back first, even once the campaign has ended or closed.
       const [existing] = await tx<ParticipationRow[]>`SELECT * FROM campaigns.participations WHERE participation_key = ${key}`;
       if (existing) return { participation: toParticipation(existing), created: false };
+      if (!row || !toView(row, timeZone, now, null)) throw new CampaignsError('campaign.unknown', 'No such campaign');
       const state = effectiveState(row, now);
       if (state !== 'active') throw new CampaignsError('campaign.not_active', `This campaign is ${state}, not active`);
       const clock = zonedClock(now, timeZone);
