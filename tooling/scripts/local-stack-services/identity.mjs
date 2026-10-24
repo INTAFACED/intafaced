@@ -61,6 +61,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     IDENTITY_LOGIN_CODE_RESEND_SECONDS: testValue('IDENTITY_LOGIN_CODE_RESEND_SECONDS'),
     IDENTITY_LOGIN_CODE_REQUEST_MAX: testValue('IDENTITY_LOGIN_CODE_REQUEST_MAX'),
     IDENTITY_LOGIN_CODE_REQUEST_WINDOW_SECONDS: testValue('IDENTITY_LOGIN_CODE_REQUEST_WINDOW_SECONDS'),
+    // Password reset and username recovery (J-identity-03): TEST values from the profile file, not owner decisions.
+    IDENTITY_PASSWORD_RESET_TTL_SECONDS: testValue('IDENTITY_PASSWORD_RESET_TTL_SECONDS'),
+    IDENTITY_PASSWORD_RESET_MAX_ATTEMPTS: testValue('IDENTITY_PASSWORD_RESET_MAX_ATTEMPTS'),
+    IDENTITY_PASSWORD_RESET_REQUEST_MAX: testValue('IDENTITY_PASSWORD_RESET_REQUEST_MAX'),
+    IDENTITY_PASSWORD_RESET_REQUEST_WINDOW_SECONDS: testValue('IDENTITY_PASSWORD_RESET_REQUEST_WINDOW_SECONDS'),
     // LOCAL TEST ONLY, not an owner decision (W-withdraw-09): a security lock ends one day after its unlock is asked
     // for, so a journey can see the lock still holding with its end time.
     IDENTITY_SECURITY_LOCK_UNLOCK_WAIT_SECONDS: '86400',
