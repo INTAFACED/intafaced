@@ -483,8 +483,8 @@ export async function clearPredecessorSeal(tx: Sql, userId: string, sessionId: s
 }
 
 /**
- * A password-policy refusal at registration or founder enrolment (shape or identity) answers the typed
- * `auth.password_policy`, as change and reset do, before any hashing.
+ * A password refusal at registration or founder enrolment answers the typed code, as change and reset do, before any
+ * hashing: `auth.password_policy` for the shape or the account's own name, `auth.password_breached` for the owner's list.
  */
 function policyRefusal(check: () => void): void {
   try {

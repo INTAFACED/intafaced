@@ -181,14 +181,11 @@ if (!available) {
     // SHA-1 of BREACHED, as a published list carries it. A TEST fixture, not an owner list.
     const LIST = '# TEST list\n638F34801EC5D76EE0162EDF72DBAA147110536D:1\n';
 
-    it('says the list is not set, and screens nothing, until the owner sets one', async () => {
-      expect(await anon().auth.passwordScreening()).toEqual({ breachedList: 'unset' });
+    it('screens nothing until the owner sets a list', async () => {
       const handle = unique();
       await expect(auth.register({ handle, email: `${handle}@example.com`, password: BREACHED })).resolves.toMatchObject({
         userId: expect.any(String),
       });
-      useBreachedPasswords(parseBreachedPasswords(LIST));
-      expect(await anon().auth.passwordScreening()).toEqual({ breachedList: 'on' });
     });
 
     it('refuses a listed password at register, change and reset by name, and changes nothing', async () => {

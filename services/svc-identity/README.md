@@ -170,6 +170,8 @@ Kill-switch: `WEBAUTHN_ENABLED=false`. Relying party: `WEBAUTHN_RP_ID`, `WEBAUTH
 
 Owner settings, all blank by default and all refusing `auth.reset_unwired` when blank: `IDENTITY_PASSWORD_RESET_TTL_SECONDS`, `IDENTITY_PASSWORD_RESET_MAX_ATTEMPTS`, `IDENTITY_PASSWORD_RESET_REQUEST_MAX`, `IDENTITY_PASSWORD_RESET_REQUEST_WINDOW_SECONDS`, `IDENTITY_FLOW_SUBJECT_KEY`. A wrong code counts against the newest open flow for the address, with or without an account; at the cap the flow is `locked` and the answer is `auth.too_many_attempts` with `retryAfterSeconds`. A correct code still replaces the hash and ends every session. Reset moved from `password_reset_proofs` to `auth_flows`; the old table stays for old rows and is no longer read.
 
+**Breached passwords (I-signin-sessions-04).** `IDENTITY_BREACHED_PASSWORDS_FILE` names a file of SHA-1 digests, one per line (`HASH` or `HASH:count`, `#` comments), read into memory once at boot; a relative path is read from this folder, and an unreadable or malformed file stops the boot. Register, sign-up, change and reset refuse a listed password with `auth.password_breached` and change nothing; sign-in is never screened, so an account whose password is listed later can still sign in and change it. Blank: nothing is screened. It holds a list the owner picks (millions of entries at most); the full public corpus needs a sorted on-disk store instead.
+
 ## Concurrency
 
 `awardXp` takes `FOR UPDATE` on the user's `rank_state` row **before** any write, then runs at READ COMMITTED. Same reasoning as svc-ledger's chain-tip lock: when a lock already establishes the ordering, SERIALIZABLE only adds aborts.

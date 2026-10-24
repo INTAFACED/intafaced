@@ -11,7 +11,6 @@ import {
 import { AuthError as GuardError, requireMfa } from '@intafaced/auth';
 import { requestIpAls } from './auth/auth-service-ip.js';
 import { ACCOUNT_TYPES, SignUpError } from './auth/sign-up.js';
-import { breachedPasswordScreening } from './auth/passwords.js';
 import { LoginCodeError } from './auth/login-code.js';
 import { TrustedDeviceError } from './auth/trusted-devices.js';
 import { trustedDeviceTrpcError } from './trusted-devices-router.js';
@@ -1599,14 +1598,6 @@ export function createIdentityRouter(
       passwordResetChannel: publicProcedure
         .output(z.object({ emailDelivery: z.enum(['on', 'off']) }))
         .query(() => auth.passwordResetChannel()),
-
-      /**
-       * Whether new passwords are screened against the owner's breached-password list, so a password page can say the
-       * list is not set rather than imply a check that does not run. The same for every visitor.
-       */
-      passwordScreening: publicProcedure
-        .output(z.object({ breachedList: z.enum(['on', 'unset']) }))
-        .query(() => ({ breachedList: breachedPasswordScreening() })),
 
       /**
        * Signed-out password reset, step 2. A correct proof replaces the hash
