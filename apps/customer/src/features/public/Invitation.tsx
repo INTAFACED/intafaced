@@ -53,7 +53,7 @@ export function Invitation() {
   const { api, userId, session } = useSession();
   const { t, languageFor } = copy.useCopy();
   const capability = new URLSearchParams(location.search).get('token');
-  const parsed = z.string().uuid().safeParse(capability);
+  const parsed = z.string().guid().safeParse(capability);
   const token = session?.accessToken ?? null,
     url = location.href;
   const version = useRef({ client: api, owner: userId, token, url, generation: 0 });

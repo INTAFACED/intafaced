@@ -96,7 +96,7 @@ export function createTravelRuleRouter(deps: TravelRuleRouterDeps) {
         .output(transferDetailSchema)
         .query(({ input }) => wrap(() => service.get(input.transferId))),
       listByWithdrawal: founder
-        .input(z.object({ withdrawalId: z.string().uuid() }).strict())
+        .input(z.object({ withdrawalId: z.string().guid() }).strict())
         .output(z.array(transferDetailSchema))
         .query(({ input }) => wrap(() => service.listByWithdrawal(input.withdrawalId))),
       list: founder

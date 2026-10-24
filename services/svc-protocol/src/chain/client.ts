@@ -14,6 +14,7 @@ import {
 import type { TokenParams } from '../launch/params.js';
 import { withSpan } from '../tracing.js';
 import { isExecutionRevert } from './revert.js';
+import { readGasPrice, type GasPercentileSetting, type GasPriceQuote } from './gas-price.js';
 
 /**
  * Chain access — read-only, by construction.
@@ -480,6 +481,14 @@ export class ProtocolChain {
       throw chainIdMismatchRefusal(this.config.rpcUrl, this.config.chainId, observed);
     }
     return observed;
+  }
+
+  /**
+   * D-explorer-01. `eth_gasPrice` and `eth_feeHistory` for the chain page.
+   * The caller has already refused a blank percentile setting.
+   */
+  async gasPrice(setting: GasPercentileSetting, asOf: Date = new Date()): Promise<GasPriceQuote> {
+    return readGasPrice(this.client, setting, asOf, this.config.chainId, this.config.rpcUrl);
   }
 
   /**

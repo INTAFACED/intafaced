@@ -11,7 +11,7 @@ import { expireApiKey, ExpireApiKeyError } from './auth/expire-api-key.js';
 export function createApiKeyExpireRouter(sql: Sql) {
   return router({
     expireApiKey: scopedProcedure('identity:write')
-      .input(z.object({ keyId: z.string().uuid(), expiresAt: z.string() }))
+      .input(z.object({ keyId: z.string().guid(), expiresAt: z.string() }))
       .output(z.object({ id: z.string(), expiresAt: z.string() }))
       .mutation(async ({ ctx, input }) => {
         try {
