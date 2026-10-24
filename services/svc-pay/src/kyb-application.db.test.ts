@@ -162,7 +162,10 @@ describe('kyb application', () => {
     section,
     expectedVersion,
     complete: true,
-    data: section === 'people' ? { person_1_role: 'trustee', person_1_name: 'TEST Trustee' } : { legal_name: 'TEST Trust' },
+    data: (section === 'people' ? { person_1_role: 'trustee', person_1_name: 'TEST Trustee' } : { legal_name: 'TEST Trust' }) as Record<
+      string,
+      string
+    >,
   });
 
   it('changing the type clears the sections, asks what the new type needs, and records the change; the same type again changes nothing', async () => {

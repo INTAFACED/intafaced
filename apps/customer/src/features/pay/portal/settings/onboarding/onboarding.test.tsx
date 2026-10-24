@@ -140,6 +140,7 @@ describe('verification step', () => {
     expect(out).toContain('Verification file reference *');
     expect(out).toContain('Send for review');
     expect(out).toContain('Business application');
+    expect(out).toContain('Tell INTAFACED what kind of business this is');
     expect(out).toContain('Nothing sent yet');
   });
   it('shows a pending review without a form to resubmit', () => {
