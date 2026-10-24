@@ -397,11 +397,7 @@ test(`${J} #5 an import dry run lists line-numbered errors and writes nothing, a
   expect(refused).toEqual([]);
 });
 
-// Channel and store availability (the second half of step 6) waits on M-adv-org-access-05's stores; until they exist the
-// step fails at that check, quickly.
-const unbuilt = { timeout: 5000 };
-
-test(`${J} #6 copying the catalogue between test and live reports created and skipped ids, and a second run makes no duplicates`, async ({
+test(`${J} #6 copying the catalogue between test and live makes no duplicates, and an item not sold in a store refuses there`, async ({
   page,
 }) => {
   test.setTimeout(180_000);
@@ -463,9 +459,50 @@ test(`${J} #6 copying the catalogue between test and live reports created and sk
   const facts = page.locator('dl.pp-facts');
   await expect(facts).toContainText('Live catalogue');
   await expect(facts.getByRole('link', { name: 'Its product in the test catalogue' })).toBeVisible();
-  expect(refused).toEqual([]);
+  const guideUrl = page.url();
 
-  // Channel availability: an item unavailable in a store refuses there. Stores are not built yet.
+  // Channel availability: a store, then the guide turned off for in-person sales there.
   await page.goto('/pay/settings/stores');
-  await expect(page.getByRole('heading', { name: 'Stores' })).toBeVisible(unbuilt);
+  await expect(page.getByRole('heading', { name: 'Stores', exact: true })).toBeVisible();
+  await expect(page.getByText('No stores yet')).toBeVisible();
+  await page.getByLabel('Store name').fill('TEST Market stall');
+  await page.getByLabel('Address (optional)').fill('TEST 1 Market Square');
+  await page.getByLabel('Time zone').fill('Europe/Berlin');
+  await page.getByRole('button', { name: 'Add store' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'TEST Market stall was added.' })).toBeVisible();
+  const stores = page.getByRole('region', { name: 'Your stores' });
+  await expect(stores.getByRole('row').filter({ hasText: 'TEST Market stall' })).toContainText('Europe/Berlin');
+
+  await page.goto(guideUrl);
+  await page.getByRole('button', { name: 'Add price' }).click();
+  await page.getByLabel('Billing *').selectOption({ label: 'One time' });
+  await page.getByLabel('Amount *').fill('12');
+  await page.getByLabel('Asset *').fill('USDC');
+  await page.getByRole('button', { name: 'Save price' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Price added.' })).toBeVisible();
+
+  const where = page.getByRole('region', { name: 'Where this product is sold' });
+  const inPerson = where.getByRole('checkbox', { name: 'In person at TEST Market stall' });
+  await expect(inPerson).toBeChecked();
+  await expect(where.getByRole('checkbox', { name: 'Online at TEST Market stall' })).toBeChecked();
+  await inPerson.uncheck();
+  await expect(page.getByRole('status').filter({ hasText: 'In person at TEST Market stall: not sold.' })).toBeVisible();
+  await expect(inPerson).not.toBeChecked();
+
+  // A sale in person there is refused; online in the same store it is sold.
+  const sale = page.getByRole('group', { name: 'Check a sale' });
+  await sale.getByLabel('Store').selectOption({ label: 'TEST Market stall' });
+  await sale.getByLabel('Channel').selectOption({ label: 'In person' });
+  await sale.getByRole('button', { name: 'Check sale' }).click();
+  await expect(sale.getByRole('alert')).toHaveText('This product is not sold in this store through this channel.');
+  await sale.getByLabel('Channel').selectOption({ label: 'Online' });
+  await sale.getByRole('button', { name: 'Check sale' }).click();
+  await expect(sale.getByRole('status')).toContainText('Sold here for 12');
+
+  // It stays off after a reload: the service keeps it, not the page.
+  await page.reload();
+  await expect(
+    page.getByRole('region', { name: 'Where this product is sold' }).getByRole('checkbox', { name: 'In person at TEST Market stall' }),
+  ).not.toBeChecked();
+  expect(refused.filter((r) => !r.includes('merchantCatalog.prices.quote'))).toEqual([]);
 });

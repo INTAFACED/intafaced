@@ -15,6 +15,7 @@ import { parsePortalRoute } from '../routes';
 import { ProductCreate, ProductList } from './Products';
 import { ProductImport } from './ProductImport';
 import { CatalogCopyControl } from './CatalogCopy';
+import { Stores } from './Stores';
 import { inMode } from './mode';
 import { SubscriptionPriceFact, SubscriptionPricePicker } from './SubscriptionPrice';
 import { productImageUploadInputSchema } from '@intafaced/contracts/merchant-catalog';
@@ -111,6 +112,20 @@ describe('product catalogue (J-merchant-03 steps 1 and 2)', () => {
     for (const role of ['finance', 'viewer'] as const) expect(drawCopy(ready(role), 'test'), role).toBe('');
     expect(inMode('/pay/products/new', 'test')).toBe('/pay/products/new?mode=test');
     expect(inMode('/pay/products/new', 'live')).toBe('/pay/products/new');
+  });
+  it('opens Stores at /pay/settings/stores, with Add a store only for who may add products (step 6)', () => {
+    expect(parsePortalRoute('/pay/settings/stores')).toEqual({ room: 'settings-stores' });
+    const drawStores = (access: Access) =>
+      renderToStaticMarkup(
+        <MerchantAccessContext.Provider value={{ access, can: (need: Parameters<typeof allows>[1]) => allows(access, need) } as never}>
+          <Stores portal={portal} />
+        </MerchantAccessContext.Provider>,
+      );
+    const page = drawStores(ready('owner'));
+    expect(page).toContain('Add a store');
+    expect(page).toContain('Store name');
+    expect(page).toContain('Time zone');
+    for (const role of ['finance', 'viewer'] as const) expect(drawStores(ready(role)), role).not.toContain('Add a store');
   });
   it('keeps Save off while the name is empty, and asks an event for its time and place', () => {
     expect(draftProblem(blankProduct())).toBe('nameRequired');

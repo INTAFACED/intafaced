@@ -32,7 +32,7 @@ describe('no founder or operator door in the merchant portal (G9)', () => {
     const text = portal.map((file) => readFileSync(file, 'utf8')).join('\n');
     const procedures = [
       ...text.matchAll(
-        /'((?:(?:merchant|merchantOps|merchantCatalog|merchantMetrics|merchantControl|merchantAnalytics|submerchant|submerchantPermission|payHalts|payment|settlement|conversion)\.[A-Za-z.]+|railHealth))'/g,
+        /'((?:(?:merchant|merchantOps|merchantCatalog|merchantStores|merchantMetrics|merchantControl|merchantAnalytics|submerchant|submerchantPermission|payHalts|payment|settlement|conversion)\.[A-Za-z.]+|railHealth))'/g,
       ),
     ].map((m) => m[1]!);
     expect(procedures.length).toBeGreaterThan(20);
@@ -40,7 +40,7 @@ describe('no founder or operator door in the merchant portal (G9)', () => {
       expect(name, name).toMatch(
         new RegExp(
           [
-            '^(merchantOps\\.|merchantCatalog\\.|merchantMetrics\\.|merchantAnalytics\\.|submerchant(Permission)?\\.|merchant\\.(me|myAccess|create|submitKyb|setPayoutDestination|listLinks|checkoutSettings\\.get|payoutDestinations\\.(list|setDefault|remove)|statement\\.list|businessProfile\\.[A-Za-z]+|onboarding\\.progress|terms\\.accept)$|railHealth$',
+            '^(merchantOps\\.|merchantCatalog\\.|merchantStores\\.|merchantMetrics\\.|merchantAnalytics\\.|submerchant(Permission)?\\.|merchant\\.(me|myAccess|create|submitKyb|setPayoutDestination|listLinks|checkoutSettings\\.get|payoutDestinations\\.(list|setDefault|remove)|statement\\.list|businessProfile\\.[A-Za-z]+|onboarding\\.progress|terms\\.accept)$|railHealth$',
             // W3b: the merchant's own reads, and the three maker-checker calls. The operator side of these namespaces is not named here.
             'payment\\.(list|get|history|refunds\\.(list|get))$',
             'settlement\\.(list|get|lines|lifecycle|payout)$',
@@ -80,6 +80,8 @@ describe('no founder or operator door in the merchant portal (G9)', () => {
       'merchantOps',
       // The business's own product catalogue (svc-pay catalog/router.ts): every procedure resolves the caller's business.
       'merchantCatalog',
+      // The business's own stores (svc-pay catalog/router.ts): every procedure resolves the caller's business.
+      'merchantStores',
       'merchantMetrics',
       'merchantAnalytics',
       'submerchant',

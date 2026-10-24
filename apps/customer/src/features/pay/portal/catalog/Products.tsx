@@ -16,6 +16,7 @@ import { useServerList } from '../ui/useServerList';
 import { useReadAt, useUrlParam } from '../hooks';
 import { useBodyRequestId } from '../payments/invoice-model';
 import { useMayAddProducts } from './access';
+import { ProductAvailabilitySection } from './Availability';
 import { CatalogCopyControl } from './CatalogCopy';
 import { inMode, useCatalogMode, type CatalogMode as Mode } from './mode';
 import { ProductImport } from './ProductImport';
@@ -454,6 +455,7 @@ export function ProductDetail({ portal, productId }: { portal: PortalApi; produc
             <p className="muted">{t('noImage')}</p>
           )}
           <ProductPrices portal={portal} product={product} />
+          <ProductAvailabilitySection portal={portal} product={product} />
         </div>
       )}
     </Gate>

@@ -33,4 +33,8 @@ registerRefusals({
   'pay.product_import_too_many_rows': () => catalogCopy.t('rImportTooManyRows'),
   'pay.catalog_copy_too_large': () => catalogCopy.t('rCopyTooLarge'),
   'pay.catalog_copy_conflict': () => catalogCopy.t('rCopyConflict'),
+  'pay.store_name_taken': () => catalogCopy.t('rStoreNameTaken'),
+  'pay.store_not_found': () => catalogCopy.t('rStoreNotFound'),
+  'pay.store_archived': () => catalogCopy.t('rStoreArchived'),
+  'pay.product_not_sold_here': () => catalogCopy.t('rProductNotSoldHere'),
 });

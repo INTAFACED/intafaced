@@ -3,6 +3,7 @@ import { WithAccount } from '../access/WithAccount';
 import type { RoomDef, RoomTable } from '../rooms-model';
 import { catalogCopy } from './copy';
 import { Products } from './Products';
+import { Stores } from './Stores';
 
 const t = catalogCopy.t;
 
@@ -28,7 +29,23 @@ const products: RoomDef = {
   ),
 };
 
+/** Stores (M-adv-org-access-05): every role reads; the page gates adding and archiving. */
+const stores: RoomDef = {
+  header: () => ({ title: t('storesTitle'), purpose: t('storesPurpose') }),
+  here: '/pay/settings/stores',
+  render: (_route, { portal }) => (
+    <WithAccount>
+      {() => (
+        <Requires need="products.read">
+          <Stores portal={portal} />
+        </Requires>
+      )}
+    </WithAccount>
+  ),
+};
+
 export const catalogRooms: RoomTable = {
+  'settings-stores': stores,
   products,
   'product-new': products,
   'product-import': products,
