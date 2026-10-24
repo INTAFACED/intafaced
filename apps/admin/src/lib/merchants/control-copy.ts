@@ -157,6 +157,31 @@ export const CONTROL_COPY: Record<string, PlainRefusal> = {
     body: 'The service has no business application with that id.',
     next: 'Reload the Verification tab.',
   },
+  'pay.kyb_request_key_conflict': {
+    title: 'That request was already sent with other words',
+    body: 'A request with the same key exists for this merchant with different words or a different due date.',
+    next: 'Reload the Verification tab and check the requests listed there.',
+  },
+  'pay.kyb_request_due_past': {
+    title: 'The due date has passed',
+    body: 'A request needs a due date in the future, so the merchant has time to answer.',
+    next: 'Pick a later due date and send it again. Nothing was sent.',
+  },
+  'pay.kyb_request_closed': {
+    title: 'This request is already closed',
+    body: 'It was closed with another note. A closed request stays as it is.',
+    next: 'Reload the Verification tab to see who closed it.',
+  },
+  'pay.kyb_request_not_found': {
+    title: 'That request does not exist',
+    body: 'The service has no information request with that id.',
+    next: 'Reload the Verification tab.',
+  },
+  'pay.kyb_request_file_not_found': {
+    title: 'This answer has no file',
+    body: 'The merchant answered with a note only.',
+    next: 'Read the note on the request.',
+  },
   'pay.kyb_application_decided': {
     title: 'This application is already decided',
     body: 'INTAFACED approved or turned down this application, so its documents take no more verdicts.',

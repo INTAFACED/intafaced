@@ -161,6 +161,10 @@
     "./kyb-documents": {
       "types": "./dist/kyb-documents.d.ts",
       "default": "./dist/kyb-documents.js"
+    },
+    "./kyb-information-requests": {
+      "types": "./dist/kyb-information-requests.d.ts",
+      "default": "./dist/kyb-information-requests.js"
     }
   },
   "scripts": {
