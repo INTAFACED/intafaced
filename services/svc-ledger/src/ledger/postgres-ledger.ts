@@ -488,10 +488,12 @@ export class PostgresLedger implements LedgerClient {
       Array<HistoryRow & { entry_id: string; asset_id: string; rail: unknown; order_purpose: unknown; fill_fee: string | null }>
     >`
       SELECT p.entry_id, p.tx_id, p.module, p.reason, p.direction, p.amount, p.asset_id, p.posted_at, p.rail,
-             o.purpose AS order_purpose, f.fee AS fill_fee
+             o.purpose AS order_purpose, CASE WHEN p.fill_line THEN f.fee END AS fill_fee
         FROM (
           SELECT x.entry_id, t.id AS tx_id, t.module, t.reason, x.direction, x.amount, x.asset_id, t.posted_at,
-                 t.meta -> 'rail' AS rail, a.id AS account_id, a.owner_type, a.owner_id, a.kind
+                 t.meta -> 'rail' AS rail, a.id AS account_id, a.owner_type, a.owner_id, a.kind,
+                 (t.module = 'trade' AND t.reason IN ('trade.fill', 'trade.fill.mm_maker') AND a.owner_type = 'user'
+                   AND a.kind = 'available' AND x.direction = 'debit') AS fill_line
             FROM accounts a
             CROSS JOIN LATERAL (
               SELECT e.id AS entry_id, e.tx_id, e.direction, e.amount, e.asset_id
@@ -534,20 +536,22 @@ export class PostgresLedger implements LedgerClient {
            ORDER BY he.id
            LIMIT 1
         ) o ON true
-        -- The fee taken from this line (see FILL_FEE_REASONS in history.ts): on the owner's own receiving line of a fill,
-        -- the trade-fee leg of the same transaction in the same asset, 0 when none was booked. Every other line: NULL.
-        -- Also after the page LIMIT.
+        -- The fee taken from this line (see "ON A FILL, THE FEE" in history.ts): on the owner's own receiving line of a
+        -- fill (fill_line), the trade-fee leg of the same transaction in the same asset, 0 when none was booked. Every
+        -- other line: NULL, and the lookup does not run for it. Also after the page LIMIT.
         LEFT JOIN LATERAL (
           SELECT COALESCE(SUM(fe.amount), 0)::text AS fee
             FROM ledger_entries fe
             JOIN accounts fa ON fa.id = fe.account_id
-           WHERE fe.tx_id = p.tx_id
+           WHERE p.fill_line
+             AND fe.tx_id = p.tx_id
              AND fe.direction = 'debit'
              AND fa.owner_type = 'house'
              AND fa.owner_id = 'fees:trade'
+             AND fa.kind = 'available'
+             AND fa.purpose = ''
              AND fa.asset_id = p.asset_id
-        ) f ON p.module = 'trade' AND p.reason IN ('trade.fill', 'trade.fill.mm_maker') AND p.owner_type = 'user'
-                AND p.kind = 'available' AND p.direction = 'debit'
+        ) f ON true
        ORDER BY p.entry_id DESC
     `;
 

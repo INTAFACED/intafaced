@@ -305,9 +305,9 @@ export function orderIdFromHoldPurpose(purpose: unknown): string | null {
  * owner's `available` line that receives a fill is that side's net amount, so its fee is the trade-fee leg of the SAME
  * transaction in the SAME asset: the other side's fee is always in the other asset, and a self-trade receives each asset
  * once. `fee` is that leg's amount, `0` when the transaction booked none, and `null` on every other line (a hold, a paying
- * leg, any other reason), where the ledger has no fee to name.
+ * leg, any other reason), where the ledger has no fee to name. It is what that fill took: a later fee correction
+ * (`trade.fill.fee.correction`) is its own line, with its own reason and amount.
  */
-export const FILL_FEE_REASONS = ['trade.fill', 'trade.fill.mm_maker'] as const;
 
 /**
  * One entry on a page: the history shape plus the asset, which a multi-asset page needs to mean anything,
