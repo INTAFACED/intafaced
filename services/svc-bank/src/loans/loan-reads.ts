@@ -1,8 +1,8 @@
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
-import { signStatement } from '../statements/statement-file.js';
-import { dailyLoanInterest } from './risk.js';
+import { csvCell, signStatement } from '../statements/statement-file.js';
+import { accrualDay, dailyLoanInterest } from './risk.js';
 
 /**
  * BK-loan-06 (J-bank-11 steps 1 and 6). Reads only.
@@ -10,11 +10,14 @@ import { dailyLoanInterest } from './risk.js';
  * A crypto-backed loan has no instalment schedule. `projectLoanDays` replays
  * the same `dailyLoanInterest` the accrual job posts, and the result is a
  * projection, never an obligation. A payoff quote adds only a fee the owner
- * published. A blank fee or a blank validity window refuses; nothing here
- * stores a quote or posts.
+ * published, and only a published zero for now: repay has no fee entry, so a
+ * quote that added one would ask for money repay never collects. A blank fee
+ * or a blank validity window refuses; nothing here stores a quote or posts.
  */
 
 const WINDOW_MAX_MINUTES = 10_080;
+/** The most lines in one loan statement, as for the account statement. A wider range is refused, never cut. */
+const MAX_STATEMENT_LINES = 5_000;
 
 export interface ProjectionRow {
   readonly date: string;
@@ -43,6 +46,8 @@ export interface PayoffQuote {
   readonly fee: string;
   readonly total: string;
   readonly assetId: string;
+  /** The last UTC day whose interest the quote includes: today, so it holds until the day ends. */
+  readonly interestThrough: string;
   readonly validUntil: string;
 }
 
@@ -67,7 +72,14 @@ export function parsePayoffFee(raw: string | null | undefined): Amount {
   if (!/^\d+(\.\d{1,18})?$/.test(text)) {
     throw new BankError('The owner has not published the loan payoff fee, so no payoff quote is given', 'bank.loan_fee_unset');
   }
-  return parseAmount(text);
+  const fee = parseAmount(text);
+  if (fee !== 0n) {
+    throw new BankError(
+      'A loan payoff fee is published, but repay cannot collect a fee, so no payoff quote is given',
+      'bank.loan_fee_unsupported',
+    );
+  }
+  return fee;
 }
 
 export function parsePayoffWindowMinutes(raw: string | null | undefined): number {
@@ -117,8 +129,10 @@ function addUtcDays(day: string, n: number): string {
 }
 
 /**
- * The next `days` UTC accrual days after `asOf`, compounding the way `accrue` does:
- * each day is charged on the debt at the end of the previous day, rounded down.
+ * The next `days` UTC accrual days after `chargedThrough` (the last day `accrue`
+ * charged, or the open day), compounding the way `accrue` does: each day is
+ * charged on the debt at the end of the previous day, rounded down. Days the
+ * job has not charged yet, today included, are the first rows.
  */
 export function projectLoanDays(input: {
   loanId: string;
@@ -126,7 +140,7 @@ export function projectLoanDays(input: {
   interest: Amount;
   aprBps: number;
   days: number;
-  asOf: Date;
+  chargedThrough: string;
   daysPerYear?: number;
   extraRepayment?: Amount;
 }): LoanProjection {
@@ -140,7 +154,7 @@ export function projectLoanDays(input: {
   let interest = applied ? applied.interest : input.interest;
   const openingPrincipal = formatAmount(principal);
   const openingInterest = formatAmount(interest);
-  const start = utcDay(input.asOf);
+  const start = input.chargedThrough;
   const rows: ProjectionRow[] = [];
   for (let n = 1; n <= input.days; n += 1) {
     const basis = principal + interest;
@@ -167,10 +181,21 @@ export function projectLoanDays(input: {
   };
 }
 
+/**
+ * What clears the loan today. `unchargedDays` are the days `accrue` has not
+ * charged yet, through today (`daysToAccrue`); their interest is added with the
+ * same rule, so the quote does not go stale when the job runs later today. It
+ * holds until the owner's window ends or the UTC day ends, whichever is first:
+ * tomorrow's interest is not in it. Repay never takes more than is owed, so
+ * paying the quote clears the loan whether or not the job has run.
+ */
 export function quotePayoff(input: {
   loanId: string;
   principal: Amount;
   interest: Amount;
+  aprBps: number;
+  unchargedDays: readonly string[];
+  daysPerYear?: number;
   assetId: string;
   feeRaw: string | null | undefined;
   windowRaw: string | null | undefined;
@@ -179,17 +204,26 @@ export function quotePayoff(input: {
   if (input.principal + input.interest <= 0n) {
     throw new BankError(`Loan ${input.loanId} has nothing outstanding`, 'bank.loan_closed');
   }
+  assertApr(input.aprBps);
   const fee = parsePayoffFee(input.feeRaw);
   const minutes = parsePayoffWindowMinutes(input.windowRaw);
-  const total = input.principal + input.interest + fee;
+  let interest = input.interest;
+  for (let n = 0; n < input.unchargedDays.length; n += 1) {
+    interest += dailyLoanInterest(input.principal + interest, input.aprBps, input.daysPerYear);
+  }
+  const total = input.principal + interest + fee;
+  const today = accrualDay(input.now);
+  const windowEnd = input.now.getTime() + minutes * 60_000;
+  const dayEnd = Date.parse(`${addUtcDays(today, 1)}T00:00:00.000Z`);
   return {
     loanId: input.loanId,
     principal: formatAmount(input.principal),
-    interest: formatAmount(input.interest),
+    interest: formatAmount(interest),
     fee: formatAmount(fee),
     total: formatAmount(total),
     assetId: input.assetId,
-    validUntil: new Date(input.now.getTime() + minutes * 60_000).toISOString(),
+    interestThrough: today,
+    validUntil: new Date(Math.min(windowEnd, dayEnd)).toISOString(),
   };
 }
 
@@ -242,10 +276,6 @@ interface StatementLine {
   ledgerTxId: string;
 }
 
-function cell(value: string): string {
-  return /[",\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
-}
-
 function assertRange(from: string, to: string): { fromMs: number; toMs: number } {
   const fromMs = Date.parse(from);
   const toMs = Date.parse(to);
@@ -284,8 +314,60 @@ export async function buildLoanStatement(
     SELECT drawn_at FROM bank.loans WHERE id = ${loan.id}
   `;
   const drawnAt = drawnRows[0]?.drawn_at ?? null;
-  const opening = await debtBefore(sql, loan.id, from, loan.principal, drawnAt);
-  const closing = await debtBefore(sql, loan.id, to, loan.principal, drawnAt);
+  // One more than the cap is read from each kind, so a range over the cap is refused, never cut.
+  const cap = MAX_STATEMENT_LINES + 1;
+  const [opening, closing, accruals, repayments, collateral, liquidations] = await Promise.all([
+    debtBefore(sql, loan.id, from, loan.principal, drawnAt),
+    debtBefore(sql, loan.id, to, loan.principal, drawnAt),
+    sql<Array<{ accrual_date: string; interest_amount: string }>>`
+      SELECT accrual_date::text AS accrual_date, interest_amount::text AS interest_amount
+        FROM bank.loan_interest_accruals
+       WHERE loan_id = ${loan.id}
+         AND accrual_date >= ${utcDay(from)}::date
+         AND accrual_date < ${utcDay(to)}::date
+       ORDER BY accrual_date ASC
+       LIMIT ${cap}
+    `,
+    sql<Array<{ settled_at: Date; interest_amount: string; principal_amount: string; ledger_tx_id: string | null }>>`
+      SELECT COALESCE(settled_at, created_at) AS settled_at, interest_amount::text AS interest_amount,
+             principal_amount::text AS principal_amount, ledger_tx_id
+        FROM bank.loan_repayments
+       WHERE loan_id = ${loan.id} AND status = 'settled'
+         AND COALESCE(settled_at, created_at) >= ${from}
+         AND COALESCE(settled_at, created_at) < ${to}
+       ORDER BY settled_at ASC, sequence ASC
+       LIMIT ${cap}
+    `,
+    sql<Array<{ settled_at: Date; direction: string; sequence: number; amount: string; ledger_tx_id: string | null }>>`
+      SELECT COALESCE(settled_at, created_at) AS settled_at, direction, sequence, amount::text AS amount, ledger_tx_id
+        FROM bank.loan_collateral_events
+       WHERE loan_id = ${loan.id} AND status = 'settled'
+         AND COALESCE(settled_at, created_at) >= ${from}
+         AND COALESCE(settled_at, created_at) < ${to}
+       ORDER BY settled_at ASC, sequence ASC
+       LIMIT ${cap}
+    `,
+    sql<
+      Array<{
+        settled_at: Date;
+        interest_repaid: string;
+        principal_repaid: string;
+        shortfall: string;
+        ledger_tx_id: string | null;
+        bad_debt_ledger_tx_id: string | null;
+      }>
+    >`
+      SELECT COALESCE(settled_at, created_at) AS settled_at, interest_repaid::text AS interest_repaid,
+             principal_repaid::text AS principal_repaid, shortfall::text AS shortfall,
+             ledger_tx_id, bad_debt_ledger_tx_id
+        FROM bank.loan_liquidations
+       WHERE loan_id = ${loan.id} AND status = 'settled'
+         AND COALESCE(settled_at, created_at) >= ${from}
+         AND COALESCE(settled_at, created_at) < ${to}
+       ORDER BY settled_at ASC, tranche ASC
+       LIMIT ${cap}
+    `,
+  ]);
   const lines: StatementLine[] = [];
   if (drawnAt && drawnAt.getTime() >= fromMs && drawnAt.getTime() < toMs) {
     lines.push({
@@ -298,14 +380,6 @@ export async function buildLoanStatement(
       ledgerTxId: loan.drawLedgerTxId ?? '',
     });
   }
-  const accruals = await sql<Array<{ accrual_date: string; interest_amount: string }>>`
-    SELECT accrual_date::text AS accrual_date, interest_amount::text AS interest_amount
-      FROM bank.loan_interest_accruals
-     WHERE loan_id = ${loan.id}
-       AND accrual_date >= ${utcDay(from)}::date
-       AND accrual_date < ${utcDay(to)}::date
-     ORDER BY accrual_date ASC
-  `;
   for (const row of accruals) {
     const interest = parseAmount(row.interest_amount);
     lines.push({
@@ -318,15 +392,6 @@ export async function buildLoanStatement(
       ledgerTxId: '',
     });
   }
-  const repayments = await sql<Array<{ settled_at: Date; interest_amount: string; principal_amount: string; ledger_tx_id: string | null }>>`
-    SELECT COALESCE(settled_at, created_at) AS settled_at, interest_amount::text AS interest_amount,
-           principal_amount::text AS principal_amount, ledger_tx_id
-      FROM bank.loan_repayments
-     WHERE loan_id = ${loan.id} AND status = 'settled'
-       AND COALESCE(settled_at, created_at) >= ${from}
-       AND COALESCE(settled_at, created_at) < ${to}
-     ORDER BY settled_at ASC, sequence ASC
-  `;
   for (const row of repayments) {
     const interest = parseAmount(row.interest_amount);
     const principal = parseAmount(row.principal_amount);
@@ -340,45 +405,20 @@ export async function buildLoanStatement(
       ledgerTxId: row.ledger_tx_id ?? '',
     });
   }
-  const collateral = await sql<Array<{ settled_at: Date; direction: string; amount: string; ledger_tx_id: string | null }>>`
-    SELECT COALESCE(settled_at, created_at) AS settled_at, direction, amount::text AS amount, ledger_tx_id
-      FROM bank.loan_collateral_events
-     WHERE loan_id = ${loan.id} AND status = 'settled'
-       AND COALESCE(settled_at, created_at) >= ${from}
-       AND COALESCE(settled_at, created_at) < ${to}
-     ORDER BY settled_at ASC, sequence ASC
-  `;
   for (const row of collateral) {
-    const amount = parseAmount(row.amount);
+    // Sequence 0 is the pledge made when the loan opened; later locks are top-ups.
+    const kind =
+      row.direction === 'release' ? 'collateral_release' : Number(row.sequence) === 0 ? 'collateral_pledge' : 'collateral_top_up';
     lines.push({
-      kind: row.direction === 'release' ? 'collateral_release' : 'collateral_top_up',
+      kind,
       at: row.settled_at.toISOString(),
-      amount,
+      amount: parseAmount(row.amount),
       interest: 0n,
       principal: 0n,
       asset: loan.collateralAssetId,
       ledgerTxId: row.ledger_tx_id ?? '',
     });
   }
-  const liquidations = await sql<
-    Array<{
-      settled_at: Date;
-      interest_repaid: string;
-      principal_repaid: string;
-      shortfall: string;
-      ledger_tx_id: string | null;
-      bad_debt_ledger_tx_id: string | null;
-    }>
-  >`
-    SELECT COALESCE(settled_at, created_at) AS settled_at, interest_repaid::text AS interest_repaid,
-           principal_repaid::text AS principal_repaid, shortfall::text AS shortfall,
-           ledger_tx_id, bad_debt_ledger_tx_id
-      FROM bank.loan_liquidations
-     WHERE loan_id = ${loan.id} AND status = 'settled'
-       AND COALESCE(settled_at, created_at) >= ${from}
-       AND COALESCE(settled_at, created_at) < ${to}
-     ORDER BY settled_at ASC, tranche ASC
-  `;
   for (const row of liquidations) {
     const interest = parseAmount(row.interest_repaid);
     const principal = parseAmount(row.principal_repaid);
@@ -405,24 +445,39 @@ export async function buildLoanStatement(
       });
     }
   }
+  if (lines.length > MAX_STATEMENT_LINES) {
+    throw new BankError(`A loan statement holds at most ${MAX_STATEMENT_LINES} lines. Narrow the dates.`, 'bank.statement_too_large');
+  }
+  // Time order. The sort is stable, so lines at the same instant keep the order above.
+  lines.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
   const provisional = toMs > now.getTime();
   const generatedAt = now.toISOString();
-  const header = [
+  // Opening and closing debt are rows of their own, so the file stays plain CSV and carries them.
+  const row = (kind: string, at: string, amount: Amount, interest: Amount, principal: Amount, asset: string, ledgerTxId: string) =>
+    [
+      csvCell(kind, true),
+      csvCell(at, false),
+      csvCell(formatAmount(amount), false),
+      csvCell(formatAmount(interest), false),
+      csvCell(formatAmount(principal), false),
+      csvCell(asset, true),
+      csvCell(ledgerTxId, true),
+    ].join(',');
+  const text = [
     'kind,at,amount,interest,principal,asset,ledgerTxId',
-    `# loan ${loan.id}`,
-    `# statement`,
-    `# provisional ${provisional ? 'true' : 'false'}`,
-    `# openingPrincipal ${formatAmount(opening.principal)}`,
-    `# openingInterest ${formatAmount(opening.interest)}`,
-    `# closingPrincipal ${formatAmount(closing.principal)}`,
-    `# closingInterest ${formatAmount(closing.interest)}`,
+    row('opening', from.toISOString(), opening.principal + opening.interest, opening.interest, opening.principal, loan.debtAssetId, ''),
+    ...lines.map((line) => row(line.kind, line.at, line.amount, line.interest, line.principal, line.asset, line.ledgerTxId)),
+    row(
+      provisional ? 'closing_provisional' : 'closing',
+      to.toISOString(),
+      closing.principal + closing.interest,
+      closing.interest,
+      closing.principal,
+      loan.debtAssetId,
+      '',
+    ),
   ];
-  const body = lines.map((line) =>
-    [line.kind, line.at, formatAmount(line.amount), formatAmount(line.interest), formatAmount(line.principal), line.asset, line.ledgerTxId]
-      .map(cell)
-      .join(','),
-  );
-  const bytes = Buffer.from([...header, ...body, ''].join('\n'), 'utf8');
+  const bytes = Buffer.from(`\uFEFF${text.join('\r\n')}\r\n`, 'utf8');
   const signed = signStatement(trimmed, bytes);
   return {
     format: 'csv',

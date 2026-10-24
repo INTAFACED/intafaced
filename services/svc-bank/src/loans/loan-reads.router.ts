@@ -1,7 +1,8 @@
 import { z } from 'zod';
-import { scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { scopedProcedure } from '@intafaced/contracts';
 import { parseAmount } from '@intafaced/ledger-client';
 import type { BankServices } from '../bank-service.js';
+import { assertSelf } from '../assert-self.js';
 
 /**
  * `bank.loans.projection`, `payoffQuote` and `statement` (BK-loan-06, J-bank-11).
@@ -23,12 +24,6 @@ const projectionRow = z
   .strict();
 
 type Guard = <T>(fn: () => Promise<T>) => Promise<T>;
-
-function assertOwner(principalUserId: string | undefined, ownerId: string): void {
-  if (principalUserId !== ownerId) {
-    throw new TRPCError({ code: 'FORBIDDEN', message: 'This account belongs to another user' });
-  }
-}
 
 export function loanCustomerReadProcedures(bank: Pick<BankServices, 'loans'>, guard: Guard) {
   return {
@@ -61,7 +56,7 @@ export function loanCustomerReadProcedures(bank: Pick<BankServices, 'loans'>, gu
       .query(({ ctx, input }) =>
         guard(async () => {
           const loan = await bank.loans.loan(input.loanId);
-          assertOwner(ctx.principal.userId, loan.userId);
+          assertSelf(ctx.principal.userId, loan.userId);
           return bank.loans.projection({
             loanId: input.loanId,
             days: input.days,
@@ -70,7 +65,7 @@ export function loanCustomerReadProcedures(bank: Pick<BankServices, 'loans'>, gu
         }),
       ),
 
-    /** Interest, then principal, plus the published fee. Valid until the owner's window. Not stored. */
+    /** Interest through today, then principal, plus the published fee. Valid until the owner's window or the day's end. Not stored. */
     payoffQuote: scopedProcedure('bank:read', { module: 'bank' })
       .input(z.object({ loanId: z.string().uuid() }).strict())
       .output(
@@ -82,6 +77,7 @@ export function loanCustomerReadProcedures(bank: Pick<BankServices, 'loans'>, gu
             fee: amountString,
             total: amountString,
             assetId: z.string(),
+            interestThrough: z.string(),
             validUntil: z.string(),
           })
           .strict(),
@@ -89,7 +85,7 @@ export function loanCustomerReadProcedures(bank: Pick<BankServices, 'loans'>, gu
       .query(({ ctx, input }) =>
         guard(async () => {
           const loan = await bank.loans.loan(input.loanId);
-          assertOwner(ctx.principal.userId, loan.userId);
+          assertSelf(ctx.principal.userId, loan.userId);
           return bank.loans.payoffQuote({ loanId: input.loanId });
         }),
       ),
@@ -127,7 +123,7 @@ export function loanCustomerReadProcedures(bank: Pick<BankServices, 'loans'>, gu
       .query(({ ctx, input }) =>
         guard(async () => {
           const loan = await bank.loans.loan(input.loanId);
-          assertOwner(ctx.principal.userId, loan.userId);
+          assertSelf(ctx.principal.userId, loan.userId);
           return bank.loans.statement({ loanId: input.loanId, from: input.from, to: input.to });
         }),
       ),

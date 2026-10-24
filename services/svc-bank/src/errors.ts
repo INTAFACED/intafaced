@@ -746,6 +746,8 @@ export type BankErrorCode =
   | 'bank.company_account_unwired'
   /** The owner has not published the loan payoff fee (`BANK_LOAN_PAYOFF_FEE`). A quote is not given, and zero is not assumed (BK-loan-06). */
   | 'bank.loan_fee_unset'
+  /** A non-zero loan payoff fee is published, but repay has no fee entry to collect it, so no payoff quote is given (BK-loan-06). */
+  | 'bank.loan_fee_unsupported'
   /** The owner has not published how long a loan payoff quote stays valid (`BANK_LOAN_PAYOFF_WINDOW_MINUTES`) (BK-loan-06). */
   | 'bank.loan_payoff_window_unset'
   /** The loan's snapshotted rate cannot be used, so a projection is refused rather than invented (BK-loan-06). */

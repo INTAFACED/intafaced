@@ -150,19 +150,22 @@ describe('loans.projection, payoffQuote, statement (BK-loan-06)', () => {
     expect(first.openingInterest).toBe('0');
     expect(first.rows[0]!.interest).toBe(formatAmount(dailyLoanInterest(amt('100'), 500)));
     const quote = await me.loans.payoffQuote({ loanId: opened.loan.id });
-    expect(quote).toMatchObject({ principal: '100', interest: '0', fee: '0', total: '100', assetId: 'USDT' });
+    expect(quote).toMatchObject({ principal: '100', fee: '0', assetId: 'USDT' });
     expect(Date.parse(quote.validUntil)).toBeGreaterThan(Date.now());
     const priced = await bank.loans.payoffQuote({ loanId: opened.loan.id, now: NOW });
+    expect(priced).toMatchObject({ principal: '100', interest: '0', fee: '0', total: '100', interestThrough: '2026-06-01' });
     expect(priced.validUntil).toBe('2026-06-01T12:15:00.000Z');
     expect(ledger.journal()).toHaveLength(posted);
   });
 
-  it('adds a published fee, and a blank fee or window refuses without a post', async () => {
+  it('a fee repay cannot collect, a blank fee or a blank window refuses without a post', async () => {
     const bank = services({ payoffFee: '1.25' });
     const opened = await seed(bank);
     const posted = ledger.journal().length;
-    const quote = await caller(bank).loans.payoffQuote({ loanId: opened.loan.id });
-    expect(quote).toMatchObject({ principal: '100', interest: '0', fee: '1.25', total: '101.25' });
+    await expect(caller(bank).loans.payoffQuote({ loanId: opened.loan.id })).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      cause: expect.objectContaining({ code: 'bank.loan_fee_unsupported' }),
+    });
     const blankFee = services({ payoffFee: '' });
     await expect(caller(blankFee).loans.payoffQuote({ loanId: opened.loan.id })).rejects.toMatchObject({
       cause: expect.objectContaining({ code: 'bank.loan_fee_unset' }),
@@ -175,15 +178,58 @@ describe('loans.projection, payoffQuote, statement (BK-loan-06)', () => {
   });
 
   it('a repay after a quote uses the books, not the earlier total', async () => {
-    const bank = services({ payoffFee: '1.25' });
+    const bank = services();
     const opened = await seed(bank);
     const before = await bank.loans.payoffQuote({ loanId: opened.loan.id, now: NOW });
-    expect(before.total).toBe('101.25');
+    expect(before.total).toBe('100');
     await bank.loans.repay({ loanId: opened.loan.id, eventId: randomUUID(), amount: amt('40'), now: NOW });
     const after = await bank.loans.payoffQuote({ loanId: opened.loan.id, now: NOW });
     expect(after.principal).toBe('60');
-    expect(after.fee).toBe('1.25');
-    expect(after.total).toBe('61.25');
+    expect(after.fee).toBe('0');
+    expect(after.total).toBe('60');
+  });
+
+  it('includes the days accrual has not charged yet, and paying the quote clears the loan', async () => {
+    const bank = services({ payoffWindowMinutes: '1440' });
+    const opened = await seed(bank);
+    const later = new Date('2026-06-04T09:00:00.000Z');
+    await bank.loans.accrue({ loanId: opened.loan.id, until: new Date('2026-06-02T09:00:00.000Z') });
+    const projection = await bank.loans.projection({ loanId: opened.loan.id, days: 2 });
+    expect(projection.rows.map((row) => row.date)).toEqual(['2026-06-03', '2026-06-04']);
+    const quote = await bank.loans.payoffQuote({ loanId: opened.loan.id, now: later });
+    expect(quote.interestThrough).toBe('2026-06-04');
+    expect(quote.validUntil).toBe('2026-06-05T00:00:00.000Z');
+    await bank.loans.accrue({ loanId: opened.loan.id, until: later });
+    const books = await bank.loans.outstanding(opened.loan.id);
+    expect(quote.total).toBe(formatAmount(books.total));
+    await fund(ledger, BORROWER, 'USDT', '1');
+    const paid = await bank.loans.repay({ loanId: opened.loan.id, eventId: randomUUID(), amount: amt(quote.total), now: later });
+    expect(paid.closed).toBe(true);
+  });
+
+  it('refuses a quote while a repayment outcome or a sale is still pending', async () => {
+    const bank = services();
+    const opened = await seed(bank);
+    await sql`
+      INSERT INTO bank.loan_repayments (id, loan_id, sequence, principal_amount, interest_amount, status)
+      VALUES (${randomUUID()}, ${opened.loan.id}, 1, '10'::numeric, '0'::numeric, 'pending')
+    `;
+    await expect(bank.loans.payoffQuote({ loanId: opened.loan.id, now: NOW })).rejects.toMatchObject({
+      code: 'bank.ledger_outcome_unknown',
+    });
+    await sql`DELETE FROM bank.loan_repayments WHERE loan_id = ${opened.loan.id}`;
+    await sql`
+      INSERT INTO bank.loan_liquidations (
+        loan_id, tranche, ltv_bps, mark_price, collateral_sold, proceeds,
+        principal_repaid, interest_repaid, penalty, surplus_returned, shortfall, status
+      ) VALUES (
+        ${opened.loan.id}, 0, 9000, '10000'::numeric, '0.008'::numeric, '80'::numeric,
+        '80'::numeric, '0'::numeric, '0'::numeric, '0'::numeric, '0'::numeric, 'pending'
+      )
+    `;
+    await expect(bank.loans.payoffQuote({ loanId: opened.loan.id, now: NOW })).rejects.toMatchObject({
+      code: 'bank.loan_liquidating',
+    });
   });
 
   it('refuses another user and signs a statement whose empty month opens and closes at zero', async () => {
@@ -222,6 +268,10 @@ describe('loans.projection, payoffQuote, statement (BK-loan-06)', () => {
     expect(month.rowCount).toBeGreaterThan(0);
     const bytes = Buffer.from(month.bodyBase64, 'base64');
     expect(bytes.toString('utf8')).toContain(opened.drawLedgerTxId);
+    expect(bytes.toString('utf8')).toContain('\r\ncollateral_pledge,');
+    expect(bytes.toString('utf8')).not.toContain('collateral_top_up');
+    expect(bytes.toString('utf8')).toContain('\r\nclosing_provisional,');
+    statementDebt(bytes.toString('utf8'), month.openingPrincipal, month.openingInterest);
     expect(signStatement(SECRET, bytes)).toEqual({ sha256: month.sha256, signature: month.signature });
     const unsigned = services({ statementSecret: '' });
     await expect(
@@ -326,10 +376,23 @@ function statementDebt(text: string, openingPrincipal: string, openingInterest: 
   let principal = amt(openingPrincipal);
   let interest = amt(openingInterest);
   const rows: Array<{ kind: string; interest: string; principal: string; ledgerTxId: string }> = [];
-  for (const line of text.split('\n')) {
-    if (!line || line.startsWith('#') || line.startsWith('kind,')) continue;
+  const lines = text.replace(/^\uFEFF/, '').split('\r\n');
+  expect(lines[0]).toBe('kind,at,amount,interest,principal,asset,ledgerTxId');
+  expect(csvCells(lines[1] ?? '').slice(0, 5)).toEqual([
+    'opening',
+    expect.any(String),
+    expect.any(String),
+    openingInterest,
+    openingPrincipal,
+  ]);
+  let lastAt = '';
+  for (const line of lines.slice(1)) {
+    if (!line) continue;
     const cells = csvCells(line);
     const kind = cells[0] ?? '';
+    if (kind === 'opening' || kind === 'closing' || kind === 'closing_provisional') continue;
+    expect(cells[1]! >= lastAt).toBe(true);
+    lastAt = cells[1]!;
     const interestCell = cells[3] ?? '0';
     const principalCell = cells[4] ?? '0';
     const ledgerTxId = cells[6] ?? '';

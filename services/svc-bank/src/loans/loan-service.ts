@@ -53,6 +53,7 @@ import {
   assertPolicyCoherent,
   dailyLoanInterest,
   daysToAccrue,
+  RiskError,
   describeLtv,
   ltvBps,
   markPortfolio,
@@ -2996,40 +2997,84 @@ export class LoanService {
    * `accrue`, labelled a projection. An optional extra repayment is a what-if
    * applied interest-first. Nothing is written.
    */
-  async projection(input: { loanId: string; days: number; extraRepayment?: Amount; asOf?: Date }): Promise<LoanProjection> {
+  async projection(input: { loanId: string; days: number; extraRepayment?: Amount }): Promise<LoanProjection> {
     const loan = await this.loan(input.loanId);
     this.assertProjectable(loan);
-    const debt = await this.outstanding(loan.id);
+    const [debt, chargedThrough] = await Promise.all([this.outstanding(loan.id), this.chargedThrough(loan)]);
     return projectLoanDays({
       loanId: loan.id,
       principal: debt.principal,
       interest: debt.interest,
       aprBps: loan.aprBps,
       days: input.days,
-      asOf: input.asOf ?? new Date(),
+      chargedThrough,
       daysPerYear: this.options.daysPerYear,
       extraRepayment: input.extraRepayment,
     });
   }
 
   /**
-   * What clearing the loan costs now: outstanding interest, then principal,
-   * plus the published fee. Re-priced on every call. Repay does not store or
-   * consume this quote, so an expired quote cannot be applied.
+   * What clearing the loan costs today: outstanding interest (with the days the
+   * accrual job has not charged yet, through today), then principal, plus the
+   * published fee. Re-priced on every call. Repay does not store or consume
+   * this quote. Refused, as repay would refuse, while an earlier repayment or a
+   * sale is still pending or a liquidation shortfall is uncovered.
    */
   async payoffQuote(input: { loanId: string; now?: Date }): Promise<PayoffQuote> {
+    const now = input.now ?? new Date();
     const loan = await this.loan(input.loanId);
     this.assertProjectable(loan);
-    const debt = await this.outstanding(loan.id);
+    const [debt, chargedThrough, pending, shortfall] = await Promise.all([
+      this.outstanding(loan.id),
+      this.chargedThrough(loan),
+      this.sql<Array<{ repayments: string; sales: string }>>`
+        SELECT (SELECT COUNT(*) FROM bank.loan_repayments WHERE loan_id = ${loan.id} AND status = 'pending')::text AS repayments,
+               (SELECT COUNT(*) FROM bank.loan_liquidations WHERE loan_id = ${loan.id} AND status = 'pending')::text AS sales
+      `,
+      this.hasOpenShortfall(loan.id),
+    ]);
+    if (Number(pending[0]?.repayments ?? 0) > 0) {
+      throw new BankError(
+        `Loan ${loan.id} has a repayment whose ledger outcome is not known yet, so no payoff quote is given`,
+        'bank.ledger_outcome_unknown',
+      );
+    }
+    if (Number(pending[0]?.sales ?? 0) > 0 || shortfall) {
+      throw new BankError(
+        `Loan ${loan.id} has a sale or an uncovered shortfall still open, so no payoff quote is given`,
+        'bank.loan_liquidating',
+      );
+    }
     return quotePayoff({
       loanId: loan.id,
       principal: debt.principal,
       interest: debt.interest,
+      aprBps: loan.aprBps,
+      unchargedDays: this.unchargedDays(chargedThrough, loan, now),
+      daysPerYear: this.options.daysPerYear,
       assetId: loan.debtAssetId,
       feeRaw: this.options.payoffFee,
       windowRaw: this.options.payoffWindowMinutes,
-      now: input.now ?? new Date(),
+      now,
     });
+  }
+
+  /** Days `accrue` has not charged yet, through `now`. A backlog over a year is refused as `accrue` refuses it. */
+  private unchargedDays(chargedThrough: string, loan: LoanRecord, now: Date): string[] {
+    try {
+      return daysToAccrue(chargedThrough, loan.openedAt, now);
+    } catch (err) {
+      if (err instanceof RiskError && err.code === 'bank.accrual_backlog') throw new BankError(err.message, 'bank.accrual_backlog');
+      throw err;
+    }
+  }
+
+  /** The last UTC day `accrue` charged, or the open day when it has charged none (the day `accrue` counts from). */
+  private async chargedThrough(loan: LoanRecord): Promise<string> {
+    const last = await this.sql<Array<{ d: string | null }>>`
+      SELECT MAX(accrual_date)::text AS d FROM bank.loan_interest_accruals WHERE loan_id = ${loan.id}
+    `;
+    return last[0]?.d ?? accrualDay(loan.openedAt);
   }
 
   /** A signed CSV of one loan's month. Opening and closing debt come from the event rows. */
