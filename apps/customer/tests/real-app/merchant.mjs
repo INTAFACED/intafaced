@@ -20,9 +20,16 @@ export async function businessReadyPerson(page, prefix, destination = '/pay/merc
   return who;
 }
 
-/** The sign-in form, with the authenticator's next code once the person has one. */
+/**
+ * The sign-in form, with the authenticator's next code once the person has one. The form is used only once the page's
+ * own session check (`auth.refresh`) has answered: a sign-in sent while that answer lands is discarded by the form as
+ * "sign-in context changed", which a person typing never meets but a script filling in 200 ms does.
+ */
 export async function signInWithCode(page, who, destination) {
+  const restored = page.waitForResponse((r) => r.url().includes('auth.refresh'), { timeout: 10_000 }).catch(() => null);
   await page.goto(`/login?redirect=${encodeURIComponent(destination)}`);
+  await restored;
+  await expect(page.getByRole('button', { name: /^sign in$/i })).toBeEnabled();
   if (who.secret) {
     const { code, step } = await nextCode(who.totp, who.secret, who.step);
     who.step = step;
