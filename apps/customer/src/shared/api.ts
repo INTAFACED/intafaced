@@ -32,6 +32,8 @@ export const deviceAuthorisationSchema = z.object({
   secret: z.string().min(16).max(128),
   expiresAt: z.string().datetime({ offset: true }),
   mailed: z.boolean(),
+  /** Only when this sign-in's second step spent a recovery code: how many are left (I-signin-sessions-12). */
+  recoveryCodesLeft: z.number().int().min(0).optional(),
 });
 export type DeviceAuthorisation = z.infer<typeof deviceAuthorisationSchema>;
 

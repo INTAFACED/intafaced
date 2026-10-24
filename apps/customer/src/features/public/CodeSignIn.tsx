@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { Button, Failure, Field } from '../../shared/ui';
 import type { ApiResult, DeviceAuthorisation } from '../../shared/api';
 import { singleFlight } from '../../shared/password';
-import { sessionSchema, useSession } from '../session/session';
+import { useSession } from '../session/session';
 import { navigate } from '../../app/location';
 import { publicAuthContext } from './auth-context';
 import { validAuthSession } from './public-auth-guards';
@@ -10,6 +10,7 @@ import { secondsLeft } from './sign-up';
 import { codeSignInCode, loginCodeAcceptedSchema } from './code-sign-in';
 import { codeSignInCopy } from './code-sign-in-copy';
 import { DeviceApproval } from './DeviceApproval';
+import { RecoveryCodeUsed, signInAnswerSchema } from './RecoveryCodeUsed';
 import './public-pages.css';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
@@ -30,6 +31,8 @@ export function CodeSignIn() {
   const [needsTotp, setNeedsTotp] = useState(false);
   const [resent, setResent] = useState(false);
   const [waitingDevice, setWaitingDevice] = useState<DeviceAuthorisation | null>(null);
+  // After a sign-in whose second step spent a recovery code: how many are left (I-signin-sessions-12).
+  const [codesLeft, setCodesLeft] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const flight = useRef(singleFlight()).current;
   const mounted = useRef(true);
@@ -90,7 +93,7 @@ export function CodeSignIn() {
         'identity',
         'auth.loginWithCode',
         { flowId: pending.flowId, code, ...(totpCode ? { totpCode } : {}) },
-        sessionSchema,
+        signInAnswerSchema,
       );
       if (!mounted.current) return;
       setBusy(false);
@@ -110,8 +113,10 @@ export function CodeSignIn() {
         setRefusal({ ok: false, reason: 'uncertain', message: t('auth.code_invalid') });
         return;
       }
-      commit(answer.data);
-      afterSignIn();
+      const { recoveryCodesLeft, ...session } = answer.data;
+      commit(session);
+      if (recoveryCodesLeft === undefined) afterSignIn();
+      else setCodesLeft(recoveryCodesLeft);
     });
   }
 
@@ -154,11 +159,17 @@ export function CodeSignIn() {
               ? t(code)
               : null;
 
+  if (codesLeft !== null) {
+    return <RecoveryCodeUsed heading="h2" left={codesLeft} onContinue={afterSignIn} onSecurity={() => navigate('/uc/safe', true)} />;
+  }
   if (waitingDevice) {
     return (
       <DeviceApproval
         waiting={waitingDevice}
-        onSignedIn={afterSignIn}
+        onSignedIn={() => {
+          if (waitingDevice.recoveryCodesLeft === undefined) afterSignIn();
+          else setCodesLeft(waitingDevice.recoveryCodesLeft);
+        }}
         onCancel={() => {
           setWaitingDevice(null);
           setPending(null);

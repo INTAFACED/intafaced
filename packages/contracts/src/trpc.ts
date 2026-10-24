@@ -132,9 +132,12 @@ export function accountStateOf(cause: unknown): 'frozen' | 'closed' | undefined 
 /**
  * The waiting sign-in of an `auth.device_authorisation_required` refusal (I-signin-sessions-07): its flow id, the secret
  * only the browser that signed in holds, when it expires, and whether a code was mailed. It goes only to the requester
- * who just passed every factor, so it names nothing they did not already prove.
+ * who just passed every factor, so it names nothing they did not already prove. When that sign-in's second step spent a
+ * recovery code, `recoveryCodesLeft` says how many the account has left (I-signin-sessions-12).
  */
-export function deviceAuthorisationOf(cause: unknown): { flowId: string; secret: string; expiresAt: string; mailed: boolean } | undefined {
+export function deviceAuthorisationOf(
+  cause: unknown,
+): { flowId: string; secret: string; expiresAt: string; mailed: boolean; recoveryCodesLeft?: number } | undefined {
   if (!cause || typeof cause !== 'object' || !('code' in cause) || cause.code !== 'auth.device_authorisation_required') return undefined;
   const details = 'details' in cause ? cause.details : undefined;
   if (!details || typeof details !== 'object' || !('deviceAuthorisation' in details)) return undefined;
@@ -148,7 +151,9 @@ export function deviceAuthorisationOf(cause: unknown): { flowId: string; secret:
   ) {
     return undefined;
   }
-  return { flowId: d.flowId, secret: d.secret, expiresAt: d.expiresAt, mailed: d.mailed };
+  const left = d.recoveryCodesLeft;
+  const recovery = typeof left === 'number' && Number.isSafeInteger(left) && left >= 0 ? { recoveryCodesLeft: left } : {};
+  return { flowId: d.flowId, secret: d.secret, expiresAt: d.expiresAt, mailed: d.mailed, ...recovery };
 }
 
 export type SecondStepPasskeyOptions = {
