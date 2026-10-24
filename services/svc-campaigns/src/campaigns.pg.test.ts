@@ -250,8 +250,8 @@ if (!db) {
       expect([one.created, two.created].sort()).toEqual([false, true]);
       expect(one.participation.participationKey).toBe(participationKeyOf(c.id, ME));
       expect(two.participation).toEqual(one.participation);
-      const [{ n }] = await db!.sql<{ n: number }[]>`SELECT count(*)::int AS n FROM campaigns.participations`;
-      expect(n).toBe(1);
+      const [count] = await db!.sql<{ n: number }[]>`SELECT count(*)::int AS n FROM campaigns.participations`;
+      expect(count?.n).toBe(1);
       expect((await s.myCampaigns(ME)).campaigns.map((m) => m.campaign.id)).toEqual([c.id]);
       expect((await s.get({ id: c.id, accountId: ME })).mine).toEqual(one.participation);
 
