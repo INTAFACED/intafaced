@@ -1,9 +1,12 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
-import { CellValueView, ReadBlock } from '@/components/ops-desk';
+import { useRef, useState } from 'react';
+import { CellValueView } from '@/components/ops-desk';
 import { TransactionView } from '@/components/ledger-lookup';
+import { RecordView } from '@/components/pay-transfer';
+import { fetchTransfer } from '@/lib/ops-desk/browser';
+import type { OwnFetch } from '@/lib/ops-desk/own-server';
 import { lookupRefusal } from '@/lib/ledger/lookup';
 import { ledgerHref, PAYMENT_REFERENCE_UNWIRED, SEARCH_SOURCE_UNAVAILABLE } from '@/lib/search/cross-search';
 import type { SearchAnswer } from '@/lib/search/server';
@@ -13,7 +16,7 @@ import './desk.css';
  * The answers to one cross-desk search, grouped by desk (OPS-payments-desk-01). Each section is one service's own read, shown
  * as it answered: a hit, an honest "nothing", or that desk's refusal with its code. One desk refusing never blanks another.
  */
-export function CrossSearch({ answer, founderId }: { answer: SearchAnswer; founderId: string }) {
+export function CrossSearch({ answer }: { answer: SearchAnswer }) {
   return (
     <div className="dk-stack" data-testid="cross-search">
       <header className="dk-stack">
@@ -24,8 +27,8 @@ export function CrossSearch({ answer, founderId }: { answer: SearchAnswer; found
         </p>
       </header>
       <AccountsSection section={answer.accounts} q={answer.plan.q} />
-      <LedgerSection section={answer.ledger} />
-      <PaymentsSection section={answer.payments} founderId={founderId} />
+      <LedgerSection section={answer.ledger} q={answer.plan.q} />
+      <PaymentsSection section={answer.payments} />
     </div>
   );
 }
@@ -72,6 +75,14 @@ function AccountsSection({ section, q }: { section: SearchAnswer['accounts']; q:
           title={`Could not load ${section.spec.plainName}`}
           message={section.outcome.part.message}
           code={section.outcome.part.code}
+          service="svc-identity"
+        />
+      )}
+      {section.kind === 'search' && section.outcome.part.kind === 'ok' && section.outcome.part.data.shape !== 'list' && (
+        <Refused
+          title="Search not readable"
+          message="Identity answered in a shape this console does not understand, so nothing is shown rather than a guess."
+          code={null}
           service="svc-identity"
         />
       )}
@@ -130,12 +141,22 @@ function AccountsSection({ section, q }: { section: SearchAnswer['accounts']; q:
   );
 }
 
-function LedgerSection({ section }: { section: SearchAnswer['ledger'] }) {
+function LedgerSection({ section, q }: { section: SearchAnswer['ledger']; q: string }) {
   return (
     <section className="adm-callout dk-stack" data-tone="info" aria-labelledby="h-search-ledger" data-testid="search-ledger">
       <h2 id="h-search-ledger">Ledger</h2>
       {section.kind === 'module-off' && <ModuleOff module="ledger" />}
-      {section.kind === 'lookup' && !section.outcome.ok && (
+      {section.kind === 'not-asked' && (
+        <p className="dk-muted" data-state="not-asked">
+          {section.why}
+        </p>
+      )}
+      {section.kind === 'lookup' && !section.outcome.ok && section.outcome.code === 'ledger.tx_not_found' && (
+        <p data-state="read" data-testid="search-ledger-none">
+          No transaction has the id <code>{q}</code>.
+        </p>
+      )}
+      {section.kind === 'lookup' && !section.outcome.ok && section.outcome.code !== 'ledger.tx_not_found' && (
         <Refused
           title="The ledger did not answer this search"
           message={lookupRefusal(section.outcome.code, section.outcome.status)}
@@ -162,8 +183,7 @@ function LedgerSection({ section }: { section: SearchAnswer['ledger'] }) {
   );
 }
 
-function PaymentsSection({ section, founderId }: { section: SearchAnswer['payments']; founderId: string }) {
-  const [openKey, setOpenKey] = useState<string | null>(null);
+function PaymentsSection({ section }: { section: SearchAnswer['payments'] }) {
   return (
     <section className="adm-callout dk-stack" data-tone="info" aria-labelledby="h-search-payments" data-testid="search-payments">
       <h2 id="h-search-payments">Payments</h2>
@@ -173,20 +193,40 @@ function PaymentsSection({ section, founderId }: { section: SearchAnswer['paymen
           {section.why}
         </p>
       )}
-      {section.kind === 'transfer' && (
-        <ReadBlock
-          spec={section.spec}
-          outcome={section.outcome}
-          ctx={{ userId: founderId, onChanged: () => undefined }}
-          openKey={openKey}
-          onOpen={setOpenKey}
-        />
-      )}
+      {section.kind === 'transfer' && <TransferOnRequest id={section.id} />}
       <article className="adm-callout" data-tone="warn" data-testid={`unwired-${PAYMENT_REFERENCE_UNWIRED.id}`} data-state="unwired">
         <strong>{PAYMENT_REFERENCE_UNWIRED.label}: no source</strong>
         <p>{PAYMENT_REFERENCE_UNWIRED.reason}</p>
         <p className="dk-muted">Code: {SEARCH_SOURCE_UNAVAILABLE}</p>
       </article>
     </section>
+  );
+}
+
+/** svc-bank's transfer record for this term, read only when asked: svc-bank logs the reader and the id of every record it hands out. */
+function TransferOnRequest({ id }: { id: string }) {
+  const [result, setResult] = useState<OwnFetch | 'loading' | null>(null);
+  const lock = useRef(false);
+  const read = async () => {
+    if (lock.current) return;
+    lock.current = true;
+    setResult('loading');
+    try {
+      setResult(await fetchTransfer(id));
+    } finally {
+      lock.current = false;
+    }
+  };
+  return (
+    <div className="dk-stack" data-testid="search-transfer">
+      <p>
+        This could be a transfer id. svc-bank records who reads a transfer record, so it is read only when you ask.{' '}
+        <button type="button" className="adm-btn adm-btn--compact" onClick={() => void read()} disabled={result === 'loading'}>
+          Read the transfer record
+        </button>
+      </p>
+      {result === 'loading' && <p className="dk-muted">Reading svc-bank…</p>}
+      {result !== null && result !== 'loading' && <RecordView result={result} />}
+    </div>
   );
 }

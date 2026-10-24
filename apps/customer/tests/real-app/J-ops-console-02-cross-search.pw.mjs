@@ -3,9 +3,9 @@ import { signUp } from './desk.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 
 // J-ops-console-02 #2: a founder types a customer's email, then a key, into the cross-desk search, and sees hits grouped by
-// desk. Each desk answers in its own section: identity finds the account by its whole email, the ledger says in words that
-// nothing was booked under that text, and the payments desk names why it was not asked and that search by reference has no
-// source. A key that is not an email or handle is not sent to identity, and the accounts section says so.
+// desk. Each desk answers in its own section: identity finds the account by its whole email, the ledger and the payments desk
+// each say why an email was not sent to them, and search by payment reference names that it has no source. A key that is not an
+// email or handle is not sent to identity, and the accounts section says so while the ledger answers it.
 
 test('J-ops-console-02 #2 an email or a key in the cross-desk search, with hits grouped by desk and each desk answering alone', async ({
   page,
@@ -24,7 +24,8 @@ test('J-ops-console-02 #2 an email or a key in the cross-desk search, with hits 
   await expect(accounts).not.toContainText(customer.email);
   await expect(accounts).toContainText('That is every match.');
 
-  await expect(page.getByTestId('search-ledger').getByTestId('search-ledger-none')).toContainText('Nothing was booked');
+  // The ledger keeps every traced key in its access record, so an email is never sent to it; the section says why.
+  await expect(page.getByTestId('search-ledger')).toContainText('An email address is not a business key');
   const payments = page.getByTestId('search-payments');
   await expect(payments).toContainText('An email address is not a transfer id');
   await expect(payments.getByTestId('unwired-payments.reference')).toContainText('no source');

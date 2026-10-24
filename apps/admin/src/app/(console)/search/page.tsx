@@ -1,4 +1,5 @@
 import { CrossSearch } from '@/components/cross-search';
+import '@/components/desk.css';
 import { requireFounderPage } from '@/lib/founder-page';
 import { searchPlan, searchQuery } from '@/lib/search/cross-search';
 import { crossSearch } from '@/lib/search/server';
@@ -25,5 +26,5 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
     );
   }
   const answer = await crossSearch(founder, searchPlan(parsed.q));
-  return <CrossSearch answer={answer} founderId={founder.session.userId} />;
+  return <CrossSearch answer={answer} />;
 }

@@ -10,7 +10,7 @@ export default async function AccountsPage({ searchParams }: { searchParams: Pro
   const q = (await searchParams).q;
   return (
     <>
-      <AccountSearch initialQuery={typeof q === 'string' ? q : null} />
+      <AccountSearch key={typeof q === 'string' ? q : ''} initialQuery={typeof q === 'string' ? q : null} />
       <CustomerRecordFinder />
       <AccountControls csrf={session.csrf} founderId={session.userId} />
     </>

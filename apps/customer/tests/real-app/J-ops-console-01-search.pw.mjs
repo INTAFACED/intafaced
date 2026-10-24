@@ -7,7 +7,7 @@ import { ADMIN, founderSignIn } from './admin.mjs';
 // J-ops-console-01 #7: a founder types a business key into the console's cross-desk search. A fresh TEST customer is funded
 // through the real ledger, so the key booked a transaction. The ledger section shows that transaction and links back to it on
 // Ledger ops; the payments desk answers in its own section (svc-bank has no transfer with that id, and search by payment
-// reference has no source yet, named with its blocker), and its answer never blanks the ledger's.
+// reference has no source yet, named with its blocker), and its refusal never blanks the ledger's answer.
 
 test('J-ops-console-01 #7 a business key in the cross-desk search shows the ledger transaction and links back to it', async ({ page }) => {
   test.setTimeout(240_000);
@@ -32,9 +32,12 @@ test('J-ops-console-01 #7 a business key in the cross-desk search shows the ledg
   await expect(ledger.getByTestId('ledger-lookup-business-key')).toHaveText(businessKey);
   await expect(ledger.getByTestId('ledger-lookup-postings').locator('tbody tr')).toHaveCount(2);
 
-  // Payments answers on its own: the transfer read refuses or finds nothing, and search by reference names its blocker.
+  // Payments answers on its own: svc-bank's transfer record is read only on a click (it logs every one it hands out), refuses
+  // in its own words for a key that is no transfer, and search by reference names its blocker. The ledger's answer stays.
   const payments = page.getByTestId('search-payments');
-  await expect(payments.getByTestId('read-pay.transfer-detail')).toBeVisible();
+  await payments.getByRole('button', { name: 'Read the transfer record' }).click();
+  await expect(payments.getByTestId('transfer-failed').or(payments.getByTestId('transfer-unreached'))).toBeVisible({ timeout: 30_000 });
+  await expect(ledger.getByTestId('ledger-lookup-tx-id')).toHaveText(funded.tx);
   await expect(payments.getByTestId('unwired-payments.reference')).toContainText('Payments by reference: no source');
   await expect(payments.getByTestId('unwired-payments.reference')).toContainText('ops.search_source_unavailable');
   // Accounts says why identity was not asked, rather than an empty result.

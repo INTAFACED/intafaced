@@ -1,5 +1,5 @@
 import { searchTerm, type AccountSearchTerm } from '@/lib/account-search/search';
-import { LOOKUP_KEY_MAX, LOOKUP_TX_ID, type LedgerLookupQuery } from '@/lib/ledger/lookup';
+import { LOOKUP_KEY_MAX, LOOKUP_TX_ID, lookupQuery, type LedgerLookupQuery } from '@/lib/ledger/lookup';
 import { transferIdOf } from '@/lib/ops-desk/transfer-id';
 
 /**
@@ -11,9 +11,11 @@ import { transferIdOf } from '@/lib/ops-desk/transfer-id';
  * What one term asks:
  * - Accounts (identity): a whole email or the start of a handle goes to identity's account search; an account id opens that
  *   customer's record. Anything else is not something identity searches, and the section says so.
- * - Ledger: a UUID is a transaction id; anything else of 1 to 512 characters is traced as a business key.
- * - Payments: a term that could be a transfer id reads that transfer's record from svc-bank. Search by payment reference has
- *   no source yet (svc-pay has no founder-wide payment search), and the section names that blocker.
+ * - Ledger: a UUID is a transaction id; anything else of 1 to 512 characters is traced as a business key, except an email
+ *   address, which is no business key and is not sent (svc-ledger keeps every traced key in its access record).
+ * - Payments: a term that could be a transfer id offers svc-bank's transfer record, read only when the founder asks (svc-bank
+ *   logs every record it hands out). Search by payment reference has no source yet (svc-pay has no founder-wide payment
+ *   search), and the section names that blocker.
  */
 
 export const SEARCH_MAX = LOOKUP_KEY_MAX;
@@ -27,7 +29,8 @@ export type AccountsPlan =
   | { readonly kind: 'record'; readonly userId: string }
   | { readonly kind: 'not-asked'; readonly why: string };
 
-export type LedgerPlan = { readonly kind: 'lookup'; readonly query: LedgerLookupQuery };
+export type LedgerPlan =
+  { readonly kind: 'lookup'; readonly query: LedgerLookupQuery } | { readonly kind: 'not-asked'; readonly why: string };
 
 export type PaymentsPlan = { readonly kind: 'transfer'; readonly id: string } | { readonly kind: 'not-asked'; readonly why: string };
 
@@ -43,7 +46,7 @@ export const PAYMENT_REFERENCE_UNWIRED = {
   id: 'payments.reference',
   label: 'Payments by reference',
   reason:
-    'svc-pay has no founder-wide payment search (pay.payments.search, OPS-payments-desk-01), so a provider reference, an email or a key is not looked up across payments. A transfer id is read from svc-bank below.',
+    'svc-pay has no founder-wide payment search (pay.payments.search, OPS-payments-desk-01), so a provider reference, an email or a key is not looked up across payments. A transfer id can be read from svc-bank above.',
 } as const;
 
 /** The term as typed, trimmed, or an error in words when there is nothing to search. */
@@ -67,16 +70,20 @@ export function searchPlan(q: string): SearchPlan {
           kind: 'not-asked',
           why: `Identity was not asked: it searches a whole email or the start of a handle. ${term && 'error' in term ? term.error : ''}`.trim(),
         };
-  const ledger: LedgerPlan = { kind: 'lookup', query: uuid ? { txId: q.toLowerCase() } : { businessKey: q } };
-  const transfer = accounts.kind === 'search' && accounts.term.kind === 'email' ? null : transferIdOf(q);
+  const email = accounts.kind === 'search' && accounts.term.kind === 'email';
+  const query = uuid ? lookupQuery('txId', q) : lookupQuery('businessKey', q);
+  const ledger: LedgerPlan =
+    query && !email
+      ? { kind: 'lookup', query }
+      : { kind: 'not-asked', why: 'An email address is not a business key, so the ledger was not asked and keeps no record of it.' };
+  const transfer = email ? null : transferIdOf(q);
   const payments: PaymentsPlan = transfer
     ? { kind: 'transfer', id: transfer }
     : {
         kind: 'not-asked',
-        why:
-          accounts.kind === 'search' && accounts.term.kind === 'email'
-            ? 'An email address is not a transfer id, so svc-bank was not asked for a transfer record.'
-            : 'A transfer id is 8 to 64 characters, so this is not one and svc-bank was not asked for a transfer record.',
+        why: email
+          ? 'An email address is not a transfer id, so svc-bank was not asked for a transfer record.'
+          : 'A transfer id is 8 to 64 characters, so this is not one and svc-bank was not asked for a transfer record.',
       };
   return { q, accounts, ledger, payments };
 }
@@ -90,10 +97,8 @@ export function ledgerHref(query: LedgerLookupQuery): string {
 
 /** The ledger desk's lookup to run on opening, from `/ledger?txId=` or `/ledger?businessKey=`; null when none is asked. */
 export function ledgerQueryFromParams(params: Readonly<Record<string, string | string[] | undefined>>): LedgerLookupQuery | null {
-  const one = (value: string | string[] | undefined) => (typeof value === 'string' ? value.trim() : null);
+  const one = (value: string | string[] | undefined) => (typeof value === 'string' ? value : null);
   const txId = one(params.txId);
-  if (txId && UUID.test(txId)) return { txId: txId.toLowerCase() };
   const key = one(params.businessKey);
-  if (key && key.length <= LOOKUP_KEY_MAX) return { businessKey: key };
-  return null;
+  return (txId === null ? null : lookupQuery('txId', txId)) ?? (key === null ? null : lookupQuery('businessKey', key));
 }

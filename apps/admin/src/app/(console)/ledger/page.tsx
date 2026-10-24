@@ -26,6 +26,7 @@ export default async function LedgerOpsPage({ searchParams }: { searchParams: Pr
   requireModulePage('ledger');
   const founder = await requireFounderPage();
   const status = readConsoleStatus();
+  const initial = ledgerQueryFromParams(await searchParams);
   // The as-of is the moment svc-ledger answered, stamped here on the server where the read happens. Stamping it while the
   // component renders gave the server and the browser two different times (React error 418) and a time that was not the read.
   const [{ freeze: initialFreeze, readAt: initialReadAt }, halts] = await Promise.all([
@@ -35,7 +36,7 @@ export default async function LedgerOpsPage({ searchParams }: { searchParams: Pr
   return (
     <div className="adm-stack">
       <LedgerOps treasury={status.treasury} initialFreeze={initialFreeze} initialReadAt={initialReadAt} userId={founder.session.userId} />
-      <LedgerLookup initial={ledgerQueryFromParams(await searchParams)} />
+      <LedgerLookup key={initial ? JSON.stringify(initial) : ''} initial={initial} />
       <PayHaltsDesk initial={halts} userId={founder.session.userId} />
       <p>
         <Link href="/restore">Joint restore</Link>

@@ -68,8 +68,10 @@ export function AccountSearch({ initialQuery = null }: { initialQuery?: string |
 
   const opened = useRef(false);
   useEffect(() => {
-    if (opened.current || initialQuery === null || 'error' in searchTerm(initialQuery)) return;
+    if (opened.current || initialQuery === null) return;
     opened.current = true;
+    const parsed = searchTerm(initialQuery);
+    if ('error' in parsed) return setProblem({ title: 'Search not run', message: parsed.error, code: null });
     setTerm(initialQuery.trim());
     void run(initialQuery.trim(), null);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on opening

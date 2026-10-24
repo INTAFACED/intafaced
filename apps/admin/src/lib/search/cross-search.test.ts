@@ -21,10 +21,10 @@ describe('what each desk is asked', () => {
     expect(plan.payments).toEqual({ kind: 'transfer', id: KEY });
     expect(plan.accounts).toMatchObject({ kind: 'not-asked', why: expect.stringContaining('Identity was not asked') });
   });
-  it('an email: identity searches it, the ledger traces it as a key, and svc-bank is not asked', () => {
+  it('an email: identity searches it, and neither the ledger (which records every traced key) nor svc-bank is sent it', () => {
     const plan = searchPlan('Ana@Example.com');
     expect(plan.accounts).toEqual({ kind: 'search', term: { kind: 'email', value: 'ana@example.com' } });
-    expect(plan.ledger).toEqual({ kind: 'lookup', query: { businessKey: 'Ana@Example.com' } });
+    expect(plan.ledger).toMatchObject({ kind: 'not-asked', why: expect.stringContaining('not a business key') });
     expect(plan.payments).toMatchObject({ kind: 'not-asked', why: expect.stringContaining('email') });
   });
   it('a handle start: identity searches it; too short for a transfer id', () => {
