@@ -235,9 +235,19 @@ export async function requestHandleRecovery(deps: PasswordResetDeps, input: { em
 }
 
 /**
- * Send the pending jobs, once each. A row is claimed (its secret cleared) before the send, so a crash or
- * a lost reply leaves `unknown` and the flow still valid (T-10), never a second mail. With no mail
- * transport the rows are marked `undeliverable` for the founder delivery desk.
+ * Retries of a password-changed notice whose send threw: the first waits `MAIL_RETRY_FIRST_WAIT_MS`, each next one twice
+ * as long, and after `MAIL_RETRY_CAP` failed sends (about four hours) the row stays `unknown` like any other failed mail
+ * and the relay logs that it gave up. An engineering bound on retrying an outage, not an owner setting or a live
+ * magnitude: it decides only how long a free notice is retried.
+ */
+export const MAIL_RETRY_CAP = 8;
+export const MAIL_RETRY_FIRST_WAIT_MS = 60_000;
+
+/**
+ * Send the pending jobs that are due. A row is claimed (its secret cleared) before the send, so a crash or
+ * a lost reply leaves `unknown` and the flow still valid (T-10), never a second mail. A password-changed notice whose
+ * send threw is the one row sent again, on the wait above. With no mail transport the rows are marked `undeliverable`
+ * for the founder delivery desk.
  */
 export async function relayMailOutbox(
   deps: PasswordResetDeps,
@@ -256,7 +266,9 @@ export async function relayMailOutbox(
     }>
   >`
     WITH due AS (
-      SELECT id, code, handle FROM mail_outbox WHERE status = 'pending' ORDER BY created_at LIMIT ${limit} FOR UPDATE SKIP LOCKED
+      SELECT id, code, handle FROM mail_outbox
+      WHERE status = 'pending' AND (next_attempt_at IS NULL OR next_attempt_at <= ${deps.now()})
+      ORDER BY created_at LIMIT ${limit} FOR UPDATE SKIP LOCKED
     )
     UPDATE mail_outbox AS m
     SET status = ${deps.mail ? 'unknown' : 'undeliverable'}, code = NULL, handle = NULL
@@ -292,13 +304,26 @@ export async function relayMailOutbox(
       out.sent += 1;
     } catch {
       // A throw can follow a send that landed. The row stays `unknown`, the flow stays valid. A password-changed notice
-      // carries no secret, so a second copy harms nothing: it goes back to pending and the next relay tries again.
+      // carries no secret, so a second copy harms nothing: it goes back to pending and waits its turn, until the cap.
       deps.log.warn({ jobId: job.id, purpose: job.purpose }, 'auth.password_reset_delivery_failed');
-      if (job.purpose === 'password-changed') await deps.sql`UPDATE mail_outbox SET status = 'pending' WHERE id = ${job.id}`;
+      if (job.purpose === 'password-changed') await retryNotice(deps, job.id);
       out.unknown += 1;
     }
   }
   return out;
+}
+
+async function retryNotice(deps: PasswordResetDeps, id: string): Promise<void> {
+  const [row] = await deps.sql<Array<{ failed_sends: number }>>`
+    UPDATE mail_outbox SET failed_sends = failed_sends + 1 WHERE id = ${id} RETURNING failed_sends
+  `;
+  const failed = row?.failed_sends ?? MAIL_RETRY_CAP;
+  if (failed >= MAIL_RETRY_CAP) {
+    deps.log.warn({ jobId: id, failedSends: failed }, 'auth.password_changed_notice_abandoned');
+    return;
+  }
+  const due = new Date(deps.now().getTime() + MAIL_RETRY_FIRST_WAIT_MS * 2 ** (failed - 1));
+  await deps.sql`UPDATE mail_outbox SET status = 'pending', next_attempt_at = ${due} WHERE id = ${id}`;
 }
 
 async function stillOwnAddress(sql: Sql, userId: string, recipient: string): Promise<boolean> {

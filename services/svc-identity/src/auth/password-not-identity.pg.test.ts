@@ -8,7 +8,7 @@ import { postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db'
 import { MemoryEventBus } from '@intafaced/events';
 import { createTestDb } from '../fixture-truncate.testkit.js';
 import { AuthService } from './auth-service.js';
-import { flowSubjectHash } from './password-reset.js';
+import { MAIL_RETRY_CAP, MAIL_RETRY_FIRST_WAIT_MS, flowSubjectHash } from './password-reset.js';
 import { killPasswordResetProofs } from '../account/contact-common.js';
 import { stubActionApprovals } from './privileged-dual-control.js';
 import { createIdentityRouter } from '../router.js';
@@ -295,11 +295,57 @@ if (!available) {
       await expect(anon().auth.login({ identifier: user.email, password: NEW })).resolves.toMatchObject({ userId: user.userId });
       expect(notices(user.email)).toHaveLength(1);
       failSend = false;
+      nowMs += MAIL_RETRY_FIRST_WAIT_MS;
       await auth.drainMailOutbox();
       expect(notices(user.email)).toHaveLength(2);
       expect(await db.sql`SELECT status FROM mail_outbox WHERE purpose = 'password-changed' AND user_id = ${user.userId}`).toEqual([
         { status: 'sent' },
       ]);
+    });
+
+    it('retries a notice that keeps failing on a doubling wait, never ahead of fresh mail, and gives up at the cap', async () => {
+      const user = await register();
+      await proved(user.userId);
+      auth.useMailRelayTrigger(undefined);
+      failSend = true;
+      await auth.changePassword({
+        userId: user.userId,
+        sessionId: user.sessionId,
+        actor: { delegated: false, privileged: false, mfa: false },
+        currentPassword: OLD,
+        newPassword: NEW,
+      });
+      await auth.drainMailOutbox();
+      expect(notices(user.email)).toHaveLength(1);
+
+      // Before its wait is over, relays send fresh mail and leave the notice alone.
+      const other = await register();
+      await proved(other.userId);
+      failSend = false;
+      await anon().auth.requestPasswordReset({ email: other.email });
+      await auth.drainMailOutbox();
+      await auth.drainMailOutbox();
+      expect(sent.filter((m) => m.email === other.email).map((m) => m.purpose)).toEqual(['password-reset']);
+      expect(notices(user.email)).toHaveLength(1);
+
+      // Each failed send doubles the wait; a relay inside it sends nothing, one after it tries again.
+      failSend = true;
+      for (let failed = 1; failed < MAIL_RETRY_CAP; failed += 1) {
+        const wait = MAIL_RETRY_FIRST_WAIT_MS * 2 ** (failed - 1);
+        nowMs += wait - 1_000;
+        await auth.drainMailOutbox();
+        expect(notices(user.email)).toHaveLength(failed);
+        nowMs += 1_000;
+        await auth.drainMailOutbox();
+        expect(notices(user.email)).toHaveLength(failed + 1);
+      }
+      // At the cap it stays `unknown`, however long the relay runs.
+      nowMs += 30 * 24 * 3_600_000;
+      await auth.drainMailOutbox();
+      expect(notices(user.email)).toHaveLength(MAIL_RETRY_CAP);
+      expect(
+        await db.sql`SELECT status, failed_sends FROM mail_outbox WHERE purpose = 'password-changed' AND user_id = ${user.userId}`,
+      ).toEqual([{ status: 'unknown', failed_sends: MAIL_RETRY_CAP }]);
     });
 
     it('still reaches the address proved at the change when the address changes or the account is frozen first', async () => {
