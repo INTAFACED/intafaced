@@ -47,10 +47,9 @@ describe('what each tab reads', () => {
     expect(docs.reads[0]!.refusals?.['kyc_doc.unwired']).toContain('IDENTITY_KYC_DOC_KEY');
   });
   it('names procedures the owning services serve today', () => {
-    const bank = service('svc-bank/src/router.ts');
-    expect(bank).toContain('customerBalances:');
+    expect(service('svc-bank/src/router/ops.router.ts')).toContain('customerBalances:');
     // The cards blocker: svc-bank's card list is the owner's own, read by the signed-in principal.
-    expect(bank).toContain('bank.cards.cardsOf(ctx.principal.userId');
+    expect(service('svc-bank/src/router/cards.router.ts')).toContain('bank.cards.cardsOf(ctx.principal.userId');
     // The tickets blocker: svc-support's account read goes by ticket, strictly.
     expect(service('svc-support/src/router.ts')).toContain('.input(z.object({ ticketId: z.string().guid() }).strict())');
     expect(service('svc-trade/src/controls/router.ts')).toMatch(/history: protectedProcedure/);

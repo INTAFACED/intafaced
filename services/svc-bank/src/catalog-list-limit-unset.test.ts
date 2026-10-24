@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { BankError } from './errors.js';
 import { assertEarnPoolsListLimit, assertLoanProductsListLimit } from './catalog-list-limit.js';
+import { bankRouterSource } from './router/router-source.js';
 
 /**
  * Catalog page size is refuse-closed when unset.
@@ -63,7 +64,7 @@ describe('svc-bank catalog list limit unset refuse', () => {
   });
 
   it('tRPC earn.pools / loans.products pass optional input.limit — omit is not 50', () => {
-    const router = readFileSync(join(ROOT, 'services/svc-bank/src/router.ts'), 'utf8');
+    const router = bankRouterSource();
     const pools = router.slice(router.indexOf('pools: scopedProcedure'), router.indexOf('deposit: scopedProcedure'));
     expect(pools).toContain('limit: z.number().int().min(1).max(200).optional()');
     expect(pools).toContain('listPools(input.assetId, input.limit)');
