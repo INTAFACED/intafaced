@@ -30,6 +30,7 @@ import { createBankServices } from '../bank-service.js';
 import { createBankRouter, type BankRouter } from '../router.js';
 import { fixedPriceSource } from './prices.js';
 import { DEFAULT_LIQUIDATION_POLICY } from './risk.js';
+import { bankRouterSource } from '../router/router-source.js';
 
 const SECRET = 'bank-loan-repay-missing-secret-32bytes!!';
 const BORROWER = '11111111-1111-4111-8111-111111111111';
@@ -63,7 +64,7 @@ describe('repay pins loan load before the ledger post', () => {
   });
 
   it('public door looks up the loan before repay', () => {
-    const src = readFileSync(join(here, '..', 'router.ts'), 'utf8');
+    const src = bankRouterSource();
     const doorAt = src.indexOf("repay: scopedProcedure('bank:write'");
     const loadAt = src.indexOf('const loan = await bank.loans.loan(input.loanId)', doorAt);
     const repayAt = src.indexOf('bank.loans.repay', doorAt);

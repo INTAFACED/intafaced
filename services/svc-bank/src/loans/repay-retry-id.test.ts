@@ -27,6 +27,7 @@ import { createBankServices } from '../bank-service.js';
 import { createBankRouter, type BankRouter } from '../router.js';
 import { fixedPriceSource } from './prices.js';
 import { DEFAULT_LIQUIDATION_POLICY } from './risk.js';
+import { bankRouterSource } from '../router/router-source.js';
 
 const SECRET = 'bank-loan-repay-retry-id-secret-32!!!';
 const BORROWER = '11111111-1111-4111-8111-111111111111';
@@ -65,7 +66,7 @@ describe('repay pins eventId before MAX+1 sequence allocation', () => {
   });
 
   it('public door requires eventId so omit is not a second loanRepay', () => {
-    const src = readFileSync(join(here, '..', 'router.ts'), 'utf8');
+    const src = bankRouterSource();
     const doorAt = src.indexOf("repay: scopedProcedure('bank:write'");
     const closeAt = src.indexOf("close: scopedProcedure('bank:write'", doorAt);
     const body = src.slice(doorAt, closeAt === -1 ? doorAt + 1800 : closeAt);
