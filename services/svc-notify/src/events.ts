@@ -5,6 +5,7 @@ import {
   personalRequestCreated,
   personalRequestSettled,
   personalTransferPosted,
+  payDepositCreditPosted,
   bankScheduledReminder,
   bankScheduledFailed,
   supportTicketResolved,
@@ -28,6 +29,7 @@ import {
   type Subscription,
 } from '@intafaced/events';
 import { noticeFreezeChange } from './freeze-notice.js';
+import { DEPOSIT_CREDITED_BODY_KEY, DEPOSIT_CREDITED_KIND, DEPOSIT_CREDITED_TITLE_KEY } from './deposit-credit-notice.js';
 import type { CreateResult, NotifyService } from './notify-service.js';
 import type { Severity } from './store.js';
 import {
@@ -768,6 +770,33 @@ export async function subscribeNotificationEvents(
         bodyKey: 'notify.pay.transfer_sent.body',
       });
       nakIfRetryable(...(received ? [received, sent] : [sent]));
+    }),
+  );
+
+  attachments.push(
+    await attach(bus, 'payDepositCreditPosted', payDepositCreditPosted.subject, 'notify-pay-deposit-credit-posted', async (payload) => {
+      // svc-pay publishes after the ledger post that credited the deposit, so the notice says what already happened.
+      // Deduped on the deposit: svc-pay announces again after a crash, and a redelivery writes nothing new.
+      nakIfRetryable(
+        await notify.create({
+          userId: payload.userId,
+          kind: DEPOSIT_CREDITED_KIND,
+          titleKey: DEPOSIT_CREDITED_TITLE_KEY,
+          bodyKey: DEPOSIT_CREDITED_BODY_KEY,
+          params: {
+            amount: payload.amount,
+            asset: payload.assetId,
+            networkId: payload.networkId,
+            depositId: payload.depositId,
+            txHash: payload.txHash,
+            ledgerTxId: payload.ledgerTxId,
+          },
+          href: '/uc/recharge',
+          severity: 'info',
+          sourceSubject: payDepositCreditPosted.subject,
+          sourceIdempotencyKey: payload.depositId,
+        }),
+      );
     }),
   );
 
