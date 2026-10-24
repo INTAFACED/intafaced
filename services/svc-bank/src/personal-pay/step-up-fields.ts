@@ -79,6 +79,7 @@ export function globalSendStepUp(i: {
   country: string;
   deliveryMethod: string;
   compliance: Readonly<Record<string, string>> | undefined;
+  quoteId: string | undefined;
 }): StepUpFields {
   return {
     actionType: 'bank.step_up.global.send',
@@ -94,6 +95,8 @@ export function globalSendStepUp(i: {
       country: i.country,
       deliveryMethod: i.deliveryMethod,
       compliance: canonicalCompliance(i.compliance),
+      // The rate lock the customer confirmed joins the hash only when the send names one (`optionalFields` in contracts).
+      ...(i.quoteId !== undefined ? { quoteId: i.quoteId } : {}),
     },
   };
 }
