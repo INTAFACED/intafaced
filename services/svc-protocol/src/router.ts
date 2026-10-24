@@ -15,6 +15,10 @@ import {
   protocolOpsMetricsInputSchema,
   protocolOpsMetricsOutputSchema,
   protocolBadgeClaimOutputSchema,
+  protocolRepresentationAcceptInputSchema,
+  protocolRepresentationAcceptOutputSchema,
+  protocolRepresentationStatusInputSchema,
+  protocolRepresentationStatusOutputSchema,
   protocolBadgeEligibilityOutputSchema,
   publicJurisdictionProcedure,
   publicProcedure,
@@ -80,6 +84,15 @@ import {
   type BadgeStore,
   type BadgeWindow,
 } from './nft/founding-badge.js';
+import {
+  acceptRepresentation,
+  REPRESENTATION_SIGNATURE_NOT_OWNER,
+  REPRESENTATION_UNSET,
+  RepresentationRefusedError,
+  representationStatus,
+  type RepresentationSetting,
+  type RepresentationStore,
+} from './representation/representation.js';
 
 /**
  * svc-protocol's API.
@@ -242,6 +255,15 @@ function toTrpcError(err: unknown): TRPCError {
    * message discarded.
    */
   if (err instanceof TRPCError) return err;
+  if (err instanceof RepresentationRefusedError) {
+    const code =
+      err.code === REPRESENTATION_UNSET
+        ? 'PRECONDITION_FAILED'
+        : err.code === REPRESENTATION_SIGNATURE_NOT_OWNER
+          ? 'FORBIDDEN'
+          : 'CONFLICT';
+    return new TRPCError({ code, message: err.message, cause: err });
+  }
   if (err instanceof BadgeRefusedError) {
     const code =
       err.code === BADGE_STUCK_APPROVAL_REFUSED
@@ -357,6 +379,14 @@ export interface ProtocolRouterDeps {
   /** Test seam for the network registry source; defaults to the owner's `deployments/networks.json`. */
   loadNetworks?: () => ReturnType<typeof loadNetworkRegistry>;
   /**
+   * The first-signing representation (D-developer-compliance-03). `setting()` is null while counsel's text or the owner's
+   * version is blank (`compliance.representation_unset`). Absent = not wired, which refuses the same way.
+   */
+  representation?: {
+    store: RepresentationStore;
+    setting: () => RepresentationSetting | null;
+  };
+  /**
    * Founding badge (RC-more-catalogue-04). `index.ts` always wires it; the minter's `signerFor` returns null until a signer lands, so claims refuse `rail.crypto` from `claimBadge`.
    * `window()` is the founder-published Drop phase I window; null = blank (`badge.window_unset`).
    * `mainnet()` is true only for a production network (claims refuse `audit.external`).
@@ -373,6 +403,14 @@ export interface ProtocolRouterDeps {
     stuckMintAgeSeconds?: () => number | undefined;
   };
 }
+
+/** Never reached with a setting: an unwired representation has none, so it refuses `compliance.representation_unset` first. */
+const unwiredRepresentationStore: RepresentationStore = {
+  find: async () => null,
+  put: async () => {
+    throw new Error('representation store is not wired');
+  },
+};
 
 export function createProtocolRouter(deps: ProtocolRouterDeps) {
   const { chain, registry, relay } = deps;
@@ -936,6 +974,46 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
           throw toTrpcError(err);
         }
       }),
+
+    /**
+     * The representation a wallet signs once per version before its first signing action. Public like the rest of this
+     * plane: the visitor may be signed out. `accept` writes only on proof that the address signed `status.message`.
+     */
+    representation: router({
+      status: publicJurisdictionProcedure('protocol', 'protocol')
+        .input(protocolRepresentationStatusInputSchema)
+        .output(protocolRepresentationStatusOutputSchema)
+        .query(async ({ input }) => {
+          try {
+            const r = deps.representation;
+            const status = await representationStatus(
+              r?.store ?? unwiredRepresentationStore,
+              r?.setting() ?? null,
+              chain.config.chainId,
+              input.address as Address,
+            );
+            return { ...status, acceptedAt: status.acceptedAt?.toISOString() ?? null };
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+      accept: publicJurisdictionProcedure('protocol', 'protocol')
+        .input(protocolRepresentationAcceptInputSchema)
+        .output(protocolRepresentationAcceptOutputSchema)
+        .mutation(async ({ input }) => {
+          try {
+            const r = deps.representation;
+            const record = await acceptRepresentation(r?.store ?? unwiredRepresentationStore, r?.setting() ?? null, chain.config.chainId, {
+              address: input.address as Address,
+              version: input.version,
+              signature: input.signature as Hex,
+            });
+            return { address: record.address, version: record.version, acceptedAt: record.acceptedAt.toISOString() };
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+    }),
 
     // ── Founding badge (RC-more-catalogue-04) ─────────────────────────────
     // Account = signed principal; address = that account's own registered smart account. Never a body field.

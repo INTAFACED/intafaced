@@ -15,5 +15,11 @@ export default ({ c, secrets, dbUrl, PORTS, UNUSED }) => ({
     PROTOCOL_CHAIN_ID: '84532',
     PROTOCOL_RPC_URL: UNUSED,
     PROTOCOL_ENTRYPOINT_ADDRESS: '0x0000000071727De22E5E9d8BAf0edAc6f37da032',
+    // LOCAL TEST only, the labelled values in tooling/profiles/test-owner-values/protocol.json: the representation a
+    // wallet signs once before its first signing action. Production stays blank and every signing action refuses
+    // (compliance.representation_unset) until counsel's text and the owner's version are set.
+    PROTOCOL_REPRESENTATION_VERSION: 'TEST-1',
+    PROTOCOL_REPRESENTATION_TEXT:
+      "TEST representation, not counsel's wording: I am not located in, or acting for anyone in, a region where this service is not available.",
   }),
 });

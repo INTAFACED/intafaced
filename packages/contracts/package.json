@@ -38,6 +38,10 @@
       "types": "./dist/protocol-ops.d.ts",
       "default": "./dist/protocol-ops.js"
     },
+    "./protocol-representation": {
+      "types": "./dist/protocol-representation.d.ts",
+      "default": "./dist/protocol-representation.js"
+    },
     "./instruments": {
       "types": "./dist/instruments.d.ts",
       "default": "./dist/instruments.js"
