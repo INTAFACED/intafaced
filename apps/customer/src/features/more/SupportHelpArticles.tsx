@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { z } from 'zod';
 import { useResource } from '../../shared/resource';
 import { Button, EmptyState, Field } from '../../shared/ui';
@@ -22,14 +22,25 @@ const CATEGORY_KEY = {
   general: 'categoryGeneral',
 } as const satisfies Record<KbCategory, Parameters<typeof deskCopy.t>[0]>;
 
-function takeCarriedQuery(): string {
+// The desk's search lives on this history entry: words carried from the public help search (/support?q=…) are moved off
+// the address onto it, and each later search replaces them. Reading it has no side effect, so a render React throws away, or
+// the desk mounting again on the same entry, still finds the words; a fresh visit to /support starts with none.
+const SEARCH_KEY = 'supportHelpSearch';
+const clip = (q: string) => q.trim().slice(0, 200);
+
+export function readDeskSearch(): string {
+  const carried = new URL(location.href).searchParams.get('q');
+  if (carried !== null) return clip(carried);
+  const kept: unknown = (history.state as Record<string, unknown> | null)?.[SEARCH_KEY];
+  return typeof kept === 'string' ? clip(kept) : '';
+}
+
+export function keepDeskSearch(q: string) {
   const url = new URL(location.href);
-  const q = (url.searchParams.get('q') ?? '').trim().slice(0, 200);
-  if (url.searchParams.has('q')) {
-    url.searchParams.delete('q');
-    history.replaceState(history.state, '', `${url.pathname}${url.search}${url.hash}`);
-  }
-  return q;
+  url.searchParams.delete('q');
+  const state: unknown = history.state;
+  const base = state && typeof state === 'object' ? (state as Record<string, unknown>) : {};
+  history.replaceState({ ...base, [SEARCH_KEY]: q }, '', `${url.pathname}${url.search}${url.hash}`);
 }
 
 /** The published help library: server search, topic chips, the full text of each answer, and a link to its own page. */
@@ -37,9 +48,8 @@ export function SupportHelpArticles({ action, onStartRequest }: { action: Return
   const copy = deskCopy.useCopy();
   const api = useApi();
   const depositsHidden = isHiddenPath('/uc/recharge');
-  // Words carried from the public help search (/support?q=…) open the desk's search already run, once: they are taken out
-  // of the address so coming back to this tab keeps the person's own later search.
-  const [carried] = useState(() => takeCarriedQuery());
+  // Words carried from the public help search open the desk's search already run.
+  const [carried] = useState(readDeskSearch);
   const [draft, setDraft] = useState(carried),
     [search, setSearch] = useState(carried),
     [category, setCategory] = useState<KbCategory>('all');
@@ -47,6 +57,7 @@ export function SupportHelpArticles({ action, onStartRequest }: { action: Return
     (signal) => api.query('support', 'searchKb', { q: search, limit: 50 }, z.array(kbSchema), { signal }),
     `kb:${search}`,
   );
+  useEffect(() => keepDeskSearch(search), [search]);
   return (
     <section className="support-pane" aria-label={copy.t('tabHelp')}>
       <p className="muted">{copy.t('helpIntro')}</p>
