@@ -4,7 +4,7 @@ import { outreachAudienceSchema, outreachContinuationInputSchema, type OutreachD
 /** Additions only; omission never removes a selected audience. */
 export const outreachAddInterestsInputSchema = outreachContinuationInputSchema
   .extend({
-    requestId: z.string().uuid(),
+    requestId: z.string().guid(),
     expectedRevision: z.number().int().positive().safe(),
     interests: z
       .array(outreachAudienceSchema)

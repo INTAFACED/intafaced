@@ -75,8 +75,8 @@ export const visibilitySchema = z.enum(['private', 'crew', 'public']);
 export type Visibility = z.infer<typeof visibilitySchema>;
 
 export const blueprintSchema = z.object({
-  id: z.string().uuid(),
-  userId: z.string().uuid(),
+  id: z.string().guid(),
+  userId: z.string().guid(),
   /** Which engine build produced this profile — a re-run is comparable only within a version. */
   engineVersion: z.string().min(1),
   profile: blueprintProfileSchema,
@@ -180,8 +180,8 @@ export const cardInput = z.object({
  */
 export const cardOfInput = z
   .object({
-    userId: z.string().uuid().optional(),
-    shareId: z.string().uuid().optional(),
+    userId: z.string().guid().optional(),
+    shareId: z.string().guid().optional(),
     size: cardSizeSchema.default('portrait'),
   })
   .refine((value) => value.userId !== undefined || value.shareId !== undefined, {
@@ -190,7 +190,7 @@ export const cardOfInput = z
 
 /** One share of one card size. The id is the `:cardId` on `/blueprint/shared/:cardId`. */
 export const cardShareSchema = z.object({
-  id: z.string().uuid(),
+  id: z.string().guid(),
   size: cardSizeSchema,
   createdAt: z.string().datetime({ offset: true }),
   revokedAt: z.string().datetime({ offset: true }).nullable(),
@@ -225,7 +225,7 @@ export const createShareInput = z.object({
 });
 
 export const shareIdInput = z.object({
-  shareId: z.string().uuid(),
+  shareId: z.string().guid(),
 });
 
 /**
@@ -233,35 +233,35 @@ export const shareIdInput = z.object({
  * at the router — same omit pattern as `onboardInput`.
  */
 export const setVisibilityInput = z.object({
-  userId: z.string().uuid(),
+  userId: z.string().guid(),
   visibility: visibilitySchema,
 });
 
 // ── Crews (§7.1, §33) ────────────────────────────────────────────────────────
 
 export const crewSchema = z.object({
-  id: z.string().uuid(),
+  id: z.string().guid(),
   name: z.string(),
   formedAt: z.string().datetime({ offset: true }),
   season: z.number().int().min(1),
   /** Crew XP is a count, not money. It never touches the ledger. */
   xp: z.string(),
-  lobbyId: z.string().uuid().nullable(),
+  lobbyId: z.string().guid().nullable(),
   capacity: z.number().int().min(1),
 });
 export type Crew = z.infer<typeof crewSchema>;
 
 export const crewMemberSchema = z.object({
-  crewId: z.string().uuid(),
-  userId: z.string().uuid(),
+  crewId: z.string().guid(),
+  userId: z.string().guid(),
   role: crewRoleSchema,
   joinedAt: z.string().datetime({ offset: true }),
 });
 export type CrewMember = z.infer<typeof crewMemberSchema>;
 
 export const mentorMatchSchema = z.object({
-  studentId: z.string().uuid(),
-  mentorId: z.string().uuid(),
+  studentId: z.string().guid(),
+  mentorId: z.string().guid(),
   /** 0–10000. Basis points of fit, so the score is an integer and reproducible. */
   fitScore: z.number().int().min(0).max(10_000),
   status: z.enum(['shortlisted', 'accepted', 'declined', 'ended']),
@@ -300,7 +300,7 @@ export const birthDataSchema = z.object({
 export type BirthData = z.infer<typeof birthDataSchema>;
 
 export const onboardInput = z.object({
-  userId: z.string().uuid(),
+  userId: z.string().guid(),
   locale: z.string().min(2).max(10).default('en'),
   responses: z.array(sessionResponseSchema).min(1).max(64),
   birthData: birthDataSchema.optional(),
@@ -315,11 +315,11 @@ export const onboardInput = z.object({
 export type OnboardInput = z.infer<typeof onboardInput>;
 
 export const placementSchema = z.object({
-  crewId: z.string().uuid(),
+  crewId: z.string().guid(),
   crewName: z.string(),
   /** 0–10000 basis points of complementarity. */
   score: z.number().int().min(0).max(10_000),
-  matchRunId: z.string().uuid(),
+  matchRunId: z.string().guid(),
   /** True when no open crew existed and one was formed for this user. */
   crewFormed: z.boolean(),
 });
@@ -359,13 +359,13 @@ export const blueprintExportSchema = z.object({
   card: cardRenderSchema.nullable(),
   crew: crewSchema.nullable(),
   membership: crewMemberSchema.nullable(),
-  crewmates: z.array(z.object({ userId: z.string().uuid(), role: crewRoleSchema, joinedAt: z.string() })),
+  crewmates: z.array(z.object({ userId: z.string().guid(), role: crewRoleSchema, joinedAt: z.string() })),
   matchRuns: z.array(
     z.object({
-      id: z.string().uuid(),
+      id: z.string().guid(),
       candidates: z.unknown(),
       scores: z.unknown(),
-      placedCrewId: z.string().uuid().nullable(),
+      placedCrewId: z.string().guid().nullable(),
       ts: z.string().datetime({ offset: true }),
     }),
   ),
@@ -385,7 +385,7 @@ export const blueprintExportSchema = z.object({
    */
   cardsOpened: z.array(
     z.object({
-      shareId: z.string().uuid(),
+      shareId: z.string().guid(),
       firstOpened: z.string().datetime({ offset: true }),
       lastOpened: z.string().datetime({ offset: true }),
       openCount: z.number().int().min(1),
@@ -395,7 +395,7 @@ export const blueprintExportSchema = z.object({
 export type BlueprintExport = z.infer<typeof blueprintExportSchema>;
 
 export const eraseReceiptSchema = z.object({
-  userId: z.string().uuid(),
+  userId: z.string().guid(),
   erasedAt: z.string().datetime({ offset: true }),
   removed: z.object({
     blueprints: z.number().int().min(0),

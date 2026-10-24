@@ -33,7 +33,7 @@ export const lessonCatalogue = z.array(lessonSummary).max(200);
 export const certDefinition = z.object({ id: ref, title: ref, requiredItemSlugs: z.array(ref) });
 export type CertDefinition = z.infer<typeof certDefinition>;
 export const certProgressRow = z.object({
-  userId: z.string().uuid(),
+  userId: z.string().guid(),
   certId: ref,
   title: ref,
   requiredCount: z.number().int().safe().nonnegative(),
@@ -48,7 +48,7 @@ export type CertProgressRow = z.infer<typeof certProgressRow>;
 /** The code anyone can paste into the public check: 32 lowercase hex characters, the same rule the service applies. */
 export const publicCertCode = z.string().regex(/^[0-9a-f]{32}$/);
 export const certGrant = z.object({
-  userId: z.string().uuid(),
+  userId: z.string().guid(),
   certId: ref,
   grantedAt: z.string().datetime({ offset: true }),
   idempotencyKey: ref,

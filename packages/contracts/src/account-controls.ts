@@ -4,7 +4,7 @@ import type { Context } from './trpc.js';
 import { accountStateSchema, apiKeyOwnershipSchema, sessionOwnershipSchema, subAccountOwnershipSchema } from './identity.js';
 
 /** Wire records only. Parsing a command, snapshot or receipt never grants authority. */
-const id = z.string().uuid();
+const id = z.string().guid();
 const timestamp = z.string().datetime({ offset: true });
 const businessId = z.string().trim().min(1).max(128);
 const reason = z.string().trim().min(3).max(500);

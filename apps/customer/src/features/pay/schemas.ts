@@ -9,7 +9,7 @@ export function listed<T>(result: ApiResult<{ items: T[] }>): ApiResult<T[]> {
 
 // Browser projections of the mounted service outputs. No service/server roots are imported.
 // Authorities: svc-bank/router.ts, svc-p2p/router.ts, svc-pay/{router,subscription-router,submerchant-router}.ts.
-export const id = z.string().uuid();
+export const id = z.string().guid();
 export const asset = z.string().min(1).max(16);
 export const amount = decimalSchema.refine((v) => /^\d+(\.\d{1,18})?$/.test(v));
 export const positiveAmount = amount.refine((v) => /[1-9]/.test(v), 'Enter an amount greater than zero');
@@ -200,7 +200,7 @@ export const tradeDestinationSchema = z.object({
   country: z.string(),
   fiatCurrency: z.string(),
   label: z.string(),
-  details: z.record(z.string()),
+  details: z.record(z.string(), z.string()),
   attachedAt: z.string(),
 });
 export const moderationSchema = z.discriminatedUnion('status', [
@@ -364,7 +364,7 @@ export const resolvedLinkSchema = z.object({
   currency: z.string().nullable(),
   expiresAt: z.string().nullable(),
   remainingUses: z.number().int().nullable(),
-  checkoutConfig: z.record(z.unknown()),
+  checkoutConfig: z.record(z.string(), z.unknown()),
 });
 export const checkoutSchema = z.object({
   id,
@@ -392,19 +392,30 @@ export const paymentSchema = z.object({
   refundedAmount: amount,
   createdAt: z.string().datetime({ offset: true }),
 });
+/**
+ * Event times as Zod 3 read them: any two-digit offset, colon optional. Zod 4's
+ * datetime refuses `+24:00` or `+0530`, and one such row would fail the whole
+ * history read; the row parses here and the renderer leaves it unresolved.
+ */
+const eventTs = z
+  .string()
+  .regex(
+    /^((\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-((0[13578]|1[02])-(0[1-9]|[12]\d|3[01])|(0[469]|11)-(0[1-9]|[12]\d|30)|(02)-(0[1-9]|1\d|2[0-8])))T([01]\d|2[0-3]):[0-5]\d(:[0-5]\d(\.\d+)?)?(Z|([+-]\d{2}:?\d{2}))$/,
+    'Invalid ISO datetime',
+  );
 const paymentEventOwnerSchema = z.object({
   id,
   event: z.string(),
-  payload: z.record(z.unknown()),
+  payload: z.record(z.string(), z.unknown()),
   railEventId: z.string().nullable(),
-  ts: z.string().datetime({ offset: true }),
+  ts: eventTs,
 });
 /** Team reads. Amount and a catalog failure. No raw payload. */
 const paymentEventTeamSchema = z
   .object({
     id,
     event: z.string(),
-    ts: z.string().datetime({ offset: true }),
+    ts: eventTs,
     amount: amount.nullable(),
     assetId: asset.nullable(),
     failure: z.object({ code: z.string(), message: z.string() }).strict().nullable(),

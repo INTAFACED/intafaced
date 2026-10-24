@@ -5,7 +5,7 @@ import { decimalSchema } from '../../shared/money';
 import { allowlistCopy } from './withdrawal-allowlist-copy';
 
 // Published svc-pay `allowlist.*` views. The list says where money MAY go; it is not a balance and moves nothing.
-const id = z.string().uuid();
+const id = z.string().guid();
 const stamp = z.string().datetime({ offset: true });
 
 export const entrySchema = z.object({

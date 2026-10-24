@@ -881,7 +881,7 @@ export function parseClosedFilters(query: {
  * The 400 body for a create body the typed schema refused. A bad `tag` names its own code; anything else keeps the
  * generic one with the offending field in `issues`.
  */
-function createBodyRefusal(error: { issues: ReadonlyArray<{ path: ReadonlyArray<string | number>; message: string }> }, fallback: string) {
+function createBodyRefusal(error: { issues: ReadonlyArray<{ path: ReadonlyArray<PropertyKey>; message: string }> }, fallback: string) {
   const first = error.issues[0];
   const typed =
     first?.path[0] === 'tag'

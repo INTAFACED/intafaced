@@ -108,7 +108,7 @@ const customerAmount = z
   .refine((value) => /^\d+(\.\d{1,18})?$/.test(value));
 
 const customerOfferSchema = z.object({
-  id: z.string().uuid(),
+  id: z.string().guid(),
   makerId: z.string(),
   side: z.enum(['buy', 'sell']),
   asset: z.string().min(1).max(16),

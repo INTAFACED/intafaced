@@ -26,7 +26,7 @@ export const SUPPORT_BULK_CAP_KEY = 'support.bulk_cap' as const;
 export const SUPPORT_BULK_TRANSPORT_MAX = 1000;
 
 export const supportBulkChangeSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('assign'), assigneeId: z.string().uuid() }).strict(),
+  z.object({ kind: z.literal('assign'), assigneeId: z.string().guid() }).strict(),
   z.object({ kind: z.literal('status'), status: supportTicketStatusSchema }).strict(),
   z.object({ kind: z.literal('priority'), priority: supportTicketPrioritySchema.nullable() }).strict(),
 ]);
@@ -36,7 +36,7 @@ export const supportBulkInputSchema = z
   .object({
     /** A business key for this batch, chosen by the caller and reused to replay it. */
     batchKey: z.string().min(8).max(120),
-    ticketIds: z.array(z.string().uuid()).min(1).max(SUPPORT_BULK_TRANSPORT_MAX),
+    ticketIds: z.array(z.string().guid()).min(1).max(SUPPORT_BULK_TRANSPORT_MAX),
     change: supportBulkChangeSchema,
     /** Recorded on each request's trail row. */
     reason: z.string().trim().min(1).max(500).optional(),
@@ -54,7 +54,7 @@ export const supportBulkResultSchema = z
     results: z.array(
       z
         .object({
-          ticketId: z.string().uuid(),
+          ticketId: z.string().guid(),
           outcome: supportBulkOutcomeSchema,
           /** The typed code behind a `refused`; null for the other two. */
           code: z.string().nullable(),
