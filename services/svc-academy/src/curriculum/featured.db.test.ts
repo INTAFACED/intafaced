@@ -71,6 +71,15 @@ describe('hub featured slot', () => {
 
     await academy.setFeatured({ itemSlug: null, reason: 'Rotating', operatorId: OPERATOR });
     expect(await visitor(academy).publicHub()).toEqual({ featured: null });
+    // A clear of an empty slot records nothing; every real feature and clear is a featured_events row with who and why.
+    await academy.setFeatured({ itemSlug: null, reason: 'Again', operatorId: OPERATOR });
+    const events = await db.sql<Array<{ action: string; item_slug: string | null; reason: string; actor: string }>>`
+      SELECT action, item_slug, reason, actor FROM academy.featured_events ORDER BY at, action DESC
+    `;
+    expect(events.map((e) => ({ ...e }))).toEqual([
+      { action: 'featured', item_slug: 'foundations-risk-first', reason: 'Start here', actor: OPERATOR },
+      { action: 'cleared', item_slug: 'foundations-risk-first', reason: 'Rotating', actor: OPERATOR },
+    ]);
   });
 
   it('refuses a blank reason and an unknown item, and writes nothing', async () => {
@@ -82,6 +91,7 @@ describe('hub featured slot', () => {
       code: 'academy.curriculum_not_found',
     });
     expect(await visitor(academy).publicHub()).toEqual({ featured: null });
+    expect(await db.sql`SELECT 1 FROM academy.featured_events`).toHaveLength(0);
   });
 
   it('drops an item that has left the spine instead of showing it', async () => {
