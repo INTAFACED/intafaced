@@ -67,6 +67,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     // partner's signed job calls, which only a test makes here. Value moves to and from its own TEST rail boundary.
     BANK_PAYOUT_PARTNER: 'payout-sim',
     BANK_PAYOUT_SIM_JSON: testValue('BANK_PAYOUT_SIM_JSON'),
+    // LOCAL TEST stand-in for a direct debit scheme (BK-xfer-11; no network, pays nobody, refused under live posture): its
+    // TEST creditors set up mandates and present collections only through the signed job doors, as J-bank-06 #4 does.
+    BANK_DD_SCHEME: 'dd-sim',
+    BANK_DD_SIM_JSON: testValue('BANK_DD_SIM_JSON'),
     // LOCAL TEST value from the bank profile, not an owner decision (BK-xfer-06): how long a new bank-rail recipient waits
     // before money may go to it. Unset, every send to a saved recipient refuses bank.payee_cooling_unset.
     BANK_PAYEE_COOLING_HOURS: testValue('BANK_PAYEE_COOLING_HOURS'),
