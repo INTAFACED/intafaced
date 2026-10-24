@@ -106,6 +106,7 @@ import { academyProgrammeCertId } from '@intafaced/contracts';
 import { CertIssueRules, issueDueAt } from './certs/issue-rules.js';
 import { ProgrammeRecords } from './curriculum/programme-records.js';
 import { CourseDiscussion } from './curriculum/discussion.js';
+import { CourseMessages } from './curriculum/course-messages.js';
 import { normaliseHolderName } from './certs/holder-name.js';
 import { PROGRAMME_SLUGS, type ProgrammeSlug } from './curriculum/programmes.js';
 import {
@@ -342,6 +343,8 @@ export interface AcademyServiceOptions {
   postMaxChars?: number;
   /** AC-rooms-01: owner-set bytes per post image (`ACADEMY_POST_IMAGE_MAX_BYTES`). Undefined: a post with an image refuses. */
   postImageMaxBytes?: number;
+  /** AC-rooms-04: owner-set characters per course-team message (`ACADEMY_MESSAGE_MAX_CHARS`). Undefined: sending refuses. */
+  messageMaxChars?: number;
   /** Test seam. Production is empty: no owner-published scored assessment. */
   assessmentCatalog?: readonly AssessmentDefinition[];
 }
@@ -407,6 +410,8 @@ export class AcademyService {
   private readonly programmeRecords: ProgrammeRecords;
   /** AC-rooms-01: course discussions. The router calls it directly; it decides nothing about any other record. */
   readonly discussion: CourseDiscussion;
+  /** AC-rooms-04: conversations with course teams. The router calls it directly. */
+  readonly courseMessages: CourseMessages;
 
   constructor(
     private readonly sql: Sql,
@@ -455,6 +460,7 @@ export class AcademyService {
     this.videoTracks = new VideoTracks(sql);
     this.issueRules = new CertIssueRules(sql);
     this.programmeRecords = new ProgrammeRecords(sql, this.options.programmeMaxCourses);
+    this.courseMessages = new CourseMessages(sql, this.options.messageMaxChars ?? null);
     this.discussion = new CourseDiscussion(sql, {
       postMaxChars: this.options.postMaxChars ?? null,
       imageMaxBytes: this.options.postImageMaxBytes ?? null,

@@ -43,6 +43,15 @@ import {
   academyAcceptDiscussionReplyInputSchema,
   academyDiscussionToggleInputSchema,
   academyStaffDiscussionThreadSchema,
+  academySendCourseMessageInputSchema,
+  academySendCourseMessageResultSchema,
+  academyCourseConversationsInputSchema,
+  academyCourseConversationInputSchema,
+  academyCourseConversationSummarySchema,
+  academyCourseConversationSchema,
+  academyStaffConversationSummarySchema,
+  academyStaffConversationSchema,
+  academyReplyCourseMessageInputSchema,
   academyProgrammeRecordSchema,
   academyProgrammeSchema,
   academyProgrammeInputSchema,
@@ -975,15 +984,18 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.programme_limit_unset':
     case 'academy.post_limit_unset':
     case 'academy.attachment_limit_unset':
+    case 'academy.message_limit_unset':
       return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
 
     case 'academy.programme_not_found':
     case 'academy.post_not_found':
+    case 'academy.conversation_not_found':
       return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
 
     case 'academy.outline_too_large':
     case 'academy.programme_too_large':
     case 'academy.post_too_long':
+    case 'academy.message_too_long':
     case 'academy.attachment_too_large':
     case 'academy.attachment_type_refused':
     case 'academy.item_has_no_lesson':
@@ -2836,6 +2848,24 @@ export function createAcademyRouter(
       .output(academyDiscussionLikeResultSchema)
       .mutation(({ input, ctx }) => guard(() => academy.discussion.like({ ...input, userId: ctx.principal!.userId, now: new Date() }))),
 
+    /** AC-rooms-04: write to the course team of a course the caller is enrolled in; the mail copy names vendor.email. */
+    sendCourseMessage: scopedProcedure('academy:write', { module: 'academy' })
+      .input(academySendCourseMessageInputSchema)
+      .output(academySendCourseMessageResultSchema)
+      .mutation(({ input, ctx }) => guard(() => academy.courseMessages.send({ ...input, userId: ctx.principal!.userId, now: new Date() }))),
+
+    /** AC-rooms-04: the caller's own conversations with course teams, newest first, each with its unread marker. */
+    courseConversations: scopedProcedure('academy:read', { module: 'academy' })
+      .input(academyCourseConversationsInputSchema)
+      .output(z.array(academyCourseConversationSummarySchema))
+      .query(({ input, ctx }) => guard(() => academy.courseMessages.inbox(ctx.principal!.userId, input.limit))),
+
+    /** AC-rooms-04: open one of the caller's conversations, which marks it read on their side. */
+    openCourseConversation: scopedProcedure('academy:write', { module: 'academy' })
+      .input(academyCourseConversationInputSchema)
+      .output(academyCourseConversationSchema)
+      .mutation(({ input, ctx }) => guard(() => academy.courseMessages.open({ ...input, userId: ctx.principal!.userId, now: new Date() }))),
+
     myCerts: scopedProcedure('academy:read', { module: 'academy' })
       .input(z.object({ limit: z.number().optional() }).optional())
       .output(z.array(certGrantOut))
@@ -3389,6 +3419,26 @@ export function createAcademyRouter(
         .input(academyDiscussionThreadInputSchema)
         .output(academyStaffDiscussionThreadSchema)
         .query(({ input }) => guard(() => academy.discussion.staffThread(input.postId, input.limit))),
+
+      /** AC-rooms-04: every conversation with a course team, newest first, with the staff-side unread marker. */
+      courseInbox: scopedProcedure('admin:read', { module: 'academy' })
+        .input(academyCourseConversationsInputSchema)
+        .output(z.array(academyStaffConversationSummarySchema))
+        .query(({ input }) => guard(() => academy.courseMessages.staffInbox(input.limit))),
+
+      /** AC-rooms-04: open one conversation, which marks it read on the staff side. */
+      openCourseConversation: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyCourseConversationInputSchema)
+        .output(academyStaffConversationSchema)
+        .mutation(({ input }) => guard(() => academy.courseMessages.staffOpen({ ...input, now: new Date() }))),
+
+      /** AC-rooms-04: answer a learner's conversation as the course team. */
+      replyCourseMessage: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyReplyCourseMessageInputSchema)
+        .output(academySendCourseMessageResultSchema)
+        .mutation(({ input, ctx }) =>
+          guard(() => academy.courseMessages.staffReply({ ...input, operatorId: ctx.principal!.userId, now: new Date() })),
+        ),
 
       /** AC-programmes-01: the programmes staff made, newest first. */
       programmes: scopedProcedure('admin:read', { module: 'academy' })
