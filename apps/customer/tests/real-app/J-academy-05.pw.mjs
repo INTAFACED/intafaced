@@ -171,9 +171,12 @@ test(`${J} #2 the Certificates tab lists my course and programme certificates, a
   }
   const programmes = page.locator('[data-certificates="programmes"]');
   await expect(programmes.getByRole('heading', { name: 'Programme certificates' })).toBeVisible();
-  // This learner started no course in a programme: the section says so (or that none is published), and shows no card.
+  // This learner started no course in a programme, so no card shows; the words say whether any programme is published.
+  const published = (await read(earner, 'programmes', { limit: 1 })).length > 0;
   await expect(programmes).toContainText(
-    /Academy has published no learning programmes, so there is no programme certificate to earn\.|You have started no course in a programme, so there is no programme certificate to show\. The Programmes tab lists them\./,
+    published
+      ? 'You have started no course in a programme, so there is no programme certificate to show. The Programmes tab lists them.'
+      : 'Academy has published no learning programmes, so there is no programme certificate to earn.',
   );
   await expect(programmes.locator('[data-certificate]')).toHaveCount(0);
 });

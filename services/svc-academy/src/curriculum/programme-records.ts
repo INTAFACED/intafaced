@@ -60,7 +60,10 @@ export class ProgrammeRecords {
     private readonly maxCourses: number | undefined,
   ) {}
 
-  private select(db: Db, where: { slug?: string; course?: string; limit?: number }) {
+  private select(
+    db: Db,
+    where: { slug?: string; course?: string; limit?: number; mine?: { earned: readonly string[]; courses: readonly string[] } },
+  ) {
     return db<ProgrammeRow[]>`
       SELECT p.slug, p.title, p.summary, p.revision, p.updated_at,
              (SELECT array_agg(c.course_slug ORDER BY c.position) FROM academy.programme_courses c WHERE c.programme_slug = p.slug)
@@ -71,6 +74,13 @@ export class ProgrammeRecords {
            where.course === undefined
              ? db`TRUE`
              : db`EXISTS (SELECT 1 FROM academy.programme_courses c WHERE c.programme_slug = p.slug AND c.course_slug = ${where.course})`
+         }
+         AND ${
+           where.mine === undefined
+             ? db`TRUE`
+             : db`(p.slug = ANY(${db.array([...where.mine.earned])}::text[]) OR EXISTS (
+                 SELECT 1 FROM academy.programme_courses c
+                  WHERE c.programme_slug = p.slug AND c.course_slug = ANY(${db.array([...where.mine.courses])}::text[])))`
          }
        ORDER BY p.created_at DESC, p.slug
        ${where.limit === undefined ? db`LIMIT ALL` : db`LIMIT ${where.limit}`}
@@ -83,9 +93,12 @@ export class ProgrammeRecords {
     return rows[0] ? recordOf(rows[0]) : null;
   }
 
-  /** Programmes newest first, up to the caller's limit. */
-  async list(limit: number): Promise<AcademyProgrammeRecord[]> {
-    return (await this.select(this.sql, { limit })).map(recordOf);
+  /**
+   * Programmes newest first, up to the caller's limit. With `mine`, only those at one of `earned` or holding one of
+   * `courses`: the ones a learner has a certificate for or started.
+   */
+  async list(limit: number, mine?: { earned: readonly string[]; courses: readonly string[] }): Promise<AcademyProgrammeRecord[]> {
+    return (await this.select(this.sql, { limit, ...(mine ? { mine } : {}) })).map(recordOf);
   }
 
   /** Every programme that holds this course: the ones a completion in it may finish. */
@@ -111,7 +124,8 @@ export class ProgrammeRecords {
         current.title === input.title &&
         current.summary === input.summary &&
         sameCourses(current.courseSlugs, input.courseSlugs);
-      if (current && unchanged && (input.expectedRevision === null || input.expectedRevision === current.revision)) return current;
+      // A save that matches the stored programme answers it, whatever revision it was sent over: a retry after a lost reply.
+      if (current && unchanged) return current;
       if (input.expectedRevision === null && current) {
         throw new AcademyError(`academy.programme_slug_taken slug=${input.slug}`, 'academy.programme_slug_taken');
       }

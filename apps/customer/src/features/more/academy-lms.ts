@@ -409,9 +409,9 @@ export const academyCourseHref = (slug: string) => `/academy/learning/course/${e
 /** An assignment's page in a course staff made (AC-assignments-01). */
 export const academyAssignmentHref = (slug: string, itemId: string) =>
   `${academyCourseHref(slug)}/assignment/${encodeURIComponent(itemId)}`;
-/** The public check of one certificate (AC-certificates-01): the link a learner shares. Open to anyone, signed in or not. */
 /** A course programme's page (AC-programmes-01). */
 export const academyProgrammeHref = (slug: string) => `/academy/programmes/${encodeURIComponent(slug)}`;
+/** The public check of one certificate (AC-certificates-01): the link a learner shares. Open to anyone, signed in or not. */
 export const academyVerifyHref = (code: string) => `/academy/certificates/verify/${encodeURIComponent(code)}`;
 /** Sign in from a course page and come back to its plain address: a private link's `#key=` never rides in a URL. */
 export const academyCourseSignInHref = (slug: string) => `/login?redirect=${encodeURIComponent(academyCourseHref(slug))}`;

@@ -2736,7 +2736,9 @@ export function createAcademyRouter(
     programmes: scopedProcedure('academy:read', { module: 'academy' })
       .input(academyProgrammesInputSchema)
       .output(z.array(academyProgrammeSchema))
-      .query(({ input, ctx }) => guard(() => academy.programmes({ userId: ctx.principal!.userId, limit: input.limit }))),
+      .query(({ input, ctx }) =>
+        guard(() => academy.programmes({ userId: ctx.principal!.userId, limit: input.limit, mine: input.mine ?? false })),
+      ),
 
     /** AC-programmes-01: one programme: its courses in order with the caller's state on each, the counts and the certificate. */
     programme: scopedProcedure('academy:read', { module: 'academy' })
@@ -3286,7 +3288,7 @@ export function createAcademyRouter(
 
       /** AC-programmes-01: the programmes staff made, newest first. */
       programmes: scopedProcedure('admin:read', { module: 'academy' })
-        .input(academyProgrammesInputSchema)
+        .input(academyProgrammesInputSchema.omit({ mine: true }))
         .output(z.array(academyProgrammeRecordSchema))
         .query(({ input }) => guard(() => academy.adminProgrammes(input.limit))),
 

@@ -90,6 +90,8 @@ describe('learning programmes', () => {
     await save(academy);
     const second = await save(academy, { courseSlugs: ['builder', 'markets'], expectedRevision: 1 });
     expect(second).toMatchObject({ courseSlugs: ['builder', 'markets'], revision: 2 });
+    // The reply was lost and staff send the same save again over revision 1: it answers the stored programme.
+    expect(await save(academy, { courseSlugs: ['builder', 'markets'], expectedRevision: 1 })).toEqual(second);
     await expect(save(academy, { title: 'TEST late', expectedRevision: 1 })).rejects.toMatchObject({ code: 'academy.revision_stale' });
     await expect(save(academy, { title: 'TEST another' })).rejects.toMatchObject({ code: 'academy.programme_slug_taken' });
     await expect(save(academy, { slug: 'nowhere', expectedRevision: 1 })).rejects.toMatchObject({ code: 'academy.programme_not_found' });
@@ -164,5 +166,21 @@ describe('learning programmes', () => {
     expect(empty).toMatchObject({ slug: 'empty-path', courses: [], counts: { completed: 0, enrolled: 0, notEnrolled: 0 } });
     expect(empty!.certificate.state).toBe('not_earned');
     await expect(academy.programme({ userId: USER, slug: 'missing' })).rejects.toMatchObject({ code: 'academy.programme_not_found' });
+  });
+
+  it('lists only the programmes the learner started or holds a certificate for, however old, with mine', async () => {
+    const academy = service();
+    await save(academy, { slug: 'old-path', courseSlugs: ['foundations'] });
+    await save(academy, { now: new Date(T0.getTime() + 1000) });
+    await save(academy, { slug: 'empty-path', courseSlugs: [], now: new Date(T0.getTime() + 2000) });
+    expect(await academy.programmes({ userId: USER, limit: 10, mine: true })).toEqual([]);
+    await finish(academy, 'foundations');
+    // The oldest programme is past a one-row page of everything, and still the learner's own.
+    expect((await academy.programmes({ userId: USER, limit: 1 })).map((row) => row.slug)).toEqual(['empty-path']);
+    const mine = await academy.programmes({ userId: USER, limit: 10, mine: true });
+    expect(mine.map((row) => row.slug)).toEqual(['old-path']);
+    expect(mine[0]!.certificate.state).toBe('earned');
+    await academy.enrolCourse({ userId: USER, slug: 'markets', track: 'audit' });
+    expect((await academy.programmes({ userId: USER, limit: 10, mine: true })).map((row) => row.slug)).toEqual(['trader-path', 'old-path']);
   });
 });

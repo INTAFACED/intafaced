@@ -1,5 +1,10 @@
 import { z } from 'zod';
-import { academyProgrammeSchema, type AcademyProgramme, type AcademyProgrammeCourseState } from '@intafaced/contracts/academy-programmes';
+import {
+  ACADEMY_PROGRAMMES_LIST_MAX,
+  academyProgrammeSchema,
+  type AcademyProgramme,
+  type AcademyProgrammeCourseState,
+} from '@intafaced/contracts/academy-programmes';
 import { useApi, useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
 import { Loading, Panel } from '../../shared/ui';
@@ -16,6 +21,8 @@ import { AcademyRefusal, pathLabel } from './AcademyLmsParts';
 
 /** The page size the programme list asks for. */
 const PROGRAMMES_PAGE = 50;
+/** The most programmes the Certificates tab lists: the reader's own, which is every one they started. */
+const MINE_PAGE = ACADEMY_PROGRAMMES_LIST_MAX;
 
 const COURSE_STATES = {
   completed: 'programmeCourseCompleted',
@@ -28,12 +35,12 @@ const COURSE_ACTIONS = {
   not_enrolled: 'programmeStart',
 } as const satisfies Record<AcademyProgrammeCourseState, string>;
 
-function useProgrammes() {
+function useProgrammes(limit: number, mine = false) {
   const api = useApi();
   const { userId } = useSession();
   return useResource(
-    (signal) => api.query('academy', 'programmes', { limit: PROGRAMMES_PAGE }, z.array(academyProgrammeSchema), { signal }),
-    `programmes:${userId}`,
+    (signal) => api.query('academy', 'programmes', { limit, mine }, z.array(academyProgrammeSchema), { signal }),
+    `programmes:${userId}:${limit}:${mine}`,
   );
 }
 
@@ -55,7 +62,7 @@ function Counts({ programme }: { programme: AcademyProgramme }) {
 /** The Programmes tab's list: one card per programme, newest first. */
 export function AcademyCourseProgrammes() {
   const { t, Copy } = copy.useCopy();
-  const list = useProgrammes();
+  const list = useProgrammes(PROGRAMMES_PAGE);
   return (
     <Panel title={t('programmeListTitle')}>
       <div className="academy-lms-stack" data-programmes="list">
@@ -191,16 +198,21 @@ function ProgrammeCertificate({ programme }: { programme: AcademyProgramme }) {
 export function ProgrammeCertificates() {
   const { t, Copy } = copy.useCopy();
   const { language } = usePreferences();
-  const list = useProgrammes();
-  if (list.resource.status === 'loading') return <Loading />;
-  if (list.resource.status === 'failed') return <AcademyRefusal failure={list.resource.failure} retry={list.reload} />;
-  if (list.resource.data.length === 0)
+  // Whether any programme is published, and the reader's own: an older programme's certificate is never paged out.
+  const any = useProgrammes(1);
+  const mine = useProgrammes(MINE_PAGE, true);
+  for (const read of [any, mine]) {
+    if (read.resource.status === 'loading') return <Loading />;
+    if (read.resource.status === 'failed') return <AcademyRefusal failure={read.resource.failure} retry={read.reload} />;
+  }
+  if (any.resource.status !== 'ready' || mine.resource.status !== 'ready') return null;
+  if (any.resource.data.length === 0)
     return (
       <p className="muted">
         <Copy k="programmesNone" />
       </p>
     );
-  const started = list.resource.data.filter((row) => row.certificate.state === 'earned' || row.counts.completed + row.counts.enrolled > 0);
+  const started = mine.resource.data;
   if (started.length === 0)
     return (
       <p className="muted">

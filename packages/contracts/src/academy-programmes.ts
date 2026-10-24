@@ -94,4 +94,10 @@ export const academyProgrammeSchema = z.object({
 export type AcademyProgramme = z.infer<typeof academyProgrammeSchema>;
 
 export const academyProgrammeInputSchema = z.object({ slug: academyProgrammeSlugSchema }).strict();
-export const academyProgrammesInputSchema = z.object({ limit: z.number().int().min(1).max(ACADEMY_PROGRAMMES_LIST_MAX) }).strict();
+export const academyProgrammesInputSchema = z
+  .object({
+    limit: z.number().int().min(1).max(ACADEMY_PROGRAMMES_LIST_MAX),
+    /** Only the programmes the caller has a certificate for or started a course of: the Certificates tab's list. */
+    mine: z.boolean().optional(),
+  })
+  .strict();
