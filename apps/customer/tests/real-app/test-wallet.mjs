@@ -47,12 +47,18 @@ export async function installTestWallet(page, { chainId, tokens = [] }) {
   const calls = Object.assign({}, ...tokens.map((token) => tokenAnswers(chainId, address, token)));
   const requests = [];
   let rejectNext = false;
+  let otherKeyNext = false;
   // Signing runs here, outside the page: the key never enters the browser.
   await page.exposeFunction('__testWalletSign', async (method, params) => {
     requests.push({ method, params });
     if (rejectNext) {
       rejectNext = false;
       return { rejected: true };
+    }
+    if (otherKeyNext) {
+      otherKeyNext = false;
+      // A different key signs the same message, as a wallet answering for the wrong account would.
+      return { signature: await privateKeyToAccount(generatePrivateKey()).signMessage({ message: { raw: params[0] } }) };
     }
     if (method === 'personal_sign') return { signature: await account.signMessage({ message: { raw: params[0] } }) };
     const { domain, types, primaryType, message } = JSON.parse(params[1]);
@@ -117,6 +123,10 @@ export async function installTestWallet(page, { chainId, tokens = [] }) {
     /** The next signature request is refused the way a person pressing Reject in the wallet refuses it (code 4001). */
     rejectNext: () => {
       rejectNext = true;
+    },
+    /** The next message is signed by another, throwaway key while the wallet still names its own address. */
+    signWithOtherKeyNext: () => {
+      otherKeyNext = true;
     },
     /** Moves the wallet to another network from the wallet's side, as a person does in the extension. */
     setChain: (id) => page.evaluate((next) => window.__testWallet.setChain(next), id),

@@ -16,9 +16,11 @@ const WORDED = ['idp.social', 'identity.social_provider_config_incomplete', 'ide
 /**
  * Social and wallet sign-in buttons (I-signin-sessions-21). Each press asks the service to start (`auth.oauthStart`);
  * with no provider registered the service answers `idp.social`, and the page says so with the code. A ready provider
- * would answer an https address to go to. The buttons never name an outside company.
+ * would answer an https address to go to. The buttons never name an outside company. On the sign-in page `onWallet`
+ * signs in with a wallet this browser holds (I-account-lifecycle-07); it answers false when no wallet announced itself,
+ * and the wallet button then asks the service as before.
  */
-export function SocialSignIn() {
+export function SocialSignIn({ onWallet }: { onWallet?: () => Promise<boolean> } = {}) {
   const { t } = socialSignInCopy.useCopy();
   const { api } = useSession();
   const [busy, setBusy] = useState<Kind | null>(null);
@@ -30,6 +32,11 @@ export function SocialSignIn() {
     running.current = true;
     setBusy(kind);
     setRefusal(null);
+    if (kind === 'wallet' && onWallet && (await onWallet())) {
+      running.current = false;
+      setBusy(null);
+      return;
+    }
     const answer = await api.mutate('identity', 'auth.oauthStart', { provider: kind }, startedSchema);
     const target = answer.ok ? new URL(answer.data.authorizationUrl) : null;
     if (target?.protocol === 'https:') {
