@@ -559,6 +559,27 @@ describe('POST /api/v1/orders/preview', () => {
     await app.close();
   });
 
+  it('names trade.fee_schedule_blank when the market sits in a pair group with no row (J-cex-spot-10 #3)', async () => {
+    const listed = readyMarket(MARKET.id, { ...MARKET, makerBps: 10, takerBps: 20 });
+    const feeSchedule = parseFeeScheduleJson(
+      JSON.stringify({
+        published: true,
+        version: 'rows',
+        defaultPairGroup: 'all-others',
+        pairGroups: { [MARKET.symbol]: 'unpriced' },
+        rows: [{ pairGroup: 'all-others', tierId: 'regular', zeroFee: false, makerBps: '8', takerBps: '10', minFee: null }],
+      }),
+    );
+    const { app } = appWith({ market: listed, feeSchedule });
+    const response = await app.inject({ method: 'POST', url: SPOT_ORDER_PREVIEW_PATH, headers: headers(), payload: limitBuy });
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json()).toMatchObject({ estimatedFee: null, feeBps: null, orderable: false });
+    const codes = response.json().refusals.map((row: { code: string }) => row.code);
+    expect(codes).toContain('trade.fee_schedule_blank');
+    expect(codes).not.toContain('trade.order_preview_fee_unavailable');
+    await app.close();
+  });
+
   it('refuses fee preview when owner schedule is blank — never invents listing bps', async () => {
     const listed = readyMarket(MARKET.id, { ...MARKET, makerBps: 10, takerBps: 20 });
     const { app } = appWith({ market: listed, feeSchedule: UNPUBLISHED_FEE_SCHEDULE });

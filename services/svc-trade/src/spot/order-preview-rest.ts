@@ -567,12 +567,17 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
     const feeRole: 'maker' | 'taker' | null = orderType === null ? null : rests ? 'maker' : 'taker';
     // A schedule row that refuses (no row, rebate or minimum with no recipe) leaves the fee unavailable, never a guess.
     const scheduleNow = deps.feeScheduleNow ? await deps.feeScheduleNow() : deps.feeSchedule;
+    // The code a refusing row gave (no row for this market's pair group, say), so the refusal names it.
+    let feeRowRefusal: FeeScheduleError | null = null;
     const feeBpsFor = (role: 'maker' | 'taker'): number | null => {
       if (!discountKnown) return null;
       try {
         return previewFeeBps(scheduleNow, role, discountBps, { symbol: market.symbol });
       } catch (err) {
-        if (err instanceof FeeScheduleError) return null;
+        if (err instanceof FeeScheduleError) {
+          feeRowRefusal ??= err;
+          return null;
+        }
         throw err;
       }
     };
@@ -585,11 +590,12 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
     if (feeRole === null) {
       // type already refused
     } else if (feeBps === null) {
-      refusals.push({
-        code: 'trade.order_preview_fee_unavailable',
-        field: 'fee',
-        message: 'published fee schedule is unavailable',
-      });
+      const rowRefusal = feeRowRefusal as FeeScheduleError | null;
+      refusals.push(
+        rowRefusal
+          ? { code: rowRefusal.code, field: 'fee', message: rowRefusal.message }
+          : { code: 'trade.order_preview_fee_unavailable', field: 'fee', message: 'published fee schedule is unavailable' },
+      );
     } else if (
       orderType === 'limit'
         ? limitPrice !== null

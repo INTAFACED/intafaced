@@ -1276,6 +1276,52 @@ export async function publishPairRisk(ctx) {
   return out;
 }
 
+// ── 2c'. TEST fee schedule versions (two-person approval) ──────────────────
+
+export const FEE_SCHEDULE_SET_ACTION = 'trade.fee_schedule_set';
+
+/** The hash svc-trade recomputes when it consumes a trade.fee_schedule_set approval (services/svc-trade/src/admin/service.ts). */
+export function feeScheduleSetPayloadHash({ schedule, effectiveAt, expectedVersion, reason }) {
+  const body = { actionType: FEE_SCHEDULE_SET_ACTION, schedule, effectiveAt, expectedVersion, reason };
+  return `sha256:${crypto.createHash('sha256').update(canonicalJson(body)).digest('hex')}`;
+}
+
+/**
+ * Write one new version of the spot fee schedule through svc-trade's two-person door, as two operators would. `schedule`
+ * is the rates only (svc-trade sets `version` and `published`); it takes effect at `effectiveAt` (ISO, not in the past),
+ * and an order placed before then keeps the version it was placed under. Returns the written version row.
+ */
+export async function setFeeSchedule(
+  ctx,
+  schedule,
+  { effectiveAt = new Date(Date.now() + 2_000).toISOString(), reason, sessions = null } = {},
+) {
+  const pair = sessions ?? (await approverSessions(ctx));
+  const current = data(await ctx.edge.query('trade', 'admin.fees.get', undefined, await pair.a.tradeOpsToken()));
+  if (typeof current?.version !== 'string') throw new Error('trade admin.fees.get gave no version');
+  const at = new Date(effectiveAt).toISOString();
+  const body = { schedule, effectiveAt: at, expectedVersion: current.version, reason: reason ?? `${MARKERS.label}: TEST fee schedule` };
+  const ids = await twoPerson(ctx, pair, {
+    actionType: FEE_SCHEDULE_SET_ACTION,
+    targetService: 'svc-trade',
+    targetId: 'spot-fee-schedule',
+    expectedVersion: body.expectedVersion,
+    payloadHash: feeScheduleSetPayloadHash(body),
+    policyVersion: MARKERS.policyVersion,
+  });
+  assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
+  const res = await ctx.edge.mutate(
+    'trade',
+    'admin.fees.set',
+    { ...body, approvalId: ids.approvalId, operationId: ids.operationId },
+    await pair.a.tradeOpsToken(),
+  );
+  const row = data(res);
+  if (!row?.version) throw new Error(`trade admin.fees.set refused (${res.status}): ${refusalText(res)}`);
+  ctx.log(`fee schedule: version ${row.version} from ${row.effectiveAt} (${MARKERS.label}); approval ${ids.approvalId}`);
+  return row;
+}
+
 // ── 2d'. TEST P2P payment method (two-person approval) ─────────────────────
 
 /**

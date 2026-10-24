@@ -76,7 +76,7 @@ describe('fee-schedule blank hitch (source)', () => {
     const src = tradeServiceSource();
     // Placement and settleFill live in spot/trade-service/order-place.ts and fills.ts since the split by area.
     const place = tradeServiceArea('order-place');
-    const placeHitch = place.indexOf('svc.assertOwnerFeeSchedulePublished();');
+    const placeHitch = place.indexOf('svc.assertOwnerFeeSchedulePublished(market);');
     const orderHold = place.indexOf('recipes.orderHold({');
     expect(placeHitch).toBeGreaterThan(-1);
     expect(orderHold).toBeGreaterThan(-1);
@@ -254,6 +254,43 @@ describe('svc-trade fee-schedule B1 money', () => {
       expect(await sql`SELECT id FROM trade.fills`).toHaveLength(0);
       expect(postsWithReason('trade.fill')).toHaveLength(0);
       expect(postsWithReason('order.hold')).toHaveLength(holdsBefore);
+    });
+
+    it('a market whose pair group has no row refuses trade.fee_schedule_blank before orderHold', async () => {
+      // BTC/USDT sits in a pair group the owner listed but gave no row: the regular row of the default group is no
+      // substitute, and the order is refused before anything is held (J-cex-spot-10 #3).
+      const rows = parseFeeScheduleJson(
+        JSON.stringify({
+          published: true,
+          version: 'rows-b1',
+          defaultPairGroup: 'all-others',
+          pairGroups: { 'BTC/USDT': 'unpriced' },
+          rows: [{ pairGroup: 'all-others', tierId: 'regular', zeroFee: false, makerBps: '3', takerBps: '7', minFee: null }],
+        }),
+      );
+      await fund(ALICE, 'USDT', '1000');
+      const blankRow = new TradeService(sql, ledger, matching, perks, bus, {
+        marketLifecycle: READY_MARKET_LIFECYCLE,
+        spotEnabled: true,
+        feeSchedule: rows,
+      });
+
+      await expect(
+        blankRow.placeOrder(principalFor(ALICE), {
+          marketId: btcusdt.id,
+          side: 'buy',
+          type: 'limit',
+          qty: amt('2'),
+          price: amt('100'),
+          clientOrderId: 'alice-blank-row-b1',
+        }),
+      ).rejects.toMatchObject({ code: 'trade.fee_schedule_blank' });
+
+      expect(await sql`SELECT id FROM trade.orders`).toHaveLength(0);
+      expect(matching.submitted).toHaveLength(0);
+      expect(postsWithReason('order.hold')).toHaveLength(0);
+      expect(await held(ALICE, 'USDT')).toBe('0');
+      expect(await avail(ALICE, 'USDT')).toBe('1000');
     });
 
     it('published owner 3/7 drives fill fee_bps — listing 10/20 is not a rate', async () => {

@@ -1337,8 +1337,8 @@ export class TradeService {
 
   // ── Holds: the only two things that can happen to one ─────────────────────
 
-  private async assertOwnerFeeSchedulePublished(): Promise<void> {
-    return holds.assertOwnerFeeSchedulePublished(this.internal);
+  private async assertOwnerFeeSchedulePublished(market?: Pick<Market, 'kind' | 'symbol'>): Promise<void> {
+    return holds.assertOwnerFeeSchedulePublished(this.internal, market);
   }
 
   /** The owner schedule in force at `at` (a later approved version, else the boot value). */

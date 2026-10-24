@@ -30,11 +30,18 @@ import type { PlaceOrderInput, TradeServiceInternal } from '../trade-service.js'
 
 // ── Holds: the only two things that can happen to one ─────────────────────
 
-/** Unpublished owner schedule is a typed refuse — never listing-row 10/20. */
-export async function assertOwnerFeeSchedulePublished(svc: TradeServiceInternal): Promise<void> {
-  if ((await svc.feeScheduleAt(svc.now())).published !== true) {
+/**
+ * Unpublished owner schedule is a typed refuse — never listing-row 10/20.
+ *
+ * With a spot market named, its own rates are resolved too, both roles at the regular tier, so a market whose pair
+ * group has no row (or a row no granted recipe can post) refuses here, before any hold, rather than at its first fill.
+ */
+export async function assertOwnerFeeSchedulePublished(svc: TradeServiceInternal, market?: Pick<Market, 'kind' | 'symbol'>): Promise<void> {
+  const schedule = await svc.feeScheduleAt(svc.now());
+  if (schedule.published !== true) {
     throw new TradeError('published fee schedule is unavailable', 'trade.fee_schedule_blank');
   }
+  if (market?.kind === 'spot') svc.ratesForSchedule(schedule, 0, 0, 'spot', market.symbol);
 }
 
 /**

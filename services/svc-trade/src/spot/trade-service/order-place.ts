@@ -176,8 +176,9 @@ export async function placeOrderInner(
   assertMarketOpen(market, svc.now());
 
   // Owner schedule before paper SQL or any hold. Listing-row 10/20 is not a
-  // schedule; unpublished is a typed refuse (same hitch as order preview).
-  await svc.assertOwnerFeeSchedulePublished();
+  // schedule; unpublished, or no row for this market's pair group, is a typed
+  // refuse (same hitch as order preview).
+  await svc.assertOwnerFeeSchedulePublished(market);
 
   // Ownership + revoked gate (identity S2S). Before any new row or hold — a
   // foreign or revoked id must never land on trade.orders.sub_account_id.
