@@ -792,7 +792,9 @@ export type BankErrorCode =
   /** The guarantee period for this debit has ended. */
   | 'bank.dd_refund_window_closed'
   /** No direct debit guarantee period is set, so a refund request is refused rather than assumed. */
-  | 'bank.dd_guarantee_unset';
+  | 'bank.dd_guarantee_unset'
+  /** A money calendar read is 1 to 62 days from a valid date. */
+  | 'bank.calendar_window_invalid';
 
 export class BankError extends Error {
   constructor(

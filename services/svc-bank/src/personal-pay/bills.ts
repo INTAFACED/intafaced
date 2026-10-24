@@ -5,7 +5,7 @@ import { BankError } from '../errors.js';
 import { accountForSpace, type SpaceService } from '../spaces/space-service.js';
 import { planDue, type Cadence } from '../transfers/schedule.js';
 import { personalPayError, PSP_BLOCKER } from './errors.js';
-import type { BillPorts, Biller, BillLookup } from './ports.js';
+import type { BillPorts, Biller, BillLookup, PortStatus } from './ports.js';
 import { forwardKey, postToRail, reverseFromRail } from './post.js';
 
 /**
@@ -194,6 +194,11 @@ export class BillPayService {
     private readonly spaces: SpaceService,
     private readonly ports: BillPorts,
   ) {}
+
+  /** Whether a bill partner is wired: with none, no bill can be paid or set to recur. */
+  railStatus(): PortStatus {
+    return this.ports.rail.status();
+  }
 
   async search(input: { query: string; country?: string }): Promise<Biller[]> {
     if (this.ports.directory.status() !== 'live') throw personalPayError('bank.bills_directory_unset');

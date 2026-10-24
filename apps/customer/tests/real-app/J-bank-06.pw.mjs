@@ -9,7 +9,8 @@ import { signIn, signUp, verify } from './desk.mjs';
 // this file runs it with the job door's own signed call, as a scheduler would. The edit cutoff is the bank profile's
 // TEST value of 60 minutes. Step 4 (BK-xfer-11): direct debits through the stack's TEST scheme stand-in (`dd-sim`),
 // whose creditors set up mandates and present collections only by its signed job doors, which this file calls as the
-// scheme would; the collection run is its job door too. Not here: the calendar and rules (#5, #6).
+// scheme would; the collection run is its job door too. Step 5 (BK-acct-10): the money calendar over what steps 3 and 4
+// left, read only. Not here: rules and notification choices (#6).
 const J = 'J-bank-06';
 const TRIP = 'Trip TEST';
 const EMPTY = 'Empty TEST';
@@ -289,6 +290,7 @@ test(`${J} #3 a due one-off posts once and completes, and a run with too little 
   expect(main(again).balance).toBe(main(after).balance);
   expect(await executions(who, due)).toHaveLength(1);
   expect(await executions(who, short)).toHaveLength(1);
+  run.write({ due, short });
 
   // Both outcomes in the app, from the instructions' own history.
   await signIn(page, who);
@@ -400,9 +402,145 @@ test(`${J} #4 sees each direct debit with what it collects next, blocks one, and
   expect(twice.ok).toBe(true);
   expect(twice.data.created).toBe(false);
 
+  run.write({ dd: { gym, power, tag } });
+
   // Unblock: the power company may collect again; what was refused while blocked stays refused.
   await powerRow.getByRole('button', { name: 'Unblock' }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Unblock mandate' }).click();
   await expect(powerRow).toContainText('Active');
   await expect(refused).toContainText('Refused');
+});
+
+/** The calendar's month, moved with its own buttons until it shows `month` (`YYYY-MM`). */
+async function calendarMonth(page, month) {
+  const shown = page.getByTestId('cal-month-name');
+  for (let i = 0; i < 3; i += 1) {
+    const now = await shown.getAttribute('data-month');
+    if (now === month) return;
+    await page.getByRole('button', { name: now < month ? 'Next month' : 'Previous month' }).click();
+    await expect(shown).not.toHaveAttribute('data-month', now);
+  }
+  await expect(shown).toHaveAttribute('data-month', month);
+}
+
+test(`${J} #5 opens the calendar: standing orders and direct debits on their dates, each opening its room, and loans and bills say why they show none`, async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  const who = person();
+  const { once, monthly, due, short, dd } = run.read();
+  if (!due || !short) throw new Error(`${J}: #3 left no standing orders, so the calendar has nothing of its own to show`);
+  if (!dd) throw new Error(`${J}: #4 left no direct debits, so the calendar has nothing of its own to show`);
+  const api = await bank(who);
+  const before = main(await spaces(who)).balance;
+  // The list holds past collections apart from each mandate's upcoming ones.
+  const listed = (await api.query('directDebits.list', {})).data;
+  const collections = [...listed.collections, ...listed.mandates.flatMap((m) => m.upcoming)];
+  const collection = (suffix) => {
+    const found = collections.find((c) => c.collectionId === `${dd.tag}-${suffix}`);
+    if (!found) throw new Error(`${J}: collection ${suffix} from #4 is missing`);
+    return found;
+  };
+  const collected = collection('due'),
+    huge = collection('huge'),
+    blocked = collection('bill'),
+    next = collection('next');
+  const monthOf = (iso) => iso.slice(0, 7);
+  const days = (month) => new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).getUTCDate();
+  const read = async (month) => {
+    const res = await api.query('calendar.window', { from: `${month}-01`, days: days(month), limit: 50 });
+    expect(res.ok).toBe(true);
+    return res.data;
+  };
+
+  // The service's own answer for the month the one-off ran in: the one-off done, the empty order's first day failed by
+  // name, and its later days still due; this person's collections by their due dates.
+  const ranMonth = (await schedules(who)).find((s) => s.id === due).startsAt.slice(0, 7);
+  const ran = await read(ranMonth);
+  const byKey = (view, key) => view.items.find((i) => i.key === key);
+  expect(byKey(ran, `${due}:0`)).toMatchObject({ source: 'standing_orders', status: 'done', amount: '7' });
+  expect(byKey(ran, `${short}:0`)).toMatchObject({ status: 'failed', reasonCode: 'ledger.insufficient_funds' });
+  // #3 cancelled the empty order after its failed day, so none of its later days are on the calendar.
+  expect(ran.items.filter((i) => i.refId === short).map((i) => i.status)).toEqual(['failed']);
+  expect(ran.sources.find((s) => s.source === 'loans')).toMatchObject({ state: 'not_set', code: 'bank.loan_schedule_unset' });
+  expect(ran.sources.find((s) => s.source === 'bills')).toMatchObject({ state: 'ok', code: 'bank.bills_psp_unset' });
+  for (const [row, status, reason] of [
+    [collected, 'done', null],
+    [huge, 'failed', 'bank.insufficient_funds'],
+    [blocked, 'refused', 'bank.dd_mandate_blocked'],
+    [next, 'upcoming', null],
+  ]) {
+    const view = monthOf(row.dueAt) === ranMonth ? ran : await read(monthOf(row.dueAt));
+    expect(byKey(view, row.id)).toMatchObject({
+      source: 'direct_debits',
+      refId: dd.gym === row.mandateId ? dd.gym : dd.power,
+      status,
+      reasonCode: reason,
+    });
+  }
+
+  // The one-off dated tomorrow (#1) and the edited monthly order (#2) are due on their next run dates.
+  for (const schedule of (await schedules(who)).filter((x) => x.id === once || x.id === monthly)) {
+    const view = monthOf(schedule.nextRunAt) === ranMonth ? ran : await read(monthOf(schedule.nextRunAt));
+    expect(view.items.find((i) => i.refId === schedule.id && i.date === schedule.nextRunAt)).toMatchObject({ status: 'upcoming' });
+  }
+
+  // In the app: from Transfers to the calendar, the month the one-off ran in, each kind on its day.
+  await signIn(page, who);
+  await page.goto('/bank/transfers');
+  await page.getByRole('link', { name: 'Calendar', exact: true }).click();
+  await expect(page).toHaveURL(/\/bank\/calendar$/);
+  await expect(page.getByRole('note').first()).toContainText('The calendar only reads');
+  await calendarMonth(page, ranMonth);
+  const day = (iso) => page.getByTestId('cal-month').getByTestId(`cal-day-${Number(iso.slice(8, 10))}`);
+  const ranAt = byKey(ran, `${due}:0`).date;
+  await expect(day(ranAt).getByTestId(`cal-open-${due}:0`)).toHaveText('Standing order');
+  await expect(
+    day(byKey(ran, `${short}:0`).date)
+      .locator(`[data-status="failed"]`)
+      .first(),
+  ).toContainText('Failed');
+  if (monthOf(huge.dueAt) === ranMonth)
+    await expect(day(huge.dueAt).getByTestId(`cal-open-${huge.id}`)).toHaveText('Direct debit: TEST Gym membership');
+
+  // Where the dates come from: loans publish none and bills have no partner, each named; the rest are counted.
+  const sources = page.getByTestId('cal-sources');
+  await expect(sources.getByTestId('cal-source-loans')).toContainText('repayment dates are not published');
+  await expect(sources.getByTestId('cal-source-loans')).toContainText('bank.loan_schedule_unset');
+  await expect(sources.getByTestId('cal-source-bills')).toContainText('no bill payment partner is connected');
+  await expect(sources.getByTestId('cal-source-standing_orders')).toHaveAttribute('data-state', 'ok');
+  await expect(sources.getByTestId('cal-source-direct_debits')).toHaveAttribute('data-state', 'ok');
+
+  // The list: each run with its status, and a failed one with its reason in words and by code.
+  await page.getByRole('button', { name: 'List', exact: true }).click();
+  const failedRow = page.getByTestId(`cal-row-${short}:0`);
+  await expect(failedRow).toContainText('Failed');
+  await expect(failedRow).toContainText('There was not enough money. Nothing was taken.');
+  await expect(failedRow).toContainText('ledger.insufficient_funds');
+  await expect(page.getByTestId(`cal-row-${due}:0`)).toContainText('Done');
+
+  // Filter by kind: direct debits off leaves the standing orders showing.
+  await page.getByRole('button', { name: 'Direct debits', exact: true }).click();
+  await expect(page.locator('[data-testid="cal-list"] tr[data-source="direct_debits"]')).toHaveCount(0);
+  await expect(page.getByTestId(`cal-row-${due}:0`)).toBeVisible();
+  await page.getByRole('button', { name: 'Direct debits', exact: true }).click();
+
+  // The blocked company's refused collection and the gym's next one, in their own month.
+  await calendarMonth(page, monthOf(blocked.dueAt));
+  const refusedRow = page.getByTestId(`cal-row-${blocked.id}`);
+  await expect(refusedRow).toContainText('Refused');
+  await expect(refusedRow).toContainText('You blocked this direct debit.');
+  await calendarMonth(page, monthOf(next.dueAt));
+  await expect(page.getByTestId(`cal-row-${next.id}`)).toContainText('Due');
+
+  // Each item opens its own room.
+  await page.getByTestId(`cal-row-${next.id}`).getByRole('link', { name: 'Open' }).click();
+  await expect(page).toHaveURL(/\/bank\/direct-debits$/);
+  await page.goto('/bank/calendar');
+  await calendarMonth(page, ranMonth);
+  await page.getByTestId(`cal-open-${due}:0`).click();
+  await expect(page).toHaveURL(/\/bank\/transfers$/);
+
+  // Reading the calendar moved nothing.
+  expect(main(await spaces(who)).balance).toBe(before);
 });

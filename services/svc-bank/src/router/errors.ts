@@ -412,6 +412,7 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.loan_terms_missing': 'PRECONDITION_FAILED',
   'bank.schedule_edit_cutoff_unset': 'PRECONDITION_FAILED',
   'bank.dd_guarantee_unset': 'PRECONDITION_FAILED',
+  'bank.calendar_window_invalid': 'BAD_REQUEST',
   'bank.dd_invalid': 'BAD_REQUEST',
   'bank.dd_creditor_unknown': 'BAD_REQUEST',
   'bank.dd_mandate_not_found': 'NOT_FOUND',
