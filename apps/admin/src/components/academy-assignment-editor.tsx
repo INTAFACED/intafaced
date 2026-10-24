@@ -8,6 +8,7 @@ import { formatAsOf, formatWhen } from '@/lib/as-of';
 import { fetchAssignment, postAssignmentChange } from '@/lib/academy/assignments-browser';
 import type { AcademyAdminAssignment, AssignmentDeskReply, AssignmentView } from '@/lib/academy/assignments-model';
 import { Failed, Outcome } from '@/components/academy-courses-desk';
+import { ReviewSteps } from '@/components/academy-review-steps';
 
 /**
  * ASSIGNMENT EDITOR (AC-assignments-01).
@@ -191,6 +192,14 @@ export function AcademyAssignmentEditor({ itemId, initial }: { itemId: string; i
                 Withdraw assignment
               </button>
             </form>
+          )}
+          {assignment.brief && (
+            <ReviewSteps
+              key={`review-${assignment.review?.revision ?? 0}`}
+              assignment={assignment}
+              busy={busy}
+              onSave={(fields) => void send({ op: 'saveReview', ...fields })}
+            />
           )}
         </>
       )}

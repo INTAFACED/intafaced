@@ -859,6 +859,16 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'This assignment was withdrawn, so its brief is not edited and learners hand in nothing more.',
     next: 'Nothing was changed. What learners handed in stays readable to them.',
   },
+  'academy.peer_count_unset': {
+    title: 'Peer review has no review count',
+    body: 'Peer review is on, but how many classmates each learner reviews is not set, so learners could not be handed work.',
+    next: 'Set the number of reviews each learner gives, or turn peer review off. Nothing was changed.',
+  },
+  'academy.rubric_invalid': {
+    title: 'The rubric is not complete',
+    body: 'A peer or self review is scored against a rubric: at least one criterion, each with its own name.',
+    next: 'Add a criterion or rename one of the two alike. Nothing was changed.',
+  },
   'academy.assignment_has_submissions': {
     title: 'Learners handed in to this assignment',
     body: 'An assignment learners handed in to stays in the outline, so their work stays readable.',

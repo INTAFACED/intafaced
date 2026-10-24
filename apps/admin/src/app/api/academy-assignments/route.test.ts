@@ -81,6 +81,7 @@ const ASSIGNMENT = {
   withdrawnAt: null,
   withdrawReason: null,
   learnersHandedIn: 0,
+  review: null,
 };
 const BRIEF = { instructions: 'Size one trade.', points: '10', dueAt: '2026-10-25T12:00:00.000Z', text: 'required', file: 'required' };
 
@@ -136,5 +137,28 @@ describe('academy assignment editor BFF', () => {
       what: 'assignment withdrawn',
     });
     expect((await POST(post({ op: 'delete', itemId: ITEM_ID }))).status).toBe(400);
+  });
+
+  it('review steps are checked for shape here, and a missing peer count comes back by name', async () => {
+    configure();
+    const STEPS = { revision: 0, peer: true, peerCount: 2, self: true, criteria: [{ name: 'Sizing', levels: ['0', '1', '2'] }] };
+    const c = upstream({ 'admin.saveReviewSteps': () => ok(ASSIGNMENT) });
+    for (const bad of [
+      { ...STEPS, peerCount: 0 },
+      { ...STEPS, criteria: [{ name: 'Sizing', levels: ['2', '1'] }] },
+      { ...STEPS, criteria: [{ name: 'Sizing', levels: ['0'] }] },
+      { ...STEPS, criteria: [{ name: ' ', levels: ['0', '1'] }] },
+    ]) {
+      expect((await POST(post({ op: 'saveReview', itemId: ITEM_ID, ...bad }))).status).toBe(400);
+    }
+    expect(calls(c)).toHaveLength(0);
+    expect(await (await POST(post({ op: 'saveReview', itemId: ITEM_ID, ...STEPS }))).json()).toMatchObject({
+      ok: true,
+      what: 'review steps saved',
+    });
+    expect(sent(c, 'admin.saveReviewSteps')).toEqual({ itemId: ITEM_ID, ...STEPS });
+    upstream({ 'admin.saveReviewSteps': () => refusal('academy.peer_count_unset', 422) });
+    const res = await POST(post({ op: 'saveReview', itemId: ITEM_ID, ...STEPS, peerCount: null }));
+    expect(await res.json()).toMatchObject({ ok: false, code: 'academy.peer_count_unset', title: 'Peer review has no review count' });
   });
 });

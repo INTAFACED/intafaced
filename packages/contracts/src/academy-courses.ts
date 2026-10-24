@@ -636,6 +636,58 @@ const assignmentBrief = {
   file: z.enum(ACADEMY_ANSWER_MODES),
 };
 
+/**
+ * AC-assignments-03: rubrics and peer or self review. A rubric is a list of criteria, each with two to ten levels as
+ * ascending decimal strings; a saved rubric is never changed, so a review keeps the criteria it was scored against. The
+ * review steps run in order: peer review (each learner reviews `peerCount` classmates' work), then a self review of the
+ * learner's own. A learner reviews only after handing in, is never handed their own work as a peer, and waits while no
+ * classmate's work is free. Each review is keyed `peer:<assignment>:<reviewer>:<author>`; the reviewer never learns who
+ * the author is. Training examples, cohort-only pairing and rubric import by file are later parts. No money moves here.
+ */
+export const ACADEMY_RUBRIC_LEVEL = /^(?:0|[1-9]\d{0,5})(?:\.\d{1,2})?$/;
+export const ACADEMY_RUBRIC_MAX_CRITERIA = 20;
+export const ACADEMY_REVIEW_MAX_PEERS = 20;
+const rubricLevel = z.string().regex(ACADEMY_RUBRIC_LEVEL);
+/** Levels as typed: "0", "1.5". Ascending, no two alike; compared as decimals, never as JavaScript numbers. */
+const ascending = (levels: readonly string[]) => levels.every((level, i) => i === 0 || decimalCompare(levels[i - 1]!, level) < 0);
+/** A rubric level in hundredths, exactly: "1.5" is 150n. */
+const levelHundredths = (level: string) => {
+  const [whole, fraction = ''] = level.split('.');
+  return BigInt(whole!) * 100n + BigInt(`${fraction}00`.slice(0, 2));
+};
+/** -1, 0 or 1 for two rubric levels, compared as exact decimals. */
+export function decimalCompare(a: string, b: string): number {
+  const left = levelHundredths(a);
+  const right = levelHundredths(b);
+  return left === right ? 0 : left < right ? -1 : 1;
+}
+export const academyRubricCriterionSchema = z
+  .object({ name: z.string().trim().min(1).max(120), levels: z.array(rubricLevel).min(2).max(10) })
+  .strict()
+  .refine((c) => ascending(c.levels), { message: 'levels go up, with no two alike', path: ['levels'] });
+export type AcademyRubricCriterion = z.infer<typeof academyRubricCriterionSchema>;
+export const academyRubricSchema = z.object({
+  id: z.string().guid(),
+  criteria: z.array(academyRubricCriterionSchema).min(1).max(ACADEMY_RUBRIC_MAX_CRITERIA),
+});
+export type AcademyRubric = z.infer<typeof academyRubricSchema>;
+
+/** An assignment's review steps as staff see them, with who is waiting. Null until first saved. */
+export const academyReviewStepsSchema = z.object({
+  /** 0 until first saved; each save is the next revision. */
+  revision: z.number().int().nonnegative(),
+  peer: z.boolean(),
+  /** Reviews each learner gives; null is not set, and a course with peer review on and no count is not published. */
+  peerCount: z.number().int().min(1).max(ACADEMY_REVIEW_MAX_PEERS).nullable(),
+  self: z.boolean(),
+  rubric: academyRubricSchema.nullable(),
+  /** Learners who handed in and still need peer reviews from classmates. */
+  authorsShortOfReviews: z.number().int().nonnegative(),
+  /** Learners who owe peer reviews while no classmate's work is free for them: the waiting list. */
+  reviewersWaiting: z.number().int().nonnegative(),
+});
+export type AcademyReviewSteps = z.infer<typeof academyReviewStepsSchema>;
+
 /** `admin.assignment`: an assignment item as staff see it. `brief` is null until it is first saved. */
 export const academyAdminAssignmentSchema = z.object({
   itemId: z.string().guid(),
@@ -651,6 +703,8 @@ export const academyAdminAssignmentSchema = z.object({
   withdrawReason: z.string().nullable(),
   /** Learners who handed in at least once. */
   learnersHandedIn: z.number().int().nonnegative(),
+  /** AC-assignments-03: the review steps and rubric; null until first saved. */
+  review: academyReviewStepsSchema.nullable(),
 });
 export type AcademyAdminAssignment = z.infer<typeof academyAdminAssignmentSchema>;
 
@@ -739,3 +793,67 @@ export const academySubmitAssignmentInputSchema = z
   })
   .strict();
 export type AcademySubmitAssignmentInput = z.infer<typeof academySubmitAssignmentInputSchema>;
+
+/** `admin.saveReviewSteps`: the steps and the rubric, over the revision read. A rubric is needed when any step is on. */
+export const academySaveReviewStepsInputSchema = z
+  .object({
+    itemId: z.string().guid(),
+    revision: z.number().int().nonnegative(),
+    peer: z.boolean(),
+    peerCount: z.number().int().min(1).max(ACADEMY_REVIEW_MAX_PEERS).nullable(),
+    self: z.boolean(),
+    criteria: z.array(academyRubricCriterionSchema).max(ACADEMY_RUBRIC_MAX_CRITERIA),
+  })
+  .strict();
+export type AcademySaveReviewStepsInput = z.infer<typeof academySaveReviewStepsInputSchema>;
+
+export const ACADEMY_REVIEW_STAGES = ['off', 'hand_in_first', 'peer', 'waiting', 'self', 'done'] as const;
+export type AcademyReviewStage = (typeof ACADEMY_REVIEW_STAGES)[number];
+
+/** Work handed to the learner to review: a classmate's under an alias, or their own for the self review. */
+export const academyReviewTaskSchema = z.object({
+  id: z.string().guid(),
+  kind: z.enum(['peer', 'self']),
+  /** The n-th classmate's work this learner was handed, as their alias; null on the self review. Never the author's account. */
+  ordinal: z.number().int().positive().nullable(),
+  text: z.string().nullable(),
+  /** The file handed in; its name only on the self review, since a classmate's file name can name them. */
+  file: z.object({ fileName: z.string().min(1).nullable(), contentType: z.string().min(1), bytes: z.number().int().positive() }).nullable(),
+  criteria: z.array(academyRubricCriterionSchema).min(1),
+});
+export type AcademyReviewTask = z.infer<typeof academyReviewTaskSchema>;
+
+/** `peerReview` and `submitPeerReview`: where the caller is in the review steps, with the work to review now. */
+export const academyReviewStateSchema = z.object({
+  itemId: z.string().guid(),
+  stage: z.enum(ACADEMY_REVIEW_STAGES),
+  peer: z.boolean(),
+  peerCount: z.number().int().positive().nullable(),
+  self: z.boolean(),
+  peerDone: z.number().int().nonnegative(),
+  selfDone: z.boolean(),
+  task: academyReviewTaskSchema.nullable(),
+});
+export type AcademyReviewState = z.infer<typeof academyReviewStateSchema>;
+
+/** `peerReview`: the caller's review stage; hands them the next classmate's work when one is due and free. */
+export const academyPeerReviewInputSchema = z.object({ itemId: z.string().guid() }).strict();
+
+/** `peerReviewFile`: the file of work handed to the caller to review, its bytes in base64 (at most the inline bound). */
+export const academyPeerReviewFileInputSchema = z.object({ itemId: z.string().guid(), taskId: z.string().guid() }).strict();
+export const academyPeerReviewFileSchema = z.object({
+  contentType: z.string().min(1),
+  bytes: z.number().int().positive(),
+  contentBase64: z.string().min(1),
+});
+export type AcademyPeerReviewFile = z.infer<typeof academyPeerReviewFileSchema>;
+
+/** `submitPeerReview`: one level per criterion, in the rubric's order; the same marks again answer as stored. */
+export const academySubmitPeerReviewInputSchema = z
+  .object({
+    itemId: z.string().guid(),
+    taskId: z.string().guid(),
+    marks: z.array(rubricLevel).min(1).max(ACADEMY_RUBRIC_MAX_CRITERIA),
+  })
+  .strict();
+export type AcademySubmitPeerReviewInput = z.infer<typeof academySubmitPeerReviewInputSchema>;

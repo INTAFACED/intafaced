@@ -26,6 +26,7 @@ import type {
 } from '@intafaced/contracts';
 import { ACADEMY_COURSE_STATES } from '@intafaced/contracts';
 import { AcademyError } from '../errors.js';
+import { assertPeerCountsSet } from './peer-review.js';
 import { assertSlugNotReserved } from './reserved-slugs.js';
 import { CURRICULUM_PATHS, getCurriculumItem } from './catalog.js';
 
@@ -225,6 +226,7 @@ export class CourseRecords {
         throw new AcademyError('a paid course has no price, so it is not published', 'academy.price_unset');
       if (row.items === 0)
         throw new AcademyError('the course has nothing in its outline, so it is not published', 'academy.course_outline_empty');
+      await assertPeerCountsSet(tx, row.id);
       const [next] = await tx<CourseRow[]>`
         UPDATE academy.courses SET state = ${input.to}, revision = revision + 1, updated_at = ${input.now}
         WHERE id = ${row.id}
