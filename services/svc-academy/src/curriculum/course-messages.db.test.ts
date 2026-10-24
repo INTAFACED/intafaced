@@ -145,4 +145,36 @@ describe('course team messages', () => {
     });
     expect(await messages().inbox(PEER, 10)).toEqual([]);
   });
+
+  it('keeps an unread reply unread when the learner sends first, answers a stored retry after the course changed, and flags earlier messages', async () => {
+    const c = await course();
+    const m = messages();
+    const sent = await send(m);
+    await m.staffReply({
+      conversationId: sent.conversationId,
+      body: 'TEST Thursday.',
+      clientRequestId: 'msg:1',
+      operatorId: ME,
+      now: LATER,
+    });
+    // The staff request id equals the learner's: each side has its own.
+    await send(m, { clientRequestId: 'msg:2', body: 'TEST One more thing.', now: LATEST });
+    expect((await m.inbox(ME, 10))[0]!.unread).toBe(true);
+    await sql`UPDATE academy.course_enrolments SET left_at = ${LATEST} WHERE course_id = ${c.id} AND user_id = ${ME}`;
+    expect(
+      (
+        await messages(null).send({
+          courseSlug: 'risk-basics',
+          body: 'TEST One more thing.',
+          clientRequestId: 'msg:2',
+          userId: ME,
+          now: LATEST,
+        })
+      ).conversationId,
+    ).toBe(sent.conversationId);
+    const opened = await m.open({ userId: ME, conversationId: sent.conversationId, limit: 2, now: LATEST });
+    expect(opened.earlier).toBe(true);
+    expect(opened.messages.map((x) => x.body)).toEqual(['TEST Thursday.', 'TEST One more thing.']);
+    expect((await m.open({ userId: ME, conversationId: sent.conversationId, limit: 3, now: LATEST })).earlier).toBe(false);
+  });
 });

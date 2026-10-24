@@ -244,6 +244,11 @@ export function AcademyCourseConversation({ conversationId }: { conversationId: 
       {state.kind === 'ready' && (
         <div className="academy-lms-stack" data-course-conversation={state.data.id}>
           <Panel title={<span lang="und">{state.data.courseTitle}</span>}>
+            {state.data.earlier && (
+              <p className="muted" data-earlier-messages>
+                {t('teamMessagesEarlier', { count: ACADEMY_COURSE_MESSAGES_LIST_MAX })}
+              </p>
+            )}
             <ol className="academy-lms-rows">
               {state.data.messages.map((message) => (
                 <li key={message.id} data-course-message={message.id} data-from={message.from}>

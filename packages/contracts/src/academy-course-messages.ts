@@ -33,8 +33,9 @@ export const academyCourseConversationSummarySchema = z.object({
 });
 export type AcademyCourseConversationSummary = z.infer<typeof academyCourseConversationSummarySchema>;
 
-/** One conversation with its messages, oldest first. */
+/** One conversation with its newest messages, oldest first; `earlier` is on when older ones were left out. */
 export const academyCourseConversationSchema = academyCourseConversationSummarySchema.extend({
+  earlier: z.boolean(),
   messages: z.array(academyCourseMessageSchema),
 });
 export type AcademyCourseConversation = z.infer<typeof academyCourseConversationSchema>;
@@ -79,6 +80,7 @@ export const academyStaffConversationSummarySchema = z.object({
 export type AcademyStaffConversationSummary = z.infer<typeof academyStaffConversationSummarySchema>;
 
 export const academyStaffConversationSchema = academyStaffConversationSummarySchema.extend({
+  earlier: z.boolean(),
   messages: z.array(academyCourseMessageSchema.extend({ senderId: z.string().guid() })),
 });
 export type AcademyStaffConversation = z.infer<typeof academyStaffConversationSchema>;
