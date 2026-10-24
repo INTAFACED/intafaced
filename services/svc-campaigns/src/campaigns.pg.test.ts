@@ -72,7 +72,7 @@ const full = (over: Partial<CampaignDefinitionInput> = {}): CampaignDefinitionIn
   rules: 'TEST rules',
   startsAt: '2026-10-24T11:00:00Z',
   endsAt: '2026-11-24T11:00:00Z',
-  participation: { exclusions: [], regionScope: 'platform' },
+  participation: { exclusions: [], regionScope: 'platform', restrictedRegions: null },
   budget: { asset: 'USDT', limit: '1000' },
   reward: { asset: 'USDT', amount: '10' },
   ...over,
@@ -212,8 +212,8 @@ if (!db) {
       ]);
       expect([one.created, two.created].sort()).toEqual([false, true]);
       expect(two.review).toEqual(one.review);
-      const [{ n }] = await db!.sql<{ n: number }[]>`SELECT count(*)::int AS n FROM campaigns.eligibility_reviews`;
-      expect(n).toBe(1);
+      const [count] = await db!.sql<{ n: number }[]>`SELECT count(*)::int AS n FROM campaigns.eligibility_reviews`;
+      expect(count?.n).toBe(1);
       const [row] = await db!.sql<{ review_key: string; reason: string }[]>`SELECT review_key, reason FROM campaigns.eligibility_reviews`;
       expect(row).toEqual({ review_key: reviewKeyOf(c.id, 'account-firm'), reason: 'not_eligible' });
       expect((await s.get({ id: c.id, accountId: 'account-firm' })).eligibility?.review).toEqual({ requestedAt: one.review.requestedAt });
@@ -255,8 +255,8 @@ if (!db) {
       expect((await s.get({ id: ruled.id, accountId: 'account-unknown' })).eligibility?.state).toBe('unread');
       expect(await code(s.join({ campaignId: ruled.id, accountId: 'account-unknown' }))).toBe('campaigns.participant_unread');
       expect(await code(s.requestReview({ campaignId: ruled.id, accountId: 'account-unknown' }))).toBe('campaigns.participant_unread');
-      const [{ n }] = await db!.sql<{ n: number }[]>`SELECT count(*)::int AS n FROM campaigns.participations`;
-      expect(n).toBe(0);
+      const [count] = await db!.sql<{ n: number }[]>`SELECT count(*)::int AS n FROM campaigns.participations`;
+      expect(count?.n).toBe(0);
       const open = await live({ name: 'TEST open' });
       identityReads = 0;
       expect((await s.get({ id: open.id, accountId: 'account-unknown' })).eligibility).toEqual({ state: 'eligible', review: null });
