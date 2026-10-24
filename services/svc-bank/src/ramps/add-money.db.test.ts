@@ -18,6 +18,7 @@ import { createBankRouter } from '../router.js';
 import type { OnrampPaymentPort, OnrampQuoteSource } from './customer-ports.js';
 import type { PayFiatRampPort } from './pay-fiat-adapter.js';
 import { CRYPTO_LEDGER_PROGRAMME, NO_RAMP_PROGRAMME } from './rails.js';
+import { onrampSim } from './onramp-sim.js';
 
 const SECRET = 'bank-add-money-edge-secret-long-enough';
 const ADA = '11111111-1111-4111-8111-111111111111';
@@ -122,10 +123,10 @@ describe('add money (J-bank-02)', () => {
     it('with no partner, every way names the rail it needs and the reason, and writes no quote', async () => {
       const { methods } = await as(ADA).addMoney.methods(ask);
       expect(methods).toEqual([
-        { method: 'bank_transfer', rail: 'rail.bank', quote: null, blocker: 'bank.fiat_ramp_socket' },
-        { method: 'pay_by_bank', rail: 'rail.bank', quote: null, blocker: 'bank.fiat_ramp_socket' },
-        { method: 'card', rail: 'rail.card', quote: null, blocker: 'bank.fiat_ramp_socket' },
-        { method: 'wallet_pay', rail: 'rail.card', quote: null, blocker: 'bank.fiat_ramp_socket' },
+        { method: 'bank_transfer', rail: 'rail.bank', quote: null, blocker: 'bank.fiat_ramp_socket', standIn: null },
+        { method: 'pay_by_bank', rail: 'rail.bank', quote: null, blocker: 'bank.fiat_ramp_socket', standIn: null },
+        { method: 'card', rail: 'rail.card', quote: null, blocker: 'bank.fiat_ramp_socket', standIn: null },
+        { method: 'wallet_pay', rail: 'rail.card', quote: null, blocker: 'bank.fiat_ramp_socket', standIn: null },
       ]);
       expect(await sql`SELECT 1 FROM bank.ramp_onramp_quotes`).toHaveLength(0);
     });
@@ -144,7 +145,13 @@ describe('add money (J-bank-02)', () => {
         deliveryEstimate: 'TEST 1 business day',
       });
       expect(by.card!.quote).toMatchObject({ fee: '0.5', deliveryEstimate: null });
-      expect(by.wallet_pay).toEqual({ method: 'wallet_pay', rail: 'rail.card', quote: null, blocker: 'bank.onramp_rate_unset' });
+      expect(by.wallet_pay).toEqual({
+        method: 'wallet_pay',
+        rail: 'rail.card',
+        quote: null,
+        blocker: 'bank.onramp_rate_unset',
+        standIn: null,
+      });
     });
 
     it('a bad amount or country refuses the whole read rather than reading as a rail problem', async () => {
@@ -158,6 +165,67 @@ describe('add money (J-bank-02)', () => {
             .catch((e: unknown) => e),
         ).toBeInstanceOf(Error);
       }
+    });
+  });
+
+  describe('the TEST rate stand-in of the local stack (J-bank-02 #4)', () => {
+    let clock = Date.now();
+    const standIn = onrampSim(
+      {
+        label: 'TEST add-money stand-in',
+        quoteValidSeconds: 30,
+        quotes: [
+          {
+            country: 'NL',
+            method: 'bank_transfer',
+            asset: 'USDT',
+            payCurrency: 'EUR',
+            rate: '2',
+            fee: '1',
+            deliveryEstimate: 'TEST 1 day',
+          },
+        ],
+      },
+      () => new Date(clock),
+    );
+    const nl = { assetId: 'USDT', amount: '20', country: 'nl' };
+
+    it('prices only what it lists, labelled TEST, and leaves every other way to pay refused as before', async () => {
+      clock = Date.now();
+      const { methods } = await as(ADA, { onrampStandIn: standIn }).addMoney.methods(nl);
+      const by = Object.fromEntries(methods.map((m) => [m.method, m]));
+      expect(by.bank_transfer).toMatchObject({
+        quote: { payAmount: '41', fee: '1', rate: '2', payCurrency: 'EUR', deliveryEstimate: 'TEST 1 day', simulated: true },
+        blocker: null,
+        standIn: 'TEST add-money stand-in',
+      });
+      expect(by.card).toEqual({ method: 'card', rail: 'rail.card', quote: null, blocker: 'bank.fiat_ramp_socket', standIn: null });
+      const de = await as(ADA, { onrampStandIn: standIn }).addMoney.methods(ask);
+      expect(de.methods.every((m) => m.quote === null && m.blocker === 'bank.fiat_ramp_socket' && m.standIn === null)).toBe(true);
+    });
+
+    it('a quote accepted after it ran out is refused, keeps nothing and posts nothing', async () => {
+      clock = Date.now();
+      const ada = as(ADA, { onrampStandIn: standIn });
+      const { methods } = await ada.addMoney.methods(nl);
+      const quoteId = methods.find((m) => m.method === 'bank_transfer')!.quote!.quoteId;
+      // The person waits on the review past the stand-in's 30 seconds.
+      await sql`UPDATE bank.ramp_onramp_quotes SET expires_at = now() - interval '1 second' WHERE id = ${quoteId}::uuid`;
+      const requestId = randomUUID();
+      const err = await ada.addMoney.start({ requestId, ...nl, method: 'bank_transfer', quoteId }).catch((e: unknown) => e);
+      expect(codeOf(err)).toBe('bank.onramp_quote_expired');
+      expect(await ada.addMoney.requests({ limit: 10 })).toEqual([]);
+      nothingPosted();
+    });
+
+    it('a quote accepted in time still ends with no partner to pay: refused with the rail, kept once, nothing posted', async () => {
+      clock = Date.now();
+      const ada = as(ADA, { onrampStandIn: standIn });
+      const { methods } = await ada.addMoney.methods(nl);
+      const quoteId = methods.find((m) => m.method === 'bank_transfer')!.quote!.quoteId;
+      const row = await ada.addMoney.start({ requestId: randomUUID(), ...nl, method: 'bank_transfer', quoteId });
+      expect(row).toMatchObject({ status: 'refused', rail: 'rail.bank', refusalCode: 'bank.fiat_ramp_socket', onramp: null });
+      nothingPosted();
     });
   });
 

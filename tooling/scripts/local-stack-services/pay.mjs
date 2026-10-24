@@ -23,5 +23,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     // LOCAL-TEST merchant terms (tooling/profiles/test-owner-values/pay.json), so go-live can show and accept them. svc-pay refuses a TEST version outside APP_ENV dev or test.
     PAY_MERCHANT_TERMS_VERSION: 'TEST-merchant-terms-1',
     PAY_MERCHANT_TERMS_URL: 'https://terms.example/TEST-merchant-terms-1',
+    // The stack's own key for business verification documents (generated once in secrets.json), so uploads are stored encrypted.
+    PAY_KYB_DOC_KEY: secrets.payKybDocKey,
+    // LOCAL-TEST value (tooling/profiles/test-owner-values/pay.json): a business application is due 30 days after it starts.
+    PAY_KYB_APPLICATION_DUE_DAYS: '30',
   }),
 });

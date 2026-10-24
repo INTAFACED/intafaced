@@ -27,10 +27,10 @@ export const amount = (value: string | null | undefined, asset: string) =>
 export const funds = (value: string | null | undefined, asset: string) =>
   currentPreferences().hideBalances && value != null ? `•••• ${asset}` : amount(value, asset);
 /** One date and time look across the app: "18 Oct, 01:05" in the viewer's zone, with a picked zone named. */
-export function date(value: string | null) {
+export function date(value: string | null, seconds = false) {
   if (!value) return copyText('components.none');
   if (!Number.isFinite(Date.parse(value))) return copyText('components.date.unavailable');
-  return stamp(value, currentPreferences().timeZone);
+  return stamp(value, currentPreferences().timeZone, Date.now(), seconds);
 }
 export const bps = (value: number) => `${value / 100}%`;
 export function useBankRead<K extends BankRead>(procedure: K, input: unknown, enabled = true) {

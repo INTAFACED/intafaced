@@ -484,6 +484,8 @@ describe('presented follow keys', () => {
       'permittedMarkets',
       'maxNotionalPerOrder',
       'maxAggregateExposure',
+      'fixedOrderSize',
+      'reserve',
       'maxLoss',
       'maxSlippageBps',
       'maxConcurrent',

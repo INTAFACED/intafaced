@@ -202,6 +202,36 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'Identity will not let this run until a different approver has approved exactly this request: another operator for a module kill or re-enable, another founder for a ledger unfreeze. Nothing was changed.',
     next: 'Ask the second approver to approve the request packet, then run it.',
   },
+  'drop.wave_unset': {
+    title: 'The wave size is not set',
+    body: 'Nobody can be released until the owner sets how many people one waitlist wave releases (IDENTITY_WAITLIST_WAVE_SIZE). Nothing was released and no approval was spent.',
+    next: 'Ask the owner to set the wave size in the identity service settings, then start a new request.',
+  },
+  'waitlist.wave_unknown': {
+    title: 'That is not the next wave',
+    body: 'Waves are released in order, and another release may have landed since you read the desk. Nothing was released.',
+    next: 'Read the waves below and request the wave number shown as next.',
+  },
+  'waitlist.wave_empty': {
+    title: 'Nobody is waiting',
+    body: 'Every person on the waitlist has already been released, so there is nobody to invite. Nothing was released.',
+    next: 'Read the waves below. Release again once more people have joined.',
+  },
+  'waitlist.unbuilt': {
+    title: 'The waitlist is not connected',
+    body: 'Identity has no waitlist store on this host, so no wave can be released. Nothing was released.',
+    next: 'Ask whoever runs the identity host to connect the waitlist database, then start a new request.',
+  },
+  'flag.waitlist.enabled.disabled': {
+    title: 'The waitlist is switched off',
+    body: 'The waitlist.enabled switch is off, so identity releases no wave. Nothing was released.',
+    next: 'Turn the waitlist back on first, then start a new request.',
+  },
+  'flag.waitlist.enabled.drop_pending': {
+    title: 'The waitlist has not opened yet',
+    body: 'The waitlist.enabled switch is waiting for its launch drop, so identity releases no wave yet. Nothing was released.',
+    next: 'Release once the waitlist is open.',
+  },
   'auth_key.approval_required': {
     title: 'The approval did not cover this key change',
     body: 'Identity checked the approval against the exact key change and refused it: it is missing, not approved, already used, expired, or for a different change. Nothing was changed.',
@@ -342,6 +372,52 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     title: 'The edge cannot reach the ledger',
     body: 'svc-edge has no route to svc-ledger on this deployment, so nothing was sent to it.',
     next: 'Ask engineering. Nothing was changed.',
+  },
+  'ops.control_state_illegal': {
+    title: 'Only an active control can run',
+    body: 'svc-ledger refused before it read anything or used the approval: this control is still a draft.',
+    next: 'Activate the control first. Activating changes its version, so ask for a new approval after that.',
+  },
+  'ops.control_margin_unset': {
+    title: 'A run at a past instant needs a margin',
+    body: 'Neither the request nor the control names how many seconds before the instant to read, so nothing ran.',
+    next: 'Type a margin (0 is accepted) or set one on the control, then ask for a new approval.',
+  },
+  'ops.control_policy_unset': {
+    title: 'The control is missing a policy value',
+    body: 'Tolerance, schedule and severity are needed (a threshold control also needs a threshold per asset), so it was not activated.',
+    next: 'Fill in the blank values. Nothing was changed.',
+  },
+  'ledger.reconcile_asof_invalid': {
+    title: 'That instant is in the future',
+    body: 'A control reads only the past, so svc-ledger refused before it read anything or used the approval.',
+    next: 'Choose a past instant and ask for a new approval.',
+  },
+  'ledger.reconcile_control_not_found': {
+    title: 'No control has that id',
+    body: 'svc-ledger has no reconciliation control with that id, so nothing ran.',
+    next: 'Read the controls again.',
+  },
+  'ledger.reconcile_builtin_immutable': {
+    title: 'Built-in controls cannot be changed',
+    body: 'The three built-in controls cover the whole book and cannot be changed or removed. Nothing was changed.',
+    next: 'Define a new control instead.',
+  },
+  'ledger.reconcile_source_unavailable': {
+    title: 'svc-ledger could not reach its book',
+    body: 'The control could not be read or run. A result row may already exist for this run.',
+    next: 'Read the controls again before repeating anything.',
+    changed: 'unknown',
+  },
+  'ledger.idempotency_conflict': {
+    title: 'This approval was used for a different run',
+    body: 'svc-ledger keeps one run per approval. The same operation with another reason, instant or margin is refused, and nothing new ran.',
+    next: 'Ask for a new approval.',
+  },
+  'edge.invalid_reconciliation_control': {
+    title: 'The request was refused for its shape',
+    body: 'svc-edge checked it against the contract and refused it before the ledger was called. The approval was not used.',
+    next: 'Tell engineering: the console and the edge disagree about the contract.',
   },
   'notify.notice_publish_same_operator': {
     title: 'The approver cannot also publish',

@@ -12,6 +12,7 @@ import {
   p2p,
   readyTaker,
   refusalCode,
+  restorePasskey,
   registerRetiringMethod,
   retireRetiringMethod,
   testInstrument,
@@ -719,4 +720,64 @@ test('J-p2p-01 #8 the seller releases; the order says Completed with the coins a
     .getByRole('button', { name: /^Completed \(\d+\)$/ })
     .click();
   await expect(row).toBeVisible();
+});
+
+test('J-p2p-01 #9 the completed order has a receipt and an open one none; each side reviews the other once', async ({ page }) => {
+  const state = journey();
+  const buyer = p2p(await api(state.buyer));
+  const seller = p2p(await api(state.seller));
+  await signIn(page, state.buyer);
+  await page.goto(`/uc/order?tradeId=${state.tradeId}`);
+
+  // A receipt for this completed order.
+  await page.getByRole('button', { name: 'Get receipt' }).click();
+  const receipt = page.getByTestId('order-receipt');
+  await expect(receipt).toContainText(state.tradeId);
+  await expect(receipt).toContainText('Buyer');
+
+  // The buyer rates the seller, once.
+  const panel = page.getByTestId('order-review');
+  await expect(panel).toContainText('The other side has not reviewed you on this order.');
+  const form = panel.getByRole('form', { name: 'Leave a review' });
+  await form.getByRole('button', { name: 'Good' }).click();
+  await form.getByLabel('Comment (optional)').fill('TEST released on time');
+  await form.getByRole('button', { name: 'Leave review' }).click();
+  const mine = panel.getByRole('region', { name: 'Your review' });
+  await expect(mine).toContainText('Good');
+  await expect(mine).toContainText('TEST released on time');
+  await expect(panel.getByRole('form', { name: 'Leave a review' })).toHaveCount(0);
+  const first = (await buyer.query('reviews.forTrade', { tradeId: state.tradeId })).mine;
+  // A second leave returns the first, unchanged.
+  const again = await buyer.mutate('reviews.leave', { tradeId: state.tradeId, rating: 'bad', explanation: 'TEST second try' });
+  expect(again).toMatchObject({ id: first.id, rating: 'good', comment: 'TEST released on time' });
+
+  // The seller's bad review needs an explanation; the buyer then sees it on the order.
+  expect(refusalCode(await seller.raw.mutate('reviews.leave', { tradeId: state.tradeId, rating: 'bad' }))).toBe('p2p.explanation_required');
+  await seller.mutate('reviews.leave', { tradeId: state.tradeId, rating: 'bad', explanation: 'TEST paid from another name' });
+  await page.reload();
+  const theirs = page.getByRole('region', { name: 'Their review of you' });
+  await expect(theirs).toContainText('Bad');
+  await expect(theirs).toContainText('TEST paid from another name');
+  // The buyer answers it once, under the words it answers.
+  const reply = page.getByTestId('order-review').getByRole('form', { name: 'Reply to their review' });
+  await reply.getByLabel('Reply to their review').fill('TEST the account is in my own name');
+  await reply.getByRole('button', { name: 'Reply' }).click();
+  await expect(theirs).toContainText('Reply: TEST the account is in my own name');
+  await expect(page.getByRole('form', { name: 'Reply to their review' })).toHaveCount(0);
+  // One review per party: the seller's is about the buyer, the buyer's about the seller.
+  const rows = await buyer.query('reviews.forTrade', { tradeId: state.tradeId });
+  expect(rows.theirs).toMatchObject({ authorId: rows.mine.subjectId, subjectId: rows.mine.authorId, rating: 'bad' });
+
+  // An order that has not completed has neither a receipt nor a review: a fresh one on the same ad, then cancelled.
+  // The account's TEST passkey for this API take. The browser's copy moved its signature counter on in #5, so this copy
+  // starts well past it, as a counter only ever rises.
+  const taker = p2p(await api(state.buyer), await restorePasskey({ ...state.passkey, signCount: state.passkey.signCount + 1000 }));
+  const open = await taker.mutate('trades.take', { offerId: state.offerId, tradeId: randomUUID(), amount: AD.min, method: METHOD });
+  expect(open.status).toBe('escrowed');
+  await page.goto(`/uc/order?tradeId=${open.id}`);
+  await expect(page.getByText('A receipt is available once the order is completed.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Get receipt' })).toHaveCount(0);
+  await expect(page.getByText('Only a completed order can be reviewed.')).toBeVisible();
+  expect(refusalCode(await buyer.raw.mutate('reviews.leave', { tradeId: open.id, rating: 'good' }))).toBe('p2p.review_not_eligible');
+  await taker.mutate('trades.cancel', { tradeId: open.id, reason: 'TEST journey order that never completes' });
 });

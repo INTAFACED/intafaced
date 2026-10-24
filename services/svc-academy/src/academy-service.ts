@@ -46,6 +46,7 @@ import { LessonRecords } from './curriculum/lessons.js';
 import { CourseMedia, type ReadBackFn } from './curriculum/media.js';
 import { LearnHub } from './curriculum/learn-hub.js';
 import { CoursePreview } from './curriculum/course-preview.js';
+import { CourseLearners } from './curriculum/course-learners.js';
 import type { VideoStorageConfig } from './video/storage.js';
 import { CourseStarts } from './curriculum/course-start.js';
 import { publicCourse } from './curriculum/public-catalogue.js';
@@ -313,6 +314,7 @@ export class AcademyService {
   private readonly courseMedia: CourseMedia;
   private readonly learnHub: LearnHub;
   private readonly coursePreview: CoursePreview;
+  private readonly courseLearners: CourseLearners;
   private readonly courseStarts: CourseStarts;
   private readonly plannerStore: PlannerStore;
   private readonly videoTracks: VideoTracks;
@@ -340,6 +342,7 @@ export class AcademyService {
     this.lessonRecords = new LessonRecords(sql, this.courseRecords, this.options.lessonImportMaxBytes ?? null);
     this.learnHub = new LearnHub(sql, this.options.topicsListLimit ?? null);
     this.coursePreview = new CoursePreview(sql);
+    this.courseLearners = new CourseLearners(sql, this.coursePreview);
     this.courseMedia = new CourseMedia(
       sql,
       this.options.mediaStorage ?? null,
@@ -2296,6 +2299,29 @@ export class AcademyService {
 
   revokePrivateLink(input: { linkId: string; reason: string; operatorId: string; now?: Date }) {
     return this.coursePreview.revokeLink({ ...input, now: input.now ?? new Date() });
+  }
+
+  /** AC-catalogue-03: the published courses staff made, newest first. */
+  publishedCourses(limit: number) {
+    return this.courseLearners.published(limit);
+  }
+
+  /** AC-catalogue-03: a published course's page; signed in, the caller's enrolment opens what is released. */
+  authoredCoursePage(slug: string, readerId: string | null) {
+    return this.courseLearners.page(slug, readerId);
+  }
+
+  /** AC-enrolment-01: the terms of enrolling in a course staff made, with the caller's own enrolment. */
+  authoredCourseEnrolment(input: { userId: string; slug: string }) {
+    return this.courseLearners.terms(input);
+  }
+
+  enrolAuthoredCourse(input: { userId: string; slug: string; track: AcademyEnrolmentTrack; now?: Date }) {
+    return this.courseLearners.enrol({ ...input, now: input.now ?? new Date() });
+  }
+
+  leaveAuthoredCourse(input: { userId: string; slug: string; enrolledAt: string; now?: Date }) {
+    return this.courseLearners.leave({ ...input, now: input.now ?? new Date() });
   }
 
   /** AC-videos-02: an item's uploads, captions and the owner's upload limits. */

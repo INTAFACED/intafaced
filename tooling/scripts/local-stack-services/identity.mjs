@@ -55,6 +55,12 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     IDENTITY_SIGNUP_REQUEST_MAX: '10',
     IDENTITY_SIGNUP_REQUEST_WINDOW_SECONDS: '3600',
     IDENTITY_SIGNUP_CLOSED_COUNTRIES: 'AQ',
+    // Sign-in by a mailed code (J-identity-02 #3): TEST values from the profile file, not owner decisions.
+    IDENTITY_LOGIN_CODE_TTL_SECONDS: testValue('IDENTITY_LOGIN_CODE_TTL_SECONDS'),
+    IDENTITY_LOGIN_CODE_MAX_ATTEMPTS: testValue('IDENTITY_LOGIN_CODE_MAX_ATTEMPTS'),
+    IDENTITY_LOGIN_CODE_RESEND_SECONDS: testValue('IDENTITY_LOGIN_CODE_RESEND_SECONDS'),
+    IDENTITY_LOGIN_CODE_REQUEST_MAX: testValue('IDENTITY_LOGIN_CODE_REQUEST_MAX'),
+    IDENTITY_LOGIN_CODE_REQUEST_WINDOW_SECONDS: testValue('IDENTITY_LOGIN_CODE_REQUEST_WINDOW_SECONDS'),
     // LOCAL TEST ONLY, not an owner decision (W-withdraw-09): a security lock ends one day after its unlock is asked
     // for, so a journey can see the lock still holding with its end time.
     IDENTITY_SECURITY_LOCK_UNLOCK_WAIT_SECONDS: '86400',

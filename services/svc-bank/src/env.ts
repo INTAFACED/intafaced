@@ -4,6 +4,7 @@ import { CARD_ISSUER_SETTINGS } from './cards/issuer.js';
 import { parseRecoveryBatchLimit, parseRecoveryInterval } from './recovery-jobs.js';
 import { RAMP_SETTINGS } from './ramps/rails.js';
 import { GLOBAL_PARTNER_SETTINGS } from './personal-pay/global-sim.js';
+import { ONRAMP_RATE_SETTINGS } from './ramps/onramp-sim.js';
 
 // This service self-mounts /trpc, so it must be able to authenticate the edge.
 // Every procedure here resolves `ctx.principal.userId` into somebody's spaces
@@ -222,6 +223,18 @@ const schema = serviceEnvSchema
        * plausible one, so choosing the ledger half is an act somebody performed.
        */
       BANK_RAMP_MODE: z.enum(RAMP_SETTINGS).default('none'),
+
+      /**
+       * WHO PRICES ADD MONEY ON A TEST STACK. `none` (default) | `ramp-sim` (J-bank-02 #4).
+       *
+       * `none` leaves fiat pay-in as `socket.psp-partners`: every way to pay refuses by name. `ramp-sim` is a TEST rate
+       * stand-in for the local stack and journey tests only (`ramps/onramp-sim.ts`): it quotes from the typed TEST
+       * catalogue in `BANK_ONRAMP_SIM_JSON` for the asks it lists, opens no payment and credits nothing, and the service
+       * refuses to start with it outside dev or test.
+       */
+      BANK_ONRAMP_RATES: z.enum(ONRAMP_RATE_SETTINGS).default('none'),
+      /** The add-money stand-in's TEST catalogue (countries, ways to pay, rates, fees, quote validity). Read only with `ramp-sim`. */
+      BANK_ONRAMP_SIM_JSON: z.string().optional(),
 
       /**
        * MONEY-OUT STEP-UP (ADR 2026-10-14-money-out-step-up, phase 1). `off` | `required`.

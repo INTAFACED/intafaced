@@ -180,6 +180,18 @@ export function FollowDetail({
                 { label: t('Most per order'), value: withAsset(follow.maxNotionalPerOrder, quoteAsset(follow)) },
                 { label: t('Most in total'), value: withAsset(follow.maxAggregateExposure, quoteAsset(follow)) },
                 {
+                  label: t('Fixed amount per copied order'),
+                  value: follow.fixedOrderSize ? withAsset(follow.fixedOrderSize, quoteAsset(follow)) : t('Not set'),
+                },
+                {
+                  label: t('Reserved for this copy'),
+                  value: !follow.reserve
+                    ? t('Not set')
+                    : follow.reserve.released
+                      ? t('Released')
+                      : withAsset(follow.reserve.amount, follow.reserve.asset),
+                },
+                {
                   label: t('Stop at a loss of'),
                   value: follow.maxLoss === null ? t('Not set') : withAsset(follow.maxLoss, quoteAsset(follow)),
                 },

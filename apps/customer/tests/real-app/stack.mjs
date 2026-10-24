@@ -42,13 +42,13 @@ export function tool(script, ...args) {
 }
 
 /** Every LOCAL-TEST sign-up code the stack's identity service mailed to `email`, oldest first (its outbox file). */
-export function mailedCodes(email) {
+export function mailedCodes(email, purpose = 'signup-code') {
   const file = path.join(STATE, 'email-outbox.log');
   if (!existsSync(file)) return [];
   const wanted = email.replace(/\s+/g, '');
   return readFileSync(file, 'utf8')
     .split('\n')
-    .filter((line) => line.includes('purpose=signup-code') && line.includes(` email=${wanted} `))
+    .filter((line) => line.includes(`purpose=${purpose} `) && line.includes(` email=${wanted} `))
     .map((line) => /\bcode=(\d{6})\b/.exec(line)?.[1])
     .filter(Boolean);
 }
@@ -88,12 +88,12 @@ export function statusMail(email) {
 }
 
 /** The next code mailed to `email` once more than `seen` have arrived. The relay sends right after the request commits. */
-export async function nextMailedCode(email, seen = 0, waitMs = 20_000) {
+export async function nextMailedCode(email, seen = 0, waitMs = 20_000, purpose = 'signup-code') {
   const until = Date.now() + waitMs;
   for (;;) {
-    const codes = mailedCodes(email);
+    const codes = mailedCodes(email, purpose);
     if (codes.length > seen) return codes.at(-1);
-    if (Date.now() >= until) throw new Error(`no sign-up code reached ${email} within ${waitMs} ms`);
+    if (Date.now() >= until) throw new Error(`no ${purpose} reached ${email} within ${waitMs} ms`);
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
 }

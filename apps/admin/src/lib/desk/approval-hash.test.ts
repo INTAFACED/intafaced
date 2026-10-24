@@ -33,6 +33,26 @@ describe('payload hash equals the owning service’s own function', () => {
     );
     expect(payloadHashFor({ kind: 'ledger.unfreeze', version: 'v' })).toBe(ledgerActionPayloadHash('ledger.unfreeze', {}));
   });
+  it('ledger.reconciliation_control.run binds the control, instant, margin and reason in svc-ledger’s order', () => {
+    const controlId = '0b4f6c2e-1111-4222-8333-444455556666';
+    const reason = 'LOCAL TEST run the USDT floor control';
+    for (const [asOf, margin] of [
+      ['now', 'unset'],
+      ['2026-10-23T06:30:00.000Z', '0'],
+    ] as const) {
+      expect(payloadHashFor({ kind: 'ledger.reconciliation_control.run', controlId, version: '3', asOf, margin, reason })).toBe(
+        ledgerActionPayloadHash('ledger.reconciliation_control.run', { controlId, asOf, margin, reason }),
+      );
+    }
+    expect(
+      proposeInputFor({ kind: 'ledger.reconciliation_control.run', controlId, version: '3', asOf: 'now', margin: 'unset', reason }),
+    ).toMatchObject({
+      actionType: 'ledger.reconciliation_control.run',
+      targetService: 'svc-ledger',
+      targetId: 'posting_reconciliation_control.run',
+      expectedVersion: '3',
+    });
+  });
   it('market.vendor.vet and the academy ambassador verbs', () => {
     const vendorId = '5a3b9c10-1111-4222-8333-444455556666';
     const userId = '9f8e7d6c-1111-4222-8333-444455556666';
@@ -187,6 +207,20 @@ describe('the identity approval is proposed against the target the service consu
       targetId: 'posting_unfreeze',
       expectedVersion: version,
     });
+  });
+});
+
+describe('waitlist wave release', () => {
+  it('hash equals identity’s own function over { wave, size } and is proposed against waitlist.wave.release', () => {
+    const request = { kind: 'campaigns.waitlist.wave_release', wave: '3', size: '2' } as const;
+    expect(payloadHashFor(request)).toBe(identityActionPayloadHash('waitlist.wave.release', { wave: '3', size: '2' }));
+    expect(proposeInputFor(request)).toMatchObject({
+      actionType: 'waitlist.wave.release',
+      targetService: 'svc-identity',
+      targetId: 'waitlist.wave.release',
+      expectedVersion: '1',
+    });
+    expect(payloadHashFor(request)).not.toBe(payloadHashFor({ ...request, size: '3' }));
   });
 });
 

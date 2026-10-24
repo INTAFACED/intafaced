@@ -77,6 +77,7 @@ import {
   readFounderPinStamp,
   writeFounderPinStamp,
 } from './local-test-founders.mjs';
+import { consoleTreasuryToken, makeContext } from './local-test-gates.mjs';
 import {
   localStackState,
   localPgBin,
@@ -271,6 +272,7 @@ const SECRET_NAMES = [
   'identityFlowSubject', // identity's key for sign-up and recovery flows (address identifier and code hash)
   'notifyStatusLink', // notify's key for the signed links in status subscription mail
   'academyVideoStore', // the TEST video store's signing key, shared with academy (local-video-store.mjs)
+  'payKybDocKey', // pay's key for business verification documents (PAY_KYB_DOC_KEY, 32 bytes as hex)
 ];
 
 function loadOrCreateSecrets() {
@@ -353,14 +355,14 @@ function ownedAlive(rec) {
   return processRecordMatches(rec, readProcessIdentity(rec?.pid));
 }
 
-function startProc(name, argv, env, cwd) {
+function startProc(name, argv, env, cwd, extra = {}) {
   const logPath = path.join(P.logs, `${name}.log`);
   const fd = fs.openSync(logPath, 'a', 0o600);
   const child = spawn(argv[0], argv.slice(1), { cwd, env, detached: true, stdio: ['ignore', fd, fd] });
   child.unref();
   fs.closeSync(fd);
   const procs = readProcs();
-  procs[name] = { pid: child.pid, argv, startedAt: new Date().toISOString() };
+  procs[name] = { pid: child.pid, argv, startedAt: new Date().toISOString(), ...extra };
   writeProcs(procs);
   return child.pid;
 }
@@ -1140,14 +1142,52 @@ function adminEnv(secrets) {
   };
 }
 
+/** How long the console's LOCAL TEST treasury token lives. A start with less than an hour left restarts the console. */
+const TREASURY_TTL_SECONDS = 24 * 60 * 60;
+const TREASURY_RENEW_MS = 60 * 60 * 1000;
+
+/**
+ * The console's treasury transport (ADMIN_TREASURY_TOKEN), minted on founder a's own second-factor session by
+ * local-test-gates.mjs and held only in the console's environment. Without it the console shows define, change and run
+ * parked, so a mint that fails is said out loud and leaves them parked rather than stopping the stack.
+ */
+async function consoleTreasuryEnv() {
+  try {
+    const minted = await consoleTreasuryToken(await makeContext({ log: () => {} }), { ttlSeconds: TREASURY_TTL_SECONDS });
+    if (minted) return { env: { ADMIN_TREASURY_TOKEN: minted.token }, expiresAt: minted.expiresAt.toISOString() };
+    say('  admin: the founder pair is not enrolled, so the console keeps its treasury doors parked');
+  } catch (err) {
+    say(`  admin: no LOCAL TEST treasury token (${err instanceof Error ? err.message : String(err)}); treasury doors stay parked`);
+  }
+  return { env: {}, expiresAt: null };
+}
+
+/** Until when this console's treasury token holds, or null when it holds none (or has run out). */
+function treasuryHeldUntil(rec) {
+  const until = typeof rec?.treasuryExpiresAt === 'string' ? Date.parse(rec.treasuryExpiresAt) : NaN;
+  return Number.isFinite(until) && until > Date.now() ? until : null;
+}
+
 async function startAdmin(secrets) {
   const procs = readProcs();
   const url = `${ADMIN_ORIGIN}/login`;
-  // Ours but not answering yet (a first request compiles nothing, but prepare() takes a few seconds): wait for it.
-  if (ownedAlive(procs.admin)) return waitHealthy('admin', url, procs.admin.pid, 60_000);
+  let treasury = null;
+  if (ownedAlive(procs.admin)) {
+    const until = treasuryHeldUntil(procs.admin);
+    // Ours but not answering yet (a first request compiles nothing, but prepare() takes a few seconds): wait for it.
+    if (until !== null && until - Date.now() >= TREASURY_RENEW_MS) return waitHealthy('admin', url, procs.admin.pid, 60_000);
+    // No token, or under an hour left: mint first, and keep the running console when the mint fails.
+    treasury = await consoleTreasuryEnv();
+    if (!treasury.expiresAt) return waitHealthy('admin', url, procs.admin.pid, 60_000);
+    say('  admin: restarting so the console holds a fresh LOCAL TEST treasury token');
+    await stopProc('admin', procs.admin);
+  }
   if (await portOpen(PORTS.admin)) fail(`port ${PORTS.admin} (admin) is in use by a process this script did not start`);
   if (!fs.existsSync(P.adminBuildId)) fail('founder console build missing; run with --rebuild');
-  const pid = startProc('admin', [process.execPath, SCRIPT, '__serve-admin'], adminEnv(secrets), P.admin);
+  treasury ??= await consoleTreasuryEnv();
+  const pid = startProc('admin', [process.execPath, SCRIPT, '__serve-admin'], { ...adminEnv(secrets), ...treasury.env }, P.admin, {
+    treasuryExpiresAt: treasury.expiresAt,
+  });
   await waitHealthy('admin', url, pid, 60_000);
 }
 
@@ -1337,6 +1377,13 @@ async function cmdStart(flags) {
   say(`  Open: ${CUSTOMER_ORIGIN}   (register, sign in, then: pnpm local:fund <email> USDT 1000)`);
   say(`  Invitation site: ${INVITATION_ORIGIN}   (the public join and partner enquiry forms)`);
   say(`  Founder console: ${ADMIN_ORIGIN}   (local_test_founder_a / _b; credentials in ${FOUNDER_VAULT_NAME})`);
+  const consoleRec = readProcs().admin;
+  const treasuryUntil = ownedAlive(consoleRec) ? treasuryHeldUntil(consoleRec) : null;
+  say(
+    treasuryUntil !== null
+      ? `  Console treasury doors: LOCAL TEST token on local_test_founder_a's session until ${new Date(treasuryUntil).toISOString()}`
+      : '  Console treasury doors: parked (the console holds no LOCAL TEST treasury token)',
+  );
   say(`  Stop: pnpm local:stack:stop`);
   if (!allOk) process.exit(1);
 }

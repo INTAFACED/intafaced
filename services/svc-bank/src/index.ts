@@ -22,6 +22,7 @@ import { bankHttpReady } from './ready.js';
 import { createPayCustodyDepositPort } from './deposits/pay-custody-port.js';
 import { cardIssuerFor } from './cards/issuer.js';
 import { globalPortsFor } from './personal-pay/global-sim.js';
+import { onrampStandInFor } from './ramps/onramp-sim.js';
 import { rampProgrammeFor } from './ramps/rails.js';
 import { eventMarginCallSink } from './loans/margin-call-publisher.js';
 import { createIdentityPartyHandles } from './transfers/party-handles.js';
@@ -269,6 +270,11 @@ const bank = createBankServices(sql, ledger, history, {
     securityLock: env.IDENTITY_URL
       ? createIdentitySecurityLock(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, undefined, undefined, ledgerS2s)
       : unconfiguredSecurityLock(),
+    /** The TEST add-money rate stand-in: none unless chosen, and it refuses to boot outside dev/test. It opens no payment. */
+    onrampStandIn: onrampStandInFor(env.BANK_ONRAMP_RATES, env.BANK_ONRAMP_SIM_JSON, {
+      APP_ENV: process.env.APP_ENV,
+      NODE_ENV: process.env.NODE_ENV,
+    }),
     /** Which asset may be withdrawn on which network: svc-ledger's registry, the one list deposit and trade read too. */
     withdrawNetworks: createLedgerAssetRegistry(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s),
   },

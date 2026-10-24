@@ -140,3 +140,130 @@ test(`${J} #5 the verified owner saves where payouts go, confirming it with a fr
   await expect(page.getByText('No destinations yet')).toHaveCount(0);
   expect(refused).toEqual([]);
 });
+
+/** Step 2's business application on the verification page, started for one type and country. */
+async function startApplication(page, typeLabel, country = 'DE') {
+  await page.goto('/pay/onboarding/verification');
+  const app = page.locator('section.pay-section').filter({ has: page.getByRole('heading', { name: 'Business application' }) });
+  await app.getByLabel('Legal entity type *').selectOption({ label: typeLabel });
+  await app.getByLabel('Country the business is registered in *').selectOption(country);
+  await app.getByRole('button', { name: 'Start the application' }).click();
+  await expect(app.getByText('Pending', { exact: true })).toBeVisible();
+  return app;
+}
+
+test(`${J} #2 the owner chooses the legal entity type; changing it returns the application to Pending and lists what is still needed with a due date`, async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  const owner = await businessReadyPerson(page, 'mkt', '/pay/onboarding');
+  await openBusiness(page, owner, 'TEST Entity Ltd');
+  const refused = refusedPayCalls(page);
+
+  const app = await startApplication(page, 'Private company');
+  const needed = app.getByRole('list', { name: 'Still needed' });
+  await expect(needed).toContainText('Company details');
+  await expect(needed).toContainText('People behind the business');
+  await expect(needed).toContainText('Documents: Test certificate of incorporation, Test proof of address');
+  await expect(needed).toContainText('Questions');
+  // The stack's TEST due date is 30 days from the start.
+  await expect(app.locator('dt', { hasText: 'Due by' }).locator('+ dd time')).toHaveAttribute('datetime', /^\d{4}-\d{2}-\d{2}T/);
+
+  const company = app.getByRole('region', { name: 'Company details' });
+  await company.getByLabel('Registered legal name *').fill('TEST Entity Ltd');
+  await company.getByLabel('Registered address *').fill('1 Test Street, Berlin');
+  await company.getByRole('button', { name: 'Save' }).click();
+  await expect(company.getByRole('status')).toHaveText('Saved. This part is done.');
+  await expect(needed).not.toContainText('Company details');
+
+  const change = app.getByRole('region', { name: 'Change the legal entity type' });
+  await change.getByLabel('Legal entity type *').selectOption({ label: 'Sole trader' });
+  await change.getByRole('button', { name: 'Change type' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Change type' }).click();
+  await expect(change.getByRole('status').filter({ hasText: 'Type changed.' })).toHaveText(
+    'Type changed. Fill in each part again for the new type.',
+  );
+  await expect(app.getByText('Pending', { exact: true })).toBeVisible();
+  await expect(needed).toContainText('Company details');
+  await expect(needed).toContainText('Documents: Test proof of identity, Test proof of address');
+  await expect(app.getByRole('region', { name: 'Company details' })).toContainText('Not started');
+  await expect(app.getByRole('region', { name: 'People behind the business' }).getByLabel('Role *')).toHaveValue('test_proprietor');
+
+  await page.reload();
+  await expect(app.locator('dd', { hasText: 'Sole trader' })).toBeVisible();
+  await expect(needed).toContainText('Test proof of identity');
+  expect(refused).toEqual([]);
+});
+
+test(`${J} part of #3 the owner adds the people and documents a sole trader is asked for; a file over the limit or of a wrong type is refused before it is sent; each row reads Pending, and the application goes for review`, async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  const owner = await businessReadyPerson(page, 'mdc', '/pay/onboarding');
+  await openBusiness(page, owner, 'TEST Documents Ltd');
+  const refused = refusedPayCalls(page);
+  const uploads = [];
+  page.on('request', (req) => req.url().includes('kyb.documents.upload') && uploads.push(req.url()));
+
+  const app = await startApplication(page, 'Sole trader');
+  const company = app.getByRole('region', { name: 'Company details' });
+  await company.getByLabel('Registered legal name *').fill('TEST Documents Ltd');
+  await company.getByLabel('Registered address *').fill('2 Test Street, Berlin');
+  await company.getByRole('button', { name: 'Save' }).click();
+  await expect(company.getByRole('status')).toHaveText('Saved. This part is done.');
+
+  const people = app.getByRole('region', { name: 'People behind the business' });
+  await people.getByLabel('Full legal name *').fill('TEST Proprietor');
+  await people.getByLabel('Date of birth *').fill('1980-01-02');
+  await people.getByLabel('Nationality (2-letter country code) *').fill('DE');
+  await people.getByRole('button', { name: 'Save' }).click();
+  await expect(people.getByRole('status')).toHaveText('Saved. This part is done.');
+
+  const questions = app.getByRole('region', { name: 'Questions' });
+  await questions.getByLabel('Test nature of business *').fill('TEST online sales of printed books');
+  await questions.getByRole('button', { name: 'Save' }).click();
+  await expect(questions.getByRole('status')).toHaveText('Saved. This part is done.');
+
+  const docs = app.getByRole('region', { name: 'Documents', exact: true });
+  await expect(docs).toContainText('Files up to 1.0 MB. Accepted: PDF, PNG.');
+  await expect(docs).toContainText('The automatic document check isn’t connected');
+  const identity = docs.getByRole('row', { name: /Test proof of identity/ });
+  await expect(identity).toContainText('Needed');
+  const pick = identity.getByLabel('Choose a file for Test proof of identity');
+  await pick.setInputFiles({ name: 'too-big.pdf', mimeType: 'application/pdf', buffer: Buffer.alloc(2 * 1024 * 1024, 1) });
+  await expect(identity.getByRole('alert')).toHaveText('This file is 2.0 MB. The limit is 1.0 MB. Choose a smaller file.');
+  await expect(identity.getByRole('button', { name: 'Send' })).toBeDisabled();
+  await pick.setInputFiles({ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('TEST notes') });
+  await expect(identity.getByRole('alert')).toHaveText('This kind of file isn’t accepted. Accepted: PDF, PNG.');
+  await expect(identity.getByRole('button', { name: 'Send' })).toBeDisabled();
+  expect(uploads).toEqual([]);
+
+  const pdf = (text) => Buffer.from(`%PDF-1.4\n% TEST ${text}\n%%EOF\n`);
+  await pick.setInputFiles({ name: 'identity.pdf', mimeType: 'application/pdf', buffer: pdf('identity') });
+  await identity.getByRole('button', { name: 'Send' }).click();
+  await expect(docs.getByRole('row', { name: /Test proof of identity/ })).toContainText('Pending');
+  const address = docs.getByRole('row', { name: /Test proof of address/ });
+  await address
+    .getByLabel('Choose a file for Test proof of address')
+    .setInputFiles({ name: 'address.png', mimeType: 'image/png', buffer: Buffer.from('TEST png') });
+  await address.getByRole('button', { name: 'Send' }).click();
+  await expect(docs.getByRole('row', { name: /Test proof of address/ })).toContainText('Pending');
+  expect(uploads).toHaveLength(2);
+
+  await docs.getByRole('button', { name: 'Confirm documents' }).click();
+  await expect(docs.getByRole('status').filter({ hasText: 'Saved.' })).toHaveText('Saved. This part is done.');
+  await expect(app.getByText('Ready to send', { exact: true })).toBeVisible();
+  await page.reload();
+  await expect(app.getByText('Ready to send', { exact: true })).toBeVisible();
+  await expect(
+    app.getByRole('region', { name: 'Documents', exact: true }).getByRole('row', { name: /Test proof of identity/ }),
+  ).toContainText('Pending');
+
+  await app.getByRole('button', { name: 'Send application for review' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Send application for review' }).click();
+  await expect(app.getByText('Sent for review', { exact: true })).toBeVisible();
+  await expect(app).toContainText('INTAFACED is reviewing your application');
+  await expect(page.getByText('INTAFACED is reviewing it')).toBeVisible();
+  await expect(app.getByRole('region', { name: 'Documents', exact: true }).locator('input[type=file]')).toHaveCount(0);
+  expect(refused).toEqual([]);
+});

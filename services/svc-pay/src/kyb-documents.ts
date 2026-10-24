@@ -19,6 +19,7 @@ import type { KybEntityTypeService } from './kyb-entity-types.js';
  * number. Bytes are encrypted before they reach the database with a key from the environment (`PAY_KYB_DOC_KEY`,
  * 32 bytes as base64 or 64 hex characters); without it the upload refuses. Nothing here reads bytes back out: the
  * checklist shows metadata only. The automatic document check is an outside service and is shown as not connected.
+ * Uploads at or below the application's `documents_after_seq` (set by a restart or a type change) no longer count.
  */
 
 export const KYB_DOC_KEY_ENV = 'PAY_KYB_DOC_KEY';
@@ -44,7 +45,7 @@ function encrypt(key: Buffer, plaintext: Buffer, additional: Buffer): { cipherte
   return { ciphertext: Buffer.concat([body, cipher.getAuthTag()]), nonce };
 }
 
-interface DocumentRow {
+export interface DocumentRow {
   id: string;
   document_key: string;
   content_type: string;
@@ -53,6 +54,18 @@ interface DocumentRow {
   state: 'provided' | 'accepted' | 'rejected';
   rejection_reason: string | null;
   created_at: Date;
+}
+
+/**
+ * The current upload of each document key of an application: the latest row per key above the boundary a restart or
+ * type change set. Read with the caller's connection, so a transaction sees its own view.
+ */
+export async function currentDocuments(q: Sql, applicationId: string, afterSeq: string | number): Promise<DocumentRow[]> {
+  return q<DocumentRow[]>`
+    SELECT DISTINCT ON (document_key) id, document_key, content_type, byte_length, sha256, state, rejection_reason, created_at
+      FROM pay.kyb_documents WHERE application_id = ${applicationId} AND seq > ${afterSeq}
+     ORDER BY document_key, seq DESC
+  `;
 }
 
 const VENDOR_CHECK = { status: 'not_connected', notConnected: 'vendor.kyc' } as const;
@@ -92,11 +105,7 @@ export class KybDocumentService {
   async checklist(applicationId: string): Promise<KybDocumentChecklistView> {
     const app = await this.application(applicationId);
     const requirements = await this.entityTypes.requirements(app.entity_type, app.country);
-    const docs = await this.sql<DocumentRow[]>`
-      SELECT DISTINCT ON (document_key) id, document_key, content_type, byte_length, sha256, state, rejection_reason, created_at
-        FROM pay.kyb_documents WHERE application_id = ${applicationId}
-       ORDER BY document_key, seq DESC
-    `;
+    const docs = await currentDocuments(this.sql, applicationId, app.documents_after_seq);
     const latest = new Map(docs.map((d) => [d.document_key, d]));
     return {
       applicationId,
@@ -155,18 +164,26 @@ export class KybDocumentService {
     return transaction(
       this.sql,
       async (tx) => {
-        const [open] = await tx<Array<{ state: 'draft' | 'submitted' }>>`
-          SELECT state FROM pay.kyb_applications WHERE id = ${input.applicationId} FOR SHARE
+        const [open] = await tx<Array<{ state: 'draft' | 'submitted'; entity_type: string; country: string; documents_after_seq: string }>>`
+          SELECT state, entity_type, country, documents_after_seq FROM pay.kyb_applications WHERE id = ${input.applicationId} FOR SHARE
         `;
         if (!open) throw new KybError('No such application', 'pay.kyb_application_not_found');
         if (open.state !== 'draft') {
           throw new KybError('The application is submitted and cannot be changed', 'pay.kyb_application_submitted');
         }
+        // A type change or restart that committed after the checks above cleared what this upload was picked for.
+        if (
+          open.entity_type !== app.entity_type ||
+          open.country !== app.country ||
+          String(open.documents_after_seq) !== String(app.documents_after_seq)
+        ) {
+          throw new KybError('The application was changed while the document was being sent', 'pay.kyb_application_changed');
+        }
         await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`kyb-document:${input.applicationId}:${input.key}`}, 0))`;
         const [latest] = await tx<DocumentRow[]>`
           SELECT id, document_key, content_type, byte_length, sha256, state, rejection_reason, created_at
             FROM pay.kyb_documents
-           WHERE application_id = ${input.applicationId} AND document_key = ${input.key}
+           WHERE application_id = ${input.applicationId} AND document_key = ${input.key} AND seq > ${open.documents_after_seq}
            ORDER BY seq DESC LIMIT 1
         `;
         if (latest && latest.sha256 === sha256) return toRow(input.key, latest);
@@ -182,9 +199,11 @@ export class KybDocumentService {
     );
   }
 
-  private async application(applicationId: string): Promise<{ entity_type: never; country: string; state: 'draft' | 'submitted' }> {
-    const [app] = await this.sql<Array<{ entity_type: never; country: string; state: 'draft' | 'submitted' }>>`
-      SELECT entity_type, country, state FROM pay.kyb_applications WHERE id = ${applicationId}
+  private async application(
+    applicationId: string,
+  ): Promise<{ entity_type: never; country: string; state: 'draft' | 'submitted'; documents_after_seq: string }> {
+    const [app] = await this.sql<Array<{ entity_type: never; country: string; state: 'draft' | 'submitted'; documents_after_seq: string }>>`
+      SELECT entity_type, country, state, documents_after_seq FROM pay.kyb_applications WHERE id = ${applicationId}
     `;
     if (!app) throw new KybError('No such application', 'pay.kyb_application_not_found');
     return app;

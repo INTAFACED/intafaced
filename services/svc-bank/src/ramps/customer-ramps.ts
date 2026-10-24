@@ -17,6 +17,7 @@ import {
 import { resolvePayFiatRailId, type PayFiatRampPort } from './pay-fiat-adapter.js';
 import { assertFiatSocketWhenNone, refuseFiatRamp, type RampProgramme } from './rails.js';
 import type { OfframpFeeSource, OnrampMethod, OnrampPaymentInstruction, OnrampPaymentPort, OnrampQuoteSource } from './customer-ports.js';
+import type { OnrampStandIn } from './onramp-sim.js';
 import { ownershipOf, type Ownership, type WalletProofStore } from './wallet-ownership.js';
 import { assertSecurityLockOpen, type SecurityLockPort } from '../security-lock.js';
 
@@ -35,6 +36,8 @@ export interface CustomerRampDeps {
   programme: RampProgramme;
   payFiat: PayFiatRampPort;
   quotes: OnrampQuoteSource | null;
+  /** The TEST rate stand-in of the local stack (`ramp-sim`), for the asks it lists. Null everywhere else. */
+  standIn?: OnrampStandIn | null;
   payments: OnrampPaymentPort | null;
   fees: OfframpFeeSource | null;
   destinations: UserWithdrawDestinations;
@@ -161,15 +164,21 @@ export async function quoteOnramp(
   if (!/^[A-Z]{2}$/.test(country)) {
     throw new BankError('On-ramp country must be two letters', 'bank.validation_failed');
   }
-  assertFiatSocketWhenNone(deps.programme);
-  await resolvePayFiatRailId(deps.payFiat, 'onramp');
-  if (!deps.quotes) {
+  // The TEST stand-in prices only what it lists, and only on a dev or test stack; every other ask needs a programme and a
+  // live pay rail as before. It is a rate source and nothing more: opening the payment still needs a partner.
+  const standIn = deps.standIn?.covers({ assetId: input.assetId, method: input.method, country }) ? deps.standIn : null;
+  if (!standIn) {
+    assertFiatSocketWhenNone(deps.programme);
+    await resolvePayFiatRailId(deps.payFiat, 'onramp');
+  }
+  const source = standIn?.quotes ?? deps.quotes;
+  if (!source) {
     throw new BankError(
       'On-ramp quote has no rate or fee source. socket.psp-partners is not a price. No pay amount, fee, or rate is invented.',
       'bank.onramp_rate_unset',
     );
   }
-  const terms = await deps.quotes.quote({
+  const terms = await source.quote({
     assetId: input.assetId,
     amount: formatAmount(amount),
     method: input.method,

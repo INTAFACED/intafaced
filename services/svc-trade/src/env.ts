@@ -714,9 +714,17 @@ const schema = serviceEnvSchema
        * Empty (default) = unpublished → accept and mirror refuse
        * `trade.copy_disclosure_unpublished`. Never invent version or text.
        * Published shape: {"published":true,"version":"…","text":"…"}
-       * The text is owner content. Follow itself is not gated.
+       * The text is owner content. Starting a follow needs the current version accepted.
        */
       TRADE_COPY_DISCLOSURE_LAW: z.string().default(''),
+
+      /**
+       * Verification level a follower needs to copy (CB-copy-03): basic, full or institutional.
+       *
+       * Empty (default) = unset → every Start copying refuses `trade.copy_tier_unset`.
+       * Owner and compliance content. Never invent a level.
+       */
+      TRADE_COPY_MIN_TIER: z.string().default(''),
 
       /**
        * Copy lead-page metric definitions (CB-copy-02). JSON or empty.

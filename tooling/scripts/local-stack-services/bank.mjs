@@ -58,6 +58,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     BANK_GLOBAL_PARTNER: 'global-sim',
     BANK_GLOBAL_SIM_JSON: testValue('BANK_GLOBAL_SIM_JSON'),
     BANK_SEND_FIELD_RULES_JSON: testValue('BANK_SEND_FIELD_RULES_JSON'),
+    // LOCAL TEST rate stand-in for add money (J-bank-02 #4; prices nothing real, opens no payment, refused under live
+    // posture): it quotes only the asks its TEST catalogue lists, so a price can be shown, run out and be refused here.
+    BANK_ONRAMP_RATES: 'ramp-sim',
+    BANK_ONRAMP_SIM_JSON: testValue('BANK_ONRAMP_SIM_JSON'),
     // LOCAL TEST value from the bank profile, not an owner decision (BK-xfer-06): how long a new bank-rail recipient waits
     // before money may go to it. Unset, every send to a saved recipient refuses bank.payee_cooling_unset.
     BANK_PAYEE_COOLING_HOURS: testValue('BANK_PAYEE_COOLING_HOURS'),

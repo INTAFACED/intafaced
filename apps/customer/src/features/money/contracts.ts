@@ -319,6 +319,8 @@ export const addMoneyMethodsSchema = z.object({
       rail: z.enum(['rail.bank', 'rail.card']),
       quote: addMoneyQuoteSchema.nullable(),
       blocker: z.string().nullable(),
+      // The TEST stand-in's label when the local stack's rate stand-in priced this way to pay.
+      standIn: z.string().nullable().default(null),
     }),
   ),
 });

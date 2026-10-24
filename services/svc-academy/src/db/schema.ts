@@ -777,6 +777,27 @@ export const coursePrivateLinks = academy.table(
   (t) => [index('course_private_links_course_idx').on(t.courseId, t.createdAt.desc())],
 );
 
+/** AC-enrolment-01: a learner's enrolment in a course staff made. Leaving closes the row; one open row per learner and course. */
+export const courseEnrolments = academy.table(
+  'course_enrolments',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    courseId: uuid('course_id')
+      .notNull()
+      .references(() => courses.id),
+    userId: uuid('user_id').notNull(),
+    track: text('track').notNull(),
+    enrolledAt: tstz('enrolled_at').notNull(),
+    leftAt: tstz('left_at'),
+  },
+  (t) => [
+    uniqueIndex('course_enrolments_open_uq')
+      .on(t.courseId, t.userId)
+      .where(sql`${t.leftAt} IS NULL`),
+    index('course_enrolments_user_idx').on(t.userId, t.enrolledAt.desc()),
+  ],
+);
+
 export const schema = {
   courses,
   courseEvents,
@@ -790,6 +811,7 @@ export const schema = {
   courseTopics,
   featuredEvents,
   coursePrivateLinks,
+  courseEnrolments,
   plannerTodos,
   learningGoals,
   itemVideos,

@@ -1,4 +1,5 @@
 import { isModuleId, type ModuleId } from '@intafaced/config';
+import { reconciliationDecimalSchema } from '@intafaced/contracts/ledger-reconciliation';
 import { COST_AMOUNT, COST_ASSET, PERIOD, isCategory, type CostCategory } from '@/lib/venue-economics/model';
 
 /**
@@ -26,11 +27,24 @@ export const REASON_MAX = 500;
 const MAX_PACKET_CHARS = 6_000;
 const ID = /^[A-Za-z0-9._:-]{1,128}$/;
 const VERSION = /^[\x20-\x7e]{1,128}$/;
+const WHOLE = /^[1-9][0-9]{0,8}$/;
 
 export type DeskRequest =
   | { readonly kind: 'edge.kill'; readonly module: ModuleId; readonly disabled: boolean; readonly reason: string }
   | { readonly kind: 'ledger.freeze'; readonly reason: string; readonly version: string }
   | { readonly kind: 'ledger.unfreeze'; readonly version: string }
+  /**
+   * Run one reconciliation control (svc-ledger OPS-reconciliation-01). `version` is the control version read; `asOf` is `now` or a
+   * past instant as an ISO string; `margin` is the seconds read before that instant, or `unset` for a run now. All four are signed.
+   */
+  | {
+      readonly kind: 'ledger.reconciliation_control.run';
+      readonly controlId: string;
+      readonly version: string;
+      readonly asOf: string;
+      readonly margin: string;
+      readonly reason: string;
+    }
   | { readonly kind: 'market.vendor.vet'; readonly vendorId: string; readonly decision: VendorDecision; readonly reason: string }
   | { readonly kind: 'academy.ambassador.freeze'; readonly userId: string; readonly reason: string }
   | { readonly kind: 'academy.ambassador.unfreeze'; readonly userId: string }
@@ -40,6 +54,8 @@ export type DeskRequest =
   | { readonly kind: 'market.listing.takedown'; readonly listingId: string; readonly reason: string }
   | { readonly kind: 'identity.auth_key.rotate'; readonly keyId: string }
   | { readonly kind: 'identity.auth_key.remove_old'; readonly keyIds: string }
+  /** Release the next waitlist wave (svc-identity `waitlist.waves.release`, RC-campaigns-03). `size` is the owner's wave size read. */
+  | { readonly kind: 'campaigns.waitlist.wave_release'; readonly wave: string; readonly size: string }
   /** Lift a staff freeze on one account (svc-identity `accountControls.change`, restore). `version` is the identity control version read. */
   | { readonly kind: 'identity.account.unfreeze'; readonly userId: string; readonly reason: string; readonly version: string }
   /** Staff close and reopen of one account (J-ops-console-04 #7). A close carries a reason code from identity's list. */
@@ -96,6 +112,15 @@ const REASON_CODE = /^[A-Za-z0-9._:-]{1,64}$/;
 /** A market symbol as the service keys it: no surrounding space, no lower case, so one market has one target id. */
 const MARKET_SYMBOL = /^[A-Z0-9][A-Z0-9._/-]{0,63}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+/** svc-ledger's control version. A margin is the contract's decimal (`reconciliationDecimalSchema`). */
+const CONTROL_VERSION = /^[1-9]\d{0,15}$/;
+
+/** `now`, or an instant exactly as `Date#toISOString` writes it: svc-ledger hashes that form, so no other spelling is signed. */
+export function isRunInstant(value: unknown): value is string {
+  if (value === 'now') return true;
+  if (typeof value !== 'string' || !Number.isFinite(Date.parse(value))) return false;
+  return new Date(value).toISOString() === value;
+}
 
 export type DeskRequestKind = DeskRequest['kind'];
 
@@ -144,6 +169,23 @@ export function readDeskRequest(raw: unknown): DeskRequest | null {
     if (keys !== 'kind,version') return null;
     if (typeof raw.version !== 'string' || !VERSION.test(raw.version)) return null;
     return { kind: 'ledger.unfreeze', version: raw.version };
+  }
+  // svc-ledger binds the control, the instant, the margin and the reason to the approval, at the control version read.
+  if (raw.kind === 'ledger.reconciliation_control.run') {
+    if (keys !== 'asOf,controlId,kind,margin,reason,version') return null;
+    if (typeof raw.controlId !== 'string' || !UUID.test(raw.controlId) || !validReason(raw.reason)) return null;
+    if (typeof raw.version !== 'string' || !CONTROL_VERSION.test(raw.version) || !isRunInstant(raw.asOf)) return null;
+    if (typeof raw.margin !== 'string') return null;
+    // A run now reads at its own instant, so it carries no margin; a past run always names the one it reads with.
+    if (raw.asOf === 'now' ? raw.margin !== 'unset' : !reconciliationDecimalSchema.safeParse(raw.margin).success) return null;
+    return {
+      kind: 'ledger.reconciliation_control.run',
+      controlId: raw.controlId,
+      version: raw.version,
+      asOf: raw.asOf,
+      margin: raw.margin,
+      reason: raw.reason,
+    };
   }
   if (raw.kind === 'market.vendor.vet') {
     if (keys !== 'decision,kind,reason,vendorId') return null;
@@ -225,6 +267,12 @@ export function readDeskRequest(raw: unknown): DeskRequest | null {
     if (keys !== 'keyId,kind') return null;
     if (typeof raw.keyId !== 'string' || !AUTH_KEY_ID.test(raw.keyId) || raw.keyId === 'legacy') return null;
     return { kind: 'identity.auth_key.rotate', keyId: raw.keyId };
+  }
+  // svc-identity binds the wave number and the owner's wave size to the approval, both as whole-number strings.
+  if (raw.kind === 'campaigns.waitlist.wave_release') {
+    if (keys !== 'kind,size,wave') return null;
+    if (typeof raw.wave !== 'string' || !WHOLE.test(raw.wave) || typeof raw.size !== 'string' || !WHOLE.test(raw.size)) return null;
+    return { kind: 'campaigns.waitlist.wave_release', wave: raw.wave, size: raw.size };
   }
   if (raw.kind === 'identity.auth_key.remove_old') {
     if (keys !== 'keyIds,kind') return null;
@@ -357,6 +405,8 @@ export function confirmPhrase(request: DeskRequest): string {
       return 'FREEZE LEDGER';
     case 'ledger.unfreeze':
       return 'UNFREEZE LEDGER';
+    case 'ledger.reconciliation_control.run':
+      return `RUN CONTROL ${request.controlId.slice(0, 8)}`;
     case 'market.vendor.vet':
       return `${request.decision === 'approved' ? 'APPROVE' : request.decision === 'rejected' ? 'REJECT' : 'SUSPEND'} VENDOR ${request.vendorId.slice(0, 8)}`;
     case 'academy.ambassador.freeze':
@@ -375,6 +425,8 @@ export function confirmPhrase(request: DeskRequest): string {
       return `ROTATE KEY ${request.keyId}`;
     case 'identity.auth_key.remove_old':
       return 'REMOVE OLD KEYS';
+    case 'campaigns.waitlist.wave_release':
+      return `RELEASE WAVE ${request.wave}`;
     case 'identity.account.unfreeze':
       return `UNFREEZE ACCOUNT ${request.userId.slice(0, 8)}`;
     case 'identity.account.close':
@@ -407,6 +459,10 @@ export function describeRequest(request: DeskRequest): string {
       return 'Freeze the ledger: ALL value movement on the platform stops until it is unfrozen.';
     case 'ledger.unfreeze':
       return 'Unfreeze the ledger: value movement resumes platform-wide.';
+    case 'ledger.reconciliation_control.run':
+      return request.asOf === 'now'
+        ? `Run reconciliation control ${request.controlId} now ("${request.reason}"). svc-ledger stores a result row before it reads, then compares the book. Nothing posts and nothing freezes. It runs only if the control is still active at version ${request.version}.`
+        : `Run reconciliation control ${request.controlId} as of ${request.asOf}, reading balances ${request.margin} seconds before that instant ("${request.reason}"). svc-ledger stores a result row before it reads, then compares the book. Nothing posts and nothing freezes. It runs only if the control is still active at version ${request.version}.`;
     case 'market.vendor.vet':
       return request.decision === 'approved'
         ? `Approve market vendor ${request.vendorId}: they may be listed and sell in the market.`
@@ -433,6 +489,8 @@ export function describeRequest(request: DeskRequest): string {
       return `Rotate the access-token signing key to "${request.keyId}": new sign-ins are signed with it from now on, and the key that signs today keeps verifying, so nobody is signed out. Every other service must already carry the same key, or its checks of new tokens fail.`;
     case 'identity.auth_key.remove_old':
       return `Remove the previous signing keys (${request.keyIds}): tokens signed with them stop working at once and their holders have to sign in again. Only do this after the overlap.`;
+    case 'campaigns.waitlist.wave_release':
+      return `Release waitlist wave ${request.wave}: the ${request.size} people highest in the queue (most friends invited, then who joined first) are invited, once. A release is a record, not an account: nobody is signed up and nothing moves value. The invitation email is not connected, so each person sees it on their waitlist page.`;
     case 'identity.account.unfreeze':
       return `Lift the staff freeze on account ${request.userId} ("${request.reason}"): its owner can sign in again. Sessions, API keys and sub-accounts revoked by the freeze stay revoked. Identity applies it only if the account is still at control version ${request.version}.`;
     case 'identity.account.close':
@@ -462,6 +520,7 @@ export function requestReason(request: DeskRequest): string | null {
     case 'academy.residency.decide':
     case 'identity.auth_key.rotate':
     case 'identity.auth_key.remove_old':
+    case 'campaigns.waitlist.wave_release':
     case 'protocol.pool.restore':
     case 'protocol.market.restore':
       return null;

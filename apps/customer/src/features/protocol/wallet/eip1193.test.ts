@@ -231,7 +231,7 @@ describe('the plain-words sheet facts', () => {
     expect(byLabel).toMatchObject({ token: '0x3333333333333333333333333333333333333333', amount: '5', spender: ADDR });
     expect(byLabel.domain).toContain('Permit2');
   });
-  it('shows contract, spender, amount and expiry of a permit', () => {
+  it('shows contract, token, spender, amount and expiry of a permit', () => {
     const facts = describeRequest({
       kind: 'typedData',
       typedData: {
@@ -244,6 +244,8 @@ describe('the plain-words sheet facts', () => {
     expect(Object.fromEntries(facts.map((fact) => [fact.label, fact.value]))).toEqual({
       action: 'Permit',
       contract: '0x2222222222222222222222222222222222222222',
+      // An EIP-2612 permit's verifying contract is the token it allows.
+      token: '0x2222222222222222222222222222222222222222',
       spender: ADDR,
       amount: '1000000',
       expiry: '1900000000',

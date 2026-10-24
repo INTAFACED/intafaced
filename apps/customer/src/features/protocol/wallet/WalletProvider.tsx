@@ -63,6 +63,8 @@ export interface WalletApi extends WalletState {
   switchNetwork(): Promise<void>;
   /** Shows the plain-words sheet, then asks the wallet. Resolves `rejected` if the person cancels the sheet. */
   sign(request: SignRequest): Promise<SignResult>;
+  /** A read-only `eth_call` through the connected wallet's own network connection. Resolves null when it cannot answer. */
+  call(to: string, data: string): Promise<string | null>;
   /** "Disconnect on idle": minutes chosen by the person; null means never. A convenience, not a security control. */
   idleMinutes: number | null;
   setIdleMinutes(minutes: number | null): void;
@@ -80,6 +82,7 @@ const empty: WalletApi = {
   disconnect: () => undefined,
   switchNetwork: async () => undefined,
   sign: async () => ({ status: 'failed', reason: 'not_connected', message: 'No wallet is connected.' }),
+  call: async () => null,
   idleMinutes: null,
   setIdleMinutes: () => undefined,
 };
@@ -250,6 +253,19 @@ export function WalletProvider({ children, discovery = true }: { children: React
     [connected, address, chainId, t],
   );
 
+  const call = useCallback(
+    async (to: string, data: string): Promise<string | null> => {
+      if (!connected) return null;
+      try {
+        const result = await connected.provider.request({ method: 'eth_call', params: [{ to, data }, 'latest'] });
+        return typeof result === 'string' && /^0x([0-9a-fA-F]{2})*$/.test(result) ? result : null;
+      } catch {
+        return null;
+      }
+    },
+    [connected],
+  );
+
   const api: WalletApi = {
     status,
     wallets,
@@ -262,6 +278,7 @@ export function WalletProvider({ children, discovery = true }: { children: React
     disconnect,
     switchNetwork,
     sign,
+    call,
     idleMinutes,
     setIdleMinutes,
   };

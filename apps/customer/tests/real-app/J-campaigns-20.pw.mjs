@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { createHash } from 'node:crypto';
+import { ADMIN, founderSignIn } from './admin.mjs';
 import { EDGE, journeyState } from './stack.mjs';
 
 /** The public invitation site on the stack (apps/invitation), where the waitlist lives at /waitlist. */
@@ -7,8 +7,8 @@ const JOIN = process.env.JOURNEY_JOIN_URL ?? 'http://127.0.0.1:3220';
 
 // J-campaigns-20, in the running app (docs/roadmap/journeys.json): join the waitlist, climb by inviting, and claim a drop.
 // One test per step, titled "J-campaigns-20 #<n>", run in order. Every visitor is signed out on a browser of their own.
-// #3's operator is the stack's two TEST operators (tooling/scripts/local-test-gates.mjs): A proposes the release, B
-// approves it, A releases, as the founder-ops desk would. The wave size is the stack's labelled TEST value
+// #3's operators are the stack's two LOCAL TEST founders on the founder console's Waitlist waves room
+// (/more-ops/campaigns/waves): A asks for the release, B approves the same packet on their own console, A runs it. The wave size is the stack's labelled TEST value
 // (IDENTITY_WAITLIST_WAVE_SIZE, two, in tooling/profiles/test-owner-values/identity.json); the blank-size refusal
 // (drop.wave_unset, nobody released) is proved in svc-identity's waitlist and router tests, since the stack runs one value.
 // Not built yet: #4-#6 (the drop room, seasons, limited drops and the TGE panel: RC-campaigns-04 and -05).
@@ -69,7 +69,7 @@ async function operators() {
   gates ??= await import('../../../../tooling/scripts/local-test-gates.mjs');
   ctx ??= await gates.makeContext({ log: () => {} });
   pair ??= await gates.approverSessions(ctx);
-  return { gates, ctx, pair };
+  return { ctx, pair };
 }
 
 const data = (res, what) => {
@@ -77,12 +77,6 @@ const data = (res, what) => {
   if (!row) throw new Error(`${what} refused (${res.status}): ${res.text.slice(0, 300)}`);
   return row;
 };
-
-/** svc-identity's privileged payload hash: the target, then the bound fields, as strings in this order. */
-const releaseHash = (wave, size) =>
-  `sha256:${createHash('sha256')
-    .update(JSON.stringify({ targetId: 'waitlist.wave.release', wave: String(wave), size: String(size) }))
-    .digest('hex')}`;
 
 test(`${J} #1 joins the waitlist signed out and sees a queue position`, async ({ browser }) => {
   run.reset({});
@@ -150,7 +144,7 @@ test(`${J} #2 each friend who joins with my link moves me up; ties go by join or
 
 test(`${J} #3 an operator releases a wave: the top N are invited once, the rest wait`, async ({ browser }) => {
   const { code, xCode } = state('code', 'xCode');
-  const { ctx, pair, gates } = await operators();
+  const { ctx, pair } = await operators();
   const waves = data(
     await ctx.edge.query('identity', 'waitlist.waves.list', undefined, await pair.a.tradeOpsToken()),
     'waitlist.waves.list',
@@ -165,41 +159,57 @@ test(`${J} #3 an operator releases a wave: the top N are invited once, the rest 
   expect(bare.json?.error?.message ?? '').toContain('action_approval.missing');
   expect((await standing(code)).release).toBeNull();
 
-  const proposal = {
-    actionType: 'waitlist.wave.release',
-    targetService: 'svc-identity',
-    targetId: 'waitlist.wave.release',
-    expectedVersion: '1',
-    payloadHash: releaseHash(waves.nextWave, waves.waveSize),
-    policyVersion: gates.MARKERS.policyVersion,
-  };
-  const proposed = data(
-    await ctx.edge.mutate('identity', 'actionApproval.propose', proposal, await pair.a.approvalToken()),
-    'actionApproval.propose',
-  );
-  const approved = data(
-    await ctx.edge.mutate(
-      'identity',
-      'actionApproval.approve',
-      { approvalId: proposed.approvalId, expectedPayloadHash: proposal.payloadHash },
-      await pair.b.approvalToken(),
-    ),
-    'actionApproval.approve',
-  );
-  expect(approved.status).toBe('APPROVED');
-  const input = { waveNumber: waves.nextWave, approvalId: proposed.approvalId, operationId: proposed.operationId };
+  // Founder A asks for the release on the console's Waitlist waves room; founder B approves the same packet on their own
+  // console; A runs it.
+  const phrase = `RELEASE WAVE ${waves.nextWave}`;
+  const a = await (await browser.newContext()).newPage();
+  await founderSignIn(a, 'a');
+  await a.goto(`${ADMIN}/more-ops/campaigns/waves`, { waitUntil: 'load' });
+  await expect(a.getByTestId('waves-next')).toHaveText(String(waves.nextWave), { timeout: 60_000 });
+  await expect(a.getByTestId('waves-size')).toHaveText('2');
+  const desk = a.getByTestId('control-desk');
+  await expect(desk.getByRole('heading', { name: `Release wave ${waves.nextWave}: the top 2 waiting` })).toBeVisible();
+  await desk.getByLabel(/to confirm$/).fill(phrase);
+  await desk.getByRole('button', { name: 'Ask a second founder to approve the release' }).click();
+  await expect(desk.getByTestId('packet-made')).toBeVisible({ timeout: 60_000 });
+  const packetText = (await desk.getByLabel('Request packet').inputValue()).trim();
+  const packet = JSON.parse(Buffer.from(packetText.slice('ifa1.'.length), 'base64url').toString('utf8'));
+  await desk.getByLabel(/to approve or run it$/).fill(phrase);
+  await expect(desk.getByRole('button', { name: 'Approve this request' })).toBeDisabled();
+
+  const b = await (await browser.newContext()).newPage();
+  await founderSignIn(b, 'b');
+  await b.goto(`${ADMIN}/more-ops/campaigns/waves`, { waitUntil: 'load' });
+  const deskB = b.getByTestId('control-desk');
+  await deskB.getByLabel('Request packet').fill(packetText);
+  await expect(deskB.getByTestId('packet-summary')).toContainText(`wave ${waves.nextWave}`);
+  await deskB.getByLabel(/to approve or run it$/).fill(phrase);
+  await deskB.getByRole('button', { name: 'Approve this request' }).click();
+  await expect(deskB.getByTestId('step-reply')).toContainText('Approved.');
+
+  await desk.getByLabel(/to approve or run it$/).fill(phrase);
+  await desk.getByRole('button', { name: 'Run the approved request' }).click();
+  await expect(desk.getByTestId('step-reply')).toContainText(`wave ${waves.nextWave} released`, { timeout: 60_000 });
+  const row = a
+    .getByTestId('waves-released')
+    .locator('tbody tr')
+    .filter({ has: a.locator('td:first-child', { hasText: new RegExp(`^${waves.nextWave}$`) }) });
+  await expect(row).toHaveCount(1);
+  await expect(a.getByTestId('waves-next')).toHaveText(String(waves.nextWave + 1));
+
+  const input = { waveNumber: waves.nextWave, approvalId: packet.approvalId, operationId: packet.operationId };
   const released = data(
-    await ctx.edge.mutate('identity', 'waitlist.waves.release', input, await pair.a.tradeOpsToken()),
-    'waitlist.waves.release',
-  );
-  expect(released).toMatchObject({ created: true, wave: { waveNumber: waves.nextWave, size: 2 } });
-  expect(released.wave.releasedCount).toBeLessThanOrEqual(2);
+    await ctx.edge.query('identity', 'waitlist.waves.list', undefined, await pair.a.tradeOpsToken()),
+    'waitlist.waves.list',
+  ).waves.find((w) => w.waveNumber === waves.nextWave);
+  expect(released).toMatchObject({ waveNumber: waves.nextWave, size: 2 });
+  expect(released.releasedCount).toBeLessThanOrEqual(2);
   // The same wave again is the stored wave: nobody else is invited.
   const again = data(
     await ctx.edge.mutate('identity', 'waitlist.waves.release', input, await pair.a.tradeOpsToken()),
     'waitlist.waves.release',
   );
-  expect(again).toEqual({ ...released, created: false });
+  expect(again).toEqual({ created: false, wave: released });
 
   // I was in the top two: my page shows the invitation for this wave.
   const page = await visitor(browser);
@@ -213,7 +223,7 @@ test(`${J} #3 an operator releases a wave: the top N are invited once, the rest 
     'waitlist.waves.list',
   );
   expect(after.nextWave).toBe(waves.nextWave + 1);
-  expect(after.waiting).toBe(waves.waiting - released.wave.releasedCount);
+  expect(after.waiting).toBe(waves.waiting - released.releasedCount);
   const x = await standing(xCode);
   if (x.release === null) {
     const xPage = await visitor(browser);

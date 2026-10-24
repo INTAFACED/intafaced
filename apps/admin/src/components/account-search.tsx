@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { CellValueView } from '@/components/ops-desk';
 import { searchTerm } from '@/lib/account-search/search';
 import type { ReadOutcome, ReadSpec, Row } from '@/lib/ops-desk/types';
@@ -25,10 +25,11 @@ async function fetchSearch(q: string, cursor: string | null): Promise<Answer | {
 
 /**
  * Find customers by the start of their handle or their whole email (identity's operator search). Results page with identity's
- * own marker, so a long result is never cut; each row opens that customer's record.
+ * own marker, so a long result is never cut; each row opens that customer's record. `initialQuery` (from `/accounts?q=`, the
+ * cross-desk search's link to every match) is searched once on opening.
  */
-export function AccountSearch() {
-  const [query, setQuery] = useState('');
+export function AccountSearch({ initialQuery = null }: { initialQuery?: string | null }) {
+  const [query, setQuery] = useState(initialQuery ?? '');
   const [term, setTerm] = useState<string | null>(null);
   const [shown, setShown] = useState<Shown | null>(null);
   const [problem, setProblem] = useState<{ title: string; message: string; code: string | null } | null>(null);
@@ -64,6 +65,17 @@ export function AccountSearch() {
       setBusy(false);
     }
   }
+
+  const opened = useRef(false);
+  useEffect(() => {
+    if (opened.current || initialQuery === null) return;
+    opened.current = true;
+    const parsed = searchTerm(initialQuery);
+    if ('error' in parsed) return setProblem({ title: 'Search not run', message: parsed.error, code: null });
+    setTerm(initialQuery.trim());
+    void run(initialQuery.trim(), null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on opening
+  }, []);
 
   return (
     <section className="adm-callout dk-stack" data-tone="info" aria-labelledby="h-account-search" data-testid="account-search">

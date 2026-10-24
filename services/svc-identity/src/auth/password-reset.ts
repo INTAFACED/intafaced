@@ -69,7 +69,9 @@ export type MailPurpose =
   | 'handle-recovery'
   | 'handle-recovery-no-account'
   | 'signup-code'
-  | 'signup-existing';
+  | 'signup-existing'
+  | 'login-code'
+  | 'login-no-account';
 
 export interface PasswordResetDeps {
   readonly sql: Sql;

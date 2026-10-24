@@ -546,6 +546,49 @@ const schema = serviceEnvSchema
         return v;
       }, z.coerce.number().int().min(1).max(86400).optional()),
       /**
+       * Owner-published lifetime of a sign-in code, in seconds (I-signin-sessions-19). NO DEFAULT: blank / unset refuses
+       * every code sign-in (`auth.codes_unwired`), as do the four sign-in code numbers below. One day is the ceiling.
+       */
+      IDENTITY_LOGIN_CODE_TTL_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(86400).optional()),
+      /**
+       * Owner-published wrong codes allowed per sign-in code before it locks. NO DEFAULT (`auth.codes_unwired`).
+       * The ceiling is 5.
+       */
+      IDENTITY_LOGIN_CODE_MAX_ATTEMPTS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(5).optional()),
+      /**
+       * Owner-published seconds before another sign-in code may be sent. NO DEFAULT (`auth.codes_unwired`).
+       */
+      IDENTITY_LOGIN_CODE_RESEND_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(86400).optional()),
+      /**
+       * Owner-published sign-in codes per email or handle per window, resends included. NO DEFAULT
+       * (`auth.codes_unwired`). The ceiling is technical, not a default budget.
+       */
+      IDENTITY_LOGIN_CODE_REQUEST_MAX: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(1000).optional()),
+      /**
+       * The window for IDENTITY_LOGIN_CODE_REQUEST_MAX, in seconds. NO DEFAULT (`auth.codes_unwired`).
+       */
+      IDENTITY_LOGIN_CODE_REQUEST_WINDOW_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(1).max(86400).optional()),
+      /**
        * The owner's per-country off switch for sign-up: comma-separated ISO country codes. Blank closes none,
        * because sign-up is open everywhere the sanctions screening allows (owner decision 2026-10-22). A code
        * that is not two letters refuses boot.

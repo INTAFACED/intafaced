@@ -583,6 +583,27 @@ export type TradeDestination = z.infer<typeof tradeDestinationSchema>;
 export type OrderPage = z.infer<typeof orderPageSchema>;
 export type OrderTab = (typeof orderTabs)[number];
 export type OrderExport = z.infer<typeof orderExportSchema>;
+/** svc-p2p `reviews.*`: one good/bad review per party of a released order. */
+export const orderReviewSchema = z.object({
+  id,
+  /** Null for a viewer who is neither the author nor the subject (`reviews.list`). */
+  tradeId: id.nullable(),
+  authorId: z.string().nullable(),
+  subjectId: z.string(),
+  rating: z.enum(['good', 'bad']),
+  comment: z.string(),
+  explanation: z.string().nullable(),
+  reply: z.string().nullable(),
+  repliedAt: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  hidden: z.boolean(),
+  hiddenReason: z.string().nullable(),
+});
+/** `reviews.forTrade`: the viewer's own review of the order and the visible one about them. */
+export const tradeReviewsSchema = z.object({ mine: orderReviewSchema.nullable(), theirs: orderReviewSchema.nullable() });
+export type OrderReview = z.infer<typeof orderReviewSchema>;
+export type TradeReviews = z.infer<typeof tradeReviewsSchema>;
 export type OrderReceipt = z.infer<typeof orderReceiptSchema>;
 export type ChatMessage = z.infer<typeof chatMessageSchema>;
 export type ChatPage = z.infer<typeof chatPageSchema>;

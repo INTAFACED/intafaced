@@ -96,6 +96,11 @@ export interface P2pExport {
   readonly offers: unknown[];
   readonly trades: unknown[];
   readonly disputes: unknown[];
+  /**
+   * Reviews this person wrote or was written about. Both sides are held: the
+   * words belong to the other party as much as to the caller.
+   */
+  readonly orderReviews: unknown[];
   readonly reputation: unknown | null;
   /**
    * The caller's payment destinations — **headers only, never the values.**
@@ -125,7 +130,7 @@ export class P2pErasure {
    */
   async exportFor(userId: string): Promise<P2pExport> {
     return withSpan('p2p.export', async () => {
-      const [offers, trades, disputes, reputation, instruments] = await Promise.all([
+      const [offers, trades, disputes, orderReviews, reputation, instruments] = await Promise.all([
         this.sql`SELECT * FROM p2p.offers WHERE maker_id = ${userId} ORDER BY created_at`,
         this.sql`SELECT * FROM p2p.p2p_trades WHERE seller_id = ${userId} OR buyer_id = ${userId} ORDER BY created_at`,
         this.sql`
@@ -133,6 +138,11 @@ export class P2pErasure {
             JOIN p2p.p2p_trades t ON t.id = d.trade_id
            WHERE t.seller_id = ${userId} OR t.buyer_id = ${userId}
            ORDER BY d.opened_at
+        `,
+        this.sql`
+          SELECT * FROM p2p.order_reviews
+           WHERE author_id = ${userId} OR subject_id = ${userId}
+           ORDER BY created_at
         `,
         this.sql`SELECT * FROM p2p.p2p_reputation WHERE user_id = ${userId}`,
         // HEADERS ONLY — the column list is explicit precisely so that `SELECT *`
@@ -163,6 +173,7 @@ export class P2pErasure {
         offers: [...offers],
         trades: [...trades],
         disputes: [...disputes],
+        orderReviews: [...orderReviews],
         reputation: reputation[0] ?? null,
         instruments: [...instruments],
         // An export that implies it is the whole platform is a lie told by
@@ -321,6 +332,22 @@ export class P2pErasure {
                 'A dispute is a record of two people disagreeing, and the evidence in it was filed BY and ABOUT ' +
                 'both of them. It is append-only by construction, and one party erasing it would remove the ' +
                 "other party's account of what happened.",
+            });
+          }
+
+          // Not deleted. The row is the other party's rating and words, and also
+          // the caller's. One side asking to be erased does not get to remove it.
+          const orderReviews = await tx<Array<{ n: string }>>`
+            SELECT count(*) AS n FROM p2p.order_reviews
+             WHERE author_id = ${userId} OR subject_id = ${userId}
+          `;
+          if (Number(orderReviews[0]!.n) > 0) {
+            retained.push({
+              category: 'order reviews',
+              rows: Number(orderReviews[0]!.n),
+              reason:
+                "The other party's rating and words stay. A review names both sides of a settled trade, and deleting " +
+                "it would remove the counterparty's account of how the trade went.",
             });
           }
 

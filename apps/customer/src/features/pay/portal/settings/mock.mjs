@@ -1,6 +1,7 @@
 // TEST DATA ONLY. Nothing here is a real merchant, customer, amount or id.
 import { NOT_MINE, DAY, MERCHANT_ID, TEAM, USER_ID, iso, ok, page, refuse } from '../mock/shared.mjs';
 import { createAccountMock } from './account/mock.mjs';
+import { createApplicationMock } from './onboarding/mock.mjs';
 
 /** Onboarding, verification and the team. Report files are answered by reports/mock.mjs. */
 export function createSettingsMock(ctx) {
@@ -141,11 +142,14 @@ export function createSettingsMock(ctx) {
 
   const mine = state.members;
   const account = createAccountMock(ctx);
+  const application = createApplicationMock(ctx);
   return {
     /** Returns NOT_MINE for a procedure this part does not own. */
     async handle(procedure, input, route) {
       const answered = await account.handle(procedure, input, route);
       if (answered !== NOT_MINE) return answered;
+      const applied = await application.handle(procedure, input, route);
+      if (applied !== NOT_MINE) return applied;
       switch (procedure) {
         case 'merchant.create':
           state.merchant = {
