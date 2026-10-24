@@ -162,6 +162,10 @@
       "types": "./dist/academy-catalogue.d.ts",
       "default": "./dist/academy-catalogue.js"
     },
+    "./academy-certificates": {
+      "types": "./dist/academy-certificates.d.ts",
+      "default": "./dist/academy-certificates.js"
+    },
     "./academy-courses": {
       "types": "./dist/academy-courses.d.ts",
       "default": "./dist/academy-courses.js"

@@ -260,6 +260,12 @@ export type AcademyErrorCode =
   | 'academy.grader_lease_unset'
   /** A score that is above the assignment's points. */
   | 'academy.grade_invalid'
+  /** AC-certificates-02: a delayed issue rule with no delay. */
+  | 'academy.cert_delay_unset'
+  /** AC-certificates-02: a delayed issue rule while no issue sweep runs (`ACADEMY_CERT_ISSUE_SWEEP_SECONDS` blank). */
+  | 'academy.cert_sweep_unset'
+  /** AC-certificates-02: the certificate is issued when its delay ends; the message carries `issuesAt=<time>`. */
+  | 'academy.cert_not_due'
   /** No newest hand-in with that id on the assignment, or no grade on it to read. */
   | 'academy.submission_not_found'
   /** AC-videos-02: the owner has not set the upload size limit or the accepted video or handout types. */
@@ -438,6 +444,9 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.grader_locked',
   'academy.grader_lease_unset',
   'academy.grade_invalid',
+  'academy.cert_delay_unset',
+  'academy.cert_sweep_unset',
+  'academy.cert_not_due',
   'academy.submission_not_found',
   'academy.upload_limits_unset',
   'academy.upload_too_large',

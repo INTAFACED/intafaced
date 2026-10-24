@@ -97,6 +97,7 @@ export * from './merchant-descriptor.js';
 export * from './preview-refusal.js';
 export * from './academy-articles.js';
 export * from './academy-catalogue.js';
+export * from './academy-certificates.js';
 export * from './academy-courses.js';
 export * from './bank-card-funds.js';
 export * from './asset-registry.js';
