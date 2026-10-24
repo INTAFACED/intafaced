@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detailHref, findGroup, idFromPath } from './activity-detail';
+import { detailHref, findGroup, idFromPath, sharedOrder } from './activity-detail';
 import type { ActivityItem } from './deps';
 
 const item = (over: Partial<ActivityItem>): ActivityItem => ({
@@ -42,5 +42,16 @@ describe('finding a transaction', () => {
   it('says nothing for an unknown or empty id', () => {
     expect(findGroup(items, 'zzz')).toBeNull();
     expect(findGroup(items, '')).toBeNull();
+  });
+});
+
+describe('sharedOrder', () => {
+  it('names the order every part belongs to, and nothing when the parts do not share one', () => {
+    expect(sharedOrder([item({ orderId: 'o1', txId: 'a' }), item({ orderId: 'o1', txId: 'b' }), item({ orderId: 'o1', txId: 'c' })])).toBe(
+      'o1',
+    );
+    expect(sharedOrder([item({ orderId: 'o1', txId: 'a' }), item({ orderId: 'o2', txId: 'b' })])).toBeNull();
+    expect(sharedOrder([item({ txId: 'tx9' }), item({ id: 'l2', txId: 'tx9' })])).toBeNull();
+    expect(sharedOrder([])).toBeNull();
   });
 });

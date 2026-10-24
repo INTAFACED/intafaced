@@ -225,12 +225,12 @@ export interface Grouped {
 }
 
 /**
- * Newest first, and nothing is left out: every ledger line is shown, alone or inside the order it belongs to. Lines
+ * Newest first (oldest first when the person asked for it), and nothing is left out: every ledger line is shown, alone or inside the order it belongs to. Lines
  * are grouped ONLY when the ledger gives them the same `orderId`. A line with no `orderId` (a deposit, a transfer, a
  * payment, anything else, and every line from a server that does not send it yet) is always its own row with its real
  * amount. Time and `txId` never group anything.
  */
-export function groupActivity(items: readonly ActivityItem[]): Grouped {
+export function groupActivity(items: readonly ActivityItem[], order: 'desc' | 'asc' = 'desc'): Grouped {
   const byOrder = new Map<string, ActivityItem[]>();
   const groups: ActivityGroup[] = [];
   for (const item of items) {
@@ -243,7 +243,7 @@ export function groupActivity(items: readonly ActivityItem[]): Grouped {
     else byOrder.set(item.orderId, [item]);
   }
   for (const [orderId, lines] of byOrder) groups.push(...orderGroups(orderId, lines));
-  groups.sort((a, b) => at(b.main) - at(a.main));
+  groups.sort((a, b) => (order === 'asc' ? at(a.main) - at(b.main) : at(b.main) - at(a.main)));
   return { groups };
 }
 

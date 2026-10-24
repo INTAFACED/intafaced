@@ -73,6 +73,7 @@ import {
 import { useNamedAccounts } from './portfolio-source';
 import { activityCsv, csvFileName } from './activity-csv';
 import { StatementPanel } from './StatementPanel';
+import { TaxEffects } from './TaxEffects';
 import { stamp } from './time';
 import { currentPreferences, usePreferences } from '../../shared/preferences';
 
@@ -239,13 +240,13 @@ function FilterBar({ filters, onChange, copy }: { filters: ActivityFilters; onCh
 
 /** Downloads the customer's own records that match the filters. It reads every older page first, within a bound. */
 const EXPORT_MAX_PAGES = 100;
-function ExportButton({ feed, rows, copy }: { feed: ActivityFeed; rows: ActivityGroup[]; copy: Copy }) {
+function ExportButton({ feed, rows, copy, sort }: { feed: ActivityFeed; rows: ActivityGroup[]; copy: Copy; sort: 'desc' | 'asc' }) {
   const { t } = copy;
   const [state, setState] = useState<'idle' | 'loading' | 'done' | 'nothing' | 'failed'>('idle');
   const [count, setCount] = useState(0);
   const pages = useRef(0);
-  const latest = useRef({ feed, rows });
-  latest.current = { feed, rows };
+  const latest = useRef({ feed, rows, sort });
+  latest.current = { feed, rows, sort };
 
   function download() {
     const lines = latest.current.rows.flatMap((group) => group.lines);
@@ -255,7 +256,9 @@ function ExportButton({ feed, rows, copy }: { feed: ActivityFeed; rows: Activity
     }
     const seen = new Set<string>();
     const unique = lines.filter((line) => (seen.has(line.id) ? false : (seen.add(line.id), true)));
-    unique.sort((a, b) => Date.parse(b.postedAt) - Date.parse(a.postedAt));
+    // The file keeps the order the screen shows.
+    const asc = latest.current.sort === 'asc';
+    unique.sort((a, b) => (asc ? Date.parse(a.postedAt) - Date.parse(b.postedAt) : Date.parse(b.postedAt) - Date.parse(a.postedAt)));
     try {
       const csv = activityCsv(unique, (line) => titleOf(line, t, (key) => t(key === 'Sent to {handle}' ? 'Sent' : 'Received')));
       const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
@@ -439,7 +442,11 @@ function Body({
 }) {
   const { t } = copy;
   const { timeZone } = usePreferences();
-  const groups = useMemo(() => (isLineTab(tab) ? lineGroups(feed.items, tab) : groupActivity(feed.items).groups), [feed.items, tab]);
+  // The bank already answers in the order asked for; the rows keep it.
+  const groups = useMemo(
+    () => (isLineTab(tab) ? lineGroups(feed.items, tab) : groupActivity(feed.items, filters.sort).groups),
+    [feed.items, tab, filters.sort],
+  );
   const filtered = hasFilters(filters) && rangeProblem(filters, timeZone) === null;
   const rows = groups.filter(
     (group) =>
@@ -523,8 +530,9 @@ function Body({
 
   return (
     <>
-      <ExportButton feed={feed} rows={rows} copy={copy} />
+      <ExportButton feed={feed} rows={rows} copy={copy} sort={filters.sort} />
       <StatementPanel />
+      <TaxEffects />
       <table className="money-table money-table--activity">
         <colgroup>
           <col className="money-act-col--what" />

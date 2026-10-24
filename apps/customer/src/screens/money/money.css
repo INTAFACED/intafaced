@@ -184,6 +184,17 @@
     font: 500 14px/20px var(--if-font-ui);
     color: var(--if-fg-1);
   }
+  .money-tax-effects {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    margin: 12px 0;
+  }
+  .money-tax-effects > .money-facts,
+  .money-tax-effects > [data-slot='state-block'] {
+    align-self: stretch;
+  }
   .money-statement__row {
     display: flex;
     flex-wrap: wrap;

@@ -26,7 +26,7 @@ export { fmtAmount, fmtChangeLine, fmtPct, fmtUsd, refusalCopy, useMarkets } fro
 export type { Decimal, Loadable, MarketRow } from '../../data';
 export type { BalanceEntry } from '../../data/derive';
 // The activity hook is a new file in the data layer (not yet in the data barrel).
-export { ACTIVITY_PAGE_SIZE, useActivity } from '../../data/activity';
+export { ACTIVITY_KINDS, ACTIVITY_PAGE_SIZE, useActivity } from '../../data/activity';
 export type { ActivityFeed, ActivityItem, ActivityKind } from '../../data/activity';
 export { dec, decOrNull, roundScaled, SCALE, str, times, toFixedString } from '../../data/decimal';
 export { primarySymbolFor } from '../../data/derive';

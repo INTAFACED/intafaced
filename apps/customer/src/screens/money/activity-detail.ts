@@ -22,3 +22,12 @@ export const detailHref = (group: Pick<ActivityGroup, 'id'>): string => `/money/
 
 /** How far back the page will look by itself before it says it cannot find the transaction. */
 export const DETAIL_MAX_PAGES = 30;
+
+/**
+ * The order every part of a row belongs to, so the person can see why the parts are one group. Only lines of one order
+ * are grouped (`groupActivity`), so a row with more than one part shares an order; anything else gives null.
+ */
+export function sharedOrder(lines: readonly Pick<ActivityItem, 'orderId'>[]): string | null {
+  const order = lines[0]?.orderId;
+  return order && lines.every((line) => line.orderId === order) ? order : null;
+}

@@ -5,7 +5,7 @@ import { moneyCopy } from './copy';
 import { ActivityNote } from './ActivityNote';
 import { stamp } from './time';
 import { titleOf } from './activity-view';
-import { DETAIL_MAX_PAGES, findGroup, idFromPath } from './activity-detail';
+import { DETAIL_MAX_PAGES, findGroup, idFromPath, sharedOrder } from './activity-detail';
 import { usePreferences } from '../../shared/preferences';
 import { useSession } from '../../features/session/session';
 import { readSent } from '../../features/pay/personal/personal-model';
@@ -120,6 +120,7 @@ export default function ActivityDetail({ rawId }: { rawId: string }) {
     const amount = fmtAmount(item.amount);
     // The asset page of a purchase: the asset its purchase line brought in. A sale or a refund has no such line.
     const bought = group.lines.find((line) => line.purchase === true)?.asset ?? null;
+    const sharedOrderId = group.lines.length > 1 ? sharedOrder(group.lines) : null;
     body = (
       <>
         <header className="money-detail__head">
@@ -185,6 +186,11 @@ export default function ActivityDetail({ rawId }: { rawId: string }) {
         {group.lines.length > 1 && (
           <section className="money-card money-detail__card" aria-label={t('Parts of this transaction')}>
             <h2 className="money-detail__h">{t('Parts of this transaction')}</h2>
+            {sharedOrderId && (
+              <p className="money-detail__note" data-label="shared-reference">
+                {t('Parts share order')} <code className="money-code">{sharedOrderId}</code>
+              </p>
+            )}
             <table className="money-table money-table--activity">
               <thead>
                 <tr>

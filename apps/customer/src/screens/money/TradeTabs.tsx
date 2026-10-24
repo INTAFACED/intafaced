@@ -1,9 +1,10 @@
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import '../trade/desk/desk.css';
 import { deskCopy } from '../trade/desk/copy';
 import { useClosedOrders, useDeskMarkets, useFills, useOpenOrders, useRefreshPrivate } from '../trade/desk/data';
 import { FillsTable, LoadState, OrdersTable, precisionOf } from '../trade/desk/OrderTables';
 import { StateBlock } from './deps';
+import type { Order } from '../../features/trade/trade-api';
 import { FILLS_PAGE, symbolHasAsset, tradesEmpty } from './activity-view';
 import { moneyCopy } from './copy';
 
@@ -19,11 +20,24 @@ function usePrecision() {
   return useMemo(() => precisionOf(list ?? []), [list]);
 }
 
+/** The person's open and recent orders by id, so a trade can name its order's type. Until they answer, no type shows. */
+function useOrderIndex(): ReadonlyMap<string, Order> {
+  const open = useOpenOrders();
+  const closed = useClosedOrders(true);
+  const list = [...(closed.status === 'ready' ? closed.data : []), ...(open.status === 'ready' ? open.data : [])];
+  // Each poll answers a new list; the index (and so the table) changes only when an order, its type or its fill changes.
+  const key = list.map((order) => `${order.id}:${order.type}:${order.filled}`).join('|');
+  const latest = useRef(list);
+  latest.current = list;
+  return useMemo(() => new Map(latest.current.map((order) => [order.id, order])), [key]);
+}
+
 export function TradesPanel({ asset = null }: { asset?: string | null }) {
   const { t } = deskCopy.useCopy();
   const money = moneyCopy.useCopy();
   const fills = useFills(true);
   const precision = usePrecision();
+  const orders = useOrderIndex();
   return (
     <div className="money-trade-tab">
       <LoadState load={fills} thing="trades">
@@ -33,7 +47,7 @@ export function TradesPanel({ asset = null }: { asset?: string | null }) {
           if (rows.length > 0)
             return (
               <>
-                <FillsTable rows={rows} precision={precision} layout="activity" />
+                <FillsTable rows={rows} precision={precision} layout="activity" orders={orders} />
                 {note}
               </>
             );
