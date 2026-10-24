@@ -7,11 +7,13 @@ import { Agents } from './Agents';
 import { Blueprint } from './Blueprint';
 import { Campaigns } from './Campaigns';
 import { Launch, Mining } from './AvailabilityRooms';
+import type { LaunchTab } from './LaunchAvailability';
+import type { MiningTab } from './MiningAvailability';
 import { Market } from './Market';
 import { Prediction } from './Prediction';
 import { quantRoute } from '../quant/QuantRoutes';
 import { Support } from './Support';
-import { Token } from './Token';
+import { Token, type TokenTab } from './Token';
 import { launchCopy } from './launch-copy';
 import { miningCopy } from './mining-copy';
 import { predictionCatalogueCopy } from './prediction-catalogue-copy';
@@ -157,6 +159,15 @@ function MoreRooms({ path }: { path: string }) {
   );
 }
 
+/** The second segment of a room address: "workers" for /mining/workers. */
+const section = (path: string) => (path.split(/[?#]/)[0] ?? '').split('/')[2] ?? '';
+/** The tab each section's own address opens its room on, so /mining/workers is not the same page as /mining (Phantom 24 Oct). */
+export const SECTION_TABS: { launch: Record<string, LaunchTab>; token: Record<string, TokenTab>; mining: Record<string, MiningTab> } = {
+  launch: { new: 'Journey', check: 'Check', requirements: 'Requirements' },
+  token: { governance: 'Governance', economy: 'Economy' },
+  mining: { workers: 'Workers', shares: 'Shares', rewards: 'Rewards', status: 'Status' },
+};
+
 /** The room each section opens inside, and the line under its title; a section shows its room until the slice that owns it fills it. */
 const ROOM_PAGES: Record<MoreRoomId, { href: string; description: () => ReactNode; content: (path: string, paper: boolean) => ReactNode }> =
   {
@@ -166,13 +177,21 @@ const ROOM_PAGES: Record<MoreRoomId, { href: string; description: () => ReactNod
       description: () => copyText('moreroutes.published.catalogue.terms.and.your.seller.workspace'),
       content: () => <Market key="purchases" mine={false} strategy={false} />,
     },
-    launch: { href: '/launch', description: () => <launchCopy.Copy k="scope" />, content: () => <Launch orders={false} /> },
+    launch: {
+      href: '/launch',
+      description: () => <launchCopy.Copy k="scope" />,
+      content: (path) => <Launch key={section(path)} orders={false} tab={SECTION_TABS.launch[section(path)]} />,
+    },
     token: {
       href: '/token',
       description: () => copyText('moreroutes.exact.stake.records.access.and.governance'),
-      content: () => <Token />,
+      content: (path) => <Token key={section(path)} tab={SECTION_TABS.token[section(path)]} />,
     },
-    mining: { href: '/mining', description: () => <miningCopy.Copy k="scope" />, content: () => <Mining /> },
+    mining: {
+      href: '/mining',
+      description: () => <miningCopy.Copy k="scope" />,
+      content: (path) => <Mining key={section(path)} tab={SECTION_TABS.mining[section(path)]} />,
+    },
     blueprint: {
       href: '/blueprint',
       description: () => copyText('moreroutes.a.profile.you.can.keep.private.share'),

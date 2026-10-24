@@ -1,5 +1,5 @@
 import { t as copyText, Text } from './copy';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { useApi, useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
@@ -150,6 +150,11 @@ export function Blueprint({ path = '/blueprint' }: { path?: string }) {
     mentors.reload();
     share.reload();
   };
+  // /blueprint/crew opens on the crew section.
+  useEffect(() => {
+    if (/^\/blueprint\/crew\/?$/.test(path.split(/[?#]/)[0] ?? ''))
+      document.getElementById('blueprint-crew')?.scrollIntoView({ block: 'start' });
+  }, [path]);
   return (
     <div className="more-columns">
       <div>
