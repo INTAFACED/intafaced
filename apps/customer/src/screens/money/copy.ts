@@ -26,6 +26,7 @@ const messages = {
   'Send {asset}': 'Send {asset}',
   'Assets not counted': 'Excludes {count} coins (no USD price)',
   'Asset not counted': 'Excludes 1 coin (no USD price)',
+  'No price published': 'No price published',
   'Not counted list': 'Not counted: {assets}',
   'Not counted label': 'Coins not counted',
   'Where your money is': 'Where your money is',

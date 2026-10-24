@@ -301,11 +301,12 @@ function CoinRow({
           <Amount value={`${fmtAmount(row.amount, { round: 'down' })} ${row.asset}`} hidden={hidden} />
         </a>
         {/* On a phone the Value column folds under the Amount so the two never run into each other. */}
-        <span className="money-num__value">
+        <span className="money-num__value" title={row.usdValue === null ? copy.t('No price published') : undefined}>
           <Money value={row.usdValue === null ? null : fmtUsd(row.usdValue)} hidden={hidden} />
         </span>
       </td>
-      <td className="money-num money-cell--value">
+      {/* A coin with no published price shows a dash that says so, never a zero value. */}
+      <td className="money-num money-cell--value" title={row.usdValue === null ? copy.t('No price published') : undefined}>
         <Money value={row.usdValue === null ? null : fmtUsd(row.usdValue)} hidden={hidden} />
       </td>
       <td className="money-num money-cell--today">
