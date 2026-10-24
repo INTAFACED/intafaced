@@ -105,7 +105,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     // Auto-invest has no timer either: its runner is a signed job door no test calls. On, a card capture's round-up
     // (J-bank-07 #3) moves the spare change into the person's space; off, every round-up would only say it is switched off.
     AUTO_INVEST_ENABLED: 'true',
-    INTEREST_ACCRUAL_ENABLED: 'false',
+    // Earn interest has no timer either: on this stack only a test's own staff call (`ops.accrueInterest` for one TEST pool
+    // and day, J-bank-07 #5) pays a day. Left off, savings here could never show a day of interest.
+    INTEREST_ACCRUAL_ENABLED: 'true',
     // Loan interest moves no money (it writes the day's interest row) and has no timer either: on this stack only a
     // test's own signed call to its job door runs it (J-bank-11 #2, after `local-test-seed.mjs age-loan`). Left off, a
     // loan here could never owe interest, so a repayment could never be shown paying interest first.

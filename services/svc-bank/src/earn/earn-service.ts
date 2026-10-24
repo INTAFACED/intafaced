@@ -15,7 +15,7 @@ import {
 import { isDefiniteLedgerRefusal } from '../ledger-outcome.js';
 import { BankError } from '../errors.js';
 import { assertEarnPoolsListLimit } from '../catalog-list-limit.js';
-import { assertEarnPositionsListLimit } from '../owner-list-limit.js';
+import { assertEarnInterestListLimit, assertEarnPositionsListLimit } from '../owner-list-limit.js';
 import { assertEarnResumePendingLimit } from '../job-batch-limit.js';
 import { stakePrincipalForAccrual } from './accrue-principal.js';
 import { accrualBoundary, accrualDate, planAccrual, type AccruingPosition } from './interest.js';
@@ -947,6 +947,42 @@ export class EarnService {
       SELECT COALESCE(SUM(paid_amount), 0) AS total FROM bank.interest_accruals WHERE pool_id = ${poolId}
     `;
     return parseAmount(rows[0]?.total ?? '0');
+  }
+
+  /**
+   * What one person earned from one pool, a row per paid day, newest first (BK-pots-03, J-bank-07 #5).
+   *
+   * Each row is that day's accrual record: the rate snapshotted for the day and this person's payout from the plan the
+   * day posted (one payout per person per pool per day, whatever their number of positions). Only days with a ledger
+   * transaction count, so a planned day that has not posted yet is not shown as paid. `total` sums every paid day, not
+   * just this page, and equals what the ledger credited this person from the pool. Days written before the stored plan
+   * (migration 0032) carry no per-person split and are not listed.
+   */
+  async interestHistory(
+    userId: string,
+    poolId: string,
+    limit?: number,
+  ): Promise<{ days: Array<{ date: string; rateBps: number; amount: Amount; ledgerTxId: string }>; total: Amount }> {
+    const page = assertEarnInterestListLimit(limit);
+    await this.pool(poolId);
+    const days = await this.sql<Array<{ date: string; rate_bps: number; amount: string; ledger_tx_id: string }>>`
+      SELECT a.accrual_date::text AS date, a.rate_bps::int AS rate_bps, p.amount, a.ledger_tx_id
+        FROM bank.interest_accruals a
+        CROSS JOIN LATERAL jsonb_to_recordset(a.planned_payouts) AS p("userId" text, amount text)
+       WHERE a.pool_id = ${poolId} AND a.ledger_tx_id IS NOT NULL AND p."userId" = ${userId}
+       ORDER BY a.accrual_date DESC
+       LIMIT ${page}
+    `;
+    const [sum] = await this.sql<Array<{ total: string }>>`
+      SELECT COALESCE(SUM(p.amount::numeric), 0)::text AS total
+        FROM bank.interest_accruals a
+        CROSS JOIN LATERAL jsonb_to_recordset(a.planned_payouts) AS p("userId" text, amount text)
+       WHERE a.pool_id = ${poolId} AND a.ledger_tx_id IS NOT NULL AND p."userId" = ${userId}
+    `;
+    return {
+      days: days.map((d) => ({ date: d.date, rateBps: d.rate_bps, amount: parseAmount(d.amount), ledgerTxId: d.ledger_tx_id })),
+      total: parseAmount(sum?.total ?? '0'),
+    };
   }
 
   private assertEarnable(assetId: string): void {

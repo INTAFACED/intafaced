@@ -278,6 +278,7 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.loan_products_list_limit_unset': 'BAD_REQUEST',
   'bank.spaces_list_limit_unset': 'BAD_REQUEST',
   'bank.earn_positions_list_limit_unset': 'BAD_REQUEST',
+  'bank.earn_interest_list_limit_unset': 'BAD_REQUEST',
   'bank.loans_list_limit_unset': 'BAD_REQUEST',
   'bank.cards_list_limit_unset': 'BAD_REQUEST',
   'bank.card_authorizations_list_limit_unset': 'BAD_REQUEST',

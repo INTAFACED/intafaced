@@ -17,7 +17,10 @@ import { signIn, signUp, verify } from './desk.mjs';
 // a second TEST person splits 60 and 40 into two spaces, once. The stack publishes a TEST smallest sorted payment. Then
 // the bills pot (BK-pots-03): a pot holding TEST 5 that pays a TEST bill of 8 by standing order to another TEST person.
 // With the top-up off, the run is refused and recorded and nothing moves; with it on, 3 moves from the account into the
-// pot first and the bill pays once.
+// pot first and the bill pays once. Step 5 (BK-pots-03): instant-access savings on the Spaces page show the bank's rate
+// for the stack's seeded TEST instant-access pool; TEST 10 saved there earns three days of interest, each paid once by the
+// bank's own job procedure (the stack has no accrual timer), the interest view lists them from the server and they add up
+// to what the account was paid; then the savings go back to the account whole.
 const J = 'J-bank-07';
 const POT = 'Holiday TEST';
 const BILLS = 'Bills TEST';
@@ -572,4 +575,97 @@ test(`${J} #4 keeps a bills pot: a TEST bill of 8 from a pot holding 5 is refuse
   expect(named(after, BILLS).balance).toBe('0');
   expect(toUnits(main(after).balance)).toBe(toUnits(main(before).balance) - toUnits('3'));
   expect(await payeeMain()).toBe(payeeBefore + toUnits('8'));
+});
+
+/**
+ * One day of earn interest for one TEST pool, through the bank's own job procedure signed as the bank's scheduler would
+ * sign it. The stack has no accrual timer, so a day is paid only when a test asks for it.
+ */
+async function accrue(poolId, at) {
+  jobCtx ??= import('../../../../tooling/scripts/local-test-gates.mjs').then((gates) => gates.makeContext({ log: () => {} }));
+  const ctx = await jobCtx;
+  const raw = JSON.stringify({ poolId, at: at.toISOString() });
+  const res = await fetch(`${ctx.url('bank')}/trpc/ops.accrueInterest`, {
+    method: 'POST',
+    redirect: 'error',
+    headers: { 'content-type': 'application/json', ...ctx.contracts.serviceAuthHeadersForBody('svc-bank', ctx.secrets.internal, raw) },
+    body: raw,
+    signal: AbortSignal.timeout(30_000),
+  });
+  const parsed = await res.json().catch(() => null);
+  if (res.status !== 200) throw new Error(`ops.accrueInterest refused: ${res.status} ${JSON.stringify(parsed).slice(0, 300)}`);
+  return parsed.result.data.results[0];
+}
+
+test(`${J} #5 uses instant-access savings: the bank's rate, TEST 10 saved, three days of interest that add up to what the account was paid, then taken back`, async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  const who = person();
+  const api = await bank(who);
+  expect(fund(who.email, 'USDT', '20').tx).toBeTruthy();
+  const pools = await api.query('earn.pools', { limit: 50 });
+  expect(pools.ok, JSON.stringify(pools.body ?? {}).slice(0, 300)).toBe(true);
+  const pool = pools.data.find((row) => row.assetId === 'USDT' && row.kind === 'flexible');
+  expect(pool, 'the stack seeds a TEST instant-access USDT pool').toBeTruthy();
+
+  // The Spaces page shows the bank's own rate for it, and opens TEST 10 of savings from the account.
+  await signIn(page, who);
+  await page.goto('/bank/spaces');
+  const card = page.getByTestId('instant-savings').locator(`[data-testid="instant-savings-pool"][data-pool="${pool.id}"]`);
+  await expect(card.getByTestId('instant-savings-rate')).toHaveAttribute('data-bps', String(pool.aprBps));
+  await expect(card.getByTestId('instant-savings-rate')).toHaveText(`${pool.aprBps / 100}% a year`);
+  const mainBefore = toUnits(main(await spaces(who)).balance);
+  await card.getByRole('button', { name: 'Open instant-access savings', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel('Amount (USDT)').fill('10');
+  await dialog.getByRole('button', { name: 'Review' }).click();
+  await confirm(dialog, 'Open instant-access savings');
+  await close(page);
+  const positions = await api.query('earn.positions', { limit: 50 });
+  const saved = positions.data.filter((row) => row.poolId === pool.id);
+  expect(saved.map((row) => row.principal)).toEqual(['10']);
+  expect(toUnits(main(await spaces(who)).balance)).toBe(mainBefore - toUnits('10'));
+  await page.reload();
+  await expect(card.getByTestId('instant-savings-position')).toContainText('10 USDT');
+  await expect(card).toContainText('No interest paid.');
+
+  // Three days of interest, each paid once by the bank's daily job. Days another run on this stack already paid are
+  // passed over: a day is paid once, to whoever saved before it began.
+  const paidBefore = toUnits(main(await spaces(who)).balance);
+  const days = [];
+  for (let ahead = 1; days.length < 3 && ahead <= 60; ahead += 1) {
+    const at = new Date(Date.now() + ahead * 24 * 60 * 60 * 1000);
+    const day = await accrue(pool.id, at);
+    if (!day.alreadyAccrued) days.push(day.date);
+    // Paying a day twice pays nothing more.
+    if (!day.alreadyAccrued) expect((await accrue(pool.id, at)).alreadyAccrued).toBe(true);
+  }
+  expect(days).toHaveLength(3);
+
+  // The interest view lists those three days from the server, and they add up to what the account was paid.
+  const history = await api.query('earn.interestHistory', { poolId: pool.id, limit: 31 });
+  expect(history.ok, JSON.stringify(history.body ?? {}).slice(0, 300)).toBe(true);
+  expect(history.data.days.map((row) => row.date).sort()).toEqual([...days].sort());
+  const perDay = (toUnits('10') * BigInt(pool.aprBps)) / 10_000n / 365n;
+  expect(history.data.days.every((row) => toUnits(row.amount) === perDay && row.rateBps === pool.aprBps)).toBe(true);
+  const total = history.data.days.reduce((sum, row) => sum + toUnits(row.amount), 0n);
+  expect(toUnits(history.data.total)).toBe(total);
+  expect(toUnits(main(await spaces(who)).balance)).toBe(paidBefore + total);
+  await page.reload();
+  await expect(card.getByTestId('instant-savings-day')).toHaveCount(3);
+  for (const date of days)
+    await expect(card.locator(`[data-testid="instant-savings-day"][data-date="${date}"]`)).toHaveAttribute(
+      'data-amount',
+      history.data.days[0].amount,
+    );
+  await expect(card.getByTestId('instant-savings-earned')).toHaveAttribute('data-amount', history.data.total);
+
+  // Taken back to the account at once, without a penalty: the whole TEST 10 returns, and the interest paid stays.
+  await card.getByRole('button', { name: 'Take back to my account', exact: true }).click();
+  await confirm(page.getByRole('dialog'), 'Take back to my account');
+  await close(page);
+  const left = await api.query('earn.positions', { limit: 50 });
+  expect(left.data.filter((row) => row.poolId === pool.id)).toEqual([]);
+  expect(toUnits(main(await spaces(who)).balance)).toBe(paidBefore + total + toUnits('10'));
 });

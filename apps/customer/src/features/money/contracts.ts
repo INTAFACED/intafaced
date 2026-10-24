@@ -753,6 +753,10 @@ export const bankReads = {
   ),
   'earn.pools': z.array(poolSchema),
   'earn.positions': z.array(positionSchema),
+  'earn.interestHistory': z.object({
+    days: z.array(z.object({ date: z.string(), rateBps: z.number().int(), amount: money, ledgerTxId: z.string() })),
+    total: money,
+  }),
   'loans.products': z.array(productSchema),
   'loans.list': z.array(loanSchema),
   'loans.projection': loanProjectionSchema,

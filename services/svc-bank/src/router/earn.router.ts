@@ -111,5 +111,30 @@ export function createEarnRouter(c: BankRouterContext) {
           }));
         }),
       ),
+
+    /** The caller's interest from one pool, a row per paid day, and what every paid day sums to (J-bank-07 #5). */
+    interestHistory: scopedProcedure('bank:read', { module: 'bank' })
+      .input(
+        z.object({
+          poolId: z.string().guid(),
+          /** Page size. Optional so omit reaches `bank.earn_interest_list_limit_unset`; blank is not 50. */
+          limit: z.number().int().min(1).max(200).optional(),
+        }),
+      )
+      .output(
+        z.object({
+          days: z.array(z.object({ date: z.string(), rateBps: z.number().int(), amount: amountString, ledgerTxId: z.string() })),
+          total: amountString,
+        }),
+      )
+      .query(async ({ ctx, input }) =>
+        guard(async () => {
+          const history = await bank.earn.interestHistory(ctx.principal.userId, input.poolId, input.limit);
+          return {
+            days: history.days.map((d) => ({ ...d, amount: formatAmount(d.amount) })),
+            total: formatAmount(history.total),
+          };
+        }),
+      ),
   });
 }
