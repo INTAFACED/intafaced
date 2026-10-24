@@ -12,6 +12,7 @@ import {
   isTerminal,
   mayReleaseHold,
   shownStatus,
+  shownFilterFor,
   storedStatusesFor,
   type WithdrawalStatus,
 } from './status.js';
@@ -113,6 +114,14 @@ describe('the stored values', () => {
     expect(customerStatus('failed', WITHDRAWAL_CANCELED_CODE)).toBe('canceled');
     expect(customerStatus('failed', 'rail.refused')).toBe('failed');
     expect(customerStatus('pending', WITHDRAWAL_CANCELED_CODE)).toBe('requested');
+  });
+
+  it('filters a held row the way shownStatus splits it: by its current attempt’s journal', () => {
+    expect(shownFilterFor('held')).toEqual({ stored: ['held'], journal: ['none', 'refused'] });
+    expect(shownFilterFor('dispatching')).toEqual({ stored: ['held'], journal: ['requested'] });
+    expect(shownFilterFor('broadcast')).toEqual({ stored: ['held'], journal: ['accepted'] });
+    expect(shownFilterFor('settled')).toEqual({ stored: ['sent'], journal: null });
+    expect(shownFilterFor('confirming')).toEqual({ stored: [], journal: null });
   });
 
   it('allows exactly the four moves the code writes today', () => {

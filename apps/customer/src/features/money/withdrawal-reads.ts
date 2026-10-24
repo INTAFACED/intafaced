@@ -48,14 +48,40 @@ export type WithdrawalShown = (typeof WITHDRAWAL_SHOWN)[number];
 // svc-pay's answer to `withdrawal.cancel`: the cancelled row, and whether a hold went back (`null`: unknown on a repeat).
 const canceledSchema = withdrawalSchema.extend({ customerStatus: z.literal('canceled'), holdReleased: z.boolean().nullable() });
 export type CanceledWithdrawal = z.infer<typeof canceledSchema>;
+/** One page of `withdrawal.history` (W-withdraw-06): the person's own withdrawals newest first, in the customer vocabulary. */
+export const withdrawalHistoryItemSchema = z.object({
+  id: z.string().guid(),
+  userId: z.string().guid(),
+  assetId: z.string().min(1).max(16),
+  amount: z
+    .string()
+    .regex(/^\d+(\.\d{1,18})?$/)
+    .pipe(decimalSchema),
+  rail: z.string(),
+  destination: z.object({ kind: z.string(), ref: z.string() }),
+  clientRef: z.string(),
+  railRef: z.string().nullable(),
+  attempts: z.number().int(),
+  status: z.enum(WITHDRAWAL_SHOWN),
+  failure: z.object({ code: z.string(), known: z.boolean(), message: z.string() }).nullable(),
+  returned: z.boolean(),
+  createdAt: z.string().datetime({ offset: true }),
+});
+const withdrawalHistoryPageSchema = z.object({ items: z.array(withdrawalHistoryItemSchema), next: z.string().min(1).max(200).nullable() });
+export type WithdrawalHistoryItem = z.infer<typeof withdrawalHistoryItemSchema>;
+export type WithdrawalHistoryPage = z.infer<typeof withdrawalHistoryPageSchema>;
+/** What the person filters History by. `null` is every coin, or every status. */
+export type WithdrawalHistoryFilter = { assetId: string | null; status: WithdrawalShown | null };
+/** Rows asked for per page. svc-pay has no default page size, so the page says it; older rows come by the cursor. */
+export const HISTORY_PAGE = 50;
 export const withdrawalIdSchema = z
   .string()
   .guid()
   .transform((value) => value.toLowerCase());
-const limitSchema = z.number().int().min(1).max(200);
 type FailureKey = 'invalidId' | 'invalidOwner' | 'invalidWindow' | 'signedOut' | 'notCancellable';
 const failureKeys: Record<string, FailureKey> = {
   'pay.withdrawal_not_cancellable': 'notCancellable',
+  'pay.withdrawal_cursor_invalid': 'invalidWindow',
   'withdrawal.input_invalid': 'invalidId',
   'withdrawal.owner_or_original_invalid': 'invalidOwner',
   'withdrawal.window_invalid': 'invalidWindow',
@@ -81,17 +107,31 @@ export function createWithdrawalReads(api: ApiClient, userId: string | null, cur
     return !userId ? refuse('unauthorized', 'withdrawal.session_required', 'signedOut') : null;
   }
   return {
-    async mine(limit: number, signal?: AbortSignal): Promise<ApiResult<WithdrawalRecord[]>> {
+    /**
+     * One page of the person's history: the newest first, or the page after `after` (svc-pay's cursor). A page longer than
+     * asked, a row twice, or a row outside the filter is refused rather than shown.
+     */
+    async history(filter: WithdrawalHistoryFilter, after: string | null, signal?: AbortSignal): Promise<ApiResult<WithdrawalHistoryPage>> {
       const denied = admission(signal);
       if (denied) return denied;
-      if (!limitSchema.safeParse(limit).success) return refuse('error', 'withdrawal.window_invalid', 'invalidWindow');
-      const result = await api.query('pay', 'withdrawal.mine', { limit }, z.array(withdrawalSchema), { signal });
+      const input = {
+        limit: HISTORY_PAGE,
+        ...(filter.assetId ? { assetId: filter.assetId } : {}),
+        ...(filter.status ? { status: filter.status } : {}),
+        ...(after ? { after } : {}),
+      };
+      const result = await api.query('pay', 'withdrawal.history', input, withdrawalHistoryPageSchema, { signal });
       const departed = admission(signal);
       if (departed) return departed;
       if (!result.ok) return result;
-      if (result.data.some((record) => record.userId !== userId))
+      const { items } = result.data;
+      if (items.some((item) => item.userId !== userId))
         return refuse('invalid_response', 'withdrawal.owner_or_original_invalid', 'invalidOwner');
-      if (result.data.length > limit || new Set(result.data.map((record) => record.id.toLowerCase())).size !== result.data.length)
+      if (
+        items.length > HISTORY_PAGE ||
+        new Set(items.map((item) => item.id.toLowerCase())).size !== items.length ||
+        items.some((item) => (filter.assetId && item.assetId !== filter.assetId) || (filter.status && item.status !== filter.status))
+      )
         return refuse('invalid_response', 'withdrawal.window_invalid', 'invalidWindow');
       return result;
     },
