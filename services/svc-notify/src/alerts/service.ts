@@ -123,6 +123,9 @@ export type AlertLimits = {
   readonly maxActivePrice: number | null;
   /** The repeating frequencies the owner allows (`NOTIFY_ALERT_FREQUENCIES`). Empty (blank) allows only `once`. */
   readonly repeatFrequencies: readonly AlertFrequency[];
+  /** Burst auto-stop: more than `burstMaxTriggers` triggers of one alert inside `burstWindowMinutes` stops it. Both set arms the rule; either blank leaves it off. */
+  readonly burstWindowMinutes: number | null;
+  readonly burstMaxTriggers: number | null;
 };
 
 export const NO_ALERT_LIMITS: AlertLimits = {
@@ -132,6 +135,8 @@ export const NO_ALERT_LIMITS: AlertLimits = {
   triggerLogDays: null,
   maxActivePrice: null,
   repeatFrequencies: [],
+  burstWindowMinutes: null,
+  burstMaxTriggers: null,
 };
 
 export type AlertLimitCode =
@@ -488,13 +493,35 @@ export class AlertService {
     }
   }
 
+  /** The burst rule when both owner values are set, else `null`: the rule is off and nothing is stopped for triggering often. */
+  burstRule(): { readonly windowMs: number; readonly max: number } | null {
+    const { burstWindowMinutes, burstMaxTriggers } = this.limits;
+    return burstWindowMinutes !== null && burstMaxTriggers !== null
+      ? { windowMs: burstWindowMinutes * 60_000, max: burstMaxTriggers }
+      : null;
+  }
+
   /** How many price alerts the person holds open and the owner's cap (`null` while it is blank). */
   async quota(
     userId: string,
     now: Date = new Date(),
-  ): Promise<{ readonly kind: 'price'; readonly used: number; readonly max: number | null }> {
+  ): Promise<{
+    readonly kind: 'price';
+    readonly used: number;
+    readonly max: number | null;
+    readonly burst: { readonly windowMinutes: number; readonly maxTriggers: number } | null;
+  }> {
     await this.store.expireDue(now);
-    return { kind: 'price', used: await this.store.countOpen(userId, 'price'), max: this.limits.maxActivePrice };
+    const { burstWindowMinutes, burstMaxTriggers } = this.limits;
+    return {
+      kind: 'price',
+      used: await this.store.countOpen(userId, 'price'),
+      max: this.limits.maxActivePrice,
+      burst:
+        burstWindowMinutes !== null && burstMaxTriggers !== null
+          ? { windowMinutes: burstWindowMinutes, maxTriggers: burstMaxTriggers }
+          : null,
+    };
   }
 
   /**
@@ -800,7 +827,8 @@ export class AlertService {
         // were. The retry sends nothing new (same key). If the mark has fallen back across the level before that retry, the
         // next crossing reuses this number and its inbox key, so that one crossing goes unannounced. It takes a crash inside
         // this window and a reversal inside one sweep; the trigger log and the count still agree.
-        if (repeating) await this.store.recordRepeat(alert.userId, alert.id, alert.fireCount, at, outcome.side ?? null);
+        if (repeating)
+          await this.store.recordRepeat(alert.userId, alert.id, alert.fireCount, at, outcome.side ?? null, this.burstRule() ?? undefined);
         else await this.store.markFired(alert.userId, alert.id, at);
       }
     }

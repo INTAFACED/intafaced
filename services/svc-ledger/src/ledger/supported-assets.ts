@@ -158,12 +158,23 @@ function asApplied(prior: AppliedEdit): RegistryAsset {
   return registryAssetSchema.parse({ ...body, revision: prior.revision, updatedAt: prior.applied_at.toISOString() });
 }
 
+/** One applied edit's columns, prefixed, as a LEFT JOIN reads them: all null when the operation has not applied. */
+type NullableApplied =
+  | { prior_approval_id: null; prior_asset_id: null; prior_revision: null; prior_edit: null; prior_applied_at: null }
+  | { prior_approval_id: string; prior_asset_id: string; prior_revision: number; prior_edit: AssetEditInput; prior_applied_at: Date };
+
 /** A retry of an applied operation answers with the row that operation produced; another edit under its id refuses. */
 async function replay(sql: Sql, input: { approvalId: string; operationId: string; edit: AssetEditInput }): Promise<RegistryAsset | null> {
   const rows = await sql<AppliedEdit[]>`
     SELECT approval_id, asset_id, revision, edit, applied_at FROM asset_edits WHERE operation_id = ${input.operationId}
   `;
-  const prior = rows[0];
+  return answerReplay(rows[0], input);
+}
+
+function answerReplay(
+  prior: AppliedEdit | undefined,
+  input: { approvalId: string; operationId: string; edit: AssetEditInput },
+): RegistryAsset | null {
   if (!prior) return null;
   if (prior.approval_id !== input.approvalId || prior.asset_id !== input.edit.id || !sameEdit(prior.edit, input.edit)) {
     throw new LedgerError(`Operation ${input.operationId} was already used for another edit`, ASSET_OPERATION_CONFLICT);
@@ -196,10 +207,31 @@ export async function applyAssetEdit(
   }
   const { approvalId, operationId, edit } = parsed.data;
 
-  const replayed = await replay(sql, parsed.data);
+  // The row and the operation's record are read in one statement, so one snapshot. They commit together, so a
+  // concurrent request for the same operation is either seen applied here or not at all. Read apart, this request could
+  // miss the record yet see the revision that operation wrote, and ask identity to consume against the wrong one.
+  const [seen] = await sql<Array<{ kind: string | null; revision: number | null } & NullableApplied>>`
+    SELECT a.kind, a.revision, e.approval_id AS prior_approval_id, e.asset_id AS prior_asset_id, e.revision AS prior_revision,
+           e.edit AS prior_edit, e.applied_at AS prior_applied_at
+      FROM (SELECT 1) AS one
+      LEFT JOIN assets a ON a.id = ${edit.id}
+      LEFT JOIN asset_edits e ON e.operation_id = ${operationId}
+  `;
+  const replayed = answerReplay(
+    seen?.prior_approval_id != null
+      ? {
+          approval_id: seen.prior_approval_id,
+          asset_id: seen.prior_asset_id,
+          revision: seen.prior_revision,
+          edit: seen.prior_edit,
+          applied_at: seen.prior_applied_at,
+        }
+      : undefined,
+    parsed.data,
+  );
   if (replayed) return replayed;
+  const current = seen?.kind != null && seen.revision != null ? { kind: seen.kind, revision: seen.revision } : undefined;
 
-  const current = (await sql<Array<{ kind: string; revision: number }>>`SELECT kind, revision FROM assets WHERE id = ${edit.id}`)[0];
   // The kind is what every balance in the asset was booked as; an edit does not re-label it.
   if (current && current.kind !== edit.kind) {
     throw new LedgerError(`${edit.id} is ${current.kind}; an edit cannot change an asset's kind`, ASSET_EDIT_INVALID);

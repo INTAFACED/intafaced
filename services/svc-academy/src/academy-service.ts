@@ -35,12 +35,41 @@ import {
   type ResidencyStatus,
 } from './ambassadors/residency.js';
 import { assertCertCatalog, certificateForPath, listCertCatalog } from './certs/catalog.js';
-import { ASSESSMENT_CATALOG, type AssessmentDefinition, type AssessmentPublic } from './assessment/catalog.js';
-import { AssessmentRepository, type AttemptRow } from './assessment/repository.js';
+import { ASSESSMENT_CATALOG, type AssessmentDefinition } from './assessment/catalog.js';
+import { AssessmentRepository, type AttemptRow, type VisibleAttemptRow } from './assessment/repository.js';
+import { PlannerStore } from './learning/planner.js';
 import { randomPublicId, isPublicId } from './certs/public-id.js';
 import { ReleaseAccess } from './release/access.js';
 import { FeaturedSlot } from './curriculum/featured.js';
+import { CourseRecords } from './curriculum/courses.js';
+import { LessonRecords } from './curriculum/lessons.js';
+import { CourseStarts } from './curriculum/course-start.js';
 import { publicCourse } from './curriculum/public-catalogue.js';
+import { accessGrantView, assertTrackOpen, courseEnrolmentView, myCourseView, publishedCourse } from './curriculum/course-enrolment.js';
+import type {
+  AcademyAccessGrant,
+  AcademyCourseEnrolment,
+  AcademyCompletionRule,
+  AcademyCourseOutline,
+  AcademyEnrolmentTrack,
+  AcademyMyCourse,
+  AcademyQuiz,
+  AcademyProgressPage,
+  AcademyQuizAttempt,
+  AcademyQuizReview,
+  AcademySetQuizInput,
+  AcademyUndoCompletion,
+  AcademyCourseListInput,
+  AcademyCreateCourseInput,
+  AcademySetCourseStateInput,
+  AcademySaveOutlineInput,
+  AcademySaveLessonInput,
+  AcademyRevertLessonInput,
+  AcademyPublishLessonInput,
+  AcademyDuplicateItemInput,
+  AcademyImportLessonInput,
+  AcademyUpdateCourseInput,
+} from '@intafaced/contracts';
 import { normaliseHolderName } from './certs/holder-name.js';
 import { PROGRAMME_SLUGS } from './curriculum/programmes.js';
 import {
@@ -70,10 +99,11 @@ import {
   type CertPerkOutcome,
   type CertPerkPlaneStatus,
 } from './certs/perk-plane.js';
-import { getCurriculumItem, hasCurriculumSlug } from './curriculum/catalog.js';
+import { getCurriculumItem, hasCurriculumSlug, listCurriculum, type CurriculumPath } from './curriculum/catalog.js';
 import { curriculumBodyForLocale, curriculumI18nStrategyLine } from './curriculum/i18n-strategy.js';
 import { type ProgrammeDefinition } from './curriculum/programmes.js';
-import type { VideoSpineEntry } from './video/catalog.js';
+import { getVideoSpineItem, listVideoSpine, type VideoSpineEntry } from './video/catalog.js';
+import { VideoTracks, type VideoTrack } from './video/tracks.js';
 import { AcademyCustomerStore } from './learning/customer-store.js';
 import {
   assertMayWriteScore,
@@ -223,6 +253,13 @@ export interface AcademyServiceOptions {
    * createRoom refuses `academy.room_capacity_unset`. Never invent 5000.
    */
   maxRoomCapacity?: number;
+  /** AC-progress-02: owner-set to-do items per learner (`ACADEMY_PLANNER_TODO_LIMIT`). Undefined: unset, adding refuses. */
+  plannerTodoLimit?: number;
+  /** AC-course-structure-02: owner-set sections and items per course outline. Undefined: unset, an outline save refuses. */
+  outlineMaxSections?: number;
+  outlineMaxItems?: number;
+  /** AC-course-structure-03: the owner's lesson import size limit in bytes. Unset, an import refuses `academy.import_limit_unset`. */
+  lessonImportMaxBytes?: number;
   /** Stage-1 tournament ladder kill-switch (`ACADEMY_TOURNAMENT_ENABLED`). */
   tournamentEnabled?: boolean;
   /** Stage-3 paper-trading ops kill-switch (`ACADEMY_PAPER_TRADING_ENABLED`). */
@@ -237,6 +274,10 @@ export interface AcademyServiceOptions {
   programmeCatalog?: readonly ProgrammeDefinition[];
   /** Test seam. Production uses the spine, whose media fields are null until set. */
   videoSpine?: readonly VideoSpineEntry[];
+  /** AC-videos-01: owner-set seconds of stored position that count as watched. Undefined: unset, a watch item cannot complete. */
+  videoWatchThresholdSeconds?: number;
+  /** AC-videos-01: owner-set seconds between position saves while playing. Undefined: saves on pause and on leaving only. */
+  videoSaveEverySeconds?: number;
   /** Test seam. Production is the owner catalog, which is foundations-v1 only. */
   certCatalog?: readonly CertDefinition[];
   /** Test seam. Production is empty: no owner-published scored assessment. */
@@ -248,6 +289,11 @@ export class AcademyService {
   private readonly assessments: AssessmentRepository;
   private readonly release: ReleaseAccess;
   private readonly featured: FeaturedSlot;
+  private readonly courseRecords: CourseRecords;
+  private readonly lessonRecords: LessonRecords;
+  private readonly courseStarts: CourseStarts;
+  private readonly plannerStore: PlannerStore;
+  private readonly videoTracks: VideoTracks;
 
   constructor(
     private readonly sql: Sql,
@@ -265,6 +311,14 @@ export class AcademyService {
     this.customer = new AcademyCustomerStore(sql);
     this.release = new ReleaseAccess(sql);
     this.featured = new FeaturedSlot(sql);
+    this.courseRecords = new CourseRecords(sql, {
+      maxSections: this.options.outlineMaxSections ?? null,
+      maxItems: this.options.outlineMaxItems ?? null,
+    });
+    this.lessonRecords = new LessonRecords(sql, this.courseRecords, this.options.lessonImportMaxBytes ?? null);
+    this.courseStarts = new CourseStarts(sql);
+    this.plannerStore = new PlannerStore(sql, this.options.plannerTodoLimit ?? null);
+    this.videoTracks = new VideoTracks(sql);
     const assessments = this.options.assessmentCatalog ?? ASSESSMENT_CATALOG;
     this.assessments = new AssessmentRepository(sql, assessments);
     if (this.options.certCatalog) {
@@ -1657,6 +1711,195 @@ export class AcademyService {
     return { userId: row.userId, pathSlug: row.pathSlug, enrolledAt: row.enrolledAt };
   }
 
+  /** AC-enrolment-01: the terms of enrolling in a course and the caller's own active enrolment in it. */
+  async courseEnrolment(input: { userId: string; slug: string }): Promise<AcademyCourseEnrolment> {
+    const path = publishedCourse(input.slug);
+    const [enrolments, startsAt] = await Promise.all([this.customer.myEnrollments(input.userId), this.courseStarts.startsAt(path)]);
+    const active = enrolments.find((row) => row.pathSlug === path) ?? null;
+    return courseEnrolmentView(path, active, startsAt);
+  }
+
+  /**
+   * Enrol now on the free track. The certificate needs no published definition for this: the free track is the course
+   * itself. A repeat while enrolled returns the same enrolment (one active row per learner and course); programme
+   * prerequisites still apply.
+   */
+  async enrolCourse(input: { userId: string; slug: string; track: AcademyEnrolmentTrack }): Promise<AcademyCourseEnrolment> {
+    const path = publishedCourse(input.slug);
+    assertTrackOpen(input.track);
+    const row = await this.customer.enrollCertPath({
+      userId: input.userId,
+      pathSlug: path,
+      ...(this.options.programmeCatalog ? { catalog: this.options.programmeCatalog } : {}),
+    });
+    return courseEnrolmentView(path, row, await this.courseStarts.startsAt(path));
+  }
+
+  /** AC-catalogue-02: My learning, one row per course the caller is enrolled in and that is still published. */
+  async myLearning(userId: string, now: Date = new Date()): Promise<AcademyMyCourse[]> {
+    const enrolments = await this.publishedEnrolments(userId);
+    if (enrolments.length === 0) return [];
+    const [completed, state] = await Promise.all([this.completedSlugs(userId), this.customer.learningState(userId)]);
+    return Promise.all(
+      enrolments.map(async (row) => {
+        const path = row.pathSlug as CurriculumPath;
+        const startsAt = await this.courseStarts.startsAt(path);
+        const releases = await this.courseReleases(userId, path, now, startsAt);
+        const open = releases.filter(({ view }) => view.lock === null).map(({ row }) => row.slug);
+        return myCourseView(path, row, completed, state.lastItemSlug, open, startsAt, now);
+      }),
+    );
+  }
+
+  /**
+   * AC-course-structure-02: the outline of the course an item belongs to, with the caller's own release state per item.
+   * Only titles, kinds and lock reasons: no body, and no staff name or reason from an extension.
+   */
+  async courseOutline(input: { userId: string; itemSlug: string; now?: Date }): Promise<AcademyCourseOutline> {
+    const item = getCurriculumItem(input.itemSlug.trim());
+    if (!item) throw new AcademyError('Unknown curriculum item', 'academy.curriculum_not_found');
+    const path = item.path as CurriculumPath;
+    const now = input.now ?? new Date();
+    const releases = await this.courseReleases(input.userId, path, now, await this.courseStarts.startsAt(path));
+    const slugs = releases.map(({ row }) => row.slug);
+    const [completedAt, passed, quizzes, videos] = await Promise.all([
+      this.completionTimes(input.userId, slugs),
+      this.assessments.passedSlugs(input.userId, now),
+      this.assessments.publishedSlugs(),
+      this.videoTracks.itemVideos(slugs),
+    ]);
+    const watched = await this.watchedItems(input.userId, videos);
+    const items = releases.map(({ row, view }) => {
+      const opensLater = view.lock === 'window' && view.availableFrom !== null && view.availableFrom.getTime() > now.getTime();
+      const rule = this.completionRule(row.slug, quizzes, videos);
+      return {
+        slug: row.slug,
+        title: row.title,
+        kind: row.kind,
+        state: view.state,
+        lock: view.lock,
+        missing: [...view.missing],
+        opensAt: opensLater ? view.availableFrom!.toISOString() : null,
+        rule,
+        ruleMet: this.completionRuleMet(row.slug, rule, passed, watched),
+        completedAt: completedAt.get(row.slug)?.toISOString() ?? null,
+      };
+    });
+    return { slug: path, items };
+  }
+
+  /**
+   * The caller's release decision for every item of one course, at one `now`, so the outline, Start course and Continue
+   * agree. A course is a curriculum path of a handful of items.
+   */
+  private async courseReleases(userId: string, path: CurriculumPath, now: Date, courseStartsAt: Date | null) {
+    const rows = listCurriculum({ path });
+    const views = await Promise.all(rows.map((row) => this.release.itemRelease({ userId, itemSlug: row.slug, now, courseStartsAt })));
+    return rows.map((row, i) => ({ row, view: views[i]! }));
+  }
+
+  /**
+   * AC-progress-02: the progress page. Per enrolled course, percent complete over every item the learner can see (every
+   * published item: none is hidden from a learner today) with each item's completion; and the grades, best attempt per
+   * quiz, pending while staff hide results, with per-type averages over released results only.
+   */
+  async progressPage(userId: string, now: Date = new Date()): Promise<AcademyProgressPage> {
+    const [enrolments, grades] = await Promise.all([this.publishedEnrolments(userId), this.assessments.grades(userId, now)]);
+    const paths = enrolments.map((row) => row.pathSlug as CurriculumPath);
+    const times = await this.completionTimes(
+      userId,
+      paths.flatMap((path) => listCurriculum({ path }).map((item) => item.slug)),
+    );
+    const courses = paths.map((path) => {
+      const items = listCurriculum({ path });
+      const completed = items.filter((item) => times.has(item.slug)).length;
+      return {
+        slug: path,
+        visible: items.length,
+        completed,
+        percent: tenths(completed, items.length),
+        items: items.map((item) => ({
+          slug: item.slug,
+          title: item.title,
+          kind: item.kind,
+          completedAt: times.get(item.slug)?.toISOString() ?? null,
+        })),
+      };
+    });
+    const rows = grades.map((row) => {
+      const title = getCurriculumItem(row.slug)?.title ?? row.slug;
+      return row.pending
+        ? {
+            pending: true as const,
+            slug: row.slug,
+            title,
+            type: 'quiz' as const,
+            attempts: row.attempts,
+            hiddenUntil: row.hiddenUntil.toISOString(),
+          }
+        : {
+            pending: false as const,
+            slug: row.slug,
+            title,
+            type: 'quiz' as const,
+            attempts: row.attempts,
+            score: String(row.score),
+            possible: String(row.possible),
+            percent: tenths(row.score, row.possible),
+            passed: row.passed,
+          };
+    });
+    const released = grades.filter((row) => !row.pending);
+    const averages =
+      released.length === 0
+        ? []
+        : [
+            {
+              type: 'quiz' as const,
+              count: released.length,
+              percent: tenths(
+                released.reduce((sum, row) => sum + row.score, 0),
+                released.reduce((sum, row) => sum + row.possible, 0),
+              ),
+            },
+          ];
+    return { courses, grades: { rows, averages } };
+  }
+
+  planner(userId: string) {
+    return this.plannerStore.read(userId);
+  }
+
+  addTodo(input: { userId: string; clientKey: string; text: string; now?: Date }) {
+    return this.plannerStore.addTodo(input);
+  }
+
+  setTodoDone(input: { userId: string; todoId: string; done: boolean; now?: Date }) {
+    return this.plannerStore.setTodoDone(input);
+  }
+
+  removeTodo(input: { userId: string; todoId: string; now?: Date }) {
+    return this.plannerStore.removeTodo(input);
+  }
+
+  setGoal(input: { userId: string; itemsPerWeek: number; reminder: boolean; now?: Date }) {
+    return this.plannerStore.setGoal(input);
+  }
+
+  sendGoalReminder(input: { userId: string }) {
+    return this.plannerStore.sendGoalReminder(input);
+  }
+
+  /** AC-access-grants-01: the caller's access records, one per active enrolment. */
+  async myAccessGrants(userId: string): Promise<AcademyAccessGrant[]> {
+    return (await this.publishedEnrolments(userId)).map(accessGrantView);
+  }
+
+  /** Active enrolments in courses that are still published: My learning and the access records list the same set. */
+  private async publishedEnrolments(userId: string) {
+    return (await this.customer.myEnrollments(userId)).filter((row) => listCurriculum({ path: row.pathSlug as CurriculumPath }).length > 0);
+  }
+
   myCompletions(input: { userId: string; limit: number | null | undefined; cursor?: string | null }) {
     return this.customer.myCompletions(input);
   }
@@ -1681,11 +1924,67 @@ export class AcademyService {
     return this.customer.residencyCohorts(limit);
   }
 
-  setVideoProgress(input: { userId: string; videoSlug: string; positionSeconds: number; clientRequestId: string; now?: Date }) {
-    return this.customer.setVideoProgress({
-      ...input,
+  /**
+   * Stores the caller's watch position (AC-videos-01). A save that crosses the owner's threshold (the stored position was
+   * below it, or there was none) completes, without a button, every item this video is attached to that completes by
+   * the `watch` rule, is open to the caller, is not complete yet, and whose video the caller may watch (`mayWatch`, the
+   * playback gate). Only a crossing completes, so an Undo stays undone while the learner keeps watching. `completedItems`
+   * names the attached watch items that are complete once the stored position is at or past the threshold, so a save
+   * sent again after a lost reply gets the same answer. Storing comes first: if completing fails, or the item was
+   * locked, the learner's position still meets the rule and Complete finishes the item.
+   */
+  async setVideoProgress(input: {
+    userId: string;
+    videoSlug: string;
+    positionSeconds: number;
+    clientRequestId: string;
+    now?: Date;
+    mayWatch?: () => Promise<void>;
+  }) {
+    const { previousSeconds, replayed, ...stored } = await this.customer.setVideoProgress({
+      userId: input.userId,
+      videoSlug: input.videoSlug,
+      positionSeconds: input.positionSeconds,
+      clientRequestId: input.clientRequestId,
+      ...(input.now ? { now: input.now } : {}),
       ...(this.options.videoSpine ? { spine: this.options.videoSpine } : {}),
     });
+    const threshold = this.options.videoWatchThresholdSeconds;
+    if (threshold === undefined || stored.positionSeconds === null || stored.positionSeconds < threshold) {
+      return { ...stored, completedItems: [] as string[] };
+    }
+    const now = input.now ?? new Date();
+    const attached = await this.videoTracks.itemsWithVideo(stored.videoSlug);
+    const quizzes = attached.length > 0 ? await this.assessments.publishedSlugs() : new Set<string>();
+    const items = attached.filter((slug) => !quizzes.has(slug) && hasCurriculumSlug(slug));
+    const crossed = !replayed && (previousSeconds === null || previousSeconds < threshold);
+    if (crossed && items.length > 0 && (await this.mayWatch(input.mayWatch))) {
+      for (const slug of items) {
+        if (await this.currentCompletion(this.sql, input.userId, slug)) continue;
+        try {
+          await this.release.assertMayComplete({ userId: input.userId, itemSlug: slug });
+        } catch (err) {
+          // Still locked for the caller: the stored position meets the rule, so Complete finishes it once it opens.
+          if (err instanceof AcademyError) continue;
+          throw err;
+        }
+        await this.recordCompletion(input.userId, slug, now);
+      }
+    }
+    const completedItems: string[] = [];
+    for (const slug of items) if (await this.currentCompletion(this.sql, input.userId, slug)) completedItems.push(slug);
+    return { ...stored, completedItems };
+  }
+
+  /** Whether the playback gate lets the caller watch; a typed refusal means no, anything else is a failure. */
+  private async mayWatch(check?: () => Promise<void>): Promise<boolean> {
+    try {
+      await check?.();
+      return true;
+    } catch (err) {
+      if (err instanceof AcademyError) return false;
+      throw err;
+    }
   }
 
   getVideoProgress(input: { userId: string; videoSlug: string }) {
@@ -1693,6 +1992,75 @@ export class AcademyService {
       ...input,
       ...(this.options.videoSpine ? { spine: this.options.videoSpine } : {}),
     });
+  }
+
+  private spineVideo(videoSlug: string): VideoSpineEntry {
+    const spine = this.options.videoSpine ?? listVideoSpine();
+    const video = this.options.videoSpine ? spine.find((row) => row.slug === videoSlug) : getVideoSpineItem(videoSlug);
+    if (!video) throw new AcademyError(`Video "${videoSlug}" is not on the named spine`, 'academy.video_not_found');
+    return video;
+  }
+
+  /** AC-videos-01: the video attached to one curriculum item, or null. */
+  async itemVideo(itemSlug: string): Promise<{ itemSlug: string; videoSlug: string | null }> {
+    const slug = itemSlug.trim();
+    if (!hasCurriculumSlug(slug)) throw new AcademyError('Unknown curriculum item', 'academy.curriculum_not_found');
+    return { itemSlug: slug, videoSlug: await this.videoTracks.itemVideo(slug) };
+  }
+
+  /**
+   * AC-videos-01: what the player needs besides the signed URL. Only the original file exists (no transcode path), so it
+   * is the one rendition; the caption tracks are staff's, read back as cues; both owner intervals are passed as set.
+   */
+  async videoPlayer(videoSlug: string): Promise<{
+    slug: string;
+    title: string;
+    renditions: Array<{ id: 'original' }>;
+    tracks: VideoTrack[];
+    saveEverySeconds: number | null;
+    watchThresholdSeconds: number | null;
+  }> {
+    const video = this.spineVideo(videoSlug);
+    return {
+      slug: video.slug,
+      title: video.title,
+      renditions: [{ id: 'original' }],
+      tracks: await this.videoTracks.tracks(video.slug),
+      saveEverySeconds: this.options.videoSaveEverySeconds ?? null,
+      watchThresholdSeconds: this.options.videoWatchThresholdSeconds ?? null,
+    };
+  }
+
+  /** Staff attach a spine video to one curriculum item, or with `videoSlug: null` take it off, with a reason. */
+  async setItemVideo(input: { itemSlug: string; videoSlug: string | null; operatorId: string; reason: string; now?: Date }) {
+    const itemSlug = input.itemSlug.trim();
+    if (!hasCurriculumSlug(itemSlug)) throw new AcademyError('Unknown curriculum item', 'academy.curriculum_not_found');
+    const reason = input.reason.trim();
+    if (!reason) throw new AcademyError('A reason is required', 'academy.reason_required');
+    const videoSlug = input.videoSlug === null ? null : this.spineVideo(input.videoSlug.trim()).slug;
+    await this.videoTracks.setItemVideo({ itemSlug, videoSlug, operatorId: input.operatorId, reason, now: input.now ?? new Date() });
+    return { itemSlug, videoSlug };
+  }
+
+  /** Staff replace every caption track of one spine video, with a reason. */
+  async setVideoTracks(input: {
+    videoSlug: string;
+    tracks: readonly { language: string; label: string; vtt: string }[];
+    operatorId: string;
+    reason: string;
+    now?: Date;
+  }) {
+    const video = this.spineVideo(input.videoSlug.trim());
+    const reason = input.reason.trim();
+    if (!reason) throw new AcademyError('A reason is required', 'academy.reason_required');
+    const tracks = await this.videoTracks.setTracks({
+      videoSlug: video.slug,
+      tracks: input.tracks,
+      operatorId: input.operatorId,
+      reason,
+      now: input.now ?? new Date(),
+    });
+    return { videoSlug: video.slug, tracks };
   }
 
   callerLiveSeats(userId: string) {
@@ -1785,8 +2153,63 @@ export class AcademyService {
     return item && (await this.opensSignedOut(item.slug, now)) ? item : null;
   }
 
+  /** AC-course-structure-01: course records staff create on the desk (see curriculum/courses.ts). */
+  courses(input: AcademyCourseListInput) {
+    return this.courseRecords.list(input);
+  }
+
+  course(courseId: string) {
+    return this.courseRecords.get(courseId);
+  }
+
+  createCourse(input: AcademyCreateCourseInput & { operatorId: string; now?: Date }) {
+    return this.courseRecords.create({ ...input, now: input.now ?? new Date() });
+  }
+
+  updateCourse(input: AcademyUpdateCourseInput & { operatorId: string; now?: Date }) {
+    return this.courseRecords.update({ ...input, now: input.now ?? new Date() });
+  }
+
+  setCourseState(input: AcademySetCourseStateInput & { operatorId: string; now?: Date }) {
+    return this.courseRecords.setState({ ...input, now: input.now ?? new Date() });
+  }
+
+  saveOutline(input: AcademySaveOutlineInput & { operatorId: string; now?: Date }) {
+    return this.courseRecords.saveOutline({ ...input, now: input.now ?? new Date() });
+  }
+
+  /** AC-course-structure-03: one outline item's lesson with its revisions, newest first, and which one learners see. */
+  lesson(itemId: string) {
+    return this.lessonRecords.get(itemId);
+  }
+
+  saveLesson(input: AcademySaveLessonInput & { operatorId: string; now?: Date }) {
+    return this.lessonRecords.save({ ...input, now: input.now ?? new Date() });
+  }
+
+  revertLesson(input: AcademyRevertLessonInput & { operatorId: string; now?: Date }) {
+    return this.lessonRecords.revert({ ...input, now: input.now ?? new Date() });
+  }
+
+  publishLesson(input: AcademyPublishLessonInput & { operatorId: string; now?: Date }) {
+    return this.lessonRecords.publish({ ...input, now: input.now ?? new Date() });
+  }
+
+  duplicateItem(input: AcademyDuplicateItemInput & { operatorId: string; now?: Date }) {
+    return this.lessonRecords.duplicate({ ...input, now: input.now ?? new Date() });
+  }
+
+  importLesson(input: AcademyImportLessonInput & { operatorId: string; now?: Date }) {
+    return this.lessonRecords.import({ ...input, now: input.now ?? new Date() });
+  }
+
   setFeatured(input: { itemSlug: string | null; reason: string; operatorId: string; now?: Date }) {
     return this.featured.choose(input);
+  }
+
+  /** AC-enrolment-01 step 4: staff set or clear a course's start date with a reason. */
+  setCourseStart(input: { slug: string; startsAt: Date | null; reason: string; operatorId: string; now?: Date }) {
+    return this.courseStarts.set(input);
   }
 
   /** The reader for a signed-out visitor (AC-catalogue-01): the same item, nothing about any learner, no touch written. */
@@ -1807,22 +2230,18 @@ export class AcademyService {
     };
   }
 
-  async markCurriculumComplete(input: { userId: string; itemSlug: string }): Promise<ItemCompletionRecord> {
+  /** `mayWatch`: the playback gate, which a `watch` item needs too (refusing with the gate's own error). */
+  async markCurriculumComplete(input: {
+    userId: string;
+    itemSlug: string;
+    now?: Date;
+    mayWatch?: () => Promise<void>;
+  }): Promise<ItemCompletionRecord> {
     const slug = input.itemSlug.trim();
     if (!hasCurriculumSlug(slug)) {
       throw new AcademyError('Unknown curriculum item', 'academy.curriculum_not_found');
     }
-    const existingRows = await this.sql<Array<{ user_id: string; item_slug: string; completed_at: Date }>>`
-      SELECT user_id, item_slug, completed_at FROM academy.cert_item_completions
-       WHERE user_id = ${input.userId} AND item_slug = ${slug}
-    `;
-    const existing = existingRows[0]
-      ? {
-          userId: existingRows[0].user_id,
-          itemSlug: existingRows[0].item_slug,
-          completedAt: existingRows[0].completed_at,
-        }
-      : null;
+    const existing = await this.currentCompletion(this.sql, input.userId, slug);
     let decision: { record: ItemCompletionRecord; alreadyComplete: boolean };
     try {
       decision = decideItemComplete({ userId: input.userId, itemSlug: slug, existing });
@@ -1831,25 +2250,145 @@ export class AcademyService {
     }
     if (decision.alreadyComplete) return decision.record;
     await this.release.assertMayComplete({ userId: input.userId, itemSlug: slug });
-    const rows = await this.sql<Array<{ user_id: string; item_slug: string; completed_at: Date }>>`
-      INSERT INTO academy.cert_item_completions (user_id, item_slug, completed_at)
-      VALUES (${input.userId}, ${slug}, now())
-      ON CONFLICT (user_id, item_slug) DO NOTHING
-      RETURNING user_id, item_slug, completed_at
-    `;
-    if (rows[0]) {
-      return { userId: rows[0].user_id, itemSlug: rows[0].item_slug, completedAt: rows[0].completed_at };
+    const now = input.now ?? new Date();
+    const quiz = await this.assessments.definition(slug);
+    if (quiz && quiz.passMark === null) {
+      throw new AcademyError(`academy.pass_mark_unset slug=${slug}`, 'academy.pass_mark_unset');
     }
-    // concurrent insert — re-read
-    const again = await this.sql<Array<{ user_id: string; item_slug: string; completed_at: Date }>>`
+    const video = quiz ? null : await this.videoTracks.itemVideo(slug);
+    const rule: AcademyCompletionRule = quiz ? 'score' : video ? 'watch' : 'view';
+    if (rule === 'watch' && this.options.videoWatchThresholdSeconds === undefined) {
+      throw new AcademyError('academy.watch_threshold_unset', 'academy.watch_threshold_unset');
+    }
+    if (rule === 'watch') await input.mayWatch?.();
+    const met =
+      rule === 'view' ||
+      (rule === 'score' && (await this.assessments.passedSlugs(input.userId, now)).has(slug)) ||
+      (rule === 'watch' && (await this.watchedItems(input.userId, new Map([[slug, video!]]))).has(slug));
+    if (!met) throw new AcademyError(`academy.completion_rule_unmet rule=${rule}`, 'academy.completion_rule_unmet');
+    return this.recordCompletion(input.userId, slug, now);
+  }
+
+  /** Records one completion and its history row; a concurrent completion of the same item returns that one. */
+  private recordCompletion(userId: string, slug: string, now: Date): Promise<ItemCompletionRecord> {
+    return transaction(this.sql, async (tx) => {
+      // Complete and Undo on one item take turns, so the history and the current row never disagree.
+      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${userId}:${slug}:completion`}, 0))`;
+      const rows = await tx<Array<{ user_id: string; item_slug: string; completed_at: Date }>>`
+        INSERT INTO academy.cert_item_completions (user_id, item_slug, completed_at)
+        VALUES (${userId}, ${slug}, ${now})
+        ON CONFLICT (user_id, item_slug) DO NOTHING
+        RETURNING user_id, item_slug, completed_at
+      `;
+      if (!rows[0]) {
+        // Completed by a concurrent request: that one wrote the history row.
+        return (await this.currentCompletion(tx, userId, slug))!;
+      }
+      await tx`
+        INSERT INTO academy.item_completion_events (user_id, item_slug, event, client_request_id, recorded_at)
+        VALUES (${userId}, ${slug}, 'completed', NULL, ${now})
+      `;
+      return { userId: rows[0].user_id, itemSlug: rows[0].item_slug, completedAt: rows[0].completed_at };
+    });
+  }
+
+  /**
+   * AC-progress-01 Undo of one completion, named by its `completedAt`: the item is no longer complete, so course progress
+   * drops and items that need it, and are not complete themselves, lock again (a later item already completed stays so).
+   * The history keeps both events; completing again appends a new one with a new `completedAt`, which an old or replayed
+   * Undo does not match. A replay of the same request answers as the first did; a request id reused for another item is
+   * refused. Nothing matching to undo answers `undoneAt: null`.
+   */
+  async undoCurriculumComplete(input: {
+    userId: string;
+    itemSlug: string;
+    completedAt: string;
+    clientRequestId: string;
+    now?: Date;
+  }): Promise<AcademyUndoCompletion> {
+    const slug = input.itemSlug.trim();
+    if (!hasCurriculumSlug(slug)) {
+      throw new AcademyError('Unknown curriculum item', 'academy.curriculum_not_found');
+    }
+    const clientRequestId = input.clientRequestId.trim();
+    const completedAt = new Date(input.completedAt);
+    const now = input.now ?? new Date();
+    return transaction(this.sql, async (tx) => {
+      // completed_at may carry microseconds (rows from before this change used now()); the caller saw it in milliseconds.
+      // The request id first, so two Undos sharing one id on different items take turns and the second reads the first.
+      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${input.userId}:${clientRequestId}:undo-request`}, 0))`;
+      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${input.userId}:${slug}:completion`}, 0))`;
+      const replay = await tx<Array<{ item_slug: string; recorded_at: Date }>>`
+        SELECT item_slug, recorded_at FROM academy.item_completion_events
+         WHERE user_id = ${input.userId} AND client_request_id = ${clientRequestId}
+      `;
+      if (replay[0]) {
+        if (replay[0].item_slug !== slug) {
+          throw new AcademyError('academy.request_reused this request id undid another item', 'academy.request_reused');
+        }
+        return { userId: input.userId, itemSlug: slug, undoneAt: replay[0].recorded_at.toISOString() };
+      }
+      const removed = await tx<Array<{ item_slug: string }>>`
+        DELETE FROM academy.cert_item_completions
+         WHERE user_id = ${input.userId} AND item_slug = ${slug}
+           AND date_trunc('milliseconds', completed_at) = ${completedAt}
+        RETURNING item_slug
+      `;
+      if (!removed[0]) return { userId: input.userId, itemSlug: slug, undoneAt: null };
+      await tx`
+        INSERT INTO academy.item_completion_events (user_id, item_slug, event, client_request_id, recorded_at)
+        VALUES (${input.userId}, ${slug}, 'undone', ${clientRequestId}, ${now})
+      `;
+      return { userId: input.userId, itemSlug: slug, undoneAt: now.toISOString() };
+    });
+  }
+
+  private async currentCompletion(sql: Sql, userId: string, slug: string): Promise<ItemCompletionRecord | null> {
+    const rows = await sql<Array<{ user_id: string; item_slug: string; completed_at: Date }>>`
       SELECT user_id, item_slug, completed_at FROM academy.cert_item_completions
-       WHERE user_id = ${input.userId} AND item_slug = ${slug}
+       WHERE user_id = ${userId} AND item_slug = ${slug}
     `;
-    return {
-      userId: again[0]!.user_id,
-      itemSlug: again[0]!.item_slug,
-      completedAt: again[0]!.completed_at,
-    };
+    return rows[0] ? { userId: rows[0].user_id, itemSlug: rows[0].item_slug, completedAt: rows[0].completed_at } : null;
+  }
+
+  /**
+   * The course rule an item completes by (AC-progress-01): `score` when a quiz is published for it, otherwise `view`, met
+   * by opening it, which the Complete button on the open item already is.
+   */
+  private completionRule(slug: string, quizzes: ReadonlySet<string>, videos: ReadonlyMap<string, string>): AcademyCompletionRule {
+    return quizzes.has(slug) ? 'score' : videos.has(slug) ? 'watch' : 'view';
+  }
+
+  /**
+   * `passed`: the caller's passed quiz slugs. A quiz with no pass mark is never passed, and completing says why.
+   * `watched`: the caller's watch items whose video's stored position reached the owner threshold.
+   */
+  private completionRuleMet(slug: string, rule: AcademyCompletionRule, passed: ReadonlySet<string>, watched: ReadonlySet<string>): boolean {
+    return rule === 'view' || (rule === 'score' ? passed.has(slug) : watched.has(slug));
+  }
+
+  /**
+   * AC-videos-01: of the given item → video pairs, the items whose video the caller has watched: a stored position at or
+   * past the owner's threshold. No threshold: none, since a blank threshold is not zero.
+   */
+  private async watchedItems(userId: string, videos: ReadonlyMap<string, string>): Promise<Set<string>> {
+    const threshold = this.options.videoWatchThresholdSeconds;
+    if (threshold === undefined || videos.size === 0) return new Set();
+    const rows = await this.sql<Array<{ video_slug: string }>>`
+      SELECT video_slug FROM academy.video_progress
+       WHERE user_id = ${userId} AND video_slug IN ${this.sql([...new Set(videos.values())])} AND position_seconds >= ${threshold}
+    `;
+    const seen = new Set(rows.map((row) => row.video_slug));
+    return new Set([...videos].filter(([, video]) => seen.has(video)).map(([item]) => item));
+  }
+
+  private async completionTimes(userId: string, slugs: readonly string[]): Promise<Map<string, Date>> {
+    if (slugs.length === 0) return new Map();
+    const rows = await this.sql<Array<{ item_slug: string; completed_at: Date }>>`
+      SELECT item_slug, completed_at FROM academy.cert_item_completions
+       WHERE user_id = ${userId} AND item_slug = ANY(${slugs as string[]})
+    `;
+    return new Map(rows.map((r) => [r.item_slug, r.completed_at]));
   }
 
   private async completedSlugs(userId: string): Promise<Set<string>> {
@@ -2016,14 +2555,17 @@ export class AcademyService {
     }
   }
 
-  getAssessment(slug: string): AssessmentPublic {
-    const def = this.assessments.definition(slug);
+  async getAssessment(slug: string): Promise<AcademyQuiz> {
+    const def = await this.assessments.definition(slug);
     if (!def) throw new AcademyError(`academy.assessment_unpublished slug=${slug}`, 'academy.assessment_unpublished');
     if (def.passMark === null) throw new AcademyError(`academy.pass_mark_unset slug=${slug}`, 'academy.pass_mark_unset');
     return {
       slug: def.slug,
       kind: def.kind,
       passMark: def.passMark,
+      timeLimitSeconds: def.timeLimitSeconds ?? null,
+      attemptLimit: def.attemptLimit,
+      reviewMode: def.reviewMode ?? 'score_only',
       questions: def.questions.map((question) => ({
         id: question.id,
         prompt: question.prompt,
@@ -2044,8 +2586,34 @@ export class AcademyService {
     return this.assessments.submit(input);
   }
 
-  assessmentAttempts(userId: string, slug: string): Promise<AttemptRow[]> {
+  assessmentAttempts(userId: string, slug: string): Promise<VisibleAttemptRow[]> {
     return this.assessments.attempts(userId, slug);
+  }
+
+  /** AC-quizzes-03: Start (or resume) a timed attempt; see AssessmentRepository.start. */
+  startQuizAttempt(input: { userId: string; slug: string; now?: Date }): Promise<AcademyQuizAttempt> {
+    return this.assessments.start(input);
+  }
+
+  currentQuizAttempt(input: { userId: string; slug: string; now?: Date }): Promise<AcademyQuizAttempt | null> {
+    return this.assessments.current(input);
+  }
+
+  answerQuizAttempt(input: { userId: string; attemptId: string; questionId: string; choiceId: string; now?: Date }) {
+    return this.assessments.answer(input);
+  }
+
+  finishQuizAttempt(input: { userId: string; attemptId: string; now?: Date }): Promise<AcademyQuizAttempt> {
+    return this.assessments.finish(input);
+  }
+
+  reviewQuizAttempt(input: { userId: string; attemptId: string; now?: Date }): Promise<AcademyQuizReview> {
+    return this.assessments.review(input);
+  }
+
+  /** Staff publish or take down the quiz on one curriculum item (admin door, reason required). */
+  setQuiz(input: AcademySetQuizInput & { operatorId: string; now?: Date }) {
+    return this.assessments.setQuiz({ ...input, lesson: hasCurriculumSlug });
   }
 
   /**
@@ -2170,6 +2738,13 @@ export class AcademyService {
       );
     }
   }
+}
+
+/** `part` of `whole` as a percentage with one decimal place, rounded half up, as a decimal string. Integer arithmetic only. */
+function tenths(part: number, whole: number): string {
+  if (whole <= 0) return '0.0';
+  const t = Math.floor((part * 2000 + whole) / (2 * whole));
+  return `${Math.floor(t / 10)}.${t % 10}`;
 }
 
 function curriculumItemView(slug: string) {

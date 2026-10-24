@@ -86,6 +86,10 @@ const DAY_MS = 86_400_000;
  */
 export function inputFor(spec: ReadSpec, now: Date): Readonly<Record<string, unknown>> | undefined {
   if (spec.windowDays === undefined) return spec.input ?? (spec.sendEmptyInput === true ? {} : undefined);
+  if (spec.windowInUtcDays) {
+    const day = (t: number) => new Date(t).toISOString().slice(0, 10);
+    return { ...spec.input, from: day(now.getTime() - (spec.windowDays - 1) * DAY_MS), to: day(now.getTime()) };
+  }
   return { ...spec.input, from: new Date(now.getTime() - spec.windowDays * DAY_MS).toISOString(), to: now.toISOString() };
 }
 

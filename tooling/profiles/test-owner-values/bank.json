@@ -46,6 +46,21 @@
       "value": "24",
       "note": "How long a newly saved withdrawal address waits before money may leave to it (J-wallet-04)."
     },
+    "BANK_PAYEE_COOLING_HOURS": {
+      "service": "bank",
+      "value": "24",
+      "note": "How long a newly saved bank recipient waits before money may go to it (J-bank-04 #2)."
+    },
+    "BANK_GLOBAL_HOLD_CANCEL_HOURS": {
+      "service": "bank",
+      "value": "72",
+      "note": "How long a global send may stay on a compliance hold before it is cancelled automatically, nothing posted (J-bank-04 #6)."
+    },
+    "BANK_GLOBAL_REFUND_FEE": {
+      "service": "bank",
+      "value": "0",
+      "note": "The fee on refunding a global send the rail returned: zero, so the whole amount comes back (J-bank-04 #7)."
+    },
     "BANK_WALLET_PROOF_WINDOW_MINUTES": {
       "service": "bank",
       "value": "30",
@@ -55,6 +70,31 @@
       "service": "bank",
       "value": "180",
       "note": "How many days a verified wallet ownership proof holds (J-wallet-04)."
+    },
+    "BANK_PAYEE_CONTROLS_JSON": {
+      "service": "bank",
+      "value": "{\"blockedAccounts\": [\"999000000001\"]}",
+      "note": "One made-up blocked account number (TEST, shaped so a recipient can be saved with it) so a journey can see the refusal; every real account passes."
+    },
+    "BANK_EXCHANGE_ALLOWANCE_JSON": {
+      "service": "bank",
+      "value": "{\"exchangeAccounts\": [\"TEST-EXCHANGE-ACCOUNT\"], \"windowDays\": 30, \"limits\": [{\"asset\": \"USDT\", \"maxAmount\": \"1000\"}]}",
+      "note": "One made-up exchange account with a 1000 USDT 30-day limit, so a journey can reach the allowance refusal."
+    },
+    "BANK_PROOF_LIMITS_JSON": {
+      "service": "bank",
+      "value": "{\"allowedTypes\": [\"application/pdf\", \"image/png\"], \"maxBytes\": 1048576}",
+      "note": "PDF or PNG up to 1 MiB, so a held-send journey can upload a file."
+    },
+    "BANK_GLOBAL_SIM_JSON": {
+      "service": "bank",
+      "value": "{\"label\": \"TEST stand-in catalogue for the local stack: not a partner, not a corridor anyone offers, not a rate\", \"corridors\": [{\"country\": \"DE\", \"currency\": \"EUR\", \"deliveryMethods\": [\"sepa\"], \"minAmount\": \"1\", \"maxAmount\": \"1000\", \"cutOffTime\": null}, {\"country\": \"GB\", \"currency\": \"GBP\", \"deliveryMethods\": [\"bank_account\"], \"minAmount\": \"1\", \"maxAmount\": \"1000\", \"cutOffTime\": null}], \"rates\": [{\"asset\": \"USDT\", \"toCurrency\": \"EUR\", \"rate\": \"2\"}, {\"asset\": \"USDT\", \"toCurrency\": \"GBP\", \"rate\": \"3\"}], \"reviewFrom\": [{\"asset\": \"USDT\", \"amount\": \"500\"}], \"quoteValidSeconds\": 300, \"etaHours\": 24, \"banks\": [{\"bic\": \"TESTDEFF\", \"bankName\": \"TEST Bank\"}], \"travelRule\": {\"decidedBy\": \"TEST local stack\", \"requiredFields\": []}}",
+      "note": "The global-send stand-in's catalogue: two made-up corridors, rates of 2 and 3 so no one reads them as real, no fee, and a USDT send of 500 or more is put on hold for a compliance look. Loaded only with BANK_GLOBAL_PARTNER=global-sim."
+    },
+    "BANK_SEND_FIELD_RULES_JSON": {
+      "service": "bank",
+      "value": "{\"reference\": [{\"deliveryMethod\": \"sepa\", \"maxLength\": 35}, {\"deliveryMethod\": \"bank_account\", \"maxLength\": 18}], \"purposeRequired\": [], \"sourceOfFunds\": []}",
+      "note": "Made-up reference lengths for the stand-in's two delivery methods; no purpose or source-of-funds rule."
     }
   }
 }

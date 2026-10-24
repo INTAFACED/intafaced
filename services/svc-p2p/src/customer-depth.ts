@@ -116,25 +116,48 @@ export async function eitherBlocked(sql: Sql, a: string, b: string): Promise<boo
   return Boolean(rows[0]);
 }
 
-export function encodeOfferCursor(offer: Pick<BoardOffer, 'price' | 'createdAtExact' | 'id'>): string {
-  return Buffer.from(`${formatAmount(offer.price)}\n${offer.createdAtExact}\n${offer.id}`, 'utf8').toString('base64url');
+/** Board order (P-trade-orders-01): fixed-price ads by price, then floating ads, which have no fiat price to rank by. */
+export const BOARD_SORTS = ['price_asc', 'price_desc'] as const;
+export type BoardSort = (typeof BOARD_SORTS)[number];
+
+export interface OfferCursor {
+  sort: BoardSort;
+  float: boolean;
+  price: string;
+  createdAt: string;
+  id: string;
 }
 
-export function decodeOfferCursor(cursor: string): { price: string; createdAt: string; id: string } {
+/** Opaque keyset position. It carries its sort, so a cursor read under another sort refuses instead of skipping rows. */
+export function encodeOfferCursor(offer: Pick<BoardOffer, 'priceType' | 'price' | 'createdAtExact' | 'id'>, sort: BoardSort): string {
+  const parts = [sort, offer.priceType === 'float' ? '1' : '0', formatAmount(offer.price), offer.createdAtExact, offer.id];
+  return Buffer.from(parts.join('\n'), 'utf8').toString('base64url');
+}
+
+export function decodeOfferCursor(cursor: string): OfferCursor {
   let raw: string;
   try {
     raw = Buffer.from(cursor, 'base64url').toString('utf8');
   } catch {
     throw new DepthError('p2p.offer_cursor_invalid', 'p2p.offer_cursor_invalid');
   }
-  const [price, createdAt, id] = raw.split('\n');
-  if (!price || !createdAt || !id || !/^\d+(\.\d{1,18})?$/.test(price) || !/^\d{20}$/.test(createdAt)) {
+  const [sort, float, price, createdAt, id, extra] = raw.split('\n');
+  if (
+    extra !== undefined ||
+    !(BOARD_SORTS as readonly string[]).includes(sort ?? '') ||
+    (float !== '0' && float !== '1') ||
+    !price ||
+    !createdAt ||
+    !id ||
+    !/^\d+(\.\d{1,18})?$/.test(price) ||
+    !/^\d{20}$/.test(createdAt)
+  ) {
     throw new DepthError('p2p.offer_cursor_invalid', 'p2p.offer_cursor_invalid');
   }
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)) {
     throw new DepthError('p2p.offer_cursor_invalid', 'p2p.offer_cursor_invalid');
   }
-  return { price, createdAt, id };
+  return { sort: sort as BoardSort, float: float === '1', price, createdAt, id };
 }
 
 export interface BoardFilter {
@@ -144,6 +167,9 @@ export interface BoardFilter {
   makerId?: string;
   methodId?: string;
   minFiat?: Amount | null;
+  /** A fiat amount the ad can take whole: fixed price, and within its limits and what is left. */
+  fiatAmount?: Amount | null;
+  sort?: BoardSort;
   viewerId?: string | null;
   limit: number;
   cursor?: string | null;
@@ -192,8 +218,12 @@ export function boardRowToOffer(row: BoardRow): BoardOffer {
 }
 
 export async function selectOfferBoard(sql: Sql, filter: BoardFilter): Promise<BoardRow[]> {
+  const sort = filter.sort ?? 'price_asc';
   const cursor = filter.cursor ? decodeOfferCursor(filter.cursor) : null;
+  if (cursor && cursor.sort !== sort) throw new DepthError('p2p.offer_cursor_invalid', 'p2p.offer_cursor_invalid');
   const minFiat = filter.minFiat == null ? null : formatAmount(filter.minFiat);
+  const fiatAmount = filter.fiatAmount == null ? null : formatAmount(filter.fiatAmount);
+  const desc = sort === 'price_desc';
   return sql<BoardRow[]>`
     SELECT p2p.offers.*,
            to_char(p2p.offers.created_at AT TIME ZONE 'UTC', 'YYYYMMDDHH24MISSUS') AS created_at_exact
@@ -217,6 +247,14 @@ export async function selectOfferBoard(sql: Sql, filter: BoardFilter): Promise<B
          OR (price_type = 'fixed' AND price * max_amt >= ${minFiat}::numeric)
        )
        AND (
+         ${fiatAmount}::numeric IS NULL
+         OR (
+           price_type = 'fixed'
+           AND price * min_amt <= ${fiatAmount}::numeric
+           AND price * LEAST(max_amt, remaining_amt) >= ${fiatAmount}::numeric
+         )
+       )
+       AND (
          ${filter.viewerId ?? null}::text IS NULL
          OR NOT EXISTS (
            SELECT 1 FROM p2p.contacts c
@@ -229,18 +267,24 @@ export async function selectOfferBoard(sql: Sql, filter: BoardFilter): Promise<B
        )
        AND (
          ${cursor?.id ?? null}::uuid IS NULL
-         OR price > ${cursor?.price ?? '0'}::numeric
+         OR (price_type = 'float') > ${cursor?.float ?? false}::boolean
          OR (
-           price = ${cursor?.price ?? '0'}::numeric
+           (price_type = 'float') = ${cursor?.float ?? false}::boolean
+           AND price ${desc ? sql`<` : sql`>`} ${cursor?.price ?? '0'}::numeric
+         )
+         OR (
+           (price_type = 'float') = ${cursor?.float ?? false}::boolean
+           AND price = ${cursor?.price ?? '0'}::numeric
            AND to_char(created_at AT TIME ZONE 'UTC', 'YYYYMMDDHH24MISSUS') > ${cursor?.createdAt ?? ''}::text
          )
          OR (
-           price = ${cursor?.price ?? '0'}::numeric
+           (price_type = 'float') = ${cursor?.float ?? false}::boolean
+           AND price = ${cursor?.price ?? '0'}::numeric
            AND to_char(created_at AT TIME ZONE 'UTC', 'YYYYMMDDHH24MISSUS') = ${cursor?.createdAt ?? ''}::text
            AND id > ${cursor?.id ?? '00000000-0000-0000-0000-000000000000'}::uuid
          )
        )
-     ORDER BY price ASC, created_at ASC, id ASC
+     ORDER BY (price_type = 'float') ASC, price ${desc ? sql`DESC` : sql`ASC`}, created_at ASC, id ASC
      LIMIT ${filter.limit}
   `;
 }

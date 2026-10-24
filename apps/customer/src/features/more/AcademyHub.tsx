@@ -9,6 +9,7 @@ import { t as copyText } from './copy';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import { academyCourseHref } from './academy-lms';
 import { AcademyRefusal, kindLabel, pathLabel } from './AcademyLmsParts';
+import { AcademyCourseEnrol } from './AcademyCourseEnrol';
 import './academy-public.css';
 
 /**
@@ -58,7 +59,7 @@ export function AcademyHub() {
 
 /**
  * The public course page (AC-catalogue-03), the same signed in and signed out. Summary and instructor show their
- * absence in words; the outcomes are the lessons' own objectives. Enrolling happens on Programmes, behind sign-in.
+ * absence in words; the outcomes are the lessons' own objectives. Signed in, Enrol now sits here (AC-enrolment-01).
  */
 export function AcademyCourse({ slug, signedIn }: { slug: string | undefined; signedIn: boolean }) {
   const api = useApi();
@@ -123,21 +124,24 @@ export function AcademyCourse({ slug, signedIn }: { slug: string | undefined; si
           </section>
         </div>
       </Panel>
-      <Panel title={t('courseInstructor')}>
-        <div className="academy-lms-stack">
-          <p className="muted">{data.instructor ?? t('courseNoInstructor')}</p>
-          <p>{data.certificate ? t('courseCertificate', { title: data.certificate }) : t('courseNoCertificate')}</p>
-          {signedIn ? (
-            <a className="button button--primary" href="/academy/programmes">
-              <Copy k="courseEnrol" />
-            </a>
-          ) : (
-            <a className="button button--primary" href={`/login?redirect=${encodeURIComponent(here)}`}>
-              <Copy k="courseSignInToEnrol" />
-            </a>
-          )}
-        </div>
-      </Panel>
+      <div>
+        <Panel title={t('courseInstructor')}>
+          <div className="academy-lms-stack">
+            <p className="muted">{data.instructor ?? t('courseNoInstructor')}</p>
+            <p>{data.certificate ? t('courseCertificate', { title: data.certificate }) : t('courseNoCertificate')}</p>
+            {!signedIn && (
+              <a className="button button--primary" href={`/login?redirect=${encodeURIComponent(here)}`}>
+                <Copy k="courseSignInToEnrol" />
+              </a>
+            )}
+          </div>
+        </Panel>
+        {signedIn && (
+          <Panel title={t('courseEnrol')}>
+            <AcademyCourseEnrol slug={data.slug} />
+          </Panel>
+        )}
+      </div>
     </div>
   );
 }

@@ -77,7 +77,7 @@ describe('signed-out doors', () => {
 });
 
 /** A stand-in for the two release tables: prerequisite rows and window rows for the item. */
-function fakeSql(tables: { prerequisites: string[]; window: { from: Date; until: Date } | null }): Sql {
+function fakeSql(tables: { prerequisites: string[]; window: { from: Date; until: Date } | null; courseStartsAt?: Date }): Sql {
   const sql = ((strings: TemplateStringsArray) => {
     const text = strings.join('?');
     if (text.includes('item_prerequisites')) return Promise.resolve(tables.prerequisites.map((p) => ({ prerequisite_slug: p })));
@@ -85,6 +85,7 @@ function fakeSql(tables: { prerequisites: string[]; window: { from: Date; until:
       return Promise.resolve(
         tables.window ? [{ available_from: tables.window.from, available_until: tables.window.until, due_at: null }] : [],
       );
+    if (text.includes('course_starts')) return Promise.resolve(tables.courseStartsAt ? [{ starts_at: tables.courseStartsAt }] : []);
     throw new Error(`unexpected query: ${text}`);
   }) as unknown as Sql;
   return sql;
@@ -102,6 +103,13 @@ describe('ReleaseAccess.assertMayReadSignedOut', () => {
     const later = { from: new Date('2026-11-01T00:00:00Z'), until: new Date('2026-12-01T00:00:00Z') };
     await expect(
       new ReleaseAccess(fakeSql({ prerequisites: [], window: later })).assertMayReadSignedOut({ itemSlug: first.slug, now }),
+    ).rejects.toMatchObject({ code: 'academy.window_invalid' });
+    const nextWeek = new Date('2026-10-30T09:00:00Z');
+    await expect(
+      new ReleaseAccess(fakeSql({ prerequisites: [], window: null, courseStartsAt: nextWeek })).assertMayReadSignedOut({
+        itemSlug: first.slug,
+        now,
+      }),
     ).rejects.toMatchObject({ code: 'academy.window_invalid' });
     await expect(
       new ReleaseAccess(fakeSql({ prerequisites: [], window: null })).assertMayReadSignedOut({ itemSlug: 'no-such-item', now }),
