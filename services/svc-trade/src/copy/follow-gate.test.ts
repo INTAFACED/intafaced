@@ -301,11 +301,18 @@ describe('the reserve after review', () => {
       notional: parseAmount('90'),
       observedAt: NOW,
     };
-    const plan = planMirror({ follow, observation, currentExposure: 0n, now: NOW });
-    expect(plan.notional).toBe(parseAmount('20'));
-    // 0.002 x 20 / 90, rounded down to the ledger scale.
-    expect(plan.qty).toBe((parseAmount('0.002') * parseAmount('20')) / parseAmount('90'));
-    expect(plan.nextExposure).toBe(parseAmount('20'));
+    // On a 0.00001 lot: 0.002 x 20 / 90 = 0.000444… rounds down to 0.00044, which costs 19.80 at the leader's 45,000.
+    const plan = planMirror({ follow, observation, currentExposure: 0n, now: NOW, lotSize: parseAmount('0.00001') });
+    expect(plan.qty).toBe(parseAmount('0.00044'));
+    expect(plan.notional).toBe(parseAmount('19.8'));
+    expect(plan.nextExposure).toBe(parseAmount('19.8'));
+    // Without a lot step the quantity is only rounded to the ledger scale.
+    const unstepped = planMirror({ follow, observation, currentExposure: 0n, now: NOW });
+    expect(unstepped.qty).toBe((parseAmount('0.002') * parseAmount('20')) / parseAmount('90'));
+    // A lot step larger than the fixed amount buys refuses rather than rounding to nothing.
+    expect(() => planMirror({ follow, observation, currentExposure: 0n, now: NOW, lotSize: parseAmount('0.001') })).toThrow(
+      expect.objectContaining({ code: 'trade.copy_cap_exceeded' }),
+    );
     const unfixed = planMirror({
       follow: { ...follow, envelope: { ...follow.envelope, fixedOrderSize: undefined } },
       observation,

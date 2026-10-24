@@ -12,6 +12,7 @@ import { RampService, type RampServiceOptions } from './ramps/ramp-service.js';
 import { AddMoneyService } from './ramps/add-money.js';
 import { LinkedAccountService } from './linked-accounts/linked-accounts.js';
 import { CashOutService } from './cash-out/cash-out.js';
+import type { CashOutPartner } from './cash-out/payout-sim.js';
 import { RailSendService } from './rail-sends/rail-sends.js';
 import { BANK_PAYEE_COOLING_HOURS_ENV, PayeeService } from './rail-sends/payees.js';
 import { BANK_ADDRESS_BOOK_CAP_ENV } from './withdraw-destination.js';
@@ -111,8 +112,10 @@ export interface BankServiceOptions {
   scheduleEditCutoffMinutes?: string;
   /** `BANK_GLOBAL_HOLD_CANCEL_HOURS`: how long a global send may stay on hold before it is cancelled. Blank, never. */
   holdCancelHours?: string;
-  /** The service secret a global-send receipt's signing key is derived from. Blank, no receipt is made. */
+  /** The service secret a global-send or cash-out receipt's signing key is derived from. Blank, no receipt is made. */
   receiptSecret?: string;
+  /** Who pays out cash-outs to bank accounts. Unset: every cash-out is kept refused `bank.fiat_ramp_socket`. */
+  cashOutPartner?: CashOutPartner | null;
   /** `BANK_GLOBAL_REFUND_FEE`: the fee on refunding a global send the rail returned. Blank refuses; only zero refunds. */
   refundFee?: string;
   /** Refused by earn pools — svc-token owns native staking (§8.1). */
@@ -328,7 +331,12 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     ramps,
     addMoney,
     linkedAccounts,
-    cashOut: new CashOutService(sql, { available: (userId, assetId) => ramps.availableOf(userId, assetId), linked: linkedAccounts }),
+    cashOut: new CashOutService(
+      sql,
+      ledger,
+      { available: (userId, assetId) => ramps.availableOf(userId, assetId), linked: linkedAccounts },
+      { partner: options.cashOutPartner ?? null, receiptSecret: options.receiptSecret, securityLock: options.ramps?.securityLock },
+    ),
     railSends: new RailSendService(sql, spaces, railPayees),
     railPayees,
     deposits,

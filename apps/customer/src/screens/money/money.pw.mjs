@@ -218,6 +218,7 @@ test('portfolio from the bank at 1440x900: numbers, layout, words, keyboard path
   // Unpriced rows show a dash, never zero.
   const zed = page.locator('#crypto tr[data-asset="ZED"]');
   expect(await texts(zed.locator('td').nth(2))).toEqual(['—']);
+  await expect(zed.locator('td').nth(2)).toHaveAttribute('title', 'No price published');
   expect(await texts(zed.locator('td').nth(3))).toEqual(['—']);
   // Row actions come from the registry and the markets: Buy/Sell/Send for a listed coin, Send only for the rest.
   expect(await texts(btc.locator('.money-row__actions > *'))).toEqual(['Buy', 'Sell', 'Send']);

@@ -521,6 +521,8 @@ export const academyCourseLearnerViewSchema = z.object({
       title: z.string().min(1),
       items: z.array(
         z.object({
+          /** The outline item, so an open assignment links to its page (AC-assignments-01). */
+          id: z.string().guid(),
           kind: z.enum(ACADEMY_OUTLINE_ITEM_KINDS),
           title: z.string().min(1),
           indent: z.number().int().min(0).max(2),
@@ -605,3 +607,135 @@ export const academyAuthoredCourseInputSchema = z.object({ slug: z.string().min(
 /** `leaveAuthoredCourse`: the enrolment that began at `enrolledAt` ends; a repeat after a lost reply is the same leave. */
 export const academyLeaveAuthoredCourseInputSchema = z.object({ slug: z.string().min(1).max(120), enrolledAt: isoInstant }).strict();
 export type AcademyLeaveAuthoredCourseInput = z.infer<typeof academyLeaveAuthoredCourseInputSchema>;
+
+/**
+ * AC-assignments-01: an assignment is an outline item of kind `assignment` with a brief staff set on the founder console:
+ * instructions, points as a decimal string, an optional due date, and whether a text answer and a file are off, optional
+ * or required. It is released to enrolled learners once its brief is saved. A learner hands in a numbered version keyed
+ * `submit:<item>:<account>:<version>`, so a retry after a lost reply is the same hand-in; late is worked out on each
+ * read against the due date and never stored. The course has no late rule until gradebook setup (AC-assignments-04), so
+ * none is shown. No money moves here.
+ */
+export const ACADEMY_ANSWER_MODES = ['off', 'optional', 'required'] as const;
+export type AcademyAnswerMode = (typeof ACADEMY_ANSWER_MODES)[number];
+export const ACADEMY_SUBMISSION_STATES = ['draft', 'submitted', 'pending_review', 'graded', 'returned', 'withdrawn'] as const;
+export type AcademySubmissionState = (typeof ACADEMY_SUBMISSION_STATES)[number];
+/** Points: a decimal string above zero with at most two places, never a JavaScript number. */
+export const ACADEMY_POINTS = /^(?:0|[1-9]\d{0,5})(?:\.\d{1,2})?$/;
+export const academyPointsSchema = z
+  .string()
+  .regex(ACADEMY_POINTS)
+  .refine((v) => /[1-9]/.test(v), { message: 'points are more than zero' });
+
+const assignmentBrief = {
+  instructions: z.string().trim().min(1).max(10_000),
+  points: academyPointsSchema,
+  /** The due date, or null for none (an author choice: no due date, nothing is late). */
+  dueAt: isoInstant.nullable(),
+  text: z.enum(ACADEMY_ANSWER_MODES),
+  file: z.enum(ACADEMY_ANSWER_MODES),
+};
+
+/** `admin.assignment`: an assignment item as staff see it. `brief` is null until it is first saved. */
+export const academyAdminAssignmentSchema = z.object({
+  itemId: z.string().guid(),
+  courseId: z.string().guid(),
+  title: z.string().min(1),
+  /** 0 until the brief is first saved; each save is the next revision. */
+  revision: z.number().int().nonnegative(),
+  brief: z.object(assignmentBrief).nullable(),
+  savedBy: z.string().guid().nullable(),
+  savedAt: isoInstant.nullable(),
+  /** Set when staff withdrew it: learners can no longer hand in, and what they handed in stays readable to them. */
+  withdrawnAt: isoInstant.nullable(),
+  withdrawReason: z.string().nullable(),
+  /** Learners who handed in at least once. */
+  learnersHandedIn: z.number().int().nonnegative(),
+});
+export type AcademyAdminAssignment = z.infer<typeof academyAdminAssignmentSchema>;
+
+/** `admin.saveAssignment`: the brief, over the revision read (a stale one refuses `academy.revision_stale`). */
+export const academySaveAssignmentInputSchema = z
+  .object({ itemId: z.string().guid(), revision: z.number().int().nonnegative(), ...assignmentBrief })
+  .strict()
+  .refine((v) => v.text !== 'off' || v.file !== 'off', { message: 'a learner hands in text, a file or both', path: ['text'] });
+export type AcademySaveAssignmentInput = z.infer<typeof academySaveAssignmentInputSchema>;
+
+/** `admin.withdrawAssignment`: learners can no longer hand in; the reason is kept. */
+export const academyWithdrawAssignmentInputSchema = z
+  .object({ itemId: z.string().guid(), reason: z.string().trim().min(1).max(500) })
+  .strict();
+export type AcademyWithdrawAssignmentInput = z.infer<typeof academyWithdrawAssignmentInputSchema>;
+
+/** A file a learner handed in, as they see it. Its bytes are never served inline. */
+export const academySubmissionFileSchema = z.object({
+  id: z.string().guid(),
+  fileName: z.string().min(1),
+  contentType: z.string().min(1),
+  bytes: z.number().int().positive(),
+});
+export type AcademySubmissionFile = z.infer<typeof academySubmissionFileSchema>;
+
+export const academySubmissionSchema = z.object({
+  version: z.number().int().positive(),
+  state: z.enum(ACADEMY_SUBMISSION_STATES),
+  text: z.string().nullable(),
+  file: academySubmissionFileSchema.nullable(),
+  submittedAt: isoInstant,
+  /** Handed in after the due date, worked out on this read. */
+  late: z.boolean(),
+});
+export type AcademySubmission = z.infer<typeof academySubmissionSchema>;
+
+/** `assignment`: an assignment as the enrolled learner sees it, with their own hand-ins, newest first. */
+export const academyAssignmentInputSchema = z.object({ itemId: z.string().guid() }).strict();
+export const academyAssignmentViewSchema = z.object({
+  itemId: z.string().guid(),
+  courseSlug: z.string().min(1),
+  courseTitle: z.string().min(1),
+  title: z.string().min(1),
+  ...assignmentBrief,
+  /** The course's late rule; null while the course has none. */
+  lateRule: z.string().nullable(),
+  /**
+   * The upload limits for a file answer: the smaller of the owner's size limit and the inline bound, and the owner's
+   * types. A null field is not set by the owner, and a file is refused until it is.
+   */
+  fileLimits: z.object({ maxBytes: z.number().int().positive().nullable(), types: z.array(z.string()).nullable() }),
+  withdrawnAt: isoInstant.nullable(),
+  submissions: z.array(academySubmissionSchema),
+  /** The version the next hand-in takes; a retry of a lost hand-in sends the version it was made with. */
+  nextVersion: z.number().int().positive(),
+});
+export type AcademyAssignmentView = z.infer<typeof academyAssignmentViewSchema>;
+
+/**
+ * The most a learner's file carries inline through the customer API: 768 KiB, whose base64 fits a 1 MiB request body.
+ * A transport bound, not an owner value: the page shows the smaller of it and the owner's upload limit.
+ */
+export const ACADEMY_ASSIGNMENT_FILE_INLINE_MAX_BYTES = 786_432;
+
+/** `uploadAssignmentFile`: a file for the next hand-in, its bytes in base64; the same file again is the same row. */
+export const academyUploadAssignmentFileInputSchema = z
+  .object({
+    itemId: z.string().guid(),
+    fileName: z.string().trim().min(1).max(200),
+    contentType: z.string().trim().min(1).max(100),
+    contentBase64: z
+      .string()
+      .min(1)
+      .max(Math.ceil(ACADEMY_ASSIGNMENT_FILE_INLINE_MAX_BYTES / 3) * 4),
+  })
+  .strict();
+export type AcademyUploadAssignmentFileInput = z.infer<typeof academyUploadAssignmentFileInputSchema>;
+
+/** `submitAssignment`: version `version` of the caller's hand-in, keyed `submit:<item>:<account>:<version>`. */
+export const academySubmitAssignmentInputSchema = z
+  .object({
+    itemId: z.string().guid(),
+    version: z.number().int().positive(),
+    text: z.string().max(20_000).nullable(),
+    fileId: z.string().guid().nullable(),
+  })
+  .strict();
+export type AcademySubmitAssignmentInput = z.infer<typeof academySubmitAssignmentInputSchema>;

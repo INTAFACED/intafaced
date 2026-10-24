@@ -103,6 +103,8 @@ import { createKybPspRouter } from './kyb-router.js';
 import { KybEntityTypeService } from './kyb-entity-types.js';
 import { KybApplicationService, readKybApplicationDueDays } from './kyb-application.js';
 import { KYB_DOC_KEY_ENV, KybDocumentService, parseKybDocKey } from './kyb-documents.js';
+import { KybInformationRequestService } from './kyb-information-requests.js';
+import { KYB_MALWARE_SCANNER_ENV, openKybMalwareScanner } from './kyb-malware-scan.js';
 import { SubMerchantService } from './submerchants.js';
 import { createSubMerchantRouter } from './submerchant-router.js';
 import { createSubscriptionRouter } from './subscription-router.js';
@@ -525,6 +527,7 @@ const merchantState = new MerchantStateService(sql);
  */
 const kyb = new KybService(sql);
 const kybEntityTypes = new KybEntityTypeService(sql);
+const kybDocuments = new KybDocumentService(sql, kybEntityTypes, parseKybDocKey(process.env[KYB_DOC_KEY_ENV]));
 const pspMode = new PspModeService(sql);
 
 /**
@@ -601,7 +604,14 @@ export const appRouter = mergeRouters(
     pay,
     kybEntityTypes,
     new KybApplicationService(sql, kyb, kybEntityTypes, readKybApplicationDueDays(process.env)),
-    new KybDocumentService(sql, kybEntityTypes, parseKybDocKey(process.env[KYB_DOC_KEY_ENV])),
+    kybDocuments,
+    // Blank scanner setting: a file answer refuses `pay.kyb_scan_unconfigured`; a note alone still answers.
+    new KybInformationRequestService(
+      sql,
+      kybDocuments,
+      parseKybDocKey(process.env[KYB_DOC_KEY_ENV]),
+      openKybMalwareScanner({ appEnv: process.env.APP_ENV, setting: process.env[KYB_MALWARE_SCANNER_ENV] }),
+    ),
   ),
   // `pay` is passed only as the ACTOR LOOKUP — the router resolves the caller's
   // own merchant node from the authenticated principal, because a merchant node

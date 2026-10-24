@@ -44,6 +44,7 @@ import { FeaturedSlot } from './curriculum/featured.js';
 import { CourseRecords } from './curriculum/courses.js';
 import { LessonRecords } from './curriculum/lessons.js';
 import { CourseMedia, type ReadBackFn } from './curriculum/media.js';
+import { CourseAssignments, type PutObjectFn } from './curriculum/assignments.js';
 import { LearnHub } from './curriculum/learn-hub.js';
 import { CoursePreview } from './curriculum/course-preview.js';
 import { CourseLearners } from './curriculum/course-learners.js';
@@ -72,6 +73,10 @@ import type {
   AcademyRevertLessonInput,
   AcademyPublishLessonInput,
   AcademyDuplicateItemInput,
+  AcademySaveAssignmentInput,
+  AcademySubmitAssignmentInput,
+  AcademyUploadAssignmentFileInput,
+  AcademyWithdrawAssignmentInput,
   AcademyImportLessonInput,
   AcademyAssistantDraftInput,
   AcademyDecideDraftInput,
@@ -278,6 +283,8 @@ export interface AcademyServiceOptions {
   uploadVideoTypes?: readonly string[];
   uploadHandoutTypes?: readonly string[];
   mediaReadBack?: ReadBackFn;
+  /** Test seam: how a learner's file reaches the object store. Production PUTs over HTTP. */
+  assignmentPut?: PutObjectFn;
   /** AC-articles-01: how many topics a list shows (`ACADEMY_TOPICS_LIST_LIMIT`). Unset, the list refuses. */
   topicsListLimit?: number;
   /** Stage-1 tournament ladder kill-switch (`ACADEMY_TOURNAMENT_ENABLED`). */
@@ -312,6 +319,7 @@ export class AcademyService {
   private readonly courseRecords: CourseRecords;
   private readonly lessonRecords: LessonRecords;
   private readonly courseMedia: CourseMedia;
+  private readonly courseAssignments: CourseAssignments;
   private readonly learnHub: LearnHub;
   private readonly coursePreview: CoursePreview;
   private readonly courseLearners: CourseLearners;
@@ -352,6 +360,12 @@ export class AcademyService {
         handoutTypes: this.options.uploadHandoutTypes ?? null,
       },
       this.options.mediaReadBack,
+    );
+    this.courseAssignments = new CourseAssignments(
+      sql,
+      this.options.mediaStorage ?? null,
+      { maxBytes: this.options.uploadMaxBytes ?? null, types: this.options.uploadHandoutTypes ?? null },
+      this.options.assignmentPut,
     );
     this.courseStarts = new CourseStarts(sql);
     this.plannerStore = new PlannerStore(sql, this.options.plannerTodoLimit ?? null);
@@ -2342,6 +2356,32 @@ export class AcademyService {
   /** AC-videos-02: one language's SRT or WebVTT captions for the item's video. */
   setItemCaptions(input: AcademySetItemCaptionsInput & { operatorId: string; now?: Date }) {
     return this.courseMedia.setCaptions({ ...input, now: input.now ?? new Date() });
+  }
+
+  /** AC-assignments-01: an assignment item's brief as staff see it. */
+  assignmentForStaff(itemId: string) {
+    return this.courseAssignments.adminView(itemId);
+  }
+
+  saveAssignment(input: AcademySaveAssignmentInput & { operatorId: string; now?: Date }) {
+    return this.courseAssignments.save({ ...input, now: input.now ?? new Date() });
+  }
+
+  withdrawAssignment(input: AcademyWithdrawAssignmentInput & { operatorId: string; now?: Date }) {
+    return this.courseAssignments.withdraw({ ...input, now: input.now ?? new Date() });
+  }
+
+  /** AC-assignments-01: the assignment as the enrolled learner sees it, with their own hand-ins. */
+  assignment(input: { itemId: string; userId: string }) {
+    return this.courseAssignments.learnerView(input);
+  }
+
+  uploadAssignmentFile(input: AcademyUploadAssignmentFileInput & { userId: string; now?: Date }) {
+    return this.courseAssignments.uploadFile({ ...input, now: input.now ?? new Date() });
+  }
+
+  submitAssignment(input: AcademySubmitAssignmentInput & { userId: string; now?: Date }) {
+    return this.courseAssignments.submit({ ...input, now: input.now ?? new Date() });
   }
 
   setFeatured(input: { itemSlug: string | null; reason: string; operatorId: string; now?: Date }) {

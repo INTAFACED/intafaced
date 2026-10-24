@@ -222,6 +222,14 @@ export const withdrawAssetSchema = z.object({
 });
 export type WithdrawAsset = z.infer<typeof withdrawAssetSchema>;
 export const destinationRemovedSchema = z.object({ destinationId: z.string(), removed: z.literal(true) });
+/** svc-bank `bank.ramps.destinations.readiness`: whether money may be sent to one saved address now, or what stands first. */
+export const destinationReadinessSchema = z.object({
+  destinationId: z.string(),
+  state: z.enum(['ready', 'locked', 'blocked', 'cooling_unset', 'cooling']),
+  coolingOffEndsAt: z.string().nullable(),
+  lockUnlocksAt: z.string().nullable(),
+});
+export type DestinationReadiness = z.infer<typeof destinationReadinessSchema>;
 /** svc-bank `bank.ramps.destinations.check`: whether the bank takes an address as typed, before any confirmation. */
 export const destinationCheckSchema = z.object({
   address: z.enum(['ok', 'invalid', 'checksum_mismatch']),
@@ -368,20 +376,44 @@ export const cashOutQuoteSchema = z.object({
   rail: z.literal('rail.bank'),
   fee: money.nullable(),
   receiveAmount: money.nullable(),
-  blocker: z.string(),
+  receiveCurrency: z.string().nullable().default(null),
+  /** What stands in the way, or null when the bank's partner can take it. */
+  blocker: z.string().nullable(),
+  /** The TEST label when the partner pricing it is the local stack's stand-in. */
+  standIn: z.string().nullable().default(null),
 });
 export type CashOutQuote = z.infer<typeof cashOutQuoteSchema>;
+export const CASH_OUT_STATUSES = ['refused', 'processing', 'completed', 'failed', 'returned'] as const;
 export const cashOutRequestSchema = z.object({
   requestId: z.string(),
   assetId: z.string(),
   amount: money,
   linkedAccountId: z.string(),
   rail: z.literal('rail.bank'),
-  status: z.literal('refused'),
-  refusalCode: z.string(),
+  status: z.enum(CASH_OUT_STATUSES),
+  refusalCode: z.string().nullable(),
+  fee: money.nullable().default(null),
+  receiveAmount: money.nullable().default(null),
+  receiveCurrency: z.string().nullable().default(null),
+  payoutRef: z.string().nullable().default(null),
+  ledgerTxId: z.string().nullable().default(null),
+  failureCode: z.string().nullable().default(null),
+  returnedAmount: money.nullable().default(null),
+  remainsPaidOut: money.nullable().default(null),
   createdAt: z.string(),
+  completedAt: z.string().nullable().default(null),
+  failedAt: z.string().nullable().default(null),
+  returnedAt: z.string().nullable().default(null),
 });
 export type CashOutRequest = z.infer<typeof cashOutRequestSchema>;
+export const cashOutReceiptSchema = z.object({
+  fileName: z.string(),
+  text: z.string(),
+  ledgerTxId: z.string(),
+  sha256: z.string(),
+  signature: z.string(),
+});
+export type CashOutReceipt = z.infer<typeof cashOutReceiptSchema>;
 /** svc-bank `bank.railSends.*` (J-bank-04 #1): send to a bank account over a bank rail, each rail with its own form. */
 export const BANK_RAILS = ['ach', 'wire', 'instant', 'sepa', 'proxy'] as const;
 export const railRequirementsSchema = z.object({

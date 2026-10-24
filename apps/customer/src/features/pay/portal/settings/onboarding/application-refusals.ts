@@ -16,6 +16,7 @@ registerRefusals({
   'pay.kyb_document_type_refused': () => applicationCopy.t('rType'),
   'pay.kyb_document_key_unknown': () => applicationCopy.t('rDocUnknown'),
   'pay.kyb_document_empty': () => applicationCopy.t('rDocEmpty'),
+  'pay.kyb_document_same_file': () => applicationCopy.t('rSameFile'),
   'pay.kyb_application_not_found': () => applicationCopy.t('rNotFound'),
   'pay.kyb_application_changed': () => applicationCopy.t('rChanged'),
   'pay.kyb_invalid': () => applicationCopy.t('rKybInvalid'),

@@ -262,6 +262,7 @@ const en = {
   chipUnrecognised: 'Unrecognised network · Not confirmed as INTACHAIN',
   chipNoChain: 'No chain reported · Not confirmed as INTACHAIN',
   chipUnreachable: 'Network unreachable · {reason}',
+  regionBlocked: 'This service is not available in your region.',
   chipNotConnected: 'The Protocol service is not connected here',
   chipNoAnswer: 'The Protocol service did not answer',
   skip: 'Skip to content',

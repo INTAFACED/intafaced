@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { CommandPalette } from '@/components/command-palette';
+import { ConsoleSearch } from '@/components/console-search';
 import { Nav } from '@/components/nav';
 import { FounderSessionBar } from '@/components/founder-session-bar';
 import { SkipLink } from '@/components/skip-link';
@@ -20,6 +21,7 @@ export default async function ConsoleLayout({ children }: { children: ReactNode 
         </a>
         <Nav modules={modules} />
         <span className="adm-topbar__spacer" />
+        <ConsoleSearch />
         <CommandPalette modules={modules} />
         <FounderSessionBar csrf={session.csrf} userId={session.userId} expiresAt={session.expiresAt} />
       </header>

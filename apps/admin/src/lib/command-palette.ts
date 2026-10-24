@@ -34,6 +34,7 @@ const SUB_PAGES: readonly { readonly href: string; readonly label: string; reado
   { href: '/merchants/risk', label: 'Merchants: risk' },
   { href: '/merchants/treasury', label: 'Merchants: treasury and halts', keywords: ['halt'] },
   { href: '/merchants/registries', label: 'Merchants: registries', keywords: ['venues', 'networks', 'wallets'] },
+  { href: '/system/settings', label: 'Platform settings', keywords: ['effective', 'configuration', 'blank', 'owner'] },
   { href: '/support/settings', label: 'Support: contact settings' },
   { href: '/compliance/cases', label: 'Compliance cases', keywords: ['aml', 'review', 'case'] },
   { href: '/bank-ops/holds', label: 'Bank: global send holds', keywords: ['held', 'release'] },

@@ -10,6 +10,7 @@ import { BANK_OFFRAMP_COOLING_HOURS_ENV, assertOfframpDestCoolingElapsed, requir
 import { RampService } from './ramps/ramp-service.js';
 import { CRYPTO_LEDGER_PROGRAMME } from './ramps/rails.js';
 import { memoryWithdrawDestinations } from './withdraw-destination.js';
+import { memorySecurityLock } from './security-lock.js';
 
 function unusedSql(): Sql {
   const trap = () => {
@@ -48,6 +49,7 @@ describe('RampService.offramp — cooling refuse is before dest, claim, and with
   it('blank owner window refuses bank.offramp_cooling_unset with no ledger post', async () => {
     const ledger = new MemoryLedger();
     const ramps = new RampService(unusedSql(), ledger, {
+      securityLock: memorySecurityLock(),
       programme: CRYPTO_LEDGER_PROGRAMME,
       offrampCoolingHours: '',
     });
@@ -72,6 +74,7 @@ describe('RampService.offramp — cooling refuse is before dest, claim, and with
     const userId = '11111111-1111-4111-8111-111111111111';
     await dests.persist({ userId, kind: 'crypto', ref: '0x000000000000000000000000000000000000dEaD' });
     const ramps = new RampService(unusedSql(), ledger, {
+      securityLock: memorySecurityLock(),
       programme: CRYPTO_LEDGER_PROGRAMME,
       destinations: dests,
       offrampCoolingHours: '48',
@@ -92,6 +95,7 @@ describe('RampService.offramp — cooling refuse is before dest, claim, and with
   it('hours set and dest missing is withdraw_destination_missing — not dest-elapsed', async () => {
     const ledger = new MemoryLedger();
     const ramps = new RampService(unusedSql(), ledger, {
+      securityLock: memorySecurityLock(),
       programme: CRYPTO_LEDGER_PROGRAMME,
       destinations: memoryWithdrawDestinations(),
       offrampCoolingHours: '48',

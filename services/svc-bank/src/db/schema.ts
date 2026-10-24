@@ -1178,7 +1178,10 @@ export const linkedBankAccounts = bank.table(
   ],
 );
 
-/** One cash-out request to a linked bank account (J-bank-03, migration 0056). Kept refused with its code; never held or posted. */
+/**
+ * One cash-out request to a linked bank account (J-bank-03, migrations 0056 and _cash_out_payouts). Kept refused with its
+ * code when the bank cannot send it; otherwise held at confirm and settled, given back or returned once by the partner.
+ */
 export const cashOutRequests = bank.table('cash_out_requests', {
   id: uuid('id').primaryKey(),
   userId: text('user_id').notNull(),
@@ -1188,6 +1191,20 @@ export const cashOutRequests = bank.table('cash_out_requests', {
   rail: text('rail').notNull().default('rail.bank'),
   status: text('status').notNull(),
   refusalCode: text('refusal_code'),
+  payoutRail: text('payout_rail'),
+  payoutRef: text('payout_ref'),
+  fee: amount('fee'),
+  receiveAmount: amount('receive_amount'),
+  receiveCurrency: text('receive_currency'),
+  holdLedgerTxId: text('hold_ledger_tx_id'),
+  settleLedgerTxId: text('settle_ledger_tx_id'),
+  reverseLedgerTxId: text('reverse_ledger_tx_id'),
+  failureCode: text('failure_code'),
+  returnedAmount: amount('returned_amount'),
+  returnLedgerTxId: text('return_ledger_tx_id'),
+  completedAt: tstz('completed_at'),
+  failedAt: tstz('failed_at'),
+  returnedAt: tstz('returned_at'),
   createdAt: createdAt(),
 });
 

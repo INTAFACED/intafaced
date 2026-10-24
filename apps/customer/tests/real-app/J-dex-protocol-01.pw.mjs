@@ -7,8 +7,9 @@ import { installTestWallet, TEST_WALLET } from './test-wallet.mjs';
 // to it (tooling/scripts/local-stack-services/protocol.mjs), so every chain read refuses as unreachable. The person's own
 // browser wallet is the TEST wallet in test-wallet.mjs. No money moves in this journey.
 // Step 9 signs an EIP-2612 permit for a TEST token that only the TEST wallet answers for (its stand-in for a node).
-// Step 8 (the region gate and the first-signing representation) waits on D-developer-compliance-03 and is added here when
-// that slice lands.
+// Step 8: before a wallet's first signing action it accepts the representation (the stack's TEST text and version from
+// tooling/profiles/test-owner-values/protocol.json), which svc-protocol stores with its version and time. The
+// blocked-region run of step 8 needs a trusted region header on the test stack and is added with it.
 const J = 'J-dex-protocol-01';
 const SHORT = /^0x[0-9a-fA-F]{4}…[0-9a-fA-F]{4}$/;
 
@@ -151,6 +152,59 @@ test(`${J} #7 faucets and supported routers are listed honestly, and fast confir
 const TEST_TOKEN = { address: '0x00000000000000000000000000000000000a11ce', name: 'TEST Token', version: '1', decimals: 6, nonce: 3 };
 const SPENDER = '0x000000000000000000000000000000000000beef';
 
+const fillPermit = async (form) => {
+  await form.getByLabel('Token contract').fill(TEST_TOKEN.address);
+  await form.getByLabel('Spender').fill(SPENDER);
+  await form.getByLabel('Amount (whole tokens)').fill('25.5');
+  await form.getByLabel('Expires in (minutes)').fill('30');
+};
+
+/** The representation panel a fresh wallet sees on its first signing action: tick, sign the message on the sheet. */
+async function acceptRepresentation(page) {
+  const panel = page.locator('[data-panel="representation"]');
+  await expect(panel).toHaveAttribute('data-version', 'TEST-1');
+  await panel.getByLabel('I have read this and it is true for me.').check();
+  await panel.getByRole('button', { name: 'Accept and sign' }).click();
+  const sheet = page.locator('[data-sheet="sign"]');
+  await expect(sheet).toContainText('TEST representation');
+  await sheet.getByRole('button', { name: 'Continue in wallet' }).click();
+}
+
+test(`${J} #8 the first signing action asks for the representation once; it is stored with its version and time`, async ({ page }) => {
+  const wallet = await installTestWallet(page, { chainId: 84532, tokens: [TEST_TOKEN] });
+  await page.goto('/wallet');
+  await page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` }).click();
+  await expect(page.locator('[data-wallet-address]')).toHaveText(wallet.address);
+  await page.getByRole('button', { name: 'Approvals', exact: true }).click();
+  const form = page.locator('[data-form="permit"]');
+  await fillPermit(form);
+  await form.getByRole('button', { name: 'Review and sign' }).click();
+
+  // No sheet and no wallet prompt for the action until the representation is accepted.
+  const panel = page.locator('[data-panel="representation"]');
+  await expect(panel.locator('[data-representation-text]')).toContainText('TEST representation');
+  await expect(panel.getByRole('button', { name: 'Accept and sign' })).toBeDisabled();
+  expect(wallet.requests).toHaveLength(0);
+  const before = Date.now();
+  await acceptRepresentation(page);
+  // Recorded: the action continues to its own sheet, and the service reports this version accepted, with a time.
+  await expect(page.locator('[data-sheet="sign"] dt', { hasText: /^Token$/ })).toBeVisible();
+  const status = await page.evaluate(async (address) => {
+    const input = encodeURIComponent(JSON.stringify({ address }));
+    const res = await fetch(`/api/protocol/trpc/representation.status?input=${input}`);
+    return (await res.json()).result.data;
+  }, wallet.address);
+  expect(status).toMatchObject({ version: 'TEST-1', accepted: true });
+  expect(Date.parse(status.acceptedAt)).toBeGreaterThanOrEqual(before - 5_000);
+  await page.locator('[data-sheet="sign"]').getByRole('button', { name: 'Cancel' }).click();
+
+  // Once per version: the next signing action from this wallet goes straight to its sheet.
+  await form.getByRole('button', { name: 'Review and sign' }).click();
+  await expect(page.locator('[data-sheet="sign"] dt', { hasText: /^Token$/ })).toBeVisible();
+  await expect(panel).toHaveCount(0);
+  expect(wallet.requests.filter((r) => r.method === 'personal_sign')).toHaveLength(1);
+});
+
 test(`${J} #9 a typed-data request shows token, amount, spender and expiry before the wallet asks; a rejection reads "Rejected" and keeps the form`, async ({
   page,
 }) => {
@@ -161,17 +215,15 @@ test(`${J} #9 a typed-data request shows token, amount, spender and expiry befor
   await page.getByRole('button', { name: 'Approvals', exact: true }).click();
 
   const form = page.locator('[data-form="permit"]');
-  await form.getByLabel('Token contract').fill(TEST_TOKEN.address);
-  await form.getByLabel('Spender').fill(SPENDER);
-  await form.getByLabel('Amount (whole tokens)').fill('25.5');
-  await form.getByLabel('Expires in (minutes)').fill('30');
+  await fillPermit(form);
   const before = Math.floor(Date.now() / 1000);
   await form.getByRole('button', { name: 'Review and sign' }).click();
+  await acceptRepresentation(page);
 
-  // The sheet comes first: nothing has reached the wallet yet.
+  // The sheet comes first: only the representation has reached the wallet so far.
   const sheet = page.locator('[data-sheet="sign"]');
-  await expect(sheet).toBeVisible();
-  expect(wallet.requests).toHaveLength(0);
+  await expect(sheet.locator('dt', { hasText: /^Token$/ })).toBeVisible();
+  expect(wallet.requests.map((r) => r.method)).toEqual(['personal_sign']);
   const fact = (label) => sheet.locator('dt', { hasText: new RegExp(`^${label}$`) }).locator('xpath=following-sibling::dd[1]');
   await expect(fact('Token')).toHaveText(TEST_TOKEN.address);
   await expect(fact('Spender')).toHaveText(SPENDER);
@@ -183,7 +235,7 @@ test(`${J} #9 a typed-data request shows token, amount, spender and expiry befor
   wallet.rejectNext();
   await sheet.getByRole('button', { name: 'Continue in wallet' }).click();
   await expect(page.locator('[data-permit-result="rejected"]')).toHaveText('Rejected. Nothing was signed. Your details are kept below.');
-  expect(wallet.requests.map((r) => r.method)).toEqual(['eth_signTypedData_v4']);
+  expect(wallet.requests.map((r) => r.method)).toEqual(['personal_sign', 'eth_signTypedData_v4']);
   await expect(form.getByLabel('Token contract')).toHaveValue(TEST_TOKEN.address);
   await expect(form.getByLabel('Spender')).toHaveValue(SPENDER);
   await expect(form.getByLabel('Amount (whole tokens)')).toHaveValue('25.5');
@@ -193,7 +245,9 @@ test(`${J} #9 a typed-data request shows token, amount, spender and expiry befor
   await form.getByRole('button', { name: 'Review and sign' }).click();
   await sheet.getByRole('button', { name: 'Continue in wallet' }).click();
   await expect(page.locator('[data-permit-signature]')).toHaveText(/^0x[0-9a-f]{130}$/);
-  const signed = JSON.parse(wallet.requests[1].params[1]);
+  // Accepted once: the second signing action does not ask for the representation again.
+  await expect(page.locator('[data-panel="representation"]')).toHaveCount(0);
+  const signed = JSON.parse(wallet.requests[2].params[1]);
   expect(signed.primaryType).toBe('Permit');
   expect(signed.domain).toEqual({ name: 'TEST Token', version: '1', chainId: 84532, verifyingContract: TEST_TOKEN.address });
   expect(signed.message).toMatchObject({ owner: wallet.address, spender: SPENDER, value: '25500000', nonce: '3' });

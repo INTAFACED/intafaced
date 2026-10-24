@@ -38,6 +38,10 @@
       "types": "./dist/protocol-ops.d.ts",
       "default": "./dist/protocol-ops.js"
     },
+    "./protocol-representation": {
+      "types": "./dist/protocol-representation.d.ts",
+      "default": "./dist/protocol-representation.js"
+    },
     "./instruments": {
       "types": "./dist/instruments.d.ts",
       "default": "./dist/instruments.js"
@@ -157,6 +161,10 @@
     "./kyb-documents": {
       "types": "./dist/kyb-documents.d.ts",
       "default": "./dist/kyb-documents.js"
+    },
+    "./kyb-information-requests": {
+      "types": "./dist/kyb-information-requests.d.ts",
+      "default": "./dist/kyb-information-requests.js"
     }
   },
   "scripts": {

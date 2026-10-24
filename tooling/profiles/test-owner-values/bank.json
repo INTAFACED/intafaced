@@ -101,6 +101,11 @@
       "value": "{\"label\": \"TEST add-money stand-in for the local stack: not a partner, not a rate anyone offers\", \"quoteValidSeconds\": 20, \"quotes\": [{\"country\": \"NL\", \"method\": \"bank_transfer\", \"asset\": \"USDT\", \"payCurrency\": \"EUR\", \"rate\": \"2\", \"fee\": \"1\", \"deliveryEstimate\": \"TEST 1 business day\"}]}",
       "note": "The add-money rate stand-in's catalogue: one made-up price (bank transfer from NL, USDT at a TEST rate of 2 EUR plus a TEST fee of 1 EUR) that holds for 20 seconds, so a journey can see a price, wait it out and be refused. It opens no payment and credits nothing. Every other country and way to pay stays refused. Loaded only with BANK_ONRAMP_RATES=ramp-sim."
     },
+    "BANK_PAYOUT_SIM_JSON": {
+      "service": "bank",
+      "value": "{\"label\": \"TEST payout stand-in for the local stack: not a partner, pays nobody\", \"payouts\": [{\"asset\": \"USDT\", \"currency\": \"EUR\", \"rate\": \"0.9\", \"fee\": \"1.5\"}]}",
+      "note": "The cash-out payout stand-in's catalogue: one made-up price (USDT paid out in EUR at a TEST rate of 0.9 less a TEST fee of 1.5 EUR). It pays nobody: the amount moves to its own TEST rail boundary, and verifying an account or saying paid, failed or returned are signed calls only a test makes. Loaded only with BANK_PAYOUT_PARTNER=payout-sim."
+    },
     "BANK_SEND_FIELD_RULES_JSON": {
       "service": "bank",
       "value": "{\"reference\": [{\"deliveryMethod\": \"sepa\", \"maxLength\": 35}, {\"deliveryMethod\": \"bank_account\", \"maxLength\": 18}], \"purposeRequired\": [], \"sourceOfFunds\": []}",

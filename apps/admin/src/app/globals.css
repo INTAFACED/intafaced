@@ -2945,3 +2945,16 @@ code {
 .adm-discard-bar {
   margin-bottom: var(--s3);
 }
+
+/* Cross-desk search in the console shell (OPS-payments-desk-01). */
+.adm-console-search {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+}
+.adm-console-search input {
+  width: 16rem;
+  max-width: 100%;
+  min-width: 0;
+}

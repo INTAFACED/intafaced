@@ -25,6 +25,7 @@ vi.mock('../../shared/resource', () => ({
 }));
 import { Web3Shell } from '../../app/Web3Shell';
 import { ProtocolRoutes } from './ProtocolRoutes';
+import { PermitForm } from './wallet/PermitForm';
 
 const page = (path: string) =>
   renderToStaticMarkup(
@@ -55,6 +56,27 @@ describe('Web3 shell', () => {
     expect(page('/dex')).toContain('Checking network…');
     answers.chain = { status: 'failed', failure: { ok: false, reason: 'unreachable', message: 'x', code: 'edge.upstream_unavailable' } };
     expect(page('/dex')).toContain('Network unreachable · The Protocol service did not answer');
+  });
+  it('names a blocked region in words and offers no signing action while the edge refuses it', () => {
+    answers.chain = { status: 'failed', failure: { ok: false, reason: 'forbidden', message: 'x', code: 'edge.geo_blocked' } };
+    const html = renderToStaticMarkup(
+      <Web3Shell path="/wallet">
+        <PermitForm />
+      </Web3Shell>,
+    );
+    expect(html).toContain('data-notice="region"');
+    expect(html).toContain('This service is not available in your region.');
+    expect(html).toContain('no signing action is offered');
+    expect(html).not.toContain('data-form="permit"');
+    expect(html).not.toContain('Review and sign');
+    answers.chain = chain(84532);
+    const open = renderToStaticMarkup(
+      <Web3Shell path="/wallet">
+        <PermitForm />
+      </Web3Shell>,
+    );
+    expect(open).not.toContain('data-notice="region"');
+    expect(open).toContain('data-form="permit"');
   });
   it('lists the Swap blockers in order, chain unreachable first, and says a shared source line once', () => {
     answers.chain = {

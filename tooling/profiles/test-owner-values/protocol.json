@@ -1,0 +1,15 @@
+{
+  "label": "TEST: CX-8 rig and local test stack only. Not an owner decision and not a product default.",
+  "values": {
+    "PROTOCOL_REPRESENTATION_VERSION": {
+      "service": "protocol",
+      "value": "TEST-1",
+      "note": "TEST version of the representation a wallet signs before its first signing action. Blank in production refuses compliance.representation_unset."
+    },
+    "PROTOCOL_REPRESENTATION_TEXT": {
+      "service": "protocol",
+      "value": "TEST representation, not counsel's wording: I am not located in, or acting for anyone in, a region where this service is not available.",
+      "note": "TEST wording only. Counsel writes the real text; blank in production refuses compliance.representation_unset."
+    }
+  }
+}

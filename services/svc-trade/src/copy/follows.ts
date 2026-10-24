@@ -6,6 +6,7 @@
  * screening runs before any follow is accepted — blank §8 list → refuse.
  */
 
+import type { AlgoPlaceGrant } from '../algo/durable-principal.js';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { copyNewIntentFenced, followRelationshipState, type CopyRelationshipState } from './copy-lifecycle.js';
 import { customerStatus, type CopyLeaderCustomerStatus, type CopyLeaderListingState } from './leader-listing.js';
@@ -70,7 +71,21 @@ export interface CopyFollow {
   readonly peakResult?: Amount;
   /** Held with the follow; missing on follows made before the reserve existed. */
   readonly reserve?: CopyFollowReserve;
+  /**
+   * The follower's claims when they granted automatic copying, so the copy driver can place each copy as them until
+   * the envelope expires (the same durable grant the algo engine keeps). Every copy still takes its own live
+   * admission, and a revoked session key stops the driver. Missing until copying is granted.
+   */
+  readonly placeGrant?: AlgoPlaceGrant;
+  /**
+   * The last leader fill the copy driver dealt with (copied or refused), or the moment copying was turned on. The
+   * driver reads only fills after it, so a fill is tried once and nothing from before copying was on is copied.
+   */
+  readonly copyCursor?: CopyCursor;
 }
+
+/** A point in a leader's fills: their time, then id. A null fill id is the moment itself. */
+export type CopyCursor = { readonly at: Date; readonly fillId: string | null };
 
 export interface PresentCopyFollow {
   readonly followId: string;

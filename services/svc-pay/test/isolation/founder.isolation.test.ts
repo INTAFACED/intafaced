@@ -304,7 +304,22 @@ describe('G: founder-only procedures', () => {
     it('merchant sessions, API keys, and callers without admin:compliance are refused on every compliance procedure', async () => {
       const inputFor = (path: string): unknown => {
         const merchantId = w.e.A.merchantId;
-        if (path === 'kyb.decisionBinding') return { merchantId };
+        if (path === 'kyb.decisionBinding' || path === 'kyb.documents.reviewView') return { merchantId };
+        if (path === 'kyb.documents.review') {
+          return { applicationId: randomUUID(), documentId: randomUUID(), verdict: 'rejected', reason: 'isolation drill' };
+        }
+        if (path === 'kyb.documents.file') return { applicationId: randomUUID(), documentId: randomUUID() };
+        if (path === 'kyb.requests.reviewList') return { merchantId };
+        if (path === 'kyb.requests.create') {
+          return {
+            merchantId,
+            requestKey: 'isolation:drill',
+            text: 'isolation drill',
+            dueAt: new Date(Date.now() + 86_400_000).toISOString(),
+          };
+        }
+        if (path === 'kyb.requests.close') return { requestId: randomUUID(), note: 'isolation drill' };
+        if (path === 'kyb.requests.file') return { requestId: randomUUID() };
         if (path === 'kyb.decide') {
           return { merchantId, decision: 'rejected', reason: 'isolation drill', approvalId: 'appr-1', operationId: 'op-1' };
         }

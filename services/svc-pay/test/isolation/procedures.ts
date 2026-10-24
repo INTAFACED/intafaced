@@ -47,7 +47,19 @@ export const ghost = (): string => randomUUID();
  * session is refused by scope, the same way `merchant.decideKyb` and `kyb.decide` are.
  * `kyb.decisionBinding` is the read a compliance proposer uses to file that approval.
  */
-export const COMPLIANCE_PROCS = ['merchant.decideKyb', 'kyb.decide', 'kyb.decisionBinding', 'merchant.businessProfile.review'] as const;
+export const COMPLIANCE_PROCS = [
+  'merchant.decideKyb',
+  'kyb.decide',
+  'kyb.decisionBinding',
+  'merchant.businessProfile.review',
+  'kyb.documents.reviewView',
+  'kyb.documents.review',
+  'kyb.documents.file',
+  'kyb.requests.reviewList',
+  'kyb.requests.create',
+  'kyb.requests.close',
+  'kyb.requests.file',
+] as const;
 
 export const FOUNDER_EXTRA = [
   'accountControls.change',

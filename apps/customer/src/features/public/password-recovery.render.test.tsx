@@ -55,9 +55,10 @@ describe('/findPwd', () => {
     expect(page).not.toContain('Nothing you see on this page is sent anywhere');
   });
 
-  it('has one live email field and a send button, with nothing switched off', () => {
+  it('has one live email field, a send button and the forgot-handle button, with nothing switched off', () => {
     const controls = page.match(/<(input|button)\b[^>]*>/g) ?? [];
-    expect(controls.length).toBe(2);
+    expect(controls.length).toBe(3);
+    expect(page).toContain('I forgot my handle');
     for (const control of controls) expect(control).not.toContain('disabled');
     expect(page).toContain('type="email"');
     expect(page).toMatch(/autocomplete="email"/i);

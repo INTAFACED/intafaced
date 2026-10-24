@@ -166,7 +166,19 @@ export type RefusalKey =
   | 'refPlannerLimitUnset'
   | 'refPlannerFull'
   | 'refTodoNotFound'
-  | 'refGoalInvalid';
+  | 'refGoalInvalid'
+  | 'refEnrolmentRequired'
+  | 'refSubmissionIncomplete'
+  | 'refSubmissionIncompleteFile'
+  | 'refSubmissionIncompleteText'
+  | 'refAssignmentNotFound'
+  | 'refAssignmentClosed'
+  | 'refSubmissionStale'
+  | 'refUploadLimitsUnset'
+  | 'refUploadTooLarge'
+  | 'refUploadTypeRefused'
+  | 'refFileTypeMismatch'
+  | 'refUploadIncomplete';
 
 /** Which sentence words a typed Academy refusal, or null when Academy did not type it (a dropped connection, a sign-in problem). */
 export function academyRefusalKey(failure: Pick<Failure, 'code' | 'message'>): RefusalKey | null {
@@ -240,6 +252,32 @@ export function academyRefusalKey(failure: Pick<Failure, 'code' | 'message'>): R
       return 'refTodoNotFound';
     case 'academy.goal_invalid':
       return 'refGoalInvalid';
+    case 'academy.enrolment_required':
+      return 'refEnrolmentRequired';
+    case 'academy.submission_incomplete': {
+      const missing = /\bmissing=(\S+)/.exec(failure.message)?.[1];
+      return missing === 'file'
+        ? 'refSubmissionIncompleteFile'
+        : missing === 'text'
+          ? 'refSubmissionIncompleteText'
+          : 'refSubmissionIncomplete';
+    }
+    case 'academy.assignment_not_found':
+      return 'refAssignmentNotFound';
+    case 'academy.assignment_closed':
+      return 'refAssignmentClosed';
+    case 'academy.submission_version_stale':
+      return 'refSubmissionStale';
+    case 'academy.upload_limits_unset':
+      return 'refUploadLimitsUnset';
+    case 'academy.upload_too_large':
+      return 'refUploadTooLarge';
+    case 'academy.upload_type_refused':
+      return 'refUploadTypeRefused';
+    case 'academy.file_type_mismatch':
+      return 'refFileTypeMismatch';
+    case 'academy.upload_incomplete':
+      return 'refUploadIncomplete';
     default:
       return null;
   }

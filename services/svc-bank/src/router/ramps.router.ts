@@ -316,6 +316,28 @@ export function createRampsRouter(c: BankRouterContext) {
           ),
       }),
 
+      /**
+       * Whether money may be sent to one saved address now (W-withdraw-09), or what stands in the way first: the owner's
+       * security lock (`locked`, with `lockUnlocksAt` once an unlock is asked for), an entry not held as active
+       * (`blocked`), no published cooling-off (`cooling_unset`) or a cooling-off still running (`cooling`, with
+       * `coolingOffEndsAt`). Read-only (`bank:read`); the send path applies the same rules and refuses on its own.
+       */
+      readiness: scopedProcedure('bank:read', { module: 'bank' })
+        .input(z.object({ destinationId: z.string().guid() }).strict())
+        .output(
+          z
+            .object({
+              destinationId: z.string().guid(),
+              state: z.enum(['ready', 'locked', 'blocked', 'cooling_unset', 'cooling']),
+              coolingOffEndsAt: z.string().nullable(),
+              lockUnlocksAt: z.string().nullable(),
+            })
+            .strict(),
+        )
+        .query(async ({ ctx, input }) =>
+          guard(async () => bank.ramps.destinationReadiness({ userId: ctx.principal.userId, destinationId: input.destinationId })),
+        ),
+
       /** Remove, with the same step-up scope as saving. A withdrawal that already copied the address is not touched. */
       remove: scopedProcedure('trade:withdraw', { module: 'bank' })
         .input(z.object({ destinationId: z.string().guid(), idempotencyKey: z.string().min(1).max(128) }))

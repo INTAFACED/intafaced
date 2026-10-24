@@ -416,6 +416,12 @@ export type BankErrorCode =
   | 'bank.cash_out_over_available'
   /** No linked bank account of this customer has this id. */
   | 'bank.linked_account_not_found'
+  /** No cash-out of this customer has this id. */
+  | 'bank.cash_out_not_found'
+  /** The cash-out was not paid out (refused, still processing or failed), so it has no receipt. */
+  | 'bank.cash_out_receipt_not_ready'
+  /** No receipt signing key is set, so no cash-out receipt is made. */
+  | 'bank.cash_out_receipt_signing_unset'
   /** The owner has not set how many addresses a book may hold. Saving refuses; no number is invented. */
   | 'bank.address_book_cap_unset'
   /** Dest user has no primary space — refuse before ledger-client posts. */
@@ -430,6 +436,12 @@ export type BankErrorCode =
   | 'bank.recipient_check_unavailable'
   /** No IDENTITY_URL: this deployment cannot check recipients, so it refuses to credit another user. A deployment gap, not an outage. */
   | 'bank.recipient_check_unset'
+  /** The owner's security lock holds (W-withdraw-09): no withdrawal address is added or removed and nothing is sent to one until it ends. */
+  | 'bank.security_locked'
+  /** Identity could not answer the security lock check (outage, timeout, bad reply). Nothing changed; retry. */
+  | 'bank.security_lock_unavailable'
+  /** No IDENTITY_URL: this deployment cannot check the security lock, so address changes and sends refuse. A deployment gap. */
+  | 'bank.security_lock_unset'
   /** Same (rail, railRef), (user, clientRef), or offramp id already booked with different facts. */
   | 'bank.ramp_conflict'
   /** A send over a bank rail with a recipient field that rail's form refuses (the message names the field). Nothing kept. */

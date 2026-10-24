@@ -1,6 +1,10 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Button, Field, Panel } from '../../../shared/ui';
 import { usePreferences } from '../../../shared/preferences';
+import { useApi } from '../../session/session';
+import { createProtocolApi, type RepresentationStatus } from '../api';
+import { REGION_BLOCKED_CODE, useRegionBlocked } from '../region';
+import { RepresentationPanel } from './RepresentationPanel';
 import { walletCopy } from './copy';
 import { APP_CHAIN_ID, type TypedDataDocument } from './eip1193';
 import {
@@ -19,7 +23,8 @@ import { useWallet } from './WalletProvider';
 type Outcome =
   | { kind: 'idle' }
   | { kind: 'reading' }
-  | { kind: 'refused'; code: PermitRefusal | 'read_failed' }
+  | { kind: 'refused'; code: PermitRefusal | 'read_failed' | 'region' | 'representation_unset' | 'representation_unavailable' }
+  | { kind: 'representation'; address: string; status: RepresentationStatus }
   | { kind: 'signed'; signature: string; signed: TypedDataDocument }
   | { kind: 'rejected' }
   | { kind: 'failed'; message: string };
@@ -33,6 +38,9 @@ export function PermitForm() {
   const { language } = usePreferences();
   const { t } = walletCopy.forLocale(language);
   const wallet = useWallet();
+  const regionBlocked = useRegionBlocked();
+  const transport = useApi();
+  const api = useMemo(() => createProtocolApi(transport), [transport]);
   const [token, setToken] = useState('');
   const [spender, setSpender] = useState('');
   const [amount, setAmount] = useState('');
@@ -51,6 +59,19 @@ export function PermitForm() {
     const invalid = checkPermitInput(input);
     if (invalid) return setOutcome({ kind: 'refused', code: invalid });
     setOutcome({ kind: 'reading' });
+    // The first signing action asks for the representation once per version. The gate never fails open: a blocked
+    // region, an unpublished representation or a service that does not answer all stop here, before any read or sheet.
+    const representation = await api.representationStatus(wallet.address);
+    if (!representation.ok) {
+      const code =
+        representation.code === REGION_BLOCKED_CODE
+          ? 'region'
+          : representation.code === 'compliance.representation_unset'
+            ? 'representation_unset'
+            : 'representation_unavailable';
+      return setOutcome({ kind: 'refused', code });
+    }
+    if (!representation.data.accepted) return setOutcome({ kind: 'representation', address: wallet.address, status: representation.data });
     const target = token.trim();
     const [domainHex, decimalsHex, nonceHex] = await Promise.all([
       wallet.call(target, SELECTOR.eip712Domain),
@@ -76,53 +97,77 @@ export function PermitForm() {
     else if (result.status === 'failed') setOutcome({ kind: 'failed', message: result.message });
   };
 
+  if (regionBlocked)
+    return (
+      <Panel title={t('permitTitle')}>
+        <p className="muted" data-permit-refused="region">
+          {t('permitRefused_region')}
+        </p>
+      </Panel>
+    );
+
   return (
-    <Panel title={t('permitTitle')}>
-      <p className="muted">{t('permitNote')}</p>
-      {!ready && <p className="muted">{t('needsWallet')}</p>}
-      <form
-        data-form="permit"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void submit();
-        }}
-      >
-        <Field label={t('permitToken')} hint={t('permitTokenHint')} value={token} onChange={edit(setToken)} />
-        <Field label={t('permitSpender')} hint={t('permitSpenderHint')} value={spender} onChange={edit(setSpender)} />
-        <Field label={t('permitAmount')} inputMode="decimal" value={amount} onChange={edit(setAmount)} />
-        <Field label={t('permitMinutes')} inputMode="numeric" value={minutes} onChange={edit(setMinutes)} />
-        <Button type="submit" disabled={!ready || outcome.kind === 'reading'}>
-          {t('permitSubmit')}
-        </Button>
-      </form>
-      {outcome.kind === 'reading' && <p role="status">{t('permitReading')}</p>}
-      {outcome.kind === 'refused' && (
-        <p role="alert" data-permit-refused={outcome.code}>
-          {t(`permitRefused_${outcome.code}`)}
-        </p>
+    <>
+      {outcome.kind === 'representation' && (
+        <RepresentationPanel
+          address={outcome.address}
+          status={outcome.status}
+          api={api}
+          onEnd={(end) => {
+            if (end.kind === 'accepted') void submit();
+            else if (end.kind === 'rejected') setOutcome({ kind: 'rejected' });
+            else if (end.kind === 'region') setOutcome({ kind: 'refused', code: 'region' });
+            else setOutcome({ kind: 'failed', message: end.message });
+          }}
+        />
       )}
-      {outcome.kind === 'rejected' && (
-        <p role="status" data-permit-result="rejected">
-          {t('permitRejected')}
-        </p>
-      )}
-      {outcome.kind === 'failed' && (
-        <p role="alert" data-permit-result="failed">
-          {outcome.message}
-        </p>
-      )}
-      {outcome.kind === 'signed' && (
-        <div role="status" data-permit-result="signed">
-          <p>{t('permitSigned')}</p>
-          <p className="muted">{t('permitSignedValues')}</p>
-          <pre className="numeric" data-permit-signed>
-            {JSON.stringify({ domain: outcome.signed.domain, message: outcome.signed.message }, null, 2)}
-          </pre>
-          <pre className="numeric" data-permit-signature>
-            {outcome.signature}
-          </pre>
-        </div>
-      )}
-    </Panel>
+      <Panel title={t('permitTitle')}>
+        <p className="muted">{t('permitNote')}</p>
+        {!ready && <p className="muted">{t('needsWallet')}</p>}
+        <form
+          data-form="permit"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submit();
+          }}
+        >
+          <Field label={t('permitToken')} hint={t('permitTokenHint')} value={token} onChange={edit(setToken)} />
+          <Field label={t('permitSpender')} hint={t('permitSpenderHint')} value={spender} onChange={edit(setSpender)} />
+          <Field label={t('permitAmount')} inputMode="decimal" value={amount} onChange={edit(setAmount)} />
+          <Field label={t('permitMinutes')} inputMode="numeric" value={minutes} onChange={edit(setMinutes)} />
+          <Button type="submit" disabled={!ready || outcome.kind === 'reading' || outcome.kind === 'representation'}>
+            {t('permitSubmit')}
+          </Button>
+        </form>
+        {outcome.kind === 'reading' && <p role="status">{t('permitReading')}</p>}
+        {outcome.kind === 'refused' && (
+          <p role="alert" data-permit-refused={outcome.code}>
+            {t(`permitRefused_${outcome.code}`)}
+          </p>
+        )}
+        {outcome.kind === 'rejected' && (
+          <p role="status" data-permit-result="rejected">
+            {t('permitRejected')}
+          </p>
+        )}
+        {outcome.kind === 'failed' && (
+          <p role="alert" data-permit-result="failed">
+            {outcome.message}
+          </p>
+        )}
+        {outcome.kind === 'signed' && (
+          <div role="status" data-permit-result="signed">
+            <p>{t('permitSigned')}</p>
+            <p className="muted">{t('permitSignedValues')}</p>
+            <pre className="numeric" data-permit-signed>
+              {JSON.stringify({ domain: outcome.signed.domain, message: outcome.signed.message }, null, 2)}
+            </pre>
+            <pre className="numeric" data-permit-signature>
+              {outcome.signature}
+            </pre>
+          </div>
+        )}
+      </Panel>
+    </>
   );
 }

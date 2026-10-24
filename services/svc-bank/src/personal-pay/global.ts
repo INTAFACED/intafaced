@@ -1,7 +1,8 @@
-import { createHash, createHmac, hkdfSync, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { InsufficientFundsError, formatAmount, parseAmount, railBoundary, type Amount, type LedgerClient } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
+import { oneLine, signReceipt } from '../receipt-signing.js';
 import { accountForSpace, type SpaceService } from '../spaces/space-service.js';
 import { classifyAccount, classifyBic, type AccountKind } from './account-format.js';
 import { personalPayError, PSP_BLOCKER } from './errors.js';
@@ -15,6 +16,9 @@ import {
   type PayeeControls,
 } from './payee-controls.js';
 import { checkSendFields, parseSendFieldRules, type SendFieldRules } from './send-fields.js';
+
+/** The HKDF info label of global-send receipts: their signing key is derived for them alone. */
+const GLOBAL_RECEIPT_INFO = 'bank.global.receipt.v1';
 
 /**
  * Personal global send.
@@ -297,11 +301,6 @@ function recipientView(row: RecipientRow): RecipientView {
     country: row.country,
     createdAt: row.created_at.toISOString(),
   };
-}
-
-/** The receipt signing key, derived from the service secret for receipts alone, so no other key is reused. */
-function receiptKey(secret: string): Buffer {
-  return Buffer.from(hkdfSync('sha256', secret, Buffer.alloc(0), 'bank.global.receipt.v1', 32));
 }
 
 function sendView(row: SendRow): SendView {
@@ -698,8 +697,6 @@ export class GlobalSendService {
     const secret = this.receiptSecret?.trim();
     if (!secret) throw personalPayError('bank.receipt_signing_unset');
     const to = await this.recipientById(row.recipient_id);
-    // Every value is one line: a control character or line separator in a stored name never adds a line to signed text.
-    const one = (value: string | null) => (value ?? '').replace(/[\p{Cc}\u2028\u2029]+/gu, ' ').trim();
     const text = [
       'INTAFACED receipt: global send',
       `Send: ${row.id}`,
@@ -709,18 +706,16 @@ export class GlobalSendService {
       `They receive: ${row.quote_receive ?? ''} ${row.to_currency}`,
       `Rate: ${row.quote_rate ?? ''}`,
       `Fee: ${row.quote_fee ?? ''} ${row.quote_fee_asset ?? ''}`,
-      `To: ${one(to.name)} · …${one(to.account.slice(-4))} (${one(row.country)}, ${one(row.delivery_method)})`,
-      `Payout reference: ${one(row.provider_ref)}`,
+      `To: ${oneLine(to.name)} · …${oneLine(to.account.slice(-4))} (${oneLine(row.country)}, ${oneLine(row.delivery_method)})`,
+      `Payout reference: ${oneLine(row.provider_ref)}`,
       `Ledger transaction: ${row.ledger_tx_id}`,
       '',
     ].join('\n');
-    const bytes = Buffer.from(text, 'utf8');
     return {
       fileName: `receipt-${row.id}.txt`,
       text,
       ledgerTxId: row.ledger_tx_id,
-      sha256: createHash('sha256').update(bytes).digest('hex'),
-      signature: createHmac('sha256', receiptKey(secret)).update(bytes).digest('hex'),
+      ...signReceipt(text, secret, GLOBAL_RECEIPT_INFO),
     };
   }
 

@@ -160,15 +160,19 @@ export class CoursePreview {
       Array<{
         section_id: string;
         section_title: string;
+        id: string | null;
         kind: AcademyOutlineItemKind | null;
         title: string | null;
         indent: number | null;
         live_revision: number | null;
+        assignment_open: boolean;
       }>
     >`
-      SELECT s.id AS section_id, s.title AS section_title, i.kind, i.title, i.indent, i.live_revision
+      SELECT s.id AS section_id, s.title AS section_title, i.id, i.kind, i.title, i.indent, i.live_revision,
+        (a.item_id IS NOT NULL) AS assignment_open
       FROM academy.course_sections s
       LEFT JOIN academy.course_items i ON i.section_id = s.id
+      LEFT JOIN academy.course_assignments a ON a.item_id = i.id
       WHERE s.course_id = ${courseId}
       ORDER BY s.position, i.position
     `;
@@ -179,16 +183,20 @@ export class CoursePreview {
         current = { id: r.section_id, section: { title: r.section_title, items: [] } };
         sections.push(current.section);
       }
-      if (r.kind === null || r.title === null) continue;
+      if (r.id === null || r.kind === null || r.title === null) continue;
+      // A subheader is a label; a link has no lesson, so only enrolment stands between it and the reader. An assignment
+      // is released by its saved brief (AC-assignments-01), and stays open once withdrawn so its hand-ins stay readable;
+      // anything else by its live lesson.
+      const released = r.kind === 'link' || (r.kind === 'assignment' ? r.assignment_open : r.live_revision !== null);
       current.section.items.push({
+        id: r.id,
         kind: r.kind,
         title: r.title,
         indent: r.indent ?? 0,
-        // A subheader is a label; a link has no lesson, so only enrolment stands between it and the reader.
         lock:
           r.kind === 'subheader'
             ? null
-            : r.kind !== 'link' && r.live_revision === null
+            : !released
               ? 'not_released'
               : enrolled
                 ? null
