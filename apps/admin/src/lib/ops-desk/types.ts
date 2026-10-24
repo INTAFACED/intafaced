@@ -133,7 +133,9 @@ export type RowAction =
   /** One moderator re-arms an open dispute. The service asks for no second person, so this is a direct action with a reason. */
   | 'p2p.dispute.escalate'
   /** Opening a rejected standing-order transfer reads its full record from svc-bank (`ops.transferDetail`), on request. */
-  | 'pay.transfer.detail';
+  | 'pay.transfer.detail'
+  /** Opening one KYC document's contents from identity's vault (`kyc.getDocument`), with a second founder's approval. */
+  | 'identity.kyc_document.open';
 
 /** A control that belongs to a whole section rather than to a row (it needs a typed target). */
 export type SectionAction = 'academy.ambassador.appoint' | 'bank.card.status' | 'pay.transfer.lookup' | 'bank.customer.balances';

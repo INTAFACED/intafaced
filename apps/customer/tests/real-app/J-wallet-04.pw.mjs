@@ -1,7 +1,8 @@
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
-import { ROOT, journeyState } from './stack.mjs';
+import { ROOT, journeyState, mailedLines } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
 
@@ -9,10 +10,11 @@ import { addAuthenticator, nextCode } from './identity-factors.mjs';
 // "J-wallet-04 #<n>", run in order on one verified TEST account with an authenticator app, because saving and removing
 // an address each ask for a fresh confirmation. The assets and networks offered are the ledger's registry rows the
 // stack's founders publish (`local-test-gates.mjs assets`: TEST USDT and USDC on TEST Ethereum and TEST Base). #5 and #7
-// are W-withdraw-09: here the bank's part (a new address refused with the end of its cooling-off; the security lock
-// stopping address changes and withdrawals); the lock itself and the password refusal are in J-wallet-04-security-lock.
-// Not here yet: #5's approval by email link or by another signed-in device, and an expired link, so #5 is titled
-// "part of #5" and does not count as passed; #7 counts only when both its halves pass (each is titled "#7").
+// are W-withdraw-09: a new address waits for approval by an emailed link (the stack's LOCAL-TEST outbox), an expired
+// link needs a new one, and the cooling-off starts at approval; the security lock stops address changes and withdrawals.
+// Not here yet: #5's approval from another signed-in device (it needs identity to name a session that survives a token
+// refresh), so #5 is titled "part of #5" and does not count as passed. The lock itself and the password refusal are in
+// J-wallet-04-security-lock, so #7 counts only when both its halves pass (each is titled "#7").
 const J = 'J-wallet-04';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const ADDRESS = '0x52908400098527886E0F7030069857D2E4169EE7';
@@ -147,7 +149,8 @@ test(`${J} #2 refuses a mistyped address with its reason, then saves a good one 
   const row = savedRows(page).filter({ hasText: 'TEST cold wallet' });
   await expect(row).toHaveCount(1);
   await expect(row).toContainText('USDT · base');
-  await expect(row).toContainText('Cooling off');
+  // A new address waits for approval (#5) before its cooling-off starts.
+  await expect(row).toContainText('Waiting for approval');
   await expect(row.locator('td[data-withdrawal-private]')).toHaveText('0x5290…9EE7');
   await page.reload();
   await expect(savedRows(page).filter({ hasText: 'TEST cold wallet' })).toHaveCount(1);
@@ -214,8 +217,26 @@ test(`${J} #4 removes a saved address after a fresh confirmation, and it is gone
   await expect(page.getByText('You have no saved withdrawal addresses.')).toBeVisible();
 });
 
-test(`${J}, part of #5: using a new address at once is refused with the time its cooling-off ends`, async ({ page }) => {
-  test.setTimeout(180_000);
+/** The approval links mailed to this person so far, oldest first, from the stack's LOCAL-TEST outbox. */
+const approvalLinks = (email) =>
+  mailedLines(email, 'withdraw-address-approval').map((line) => {
+    const link = /link=(approveAddress\?token=\S+)/.exec(line)?.[1];
+    if (!link) throw new Error(`an approval mail with no link: ${line}`);
+    return `/${link}`;
+  });
+
+/** The next approval link mailed to `email` once more than `seen` have been. The relay sends right after the request commits. */
+async function nextApprovalLink(email, seen) {
+  await expect.poll(() => approvalLinks(email).length, { timeout: 20_000 }).toBeGreaterThan(seen);
+  return approvalLinks(email).at(-1);
+}
+
+test(`${J}, part of #5: a new address waits for approval by an emailed link; an expired link needs a new one`, async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(600_000);
+  const { account: who } = account();
   await signInWithCode(page);
   await page.goto('/uc/withdraw/address');
   const form = addForm(page);
@@ -225,22 +246,89 @@ test(`${J}, part of #5: using a new address at once is refused with the time its
   await field(page, 'Address').fill(ADDRESS);
   await form.getByRole('button', { name: 'Save address' }).click();
   await confirmItsMe(page);
-  await expect(page.getByText('TEST new wallet was saved to your address book.')).toBeVisible();
+  await expect(page.getByText('TEST new wallet was saved to your address book. Approve it before it can be used.')).toBeVisible();
 
-  // The book's cooling-off column and the bank's answer to "withdraw to it now" name the same end time.
+  // Saved, not approved: no cooling-off yet, and the bank sends nothing to it.
   const row = savedRows(page).filter({ hasText: 'TEST new wallet' });
-  const ends = ((await row.locator('td').nth(5).textContent()) ?? '').replace(/^Ends\s*/, '').trim();
-  expect(ends).not.toBe('');
+  await expect(row).toContainText('Waiting for approval');
+  await expect(row.locator('td').nth(5)).toHaveText('Starts once approved');
   await row.getByRole('button', { name: 'Withdraw to this address' }).click();
   const use = page.getByTestId('address-use');
   await expect(use.getByRole('alert')).toHaveText(
-    `TEST new wallet is a new address. Money can be sent to it from ${ends}, when its cooling-off ends.`,
+    'TEST new wallet is waiting for your approval, so nothing can be sent to it. Ask for an approval link by email and open it; its cooling-off starts when you approve it.',
   );
-  await expect(use.getByRole('link', { name: 'Go to Withdraw' })).toHaveCount(0);
-  await use.getByRole('button', { name: 'Close' }).click();
+
+  // Ask for a link: the page says it was asked for and until when it works, never that it arrived.
+  const before = approvalLinks(who.email).length;
+  await use.getByRole('button', { name: 'Email me an approval link' }).click();
+  await expect(use.getByTestId('address-approval-mail').getByRole('status')).toContainText(
+    'We asked for an approval link to be sent to the email address on your account. It works until',
+  );
+  const first = await nextApprovalLink(who.email, before);
+
+  // The link runs out (a LOCAL TEST fixture moves its times back): approving with it is refused, and nothing changes.
+  const expired = spawnSync(
+    process.execPath,
+    [path.join(ROOT, 'tooling/scripts/local-test-stack.mjs'), 'expire-address-approvals', who.email],
+    { encoding: 'utf8' },
+  );
+  expect(expired.status, expired.stderr).toBe(0);
+  expect(expired.stdout).toContain('1 open address approval link(s)');
+  await page.goto(first);
+  await expect(page).toHaveURL(/\/approveAddress$/);
+  const approve = page.getByTestId('approve-address');
+  await approve.getByRole('button', { name: 'Approve' }).click();
+  await confirmItsMe(page);
+  await expect(approve.getByRole('alert')).toHaveText('This link has run out. Open Addresses and ask for a new one.');
+  await expect(page.getByRole('heading', { name: 'This link no longer works' })).toBeVisible();
+
+  // A new link, opened in another browser that is not signed in: sign in first, then approve with it.
+  await page.goto('/uc/withdraw/address');
+  await savedRows(page).filter({ hasText: 'TEST new wallet' }).getByRole('button', { name: 'Withdraw to this address' }).click();
+  await page.getByTestId('address-use').getByRole('button', { name: 'Email me an approval link' }).click();
+  await expect(page.getByTestId('address-approval-mail').getByRole('status')).toContainText('We asked for an approval link');
+  const second = await nextApprovalLink(who.email, before + 1);
+  expect(second).not.toBe(first);
+
+  const other = await browser.newContext();
+  try {
+    const away = await other.newPage();
+    await away.goto(second);
+    await away.getByRole('link', { name: 'Sign in' }).last().click();
+    await expect(away).toHaveURL(/\/login\?redirect=/);
+    const state = account();
+    const { totp } = await totpLib();
+    const { code, step } = await nextCode(totp, state.secret, state.step);
+    run.reset({ ...state, step });
+    await away.fill('input[name=totp]', code);
+    await away.fill('input[name=identifier]', who.email);
+    await away.fill('input[name=password]', who.password);
+    await away.getByRole('button', { name: /^sign in$/i }).click();
+    // Back on the approval page, with the token already out of the address bar.
+    await expect(away).toHaveURL(/\/approveAddress$/);
+    const there = away.getByTestId('approve-address');
+    await there.getByRole('button', { name: 'Approve' }).click();
+    await confirmItsMe(away);
+    await expect(away.getByRole('heading', { name: 'Address approved' })).toBeVisible();
+    const done = (await there.getByRole('status').textContent()) ?? '';
+    const ends = /from (.+), when its cooling-off ends\.$/.exec(done)?.[1];
+    expect(ends, done).toBeTruthy();
+
+    // The book now says cooling off, ending when the approval page said, and the bank refuses to send until then.
+    await page.reload();
+    const approved = savedRows(page).filter({ hasText: 'TEST new wallet' });
+    await expect(approved).toContainText('Cooling off');
+    await expect(approved.locator('td').nth(5)).toHaveText(`Ends ${ends}`);
+    await approved.getByRole('button', { name: 'Withdraw to this address' }).click();
+    await expect(page.getByTestId('address-use').getByRole('alert')).toHaveText(
+      `TEST new wallet is a new address. Money can be sent to it from ${ends}, when its cooling-off ends.`,
+    );
+  } finally {
+    await other.close();
+  }
 
   // Leave the book as #6 expects it: this entry removed again.
-  await row.getByRole('button', { name: 'Remove' }).click();
+  await savedRows(page).filter({ hasText: 'TEST new wallet' }).getByRole('button', { name: 'Remove' }).click();
   await confirmItsMe(page);
   await expect(page.getByText('TEST new wallet was removed from your address book.')).toBeVisible();
 });

@@ -16,7 +16,7 @@ import { MemoryAccrualStore } from './affiliates/accrual-store.js';
 import type { CommissionRow } from './affiliates/commission.js';
 import { MemoryLedger, formatAmount, houseFees, parseAmount, recipes, rewardsEngine, userAvailable } from '@intafaced/ledger-client';
 import { MemoryKycDocumentStore } from './kyc/document-store.js';
-import type { BindProviderRefInput, BindProviderRefResult } from './kyc/provider-ref-bind.js';
+import type { BindProviderRefInput, BindProviderRefResult, DocumentReview } from './kyc/provider-ref-bind.js';
 import { MemoryWaitlistStore } from './waitlist/waitlist-store.js';
 import { WaitlistService } from './waitlist/waitlist-service.js';
 import { MemoryShareStore } from './affiliates/share-service.js';
@@ -1717,15 +1717,23 @@ describe('kyc document procedures — meta only, no free cross-user bytes', () =
   const DOC_USER = USER;
   const OTHER = '99999999-9999-4999-8999-999999999999';
 
-  function vaultRouter(bind?: (input: BindProviderRefInput) => Promise<BindProviderRefResult>) {
+  function vaultRouter(
+    bind?: (input: BindProviderRefInput) => Promise<BindProviderRefResult>,
+    reviews: Map<string, DocumentReview> = new Map(),
+  ) {
     const store = new MemoryKycDocumentStore(randomBytes(32).toString('base64'));
+    const asked: Array<{ userId: string; ids: readonly string[] }> = [];
     const r = createIdentityRouter(stub.auth, stub.rank, {
       registrationOpen: true,
       kycDocs: store,
       bindKycProviderRef: bind,
+      kycDocumentReviews: async (userId, ids) => {
+        asked.push({ userId, ids });
+        return reviews;
+      },
       actionApprovals: stubActionApprovals(CONFIRM_KYC),
     });
-    return { store, r };
+    return { store, r, asked };
   }
 
   it('storeDocument requires admin:compliance + MFA and returns meta only', async () => {
@@ -1819,6 +1827,32 @@ describe('kyc document procedures — meta only, no free cross-user bytes', () =
     expect(list).toHaveLength(1);
     expect(list[0]!.userId).toBe(DOC_USER);
     expect(list[0]).not.toHaveProperty('bytes');
+    expect(list[0]).toMatchObject({ reviewStatus: 'not_attached', reviewRecordId: null, reviewTier: null });
+  });
+
+  const KYC_RECORD = '77777777-7777-4777-8777-777777777777';
+
+  it('listDocuments gives each document the review of the KYC record attached to it, asking only for this subject', async () => {
+    const reviews = new Map<string, DocumentReview>();
+    const { r, store, asked } = vaultRouter(undefined, reviews);
+    const bound = await store.put({ userId: DOC_USER, contentType: 'image/png', bytes: Buffer.from('a') });
+    const loose = await store.put({ userId: DOC_USER, contentType: 'application/pdf', bytes: Buffer.from('b') });
+    reviews.set(bound.id, { recordId: KYC_RECORD, tier: 'full', status: 'pending' });
+    const op = r.createCaller(await ctx(['admin:compliance'], { userId: OPERATOR }));
+    const list = await op.kyc.listDocuments({ userId: DOC_USER, limit: 200 });
+    expect(asked).toEqual([{ userId: DOC_USER, ids: expect.arrayContaining([bound.id, loose.id]) }]);
+    expect(list.find((d) => d.id === bound.id)).toMatchObject({ reviewStatus: 'pending', reviewRecordId: KYC_RECORD, reviewTier: 'full' });
+    expect(list.find((d) => d.id === loose.id)).toMatchObject({ reviewStatus: 'not_attached', reviewRecordId: null });
+  });
+
+  it('listDocuments refuses closed when the vault is wired without its review lookup', async () => {
+    const store = new MemoryKycDocumentStore(randomBytes(32).toString('base64'));
+    await store.put({ userId: DOC_USER, contentType: 'image/png', bytes: Buffer.from('a') });
+    const r = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, kycDocs: store });
+    const op = r.createCaller(await ctx(['admin:compliance'], { userId: OPERATOR }));
+    const refused = await op.kyc.listDocuments({ userId: DOC_USER, limit: 200 }).catch((e: unknown) => e);
+    expect(codeOf(refused)).toBe('PRECONDITION_FAILED');
+    expect(String((refused as Error).message)).toMatch(/kyc_doc\.reviews_unwired/);
   });
 
   it('bindDocument refuses when vault bind is unwired; succeeds with opaque pointer only', async () => {
@@ -1936,7 +1970,7 @@ describe('kyc.getDocument is compliance-only bytes, never a public/user read', (
     const r = createIdentityRouter(stub.auth, stub.rank, {
       registrationOpen: true,
       kycDocs: store,
-      actionApprovals: stubActionApprovals(CONFIRM_KYC),
+      actionApprovals: stubActionApprovals(CONFIRM_KYC, OPERATOR),
     });
     const op = r.createCaller(await ctx(['admin:compliance'], { userId: OPERATOR, mfa: true }));
 
@@ -1951,6 +1985,58 @@ describe('kyc.getDocument is compliance-only bytes, never a public/user read', (
 
     const opened = await op.kyc.getDocument({ documentId: meta.id, ...kycDual });
     expect(opened.bytesBase64).toBe(Buffer.from('secret-scan').toString('base64'));
+  });
+
+  it('getDocument is opened only by the operator who asked: anyone else is refused before the approval is spent, and after', async () => {
+    const store = new MemoryKycDocumentStore(randomBytes(32).toString('base64'));
+    const meta = await store.put({ userId: USER, contentType: 'image/png', bytes: Buffer.from('secret-scan') });
+    const spent: string[] = [];
+    const consumeAsRequester = stubActionApprovals(CONFIRM_KYC, CONFIRM_KYC);
+    const withParties = createIdentityRouter(stub.auth, stub.rank, {
+      registrationOpen: true,
+      kycDocs: store,
+      actionApprovals: {
+        consume: async (service, input) => {
+          spent.push(input.approvalId);
+          return consumeAsRequester.consume(service, input);
+        },
+        partiesOf: async () => ({ requesterId: CONFIRM_KYC, approverId: OPERATOR }),
+      },
+    });
+    // The approver (OPERATOR) holds the ids and runs the read: refused, and the approval is not spent.
+    const approver = withParties.createCaller(await ctx(['admin:compliance'], { userId: OPERATOR, mfa: true }));
+    const before = await approver.kyc.getDocument({ documentId: meta.id, ...kycDual }).catch((e: unknown) => e);
+    expect(codeOf(before)).toBe('FORBIDDEN');
+    expect(String((before as Error).message)).toMatch(/kyc_doc\.reader_not_requester/);
+    expect(spent).toEqual([]);
+
+    // Without the parties read, the consumed approval still names the requester, and nobody else gets the bytes.
+    const noParties = createIdentityRouter(stub.auth, stub.rank, {
+      registrationOpen: true,
+      kycDocs: store,
+      actionApprovals: stubActionApprovals(CONFIRM_KYC, CONFIRM_KYC),
+    });
+    const other = noParties.createCaller(await ctx(['admin:compliance'], { userId: OPERATOR, mfa: true }));
+    const after = await other.kyc.getDocument({ documentId: meta.id, ...kycDual }).catch((e: unknown) => e);
+    expect(codeOf(after)).toBe('FORBIDDEN');
+    expect(after).not.toHaveProperty('bytesBase64');
+  });
+
+  it('getDocument refuses a switched-off vault before the approval is spent', async () => {
+    const spent: string[] = [];
+    const r = createIdentityRouter(stub.auth, stub.rank, {
+      registrationOpen: true,
+      actionApprovals: {
+        consume: async (service, input) => {
+          spent.push(input.approvalId);
+          return stubActionApprovals(CONFIRM_KYC, OPERATOR).consume(service, input);
+        },
+      },
+    });
+    const op = r.createCaller(await ctx(['admin:compliance'], { userId: OPERATOR, mfa: true }));
+    const refused = await op.kyc.getDocument({ documentId: '55555555-5555-4555-8555-555555555555', ...kycDual }).catch((e: unknown) => e);
+    expect(String((refused as Error).message)).toMatch(/kyc_doc\.unwired/);
+    expect(spent).toEqual([]);
   });
 });
 

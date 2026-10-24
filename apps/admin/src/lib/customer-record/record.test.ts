@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { readData } from '@/lib/ops-desk/model';
+import { codeWords } from '@/lib/desk/words';
 import { moduleForPage } from '@/lib/modules';
 import { CUSTOMER_TABS, INDICATOR_STRIP, RISK_CARD, customerId, customerTab, tabPlan } from './record';
 
@@ -43,7 +44,8 @@ describe('what each tab reads', () => {
     expect(docs.reads.map((r) => [r.module, r.procedure, r.input])).toEqual([
       ['identity', 'kyc.listDocuments', { userId: USER, limit: 50 }],
     ]);
-    expect(docs.unwired.map((u) => u.id)).toEqual(['documents.viewer', 'documents.decisions']);
+    expect(docs.unwired.map((u) => u.id)).toEqual(['documents.decisions']);
+    expect(docs.reads[0]!.rowAction).toBe('identity.kyc_document.open');
     expect(docs.reads[0]!.refusals?.['kyc_doc.unwired']).toContain('IDENTITY_KYC_DOC_KEY');
   });
   it('names procedures the owning services serve today', () => {
@@ -107,20 +109,36 @@ describe('indicator strip', () => {
 });
 
 describe('documents tab', () => {
-  it('reads one of identity’s document rows into the list', () => {
+  const row = {
+    id: '3c1d2e3f-4a5b-4c6d-8e7f-8091a2b3c4d5',
+    userId: USER,
+    contentType: 'image/png',
+    byteLength: 2048,
+    storedBy: null,
+    createdAt: '2026-10-22T10:00:00.000Z',
+    reviewStatus: 'pending',
+    reviewRecordId: '4d2e3f4a-5b6c-4d7e-8f80-91a2b3c4d5e6',
+    reviewTier: 'full',
+  };
+  it('reads each of identity’s document rows with the status of the verification it is attached to', () => {
     const [docs] = tabPlan('documents', USER).reads;
-    const row = {
-      id: '3c1d2e3f-4a5b-4c6d-8e7f-8091a2b3c4d5',
-      contentType: 'image/png',
-      byteLength: 2048,
-      storedBy: null,
-      createdAt: '2026-10-22T10:00:00.000Z',
-    };
-    expect(readData(docs!, [row])).toMatchObject({ shape: 'list', rows: [{ id: row.id }] });
+    const read = readData(docs!, [
+      row,
+      { ...row, id: '5e3f4a5b-6c7d-4e8f-9081-a2b3c4d5e6f7', reviewStatus: 'not_attached', reviewRecordId: null, reviewTier: null },
+    ]);
+    expect(read).toMatchObject({ shape: 'list', rows: [{ id: row.id }, { id: '5e3f4a5b-6c7d-4e8f-9081-a2b3c4d5e6f7' }] });
+    const status = (i: number) => (read?.shape === 'list' ? read.rows[i]!.cells.find((c) => c.key === 'reviewStatus')?.value : undefined);
+    expect([status(0), status(1)]).toEqual(['pending', 'not_attached']);
+    expect(codeWords('not_attached')).toBe('Not attached to a verification');
   });
-  it('names the missing document viewer and the missing decisions as parked parts', () => {
+  it('refuses a row without its status, so a document never reads as not attached by omission', () => {
+    const [docs] = tabPlan('documents', USER).reads;
+    const { reviewStatus: _drop, ...noStatus } = row;
+    expect(readData(docs!, [noStatus])).toBeNull();
+  });
+  it('names the missing per-document decisions as the one parked part', () => {
     const parked = tabPlan('documents', USER).unwired.map((u) => u.id);
-    expect(parked).toEqual(['documents.viewer', 'documents.decisions']);
-    expect(tabPlan('documents', USER).unwired[0]!.reason).toContain('kyc.getDocument');
+    expect(parked).toEqual(['documents.decisions']);
+    expect(tabPlan('documents', USER).unwired[0]!.reason).toContain('verification it is attached to');
   });
 });

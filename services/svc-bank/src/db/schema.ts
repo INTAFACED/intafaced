@@ -1042,12 +1042,39 @@ export const userWithdrawDestinations = bank.table(
     // A look-alike saved after the customer confirmed it (migration 0054): the saved entry it was checked against, and when.
     lookalikeOf: uuid('lookalike_of'),
     lookalikeConfirmedAt: tstz('lookalike_confirmed_at'),
+    // A new entry waits for the customer's approval (W-withdraw-09, migration 20261024100000): when and how it was approved.
+    approvedAt: tstz('approved_at'),
+    approvedBy: text('approved_by'),
   },
   (t) => [
     primaryKey({ name: 'user_withdraw_destinations_pkey', columns: [t.destinationId] }),
     uniqueIndex('user_withdraw_destinations_legacy_idx')
       .on(t.userId, t.kind)
       .where(sql`${t.origin} = 'legacy'`),
+  ],
+);
+
+/**
+ * Single-use links that approve a new withdrawal address (W-withdraw-09, migration 20261024100000). Only the token's
+ * sha256 is kept; only the newest mailed link of an entry works, until it expires or is used.
+ */
+export const destinationApprovalLinks = bank.table(
+  'destination_approval_links',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: text('user_id').notNull(),
+    destinationId: uuid('destination_id').notNull(),
+    seq: integer('seq').notNull(),
+    tokenHash: text('token_hash').notNull(),
+    expiresAt: tstz('expires_at').notNull(),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+    mailedAt: tstz('mailed_at'),
+    mailId: uuid('mail_id'),
+    usedAt: tstz('used_at'),
+  },
+  (t) => [
+    uniqueIndex('destination_approval_links_token_idx').on(t.tokenHash),
+    uniqueIndex('destination_approval_links_seq_idx').on(t.destinationId, t.seq),
   ],
 );
 

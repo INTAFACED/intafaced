@@ -56,6 +56,16 @@
       "value": "60",
       "note": "How close to its next run a standing order may still be edited (J-bank-06 #2)."
     },
+    "BANK_LOAN_PAYOFF_FEE": {
+      "service": "bank",
+      "value": "0",
+      "note": "TEST payoff fee on clearing a loan early: none, so a payoff quote can be given (J-bank-11 #1). The owner's own fee table is not published."
+    },
+    "BANK_LOAN_PAYOFF_WINDOW_MINUTES": {
+      "service": "bank",
+      "value": "15",
+      "note": "How long a TEST payoff quote holds before it is re-priced (J-bank-11 #1)."
+    },
     "BANK_GLOBAL_HOLD_CANCEL_HOURS": {
       "service": "bank",
       "value": "72",
@@ -75,6 +85,11 @@
       "service": "bank",
       "value": "180",
       "note": "How many days a verified wallet ownership proof holds (J-wallet-04)."
+    },
+    "BANK_ADDRESS_APPROVAL_LINK_MINUTES": {
+      "service": "bank",
+      "value": "30",
+      "note": "How many minutes an emailed link that approves a new withdrawal address works (J-wallet-04 #5)."
     },
     "BANK_PAYEE_CONTROLS_JSON": {
       "service": "bank",

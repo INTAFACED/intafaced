@@ -50,6 +50,8 @@ import { MoneyCalendar } from './Calendar';
 import { calendarCopy } from './calendar-copy';
 import { Rules } from './Rules';
 import { rulesCopy } from './rules-copy';
+import { LoanDetail } from './LoanDetail';
+import { loanDetailCopy } from './loan-detail-copy';
 import { linkedAccountsCopy } from './linked-accounts-copy';
 import { cashOutCopy } from './cash-out-copy';
 import { CashOut } from './CashOut';
@@ -1308,6 +1310,7 @@ function Loans({ open }: { open: (spec: ActionSpec) => void }) {
                       </div>
                     </dl>
                     <LoanHealth loan={loan} resource={health.resource} reload={health.reload} />
+                    <LoanDetailLink loanId={loan.id} />
                     {loanStatusNote(loan.status) && <p className="muted money-loan-status">{loanStatusNote(loan.status)}</p>}
                     <div className="actions">
                       <Button
@@ -1505,6 +1508,27 @@ function RulesRoom() {
   return (
     <BankPage room="Transfers" title={t('title')} description={t('description')}>
       <Rules />
+    </BankPage>
+  );
+}
+/** Each loan's way to its details page: the payoff quote, the projection and the statement (J-bank-11 #1). */
+function LoanDetailLink({ loanId }: { loanId: string }) {
+  const { t } = loanDetailCopy.useCopy();
+  return (
+    <p className="money-caption">
+      <a className="text-link" href={`/bank/loans/detail?loan=${encodeURIComponent(loanId)}`}>
+        {t('open')}
+      </a>
+    </p>
+  );
+}
+/** `/bank/loans/detail?loan=<id>`: one loan's payoff quote, projection and statement, inside the Loans room (J-bank-11 #1). */
+function LoanDetailRoom({ search }: { search: string }) {
+  const { t } = loanDetailCopy.useCopy();
+  const loanId = new URLSearchParams(search).get('loan');
+  return (
+    <BankPage room="Loans" title={t('title')} description={t('description')}>
+      <LoanDetail loanId={loanId && loanId.trim() !== '' ? loanId : null} />
     </BankPage>
   );
 }
@@ -1959,6 +1983,8 @@ export function BankRoutes({ path, search, open }: { path: string; search: strin
       return <Earn open={open} />;
     case '/bank/loans':
       return <Loans open={open} />;
+    case '/bank/loans/detail':
+      return <LoanDetailRoom search={search} />;
     case '/bank/cards':
       return <Cards open={open} />;
     case '/bank/ramps':

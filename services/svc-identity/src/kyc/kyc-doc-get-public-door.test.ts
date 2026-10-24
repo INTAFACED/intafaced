@@ -59,7 +59,7 @@ function unwrapData(body: WireBody): unknown {
 async function mount(vault?: MemoryKycDocumentStore): Promise<FastifyInstance> {
   const router = createIdentityRouter({} as AuthService, {} as RankService, {
     registrationOpen: true,
-    actionApprovals: stubActionApprovals(),
+    actionApprovals: stubActionApprovals(undefined, OPERATOR),
     ...(vault ? { kycDocs: vault } : {}),
   });
   const app = Fastify({ logger: false });

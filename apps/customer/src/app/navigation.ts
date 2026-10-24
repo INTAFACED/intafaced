@@ -167,6 +167,15 @@ export const rooms: readonly Room[] = [
   { path: '/uc/withdraw/approvals', title: 'Approvals', description: 'Withdrawals waiting for your team', door: 'Assets', area: 'money' },
   { path: '/uc/withdraw/allowlist', title: 'Address list', description: 'Where withdrawals may go', door: 'Assets', area: 'money' },
   { path: '/uc/withdraw/address', title: 'Addresses', description: 'Withdrawal destinations', door: 'Assets', area: 'money' },
+  // The page the new-address approval email links to (W-withdraw-09); identity's mail names this path.
+  {
+    path: '/approveAddress',
+    title: 'Approve address',
+    description: 'Approve a new withdrawal address',
+    door: 'Assets',
+    area: 'money',
+    hidden: true,
+  },
   {
     path: '/uc/record',
     title: 'Activity',
@@ -201,6 +210,13 @@ export const rooms: readonly Room[] = [
   },
   { path: '/bank/earn', title: 'Earn', description: 'Available earning products', door: 'Bank', area: 'money' },
   { path: '/bank/loans', title: 'Loans', description: 'Applications and repayments', door: 'Bank', area: 'money' },
+  {
+    path: '/bank/loans/detail',
+    title: 'Loan details',
+    description: 'Payoff quote, projection and statement for one loan',
+    door: 'Bank',
+    area: 'money',
+  },
   { path: '/bank/cards', title: 'Cards', description: 'Card issuer availability and controls', door: 'Bank', area: 'money' },
   { path: '/bank/ramps', title: 'Cash and crypto', description: 'Onramps and offramps', door: 'Bank', area: 'money' },
   { path: '/bank/ramps/new', title: 'Add money', description: 'Pay in by bank transfer, bank or card', door: 'Bank', area: 'money' },

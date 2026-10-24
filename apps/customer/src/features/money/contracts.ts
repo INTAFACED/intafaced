@@ -55,6 +55,48 @@ export const loanSchema = z.object({
   status: z.string(),
   marginCalledAt: z.string().nullable(),
 });
+/** `bank.loans.projection` (BK-loan-06): the accrual rule run forward by the bank. A projection, never a schedule. */
+export const loanProjectionSchema = z.object({
+  loanId: z.string(),
+  kind: z.literal('projection'),
+  obligation: z.literal(false),
+  aprBps: z.number().int(),
+  days: z.number().int(),
+  openingPrincipal: money,
+  openingInterest: money,
+  extraApplied: money.nullable(),
+  rows: z.array(z.object({ date: z.string(), basis: money, interest: money, principal: money, debt: money })),
+});
+export type LoanProjection = z.infer<typeof loanProjectionSchema>;
+/** `bank.loans.payoffQuote` (BK-loan-06): what clears the loan now, re-priced on every read and never stored. */
+export const payoffQuoteSchema = z.object({
+  loanId: z.string(),
+  principal: money,
+  interest: money,
+  fee: money,
+  total: money,
+  assetId: z.string(),
+  interestThrough: z.string(),
+  validUntil: z.string(),
+});
+export type PayoffQuote = z.infer<typeof payoffQuoteSchema>;
+/** `bank.loans.statement` (BK-loan-06): one loan's signed CSV over a period; a month still running is provisional. */
+export const loanStatementSchema = z.object({
+  format: z.literal('csv'),
+  filename: z.string(),
+  contentType: z.string(),
+  bodyBase64: z.string(),
+  sha256: z.string(),
+  signature: z.string(),
+  rowCount: z.number().int().nonnegative(),
+  provisional: z.boolean(),
+  openingPrincipal: money,
+  openingInterest: money,
+  closingPrincipal: money,
+  closingInterest: money,
+  generatedAt: z.string(),
+});
+export type LoanStatement = z.infer<typeof loanStatementSchema>;
 export const programmeSchema = z.object({ id: z.string(), simulated: z.boolean(), displayName: z.string() });
 export const shippingAddressSchema = z.object({
   name: z.string(),
@@ -196,8 +238,15 @@ export const destinationSchema = z.object({
       offerExpiresAt: z.string().nullable(),
     })
     .optional(),
+  // A new address waits (`pending`) until approved by an emailed link (W-withdraw-09).
+  approvedAt: z.string().nullable().optional(),
+  approvedBy: z.enum(['link']).nullable().optional(),
+  // Until when the newest emailed approval link works, while one is open.
+  approvalLinkExpiresAt: z.string().nullable().optional(),
 });
 export type Destination = z.infer<typeof destinationSchema>;
+/** svc-bank `bank.ramps.destinations.approval.requestMail`: the approval link was asked for, and works until `expiresAt`. */
+export const approvalMailAskedSchema = z.object({ destinationId: z.string(), expiresAt: z.string() });
 /** A message the bank offers to sign, proving the customer controls a saved wallet. */
 export const walletProofStartedSchema = z.object({
   proofId: z.string(),
@@ -225,9 +274,10 @@ export const destinationRemovedSchema = z.object({ destinationId: z.string(), re
 /** svc-bank `bank.ramps.destinations.readiness`: whether money may be sent to one saved address now, or what stands first. */
 export const destinationReadinessSchema = z.object({
   destinationId: z.string(),
-  state: z.enum(['ready', 'locked', 'blocked', 'cooling_unset', 'cooling']),
+  state: z.enum(['ready', 'locked', 'blocked', 'approval_pending', 'cooling_unset', 'cooling']),
   coolingOffEndsAt: z.string().nullable(),
   lockUnlocksAt: z.string().nullable(),
+  approvalLinkExpiresAt: z.string().nullable().optional(),
 });
 export type DestinationReadiness = z.infer<typeof destinationReadinessSchema>;
 /** svc-bank `bank.ramps.destinations.check`: whether the bank takes an address as typed, before any confirmation. */
@@ -620,6 +670,8 @@ export const bankReads = {
   'earn.positions': z.array(positionSchema),
   'loans.products': z.array(productSchema),
   'loans.list': z.array(loanSchema),
+  'loans.projection': loanProjectionSchema,
+  'loans.payoffQuote': payoffQuoteSchema,
   'loans.health': z.object({
     debtValue: money,
     collateralValue: money,

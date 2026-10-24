@@ -109,7 +109,7 @@ export const features: readonly Feature[] = [
   {
     id: 'withdraw',
     label: 'Withdraw',
-    paths: ['/uc/withdraw', '/uc/withdraw/address', '/uc/withdraw/approvals', '/uc/withdraw/allowlist'],
+    paths: ['/uc/withdraw', '/uc/withdraw/address', '/uc/withdraw/approvals', '/uc/withdraw/allowlist', '/approveAddress'],
     status: 'blocked',
     reason: 'Custody withdrawal is not connected',
     unlock: 'custody contract',
@@ -165,6 +165,16 @@ export const features: readonly Feature[] = [
     reason:
       'Rules that move money by themselves wait for owner-published terms (bank.rule_terms_unset). Reminders and failure notices reach the inbox through the notification service',
     unlock: 'J-bank-06 #6 passing on main',
+    tab: 'money',
+  },
+  {
+    id: 'bank-loan-detail',
+    label: 'Loan details',
+    paths: ['/bank/loans/detail'],
+    status: 'blocked',
+    reason:
+      "The payoff fee and how long a quote holds are owner values: unset, the quote refuses bank.loan_fee_unset or bank.loan_payoff_window_unset. The projection and statement are the bank's own reads",
+    unlock: 'J-bank-11 #1 and #6 passing on main',
     tab: 'money',
   },
   {

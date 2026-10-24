@@ -136,3 +136,10 @@
   border-color: var(--if-border-strong);
   background: var(--if-surface-raised);
 }
+
+/* One KYC document drawn by the viewer: never wider than its panel. */
+.dk-document {
+  max-width: 100%;
+  height: auto;
+  border: 1px solid var(--if-border);
+}

@@ -48,6 +48,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     // LOCAL TEST values: how long a wallet ownership proof stays open to sign, and how long a verified one holds.
     BANK_WALLET_PROOF_WINDOW_MINUTES: '30',
     BANK_WALLET_PROOF_VALID_DAYS: '180',
+    // LOCAL TEST value: how long an emailed link that approves a new withdrawal address works (J-wallet-04 #5).
+    BANK_ADDRESS_APPROVAL_LINK_MINUTES: '30',
     // LOCAL TEST values from the bank profile, not owner decisions (BK-xfer-07): one made-up blocked payee, one made-up
     // exchange account with a small allowance, and the proof files a held send may upload. Unset, every global send
     // refuses before its quote, so the sending journeys could not reach a hold or a refusal on this stack.
@@ -82,6 +84,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     BANK_GLOBAL_REFUND_FEE: testValue('BANK_GLOBAL_REFUND_FEE'),
     // LOCAL TEST value from the bank profile (J-bank-06): how close to its next run a standing order may still be edited.
     BANK_SCHEDULE_EDIT_CUTOFF_MINUTES: testValue('BANK_SCHEDULE_EDIT_CUTOFF_MINUTES'),
+    // LOCAL TEST values from the bank profile (BK-loan-06, J-bank-11 #1): the fee on clearing a loan early and how long a
+    // payoff quote holds. Unset, every payoff quote refuses bank.loan_fee_unset, so the loan page could only show the refusal.
+    BANK_LOAN_PAYOFF_FEE: testValue('BANK_LOAN_PAYOFF_FEE'),
+    BANK_LOAN_PAYOFF_WINDOW_MINUTES: testValue('BANK_LOAN_PAYOFF_WINDOW_MINUTES'),
     // Nothing moves money in the background of a test stack.
     // The standing-order runner has no timer: it is a signed job door, and on this stack only a test's own signed call
     // (J-bank-06) runs it. Left off, a one-off or a standing order could never be shown running here.

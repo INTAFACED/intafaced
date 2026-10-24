@@ -664,6 +664,47 @@ async function twoPerson(ctx, sessions, proposal) {
   return { approvalId: row.approvalId, operationId: row.operationId };
 }
 
+// ── KYC documents (journeys) ────────────────────────────────────────────────
+
+/** A four-eyes proposal for one of identity's KYC document doors (`kyc.doc.store`, `kyc.doc.bind`): the verb is the target. */
+function kycDocProposal(verb, fields) {
+  return {
+    actionType: verb,
+    targetService: 'svc-identity',
+    targetId: verb,
+    expectedVersion: '1',
+    payloadHash: identityPayloadHash(verb, fields),
+    policyVersion: MARKERS.policyVersion,
+  };
+}
+
+/**
+ * Store one LABELLED TEST document in identity's KYC vault for `userId`, the way an operator does (`kyc.storeDocument`): the
+ * two TEST operators approve it at identity. Needs the stack's vault key (IDENTITY_KYC_DOC_KEY). Returns identity's meta.
+ */
+export async function storeTestKycDocument(ctx, { userId, contentType, bytes }) {
+  const pair = await operatorSessions(ctx);
+  const ids = await twoPerson(ctx, pair, kycDocProposal('kyc.doc.store', { userId }));
+  const res = await ctx.edge.mutate(
+    'identity',
+    'kyc.storeDocument',
+    { userId, contentType, bytesBase64: Buffer.from(bytes).toString('base64'), ...ids },
+    await pair.a.complianceToken(),
+  );
+  const meta = data(res);
+  if (!meta?.id) throw new Error(`kyc.storeDocument refused (${res.status}): ${refusalText(res)}`);
+  return meta;
+}
+
+/** Attach a stored document to its subject's pending KYC record (`kyc.bindDocument`), approved by the two TEST operators. */
+export async function bindTestKycDocument(ctx, { recordId, documentId }) {
+  const pair = await operatorSessions(ctx);
+  const ids = await twoPerson(ctx, pair, kycDocProposal('kyc.doc.bind', { recordId, documentId }));
+  const res = await ctx.edge.mutate('identity', 'kyc.bindDocument', { recordId, documentId, ...ids }, await pair.a.complianceToken());
+  if (data(res)?.providerRef !== documentId) throw new Error(`kyc.bindDocument refused (${res.status}): ${refusalText(res)}`);
+  return data(res);
+}
+
 // ── 1. Lifecycle (the owner stand-in) ───────────────────────────────────────
 
 async function signedTrade(ctx, method, route, bodyObj) {

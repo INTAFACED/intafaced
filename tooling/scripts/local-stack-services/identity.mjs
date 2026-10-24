@@ -74,6 +74,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     IDENTITY_SECURITY_LOCK_UNLOCK_WAIT_SECONDS: '86400',
     // Sealing key for operator second factors (TOTP). Generated per machine in secrets.json.
     IDENTITY_TOTP_SECRET_KEY: secrets.identityTotp,
+    // LOCAL TEST ONLY: the KYC document vault's key, generated for this stack (secrets.json, mode 600). Without it the vault is
+    // off and the founder console's document list and viewer refuse kyc_doc.unwired.
+    IDENTITY_KYC_DOC_KEY: secrets.identityKycDoc,
     // LOCAL TEST, not the lead's grant (which founder holds which scope is the lead's call for a real stack). The
     // operator reads the founder console makes: svc-bank's desks (admin:read), svc-p2p's
     // operator lists (admin:compliance) and svc-market's vendor desk (market:ops), and the notify desk's writes

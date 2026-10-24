@@ -20,6 +20,7 @@ import type { OfframpFeeSource, OnrampMethod, OnrampPaymentInstruction, OnrampPa
 import type { OnrampStandIn } from './onramp-sim.js';
 import { ownershipOf, type Ownership, type WalletProofStore } from './wallet-ownership.js';
 import { assertSecurityLockOpen, type SecurityLockPort } from '../security-lock.js';
+import { openApprovalLinks, type ApprovalLinkStore } from './address-approval.js';
 
 /**
  * Customer-callable quote and destination procedures.
@@ -47,6 +48,8 @@ export interface CustomerRampDeps {
   proofs: WalletProofStore;
   /** The owner's security lock, read from identity per request (W-withdraw-09). */
   securityLock: SecurityLockPort;
+  /** Emailed approval links for new addresses (W-withdraw-09), so the book can say a link is out and until when. */
+  approvalLinks: ApprovalLinkStore;
 }
 
 interface QuoteRow {
@@ -144,14 +147,21 @@ export interface DestinationView {
   network: string | null;
   tag: string | null;
   origin: 'legacy' | 'customer';
+  /** `pending`: a new address waiting for the customer's approval; its cooling-off starts when it is approved. */
   state: 'pending' | 'cooling' | 'active' | 'blocked' | 'archived';
   addedAt: string;
+  /** Null while the entry waits for approval (its cooling-off has not started) or while no period is published. */
   coolingOffEndsAt: string | null;
   coolingBlocker: 'bank.offramp_cooling_unset' | null;
   /** When the customer confirmed this address is not the saved entry it looks like (W-withdraw-03); null otherwise. */
   lookalikeConfirmedAt: string | null;
   /** Whether the customer has proved they control this wallet by signing a message (W-withdraw-17), from the latest proof. */
   ownership: Ownership;
+  /** When and how the customer approved this new address (W-withdraw-09); null until then and on older entries. */
+  approvedAt: string | null;
+  approvedBy: 'link' | null;
+  /** While it waits: until when the newest emailed approval link works, or null when none is out. */
+  approvalLinkExpiresAt: string | null;
 }
 
 export async function quoteOnramp(
@@ -378,7 +388,8 @@ export function maskRef(ref: string): string {
   return compact.length <= 12 ? `${compact.slice(0, 2)}…` : `${compact.slice(0, 6)}…${compact.slice(-4)}`;
 }
 
-function viewOf(row: WithdrawDestination, hours: number | null, ownership: Ownership): DestinationView {
+function viewOf(row: WithdrawDestination, hours: number | null, ownership: Ownership, linkExpiresAt: string | null): DestinationView {
+  const pending = row.state === 'pending';
   return {
     destinationId: row.destinationId,
     label: row.label,
@@ -391,24 +402,42 @@ function viewOf(row: WithdrawDestination, hours: number | null, ownership: Owner
     origin: row.origin,
     state: row.state,
     addedAt: row.addedAt.toISOString(),
-    coolingOffEndsAt: hours === null ? null : coolingOffEndsAt(hours, row.updatedAt).toISOString(),
+    coolingOffEndsAt: hours === null || pending ? null : coolingOffEndsAt(hours, row.updatedAt).toISOString(),
     coolingBlocker: hours === null ? ('bank.offramp_cooling_unset' as const) : null,
     lookalikeConfirmedAt: row.lookalikeConfirmedAt ? row.lookalikeConfirmedAt.toISOString() : null,
     ownership,
+    approvedAt: row.approvedAt ? row.approvedAt.toISOString() : null,
+    approvedBy: row.approvedBy,
+    approvalLinkExpiresAt: pending ? linkExpiresAt : null,
   };
 }
 
 /** One entry's view with its ownership read from the latest proof. */
-async function viewWithOwnership(deps: CustomerRampDeps, userId: string, row: WithdrawDestination): Promise<DestinationView> {
-  const latest = await deps.proofs.latest(userId);
-  return viewOf(row, readOfframpCoolingHours(deps.coolingRaw()), ownershipOf(latest.get(row.destinationId), new Date(), row.ref));
+export async function viewWithOwnership(deps: CustomerRampDeps, userId: string, row: WithdrawDestination): Promise<DestinationView> {
+  // Only an entry still waiting has an open link to show.
+  const [latest, links] = await Promise.all([
+    deps.proofs.latest(userId),
+    row.state === 'pending' ? openApprovalLinks({ links: deps.approvalLinks }, userId) : new Map<string, string>(),
+  ]);
+  return viewOf(
+    row,
+    readOfframpCoolingHours(deps.coolingRaw()),
+    ownershipOf(latest.get(row.destinationId), new Date(), row.ref),
+    links.get(row.destinationId) ?? null,
+  );
 }
 
 export async function listDestinations(deps: CustomerRampDeps, userId: string): Promise<DestinationView[]> {
   const hours = readOfframpCoolingHours(deps.coolingRaw());
-  const [rows, latest] = await Promise.all([deps.destinations.list(userId), deps.proofs.latest(userId)]);
+  const [rows, latest, links] = await Promise.all([
+    deps.destinations.list(userId),
+    deps.proofs.latest(userId),
+    openApprovalLinks({ links: deps.approvalLinks }, userId),
+  ]);
   const now = new Date();
-  return rows.map((row) => viewOf(row, hours, ownershipOf(latest.get(row.destinationId), now, row.ref)));
+  return rows.map((row) =>
+    viewOf(row, hours, ownershipOf(latest.get(row.destinationId), now, row.ref), links.get(row.destinationId) ?? null),
+  );
 }
 
 /** What the add form learns before it asks for a confirmation code: whether the bank would take this address as typed. */
@@ -436,6 +465,7 @@ export async function saveDestination(
   deps: CustomerRampDeps,
   input: SaveDestinationInput & { confirmLookalike?: boolean },
 ): Promise<DestinationView> {
+  // A new entry is saved `pending`, recording the saving session: it waits for the customer's approval (W-withdraw-09).
   // The network must be one the registry lists for the asset before the entry is stored; nothing is saved otherwise.
   // Checked on the entry as the store will keep it (asset upper-case, network lower-case), the form registry ids take.
   // The look-alike record is this function's alone: whatever a caller passed is dropped, and only `near` sets it.
@@ -486,15 +516,17 @@ export function removeDestination(
 /**
  * Whether money may be sent to one saved address now, and if not, what stands in the way, first reason first: the
  * owner's security lock (`locked`, with when it ends once an unlock is asked for), an entry the book holds as blocked or
- * archived (`blocked`), no published cooling-off period (`cooling_unset`), or a cooling-off that has not ended
- * (`cooling`, with its end; null when the published period runs past any date). The lock and cooling-off rules the
- * bank's send path applies (`offramp`); the answer is read-only and changes nothing.
+ * archived (`blocked`), a new address the customer has not approved yet (`approval_pending`, with until when the newest
+ * emailed link works, if one is out), no published cooling-off period (`cooling_unset`), or a cooling-off that has not
+ * ended (`cooling`, with its end; null when the published period runs past any date). The lock, approval and cooling-off
+ * rules the bank's send path applies (`offramp`); the answer is read-only and changes nothing.
  */
 export type DestinationReadiness = {
   destinationId: string;
-  state: 'ready' | 'locked' | 'blocked' | 'cooling_unset' | 'cooling';
+  state: 'ready' | 'locked' | 'blocked' | 'approval_pending' | 'cooling_unset' | 'cooling';
   coolingOffEndsAt: string | null;
   lockUnlocksAt: string | null;
+  approvalLinkExpiresAt: string | null;
 };
 
 export async function destinationReadiness(
@@ -507,9 +539,13 @@ export async function destinationReadiness(
   if (!row) {
     throw new BankError(`User ${input.userId} has no saved address ${input.destinationId}`, 'bank.withdraw_destination_missing');
   }
-  const base = { destinationId: row.destinationId, coolingOffEndsAt: null, lockUnlocksAt: null };
+  const base = { destinationId: row.destinationId, coolingOffEndsAt: null, lockUnlocksAt: null, approvalLinkExpiresAt: null };
   if (lock.locked) return { ...base, state: 'locked', lockUnlocksAt: lock.unlocksAt };
   if (row.state === 'blocked' || row.state === 'archived') return { ...base, state: 'blocked' };
+  if (row.state === 'pending') {
+    const links = await openApprovalLinks({ links: deps.approvalLinks, now: () => now }, input.userId);
+    return { ...base, state: 'approval_pending', approvalLinkExpiresAt: links.get(row.destinationId) ?? null };
+  }
   const hours = readOfframpCoolingHours(deps.coolingRaw());
   if (hours === null) return { ...base, state: 'cooling_unset' };
   const ends = coolingOffEndsAt(hours, row.updatedAt);

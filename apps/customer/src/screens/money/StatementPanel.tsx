@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { Download } from 'lucide-react';
 import { Button, refusalCopy } from './deps';
 import { moneyCopy } from './copy';
-import { decodeBase64, lastFullMonth, monthIsOver, monthRange, shortFingerprint } from './statement-model';
+import { decodeBase64, lastFullMonth, monthIsOver, monthRange, saveFile, shortFingerprint } from './statement-model';
 import { useSession } from '../../features/session/session';
 
 const fileShape = z.object({
@@ -55,14 +55,7 @@ export function StatementPanel() {
       setOutcome({ kind: 'error', words: t('Statement unreadable') });
       return;
     }
-    const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: result.data.contentType }));
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = result.data.filename;
-    document.body.append(link);
-    link.click();
-    link.remove();
-    window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    saveFile(bytes, result.data.contentType, result.data.filename);
     setOutcome({
       kind: 'done',
       filename: result.data.filename,
