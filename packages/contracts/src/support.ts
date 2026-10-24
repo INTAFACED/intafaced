@@ -420,6 +420,25 @@ export const supportTicketPropertiesSchema = z.object({
 });
 export type SupportTicketProperties = z.infer<typeof supportTicketPropertiesSchema>;
 
+/** Which agent-set properties a customer reads on their own request (SP-tickets-04). The owner chooses; blank refuses. */
+export const SUPPORT_CUSTOMER_PROPERTIES = ['priority', 'type'] as const;
+export type SupportCustomerProperty = (typeof SUPPORT_CUSTOMER_PROPERTIES)[number];
+export const SUPPORT_CUSTOMER_PROPERTIES_UNSET = 'support.customer_properties_unset';
+
+/**
+ * The priority and type a customer reads on their own request. `unset` while the owner has not chosen what customers
+ * see; a property the owner does not show is null; a shown one not set by the desk yet has a null value.
+ */
+export const supportMyTicketPropertiesSchema = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('unset'), code: z.literal(SUPPORT_CUSTOMER_PROPERTIES_UNSET) }),
+  z.object({
+    status: z.literal('ok'),
+    priority: z.object({ value: supportTicketPrioritySchema.nullable() }).nullable(),
+    ticketType: z.object({ value: supportTicketTypeSchema.nullable() }).nullable(),
+  }),
+]);
+export type SupportMyTicketProperties = z.infer<typeof supportMyTicketPropertiesSchema>;
+
 /**
  * Set any of priority, type and labels. An omitted field is left as it is; null
  * clears priority or type; `labels` replaces the whole set. A repeat of the same

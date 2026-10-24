@@ -1,5 +1,12 @@
 import { test, expect } from '@playwright/test';
-import { defineRequestField, defineRequestForm, ensureDeskGroup, replyAsLead, setStatusAsLead } from './help-centre.mjs';
+import {
+  defineRequestField,
+  defineRequestForm,
+  ensureDeskGroup,
+  replyAsLead,
+  setPropertiesAsLead,
+  setStatusAsLead,
+} from './help-centre.mjs';
 import { signUp } from './desk.mjs';
 import { api, ORIGIN } from './stack.mjs';
 
@@ -306,13 +313,20 @@ test(`${J} #7 "My requests" at /support/tickets shows Awaiting your reply, Open 
   await fresh.context().close();
 });
 
-// Last, so its failure while unbuilt does not cost the steps before it their shared request.
+// Last, so that setting the desk's priority and type does not change what the steps before it read.
 test(`${J} #6 the request shows its type and priority where the owner allows it`, async ({ browser }) => {
   const ticket = need(shared.ticket, 'step 5 made no request');
   const page = await person(browser);
   await page.goto(`/support/tickets/${ticket.id}`);
   const main = page.locator('main');
   await expect(main.getByRole('heading', { name: ticket.subject })).toBeVisible();
-  // Customer-visible type and priority are SP-tickets-04's owner setting; until it lands the request shows neither.
-  await expect(main.getByText('Request type', { exact: true })).toBeVisible({ timeout: 5_000 });
+  // The owner lets customers read both (priority,type on this stack); the desk has set neither, so each says so.
+  const details = main.locator('.support-detail__head');
+  await expect(details).toContainText('Priority');
+  await expect(details).toContainText('None set');
+  // Once the desk sets them, the customer reads them on a fresh load.
+  await setPropertiesAsLead(ticket.id, 'high', 'problem');
+  await page.reload();
+  await expect(details).toContainText('High');
+  await expect(details).toContainText('Problem');
 });

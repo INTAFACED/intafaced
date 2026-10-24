@@ -23,5 +23,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     // LOCAL TEST only, labelled in the same file: the desk group fraud reports go to (the journey makes it).
     // Production stays blank and every fraud report refuses (support.fraud_route_unset) until the owner names one.
     SUPPORT_FRAUD_GROUP: 'TEST Compliance',
+    // LOCAL TEST only, labelled in the same file: what a customer reads of the desk's priority and type on their request.
+    // Production stays blank and the customer reads neither (support.customer_properties_unset) until the owner chooses.
+    SUPPORT_CUSTOMER_SEES: 'priority,type',
   }),
 });

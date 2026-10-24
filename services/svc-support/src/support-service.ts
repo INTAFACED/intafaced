@@ -2,6 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { AuthError, requireScope, type Principal } from '@intafaced/auth';
 import {
   SUPPORT_CATEGORY_ROUTES,
+  SUPPORT_CUSTOMER_PROPERTIES_UNSET,
+  type SupportCustomerProperty,
+  type SupportMyTicketProperties,
   SUPPORT_FRAUD_ROUTE_MISSING,
   SUPPORT_FRAUD_ROUTE_UNSET,
   supportTicketCategorySchema,
@@ -395,7 +398,25 @@ export class SupportService implements SupportContract {
      * `support.fraud_route_unset` rather than leaving it on the open desk.
      */
     private readonly fraudGroupName: string | null = null,
+    /**
+     * Which agent-set properties a customer reads on their own request (SP-tickets-04): any of priority and type, or
+     * none. Owner value; blank (null) reads `unset` and shows the customer neither.
+     */
+    private readonly customerSees: readonly SupportCustomerProperty[] | null = null,
   ) {}
+
+  /** The priority and type the owner lets a customer read on their own request. Anyone else's reads as not found. */
+  async myTicketProperties(input: { userId: string; ticketId: string }): Promise<SupportMyTicketProperties> {
+    const ticket = await this.store.findById(input.ticketId);
+    if (!ticket || ticket.userId !== input.userId) throw ticketNotFound();
+    if (this.customerSees === null) return { status: 'unset', code: SUPPORT_CUSTOMER_PROPERTIES_UNSET };
+    const props = await this.properties.get(ticket.id);
+    return {
+      status: 'ok',
+      priority: this.customerSees.includes('priority') ? { value: props.priority } : null,
+      ticketType: this.customerSees.includes('type') ? { value: props.ticketType } : null,
+    };
+  }
 
   /** The group a fraud report goes to, or the refusal that says why none can be sent now. */
   private async fraudRoute(): Promise<

@@ -40,3 +40,14 @@ export type Comment = z.infer<typeof commentSchema>;
 export type KbArticle = z.infer<typeof kbSchema>;
 
 export const CATEGORY_VALUES = ['account', 'trading', 'deposit_withdraw', 'phishing', 'fraud_report', 'other'] as const;
+
+/** The desk's priority and type the owner lets a customer read (SP-tickets-04); null when not shown. */
+export const myTicketPropertiesSchema = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('unset'), code: z.literal('support.customer_properties_unset') }),
+  z.object({
+    status: z.literal('ok'),
+    priority: z.object({ value: z.enum(['low', 'normal', 'high', 'urgent']).nullable() }).nullable(),
+    ticketType: z.object({ value: z.enum(['question', 'problem', 'incident']).nullable() }).nullable(),
+  }),
+]);
+export type MyTicketProperties = z.infer<typeof myTicketPropertiesSchema>;

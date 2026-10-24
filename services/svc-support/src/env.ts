@@ -1,6 +1,7 @@
 import { supportSurveyCapEnv } from './survey-cap-env.js';
 import { z } from 'zod';
 import { edgeEnvSchema, internalServiceEnvSchema, loadEnv, s2sEnvSchema, serviceEnvSchema } from '@intafaced/config';
+import { supportCustomerSeesEnv } from './customer-sees-env.js';
 
 /**
  * svc-support — durable tickets in Postgres (schema `support`).
@@ -92,6 +93,11 @@ const schema = serviceEnvSchema
        * The name of the desk group fraud reports go to (SP-tickets-01). Blank refuses every fraud report with
        * support.fraud_route_unset; a name the desk has no group for refuses support.fraud_route_missing. Never defaulted.
        */
+      /**
+       * Which agent-set properties a customer reads on their own request (SP-tickets-04): a comma list of `priority` and
+       * `type`, or `none`. Blank reads unset and shows the customer neither. Never defaulted.
+       */
+      SUPPORT_CUSTOMER_SEES: supportCustomerSeesEnv,
       SUPPORT_FRAUD_GROUP: z.preprocess((v) => (v === '' ? undefined : v), z.string().min(1).max(120).optional()),
       SUPPORT_FORM_CAP: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().min(0).optional()),
       SUPPORT_FIELD_CAP: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().min(0).optional()),

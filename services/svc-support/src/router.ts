@@ -4,6 +4,7 @@ import {
   createTicketWireInputSchema,
   SUPPORT_CATEGORY_UNKNOWN,
   supportCategoriesSchema,
+  supportMyTicketPropertiesSchema,
   supportTicketCategorySchema,
   escalateTicketInputSchema,
   getKbArticleInputSchema,
@@ -1193,6 +1194,18 @@ export function createSupportRouter(
         try {
           requireSupportOps(ctx.principal!);
           return await support.getTicketLifecycle({ operatorId: ctx.principal!.userId, ticketId: input.ticketId });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** The priority and type the owner lets the caller read on their own request (SP-tickets-04). */
+    myTicketProperties: scopedProcedure('support:read')
+      .input(z.object({ ticketId: z.string().guid() }))
+      .output(supportMyTicketPropertiesSchema)
+      .query(async ({ ctx, input }) => {
+        try {
+          return await support.myTicketProperties({ userId: ctx.principal!.userId, ticketId: input.ticketId });
         } catch (err) {
           mapError(err);
         }

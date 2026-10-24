@@ -133,3 +133,17 @@ export async function ensureDeskGroup(name) {
     data(await ctx.edge.mutate('support', 'groupsSave', { name, idempotencyKey: `group:${name}` }, token), 'groupsSave')
   );
 }
+
+/** Set a request's priority and type as the support lead (SP-tickets-04). */
+export async function setPropertiesAsLead(ticketId, priority, ticketType) {
+  const { ctx } = await founders();
+  return data(
+    await ctx.edge.mutate(
+      'support',
+      'setProperties',
+      { ticketId, priority, ticketType, reason: 'TEST', clientRequestId: `props:${ticketId}:${priority}:${ticketType}` },
+      await leadToken(),
+    ),
+    'setProperties',
+  );
+}
