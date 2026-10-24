@@ -59,7 +59,7 @@ async function assignmentOf(who) {
   return res;
 }
 
-/** A classmate signs up, enrols on the free track and hands in text, all through the customer's own API. */
+/** A classmate signs up, enrols on the free track and hands in text and a file, all through the customer's own API. */
 async function classmate(browser, prefix, text) {
   const page = await learnerPage(browser);
   const who = await signUp(page, prefix);
@@ -68,7 +68,16 @@ async function classmate(browser, prefix, text) {
   const enrol = await session.post(trpc('enrolAuthoredCourse'), { slug: SLUG, track: 'audit' });
   expect(enrol.status, JSON.stringify(enrol.body).slice(0, 300)).toBe(200);
   const view = (await assignmentOf(who)).body.result.data;
-  const sent = await session.post(trpc('submitAssignment'), { itemId: run.workItem, version: view.nextVersion, text, fileId: null });
+  // The assignment needs a file as well as text, so the classmate uploads one of their own first.
+  const file = await session.post(trpc('uploadAssignmentFile'), {
+    itemId: run.workItem,
+    fileName: 'TEST-classmate.pdf',
+    contentType: PDF.mimeType,
+    contentBase64: PDF.buffer.toString('base64'),
+  });
+  expect(file.status, JSON.stringify(file.body).slice(0, 300)).toBe(200);
+  const fileId = file.body.result.data.id;
+  const sent = await session.post(trpc('submitAssignment'), { itemId: run.workItem, version: view.nextVersion, text, fileId });
   expect(sent.status, JSON.stringify(sent.body).slice(0, 300)).toBe(200);
   return who;
 }

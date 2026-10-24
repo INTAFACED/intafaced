@@ -15,6 +15,7 @@ import { academyCodeOf, academyRefusalText } from './academy-flows';
 import { academyLmsCopy as copy } from './academy-lms-copy';
 import { academyCourseHref } from './academy-lms';
 import { AcademyRefusal } from './AcademyLmsParts';
+import { AcademyPeerReview } from './AcademyPeerReview';
 
 type Failure = Extract<ApiResult<never>, { ok: false }>;
 type T = (typeof copy)['t'];
@@ -303,6 +304,7 @@ export function AcademyAssignment({ slug, itemId }: { slug: string; itemId: stri
           )}
           {outcome && <OutcomeLine outcome={outcome} />}
           <AssignmentSubmissions data={data} />
+          <AcademyPeerReview itemId={data.itemId} handedIn={data.submissions.length} />
         </div>
       </Panel>
     </div>

@@ -2,6 +2,7 @@ import 'server-only';
 import {
   academyAdminAssignmentSchema,
   academySaveAssignmentInputSchema,
+  academySaveReviewStepsInputSchema,
   academyWithdrawAssignmentInputSchema,
 } from '@intafaced/contracts/academy-courses';
 import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
@@ -56,6 +57,12 @@ const OPS = {
     procedure: 'admin.saveAssignment',
     what: 'assignment saved',
     why: 'An assignment needs instructions, points above zero with at most two decimals, and a text answer, a file or both.',
+  },
+  saveReview: {
+    schema: academySaveReviewStepsInputSchema,
+    procedure: 'admin.saveReviewSteps',
+    what: 'review steps saved',
+    why: 'Review steps need a count from 1 to 20 (or blank), and each criterion a name and 2 to 10 rising levels such as 0, 1, 2.',
   },
   withdraw: {
     schema: academyWithdrawAssignmentInputSchema,

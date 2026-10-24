@@ -45,6 +45,7 @@ import { CourseRecords } from './curriculum/courses.js';
 import { LessonRecords } from './curriculum/lessons.js';
 import { CourseMedia, type ReadBackFn } from './curriculum/media.js';
 import { CourseAssignments, type PutObjectFn } from './curriculum/assignments.js';
+import { PeerReviews } from './curriculum/peer-review.js';
 import { LearnHub } from './curriculum/learn-hub.js';
 import { CoursePreview } from './curriculum/course-preview.js';
 import { CourseLearners } from './curriculum/course-learners.js';
@@ -74,6 +75,8 @@ import type {
   AcademyPublishLessonInput,
   AcademyDuplicateItemInput,
   AcademySaveAssignmentInput,
+  AcademySaveReviewStepsInput,
+  AcademySubmitPeerReviewInput,
   AcademySubmitAssignmentInput,
   AcademyUploadAssignmentFileInput,
   AcademyWithdrawAssignmentInput,
@@ -320,6 +323,7 @@ export class AcademyService {
   private readonly lessonRecords: LessonRecords;
   private readonly courseMedia: CourseMedia;
   private readonly courseAssignments: CourseAssignments;
+  private readonly peerReviews: PeerReviews;
   private readonly learnHub: LearnHub;
   private readonly coursePreview: CoursePreview;
   private readonly courseLearners: CourseLearners;
@@ -367,6 +371,7 @@ export class AcademyService {
       { maxBytes: this.options.uploadMaxBytes ?? null, types: this.options.uploadHandoutTypes ?? null },
       this.options.assignmentPut,
     );
+    this.peerReviews = new PeerReviews(sql, this.courseAssignments);
     this.courseStarts = new CourseStarts(sql);
     this.plannerStore = new PlannerStore(sql, this.options.plannerTodoLimit ?? null);
     this.videoTracks = new VideoTracks(sql);
@@ -2382,6 +2387,21 @@ export class AcademyService {
 
   submitAssignment(input: AcademySubmitAssignmentInput & { userId: string; now?: Date }) {
     return this.courseAssignments.submit({ ...input, now: input.now ?? new Date() });
+  }
+
+  /** AC-assignments-03: the review steps and rubric over the revision read; answers with the assignment as staff see it. */
+  async saveReviewSteps(input: AcademySaveReviewStepsInput & { operatorId: string; now?: Date }) {
+    await this.peerReviews.save({ ...input, now: input.now ?? new Date() });
+    return this.courseAssignments.adminView(input.itemId);
+  }
+
+  /** AC-assignments-03: the learner's review stage, handing out the next work when one is due and free. */
+  peerReview(input: { itemId: string; userId: string; now?: Date }) {
+    return this.peerReviews.state({ ...input, now: input.now ?? new Date() });
+  }
+
+  submitPeerReview(input: AcademySubmitPeerReviewInput & { userId: string; now?: Date }) {
+    return this.peerReviews.submit({ ...input, now: input.now ?? new Date() });
   }
 
   setFeatured(input: { itemSlug: string | null; reason: string; operatorId: string; now?: Date }) {

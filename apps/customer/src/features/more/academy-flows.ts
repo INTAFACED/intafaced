@@ -178,7 +178,11 @@ export type RefusalKey =
   | 'refUploadTooLarge'
   | 'refUploadTypeRefused'
   | 'refFileTypeMismatch'
-  | 'refUploadIncomplete';
+  | 'refUploadIncomplete'
+  | 'refPeerCountUnset'
+  | 'refReviewMarksInvalid'
+  | 'refReviewTaskNotFound'
+  | 'refReviewAlreadySent';
 
 /** Which sentence words a typed Academy refusal, or null when Academy did not type it (a dropped connection, a sign-in problem). */
 export function academyRefusalKey(failure: Pick<Failure, 'code' | 'message'>): RefusalKey | null {
@@ -278,6 +282,14 @@ export function academyRefusalKey(failure: Pick<Failure, 'code' | 'message'>): R
       return 'refFileTypeMismatch';
     case 'academy.upload_incomplete':
       return 'refUploadIncomplete';
+    case 'academy.peer_count_unset':
+      return 'refPeerCountUnset';
+    case 'academy.review_marks_invalid':
+      return 'refReviewMarksInvalid';
+    case 'academy.review_task_not_found':
+      return 'refReviewTaskNotFound';
+    case 'academy.review_already_sent':
+      return 'refReviewAlreadySent';
     default:
       return null;
   }

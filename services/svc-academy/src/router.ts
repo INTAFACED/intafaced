@@ -70,6 +70,10 @@ import {
   academyAssignmentInputSchema,
   academyAssignmentViewSchema,
   academySaveAssignmentInputSchema,
+  academySaveReviewStepsInputSchema,
+  academyPeerReviewInputSchema,
+  academyReviewStateSchema,
+  academySubmitPeerReviewInputSchema,
   academySubmissionFileSchema,
   academySubmitAssignmentInputSchema,
   academyUploadAssignmentFileInputSchema,
@@ -900,6 +904,7 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.assignment_closed':
     case 'academy.submission_version_stale':
     case 'academy.assignment_has_submissions':
+    case 'academy.review_already_sent':
       return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
 
     case 'academy.enrolment_required':
@@ -923,6 +928,9 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.import_too_large':
     case 'academy.lesson_blocks_invalid':
     case 'academy.submission_incomplete':
+    case 'academy.peer_count_unset':
+    case 'academy.rubric_invalid':
+    case 'academy.review_marks_invalid':
     case 'academy.upload_too_large':
     case 'academy.upload_type_refused':
     case 'academy.file_type_mismatch':
@@ -934,6 +942,7 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.topic_not_found':
     case 'academy.private_link_not_found':
     case 'academy.assignment_not_found':
+    case 'academy.review_task_not_found':
       return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
 
     case 'academy.prerequisite_cycle':
@@ -2432,6 +2441,18 @@ export function createAcademyRouter(
       .output(academyAssignmentViewSchema)
       .mutation(({ input, ctx }) => guard(() => academy.submitAssignment({ ...input, userId: ctx.principal!.userId }))),
 
+    /** AC-assignments-03: the caller's review stage; hands them the next classmate's work when one is due and free. */
+    peerReview: scopedProcedure('academy:write', { module: 'academy' })
+      .input(academyPeerReviewInputSchema)
+      .output(academyReviewStateSchema)
+      .mutation(({ input, ctx }) => guard(() => academy.peerReview({ itemId: input.itemId, userId: ctx.principal!.userId }))),
+
+    /** AC-assignments-03: one review's marks, keyed `peer:<assignment>:<reviewer>:<author>`; the same marks answer as stored. */
+    submitPeerReview: scopedProcedure('academy:write', { module: 'academy' })
+      .input(academySubmitPeerReviewInputSchema)
+      .output(academyReviewStateSchema)
+      .mutation(({ input, ctx }) => guard(() => academy.submitPeerReview({ ...input, userId: ctx.principal!.userId }))),
+
     /** AC-catalogue-02: My learning, the caller's enrolled courses with real progress and where Continue goes. */
     myLearning: scopedProcedure('academy:read', { module: 'academy' })
       .output(z.array(academyMyCourseSchema))
@@ -3020,6 +3041,12 @@ export function createAcademyRouter(
         .input(academyWithdrawAssignmentInputSchema)
         .output(academyAdminAssignmentSchema)
         .mutation(({ input, ctx }) => guard(() => academy.withdrawAssignment({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-assignments-03: peer and self review steps and the rubric, over the revision read. */
+      saveReviewSteps: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academySaveReviewStepsInputSchema)
+        .output(academyAdminAssignmentSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.saveReviewSteps({ ...input, operatorId: ctx.principal!.userId }))),
 
       /** AC-videos-02: one item's uploads, caption languages and the owner's upload limits. */
       itemMedia: scopedProcedure('admin:read', { module: 'academy' })

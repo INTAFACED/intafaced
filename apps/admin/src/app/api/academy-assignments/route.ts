@@ -10,6 +10,7 @@ import { changeAssignment, isAssignmentOp, loadAssignment } from '@/lib/academy/
  *   GET ?itemId=<uuid>   an assignment item's brief, who saved it, and how many learners handed in
  *   POST { op: 'save', itemId, revision, instructions, points, dueAt, text, file }   the brief over the revision read
  *   POST { op: 'withdraw', itemId, reason }   learners can no longer hand in; the brief and every hand-in stay
+ *   POST { op: 'saveReview', itemId, revision, peer, peerCount, self, criteria }   peer and self review steps and the rubric
  *
  * Founder-only. svc-academy records the founder from their own token.
  */

@@ -32,6 +32,7 @@ import { AcademyError } from '../errors.js';
 import { isVideoStorageConfigured, signPutObjectUrl, type VideoStorageConfig } from '../video/storage.js';
 import { canonicalPrice } from './courses.js';
 import { FILE_SIGNATURES, signatureMatches } from './media.js';
+import { reviewStepsOf } from './peer-review.js';
 
 /** Hand-ins shown on the learner's page, newest first. */
 const SUBMISSIONS_SHOWN = 50;
@@ -268,6 +269,7 @@ export class CourseAssignments {
       withdrawnAt: row.withdrawn_at?.toISOString() ?? null,
       withdrawReason: row.withdraw_reason,
       learnersHandedIn: counted!.n,
+      review: await reviewStepsOf(sql, row.item_id),
     };
   }
 
@@ -297,8 +299,8 @@ export class CourseAssignments {
     return this.brief(tx, itemId, true);
   }
 
-  /** The item, its course and the caller's enrolment, refusing what the learner may not open. */
-  private async learnerRow(sql: Sql | TransactionSql, itemId: string, userId: string, lock = false): Promise<LearnerRow> {
+  /** The item, its course and the caller's enrolment, refusing what the learner may not open. Peer review reads it too. */
+  async learnerRow(sql: Sql | TransactionSql, itemId: string, userId: string, lock = false): Promise<LearnerRow> {
     const [row] = await sql<LearnerRow[]>`
       SELECT ${briefColumns(sql)}, c.slug AS course_slug, c.title AS course_title, c.state AS course_state,
         EXISTS (SELECT 1 FROM academy.course_enrolments e

@@ -242,6 +242,16 @@ export type AcademyErrorCode =
   | 'academy.submission_version_stale'
   /** An assignment learners handed in to cannot leave the outline; withdraw it instead. */
   | 'academy.assignment_has_submissions'
+  /** AC-assignments-03: peer review is on with no count of reviews each learner gives. */
+  | 'academy.peer_count_unset'
+  /** A rubric with no criteria, or two criteria of one name. */
+  | 'academy.rubric_invalid'
+  /** A review that does not give one of its levels for every criterion. */
+  | 'academy.review_marks_invalid'
+  /** No review of the caller's with that id on that assignment. */
+  | 'academy.review_task_not_found'
+  /** The review was already sent with other marks; it is not changed. */
+  | 'academy.review_already_sent'
   /** AC-videos-02: the owner has not set the upload size limit or the accepted video or handout types. */
   | 'academy.upload_limits_unset'
   /** The file is over the owner's upload size limit; no upload address was issued. */
@@ -409,6 +419,11 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.assignment_closed',
   'academy.submission_version_stale',
   'academy.assignment_has_submissions',
+  'academy.peer_count_unset',
+  'academy.rubric_invalid',
+  'academy.review_marks_invalid',
+  'academy.review_task_not_found',
+  'academy.review_already_sent',
   'academy.upload_limits_unset',
   'academy.upload_too_large',
   'academy.upload_type_refused',
