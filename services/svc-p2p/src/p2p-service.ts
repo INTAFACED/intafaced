@@ -121,7 +121,7 @@ import {
 import { InstrumentError, methodIdKey, methodsWithLiveDestination, missingSellDestinations, sellOfferBoardable } from './instruments.js';
 import { P2P_COPY, resolveP2pCopy } from './user-copy.js';
 import type { DelistReason, DenialSink } from './instrument-service.js';
-import { withMoneySpan, withSpan } from './tracing.js';
+import { recordSwallowed, withMoneySpan, withSpan } from './tracing.js';
 import { affiliateLegAfterP2pRelease, fireAffiliateAccrue, NoopAffiliateAccrue, type AffiliateAccruePort } from './affiliate-accrue.js';
 import { fireAffiliatePayout, NoopAffiliatePayout, type AffiliatePayoutPort } from './affiliate-payout.js';
 
@@ -2174,7 +2174,7 @@ export class P2pService {
   // ── Buyer marks the fiat sent ──────────────────────────────────────────────
 
   async markFiatSent(tradeId: string, actorId: string): Promise<TradeRecord> {
-    return withSpan('p2p.markFiatSent', async () =>
+    const marked = await withSpan('p2p.markFiatSent', async () =>
       transaction(
         this.sql,
         async (tx) => {
@@ -2201,6 +2201,64 @@ export class P2pService {
         { isolation: 'read committed', maxAttempts: 5 },
       ),
     );
+    // The notice is owed from the commit above (`fiat_sent_notice_at` is still null). Handing it to the bus here is
+    // the fast path; if this process dies first, or the bus is down, the sweep hands it over on its next tick.
+    try {
+      await this.handOverFiatSentNotice(marked);
+    } catch (err) {
+      recordSwallowed('p2p.trade_fiat_sent.publish', err);
+    }
+    return marked;
+  }
+
+  /**
+   * P-trade-orders-23: tell the seller the buyer marked the order paid. The bus dedupes on the trade id (a trade is
+   * marked paid once), then the stamp says the notice left. A crash between the two only means one more hand-over,
+   * which the bus and svc-notify both drop.
+   */
+  private async handOverFiatSentNotice(trade: Pick<TradeRecord, 'id' | 'buyerId' | 'sellerId' | 'fiatSentAt'>): Promise<void> {
+    // Every fiat_sent row carries the time it was marked (the same UPDATE sets both); never stamp a guessed one.
+    if (!trade.fiatSentAt) throw new Error(`p2p: trade ${trade.id} is fiat_sent without fiat_sent_at`);
+    await this.bus.publish(
+      'p2pTradeFiatSent',
+      {
+        tradeId: trade.id,
+        buyerId: trade.buyerId,
+        sellerId: trade.sellerId,
+        markedAt: trade.fiatSentAt.toISOString(),
+      },
+      { idempotencyKey: `p2p.trade_fiat.sent:${trade.id}` },
+    );
+    await this.sql`
+      UPDATE p2p.p2p_trades SET fiat_sent_notice_at = now()
+       WHERE id = ${trade.id} AND fiat_sent_notice_at IS NULL
+    `;
+  }
+
+  /**
+   * Hand over every buyer-paid notice still owed: a trade in `fiat_sent` whose notice never reached the bus. Oldest
+   * first. A trade that has moved on (released, disputed) is no longer owed one: "check the payment before you
+   * release" would be wrong by then.
+   */
+  async sweepFiatSentNotices(limit?: number): Promise<{ sent: number; failures: SweepFailure[] }> {
+    const lim = assertSweepSettlementsLimit(limit);
+    const owed = await this.sql<Array<{ id: string; buyer_id: string; seller_id: string; fiat_sent_at: Date | null }>>`
+      SELECT id, buyer_id, seller_id, fiat_sent_at FROM p2p.p2p_trades
+       WHERE status = 'fiat_sent' AND fiat_sent_notice_at IS NULL
+       ORDER BY fiat_sent_at ASC
+       LIMIT ${lim}
+    `;
+    let sent = 0;
+    const failures: SweepFailure[] = [];
+    for (const row of owed) {
+      try {
+        await this.handOverFiatSentNotice({ id: row.id, buyerId: row.buyer_id, sellerId: row.seller_id, fiatSentAt: row.fiat_sent_at });
+        sent++;
+      } catch (err) {
+        failures.push(describeFailure(row.id, 'fiat_sent', err));
+      }
+    }
+    return { sent, failures };
   }
 
   // ── Release · refund · dispute ─────────────────────────────────────────────

@@ -1996,13 +1996,6 @@ export const WIRING_SOCKETS = [
   },
   {
     event: 'p2pTradeFiatSent',
-    missing: 'publisher',
-    class: 'A',
-    reason:
-      'Declared by the P-trade-orders-23 events PR. svc-p2p publishes it through its outbox in the same transaction as the state change (svc-p2p PR, next). Nothing reads it yet, so nothing is waiting on it.',
-  },
-  {
-    event: 'p2pTradeFiatSent',
     missing: 'subscriber',
     class: 'A',
     reason:
