@@ -1,21 +1,66 @@
-import { randomBytes } from 'node:crypto';
+import { encodeAbiParameters, getAddress } from 'viem';
+import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 
 // A TEST browser wallet for the Web3 journeys. A real wallet extension cannot be installed in the headless browser, so
 // this stands in for one: it announces itself the standard way (EIP-6963) and answers the EIP-1193 calls the app makes
-// for a fresh TEST address made for this run only. It holds no key and signs nothing yet; the journey's signing step adds
-// that when its slice lands. Nothing it does reaches a chain or the platform. The app under test is the real one; only
-// the person's own wallet is the stand-in.
+// for a fresh TEST key made for this run only. It signs messages and typed data with that key, in this test process, and
+// answers `eth_call` only for the TEST tokens a test hands it (its own stand-in for a node). Nothing it does reaches a
+// chain or the platform. The app under test is the real one; only the person's own wallet is the stand-in.
 export const TEST_WALLET = { name: 'TEST Wallet', rdns: 'test.intafaced.wallet' };
+
+const EIP712_DOMAIN_RESULT = [
+  { type: 'bytes1' },
+  { type: 'string' },
+  { type: 'string' },
+  { type: 'uint256' },
+  { type: 'address' },
+  { type: 'bytes32' },
+  { type: 'uint256[]' },
+];
+
+/** The `eth_call` answers a TEST token gives: its EIP-5267 domain, its decimals and the owner's permit nonce. */
+function tokenAnswers(chainId, owner, token) {
+  const word = (type, value) => encodeAbiParameters([{ type }], [value]);
+  return {
+    [`${token.address.toLowerCase()}:0x84b0196e`]: encodeAbiParameters(EIP712_DOMAIN_RESULT, [
+      '0x0f',
+      token.name,
+      token.version,
+      BigInt(chainId),
+      getAddress(token.address),
+      `0x${'0'.repeat(64)}`,
+      [],
+    ]),
+    [`${token.address.toLowerCase()}:0x313ce567`]: word('uint8', token.decimals),
+    [`${token.address.toLowerCase()}:0x7ecebe00${owner.slice(2).toLowerCase().padStart(64, '0')}`]: word('uint256', BigInt(token.nonce)),
+  };
+}
 
 /**
  * Installs the TEST wallet in `page` before any app script runs. The wallet starts on `chainId` and follows
  * `wallet_switchEthereumChain` like a real one. `setChain` changes the network from the wallet's side, as a person
  * would in the extension, and the page hears `chainChanged`.
  */
-export async function installTestWallet(page, { chainId }) {
-  const address = `0x${randomBytes(20).toString('hex')}`;
+export async function installTestWallet(page, { chainId, tokens = [] }) {
+  const account = privateKeyToAccount(generatePrivateKey());
+  const address = account.address.toLowerCase();
+  const calls = Object.assign({}, ...tokens.map((token) => tokenAnswers(chainId, address, token)));
+  const requests = [];
+  let rejectNext = false;
+  // Signing runs here, outside the page: the key never enters the browser.
+  await page.exposeFunction('__testWalletSign', async (method, params) => {
+    requests.push({ method, params });
+    if (rejectNext) {
+      rejectNext = false;
+      return { rejected: true };
+    }
+    if (method === 'personal_sign') return { signature: await account.signMessage({ message: { raw: params[0] } }) };
+    const { domain, types, primaryType, message } = JSON.parse(params[1]);
+    const { EIP712Domain: _domain, ...rest } = types;
+    return { signature: await account.signTypedData({ domain, types: rest, primaryType, message }) };
+  });
   await page.addInitScript(
-    ({ info, address, startChain }) => {
+    ({ info, address, startChain, calls }) => {
       let chain = startChain;
       let connected = false;
       const listeners = new Map();
@@ -26,6 +71,16 @@ export async function installTestWallet(page, { chainId }) {
           if (method === 'eth_requestAccounts') return ((connected = true), [address]);
           if (method === 'eth_accounts') return connected ? [address] : [];
           if (method === 'eth_chainId') return hex(chain);
+          if (method === 'eth_call') {
+            const answer = calls[`${String(params[0].to).toLowerCase()}:${String(params[0].data).toLowerCase()}`];
+            if (answer) return answer;
+            throw Object.assign(new Error('execution reverted'), { code: -32000 });
+          }
+          if (method === 'personal_sign' || method === 'eth_signTypedData_v4') {
+            const answer = await window.__testWalletSign(method, params);
+            if (answer.rejected) throw Object.assign(new Error('User rejected the request.'), { code: 4001 });
+            return answer.signature;
+          }
           if (method === 'wallet_switchEthereumChain') {
             chain = Number.parseInt(params[0].chainId, 16);
             emit('chainChanged', hex(chain));
@@ -53,10 +108,16 @@ export async function installTestWallet(page, { chainId }) {
         },
       };
     },
-    { info: { uuid: crypto.randomUUID(), ...TEST_WALLET }, address, startChain: chainId },
+    { info: { uuid: crypto.randomUUID(), ...TEST_WALLET }, address, startChain: chainId, calls },
   );
   return {
     address,
+    /** Every signature the page asked for, in order: `{ method, params }`. */
+    requests,
+    /** The next signature request is refused the way a person pressing Reject in the wallet refuses it (code 4001). */
+    rejectNext: () => {
+      rejectNext = true;
+    },
     /** Moves the wallet to another network from the wallet's side, as a person does in the extension. */
     setChain: (id) => page.evaluate((next) => window.__testWallet.setChain(next), id),
   };

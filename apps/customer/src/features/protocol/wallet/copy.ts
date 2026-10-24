@@ -86,6 +86,33 @@ const en = {
   fact_recipient: 'To',
   fact_value: 'Value',
   fact_message: 'Message',
+  permitTitle: 'Sign a token allowance',
+  permitNote:
+    'A permit lets the spender you name move up to this amount of the token from your wallet until it expires. The token, its signing details and your next nonce are read through your wallet’s own network connection. The signature stays on this page: nothing is sent to us or to the spender.',
+  permitToken: 'Token contract',
+  permitTokenHint: 'The token’s contract address on this network.',
+  permitSpender: 'Spender',
+  permitSpenderHint: 'The address allowed to move the tokens. Only name a contract you trust.',
+  permitAmount: 'Amount (whole tokens)',
+  permitMinutes: 'Expires in (minutes)',
+  permitSubmit: 'Review and sign',
+  permitReading: 'Reading the token through your wallet…',
+  permitRejected: 'Rejected. Nothing was signed. Your details are kept below.',
+  permitSigned: 'Signed. Give this signature only to the spender you named; it is not sent anywhere from here.',
+  permitSignedValues:
+    'The spender needs these exact values with the signature: the amount in the token’s base units, the nonce and the expiry time in seconds.',
+  permitRefused_token_invalid: 'The token contract is not a valid address. Nothing was signed.',
+  permitRefused_spender_invalid: 'The spender is not a valid address. Nothing was signed.',
+  permitRefused_amount_invalid: 'Enter an amount above zero as whole tokens, for example 25 or 0.5. Nothing was signed.',
+  permitRefused_amount_precision: 'This token has fewer decimal places than that amount. Nothing was signed.',
+  permitRefused_expiry_invalid: 'Enter the minutes until it expires as a whole number. Nothing was signed.',
+  permitRefused_domain_missing:
+    'This token does not publish its signing details (EIP-5267), so a permit cannot be built for it. Nothing was signed.',
+  permitRefused_domain_mismatch: 'This token’s signing details name another network or contract. Nothing was signed.',
+  permitRefused_decimals_invalid: 'This token reports more than 18 decimal places, which this page cannot sign for. Nothing was signed.',
+  permitRefused_nonce_invalid: 'This token did not report your permit nonce, so a permit cannot be built for it. Nothing was signed.',
+  permitRefused_read_failed:
+    'Your wallet could not read this token on this network. Check the address and your wallet’s connection. Nothing was signed.',
   signNotConnected: 'Connect a wallet first. Nothing was signed.',
   signWrongNetwork: 'Your wallet is on another network. Switch it first. Nothing was signed.',
 } as const;
