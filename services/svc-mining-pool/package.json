@@ -17,7 +17,7 @@
     "@intafaced/ledger-client": "workspace:*",
     "@trpc/server": "^11.19.0",
     "postgres": "^3.4.5",
-    "zod": "^3.24.1"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@testcontainers/postgresql": "11.14.0",

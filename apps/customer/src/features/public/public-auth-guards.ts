@@ -8,7 +8,7 @@ export type AuthKind = (typeof authKinds)[number];
 const roomPatterns = new Set(rooms.filter(isSignInDestination).map((room) => room.path));
 const recordSchema = z
   .object({
-    localRef: z.string().uuid(),
+    localRef: z.string().guid(),
     kind: z.enum(authKinds),
     createdAt: z
       .string()

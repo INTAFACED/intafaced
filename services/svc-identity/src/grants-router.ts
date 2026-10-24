@@ -4,7 +4,7 @@ import type { Sql } from 'postgres';
 
 /** The name the account page shows for what a key is. */
 const connectedApp = z.object({
-  id: z.string().uuid(),
+  id: z.string().guid(),
   kind: z.literal('api-key'),
   name: z.string(),
   prefix: z.string(),
@@ -81,8 +81,8 @@ export function createGrantsRouter(sql: Sql) {
         }),
 
       revoke: scopedProcedure('identity:write')
-        .input(z.object({ keyId: z.string().uuid() }).strict())
-        .output(z.object({ keyId: z.string().uuid(), revoked: z.literal(true), alreadyRevoked: z.boolean() }).strict())
+        .input(z.object({ keyId: z.string().guid() }).strict())
+        .output(z.object({ keyId: z.string().guid(), revoked: z.literal(true), alreadyRevoked: z.boolean() }).strict())
         .mutation(async ({ ctx, input }) => {
           const updated = await sql`
             UPDATE api_keys SET revoked = true

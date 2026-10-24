@@ -59,7 +59,7 @@ export const POSITION_UPDATED_MONEY_FIELDS = [
 type RequiredKey = (typeof POSITION_UPDATED_REQUIRED_KEYS)[number];
 type MoneyField = (typeof POSITION_UPDATED_MONEY_FIELDS)[number];
 
-function payloadShape(): z.ZodObject<z.ZodRawShape> {
+function payloadShape(): z.ZodObject<Record<string, z.ZodType>> {
   const schema = EVENT_CATALOG.positionUpdated.schema;
   if (!(schema instanceof z.ZodObject)) {
     throw new Error('positionUpdated payload must remain a ZodObject');
@@ -114,7 +114,7 @@ describe('D26-P4-05 positionUpdated payload freeze', () => {
     for (const field of POSITION_UPDATED_MONEY_FIELDS) {
       let inner: z.ZodTypeAny = payloadShape().shape[field]!;
       while (inner instanceof z.ZodOptional || inner instanceof z.ZodNullable) {
-        inner = inner.unwrap();
+        inner = inner.unwrap() as z.ZodTypeAny;
       }
       expect(inner).toBe(signed.has(field) ? signedAmountSchema : amountSchema);
     }

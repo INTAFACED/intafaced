@@ -11,11 +11,11 @@ const statusSchema = z.enum(['open', 'pending', 'on_hold', 'resolved', 'closed']
 // contract import, delivery state, or operator-only case-file read is needed.
 const eventSchema = z
   .object({
-    id: z.string().uuid(),
-    ticketId: z.string().uuid(),
+    id: z.string().guid(),
+    ticketId: z.string().guid(),
     sequence: z.number().int().positive(),
     kind: z.enum(['opened', 'assigned', 'status_changed', 'grounding_read', 'escalated', 'merged']),
-    actorId: z.string().uuid(),
+    actorId: z.string().guid(),
     actorRole: z.enum(['user', 'operator']),
     fromStatus: statusSchema.nullable(),
     toStatus: statusSchema.nullable(),
@@ -27,7 +27,7 @@ const eventSchema = z
       event.kind === 'status_changed'
         ? event.fromStatus !== null && event.toStatus !== null && event.fromStatus !== event.toStatus
         : event.fromStatus === null && event.toStatus === null,
-    () => ({ message: supportEventsCopy.t('invalidTransition') }),
+    { error: () => supportEventsCopy.t('invalidTransition') },
   );
 export type SupportEvent = z.infer<typeof eventSchema>;
 

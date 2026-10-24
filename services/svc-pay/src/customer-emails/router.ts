@@ -38,7 +38,7 @@ function customerEmailParts(deps: { readonly sql?: Sql }) {
 
   const previewView = z
     .object({
-      paymentId: z.string().uuid(),
+      paymentId: z.string().guid(),
       status: z.string(),
       currency: z.string(),
       authorizedAmount: z.string(),
@@ -69,14 +69,14 @@ function customerEmailParts(deps: { readonly sql?: Sql }) {
   const payments = router({
     receipt: router({
       preview: read
-        .input(z.object({ paymentId: z.string().uuid() }).strict())
+        .input(z.object({ paymentId: z.string().guid() }).strict())
         .output(previewView)
         .query(({ ctx, input }) => wrapReceipt(async () => receipts().preview(await callerOf(ctx), input.paymentId))),
       send: write
         .input(
           z
             .object({
-              paymentId: z.string().uuid(),
+              paymentId: z.string().guid(),
               kind: z.enum(RECEIPT_KINDS),
               address: z.string(),
             })
