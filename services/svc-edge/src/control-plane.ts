@@ -777,7 +777,17 @@ export function registerAdminRoutes(app: FastifyInstance, admin: AdminApi, match
       if (!(err instanceof InvalidControlBodyError)) throw err;
       return reply.code(400).send({ error: err.message, code: 'edge.invalid_reconciliation_control' });
     }
-    req.log.warn({ operator: auth.principal.userId, status: res.status }, 'edge: LEDGER RECONCILIATION CONTROL run');
+    const ran = req.body as { controlId?: unknown; operationId?: unknown; approvalId?: unknown };
+    req.log.warn(
+      {
+        operator: auth.principal.userId,
+        status: res.status,
+        controlId: ran.controlId,
+        operationId: ran.operationId,
+        approvalId: ran.approvalId,
+      },
+      'edge: LEDGER RECONCILIATION CONTROL run',
+    );
     return reply.code(res.status).send(res.body);
   });
 
