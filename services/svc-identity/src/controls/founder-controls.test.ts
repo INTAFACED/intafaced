@@ -21,6 +21,7 @@ const user = {
   id: A,
   status: 'active' as const,
   identity_control_version: '0',
+  archived_at: null,
   totp_enrolled_at: now,
   totp_secret: 'test-verified-factor',
   webauthn_creds: [],

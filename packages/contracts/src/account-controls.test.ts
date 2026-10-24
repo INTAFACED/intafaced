@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  accountArchiveInputSchema,
+  accountArchiveProposalsSchema,
+  accountArchiveResultSchema,
+  accountArchiveStateSchema,
   accountControlInputSchema,
   accountTierResultSchema,
   accountTierTermsSchema,
@@ -348,6 +352,81 @@ describe('service-only operator entitlement read', () => {
       { userId: USER, sessionId: KEY, expiresAt: NOW },
     ])
       expect(serviceOperatorEntitlementInputSchema.safeParse(candidate).success).toBe(false);
+  });
+});
+
+describe('customer archive (J-ops-console-04 #10)', () => {
+  const open = { userId: USER, version: '3', status: 'closed', archivedAt: null, archiveReasonCode: null } as const;
+  const archived = { ...open, version: '4', archivedAt: NOW, archiveReasonCode: 'dormant' } as const;
+  const base = {
+    auditId: KEY,
+    requestId: KEY,
+    userId: USER,
+    reasonCode: 'dormant',
+    reason: 'No contact since closing',
+    occurredAt: NOW,
+  } as const;
+
+  it('takes a reason code from the list and a reason, and nothing else', () => {
+    const input = { requestId: KEY, userId: USER, reasonCode: 'dormant', reason: 'No contact since closing', expectedVersion: '3' };
+    expect(accountArchiveInputSchema.safeParse(input).success).toBe(true);
+    expect(accountArchiveInputSchema.safeParse({ ...input, approvalId: 'approval-1' }).success).toBe(true);
+    expect(accountArchiveInputSchema.safeParse({ ...input, reasonCode: 'fraud' }).success).toBe(false);
+    expect(accountArchiveInputSchema.safeParse({ ...input, reason: 'no' }).success).toBe(false);
+    expect(accountArchiveInputSchema.safeParse({ ...input, archivedAt: NOW }).success).toBe(false);
+  });
+
+  it('shows an archive only on a closed account, always with its reason code', () => {
+    expect(accountArchiveStateSchema.safeParse(archived).success).toBe(true);
+    expect(accountArchiveStateSchema.safeParse({ ...archived, status: 'active' }).success).toBe(false);
+    expect(accountArchiveStateSchema.safeParse({ ...archived, archiveReasonCode: null }).success).toBe(false);
+    expect(accountArchiveStateSchema.safeParse({ ...open, archiveReasonCode: 'dormant' }).success).toBe(false);
+  });
+
+  it('claims an archive only when the version moved by one, a different person approved and the reason code is the one asked', () => {
+    const changed = {
+      ...base,
+      outcome: 'changed',
+      changed: true,
+      actorUserId: USER.replace('1111-4', '1112-4'),
+      approverUserId: OTHER,
+      before: open,
+      after: archived,
+    };
+    expect(accountArchiveResultSchema.safeParse(changed).success).toBe(true);
+    expect(accountArchiveResultSchema.safeParse({ ...changed, approverUserId: changed.actorUserId }).success).toBe(false);
+    expect(accountArchiveResultSchema.safeParse({ ...changed, after: { ...archived, version: '5' } }).success).toBe(false);
+    expect(accountArchiveResultSchema.safeParse({ ...changed, reasonCode: 'duplicate' }).success).toBe(false);
+    expect(accountArchiveResultSchema.safeParse({ ...changed, before: archived }).success).toBe(false);
+  });
+
+  it('names an open account and an archived one as refusals, and never shows state to an unauthorised caller', () => {
+    const refused = {
+      ...base,
+      outcome: 'refused',
+      changed: false,
+      actorUserId: OTHER,
+      code: 'identity.archive_blocked_open_account',
+      current: { ...open, status: 'active' },
+    };
+    expect(accountArchiveResultSchema.safeParse(refused).success).toBe(true);
+    expect(accountArchiveResultSchema.safeParse({ ...refused, code: 'identity.account_archived', current: archived }).success).toBe(true);
+    expect(accountArchiveResultSchema.safeParse({ ...refused, code: 'operator.denied' }).success).toBe(false);
+    expect(accountArchiveResultSchema.safeParse({ ...refused, code: 'operator.denied', current: null, actorUserId: null }).success).toBe(
+      true,
+    );
+  });
+
+  it('makes no proposal without the owner dormancy period', () => {
+    expect(accountArchiveProposalsSchema.safeParse({ dormancyDays: null, proposals: [], asOf: NOW }).success).toBe(true);
+    expect(
+      accountArchiveProposalsSchema.safeParse({ dormancyDays: null, proposals: [{ userId: USER, lastActivityAt: NOW }], asOf: NOW })
+        .success,
+    ).toBe(false);
+    expect(
+      accountArchiveProposalsSchema.safeParse({ dormancyDays: 365, proposals: [{ userId: USER, lastActivityAt: NOW }], asOf: NOW }).success,
+    ).toBe(true);
+    expect(accountArchiveProposalsSchema.safeParse({ dormancyDays: 0, proposals: [], asOf: NOW }).success).toBe(false);
   });
 });
 

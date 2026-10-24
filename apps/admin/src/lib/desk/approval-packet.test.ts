@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ARCHIVE_REASON_CODES,
   CLOSE_REASON_CODES,
   PACKET_PREFIX,
   confirmPhrase,
@@ -13,7 +14,7 @@ import {
   type ApprovalPacket,
   type DeskRequest,
 } from './approval-packet';
-import { accountCloseReasonCodes } from '@intafaced/contracts';
+import { accountArchiveReasonCodes, accountCloseReasonCodes } from '@intafaced/contracts';
 
 const kill: DeskRequest = { kind: 'edge.kill', module: 'trade', disabled: true, reason: 'market integrity incident — halt new risk' };
 const packet: ApprovalPacket = {
@@ -318,6 +319,32 @@ describe('identity staff close and reopen requests', () => {
   });
   it('keeps the same reason codes as identity', () => {
     expect([...CLOSE_REASON_CODES]).toEqual([...accountCloseReasonCodes]);
+  });
+});
+
+describe('identity customer archive requests', () => {
+  const archive = {
+    kind: 'identity.account.archive',
+    userId: '0b6f7a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b',
+    reasonCode: 'dormant',
+    reason: 'Closed two years ago, no contact since',
+    version: '4',
+  } as const;
+  it('reads exactly the account, reason code, reason and version', () => {
+    expect(readDeskRequest(archive)).toEqual(archive);
+    expect(readDeskRequest({ ...archive, reasonCode: 'fraud' })).toBeNull();
+    expect(readDeskRequest({ ...archive, reason: 'x'.repeat(256) })).toBeNull();
+    expect(readDeskRequest({ ...archive, version: '04' })).toBeNull();
+    expect(readDeskRequest({ ...archive, extra: '1' })).toBeNull();
+  });
+  it('names the customer in the phrase and says it cannot be undone', () => {
+    expect(confirmPhrase(archive)).toBe('ARCHIVE CUSTOMER 0b6f7a3e');
+    expect(describeRequest(archive)).toContain('read-only');
+    expect(describeRequest(archive)).toContain('Only a founder can approve it');
+    expect(requestReason(archive)).toBe(archive.reason);
+  });
+  it('keeps the same reason codes as identity', () => {
+    expect([...ARCHIVE_REASON_CODES]).toEqual([...accountArchiveReasonCodes]);
   });
 });
 

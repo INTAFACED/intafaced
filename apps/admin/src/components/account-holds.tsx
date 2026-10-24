@@ -52,7 +52,16 @@ function HoldRow({ hold }: { hold: StaffHold }) {
  * it needs a second founder. The value never sits in the console or in svc-ops: it is in the customer's own ledger pot for the
  * hold, and every post svc-ops made for it is listed with its ledger key.
  */
-export function AccountHolds({ userId, founderId }: { userId: string; founderId: string }) {
+export function AccountHolds({
+  userId,
+  founderId,
+  readOnly = null,
+}: {
+  userId: string;
+  founderId: string;
+  /** Why no new hold may be placed (an archived record), or null. Releases and confirms of holds already placed stay open, so no money is stranded. */
+  readOnly?: string | null;
+}) {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [error, setError] = useState<RefusalView | string | null>(null);
   const [assetId, setAssetId] = useState('');
@@ -94,23 +103,25 @@ export function AccountHolds({ userId, founderId }: { userId: string; founderId:
   const key = placeKey(id, holds);
 
   const expiry = hours.trim() === '' ? null : Number(hours);
-  const placeWhy = !loaded
-    ? 'The holds are still being read.'
-    : loaded.writes
-      ? loaded.writes.body
-      : !STAFF_HOLD_ASSET_PATTERN.test(assetId)
-        ? 'Give the coin, for example USDT.'
-        : !STAFF_HOLD_AMOUNT_PATTERN.test(amount) || !/[1-9]/.test(amount)
-          ? 'Give an amount above zero, as a plain decimal.'
-          : reason.trim() === '' || reason.trim().length > STAFF_HOLD_REASON_MAX
-            ? `Give a reason of 1 to ${STAFF_HOLD_REASON_MAX} characters.`
-            : expiry !== null && !(Number.isInteger(expiry) && expiry >= 1)
-              ? 'Give the expiry as whole hours, or leave it blank for no expiry.'
-              : expiry !== null && settings?.expiryMaxHours === null
-                ? 'The owner has set no longest hold expiry, so a hold cannot be given one. Leave it blank.'
-                : expiry !== null && settings?.expiryMaxHours != null && expiry > settings.expiryMaxHours
-                  ? `A hold may expire in at most ${settings.expiryMaxHours} hours.`
-                  : null;
+  const placeWhy = readOnly
+    ? readOnly
+    : !loaded
+      ? 'The holds are still being read.'
+      : loaded.writes
+        ? loaded.writes.body
+        : !STAFF_HOLD_ASSET_PATTERN.test(assetId)
+          ? 'Give the coin, for example USDT.'
+          : !STAFF_HOLD_AMOUNT_PATTERN.test(amount) || !/[1-9]/.test(amount)
+            ? 'Give an amount above zero, as a plain decimal.'
+            : reason.trim() === '' || reason.trim().length > STAFF_HOLD_REASON_MAX
+              ? `Give a reason of 1 to ${STAFF_HOLD_REASON_MAX} characters.`
+              : expiry !== null && !(Number.isInteger(expiry) && expiry >= 1)
+                ? 'Give the expiry as whole hours, or leave it blank for no expiry.'
+                : expiry !== null && settings?.expiryMaxHours === null
+                  ? 'The owner has set no longest hold expiry, so a hold cannot be given one. Leave it blank.'
+                  : expiry !== null && settings?.expiryMaxHours != null && expiry > settings.expiryMaxHours
+                    ? `A hold may expire in at most ${settings.expiryMaxHours} hours.`
+                    : null;
 
   async function place() {
     if (busy || placeWhy) return;

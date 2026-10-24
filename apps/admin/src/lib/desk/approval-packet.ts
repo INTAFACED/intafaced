@@ -22,6 +22,9 @@ import { STAFF_HOLD_AMOUNT_PATTERN, STAFF_HOLD_ASSET_PATTERN } from '@intafaced/
 /** identity's staff close reason codes (`accountCloseReasonCodes` in contracts; a test keeps the two equal). */
 export const CLOSE_REASON_CODES = ['fraud', 'negative_balance', 'bank_reason', 'customer_request', 'other'] as const;
 export type AccountCloseReasonCode = (typeof CLOSE_REASON_CODES)[number];
+/** Identity's archive reason codes (contracts `accountArchiveReasonCodes`, J-ops-console-04 #10). */
+export const ARCHIVE_REASON_CODES = ['dormant', 'customer_request', 'duplicate', 'other'] as const;
+export type AccountArchiveReasonCode = (typeof ARCHIVE_REASON_CODES)[number];
 
 export const PACKET_PREFIX = 'ifa1.';
 export const REASON_MIN = 12;
@@ -89,6 +92,14 @@ export type DeskRequest =
       readonly version: string;
     }
   | { readonly kind: 'identity.account.reopen'; readonly userId: string; readonly reason: string; readonly version: string }
+  /** Archive of one closed customer record (J-ops-console-04 #10). Irreversible; a reason code from identity's list. */
+  | {
+      readonly kind: 'identity.account.archive';
+      readonly userId: string;
+      readonly reasonCode: AccountArchiveReasonCode;
+      readonly reason: string;
+      readonly version: string;
+    }
   /** Move one account onto another product tier (J-ops-console-04 #11). `version` is the account's tier version read. */
   | {
       readonly kind: 'identity.account.tier_move';
@@ -295,6 +306,19 @@ export function readDeskRequest(raw: unknown): DeskRequest | null {
       kind: 'identity.account.close',
       userId: raw.userId,
       reasonCode: raw.reasonCode as AccountCloseReasonCode,
+      reason: raw.reason,
+      version: raw.version,
+    };
+  }
+  if (raw.kind === 'identity.account.archive') {
+    if (keys !== 'kind,reason,reasonCode,userId,version') return null;
+    if (typeof raw.userId !== 'string' || !UUID.test(raw.userId) || !validClosureReason(raw.reason)) return null;
+    if (typeof raw.reasonCode !== 'string' || !(ARCHIVE_REASON_CODES as readonly string[]).includes(raw.reasonCode)) return null;
+    if (typeof raw.version !== 'string' || !/^(?:0|[1-9]\d{0,39})$/.test(raw.version)) return null;
+    return {
+      kind: 'identity.account.archive',
+      userId: raw.userId,
+      reasonCode: raw.reasonCode as AccountArchiveReasonCode,
       reason: raw.reason,
       version: raw.version,
     };
@@ -546,6 +570,8 @@ export function confirmPhrase(request: DeskRequest): string {
       return `CLOSE ACCOUNT ${request.userId.slice(0, 8)}`;
     case 'identity.account.reopen':
       return `REOPEN ACCOUNT ${request.userId.slice(0, 8)}`;
+    case 'identity.account.archive':
+      return `ARCHIVE CUSTOMER ${request.userId.slice(0, 8)}`;
     case 'identity.account.tier_move':
       return `MOVE TIER ${request.userId.slice(0, 8)}`;
     case 'ops.venue_cost.record':
@@ -624,6 +650,8 @@ export function describeRequest(request: DeskRequest): string {
       return `Close account ${request.userId} (reason code ${request.reasonCode.replace(/_/g, ' ')}: "${request.reason}"). Its owner is signed out and cannot sign in; sessions, API keys and sub-accounts are revoked. Identity refuses while the account still has open products or balances, and applies it only if the account is still at control version ${request.version}. ${request.reasonCode === 'customer_request' ? 'Closed at the customer’s request, it can be reopened later.' : 'Closed for this reason, it cannot be reopened.'}`;
     case 'identity.account.reopen':
       return `Reopen account ${request.userId} ("${request.reason}"): its owner can sign in again with a new sign-in. Revoked sessions, API keys and sub-accounts stay revoked. Identity reopens only an account the customer closed, at control version ${request.version}.`;
+    case 'identity.account.archive':
+      return `Archive customer ${request.userId} for good (reason code ${request.reasonCode.replace(/_/g, ' ')}: "${request.reason}"). The record becomes read-only: it cannot be frozen, unfrozen or reopened again. Only a founder can approve it. Identity archives only a closed account, at control version ${request.version}.`;
     case 'identity.account.tier_move':
       return `Move account ${request.userId} onto tier "${request.tierId}" ("${request.reason}"). The account takes that tier's terms as identity holds them. Identity refuses a tier with any blank term, and applies it only if the account is still at tier version ${request.version}. Both people must be founders.`;
     case 'ops.hold.release':

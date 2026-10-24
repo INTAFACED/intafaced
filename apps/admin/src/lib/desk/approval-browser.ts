@@ -9,6 +9,7 @@ export type ApprovalEndpoint =
   | '/api/accounts/restore'
   | '/api/accounts/deposit-unfreeze'
   | '/api/accounts/closure'
+  | '/api/accounts/archive'
   | '/api/accounts/documents'
   | '/api/accounts/tier'
   | '/api/accounts/holds'
