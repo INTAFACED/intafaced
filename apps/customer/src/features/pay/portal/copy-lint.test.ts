@@ -11,6 +11,7 @@ import { paymentsMessages } from './payments/copy';
 import { settingsMessages } from './settings/copy';
 import { accountMessages } from './settings/account/copy';
 import { applicationMessages } from './settings/onboarding/application-copy';
+import { requestsMessages } from './settings/onboarding/requests-copy';
 import { analyticsMessages } from './settings/analytics/copy';
 import { developersMessages } from './settings/developers/copy';
 import { stepUpMessages } from './access/step-up-copy';
@@ -35,6 +36,7 @@ const catalogs: Record<string, Record<string, string>> = {
   'pay.portal.settings': settingsMessages,
   'pay.portal.settings.account': accountMessages,
   'pay.portal.settings.application': applicationMessages,
+  'pay.portal.settings.requests': requestsMessages,
   'pay.portal.settings.analytics': analyticsMessages,
   'pay.portal.settings.developers': developersMessages,
   'pay.portal.settings.reports': reportsMessages,

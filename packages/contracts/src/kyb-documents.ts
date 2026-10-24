@@ -68,7 +68,7 @@ export const kybDocumentsUploadInputSchema = z
     applicationId: applicationIdSchema,
     key: kybRequirementKeySchema,
     contentType: z.string().trim().min(1).max(128),
-    /** Base64 bytes. The owner's size cap is applied to the decoded size; this bound only stops absurd bodies. */
+    /** Base64 bytes. The owner's size cap is applied to the decoded size. The HTTP body limits in front of svc-pay cap the whole request first, so a cap above them refuses there (#6228). */
     bytesBase64: z.string().min(1).max(40_000_000),
   })
   .strict();

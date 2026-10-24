@@ -18,3 +18,16 @@ export function documentWords(key: string): string {
   const words = key.replace(/_/g, ' ').trim();
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
+
+/** Shared by the information-request forms and their route: the bounds svc-pay puts on a request and a closing note. */
+export const KYB_REQUEST_TEXT_MAX = 2000;
+export const KYB_CLOSE_NOTE_MAX = 1000;
+
+/** svc-pay's idempotency key for a request: the same merchant, words and due date are the same request. */
+export async function kybRequestKey(merchantId: string, text: string, dueAt: string): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${merchantId}\n${text}\n${dueAt}`)));
+  const hex = Array.from(digest.slice(0, 12), (b) => b.toString(16).padStart(2, '0')).join('');
+  return `kyb-request:${merchantId}:${hex}`;
+}
+
+export const KYB_REQUEST_STATE_WORDS: Record<string, string> = { open: 'Open', answered: 'Answered', closed: 'Closed' };

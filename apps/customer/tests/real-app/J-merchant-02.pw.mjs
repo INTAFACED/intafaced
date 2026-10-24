@@ -307,3 +307,95 @@ test(`${J} #3 the owner adds the people and documents a sole trader is asked for
   expect(uploads).toHaveLength(3);
   expect(refused).toEqual([]);
 });
+
+test(`${J} #4 the owner answers an information request from the reviewer: a banner when one is past due, an infected file refused, and a closed request shows who closed it`, async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(300_000);
+  const owner = await businessReadyPerson(page, 'mir', '/pay/onboarding');
+  const merchantId = await openBusiness(page, owner, 'TEST Requests Ltd');
+  const answers = [];
+  page.on('request', (req) => req.url().includes('kyb.requests.answer') && answers.push(req.url()));
+
+  // INTAFACED's compliance reviewer asks for two things in the founder console: one due in ten days, one in two minutes.
+  const desk = await (await browser.newContext({ baseURL: ADMIN, viewport: { width: 1440, height: 1000 } })).newPage();
+  await founderSignIn(desk, 'a');
+  await desk.goto(`/merchants/${merchantId}?tab=verification`);
+  const asks = desk.locator('#information-requests');
+  await expect(asks).toContainText('No information requests');
+  const localTime = (ms) => {
+    const d = new Date(Date.now() + ms);
+    const p = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+  };
+  const STATEMENT = 'TEST send a bank statement from the last three months';
+  const BILL = 'TEST send a utility bill for the business address';
+  await asks.getByLabel('What the merchant should send (they read it as written)').fill(STATEMENT);
+  await asks.getByLabel('Due by (your local time)').fill(localTime(10 * 86_400_000));
+  await asks.getByRole('button', { name: 'Send request' }).click();
+  await expect(asks.getByTestId('kyb-request').filter({ hasText: STATEMENT })).toContainText('Open');
+  await asks.getByLabel('What the merchant should send (they read it as written)').fill(BILL);
+  await asks.getByLabel('Due by (your local time)').fill(localTime(2 * 60_000));
+  await asks.getByRole('button', { name: 'Send request' }).click();
+  await expect(asks.getByTestId('kyb-request').filter({ hasText: BILL })).toBeVisible();
+
+  // The owner reads both on the Compliance page and answers the statement request.
+  await page.goto('/pay/compliance');
+  const requests = page.getByRole('list', { name: 'Information requests' });
+  const statement = requests.getByRole('listitem', { name: STATEMENT });
+  await expect(statement).toContainText('Open');
+  await expect(statement).toContainText('Every file is checked for malware before it is kept.');
+  await expect(requests.getByRole('listitem', { name: BILL })).toBeVisible();
+
+  // An infected file (the industry-standard EICAR test string) is refused and nothing of it is kept.
+  const eicar = ['X5O!P%@AP[4\\PZX54(P^)7CC)7}$', 'EICAR-STANDARD-ANTIVIRUS-TEST-FILE', '!$H+H*'].join('');
+  await statement.getByLabel('Your note').fill('TEST the statement is attached');
+  await statement.getByLabel('Choose a file to send with your answer').setInputFiles({
+    name: 'statement.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(eicar),
+  });
+  await statement.getByRole('button', { name: 'Send answer' }).click();
+  await expect(statement.getByRole('alert')).toHaveText(
+    'The malware check found a threat in this file, so it wasn’t kept. Send a clean copy.',
+  );
+  await expect(statement).toContainText('Open');
+
+  await statement.getByLabel('Choose a file to send with your answer').setInputFiles({
+    name: 'statement.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from('%PDF-1.4\n% TEST bank statement\n%%EOF\n'),
+  });
+  await statement.getByRole('button', { name: 'Send answer' }).click();
+  await expect(statement).toContainText('Answered');
+  await expect(statement).toContainText('passed the malware check');
+  expect(answers).toHaveLength(2);
+
+  // The reviewer opens the file and closes the request with a note.
+  await desk.reload();
+  const asked = asks.getByTestId('kyb-request').filter({ hasText: STATEMENT });
+  await expect(asked).toContainText('Merchant’s note: TEST the statement is attached');
+  const opened = desk.context().waitForEvent('page');
+  await asked.getByRole('button', { name: /^Open the file sent for request/ }).click();
+  const tab = await opened;
+  await expect.poll(() => tab.url()).toMatch(/^blob:/);
+  await asked.getByLabel('Closing note (the merchant reads it)').fill('TEST statement received, thank you');
+  await asked.getByRole('button', { name: /^Close request/ }).click();
+  await expect(asked).toContainText('Closed by');
+  await expect(asked).toContainText('TEST statement received, thank you');
+  await desk.context().close();
+
+  await page.reload();
+  const closed = page.getByRole('list', { name: 'Information requests' }).getByRole('listitem', { name: STATEMENT });
+  await expect(closed).toContainText('Closed by INTAFACED reviewer');
+  await expect(closed).toContainText('TEST statement received, thank you');
+  await expect(closed.getByRole('button', { name: 'Send answer' })).toHaveCount(0);
+
+  // Once the bill request's due date passes unanswered, the page warns about it.
+  await expect(async () => {
+    await page.reload();
+    await expect(page.getByRole('alert').filter({ hasText: 'past its due date' })).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 200_000, intervals: [10_000] });
+  await expect(page.getByRole('listitem', { name: BILL })).toContainText('Past due');
+});

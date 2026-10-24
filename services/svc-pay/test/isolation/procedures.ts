@@ -55,6 +55,10 @@ export const COMPLIANCE_PROCS = [
   'kyb.documents.reviewView',
   'kyb.documents.review',
   'kyb.documents.file',
+  'kyb.requests.reviewList',
+  'kyb.requests.create',
+  'kyb.requests.close',
+  'kyb.requests.file',
 ] as const;
 
 export const FOUNDER_EXTRA = [

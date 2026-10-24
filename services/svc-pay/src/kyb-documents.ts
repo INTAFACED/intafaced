@@ -43,7 +43,7 @@ function aad(applicationId: string, documentKey: string, sha256: string): Buffer
   return Buffer.from(`kyb-document:${applicationId}:${documentKey}:${sha256}`);
 }
 
-function encrypt(key: Buffer, plaintext: Buffer, additional: Buffer): { ciphertext: Buffer; nonce: Buffer } {
+export function encrypt(key: Buffer, plaintext: Buffer, additional: Buffer): { ciphertext: Buffer; nonce: Buffer } {
   const nonce = randomBytes(12);
   const cipher = createCipheriv('aes-256-gcm', key, nonce);
   cipher.setAAD(additional);
@@ -51,7 +51,7 @@ function encrypt(key: Buffer, plaintext: Buffer, additional: Buffer): { cipherte
   return { ciphertext: Buffer.concat([body, cipher.getAuthTag()]), nonce };
 }
 
-function decrypt(key: Buffer, sealed: Buffer, nonce: Buffer, additional: Buffer): Buffer {
+export function decrypt(key: Buffer, sealed: Buffer, nonce: Buffer, additional: Buffer): Buffer {
   const decipher = createDecipheriv('aes-256-gcm', key, nonce);
   decipher.setAAD(additional);
   decipher.setAuthTag(sealed.subarray(sealed.length - 16));
