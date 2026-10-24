@@ -374,26 +374,23 @@ export const blueprintExportSchema = z.object({
   /**
    * The caller's shares and each share's opener rows (MC-blueprint-01).
    * Opener rows carry a kind, times and a count. They do not carry an account id.
-   * Empty when the caller has no shares. An omitted key is an empty array.
+   * Empty when the caller has no shares.
    * Schema version stays 2: the customer export parser still requires that
    * literal and drops keys it does not know.
    */
-  shares: z.array(cardShareExportSchema).default([]),
+  shares: z.array(cardShareExportSchema),
   /**
    * The caller's own opens of other accounts' shares: the rows erase removes as
-   * the viewer (MC-blueprint-01). No owner account id. An omitted key is an
-   * empty array.
+   * the viewer (MC-blueprint-01). No owner account id.
    */
-  cardsOpened: z
-    .array(
-      z.object({
-        shareId: z.string().uuid(),
-        firstOpened: z.string().datetime({ offset: true }),
-        lastOpened: z.string().datetime({ offset: true }),
-        openCount: z.number().int().min(1),
-      }),
-    )
-    .default([]),
+  cardsOpened: z.array(
+    z.object({
+      shareId: z.string().uuid(),
+      firstOpened: z.string().datetime({ offset: true }),
+      lastOpened: z.string().datetime({ offset: true }),
+      openCount: z.number().int().min(1),
+    }),
+  ),
 });
 export type BlueprintExport = z.infer<typeof blueprintExportSchema>;
 
