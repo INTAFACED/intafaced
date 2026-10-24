@@ -1,5 +1,5 @@
 -- trade.copy · the market a listed leader trades in (CB-copy-01, J-copy-bots-otc-01 #2)
--- Reversal: 0106_copy_leader_market_mode.down.sql
+-- Reversal: 0107_copy_leader_market_mode.down.sql
 --
 -- The copy room's Futures, Spot, Bots and Signal tabs filter the directory on the server by this column.
 -- Every listing written before this column existed was a spot leader (copy places spot limits only), so
