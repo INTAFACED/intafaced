@@ -7,8 +7,11 @@ import {
   LOT_METHODS,
   coinMethod,
   lotAssetFromQuery,
+  lotAccountFromQuery,
+  lotAccounts,
   lotAssets,
   lotsOf,
+  spaceOf,
   methodFromQuery,
   pickableLots,
   pnlView,
@@ -467,12 +470,28 @@ function LotRows({
   const assets = lotAssets(book);
   const asset = lotAssetFromQuery(search, assets);
   if (asset === null) return null;
-  const lots = lotsOf(book, asset);
+  const accounts = lotAccounts(book, asset);
+  const account = lotAccountFromQuery(search, accounts);
+  const lots = lotsOf(book, asset, account);
   const choose = (next: string) => {
     const params = new URLSearchParams(search);
     params.set('asset', next);
+    params.delete('account');
     navigate(`/money/pnl?${params.toString()}`, true);
   };
+  const chooseAccount = (next: string) => {
+    const params = new URLSearchParams(search);
+    if (next === 'all') params.delete('account');
+    else params.set('account', next);
+    navigate(`/money/pnl?${params.toString()}`, true);
+  };
+  const accountName = (spaceId: string | undefined): string => {
+    if (spaceId === undefined) return t('Main account');
+    const space = spaceOf(book, spaceId);
+    if (space === null) return t('Space {name}', { name: spaceId });
+    return space.archived ? t('Space archived {name}', { name: space.name }) : t('Space {name}', { name: space.name });
+  };
+  const carried = book.lots.some((lot) => lot.carriedFrom !== undefined);
   return (
     <section className="money-card" aria-label={t('Lots')}>
       <header className="money-card__head">
@@ -487,6 +506,19 @@ function LotRows({
             ))}
           </select>
         </label>
+        {accounts.length > 1 ? (
+          <label className="money-note">
+            {t('Lots in')}{' '}
+            <select value={account} onChange={(event) => chooseAccount(event.target.value)} aria-label={t('Account for lots')}>
+              <option value="all">{t('All accounts')}</option>
+              {accounts.map((id) => (
+                <option key={id} value={id}>
+                  {accountName(id === 'main' ? undefined : id)}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
         {save !== null ? (
           <label className="money-note">
             {t('Method for coin', { asset })}{' '}
@@ -512,11 +544,18 @@ function LotRows({
         ) : null}
       </header>
       <p className="money-note">{t('Lots rule')}</p>
+      {carried ? <p className="money-note">{t('Carried rule')}</p> : null}
+      {book.spaces !== undefined && book.spaces.status !== 'read' ? (
+        <p className="money-note" data-refusal={book.spaces.code}>
+          {t('Spaces not followed')} ({book.spaces.code})
+        </p>
+      ) : null}
       <table className="money-table">
         <thead>
           <tr>
             <th scope="col">{t('Acquired')}</th>
             <th scope="col">{t('Source')}</th>
+            <th scope="col">{t('Account')}</th>
             <th scope="col" className="money-num">
               {t('Quantity')}
             </th>
@@ -542,6 +581,15 @@ function LotRows({
             <tr key={lot.id} data-lot={lot.id} data-source={lot.source}>
               <th scope="row">{stamp(lot.acquiredAt, timeZone)}</th>
               <td data-col="source">{t(SOURCE_COPY[lot.source])}</td>
+              <td data-col="account" data-space={lot.spaceId ?? 'main'}>
+                {accountName(lot.spaceId)}
+                {lot.carriedFrom !== undefined ? (
+                  <span className="money-note" data-label="carried">
+                    {' '}
+                    {t('Moved between your accounts')} · {stamp(lot.carriedFrom.movedAt, timeZone)}
+                  </span>
+                ) : null}
+              </td>
               <td className="money-num" data-col="qty">
                 <Amount value={fmtAmount(lot.qty)} hidden={hidden} />
               </td>

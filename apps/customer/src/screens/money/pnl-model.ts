@@ -117,8 +117,33 @@ export function lotAssetFromQuery(search: string, assets: readonly string[]): st
   return raw !== null && assets.includes(raw) ? raw : (assets[0] ?? null);
 }
 
-export function lotsOf(book: LotBookAnswer, asset: string): LotBookLot[] {
-  return book.lots.filter((lot) => lot.assetId === asset);
+export function lotsOf(book: LotBookAnswer, asset: string, account: LotAccount = 'all'): LotBookLot[] {
+  return book.lots.filter(
+    (lot) => lot.assetId === asset && (account === 'all' || (account === 'main' ? lot.spaceId === undefined : lot.spaceId === account)),
+  );
+}
+
+/** Where a lot sits: the main account, or one of the customer's named spaces (by id). `all`: every account. */
+export type LotAccount = 'all' | 'main' | string;
+
+/** A named space the book follows, by id; null when the book does not list it. */
+export function spaceOf(book: LotBookAnswer, spaceId: string): { name: string; archived: boolean } | null {
+  if (book.spaces?.status !== 'read') return null;
+  const space = book.spaces.list.find((s) => s.spaceId === spaceId);
+  return space === undefined ? null : { name: space.name, archived: space.archived };
+}
+
+/** The accounts that hold lots of this coin: main first, then each space in the order the book lists them. */
+export function lotAccounts(book: LotBookAnswer, asset: string): string[] {
+  const held = new Set(lotsOf(book, asset).map((lot) => lot.spaceId ?? 'main'));
+  const spaces = book.spaces?.status === 'read' ? book.spaces.list.map((s) => s.spaceId) : [];
+  return ['main', ...spaces].filter((id) => held.has(id));
+}
+
+/** `?account=` picks whose lots are shown; absent or unknown is every account. */
+export function lotAccountFromQuery(search: string, accounts: readonly string[]): LotAccount {
+  const raw = new URLSearchParams(search).get('account');
+  return raw !== null && accounts.includes(raw) ? raw : 'all';
 }
 
 /** The parts of one sale that reached a lot with no cost (or no lot at all), from the missing list; empty when every part has a cost. */

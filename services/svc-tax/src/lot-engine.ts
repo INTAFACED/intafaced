@@ -13,6 +13,13 @@ import { TAX_COST_BASIS_UNAVAILABLE, TAX_LOT_PICK_UNUSABLE, TAX_LOT_UNDERFLOW } 
  *
  * AVERAGE keeps one running cost per asset: a sale takes quantity at the current average cost per coin and leaves the
  * average unchanged. The lots list still shows which arrivals are left, oldest first, each at that average.
+ *
+ * OWN-ACCOUNT CARRY (LB-6). Lots sit in the customer's main account or in one of their spaces. A move between two of the
+ * customer's own accounts in one transaction is not a sale and not a new arrival: it takes open lots from the account it left,
+ * oldest first, and each part it takes becomes a lot in the account it reached with the same acquired date, source and share
+ * of basis (`carriedFrom` names the lot it came from). Sales are trades, and trades happen in the main account, so a sale
+ * draws on main-account lots only. A move with too few open coins behind it carries what there is; the rest arrives with
+ * no basis, named.
  */
 
 export const ENGINE_METHODS = ['FIFO', 'LIFO', 'HIFO', 'AVERAGE'] as const;
@@ -44,6 +51,8 @@ export interface EngineAcquire {
   /** Reason on the ledger line, kept for the audit view. */
   readonly reason: string;
   readonly valuedAt: ValuedAt | null;
+  /** The space it arrived in; absent or null: the main account. */
+  readonly space?: string | null;
 }
 
 export interface EngineDispose {
@@ -55,7 +64,25 @@ export interface EngineDispose {
   readonly proceedsUsd: Amount | null;
 }
 
-export type EngineMovement = EngineAcquire | EngineDispose;
+/** A move of the customer's own coins between two of their accounts in one transaction. Null: the main account. */
+export interface EngineMove {
+  readonly side: 'move';
+  readonly txId: string;
+  readonly postedAt: Date;
+  readonly assetId: string;
+  readonly qty: Amount;
+  readonly from: string | null;
+  readonly to: string | null;
+}
+
+export type EngineMovement = EngineAcquire | EngineDispose | EngineMove;
+
+/** The lot a carried lot was split from, and the move that carried it. */
+export interface CarriedFrom {
+  readonly lotId: string;
+  readonly txId: string;
+  readonly movedAt: Date;
+}
 
 export interface LotMatch {
   readonly lotId: string;
@@ -116,6 +143,10 @@ export interface EngineLot {
   readonly valuedAt: ValuedAt | null;
   /** The arrival's cost came from a price the customer entered. Absent otherwise. */
   readonly customerEntered?: true;
+  /** The space the lot sits in; null: the main account. */
+  readonly space: string | null;
+  /** Present when the lot was carried in by a move between the customer's own accounts. */
+  readonly carriedFrom?: CarriedFrom;
 }
 
 export interface EngineRun {
@@ -176,19 +207,36 @@ export function runLotEngine(
 
   const usedIds = new Set<string>();
   for (const list of byAsset.values()) {
-    // Same instant: arrivals before departures, so a fill that buys and a sale in one transaction keep their order.
+    // Same instant: arrivals, then moves, then departures, so a fill that buys and a sale in one transaction keep their order.
     list.sort(
-      (a, b) =>
-        a.postedAt.getTime() - b.postedAt.getTime() || (a.side === b.side ? a.txId.localeCompare(b.txId) : a.side === 'acquire' ? -1 : 1),
+      (a, b) => a.postedAt.getTime() - b.postedAt.getTime() || SIDE_ORDER[a.side] - SIDE_ORDER[b.side] || a.txId.localeCompare(b.txId),
     );
-    const open: OpenLot[] = [];
+    // Open lots per account, oldest first. `MAIN` is the main account.
+    const openIn = new Map<string, OpenLot[]>();
+    const openAt = (space: string | null | undefined): OpenLot[] => {
+      const key = space ?? MAIN;
+      let list = openIn.get(key);
+      if (!list) {
+        list = [];
+        openIn.set(key, list);
+      }
+      return list;
+    };
     const all: OpenLot[] = [];
+    const nextId = (base: string): string => {
+      let id = base;
+      for (let n = 2; usedIds.has(id); n++) id = `${base}:${n}`;
+      usedIds.add(id);
+      return id;
+    };
     for (const m of list) {
+      if (m.side === 'move') {
+        all.push(...carry(m, openAt(m.from), openAt(m.to), nextId, overridePricePerUnit));
+        continue;
+      }
       if (m.side === 'acquire') {
         // Two arrivals of one coin in one transaction get `:2`, `:3` in history order, so ids stay unique and repeatable.
-        let id = lotIdOf(m.txId, m.assetId);
-        for (let n = 2; usedIds.has(id); n++) id = `${lotIdOf(m.txId, m.assetId)}:${n}`;
-        usedIds.add(id);
+        const id = nextId(lotIdOf(m.txId, m.assetId));
         const price = m.costUsd === null ? overridePricePerUnit?.get(id) : undefined;
         const entered = price !== undefined && price > 0n;
         const costUsd = entered ? mul(price, m.qty) : m.costUsd;
@@ -203,16 +251,17 @@ export function runLotEngine(
             qty: m.qty,
             costUsd,
             valuedAt: m.valuedAt,
+            space: m.space ?? null,
           },
           remaining: m.qty,
           remainingCost: costUsd,
           customerEntered: entered,
         };
-        open.push(entry);
+        openAt(m.space).push(entry);
         all.push(entry);
         continue;
       }
-      sales.push(dispose(m, open, ruleOf(m), residuals));
+      sales.push(dispose(m, openAt(null), ruleOf(m), residuals));
     }
     for (const entry of all) {
       lots.push({
@@ -227,6 +276,84 @@ export function runLotEngine(
   lots.sort((a, b) => a.acquiredAt.getTime() - b.acquiredAt.getTime() || a.id.localeCompare(b.id));
   sales.sort((a, b) => b.postedAt.getTime() - a.postedAt.getTime() || a.txId.localeCompare(b.txId));
   return { lots, sales, residuals: [...residuals].sort() };
+}
+
+const MAIN = '';
+const SIDE_ORDER: Record<EngineMovement['side'], number> = { acquire: 0, move: 1, dispose: 2 };
+
+/**
+ * One own-account move: open lots leave `from` oldest first, and each part taken arrives in `to` as a lot with the same
+ * acquired date, source and share of basis. The lot it left keeps its history with less remaining. Quantity no open lot
+ * covered arrives with no basis (source `transfer_in`), so the lots in `to` still add up to what was moved.
+ */
+function carry(
+  m: EngineMove,
+  from: OpenLot[],
+  to: OpenLot[],
+  nextId: (base: string) => string,
+  overridePricePerUnit?: ReadonlyMap<string, Amount>,
+): OpenLot[] {
+  const made: OpenLot[] = [];
+  let remaining = m.qty;
+  const arrive = (entry: OpenLot) => {
+    // Keep the destination oldest first, so a later move or sale there draws in acquired order.
+    let at = to.length;
+    while (at > 0 && to[at - 1]!.lot.acquiredAt.getTime() > entry.lot.acquiredAt.getTime()) at--;
+    to.splice(at, 0, entry);
+    made.push(entry);
+  };
+  while (remaining > 0n && from.length > 0) {
+    const lot = from[0]!;
+    const take = remaining < lot.remaining ? remaining : lot.remaining;
+    const id = nextId(`${lot.lot.id}>${m.txId}`);
+    // A carried part with no basis takes a price the customer entered for it, the same as any lot with no cost.
+    const price = lot.remainingCost === null ? overridePricePerUnit?.get(id) : undefined;
+    const entered = price !== undefined && price > 0n;
+    const cost = entered ? mul(price, take) : lot.remainingCost === null ? null : share(lot.remainingCost, lot.remaining, take);
+    const valuedAt = lot.lot.valuedAt === null ? null : { ...lot.lot.valuedAt, usd: share(lot.lot.valuedAt.usd, lot.lot.qty, take) };
+    arrive({
+      lot: {
+        ...lot.lot,
+        id,
+        qty: take,
+        costUsd: cost,
+        valuedAt,
+        space: m.to,
+        carriedFrom: { lotId: lot.lot.id, txId: m.txId, movedAt: m.postedAt },
+      },
+      remaining: take,
+      remainingCost: cost,
+      customerEntered: entered || (lot.customerEntered && cost !== null),
+    });
+    lot.remainingCost = lot.remainingCost === null || entered || cost === null ? null : lot.remainingCost - cost;
+    lot.remaining -= take;
+    remaining -= take;
+    if (lot.remaining === 0n) from.shift();
+  }
+  if (remaining > 0n) {
+    const id = nextId(lotIdOf(m.txId, m.assetId));
+    const price = overridePricePerUnit?.get(id);
+    const entered = price !== undefined && price > 0n;
+    const cost = entered ? mul(price, remaining) : null;
+    arrive({
+      lot: {
+        id,
+        assetId: m.assetId,
+        acquiredAt: m.postedAt,
+        acquireTxId: m.txId,
+        source: 'transfer_in',
+        reason: 'own_account.move',
+        qty: remaining,
+        costUsd: cost,
+        valuedAt: null,
+        space: m.to,
+      },
+      remaining,
+      remainingCost: cost,
+      customerEntered: entered,
+    });
+  }
+  return made;
 }
 
 function dispose(m: EngineDispose, open: OpenLot[], rule: SaleRule, residuals: Set<string>): EngineSale {

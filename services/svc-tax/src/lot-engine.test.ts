@@ -124,3 +124,71 @@ describe('runLotEngine', () => {
     expect(run.lots.reduce((sum, l) => sum + l.remaining, 0n)).toBe(amt('2'));
   });
 });
+
+describe('runLotEngine own-account carry (LB-6)', () => {
+  const SPACE = '33333333-3333-4333-8333-333333333333';
+  const move = (txId: string, day: number, qty: string, from: string | null, to: string | null): EngineMovement => ({
+    side: 'move',
+    txId,
+    postedAt: at(day),
+    assetId: 'BTC',
+    qty: amt(qty),
+    from,
+    to,
+  });
+
+  it('carries lots to a space oldest first with their acquired date and share of basis, and a later sale draws on main only', () => {
+    // TEST: 1 BTC at 100 on day 1, 1 BTC at 200 on day 2, move 1.5 to the space on day 3, sell 0.5 for 150 on day 4.
+    const run = runLotEngine(
+      [buy('b1', 1, '1', '100'), buy('b2', 2, '1', '200'), move('mv', 3, '1.5', null, SPACE), sell('s1', 4, '0.5', '150')],
+      'FIFO',
+    );
+    const inSpace = run.lots.filter((l) => l.space === SPACE);
+    expect(inSpace.map((l) => [l.id, l.acquiredAt.toISOString(), s(l.qty), s(l.costUsd), l.source, l.carriedFrom?.lotId])).toEqual([
+      [`${lotIdOf('b1', 'BTC')}>mv`, at(1).toISOString(), '1', '100', 'trade', lotIdOf('b1', 'BTC')],
+      [`${lotIdOf('b2', 'BTC')}>mv`, at(2).toISOString(), '0.5', '100', 'trade', lotIdOf('b2', 'BTC')],
+    ]);
+    const b2 = run.lots.find((l) => l.id === lotIdOf('b2', 'BTC'))!;
+    // The sale reached the half of b2 left on main, not the older lot that moved to the space.
+    expect(run.sales[0]!.matches.map((m) => [m.lotId, s(m.qty), s(m.costUsd)])).toEqual([[lotIdOf('b2', 'BTC'), '0.5', '100']]);
+    expect(s(run.sales[0]!.realizedUsd)).toBe('50');
+    expect([s(b2.remaining), b2.space]).toEqual(['0', null]);
+    expect(inSpace.every((l) => s(l.remaining) === s(l.qty))).toBe(true);
+    expect(run.residuals).toEqual([]);
+  });
+
+  it('carries a lot back to main with its first date, so FIFO sells it before a newer one', () => {
+    const run = runLotEngine(
+      [
+        buy('b1', 1, '1', '100'),
+        move('out', 2, '1', null, SPACE),
+        buy('b2', 3, '1', '300'),
+        move('back', 4, '1', SPACE, null),
+        sell('s1', 5, '1', '400'),
+      ],
+      'FIFO',
+    );
+    expect(run.sales[0]!.matches.map((m) => [m.lotId, s(m.costUsd)])).toEqual([[`${lotIdOf('b1', 'BTC')}>out>back`, '100']]);
+    expect(run.lots.find((l) => l.id === `${lotIdOf('b1', 'BTC')}>out>back`)!.acquiredAt).toEqual(at(1));
+  });
+
+  it('a move with too few coins behind it carries what there is and the rest arrives with no basis, named', () => {
+    const run = runLotEngine([buy('b1', 1, '1', '100'), move('mv', 2, '1.5', null, SPACE)], 'FIFO');
+    const arrived = run.lots.filter((l) => l.space === SPACE);
+    expect(arrived.map((l) => [s(l.qty), s(l.costUsd), l.source])).toEqual([
+      ['1', '100', 'trade'],
+      ['0.5', null, 'transfer_in'],
+    ]);
+    expect(run.residuals).toContain(TAX_COST_BASIS_UNAVAILABLE);
+  });
+
+  it('a lot with no basis keeps no basis when moved, and takes a price the customer entered for the carried part', () => {
+    const run = runLotEngine(
+      [buy('d1', 1, '1', null, 'deposit'), move('mv', 2, '1', null, SPACE)],
+      'FIFO',
+      new Map([[`${lotIdOf('d1', 'BTC')}>mv`, amt('50')]]),
+    );
+    const carried = run.lots.find((l) => l.space === SPACE)!;
+    expect([s(carried.costUsd), carried.customerEntered, carried.source]).toEqual(['50', true, 'deposit']);
+  });
+});

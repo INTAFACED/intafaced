@@ -5,11 +5,13 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
   // `customer` (tooling/profiles/test-owner-values/tax.json): an arrival's cost stays unknown until the customer enters one.
   // DATABASE_URL is this stack's svc_tax role. tax is in SCHEMAS, so db:migrate runs before the process listens.
   // DATABASE_POOL_MAX is the stack's common setting, not a size invented here.
+  // BANK_URL: svc-bank says which named spaces are the customer's, so a move to a space carries its lots (LB-6).
   name: 'tax',
   env: () => ({
     ...c('svc-tax', PORTS.tax),
     LEDGER_URL: urlOf('ledger'),
     TRADE_URL: urlOf('trade'),
+    BANK_URL: urlOf('bank'),
     TAX_DEPOSIT_BASIS: 'customer',
     DATABASE_URL: dbUrl('svc_tax', secrets),
   }),

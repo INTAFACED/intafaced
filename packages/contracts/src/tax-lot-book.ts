@@ -91,7 +91,23 @@ export const lotBookLotSchema = z.object({
   termClass: z.null(),
   /** Present only when this lot's cost is a price the customer entered. */
   basisSource: z.literal('customer-entered').optional(),
+  /** Present when the lot sits in one of the customer's named spaces (listed in `spaces`); absent: the main account. */
+  spaceId: z.string().optional(),
+  /** Present when the lot was moved here from another of the customer's own accounts, keeping its date and basis. */
+  carriedFrom: z.object({ lotId: z.string(), txId: z.string(), movedAt: z.string() }).optional(),
 });
+
+/** The customer's named spaces whose lots the book follows, or why it could not ask which spaces are theirs. */
+export const lotBookSpacesSchema = z.discriminatedUnion('status', [
+  z.object({
+    status: z.literal('read'),
+    list: z.array(z.object({ spaceId: z.string(), assetId: z.string(), name: z.string(), archived: z.boolean() })),
+  }),
+  /** No bank to ask: the book follows the main account only. */
+  z.object({ status: z.literal('unwired'), code: z.literal('tax.own_spaces_unwired') }),
+  /** The bank did not answer just now: moves to and from spaces are not followed in this answer, and it says so. */
+  z.object({ status: z.literal('unavailable'), code: z.literal('tax.own_spaces_unavailable') }),
+]);
 
 export const lotBookMatchSchema = z.object({
   lotId: z.string(),
@@ -141,6 +157,8 @@ export const lotBookSchema = z.object({
   realizedUsd: z.string().nullable(),
   termRule: z.object({ status: z.literal('unset'), code: z.literal('tax.term_rule_unset') }),
   residuals: z.array(z.string()),
+  /** Absent from a book built without asking about spaces. */
+  spaces: lotBookSpacesSchema.optional(),
   /**
    * Positions the customer typed that are not a balance and not a ledger lot. Absent when there are none, so a book
    * with no manual position stays the same shape.
@@ -204,4 +222,5 @@ export type LotBookAnswer = z.infer<typeof lotBookSchema>;
 export type LotBookLot = z.infer<typeof lotBookLotSchema>;
 export type LotBookSale = z.infer<typeof lotBookSaleSchema>;
 export type LotBookChoices = z.infer<typeof lotBookChoicesSchema>;
+export type LotBookSpaces = z.infer<typeof lotBookSpacesSchema>;
 export type LotMethodSource = (typeof LOT_METHOD_SOURCES)[number];
