@@ -2,6 +2,8 @@ import { defineCopy } from '../../../shared/i18n';
 
 // P-ads-merchant-01: posting an ad from the form: what is free to sell, the advertiser terms, the summary and the receipt.
 const en = {
+  refusedNoReference:
+    'No market price is published for this coin and currency, so a floating price cannot be worked out. Choose a fixed price instead.',
   refusedThreshold: 'Your account does not meet what posting an ad in this currency needs. Go back to the form to see what is missing.',
   checklistTitle: 'What posting an ad in {fiat} needs:',
   checklistPickFiat: 'Pick a fiat currency to see what posting an ad in it needs.',
@@ -102,6 +104,8 @@ const en = {
 } as const;
 
 const es = {
+  refusedNoReference:
+    'No hay un precio de mercado publicado para esta moneda y divisa, así que no se puede calcular un precio flotante. Elige un precio fijo.',
   refusedThreshold: 'Tu cuenta no cumple lo que necesita publicar un anuncio en esta moneda. Vuelve al formulario para ver lo que falta.',
   checklistTitle: 'Lo que necesita publicar un anuncio en {fiat}:',
   checklistPickFiat: 'Elige una moneda fiat para ver lo que necesita publicar un anuncio en ella.',
@@ -205,6 +209,8 @@ const es = {
 } as const;
 
 const fr = {
+  refusedNoReference:
+    'Aucun prix de marché n’est publié pour cette crypto et cette monnaie, un prix flottant ne peut donc pas être calculé. Choisissez un prix fixe.',
   refusedThreshold:
     'Votre compte ne remplit pas ce qu’il faut pour publier une annonce dans cette monnaie. Revenez au formulaire pour voir ce qui manque.',
   checklistTitle: 'Ce qu’il faut pour publier une annonce en {fiat} :',

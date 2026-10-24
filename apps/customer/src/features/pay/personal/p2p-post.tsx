@@ -244,6 +244,8 @@ function refusalKey(failure: Failure | null) {
       return 'refusedConfig' as const;
     case 'p2p.posting_threshold_not_met':
       return 'refusedThreshold' as const;
+    case 'p2p.reference_price_unavailable':
+      return 'refusedNoReference' as const;
     case 'p2p.content_rule_violation':
       return 'refusedContent' as const;
     case 'p2p.verification_limit_currency':

@@ -142,29 +142,33 @@ test('J-p2p-01 #1 the P2P hub opens from More, lists every requirement, and a ta
   await expect(check(page, 'risk')).toHaveAttribute('data-state', 'not_met');
 });
 
-test('J-p2p-01 #2 the ad board searches by coin, fiat, method and amount, sorts by price, pages without a repeat, and names a floating ad that needs a market feed', async ({
+test('J-p2p-01 #2 the ad board searches by coin, fiat, method and amount, sorts by price, pages without a repeat, and never lists a floating ad it cannot price', async ({
   page,
 }) => {
   const state = journey();
   const s = p2p(await api(state.seller));
-  // Three more TEST ads from the same seller: dearer, cheaper with a higher minimum, and one floating on a reference.
-  const ad = (key, extra) =>
-    s.mutate('offers.create', {
-      side: 'sell',
-      asset: 'USDT',
-      fiatCurrency: 'EUR',
-      priceType: 'fixed',
-      minAmount: '10',
-      maxAmount: '50',
-      totalAmount: '60',
-      methods: [METHOD],
-      terms: 'TEST terms',
-      idempotencyKey: `${J}:${key}:${state.seller.handle}`,
-      ...extra,
-    });
+  // Two more TEST ads from the same seller, dearer and cheaper with a higher minimum, and one floating on a reference.
+  const adInput = (key, extra) => ({
+    side: 'sell',
+    asset: 'USDT',
+    fiatCurrency: 'EUR',
+    priceType: 'fixed',
+    minAmount: '10',
+    maxAmount: '50',
+    totalAmount: '60',
+    methods: [METHOD],
+    terms: 'TEST terms',
+    idempotencyKey: `${J}:${key}:${state.seller.handle}`,
+    ...extra,
+  });
+  const ad = (key, extra) => s.mutate('offers.create', adInput(key, extra));
   const dear = (await ad('dear', { price: '0.95' })).id;
   const cheap = (await ad('cheap', { price: '0.90', minAmount: '30' })).id;
-  const float = (await ad('float', { priceType: 'float', price: '1.01' })).id;
+  // No EUR / USDT reference price is published on this stack, so the floating ad is refused with that reason and never
+  // reaches the board as an ad nobody can price (P-ads-merchant-03).
+  const floating = await s.raw.mutate('offers.create', adInput('float', { priceType: 'float', price: '1.01' }));
+  expect(floating.status).toBe(400);
+  expect(refusalCode(floating)).toBe('p2p.reference_price_unavailable');
   const first = state.offerId;
 
   const buyer = p2p(await api(state.buyer));
@@ -180,25 +184,22 @@ test('J-p2p-01 #2 the ad board searches by coin, fiat, method and amount, sorts 
     } while (cursor && seen.length < 10);
     return seen;
   };
-  expect(await walk('price_asc')).toEqual([cheap, first, dear, float]);
-  expect(await walk('price_desc')).toEqual([dear, first, cheap, float]);
+  expect(await walk('price_asc')).toEqual([cheap, first, dear]);
+  expect(await walk('price_desc')).toEqual([dear, first, cheap]);
 
   await signIn(page, state.buyer);
   await page.goto(`/p2p?makerId=${maker}`);
   const rows = page.locator('li.p2p-offer-row');
   const order = () => rows.evaluateAll((items) => items.map((item) => item.getAttribute('data-offer-id')));
-  await expect(rows).toHaveCount(4);
-  expect(await order()).toEqual([cheap, first, dear, float]);
+  await expect(rows).toHaveCount(3);
+  expect(await order()).toEqual([cheap, first, dear]);
   // Each row: price, limits, method and maker.
   const firstRow = page.locator(`li[data-offer-id="${first}"]`);
   await expect(firstRow).toContainText('0.92');
   await expect(firstRow).toContainText(METHOD);
-  await expect(page.locator(`li[data-offer-id="${float}"]`).getByTestId('p2p-offer-needs-feed')).toContainText(
-    'Needs a market feed: no EUR / USDT reference price is published',
-  );
   await expect(page.getByText('That is every open offer for these filters.')).toBeVisible();
 
-  // Coin, fiat, method and a 20 EUR amount, dearest first: the cheap ad (30 USDT minimum) and the floating ad drop out.
+  // Coin, fiat, method and a 20 EUR amount, dearest first: the cheap ad (30 USDT minimum) drops out.
   await page.getByText('Filters', { exact: true }).click();
   const filters = page.locator('form.pay-filters');
   await filters.getByLabel('Asset', { exact: true }).fill('USDT');
