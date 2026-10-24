@@ -1582,11 +1582,12 @@ export function createP2pRouter(
             if (current.buyerId !== ctx.principal.userId && current.sellerId !== ctx.principal.userId) {
               throw unknownTrade(input.tradeId);
             }
-            // Only a check that could release is confirmed: a switched-off rail, the buyer or another state gets the
-            // service's own refusal first, and nothing moves.
+            // Only a check that could release is confirmed: a switched-off rail, the buyer, or a disputed or ended order
+            // gets the service's own refusal first. `created` and `escrowed` are asked too, since the buyer can mark the
+            // order paid between this read and the service's own.
             if (
               current.sellerId === ctx.principal.userId &&
-              current.status === 'fiat_sent' &&
+              (current.status === 'created' || current.status === 'escrowed' || current.status === 'fiat_sent') &&
               p2p.paymentValidationBlocker(current) === null
             ) {
               await releaseStepUp.assertConfirmed(stepUpCaller(ctx.principal), input.tradeId, input.stepUpApprovalId);
