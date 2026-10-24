@@ -190,6 +190,20 @@ describe('the identity approval is proposed against the target the service consu
   });
 });
 
+describe('waitlist wave release', () => {
+  it('hash equals identity’s own function over { wave, size } and is proposed against waitlist.wave.release', () => {
+    const request = { kind: 'campaigns.waitlist.wave_release', wave: '3', size: '2' } as const;
+    expect(payloadHashFor(request)).toBe(identityActionPayloadHash('waitlist.wave.release', { wave: '3', size: '2' }));
+    expect(proposeInputFor(request)).toMatchObject({
+      actionType: 'waitlist.wave.release',
+      targetService: 'svc-identity',
+      targetId: 'waitlist.wave.release',
+      expectedVersion: '1',
+    });
+    expect(payloadHashFor(request)).not.toBe(payloadHashFor({ ...request, size: '3' }));
+  });
+});
+
 describe('identity signing-key changes', () => {
   it('hash equals identity’s own function and is proposed against the target identity consumes', () => {
     expect(payloadHashFor({ kind: 'identity.auth_key.rotate', keyId: 'k2' })).toBe(

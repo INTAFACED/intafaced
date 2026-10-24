@@ -202,6 +202,21 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'Identity will not let this run until a different approver has approved exactly this request: another operator for a module kill or re-enable, another founder for a ledger unfreeze. Nothing was changed.',
     next: 'Ask the second approver to approve the request packet, then run it.',
   },
+  'drop.wave_unset': {
+    title: 'The wave size is not set',
+    body: 'Nobody can be released until the owner sets how many people one waitlist wave releases (IDENTITY_WAITLIST_WAVE_SIZE). Nothing was released and no approval was spent.',
+    next: 'Ask the owner to set the wave size in the identity service settings, then start a new request.',
+  },
+  'waitlist.wave_unknown': {
+    title: 'That is not the next wave',
+    body: 'Waves are released in order, and another release may have landed since you read the desk. Nothing was released.',
+    next: 'Read the waves below and request the wave number shown as next.',
+  },
+  'waitlist.wave_empty': {
+    title: 'Nobody is waiting',
+    body: 'Every person on the waitlist has already been released, so there is nobody to invite. Nothing was released.',
+    next: 'Read the waves below. Release again once more people have joined.',
+  },
   'auth_key.approval_required': {
     title: 'The approval did not cover this key change',
     body: 'Identity checked the approval against the exact key change and refused it: it is missing, not approved, already used, expired, or for a different change. Nothing was changed.',

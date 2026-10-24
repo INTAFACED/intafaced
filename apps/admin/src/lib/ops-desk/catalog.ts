@@ -2090,7 +2090,14 @@ const moreSections: readonly DeskSection[] = [
       ),
     ],
     disabledActions: [],
-    links: [{ href: '/crm', label: 'CRM outreach campaigns', why: 'Enquiries, sources and outreach campaigns that do exist.' }],
+    links: [
+      {
+        href: '/more-ops/campaigns/waves',
+        label: 'Waitlist waves',
+        why: 'The waitlist queue in svc-identity and the two-founder release of the next wave.',
+      },
+      { href: '/crm', label: 'CRM outreach campaigns', why: 'Enquiries, sources and outreach campaigns that do exist.' },
+    ],
   },
 ];
 

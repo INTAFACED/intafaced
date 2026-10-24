@@ -26,6 +26,7 @@ export const REASON_MAX = 500;
 const MAX_PACKET_CHARS = 6_000;
 const ID = /^[A-Za-z0-9._:-]{1,128}$/;
 const VERSION = /^[\x20-\x7e]{1,128}$/;
+const WHOLE = /^[1-9][0-9]{0,8}$/;
 
 export type DeskRequest =
   | { readonly kind: 'edge.kill'; readonly module: ModuleId; readonly disabled: boolean; readonly reason: string }
@@ -40,6 +41,8 @@ export type DeskRequest =
   | { readonly kind: 'market.listing.takedown'; readonly listingId: string; readonly reason: string }
   | { readonly kind: 'identity.auth_key.rotate'; readonly keyId: string }
   | { readonly kind: 'identity.auth_key.remove_old'; readonly keyIds: string }
+  /** Release the next waitlist wave (svc-identity `waitlist.waves.release`, RC-campaigns-03). `size` is the owner's wave size read. */
+  | { readonly kind: 'campaigns.waitlist.wave_release'; readonly wave: string; readonly size: string }
   /** Lift a staff freeze on one account (svc-identity `accountControls.change`, restore). `version` is the identity control version read. */
   | { readonly kind: 'identity.account.unfreeze'; readonly userId: string; readonly reason: string; readonly version: string }
   /** Staff close and reopen of one account (J-ops-console-04 #7). A close carries a reason code from identity's list. */
@@ -226,6 +229,12 @@ export function readDeskRequest(raw: unknown): DeskRequest | null {
     if (typeof raw.keyId !== 'string' || !AUTH_KEY_ID.test(raw.keyId) || raw.keyId === 'legacy') return null;
     return { kind: 'identity.auth_key.rotate', keyId: raw.keyId };
   }
+  // svc-identity binds the wave number and the owner's wave size to the approval, both as whole-number strings.
+  if (raw.kind === 'campaigns.waitlist.wave_release') {
+    if (keys !== 'kind,size,wave') return null;
+    if (typeof raw.wave !== 'string' || !WHOLE.test(raw.wave) || typeof raw.size !== 'string' || !WHOLE.test(raw.size)) return null;
+    return { kind: 'campaigns.waitlist.wave_release', wave: raw.wave, size: raw.size };
+  }
   if (raw.kind === 'identity.auth_key.remove_old') {
     if (keys !== 'keyIds,kind') return null;
     if (typeof raw.keyIds !== 'string') return null;
@@ -375,6 +384,8 @@ export function confirmPhrase(request: DeskRequest): string {
       return `ROTATE KEY ${request.keyId}`;
     case 'identity.auth_key.remove_old':
       return 'REMOVE OLD KEYS';
+    case 'campaigns.waitlist.wave_release':
+      return `RELEASE WAVE ${request.wave}`;
     case 'identity.account.unfreeze':
       return `UNFREEZE ACCOUNT ${request.userId.slice(0, 8)}`;
     case 'identity.account.close':
@@ -433,6 +444,8 @@ export function describeRequest(request: DeskRequest): string {
       return `Rotate the access-token signing key to "${request.keyId}": new sign-ins are signed with it from now on, and the key that signs today keeps verifying, so nobody is signed out. Every other service must already carry the same key, or its checks of new tokens fail.`;
     case 'identity.auth_key.remove_old':
       return `Remove the previous signing keys (${request.keyIds}): tokens signed with them stop working at once and their holders have to sign in again. Only do this after the overlap.`;
+    case 'campaigns.waitlist.wave_release':
+      return `Release waitlist wave ${request.wave}: the ${request.size} people highest in the queue (most friends invited, then who joined first) are invited, once. A release is a record, not an account: nobody is signed up and nothing moves value. The invitation email is not connected, so each person sees it on their waitlist page.`;
     case 'identity.account.unfreeze':
       return `Lift the staff freeze on account ${request.userId} ("${request.reason}"): its owner can sign in again. Sessions, API keys and sub-accounts revoked by the freeze stay revoked. Identity applies it only if the account is still at control version ${request.version}.`;
     case 'identity.account.close':
@@ -462,6 +475,7 @@ export function requestReason(request: DeskRequest): string | null {
     case 'academy.residency.decide':
     case 'identity.auth_key.rotate':
     case 'identity.auth_key.remove_old':
+    case 'campaigns.waitlist.wave_release':
     case 'protocol.pool.restore':
     case 'protocol.market.restore':
       return null;
