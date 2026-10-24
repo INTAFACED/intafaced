@@ -1,6 +1,8 @@
 import { z } from 'zod';
-import { formatAmount, type LedgerTx } from '@intafaced/ledger-client';
+import type { LedgerTx } from '@intafaced/ledger-client';
 import { recordLookup, type LookupActor, type LookupRecorder } from './operator-lookup.js';
+import { bookingRecordSchema, type BookingRecord } from './operator-desk.js';
+import { BookingRecordMissingError, deskPosting, operatorPostingSchema } from './operator-tx-get.js';
 
 /**
  * OPERATOR TRACE: a business key to the transaction it booked (OPS-ledger-desk-01, ops-console-ledger-desk-005).
@@ -11,22 +13,13 @@ import { recordLookup, type LookupActor, type LookupRecorder } from './operator-
  * A read, never a post. Business keys are shown, never minted here. Amounts leave as decimal strings. A key with no
  * transaction is an honest `found: false`, never an invented row. The lookup writes an access row first and is refused
  * if it cannot (`operator-lookup.ts`). Entries name opaque account ids only: no customer
- * profile data is returned.
+ * profile data is returned. A found key also answers its place in the log and its audit entry: the booking record's
+ * sequence and the `tx.posted` event record written in the same commit. The ledger keeps no record of a write it
+ * refused, so a key that never booked has nothing more to show than `found: false`.
  */
 
 export const operatorTraceInputSchema = z.object({ businessKey: z.string().trim().min(1).max(512) }).strict();
 export type OperatorTraceInput = z.infer<typeof operatorTraceInputSchema>;
-
-const decimal = z.string().regex(/^-?\d+(\.\d{1,18})?$/);
-
-export const operatorTracePostingSchema = z.object({
-  entryId: z.string(),
-  accountId: z.string(),
-  assetId: z.string(),
-  direction: z.enum(['debit', 'credit']),
-  amount: decimal,
-  balanceAfter: decimal,
-});
 
 export const operatorTraceOutputSchema = z.discriminatedUnion('found', [
   z.object({ found: z.literal(false), businessKey: z.string() }),
@@ -39,13 +32,15 @@ export const operatorTraceOutputSchema = z.discriminatedUnion('found', [
     postedAt: z.string().datetime(),
     hash: z.string(),
     previousHash: z.string().nullable(),
-    postings: z.array(operatorTracePostingSchema),
+    booking: bookingRecordSchema,
+    postings: z.array(operatorPostingSchema),
   }),
 ]);
 export type OperatorTraceOutput = z.infer<typeof operatorTraceOutputSchema>;
 
 export interface TraceReader extends LookupRecorder {
   getTxByKey(idempotencyKey: string): Promise<LedgerTx | null>;
+  readBookingRecord(txId: string): Promise<BookingRecord | null>;
 }
 
 /** Thrown when the book answers with a transaction booked under a different key: refuse rather than show it. */
@@ -63,6 +58,8 @@ export async function traceBusinessKey(reader: TraceReader, actor: LookupActor, 
   const tx = await reader.getTxByKey(businessKey);
   if (!tx) return { found: false, businessKey };
   if (tx.idempotencyKey !== businessKey) throw new TraceInconsistentError(businessKey, tx.id);
+  const booking = await reader.readBookingRecord(tx.id);
+  if (!booking) throw new BookingRecordMissingError(tx.id);
   return {
     found: true,
     businessKey,
@@ -72,13 +69,7 @@ export async function traceBusinessKey(reader: TraceReader, actor: LookupActor, 
     postedAt: tx.postedAt.toISOString(),
     hash: tx.hash,
     previousHash: tx.previousHash,
-    postings: tx.entries.map((e) => ({
-      entryId: e.id,
-      accountId: e.accountId,
-      assetId: e.assetId,
-      direction: e.direction,
-      amount: formatAmount(e.amount),
-      balanceAfter: formatAmount(e.balanceAfter),
-    })),
+    booking,
+    postings: tx.entries.map(deskPosting),
   };
 }

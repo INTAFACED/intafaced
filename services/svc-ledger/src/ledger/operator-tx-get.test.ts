@@ -6,7 +6,7 @@ import { createLedgerRouter } from '../router.js';
 import type { LedgerService } from '../service.js';
 import { LookupUnrecordedError } from './operator-lookup.js';
 import type { OperatorAccessEntry } from './operator-owner-balances.js';
-import { LEDGER_TX_NOT_FOUND, operatorTxGet } from './operator-tx-get.js';
+import { BookingRecordMissingError, LEDGER_TX_NOT_FOUND, operatorTxGet } from './operator-tx-get.js';
 
 const USER = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const MISSING = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
@@ -26,6 +26,17 @@ async function ctx(scopes: string[], mfa: boolean): Promise<Context> {
 }
 
 const ACTOR = { actorId: USER, requestId: 'req-1' };
+const BOOKING = {
+  seq: '7',
+  bookedAt: '2026-10-24T12:00:00.000Z',
+  reference: 'corr-TEST-1',
+  event: {
+    id: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+    subject: 'intafaced.ledger.tx.posted' as const,
+    recordedAt: '2026-10-24T12:00:00.000Z',
+    publishedAt: null,
+  },
+};
 
 /** TEST amounts only. A memory book that also keeps the access rows a lookup writes. */
 async function seeded() {
@@ -33,7 +44,10 @@ async function seeded() {
   const deposit = recipes.deposit({ userId: USER, assetId: 'USDT', amount: parseAmount('7.25'), rail: 'test', railRef: 'txget-1' });
   const tx = await book.post(deposit);
   const access: OperatorAccessEntry[] = [];
-  const ledger = Object.assign(book, { recordOperatorAccess: async (entry: OperatorAccessEntry) => void access.push(entry) });
+  const ledger = Object.assign(book, {
+    recordOperatorAccess: async (entry: OperatorAccessEntry) => void access.push(entry),
+    readBookingRecord: async (id: string) => (id === tx.id ? BOOKING : null),
+  });
   return { ledger, deposit, tx, access };
 }
 
@@ -46,6 +60,7 @@ describe('operatorTxGet', () => {
     expect(out.postings.map((p) => p.amount)).toContain('7.25');
     for (const p of out.postings) expect(typeof p.balanceAfter).toBe('string');
     expect(out).not.toHaveProperty('meta');
+    expect(out.booking).toEqual(BOOKING);
     expect(access).toEqual([{ actorId: USER, requestId: 'req-1', ownerType: 'transaction', ownerId: tx.id, action: 'transaction.read' }]);
   });
 
@@ -58,9 +73,28 @@ describe('operatorTxGet', () => {
         read = true;
         return null;
       },
+      readBookingRecord: async () => BOOKING,
     };
     await expect(operatorTxGet(reader, ACTOR, { txId: tx.id })).rejects.toBeInstanceOf(LookupUnrecordedError);
     expect(read).toBe(false);
+  });
+
+  it('shows where value came from and went, with each balance before and after', async () => {
+    const { ledger, tx } = await seeded();
+    const out = await operatorTxGet(ledger, ACTOR, { txId: tx.id });
+    // A deposit credits the rail (value leaves it) and debits the customer's account (value arrives).
+    expect(out.postings.map((p) => [p.direction, p.side, p.amount, p.balanceBefore, p.balanceAfter]).sort()).toEqual(
+      [
+        ['credit', 'source', '7.25', '0', '-7.25'],
+        ['debit', 'destination', '7.25', '0', '7.25'],
+      ].sort(),
+    );
+  });
+
+  it('refuses a transaction with no row in the log rather than showing it without one', async () => {
+    const { ledger, tx } = await seeded();
+    const lost = Object.assign(Object.create(ledger) as typeof ledger, { readBookingRecord: async () => null });
+    await expect(operatorTxGet(lost, ACTOR, { txId: tx.id })).rejects.toBeInstanceOf(BookingRecordMissingError);
   });
 
   it('refuses an unknown id with ledger.tx_not_found, never an empty row', async () => {
@@ -74,7 +108,11 @@ describe('operatorTxGet', () => {
   });
 
   it('surfaces a read failure', async () => {
-    const reader = { recordOperatorAccess: async () => {}, getTx: () => Promise.reject(new Error('db down')) };
+    const reader = {
+      recordOperatorAccess: async () => {},
+      getTx: () => Promise.reject(new Error('db down')),
+      readBookingRecord: async () => BOOKING,
+    };
     await expect(operatorTxGet(reader, ACTOR, { txId: MISSING })).rejects.toThrow('db down');
   });
 });
