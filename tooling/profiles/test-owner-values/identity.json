@@ -6,6 +6,11 @@
       "value": "standard:spot+convert+algo+copy,managed:spot,spot:spot",
       "note": "Which trading features a main account may turn on for each sub-account kind. Futures is refused in code until derivatives eligibility is readable."
     },
+    "IDENTITY_MFA_RESET_WAIT_SECONDS": {
+      "service": "identity",
+      "value": "20",
+      "note": "A locked-out second-step reset completes twenty seconds after its mailed code is confirmed, so the journey sees the waiting time, a stop from a signed-in session, and a reset that completes (J-identity-05 #2, #3)."
+    },
     "IDENTITY_SECURITY_LOCK_UNLOCK_WAIT_SECONDS": {
       "service": "identity",
       "value": "86400",

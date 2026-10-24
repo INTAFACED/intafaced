@@ -333,7 +333,7 @@ export const mailOutbox = identity.table(
     dedupeKey: text('dedupe_key'),
     bodyHash: text('body_hash'),
     detail: text('detail'),
-    /** Sends that threw. Only a password-changed notice is tried again, until this reaches `MAIL_RETRY_CAP`. */
+    /** Sends that threw. Only a security notice (password changed, second-step reset) is tried again, until this reaches `MAIL_RETRY_CAP`. */
     failedSends: integer('failed_sends').notNull().default(0),
     /** A retried notice waits until this time; null for every first try. */
     nextAttemptAt: tstz('next_attempt_at'),

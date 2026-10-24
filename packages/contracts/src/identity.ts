@@ -109,6 +109,45 @@ export const securityLockSchema = z
   })
   .strict();
 export type SecurityLockView = z.infer<typeof securityLockSchema>;
+
+/**
+ * The locked-out second-step reset (I-signin-sessions-12, J-identity-05 #2/#3), svc-identity's top-level `mfaReset`.
+ * `start` and `confirm` answer a view: a code sent to the masked proved address, or the wait with who was told. `sms`
+ * names the missing texting rail when a proved phone could not be texted. `status` is the account's waiting reset, for
+ * its own sessions; `cancel` says whether one was stopped.
+ */
+export const mfaResetViewSchema = z.discriminatedUnion('state', [
+  z
+    .object({
+      state: z.literal('code_sent'),
+      resetId: z.string().guid(),
+      email: z.string(),
+      codeExpiresAt: z.string().datetime({ offset: true }),
+    })
+    .strict(),
+  z
+    .object({
+      state: z.literal('waiting'),
+      resetId: z.string().guid(),
+      completesAt: z.string().datetime({ offset: true }),
+      told: z.object({ email: z.string(), sms: z.literal('vendor.sms').nullable() }).strict(),
+    })
+    .strict(),
+]);
+export type MfaResetView = z.infer<typeof mfaResetViewSchema>;
+export const mfaResetStatusSchema = z
+  .object({
+    waiting: z
+      .object({
+        resetId: z.string().guid(),
+        waitingSince: z.string().datetime({ offset: true }),
+        completesAt: z.string().datetime({ offset: true }),
+      })
+      .strict()
+      .nullable(),
+  })
+  .strict();
+export const mfaResetCancelSchema = z.object({ cancelled: z.boolean() }).strict();
 /**
  * A mail another service asks identity to send to a customer's own proved address (`POST /internal/mail`, service
  * credentials). Identity holds the address, so the caller names the account and never sees or sends one. Each purpose

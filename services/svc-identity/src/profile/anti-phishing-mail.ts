@@ -28,6 +28,10 @@ export const ANTI_PHISHING_MAIL_PURPOSES: ReadonlySet<MailPurpose> = new Set<Mai
   'new-device-code',
   'withdraw-address-approval',
   'password-changed',
+  'mfa-reset-code',
+  'mfa-reset-started',
+  'mfa-reset-cancelled',
+  'mfa-reset-completed',
 ]);
 
 /** The code set on the account (by id, else by its address), or null (no account, no code, no key, or unreadable). */

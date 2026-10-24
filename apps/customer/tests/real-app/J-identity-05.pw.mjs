@@ -110,10 +110,22 @@ test(`${J} #1, on a phone never used before: once the device is approved with th
   await context.close();
 });
 
-/** At the second step with no codes to hand: "I lost my authenticator" starts the locked-out reset (I-signin-sessions-12). */
+/**
+ * At the second step with no codes to hand: "I lost my authenticator" starts the locked-out reset (I-signin-sessions-12):
+ * the password again, then the code mailed to the proved address, and the wait begins.
+ */
 async function startLockedOutReset(browser, who) {
   const at = await atSecondStep(browser, who);
-  await at.page.getByRole('button', { name: 'I lost my authenticator' }).click(UNBUILT);
+  await at.page.getByRole('button', { name: 'I lost my authenticator' }).click();
+  await expect(at.page.getByRole('heading', { name: 'Reset your second step' })).toBeVisible();
+  await expect(at.page.getByLabel('Email or handle')).toHaveValue(who.email);
+  await at.page.getByLabel('Password', { exact: true }).fill(who.password);
+  const seen = mailedCodes(who.email, 'mfa-reset-code').length;
+  await at.page.getByRole('button', { name: 'Email me a code' }).click();
+  await expect(at.page.getByRole('status').filter({ hasText: 'We emailed a 6-digit code' })).toBeVisible();
+  await at.page.getByLabel('Code from the email').fill(await nextMailedCode(who.email, seen, 20_000, 'mfa-reset-code'));
+  await at.page.getByRole('button', { name: 'Start the reset' }).click();
+  await expect(at.page.getByRole('status').filter({ hasText: 'second step is being reset' })).toContainText('until');
   return at;
 }
 
@@ -125,20 +137,51 @@ test(`${J} #2 with no recovery codes left, a locked-out reset tells every contac
   const { who } = await withAuthenticator(page);
   const seen = mailedLines(who.email, 'mfa-reset-started').length;
   const { context, page: other } = await startLockedOutReset(browser, who);
-  await expect(other.getByRole('status').filter({ hasText: 'second step is being reset' })).toContainText('until', UNBUILT);
-  await expect.poll(() => mailedLines(who.email, 'mfa-reset-started').length, UNBUILT).toBeGreaterThan(seen);
+  // Every contact on file: this person's only contact is the proved email, which is told with the end of the wait. (A
+  // phone number on file is named as not texted in this build: mfa-reset.pg.test.ts.)
+  await expect(other.getByText('an email went to')).toBeVisible();
+  await expect.poll(() => mailedLines(who.email, 'mfa-reset-started').length).toBeGreaterThan(seen);
+  expect(mailedLines(who.email, 'mfa-reset-started').at(-1)).toMatch(/ until=\d{4}-\d\d-\d\dT/);
+  // During the wait the password alone still does not get in.
+  await other.getByRole('button', { name: 'Back to sign in' }).click();
+  await fillSignIn(other, who);
+  await expect(other.getByRole('alert')).toContainText('Your password is right');
+  // A blank waiting setting refuses and points to Support: the stack sets it (TEST), so the refusal is proved in
+  // apps/customer/src/features/public/mfa-reset.test.tsx and services/svc-identity/src/auth/mfa-reset.pg.test.ts.
   await context.close();
 });
 
 test(`${J} #3 a reset stops when cancelled from a signed-in session; otherwise it completes after the wait`, async ({ page, browser }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(150_000);
   const { who } = await withAuthenticator(page);
-  const { context } = await startLockedOutReset(browser, who);
+  const first = await startLockedOutReset(browser, who);
   // The phone is still signed in: Security names the waiting reset and stops it.
   await page.goto('/uc/safe');
-  await page.getByRole('button', { name: 'Stop this reset' }).click(UNBUILT);
-  await expect(page.getByRole('status').filter({ hasText: 'The reset was stopped' })).toBeVisible(UNBUILT);
-  await context.close();
+  await expect(page.getByRole('region', { name: 'Second step reset waiting' })).toContainText('removed after');
+  const cancelled = mailedLines(who.email, 'mfa-reset-cancelled').length;
+  await page.getByRole('button', { name: 'Stop this reset' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'The reset was stopped' })).toBeVisible();
+  await expect.poll(() => mailedLines(who.email, 'mfa-reset-cancelled').length).toBeGreaterThan(cancelled);
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Stop this reset' })).toHaveCount(0);
+  await expect(page.locator('.security__authenticator').filter({ hasText: 'Recovery codes left' })).toBeVisible();
+  await first.context.close();
+
+  // Not cancelled: once the TEST wait (20 s, tooling/profiles/test-owner-values/identity.json) has passed, the password
+  // alone signs in; the app and its codes are gone and every older session has ended.
+  const second = await startLockedOutReset(browser, who);
+  const done = mailedLines(who.email, 'mfa-reset-completed').length;
+  await second.page.waitForTimeout(21_000);
+  await second.page.getByRole('button', { name: 'Back to sign in' }).click();
+  await fillSignIn(second.page, who);
+  await expect(second.page).not.toHaveURL(/\/login/, { timeout: 15_000 });
+  await expect.poll(() => mailedLines(who.email, 'mfa-reset-completed').length).toBeGreaterThan(done);
+  await second.page.goto('/uc/safe');
+  await expect(second.page.getByRole('button', { name: 'Start authenticator setup' })).toBeVisible();
+  // The phone's session ended with the reset.
+  await page.goto('/money');
+  await expect(page.getByRole('heading', { name: 'Sign in to continue' })).toBeVisible({ timeout: 15_000 });
+  await second.context.close();
 });
 
 test(`${J} #4 replacing the authenticator on the new phone ends the old device's sessions and shows new recovery codes once`, async ({
