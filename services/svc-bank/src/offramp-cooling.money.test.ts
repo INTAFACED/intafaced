@@ -8,6 +8,7 @@ import { describe, expect, it, beforeAll, beforeEach, afterAll } from 'vitest';
 import { MemoryLedger, formatAmount, parseAmount as amt, userAvailable } from '@intafaced/ledger-client';
 import { RampService } from './ramps/ramp-service.js';
 import { CRYPTO_LEDGER_PROGRAMME } from './ramps/rails.js';
+import { memorySecurityLock } from './security-lock.js';
 
 /**
  * H8b money proof — offramp cooling is dest-elapsed and PG-hard.
@@ -122,6 +123,7 @@ describe('svc-bank offramp cooling dest-elapsed money', () => {
     await sql`TRUNCATE bank.ramp_offramps, bank.ramp_onramps, bank.user_withdraw_destinations RESTART IDENTITY CASCADE`;
     ledger = new MemoryLedger();
     ramps = new RampService(sql, ledger, {
+      securityLock: memorySecurityLock(),
       programme: CRYPTO_LEDGER_PROGRAMME,
       offrampCoolingHours: '48',
     });
@@ -130,6 +132,7 @@ describe('svc-bank offramp cooling dest-elapsed money', () => {
   it('blank owner window refuses bank.offramp_cooling_unset with zero ledger posts', async () => {
     await fund();
     const closed = new RampService(sql, ledger, {
+      securityLock: memorySecurityLock(),
       programme: CRYPTO_LEDGER_PROGRAMME,
       offrampCoolingHours: '',
     });
@@ -238,6 +241,7 @@ describe('svc-bank offramp cooling dest-elapsed money', () => {
 
   it('zero hours is a real owner choice — dest just changed is not cooling_active', async () => {
     const zero = new RampService(sql, ledger, {
+      securityLock: memorySecurityLock(),
       programme: CRYPTO_LEDGER_PROGRAMME,
       offrampCoolingHours: '0',
     });

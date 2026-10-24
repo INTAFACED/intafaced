@@ -182,7 +182,8 @@ import { SqlCopyFollowStore } from './copy/follow-store.js';
 import { SqlMirrorEventLog } from './copy/mirror-events.js';
 import { sqlLeaderDirectory } from './copy/leader-directory.js';
 import { createFollowerFlattenPort } from './copy/follower-flatten-port.js';
-import type { PlaceFollowerOrderPort } from './copy/auto-mirror-place.js';
+import { parseCopyPlaceMirrorFlag, type PlaceFollowerOrderPort } from './copy/auto-mirror-place.js';
+import { createJobHost } from './futures/job-host.js';
 import { SqlMarketLifecycleAuthority, SqlMarketLifecycleEvidenceStore, assertNoLocalTestLifecycleRows } from './market-lifecycle.js';
 import { registerMarketLifecycleRoutes } from './market-lifecycle-routes.js';
 import { localTestTapeRetimeEnabled } from './spot/local-test-tape.js';
@@ -375,8 +376,8 @@ const placeFollowerOrder: PlaceFollowerOrderPort = async (principal, input) => {
   const order = await trade.placeCopyMirror(
     principal,
     {
+      // A copy names its market by symbol (the leader fill's market), so the order resolves it by symbol too.
       symbol: input.symbol,
-      marketId: input.marketId,
       side: input.side,
       type: 'limit',
       qty: input.qty,
@@ -413,7 +414,21 @@ const copy = new CopyService(ledger, {
   }),
   inspectMarket: async (symbol) => {
     const market = await trade.marketBySymbol(symbol);
-    return market ? { paper: market.paper } : null;
+    return market ? { paper: market.paper, lotSize: market.lotSize } : null;
+  },
+  // The copy driver's read: the leader's own live spot fills after the follow began, oldest first.
+  // Fill times are compared at millisecond precision, the precision the cursor keeps, so a fill is never read twice.
+  listLeaderFillsSince: async (leaderId, after, limit) => {
+    const rows = await sql<Array<{ id: string; symbol: string; created_at: Date }>>`
+      SELECT f.id, m.symbol, f.created_at
+        FROM trade.fills f
+        INNER JOIN trade.markets m ON m.id = f.market_id
+       WHERE f.user_id = ${leaderId} AND m.kind = 'spot' AND m.paper = false
+         AND (date_trunc('milliseconds', f.created_at), f.id::text) > (${after.at}::timestamptz, ${after.fillId ?? ''}::text)
+       ORDER BY date_trunc('milliseconds', f.created_at) ASC, f.id ASC
+       LIMIT ${limit}
+    `;
+    return rows.map((row) => ({ fillId: row.id, marketId: row.symbol, at: new Date(row.created_at) }));
   },
   lookupFollowerFillFee: async (fillId) => {
     const id = canonicalizeCopyFillId(fillId);
@@ -802,6 +817,16 @@ const mmSeedJobs = startMmSeedJobs({
     }
   },
 });
+// The copy driver: copies each new leader fill for every active follow with a place grant (CB-copy-10).
+const copyMirrorJobs = createJobHost({ onError: (name, err) => app.log.error({ err, job: name }, 'copy mirror sweep tick failed') });
+if (parseCopyPlaceMirrorFlag(process.env.TRADE_COPY_PLACE_MIRROR)) {
+  copyMirrorJobs.every('trade.copy_mirror_sweep', env.TRADE_COPY_MIRROR_SWEEP_INTERVAL_MS, async () => {
+    const result = await copy.runMirrorSweep({
+      onFollowFailed: (followId, err) => app.log.error({ err, followId }, 'copy mirror sweep — this follow is tried again next sweep'),
+    });
+    if (result.refused > 0) app.log.warn(result, 'copy mirror sweep — some leader fills were not copied (reasons on the mirror trail)');
+  });
+}
 const algoJobs = startAlgoJobs({
   trade,
   config: { enabled: env.TRADE_ALGO_JOBS_ENABLED, intervalMs: env.TRADE_ALGO_JOBS_INTERVAL_MS },
@@ -1367,6 +1392,7 @@ app.log.info(
     mmSeedJobs: mmSeedJobs.host.list(),
     algoJobsEnabled: env.TRADE_ALGO_JOBS_ENABLED,
     algoJobs: algoJobs.host.list(),
+    copyMirrorJobs: copyMirrorJobs.list(),
     optionsJobsEnabled: env.TRADE_OPTIONS_JOBS_ENABLED,
     optionsJobs: optionsExerciseJobs.host.list(),
     reconcileJobsEnabled: env.TRADE_RECONCILE_JOBS_ENABLED,
@@ -1386,6 +1412,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       trailingMarkJobs.stop();
       mmSeedJobs.stop();
       algoJobs.stop();
+      copyMirrorJobs.stopAll();
       optionsExerciseJobs.stop();
       reconcileJobs.stop();
       holdUnknownSweep.stop();

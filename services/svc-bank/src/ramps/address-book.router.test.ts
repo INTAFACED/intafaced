@@ -11,6 +11,7 @@ import { memoryWithdrawDestinations, type UserWithdrawDestinations } from '../wi
 import { RampService } from './ramp-service.js';
 import { memoryWithdrawNetworks, type WithdrawNetworkSource } from './withdraw-networks.js';
 import { memoryWalletProofs, type WalletProofStore } from './wallet-ownership.js';
+import { memorySecurityLock } from '../security-lock.js';
 
 /** W-withdraw-08 through the router: who may save, rename and remove, and what a list row shows. */
 
@@ -52,6 +53,7 @@ function callerWith(
     expiresAt: new Date(Date.now() + 60_000),
   } as Principal);
   const ramps = new RampService({} as Sql, {} as LedgerClient, {
+    securityLock: memorySecurityLock(),
     destinations,
     addressBookCap: '2',
     withdrawNetworks: networks,
@@ -251,6 +253,7 @@ describe('bank.ramps.destinations: a changed character and a look-alike address 
   it('records a look-alike confirmation only from its own check, never from what a caller passes in', async () => {
     const destinations = book();
     const ramps = new RampService({} as Sql, {} as LedgerClient, {
+      securityLock: memorySecurityLock(),
       destinations,
       addressBookCap: '5',
       withdrawNetworks: REGISTRY,
@@ -329,6 +332,7 @@ describe('bank.ramps.destinations.ownership: prove a saved wallet (W-withdraw-17
     const destinations = memoryWithdrawDestinations({ addressBookCap: () => '5' });
     const saved = await destinations.save({ userId: USER, ...entry, ref: WALLET, label: 'TEST private' });
     const ramps = new RampService({} as Sql, {} as LedgerClient, {
+      securityLock: memorySecurityLock(),
       destinations,
       withdrawNetworks: REGISTRY,
       walletProofs: memoryWalletProofs(),

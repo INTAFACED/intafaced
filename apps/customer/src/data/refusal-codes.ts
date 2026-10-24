@@ -68,6 +68,7 @@ export type RefusalKind =
   | 'walletAddress'
   | 'addressLabelTaken'
   | 'addressBookFull'
+  | 'securityLocked'
   | 'activitySortBounded'
   | 'entriesDoNotSum'
   | 'entriesTooLong'
@@ -241,6 +242,8 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'bank.eligibility_unset': 'eligibilityUnset',
   'bank.destination_label_taken': 'addressLabelTaken',
   'bank.address_book_full': 'addressBookFull',
+  'bank.security_locked': 'securityLocked',
+  'bank.security_lock_unavailable': 'tryAgain',
   'bank.global_corridors_unset': 'globalOff',
   'bank.global_corridors_unusable': 'globalOff',
   'bank.global_payout_unset': 'globalOff',

@@ -101,6 +101,19 @@ export const copyDisclosureSchema = z.object({
 });
 export type CopyDisclosure = z.infer<typeof copyDisclosureSchema>;
 
+/** One order the copy placed for this person, read from their own order book. */
+export const copyPositionSchema = z.object({
+  orderId: z.string(),
+  market: z.string(),
+  side: z.enum(['buy', 'sell']),
+  qty: decimalSchema,
+  filledQty: decimalSchema,
+  price: decimalSchema,
+  status: z.string(),
+  placedAt: z.string(),
+});
+export type CopyPosition = z.infer<typeof copyPositionSchema>;
+
 export const LEADER_PAGE = 50;
 export const LEADER_TRADES_PAGE = 20;
 
@@ -162,6 +175,11 @@ export function createRoomApi(api: ApiClient) {
     acceptDisclosure: (input: { version: string; clientAcceptId: string }) =>
       api.mutate('trade', 'copy.acceptDisclosure', input, z.object({ version: z.string() }).passthrough()),
     followAction: tools.copyAction,
+    /** Lets the service place each copy as this person. The one-time key it answers with is never kept. */
+    grantCopying: (followId: string) => api.mutate('trade', 'copy.grantSessionKey', { followId }, copyFollowSchema),
+    stopCopying: (followId: string) => api.mutate('trade', 'copy.killSessionKey', { followId }, copyFollowSchema),
+    followPositions: (followId: string, signal?: AbortSignal) =>
+      api.query('trade', 'copy.followPositions', { followId }, z.object({ positions: z.array(copyPositionSchema) }), { signal }),
     flatten: (followId: string) => api.mutate('trade', 'copy.flatten', { followId }, ackSchema.passthrough()),
     algoPolicy: (signal?: AbortSignal) => api.query('trade', 'algo.policy', undefined, algoPolicySchema, { signal }),
     createTwap: (input: TwapRequest) => api.mutate('trade', 'algo.createTwap', input, algoSchema),

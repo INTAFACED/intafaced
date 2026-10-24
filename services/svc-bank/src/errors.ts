@@ -430,6 +430,12 @@ export type BankErrorCode =
   | 'bank.recipient_check_unavailable'
   /** No IDENTITY_URL: this deployment cannot check recipients, so it refuses to credit another user. A deployment gap, not an outage. */
   | 'bank.recipient_check_unset'
+  /** The owner's security lock holds (W-withdraw-09): no withdrawal address is added or removed and nothing is sent to one until it ends. */
+  | 'bank.security_locked'
+  /** Identity could not answer the security lock check (outage, timeout, bad reply). Nothing changed; retry. */
+  | 'bank.security_lock_unavailable'
+  /** No IDENTITY_URL: this deployment cannot check the security lock, so address changes and sends refuse. A deployment gap. */
+  | 'bank.security_lock_unset'
   /** Same (rail, railRef), (user, clientRef), or offramp id already booked with different facts. */
   | 'bank.ramp_conflict'
   /** A send over a bank rail with a recipient field that rail's form refuses (the message names the field). Nothing kept. */
