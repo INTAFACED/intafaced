@@ -412,7 +412,8 @@ export async function completePasswordReset(
         FOR UPDATE
       `;
       if (!proof[0]) throw new AuthError(INVALID_PROOF, 'auth.reset_proof_invalid');
-      await tx`UPDATE users SET password_hash = ${nextHash}, updated_at = now() WHERE id = ${user.id}`;
+      // A reset gives back a password the owner stopped using (I-account-lifecycle-07): the mailed code proved the address.
+      await tx`UPDATE users SET password_hash = ${nextHash}, password_set = true, updated_at = now() WHERE id = ${user.id}`;
       await tx`
         UPDATE auth_flows SET status = 'consumed', consumed_at = ${deps.now()}
         WHERE user_id = ${user.id} AND kind = 'password_reset' AND consumed_at IS NULL

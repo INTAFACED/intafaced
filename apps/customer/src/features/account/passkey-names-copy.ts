@@ -35,7 +35,7 @@ const messages = {
   chooseLabel: 'Choose what passkey {id} is for',
   purposesLegend: 'Keep this passkey for',
   purposesHint:
-    'For an action with a passkey kept for it, only that passkey is offered. Otherwise the passkeys kept for nothing in particular are. Tick none to keep it for nothing in particular.',
+    'For an action with a passkey kept for it, only that passkey is offered. Otherwise the passkeys kept for nothing in particular are, and when every passkey is kept for something else, any of them works. Tick none to keep it for nothing in particular.',
   purposesSaved: 'Saved what this passkey is for.',
   secondStepTitle: 'A passkey after your password',
   secondStepOn: 'On: signing in with your password also asks for one of your passkeys.',

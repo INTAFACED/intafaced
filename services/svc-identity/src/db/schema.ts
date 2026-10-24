@@ -66,6 +66,8 @@ export const users = identity.table(
     webauthnCreds: jsonb('webauthn_creds').notNull().default([]),
     /** The owner asked for a passkey after the password at sign-in (I-signin-sessions-10). Read only while a passkey exists. */
     passkeySecondStep: boolean('passkey_second_step').notNull().default(false),
+    /** The owner signs in by a mailed code to the proved address (I-account-lifecycle-07). On unless they turned it off. */
+    emailCodeSignin: boolean('email_code_signin').notNull().default(true),
     status: userStatusEnum('status').notNull().default('active'),
     identityControlVersion: bigint('identity_control_version', { mode: 'bigint' }).notNull().default(0n),
     /** Staff close reason code (0068). Null while open, and for a closure the customer finalised. */
