@@ -298,7 +298,11 @@ describe.each(stores)('new-address approval: %s', (_name, make) => {
       expect(approved.approvedAt).toBeInstanceOf(Date);
       expect(approved.updatedAt.getTime()).toBeGreaterThanOrEqual(entry.updatedAt.getTime());
       clock.now = new Date(clock.now.getTime() + 60_000);
-      const again = await approveOnDevice(deps, { userId: u, destinationId: entry.destinationId, approving: { fam: SIGN_IN_B, dev: null } });
+      const again = await approveOnDevice(deps, {
+        userId: u,
+        destinationId: entry.destinationId,
+        approving: { fam: SIGN_IN_B, dev: null },
+      });
       expect(again).toEqual(approved);
     });
 
