@@ -1,5 +1,12 @@
 import { z } from 'zod';
-import { router, scopedProcedure } from '@intafaced/contracts';
+import {
+  router,
+  scopedProcedure,
+  serviceProcedureFor,
+  BANK_INTERNAL_WITHDRAWAL_CALLERS,
+  bankInternalWithdrawalInputSchema,
+  bankInternalWithdrawalSchema,
+} from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { activityFailure } from '../activity/activity.router.js';
 import { assertSelf } from '../assert-self.js';
@@ -665,6 +672,28 @@ export function createTransfersRouter(c: BankRouterContext) {
             skipped: [...report.skipped],
           };
         }),
+      ),
+
+    /**
+     * A withdrawal svc-pay settles inside the book because its address belongs to another account here (W-withdraw-14):
+     * one person-to-person send from the sender's main account under svc-pay's key `withdraw:<withdrawal id>`, with the
+     * same terms, limits and freezes as any send. Service-only: `serviceProcedureFor` proves the caller is svc-pay before
+     * the input is parsed. `refused` only when nothing was posted; anything that may have posted fails the call, so svc-pay
+     * asks again with the same key.
+     */
+    settleWithdrawal: serviceProcedureFor(BANK_INTERNAL_WITHDRAWAL_CALLERS)
+      .input(bankInternalWithdrawalInputSchema)
+      .output(bankInternalWithdrawalSchema)
+      .mutation(async ({ input }) =>
+        guard(async () =>
+          bank.personalPay.settleWithdrawal({
+            transferId: input.transferId,
+            fromUserId: input.fromUserId,
+            toUserId: input.toUserId,
+            assetId: input.assetId,
+            amount: parseAmount(input.amount),
+          }),
+        ),
       ),
   });
 }

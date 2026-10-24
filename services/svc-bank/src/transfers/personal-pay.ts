@@ -225,7 +225,7 @@ export class PersonalPayService {
     private readonly sql: Sql,
     private readonly ledger: Pick<LedgerClient, 'getTx' | 'getTxByKey' | 'balance'>,
     private readonly transfers: Pick<TransferService, 'transferToUser'>,
-    private readonly spaces: Pick<SpaceService, 'get' | 'findPrimary'>,
+    private readonly spaces: Pick<SpaceService, 'get' | 'findPrimary' | 'ensurePrimary'>,
     private readonly options: {
       handles?: PartyHandlePort;
       notices?: PersonalRequestNotices;
@@ -368,6 +368,51 @@ export class PersonalPayService {
     if (row.status === 'posted' && !row.announced_at) await this.announcePosted(row, ledgerTxId, now);
     if (row.status === 'posted') await this.creditPosted(row, ledgerTxId);
     return this.toTransferView(row);
+  }
+
+  /**
+   * svc-pay's withdrawal to another person's platform address, settled inside the book (W-withdraw-14). It is one
+   * person-to-person send from the sender's main account, under svc-pay's key `withdraw:<withdrawal id>`, so the same terms,
+   * limits, freezes and history apply as to a send the person makes here, and the receiver sees who sent it. A retry with the
+   * same key resumes the same send and posts once.
+   *
+   * `refused` only when this send provably posted nothing: a typed refusal (an unknown, frozen or closed receiver, the limits,
+   * too little money) or a ledger refusal that proves no commit. Every other failure throws, so the caller hears "unknown"
+   * and asks again with the same key.
+   */
+  async settleWithdrawal(input: {
+    transferId: string;
+    fromUserId: string;
+    toUserId: string;
+    assetId: string;
+    amount: Amount;
+  }): Promise<{ state: 'posted'; transferId: string; ledgerTxId: string } | { state: 'refused'; code: string }> {
+    try {
+      const from =
+        (await this.spaces.findPrimary(input.fromUserId, input.assetId)) ??
+        (await this.spaces.ensurePrimary(input.fromUserId, input.assetId));
+      const sent = await this.send({
+        actorUserId: input.fromUserId,
+        transferId: input.transferId,
+        fromSpaceId: from.id,
+        toUserId: input.toUserId,
+        amount: input.amount,
+      });
+      return { state: 'posted', transferId: sent.transferId, ledgerTxId: sent.ledgerTxId };
+    } catch (err) {
+      if (!isDefinitePersonalRefusal(err)) throw err;
+      // A refusal is the caller's licence to close its withdrawal, so it is checked against the book first: if this key
+      // already holds this very send (an earlier attempt that landed after a race), the answer is that send.
+      const booked = await this.ledger.getTxByKey(bankTransferKey('p2p', input.transferId, 0));
+      if (booked) {
+        const from = await this.spaces.findPrimary(input.fromUserId, input.assetId);
+        if (from && (await this.bookedSendMatches(booked, from.id, input.toUserId, input.assetId, input.amount)))
+          return { state: 'posted', transferId: input.transferId, ledgerTxId: booked.id };
+        throw err;
+      }
+      const code = (err as { code?: unknown }).code;
+      return { state: 'refused', code: typeof code === 'string' && code ? code : 'bank.internal_withdrawal_refused' };
+    }
   }
 
   /**
