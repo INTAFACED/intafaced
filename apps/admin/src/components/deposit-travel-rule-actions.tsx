@@ -103,8 +103,8 @@ export function DepositTravelRuleActions({ row, onChanged }: { row: Row; onChang
         <p className="dk-muted" data-testid="deposit-travel-rule-closed">
           {state === 'released'
             ? 'Released: svc-pay credits this deposit once, and it takes no further step.'
-            : state === 'counterparty_pending'
-              ? 'Waiting on the sending platform, and the depositor has not declared yet. Release needs their declaration.'
+            : state === 'awaiting_declaration'
+              ? 'Waiting for the depositor’s declaration: nothing can be done here until they send it.'
               : 'This deposit takes no step from here in its present state.'}
         </p>
       </div>

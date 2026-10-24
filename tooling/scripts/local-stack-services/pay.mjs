@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
   name: 'pay',
   env: () => ({
@@ -26,7 +28,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     // The stack's own key for business verification documents (generated once in secrets.json), so uploads are stored encrypted.
     PAY_KYB_DOC_KEY: secrets.payKybDocKey,
     // The stack's own travel-rule sealing key (generated once in secrets.json), so a deposit declaration is stored sealed.
-    PAY_TRAVEL_RULE_MESSAGE_KEY: Buffer.from(secrets.payTravelRuleKey, 'hex').toString('base64'),
+    // 32 bytes as base64, derived from the stored secret, so plan mode's placeholder gives a valid key too.
+    PAY_TRAVEL_RULE_MESSAGE_KEY: createHash('sha256').update(secrets.payTravelRuleKey).digest('base64'),
     PAY_TRAVEL_RULE_MESSAGE_KEY_ID: 'local-test-1',
     // LOCAL-TEST value (tooling/profiles/test-owner-values/pay.json): a business application is due 30 days after it starts.
     PAY_KYB_APPLICATION_DUE_DAYS: '30',

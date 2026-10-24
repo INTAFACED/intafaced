@@ -208,9 +208,12 @@ export interface DepositTravelRuleDeps {
   readonly cipher?: MessageCipher | null;
 }
 
-/** Where a state may move. `released` is final; the counterparty wait can be set again from its own expiry. */
+/**
+ * Where a state may move. `released` is final; the counterparty wait can be set again from its own expiry. Nothing leaves
+ * `awaiting_declaration` but the depositor's declaration, so a deposit can never sit undeclared in a state that takes none.
+ */
 const MAY_MOVE: Record<PayDepositTravelRuleState, readonly PayDepositTravelRuleState[]> = {
-  awaiting_declaration: ['under_review', 'counterparty_pending'],
+  awaiting_declaration: ['under_review'],
   under_review: ['counterparty_pending', 'released'],
   counterparty_pending: ['under_review', 'blocking_time_expired', 'released'],
   blocking_time_expired: ['counterparty_pending', 'released'],
@@ -241,8 +244,12 @@ export class DepositTravelRuleService {
   // ── records ─────────────────────────────────────────────────────────────────
 
   private async load(q: Sql, depositId: string, lock = false): Promise<RecordRow | undefined> {
-    // Lock in its own statement, then read the latest event afresh (as the outbound record does).
-    if (lock) await q`SELECT deposit_id FROM pay.custody_deposit_travel_rule WHERE deposit_id = ${depositId}::uuid FOR UPDATE`;
+    // Lock in its own statement, then read the latest event afresh (as the outbound record does). The deposit row is locked
+    // too, so a reorg or review cannot move it between the check on its status and the step that follows.
+    if (lock) {
+      await q`SELECT deposit_id FROM pay.custody_deposit_travel_rule WHERE deposit_id = ${depositId}::uuid FOR UPDATE`;
+      await q`SELECT id FROM pay.custody_deposits WHERE id = ${depositId}::uuid FOR UPDATE`;
+    }
     const [row] = await q.unsafe<RecordRow[]>(`${SELECT_RECORD} WHERE t.deposit_id = $1::uuid`, [depositId]);
     return row;
   }
@@ -250,7 +257,8 @@ export class DepositTravelRuleService {
   /** One account's travel-rule records, newest first. */
   async listForUser(userId: string, limit: number): Promise<HeldDepositView[]> {
     const rows = await this.deps.sql.unsafe<RecordRow[]>(
-      `${SELECT_RECORD} WHERE t.user_id = $1 ORDER BY t.opened_at DESC, t.deposit_id LIMIT $2`,
+      // Still-held records first, so a released history never pushes one that needs a person off the page.
+      `${SELECT_RECORD} WHERE t.user_id = $1 ORDER BY (e.state = 'released'), t.opened_at DESC, t.deposit_id LIMIT $2`,
       [userId, limit],
     );
     return rows.map(heldView);

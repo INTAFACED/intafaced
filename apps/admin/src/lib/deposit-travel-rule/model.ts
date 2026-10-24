@@ -32,10 +32,10 @@ export function readTravelRuleRequest(raw: unknown): TravelRuleRequest | null {
   return { action: raw.action as TravelRuleAction, depositId: raw.depositId, reason };
 }
 
-/** Which steps a record in `state` takes. Release also needs the depositor's declaration. */
+/** Which steps a record in `state` takes. Both need the depositor's declaration first. */
 export function travelRuleSteps(state: string | null, declared: boolean): { wait: boolean; release: boolean } {
   return {
-    wait: state === 'awaiting_declaration' || state === 'under_review' || state === 'blocking_time_expired',
+    wait: declared && (state === 'under_review' || state === 'blocking_time_expired'),
     release: declared && (state === 'under_review' || state === 'counterparty_pending' || state === 'blocking_time_expired'),
   };
 }

@@ -284,15 +284,38 @@ describe('deposit travel rule (real Postgres)', () => {
     expect(posts()).toHaveLength(1);
   });
 
-  it('a release before any declaration is refused, whatever the counterparty state', async () => {
+  it('before a declaration, neither a wait on the counterparty nor a release is taken', async () => {
     const id = await heldDeposit();
     await db.sql`INSERT INTO pay.travel_rule_wait_limit_events (pending_seconds, repair_seconds, set_by) VALUES (600, 600, 'test')`;
-    await tr().markCounterpartyPending({ depositId: id, reason: 'TEST asked the sending exchange' });
-    const err = await refused(tr().release({ depositId: id, reason: 'TEST release' }));
-    expect(err).toMatchObject({ code: 'PRECONDITION_FAILED' });
-    expect(err.message).toContain('travel_rule.not_declared');
-    expect(await row()).toMatchObject({ status: 'held_travel_rule', reason: 'travel_rule_counterparty' });
+    expect(await refused(tr().markCounterpartyPending({ depositId: id, reason: 'TEST asked the sending exchange' }))).toMatchObject({
+      code: 'CONFLICT',
+    });
+    expect(await refused(tr().release({ depositId: id, reason: 'TEST release' }))).toMatchObject({ code: 'CONFLICT' });
+    expect(await row()).toMatchObject({ status: 'held_travel_rule', reason: 'travel_rule_declaration' });
+    expect(await states()).toEqual(['awaiting_declaration']);
+    // The depositor can still declare.
+    expect(await alice.custodyDeposit.travelRule.declare(declaration({ depositId: id }))).toMatchObject({ state: 'under_review' });
     expect(posts()).toHaveLength(0);
+  });
+
+  it('two expiry passes at once record the expiry once', async () => {
+    const id = await heldDeposit();
+    await alice.custodyDeposit.travelRule.declare(declaration({ depositId: id }));
+    await db.sql`INSERT INTO pay.travel_rule_wait_limit_events (pending_seconds, repair_seconds, set_by) VALUES (600, 600, 'test')`;
+    await tr().markCounterpartyPending({ depositId: id, reason: 'TEST asked the sending exchange' });
+    await db.sql`UPDATE pay.custody_deposit_travel_rule_events SET wait_deadline = now() - interval '1 second' WHERE state = 'counterparty_pending'`;
+    const counts = await Promise.all([book().expireTravelRuleWaits(), book().expireTravelRuleWaits(), book().expireTravelRuleWaits()]);
+    expect(counts.reduce((a, b) => a + b, 0)).toBe(1);
+    expect(await states()).toEqual(['awaiting_declaration', 'under_review', 'counterparty_pending', 'blocking_time_expired']);
+  });
+
+  it('the founder list puts held records before released ones', async () => {
+    const id = await heldDeposit();
+    await alice.custodyDeposit.travelRule.declare(declaration({ depositId: id }));
+    await tr().release({ depositId: id, reason: 'TEST release' });
+    await book().receive(seen({ txHash: TX.replace(/1$/, '2') }));
+    const listed = await tr().list({ userId: ALICE, limit: 1 });
+    expect(listed).toMatchObject([{ state: 'awaiting_declaration' }]);
   });
 
   it('a counterparty wait refuses with no wait limit; past its deadline it is expired and the deposit stays held', async () => {
@@ -306,9 +329,10 @@ describe('deposit travel rule (real Postgres)', () => {
     expect(await alice.custodyDeposit.travelRule.get({ depositId: id })).toMatchObject({ state: 'counterparty_pending' });
     expect(await book().expireTravelRuleWaits()).toBe(0);
     await db.sql`UPDATE pay.custody_deposit_travel_rule_events SET wait_deadline = now() - interval '1 second' WHERE state = 'counterparty_pending'`;
-    expect(await book().settleOpen()).toBe(0);
+    expect(await book().expireTravelRuleWaits()).toBe(1);
     expect(await states()).toEqual(['awaiting_declaration', 'under_review', 'counterparty_pending', 'blocking_time_expired']);
     expect(await row()).toMatchObject({ status: 'held_travel_rule', reason: 'travel_rule_expired', credit_started_at: null });
+    expect(await book().expireTravelRuleWaits()).toBe(0);
     expect(await book().settleOpen()).toBe(0);
     expect(await states()).toHaveLength(4);
     expect(posts()).toHaveLength(0);

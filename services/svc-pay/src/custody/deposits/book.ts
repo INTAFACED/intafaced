@@ -56,7 +56,8 @@ import type { RegistryReader } from '../../registries/read-api.js';
  *   is `held_travel_rule` (reason `travel_rule_declaration`) and a record is opened in the same transaction; it is never
  *   credited while held. `releaseTravelRule` (a founder's release of a declared deposit) puts it back to be judged in one
  *   transaction with the release event, and the record's `released` state lets it through, so it is credited once under its
- *   usual key. A counterparty wait past its limit is recorded `blocking_time_expired` on a pass and stays held.
+ *   usual key. A counterparty wait past its limit is recorded `blocking_time_expired` by
+ *   `expireTravelRuleWaits` (its own timer in index.ts, with or without the chain watcher) and stays held.
  * - A transfer first seen at an extra address after its expiry (W-deposit-02) is `held_for_release` with reason
  *   `address_expired`: recorded, never credited on its own and never dropped, left for a support or compliance release. One
  *   first seen before the expiry is judged and credited as any other, however long it takes to confirm.
@@ -388,11 +389,6 @@ export class CustodyDepositBook {
         err: err instanceof Error ? err.message : String(err),
       });
     }
-    try {
-      await this.expireTravelRuleWaits();
-    } catch (err) {
-      this.deps.log?.('custody deposit travel-rule waits could not be checked', { err: err instanceof Error ? err.message : String(err) });
-    }
     const rows = await this.deps.sql<Row[]>`
       SELECT ${this.deps.sql.unsafe(COLUMNS)} FROM pay.custody_deposits
        WHERE status IN ('detected', 'confirming') ORDER BY detected_at, id LIMIT 500`;
@@ -684,9 +680,11 @@ export class CustodyDepositBook {
         UPDATE pay.custody_deposits
            SET status = CASE WHEN confirmations > 0 THEN 'confirming' ELSE 'detected' END, reason = NULL, updated_at = now()
          WHERE id = ${depositId} AND status = 'held_travel_rule' RETURNING ${(tx as unknown as Sql).unsafe(COLUMNS)}`;
-      return { recorded, row: rows[0] ?? null };
+      // The release checked the deposit under its lock; a row no longer held here rolls the release back, so a record never
+      // says released for a deposit that was not.
+      if (!rows[0]) throw new Error('pay.deposit_travel_rule_not_held');
+      return { recorded, row: rows[0] };
     });
-    if (!row) return { recorded, credited: false };
     try {
       return { recorded, credited: (await this.settle(row)).status === 'credited' };
     } catch (err) {
@@ -719,13 +717,20 @@ export class CustodyDepositBook {
          WHERE e.state = 'counterparty_pending' AND e.wait_deadline < now()
          ORDER BY t.deposit_id LIMIT 500
          FOR UPDATE OF t SKIP LOCKED`;
+      let expired = 0;
       for (const { deposit_id } of due) {
+        // Read the latest event again under the lock: another pass may have recorded the expiry, or compliance a new wait.
+        const [now] = await tx<Array<{ state: string; due: boolean }>>`
+          SELECT state, wait_deadline < now() AS due FROM pay.custody_deposit_travel_rule_events
+           WHERE deposit_id = ${deposit_id} ORDER BY seq DESC LIMIT 1`;
+        if (now?.state !== 'counterparty_pending' || !now.due) continue;
         await tx`
           INSERT INTO pay.custody_deposit_travel_rule_events (deposit_id, state, source, actor, reason)
           VALUES (${deposit_id}, 'blocking_time_expired', 'system', 'svc-pay', 'the counterparty wait ran out; still held')`;
         await this.markTravelRuleReason(tx as unknown as Sql, deposit_id, 'blocking_time_expired');
+        expired += 1;
       }
-      return due.length;
+      return expired;
     });
   }
 

@@ -21,7 +21,7 @@ describe('travel-rule review requests', () => {
   });
 
   it('offers release only for a declared deposit compliance is reviewing, and never for a released one', () => {
-    expect(travelRuleSteps('awaiting_declaration', false)).toEqual({ wait: true, release: false });
+    expect(travelRuleSteps('awaiting_declaration', false)).toEqual({ wait: false, release: false });
     expect(travelRuleSteps('under_review', true)).toEqual({ wait: true, release: true });
     expect(travelRuleSteps('counterparty_pending', true)).toEqual({ wait: false, release: true });
     expect(travelRuleSteps('counterparty_pending', false)).toEqual({ wait: false, release: false });

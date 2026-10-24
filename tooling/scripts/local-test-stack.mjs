@@ -287,7 +287,7 @@ const SECRET_NAMES = [
   'notifyStatusLink', // notify's key for the signed links in status subscription mail
   'academyVideoStore', // the TEST video store's signing key, shared with academy (local-video-store.mjs)
   'payKybDocKey', // pay's key for business verification documents (PAY_KYB_DOC_KEY, 32 bytes as hex)
-  'payTravelRuleKey', // pay's travel-rule sealing key (PAY_TRAVEL_RULE_MESSAGE_KEY, the 32 bytes as base64); this stack's own, valid nowhere else
+  'payTravelRuleKey', // pay's travel-rule sealing key (PAY_TRAVEL_RULE_MESSAGE_KEY is its SHA-256 as base64); this stack's own, valid nowhere else
   'identityKycDoc', // identity's key for the KYC document vault (IDENTITY_KYC_DOC_KEY, 32 bytes as hex); this stack's own, valid nowhere else
 ];
 
