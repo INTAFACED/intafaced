@@ -14,8 +14,14 @@ import {
  * snapshot, so the holdings are exactly what the movements lead up to. The sums run in the database:
  *
  * - holdings: `accounts.balance` summed per asset over every account of the owner (available and every lock kind);
- * - movements: the signed net of the owner's entries per asset, ledger reason and time bucket, posted at or after
- *   `from`. Rows that net to zero with no fee are left out: they are moves between the owner's own accounts.
+ * - movements: each transaction posted at or after `from` netted over the owner's accounts per asset (a move between
+ *   two of them is zero), then summed per asset, ledger reason and time bucket into what came in (`inflow`, from the
+ *   transactions that left the owner with more) and what went out (`outflow`). A row with neither and no fee is
+ *   left out.
+ *
+ * `asOf` is the database clock; `posted_at` is stamped by the posting replica. The two halves come from one snapshot,
+ * so holdings less movements is exact whatever the clocks say: a transaction that commits after this read is in
+ * neither half, and the next read has it in both.
  *
  * The fee on a row is the same figure `historyPage` names per line ("ON A FILL, THE FEE" in `history.ts`): on the
  * owner's own receiving line of a fill, the trade-fee leg of that transaction in that asset.
@@ -34,9 +40,9 @@ export interface HoldingsHistoryRow {
   readonly assetId: string;
   readonly module: string;
   readonly reason: string;
-  /** Epoch seconds of the bucket's start. */
-  readonly bucketStart: number;
-  readonly net: Amount;
+  readonly bucketStart: Date;
+  readonly inflow: Amount;
+  readonly outflow: Amount;
   readonly fee: Amount;
 }
 
@@ -46,7 +52,10 @@ export interface HoldingsHistory {
   readonly movements: readonly HoldingsHistoryRow[];
 }
 
-/** Door parse. `from` must sit on a bucket boundary and not be in the future, so every bucket is whole. */
+/**
+ * Door parse. `from` must sit on a bucket boundary, so every bucket is whole, and not lie ahead of this process's
+ * clock. (A `from` a moment ahead of the database clock only answers with no movements: the holdings are still exact.)
+ */
 export function parseHoldingsHistoryInput(body: unknown, now: Date = new Date()): HoldingsHistoryInput {
   const input = ledgerHoldingsHistoryInputSchema.parse(body);
   const from = new Date(input.from);
@@ -72,8 +81,9 @@ export function serializeHoldingsHistory(input: HoldingsHistoryInput, read: Hold
       assetId: m.assetId,
       module: m.module,
       reason: m.reason,
-      bucketStart: new Date(m.bucketStart * 1000).toISOString(),
-      net: formatAmount(m.net),
+      bucketStart: m.bucketStart.toISOString(),
+      inflow: formatAmount(m.inflow),
+      outflow: formatAmount(m.outflow),
       fee: formatAmount(m.fee),
     })),
   };

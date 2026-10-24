@@ -4,9 +4,14 @@ import { fileURLToPath } from 'node:url';
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
 import { describe, expect, it, beforeAll, afterAll } from 'vitest';
 import { createTestDb, rewriteSchemaSql, type TestDb } from '@intafaced/db';
-import { LEDGER_HOLDINGS_HISTORY_WINDOW_INVALID } from '@intafaced/contracts';
+import {
+  LEDGER_HOLDINGS_HISTORY_TOO_LARGE,
+  LEDGER_HOLDINGS_HISTORY_WINDOW_INVALID,
+  ledgerHoldingsHistorySchema,
+} from '@intafaced/contracts';
 import { formatAmount, parseAmount as amt, recipes, type Amount } from '@intafaced/ledger-client';
 import { PostgresLedger } from './postgres-ledger.js';
+import { historyPageInputSchema } from './history.js';
 import { parseHoldingsHistoryInput, serializeHoldingsHistory, type HoldingsHistory } from './holdings-history.js';
 
 /**
@@ -48,12 +53,13 @@ async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> 
   }
 }
 
-/** The start of the day before now, on the UTC day boundary: every movement in this test is after it. */
-const dayBefore = (): string => new Date(Math.floor(Date.now() / 86_400_000) * 86_400_000 - 86_400_000).toISOString();
+/** The start of the day before now, on the UTC day boundary: every movement in this test is after it. Read once. */
+const FROM = new Date(Math.floor(Date.now() / 86_400_000) * 86_400_000 - 86_400_000).toISOString();
 
 const netOf = (read: HoldingsHistory, assetId: string): Amount =>
-  read.movements.filter((m) => m.assetId === assetId).reduce((sum, m) => sum + m.net, 0n);
+  read.movements.filter((m) => m.assetId === assetId).reduce((sum, m) => sum + m.inflow - m.outflow, 0n);
 const heldOf = (read: HoldingsHistory, assetId: string): Amount => read.holdings.find((h) => h.assetId === assetId)?.amount ?? 0n;
+const userAvailable = (ownerId: string, assetId: string) => ({ ownerType: 'user' as const, ownerId, assetId, kind: 'available' as const });
 
 describe('PostgresLedger.holdingsHistory', () => {
   let adminStop: () => Promise<void> = async () => undefined;
@@ -101,6 +107,19 @@ describe('PostgresLedger.holdingsHistory', () => {
     await engine.post(recipes.withdrawHold(w('hh-w-reversed', '0.002')));
     await engine.post(recipes.withdrawReverse(w('hh-w-reversed', '0.002')));
     await engine.post(recipes.withdrawHold(w('hh-w-open', '0.001')));
+    // 50 USDT comes in from the maker and goes straight back, under one reason: money in and money out, not nothing.
+    const send = (transferId: string, from: string, to: string) =>
+      recipes.bankTransfer({
+        transferId,
+        occurrence: 0,
+        kind: 'manual',
+        keySpace: 'p2p',
+        from: userAvailable(from, 'USDT'),
+        to: userAvailable(to, 'USDT'),
+        amount: amt('50'),
+      });
+    await engine.post(send('hh-t-in', MAKER, TAKER));
+    await engine.post(send('hh-t-back', TAKER, MAKER));
   }, 120_000);
 
   afterAll(async () => {
@@ -108,8 +127,11 @@ describe('PostgresLedger.holdingsHistory', () => {
     await adminStop();
   });
 
-  const read = (ownerId: string, over: Record<string, unknown> = {}) =>
-    engine.holdingsHistory(parseHoldingsHistoryInput({ ownerType: 'user', ownerId, from: dayBefore(), bucketSeconds: 60, ...over }));
+  const ask = (ownerId: string, over: Record<string, unknown> = {}) =>
+    parseHoldingsHistoryInput({ ownerType: 'user', ownerId, from: FROM, bucketSeconds: 60, ...over });
+  const read = (ownerId: string, over: Record<string, unknown> = {}) => engine.holdingsHistory(ask(ownerId, over));
+  const rowsOf = (got: HoldingsHistory, assetId: string, reason: string) =>
+    got.movements.filter((m) => m.assetId === assetId && m.reason === reason);
 
   it('holds what every account of the owner holds, locks included', async () => {
     const got = await read(TAKER);
@@ -123,24 +145,43 @@ describe('PostgresLedger.holdingsHistory', () => {
     expect(formatAmount(heldOf(got, 'USDT'))).toBe('400');
   });
 
-  it('replays to nothing: holdings minus every movement since before the first one is zero', async () => {
+  it('replays to nothing: holdings less every movement since before the first one is zero', async () => {
     const got = await read(TAKER);
     for (const assetId of ['USDT', 'BTC']) expect(heldOf(got, assetId) - netOf(got, assetId), assetId).toBe(0n);
+    const maker = await read(MAKER);
+    for (const assetId of ['USDT', 'BTC']) expect(heldOf(maker, assetId) - netOf(maker, assetId), assetId).toBe(0n);
   });
 
   it('leaves out moves between the owner own accounts and keeps what crossed its edge', async () => {
     const got = await read(TAKER);
     const reasons = got.movements.map((m) => `${m.assetId} ${m.reason}`);
-    expect(reasons).not.toContain('USDT order.hold');
-    expect(reasons).not.toContain('USDT order.hold.released');
-    expect(reasons).not.toContain('BTC withdraw.held');
-    expect(reasons).not.toContain('BTC withdraw.reversed');
-    const row = (assetId: string, reason: string) => got.movements.filter((m) => m.assetId === assetId && m.reason === reason);
-    const deposit = got.movements.find((m) => m.assetId === 'USDT' && m.net > 0n);
-    expect(deposit && formatAmount(deposit.net)).toBe('1000');
-    expect(row('USDT', 'trade.fill').map((m) => formatAmount(m.net))).toEqual(['-600']);
-    expect(row('BTC', 'trade.fill').map((m) => [formatAmount(m.net), formatAmount(m.fee)])).toEqual([['0.00998', '0.00002']]);
-    expect(row('BTC', 'withdraw.settled').map((m) => formatAmount(m.net))).toEqual(['-0.003']);
+    for (const internal of ['USDT order.hold', 'USDT order.hold.released', 'BTC withdraw.held', 'BTC withdraw.reversed']) {
+      expect(reasons).not.toContain(internal);
+    }
+    const flows = (assetId: string, reason: string) =>
+      rowsOf(got, assetId, reason).map((m) => [formatAmount(m.inflow), formatAmount(m.outflow), formatAmount(m.fee)]);
+    const deposit = got.movements.filter((m) => m.assetId === 'USDT' && m.module !== 'trade' && m.inflow > 0n && m.outflow === 0n);
+    expect(deposit.map((m) => formatAmount(m.inflow))).toEqual(['1000']);
+    expect(flows('USDT', 'trade.fill')).toEqual([['0', '600', '0']]);
+    expect(flows('BTC', 'trade.fill')).toEqual([['0.00998', '0', '0.00002']]);
+    expect(flows('BTC', 'withdraw.settled')).toEqual([['0', '0.003', '0']]);
+  });
+
+  it('keeps money in and money out under one reason in one bucket apart', async () => {
+    const got = await read(TAKER);
+    expect(rowsOf(got, 'USDT', 'bank.transfer.manual').map((m) => [formatAmount(m.inflow), formatAmount(m.outflow)])).toEqual([
+      ['50', '50'],
+    ]);
+  });
+
+  it('names the same fee as historyPage for the same fill', async () => {
+    const got = await read(TAKER);
+    const page = await engine.historyPage(
+      historyPageInputSchema.parse({ ownerType: 'user', ownerId: TAKER, kind: 'available', assetId: 'BTC', limit: 200 }),
+    );
+    const fillLine = page.entries.find((e) => e.reason === 'trade.fill' && e.direction === 'debit');
+    expect(fillLine?.fee).not.toBeNull();
+    expect(rowsOf(got, 'BTC', 'trade.fill')[0]?.fee).toBe(fillLine!.fee);
   });
 
   it('names the fee only on the receiving line: the paid side carries 0', async () => {
@@ -155,42 +196,46 @@ describe('PostgresLedger.holdingsHistory', () => {
     expect(taker.holdings.map((h) => h.assetId).sort()).toEqual(['BTC', 'USDT']);
     expect(formatAmount(netOf(maker, 'BTC'))).toBe('0.99');
     expect(formatAmount(heldOf(maker, 'USDT'))).toBe('599.4');
-    expect(maker.movements.find((m) => m.assetId === 'BTC' && m.reason === 'trade.fill')?.fee).toBe(0n);
+    expect(rowsOf(maker, 'BTC', 'trade.fill').map((m) => m.fee)).toEqual([0n]);
   });
 
-  it('buckets on the UTC grid it was asked for', async () => {
-    const got = await read(TAKER, { bucketSeconds: 86_400 });
-    for (const m of got.movements) expect(m.bucketStart % 86_400).toBe(0);
+  it('buckets on the UTC grid it was asked for, with the same totals at every size', async () => {
+    const day = await read(TAKER, { bucketSeconds: 86_400 });
+    for (const m of day.movements) expect(m.bucketStart.getTime() % 86_400_000).toBe(0);
     const minute = await read(TAKER);
-    for (const m of minute.movements) expect(m.bucketStart % 60).toBe(0);
-    for (const assetId of ['USDT', 'BTC']) expect(netOf(got, assetId)).toBe(netOf(minute, assetId));
+    for (const m of minute.movements) expect(m.bucketStart.getTime() % 60_000).toBe(0);
+    for (const assetId of ['USDT', 'BTC']) expect(netOf(day, assetId)).toBe(netOf(minute, assetId));
   });
 
-  it('answers a start after every movement with the holdings and no movements', async () => {
-    const nextMinute = new Date(Math.floor(Date.now() / 60_000) * 60_000 + 60_000);
-    // A start in the next minute is in the future: refused. The start of this minute may still hold movements.
-    expect(() =>
-      parseHoldingsHistoryInput({ ownerType: 'user', ownerId: TAKER, from: nextMinute.toISOString(), bucketSeconds: 60 }),
-    ).toThrow(expect.objectContaining({ code: LEDGER_HOLDINGS_HISTORY_WINDOW_INVALID }));
+  it('answers the same holdings whatever the start: a later start only has fewer movements', async () => {
+    const all = await read(TAKER);
+    const thisMinute = new Date(Math.floor(Date.now() / 60_000) * 60_000).toISOString();
+    const late = await read(TAKER, { from: thisMinute });
+    expect(late.holdings).toEqual(all.holdings);
+    expect(late.movements.length).toBeLessThanOrEqual(all.movements.length);
     const nobody = await read('93333333-3333-4333-8333-333333333333');
     expect(nobody).toMatchObject({ holdings: [], movements: [] });
   });
 
-  it('refuses a start off its bucket boundary, so no bucket is cut', () => {
-    expect(() => parseHoldingsHistoryInput({ ownerType: 'user', ownerId: TAKER, from: '2026-10-01T00:00:30Z', bucketSeconds: 60 })).toThrow(
-      expect.objectContaining({ code: LEDGER_HOLDINGS_HISTORY_WINDOW_INVALID }),
-    );
-    expect(() =>
-      parseHoldingsHistoryInput({ ownerType: 'user', ownerId: TAKER, from: '2026-10-01T01:00:00Z', bucketSeconds: 86_400 }),
-    ).toThrow(expect.objectContaining({ code: LEDGER_HOLDINGS_HISTORY_WINDOW_INVALID }));
+  it('refuses more rows than it may carry instead of answering short', async () => {
+    const count = (await read(TAKER)).movements.length;
+    await expect(engine.holdingsHistory(ask(TAKER), count)).resolves.toMatchObject({ movements: expect.any(Array) });
+    await expect(engine.holdingsHistory(ask(TAKER), count - 1)).rejects.toMatchObject({ code: LEDGER_HOLDINGS_HISTORY_TOO_LARGE });
   });
 
-  it('serializes as decimal strings with ISO bucket starts', async () => {
-    const input = parseHoldingsHistoryInput({ ownerType: 'user', ownerId: TAKER, from: dayBefore(), bucketSeconds: 60 });
+  it('refuses a start in the future or off its bucket boundary, so no bucket is cut', () => {
+    const nextMinute = new Date(Math.floor(Date.now() / 60_000) * 60_000 + 60_000).toISOString();
+    const refused = { code: LEDGER_HOLDINGS_HISTORY_WINDOW_INVALID };
+    expect(() => ask(TAKER, { from: nextMinute })).toThrow(expect.objectContaining(refused));
+    expect(() => ask(TAKER, { from: '2026-10-01T00:00:30Z' })).toThrow(expect.objectContaining(refused));
+    expect(() => ask(TAKER, { from: '2026-10-01T01:00:00Z', bucketSeconds: 86_400 })).toThrow(expect.objectContaining(refused));
+  });
+
+  it('serializes as decimal strings with ISO bucket starts that pass the contract', async () => {
+    const input = ask(TAKER);
     const wire = serializeHoldingsHistory(input, await engine.holdingsHistory(input));
-    expect(wire.from).toBe(dayBefore());
-    expect(wire.bucketSeconds).toBe(60);
-    expect(wire.movements.every((m) => /^-?\d+(\.\d+)?$/.test(m.net) && /^\d+(\.\d+)?$/.test(m.fee))).toBe(true);
+    expect(wire.from).toBe(FROM);
+    expect(ledgerHoldingsHistorySchema.parse(wire)).toEqual(wire);
     expect(wire.movements.every((m) => m.bucketStart.endsWith(':00.000Z'))).toBe(true);
   });
 });

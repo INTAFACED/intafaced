@@ -465,12 +465,14 @@ export class PostgresLedger implements LedgerClient {
    * What one owner holds now and how it moved since `input.from`, per asset, ledger reason and time bucket (see
    * `holdings-history.ts`). A READ in one repeatable-read snapshot: the holdings are what the movements lead up to.
    *
-   * Every account of the owner counts: available and every lock kind, so a move between two of them (an order hold,
-   * a withdrawal put on hold) nets to zero inside its bucket and is left out by the HAVING. The fee lookup runs only
-   * for the owner's own receiving fill line, as in `historyPage`. Past LEDGER_HOLDINGS_HISTORY_MAX_ROWS rows the read
-   * refuses instead of answering short: a replay that silently missed movements would draw the wrong past.
+   * Every account of the owner counts: available and every lock kind. Each transaction is netted over them first
+   * (inner query), so a move between two of them (an order hold, a withdrawal put on hold) is zero; the outer query
+   * sums what came in and what went out per bucket apart. The fee lookup runs only for the owner's own receiving fill
+   * line, the same rule as `historyPage` ("ON A FILL, THE FEE" in `history.ts`; the Postgres test holds the two to one
+   * figure). Past `maxRows` rows the read refuses instead of answering short: a replay that silently missed
+   * movements would draw the wrong past. `maxRows` is the contract's bound; tests lower it to reach the refusal.
    */
-  async holdingsHistory(input: HoldingsHistoryInput): Promise<HoldingsHistory> {
+  async holdingsHistory(input: HoldingsHistoryInput, maxRows: number = LEDGER_HOLDINGS_HISTORY_MAX_ROWS): Promise<HoldingsHistory> {
     const bucket = input.bucketSeconds;
     return transaction(
       this.sql,
@@ -484,46 +486,55 @@ export class PostgresLedger implements LedgerClient {
           HAVING SUM(balance) <> 0
            ORDER BY asset_id
         `;
-        const rows = await tx<Array<{ asset_id: string; module: string; reason: string; bucket: string; net: string; fee: string }>>`
-          SELECT m.asset_id, m.module, m.reason, m.bucket::text AS bucket, m.net::text AS net, m.fee::text AS fee
+        const rows = await tx<
+          Array<{ asset_id: string; module: string; reason: string; bucket_start: Date; inflow: string; outflow: string; fee: string }>
+        >`
+          SELECT m.asset_id, m.module, m.reason, to_timestamp(m.bucket) AS bucket_start,
+                 m.inflow::text AS inflow, m.outflow::text AS outflow, m.fee::text AS fee
             FROM (
-              SELECT a.asset_id, t.module, t.reason,
-                     (floor(extract(epoch FROM t.posted_at) / ${bucket}) * ${bucket})::bigint AS bucket,
-                     SUM(CASE WHEN e.direction = 'debit' THEN e.amount ELSE -e.amount END) AS net,
-                     COALESCE(SUM(f.fee), 0) AS fee
-                FROM accounts a
-                JOIN ledger_entries e ON e.account_id = a.id
-                JOIN ledger_tx t      ON t.id = e.tx_id
-                LEFT JOIN LATERAL (
-                  SELECT SUM(fe.amount) AS fee
-                    FROM ledger_entries fe
-                    JOIN accounts fa ON fa.id = fe.account_id
-                   WHERE t.module = 'trade'
-                     AND t.reason IN ('trade.fill', 'trade.fill.mm_maker')
-                     AND a.owner_type = 'user'
-                     AND a.kind = 'available'
-                     AND e.direction = 'debit'
-                     AND fe.tx_id = t.id
-                     AND fe.direction = 'debit'
-                     AND fa.owner_type = 'house'
-                     AND fa.owner_id = 'fees:trade'
-                     AND fa.kind = 'available'
-                     AND fa.purpose = ''
-                     AND fa.asset_id = a.asset_id
-                ) f ON true
-               WHERE a.owner_type = ${input.ownerType}::owner_type
-                 AND a.owner_id   = ${input.ownerId}
-                 AND t.posted_at >= ${input.from}
-               GROUP BY a.asset_id, t.module, t.reason, 4
-              HAVING SUM(CASE WHEN e.direction = 'debit' THEN e.amount ELSE -e.amount END) <> 0
-                  OR COALESCE(SUM(f.fee), 0) <> 0
+              SELECT x.asset_id, x.module, x.reason, x.bucket,
+                     SUM(GREATEST(x.net, 0)) AS inflow,
+                     SUM(GREATEST(-x.net, 0)) AS outflow,
+                     SUM(x.fee) AS fee
+                FROM (
+                  SELECT a.asset_id, t.module, t.reason, t.id AS tx_id,
+                         (floor(extract(epoch FROM t.posted_at) / ${bucket}) * ${bucket})::bigint AS bucket,
+                         SUM(CASE WHEN e.direction = 'debit' THEN e.amount ELSE -e.amount END) AS net,
+                         COALESCE(SUM(f.fee), 0) AS fee
+                    FROM accounts a
+                    JOIN ledger_entries e ON e.account_id = a.id
+                    JOIN ledger_tx t      ON t.id = e.tx_id
+                    LEFT JOIN LATERAL (
+                      SELECT SUM(fe.amount) AS fee
+                        FROM ledger_entries fe
+                        JOIN accounts fa ON fa.id = fe.account_id
+                       WHERE t.module = 'trade'
+                         AND t.reason IN ('trade.fill', 'trade.fill.mm_maker')
+                         AND a.owner_type = 'user'
+                         AND a.kind = 'available'
+                         AND e.direction = 'debit'
+                         AND fe.tx_id = t.id
+                         AND fe.direction = 'debit'
+                         AND fa.owner_type = 'house'
+                         AND fa.owner_id = 'fees:trade'
+                         AND fa.kind = 'available'
+                         AND fa.purpose = ''
+                         AND fa.asset_id = a.asset_id
+                    ) f ON true
+                   WHERE a.owner_type = ${input.ownerType}::owner_type
+                     AND a.owner_id   = ${input.ownerId}
+                     AND t.posted_at >= ${input.from}
+                   GROUP BY a.asset_id, t.module, t.reason, t.id, t.posted_at
+                ) x
+               GROUP BY x.asset_id, x.module, x.reason, x.bucket
+              HAVING SUM(GREATEST(x.net, 0)) <> 0 OR SUM(GREATEST(-x.net, 0)) <> 0 OR SUM(x.fee) <> 0
             ) m
            ORDER BY m.bucket, m.asset_id, m.module, m.reason
-           LIMIT ${LEDGER_HOLDINGS_HISTORY_MAX_ROWS + 1}
+           LIMIT ${maxRows + 1}
         `;
-        if (rows.length > LEDGER_HOLDINGS_HISTORY_MAX_ROWS) {
+        if (rows.length > maxRows) {
           throw new LedgerError(
-            `More than ${LEDGER_HOLDINGS_HISTORY_MAX_ROWS} movement rows since ${input.from.toISOString()}: ask for a later start or a larger bucket`,
+            `More than ${maxRows} movement rows since ${input.from.toISOString()}: ask for a later start or a larger bucket`,
             LEDGER_HOLDINGS_HISTORY_TOO_LARGE,
           );
         }
@@ -534,8 +545,9 @@ export class PostgresLedger implements LedgerClient {
             assetId: r.asset_id,
             module: r.module,
             reason: r.reason,
-            bucketStart: Number(r.bucket),
-            net: parseStoredAmount(r.net, 'ledger_entries.amount'),
+            bucketStart: r.bucket_start,
+            inflow: parseStoredAmount(r.inflow, 'ledger_entries.amount'),
+            outflow: parseStoredAmount(r.outflow, 'ledger_entries.amount'),
             fee: parseStoredAmount(r.fee, 'ledger_entries.amount'),
           })),
         };

@@ -10,6 +10,7 @@ import type { LedgerService } from './service.js';
 const SHARED = 'ledger-shared-internal-secret-32chars!';
 const USER = '81111111-1111-4111-8111-111111111111';
 const ASK = { ownerType: 'user', ownerId: USER, from: '2026-10-01T00:00:00.000Z', bucketSeconds: 3_600 };
+const HOUR = '2026-10-01T01:00:00.000Z';
 
 function pair() {
   const { privateKey, publicKey } = generateKeyPairSync('ed25519');
@@ -32,8 +33,24 @@ async function mount(asked: unknown[]) {
         asOf: new Date('2026-10-24T12:00:00.000Z'),
         holdings: [{ assetId: 'BTC', amount: amt('0.5') }],
         movements: [
-          { assetId: 'BTC', module: 'trade', reason: 'trade.fill', bucketStart: 1_759_280_400, net: amt('0.5'), fee: amt('0.001') },
-          { assetId: 'USDT', module: 'trade', reason: 'trade.fill', bucketStart: 1_759_280_400, net: amt('-30000'), fee: 0n },
+          {
+            assetId: 'BTC',
+            module: 'trade',
+            reason: 'trade.fill',
+            bucketStart: new Date(HOUR),
+            inflow: amt('0.5'),
+            outflow: 0n,
+            fee: amt('0.001'),
+          },
+          {
+            assetId: 'USDT',
+            module: 'trade',
+            reason: 'trade.fill',
+            bucketStart: new Date(HOUR),
+            inflow: 0n,
+            outflow: amt('30000'),
+            fee: 0n,
+          },
         ],
       };
     },
@@ -79,8 +96,8 @@ describe('holdingsHistory door', () => {
       bucketSeconds: 3_600,
       holdings: [{ assetId: 'BTC', amount: '0.5' }],
       movements: [
-        { assetId: 'BTC', module: 'trade', reason: 'trade.fill', bucketStart: '2025-10-01T01:00:00.000Z', net: '0.5', fee: '0.001' },
-        { assetId: 'USDT', module: 'trade', reason: 'trade.fill', bucketStart: '2025-10-01T01:00:00.000Z', net: '-30000', fee: '0' },
+        { assetId: 'BTC', module: 'trade', reason: 'trade.fill', bucketStart: HOUR, inflow: '0.5', outflow: '0', fee: '0.001' },
+        { assetId: 'USDT', module: 'trade', reason: 'trade.fill', bucketStart: HOUR, inflow: '0', outflow: '30000', fee: '0' },
       ],
     });
     expect(asked).toEqual([{ ownerType: 'user', ownerId: USER, from: new Date(ASK.from), bucketSeconds: 3_600 }]);
