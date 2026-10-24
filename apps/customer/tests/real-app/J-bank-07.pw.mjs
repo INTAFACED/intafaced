@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { test, expect } from '@playwright/test';
-import { DEVICE_KEY, EDGE, ORIGIN, fund, journeyState, toUnits } from './stack.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, fromUnits, fund, journeyState, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 
 // J-bank-07, in the running app (docs/roadmap/journeys.json): I organise money in pots, goals and a shared account. Steps 1
@@ -14,7 +14,10 @@ import { signIn, signUp, verify } from './desk.mjs';
 // call, as a scheduler would. The stack's card issuer is the simulator, so the card payment arrives through the bank's
 // four-eyes ops doors that stand in for the issuer's webhook, approved by the stack's two TEST founders. Step 4
 // (BK-pots-03): an income sorter made on the Spaces page; one over 100% is refused by name, and a TEST 100 payment from
-// a second TEST person splits 60 and 40 into two spaces, once. The stack publishes a TEST smallest sorted payment.
+// a second TEST person splits 60 and 40 into two spaces, once. The stack publishes a TEST smallest sorted payment. Then
+// the bills pot (BK-pots-03): a pot holding TEST 5 that pays a TEST bill of 8 by standing order to another TEST person.
+// With the top-up off, the run is refused and recorded and nothing moves; with it on, 3 moves from the account into the
+// pot first and the bill pays once.
 const J = 'J-bank-07';
 const POT = 'Holiday TEST';
 const BILLS = 'Bills TEST';
@@ -469,4 +472,104 @@ test(`${J} #4 sets an income sorter: one over 100% is refused, and a TEST 100 pa
   await expect(run).toContainText('100 USDT received');
   await expect(run).toContainText(`60 USDT into ${BILLS}: moved`);
   await expect(run).toContainText(`40 USDT into ${SAVINGS}: moved`);
+});
+
+test(`${J} #4 keeps a bills pot: a TEST bill of 8 from a pot holding 5 is refused with the top-up off, and with it on 3 moves from the account and the bill pays once`, async ({
+  page,
+}) => {
+  test.setTimeout(480_000);
+  const who = person();
+  const api = await bank(who);
+  // The bill's payee: another TEST person.
+  const payee = await signUp(page, 'jb07l');
+  await verify(page, payee);
+  const payeeApi = await bank(payee);
+  const payeeMain = async () => {
+    const rows = (await payeeApi.query('spaces.list', { limit: 50 })).data ?? [];
+    return toUnits(main(rows)?.balance ?? '0');
+  };
+
+  // The pot that pays the bills holds exactly TEST 5 (the sorter's bills space, or a new one when it has none).
+  if (!named(await spaces(who), BILLS)) {
+    const made = await api.mutate('spaces.create', { assetId: 'USDT', name: BILLS });
+    expect(made.ok, JSON.stringify(made.body ?? {}).slice(0, 300)).toBe(true);
+  }
+  {
+    const rows = await spaces(who);
+    const held = toUnits(named(rows, BILLS).balance);
+    const five = toUnits('5');
+    if (held !== five) {
+      const [fromSpaceId, toSpaceId] = held > five ? [named(rows, BILLS).id, main(rows).id] : [main(rows).id, named(rows, BILLS).id];
+      const amount = fromUnits(held > five ? held - five : five - held);
+      const moved = await api.mutate('transfers.create', { transferId: `jb07-${randomUUID()}`, fromSpaceId, toSpaceId, amount });
+      expect(moved.ok, JSON.stringify(moved.body ?? {}).slice(0, 300)).toBe(true);
+    }
+  }
+  const pot = named(await spaces(who), BILLS);
+  expect(pot.balance).toBe('5');
+  // A rerun on the same stack starts where a first run does: the pot pays no bills yet.
+  const cleared = await api.mutate('spaces.clearBillsPot', { spaceId: pot.id });
+  expect(cleared.ok, JSON.stringify(cleared.body ?? {}).slice(0, 300)).toBe(true);
+
+  // On the pot's own page: not a bills pot, then made one, with the top-up off as it starts.
+  await signIn(page, who);
+  await page.goto(`/bank/spaces?space=${pot.id}`);
+  const state = page.locator('.money-selected-space').getByTestId('bills-pot');
+  await expect(state).toHaveAttribute('data-state', 'none');
+  await confirm(await act(page, 'Pay bills from this pot', null, false), 'Pay bills from this pot');
+  await close(page);
+  await expect(state).toHaveAttribute('data-state', 'bills');
+  await expect(state).toContainText('Top-up from your account is off.');
+
+  /** A TEST bill of 8 from the pot to the payee, once, at the first whole minute at least a minute away; run when due. */
+  const bill = async () => {
+    const first = new Date(Date.now() + 70_000);
+    first.setSeconds(0, 0);
+    if (first.getTime() < Date.now() + 60_000) first.setMinutes(first.getMinutes() + 1);
+    const made = await api.mutate('transfers.scheduleToUser', {
+      fromSpaceId: pot.id,
+      toUserId: payeeApi.userId,
+      amount: '8',
+      cadence: 'once',
+      startsAt: first.toISOString(),
+      scheduleId: randomUUID(),
+    });
+    expect(made.ok, JSON.stringify(made.body ?? {}).slice(0, 300)).toBe(true);
+    let runs = [];
+    await expect
+      .poll(
+        async () => {
+          await runDue();
+          const ran = await api.query('transfers.executions', { scheduleId: made.data.id, limit: 50 });
+          runs = ran.ok ? ran.data : [];
+          return runs.length;
+        },
+        { timeout: 200_000, intervals: [10_000] },
+      )
+      .toBe(1);
+    return runs[0];
+  };
+
+  // Top-up off: the run is refused for too little money and recorded, and nothing moves.
+  const before = await spaces(who);
+  const payeeBefore = await payeeMain();
+  const refused = await bill();
+  expect(refused).toMatchObject({ status: 'rejected', rejectionCode: 'ledger.insufficient_funds', ledgerTxId: null });
+  const unchanged = await spaces(who);
+  expect(named(unchanged, BILLS).balance).toBe('5');
+  expect(toUnits(main(unchanged).balance)).toBe(toUnits(main(before).balance));
+  expect(await payeeMain()).toBe(payeeBefore);
+
+  // Top-up on, on the same page: the next bill moves 3 from the account into the pot, then pays 8, once.
+  await page.reload();
+  await confirm(await act(page, 'Top up from my account', null, false), 'Top up from my account');
+  await close(page);
+  await expect(state).toHaveAttribute('data-state', 'fallback');
+  await expect(state).toContainText('Top-up from your account is on.');
+  const paid = await bill();
+  expect(paid).toMatchObject({ status: 'settled', rejectionCode: null });
+  const after = await spaces(who);
+  expect(named(after, BILLS).balance).toBe('0');
+  expect(toUnits(main(after).balance)).toBe(toUnits(main(before).balance) - toUnits('3'));
+  expect(await payeeMain()).toBe(payeeBefore + toUnits('8'));
 });

@@ -1594,6 +1594,25 @@ export const businessPayrollLines = bank.table(
   (t) => [primaryKey({ columns: [t.payrollId, t.toSpaceId] })],
 );
 
+// Bills pot (BK-pots-03, J-bank-07 #4): one of the person's own named spaces per asset that pays their bills, with an
+// opt-in fallback that tops it up from the main account when a standing order from it finds too little. A role, never a
+// balance: the top-up is an own-space bankTransfer.
+
+export const billsPots = bank.table(
+  'bills_pots',
+  {
+    userId: text('user_id').notNull(),
+    assetId: text('asset_id').notNull(),
+    spaceId: uuid('space_id')
+      .notNull()
+      .unique('bills_pots_space_uq')
+      .references(() => spaces.id),
+    fallback: boolean('fallback').notNull().default(false),
+    setAt: tstz('set_at').notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.assetId] })],
+);
+
 export const schema = {
   spaces,
   scheduledTransfers,
