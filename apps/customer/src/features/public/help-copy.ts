@@ -67,6 +67,7 @@ export const helpCopy = defineCopy(
     actionRequiredOpen: 'Open the request →',
     actionRequiredUnread: 'We could not check whether a request is waiting for your reply.',
     requestStart: 'Send a request',
+    contactSupport: 'Contact support',
     requestOpenDesk: 'Open your support requests',
     requestSignInTitle: 'Sign in to send a request',
     requestSignInBody: 'A support request belongs to your account, so it needs a sign-in. Your search stays on this page.',
@@ -157,6 +158,7 @@ export const helpCopy = defineCopy(
       actionRequiredOpen: 'Abrir la solicitud →',
       actionRequiredUnread: 'No pudimos comprobar si hay una solicitud esperando tu respuesta.',
       requestStart: 'Enviar una solicitud',
+      contactSupport: 'Contactar con soporte',
       requestOpenDesk: 'Abrir tus solicitudes de soporte',
       requestSignInTitle: 'Inicia sesión para enviar una solicitud',
       requestSignInBody:
@@ -250,6 +252,7 @@ export const helpCopy = defineCopy(
       actionRequiredOpen: 'Ouvrir la demande →',
       actionRequiredUnread: 'Nous n’avons pas pu vérifier si une demande attend votre réponse.',
       requestStart: 'Envoyer une demande',
+      contactSupport: 'Contacter l’assistance',
       requestOpenDesk: 'Ouvrir vos demandes d’assistance',
       requestSignInTitle: 'Connectez-vous pour envoyer une demande',
       requestSignInBody:

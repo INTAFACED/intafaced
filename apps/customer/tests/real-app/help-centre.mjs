@@ -98,3 +98,15 @@ export async function setAudience(id, baseRevision, audience) {
   const { ctx } = await founders();
   return data(await ctx.edge.mutate('support', 'setKbAudience', { id, baseRevision, audience }, await leadToken()), 'setKbAudience');
 }
+
+/** A public reply from the support team on a request, written by the support lead. */
+export async function replyAsLead(ticketId, body) {
+  const { ctx } = await founders();
+  return data(await ctx.edge.mutate('support', 'comment', { ticketId, body }, await leadToken()), 'comment');
+}
+
+/** Move a request to a status as the support lead, with the reason on its trail. */
+export async function setStatusAsLead(ticketId, status, note) {
+  const { ctx } = await founders();
+  return data(await ctx.edge.mutate('support', 'setStatus', { ticketId, status, note }, await leadToken()), 'setStatus');
+}
