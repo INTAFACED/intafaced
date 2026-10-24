@@ -1,5 +1,5 @@
 import { t as copyText, Text } from './copy';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import { useApi, useSession } from '../session/session';
 import { useResource, type Resource } from '../../shared/resource';
@@ -13,7 +13,13 @@ import { governanceCopy as G } from './token-governance-copy';
 import './token-governance.css';
 const uuid = z.string().uuid();
 /** The service stores `gov:proposal:<space>:<author>:<n>`; older rows keep their uuid. */
-const proposalIdSchema = z.string().min(1).max(512);
+const proposalIdSchema = z.union([
+  uuid,
+  z
+    .string()
+    .max(512)
+    .regex(/^gov:proposal:[^:\s]+:[^:\s]+:[1-9]\d*$/),
+]);
 const stakeSchema = z.object({
   id: uuid,
   userId: uuid,
@@ -222,6 +228,9 @@ export function Token() {
     [opens, setOpens] = useState(''),
     [closes, setCloses] = useState(''),
     [validation, setValidation] = useState('');
+  // The same create request keeps its handle until the service confirms it, so submitting it again after an unknown
+  // outcome returns the stored proposal instead of opening a second one. Changed content is a new request.
+  const createAttempt = useRef<{ request: string; handle: string } | null>(null);
   const access = useResource(
       (signal) =>
         api.query('token', 'accessOf', undefined, z.object({ staked: decimalSchema, tier: z.string(), feeDiscountBps: z.number().int() }), {
@@ -467,10 +476,13 @@ export function Token() {
                     setValidation(copyText('token.the.closing.date.must.be.after.the'));
                     return;
                   }
-                  // One handle per reviewed request: a retry of this review sends the same
-                  // handle, so the service returns the proposal it stored instead of a second one.
-                  const handle = crypto.randomUUID();
                   const author = userId;
+                  const opensAt = opens ? new Date(opens).toISOString() : undefined,
+                    closesAt = closes ? new Date(closes).toISOString() : undefined;
+                  const terms = proposalTerms(body);
+                  const request = JSON.stringify([author, kind, terms, opensAt ?? null, closesAt ?? null]);
+                  if (createAttempt.current?.request !== request) createAttempt.current = { request, handle: crypto.randomUUID() };
+                  const handle = createAttempt.current.handle;
                   action.stage({
                     title: copyText('token.review.proposal'),
                     confirm: copyText('token.submit.proposal'),
@@ -494,12 +506,22 @@ export function Token() {
                           kind,
                           body,
                           handle,
-                          ...(opens ? { opensAt: new Date(opens).toISOString() } : {}),
-                          ...(closes ? { closesAt: new Date(closes).toISOString() } : {}),
+                          ...(opensAt ? { opensAt } : {}),
+                          ...(closesAt ? { closesAt } : {}),
                         },
-                        proposalSchema.refine((proposal) => proposal.kind === kind && proposal.authorId === author),
+                        proposalSchema.refine(
+                          (proposal) =>
+                            proposal.kind === kind &&
+                            proposal.authorId === author &&
+                            proposalTerms(proposal.body) === terms &&
+                            (!opensAt || Date.parse(proposal.opensAt) === Date.parse(opensAt)) &&
+                            (!closesAt || Date.parse(proposal.closesAt) === Date.parse(closesAt)),
+                        ),
                       ),
-                    done: proposals.reload,
+                    done: () => {
+                      if (createAttempt.current?.handle === handle) createAttempt.current = null;
+                      proposals.reload();
+                    },
                   });
                 }}
               >

@@ -44,6 +44,7 @@ async function network(context, page, baseURL) {
   const other = {
     ...proposal,
     id: second,
+    authorId: anotherActor,
     kind: 'grant',
     body: { title: 'Another original proposal', value: '0.000000000000000002' },
     status: 'passed',
@@ -150,6 +151,7 @@ async function network(context, page, baseURL) {
                 : {
                     ...proposal,
                     id: `gov:proposal:ifc:${anotherActor}:${i + 1}`,
+                    authorId: anotherActor,
                     body: { title: 'Window proposal ' + i },
                   },
             );
