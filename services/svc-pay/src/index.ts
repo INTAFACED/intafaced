@@ -330,14 +330,37 @@ if (chargebackOutcomeSlots < 1) {
 }
 /**
  * `ownedStreams: ['pay']`: this process creates `INTAFACED_PAY`. It carries no money. Its one live subject says a crypto
- * deposit was credited (W-deposit-09), after the ledger post that is the credit; the inbox reads it.
+ * deposit was credited (W-deposit-09), after the ledger post that is the credit; the inbox reads it. The bus is connected on
+ * first need and again on the next pass after it is lost: a bus that cannot be reached leaves the announcements owed in
+ * `pay.custody_deposits`, payments and crediting carry on, and they go out once it is back, with no restart.
  */
-const bus = await JetStreamEventBus.connect({
-  servers: env.NATS_URL,
-  producer: env.SERVICE_NAME,
-  streamPrefix: env.NATS_STREAM_PREFIX,
-  ownedStreams: ['pay'],
-});
+let bus: JetStreamEventBus | null = null;
+let connecting: Promise<JetStreamEventBus | null> | null = null;
+const connectBus = (): Promise<JetStreamEventBus | null> => {
+  if (bus) return Promise.resolve(bus);
+  connecting ??= JetStreamEventBus.connect({
+    servers: env.NATS_URL,
+    producer: env.SERVICE_NAME,
+    streamPrefix: env.NATS_STREAM_PREFIX,
+    ownedStreams: ['pay'],
+  })
+    .then((connected) => {
+      bus = connected;
+      // Gone for good (the client stopped reconnecting): the next pass connects again.
+      void connected.whenClosed().then(() => {
+        if (bus === connected) bus = null;
+      });
+      return connected;
+    })
+    .catch((err: unknown) => {
+      app.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'event bus unreachable, deposit credits stay owed');
+      return null;
+    })
+    .finally(() => {
+      connecting = null;
+    });
+  return connecting;
+};
 
 // W-deposit-05: the record of customer crypto deposits. A chain delivery to a customer address is booked here, not as a payment.
 const custodyDepositBook = new CustodyDepositBook({
@@ -346,7 +369,9 @@ const custodyDepositBook = new CustodyDepositBook({
   registries: createRegistryReader(sql),
   // W-deposit-09: one announcement per credited deposit, keyed by the deposit; the book records it and retries what it did not.
   announceCredit: async (credit) => {
-    await bus.publish('payDepositCreditPosted', credit, { idempotencyKey: `pay:deposit-credit:posted:${credit.depositId}` });
+    const connected = await connectBus();
+    if (!connected) throw new Error('event bus unreachable');
+    await connected.publish('payDepositCreditPosted', credit, { idempotencyKey: `pay:deposit-credit:posted:${credit.depositId}` });
   },
   log: (msg, extra) => app.log.warn(extra ?? {}, msg),
 });
@@ -1216,7 +1241,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       // process exits, because the alternative is a payment captured at a rail
       // that this service never got to book.
       await app.close();
-      await bus.close();
+      await bus?.close().catch(() => undefined);
       await sql.end({ timeout: 5 });
       process.exit(0);
     })();
