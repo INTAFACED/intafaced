@@ -3148,10 +3148,9 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
             : 'stop_limit';
         const replacementKind: StopKind | null = stopReplacement ? stopKind : null;
         if (originalKind !== replacementKind) {
+          // One wording either way: the refusal never says what kind of order an id is before the saga checks its owner.
           throw new TradeError(
-            originalKind === null
-              ? 'only a stop can be replaced by a stop; place the stop as a new order'
-              : `a ${originalKind === 'stop' ? 'stop-market' : 'stop-limit'} is replaced only by one with a new trigger; cancel it and place the new order`,
+            'a replacement keeps the kind of the order it replaces (only a stop changes its trigger this way); cancel it and place the new order',
             TRADE_STOP_TRIGGER_INVALID,
           );
         }
