@@ -19,6 +19,7 @@ import { withSessionAdvisoryLock } from '../session-lock.js';
 import { withMoneySpan } from '../tracing.js';
 import { emptyPayFiatRampPort, resolvePayFiatRailId, assertEmptyRailsCannotLookLive, type PayFiatRampPort } from './pay-fiat-adapter.js';
 import type { OfframpFeeSource, OnrampMethod, OnrampPaymentPort, OnrampQuoteSource } from './customer-ports.js';
+import type { OnrampStandIn } from './onramp-sim.js';
 import {
   checkDestination,
   createOnramp,
@@ -217,6 +218,8 @@ export interface RampServiceOptions {
    * The service does not invent a pay amount, fee, or rate.
    */
   onrampQuotes?: OnrampQuoteSource | null;
+  /** The local stack's TEST rate stand-in (`BANK_ONRAMP_RATES=ramp-sim`), for the asks it lists. Unset everywhere else. */
+  onrampStandIn?: OnrampStandIn | null;
   /**
    * Partner that opens a hosted payment or bank-transfer instruction.
    * Unset refuses `bank.fiat_ramp_socket` and inserts no row.
@@ -248,6 +251,7 @@ export class RampService {
   private readonly destinations: UserWithdrawDestinations;
   private readonly offrampCoolingHours: string | undefined;
   private readonly onrampQuotes: OnrampQuoteSource | null;
+  private readonly onrampStandIn: OnrampStandIn | null;
   private readonly onrampPayments: OnrampPaymentPort | null;
   private readonly offrampFees: OfframpFeeSource | null;
   private readonly withdrawNetworkSource: WithdrawNetworkSource | null;
@@ -269,6 +273,7 @@ export class RampService {
       });
     this.offrampCoolingHours = options.offrampCoolingHours;
     this.onrampQuotes = options.onrampQuotes ?? null;
+    this.onrampStandIn = options.onrampStandIn ?? null;
     this.onrampPayments = options.onrampPayments ?? null;
     this.offrampFees = options.offrampFees ?? null;
     this.withdrawNetworkSource = options.withdrawNetworks ?? null;
@@ -294,6 +299,7 @@ export class RampService {
       programme: this.programme,
       payFiat: this.payFiat,
       quotes: this.onrampQuotes,
+      standIn: this.onrampStandIn,
       payments: this.onrampPayments,
       fees: this.offrampFees,
       destinations: this.destinations,
@@ -380,6 +386,11 @@ export class RampService {
   }
 
   /** Pay amount, fee, and rate from the quote source. Refuses when the PSP or the source is blank. */
+  /** The TEST label of the stand-in that would price this ask, or null when a real source (or nothing) answers it. */
+  onrampStandInFor(input: { assetId: string; method: OnrampMethod; country: string }): string | null {
+    return this.onrampStandIn?.covers({ ...input, country: input.country.trim().toUpperCase() }) ? this.onrampStandIn.label : null;
+  }
+
   onrampQuote(input: { userId: string; assetId: string; amount: string; method: OnrampMethod; country: string }): Promise<OnrampQuoteView> {
     return quoteOnramp(this.customerDeps(), input);
   }

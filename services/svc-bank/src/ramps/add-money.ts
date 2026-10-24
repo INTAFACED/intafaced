@@ -57,6 +57,8 @@ export interface AddMoneyMethodView {
   /** The rate source's quote for this way to pay, or null with the reason in `blocker`. */
   readonly quote: OnrampQuoteView | null;
   readonly blocker: BankErrorCode | null;
+  /** The TEST stand-in's label when the quote is the local stack's TEST rate stand-in, or null. */
+  readonly standIn: string | null;
 }
 
 export interface AddMoneyRequestView {
@@ -103,20 +105,24 @@ type Kept = { status: 'opening'; quoteId: string } | { status: 'refused'; code: 
 export class AddMoneyService {
   constructor(
     private readonly sql: Sql,
-    private readonly ramps: Pick<RampService, 'onrampQuote' | 'onrampQuoteOf' | 'onrampCreate' | 'customerOnrampsByIds'>,
+    private readonly ramps: Pick<
+      RampService,
+      'onrampQuote' | 'onrampQuoteOf' | 'onrampCreate' | 'customerOnrampsByIds' | 'onrampStandInFor'
+    >,
   ) {}
 
   /** Each way to pay with its quote, or the reason there is none. A bad amount, asset or country refuses the whole read. */
   async methods(userId: string, input: { assetId: string; amount: string; country: string }): Promise<AddMoneyMethodView[]> {
     return Promise.all(
       ADD_MONEY_METHODS.map(async (method): Promise<AddMoneyMethodView> => {
+        const standIn = this.ramps.onrampStandInFor({ assetId: input.assetId, method, country: input.country });
         try {
           const quote = await this.ramps.onrampQuote({ userId, ...input, method });
-          return { method, rail: railFor(method), quote, blocker: null };
+          return { method, rail: railFor(method), quote, blocker: null, standIn };
         } catch (err) {
           const code = railRefusal(err);
           if (code === null) throw err;
-          return { method, rail: railFor(method), quote: null, blocker: code };
+          return { method, rail: railFor(method), quote: null, blocker: code, standIn };
         }
       }),
     );

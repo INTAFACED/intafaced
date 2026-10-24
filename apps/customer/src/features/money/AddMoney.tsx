@@ -48,6 +48,12 @@ function Method({ row, chosen, onChoose }: { row: AddMoneyOption; chosen: boolea
       <span className="money-caption">
         {t('youPay')}: {quote ? funds(quote.payAmount, quote.payCurrency) : t('notSet')}
       </span>
+      {quote && (
+        <span className="money-caption">
+          {t('priceUntil')}: {date(quote.expiresAt)}
+        </span>
+      )}
+      {row.standIn && <small className="muted">{t('standIn', { label: row.standIn })}</small>}
       {row.blocker && (
         <small className="muted">
           {t('railOff', { rail: row.rail })} {t('reference', { code: row.blocker })}
@@ -279,7 +285,20 @@ export function AddMoney() {
                 {busy ? t('working') : t('ask')}
               </Button>
             </div>
-            {outcome && ('ok' in outcome ? <Failure result={outcome} /> : <Outcome request={outcome} />)}
+            {outcome &&
+              ('ok' in outcome ? (
+                outcome.code === EXPIRED ? (
+                  <div className="failure" role="status" data-testid="add-money-refused">
+                    <h3>{t('expiredTitle')}</h3>
+                    <p>{t('expiredNow')}</p>
+                    <small className="muted">{t('reference', { code: EXPIRED })}</small>
+                  </div>
+                ) : (
+                  <Failure result={outcome} />
+                )
+              ) : (
+                <Outcome request={outcome} />
+              ))}
           </div>
         </DepthPanel>
       )}

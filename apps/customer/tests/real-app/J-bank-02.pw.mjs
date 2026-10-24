@@ -9,8 +9,10 @@ import { addAuthenticator, nextCode } from './identity-factors.mjs';
 // no rate source (BANK_RAMP_MODE none), so this run proves the journey's other ending: every way to pay names the rail it
 // needs, a request is kept refused, and nothing is charged or added. Balances are read through the person's own bank API.
 // #6 links a bank account, which asks for a fresh confirmation, so it sets up an authenticator app first; every later
-// sign-in through the API and in the browser then sends the next code. Not here: #4 and the live credit (they need a
-// TEST payment partner). #8 runs on the stack's TEST plan, which has no overdraft, so it proves the refusal.
+// sign-in through the API and in the browser then sends the next code. #4 asks from NL, the one ask the stack's TEST rate
+// stand-in prices (BANK_ONRAMP_RATES=ramp-sim, a TEST price that holds 20 seconds and opens no payment), and lets the
+// price run out. Not here: the live credit (it needs a TEST payment partner). #8 runs on the stack's TEST plan, which has
+// no overdraft, so it proves the refusal.
 const J = 'J-bank-02';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const WAYS = [
@@ -174,6 +176,35 @@ test(`${J} #3 picks pay by bank: no partner page to go to, the request kept refu
   await expect(page.getByTestId('add-money-refused')).toContainText('rail.bank');
   await expect(page.getByRole('link', { name: 'Go to the payment page' })).toHaveCount(0);
   await expect(page).toHaveURL(/\/bank\/ramps\/new$/);
+  expect((await requests(who)).map((r) => r.method)).toEqual(['pay_by_bank', 'bank_transfer']);
+  expect(await usdt(who)).toBe('50');
+});
+
+test(`${J} #4 accepts a price after it ran out: refused as expired, nothing kept, charged or added`, async ({ page }) => {
+  test.setTimeout(120_000);
+  const who = person();
+  await signIn(page, who);
+  await page.goto('/bank/ramps/new');
+  await page.getByLabel('Add to').selectOption('USDT');
+  await page.getByLabel('Amount').fill('20');
+  await page.getByLabel('Country you pay from').fill('NL');
+  await page.getByRole('button', { name: 'See ways to pay' }).click();
+  const row = page.getByTestId('method-bank_transfer');
+  // The stand-in's TEST price: 20 USDT at a TEST rate of 2 EUR plus a TEST fee of 1 EUR, labelled as a stand-in.
+  await expect(row).toContainText('TEST price from a stand-in');
+  await expect(row).toContainText(/You pay: 41(\.0+)? EUR/);
+  await expect(row).toContainText(/Fee: 1(\.0+)? EUR/);
+  await expect(row).toContainText('Price holds until');
+  // Every way it does not list stays refused by name.
+  await expect(page.getByTestId('method-card')).toContainText('bank.fiat_ramp_socket');
+  const confirm = await ask(page, 'bank_transfer');
+  // The person stays on the review past the 20 seconds the TEST price holds, then asks.
+  await page.waitForTimeout(21_000);
+  await confirm.getByRole('button', { name: 'Ask for this payment' }).click();
+  const refused = page.getByTestId('add-money-refused');
+  await expect(refused).toContainText('The price ran out');
+  await expect(refused).toContainText('nothing was asked for, kept or charged');
+  await expect(refused).toContainText('bank.onramp_quote_expired');
   expect((await requests(who)).map((r) => r.method)).toEqual(['pay_by_bank', 'bank_transfer']);
   expect(await usdt(who)).toBe('50');
 });
