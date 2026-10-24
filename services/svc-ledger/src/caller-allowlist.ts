@@ -60,6 +60,10 @@ export const LEDGER_POST_ALLOWLIST = {
     withdrawReverse: g('ledger', 'services/svc-bank/src/cards/card-service.ts'),
     withdrawSettle: g('ledger', 'services/svc-bank/src/cards/card-service.ts'),
   },
+  'svc-campaigns': {
+    rewardPay: g('token', 'services/svc-campaigns/src/payouts.ts'),
+    sweepFeesToRewards: g('token', 'services/svc-campaigns/src/payouts.ts'),
+  },
   'svc-identity': {
     rewardPay: g('token', 'services/svc-identity/src/affiliates/payout-engine.ts'),
     sweepFeesToRewards: g('token', 'services/svc-identity/src/affiliates/payout-engine.ts'),

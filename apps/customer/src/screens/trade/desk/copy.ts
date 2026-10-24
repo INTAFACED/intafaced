@@ -378,6 +378,7 @@ const messages = {
   'Ledger kind release': 'Given back from an order',
   'Ledger kind deposit': 'Deposit',
   'Ledger kind withdrawal': 'Withdrawal',
+  'Ledger kind reward': 'Campaign reward',
   'Ledger kind other': 'Other',
   'Ledger totals': 'Ledger totals',
   'Ledger lines add up to': 'These lines add up to (exact)',

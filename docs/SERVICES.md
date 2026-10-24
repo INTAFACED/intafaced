@@ -10,7 +10,7 @@
 | `svc-agents` | The agent fleet runtime and model gateway (§8.2). | 4008 | compose network only | `AGENTS_FEE_ASSET_ID`, `AGENTS_METERING_ENABLED`, `AGENTS_USAGE_WINDOW_MINUTES`, `DATABASE_POOL_MAX`, `DATABASE_URL`, `EDGE_PRINCIPAL_SECRET`, `INTERNAL_SERVICE_SECRET`, `LEDGER_URL` |
 | `svc-bank` | Multi-currency accounts over the ledger (§8.1). | 4009 | compose network only | `DATABASE_POOL_MAX`, `DATABASE_URL`, `EDGE_PRINCIPAL_SECRET`, `INTERNAL_SERVICE_SECRET`, `LOAN_QUOTE_ASSET_ID`, `LOAN_SWEEP_BATCH_SIZE`, `TRANSFER_BATCH_SIZE` |
 | `svc-blueprint` | The Identity Blueprint (§7.1). Phase 4. | 4011 | compose network only | `DATABASE_POOL_MAX`, `DATABASE_URL`, `EDGE_PRINCIPAL_SECRET` |
-| `svc-campaigns` | Seasons, limited drops and the TGE claim for the drop room. | 4024 | compose network only | `DATABASE_POOL_MAX`, `DATABASE_URL`, `EDGE_PRINCIPAL_SECRET` |
+| `svc-campaigns` | Campaigns, task steps and their rewards, seasons, limited drops and the TGE claim. | 4024 | compose network only | `DATABASE_POOL_MAX`, `DATABASE_URL`, `EDGE_PRINCIPAL_SECRET` |
 | `svc-dex` | the Protocol Plane's front door (§8.6, §17.5) | 4010 | compose network only | `EDGE_PRINCIPAL_SECRET` |
 | `svc-edge` | the front door (§9) | 4000 | published 4000:4000 | `EDGE_BODY_LIMIT_BYTES`, `EDGE_PRINCIPAL_SECRET`, `EDGE_RATE_LIMIT_MAX`, `EDGE_RATE_LIMIT_WINDOW_MS`, `JWT_ACCESS_SECRET` |
 | `svc-execution` | Bounded execution-service foundations: sealed house-tenancy controls plus partial OMS/SOR/EMS, external arbitrage, and external market-making doors. | 4019 | compose network only | `EDGE_PRINCIPAL_SECRET` |

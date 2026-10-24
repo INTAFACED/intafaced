@@ -29,11 +29,20 @@ import {
   campaignUpdateInputSchema,
   campaignViewSchema,
   myCampaignsSchema,
+  payoutRecordListSchema,
+  potFundingApproveInputSchema,
+  potFundingRequestInputSchema,
+  potFundingSchema,
+  taskClaimInputSchema,
+  taskClaimResultSchema,
+  taskProgressInputSchema,
+  taskProgressSchema,
   type CampaignRefusalCode,
 } from '@intafaced/contracts/campaigns-catalogue';
 import type { CampaignService } from './campaigns.js';
 import { CampaignsError } from './codes.js';
 import type { DropService } from './drops.js';
+import type { TaskService } from './tasks.js';
 import { refuseTgeClaim } from './tge.js';
 
 const guard = { module: 'campaigns', plane: 'fiat' } as const;
@@ -60,6 +69,17 @@ const STATUS: Record<CampaignsRefusalCode | CampaignRefusalCode, TRPCError['code
   'campaigns.region_blocked': 'FORBIDDEN',
   'campaigns.participant_unread': 'SERVICE_UNAVAILABLE',
   'campaigns.review_not_needed': 'CONFLICT',
+  'campaigns.tasks_invalid': 'BAD_REQUEST',
+  'campaigns.claim_window_unset': 'PRECONDITION_FAILED',
+  'campaigns.no_tasks': 'NOT_FOUND',
+  'campaigns.not_joined': 'PRECONDITION_FAILED',
+  'campaigns.tasks_incomplete': 'PRECONDITION_FAILED',
+  'campaigns.kyc_required': 'FORBIDDEN',
+  'campaigns.claim_expired': 'CONFLICT',
+  'campaigns.budget_exhausted': 'CONFLICT',
+  'campaigns.budget_asset_mismatch': 'PRECONDITION_FAILED',
+  'campaigns.funding_unknown': 'NOT_FOUND',
+  'campaigns.funding_reference_taken': 'CONFLICT',
   'owner.decision': 'PRECONDITION_FAILED',
   'campaigns.window_unset': 'PRECONDITION_FAILED',
   'campaigns.timezone_unset': 'BAD_REQUEST',
@@ -99,7 +119,7 @@ const opsProcedure = scopedProcedure('campaigns:ops', guard).use(({ ctx, next })
   return next();
 });
 
-export function createCampaignsRouter(drops: DropService, campaigns: CampaignService) {
+export function createCampaignsRouter(drops: DropService, campaigns: CampaignService, tasks: TaskService) {
   return router({
     health: publicProcedure
       .output(z.object({ ok: z.literal(true), service: z.literal('svc-campaigns') }))
@@ -156,6 +176,31 @@ export function createCampaignsRouter(drops: DropService, campaigns: CampaignSer
         .query(async ({ ctx }) => {
           try {
             return await campaigns.myCampaigns(ctx.principal!.userId);
+          } catch (err) {
+            mapError(err);
+          }
+        }),
+    }),
+
+    tasks: router({
+      /** The caller's own progress on one task campaign, its claim window and its reward record with the redemption log. */
+      progress: scopedProcedure('campaigns:read', guard)
+        .input(taskProgressInputSchema)
+        .output(taskProgressSchema)
+        .query(async ({ ctx, input }) => {
+          try {
+            return await tasks.progress({ campaignId: input.campaignId, accountId: ctx.principal!.userId });
+          } catch (err) {
+            mapError(err);
+          }
+        }),
+      /** Claims for the caller's own account only. A second call returns the first claim's reward. */
+      claim: scopedProcedure('campaigns:write', guard)
+        .input(taskClaimInputSchema)
+        .output(taskClaimResultSchema)
+        .mutation(async ({ ctx, input }) => {
+          try {
+            return await tasks.claim({ campaignId: input.campaignId, accountId: ctx.principal!.userId });
           } catch (err) {
             mapError(err);
           }
@@ -254,6 +299,50 @@ export function createCampaignsRouter(drops: DropService, campaigns: CampaignSer
           .mutation(async ({ ctx, input }) => {
             try {
               return await campaigns.transition({ ...input, actor: ctx.principal!.userId });
+            } catch (err) {
+              mapError(err);
+            }
+          }),
+      }),
+      payouts: router({
+        /** Every reward record with its account, state, ledger transaction and attempts. */
+        list: opsProcedure
+          .input(z.object({ campaignId: z.string().min(1).max(128).optional() }).strict())
+          .output(payoutRecordListSchema)
+          .query(async ({ input }) => {
+            try {
+              return await tasks.payoutRecords(input);
+            } catch (err) {
+              mapError(err);
+            }
+          }),
+      }),
+      pot: router({
+        list: opsProcedure.output(z.array(potFundingSchema)).query(async () => {
+          try {
+            return await tasks.fundings();
+          } catch (err) {
+            mapError(err);
+          }
+        }),
+        /** One operator asks to sweep earned fees into the reward pot. */
+        request: opsProcedure
+          .input(potFundingRequestInputSchema)
+          .output(potFundingSchema)
+          .mutation(async ({ ctx, input }) => {
+            try {
+              return await tasks.requestFunding({ ...input, actor: ctx.principal!.userId });
+            } catch (err) {
+              mapError(err);
+            }
+          }),
+        /** A different operator approves, which posts the sweep. */
+        approve: opsProcedure
+          .input(potFundingApproveInputSchema)
+          .output(potFundingSchema)
+          .mutation(async ({ ctx, input }) => {
+            try {
+              return await tasks.approveFunding({ reference: input.reference, actor: ctx.principal!.userId });
             } catch (err) {
               mapError(err);
             }

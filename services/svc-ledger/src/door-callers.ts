@@ -14,8 +14,9 @@ const READERS_WITHOUT_POSTS = ['svc-matching', 'svc-tax'] as const satisfies rea
 /**
  * Posters that read nothing but their own keys (ADR 2026-10-22 service-access-calls rule 5): a new poster does not
  * become a ledger reader. `txByKey` answers identifying fields only and resolves the poster's own unknown outcomes.
+ * svc-campaigns posts task rewards and pot sweeps (J-campaigns-02) and reads back only its own keys.
  */
-const POSTERS_WITHOUT_READS = ['svc-ops'] as const satisfies readonly ServiceName[];
+const POSTERS_WITHOUT_READS = ['svc-ops', 'svc-campaigns'] as const satisfies readonly ServiceName[];
 
 const POSTERS: readonly ServiceName[] = LEDGER_CALLER_SERVICES;
 const READERS: readonly ServiceName[] = [
