@@ -336,4 +336,63 @@ if (!available) {
       expect(await count('SELECT count(*)::int AS n FROM device_authorisations')).toBe(0);
     });
   });
+
+  describe('the trusted-device read for other services', () => {
+    const deviceOf = async (sessionId: string) =>
+      (await db.sql<Array<{ id: string }>>`SELECT trusted_device_id AS id FROM sessions WHERE id = ${sessionId}`)[0]!.id;
+
+    it('says how each device was trusted: sign-up, approval, or a sign-in while the check was off', async () => {
+      const who = await account();
+      const signUp = await deviceOf(who.sessionId);
+      expect(await auth.trustedDeviceState(who.userId, signUp)).toEqual({ live: true, trustedBy: 'sign-up', newDeviceCheck: 'on' });
+
+      const waiting = await newDevice(who);
+      const approved = await auth.deviceApprove({ flowId: waiting.flowId, secret: waiting.secret, code: codesTo(who.email)[0]! });
+      expect(await auth.trustedDeviceState(who.userId, await deviceOf(approved.sessionId))).toEqual({
+        live: true,
+        trustedBy: 'approval',
+        newDeviceCheck: 'on',
+      });
+
+      auth.useNewDevicePolicy({ check: false });
+      const unasked = await auth.login({ identifier: who.email, password: PASSWORD });
+      expect(await auth.trustedDeviceState(who.userId, await deviceOf(unasked.sessionId))).toEqual({
+        live: true,
+        trustedBy: 'sign-in',
+        newDeviceCheck: 'off',
+      });
+    });
+
+    it("reads an unknown device, another account's device, a removed one and an expired one as not live", async () => {
+      const who = await account();
+      const stranger = await account();
+      const device = await deviceOf(who.sessionId);
+      expect(await auth.trustedDeviceState(who.userId, '44444444-4444-4444-8444-444444444444')).toEqual({
+        live: false,
+        trustedBy: null,
+        newDeviceCheck: 'on',
+      });
+      expect(await auth.trustedDeviceState(stranger.userId, device)).toEqual({ live: false, trustedBy: null, newDeviceCheck: 'on' });
+
+      await db.sql`UPDATE trusted_devices SET trusted_until = ${new Date(T0 + 1000)} WHERE id = ${device}`;
+      nowMs = T0 + 1000;
+      expect(await auth.trustedDeviceState(who.userId, device)).toMatchObject({ live: false, trustedBy: 'sign-up' });
+      nowMs = T0;
+      expect(await auth.removeTrustedDevice(who.userId, device)).toMatchObject({ removed: true });
+      expect(await auth.trustedDeviceState(who.userId, device)).toMatchObject({ live: false, trustedBy: 'sign-up' });
+    });
+
+    it('a device trusted again after its time ran out, with the check off, is no longer counted as approved', async () => {
+      const who = await account();
+      const waiting = await newDevice(who);
+      const approved = await auth.deviceApprove({ flowId: waiting.flowId, secret: waiting.secret, code: codesTo(who.email)[0]! });
+      const device = await deviceOf(approved.sessionId);
+      await db.sql`UPDATE trusted_devices SET trusted_until = ${new Date(T0 + 1000)} WHERE id = ${device}`;
+      nowMs = T0 + 2000;
+      auth.useNewDevicePolicy({ check: false });
+      const again = await auth.login({ identifier: who.email, password: PASSWORD, deviceKey: approved.deviceKey! });
+      expect(await deviceOf(again.sessionId)).toBe(device);
+      expect(await auth.trustedDeviceState(who.userId, device)).toEqual({ live: true, trustedBy: 'sign-in', newDeviceCheck: 'off' });
+    });
+  });
 }

@@ -131,6 +131,32 @@ export const serviceMailRequestSchema = z
 export type ServiceMailRequest = z.infer<typeof serviceMailRequestSchema>;
 export const serviceMailAcceptedSchema = z.object({ accepted: z.literal(true), mailId: z.string().guid() }).strict();
 export type ServiceMailAccepted = z.infer<typeof serviceMailAcceptedSchema>;
+/**
+ * Whether a trusted device (the `dev` claim on an access token) may still be relied on, read by another service at the
+ * moment it acts (`GET /internal/trusted-devices/:userId/:deviceId`, service credentials). A token's `dev` names the
+ * device it was minted on; it does not prove the device is still trusted, so a caller that lets one device approve
+ * another's request asks here each time.
+ * - `live`: the device belongs to that account, is not removed and has not run past its trusted time.
+ * - `trustedBy`: how it came to be trusted. `sign-up` (the device the account was made on) and `approval` (approved by
+ *   a mailed code or from another trusted device) were proved; `sign-in` was trusted as it signed in while the
+ *   new-device check was off, so anyone holding the account's factors could have made it.
+ * - `newDeviceCheck`: the owner's setting now (`IDENTITY_NEW_DEVICE_CHECK`); blank answers `off`.
+ * An unknown device, or one of another account, answers `live: false` and `trustedBy: null`.
+ */
+export const TRUSTED_DEVICE_READ_PATH = '/internal/trusted-devices/:userId/:deviceId' as const;
+export function trustedDeviceReadPath(userId: string, deviceId: string): string {
+  return `/internal/trusted-devices/${encodeURIComponent(userId)}/${encodeURIComponent(deviceId)}`;
+}
+export const trustedDeviceTrustedBySchema = z.enum(['sign-up', 'sign-in', 'approval']);
+export type TrustedDeviceTrustedBy = z.infer<typeof trustedDeviceTrustedBySchema>;
+export const trustedDeviceStateSchema = z
+  .object({
+    live: z.boolean(),
+    trustedBy: trustedDeviceTrustedBySchema.nullable(),
+    newDeviceCheck: z.enum(['on', 'off']),
+  })
+  .strict();
+export type TrustedDeviceState = z.infer<typeof trustedDeviceStateSchema>;
 /** The step-up door for an unlock request (see `CUSTOMER_STEP_UP_DOORS`). Locking needs none: it only takes power away. */
 export const SECURITY_LOCK_UNLOCK_STEP_UP_SCOPE = 'identity.step_up.security_lock_unlock' as const;
 export const SECURITY_LOCK_UNLOCK_STEP_UP_PURPOSE = 'account.securityLock.unlock' as const;

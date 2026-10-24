@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
-import type { AccountState, EmailProof, ServiceMailAccepted, ServiceMailRequest } from '@intafaced/contracts';
+import type { AccountState, EmailProof, ServiceMailAccepted, ServiceMailRequest, TrustedDeviceState } from '@intafaced/contracts';
 import {
   assertDelegatableScopes,
   FOUNDER_SESSION_SCOPE_ALLOWLIST,
@@ -61,6 +61,7 @@ import {
   pendingAuthorisations,
   removeDevice,
   trustDevice,
+  trustedDeviceState,
   type NewDevicePolicy,
   type TrustedDeviceDeps,
   type TrustedDeviceRow,
@@ -752,6 +753,11 @@ export class AuthService {
     return this.newDevicePolicy.check;
   }
 
+  /** What another service may rely on about one trusted device now (`GET /internal/trusted-devices/:userId/:deviceId`). */
+  trustedDeviceState(userId: string, deviceId: string): Promise<TrustedDeviceState> {
+    return trustedDeviceState(this.sql, this.newDevicePolicy, { userId, deviceId, now: this.passwordResetNow() });
+  }
+
   private deviceDeps(): TrustedDeviceDeps {
     return {
       sql: this.sql,
@@ -1066,6 +1072,7 @@ export class AuthService {
       userId,
       label: deviceLabel(currentUserAgent()),
       now: this.passwordResetNow(),
+      trustedBy: 'sign-up',
       presentedKey: input.deviceKey,
     });
     const session = await this.issueSession(userId, { device: input.device, ip: input.ip, mfa: false, trustedDeviceId: device.id });
