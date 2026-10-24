@@ -4,7 +4,7 @@ import { defineCopy } from '../../../shared/i18n';
 const en = {
   title: 'Review this order',
   body: 'Each side of a completed order rates the other once, good or bad.',
-  onlyCompleted: 'You can review this order once it is completed.',
+  onlyCompleted: 'Only a completed order can be reviewed.',
   yours: 'Your review',
   theirs: 'Their review of you',
   theirsNone: 'The other side has not reviewed you on this order.',
@@ -31,7 +31,7 @@ const en = {
 const es = {
   title: 'Valora este pedido',
   body: 'Cada parte de un pedido completado valora a la otra una vez, bien o mal.',
-  onlyCompleted: 'Podrás valorar este pedido cuando esté completado.',
+  onlyCompleted: 'Solo se puede valorar un pedido completado.',
   yours: 'Tu valoración',
   theirs: 'Su valoración sobre ti',
   theirsNone: 'La otra parte no te ha valorado en este pedido.',
@@ -58,7 +58,7 @@ const es = {
 const fr = {
   title: 'Évaluer cette commande',
   body: 'Chaque partie d’une commande terminée évalue l’autre une fois, bien ou mal.',
-  onlyCompleted: 'Vous pourrez évaluer cette commande une fois terminée.',
+  onlyCompleted: 'Seule une commande terminée peut être évaluée.',
   yours: 'Votre évaluation',
   theirs: 'Son évaluation de vous',
   theirsNone: 'L’autre partie ne vous a pas évalué sur cette commande.',

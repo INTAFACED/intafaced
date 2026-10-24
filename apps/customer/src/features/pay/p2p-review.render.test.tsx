@@ -79,7 +79,7 @@ describe('P2P order review (J-p2p-01 #9)', () => {
   it('says an open order cannot be reviewed yet and asks the service nothing', async () => {
     const { pay, orderReviews } = payWith([{ mine: null, theirs: null }]);
     const page = await open(pay, 'fiat_sent');
-    expect(page.textContent).toContain('You can review this order once it is completed.');
+    expect(page.textContent).toContain('Only a completed order can be reviewed.');
     expect(orderReviews).not.toHaveBeenCalled();
   });
 

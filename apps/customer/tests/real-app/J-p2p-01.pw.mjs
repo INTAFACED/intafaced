@@ -777,7 +777,7 @@ test('J-p2p-01 #9 the completed order has a receipt and an open one none; each s
   await page.goto(`/uc/order?tradeId=${open.id}`);
   await expect(page.getByText('A receipt is available once the order is completed.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Get receipt' })).toHaveCount(0);
-  await expect(page.getByText('You can review this order once it is completed.')).toBeVisible();
+  await expect(page.getByText('Only a completed order can be reviewed.')).toBeVisible();
   expect(refusalCode(await buyer.raw.mutate('reviews.leave', { tradeId: open.id, rating: 'good' }))).toBe('p2p.review_not_eligible');
   await taker.mutate('trades.cancel', { tradeId: open.id, reason: 'TEST journey order that never completes' });
 });
