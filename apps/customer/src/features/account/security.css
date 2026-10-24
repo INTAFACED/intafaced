@@ -469,3 +469,10 @@
   line-height: 20px;
   color: var(--color-muted);
 }
+/* A recovery key's fingerprint, so its holder can compare it with the key they were given. */
+.security__fingerprint {
+  font-size: 13px;
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
