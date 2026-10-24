@@ -42,6 +42,10 @@
       "types": "./dist/protocol-representation.d.ts",
       "default": "./dist/protocol-representation.js"
     },
+    "./ops-console-mode": {
+      "types": "./dist/ops-console-mode.d.ts",
+      "default": "./dist/ops-console-mode.js"
+    },
     "./instruments": {
       "types": "./dist/instruments.d.ts",
       "default": "./dist/instruments.js"

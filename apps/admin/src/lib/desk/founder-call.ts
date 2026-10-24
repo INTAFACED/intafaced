@@ -95,6 +95,8 @@ export interface FounderCallOptions {
    * (every field optional) refuses a missing input, so asking for "all of it" needs an explicit `{}`.
    */
   readonly sendEmptyInput?: boolean;
+  /** A shorter bound than the default, for a read that sits in front of every page or write (maintenance mode). */
+  readonly timeoutMs?: number;
 }
 
 export async function founderCall<T>(
@@ -121,7 +123,7 @@ export async function founderCall<T>(
       ...(method === 'POST' ? { body: JSON.stringify(input ?? {}) } : {}),
       cache: 'no-store',
       redirect: 'error',
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal: AbortSignal.timeout(options.timeoutMs ?? TIMEOUT_MS),
     });
   } catch {
     // The request may or may not have arrived. For a read that is harmless; for a write it is "unknown".

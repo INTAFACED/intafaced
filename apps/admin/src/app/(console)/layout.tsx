@@ -1,15 +1,19 @@
 import type { ReactNode } from 'react';
 import { CommandPalette } from '@/components/command-palette';
+import { ConsoleModeBanner } from '@/components/console-mode-banner';
 import { ConsoleSearch } from '@/components/console-search';
 import { Nav } from '@/components/nav';
 import { FounderSessionBar } from '@/components/founder-session-bar';
 import { SkipLink } from '@/components/skip-link';
+import { loadConsoleMode } from '@/lib/console-mode/server';
 import { requireFounderPage } from '@/lib/founder-page';
 import { enabledModuleIds } from '@/lib/modules';
 
 export default async function ConsoleLayout({ children }: { children: ReactNode }) {
-  const { session } = await requireFounderPage();
+  const founder = await requireFounderPage();
+  const { session } = founder;
   const modules = enabledModuleIds();
+  const consoleMode = await loadConsoleMode(founder);
   return (
     <div className="adm-shell">
       {/* First in the page, so it is the first Tab stop. */}
@@ -25,7 +29,10 @@ export default async function ConsoleLayout({ children }: { children: ReactNode 
         <CommandPalette modules={modules} />
         <FounderSessionBar csrf={session.csrf} userId={session.userId} expiresAt={session.expiresAt} />
       </header>
-      <main className="adm-main">{children}</main>
+      <main className="adm-main">
+        <ConsoleModeBanner view={consoleMode.view} />
+        {children}
+      </main>
     </div>
   );
 }
