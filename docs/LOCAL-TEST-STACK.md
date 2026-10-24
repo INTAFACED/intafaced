@@ -71,7 +71,7 @@ Local-test instrument key (p2p only). The p2p process sets `LOCAL_TEST_KMS=1` an
 
 ## A fresh stack, or a cloud container (root)
 
-A wiped state folder trades only after five steps, in this order (the journeys workflow runs the same):
+A wiped state folder trades only after five steps, in this order, and shows Earn, Loans and P2P working after a sixth (Try it and the journeys workflow run the same):
 
 ```sh
 pnpm local:stack                                         # services up; the founders enrol
@@ -79,9 +79,19 @@ node tooling/scripts/local-test-stack.mjs restart matching # matching reads its 
 node tooling/scripts/local-test-gates.mjs apply           # lifecycle publication, then the markets open
 pnpm local:market                                        # refuses closed markets; creates its two TEST accounts
 node tooling/scripts/local-test-gates.mjs verify          # verifies those accounts, so their quotes are accepted
+LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs apply --state "$LOCAL_STACK_STATE" # TEST earn pools, loan products, P2P method
 ```
 
-The first BTC/USDT trade, and so the first candle, follows within about a minute.
+The first BTC/USDT trade, and so the first candle, follows within about a minute. Without the last step Earn and Loans show their honest empty states ("No earn rates are configured", "No loan products yet"); see [Local test content](#local-test-content).
+
+### Windows (through WSL)
+
+The stack runs on Linux, so on Windows it runs inside WSL 2:
+
+1. Install Ubuntu on WSL (`wsl --install -d Ubuntu` in PowerShell) and work inside it, with the repository cloned into the Linux home folder (not under `/mnt/c`).
+2. Use Node `^20.19.0` or `>=22.12.0`. That is rolldown's engine range: on any other version pnpm skips rolldown's Linux build and the Customer build fails.
+3. Point `LOCAL_STACK_NATS_BIN` at a Linux `nats-server` 2.10.24 (the release's `linux-amd64` archive). The stack itself carries only a verified `darwin-arm64` archive.
+4. Then follow the steps above, the same as in a Linux container.
 
 ### Chart history
 
