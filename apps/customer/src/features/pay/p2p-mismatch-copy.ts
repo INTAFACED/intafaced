@@ -5,7 +5,7 @@ const en = {
   kind: 'What arrived',
   under: 'Less than the order',
   over: 'More than the order',
-  partial: 'Only part of it, so far',
+  partial: 'Only part of it',
   amount: 'Amount received ({currency})',
   expected: 'The order is for {amount} {currency}.',
   report: 'Report the amount',
@@ -19,6 +19,12 @@ const en = {
   exists: 'This order already has an amount report. Add anything more in a dispute.',
   invalid:
     'That amount does not match what you chose: less or part must be under the order amount, more must be over it, in the currency’s own unit.',
+  format: 'Enter the amount with digits and a decimal point, for example 9.19.',
+  buyerReported: 'The seller reported {amount} {currency} received of {expected} {currency}.',
+  buyerWithin: 'That is within this service’s tolerance, so the order goes on.',
+  buyerOutside:
+    'That is outside this service’s tolerance, so the seller does not have to release. Settle the difference with the seller, or open a dispute below and a moderator decides.',
+  buyerPersonDecides: 'This service sets no tolerance, so a person decides. Open a dispute below if this is not settled with the seller.',
 } as const;
 const es = {
   title: 'El importe en mi banco es distinto',
@@ -26,7 +32,7 @@ const es = {
   kind: 'Lo que llegó',
   under: 'Menos que el pedido',
   over: 'Más que el pedido',
-  partial: 'Solo una parte, por ahora',
+  partial: 'Solo una parte',
   amount: 'Importe recibido ({currency})',
   expected: 'El pedido es de {amount} {currency}.',
   report: 'Informar del importe',
@@ -40,6 +46,13 @@ const es = {
   exists: 'Este pedido ya tiene un informe de importe. Añade lo demás en una disputa.',
   invalid:
     'Ese importe no coincide con lo elegido: menos o una parte debe ser inferior al pedido, más debe ser superior, en la unidad de la moneda.',
+  format: 'Escribe el importe con cifras y punto decimal, por ejemplo 9.19.',
+  buyerReported: 'El vendedor informó de {amount} {currency} recibidos de {expected} {currency}.',
+  buyerWithin: 'Está dentro de la tolerancia de este servicio, así que el pedido sigue.',
+  buyerOutside:
+    'Está fuera de la tolerancia de este servicio, así que el vendedor no tiene que liberar. Resuelve la diferencia con el vendedor o abre una disputa abajo y decide un moderador.',
+  buyerPersonDecides:
+    'Este servicio no fija tolerancia, así que decide una persona. Abre una disputa abajo si no lo resuelves con el vendedor.',
 } as const;
 const fr = {
   title: 'Le montant reçu sur ma banque est différent',
@@ -47,7 +60,7 @@ const fr = {
   kind: 'Ce qui est arrivé',
   under: 'Moins que la commande',
   over: 'Plus que la commande',
-  partial: 'Une partie seulement, pour l’instant',
+  partial: 'Une partie seulement',
   amount: 'Montant reçu ({currency})',
   expected: 'La commande est de {amount} {currency}.',
   report: 'Signaler le montant',
@@ -61,5 +74,12 @@ const fr = {
   exists: 'Cette commande a déjà un signalement de montant. Ajoutez le reste dans un litige.',
   invalid:
     'Ce montant ne correspond pas à votre choix : moins ou une partie doit être inférieur à la commande, plus doit être supérieur, dans l’unité de la devise.',
+  format: 'Saisissez le montant en chiffres avec un point décimal, par exemple 9.19.',
+  buyerReported: 'Le vendeur a signalé {amount} {currency} reçus sur {expected} {currency}.',
+  buyerWithin: 'C’est dans la tolérance de ce service, la commande continue.',
+  buyerOutside:
+    'C’est hors de la tolérance de ce service, le vendeur n’a donc pas à libérer. Réglez l’écart avec le vendeur, ou ouvrez un litige ci-dessous et un modérateur décide.',
+  buyerPersonDecides:
+    'Ce service ne fixe aucune tolérance, une personne décide donc. Ouvrez un litige ci-dessous si ce n’est pas réglé avec le vendeur.',
 } as const;
 export const mismatchCopy = defineCopy('pay.p2p.mismatch', en, { es, fr });

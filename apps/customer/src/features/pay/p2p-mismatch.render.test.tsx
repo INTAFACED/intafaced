@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ReportMismatch } from './p2p-mismatch';
+import { BuyerMismatch, ReportMismatch } from './p2p-mismatch';
 import type { PersonalPayApi } from './pay-api';
 import type { Trade, TradeMismatch } from './schemas';
 
@@ -78,6 +78,42 @@ describe('Report an amount mismatch (J-p2p-02 #3)', () => {
     expect(reportMismatch).toHaveBeenCalledWith(trade().id, 'under', '9.19');
     expect(onReported).toHaveBeenCalledTimes(1);
     expect(host.textContent).toContain('within this service’s tolerance, so the order goes on');
+  });
+
+  it('takes a decimal comma as the point, and stays off for an amount that is not a number', async () => {
+    const reportMismatch = vi.fn(async () => ({ ok: true as const, data: report('within_tolerance') }));
+    await render(<ReportMismatch trade={trade()} pay={{ reportMismatch } as unknown as PersonalPayApi} onReported={() => {}} />);
+    await type('abc');
+    expect(button().disabled).toBe(true);
+    expect(host.textContent).toContain('Enter the amount with digits and a decimal point');
+    await type('9,19');
+    await act(async () => button().click());
+    expect(reportMismatch).toHaveBeenCalledWith(trade().id, 'under', '9.19');
+  });
+
+  it('reads the order again when another press already reported', async () => {
+    const reportMismatch = vi.fn(async () => ({
+      ok: false as const,
+      reason: 'error',
+      message: 'service text',
+      code: 'p2p.mismatch_report_exists',
+      status: 409,
+    }));
+    const onReported = vi.fn();
+    await render(<ReportMismatch trade={trade()} pay={{ reportMismatch } as unknown as PersonalPayApi} onReported={onReported} />);
+    await type('5');
+    await act(async () => button().click());
+    expect(host.textContent).toContain('This order already has an amount report.');
+    expect(onReported).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the buyer the seller’s report and what it means, and nothing before one', async () => {
+    await render(<BuyerMismatch trade={trade(report('outside_tolerance'))} />);
+    expect(host.textContent).toContain('The seller reported 5 EUR received of 9.2 EUR.');
+    expect(host.textContent).toContain('the seller does not have to release');
+    act(() => root?.unmount());
+    await render(<BuyerMismatch trade={trade()} />);
+    expect(host.querySelector('[data-testid="order-mismatch-seen"]')).toBeNull();
   });
 
   it('says a refused report in its own words', async () => {

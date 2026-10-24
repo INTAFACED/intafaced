@@ -1576,8 +1576,10 @@ export function createP2pRouter(
               settlement: trade.settlement,
               releasePreview: releasePreview(trade),
               escrowHeld: escrowHeld(trade),
-              reminders: toReminderOut(await p2p.reminderState(trade)),
-              mismatch: await p2p.mismatchReport(trade.id).then((report) => (report ? toMismatchOut(report) : null)),
+              ...(await Promise.all([p2p.reminderState(trade), p2p.mismatchReport(trade.id)]).then(([reminders, mismatch]) => ({
+                reminders: toReminderOut(reminders),
+                mismatch: mismatch ? toMismatchOut(mismatch) : null,
+              }))),
             };
           }),
         ),

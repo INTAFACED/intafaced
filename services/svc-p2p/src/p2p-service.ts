@@ -1090,6 +1090,37 @@ function assertQuoteTerms(row: QuoteRow, now: { offerPrice: Amount; price: Amoun
   }
 }
 
+type MismatchRow = {
+  trade_id: string;
+  kind: MismatchKind;
+  amount_received: string;
+  expected: string;
+  classification: MismatchClassification;
+  tolerance_bps: number | null;
+  reported_at: Date;
+};
+
+/** The order's amount report, read with `db` (the order's transaction, or the pool). */
+async function readMismatch(db: Sql, tradeId: string): Promise<MismatchReport | null> {
+  const [row] = await db<MismatchRow[]>`
+    SELECT trade_id, kind, amount_received::text, expected::text, classification, tolerance_bps, reported_at
+      FROM p2p.trade_mismatches WHERE trade_id = ${tradeId}
+  `;
+  return row ? toMismatch(row) : null;
+}
+
+function toMismatch(row: MismatchRow): MismatchReport {
+  return {
+    tradeId: row.trade_id,
+    kind: row.kind,
+    amountReceived: parseAmount(row.amount_received),
+    expected: parseAmount(row.expected),
+    classification: row.classification,
+    toleranceBps: row.tolerance_bps,
+    reportedAt: new Date(row.reported_at),
+  };
+}
+
 /**
  * THE CLOCK. Postgres', never this process'.
  *
@@ -1126,28 +1157,6 @@ function assertQuoteTerms(row: QuoteRow, now: { offerPrice: Amount; price: Amoun
  * microseconds down to JS millisecond precision, so a value read here and bound
  * back into a column is always <= the true transaction timestamp, never past it.
  */
-type MismatchRow = {
-  trade_id: string;
-  kind: MismatchKind;
-  amount_received: string;
-  expected: string;
-  classification: MismatchClassification;
-  tolerance_bps: number | null;
-  reported_at: Date;
-};
-
-function toMismatch(row: MismatchRow): MismatchReport {
-  return {
-    tradeId: row.trade_id,
-    kind: row.kind,
-    amountReceived: parseAmount(row.amount_received),
-    expected: parseAmount(row.expected),
-    classification: row.classification,
-    toleranceBps: row.tolerance_bps,
-    reportedAt: new Date(row.reported_at),
-  };
-}
-
 async function txNow(tx: Sql): Promise<Date> {
   const rows = await tx<Array<{ now: Date }>>`SELECT now() AS now`;
   return rows[0]!.now;
@@ -2623,12 +2632,8 @@ export class P2pService {
           if (trade.sellerId !== actorId) {
             throw new P2pError('Only the seller, who receives the payment, can report what arrived', 'p2p.not_the_seller');
           }
-          const [existing] = await tx<MismatchRow[]>`
-            SELECT trade_id, kind, amount_received::text, expected::text, classification, tolerance_bps, reported_at
-              FROM p2p.trade_mismatches WHERE trade_id = ${tradeId}
-          `;
-          if (existing) {
-            const report = toMismatch(existing);
+          const report = await readMismatch(tx, tradeId);
+          if (report) {
             if (report.kind === input.kind && report.amountReceived === input.amountReceived) return report;
             throw new P2pError('This order already has an amount report; open a dispute to add to it', 'p2p.mismatch_report_exists');
           }
@@ -2667,11 +2672,7 @@ export class P2pService {
 
   /** An order's amount report, or null. Reads only; callers filter parties first. */
   async mismatchReport(tradeId: string): Promise<MismatchReport | null> {
-    const [row] = await this.sql<MismatchRow[]>`
-      SELECT trade_id, kind, amount_received::text, expected::text, classification, tolerance_bps, reported_at
-        FROM p2p.trade_mismatches WHERE trade_id = ${tradeId}
-    `;
-    return row ? toMismatch(row) : null;
+    return readMismatch(this.sql, tradeId);
   }
 
   // ── Release · refund · dispute ─────────────────────────────────────────────

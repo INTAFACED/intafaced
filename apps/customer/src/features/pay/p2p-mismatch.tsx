@@ -25,6 +25,9 @@ export function ReportMismatch({ trade, pay, onReported }: { trade: Trade; pay: 
   useEffect(() => setAnswered(null), [trade.id, trade.mismatch]);
   const report = answered ?? trade.mismatch ?? null;
   if (report) return <MismatchResult report={report} currency={trade.fiatCurrency} />;
+  // A decimal comma reads as the point svc-p2p takes; anything else that is not a plain decimal is refused here.
+  const typed = amount.replace(',', '.');
+  const wellFormed = /^\d+(\.\d+)?$/.test(typed);
   const refusal =
     failure?.code === 'p2p.mismatch_report_exists' ? t('exists') : failure?.code === 'p2p.invalid_amount' ? t('invalid') : null;
   return (
@@ -49,14 +52,16 @@ export function ReportMismatch({ trade, pay, onReported }: { trade: Trade; pay: 
       />
       <Button
         variant="secondary"
-        disabled={sending || amount === ''}
+        disabled={sending || !wellFormed}
         onClick={async () => {
           setSending(true);
           setFailure(null);
-          const result = await pay.reportMismatch(trade.id, kind, amount);
+          const result = await pay.reportMismatch(trade.id, kind, typed);
           setSending(false);
           if (!result.ok) {
             setFailure(result);
+            // Another tab or an earlier press already reported: read the order again so its report shows.
+            if (result.code === 'p2p.mismatch_report_exists') onReported();
             return;
           }
           setAnswered(result.data);
@@ -65,7 +70,7 @@ export function ReportMismatch({ trade, pay, onReported }: { trade: Trade; pay: 
       >
         {t('report')}
       </Button>
-      {amount === '' ? <p className="muted">{t('amountMissing')}</p> : null}
+      {amount === '' ? <p className="muted">{t('amountMissing')}</p> : !wellFormed ? <p className="muted">{t('format')}</p> : null}
       {refusal ? (
         <p className="failure" role="status">
           {refusal}
@@ -89,6 +94,26 @@ function MismatchResult({ report, currency }: { report: TradeMismatch; currency:
           : report.classification === 'outside_tolerance'
             ? t('outside')
             : t('personDecides')}
+      </p>
+    </div>
+  );
+}
+
+/** The buyer's side: the seller's amount report on a paid order, and what it means for the buyer. */
+export function BuyerMismatch({ trade }: { trade: Trade }) {
+  const { t } = mismatchCopy.useCopy();
+  const report = trade.mismatch;
+  if (!report) return null;
+  const currency = trade.fiatCurrency;
+  return (
+    <div className="stack" role="status" data-testid="order-mismatch-seen">
+      <p>{t('buyerReported', { amount: displayAmount(report.amountReceived), expected: displayAmount(report.expected), currency })}</p>
+      <p className="muted">
+        {report.classification === 'within_tolerance'
+          ? t('buyerWithin')
+          : report.classification === 'outside_tolerance'
+            ? t('buyerOutside')
+            : t('buyerPersonDecides')}
       </p>
     </div>
   );
