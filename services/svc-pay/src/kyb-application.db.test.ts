@@ -243,7 +243,17 @@ describe('kyb application', () => {
     });
     const [still] = await sql<Array<{ kyb_status: string }>>`SELECT kyb_status FROM pay.merchants WHERE id = ${merchantId}`;
     expect(still?.kyb_status).toBe('none');
+    // The view lists documents as still needed even though the section was marked complete.
+    expect((await caller.kyb.application.current({ merchantId }))?.missing).toEqual(['documents']);
     await upload(applicationId, 'trust_deed');
+    expect((await caller.kyb.application.current({ merchantId }))?.missing).toEqual([]);
+    // A country INTAFACED stops serving makes the documents unusable too, and the submit refuses.
+    await sql`UPDATE pay.kyb_entity_types SET countries = ${['FR']} WHERE entity_type = 'trust'`;
+    expect((await caller.kyb.application.current({ merchantId }))?.missing).toEqual(['documents']);
+    expect(await rejection(caller.kyb.application.submit({ applicationId }))).toMatchObject({
+      cause: expect.objectContaining({ code: 'pay.kyb_country_not_served' }),
+    });
+    await sql`UPDATE pay.kyb_entity_types SET countries = ${['DE']} WHERE entity_type = 'trust'`;
 
     await caller.kyb.application.restart({ applicationId, confirm: true });
     await caller.kyb.application.saveSection(complete(applicationId, 'company_details'));

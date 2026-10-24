@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { Button } from '@intafaced/ui';
 import { Field } from '../../../ui-kit';
 import { useResource, type Resource } from '../../../../../shared/resource';
@@ -85,6 +85,9 @@ export function stillNeeded(application: Application, checklist: Checklist | nul
 export type ApplicationViewProps = {
   portal: PortalApi;
   merchant: MerchantRecord;
+  /** The business's verification as it now stands, which can be newer than `merchant`. */
+  kybStatus: MerchantRecord['kybStatus'];
+  kybRef: string | null;
   types: Resource<EntityType[]>;
   application: Resource<Application | null>;
   checklist: Resource<Checklist | null>;
@@ -101,10 +104,14 @@ export type ApplicationViewProps = {
 export function BusinessApplication({
   portal,
   merchant,
+  kybStatus,
+  kybRef,
   onSubmitted,
 }: {
   portal: PortalApi;
   merchant: MerchantRecord;
+  kybStatus: MerchantRecord['kybStatus'];
+  kybRef: string | null;
   onSubmitted: () => void;
 }) {
   const types = useResource(async (s) => {
@@ -117,17 +124,28 @@ export function BusinessApplication({
   const application: Resource<Application | null> = fresh ? { status: 'ready', data: fresh } : loaded.resource;
   const current = application.status === 'ready' ? application.data : null;
   const asksDocuments = Boolean(current?.sections.some((s) => s.section === 'documents' && s.required));
+  const docsKey = `${current?.applicationId ?? 'none'}:${current?.entityType ?? ''}:${current?.country ?? ''}:${asksDocuments}:${round}`;
   const checklist = useResource(
     (s) => (current && asksDocuments ? portal.kybDocuments(current.applicationId, s) : Promise.resolve({ ok: true as const, data: null })),
-    `portal:kyb-documents:${current?.applicationId ?? 'none'}:${current?.entityType ?? ''}:${asksDocuments}:${round}`,
+    `portal:kyb-documents:${docsKey}`,
   );
+  // A reload after an upload keeps the rows on screen, so each row's "sent" note and chosen file stay put; a cleared
+  // application (another key) starts from nothing.
+  const lastDocs = useRef<{ key: string; data: Checklist | null } | null>(null);
+  if (checklist.resource.status === 'ready') lastDocs.current = { key: docsKey, data: checklist.resource.data };
+  const docs: Resource<Checklist | null> =
+    checklist.resource.status === 'loading' && lastDocs.current?.key === docsKey
+      ? { status: 'ready', data: lastDocs.current.data }
+      : checklist.resource;
   return (
     <ApplicationView
       portal={portal}
       merchant={merchant}
+      kybStatus={kybStatus}
+      kybRef={kybRef}
       types={types.resource}
       application={application}
-      checklist={checklist.resource}
+      checklist={docs}
       onChanged={(next, cleared) => {
         setFresh(next);
         if (cleared) setRound((n) => n + 1);
@@ -155,17 +173,34 @@ export function ApplicationView(props: ApplicationViewProps) {
       <Gate resource={props.types} retry={props.retry} rows={2}>
         {(types) => (
           <Gate resource={props.application} retry={props.retry} rows={3}>
-            {(application) =>
-              application ? (
-                <Started {...props} types={types} application={application} />
-              ) : types.length === 0 ? (
-                <Blocker reason={t('noTypesReason')} needs="entity type requirements" title={t('noTypesTitle')}>
-                  {t('noTypesBody')}
-                </Blocker>
-              ) : (
-                <StartForm {...props} types={types} />
-              )
-            }
+            {(application) => {
+              const turnedDown = application?.state === 'submitted' && props.kybStatus === 'rejected';
+              const start =
+                types.length === 0 ? (
+                  <Blocker reason={t('noTypesReason')} needs="entity type requirements" title={t('noTypesTitle')}>
+                    {t('noTypesBody')}
+                  </Blocker>
+                ) : (
+                  <StartForm {...props} types={types} />
+                );
+              if (application && !turnedDown) return <Started {...props} types={types} application={application} />;
+              if (turnedDown)
+                return (
+                  <div className="stack">
+                    <Started {...props} types={types} application={application} />
+                    <h3 className="pp-sub">{t('againTitle')}</h3>
+                    {start}
+                  </div>
+                );
+              // Verified or under review another way (a verification reference): nothing to apply for here.
+              if (props.kybStatus === 'pending' || props.kybStatus === 'approved')
+                return (
+                  <p className="pp-callout" role="note">
+                    {props.kybStatus === 'approved' ? t('otherApproved') : t('otherPending')}
+                  </p>
+                );
+              return start;
+            }}
           </Gate>
         )}
       </Gate>
@@ -186,7 +221,8 @@ function TypeAndCountry({
   onChange: (entityType: string, country: string) => void;
 }) {
   const { t } = applicationCopy.useCopy();
-  const chosen = types.find((type) => type.entityType === entityType) ?? types[0]!;
+  const [chosenType, chosenCountry] = offered(types, entityType, country);
+  const chosen = types.find((type) => type.entityType === chosenType)!;
   return (
     <div className="form-row">
       <SelectField
@@ -198,13 +234,20 @@ function TypeAndCountry({
       />
       <SelectField
         label={`${t('fCountry')} *`}
-        value={chosen.countries.includes(country) ? country : (chosen.countries[0] ?? '')}
+        value={chosenCountry}
         onChange={(next) => onChange(chosen.entityType, next)}
         options={chosen.countries.map((code) => [code, code] as const)}
         hint={t('hCountry')}
       />
     </div>
   );
+}
+
+/** The type and country as the selects show them: what was asked when it is offered, else the first offered. */
+function offered(types: EntityType[], entityType: string, country: string): [string, string] {
+  const chosen = types.find((type) => type.entityType === entityType) ?? types[0];
+  if (!chosen) return [entityType, country];
+  return [chosen.entityType, chosen.countries.includes(country) ? country : (chosen.countries[0] ?? '')];
 }
 
 const typeWord = (entityType: string, t: T) => t(`type_${entityType}` as 'type_trust');
@@ -251,7 +294,17 @@ function Started(props: Inner) {
   const docs = checklist.status === 'ready' ? checklist.data : null;
   const draft = application.state === 'draft';
   const needed = stillNeeded(application, docs, t);
-  const status = !draft ? t('statusSubmitted') : application.missing.length === 0 ? t('statusReady') : t('statusPending');
+  // The verification's outcome belongs to this application only when its reference names it.
+  const outcome = props.kybRef === `application:${application.applicationId}` ? props.kybStatus : null;
+  const status = draft
+    ? application.missing.length === 0
+      ? t('statusReady')
+      : t('statusPending')
+    : outcome === 'approved'
+      ? t('statusApproved')
+      : outcome === 'rejected'
+        ? t('statusRejected')
+        : t('statusSubmitted');
   const published = props.types.find((type) => type.entityType === application.entityType);
   return (
     <div className="stack">
@@ -280,7 +333,7 @@ function Started(props: Inner) {
         </div>
       ) : (
         <p className="pp-callout" role="note">
-          {t('submittedNote')}
+          {outcome === 'approved' ? t('approvedNote') : outcome === 'rejected' ? t('rejectedNote') : t('submittedNote')}
         </p>
       )}
       {application.sections
@@ -523,9 +576,11 @@ function Documents(props: Inner & { section: Section }) {
         return (
           <div className="form-stack pp-form">
             <p className="muted">{t('docsBody')}</p>
-            <p className="pp-callout" role="note">
-              {t('docsVendor')}
-            </p>
+            {checklist.vendorCheck.status === 'not_connected' && (
+              <Blocker reason={t('docsVendorReason')} needs="automatic document check" title={t('docsVendorTitle')}>
+                {t('docsVendor')}
+              </Blocker>
+            )}
             {rules ? (
               <p className="muted pp-note">
                 {t('docsLimits', { size: formatBytes(String(rules.maxBytes)), types: kindsOf(rules.contentTypes) })}
@@ -659,8 +714,9 @@ function Submit({ portal, application, onChanged, onSubmitted }: Inner) {
 
 function ChangeType({ portal, application, types, onChanged }: Inner) {
   const { t } = applicationCopy.useCopy();
-  const [entityType, setEntityType] = useState<string>(application.entityType);
-  const [country, setCountry] = useState(application.country);
+  const [initialType, initialCountry] = offered(types, application.entityType, application.country);
+  const [entityType, setEntityType] = useState<string>(initialType);
+  const [country, setCountry] = useState(initialCountry);
   const [changed, setChanged] = useState(false);
   const same = entityType === application.entityType && country === application.country;
   return (

@@ -88,6 +88,8 @@ const doc = {
 const base: ApplicationViewProps = {
   portal: {} as PortalApi,
   merchant,
+  kybStatus: 'none',
+  kybRef: null,
   types: ready([company, soleTrader]),
   application: ready(application()),
   checklist: ready(
@@ -244,5 +246,35 @@ describe('a sent application', () => {
     const rows = checklist([{ key: 'proof_of_address', state: 'missing', rejectionReason: null, document: null }]);
     expect(stillNeeded(app, rows, t)).toEqual(['People behind the business', 'Documents: Proof of address', 'Questions']);
     expect(stillNeeded(app, null, t)).toEqual(['People behind the business', 'Documents', 'Questions']);
+  });
+});
+
+describe('after the review', () => {
+  const sent = application({ state: 'submitted', missing: [], submittedAt: '2026-10-25T06:00:00.000Z', kybRef: 'application:x' });
+  const ref = `application:${sent.applicationId}`;
+  it('a turned-down application says so and offers a new one', () => {
+    const out = html({ application: ready(sent), kybStatus: 'rejected', kybRef: ref });
+    expect(out).toContain('Turned down');
+    expect(out).toContain('Start a new application');
+    expect(out).toContain('Start the application');
+  });
+  it('an approved application reads Approved and offers nothing to start', () => {
+    const out = html({ application: ready(sent), kybStatus: 'approved', kybRef: ref });
+    expect(out).toContain('Approved');
+    expect(out).not.toContain('Start the application');
+  });
+  it('a business verified or under review by reference is not asked to apply', () => {
+    for (const kybStatus of ['pending', 'approved'] as const) {
+      const out = html({ application: ready(null), kybStatus, kybRef: 'TEST-REF' });
+      expect(out).toContain('no application is needed');
+      expect(out).not.toContain('Start the application');
+    }
+  });
+  it('a type that is no longer published can still be changed to one that is', () => {
+    const out = html({ application: ready(application({ entityType: 'trust' })) });
+    expect(out).toContain('<option value="private_company" selected="">');
+    const button = /<button[^>]*>Change type<\/button>/.exec(out)?.[0] ?? '';
+    expect(button).not.toBe('');
+    expect(button).not.toContain(' disabled=""');
   });
 });

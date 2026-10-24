@@ -116,7 +116,8 @@ function toTrpcError(err: unknown): unknown {
     if (
       err.code === 'pay.kyb_identity_changed' ||
       err.code === 'pay.kyb_section_version_conflict' ||
-      err.code === 'pay.kyb_application_exists'
+      err.code === 'pay.kyb_application_exists' ||
+      err.code === 'pay.kyb_application_changed'
     ) {
       return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
     }

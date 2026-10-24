@@ -86,7 +86,7 @@ export function createApplicationMock(ctx) {
   });
   const draft = (route, input) => {
     const app = state.kybApplication;
-    if (!app || app.id !== input.applicationId) return refuse(route, 404, 'pay.merchant_not_found');
+    if (!app || app.id !== input.applicationId) return refuse(route, 404, 'pay.kyb_application_not_found');
     if (app.state !== 'draft') return refuse(route, 412, 'pay.kyb_application_submitted');
     return app;
   };
@@ -108,6 +108,8 @@ export function createApplicationMock(ctx) {
               return refuse(route, 409, 'pay.kyb_application_exists');
             return ok(route, view(open));
           }
+          const kybStatus = state.kyb?.kybStatus ?? state.merchant?.kybStatus;
+          if (kybStatus === 'pending' || kybStatus === 'approved') return refuse(route, 412, 'pay.kyb_invalid');
           state.kybApplication = fresh(input.entityType, input.country, iso(Date.now()));
           return ok(route, view(state.kybApplication));
         }
@@ -149,7 +151,7 @@ export function createApplicationMock(ctx) {
         }
         case 'kyb.documents.checklist': {
           const app = state.kybApplication;
-          if (!app || app.id !== input.applicationId) return refuse(route, 404, 'pay.merchant_not_found');
+          if (!app || app.id !== input.applicationId) return refuse(route, 404, 'pay.kyb_application_not_found');
           return ok(route, {
             applicationId: app.id,
             uploadRules: TEST_UPLOAD_RULES,

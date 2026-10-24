@@ -10,6 +10,7 @@ import {
 } from '@intafaced/contracts';
 import { KybError, type KybService } from './kyb-service.js';
 import type { KybEntityTypeService } from './kyb-entity-types.js';
+import { currentDocuments } from './kyb-documents.js';
 
 /**
  * THE BUSINESS VERIFICATION APPLICATION (I-kyc-compliance-21).
@@ -189,12 +190,7 @@ export class KybApplicationService {
             },
           );
         }
-        if (input.section === 'documents' && input.complete) {
-          const absent = await this.missingDocuments(tx, app);
-          if (absent.length > 0) {
-            throw new KybError(`Documents are still needed: ${absent.join(', ')}`, 'pay.kyb_documents_missing', { missing: absent });
-          }
-        }
+        if (input.section === 'documents' && input.complete) await this.assertDocuments(tx, app);
         const next = current + 1;
         await tx`
           INSERT INTO pay.kyb_application_sections (application_id, section, version, complete, data)
@@ -291,15 +287,10 @@ export class KybApplicationService {
       beforeWrite: async (tx) => {
         const app = await this.lockDraft(tx, input.applicationId);
         if (app.merchant_id !== input.merchantId) throw new KybError('No such application', 'pay.kyb_application_not_found');
+        if (app.required_sections.includes('documents')) await this.assertDocuments(tx, app);
         const missing = await this.missing(tx, app);
         if (missing.length > 0) {
           throw new KybError(`Required sections are not complete: ${missing.join(', ')}`, 'pay.kyb_incomplete', { missing });
-        }
-        if (app.required_sections.includes('documents')) {
-          const absent = await this.missingDocuments(tx, app);
-          if (absent.length > 0) {
-            throw new KybError(`Documents are still needed: ${absent.join(', ')}`, 'pay.kyb_documents_missing', { missing: absent });
-          }
         }
         await tx`
           UPDATE pay.kyb_applications
@@ -327,34 +318,54 @@ export class KybApplicationService {
     return app;
   }
 
+  /**
+   * Required sections not marked complete. The documents section also counts as missing while a required document has
+   * no current upload, its current one was rejected, or the type or country is no longer published, so the view never
+   * says ready while submit would refuse.
+   */
   private async missing(q: Sql, app: ApplicationRow): Promise<KybApplicationSection[]> {
     const done = await q<Array<{ section: KybApplicationSection }>>`
       SELECT section FROM pay.kyb_application_sections WHERE application_id = ${app.id} AND complete
     `;
     const complete = new Set(done.map((r) => r.section));
+    if (app.required_sections.includes('documents') && complete.has('documents')) {
+      const absent = await this.absentDocuments(q, app);
+      if (absent instanceof KybError || absent.length > 0) complete.delete('documents');
+    }
     return ALL_SECTIONS.filter((s) => app.required_sections.includes(s) && !complete.has(s));
   }
 
   /**
-   * The published document keys of the application's type that have no upload since the boundary, or whose latest
-   * upload was rejected. Read in the caller's transaction. A type that is no longer published refuses.
+   * The published document keys of the application's type with no current upload since the boundary, or whose current
+   * upload was rejected. Read with the caller's connection. A refusal when the type or its country is no longer published.
    */
-  private async missingDocuments(q: Sql, app: ApplicationRow): Promise<string[]> {
-    const [type] = await q<Array<{ document_keys: string[] }>>`
-      SELECT document_keys FROM pay.kyb_entity_types WHERE entity_type = ${app.entity_type}
+  private async absentDocuments(q: Sql, app: ApplicationRow): Promise<string[] | KybError> {
+    const [type] = await q<Array<{ document_keys: string[]; countries: string[] }>>`
+      SELECT document_keys, countries FROM pay.kyb_entity_types WHERE entity_type = ${app.entity_type}
     `;
     if (!type) {
-      throw new KybError(`Requirements for ${app.entity_type} are not published.`, 'pay.kyb_requirements_unset', {
+      return new KybError(`Requirements for ${app.entity_type} are not published.`, 'pay.kyb_requirements_unset', {
         entityType: app.entity_type,
       });
     }
-    const latest = await q<Array<{ document_key: string; state: string }>>`
-      SELECT DISTINCT ON (document_key) document_key, state FROM pay.kyb_documents
-       WHERE application_id = ${app.id} AND seq > ${app.documents_after_seq}
-       ORDER BY document_key, seq DESC
-    `;
-    const usable = new Set(latest.filter((d) => d.state !== 'rejected').map((d) => d.document_key));
+    if (!type.countries.includes(app.country)) {
+      return new KybError(`${app.entity_type} is not offered in ${app.country}`, 'pay.kyb_country_not_served', {
+        entityType: app.entity_type,
+        country: app.country,
+      });
+    }
+    const current = await currentDocuments(q, app.id, app.documents_after_seq);
+    const usable = new Set(current.filter((d) => d.state !== 'rejected').map((d) => d.document_key));
     return type.document_keys.filter((key) => !usable.has(key));
+  }
+
+  /** Refuses `pay.kyb_documents_missing`, naming the keys, unless every required document has a usable current upload. */
+  private async assertDocuments(q: Sql, app: ApplicationRow): Promise<void> {
+    const absent = await this.absentDocuments(q, app);
+    if (absent instanceof KybError) throw absent;
+    if (absent.length > 0) {
+      throw new KybError(`Documents are still needed: ${absent.join(', ')}`, 'pay.kyb_documents_missing', { missing: absent });
+    }
   }
 
   private async view(q: Sql, app: ApplicationRow): Promise<KybApplicationView> {

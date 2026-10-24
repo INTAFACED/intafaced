@@ -258,6 +258,24 @@ describe('kyb documents', () => {
     expect(count[0]?.n).toBe('0');
   });
 
+  it('an upload racing a restart or type change is refused, so a cleared list never gets an old pick', async () => {
+    const id = await startApplication();
+    await publishRules();
+    const owner = await api();
+    const input = { applicationId: id, key: 'trust_deed', contentType: PDF, bytesBase64: b64('picked before the restart') };
+    const holder = sql.begin(async (tx) => {
+      await tx`SELECT 1 FROM pay.kyb_applications WHERE id = ${id} FOR UPDATE`;
+      await new Promise((r) => setTimeout(r, 300));
+      await tx`UPDATE pay.kyb_applications SET documents_after_seq = documents_after_seq + 1 WHERE id = ${id}`;
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    const outcome = await rejection(owner.kyb.documents.upload(input));
+    await holder;
+    expect(outcome).toMatchObject({ code: 'CONFLICT', cause: expect.objectContaining({ code: 'pay.kyb_application_changed' }) });
+    const count = await sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM pay.kyb_documents`;
+    expect(count[0]?.n).toBe('0');
+  });
+
   it('refuses an oversize file with the cap, a type that is not accepted, and a key the type is not asked for', async () => {
     const id = await startApplication();
     await publishRules(8);

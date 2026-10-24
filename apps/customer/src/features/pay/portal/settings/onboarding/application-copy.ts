@@ -35,6 +35,8 @@ const en = {
   statusPending: 'Pending',
   statusReady: 'Ready to send',
   statusSubmitted: 'Sent for review',
+  statusApproved: 'Approved',
+  statusRejected: 'Turned down',
   neededTitle: 'Still needed',
   neededNone: 'Nothing. Every part is done.',
   dueBy: 'Due by',
@@ -87,6 +89,8 @@ const en = {
   questionsBody: 'Answer each question INTAFACED asks for this type of business.',
 
   docsBody: 'Send each document listed. Each one stays Pending until INTAFACED reviews it.',
+  docsVendorTitle: 'Documents are checked by a person',
+  docsVendorReason: 'The automatic document check isn’t connected',
   docsVendor:
     'The automatic document check isn’t connected, so no document is checked by machine and none counts as passed until it is reviewed.',
   docsRulesTitle: 'Document uploads aren’t open',
@@ -116,6 +120,11 @@ const en = {
   submitBody: 'INTAFACED reviews your application. You can’t change it once it is sent. Live payments stay off until it is approved.',
   submitNeeded: 'Finish every part listed under Still needed first.',
   submittedNote: 'INTAFACED is reviewing your application. You don’t need to do anything.',
+  approvedNote: 'INTAFACED approved this application. Your business is verified.',
+  rejectedNote: 'INTAFACED turned this application down. Start a new one below and send what was asked for.',
+  againTitle: 'Start a new application',
+  otherApproved: 'Your business is verified with its verification reference, so no application is needed.',
+  otherPending: 'Your verification reference is being reviewed, so no application is needed while it is.',
 
   // ---- plain words for refusals
   rTypeUnset: 'That business type isn’t open for verification. Pick another.',
@@ -131,6 +140,9 @@ const en = {
   rType: 'This kind of file isn’t accepted.',
   rDocUnknown: 'This document isn’t asked for this business type.',
   rDocEmpty: 'The file is empty. Choose another.',
+  rNotFound: 'This application can’t be found. Reload the page.',
+  rChanged: 'The application changed while the file was being sent, so it wasn’t kept. Send it again if it is still asked for.',
+  rKybInvalid: 'Your business is already verified or under review, so a new application can’t start.',
 } as const;
 
 export const applicationCopy = defineCopy('pay.portal.settings.application', en);

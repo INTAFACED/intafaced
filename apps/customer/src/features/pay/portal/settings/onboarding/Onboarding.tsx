@@ -529,7 +529,13 @@ function StepVerification({ portal, merchant, kyb, history, loadMoreHistory, onK
           }}
         </Gate>
       </PaySection>
-      <BusinessApplication portal={portal} merchant={merchant} onSubmitted={onKybSubmitted} />
+      <BusinessApplication
+        portal={portal}
+        merchant={merchant}
+        kybStatus={kyb.status === 'ready' && kyb.data ? kyb.data.kybStatus : merchant.kybStatus}
+        kybRef={kyb.status === 'ready' && kyb.data ? kyb.data.kybRef : merchant.kybRef}
+        onSubmitted={onKybSubmitted}
+      />
       <a className="text-link" href="/pay/onboarding/go-live">
         {a('continueGoLive')}
       </a>
