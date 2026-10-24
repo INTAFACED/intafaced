@@ -3,8 +3,8 @@ import type { ServiceName } from './service-keys.js';
 
 /**
  * Own spaces: which named spaces does this customer own? Asked by svc-tax and answered by svc-bank, which owns the spaces
- * table. It is the first PR of the two-PR order for own-account carry in the lot book (PF-cost-basis-02, ENGINE LB-6): svc-bank
- * serves it, svc-tax asks it, and svc-tax never reads the spaces table.
+ * table. Own-account carry in the lot book (PF-cost-basis-02, ENGINE LB-6) lands in two PRs: the first adds this contract and
+ * svc-bank's door, the second has svc-tax ask it. svc-tax never reads the spaces table.
  *
  * A named space is a view over the ledger account `subAccountAvailable(spaceId, assetId)`; the primary space is the customer's
  * own `userAvailable` account, which the caller already knows, so it is not listed. Every named space the customer ever owned
@@ -34,8 +34,9 @@ export const bankOwnSpaceSchema = z
   .object({
     /** The space id, which is also the `subaccount` owner id of its ledger account. */
     spaceId: z.string().guid(),
-    assetId: z.string().min(1).max(16),
-    name: z.string().min(1).max(64),
+    /** Text columns with no length rule in the table: a long stored name must not make the whole answer unreadable. */
+    assetId: z.string().min(1),
+    name: z.string().min(1),
     archived: z.boolean(),
   })
   .strict();
