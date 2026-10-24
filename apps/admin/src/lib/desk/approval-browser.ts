@@ -12,6 +12,7 @@ export type ApprovalEndpoint =
   | '/api/accounts/archive'
   | '/api/accounts/documents'
   | '/api/accounts/tier'
+  | '/api/accounts/limits'
   | '/api/accounts/holds'
   | '/api/ledger-freeze'
   | '/api/ledger-reconciliation/run'

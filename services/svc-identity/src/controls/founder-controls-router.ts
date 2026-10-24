@@ -25,6 +25,12 @@ import {
   accountTierHistoryInputSchema,
   accountTierStateSchema,
   accountTierResultSchema,
+  accountLimitOverrideClearInputSchema,
+  accountLimitOverrideSetInputSchema,
+  accountLimitResultSchema,
+  accountLimitsHistoryInputSchema,
+  accountLimitsLookupInputSchema,
+  accountLimitsStateSchema,
   customerDetailDecisionInputSchema,
   customerDetailReviewSchema,
   customerDetailReviewsInputSchema,
@@ -44,6 +50,7 @@ import {
   type Context,
 } from '@intafaced/contracts';
 import { FounderControlError, founderEntitlementChangeSchema, type FounderControls } from './founder-controls.js';
+import type { AccountLimitsDesk } from './account-limits.js';
 import type { CustomerDetailsDesk } from './customer-details.js';
 import {
   RestrictedListCursorError,
@@ -76,6 +83,7 @@ export type FounderControlsPort = Pick<
   | 'tierHistory'
 >;
 export type CustomerDetailsPort = Pick<CustomerDetailsDesk, 'state' | 'edit' | 'decide' | 'reviews' | 'history'>;
+export type AccountLimitsPort = Pick<AccountLimitsDesk, 'state' | 'set' | 'clear' | 'history'>;
 export const identityRestrictionInputSchema = accountControlInputSchema.refine(
   (input) => input.target.area === 'identity',
   'Identity target required',
@@ -140,7 +148,13 @@ function detailsDesk(details: CustomerDetailsPort | undefined): CustomerDetailsP
   throw new FounderControlError('identity.details_unconfigured', 'identity.details_unconfigured');
 }
 
-export function createFounderControlsRouter(controls: FounderControlsPort, details?: CustomerDetailsPort) {
+/** Without a limits desk (no wiring), the limit doors refuse as unconfigured rather than answer with nothing. */
+function limitsDesk(limits: AccountLimitsPort | undefined): AccountLimitsPort {
+  if (limits) return limits;
+  throw new FounderControlError('identity.controls_unconfigured', 'identity.controls_unconfigured');
+}
+
+export function createFounderControlsRouter(controls: FounderControlsPort, details?: CustomerDetailsPort, limits?: AccountLimitsPort) {
   return router({
     accountControls: router({
       change: protectedProcedure
@@ -229,6 +243,24 @@ export function createFounderControlsRouter(controls: FounderControlsPort, detai
         .input(customerDetailsHistoryInputSchema)
         .output(z.array(customerDetailsResultSchema))
         .query(({ ctx, input }) => controlCall(() => detailsDesk(details).history(ctx, input))),
+      // Limit overrides (J-ops-console-04 #12): a temporary override of one rail's figures for one asset, ending at a stored
+      // time; above the owner ceiling it spends the other founder's approval.
+      limits: protectedProcedure
+        .input(accountLimitsLookupInputSchema)
+        .output(accountLimitsStateSchema.nullable())
+        .query(({ ctx, input }) => controlCall(() => limitsDesk(limits).state(ctx, input))),
+      limitsSet: protectedProcedure
+        .input(accountLimitOverrideSetInputSchema)
+        .output(accountLimitResultSchema)
+        .mutation(({ ctx, input }) => controlCall(() => limitsDesk(limits).set(ctx, input))),
+      limitsClear: protectedProcedure
+        .input(accountLimitOverrideClearInputSchema)
+        .output(accountLimitResultSchema)
+        .mutation(({ ctx, input }) => controlCall(() => limitsDesk(limits).clear(ctx, input))),
+      limitsHistory: protectedProcedure
+        .input(accountLimitsHistoryInputSchema)
+        .output(z.array(accountLimitResultSchema))
+        .query(({ ctx, input }) => controlCall(() => limitsDesk(limits).history(ctx, input))),
       listRestricted: scopedProcedure('admin:read')
         .input(
           z

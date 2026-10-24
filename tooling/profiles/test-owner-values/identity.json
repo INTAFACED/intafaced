@@ -26,6 +26,11 @@
       "value": "[{\"id\":\"test-standard\",\"name\":\"TEST Standard\",\"terms\":{\"ratePercent\":\"0\",\"monthlyFee\":\"0\",\"feeAssetId\":\"USD\",\"dailyLimit\":\"1000\",\"clearingDays\":\"2\"}},{\"id\":\"test-plus\",\"name\":\"TEST Plus\",\"terms\":{\"ratePercent\":\"1.5\",\"monthlyFee\":\"4.99\",\"feeAssetId\":\"USD\",\"dailyLimit\":\"5000\",\"clearingDays\":\"1\"}},{\"id\":\"test-premier\",\"name\":\"TEST Premier\",\"terms\":{\"ratePercent\":\"2\",\"monthlyFee\":null,\"feeAssetId\":\"USD\",\"dailyLimit\":\"25000\",\"clearingDays\":\"0\"}}]",
       "note": "Three TEST account tiers; TEST Premier leaves its monthly fee blank so a tier that cannot be assigned is shown."
     },
+    "IDENTITY_LIMIT_OVERRIDE_POLICY": {
+      "service": "identity",
+      "value": "{\"maxLifetimeHours\":\"48\",\"ceilings\":{\"withdrawal\":{\"USDT\":\"5000\",\"USDC\":\"5000\"}}}",
+      "note": "A TEST limit override policy: an override lasts at most 48 hours, and one above 5000 USDT or USDC needs the other founder (J-ops-console-04 #12)."
+    },
     "IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS": {
       "service": "identity",
       "value": "600",

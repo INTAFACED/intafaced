@@ -235,6 +235,13 @@ const schema = serviceEnvSchema
        */
       IDENTITY_DORMANCY_DAYS: z.string().optional(),
       /**
+       * Owner setting for account limit overrides (J-ops-console-04 #12): a JSON object
+       * `{ "maxLifetimeHours": "<whole hours>", "ceilings": { "<rail>": { "<asset>": "<decimal>" } } }`. NO DEFAULT. Blank,
+       * not JSON or invalid means unset: every override refuses `identity.limit_ceiling_unset` and the console says "not
+       * set". An override above the ceiling for its rail and asset needs the other founder. Parsed by `parseLimitPolicy`.
+       */
+      IDENTITY_LIMIT_OVERRIDE_POLICY: z.string().optional(),
+      /**
        * Owner setting: how long after sign-up a person may still attach a referrer through a link, in whole seconds
        * (CM-referral-01, J-campaigns-05 #4-#5). NO DEFAULT. Blank refuses every link attach (`referral.attach_window_unset`);
        * past it, `referral.attach_window_closed`. Parsed at start by `parseAttachWindowSeconds`; malformed stops the service.
