@@ -20,6 +20,7 @@ import {
   p2pTradeFiatSent,
   positionUpdated,
   rankUpdated,
+  securityFactorChanged,
   stakeCreated,
   wiringSocketReason,
   type EventBus,
@@ -28,6 +29,7 @@ import {
   type PayloadOf,
   type Subscription,
 } from '@intafaced/events';
+import type { MessageKey } from '@intafaced/i18n';
 import { noticeFreezeChange } from './freeze-notice.js';
 import { DEPOSIT_CREDITED_BODY_KEY, DEPOSIT_CREDITED_KIND, DEPOSIT_CREDITED_TITLE_KEY } from './deposit-credit-notice.js';
 import type { CreateResult, NotifyService } from './notify-service.js';
@@ -203,6 +205,15 @@ export interface OrderTerminalNotifyPolicy {
 export const DEFAULT_ORDER_TERMINAL_NOTIFY_POLICY: OrderTerminalNotifyPolicy = {
   statuses: ['cancelled', 'rejected', 'expired'],
   severity: 'info',
+};
+
+/** The inbox title for each sign-in factor change (I-signin-sessions-08); a new change will not compile without one. */
+const FACTOR_CHANGED_TITLE_KEYS: Record<PayloadOf<'securityFactorChanged'>['change'], MessageKey> = {
+  totp_added: 'notify.identity.security.totp_added.title',
+  totp_removed: 'notify.identity.security.totp_removed.title',
+  totp_replaced: 'notify.identity.security.totp_replaced.title',
+  passkey_added: 'notify.identity.security.passkey_added.title',
+  passkey_removed: 'notify.identity.security.passkey_removed.title',
 };
 
 /** The action kinds `intafaced.agents.action.completed` can carry. */
@@ -546,6 +557,29 @@ export async function subscribeNotificationEvents(
           severity: 'action',
           sourceSubject: kycApproved.subject,
           sourceIdempotencyKey: `${payload.userId}:${payload.tier}`,
+        }),
+      );
+    }),
+  );
+
+  attachments.push(
+    await attach(bus, 'securityFactorChanged', securityFactorChanged.subject, 'notify-security-factor-changed', async (payload) => {
+      // I-signin-sessions-08: a sign-in factor of the account changed. The security category cannot be turned off, and the
+      // notice points to Security, where the owner can sign out everywhere if it was not them. One row per change: the
+      // business key from svc-identity is the dedupe key. Inbox only: svc-identity already mails the proved address in the
+      // change's own transaction, and that mail is never muted or held for a digest.
+      nakIfRetryable(
+        await notify.create({
+          userId: payload.userId,
+          kind: `identity.security.${payload.change}`,
+          titleKey: FACTOR_CHANGED_TITLE_KEYS[payload.change],
+          bodyKey: 'notify.identity.security.factor_changed.body',
+          params: {},
+          href: '/uc/safe',
+          severity: 'action',
+          sourceSubject: securityFactorChanged.subject,
+          sourceIdempotencyKey: payload.noticeKey,
+          outOfApp: false,
         }),
       );
     }),
