@@ -72,6 +72,7 @@ function scanProductionRecipeCallers(): Map<string, string[]> {
 const PINNED_SOCKETS: readonly { name: RecipeName; fingerprint: string }[] = [
   { name: 'marketMakerSeedFund', fingerprint: 'f0ed307f9c4c' },
   { name: 'tradeFillFeeCorrection', fingerprint: '1948c544d9f1' },
+  { name: 'tradeFillMakerRebate', fingerprint: 'f62b2e1b8311' },
   { name: 'orderHoldAmend', fingerprint: 'eb8454c78c05' },
   { name: 'marketListingFee', fingerprint: 'c6b5159bbd35' },
   { name: 'marketPremiumPlacement', fingerprint: 'ef52f37a4786' },
@@ -93,6 +94,7 @@ const RECIPE_GATE_CATALOG = 'services/svc-ledger/src/recipe-gate.ts';
 const SOCKET_CALLER_ALLOWLIST: ReadonlyMap<RecipeName, readonly string[]> = new Map([
   ['marketMakerSeedFund', [RECIPE_GATE_CATALOG]],
   ['tradeFillFeeCorrection', [RECIPE_GATE_CATALOG]],
+  ['tradeFillMakerRebate', [RECIPE_GATE_CATALOG]],
   ['orderHoldAmend', [RECIPE_GATE_CATALOG]],
   ['marketListingFee', [RECIPE_GATE_CATALOG]],
   ['marketPremiumPlacement', [RECIPE_GATE_CATALOG]],
@@ -112,10 +114,10 @@ describe('D26-P2-11 recipe matrix inventory (live path closure)', () => {
     expect(inventory.live.length + inventory.sockets.length).toBe(inventory.recipes.length);
   });
 
-  it('pins live vs §13 socket counts on tip (77 = 68 live + 9 socket)', () => {
+  it('pins live vs §13 socket counts on tip (78 = 68 live + 10 socket)', () => {
     const counts = countByKind(inventory);
-    expect(counts).toEqual({ live: 68, socket: 9 });
-    expect(inventory.recipes).toHaveLength(77);
+    expect(counts).toEqual({ live: 68, socket: 10 });
+    expect(inventory.recipes).toHaveLength(78);
     expect(liveRecipeKeys(inventory)).toHaveLength(68);
     expect(socketRecipeKeys(inventory)).toEqual(PINNED_SOCKETS.map((s) => s.name).sort());
   });

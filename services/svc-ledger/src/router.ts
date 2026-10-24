@@ -47,6 +47,7 @@ import { HISTORY_RAILS, parseHistoryDoorInput, parseHistoryPageInput, parseHisto
 import { LEDGER_DOOR_CALLERS } from './door-callers.js';
 import { applyCallerBinding, type CallerBindingOptions, type PostCaller } from './caller-binding.js';
 import { RECIPE_REQUIRED_CODE, assertKnownRecipePost } from './recipe-gate.js';
+import { MAKER_REBATE_UNBOUND_CODE, assertMakerRebateBound } from './maker-rebate-binding.js';
 import { statementPnlFromThisBook, statementPnlInputSchema, statementPnlResultSchema } from './ledger/statement-pnl.js';
 import {
   operatorOwnerBalances,
@@ -144,7 +145,8 @@ function toTrpcError(err: unknown): TRPCError {
       err.code === 'ledger.history_range_too_large' ||
       err.code === 'ledger.history_page_socket' ||
       err.code === 'ledger.history_cursor_invalid' ||
-      err.code === RECIPE_REQUIRED_CODE)
+      err.code === RECIPE_REQUIRED_CODE ||
+      err.code === MAKER_REBATE_UNBOUND_CODE)
   ) {
     return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
   }
@@ -261,6 +263,7 @@ export function createLedgerRouter(
               : { kind: 'legacy', claimed: ctx.service };
           applyCallerBinding(caller, input, binding);
           assertKnownRecipePost(input);
+          await assertMakerRebateBound(ledger, input);
           const entries: EntryInput[] = input.entries.map((e) => ({
             account: e.account,
             direction: e.direction,

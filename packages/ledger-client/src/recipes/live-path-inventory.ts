@@ -56,6 +56,12 @@ export const RECIPE_MATRIX = {
     reason:
       '§13 — TRD-0171 posts a fee correction as a new balanced entry under trade.fill.fee.correction. It leaves the original trade.fill row. No production writer posts this yet; the recipe-gate catalog samples it and does not ledger.post.',
   },
+  tradeFillMakerRebate: {
+    kind: 'socket',
+    socket: '§13',
+    reason:
+      '§13 — SP-fees-vip-01 maker rebate: its own post under trade.fill.rebate, from houseFees(trade) in the asset the maker paid, below the same fill taker fee. No production writer posts it yet (svc-trade refuses trade.rebate_recipe_unavailable); the recipe-gate catalog samples it and does not ledger.post.',
+  },
   orderHold: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/spot/trade-service/order-place.ts' },
   orderHoldRelease: { kind: 'live', module: 'trade', proof: 'services/svc-trade/src/spot/trade-service/holds.ts' },
   orderHoldAmend: {

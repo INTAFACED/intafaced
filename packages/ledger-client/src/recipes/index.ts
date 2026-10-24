@@ -23,6 +23,7 @@ import { staffHoldConfirm, staffHoldPlace, staffHoldRelease } from './staff-hold
 import { marketListingFee, marketPremiumPlacement, marketPurchase } from './market.js';
 import { fxConversion, fxConversionHold, fxConversionLateFill, fxConversionRelease, fxConversionReverse } from './conversion.js';
 import { tradeFillFeeCorrection } from './fill-correction.js';
+import { tradeFillMakerRebate } from './fill-rebate.js';
 import {
   assertEscrowDisputeRuling,
   assertEscrowRefundResolution,
@@ -55,6 +56,7 @@ import {
 export type { EscrowDisputeRuling } from './escrow-dispute-law.js';
 export { NATURAL_PERSON_ID, isNaturalPersonId, assertEscrowDisputeRuling, assertEscrowRefundResolution } from './escrow-dispute-law.js';
 export { refusePostedFillPriceEdit, tradeFillFeeCorrection, type TradeFillFeeCorrectionInput } from './fill-correction.js';
+export { makerRebateFor, tradeFillMakerRebate, type MakerRebate, type TradeFillMakerRebateInput } from './fill-rebate.js';
 
 /**
  * LEDGER RECIPES (§4.2).
@@ -1325,6 +1327,7 @@ export const recipes = {
   withdrawReverse,
   tradeFill,
   tradeFillFeeCorrection,
+  tradeFillMakerRebate,
   orderHold,
   orderHoldRelease,
   orderHoldAmend,
