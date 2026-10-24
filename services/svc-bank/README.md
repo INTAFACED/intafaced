@@ -116,12 +116,13 @@ The occurrences that were written off are in the **response**, not merely in the
 
 ### `earn`
 
-| Procedure        | Scope        | Purpose                                                                                |
-| ---------------- | ------------ | -------------------------------------------------------------------------------------- |
-| `earn.pools`     | `bank:read`  | Open flexible and fixed pools; refuses `bank.earn_rate_unset` when none are configured |
-| `earn.deposit`   | `bank:write` | Open a position                                                                        |
-| `earn.withdraw`  | `bank:write` | Close a position; fixed terms enforced                                                 |
-| `earn.positions` | `bank:read`  | The user's open positions                                                              |
+| Procedure              | Scope        | Purpose                                                                                                                                                                                                                         |
+| ---------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `earn.pools`           | `bank:read`  | Open flexible and fixed pools; refuses `bank.earn_rate_unset` when none are configured                                                                                                                                          |
+| `earn.deposit`         | `bank:write` | Open a position                                                                                                                                                                                                                 |
+| `earn.withdraw`        | `bank:write` | Close a position; fixed terms enforced                                                                                                                                                                                          |
+| `earn.positions`       | `bank:read`  | The user's open positions                                                                                                                                                                                                       |
+| `earn.interestHistory` | `bank:read`  | The caller's interest from one pool, a row per paid day (date, that day's rate, their payout, ledger tx), and the sum of every paid day (J-bank-07 #5). Page size required; blank refuses `bank.earn_interest_list_limit_unset` |
 
 ### `loans` — **built.** Collateralised borrow over the ledger (§8.1)
 

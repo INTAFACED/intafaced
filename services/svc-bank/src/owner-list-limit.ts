@@ -23,6 +23,11 @@ export function assertEarnPositionsListLimit(limit: number | undefined): number 
   return assertOwnerListLimit(limit, 'bank.earn_positions_list_limit_unset', 'earn.positions');
 }
 
+/** earn.interestHistory page size. Blank refuses rather than return every day the person ever earned. */
+export function assertEarnInterestListLimit(limit: number | undefined): number {
+  return assertOwnerListLimit(limit, 'bank.earn_interest_list_limit_unset', 'earn.interestHistory');
+}
+
 /** loans.list page size. Omit used to dump every loan. */
 export function assertLoansListLimit(limit: number | undefined): number {
   return assertOwnerListLimit(limit, 'bank.loans_list_limit_unset', 'loans.list');

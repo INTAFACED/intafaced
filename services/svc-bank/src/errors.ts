@@ -593,6 +593,8 @@ export type BankErrorCode =
   | 'bank.spaces_list_limit_unset'
   /** earn.positions page size unpublished. Blank is not 50 — never dump every active position. */
   | 'bank.earn_positions_list_limit_unset'
+  /** earn.interestHistory page size unpublished. Blank is not 50 — never dump every paid day. */
+  | 'bank.earn_interest_list_limit_unset'
   /** loans.list page size unpublished. Blank is not 50 — never dump every loan. */
   | 'bank.loans_list_limit_unset'
   /** cards.list page size unpublished. Blank is not 50 — never dump every card. */

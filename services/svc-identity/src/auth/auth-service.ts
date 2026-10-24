@@ -2953,22 +2953,27 @@ export class AuthService {
 
   /**
    * Prove a fresh factor for a customer step-up. Does not mint a token.
-   * A recovery code is refused and is not spent. The passkey challenge must be
-   * the one `stepUp.begin` stored; a login or bearer step-up challenge is not accepted.
+   * A recovery code is spent when given; only customer-step-up.ts decides the
+   * scopes it may confirm (replacing or turning off the authenticator app), and
+   * every other caller passes none. The passkey challenge must be the one
+   * `stepUp.begin` stored; a login or bearer step-up challenge is not accepted.
    */
   async proveFreshFactor(input: {
     userId: string;
     sessionId: string;
     totpCode?: string;
+    /** A recovery code, spent once. The caller decides where one may stand in for the app (customer-step-up.ts). */
+    recoveryCode?: string;
     webauthn?: AuthenticationResponseJSON;
     webauthnChallenge?: string;
     /** The action the passkey confirms; only the passkeys that answer for it are accepted. */
     purpose: PasskeyPurpose;
   }): Promise<void> {
     const hasTotp = typeof input.totpCode === 'string' && input.totpCode.length > 0;
+    const hasRecovery = typeof input.recoveryCode === 'string' && input.recoveryCode.trim().length > 0;
     const hasWebauthn = input.webauthn !== undefined && input.webauthn !== null;
-    if (hasTotp === hasWebauthn) {
-      throw new AuthError('Provide either a TOTP code or a WebAuthn assertion', 'auth.mfa_invalid');
+    if (Number(hasTotp) + Number(hasRecovery) + Number(hasWebauthn) !== 1) {
+      throw new AuthError('Provide exactly one of a TOTP code, a recovery code or a WebAuthn assertion', 'auth.mfa_invalid');
     }
     const users = await this.sql<
       Array<{ totp_secret: string | null; status: string; webauthn_creds: unknown }>
@@ -2980,6 +2985,16 @@ export class AuthService {
       Array<{ id: string }>
     >`SELECT id FROM sessions WHERE id = ${input.sessionId} AND user_id = ${input.userId} AND revoked = false AND expires_at > now()`;
     if (!sessions[0]) throw new AuthError('Session is no longer valid', 'auth.session_invalid');
+    if (hasRecovery) {
+      // Recovery codes belong to the authenticator app: none without it. Counted before the code is looked at.
+      if (!user.totp_secret) throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');
+      await this.reserve(input.userId, 'mfa');
+      if ((await this.tryRedeemRecoveryCode(input.userId, input.recoveryCode!)) === null) {
+        throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');
+      }
+      await recordSuccess(this.sql, input.userId, 'mfa');
+      return;
+    }
     if (hasTotp) {
       if (!/^\d{6}$/.test(input.totpCode!)) {
         throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');

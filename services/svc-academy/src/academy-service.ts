@@ -105,6 +105,7 @@ import type {
 import { academyProgrammeCertId } from '@intafaced/contracts';
 import { CertIssueRules, issueDueAt } from './certs/issue-rules.js';
 import { ProgrammeRecords } from './curriculum/programme-records.js';
+import { CourseDiscussion } from './curriculum/discussion.js';
 import { normaliseHolderName } from './certs/holder-name.js';
 import { PROGRAMME_SLUGS, type ProgrammeSlug } from './curriculum/programmes.js';
 import {
@@ -337,6 +338,10 @@ export interface AcademyServiceOptions {
   certIssueSweepSeconds?: number;
   /** AC-programmes-01: owner-set courses per learning programme (`ACADEMY_PROGRAMME_MAX_COURSES`). Undefined: a save with courses refuses. */
   programmeMaxCourses?: number;
+  /** AC-rooms-01: owner-set characters per discussion post (`ACADEMY_POST_MAX_CHARS`). Undefined: posting refuses. */
+  postMaxChars?: number;
+  /** AC-rooms-01: owner-set bytes per post image (`ACADEMY_POST_IMAGE_MAX_BYTES`). Undefined: a post with an image refuses. */
+  postImageMaxBytes?: number;
   /** Test seam. Production is empty: no owner-published scored assessment. */
   assessmentCatalog?: readonly AssessmentDefinition[];
 }
@@ -400,6 +405,8 @@ export class AcademyService {
   private readonly videoTracks: VideoTracks;
   private readonly issueRules: CertIssueRules;
   private readonly programmeRecords: ProgrammeRecords;
+  /** AC-rooms-01: course discussions. The router calls it directly; it decides nothing about any other record. */
+  readonly discussion: CourseDiscussion;
 
   constructor(
     private readonly sql: Sql,
@@ -448,6 +455,10 @@ export class AcademyService {
     this.videoTracks = new VideoTracks(sql);
     this.issueRules = new CertIssueRules(sql);
     this.programmeRecords = new ProgrammeRecords(sql, this.options.programmeMaxCourses);
+    this.discussion = new CourseDiscussion(sql, {
+      postMaxChars: this.options.postMaxChars ?? null,
+      imageMaxBytes: this.options.postImageMaxBytes ?? null,
+    });
     const assessments = this.options.assessmentCatalog ?? ASSESSMENT_CATALOG;
     this.assessments = new AssessmentRepository(sql, assessments);
     if (this.options.certCatalog) {

@@ -42,11 +42,13 @@ const completeInput = z
       .string()
       .regex(/^\d{6}$/)
       .optional(),
+    /** Only for the authenticator's own replace and turn-off: the person who lost the app proves with a recovery code. */
+    recoveryCode: z.string().trim().min(6).max(64).optional(),
     webauthn: webauthnShape.optional(),
   })
   .strict()
-  .refine((value) => Boolean(value.totpCode) !== Boolean(value.webauthn), {
-    message: 'Provide exactly one of totpCode or webauthn',
+  .refine((value) => [value.totpCode, value.recoveryCode, value.webauthn].filter(Boolean).length === 1, {
+    message: 'Provide exactly one of totpCode, recoveryCode or webauthn',
   });
 
 const ceremonyOutput = z.object({
@@ -161,6 +163,7 @@ export function createStepUpRouter(stepUps: CustomerStepUpService) {
               {
                 challengeId: input.challengeId,
                 ...(input.totpCode ? { totpCode: input.totpCode } : {}),
+                ...(input.recoveryCode ? { recoveryCode: input.recoveryCode } : {}),
                 ...(input.webauthn ? { webauthn: input.webauthn } : {}),
               },
             );

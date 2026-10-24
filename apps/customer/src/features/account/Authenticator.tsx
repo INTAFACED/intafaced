@@ -16,6 +16,7 @@ import {
   stepUpBegun,
   stepUpBeginInput,
   stepUpDone,
+  stepUpProof,
   totpStatus,
   type StepUpScope,
 } from './authenticator-api';
@@ -25,24 +26,28 @@ type Mode =
   | { kind: 'rename' }
   | { kind: 'confirm'; action: 'disable' | 'replace' }
   | { kind: 'disable'; requestId: string; approvalId: string }
-  | { kind: 'replace'; requestId: string; approvalId: string; secret: string; uri: string };
+  | { kind: 'replace'; requestId: string; approvalId: string; secret: string; uri: string }
+  | { kind: 'codes'; codes: string[] };
 
 /**
  * The authenticator-app card in Security (slice I-signin-sessions-11): on, name, set-up date, rename, replace and turn off.
- * Turning off and replacing first confirm with a fresh code (the step-up), then prove the current authenticator again with
- * the next code or a recovery code, because a code works once. Codes are read when the form is sent and cleared after.
- * Shows nothing while no authenticator is set up; setting one up stays in the setup card.
+ * Turning off and replacing first confirm with a fresh code or, for someone who lost the phone, a recovery code (the
+ * step-up), then prove the current authenticator again with the next code or a recovery code, because a code works once.
+ * A replace shows the new recovery codes once and ends every other session. Codes are read when the form is sent and
+ * cleared after. Shows nothing while no authenticator is set up; setting one up stays in the setup card. `onChanged`
+ * hears every change to the factor; after a replace it also says how many other sessions ended.
  */
-export function Authenticator({ onChanged }: { onChanged?: () => void }) {
+export function Authenticator({ onChanged }: { onChanged?: (change?: { sessionsEnded: number }) => void }) {
   const { t, languageFor } = copy.useCopy();
   const { api, userId } = useSession();
   const { timeZone } = usePreferences();
   const [mode, setMode] = useState<Mode>({ kind: 'idle' });
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<Extract<ApiResult<unknown>, { ok: false }> | null>(null);
-  const [problem, setProblem] = useState<'invalidCode' | 'invalidProof' | null>(null);
+  const [problem, setProblem] = useState<'invalidCode' | 'invalidProof' | 'tooFewCodes' | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [help, setHelp] = useState(false);
+  const [codesKept, setCodesKept] = useState(false);
   // The help panel belongs to the idle card: leaving idle by any route closes it, so it never reopens on its own.
   useEffect(() => {
     if (mode.kind !== 'idle') setHelp(false);
@@ -95,22 +100,20 @@ export function Authenticator({ onChanged }: { onChanged?: () => void }) {
 
   async function confirm(event: FormEvent<HTMLFormElement>, action: 'disable' | 'replace') {
     event.preventDefault();
-    const code = read(new FormData(event.currentTarget), 'confirm-code');
-    if (!isSixDigits(code)) return setProblem('invalidCode');
+    // Someone who lost the phone confirms with a recovery code, which is spent. The next step takes one more, so with
+    // fewer than two left the locked-out reset at sign-in is the way back, said before a code is spent.
+    const proof = stepUpProof(read(new FormData(event.currentTarget), 'confirm-code'));
+    if (!proof) return setProblem('invalidProof');
+    const left = resource.status === 'ready' ? (resource.data?.recoveryCodesLeft ?? 0) : 0;
+    if ('recoveryCode' in proof && left < 2) return setProblem('tooFewCodes');
     await run(async () => {
       const requestId = crypto.randomUUID();
       const scope: StepUpScope = action === 'disable' ? 'identity.step_up.totp_disable' : 'identity.step_up.totp_replace';
       const begun = await api.mutate('identity', 'stepUp.begin', stepUpBeginInput(scope, requestId), stepUpBegun);
       if (fail(begun)) return;
-      const approved = await api.mutate(
-        'identity',
-        'stepUp.complete',
-        { challengeId: begun.data.challengeId, totpCode: code },
-        stepUpDone,
-        {
-          keepSessionFor: ['auth.mfa_invalid'],
-        },
-      );
+      const approved = await api.mutate('identity', 'stepUp.complete', { challengeId: begun.data.challengeId, ...proof }, stepUpDone, {
+        keepSessionFor: ['auth.mfa_invalid'],
+      });
       if (fail(approved)) return;
       if (action === 'disable') {
         if (mounted.current) setMode({ kind: 'disable', requestId, approvalId: approved.data.stepUpApprovalId });
@@ -155,9 +158,30 @@ export function Authenticator({ onChanged }: { onChanged?: () => void }) {
         replacedAnswer,
         { keepSessionFor: ['auth.mfa_invalid'] },
       );
+      // An answer lost on the way may hide a swap that happened: the new codes cannot be shown again, so say so and read
+      // the card afresh instead of asking to confirm as if nothing changed.
+      if (!answer.ok && answer.reason === 'uncertain') {
+        if (mounted.current) done(t('replaceUnknown'));
+        return;
+      }
       // Same as turning off: a spent approval cannot be reused, so start the confirmation again (a new setup key follows).
       if (fail(answer)) return mounted.current ? setMode({ kind: 'confirm', action: 'replace' }) : undefined;
-      if (mounted.current) done(answer.data.recoveryCodeSpent ? `${t('replaced')} ${t('spent')}` : t('replaced'));
+      if (!mounted.current) return;
+      const { recoveryCodeSpent, recoveryCodes, sessionsEnded } = answer.data;
+      // The new codes stay on this page until "I saved them"; the card's count is read again only then, so a failed
+      // read can never hide them. The note says what else changed.
+      setCodesKept(false);
+      setMode({ kind: 'codes', codes: recoveryCodes });
+      setNote(
+        [
+          t('replaced'),
+          recoveryCodeSpent ? t('spent') : null,
+          sessionsEnded > 0 ? t('signedOut', { count: sessionsEnded }) : t('noneSignedOut'),
+        ]
+          .filter(Boolean)
+          .join(' '),
+      );
+      onChanged?.({ sessionsEnded });
     });
   }
 
@@ -175,7 +199,7 @@ export function Authenticator({ onChanged }: { onChanged?: () => void }) {
   if (resource.status === 'failed') return <Failure result={resource.failure} retry={reload} />;
   const status = resource.data;
   if (!status || !status.enabled) return null;
-  const problemText = problem === 'invalidCode' ? t('invalidCode') : problem === 'invalidProof' ? t('invalidProof') : null;
+  const problemText = problem ? t(problem) : null;
   const when = status.enrolledAt ? stamp(status.enrolledAt, timeZone) : null;
   return (
     <section className="security__authenticator security__card" aria-label={t('title')} lang={languageFor('title')}>
@@ -234,9 +258,8 @@ export function Authenticator({ onChanged }: { onChanged?: () => void }) {
           <Field
             label={t('confirmField')}
             name="confirm-code"
-            inputMode="numeric"
             autoComplete="one-time-code"
-            maxLength={6}
+            maxLength={64}
             required
             disabled={busy}
             data-security-sensitive="true"
@@ -282,6 +305,27 @@ export function Authenticator({ onChanged }: { onChanged?: () => void }) {
             </Button>
           </div>
         </form>
+      )}
+      {mode.kind === 'codes' && (
+        // Shown once, after the swap. "I saved them" drops the codes from this page; nothing is written to storage.
+        <div className="security__recovery stack" data-security-sensitive="true">
+          <h3>{t('newCodesTitle')}</h3>
+          <p>{t('newCodesOnce')}</p>
+          <ul className="recovery-codes">
+            {mode.codes.map((value) => (
+              <li key={value} lang="zxx">
+                {value}
+              </li>
+            ))}
+          </ul>
+          <label className="security__check">
+            <input type="checkbox" checked={codesKept} onChange={(event) => setCodesKept(event.target.checked)} />
+            {t('newCodesCheck')}
+          </label>
+          <Button disabled={!codesKept} onClick={() => (setCodesKept(false), setMode({ kind: 'idle' }), reload())}>
+            {t('newCodesSaved')}
+          </Button>
+        </div>
       )}
       {mode.kind === 'replace' && (
         <form ref={form} className="stack" onSubmit={(e) => void replace(e, mode)} noValidate>

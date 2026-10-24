@@ -16,8 +16,8 @@ const messages = {
   codesHelp: 'My codes do not work',
   cancel: 'Cancel',
   confirmTitle: 'Confirm it is you',
-  confirmBody: 'Enter the 6-digit code from your authenticator app.',
-  confirmField: '6-digit code',
+  confirmBody: 'Enter the 6-digit code from your authenticator app. Lost the phone? A recovery code also works and is used up.',
+  confirmField: '6-digit code or a recovery code',
   confirmSubmit: 'Confirm',
   nextBody: 'Codes work once. Wait for your app to show a new code, then enter it here. A recovery code also works and is used up.',
   nextField: 'Next code or a recovery code',
@@ -28,11 +28,21 @@ const messages = {
   replaceKey: 'Setup key',
   replaceNew: 'Code from the new app',
   replaceSubmit: 'Replace authenticator app',
-  replaced: 'Authenticator app replaced. Your name and recovery codes are kept.',
+  replaced: 'Authenticator app replaced. Your name is kept.',
+  signedOut: 'Every other device was signed out ({count}).',
+  noneSignedOut: 'No other device was signed in.',
+  newCodesTitle: 'New recovery codes',
+  newCodesOnce: 'Your old recovery codes no longer work. Save these somewhere safe: they are shown only now, and each works once.',
+  newCodesCheck: 'I saved these codes somewhere safe',
+  newCodesSaved: 'I saved them',
   working: 'Working…',
   loadFailed: 'The authenticator status could not be loaded.',
   invalidCode: 'Enter the 6-digit code.',
   invalidProof: 'Enter a code or a recovery code.',
+  tooFewCodes:
+    'Confirming with a recovery code takes two: this one and one more to prove the old app. With fewer left, sign out and choose “I lost my authenticator” when you sign in.',
+  replaceUnknown:
+    'We could not tell whether the app was replaced. If the date above is today, the new app is the one that works and your old recovery codes have stopped; the new ones could not be shown, so replace the app once more from the new phone to get codes you can see.',
 } as const;
 
 export const authenticatorCopy = defineCopy('account.authenticator', messages);
