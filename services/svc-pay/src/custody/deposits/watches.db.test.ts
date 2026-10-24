@@ -50,6 +50,19 @@ describe('issued deposit addresses are watched again after a restart', () => {
     expect(await listIssuedDepositWatches(db.sql)).toEqual([{ paymentId: 'deposit-user:user-a', assetId: 'ETH' }]);
   });
 
+  it('watches each extra address in its own reference, an expired one included', async () => {
+    await db.sql`
+      INSERT INTO pay.custody_deposit_addresses (user_id, asset_id, network_id, address_index, address, expires_at, issued_at)
+      VALUES ('user-a', 'ETH', 'ethereum', 0, '0xaa', NULL, now() - interval '3 minutes'),
+             ('user-a', 'ETH', 'ethereum', 1, '0xab', now() - interval '1 day', now() - interval '2 minutes'),
+             ('user-a', 'ETH', 'ethereum', 2, '0xac', now() + interval '30 days', now() - interval '1 minute')`;
+    expect(await listIssuedDepositWatches(db.sql)).toEqual([
+      { paymentId: 'deposit-user:user-a', assetId: 'ETH' },
+      { paymentId: 'deposit-user-extra:1:user-a', assetId: 'ETH' },
+      { paymentId: 'deposit-user-extra:2:user-a', assetId: 'ETH' },
+    ]);
+  });
+
   it('a restarted chain sees a deposit to an issued address only after the watches are restored, and restores the stored address', async () => {
     await db.sql`
       INSERT INTO pay.custody_deposit_settings (asset_id, network_id, label, minimum_deposit, estimated_arrival_minutes, set_by)

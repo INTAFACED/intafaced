@@ -67,14 +67,37 @@ export const payCustodyDepositCatalogueSchema = z
   .strict();
 export type PayCustodyDepositCatalogue = z.infer<typeof payCustodyDepositCatalogueSchema>;
 
+/**
+ * The highest address index svc-pay will derive for one person, asset and network. An index is never reused, so this bounds the
+ * addresses ever made, expired ones included; how many may be open at once is the owner's cap, which svc-bank enforces.
+ */
+export const PAY_CUSTODY_DEPOSIT_MAX_ADDRESS_INDEX = 9999;
+
+/**
+ * Which address to issue (W-deposit-02). `addressIndex` absent or 0 is the person's first address for the pair, which never
+ * expires. An extra address (index 1 and up) carries the `expiresAt` svc-bank computed from the owner's window; svc-pay stores
+ * it with the address the first time and keeps the stored value on every later call. A deposit that first reaches an address
+ * after its expiry is held for release, never credited on its own and never dropped.
+ */
 export const payCustodyDepositAddressInputSchema = z
   .object({
     /** Bank user ids are opaque text. */
     userId: z.string().min(1).max(128),
     assetId: assetIdSchema,
     networkId: networkIdSchema,
+    addressIndex: z.number().int().min(0).max(PAY_CUSTODY_DEPOSIT_MAX_ADDRESS_INDEX).optional(),
+    expiresAt: z.string().datetime().optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((input, ctx) => {
+    const extra = (input.addressIndex ?? 0) > 0;
+    if (extra && input.expiresAt === undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['expiresAt'], message: 'an extra address needs its expiry' });
+    }
+    if (!extra && input.expiresAt !== undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['expiresAt'], message: 'the first address does not expire' });
+    }
+  });
 export type PayCustodyDepositAddressInput = z.infer<typeof payCustodyDepositAddressInputSchema>;
 
 /** An address with no whitespace, at most 256 characters. The memo and QR text are bounded the same way the bank stores them. */
@@ -83,12 +106,23 @@ export const payCustodyDepositAddressSchema = z
     address: z.string().min(1).max(256).regex(/^\S+$/),
     memo: z.string().min(1).max(128).nullable(),
     qrPayload: z.string().min(1).max(512).nullable(),
+    /** Present for an extra address only; absent means the first address (0), as every older reply is. */
+    addressIndex: z.number().int().min(0).max(PAY_CUSTODY_DEPOSIT_MAX_ADDRESS_INDEX).optional(),
+    /** The stored expiry of an extra address; absent or null never expires. */
+    expiresAt: z.string().datetime().nullable().optional(),
   })
   .strict();
 export type PayCustodyDepositAddress = z.infer<typeof payCustodyDepositAddressSchema>;
 
-/** Why svc-pay refused to issue: the pair is not in the catalogue, or the chain port will not derive. */
-export const PAY_CUSTODY_DEPOSIT_REFUSALS = ['pay.deposit_pair_unpublished', 'pay.deposit_source_unset'] as const;
+/**
+ * Why svc-pay refused to issue: the pair is not in the catalogue, the chain port will not derive, or a new extra address was
+ * asked for with an expiry that has already passed (it would only ever hold deposits for release).
+ */
+export const PAY_CUSTODY_DEPOSIT_REFUSALS = [
+  'pay.deposit_pair_unpublished',
+  'pay.deposit_source_unset',
+  'pay.deposit_address_expiry_past',
+] as const;
 export type PayCustodyDepositRefusal = (typeof PAY_CUSTODY_DEPOSIT_REFUSALS)[number];
 
 export const payCustodyDepositAddressReplySchema = z.discriminatedUnion('state', [
@@ -101,7 +135,8 @@ export type PayCustodyDepositAddressReply = z.infer<typeof payCustodyDepositAddr
  * The states of a deposit record (W-deposit-05). `detected` and `confirming` are on the chain and not yet credited; `credited`
  * is the one state that posted a `deposit`. `below_minimum`, `rejected` and `needs_review` never credit on their own;
  * `held_for_screening` and `reversed` are written by the hold and reorg slice (W-deposit-06), and are listed here so a reader
- * never meets a state it cannot name.
+ * never meets a state it cannot name. `held_for_release` (reason `address_expired`) is a deposit that first reached an extra
+ * address after its expiry (W-deposit-02): never credited on its own, kept for a support or compliance release.
  */
 export const PAY_CUSTODY_DEPOSIT_STATUSES = [
   'detected',
@@ -109,6 +144,7 @@ export const PAY_CUSTODY_DEPOSIT_STATUSES = [
   'credited',
   'below_minimum',
   'held_for_screening',
+  'held_for_release',
   'rejected',
   'reversed',
   'needs_review',
@@ -122,7 +158,8 @@ export const PAY_CUSTODY_DEPOSIT_PENDING_STATUSES = ['detected', 'confirming'] a
  * The reason a record is not credited, as a code the screen can say in words. Null while the record is on its way or credited.
  * `amount_mismatch` is a finalized amount that differs from the one first seen; `unknown_asset` is a token the address was not
  * issued for. `chain_reorg` is a credit reversed because the chain rewrote the block it was read from; `reversal_unfunded` is
- * a reversal the balance could not cover (the funds were already spent), left for a person to resolve.
+ * a reversal the balance could not cover (the funds were already spent), left for a person to resolve. `address_expired` is a
+ * deposit that first reached an extra address after its expiry (`held_for_release`).
  */
 export const PAY_CUSTODY_DEPOSIT_REASONS = [
   'below_minimum',
@@ -132,6 +169,7 @@ export const PAY_CUSTODY_DEPOSIT_REASONS = [
   'confirmations_unset',
   'chain_reorg',
   'reversal_unfunded',
+  'address_expired',
 ] as const;
 export type PayCustodyDepositReason = (typeof PAY_CUSTODY_DEPOSIT_REASONS)[number];
 
