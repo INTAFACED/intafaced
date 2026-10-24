@@ -223,7 +223,7 @@ export const endsField: ActionField = {
     Number.isFinite(Date.parse(value)) && Date.parse(value) > Date.now() ? null : copyText('components.choose.an.end.after.first.run'),
 };
 export const iso = (value: string) => new Date(value).toISOString();
-/** A standing order's last run must follow its first, and a one-off has no last run. */
+/** A one-off has no end date, and an end at or before the first run would never fire. */
 export function scheduleWindowIssue(input: Record<string, unknown>): string | null {
   if (typeof input.endsAt !== 'string') return null;
   if (input.cadence === 'once') return copyText('components.last.run.hint');

@@ -36,6 +36,8 @@ const en = {
     'The spare change moves once for each card payment, after the payment is taken. When the account has too little, that round-up is refused and recorded, and the payment itself stands.',
   roundupOne: 'One round-up per asset. You can pause or cancel it under your automatic rules in Earn.',
   roundupOff: 'The bank has switched automatic rules off, so no round-up can be added now.',
+  roundupUnread: 'We could not read whether automatic rules are on, so no round-up can be added now.',
+  retry: 'Try again',
   statement: 'Space statement',
   statementHint:
     'A signed file of the lines posted in this space in one month (UTC). The current month runs up to now. It lists lines and does not state a balance.',
@@ -86,6 +88,8 @@ const es = {
     'El cambio sobrante se mueve una vez por cada pago con tarjeta, después de cobrarse el pago. Si la cuenta tiene saldo insuficiente, ese redondeo se rechaza y queda registrado, y el pago sigue en pie.',
   roundupOne: 'Un redondeo por activo. Puedes pausarlo o cancelarlo en tus reglas automáticas, en Rendimientos.',
   roundupOff: 'El banco ha desactivado las reglas automáticas, así que ahora no se puede añadir un redondeo.',
+  roundupUnread: 'No pudimos leer si las reglas automáticas están activas, así que ahora no se puede añadir un redondeo.',
+  retry: 'Reintentar',
   statement: 'Extracto del espacio',
   statementHint:
     'Un archivo firmado con los movimientos registrados en este espacio en un mes (UTC). El mes en curso llega hasta ahora. Enumera movimientos y no indica un saldo.',
@@ -136,6 +140,8 @@ const fr = {
     'La monnaie est déplacée une fois par paiement par carte, après l’encaissement du paiement. Si le compte n’a pas assez, cet arrondi est refusé et enregistré, et le paiement lui-même tient.',
   roundupOne: 'Un arrondi par actif. Tu peux le mettre en pause ou l’annuler dans tes règles automatiques, sous Rendements.',
   roundupOff: 'La banque a désactivé les règles automatiques, donc aucun arrondi ne peut être ajouté pour le moment.',
+  roundupUnread: 'Nous n’avons pas pu lire si les règles automatiques sont actives, donc aucun arrondi ne peut être ajouté pour le moment.',
+  retry: 'Réessayer',
   statement: 'Relevé de l’espace',
   statementHint:
     'Un fichier signé des lignes enregistrées dans cet espace pendant un mois (UTC). Le mois en cours va jusqu’à maintenant. Il liste des lignes et n’indique pas de solde.',

@@ -57,13 +57,19 @@ export function createAutoInvestRouter(c: BankRouterContext) {
              * instead of a Zod "Required". Blank is not 50; pass 50 explicitly.
              */
             limit: z.number().int().min(1).max(200).optional(),
+            /** Only the round-ups into this one of the caller's own spaces (BK-pots-02). */
+            targetSpaceId: z.string().guid().optional(),
           })
           .optional(),
       )
       .output(z.array(autoInvestRuleOutput))
       .query(async ({ ctx, input }) =>
         guard(async () => {
-          const rows = await bank.autoInvest.listRules(ctx.principal.userId, input?.limit);
+          const rows = await bank.autoInvest.listRules(
+            ctx.principal.userId,
+            input?.limit,
+            input?.targetSpaceId ? { targetSpaceId: input.targetSpaceId } : {},
+          );
           return rows.map(mapRule);
         }),
       ),

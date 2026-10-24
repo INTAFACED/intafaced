@@ -222,7 +222,7 @@ function Spaces({ open, search }: { open: (spec: ActionSpec) => void; search: st
         owner={userId ?? ''}
         reload={spaces.reload}
         actions={(space) => <SpaceActions space={space} open={open} />}
-        below={(space, all) => <SpaceInflows space={space} spaces={all} open={open} />}
+        below={(space, all) => space.kind === 'named' && <SpaceInflows key={space.id} space={space} spaces={all} open={open} />}
       />
       <Section
         title={context.status === 'none' ? copyText('rooms.your.spaces') : <spaceCopy.Copy k="other" />}
@@ -337,7 +337,6 @@ function Spaces({ open, search }: { open: (spec: ActionSpec) => void; search: st
     </BankPage>
   );
 }
-/** A one-off has no end date, and an end at or before the first run would never fire. */
 /** An ISO instant as the local `datetime-local` value the form shows. */
 function localInput(at: string): string {
   const d = new Date(at);

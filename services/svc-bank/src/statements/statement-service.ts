@@ -68,7 +68,10 @@ export class StatementService {
     // read; a different asset asked for alongside it is refused rather than quietly replaced.
     let space: { id: string; name: string; assetId: string } | null = null;
     if (input.spaceId !== undefined) {
-      const found = this.spaces ? await this.spaces.find(input.spaceId) : null;
+      if (!this.spaces) {
+        throw new BankError('Space statements are not available on this service', 'bank.statement_unavailable');
+      }
+      const found = await this.spaces.find(input.spaceId);
       if (!found || found.userId !== userId || found.kind !== 'named') {
         throw new BankError(`Space ${input.spaceId} not found`, 'bank.space_not_found');
       }

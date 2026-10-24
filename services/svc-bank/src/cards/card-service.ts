@@ -314,6 +314,7 @@ export type RoundUpOutcome =
   | { readonly status: 'none'; readonly amount: Amount }
   | { readonly status: 'skipped'; readonly amount: Amount; readonly reason: string }
   | { readonly status: 'settled'; readonly amount: Amount; readonly positionId: string }
+  /** Into one of the person's own spaces (BK-pots-02): the space and the own-space transfer that moved it. */
   | { readonly status: 'settled'; readonly amount: Amount; readonly spaceId: string; readonly ledgerTxId: string }
   | { readonly status: 'refused'; readonly amount: Amount; readonly reason: string };
 

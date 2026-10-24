@@ -21,6 +21,7 @@ import {
   recipes,
   subAccountAvailable,
   userAvailable,
+  type LedgerClient,
   type LedgerTx,
 } from '@intafaced/ledger-client';
 import type { LedgerPageEntry, LedgerPageRequest } from '../activity/activity-service.js';
@@ -160,6 +161,9 @@ describe('money into a space, and its statement (BK-pots-02)', () => {
     // One live round-up per asset, whichever its target.
     const other = await pot(ADA, 'TEST bills');
     await expect(roundUpInto(other.id)).rejects.toMatchObject({ cause: { code: 'bank.auto_invest_roundup_exists' } });
+    // Read for one space: only the round-ups into it.
+    expect((await ada.autoInvest.list({ limit: 50, targetSpaceId: holiday.id })).map((row) => row.id)).toEqual([rule.id]);
+    expect(await ada.autoInvest.list({ limit: 50, targetSpaceId: other.id })).toEqual([]);
   });
 
   it('moves the spare change of a capture into the space once, and a re-drive returns the first answer', async () => {
@@ -211,6 +215,49 @@ describe('money into a space, and its statement (BK-pots-02)', () => {
     expect(await mainOf()).toBe('4.25');
   });
 
+  it('keeps the run pending when the ledger’s answer is lost or names another movement, and a re-drive moves it once', async () => {
+    await fund(ADA, '10');
+    const holiday = await pot();
+    const rule = await roundUpInto(holiday.id);
+    const auth = randomUUID();
+    const deposit = ledger.journal()[0] as LedgerTx;
+    // The same book, with a ledger whose post fails in the two ways that prove nothing about what was booked.
+    const through = (post: LedgerClient['post']) =>
+      createBankServices(
+        sql,
+        new Proxy(ledger, {
+          get: (target, key) => {
+            if (key === 'post') return post;
+            const value = Reflect.get(target, key, target) as unknown;
+            return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+          },
+        }),
+        memoryLedgerHistory(ledger),
+        { nativeAssetId: 'IFC', recipients: memoryRecipientState(), spaceLimit: '5' },
+      );
+    const run = async () =>
+      (await sql<{ status: string }[]>`SELECT status FROM bank.auto_invest_runs WHERE rule_id = ${rule.id}`).map((r) => r.status);
+    const input = { userId: ADA, assetId: 'USDT', authorizationId: auth, captured: parseAmount('4.30') };
+
+    const lost = await through(async () => {
+      throw new Error('socket hang up');
+    }).autoInvest.applyRoundUp(input);
+    expect(lost).toMatchObject({ status: 'refused', reason: 'bank.ledger_outcome_unknown' });
+    expect(await run()).toEqual(['pending']);
+
+    // Detect mode answers a reused key with the original transaction: here, one that is not this movement.
+    const other = await through(async () => deposit).autoInvest.applyRoundUp(input);
+    expect(other).toMatchObject({ status: 'refused', reason: 'bank.ledger_outcome_unknown' });
+    expect(await run()).toEqual(['pending']);
+    expect(await balanceOf(holiday.id)).toBe('0');
+
+    await expect(capture(auth, '4.30')).resolves.toMatchObject({ status: 'settled', amount: parseAmount('0.7') });
+    await expect(capture(auth, '4.30')).resolves.toMatchObject({ status: 'settled', amount: parseAmount('0.7') });
+    expect(await run()).toEqual(['settled']);
+    expect(await balanceOf(holiday.id)).toBe('0.7');
+    expect(await mainOf()).toBe('9.3');
+  });
+
   it('lists the space a standing order pays into only when that space is the caller’s own', async () => {
     await fund(ADA, '10');
     const main = await bank.spaces.ensurePrimary(ADA, 'USDT');
@@ -240,6 +287,9 @@ describe('money into a space, and its statement (BK-pots-02)', () => {
     const rows = await caller(ADA).transfers.listSchedules({ limit: 50 });
     expect(rows.find((row) => row.id === own.id)).toMatchObject({ fromSpaceId: main.id, toSpaceId: holiday.id });
     expect(rows.find((row) => row.id === toBo.id)).toMatchObject({ fromSpaceId: main.id, toSpaceId: null });
+    // Read for one space: only the orders into it, and another person's space names none.
+    expect((await caller(ADA).transfers.listSchedules({ limit: 50, toSpaceId: holiday.id })).map((row) => row.id)).toEqual([own.id]);
+    expect(await caller(ADA).transfers.listSchedules({ limit: 50, toSpaceId: bosMain.id })).toEqual([]);
   });
 
   it('builds a statement of one space’s lines only, and another person’s space reads as not found', async () => {

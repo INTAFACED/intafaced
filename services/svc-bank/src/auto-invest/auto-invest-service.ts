@@ -5,6 +5,7 @@ import { assertAutoInvestBatchLimit } from '../job-batch-limit.js';
 import { isDefiniteLedgerRefusal } from '../ledger-outcome.js';
 import { assertAutoInvestListLimit } from '../owner-list-limit.js';
 import type { EarnService } from '../earn/earn-service.js';
+import type { RoundUpOutcome } from '../cards/card-service.js';
 import { accountForSpace, type SpaceService } from '../spaces/space-service.js';
 import { withMoneySpan } from '../tracing.js';
 import { bookedTransferMatches } from '../transfers/booked-transfer.js';
@@ -97,12 +98,8 @@ function runRefusalCode(err: unknown): string {
   return 'bank.auto_invest_run_failed';
 }
 
-export type RoundUpOutcome =
-  | { readonly status: 'none'; readonly amount: Amount }
-  | { readonly status: 'skipped'; readonly amount: Amount; readonly reason: string }
-  | { readonly status: 'settled'; readonly amount: Amount; readonly positionId: string }
-  | { readonly status: 'settled'; readonly amount: Amount; readonly spaceId: string; readonly ledgerTxId: string }
-  | { readonly status: 'refused'; readonly amount: Amount; readonly reason: string };
+/** The capture hook's answer; one type, declared with the hook in card-service. */
+export type { RoundUpOutcome };
 
 export interface AutoInvestRule {
   id: string;
@@ -508,7 +505,9 @@ export class AutoInvestService {
   ): Promise<RoundUpOutcome> {
     const now = new Date();
     try {
-      const primary = await this.spaces.ensurePrimary(rule.userId, rule.assetId);
+      // The rule made the account's primary space; a capture only reads it.
+      const primary = await this.spaces.findPrimary(rule.userId, rule.assetId);
+      if (!primary) throw new BankError(`No ${rule.assetId} account to round up from`, 'bank.space_not_found');
       const from = await this.spaces.resolveForDebit(primary.id, now);
       const to = await this.spaces.resolveForCredit(spaceId, { actingUserId: rule.userId });
       if (to.userId !== rule.userId || to.kind !== 'named') {
@@ -571,13 +570,16 @@ export class AutoInvestService {
     }
   }
 
-  async listRules(userId: string, limit?: number): Promise<AutoInvestRule[]> {
+  /** The user's rules, newest first; with `targetSpaceId`, only the round-ups into that space (BK-pots-02). */
+  async listRules(userId: string, limit?: number, filter: { targetSpaceId?: string } = {}): Promise<AutoInvestRule[]> {
     const page = assertAutoInvestListLimit(limit);
+    const into = filter.targetSpaceId ?? null;
     const rows = await this.sql<RuleRow[]>`
       SELECT id, user_id, kind, asset_id, threshold, target_pool_id, target_space_id, buy_asset_id,
              amount, cadence, next_run_at, status, created_at
         FROM bank.auto_invest_rules
        WHERE user_id = ${userId}
+         AND (${into}::uuid IS NULL OR target_space_id = ${into}::uuid)
        ORDER BY created_at DESC
        LIMIT ${page}
     `;

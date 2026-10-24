@@ -84,7 +84,6 @@ export const payoffQuoteSchema = z.object({
   validUntil: z.string(),
 });
 export type PayoffQuote = z.infer<typeof payoffQuoteSchema>;
-/** `bank.loans.statement` (BK-loan-06): one loan's signed CSV over a period; a month still running is provisional. */
 /** A signed statement file from `bank.statements.export`: the whole account, or one space (BK-pots-02). */
 export const statementFileSchema = z.object({
   format: z.enum(['csv', 'pdf']),
@@ -94,6 +93,7 @@ export const statementFileSchema = z.object({
   sha256: z.string(),
   rowCount: z.number().int().nonnegative(),
 });
+/** `bank.loans.statement` (BK-loan-06): one loan's signed CSV over a period; a month still running is provisional. */
 export const loanStatementSchema = z.object({
   format: z.literal('csv'),
   filename: z.string(),

@@ -440,6 +440,8 @@ export function createTransfersRouter(c: BankRouterContext) {
              * instead of a Zod "Required". Blank is not 50; pass 50 explicitly.
              */
             limit: z.number().int().min(1).max(200).optional(),
+            /** Only the orders paying into this one of the caller's own spaces (BK-pots-02). */
+            toSpaceId: z.string().guid().optional(),
           })
           .optional(),
       )
@@ -465,7 +467,11 @@ export function createTransfersRouter(c: BankRouterContext) {
       )
       .query(async ({ ctx, input }) =>
         guard(async () => {
-          const schedules = await bank.transfers.listSchedules(ctx.principal.userId, input?.limit);
+          const schedules = await bank.transfers.listSchedules(
+            ctx.principal.userId,
+            input?.limit,
+            input?.toSpaceId ? { toSpaceId: input.toSpaceId } : {},
+          );
           return schedules.map((s) => ({
             id: s.id,
             assetId: s.assetId,

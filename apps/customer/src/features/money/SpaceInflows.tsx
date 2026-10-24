@@ -32,14 +32,15 @@ const monthOf = (at: Date) => `${at.getUTCFullYear()}-${String(at.getUTCMonth() 
 /**
  * What moves into one of the person's own named spaces on its own (BK-pots-02, J-bank-07 #3): the standing orders that
  * pay into it and the card round-up that goes into it, each the bank's own instruction, with doors to add either; then
- * the space's own signed statement. Every figure is the bank's answer; nothing here works out a balance.
+ * the space's own signed statement. Every figure is the bank's answer; nothing here works out a balance. Mounted for named
+ * spaces only.
  */
 export function SpaceInflows({ space, spaces, open }: { space: Space; spaces: Space[]; open: (spec: ActionSpec) => void }) {
   const { t } = spaceInflowCopy.useCopy();
-  const orders = useBankRead('transfers.listSchedules', { limit: LIST_LIMIT });
-  const rules = useBankRead('autoInvest.list', { limit: LIST_LIMIT });
+  // Read for this space only, so an order or a round-up is never lost behind other ones on a page.
+  const orders = useBankRead('transfers.listSchedules', { limit: LIST_LIMIT, toSpaceId: space.id });
+  const rules = useBankRead('autoInvest.list', { limit: LIST_LIMIT, targetSpaceId: space.id });
   const policy = useBankRead('autoInvest.policy', undefined);
-  if (space.kind !== 'named') return null;
   const main = spaces.find((row) => row.kind === 'primary' && row.assetId === space.assetId);
   const automatic = policy.resource.status === 'ready' && policy.resource.data.enabled;
   const reload = () => {
@@ -104,6 +105,14 @@ export function SpaceInflows({ space, spaces, open }: { space: Space; spaces: Sp
       >
         {!main && <p className="money-caption">{t('noMain')}</p>}
         {policy.resource.status === 'ready' && !automatic && <p className="money-caption">{t('roundupOff')}</p>}
+        {policy.resource.status === 'failed' && (
+          <p className="money-caption">
+            {t('roundupUnread')}{' '}
+            <Button variant="ghost" onClick={policy.reload}>
+              {t('retry')}
+            </Button>
+          </p>
+        )}
         <h3>{t('orders')}</h3>
         <ResourceView resource={orders.resource} reload={reload}>
           {(rows) => {
@@ -155,7 +164,7 @@ export function SpaceInflows({ space, spaces, open }: { space: Space; spaces: Sp
           }}
         </ResourceView>
       </Section>
-      <SpaceStatement space={space} />
+      <SpaceStatement key={space.id} space={space} />
     </div>
   );
 }
