@@ -134,7 +134,12 @@ function SorterCard({ sorter, nameOf, stop }: { sorter: Sorter; nameOf: (spaceId
           rows.length ? (
             rows.map((run) => (
               <div key={run.id} className="money-record" data-testid="income-sorter-run" data-credit={run.creditTxId}>
-                <p>{t('run', { amount: amount(run.creditAmount, sorter.assetId), date: date(run.createdAt) })}</p>
+                <p>{t('run', { amount: amount(run.creditAmount, sorter.assetId), date: date(run.creditPostedAt) })}</p>
+                {run.skippedReason && (
+                  <p className="money-caption" data-skipped={run.skippedReason}>
+                    {t(run.skippedReason === 'below_minimum' ? 'skippedSmall' : 'skippedTerms')}
+                  </p>
+                )}
                 <ul className="money-list">
                   {run.legs.map((leg) => (
                     <li key={leg.position} data-status={leg.status}>

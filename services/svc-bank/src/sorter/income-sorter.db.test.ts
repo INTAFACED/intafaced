@@ -49,6 +49,8 @@ describe('income sorter (BK-pots-03)', () => {
   let options: BankServiceOptions;
   /** When set, a sorter split's post fails with no typed code: the reply was lost. */
   let loseSorterReplies = false;
+  /** When set, a sorter split's post never answers: the ledger hangs. */
+  let hangSorterPosts = false;
 
   beforeAll(async () => {
     const url = process.env.TEST_DATABASE_URL?.trim();
@@ -68,10 +70,12 @@ describe('income sorter (BK-pots-03)', () => {
     `;
     ledger = new MemoryLedger();
     loseSorterReplies = false;
+    hangSorterPosts = false;
     const flaky = new Proxy(ledger, {
       get(target, prop, receiver) {
         if (prop === 'post') {
           return async (req: Parameters<LedgerClient['post']>[0]) => {
+            if (hangSorterPosts && req.idempotencyKey.includes(':sorter:')) return new Promise<never>(() => {});
             if (loseSorterReplies && req.idempotencyKey.includes(':sorter:')) {
               await target.post(req);
               throw new Error('socket hang up');
@@ -123,6 +127,11 @@ describe('income sorter (BK-pots-03)', () => {
   const pot = (name: string, userId = ADA, assetId = 'USDT') => bank.spaces.create({ userId, assetId, name, lockedUntil: null });
   const balanceOf = async (spaceId: string) => formatAmount((await ledger.balance(subAccountAvailable(spaceId, 'USDT'))).amount);
   const mainOf = async (userId = ADA) => formatAmount((await ledger.balance(userAvailable(userId, 'USDT'))).amount);
+  /** A moment past the sweep's one-minute hands-off window. */
+  const later = () => new Date(Date.now() + 120_000);
+  /** The sorter as if made before every payment so far: those payments reached it, and no send sorted them (a crash). */
+  const backdate = (sorterId: string) =>
+    sql`UPDATE bank.income_sorters SET created_at = created_at - interval '1 hour' WHERE id = ${sorterId}::uuid`;
   const sorterMoves = () => ledger.journal().filter((tx) => tx.idempotencyKey.includes(':sorter:'));
 
   /** Bob pays Ada from his account, as the customer door does. */
@@ -221,8 +230,8 @@ describe('income sorter (BK-pots-03)', () => {
     await ledger.post(recipes.deposit({ userId: BOB, assetId: 'USDT', amount: parseAmount('100'), rail: 'test', railRef: randomUUID() }));
     const again = await caller(BOB).transfers.toUser({ transferId, fromSpaceId: from.id, toUserId: ADA, amount: '100' });
     expect(again.ledgerTxId).toBe(paid.ledgerTxId);
-    expect(await bank.sorter.sweep(10)).toEqual({ creditsSorted: 0, runsDriven: 0, legsStillPending: 0 });
-    expect(await bank.sorter.sweep(10)).toEqual({ creditsSorted: 0, runsDriven: 0, legsStillPending: 0 });
+    expect(await bank.sorter.sweep(10, later())).toEqual({ creditsRecorded: 0, runsDriven: 0, legsStillPending: 0 });
+    expect(await bank.sorter.sweep(10, later())).toEqual({ creditsRecorded: 0, runsDriven: 0, legsStillPending: 0 });
     expect(sorterMoves()).toHaveLength(2);
     expect(await balanceOf(bills.id)).toBe('60');
     expect(await balanceOf(savings.id)).toBe('40');
@@ -240,11 +249,16 @@ describe('income sorter (BK-pots-03)', () => {
     });
   });
 
-  it('rounds each share down and leaves the rest in the account; a payment under the minimum, or before the sorter, is not sorted', async () => {
+  it('rounds each share down and leaves the rest in the account; a payment under the minimum is recorded and not split', async () => {
     const bills = await pot('TEST bills');
     await bobPays('50');
-    await caller(ADA).sorter.create({ sorterId: randomUUID(), assetId: 'USDT', legs: [{ spaceId: bills.id, shareBp: 3333 }] });
-    expect(await bank.sorter.sweep(10)).toMatchObject({ creditsSorted: 0 });
+    const { id } = await caller(ADA).sorter.create({
+      sorterId: randomUUID(),
+      assetId: 'USDT',
+      legs: [{ spaceId: bills.id, shareBp: 3333 }],
+    });
+    // A payment from before the sorter is never sorted, by the send or the sweep.
+    expect(await bank.sorter.sweep(10, later())).toEqual({ creditsRecorded: 0, runsDriven: 0, legsStillPending: 0 });
     await bobPays('0.5');
     expect(await balanceOf(bills.id)).toBe('0');
     await bobPays('10.01');
@@ -252,16 +266,34 @@ describe('income sorter (BK-pots-03)', () => {
     expect(formatAmount(share)).toBe('3.336333');
     expect(await balanceOf(bills.id)).toBe('3.336333');
     expect(await mainOf()).toBe(formatAmount(parseAmount('60.51') - share));
+    const runs = await caller(ADA).sorter.runs({ sorterId: id, limit: 10 });
+    expect(runs.map(({ creditAmount, skippedReason, legs }) => ({ creditAmount, skippedReason, legs: legs.length }))).toEqual([
+      { creditAmount: '10.01', skippedReason: null, legs: 1 },
+      { creditAmount: '0.5', skippedReason: 'below_minimum', legs: 0 },
+    ]);
+    // Recorded once, the small payment is never weighed again, so it cannot hold the sweep back.
+    expect(await bank.sorter.sweep(10, later())).toEqual({ creditsRecorded: 0, runsDriven: 0, legsStillPending: 0 });
   });
 
-  it('a send that never sorted (terms published later) is sorted by the sweep, once', async () => {
-    const { bills, savings } = await sixtyForty();
+  it('while the bank has no terms a payment is recorded unsorted, and publishing terms later never splits it', async () => {
+    const { bills, savings, sorter } = await sixtyForty();
     options.incomeSorterMinCredit = undefined;
     await bobPays('100');
-    expect(await mainOf()).toBe('100');
     options.incomeSorterMinCredit = '1';
-    expect(await bank.sorter.sweep(10)).toEqual({ creditsSorted: 1, runsDriven: 0, legsStillPending: 0 });
-    expect(await bank.sorter.sweep(10)).toEqual({ creditsSorted: 0, runsDriven: 0, legsStillPending: 0 });
+    expect(await bank.sorter.sweep(10, later())).toEqual({ creditsRecorded: 0, runsDriven: 0, legsStillPending: 0 });
+    expect(await mainOf()).toBe('100');
+    expect(await balanceOf(bills.id)).toBe('0');
+    expect(await balanceOf(savings.id)).toBe('0');
+    const [run] = await caller(ADA).sorter.runs({ sorterId: sorter.id, limit: 10 });
+    expect(run).toMatchObject({ creditAmount: '100', skippedReason: 'terms_unset', legs: [] });
+  });
+
+  it('a payment whose send never sorted it (a crash after the post) is sorted by the sweep, once', async () => {
+    await bobPays('100');
+    const { bills, savings, sorter } = await sixtyForty();
+    await backdate(sorter.id);
+    expect(await bank.sorter.sweep(10, later())).toEqual({ creditsRecorded: 1, runsDriven: 0, legsStillPending: 0 });
+    expect(await bank.sorter.sweep(10, later())).toEqual({ creditsRecorded: 0, runsDriven: 0, legsStillPending: 0 });
     expect(await balanceOf(bills.id)).toBe('60');
     expect(await balanceOf(savings.id)).toBe('40');
     expect(sorterMoves()).toHaveLength(2);
@@ -273,15 +305,48 @@ describe('income sorter (BK-pots-03)', () => {
     await bobPays('100');
     const [pending] = await caller(ADA).sorter.runs({ sorterId: sorter.id, limit: 10 });
     expect(pending!.legs.map((leg) => leg.status)).toEqual(['pending', 'pending']);
-    expect(await bank.sorter.sweep(10)).toEqual({ creditsSorted: 0, runsDriven: 1, legsStillPending: 2 });
+    // A run younger than a minute is the send's; the sweep leaves it alone.
+    expect(await bank.sorter.sweep(10)).toEqual({ creditsRecorded: 0, runsDriven: 0, legsStillPending: 0 });
     loseSorterReplies = false;
-    expect(await bank.sorter.sweep(10)).toEqual({ creditsSorted: 0, runsDriven: 1, legsStillPending: 0 });
-    expect(await bank.sorter.sweep(10)).toEqual({ creditsSorted: 0, runsDriven: 0, legsStillPending: 0 });
+    expect(await bank.sorter.sweep(10, later())).toEqual({ creditsRecorded: 0, runsDriven: 1, legsStillPending: 0 });
+    expect(await bank.sorter.sweep(10, later())).toEqual({ creditsRecorded: 0, runsDriven: 0, legsStillPending: 0 });
     expect(sorterMoves()).toHaveLength(2);
     expect(await balanceOf(bills.id)).toBe('60');
     expect(await balanceOf(savings.id)).toBe('40');
     const [settled] = await caller(ADA).sorter.runs({ sorterId: sorter.id, limit: 10 });
     expect(settled!.legs.map((leg) => leg.status)).toEqual(['settled', 'settled']);
+  });
+
+  it('a hanging ledger never holds the payer: the send answers within its bound and the splits wait for the sweep', async () => {
+    const { sorter } = await sixtyForty();
+    hangSorterPosts = true;
+    const started = Date.now();
+    const paid = await bobPays('100');
+    expect(paid.amount).toBe('100');
+    expect(Date.now() - started).toBeLessThan(9_000);
+    const [run] = await caller(ADA).sorter.runs({ sorterId: sorter.id, limit: 10 });
+    expect(run!.legs.map((leg) => leg.status)).toEqual(['pending', 'pending']);
+  }, 20_000);
+
+  it('a split that moved before its space was archived settles on its booking, never "not moved"', async () => {
+    const { savings, sorter } = await sixtyForty();
+    loseSorterReplies = true;
+    await bobPays('100');
+    loseSorterReplies = false;
+    await caller(ADA).transfers.create({
+      transferId: `own-${randomUUID()}`,
+      fromSpaceId: savings.id,
+      toSpaceId: (await bank.spaces.ensurePrimary(ADA, 'USDT')).id,
+      amount: '40',
+    });
+    await bank.spaces.archive(savings.id);
+    expect(await bank.sorter.sweep(10, later())).toEqual({ creditsRecorded: 0, runsDriven: 1, legsStillPending: 0 });
+    const [run] = await caller(ADA).sorter.runs({ sorterId: sorter.id, limit: 10 });
+    expect(run!.legs.map(({ status, rejectionCode }) => ({ status, rejectionCode }))).toEqual([
+      { status: 'settled', rejectionCode: null },
+      { status: 'settled', rejectionCode: null },
+    ]);
+    expect(sorterMoves()).toHaveLength(2);
   });
 
   it('a refused split moves nothing and is recorded with its code; the other split still lands', async () => {
@@ -296,19 +361,18 @@ describe('income sorter (BK-pots-03)', () => {
       { status: 'rejected', rejectionCode: 'bank.space_archived' },
     ]);
     // A refused split is final: the sweep does not move it later.
-    expect(await bank.sorter.sweep(10)).toEqual({ creditsSorted: 0, runsDriven: 0, legsStillPending: 0 });
+    expect(await bank.sorter.sweep(10, later())).toEqual({ creditsRecorded: 0, runsDriven: 0, legsStillPending: 0 });
     expect(await mainOf()).toBe('40');
   });
 
   it('an account emptied before the sweep refuses each split by the ledger’s code and moves nothing', async () => {
-    const { bills, savings, sorter } = await sixtyForty();
-    options.incomeSorterMinCredit = undefined;
     await bobPays('100');
     const main = await bank.spaces.ensurePrimary(ADA, 'USDT');
     const elsewhere = await pot('TEST elsewhere');
     await caller(ADA).transfers.create({ transferId: `own-${randomUUID()}`, fromSpaceId: main.id, toSpaceId: elsewhere.id, amount: '100' });
-    options.incomeSorterMinCredit = '1';
-    expect(await bank.sorter.sweep(10)).toMatchObject({ creditsSorted: 1 });
+    const { bills, savings, sorter } = await sixtyForty();
+    await backdate(sorter.id);
+    expect(await bank.sorter.sweep(10, later())).toMatchObject({ creditsRecorded: 1 });
     const [run] = await caller(ADA).sorter.runs({ sorterId: sorter.id, limit: 10 });
     expect(run!.legs.map((leg) => leg.status)).toEqual(['rejected', 'rejected']);
     expect(run!.legs[0]!.rejectionCode).toBe('ledger.insufficient_funds');
@@ -324,7 +388,7 @@ describe('income sorter (BK-pots-03)', () => {
     expect(cancelled.status).toBe('cancelled');
     expect((await caller(ADA).sorter.list()).sorters).toEqual([]);
     await bobPays('100');
-    expect(await bank.sorter.sweep(10)).toMatchObject({ creditsSorted: 0 });
+    expect(await bank.sorter.sweep(10, later())).toMatchObject({ creditsRecorded: 0 });
     expect(await balanceOf(bills.id)).toBe('60');
     expect(await mainOf()).toBe('100');
   });

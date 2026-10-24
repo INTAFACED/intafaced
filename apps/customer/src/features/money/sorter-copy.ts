@@ -35,6 +35,8 @@ const en = {
   pending: 'still settling',
   rejected: 'not moved',
   runLeg: '{amount} into {space}: {status}',
+  skippedSmall: 'Not sorted: under the smallest payment the bank sorts. It stayed in your account.',
+  skippedTerms: 'Not sorted: the bank had no terms for sorting when it arrived. It stayed in your account.',
 } as const;
 
 const es = {
@@ -71,6 +73,8 @@ const es = {
   pending: 'aún en curso',
   rejected: 'no movido',
   runLeg: '{amount} a {space}: {status}',
+  skippedSmall: 'No repartido: por debajo del pago más pequeño que reparte el banco. Se quedó en tu cuenta.',
+  skippedTerms: 'No repartido: el banco no tenía condiciones de reparto cuando llegó. Se quedó en tu cuenta.',
 } satisfies Record<keyof typeof en, string>;
 
 const fr = {
@@ -108,6 +112,8 @@ const fr = {
   pending: 'en cours',
   rejected: 'non déplacé',
   runLeg: '{amount} vers {space} : {status}',
+  skippedSmall: 'Non réparti : en dessous du plus petit paiement que la banque répartit. Il est resté sur ton compte.',
+  skippedTerms: 'Non réparti : la banque n’avait pas de conditions de répartition à son arrivée. Il est resté sur ton compte.',
 } satisfies Record<keyof typeof en, string>;
 
 export const sorterCopy = defineCopy('customer.money.sorter', en, { es, fr });

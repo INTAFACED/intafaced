@@ -1,6 +1,16 @@
 import { z } from 'zod';
 import type { Sql } from 'postgres';
-import { LedgerError, formatAmount, parseAmount, recipes, type Amount, type LedgerClient } from '@intafaced/ledger-client';
+import {
+  LedgerError,
+  bankTransferKey,
+  formatAmount,
+  parseAmount,
+  recipes,
+  subAccountAvailable,
+  userAvailable,
+  type Amount,
+  type LedgerClient,
+} from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import { isDefiniteLedgerRefusal } from '../ledger-outcome.js';
 import { accountForSpace, type SpaceService } from '../spaces/space-service.js';
@@ -24,12 +34,15 @@ import { bookedTransferMatches } from '../transfers/booked-transfer.js';
  * making a sorter refuses `bank.sorter_terms_unset`, and no credit is sorted.
  */
 
-export const BANK_INCOME_SORTER_MIN_CREDIT_ENV = 'BANK_INCOME_SORTER_MIN_CREDIT';
 export const SORTER_MAX_LEGS = 10;
 const FULL_BP = 10_000;
+/** A run younger than this is left to the send that made it; the sweep drives only older ones. */
+const SWEEP_AFTER_MS = 60_000;
 
 export type SorterStatus = 'active' | 'cancelled';
 export type SorterLegStatus = 'pending' | 'settled' | 'rejected';
+/** Why a payment that reached a live sorter was recorded and not split. */
+export type SorterSkip = 'below_minimum' | 'terms_unset';
 
 export interface SorterLeg {
   spaceId: string;
@@ -63,6 +76,10 @@ export interface SorterRun {
   creditTransferId: string;
   creditTxId: string;
   creditAmount: Amount;
+  /** When the payment itself posted; `createdAt` is when it was sorted. */
+  creditPostedAt: Date;
+  /** Set when the payment was recorded and not split: it was under the bank's smallest sorted payment, or no terms stood. */
+  skippedReason: SorterSkip | null;
   createdAt: Date;
   legs: SorterRunLeg[];
 }
@@ -78,12 +95,15 @@ export interface IncomingCredit {
   postedAt: Date;
 }
 
-/** What one credit came to. `unsorted` moved nothing and recorded nothing. */
-export type SortOutcome =
-  { status: 'unsorted'; reason: 'no_sorter' | 'below_minimum' | 'terms_unset' | 'own_money' } | { status: 'sorted'; run: SorterRun };
+/**
+ * What one credit came to. `unsorted` moved nothing and recorded nothing: no live sorter when it arrived, or the person's
+ * own money. `recorded` is its one run: split into legs, or skipped with a reason (and then never looked at again).
+ */
+export type SortOutcome = { status: 'unsorted'; reason: 'no_sorter' | 'own_money' } | { status: 'recorded'; run: SorterRun };
 
 export interface SorterSweepReport {
-  creditsSorted: number;
+  /** Payments that reached a live sorter and had no run: their send never sorted them. */
+  creditsRecorded: number;
   runsDriven: number;
   legsStillPending: number;
 }
@@ -110,6 +130,8 @@ interface RunRow {
   credit_transfer_id: string;
   credit_tx_id: string;
   credit_amount: string;
+  credit_posted_at: Date;
+  skipped_reason: SorterSkip | null;
   created_at: Date;
 }
 
@@ -125,7 +147,8 @@ interface RunLegRow {
 }
 
 const SORTER_COLS = 'id, user_id, asset_id, status, created_at, cancelled_at';
-const RUN_COLS = 'id, sorter_id, credit_transfer_id, credit_tx_id, credit_amount::text AS credit_amount, created_at';
+const RUN_COLS =
+  'id, sorter_id, credit_transfer_id, credit_tx_id, credit_amount::text AS credit_amount, credit_posted_at, skipped_reason, created_at';
 const RUN_LEG_COLS = 'run_id, position, space_id, amount::text AS amount, status, ledger_tx_id, rejection_code, settled_at';
 
 /** The ledger key's transfer id for one credit under one sorter. Longer than any id `transfers.create` accepts (64). */
@@ -189,6 +212,8 @@ function toRun(row: RunRow, legs: RunLegRow[]): SorterRun {
     creditTransferId: row.credit_transfer_id,
     creditTxId: row.credit_tx_id,
     creditAmount: parseAmount(row.credit_amount),
+    creditPostedAt: row.credit_posted_at,
+    skippedReason: row.skipped_reason,
     createdAt: row.created_at,
     legs: legs
       .filter((leg) => leg.run_id === row.id)
@@ -203,7 +228,7 @@ const sameLegs = (a: SorterLeg[], b: SorterLeg[]) =>
 export class IncomeSorterService {
   constructor(
     private readonly sql: Sql,
-    private readonly ledger: Pick<LedgerClient, 'post' | 'getTx' | 'balance'>,
+    private readonly ledger: Pick<LedgerClient, 'post' | 'getTx' | 'getTxByKey' | 'balance'>,
     private readonly spaces: Pick<SpaceService, 'get' | 'findPrimary' | 'resolveForDebit' | 'resolveForCredit'>,
     private readonly options: { minCredit?: () => string | undefined } = {},
   ) {}
@@ -327,8 +352,10 @@ export class IncomeSorterService {
   }
 
   /**
-   * Sort one posted credit. Called by the send that posted it and by the sweep; both are safe to repeat. Never throws
-   * for a refused split: that split is recorded `rejected` with its code and its share stays in the account.
+   * Sort one posted credit. Called by the send that posted it and by the sweep; both are safe to repeat. A credit that
+   * reaches a live sorter gets one run, ever: split into legs, or skipped with its reason when it is under the bank's
+   * smallest sorted payment or no terms stand, so the sweep never weighs it again and never splits it later. A refused
+   * split never throws: it is recorded `rejected` with its code and its share stays in the account.
    */
   async sortCredit(credit: IncomingCredit): Promise<SortOutcome> {
     return withMoneySpan(
@@ -337,11 +364,8 @@ export class IncomeSorterService {
       async () => {
         if (credit.fromUserId === credit.toUserId) return { status: 'unsorted', reason: 'own_money' };
         const existing = await this.runForCredit(credit.transferId);
-        if (existing) return { status: 'sorted', run: await this.drive(existing, credit.toUserId) };
+        if (existing) return { status: 'recorded', run: await this.drive(existing, credit.toUserId) };
 
-        const min = this.minimumCredit();
-        if (min === null) return { status: 'unsorted', reason: 'terms_unset' };
-        if (credit.amount < min) return { status: 'unsorted', reason: 'below_minimum' };
         const sorters = await this.sql<SorterRow[]>`
           SELECT ${this.sql.unsafe(SORTER_COLS)} FROM bank.income_sorters
            WHERE user_id = ${credit.toUserId} AND asset_id = ${credit.assetId} AND status = 'active'
@@ -353,15 +377,21 @@ export class IncomeSorterService {
           SELECT sorter_id, position, space_id, share_bp FROM bank.income_sorter_legs WHERE sorter_id = ${row.id}::uuid
         `;
         const sorter = toSorter(row, legs);
+        const min = this.minimumCredit();
+        const skipped: SorterSkip | null = min === null ? 'terms_unset' : credit.amount < min ? 'below_minimum' : null;
 
         const created = await this.sql.begin(async (tx) => {
           const [run] = await tx<RunRow[]>`
-            INSERT INTO bank.income_sorter_runs (sorter_id, credit_transfer_id, credit_tx_id, credit_amount)
-            VALUES (${sorter.id}::uuid, ${credit.transferId}, ${credit.ledgerTxId}, ${formatAmount(credit.amount)}::numeric)
+            INSERT INTO bank.income_sorter_runs (
+              sorter_id, credit_transfer_id, credit_tx_id, credit_amount, credit_posted_at, skipped_reason
+            ) VALUES (
+              ${sorter.id}::uuid, ${credit.transferId}, ${credit.ledgerTxId}, ${formatAmount(credit.amount)}::numeric,
+              ${credit.postedAt}, ${skipped}
+            )
             ON CONFLICT (credit_transfer_id) DO NOTHING
             RETURNING ${tx.unsafe(RUN_COLS)}
           `;
-          if (!run) return null;
+          if (!run || skipped) return run ?? null;
           for (const [position, leg] of sorter.legs.entries()) {
             const share = legShare(credit.amount, leg.shareBp);
             if (share <= 0n) continue;
@@ -375,17 +405,18 @@ export class IncomeSorterService {
         // Another path made this credit's run first: drive that one, never a second.
         const run = created ?? (await this.runForCredit(credit.transferId));
         if (!run) throw new BankError(`No sorter run for ${credit.transferId}`, 'bank.sorter_split_failed');
-        return { status: 'sorted', run: await this.drive(run, credit.toUserId) };
+        return { status: 'recorded', run: await this.drive(run, credit.toUserId) };
       },
     );
   }
 
   /**
-   * The sweep: sort posted credits that reached an account with a live sorter but have no run (the send crashed after
-   * its post), then drive every split still pending. Oldest first, `limit` of each.
+   * The sweep: record posted credits that reached a live sorter but have no run (the send crashed after its post), then
+   * drive the splits still pending in runs older than a minute, least recently tried first, so a split that never
+   * settles cannot keep the others waiting. A split still pending after a pass is logged for an operator.
    */
-  async sweep(limit: number): Promise<SorterSweepReport> {
-    const report: SorterSweepReport = { creditsSorted: 0, runsDriven: 0, legsStillPending: 0 };
+  async sweep(limit: number, now: Date = new Date()): Promise<SorterSweepReport> {
+    const report: SorterSweepReport = { creditsRecorded: 0, runsDriven: 0, legsStillPending: 0 };
     const unsorted = await this.sql<
       Array<{
         transfer_id: string;
@@ -397,16 +428,14 @@ export class IncomeSorterService {
         posted_at: Date;
       }>
     >`
-      SELECT t.transfer_id, t.from_user_id, t.to_user_id, t.asset_id, t.amount::text AS amount, t.ledger_tx_id,
-             COALESCE(t.posted_at, t.created_at) AS posted_at
+      SELECT t.transfer_id, t.from_user_id, t.to_user_id, t.asset_id, t.amount::text AS amount, t.ledger_tx_id, t.posted_at
         FROM bank.income_sorters s
         JOIN bank.personal_transfers t
-          ON t.to_user_id = s.user_id AND t.asset_id = s.asset_id AND t.status = 'posted'
-         AND COALESCE(t.posted_at, t.created_at) >= s.created_at
+          ON t.to_user_id = s.user_id AND t.asset_id = s.asset_id AND t.status = 'posted' AND t.posted_at >= s.created_at
        WHERE s.status = 'active'
          AND t.from_user_id <> t.to_user_id
          AND NOT EXISTS (SELECT 1 FROM bank.income_sorter_runs r WHERE r.credit_transfer_id = t.transfer_id)
-       ORDER BY COALESCE(t.posted_at, t.created_at)
+       ORDER BY t.posted_at
        LIMIT ${limit}
     `;
     for (const row of unsorted) {
@@ -419,20 +448,36 @@ export class IncomeSorterService {
         ledgerTxId: row.ledger_tx_id,
         postedAt: row.posted_at,
       });
-      if (outcome.status === 'sorted') report.creditsSorted += 1;
+      if (outcome.status === 'recorded') report.creditsRecorded += 1;
     }
+    const before = new Date(now.getTime() - SWEEP_AFTER_MS);
     const pending = await this.sql<Array<RunRow & { user_id: string }>>`
-      SELECT r.id, r.sorter_id, r.credit_transfer_id, r.credit_tx_id, r.credit_amount::text AS credit_amount, r.created_at, s.user_id
+      SELECT r.id, r.sorter_id, r.credit_transfer_id, r.credit_tx_id, r.credit_amount::text AS credit_amount,
+             r.credit_posted_at, r.skipped_reason, r.created_at, s.user_id
         FROM bank.income_sorter_runs r
         JOIN bank.income_sorters s ON s.id = r.sorter_id
-       WHERE EXISTS (SELECT 1 FROM bank.income_sorter_run_legs l WHERE l.run_id = r.id AND l.status = 'pending')
-       ORDER BY r.created_at
+       WHERE r.created_at < ${before}
+         AND EXISTS (SELECT 1 FROM bank.income_sorter_run_legs l WHERE l.run_id = r.id AND l.status = 'pending')
+       ORDER BY r.driven_at NULLS FIRST, r.created_at
        LIMIT ${limit}
     `;
     for (const row of pending) {
       const run = await this.drive(row, row.user_id);
       report.runsDriven += 1;
-      report.legsStillPending += run.legs.filter((leg) => leg.status === 'pending').length;
+      const stuck = run.legs.filter((leg) => leg.status === 'pending');
+      report.legsStillPending += stuck.length;
+      if (stuck.length) {
+        console.error(
+          JSON.stringify({
+            level: 'error',
+            service: 'svc-bank',
+            event: 'bank.sorter_split_pending',
+            runId: run.id,
+            creditTxId: run.creditTxId,
+            positions: stuck.map((leg) => leg.position),
+          }),
+        );
+      }
     }
     return report;
   }
@@ -445,10 +490,9 @@ export class IncomeSorterService {
     const legs = await this.sql<RunLegRow[]>`
       SELECT ${this.sql.unsafe(RUN_LEG_COLS)} FROM bank.income_sorter_run_legs WHERE run_id = ${run.id}::uuid ORDER BY position
     `;
-    for (const leg of legs) {
-      if (leg.status !== 'pending') continue;
-      await this.driveLeg(run, sorter!.asset_id, userId, leg);
-    }
+    const owed = legs.filter((leg) => leg.status === 'pending');
+    for (const leg of owed) await this.driveLeg(run, sorter!.asset_id, userId, leg);
+    if (owed.length) await this.sql`UPDATE bank.income_sorter_runs SET driven_at = now() WHERE id = ${run.id}::uuid`;
     const [settled] = await this.withLegs([run]);
     return settled!;
   }
@@ -456,12 +500,33 @@ export class IncomeSorterService {
   /**
    * One split: an own-space `bankTransfer` from the account into the space. A ledger in `detect` mode answers a reused
    * key with the original transaction; only this movement settles the split, anything else leaves it pending (unknown
-   * outcome), as does a lost reply. A typed refusal (an empty account, an archived or locked-out space) proves nothing
-   * moved: the split is rejected with its code and its share stays in the account.
+   * outcome), as does a lost reply. The key is read first: a split whose earlier post landed settles on that booking,
+   * whatever has happened to the spaces since, so a later archive can never mark moved money as not moved. Only with
+   * nothing under the key does a typed refusal (an empty account, an archived space) prove nothing moved: the split is
+   * rejected with its code and its share stays in the account.
    */
   private async driveLeg(run: RunRow, assetId: string, userId: string, leg: RunLegRow): Promise<void> {
     const now = new Date();
     const amount = parseAmount(leg.amount);
+    const transferId = sorterTransferId(run.sorter_id, run.credit_tx_id);
+    const settle = (ledgerTxId: string) => this.sql`
+      UPDATE bank.income_sorter_run_legs
+         SET status = 'settled', ledger_tx_id = ${ledgerTxId}, rejection_code = NULL, settled_at = ${now}
+       WHERE run_id = ${run.id}::uuid AND position = ${leg.position} AND status = 'pending'
+    `;
+    const booked = await this.ledger.getTxByKey(bankTransferKey('own', transferId, leg.position));
+    if (booked) {
+      // The account itself and the space, as `accountForSpace` names a primary and a named space.
+      const matches = await bookedTransferMatches(
+        this.ledger,
+        booked,
+        userAvailable(userId, assetId),
+        subAccountAvailable(leg.space_id, assetId),
+        amount,
+      );
+      if (matches) await settle(booked.id);
+      return;
+    }
     try {
       const primary = await this.spaces.findPrimary(userId, assetId);
       if (!primary) throw new BankError(`No ${assetId} account to sort from`, 'bank.space_not_found');
@@ -475,7 +540,7 @@ export class IncomeSorterService {
       const toAccount = accountForSpace(to);
       const tx = await this.ledger.post(
         recipes.bankTransfer({
-          transferId: sorterTransferId(run.sorter_id, run.credit_tx_id),
+          transferId,
           occurrence: leg.position,
           from: fromAccount,
           to: toAccount,
@@ -485,11 +550,7 @@ export class IncomeSorterService {
         }),
       );
       if (!(await bookedTransferMatches(this.ledger, tx, fromAccount, toAccount, amount))) return;
-      await this.sql`
-        UPDATE bank.income_sorter_run_legs
-           SET status = 'settled', ledger_tx_id = ${tx.id}, rejection_code = NULL, settled_at = ${now}
-         WHERE run_id = ${run.id}::uuid AND position = ${leg.position} AND status = 'pending'
-      `;
+      await settle(tx.id);
     } catch (err) {
       if (!isDefiniteLegRefusal(err)) return;
       await this.sql`

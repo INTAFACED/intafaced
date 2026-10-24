@@ -36,6 +36,8 @@ const STALE_RESERVATION_MS = 15 * 60 * 1000;
 const NOTICE_PUBLISH_TIMEOUT_MS = 5_000;
 /** The recovery timer leaves a send this young to the request that posted it, which announces it itself. */
 const NOTICE_RETRY_AFTER_MS = 30_000;
+/** How long a send waits for the recipient's income sorter before it answers; the sorter's sweep finishes anything slower. */
+const SORT_HANDOFF_TIMEOUT_MS = 5_000;
 
 function termsUnset(assetId: string): BankError {
   return new BankError(
@@ -236,6 +238,8 @@ export class PersonalPayService {
        * send, so it must be safe to repeat. Its failure is logged, never thrown: the money has moved by then.
        */
       onCreditPosted?: (credit: IncomingCredit) => Promise<unknown>;
+      /** How long a send waits for `onCreditPosted`. Tests shorten it. */
+      sortTimeoutMs?: number;
       now?: () => Date;
     } = {},
   ) {}
@@ -414,22 +418,26 @@ export class PersonalPayService {
   }
 
   /**
-   * Hand a posted send to the recipient's income sorter. The sorter's own sweep picks up anything this misses, so a
-   * failure here is logged and the send's answer stands.
+   * Hand a posted send to the recipient's income sorter, waiting a bounded time so the payer never waits on the
+   * recipient's sorting. The sorter's own sweep picks up anything this misses, so a failure or a timeout here is logged
+   * and the send's answer stands.
    */
   private async creditPosted(row: TransferRow, ledgerTxId: string): Promise<void> {
     const hook = this.options.onCreditPosted;
     if (!hook) return;
     try {
-      await hook({
-        transferId: row.transfer_id,
-        fromUserId: row.from_user_id,
-        toUserId: row.to_user_id,
-        assetId: row.asset_id,
-        amount: parseAmount(row.amount),
-        ledgerTxId,
-        postedAt: row.posted_at ?? row.created_at,
-      });
+      await withTimeout(
+        hook({
+          transferId: row.transfer_id,
+          fromUserId: row.from_user_id,
+          toUserId: row.to_user_id,
+          assetId: row.asset_id,
+          amount: parseAmount(row.amount),
+          ledgerTxId,
+          postedAt: row.posted_at ?? row.created_at,
+        }),
+        this.options.sortTimeoutMs ?? SORT_HANDOFF_TIMEOUT_MS,
+      );
     } catch (err) {
       console.error(
         JSON.stringify({

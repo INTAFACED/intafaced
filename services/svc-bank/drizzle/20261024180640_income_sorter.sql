@@ -33,16 +33,22 @@ CREATE TABLE IF NOT EXISTS "bank"."income_sorter_legs" (
   CONSTRAINT "income_sorter_legs_share_ck" CHECK ("share_bp" BETWEEN 1 AND 10000)
 );
 
--- One run per credit, ever: a credit is sorted once, by the sorter live when it arrived.
+-- One run per credit that reached a live sorter, ever: split into legs once, or skipped with its reason (under the
+-- bank's smallest sorted payment, or no terms stood) and never weighed again.
 CREATE TABLE IF NOT EXISTS "bank"."income_sorter_runs" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   "sorter_id" uuid NOT NULL REFERENCES "bank"."income_sorters" ("id"),
   "credit_transfer_id" text NOT NULL REFERENCES "bank"."personal_transfers" ("transfer_id"),
   "credit_tx_id" text NOT NULL,
   "credit_amount" numeric(38, 18) NOT NULL,
+  "credit_posted_at" timestamptz NOT NULL,
+  "skipped_reason" text,
   "created_at" timestamptz NOT NULL DEFAULT now(),
+  -- When the sweep last drove this run's pending splits, so the least recently tried go first.
+  "driven_at" timestamptz,
   CONSTRAINT "income_sorter_runs_credit_uq" UNIQUE ("credit_transfer_id"),
-  CONSTRAINT "income_sorter_runs_amount_ck" CHECK ("credit_amount" > 0)
+  CONSTRAINT "income_sorter_runs_amount_ck" CHECK ("credit_amount" > 0),
+  CONSTRAINT "income_sorter_runs_skip_ck" CHECK ("skipped_reason" IS NULL OR "skipped_reason" IN ('below_minimum', 'terms_unset'))
 );
 
 CREATE INDEX IF NOT EXISTS "income_sorter_runs_sorter_idx"

@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { bigint, boolean, date, index, integer, jsonb, pgSchema, primaryKey, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { bigint, boolean, date, index, integer, jsonb, pgSchema, primaryKey, smallint, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { amount, bps, createdAt, tstz, updatedAt } from '@intafaced/db';
 
 /**
@@ -1417,7 +1417,7 @@ export const incomeSorterLegs = bank.table(
     sorterId: uuid('sorter_id')
       .notNull()
       .references(() => incomeSorters.id),
-    position: integer('position').notNull(),
+    position: smallint('position').notNull(),
     spaceId: uuid('space_id')
       .notNull()
       .references(() => spaces.id),
@@ -1437,11 +1437,15 @@ export const incomeSorterRuns = bank.table(
     creditTransferId: text('credit_transfer_id').notNull(),
     creditTxId: text('credit_tx_id').notNull(),
     creditAmount: amount('credit_amount').notNull(),
+    creditPostedAt: tstz('credit_posted_at').notNull(),
+    /** below_minimum or terms_unset: recorded and not split. */
+    skippedReason: text('skipped_reason'),
     createdAt: createdAt(),
+    drivenAt: tstz('driven_at'),
   },
   (t) => [
     uniqueIndex('income_sorter_runs_credit_uq').on(t.creditTransferId),
-    index('income_sorter_runs_sorter_idx').on(t.sorterId, t.createdAt),
+    index('income_sorter_runs_sorter_idx').on(t.sorterId, t.createdAt.desc()),
   ],
 );
 
@@ -1451,7 +1455,7 @@ export const incomeSorterRunLegs = bank.table(
     runId: uuid('run_id')
       .notNull()
       .references(() => incomeSorterRuns.id),
-    position: integer('position').notNull(),
+    position: smallint('position').notNull(),
     spaceId: uuid('space_id')
       .notNull()
       .references(() => spaces.id),

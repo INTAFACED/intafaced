@@ -29,6 +29,10 @@ const runView = z.object({
   creditTransferId: z.string(),
   creditTxId: z.string(),
   creditAmount: amountString,
+  /** When the payment posted; `createdAt` is when it was sorted. */
+  creditPostedAt: z.string(),
+  /** Recorded and not split: under the bank's smallest sorted payment, or no terms stood. */
+  skippedReason: z.enum(['below_minimum', 'terms_unset']).nullable(),
   createdAt: z.string(),
   legs: z.array(
     z.object({
@@ -56,6 +60,8 @@ const runOf = (run: SorterRun) => ({
   creditTransferId: run.creditTransferId,
   creditTxId: run.creditTxId,
   creditAmount: formatAmount(run.creditAmount),
+  creditPostedAt: run.creditPostedAt.toISOString(),
+  skippedReason: run.skippedReason,
   createdAt: run.createdAt.toISOString(),
   legs: run.legs.map((leg) => ({
     position: leg.position,

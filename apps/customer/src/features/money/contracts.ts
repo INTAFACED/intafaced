@@ -210,6 +210,10 @@ export const sorterRunSchema = z.object({
   creditTransferId: z.string(),
   creditTxId: z.string(),
   creditAmount: money,
+  /** When the payment posted; `createdAt` is when it was sorted. */
+  creditPostedAt: z.string(),
+  /** Recorded and not split: under the bank's smallest sorted payment, or no terms stood. */
+  skippedReason: z.enum(['below_minimum', 'terms_unset']).nullable(),
   createdAt: z.string(),
   legs: z.array(
     z.object({
