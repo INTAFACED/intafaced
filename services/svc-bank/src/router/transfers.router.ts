@@ -467,11 +467,9 @@ export function createTransfersRouter(c: BankRouterContext) {
       )
       .query(async ({ ctx, input }) =>
         guard(async () => {
-          const schedules = await bank.transfers.listSchedules(
-            ctx.principal.userId,
-            input?.limit,
-            input?.toSpaceId ? { toSpaceId: input.toSpaceId } : {},
-          );
+          const schedules = await (input?.toSpaceId
+            ? bank.transfers.listSchedules(ctx.principal.userId, input.limit, { toSpaceId: input.toSpaceId })
+            : bank.transfers.listSchedules(ctx.principal.userId, input?.limit));
           return schedules.map((s) => ({
             id: s.id,
             assetId: s.assetId,

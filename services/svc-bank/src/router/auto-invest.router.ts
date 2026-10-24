@@ -65,11 +65,9 @@ export function createAutoInvestRouter(c: BankRouterContext) {
       .output(z.array(autoInvestRuleOutput))
       .query(async ({ ctx, input }) =>
         guard(async () => {
-          const rows = await bank.autoInvest.listRules(
-            ctx.principal.userId,
-            input?.limit,
-            input?.targetSpaceId ? { targetSpaceId: input.targetSpaceId } : {},
-          );
+          const rows = await (input?.targetSpaceId
+            ? bank.autoInvest.listRules(ctx.principal.userId, input.limit, { targetSpaceId: input.targetSpaceId })
+            : bank.autoInvest.listRules(ctx.principal.userId, input?.limit));
           return rows.map(mapRule);
         }),
       ),
