@@ -779,6 +779,31 @@ function samplePosts(): Array<{ name: RecipeName; post: PostRequest }> {
       name: 'payReceivedReturn',
       post: recipes.payReceivedReturn({ holdId: 'rh1', userId: U, payerUserId: U2, assetId: 'USDT', amount: AMT, heldAmount: AMT }),
     },
+    { name: 'staffHoldPlace', post: recipes.staffHoldPlace({ holdNo: 1, userId: U, assetId: 'USDT', amount: AMT }) },
+    {
+      name: 'staffHoldRelease',
+      post: recipes.staffHoldRelease({
+        holdNo: 1,
+        releaseNo: 1,
+        cause: { kind: 'expiry', expiresAt: '2026-10-24T15:00:00Z' },
+        userId: U,
+        assetId: 'USDT',
+        amount: AMT,
+      }),
+    },
+    {
+      name: 'staffHoldConfirm',
+      post: recipes.staffHoldConfirm({
+        holdNo: 1,
+        attempt: 1,
+        approvalId: 'ap1',
+        confirmAccount: 'held-funds',
+        heldRemaining: AMT,
+        userId: U,
+        assetId: 'USDT',
+        amount: AMT,
+      }),
+    },
     {
       name: 'bankTransferReversal',
       post: recipes.bankTransferReversal({

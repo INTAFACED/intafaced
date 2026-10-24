@@ -19,6 +19,7 @@ import { futuresOrderMarginApply, futuresOrderMarginHold, futuresOrderMarginRele
 import { subAccountTransfer } from './sub-accounts.js';
 import { payReceivedHold, payReceivedRelease, payReceivedReturn } from './pay-received-hold.js';
 import { bankTransferReversal } from './bank-transfer-reversal.js';
+import { staffHoldConfirm, staffHoldPlace, staffHoldRelease } from './staff-hold.js';
 import { marketListingFee, marketPremiumPlacement, marketPurchase } from './market.js';
 import { fxConversion, fxConversionHold, fxConversionLateFill, fxConversionRelease, fxConversionReverse } from './conversion.js';
 import { tradeFillFeeCorrection } from './fill-correction.js';
@@ -1295,6 +1296,7 @@ export * from './order-hold-amend.js';
 export * from './futures-order-margin.js';
 export * from './pay-received-hold.js';
 export * from './bank-transfer-reversal.js';
+export * from './staff-hold.js';
 export {
   marketPurchase,
   marketListingFee,
@@ -1391,6 +1393,10 @@ export const recipes = {
   payReceivedRelease,
   payReceivedReturn,
   bankTransferReversal,
+  // ops staff holds (OPS-accounts-desk-01, ops ENGINE LC-8/LC-9). §13 until svc-ops posts them. See ./staff-hold.ts.
+  staffHoldPlace,
+  staffHoldRelease,
+  staffHoldConfirm,
   // §8.7 market — purchase (live) + listing/premium fees (§13 unwired; D26-P1-M2).
   // Flagged shared-package. No existing recipe body was rewritten for the fee legs.
   marketPurchase,
