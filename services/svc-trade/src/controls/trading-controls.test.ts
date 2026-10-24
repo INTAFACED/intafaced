@@ -277,6 +277,13 @@ describe('Owned trading restrictions and identity decision handshake (real Postg
       code: 'operation.conflict',
     });
   });
+  it('names svc-trade as the owner of an armed futures conditional order it places for', async () => {
+    const instructionId = 'f2222222-2222-4222-8222-222222222222';
+    await controls.admitStanding(user, instructionId, 'futures.order:c1', { qty: '1' }, 'svc-trade');
+    expect(identity.rows.get(user + ':futures.order:c1')).toMatchObject({
+      intent: { authority: { kind: 'standing_instruction', instructionId, ownerService: 'svc-trade' } },
+    });
+  });
   it('refuses a standing instruction for a restricted account and a malformed instruction id', async () => {
     const instructionId = 'f1111111-1111-4111-8111-111111111111';
     await controls.change(actor(), command());

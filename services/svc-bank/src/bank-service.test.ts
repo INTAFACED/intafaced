@@ -3098,6 +3098,8 @@ describe('svc-bank money PG-hard', () => {
           'the amount the customer asked to add on one request; kept refused or opened, never credited from here',
         'cash_out_requests.amount':
           'the amount the customer asked to cash out on one request; kept refused, never held or posted from here',
+        'rail_send_intents.amount':
+          'the amount the customer asked to send over a bank rail on one intent; kept refused, never held or posted from here',
 
         // ── Auto-invest (§31:805 F-plane) ────────────────────────────────────
         // Rules are instructions; runs are write-once records. No running balance.

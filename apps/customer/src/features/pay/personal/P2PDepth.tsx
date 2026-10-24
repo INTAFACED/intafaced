@@ -205,10 +205,13 @@ export function OrderFilterTabs({
   value,
   counts,
   onChange,
+  note,
 }: {
   value: OrderFilter;
   counts: Record<OrderFilter, number>;
   onChange: (value: OrderFilter) => void;
+  /** What the counts cover, when not only the orders loaded on the page. */
+  note?: string;
 }) {
   const { t } = p2pDepth.useCopy();
   const tabs: [string, OrderFilter][] = [
@@ -227,7 +230,7 @@ export function OrderFilterTabs({
           </button>
         ))}
       </div>
-      <p className="muted">{t('ordersCountsNote')}</p>
+      <p className="muted">{note ?? t('ordersCountsNote')}</p>
     </>
   );
 }

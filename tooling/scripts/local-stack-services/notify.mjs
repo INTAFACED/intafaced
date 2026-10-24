@@ -1,4 +1,6 @@
-export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
+import path from 'node:path';
+
+export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => ({
   name: 'notify',
   env: () => ({
     ...c('svc-notify', PORTS.notify),
@@ -29,5 +31,14 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     // and the inbox refuses (notify.list_limit_unset, notify.unread_cap_unset) until then.
     NOTIFY_INBOX_PAGE_SIZE: '20',
     NOTIFY_INBOX_UNREAD_CAP: '99',
+    // Status subscriptions: the signing key for confirm and unsubscribe links, and LOCAL-TEST mail written to a file in
+    // this stack's state folder (refused at boot unless APP_ENV is exactly dev or test). Production has no sender until
+    // the owner configures the email gateway, and every confirmation waits with vendor.email.
+    NOTIFY_STATUS_LINK_SECRET: secrets.notifyStatusLink,
+    NOTIFY_STATUS_MAIL_TRANSPORT: 'local-outbox',
+    NOTIFY_STATUS_MAIL_OUTBOX: path.join(STATE, 'status-mail-outbox.log'),
+    // The customer site's address on this stack, where Edge serves the status badge: the founder console builds badge
+    // snippets on it. The local outbox above writes app paths and does not read it.
+    NOTIFY_PUBLIC_ORIGIN: CUSTOMER_ORIGIN,
   }),
 });

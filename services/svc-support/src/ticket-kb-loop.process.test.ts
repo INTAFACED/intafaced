@@ -26,6 +26,7 @@ const MIGRATION_0002 = readFileSync(join(here, '..', 'drizzle', '0002_support_li
 const MIGRATION_0003 = readFileSync(join(here, '..', 'drizzle', '0003_kb_articles.sql'), 'utf8');
 const MIGRATION_0004 = readFileSync(join(here, '..', 'drizzle', '0004_kb_article_versions.sql'), 'utf8');
 const MIGRATION_0022 = readFileSync(join(here, '..', 'drizzle', '0022_kb_article_audience.sql'), 'utf8');
+const MIGRATION_0032 = readFileSync(join(here, '..', 'drizzle', '0032_kb_library.sql'), 'utf8');
 const MIGRATION_0005 = readFileSync(join(here, '..', 'drizzle', '0005_support_audit_delete_refused.sql'), 'utf8');
 
 const SECRET = 'a-support-ticket-kb-process-edge-secret-long';
@@ -45,6 +46,7 @@ if (available && sql) {
   await sql.unsafe(MIGRATION_0004);
   await sql.unsafe(MIGRATION_0005);
   await sql.unsafe(MIGRATION_0022);
+  await sql.unsafe(MIGRATION_0032);
 }
 
 afterAll(async () => {

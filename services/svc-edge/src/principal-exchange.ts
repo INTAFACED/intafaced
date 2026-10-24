@@ -222,11 +222,13 @@ export async function exchangeApiKeyForAccessToken(
   // Without the dedicated key, omit the field so a public body cannot carry it.
   const attest = Boolean(requestSign && identityOwnershipSecret);
   const request = attest ? { request: requestSign } : {};
+  // Identity's exchange procedures take their input as the plain tRPC body, with no transformer envelope: a `{ json }`
+  // wrapper reads as a missing key there (400), and every key bearer then reached the service anonymous.
   const payload = presented
-    ? { json: { key, accountId: presented, ...request } }
+    ? { key, accountId: presented, ...request }
     : namedProduct
-      ? { json: { key, product: namedProduct, ...request } }
-      : { json: { key, ...request } };
+      ? { key, product: namedProduct, ...request }
+      : { key, ...request };
   const payloadText = JSON.stringify(payload);
   const target = `${base}${path}`;
   let response: Response;

@@ -14,6 +14,7 @@ import { isDerivativesAccessError, presentDerivativesAccessError } from './deriv
 import { presentFuturesErrorWire } from './futures-error-wire.js';
 import { MatchedOrderError, type MatchedOrderView, type PlaceMatchedOrderInput } from './matched-orders.js';
 import { FuturesError } from './position-service.js';
+import { CONFIRM_TIER_INVALID, readConfirmTier } from './risk-tier-confirm.js';
 
 /** The largest page one read may ask for; a blank or larger limit refuses rather than picking one. */
 export const FUTURES_ORDERS_LIMIT_MAX = 500;
@@ -121,6 +122,10 @@ export function readPlaceBody(
       message: 'clientOrderId is required (1–64 chars) — omit would double-lock margin on retry',
     };
   }
+  const confirmTier = readConfirmTier(body.confirmTier);
+  if (!confirmTier.ok) {
+    return { ok: false, code: CONFIRM_TIER_INVALID, message: 'confirmTier is the margin tier you accept, a whole number from 1' };
+  }
   return {
     ok: true,
     input: {
@@ -137,6 +142,7 @@ export function readPlaceBody(
       // Passed as sent: the service names a class it does not take (trade.unsupported_collateral_class).
       ...(body.collateralClass !== undefined ? { collateralClass: body.collateralClass } : {}),
       ...(body.priceCorrection !== undefined ? { priceCorrection: body.priceCorrection } : {}),
+      ...(confirmTier.tier !== undefined ? { confirmTier: confirmTier.tier } : {}),
     },
   };
 }

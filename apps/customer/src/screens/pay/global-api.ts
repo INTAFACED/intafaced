@@ -3,6 +3,7 @@ import type { ApiClient } from './deps';
 import {
   corridorSchema,
   holdSchema,
+  receiptSchema,
   removedSchema,
   quoteSchema,
   recipientSchema,
@@ -14,9 +15,13 @@ import {
   type SendDraft,
 } from './global-model';
 
+/** Whether a TEST stand-in answers global sends here: its label, or null when it does not. */
+const partnerSchema = z.object({ standIn: z.string().nullable() });
+
 /** The customer's side of `global.*` on svc-bank. Every call is the service's own answer; nothing is filled in. */
 export function createGlobalApi(api: ApiClient) {
   return {
+    partner: (signal?: AbortSignal) => api.query('bank', 'global.partner', undefined, partnerSchema, { signal }),
     corridors: (signal?: AbortSignal) => api.query('bank', 'global.corridors.list', undefined, z.array(corridorSchema), { signal }),
     recipients: (signal?: AbortSignal) => api.query('bank', 'global.recipients.list', { limit: 100 }, z.array(recipientSchema), { signal }),
     validate: (input: { account: string; bic?: string }, signal?: AbortSignal) =>
@@ -35,6 +40,12 @@ export function createGlobalApi(api: ApiClient) {
     hold: (id: string, signal?: AbortSignal) => api.query('bank', 'global.hold.get', { id }, holdSchema, { signal }),
     uploadProof: (input: { id: string; name: string; type: string; contentBase64: string }, signal?: AbortSignal) =>
       api.mutate('bank', 'global.hold.uploadProof', input, holdSchema, { signal }),
+    /** Cancel a send while it is on hold; nothing was taken, so nothing moves. */
+    cancel: (id: string, signal?: AbortSignal) => api.mutate('bank', 'global.cancel', { id }, sendSchema, { signal }),
+    /** Ask for a send that left to come back (wrong person or wrong details); nothing moves, so no confirmation code. */
+    recall: (input: { id: string; reason: string }, signal?: AbortSignal) =>
+      api.mutate('bank', 'global.recall', input, sendSchema, { signal }),
+    receipt: (id: string, signal?: AbortSignal) => api.query('bank', 'global.receipt', { id }, receiptSchema, { signal }),
     stepUpRequest: sendStepUpRequest,
   };
 }

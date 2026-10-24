@@ -29,6 +29,18 @@ const en = {
   buys: 'buys',
   terms: 'Current payment terms',
   limit: 'Asset limits',
+  sort: 'Sort',
+  sortPriceAsc: 'Price: lowest first',
+  sortPriceDesc: 'Price: highest first',
+  fiatAmount: 'Amount in fiat',
+  fiatAmountNeedsCurrency: 'Choose a fiat currency to search by amount.',
+  fiatAmountInvalid: 'Enter the amount as a number, like 50 or 50.25.',
+  fiatAmountFloats: 'Floating-price ads are left out of an amount search: they have no fiat price to compare.',
+  needsFeed: 'Needs a market feed: no {fiat} / {asset} reference price is published, so this ad cannot be priced or taken.',
+  referencePrice: 'Reference price',
+  showMore: 'Show more offers',
+  loadingMore: 'Loading more offers…',
+  boardEnd: 'That is every open offer for these filters.',
 } as const;
 const es = {
   current: 'Oferta actual',
@@ -62,6 +74,19 @@ const es = {
   buys: 'compra',
   terms: 'Condiciones de pago actuales',
   limit: 'Límites del activo',
+  sort: 'Ordenar',
+  sortPriceAsc: 'Precio: de menor a mayor',
+  sortPriceDesc: 'Precio: de mayor a menor',
+  fiatAmount: 'Importe en moneda fiat',
+  fiatAmountNeedsCurrency: 'Elige una moneda fiat para buscar por importe.',
+  fiatAmountInvalid: 'Escribe el importe como número, por ejemplo 50 o 50.25.',
+  fiatAmountFloats: 'Los anuncios de precio variable quedan fuera de una búsqueda por importe: no tienen un precio fiat que comparar.',
+  needsFeed:
+    'Necesita una fuente de mercado: no se publica ningún precio de referencia {fiat} / {asset}, así que este anuncio no se puede valorar ni aceptar.',
+  referencePrice: 'Precio de referencia',
+  showMore: 'Mostrar más ofertas',
+  loadingMore: 'Cargando más ofertas…',
+  boardEnd: 'Estas son todas las ofertas abiertas para estos filtros.',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
   current: 'Offre actuelle',
@@ -95,5 +120,18 @@ const fr = {
   buys: 'achète',
   terms: 'Conditions de paiement actuelles',
   limit: 'Limites de l’actif',
+  sort: 'Trier',
+  sortPriceAsc: 'Prix : du plus bas au plus haut',
+  sortPriceDesc: 'Prix : du plus haut au plus bas',
+  fiatAmount: 'Montant en monnaie fiat',
+  fiatAmountNeedsCurrency: 'Choisissez une monnaie fiat pour chercher par montant.',
+  fiatAmountInvalid: 'Saisissez le montant en chiffres, par exemple 50 ou 50.25.',
+  fiatAmountFloats: 'Les annonces à prix variable sont exclues d’une recherche par montant : elles n’ont pas de prix fiat à comparer.',
+  needsFeed:
+    'Nécessite un flux de marché : aucun prix de référence {fiat} / {asset} n’est publié, donc cette annonce ne peut être ni évaluée ni prise.',
+  referencePrice: 'Prix de référence',
+  showMore: 'Afficher plus d’offres',
+  loadingMore: 'Chargement d’autres offres…',
+  boardEnd: 'Voici toutes les offres ouvertes pour ces filtres.',
 } satisfies Record<keyof typeof en, string>;
 export const offerCopy = defineCopy('pay.p2p.offer', en, { es, fr });

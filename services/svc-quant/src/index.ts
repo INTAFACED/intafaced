@@ -5,6 +5,7 @@ import { createEdgeContext } from '@intafaced/contracts';
 import { missingLake } from './backtest/lake.js';
 import { missingFees, missingHistory, tradeFeePort, tradeHistoryPort } from './engine/ports.js';
 import { openDisclosureRepository } from './disclosure/open.js';
+import { openShareRepository } from './share/open.js';
 import { openTemplateRepository } from './templates/open.js';
 import { env } from './env.js';
 import { quantReadyHonesty } from './ready-honesty.js';
@@ -41,6 +42,16 @@ const strategies = openStrategyRepository({ DATABASE_URL: env.DATABASE_URL, DATA
 const runs = openRunRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
 const disclosure = openDisclosureRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
 const templates = openTemplateRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
+const shares = openShareRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX });
+
+function embedOrigins(raw: string | undefined): readonly string[] | null {
+  if (!raw) return null;
+  const origins = raw
+    .split(',')
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+  return origins.length === 0 ? null : origins;
+}
 
 export const appRouter = createQuantRouter({
   wired: isolateWired,
@@ -73,6 +84,12 @@ export const appRouter = createQuantRouter({
   runs: runs.repository,
   disclosure: disclosure.repository,
   templates: templates.repository,
+  share: {
+    repository: shares.repository,
+    rate: env.QUANT_SHARE_RATE === undefined ? null : Number(env.QUANT_SHARE_RATE),
+    windowSec: env.QUANT_SHARE_WINDOW_SEC === undefined ? null : Number(env.QUANT_SHARE_WINDOW_SEC),
+    embedOrigins: embedOrigins(env.QUANT_EMBED_ORIGINS),
+  },
 });
 export type AppRouter = typeof appRouter;
 

@@ -14,6 +14,7 @@ import {
 } from './kb-catalog.js';
 import { SupportError, SupportService } from './support-service.js';
 import { userCopy } from './user-copy.js';
+import { withTestCommentCap } from './comment-cap.fixture.js';
 
 describe('support Stage-2 KB catalog', () => {
   it('spine is non-empty and vendor-clean', () => {
@@ -136,7 +137,7 @@ describe('ops.kb-workflow Stage-1 published catalog', () => {
   });
 
   it('escalate citing unpublished id contributes no citation', async () => {
-    const svc = new SupportService();
+    const svc = withTestCommentCap();
     const ticket = await svc.createTicket({
       userId: USER,
       category: 'other',

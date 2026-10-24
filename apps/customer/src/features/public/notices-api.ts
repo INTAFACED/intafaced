@@ -16,6 +16,24 @@ export const feedNotices = (rows: readonly Notice[]): Notice[] => rows.filter((r
 export const readNotices = (api: ApiClient, signal?: AbortSignal): Promise<ApiResult<Notice[]>> =>
   api.query('notify', 'notify.notices', { limit: NOTICE_LIST_LIMIT }, z.array(entrySchema).max(NOTICE_LIST_LIMIT), { signal });
 
+export type MaintenancePhase = 'scheduled' | 'in_progress' | 'completed' | 'end_unset' | 'time_unset';
+
+/**
+ * Where a maintenance window stands at `now`, from its published start and end only: before the start it is scheduled,
+ * after the end it is completed, in between in progress. A window with no start, or a time that does not read as one,
+ * says its time is not set; a started window with no end says so, rather than "in progress" for ever. Not a
+ * maintenance notice: null.
+ */
+export function maintenancePhase(notice: Pick<Notice, 'kind' | 'startsAt' | 'endsAt'>, now: number): MaintenancePhase | null {
+  if (notice.kind !== 'maintenance') return null;
+  const start = notice.startsAt ? Date.parse(notice.startsAt) : NaN;
+  const end = notice.endsAt ? Date.parse(notice.endsAt) : null;
+  if (Number.isNaN(start) || (end !== null && Number.isNaN(end))) return 'time_unset';
+  if (start > now) return 'scheduled';
+  if (end === null) return 'end_unset';
+  return end <= now ? 'completed' : 'in_progress';
+}
+
 export const NOTICE_NOT_FOUND = 'notify.notice_not_found';
 
 /** A notice the feed does not hold (missing, a draft, withdrawn) is an answer, `null`, not a failed read. */
