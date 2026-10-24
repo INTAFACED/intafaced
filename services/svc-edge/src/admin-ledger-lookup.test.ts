@@ -177,3 +177,81 @@ describe('who may look up through the edge', () => {
     await app.close();
   });
 });
+
+describe('the ledger desk reads through the edge (OPS-ledger-desk-01)', () => {
+  it("forwards each read's named query keys, re-encoded, with the operator's own token, and passes the answer through", async () => {
+    const body = { total: '1', rows: [], nextCursor: null };
+    const { app, calls } = await harness({ status: 200, body });
+    const auth = await bearer(['admin:read']);
+    const list = await app.inject({
+      method: 'GET',
+      url: '/admin/ledger/transactions?assetId=USDT&from=2026-10-24T00%3A00%3A00Z&before=51',
+      headers: { authorization: auth },
+    });
+    expect(list.statusCode).toBe(200);
+    expect(list.json()).toEqual(body);
+    await app.inject({ method: 'GET', url: '/admin/ledger/accounts?prefix=house%3Afees%26x%3D1', headers: { authorization: auth } });
+    await app.inject({ method: 'GET', url: '/admin/ledger/stats', headers: { authorization: auth } });
+    expect(calls).toEqual([
+      { path: '/operator/transactions?assetId=USDT&from=2026-10-24T00%3A00%3A00Z&before=51', method: 'GET', bearer: auth },
+      { path: '/operator/accounts?prefix=house%3Afees%26x%3D1', method: 'GET', bearer: auth },
+      { path: '/operator/stats', method: 'GET', bearer: auth },
+    ]);
+    await app.close();
+  });
+
+  it("passes svc-ledger's refusals through unchanged", async () => {
+    const answer = { status: 400, body: { message: 'from must be before to', code: 'ledger.lookup_input_invalid' } };
+    const { app } = await harness(answer);
+    const res = await app.inject({
+      method: 'GET',
+      url: '/admin/ledger/transactions?from=2026-10-25T00:00:00Z&to=2026-10-24T00:00:00Z',
+      headers: { authorization: await bearer(['admin:read']) },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual(answer.body);
+    await app.close();
+  });
+
+  it('refuses a key the read does not take, a repeated key and an over-long value, calling nothing', async () => {
+    const { app, calls } = await harness();
+    const authorization = await bearer(['admin:read']);
+    for (const url of [
+      '/admin/ledger/transactions?txId=x',
+      '/admin/ledger/transactions?assetId=USDT&assetId=BTC',
+      `/admin/ledger/accounts?prefix=${'a'.repeat(257)}`,
+      '/admin/ledger/stats?all=1',
+    ]) {
+      const res = await app.inject({ method: 'GET', url, headers: { authorization } });
+      expect(res.statusCode, url).toBe(400);
+      expect(res.json()).toMatchObject({ code: 'edge.invalid_ledger_lookup' });
+    }
+    expect(calls).toHaveLength(0);
+    await app.close();
+  });
+
+  it('refuses no credential, no second factor and a scope that is not a read of the book, calling nothing', async () => {
+    const { app, calls } = await harness();
+    for (const url of ['/admin/ledger/transactions', '/admin/ledger/accounts?prefix=house%3Af', '/admin/ledger/stats']) {
+      expect((await app.inject({ method: 'GET', url })).statusCode, url).toBe(401);
+      expect(
+        (await app.inject({ method: 'GET', url, headers: { authorization: await bearer(['admin:read'], false) } })).statusCode,
+        url,
+      ).toBe(401);
+      expect(
+        (await app.inject({ method: 'GET', url, headers: { authorization: await bearer(['market:ops', 'admin:write']) } })).statusCode,
+        url,
+      ).toBe(403);
+    }
+    expect(calls).toHaveLength(0);
+    await app.close();
+  });
+
+  it('refuses with edge.ledger_unreachable when this edge has no ledger URL', async () => {
+    const { app } = await harness(undefined, false);
+    const res = await app.inject({ method: 'GET', url: '/admin/ledger/stats', headers: { authorization: await bearer(['admin:read']) } });
+    expect(res.statusCode).toBe(503);
+    expect(res.json()).toMatchObject({ code: 'edge.ledger_unreachable' });
+    await app.close();
+  });
+});
