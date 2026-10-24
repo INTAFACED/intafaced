@@ -9,6 +9,23 @@ ALTER TABLE "trade"."orders"
   ADD CONSTRAINT "orders_fee_tier_ck" CHECK (length("fee_tier") BETWEEN 1 AND 64) NOT VALID;
 -- NOT VALID: every row before this migration holds the default, which the check accepts.
 
+-- Whether the order's fills count toward its owner's fee tier, decided when it is placed and never after: false for an
+-- order placed for the person by copy trading, an algorithm or an execution child, for a sub-account's order, and for
+-- the house market maker. Rows before this migration are marked from what they show: their client ids, their sub
+-- account, their seed flag and the copy mirror claims. A copy flatten whose id was hashed cannot be told apart here and
+-- stays counted; every order placed from now on is marked by the path that placed it.
+ALTER TABLE "trade"."orders" ADD COLUMN IF NOT EXISTS "tier_volume" boolean NOT NULL DEFAULT true;
+UPDATE "trade"."orders" o
+   SET "tier_volume" = false
+ WHERE o."tier_volume"
+   AND (o."seeded"
+     OR o."sub_account_id" IS NOT NULL
+     OR o."client_order_id" LIKE 'algo:%'
+     OR o."client_order_id" LIKE '%/client/%'
+     OR o."client_order_id" LIKE 'copy-flatten:%'
+     OR o."client_order_id" LIKE 'copy-mirror:%'
+     OR EXISTS (SELECT 1 FROM "trade"."copy_placed_mirrors" cm WHERE cm."order_id" = o."id"::text));
+
 -- One daily snapshot: the tier each account's counted volume reached over the 30 days before `instant`. A row is a
 -- read model, never a balance; `key` is its business key, so a re-run of the snapshot writes nothing new.
 CREATE TABLE IF NOT EXISTS "trade"."fee_tier_snapshots" (

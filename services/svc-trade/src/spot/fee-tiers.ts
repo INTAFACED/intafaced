@@ -122,23 +122,24 @@ function instantOn(day: number, time: string): Date {
 }
 
 /**
- * The latest snapshot instant at or before `now`, at the programme's time of day, and not before `since` (the time
- * the schedule version carrying it took effect): a programme never snapshots a moment before it existed.
+ * The latest snapshot instant at or before `now`, at the programme's time of day, and not before `since` (when the
+ * programme came into force; null: before anything stored, no bound): a programme never snapshots a moment before it
+ * existed.
  */
-export function lastSnapshotInstant(program: FeeTierProgram, since: Date, now: Date): Date | null {
+export function lastSnapshotInstant(program: FeeTierProgram, since: Date | null, now: Date): Date | null {
   if (program.snapshotTimeUtc === null) return null;
   const today = Math.floor(now.getTime() / DAY_MS);
   for (const day of [today, today - 1]) {
     const instant = instantOn(day, program.snapshotTimeUtc);
-    if (instant.getTime() <= now.getTime()) return instant.getTime() >= since.getTime() ? instant : null;
+    if (instant.getTime() <= now.getTime()) return since === null || instant.getTime() >= since.getTime() ? instant : null;
   }
   return null;
 }
 
 /** The first snapshot instant after `now` (and not before `since`), or null with no snapshot time. */
-export function nextSnapshotInstant(program: FeeTierProgram, since: Date, now: Date): Date | null {
+export function nextSnapshotInstant(program: FeeTierProgram, since: Date | null, now: Date): Date | null {
   if (program.snapshotTimeUtc === null) return null;
-  const from = Math.max(now.getTime() + 1, since.getTime());
+  const from = Math.max(now.getTime() + 1, since?.getTime() ?? 0);
   const day = Math.floor(from / DAY_MS);
   for (const candidate of [day, day + 1]) {
     const instant = instantOn(candidate, program.snapshotTimeUtc);

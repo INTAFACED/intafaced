@@ -21,7 +21,7 @@ export const feeTierCopy = defineCopy('public-fee-tier', {
   colTier: 'Tier',
   colFrom: '30-day volume from',
   volumeTitle: 'Counted volume',
-  volumeLine: '{amount} over the last 30 days, from {fills} trades',
+  volumeLine: '{amount} counted toward the next snapshot so far, from {fills} trades',
   reaches: 'At the next snapshot this volume reaches: {tier}',
   nextTier: 'Next tier: {tier} from {min}, {remaining} to go',
   topTier: 'This volume reaches the top tier: there is no threshold above it.',

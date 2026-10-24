@@ -1,4 +1,4 @@
-import { TradeService } from '../controls/test-admission.js';
+import { TradeService, readyTestAdmission } from '../controls/test-admission.js';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,6 +12,9 @@ import type { Market } from './types.js';
 import { READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor } from './testing.js';
 import { parseFeeScheduleJson, type OwnerFeeSchedule } from './fee-schedule.js';
 import { countedVolume, feeTierAt, runTierSnapshot, snapshotsOf } from './fee-tier-store.js';
+import { startFeeTierJobs } from './fee-tier-jobs.js';
+import { copyFlattenClientOrderId, copyMirrorClientOrderId } from '../copy/index.js';
+import type { SubAccountOwnership } from '@intafaced/contracts';
 import type { FeeTierProgram } from './fee-tiers.js';
 
 /**
@@ -84,11 +87,32 @@ describe('svc-trade fee tiers money', () => {
   let ethbtc: Market;
   let sequence = 0;
 
+  /** Carol's sub-account belongs to Alice. */
+  const SUB = '44444444-4444-4444-8444-444444444444';
+  const subAccounts = {
+    get: async (id: string) => (id === SUB ? ({ id: SUB, parentUserId: ALICE, revoked: false } as unknown as SubAccountOwnership) : null),
+  };
+  /** The test authority, which also knows Alice's TEST follow as an admitted copy relationship. */
+  const FOLLOW = '55555555-5555-4555-8555-555555555555';
+  const admission = () => {
+    const ready = readyTestAdmission();
+    return {
+      ...ready,
+      admit: ready.admit.bind(ready),
+      async original(userId: string, businessId: string) {
+        if (userId !== ALICE || businessId !== `copy.follow:${FOLLOW}`) return ready.original(userId, businessId);
+        const admitted = await ready.admit(principalFor(ALICE), 'copy.follow' as never, businessId, { follow: FOLLOW });
+        return { payload: { follow: FOLLOW }, admission: admitted, grantId: admitted.admissionId };
+      },
+    };
+  };
   const service = (feeSchedule: OwnerFeeSchedule) =>
     new TradeService(sql, ledger, matching, new StubPerks(), new MemoryEventBus('svc-trade'), {
       marketLifecycle: READY_MARKET_LIFECYCLE,
       spotEnabled: true,
       feeSchedule,
+      subAccounts,
+      accountAdmission: admission() as never,
     });
 
   async function fund(userId: string, assetId: string, amount: string) {
@@ -148,7 +172,7 @@ describe('svc-trade fee tiers money', () => {
   }, 30_000);
 
   beforeEach(async () => {
-    await sql`TRUNCATE trade.fee_tier_snapshot_runs, trade.fee_tier_snapshots, trade.copy_placed_mirrors, trade.fills, trade.orders, trade.markets RESTART IDENTITY CASCADE`;
+    await sql`TRUNCATE trade.fee_tier_snapshot_runs, trade.fee_tier_snapshots, trade.fee_schedule_versions, trade.copy_placed_mirrors, trade.fills, trade.orders, trade.markets RESTART IDENTITY CASCADE`;
     ledger = new MemoryLedger();
     matching = new StubMatching();
     // Fill sequences stay behind the stub engine's own, which counts every submit.
@@ -238,30 +262,126 @@ describe('svc-trade fee tiers money', () => {
   it('counts only own spot fills in the named quotes: bots, algorithms, copy trading and sub-accounts are excluded', async () => {
     const from = new Date(Date.now() - 60_000);
     const to = new Date(Date.now() + 60_000);
-    const fill = async (clientOrderId: string, market: Market = btcusdt, qty = '1', price = '100') => {
+    const fill = async (place: () => Promise<{ id: string; userId: string }>, market: Market = btcusdt, qty = '1', price = '100') => {
       const maker =
         market === btcusdt
           ? await rest(BOB, market, 'sell', qty, price, `bob-maker-${sequence}`)
           : await rest(CAROL, market, 'sell', qty, price, `carol-maker-${sequence}`);
-      const taker = await rest(ALICE, market, 'buy', qty, price, clientOrderId);
+      const taker = await place();
       await match(market, maker, taker, qty, price);
       return taker;
     };
+    const buy =
+      (clientOrderId: string, extra: Record<string, unknown> = {}) =>
+      () =>
+        trade.placeOrder(principalFor(ALICE), {
+          marketId: btcusdt.id,
+          side: 'buy',
+          type: 'limit',
+          qty: amt('1'),
+          price: amt('100'),
+          clientOrderId,
+          ...extra,
+        });
+    // Copy trading places mirrors and flattens through its own door; their real ids are hashed past 64 characters, so
+    // nothing in the id says copy.
+    const follow = FOLLOW;
+    const mirrorId = copyMirrorClientOrderId(follow, '66666666-6666-4666-8666-666666666666');
+    const flattenId = copyFlattenClientOrderId(follow, 'BTC/USDT-LONG-SYMBOL-NAME');
+    expect([mirrorId, flattenId].every((id) => /^[0-9a-f]{64}$/.test(id))).toBe(true);
+    const copied = (clientOrderId: string) => () =>
+      trade.placeCopyMirror(
+        principalFor(ALICE),
+        { marketId: btcusdt.id, side: 'buy', type: 'limit', qty: amt('1'), price: amt('100'), clientOrderId },
+        follow,
+      );
+
     await fund(ALICE, 'BTC', '10');
-    await fill('alice-own');
-    await fill('algo:twap-1:0');
-    await fill('parent/client/leg-0-0-abc');
-    await fill('copy-flatten:follow-1:BTC/USDT');
-    const mirrored = await fill('alice-mirrored');
+    await fill(buy('alice-own'));
+    await fill(buy('algo:twap-1:0'));
+    await fill(buy('parent/client/leg-0-0-abc'));
+    const mirrored = await fill(copied(mirrorId));
+    await fill(copied(flattenId));
+    await fill(buy('alice-sub', { subAccountId: SUB }));
+    await fill(() => rest(ALICE, ethbtc, 'buy', '1', '0.05', 'alice-eth'), ethbtc, '1', '0.05');
     await sql`INSERT INTO trade.copy_placed_mirrors (follow_id, fill_id, order_id, client_order_id, price)
-      VALUES ('follow-1', 'leader-fill-1', ${mirrored.id}, 'alice-mirrored', 100)`;
-    const sub = await fill('alice-sub');
-    await sql`UPDATE trade.orders SET sub_account_id = ${CAROL} WHERE id = ${sub.id}`;
-    await fill('alice-eth', ethbtc, '1', '0.05');
+      VALUES (${follow}, 'leader-fill-1', ${mirrored.id}, ${mirrorId}, 100)`;
 
     // Only the first fill counts: 100 USDT, once.
     expect(await countedVolume(sql, PROGRAMME, ALICE, from, to)).toEqual({ volume: '100', fills: 1 });
+    // Unfollowing deletes the mirror claims; the mirror's fills still do not count, since the order row says so.
+    await sql`DELETE FROM trade.copy_placed_mirrors`;
+    expect(await countedVolume(sql, PROGRAMME, ALICE, from, to)).toEqual({ volume: '100', fills: 1 });
     // Bob made every BTC/USDT fill for himself: his maker side counts each one.
     expect((await countedVolume(sql, PROGRAMME, BOB, from, to)).fills).toBe(6);
+  });
+
+  it('a sub-account order is charged regular, never at its parent’s tier', async () => {
+    const bob1 = await rest(BOB, btcusdt, 'sell', '2', '100', 'bob-parent');
+    const alice1 = await rest(ALICE, btcusdt, 'buy', '2', '100', 'alice-parent');
+    await match(btcusdt, bob1, alice1, '2', '100');
+    await runTierSnapshot(sql, PROGRAMME, 'test-tiers', new Date(Date.now() + 60_000));
+    expect(await trade.feeTierAt(ALICE)).toBe('test-vip');
+
+    const own = await rest(ALICE, btcusdt, 'buy', '1', '90', 'alice-own-vip');
+    const sub = await trade.placeOrder(principalFor(ALICE), {
+      marketId: btcusdt.id,
+      side: 'buy',
+      type: 'limit',
+      qty: amt('1'),
+      price: amt('90'),
+      clientOrderId: 'alice-sub-regular',
+      subAccountId: SUB,
+    });
+    expect([await tierOf(own.id), await tierOf(sub.id)]).toEqual(['test-vip', 'regular']);
+  });
+
+  describe('the snapshot job', () => {
+    const day = new Date(Date.now() + 2 * 86_400_000);
+    const at = (time: string) => new Date(`${day.toISOString().slice(0, 10)}T${time}Z`);
+    let stored = 0;
+    const store = async (schedule: Record<string, unknown>, effectiveAt: Date) => {
+      stored += 1;
+      await sql`INSERT INTO trade.fee_schedule_versions (id, version, schedule, effective_at, operator_id, approver_id, reason, approval_id)
+        VALUES (gen_random_uuid(), ${stored}, ${sql.json(schedule as never)}, ${effectiveAt.toISOString()}, 'op-a', 'op-b', 'TEST', ${`approval-${stored}-${Math.random()}`})`;
+    };
+    const tiered = (makerBps: string) => ({
+      published: true,
+      version: `test-tiers-${makerBps}`,
+      defaultPairGroup: 'all-others',
+      rows: ROWS.map((row) => (row.tierId === 'regular' ? { ...row, makerBps } : row)),
+      tierProgram: { ...PROGRAMME, downgradeGraceDays: null, subAccounts: null, botsAndCopy: null },
+    });
+    const tickAt = async (now: Date, boot: OwnerFeeSchedule = NO_PROGRAMME) => {
+      const { feeScheduleAt } = await import('./fee-schedule-store.js');
+      const jobs = startFeeTierJobs({
+        sql,
+        scheduleAt: (when) => feeScheduleAt(sql, boot, when),
+        bootSchedule: boot,
+        intervalMs: null,
+        now: () => now,
+      });
+      return jobs.tick();
+    };
+    beforeEach(() => {
+      stored = 0;
+    });
+
+    it('does not skip the day’s snapshot after a restart or a rates-only version past the snapshot time', async () => {
+      await store(tiered('3'), at('05:00:00'));
+      // A rates-only version took effect ten seconds after 07:00, and the service restarted at 07:00:30.
+      await store(tiered('2'), at('07:00:10'));
+      expect(await tickAt(at('07:00:30'))).toMatchObject({ outcome: 'written', instant: at('07:00:00').toISOString() });
+    });
+
+    it('never snapshots a moment before the programme came into force', async () => {
+      await store(JSON.parse(JSON.stringify({ ...tiered('3'), tierProgram: undefined })), at('05:00:00'));
+      await store(tiered('3'), at('07:00:10'));
+      expect(await tickAt(at('07:00:30'))).toEqual({ outcome: 'not_due' });
+      // A boot schedule with a programme has been in force since before anything stored: no bound.
+      expect(await tickAt(at('07:00:30'), TIERED)).toMatchObject({ outcome: 'not_due' });
+      await sql`TRUNCATE trade.fee_schedule_versions`;
+      expect(await tickAt(at('07:00:30'), TIERED)).toMatchObject({ outcome: 'written', instant: at('07:00:00').toISOString() });
+    });
   });
 });

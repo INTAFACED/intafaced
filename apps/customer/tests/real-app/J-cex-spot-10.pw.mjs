@@ -432,7 +432,7 @@ test(`${J} #5 opens My tier: the tier, the volume counted and from what, what is
     await expect(page.getByRole('heading', { level: 1, name: 'My fee tier' })).toBeVisible();
     await expect(page.locator('h2[data-tier=regular]')).toHaveText('Your tier: Regular');
     await expect(page.locator(`[data-volume="${tier.volume.amount}"]`)).toHaveText(
-      `${tier.volume.amount} over the last 30 days, from ${count} trades`,
+      `${tier.volume.amount} counted toward the next snapshot so far, from ${count} trades`,
     );
     await expect(page.locator('[data-reaches=regular]')).toHaveText('At the next snapshot this volume reaches: Regular');
     await expect(page.locator('[data-tier-page=next]')).toHaveText(`Next tier: test-vip-1 from ${VIP_FROM}, ${tier.next.remaining} to go`);

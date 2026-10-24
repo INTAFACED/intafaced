@@ -3,11 +3,12 @@
  * order is placed at.
  *
  * Counted volume is a person's own spot fills, maker or taker, quoted in the programme's volume assets, summed at one
- * unit each. Fills of orders placed for them by a bot, an algorithm or copy trading are excluded while the owner's rule
- * for them is blank: svc-trade's own TWAP children (`algo:` client ids), execution children (`/client/` ids), copy
- * mirror orders (`trade.copy_placed_mirrors`) and copy flatten orders (`copy-flatten:` ids). A sub-account's fills are
- * its own and never its parent's. The house market maker is not an account with a tier. A fill that settles twice is
- * one row (the fill table's own sequence key), so it counts once.
+ * unit each, on live (not paper) markets. Whether an order's fills count is decided when it is placed and kept on the
+ * row (`orders.tier_volume`): never for an order placed for the person by copy trading (mirrors and flattens), by an
+ * algorithm (`algo:` client ids) or as an execution child (`/client/` ids) while the owner's rule for them is blank,
+ * never for a sub-account's order (its fills are its own and never its parent's), and never for the house market maker,
+ * which is not an account with a tier. A fill that settles twice is one row (the fill table's own sequence key), so it
+ * counts once.
  */
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
@@ -33,16 +34,23 @@ export interface TierSnapshotRow {
   readonly scheduleVersion: string;
 }
 
+/**
+ * Client ids of orders svc-trade places for a person: TWAP slices (`algo:<parent>:<slice>`) and execution children
+ * (`.../client/...`). Copy mirrors and flattens are told by the path that places them (`copy.mirror`), since their
+ * ids may be hashed.
+ */
+export function isPlacedForThem(clientOrderId: string | null | undefined): boolean {
+  return clientOrderId != null && (clientOrderId.startsWith('algo:') || clientOrderId.includes('/client/'));
+}
+
 /** The fills a tier counts, as SQL over `trade.fills f` joined to its order `o` and market `m`. */
 const countedFill = (sql: Sql, quotes: readonly string[]) => sql`
-  m.kind = 'spot'
+  o.tier_volume
+  AND m.kind = 'spot'
+  AND NOT m.paper
   AND m.quote_asset IN ${sql(quotes as string[])}
   AND f.user_id <> ${HOUSE_MM_USER_UUID}
   AND o.sub_account_id IS NULL
-  AND NOT (coalesce(o.client_order_id, '') LIKE 'algo:%')
-  AND NOT (coalesce(o.client_order_id, '') LIKE '%/client/%')
-  AND NOT (coalesce(o.client_order_id, '') LIKE 'copy-flatten:%')
-  AND NOT EXISTS (SELECT 1 FROM trade.copy_placed_mirrors cm WHERE cm.order_id = o.id::text)
 `;
 
 /** `userId`'s counted volume over `[from, to)`. */
@@ -83,15 +91,13 @@ export async function runTierSnapshot(
      WHERE f.ts >= ${from.toISOString()} AND f.ts < ${to.toISOString()}
        AND ${countedFill(sql, program.volumeQuotes)}
      GROUP BY f.user_id`;
+  // Every account the previous snapshot left above regular has a row in it (each snapshot writes one for every account
+  // the one before left above regular), so that snapshot alone names who may step down.
   const above = await sql<Array<{ user_id: string }>>`
-    SELECT user_id FROM (
-      SELECT DISTINCT ON (s.user_id) s.user_id::text AS user_id, s.tier_id
-        FROM trade.fee_tier_snapshots s
-        JOIN trade.fee_tier_snapshot_runs r ON r.instant = s.instant
-       WHERE s.instant < ${instant.toISOString()}
-       ORDER BY s.user_id, s.instant DESC
-    ) latest
-     WHERE tier_id <> ${REGULAR_FEE_TIER}`;
+    SELECT s.user_id::text AS user_id
+      FROM trade.fee_tier_snapshots s
+     WHERE s.instant = (SELECT max(r.instant) FROM trade.fee_tier_snapshot_runs r WHERE r.instant < ${instant.toISOString()})
+       AND s.tier_id <> ${REGULAR_FEE_TIER}`;
   const figures = new Map(volumes.map((row) => [row.user_id, row]));
   for (const { user_id } of above) if (!figures.has(user_id)) figures.set(user_id, { user_id, volume: '0', fills: 0 });
 
@@ -140,8 +146,12 @@ export async function snapshotInForce(sql: Sql, userId: string, at: Date): Promi
  */
 export async function feeTierAt(sql: Sql, schedule: OwnerFeeSchedule, userId: string, at: Date): Promise<string> {
   if (schedule.published !== true || !schedule.tierProgram) return REGULAR_FEE_TIER;
-  const snapshot = await snapshotInForce(sql, userId, at);
-  if (!snapshot) return REGULAR_FEE_TIER;
+  return tierOf(schedule, await snapshotInForce(sql, userId, at));
+}
+
+/** The tier `snapshot` gives under `schedule`: its own while the programme in force still names it, else regular. */
+export function tierOf(schedule: OwnerFeeSchedule, snapshot: TierSnapshotRow | null): string {
+  if (schedule.published !== true || !schedule.tierProgram || !snapshot) return REGULAR_FEE_TIER;
   return schedule.tierProgram.thresholds.some((threshold) => threshold.tierId === snapshot.tierId) ? snapshot.tierId : REGULAR_FEE_TIER;
 }
 
@@ -175,12 +185,23 @@ export async function snapshotsOf(sql: Sql, userId: string, limit: number): Prom
   return rows.map(present);
 }
 
-/** The stored version in force at `at` and when it took effect, or null when the boot schedule is in force. */
-export async function versionInForce(sql: Sql, at: Date): Promise<{ version: string; effectiveAt: Date } | null> {
-  const [row] = await sql<Array<{ version: string; effective_at: Date }>>`
-    SELECT version::text, effective_at FROM trade.fee_schedule_versions
+/**
+ * Since when a tier programme has been in force without a break, at `at`: the time the earliest stored version took
+ * effect in the unbroken run of versions with a programme that ends with the one in force. A version that only changes
+ * rates keeps the run going, and so does a restart. Null when the run reaches back past every stored version to a boot
+ * schedule that has a programme too: it has been in force since before anything this service stored, so no bound.
+ * Versions are few (each one is a two-person approval), so they are read whole.
+ */
+export async function programmeSince(sql: Sql, boot: OwnerFeeSchedule, at: Date): Promise<Date | null> {
+  const rows = await sql<Array<{ effective_at: Date; has_programme: boolean }>>`
+    SELECT effective_at, coalesce(jsonb_typeof(schedule->'tierProgram') = 'object', false) AS has_programme
+      FROM trade.fee_schedule_versions
      WHERE effective_at <= ${at.toISOString()}
-     ORDER BY effective_at DESC, version DESC
-     LIMIT 1`;
-  return row ? { version: `v${row.version}`, effectiveAt: row.effective_at } : null;
+     ORDER BY effective_at DESC, version DESC`;
+  let since: Date | null = null;
+  for (const row of rows) {
+    if (!row.has_programme) return since;
+    since = row.effective_at;
+  }
+  return boot.published === true && boot.tierProgram ? null : since;
 }

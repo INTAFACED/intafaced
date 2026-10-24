@@ -776,11 +776,10 @@ const trailingMarkJobs = startTrailingMarkJobs({
     if (r.applied) app.log.info({ marketId: r.marketId }, 'trailing stops walked with the mark');
   },
 });
-const feeTierBootedAt = new Date();
 const feeTierJobs = startFeeTierJobs({
   sql,
   scheduleAt: (at) => feeScheduleAt(sql, feeSchedule, at),
-  bootedAt: feeTierBootedAt,
+  bootSchedule: feeSchedule,
   intervalMs: env.TRADE_FEE_TIER_JOBS_INTERVAL_MS,
   onError: (name, err) => app.log.error({ err, job: name }, 'fee tier snapshot tick failed'),
   onResult: (r) => {
@@ -1139,7 +1138,7 @@ registerFeeTierRest(app, {
   serviceName: env.SERVICE_NAME,
   sql,
   scheduleAt: (at) => feeScheduleAt(sql, feeSchedule, at),
-  bootedAt: feeTierBootedAt,
+  bootSchedule: feeSchedule,
   snapshotsRunning: env.TRADE_FEE_TIER_JOBS_INTERVAL_MS !== null && env.TRADE_FEE_TIER_JOBS_INTERVAL_MS > 0,
 });
 const fundingHistory = memoryFundingHistory();

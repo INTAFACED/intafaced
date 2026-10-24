@@ -16,9 +16,21 @@ import './public-pages.css';
  * so; nothing is a sample.
  */
 export function MyTierPage() {
-  const { session } = useSession();
+  const { session, restoring } = useSession();
   const location = useLocation();
   const copy = feeTierCopy.useCopy();
+  // A signed-in person who opens the page directly is not asked to sign in while their session comes back.
+  if (!session && restoring) {
+    return (
+      <div className="pub-page" data-room="my-tier">
+        <header className="pub-heading">
+          <h1>{copy.t('title')}</h1>
+          <p>{copy.t('lead')}</p>
+        </header>
+        <p role="status">{copy.t('loading')}</p>
+      </div>
+    );
+  }
   if (!session) {
     return (
       <div className="pub-page" data-room="my-tier">

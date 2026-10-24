@@ -7,6 +7,7 @@ import type { Sql } from 'postgres';
 import type { LifecycleAdmissionProof } from '../lifecycle-proof.js';
 import { edgeTrustFromEnv } from '@intafaced/config';
 import { env } from '../env.js';
+import { REGULAR_FEE_TIER } from './fee-schedule.js';
 import { orderIdFor } from './ids.js';
 import { closePositionOnMatching, type MatchingCloseRequest } from './matching-close.js';
 import type { EngineSubmitResult, MatchingClient } from './matching-client.js';
@@ -135,6 +136,9 @@ export async function closeSpotPosition(svc: TradeService, principal: Principal,
   }
 
   const lifecycleProof = await host.assertLifecycleAction(market, 'PLACE');
+  // The fee tier is read before the engine is asked: once the flatten has printed, the row must be written whatever
+  // else is down, so nothing that can fail is read between the two.
+  const feeTier = market.paper ? REGULAR_FEE_TIER : await host.feeTierAt(userId);
   const request: MatchingCloseRequest = {
     orderId,
     accountId: userId,
@@ -156,7 +160,6 @@ export async function closeSpotPosition(svc: TradeService, principal: Principal,
   const hold =
     flatten.side === 'buy' ? { assetId: market.quoteAsset, amount: buyNotional } : holdFor(market, flatten.side, 0n as Amount, flatten.qty);
   const perks = await host.perks.perksOf(userId);
-  const feeTier = await host.feeTierAt(userId);
 
   // A market row carries no price (orders_price_shape_ck); the executed prices live in trade.fills (#4591).
   const inserted = await host.sql<Array<{ id: string }>>`

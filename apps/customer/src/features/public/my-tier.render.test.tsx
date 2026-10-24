@@ -44,7 +44,7 @@ describe('/fees/my-tier', () => {
     expect(html).toContain('data-room="my-tier"');
     expect(html).toContain('Your tier: test-vip-1');
     expect(html).toContain('From the snapshot at 2026-10-24 07:00 UTC');
-    expect(html).toContain('1300 over the last 30 days, from 5 trades');
+    expect(html).toContain('1300 counted toward the next snapshot so far, from 5 trades');
     expect(html).toContain('At the next snapshot this volume reaches: test-vip-1');
     expect(html).toContain('Next tier: test-vip-2 from 5000, 3700 to go');
     expect(html).toContain('Next snapshot: 2026-10-25 07:00 UTC');

@@ -569,8 +569,9 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
       }
     }
 
+    // As placement reads it: a sub-account order and anything but spot are regular.
     let feeTier: string = REGULAR_FEE_TIER;
-    if (deps.feeTier) {
+    if (deps.feeTier && market.kind === 'spot' && !market.paper && body.subAccountId == null) {
       try {
         feeTier = await deps.feeTier(principal.userId);
       } catch {

@@ -13,8 +13,8 @@ import { parseAmount } from '@intafaced/ledger-client';
 import { createEdgeContext, type EdgeRequest } from '@intafaced/contracts';
 import type { EdgeTrust } from '../edge-trust.js';
 import { REGULAR_FEE_TIER, type OwnerFeeSchedule } from './fee-schedule.js';
-import { VOLUME_EXCLUSIONS, countedVolume, feeTierAt, snapshotInForce, snapshotsOf, versionInForce } from './fee-tier-store.js';
-import { TIER_VOLUME_DAYS, nextSnapshotInstant, nextThreshold, tierForVolume } from './fee-tiers.js';
+import { VOLUME_EXCLUSIONS, countedVolume, programmeSince, snapshotInForce, snapshotsOf, tierOf } from './fee-tier-store.js';
+import { nextSnapshotInstant, nextThreshold, tierForVolume, volumeWindow } from './fee-tiers.js';
 
 export const ACCOUNT_FEE_TIER_PATH = '/api/v1/account/fee-tier';
 
@@ -27,8 +27,8 @@ export interface FeeTierRestDeps {
   serviceName: string;
   sql: Sql;
   scheduleAt(at: Date): Promise<OwnerFeeSchedule>;
-  /** When the boot schedule took effect (this process's start), for a programme on the boot value. */
-  bootedAt: Date;
+  /** The boot schedule (TRADE_FEE_SCHEDULE), in force before every stored version. */
+  bootSchedule: OwnerFeeSchedule;
   /** False when the snapshot job is not scheduled here: no snapshot runs, whatever the programme says. */
   snapshotsRunning: boolean;
   now?: () => Date;
@@ -56,11 +56,14 @@ export function registerFeeTierRest(app: FastifyInstance, deps: FeeTierRestDeps)
     }
     const userId = principal.userId;
     const program = schedule.tierProgram ?? null;
-    const [tier, inForce, snapshots] = await Promise.all([
-      feeTierAt(deps.sql, schedule, userId, at),
+    const [inForce, snapshots] = await Promise.all([
       snapshotInForce(deps.sql, userId, at),
       snapshotsOf(deps.sql, userId, FEE_TIER_SNAPSHOT_ROWS),
     ]);
+    const tier = tierOf(schedule, inForce);
+    // The snapshot the tier comes from, or none: a snapshot whose tier the programme in force no longer names gives
+    // regular, and is not shown as where the tier came from (it stays in the rows below).
+    const source = inForce && inForce.tierId === tier ? inForce : null;
     if (!program) {
       return reply.code(200).send({
         tier: REGULAR_FEE_TIER,
@@ -70,17 +73,19 @@ export function registerFeeTierRest(app: FastifyInstance, deps: FeeTierRestDeps)
         next: null,
         snapshotsRunning: deps.snapshotsRunning,
         nextSnapshotAt: null,
-        lastSnapshot: inForce,
+        lastSnapshot: null,
         snapshots,
         excluded: VOLUME_EXCLUSIONS,
       });
     }
 
-    const from = new Date(at.getTime() - TIER_VOLUME_DAYS * 86_400_000);
+    const since = await programmeSince(deps.sql, deps.bootSchedule, at);
+    const nextAt = deps.snapshotsRunning ? nextSnapshotInstant(program, since, at) : null;
+    // The volume the next snapshot counts so far: its window up to now, so a fill that drops out of the 30 days before
+    // it is not counted toward it. With no snapshot due, the 30 days before now.
+    const from = volumeWindow(nextAt ?? at).from;
     const counted = await countedVolume(deps.sql, program, userId, from, at);
     const volume = parseAmount(counted.volume);
-    const since = (await versionInForce(deps.sql, at))?.effectiveAt ?? deps.bootedAt;
-    const nextAt = deps.snapshotsRunning ? nextSnapshotInstant(program, since, at) : null;
     return reply.code(200).send({
       tier,
       scheduleVersion: schedule.version,
@@ -104,7 +109,7 @@ export function registerFeeTierRest(app: FastifyInstance, deps: FeeTierRestDeps)
       next: nextThreshold(program, volume),
       snapshotsRunning: deps.snapshotsRunning,
       nextSnapshotAt: nextAt?.toISOString() ?? null,
-      lastSnapshot: inForce,
+      lastSnapshot: source,
       snapshots,
       excluded: VOLUME_EXCLUSIONS,
     });
