@@ -11,7 +11,7 @@ import {
 } from 'react';
 import type { WatchlistsValue } from '@intafaced/contracts/watchlists-preferences';
 import { Dialog, DialogContent, DialogTitle } from '@intafaced/ui';
-import { fmtAmount, fmtPct, fmtPrice, useMarkets, useTickers, type MarketRow, type TickerRow } from '../../data';
+import { fmtAmount, fmtPct, fmtPrice, refusalCopy, useMarkets, useTickers, type MarketRow, type TickerRow } from '../../data';
 import { compareDecimal } from '../../data/decimal';
 import { navigate } from '../../app/location';
 import { useSession } from '../session/session';
@@ -201,7 +201,8 @@ export function WatchlistPanel({ workbench }: WatchlistPanelProps) {
   const [newTitle, setNewTitle] = useState('');
   const [details, setDetails] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
-  const [pendingImport, setPendingImport] = useState<string | null>(null);
+  // A new object per pick, so the same file picked twice is read twice.
+  const [pendingImport, setPendingImport] = useState<{ text: string } | null>(null);
 
   const list = store.value.find((item) => item.id === selectedId) ?? store.value[0] ?? null;
   const section = list ? (list.sections.find((item) => item.id === sectionId) ?? defaultSectionOf(list)) : null;
@@ -340,19 +341,17 @@ export function WatchlistPanel({ workbench }: WatchlistPanelProps) {
       setNotice({ tone: 'warn', text: t('Import too large') });
       return;
     }
-    const text = await file.text();
-    // Rows are checked against the listing, so a file picked before the listing arrives waits for it rather than refusing
-    // every row as unknown.
-    if (markets.status === 'loading') {
-      setPendingImport(text);
-      setNotice({ tone: 'warn', text: t('Import waits for markets') });
-      return;
-    }
-    await runImport(text);
+    // Rows are checked against the listing, so the file is read on the render that has it (the effect below): a file picked
+    // before the listing arrives waits for it rather than refusing every row as unknown.
+    setPendingImport({ text: await file.text() });
   };
 
   const runImport = async (text: string) => {
-    if (markets.status !== 'ready') {
+    if (markets.status === 'refused') {
+      setNotice({ tone: 'warn', text: t('Import markets refused', { reason: refusalCopy(markets.code).title }) });
+      return;
+    }
+    if (markets.status !== 'ready' && markets.status !== 'empty') {
       setNotice({ tone: 'warn', text: t('Import markets unread') });
       return;
     }
@@ -386,13 +385,16 @@ export function WatchlistPanel({ workbench }: WatchlistPanelProps) {
     }
   };
 
-  // A file that waited for the listing is read once the listing settles: checked against it when it arrives, refused when it
-  // cannot be read.
+  // A picked file is read once the listing has settled: checked against it when it arrives, refused when it cannot be read.
   useEffect(() => {
-    if (pendingImport === null || markets.status === 'loading') return;
+    if (pendingImport === null) return;
+    if (markets.status === 'loading') {
+      setNotice({ tone: 'ok', text: t('Import waits for markets') });
+      return;
+    }
     setPendingImport(null);
-    void runImport(pendingImport);
-    // runImport reads the render it is called from; only the listing settling or a new file starts it.
+    void runImport(pendingImport.text);
+    // runImport reads the render it is called from; only a new file or the listing settling starts it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingImport, markets.status]);
 
@@ -565,7 +567,15 @@ export function WatchlistPanel({ workbench }: WatchlistPanelProps) {
                   </button>
                 </li>
               ))}
-              {matches.length === 0 && <li className="wl-note">{t('No match', { query: query.trim() })}</li>}
+              {matches.length === 0 && (
+                <li className="wl-note">
+                  {markets.status === 'loading'
+                    ? t('Markets loading')
+                    : markets.status === 'ready' || markets.status === 'empty'
+                      ? t('No match', { query: query.trim() })
+                      : t('Markets unread')}
+                </li>
+              )}
             </ul>
           )}
         </div>
