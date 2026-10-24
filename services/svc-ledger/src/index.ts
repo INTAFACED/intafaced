@@ -95,12 +95,14 @@ registerS2sHttp(app, ledger, env.INTERNAL_SERVICE_SECRET, {
 });
 
 /**
- * §14.6 — the operator surface: freeze, unfreeze, and on-demand reconcile.
+ * §14.6 — the operator surface: freeze, unfreeze, on-demand reconcile, and
+ * reconciliation controls (list, define, update, run).
  *
- * `appRouter` above is exported for its TYPE and served on no port, so the
- * tRPC procedures alone were callable by nothing. `registerOperatorHttp`
- * mounts GET/POST `/operator/freeze`, POST `/operator/unfreeze`, and
- * POST `/operator/reconcile` behind `admin:treasury` + MFA + distinct confirm.
+ * `appRouter` above is exported for its TYPE and served on no port. It includes
+ * `post`, so it is not mounted. `registerOperatorHttp` is the served door:
+ * GET/POST `/operator/freeze`, POST `/operator/unfreeze`, POST `/operator/reconcile`,
+ * and `/operator/reconciliation/controls` (list, define, update, run) behind
+ * `admin:treasury` + MFA. Run also takes a reason and an approval. Compliance may list.
  * See `operator-http.ts`.
  */
 registerOperatorHttp(
