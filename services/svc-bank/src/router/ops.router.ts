@@ -16,6 +16,7 @@ import { assetPausesProcedure, setAssetPauseProcedure } from '../ops/asset-pause
 import { cardProgrammeProcedure, setCardStatusProcedure } from '../ops/card-programme.js';
 import { decideLimitRequestProcedure, limitRequestQueueProcedure } from '../transfers/limit-requests.js';
 import { createLoanProductProcedure } from '../ops/loan-products.js';
+import { createEarnPoolProcedure, setEarnPoolRateProcedure } from '../ops/earn-pools.js';
 import { publishTransferTermsProcedure } from '../transfers/transfer-terms.js';
 import { rampHealthProcedure } from '../ops/ramp-health.js';
 import { transferHealthProcedure } from '../ops/transfer-health.js';
@@ -864,6 +865,8 @@ export function createOpsRouter(c: BankRouterContext) {
     limitRequests: limitRequestQueueProcedure(limitRequests, guard),
     decideLimitRequest: decideLimitRequestProcedure(limitRequests, guard),
     createLoanProduct: createLoanProductProcedure(bank, consumeOpsApproval, guard),
+    createEarnPool: createEarnPoolProcedure(bank, consumeOpsApproval, guard),
+    setEarnPoolRate: setEarnPoolRateProcedure(bank, consumeOpsApproval, guard),
     publishTransferTerms: publishTransferTermsProcedure(() => bank.transferOps.sql, consumeOpsApproval, guard),
     cardProgramme: cardProgrammeProcedure(bank, guard),
     setCardStatus: setCardStatusProcedure(bank, consumeOpsApproval, guard),

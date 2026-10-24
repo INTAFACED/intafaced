@@ -20,6 +20,7 @@ import { assertEarnResumePendingLimit } from '../job-batch-limit.js';
 import { stakePrincipalForAccrual } from './accrue-principal.js';
 import { accrualBoundary, accrualDate, planAccrual, type AccruingPosition } from './interest.js';
 import { withMoneySpan } from '../tracing.js';
+import { readRateHistory, recordRateChange, setPoolRate, type RateHistory } from './rate-history.js';
 import { readPoolTotals, type PoolTotal } from '../ops/pool-totals.js';
 
 /**
@@ -171,7 +172,13 @@ export class EarnService {
 
   // ── Pools ──────────────────────────────────────────────────────────────────
 
+  /**
+   * Open a pool and record its opening rate (BK-earn-05), in one transaction: a pool never exists without the first
+   * line of its rate history. `id` is the caller-stable retry key of an operator's create (`ops.createPool`): the same
+   * id with the same terms returns the pool already made, and with different terms refuses `bank.pool_conflict`.
+   */
   async createPool(input: {
+    id?: string;
     assetId: string;
     kind: 'flexible' | 'fixed';
     name: string;
@@ -180,17 +187,56 @@ export class EarnService {
     minDeposit?: Amount;
   }): Promise<PoolRecord> {
     this.assertEarnable(input.assetId);
+    const termDays = input.kind === 'fixed' ? (input.termDays ?? null) : null;
+    const minDeposit = formatAmount(input.minDeposit ?? 0n);
 
-    const rows = await this.sql<PoolRow[]>`
-      INSERT INTO bank.earn_pools (asset_id, kind, name, apr_bps, term_days, min_deposit)
-      VALUES (
-        ${input.assetId}, ${input.kind}, ${input.name}, ${input.aprBps},
-        ${input.kind === 'fixed' ? (input.termDays ?? null) : null},
-        ${formatAmount(input.minDeposit ?? 0n)}::numeric
-      )
-      RETURNING id, asset_id, kind, name, apr_bps, term_days, min_deposit, status
-    `;
-    return toPool(rows[0]!);
+    return transaction(
+      this.sql,
+      async (tx) => {
+        const rows = await tx<Array<PoolRow & { created_at: Date }>>`
+          INSERT INTO bank.earn_pools (id, asset_id, kind, name, apr_bps, term_days, min_deposit)
+          VALUES (
+            ${input.id ?? tx`gen_random_uuid()`}, ${input.assetId}, ${input.kind}, ${input.name}, ${input.aprBps},
+            ${termDays}, ${minDeposit}::numeric
+          )
+          ON CONFLICT (id) DO NOTHING
+          RETURNING id, asset_id, kind, name, apr_bps, term_days, min_deposit, status, created_at
+        `;
+        const made = rows[0];
+        if (!made) {
+          const existing = await tx<PoolRow[]>`
+            SELECT id, asset_id, kind, name, apr_bps, term_days, min_deposit, status
+              FROM bank.earn_pools WHERE id = ${input.id!}
+          `;
+          const pool = existing[0] ? toPool(existing[0]) : null;
+          // The rate it opened with, not today's: a later approved change is not a different create.
+          const opened = await tx<Array<{ rate_bps: number }>>`
+            SELECT rate_bps FROM bank.earn_rate_changes WHERE pool_id = ${input.id!} ORDER BY effective_at ASC LIMIT 1
+          `;
+          if (
+            !pool ||
+            opened[0]?.rate_bps !== input.aprBps ||
+            pool.assetId !== input.assetId ||
+            pool.kind !== input.kind ||
+            pool.name !== input.name ||
+            pool.termDays !== termDays ||
+            pool.minDeposit !== parseAmount(minDeposit)
+          ) {
+            throw new BankError(`Pool ${input.id} already exists on different terms; a new pool needs a new id`, 'bank.pool_conflict');
+          }
+          return pool;
+        }
+        await recordRateChange(tx, {
+          poolId: made.id,
+          rateBps: input.aprBps,
+          effectiveAt: made.created_at,
+          reason: null,
+          approvalId: null,
+        });
+        return toPool(made);
+      },
+      { isolation: 'read committed', maxAttempts: 5 },
+    );
   }
 
   async pool(poolId: string): Promise<PoolRecord> {
@@ -257,6 +303,16 @@ export class EarnService {
         return { ledgerTxId: tx.id };
       },
     );
+  }
+
+  /** Every rate the pool has published, oldest first (BK-earn-05). Read only. */
+  rateHistory(poolId: string, limit?: number): Promise<RateHistory> {
+    return readRateHistory(this.sql, poolId, limit);
+  }
+
+  /** An approved change of a flexible pool's rate; see `setPoolRate` in rate-history.ts. */
+  setPoolRate(input: { poolId: string; rateBps: number; reason: string; approvalId: string; now?: Date }) {
+    return setPoolRate(this.sql, input);
   }
 
   /** What the pool can still afford to pay. A ledger read, never a column. */

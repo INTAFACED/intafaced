@@ -32,7 +32,29 @@ export const positionSchema = z.object({
   poolId: z.string(),
   assetId: z.string(),
   principal: money,
+  openedAt: z.string(),
   maturesAt: z.string().nullable(),
+});
+/**
+ * What a pool publishes beyond its rate and term (svc-bank `earn.router.ts`, BK-earn-02 and BK-earn-05): how interest is
+ * paid, in which asset, from where, and the owner tables that may be blank. A null is a figure nobody published.
+ */
+export const poolFacts = {
+  payoutEvery: z.literal('day'),
+  compounding: z.literal('simple'),
+  rewardAssetId: z.string(),
+  yieldSource: z.literal('pool_reserve'),
+  rateBands: z.array(z.object({ from: money, rateBps: z.number().int() })).nullable(),
+  commissionBps: z.number().int().nullable(),
+  capacity: money.nullable(),
+};
+export const earnPoolSchema = poolSchema.extend(poolFacts);
+export const earnPoolPageSchema = earnPoolSchema.extend({ status: z.enum(['open', 'closed']) });
+export const rateHistorySchema = z.object({
+  poolId: z.string(),
+  currentBps: z.number().int(),
+  changes: z.array(z.object({ rateBps: z.number().int(), effectiveAt: z.string(), reason: z.string().nullable() })),
+  earlier: z.boolean(),
 });
 export const productSchema = z.object({
   id: z.string(),
@@ -816,7 +838,9 @@ export const bankReads = {
       rejectionCode: z.string().nullable(),
     }),
   ),
-  'earn.pools': z.array(poolSchema),
+  'earn.pools': z.array(earnPoolSchema),
+  'earn.pool': earnPoolPageSchema,
+  'earn.rateHistory': rateHistorySchema,
   'earn.positions': z.array(positionSchema),
   'earn.interestHistory': z.object({
     days: z.array(z.object({ date: z.string(), rateBps: z.number().int(), amount: money, ledgerTxId: z.string() })),

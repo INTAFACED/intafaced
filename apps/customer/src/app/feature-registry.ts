@@ -215,7 +215,7 @@ export const features: readonly Feature[] = [
   {
     id: 'bank-earn',
     label: 'Earn',
-    paths: ['/bank/earn'],
+    paths: ['/bank/earn', '/bank/earn/pool'],
     status: 'blocked',
     reason: 'Earn products and rates are set by operators, and daily interest is switched off on the local stack',
     unlock: 'operator earn products and rates, then a proof run of this room',

@@ -5,6 +5,43 @@ import { assertSelf } from '../assert-self.js';
 import { amountString } from './shared.js';
 import { guard } from './errors.js';
 import type { BankRouterContext } from './context.js';
+import type { PoolRecord } from '../earn/earn-service.js';
+
+/**
+ * What a pool publishes beyond its rate and term (BK-earn-02, BK-earn-05), so the pool page and the side-by-side table
+ * read the bank, not the browser. Interest is paid once a UTC day, simple, into the person's main balance in the pool's
+ * own asset, out of the pool's reserve that the bank funds (`earn-service.ts`, `interest.ts`): those are facts of the
+ * code, not settings. No owner table exists for balance-band rates, a commission on interest or a pool capacity, so each
+ * reads null and the page says "not set"; a pool never shows zero for a figure nobody published.
+ */
+const poolFacts = {
+  payoutEvery: z.literal('day'),
+  compounding: z.literal('simple'),
+  rewardAssetId: z.string(),
+  yieldSource: z.literal('pool_reserve'),
+  rateBands: z.array(z.object({ from: amountString, rateBps: z.number().int() })).nullable(),
+  commissionBps: z.number().int().nullable(),
+  capacity: amountString.nullable(),
+};
+
+function poolView(p: PoolRecord) {
+  return {
+    id: p.id,
+    assetId: p.assetId,
+    kind: p.kind,
+    name: p.name,
+    aprBps: p.aprBps,
+    termDays: p.termDays,
+    minDeposit: formatAmount(p.minDeposit),
+    payoutEvery: 'day' as const,
+    compounding: 'simple' as const,
+    rewardAssetId: p.assetId,
+    yieldSource: 'pool_reserve' as const,
+    rateBands: null,
+    commissionBps: null,
+    capacity: null,
+  };
+}
 
 export function createEarnRouter(c: BankRouterContext) {
   const { bank } = c;
@@ -30,21 +67,68 @@ export function createEarnRouter(c: BankRouterContext) {
             aprBps: z.number().int(),
             termDays: z.number().int().nullable(),
             minDeposit: amountString,
+            ...poolFacts,
           }),
         ),
       )
       .query(async ({ input }) =>
         guard(async () => {
           const pools = await bank.earn.listPools(input.assetId, input.limit);
-          return pools.map((p) => ({
-            id: p.id,
-            assetId: p.assetId,
-            kind: p.kind,
-            name: p.name,
-            aprBps: p.aprBps,
-            termDays: p.termDays,
-            minDeposit: formatAmount(p.minDeposit),
-          }));
+          return pools.map(poolView);
+        }),
+      ),
+
+    /** One pool by id, open or closed, with what it publishes (BK-earn-02, BK-earn-05): the pool's own page. */
+    pool: scopedProcedure('bank:read', { module: 'bank' })
+      .input(z.object({ poolId: z.string().guid() }))
+      .output(
+        z.object({
+          id: z.string(),
+          assetId: z.string(),
+          kind: z.enum(['flexible', 'fixed']),
+          name: z.string(),
+          aprBps: z.number().int(),
+          termDays: z.number().int().nullable(),
+          minDeposit: amountString,
+          status: z.enum(['open', 'closed']),
+          ...poolFacts,
+        }),
+      )
+      .query(async ({ input }) =>
+        guard(async () => {
+          const pool = await bank.earn.pool(input.poolId);
+          return { ...poolView(pool), status: pool.status };
+        }),
+      ),
+
+    /**
+     * Every rate the pool has published, oldest first, as the bank recorded it (BK-earn-05, J-bank-08 #1). Nothing before
+     * the first record is filled in: `earlier` says older records exist beyond this page, and an empty list means the
+     * pool has no recorded change.
+     */
+    rateHistory: scopedProcedure('bank:read', { module: 'bank' })
+      .input(
+        z.object({
+          poolId: z.string().guid(),
+          /** Page size. Optional so omit reaches `bank.earn_rate_history_limit_unset`; blank is not 50. */
+          limit: z.number().int().min(1).max(200).optional(),
+        }),
+      )
+      .output(
+        z.object({
+          poolId: z.string(),
+          currentBps: z.number().int(),
+          changes: z.array(z.object({ rateBps: z.number().int(), effectiveAt: z.string(), reason: z.string().nullable() })),
+          earlier: z.boolean(),
+        }),
+      )
+      .query(async ({ input }) =>
+        guard(async () => {
+          const history = await bank.earn.rateHistory(input.poolId, input.limit);
+          return {
+            ...history,
+            changes: history.changes.map((c) => ({ rateBps: c.rateBps, effectiveAt: c.effectiveAt.toISOString(), reason: c.reason })),
+          };
         }),
       ),
 
@@ -95,6 +179,7 @@ export function createEarnRouter(c: BankRouterContext) {
             poolId: z.string(),
             assetId: z.string(),
             principal: amountString,
+            openedAt: z.string(),
             maturesAt: z.string().nullable(),
           }),
         ),
@@ -107,6 +192,7 @@ export function createEarnRouter(c: BankRouterContext) {
             poolId: p.poolId,
             assetId: p.assetId,
             principal: formatAmount(p.principal),
+            openedAt: p.openedAt.toISOString(),
             maturesAt: p.maturesAt?.toISOString() ?? null,
           }));
         }),
