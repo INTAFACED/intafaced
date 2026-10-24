@@ -36,6 +36,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     }),
     BANK_ACCOUNT_CURRENCIES: 'USDT,USDC,BTC,ETH',
     BANK_SPACE_LIMIT: '5',
+    // LOCAL TEST value from the bank profile (BK-pots-02): how long an early unlock of a locked space waits. Unset, every
+    // early unlock refuses bank.space_unlock_rule_unset and the space stays locked to its date.
+    BANK_SPACE_UNLOCK_WAIT_HOURS: testValue('BANK_SPACE_UNLOCK_WAIT_HOURS'),
     BANK_ACCOUNT_DETAILS_CURRENCIES: 'EUR,GBP,USD',
     // LOCAL TEST values, not owner decisions: how many withdrawal addresses one person may save, and how long a
     // new one waits before money may leave to it. Unset, the address book refuses saves and lists every row as

@@ -13,6 +13,8 @@ export const spaceSchema = z
     name: z.string(),
     goalTarget: decimalSchema.nullable(),
     lockedUntil: z.string().datetime({ offset: true }).nullable(),
+    /** An early unlock still waiting (BK-pots-02): when the space opens. Absent from a bank that predates it. */
+    unlocksAt: z.string().datetime({ offset: true }).nullable().optional(),
     balance: decimalSchema,
     ledgerAccount: z.object({ ownerType: z.string(), ownerId: z.string(), assetId: z.string(), kind: z.string() }),
   })

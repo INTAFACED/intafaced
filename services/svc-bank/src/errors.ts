@@ -794,6 +794,12 @@ export type BankErrorCode =
   | 'bank.space_limit_unset'
   /** The account already holds the owner's number of live named spaces. */
   | 'bank.space_limit_reached'
+  /** A pot change that cannot be: a goal of zero or less, a lock date not in the future or earlier than the lock, or the primary space (BK-pots-02). */
+  | 'bank.space_change_invalid'
+  /** The owner has not set how long an early unlock waits (`BANK_SPACE_UNLOCK_WAIT_HOURS`), so the pot stays locked to its date (BK-pots-02). */
+  | 'bank.space_unlock_rule_unset'
+  /** An early unlock was asked for, or withdrawn, on a pot that is not locked now (BK-pots-02). */
+  | 'bank.space_not_locked'
   /** The profile a bank call names is not one the caller holds: an unknown or closed business, or one they are not a member of. */
   | 'bank.profile_not_held'
   /** A business profile has no company account of its own in this build, so there is no company terms, currency or detail to show. */

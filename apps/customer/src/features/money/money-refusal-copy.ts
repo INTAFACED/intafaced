@@ -49,6 +49,11 @@ const en = {
   notOwner: 'That account does not belong to you.',
   accountNotFound: 'One of the accounts could not be found.',
   accountLocked: 'One of the accounts is locked or archived and cannot be used right now.',
+  spaceChangeInvalid:
+    'That change cannot be made to this space. A goal is above zero, and a lock date is in the future and no earlier than the lock already set. Nothing was changed.',
+  unlockRuleUnset:
+    'The bank has not set how long an early unlock waits, so no new lock is made and a locked space stays locked to its date. Nothing was changed.',
+  spaceNotLocked: 'This space is not locked now, so there is no lock to end early. Nothing was changed.',
   cannotReceive: 'That person cannot receive this right now. Nothing was sent.',
   receiveCheckDown: 'We could not check whether the recipient can receive money. Nothing was sent. Try again in a moment.',
   receiveCheckOff: 'Paying other people is not set up on this service. Nothing was sent.',
@@ -124,6 +129,11 @@ const es = {
   notOwner: 'Esa cuenta no es tuya.',
   accountNotFound: 'No se encontró una de las cuentas.',
   accountLocked: 'Una de las cuentas está bloqueada o archivada y no se puede usar ahora.',
+  spaceChangeInvalid:
+    'Ese cambio no se puede hacer en este espacio. Un objetivo es mayor que cero, y una fecha de bloqueo es futura y no anterior al bloqueo ya fijado. No se cambió nada.',
+  unlockRuleUnset:
+    'El banco no ha fijado cuánto espera un desbloqueo anticipado, así que no se crea ningún bloqueo nuevo y un espacio bloqueado sigue así hasta su fecha. No se cambió nada.',
+  spaceNotLocked: 'Este espacio no está bloqueado ahora, así que no hay bloqueo que terminar antes. No se cambió nada.',
   cannotReceive: 'Esa persona no puede recibir esto ahora. No se envió nada.',
   receiveCheckDown: 'No pudimos comprobar si el destinatario puede recibir dinero. No se envió nada. Inténtalo de nuevo en un momento.',
   receiveCheckOff: 'Pagar a otras personas no está configurado en este servicio. No se envió nada.',
@@ -203,6 +213,11 @@ const fr = {
   notOwner: 'Ce compte ne vous appartient pas.',
   accountNotFound: 'Un des comptes est introuvable.',
   accountLocked: 'Un des comptes est verrouillé ou archivé et ne peut pas être utilisé pour le moment.',
+  spaceChangeInvalid:
+    'Ce changement ne peut pas être fait sur cet espace. Un objectif est supérieur à zéro, et une date de verrouillage est future et pas antérieure au verrouillage déjà fixé. Rien n’a été modifié.',
+  unlockRuleUnset:
+    'La banque n’a pas fixé la durée d’attente d’un déverrouillage anticipé, donc aucun nouveau verrouillage n’est créé et un espace verrouillé le reste jusqu’à sa date. Rien n’a été modifié.',
+  spaceNotLocked: 'Cet espace n’est pas verrouillé maintenant, donc il n’y a aucun verrouillage à terminer plus tôt. Rien n’a été modifié.',
   cannotReceive: 'Cette personne ne peut pas recevoir ceci pour le moment. Rien n’a été envoyé.',
   receiveCheckDown:
     'Nous n’avons pas pu vérifier si le destinataire peut recevoir de l’argent. Rien n’a été envoyé. Réessayez dans un instant.',
@@ -280,6 +295,9 @@ const WORDS: Readonly<Record<string, Key>> = {
   'bank.space_not_found': 'accountNotFound',
   'bank.space_locked': 'accountLocked',
   'bank.space_archived': 'accountLocked',
+  'bank.space_change_invalid': 'spaceChangeInvalid',
+  'bank.space_unlock_rule_unset': 'unlockRuleUnset',
+  'bank.space_not_locked': 'spaceNotLocked',
   'bank.recipient_cannot_receive': 'cannotReceive',
   'bank.dest_user_missing': 'cannotReceive',
   'bank.recipient_check_unavailable': 'receiveCheckDown',

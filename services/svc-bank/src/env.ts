@@ -413,6 +413,13 @@ const schema = serviceEnvSchema
       BANK_SPACE_LIMIT: z.string().optional(),
 
       /**
+       * Owner-set hours an early pot unlock waits before the pot opens (BK-pots-02), 0 to 8760. NO DEFAULT. Blank / unset /
+       * not a whole number → asking to unlock a pot before its lock date refuses `bank.space_unlock_rule_unset` and the pot
+       * stays locked to its date. Boot stays up; the ask is the refuse.
+       */
+      BANK_SPACE_UNLOCK_WAIT_HOURS: z.string().optional(),
+
+      /**
        * Owner-published rules for the purpose, source of funds and reference of a global send, as JSON: `{ reference:
        * [{ deliveryMethod, country?, maxLength }], purposeRequired: ["INR", ...], sourceOfFunds: [{ asset, threshold }] }`.
        * No default. Blank / unset / not in shape → `bank.send_field_rules_unset`; a reference with no rule for its rail →

@@ -28,6 +28,8 @@ const space = (id: string, userId: string, name: string, assetId = 'USDT'): Spac
   name,
   goalTarget: null,
   lockedUntil: null,
+  unlockRequestedAt: null,
+  unlocksAt: null,
   archivedAt: null,
 });
 

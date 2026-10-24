@@ -31,6 +31,11 @@
       "value": "5",
       "note": "TEST number of live named spaces per account, small so a journey can reach the limit."
     },
+    "BANK_SPACE_UNLOCK_WAIT_HOURS": {
+      "service": "bank",
+      "value": "24",
+      "note": "TEST hours an early unlock of a locked space waits before it opens (J-bank-07 #2); not an owner decision."
+    },
     "BANK_ACCOUNT_DETAILS_CURRENCIES": {
       "service": "bank",
       "value": "EUR,GBP,USD",

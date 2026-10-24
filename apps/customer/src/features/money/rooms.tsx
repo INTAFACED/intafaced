@@ -27,6 +27,7 @@ import {
   type ActionSpec,
 } from './components';
 import { AutoInvestRules } from './repeat-buy';
+import { EarlyUnlock, SpaceLockActions } from './SpaceLock';
 import { bankReads, bankWrites, type poolSchema, type positionSchema } from './contracts';
 import type { ApiResult } from '../../shared/api';
 import { earnCopy } from './earn-copy';
@@ -147,6 +148,7 @@ function SpaceActions({ space, open }: { space: Space; open: (spec: ActionSpec) 
       <a className="button button--secondary" href={`/bank/transfers?from=${encodeURIComponent(space.id)}`}>
         <Text k="rooms.transfer" />
       </a>
+      <SpaceLockActions space={space} open={open} />
       {space.kind === 'named' && (
         <Button
           variant="ghost"
@@ -275,6 +277,7 @@ function Spaces({ open, search }: { open: (spec: ActionSpec) => void; search: st
                             </dt>
                             <dd>{date(space.lockedUntil)}</dd>
                           </div>
+                          <EarlyUnlock space={space} />
                           <div>
                             <dt>
                               <Text k="rooms.space.reference" />

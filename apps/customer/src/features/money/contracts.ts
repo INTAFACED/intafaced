@@ -752,10 +752,22 @@ export const bankReads = {
   'business.resolveRecipientSpace': recipientSpaceSchema,
 } as const;
 export type BankRead = keyof typeof bankReads;
+/** A space's goal and lock after its owner changed one (BK-pots-02). `unlocksAt` is an early unlock still waiting. */
+export const spaceLockStateSchema = z.object({
+  id: z.string(),
+  goalTarget: money.nullable(),
+  lockedUntil: z.string().datetime({ offset: true }).nullable(),
+  unlocksAt: z.string().datetime({ offset: true }).nullable(),
+  unlockRequestedAt: z.string().datetime({ offset: true }).nullable(),
+});
 export const bankWrites = {
   'spaces.create': z.object({ id: z.string(), name: z.string() }),
   'ramps.destinations.rename': destinationSchema,
   'spaces.archive': z.object({ archived: z.literal(true) }),
+  'spaces.setGoal': spaceLockStateSchema,
+  'spaces.setLock': spaceLockStateSchema,
+  'spaces.requestUnlock': spaceLockStateSchema,
+  'spaces.cancelUnlock': spaceLockStateSchema,
   'transfers.create': z.object({ ledgerTxId: z.string(), amount: money }),
   // A personal send echoes the note and reference it stored, so the review can be checked against them.
   'transfers.toUser': z.object({ ledgerTxId: z.string(), amount: money, note: z.string().nullable(), reference: z.string().nullable() }),
