@@ -671,7 +671,9 @@ test(`${J} #5 uses instant-access savings: the bank's rate, TEST 10 saved, three
   await expect(card.getByTestId('instant-savings-earned')).toHaveAttribute('data-amount', history.data.total);
 });
 
-test(`${J} #6 shares a pot: invites by handle, an invite that expires, a contributor who adds money, a viewer refused bank.space_forbidden, and a log that names who did what`, async ({
+// Step 6's first part. It carries no step number until the card-freeze line of the pot's log (the step's last clause)
+// is built, so the journey does not count step 6 as passed before it is whole.
+test(`${J} step 6 (part 1) shares a pot: invites by handle, an invite that expires, a contributor who adds money, a viewer refused bank.space_forbidden, and a log that names who did what`, async ({
   page,
 }) => {
   test.setTimeout(480_000);

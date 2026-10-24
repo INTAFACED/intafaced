@@ -120,10 +120,35 @@ describe('reading a refusal that has come back', () => {
       'cards.setLimits',
       'cards.setStatus',
       'ramps.destinations.rename',
+      'sharedPots.accept',
+      'sharedPots.decline',
+      'sharedPots.invite',
+      'sharedPots.leave',
+      'sharedPots.remove',
       'transfers.create',
       'transfers.toUser',
       'transfers.updateSchedule',
     ]);
+  });
+  it('reads a shared pot refusal as changing nothing, and a viewer’s refused transfer as sending nothing', () => {
+    for (const code of [
+      'bank.joint_unset',
+      'bank.invite_expired',
+      'bank.invite_not_found',
+      'bank.invitee_not_found',
+      'bank.shared_pot_full',
+      'bank.shared_pot_invalid',
+    ]) {
+      const settled = settleRefusal({ ok: false, reason: 'error', status: 409, code, message: code }, 'sharedPots.accept');
+      expect(settled.refusedFirst, code).toBe(true);
+      expect(settled.outcome).toMatchObject({ reason: 'error', message: expect.stringMatching(/Nothing was (changed|sent)\.$/) });
+    }
+    const viewer = settleRefusal(
+      { ok: false, reason: 'error', status: 403, code: 'bank.space_forbidden', message: 'bank.space_forbidden' },
+      'transfers.create',
+    );
+    expect(viewer.refusedFirst).toBe(true);
+    expect(viewer.outcome).toMatchObject({ reason: 'error', message: expect.stringContaining('Nothing was sent.') });
   });
   it('reads a standing-order edit refusal as changing nothing, a stale revision included', () => {
     for (const code of [
