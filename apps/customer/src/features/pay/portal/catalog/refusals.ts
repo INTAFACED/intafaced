@@ -25,4 +25,7 @@ registerRefusals({
   'pay.price_customer_chosen_one_time': () => catalogCopy.t('rPriceChosenOneTime'),
   'pay.price_amount_below_minimum': () => catalogCopy.t('rPriceBelowMinimum'),
   'pay.price_amount_above_maximum': () => catalogCopy.t('rPriceAboveMaximum'),
+  'pay.product_has_prices': () => catalogCopy.t('rHasPrices'),
+  'pay.product_deleted': () => catalogCopy.t('rProductDeleted'),
+  'pay.subscription_price_terms_differ': () => catalogCopy.t('rSubscriptionPriceTerms'),
 });

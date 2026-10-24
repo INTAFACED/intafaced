@@ -13,7 +13,7 @@ import { DetailHeader } from '../ui/DetailHeader';
 import { EntityList } from '../ui/EntityList';
 import { Freshness } from '../ui/Freshness';
 import { useServerList } from '../ui/useServerList';
-import { useReadAt } from '../hooks';
+import { useReadAt, useUrlParam } from '../hooks';
 import { useBodyRequestId } from '../payments/invoice-model';
 import { useMayAddProducts } from './access';
 import { ProductPrices } from './Prices';
@@ -22,7 +22,7 @@ import { blankProduct, checkImage, draftProblem, imageRequestId, productBody, si
 
 const productHref = (id: string) => `/pay/products/${encodeURIComponent(id)}`;
 
-/** `/pay/products`, `/pay/products/new` and `/pay/products/:productId` (J-merchant-03 steps 1 and 2). */
+/** `/pay/products`, `/pay/products/new` and `/pay/products/:productId` (J-merchant-03 steps 1, 2 and 4). */
 export function Products({ portal, route }: { portal: PortalApi; route: { room: string; param?: string } }) {
   if (route.room === 'product-new') return <ProductCreate portal={portal} />;
   if (route.room === 'product' && route.param) return <ProductDetail portal={portal} productId={route.param} />;
@@ -35,25 +35,42 @@ const addButton = (label: string) => (
   </Button>
 );
 
+/**
+ * The catalogue, active products first. An archived product is listed only under Show › Archived products; an empty
+ * active list says whether archived products exist, so "No products yet" is said only of a catalogue that has none.
+ */
 export function ProductList({ portal }: { portal: PortalApi }) {
   const { t } = c.useCopy();
   const may = useMayAddProducts();
+  const [shown, setShown] = useUrlParam('status', 'active');
+  const status = shown === 'archived' ? 'archived' : 'active';
   const list = useServerList(
     (f, cursor, signal) => portal.products(f.status, cursor, signal),
-    { status: '' },
+    { status },
     (p: MerchantProduct) => p.id,
   );
   const readAt = useReadAt(list.state.status === 'ready', list.state);
   return (
     <div className="stack">
       <Freshness asOf={readAt} />
+      <SelectField
+        label={t('showLabel')}
+        value={status}
+        onChange={setShown}
+        options={[
+          ['active', t('show_active')],
+          ['archived', t('show_archived')],
+        ]}
+      />
       {list.state.status === 'loading' && <PortalLoading />}
       {list.state.status === 'failed' && <PortalFailure result={list.state.failure} retry={() => list.reload()} />}
       {list.state.status === 'ready' &&
         (list.state.items.length === 0 && !list.state.hasMore ? (
-          <EmptyState title={t('emptyTitle')} action={may.allowed ? addButton(t('add')) : undefined}>
-            {t(may.allowed ? 'emptyBody' : may.unverified ? 'emptyBodyUnverified' : 'emptyBodyReadOnly')}
-          </EmptyState>
+          status === 'archived' ? (
+            <EmptyState title={t('emptyArchivedTitle')}>{t('emptyArchivedBody')}</EmptyState>
+          ) : (
+            <EmptyActive portal={portal} add={may.allowed ? addButton(t('add')) : undefined} />
+          )
         ) : (
           <>
             {may.allowed && <div className="pp-actions">{addButton(t('add'))}</div>}
@@ -75,6 +92,26 @@ export function ProductList({ portal }: { portal: PortalApi }) {
           </>
         ))}
     </div>
+  );
+}
+
+/** An empty active list: "No products yet" only when nothing is archived either. */
+function EmptyActive({ portal, add }: { portal: PortalApi; add: ReturnType<typeof addButton> | undefined }) {
+  const { t } = c.useCopy();
+  const may = useMayAddProducts();
+  const { resource, reload } = useResource((signal) => portal.products('archived', undefined, signal), 'portal:catalog:archived-probe');
+  if (resource.status === 'loading') return <PortalLoading />;
+  if (resource.status === 'failed') return <PortalFailure result={resource.failure} retry={reload} />;
+  if (resource.data.items.length > 0)
+    return (
+      <EmptyState title={t('emptyActiveTitle')} action={add}>
+        {t('emptyActiveBody')}
+      </EmptyState>
+    );
+  return (
+    <EmptyState title={t('emptyTitle')} action={add}>
+      {t(may.allowed ? 'emptyBody' : may.unverified ? 'emptyBodyUnverified' : 'emptyBodyReadOnly')}
+    </EmptyState>
   );
 }
 
@@ -329,11 +366,27 @@ function ProductImage({ portal, imageId, name }: { portal: PortalApi; imageId: s
 export function ProductDetail({ portal, productId }: { portal: PortalApi; productId: string }) {
   const { t } = c.useCopy();
   const { resource, reload } = useResource((signal) => portal.product(productId, signal), `portal:catalog:product:${productId}`);
+  const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
   return (
     <Gate resource={resource} retry={reload} rows={4}>
       {(product) => (
         <div className="stack">
           <DetailHeader back={{ href: '/pay/products', label: t('back') }} title={product.name} status={t(`status_${product.status}`)} />
+          {product.status === 'archived' && <p className="pp-callout">{t('archivedNotice')}</p>}
+          <ProductActions
+            portal={portal}
+            product={product}
+            onDone={(text) => {
+              setNote({ ok: true, text });
+              reload();
+            }}
+            onRefused={(text) => setNote({ ok: false, text })}
+          />
+          {note && (
+            <p className={note.ok ? 'pp-confirmed' : 'pp-callout'} role={note.ok ? 'status' : 'alert'}>
+              {note.text}
+            </p>
+          )}
           <Facts
             items={[
               [t('factName'), product.name],
@@ -360,5 +413,80 @@ export function ProductDetail({ portal, productId }: { portal: PortalApi; produc
         </div>
       )}
     </Gate>
+  );
+}
+
+/**
+ * Archive, unarchive or delete a product (M-adv-payments-core-20). Archiving is undone by Unarchive. Deleting asks once
+ * more, and the service refuses it for a product that has any price (`pay.product_has_prices`), so a product a
+ * subscription or a document names is archived instead.
+ */
+function ProductActions({
+  portal,
+  product,
+  onDone,
+  onRefused,
+}: {
+  portal: PortalApi;
+  product: MerchantProduct;
+  onDone: (text: string) => void;
+  onRefused: (text: string) => void;
+}) {
+  const { t } = c.useCopy();
+  const may = useMayAddProducts();
+  const [busy, setBusy] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  if (!may.allowed) return null;
+
+  async function act(run: () => Promise<{ ok: true } | { ok: false; message: string }>, done: () => void) {
+    setBusy(true);
+    try {
+      const result = await run();
+      if (result.ok) done();
+      else onRefused(result.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  const archived = product.status === 'archived';
+  return (
+    <div className="pp-actions">
+      <Button
+        variant="secondary"
+        disabled={busy}
+        onClick={() =>
+          void act(
+            () => (archived ? portal.unarchiveProduct(product.id) : portal.archiveProduct(product.id)),
+            () => onDone(t(archived ? 'unarchivedDone' : 'archivedDone')),
+          )
+        }
+      >
+        {t(archived ? 'unarchive' : 'archive')}
+      </Button>
+      {confirming ? (
+        <div className="pp-actions" role="group" aria-label={t('deleteProduct')}>
+          <span>{t('deleteConfirm')}</span>
+          <Button
+            variant="sell"
+            disabled={busy}
+            onClick={() =>
+              void act(
+                () => portal.deleteProduct(product.id),
+                () => navigate('/pay/products'),
+              ).finally(() => setConfirming(false))
+            }
+          >
+            {t('deleteProduct')}
+          </Button>
+          <Button variant="secondary" disabled={busy} onClick={() => setConfirming(false)}>
+            {t('deleteKeep')}
+          </Button>
+        </div>
+      ) : (
+        <Button variant="secondary" disabled={busy} onClick={() => setConfirming(true)}>
+          {t('deleteProduct')}
+        </Button>
+      )}
+    </div>
   );
 }

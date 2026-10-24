@@ -524,6 +524,8 @@ export const subscriptionSchema = z.object({
   resumedAt: z.string().nullable(),
   stalledAt: z.string().nullable(),
   stallReason: z.enum(['operator_pause', 'runner_outage', 'arrears', 'fee_unpublished', 'window_exhausted', 'due_pass_fault']).nullable(),
+  /** The catalogue price it was started on; absent or null when it was started from a mandate alone. */
+  priceId: id.nullish(),
 });
 export const executionSchema = z.object({
   id,

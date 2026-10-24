@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Button } from '@intafaced/ui';
-import type { MerchantPrice, MerchantProduct, PriceCreateInput } from '@intafaced/contracts/merchant-catalog';
+import type { MerchantPrice, MerchantProduct, PriceCreateInput, PriceReplaceInput } from '@intafaced/contracts/merchant-catalog';
+import { useResource } from '../../../../shared/resource';
 import { Field } from '../../ui-kit';
 import { PaySection } from '../../components';
 import type { PortalApi } from '../api';
@@ -13,13 +14,13 @@ import { useServerList } from '../ui/useServerList';
 import { useBodyRequestId } from '../payments/invoice-model';
 import { refusalText } from '../refusal';
 import { catalogCopy as c } from './copy';
-import { blankPrice, priceBody, priceProblem, type PriceDraft } from './model';
+import { blankPrice, draftOf, priceBody, priceProblem, type PriceDraft } from './model';
 import { useMayAddProducts } from './access';
 
 /**
- * A product's prices (J-merchant-03 step 3, M-catalogue-02): the list with its default, Add price, Set as default, and a
- * check of an amount a customer would enter on a customer-chosen price. Writing needs the role and a verified business,
- * as adding a product does; everyone on the team reads.
+ * A product's prices (J-merchant-03 steps 3 and 4, M-catalogue-02, M-adv-payments-core-20): the list with its default,
+ * Add price, Set as default, Replace price, and a check of an amount a customer would enter on a customer-chosen price.
+ * Writing needs the role and a verified business, as adding a product does; everyone on the team reads.
  */
 export function ProductPrices({ portal, product }: { portal: PortalApi; product: MerchantProduct }) {
   const { t } = c.useCopy();
@@ -31,6 +32,7 @@ export function ProductPrices({ portal, product }: { portal: PortalApi; product:
     (p: MerchantPrice) => p.id,
   );
   const [adding, setAdding] = useState(false);
+  const [replacing, setReplacing] = useState<MerchantPrice | null>(null);
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
   const [moving, setMoving] = useState<string | null>(null);
 
@@ -53,7 +55,7 @@ export function ProductPrices({ portal, product }: { portal: PortalApi; product:
   return (
     <PaySection title={t('pricesTitle')} description={t('pricesPurpose')}>
       <div className="stack">
-        {writable && !adding && (
+        {writable && !adding && !replacing && (
           <div className="pp-actions">
             <Button variant="primary" onClick={() => setAdding(true)}>
               {t('addPrice')}
@@ -68,6 +70,20 @@ export function ProductPrices({ portal, product }: { portal: PortalApi; product:
             onSaved={() => {
               setAdding(false);
               setNote({ ok: true, text: t('priceAdded') });
+              list.reload();
+            }}
+          />
+        )}
+        {replacing && (
+          <PriceForm
+            key={replacing.id}
+            portal={portal}
+            productId={product.id}
+            replacing={replacing}
+            onCancel={() => setReplacing(null)}
+            onSaved={() => {
+              setReplacing(null);
+              setNote({ ok: true, text: t('replacedDone') });
               list.reload();
             }}
           />
@@ -106,6 +122,24 @@ export function ProductPrices({ portal, product }: { portal: PortalApi; product:
                   },
                   { header: t('colStatus'), cell: (row) => t(`status_${row.status}`) },
                   { header: t('colAdded'), cell: (row) => <DateTime value={row.createdAt} /> },
+                  {
+                    header: t('colChange'),
+                    cell: (row) =>
+                      writable && row.status === 'active' ? (
+                        <Button
+                          variant="secondary"
+                          disabled={adding || replacing !== null}
+                          onClick={() => {
+                            setNote(null);
+                            setReplacing(row);
+                          }}
+                        >
+                          {t('replacePrice')}
+                        </Button>
+                      ) : (
+                        <span className="muted">—</span>
+                      ),
+                  },
                 ]}
                 card={(row) => ({
                   title: <PriceText price={row} />,
@@ -138,27 +172,47 @@ function PriceText({ price }: { price: MerchantPrice }) {
 
 const moneyWords = (value: string, asset: string) => `${formatMoney(value, asset, { exact: true })} ${asset}`;
 
+/** A price in words, for a heading or a picker: "5.00 USDC" or the customer-chosen range. */
+export function priceWords(price: MerchantPrice): string {
+  if (price.kind === 'fixed' && price.amount) return moneyWords(price.amount, price.assetId);
+  return c.t('priceChosenRange', {
+    min: moneyWords(price.minAmount ?? '', price.assetId),
+    max: moneyWords(price.maxAmount ?? '', price.assetId),
+  });
+}
+
+/**
+ * Add a price, or replace one (`replacing`): the same details, starting from the old price's, saved as a new price that
+ * archives the old one in one step. Before a replacement is saved, the form says what uses the old price, and that it
+ * stays on it.
+ */
 function PriceForm({
   portal,
   productId,
+  replacing,
   onCancel,
   onSaved,
 }: {
   portal: PortalApi;
   productId: string;
+  replacing?: MerchantPrice;
   onCancel: () => void;
   onSaved: () => void;
 }) {
   const { t } = c.useCopy();
-  const [draft, setDraft] = useState<PriceDraft>(blankPrice);
+  const [draft, setDraft] = useState<PriceDraft>(() => (replacing ? draftOf(replacing) : blankPrice));
   const [busy, setBusy] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
   const [shown, setShown] = useState(false);
   const set = <K extends keyof PriceDraft>(key: K, value: PriceDraft[K]) => setDraft((d) => ({ ...d, [key]: value }));
   const body = priceBody(draft, productId);
   // One request id per body, as for a product: a retry after a lost answer is the same price, any change a new one.
-  const request = useBodyRequestId(`catalog:price-new:${productId}`, body);
+  const request = useBodyRequestId(replacing ? `catalog:price-replace:${replacing.id}` : `catalog:price-new:${productId}`, body);
   const problem = priceProblem(draft);
+  const usage = useResource(
+    (signal) => (replacing ? portal.priceUsage(replacing.id, signal) : Promise.resolve({ ok: true as const, data: null })),
+    `portal:catalog:price-usage:${replacing?.id ?? 'none'}`,
+  );
 
   async function save() {
     setShown(true);
@@ -167,7 +221,9 @@ function PriceForm({
     setRefused(null);
     try {
       request.sent();
-      const result = await portal.createPrice({ ...body, requestId: request.id } as PriceCreateInput);
+      const result = replacing
+        ? await portal.replacePrice({ ...body, requestId: request.id, priceId: replacing.id } as PriceReplaceInput)
+        : await portal.createPrice({ ...body, requestId: request.id } as PriceCreateInput);
       if (result.ok) {
         request.renew();
         onSaved();
@@ -179,7 +235,28 @@ function PriceForm({
 
   const error = (key: NonNullable<ReturnType<typeof priceProblem>>) => (shown && problem === key ? t(key) : undefined);
   return (
-    <div className="form-stack pp-form" role="group" aria-label={t('addPrice')}>
+    <div
+      className="form-stack pp-form"
+      role="group"
+      aria-label={replacing ? t('replaceTitle', { price: priceWords(replacing) }) : t('addPrice')}
+    >
+      {replacing && (
+        <>
+          <h3>{t('replaceTitle', { price: priceWords(replacing) })}</h3>
+          <p className="muted">{t('replacePurpose')}</p>
+          {usage.resource.status === 'loading' && <PortalLoading />}
+          {usage.resource.status === 'failed' && <PortalFailure result={usage.resource.failure} retry={usage.reload} />}
+          {usage.resource.status === 'ready' && usage.resource.data && (
+            <p className="pp-callout" role="status">
+              {usage.resource.data.openSubscriptions === 0
+                ? t('replaceUsageNone')
+                : usage.resource.data.openSubscriptions === 1
+                  ? t('replaceUsageOne')
+                  : t('replaceUsageMany', { count: String(usage.resource.data.openSubscriptions) })}
+            </p>
+          )}
+        </>
+      )}
       <SelectField
         label={t('billing')}
         value={draft.billing}
@@ -245,8 +322,13 @@ function PriceForm({
         </p>
       )}
       <div className="pp-actions">
-        <Button variant="primary" disabled={busy} onClick={() => void save()}>
-          {busy ? t('saving') : t('savePrice')}
+        <Button
+          variant="primary"
+          // A replacement is saved only once it has said what uses the old price.
+          disabled={busy || (replacing !== undefined && usage.resource.status !== 'ready')}
+          onClick={() => void save()}
+        >
+          {busy ? t('saving') : t(replacing ? 'saveReplacement' : 'savePrice')}
         </Button>
         <Button variant="secondary" disabled={busy} onClick={onCancel}>
           {t('cancel')}

@@ -71,6 +71,7 @@ function subRecord(overrides: Record<string, unknown> = {}) {
     resumedAt: null,
     stalledAt: null,
     stallReason: null,
+    priceId: null,
     ...overrides,
   };
 }

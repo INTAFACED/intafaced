@@ -196,6 +196,7 @@ export function createWritesMock(ctx) {
             resumedAt: null,
             stalledAt: null,
             stallReason: null,
+            priceId: input.priceId ?? null,
           };
           world.subscriptions.unshift(row);
           if (input.idempotencyKey) replays.set(`sub:${input.idempotencyKey}`, row);

@@ -113,6 +113,23 @@ export interface PriceDraft {
 
 export const blankPrice: PriceDraft = { billing: 'one_time', kind: 'fixed', amount: '', minAmount: '', maxAmount: '', assetId: '' };
 
+/** A price's own details as a draft, the starting point of Replace price. */
+export const draftOf = (price: {
+  billing: PriceDraft['billing'];
+  kind: PriceDraft['kind'];
+  amount: string | null;
+  minAmount: string | null;
+  maxAmount: string | null;
+  assetId: string;
+}): PriceDraft => ({
+  billing: price.billing,
+  kind: price.kind,
+  amount: price.amount ?? '',
+  minAmount: price.minAmount ?? '',
+  maxAmount: price.maxAmount ?? '',
+  assetId: price.assetId,
+});
+
 const positiveAmount = (raw: string) => priceAmountSchema.safeParse(raw).success && parseAmount(raw.trim()) > 0n;
 
 /** The first thing the form would refuse, checked before anything is sent; the service checks again. */

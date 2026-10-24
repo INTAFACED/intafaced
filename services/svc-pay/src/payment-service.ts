@@ -507,7 +507,15 @@ export type PayErrorCode =
    * The mandate already has a subscription that is not cancelled and not
    * completed. Paused still counts: the schedule exists.
    */
-  | 'pay.subscription_mandate_open';
+  | 'pay.subscription_mandate_open'
+  /** A subscription started from a catalogue price: no such price of this business. */
+  | 'pay.price_not_found'
+  /** That price is archived (or replaced), so nothing new starts on it. */
+  | 'pay.price_archived'
+  /** That price's product is archived, so nothing new starts on it. */
+  | 'pay.product_archived'
+  /** The mandate's asset, amount or cadence is not the price's: a monthly fixed price equal to the mandate's terms. */
+  | 'pay.subscription_price_terms_differ';
 
 /** Owner link default lifetime unpublished. Blank PAY_LINK_DEFAULT_TTL_DAYS is not 30. */
 export function publishedLinkDefaultTtlDays(days: number | null | undefined): number {
