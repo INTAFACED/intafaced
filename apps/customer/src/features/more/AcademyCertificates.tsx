@@ -6,7 +6,10 @@ import { usePreferences } from '../../shared/preferences';
 import { useApi, useSession } from '../session/session';
 import { Details, Read } from './common';
 import { academyLmsCopy as copy } from './academy-lms-copy';
+import { z } from 'zod';
 import {
+  academyVerifyHref,
+  certPathRow,
   certificateCards,
   certificateDocument,
   certificateLessons,
@@ -15,13 +18,14 @@ import {
   issueWait,
   lessonHrefFor,
   parseVerifyCode,
+  type CertPathRow,
   type CertificateCard,
   type LessonSummary,
   type Tracking,
 } from './academy-lms';
-import { verifyCertificate, type VerifiedCertificate } from './academy-flows';
+import { academyCodeOf, verifyCertificate, type VerifiedCertificate } from './academy-flows';
 import { useAcademyTracking } from './academy-tracking';
-import { AcademyRefusal, CertificateChip, GuardedButton, ProgressBar, StatusChip } from './AcademyLmsParts';
+import { AcademyRefusal, CertificateChip, GuardedButton, ProgressBar, StatusChip, pathLabel } from './AcademyLmsParts';
 
 const param = (name: string) => (typeof window === 'undefined' ? '' : (new URLSearchParams(window.location.search).get(name) ?? ''));
 
@@ -63,30 +67,69 @@ function Shelf({
   const earned = cards.filter((c) => c.state === 'earned');
   const [viewId, setViewId] = useState(param('view') || earned[0]?.definition.id || '');
   const view = cards.find((c) => c.definition.id === viewId);
-  if (cards.length === 0)
-    return (
-      <Panel title={t('shelfTitle')}>
-        <p>
-          <Copy k="shelfEmpty" />
-        </p>
-      </Panel>
-    );
   return (
     <div className="academy-lms-stack">
       <Panel title={t('shelfTitle')}>
-        <div className="academy-lms-stack">
+        <section className="academy-lms-stack" data-certificates="courses" aria-labelledby="academy-course-certificates">
+          <h3 id="academy-course-certificates">{t('coursesTitle')}</h3>
           <p role="status">
-            <Copy k="shelfSummary" params={{ earned: earned.length, total: cards.length }} />
+            {cards.length === 0 ? (
+              <Copy k="shelfEmpty" />
+            ) : (
+              <Copy k="shelfSummary" params={{ earned: earned.length, total: cards.length }} />
+            )}
           </p>
           <div className="academy-lms-grid">
             {cards.map((card) => (
               <CertificateCardView key={card.definition.id} card={card} lessons={lessons} onView={() => setViewId(card.definition.id)} />
             ))}
+            <UnpublishedPaths />
           </div>
-        </div>
+        </section>
+        <section className="academy-lms-stack" data-certificates="programmes" aria-labelledby="academy-programme-certificates">
+          <h3 id="academy-programme-certificates">{t('programmeCertsTitle')}</h3>
+          <p className="muted">
+            <Copy k="programmesNone" />
+          </p>
+        </section>
       </Panel>
       {view && <CertificateSheet card={view} lessons={lessons} onCheckCode={onCheckCode} />}
     </div>
+  );
+}
+
+/**
+ * Every learning path with no published certificate design, as Academy lists it with its typed refusal. A failed read
+ * shows the refusal it got, never "unpublished".
+ */
+function UnpublishedPaths() {
+  const api = useApi();
+  const answer = useResource((signal) => api.query('academy', 'certPaths', undefined, z.array(certPathRow), { signal }), 'cert-paths');
+  if (answer.resource.status === 'loading') return <Loading />;
+  if (answer.resource.status === 'failed') return <AcademyRefusal failure={answer.resource.failure} retry={answer.reload} />;
+  return (
+    <>
+      {answer.resource.data
+        .filter((row) => row.refusal !== null)
+        .map((row) => (
+          <UnpublishedPathCard key={row.path} row={row} />
+        ))}
+    </>
+  );
+}
+
+function UnpublishedPathCard({ row }: { row: CertPathRow }) {
+  const { t } = copy.useCopy();
+  return (
+    <article className="academy-lms-card" data-certificate-path={row.path} data-state="unpublished">
+      <h4>{pathLabel(t, row.path)}</h4>
+      <div className="academy-lms-meta">
+        <span className="academy-lms-chip" data-status="unpublished">
+          {t('stateUnpublished')}
+        </span>
+      </div>
+      <p data-code={row.refusal ?? undefined}>{t('pathUnpublished')}</p>
+    </article>
   );
 }
 
@@ -98,7 +141,7 @@ function CertificateCardView({ card, lessons, onView }: { card: CertificateCard;
   const missingLesson = lessons.find((l) => l.slug === missing);
   return (
     <article className="academy-lms-card" data-certificate={card.definition.id} data-state={card.state}>
-      <h3 lang="und">{card.definition.title}</h3>
+      <h4 lang="und">{card.definition.title}</h4>
       <div className="academy-lms-meta">
         <CertificateChip state={card.state} />
       </div>
@@ -194,7 +237,7 @@ function CertificateSheet({
     );
   return (
     <Panel title={t('sheetPanel')}>
-      <div className="academy-lms-stack">
+      <div className="academy-lms-stack" data-certificate-sheet={doc.certId}>
         <article className="academy-cert-sheet" aria-label={t('sheetLabel', { title: doc.title })}>
           <small className="muted">
             <Copy k="sheetIssuer" />
@@ -209,25 +252,23 @@ function CertificateSheet({
           </p>
           {doc.code && (
             <>
-              <small>
-                <Copy k="sheetCode" />: <code lang="zxx">{doc.code}</code>
-              </small>
+              <p data-testid="certificate-serial">
+                {t('sheetSerial')} <code lang="zxx">{doc.code}</code>
+              </p>
               <small className="muted">
                 <Copy k="sheetVerifyHint" />
               </small>
             </>
           )}
         </article>
-        <div className="academy-learning-actions">
-          <Button onClick={() => window.print()}>
-            <Copy k="printCertificate" />
-          </Button>
-          {doc.code && (
+        <ShareCertificate key={doc.code ?? doc.certId} code={doc.code} />
+        {doc.code && (
+          <div className="academy-learning-actions">
             <Button variant="secondary" onClick={() => onCheckCode(doc.code!)}>
               <Copy k="useCode" />
             </Button>
-          )}
-        </div>
+          </div>
+        )}
         {/* Outside the printed sheet on purpose: the account id and the grant reference are private record keys. */}
         <details className="muted">
           <summary>
@@ -243,6 +284,74 @@ function CertificateSheet({
       </div>
     </Panel>
   );
+}
+
+/**
+ * Share a certificate. No share targets are set by the owner, so the ways offered are the certificate's public link and
+ * print; no partner is named. Copying says whether it worked, and shows the link when the browser refused.
+ */
+function ShareCertificate({ code }: { code: string | null }) {
+  const { t } = copy.useCopy();
+  const [copied, setCopied] = useState<'idle' | 'copied' | 'refused'>('idle');
+  const link = code ? `${window.location.origin}${academyVerifyHref(code)}` : null;
+  return (
+    <div className="academy-lms-stack" data-testid="certificate-share">
+      <p className="muted">{t('shareTargetsNone')}</p>
+      <div className="academy-learning-actions">
+        {link && (
+          <Button
+            variant="secondary"
+            onClick={() => {
+              if (!navigator.clipboard) return setCopied('refused');
+              void navigator.clipboard.writeText(link).then(
+                () => setCopied('copied'),
+                () => setCopied('refused'),
+              );
+            }}
+          >
+            {t('copyLink')}
+          </Button>
+        )}
+        <Button onClick={() => window.print()}>{t('printShort')}</Button>
+      </div>
+      {copied !== 'idle' && link && <p role="status">{copied === 'copied' ? t('linkCopied') : t('copyRefused', { link })}</p>}
+    </div>
+  );
+}
+
+/**
+ * `/academy/certificates/verify/<code>`: the page a shared certificate link opens, signed in or not. It shows exactly what
+ * Academy's public check answers for the code (valid or revoked, with the issue date) or its typed refusal.
+ */
+export function CertificateVerifyPage({ code }: { code: string | undefined }) {
+  const { t } = copy.useCopy();
+  const parsed = parseVerifyCode(code ?? '');
+  return (
+    <Panel title={t('verifyPageTitle')}>
+      <div className="academy-lms-stack" data-certificate-verify={parsed.kind === 'code' ? parsed.code : ''}>
+        <p className="muted">{t('verifyPageIntro')}</p>
+        {parsed.kind === 'code' ? (
+          <VerifyAnswer code={parsed.code} />
+        ) : (
+          <p role="status">{(code ?? '').trim() ? t('verifyFormat') : t('verifyPageNoCode')}</p>
+        )}
+      </div>
+    </Panel>
+  );
+}
+
+function VerifyAnswer({ code }: { code: string }) {
+  const api = useApi();
+  const { t } = copy.useCopy();
+  const answer = useResource((signal) => verifyCertificate(api, code, signal), `certificate-verify:${code}`);
+  if (answer.resource.status === 'loading') return <Loading label={t('verifyChecking')} />;
+  if (answer.resource.status === 'failed')
+    return (
+      <div data-code={academyCodeOf(answer.resource.failure) ?? undefined}>
+        <AcademyRefusal failure={answer.resource.failure} retry={answer.reload} />
+      </div>
+    );
+  return <VerifyResult code={code} certificate={answer.resource.data} />;
 }
 
 /** The holder as the public check shows it: the name only when the holder agreed to share it. Nothing is shown while that is unknown. */
@@ -277,10 +386,10 @@ export function VerifyResult({ code, certificate }: { code: string; certificate:
         items={[
           [t('verifyCertificate'), <span lang="und">{certificate.title}</span>],
           [t('verifyHolder'), certificate.holderName ? <span lang="und">{certificate.holderName}</span> : t('holderNotShared')],
-          [t('verifyIssued'), formatDay(certificate.grantedAt, language)],
+          [t('verifyIssued'), <span data-testid="verify-issued">{formatDay(certificate.grantedAt, language)}</span>],
           [
             t('verifyStatus'),
-            <span className="academy-lms-chip" data-status={revoked ? 'revoked' : 'recorded'}>
+            <span className="academy-lms-chip" data-status={revoked ? 'revoked' : 'recorded'} data-testid="verify-status">
               {revoked ? t('verifyRevoked') : t('verifyValid')}
             </span>,
           ],

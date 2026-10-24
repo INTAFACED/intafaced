@@ -2398,6 +2398,22 @@ export function createAcademyRouter(
         })),
       ),
 
+    /**
+     * AC-certificates-01: every learning path with its published certificate, or the refusal a path with no published
+     * certificate design gets (`academy.certificate_unpublished`), so the Certificates tab shows each path in full layout.
+     */
+    certPaths: scopedProcedure('academy:read', { module: 'academy' })
+      .output(
+        z.array(
+          z.object({
+            path: curriculumPath,
+            certId: z.string().nullable(),
+            refusal: z.literal('academy.certificate_unpublished').nullable(),
+          }),
+        ),
+      )
+      .query(() => academy.certPaths()),
+
     enrollCertPath: scopedProcedure('academy:write', { module: 'academy' })
       .input(z.object({ pathSlug: z.string().min(1).max(64) }))
       .output(enrollmentOut)

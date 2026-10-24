@@ -50,6 +50,13 @@ const graderLease = () => (process.env.LOCAL_STACK_ACADEMY_GRADER_LEASE === 'off
 // within the journey (J-academy-05 #1). `LOCAL_STACK_ACADEMY_CERT_SWEEP=off` leaves it blank.
 const certSweep = () => (process.env.LOCAL_STACK_ACADEMY_CERT_SWEEP === 'off' ? {} : { ACADEMY_CERT_ISSUE_SWEEP_SECONDS: '5' });
 
+// LOCAL TEST public certificate check rate (TEST owner values): 10 checks per address per 30 seconds, so the journey
+// sees a valid check and then the typed rate refusal (J-academy-05 #4). `LOCAL_STACK_ACADEMY_VERIFY_RATE=off` leaves it blank.
+const verifyRate = () =>
+  process.env.LOCAL_STACK_ACADEMY_VERIFY_RATE === 'off'
+    ? {}
+    : { ACADEMY_CERT_VERIFY_RATE_MAX: '10', ACADEMY_CERT_VERIFY_RATE_WINDOW_SECONDS: '30' };
+
 export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
   name: 'academy',
   env: () => ({
@@ -67,5 +74,6 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     ...topicsLimit(),
     ...graderLease(),
     ...certSweep(),
+    ...verifyRate(),
   }),
 });

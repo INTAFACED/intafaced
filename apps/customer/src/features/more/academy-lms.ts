@@ -31,8 +31,19 @@ export const lessonSummary = z.object({
 export type LessonSummary = z.infer<typeof lessonSummary>;
 export const lessonCatalogue = z.array(lessonSummary).max(200);
 
-export const certDefinition = z.object({ id: ref, title: ref, requiredItemSlugs: z.array(ref) });
+export const certDefinition = z.object({
+  id: ref,
+  title: ref,
+  requiredItemSlugs: z.array(ref),
+});
 export type CertDefinition = z.infer<typeof certDefinition>;
+/** One learning path with its published certificate, or Academy's refusal for a path with no published design. */
+export const certPathRow = z.object({
+  path: z.enum(academyPaths),
+  certId: ref.nullable(),
+  refusal: z.literal('academy.certificate_unpublished').nullable(),
+});
+export type CertPathRow = z.infer<typeof certPathRow>;
 export const certProgressRow = z.object({
   userId: z.string().guid(),
   certId: ref,
@@ -370,12 +381,15 @@ export type AcademyRoute =
   | { kind: 'progress' }
   | { kind: 'reader'; slug: string | undefined }
   | { kind: 'course'; slug: string | undefined }
-  | { kind: 'assignment'; slug: string | undefined; itemId: string | undefined };
+  | { kind: 'assignment'; slug: string | undefined; itemId: string | undefined }
+  | { kind: 'verify'; code: string | undefined };
 /** The public course page (AC-catalogue-03). Until courses are rows a course is one curriculum path. */
 export const academyCourseHref = (slug: string) => `/academy/learning/course/${encodeURIComponent(slug)}`;
 /** An assignment's page in a course staff made (AC-assignments-01). */
 export const academyAssignmentHref = (slug: string, itemId: string) =>
   `${academyCourseHref(slug)}/assignment/${encodeURIComponent(itemId)}`;
+/** The public check of one certificate (AC-certificates-01): the link a learner shares. Open to anyone, signed in or not. */
+export const academyVerifyHref = (code: string) => `/academy/certificates/verify/${encodeURIComponent(code)}`;
 /** Sign in from a course page and come back to its plain address: a private link's `#key=` never rides in a URL. */
 export const academyCourseSignInHref = (slug: string) => `/login?redirect=${encodeURIComponent(academyCourseHref(slug))}`;
 const decoded = (segment: string) => {
@@ -392,6 +406,7 @@ export function academyRoute(pathname: string): AcademyRoute {
   if (segment === 'learning' && part === 'course' && child === 'assignment')
     return { kind: 'assignment', slug: course ? decoded(course) : undefined, itemId: itemId ? decoded(itemId) : undefined };
   if (segment === 'learning' && part === 'course') return { kind: 'course', slug: course ? decoded(course) : undefined };
+  if (segment === 'certificates' && part === 'verify') return { kind: 'verify', code: course ? decoded(course) : undefined };
   const tab = academyTabs.find(([, slug]) => slug === segment);
   if (tab) return { kind: 'tab', tab: tab[0] };
   if (segment === 'progress') return { kind: 'progress' };
