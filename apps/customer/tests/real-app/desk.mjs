@@ -54,8 +54,10 @@ export async function openDesk(page, who, symbol = 'BTC/USDT') {
   // What the market list answered, named in the failure: a desk that never opens shows only "Couldn't load".
   const reads = [];
   const isList = (url) => new URL(url).pathname === '/api/v1/markets';
-  const answered = (res) => isList(res.url()) && reads.push(String(res.status()));
-  const failed = (req) => isList(req.url()) && reads.push(`failed (${req.failure()?.errorText ?? 'no answer'})`);
+  // Each read names the page it was made on: a read the sign-in's own page started and goto() cut off is not the desk's.
+  const on = () => new URL(page.url()).pathname;
+  const answered = (res) => isList(res.url()) && reads.push(`${on()} ${res.status()}`);
+  const failed = (req) => isList(req.url()) && reads.push(`${on()} failed (${req.failure()?.errorText ?? 'no answer'})`);
   page.on('response', answered);
   page.on('requestfailed', failed);
   try {

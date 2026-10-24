@@ -255,10 +255,13 @@ describe('poller: failures', () => {
   it('surfaces a refusal as soon as it arrives', async () => {
     const poller = createPoller({ visibility: visibility() });
     const fetcher: Fetcher<number> = async () => ({ ok: false, reason: 'forbidden', status: 403, code: 'trade.no_book' });
-    const source = poller.source('k', fetcher, { intervalMs: 10_000 });
+    const fetch = vi.fn(fetcher);
+    const source = poller.source('k', fetch, { intervalMs: 300_000 });
     const stop = source.subscribe(() => undefined);
     await vi.advanceTimersByTimeAsync(1);
     expect(source.getSnapshot()).toEqual({ status: 'refused', code: 'trade.no_book' });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetch).toHaveBeenCalledTimes(1); // a refusal is the answer: never retried early
     stop();
     poller.dispose();
   });
@@ -282,13 +285,13 @@ describe('poller: failures', () => {
     poller.dispose();
   });
 
-  it('retries a first read that failed soon, not a whole slow interval later, and backs off from there', async () => {
+  it('retries a failed first read soon, not a whole slow interval later, and backs off from there', async () => {
     const poller = createPoller({ visibility: visibility() });
     let fails = 3;
     const fetcher: Fetcher<number> = vi.fn(async (): Promise<Outcome<number>> =>
       fails-- > 0 ? { ok: false, reason: 'unreachable', status: 502 } : ok(9),
     );
-    const calls = () => (fetcher as unknown as { mock: { calls: unknown[] } }).mock.calls.length;
+    const calls = () => vi.mocked(fetcher).mock.calls.length;
     const source = poller.source('markets', fetcher, { intervalMs: 300_000 });
     const stop = source.subscribe(() => undefined);
     await vi.advanceTimersByTimeAsync(1);
@@ -310,19 +313,53 @@ describe('poller: failures', () => {
     poller.dispose();
   });
 
-  it('never retries a refusal early: a typed 4xx is the answer', async () => {
+  it('a rate limit (429) is never retried early: it waits the whole backoff', async () => {
     const poller = createPoller({ visibility: visibility() });
     const fetcher: Fetcher<number> = vi.fn(async (): Promise<Outcome<number>> => ({
       ok: false,
-      reason: 'forbidden',
-      status: 403,
-      code: 'trade.no_book',
+      reason: 'error',
+      status: 429,
+      code: 'edge.rate_limited',
     }));
-    const source = poller.source('k', fetcher, { intervalMs: 300_000 });
+    const source = poller.source('markets', fetcher, { intervalMs: 300_000 });
     const stop = source.subscribe(() => undefined);
-    await vi.advanceTimersByTimeAsync(60_000);
-    expect(source.getSnapshot()).toEqual({ status: 'refused', code: 'trade.no_book' });
-    expect((fetcher as unknown as { mock: { calls: unknown[] } }).mock.calls.length).toBe(1);
+    await vi.advanceTimersByTimeAsync(599_999);
+    expect(source.getSnapshot().status).toBe('error');
+    expect(vi.mocked(fetcher).mock.calls.length).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(vi.mocked(fetcher).mock.calls.length).toBe(2);
+    stop();
+    poller.dispose();
+  });
+
+  it('stops retrying early after three tries, then backs off as before', async () => {
+    const poller = createPoller({ visibility: visibility() });
+    const fetcher: Fetcher<number> = vi.fn(async (): Promise<Outcome<number>> => ({ ok: false, reason: 'unreachable', status: 503 }));
+    const source = poller.source('parked', fetcher, { intervalMs: 60_000 });
+    const stop = source.subscribe(() => undefined);
+    await vi.advanceTimersByTimeAsync(14_000); // reads at 0, 2, 6 and 14 s
+    expect(vi.mocked(fetcher).mock.calls.length).toBe(4);
+    await vi.advanceTimersByTimeAsync(14 * 60_000);
+    expect(vi.mocked(fetcher).mock.calls.length).toBe(5); // the fourth failure waits 8 intervals
+    stop();
+    poller.dispose();
+  });
+
+  it('a screen that went from stale to an error is retried early too', async () => {
+    const poller = createPoller({ visibility: visibility(), minStaleMs: 30_000, staleIntervals: 3 });
+    let good = true;
+    const fetcher: Fetcher<number> = vi.fn(async (): Promise<Outcome<number>> =>
+      good ? ok(5) : { ok: false, reason: 'unreachable', status: 502 },
+    );
+    const source = poller.source('markets', fetcher, { intervalMs: 300_000 });
+    const stop = source.subscribe(() => undefined);
+    await vi.advanceTimersByTimeAsync(1);
+    good = false;
+    await vi.advanceTimersByTimeAsync(960_000); // fails at about 300 and 900 s: past the 900 s stale limit
+    expect(source.getSnapshot().status).toBe('error');
+    good = true;
+    await vi.advanceTimersByTimeAsync(8_000);
+    expect(source.getSnapshot()).toMatchObject({ status: 'ready', data: 5 });
     stop();
     poller.dispose();
   });
