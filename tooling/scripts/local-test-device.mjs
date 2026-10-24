@@ -28,3 +28,20 @@ export function localTestDeviceState(hosts = ['127.0.0.1', 'localhost']) {
 export function localTestDeviceCookie({ secure = false } = {}) {
   return `ifc_dk=${LOCAL_TEST_DEVICE_KEY}; Path=/api/identity/trpc; HttpOnly; SameSite=Strict; Max-Age=86400${secure ? '; Secure' : ''}`;
 }
+
+/**
+ * The founder console's own device cookie (apps/admin), holding the same TEST key, as a Playwright cookie for `adminUrl`'s
+ * host. It is given by domain and path: Chromium refuses a Secure cookie given with an http URL, but sends it to http on
+ * 127.0.0.1 and localhost.
+ */
+export function localTestAdminDeviceCookie(adminUrl) {
+  return {
+    name: '__Host-intafaced-admin-device',
+    value: LOCAL_TEST_DEVICE_KEY,
+    domain: new URL(adminUrl).hostname,
+    path: '/',
+    httpOnly: true,
+    secure: true,
+    sameSite: 'Strict',
+  };
+}
