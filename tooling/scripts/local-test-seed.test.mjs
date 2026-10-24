@@ -13,6 +13,7 @@ import {
   GuardError,
   LOAN_RESERVE_AMOUNT,
   LOAN_RESERVE_FUNDING_ID,
+  MAX_AGE_DAYS,
   NAME_PREFIX,
   NAME_SUFFIX,
   P2P_COUNTRY,
@@ -28,11 +29,13 @@ import {
   applyHouse,
   applyLoans,
   applyP2p,
+  ageLoan,
   earnFundingId,
   earnPoolName,
   guardSeed,
   houseSeedId,
   main,
+  parseArgs,
   statusReport,
   toWire,
   unseedAll,
@@ -782,9 +785,9 @@ test('house inventory stocks both sides of the stack default markets', () => {
   const symbols = JSON.parse(found[1].replaceAll("'", '"'));
   const stocked = new Set(TEST_HOUSE_INVENTORY.map((row) => row.assetId));
   for (const symbol of symbols) {
-    const [base, quote] = symbol.split('/');
-    assert.ok(stocked.has(base), base);
-    assert.ok(stocked.has(quote), quote);
+    // A perpetual names its settle asset after a colon (`BTC/USDT:USDT`); every asset it names is stocked.
+    const [base, rest] = symbol.split('/');
+    for (const asset of [base, ...rest.split(':')]) assert.ok(stocked.has(asset), asset);
   }
   const quoteSrc = readFileSync(path.join(repo, 'services/svc-trade/src/convert/quote.ts'), 'utf8');
   assert.match(quoteSrc, /baseAsset/);
@@ -874,7 +877,8 @@ test('money tables are decimal strings and the seed does not touch service trees
   const needles = ['local-test-seed', 'TEST_HOUSE_INVENTORY', 'local_test_bank', 'LOCAL-TEST-seed-house', 'TEST_EARN'];
   const skip = new Set(['node_modules', 'dist', '.git', 'coverage', '.turbo', 'vendor']);
   // What ships: docs may describe the seed and tests may name it as a caller or fixture; runtime code may not.
-  const notShipped = (name) => /\.(test|spec)\.[cm]?[jt]sx?$/.test(name) || name.endsWith('.md');
+  // Playwright journeys (`*.pw.mjs`) are tests too: J-bank-11 calls `age-loan` as its starting state.
+  const notShipped = (name) => /\.(test|spec|pw)\.[cm]?[jt]sx?$/.test(name) || name.endsWith('.md');
   const hits = [];
   const walk = (dir) => {
     for (const name of readdirSync(dir)) {
@@ -984,4 +988,36 @@ test('resolvePostgres loads the postgres package svc-bank declares', async () =>
     rmSync(fixture, { recursive: true, force: true });
     rmSync(bare, { recursive: true, force: true });
   }
+});
+
+test('age-loan: whole days from 1 to the cap on a loan id, and only the TEST products are offered as agable', async () => {
+  const LOAN = '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+  const calls = [];
+  const deps = {
+    async ageLoanRows(loanId, days, products) {
+      calls.push({ loanId, days, products });
+      return { openedAt: '2026-10-09T10:00:00.000Z', drawnAt: '2026-10-09T10:00:01.000Z' };
+    },
+  };
+  for (const bad of ['0', '-1', '1.5', String(MAX_AGE_DAYS + 1), 'x']) {
+    await assert.rejects(ageLoan(deps, LOAN, bad), GuardError, `days ${bad}`);
+  }
+  await assert.rejects(ageLoan(deps, 'not-a-loan', '15'), GuardError);
+  assert.equal(calls.length, 0);
+  const report = await ageLoan(deps, LOAN, '15');
+  assert.deepEqual(calls, [{ loanId: LOAN, days: 15, products: TEST_LOANS.map((row) => row.name) }]);
+  assert.match(report.lines[0], /moved back 15 days/);
+  assert.equal(report.lines[1], FUNDS_LABEL);
+});
+
+test('age-loan: a loan the database refuses to age is a guard refusal naming why', async () => {
+  const deps = { ageLoanRows: async () => ({ refused: 'already has events after its opening' }) };
+  await assert.rejects(ageLoan(deps, '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d', '3'), /already has events after its opening/);
+});
+
+test('age-loan takes exactly its two operands; every other command still takes none', () => {
+  assert.deepEqual(parseArgs(['age-loan', 'id', '3', '--state', '/x']), { command: 'age-loan', operands: ['id', '3'], stateDir: '/x' });
+  assert.throws(() => parseArgs(['age-loan', 'id']), GuardError);
+  assert.throws(() => parseArgs(['age-loan', 'id', '3', 'extra']), /unknown argument "extra"/);
+  assert.throws(() => parseArgs(['apply', 'extra']), /unknown argument "extra"/);
 });

@@ -94,7 +94,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     SCHEDULED_TRANSFERS_ENABLED: 'true',
     AUTO_INVEST_ENABLED: 'false',
     INTEREST_ACCRUAL_ENABLED: 'false',
-    LOAN_ACCRUAL_ENABLED: 'false',
+    // Loan interest moves no money (it writes the day's interest row) and has no timer either: on this stack only a
+    // test's own signed call to its job door runs it (J-bank-11 #2, after `local-test-seed.mjs age-loan`). Left off, a
+    // loan here could never owe interest, so a repayment could never be shown paying interest first.
+    LOAN_ACCRUAL_ENABLED: 'true',
     LOAN_RISK_SWEEP_ENABLED: 'false',
   }),
 });

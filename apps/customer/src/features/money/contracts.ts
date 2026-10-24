@@ -672,6 +672,14 @@ export const bankReads = {
   'loans.list': z.array(loanSchema),
   'loans.projection': loanProjectionSchema,
   'loans.payoffQuote': payoffQuoteSchema,
+  /** `bank.loans.releasable` (BK-loan-05): the most collateral `releaseExcess` would release now, under the product's max LTV. */
+  'loans.releasable': z.object({
+    loanId: z.string(),
+    held: money,
+    releasable: money,
+    maxLtvBps: z.number().int(),
+    ltvBps: z.number().int(),
+  }),
   'loans.health': z.object({
     debtValue: money,
     collateralValue: money,
