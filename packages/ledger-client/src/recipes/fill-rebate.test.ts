@@ -120,10 +120,16 @@ describe('tradeFillMakerRebate', () => {
     expect(() => recipes.tradeFillMakerRebate(fill('f6', { qty: 3n, quoteAmount: 3n }))).toThrow(/rounds to nothing/);
   });
 
-  it('stays below the taker fee at the smallest amount the rate pays anything', () => {
+  it('stays below the fill own taker fee at the smallest amount the rate pays anything', async () => {
     // 2000 base units: rebate floor(2000 × 5 / 10000) = 1, taker fee ceil(2000 × 6 / 10000) = 2.
     const input = fill('f7', { qty: 2000n, quoteAmount: 2000n, takerFeeBps: 6 });
+    const fillTx = await postedFill(input);
+    const houseLeg = recipes.tradeFill(input).entries.find((e) => e.account.ownerType === 'house');
+    expect(fillTx.entries).toHaveLength(5);
+    expect(houseLeg?.amount).toBe(2n);
     expect(makerRebateFor(input).amount).toBe(1n);
+    await ledger.post(recipes.tradeFillMakerRebate(input));
+    expect((await ledger.balance(houseFees('trade', 'BTC'))).amount).toBe(1n);
   });
 
   it.each([
@@ -135,6 +141,7 @@ describe('tradeFillMakerRebate', () => {
     ['a fractional rate', { makerRebateBps: 2.5 }, /whole number of bps/],
     ['a fractional taker rate', { takerFeeBps: 10.5 }, /whole number of bps/],
     ['no fill id', { fillId: ' ' }, /fillId is required/],
+    ['a padded fill id', { fillId: ' f8' }, /no surrounding spaces/],
     ['no maker', { makerId: '' }, /makerId is required/],
     ['an empty fill', { qty: 0n }, /must be positive/],
   ] as const)('refuses %s with InvalidEntryError, before anything posts', (_label, over, message) => {
