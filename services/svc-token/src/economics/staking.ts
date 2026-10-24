@@ -324,12 +324,20 @@ function stableJson(value: unknown): string {
   return JSON.stringify(value);
 }
 
+/** A blank column: null, an empty string or an empty object. The read refuses it as unset; its version is `unset`. */
+export function feeDiscountScheduleBlank(raw: unknown): boolean {
+  if (raw == null) return true;
+  if (typeof raw === 'string') return raw.trim() === '';
+  if (typeof raw === 'object' && !Array.isArray(raw)) return Object.keys(raw).length === 0;
+  return false;
+}
+
 /**
  * Version of a stored fee-decay schedule: `unset` while the column is blank, otherwise a hash of the row. A publish
  * names the version it replaces, so two owners publishing at once cannot both win.
  */
 export function feeDiscountScheduleVersion(raw: unknown): string {
-  if (raw === null || raw === undefined) return 'unset';
+  if (feeDiscountScheduleBlank(raw)) return 'unset';
   return `sha256:${createHash('sha256').update(stableJson(raw)).digest('hex')}`;
 }
 
