@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { test, expect } from '@playwright/test';
-import { EDGE, api, fund, journeyState, mailedCodes, mailedConfirmLinks, nextMailedCode } from './stack.mjs';
+import { DEVICE_KEY, EDGE, api, fund, journeyState, mailedCodes, mailedConfirmLinks, nextMailedCode } from './stack.mjs';
 import { awayBid, deskPath, held, openOrders, previewed, reviewSheet, verify } from './desk.mjs';
 
 // J-identity-01, in the running app (docs/roadmap/journeys.json): sign up with an email, get the code, land signed in.
@@ -35,7 +35,7 @@ async function noAccount(who) {
   const res = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
     method: 'POST',
     headers: { origin: ORIGIN, 'content-type': 'application/json' },
-    body: JSON.stringify({ identifier: who.email, password: who.password }),
+    body: JSON.stringify({ deviceKey: DEVICE_KEY, identifier: who.email, password: who.password }),
   });
   expect(res.status).toBe(401);
 }
@@ -153,7 +153,7 @@ async function unprovedAccount() {
   const res = await fetch(`${EDGE}/api/identity/trpc/auth.register`, {
     method: 'POST',
     headers: { origin: ORIGIN, 'content-type': 'application/json' },
-    body: JSON.stringify({ handle: who.handle, email: who.email, password: who.password, region: 'DE' }),
+    body: JSON.stringify({ deviceKey: DEVICE_KEY, handle: who.handle, email: who.email, password: who.password, region: 'DE' }),
   });
   expect(res.status).toBe(200);
   return who;

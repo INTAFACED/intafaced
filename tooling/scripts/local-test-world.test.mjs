@@ -113,6 +113,7 @@ import {
   planEmailConfirm,
   readLatestEmailConfirmToken,
 } from './local-test-world.mjs';
+import { LOCAL_TEST_DEVICE_KEY } from './local-test-device.mjs';
 
 delete process.env.LOCAL_STACK_STATE; // the checks below assume the default state folder unless they pass an env
 
@@ -1107,11 +1108,18 @@ try {
   assert.match(worldSrc, /if \(merchantId && moneyOpen\) await populateMerchantMoneyBlock\(ctx, merchantId\)/);
 
   // ── Owner second factor: login with TOTP, outbox link, enrolment store ───
-  assert.deepEqual(loginRequestBody({ email: 'o@x.invalid', password: 'pw' }), { identifier: 'o@x.invalid', password: 'pw' });
-  assert.deepEqual(loginRequestBody({ email: 'o@x.invalid', password: 'pw' }, ''), { identifier: 'o@x.invalid', password: 'pw' });
+  // Every scripted sign-in presents the stack's one TEST browser key (local-test-device.mjs), as the journeys' browser does.
+  const deviceKey = LOCAL_TEST_DEVICE_KEY;
+  assert.deepEqual(loginRequestBody({ email: 'o@x.invalid', password: 'pw' }), { identifier: 'o@x.invalid', password: 'pw', deviceKey });
+  assert.deepEqual(loginRequestBody({ email: 'o@x.invalid', password: 'pw' }, ''), {
+    identifier: 'o@x.invalid',
+    password: 'pw',
+    deviceKey,
+  });
   assert.deepEqual(loginRequestBody({ email: 'o@x.invalid', password: 'pw' }, '123456'), {
     identifier: 'o@x.invalid',
     password: 'pw',
+    deviceKey,
     totpCode: '123456',
   });
   // The exact line identity's local-outbox mail writes for an email-confirm (localMailLine).

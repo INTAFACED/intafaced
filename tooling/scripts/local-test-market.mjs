@@ -49,6 +49,7 @@ import {
   readLatestEmailConfirmToken,
 } from './local-test-state.mjs';
 import { TEST_ELIGIBILITY_ANSWERS } from './local-test-futures-terms.mjs';
+import { LOCAL_TEST_DEVICE_KEY } from './local-test-device.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const REPO = path.resolve(path.dirname(SCRIPT), '..', '..');
@@ -332,7 +333,7 @@ class EdgeClient {
     const res = await this.http(
       'POST',
       '/api/identity/trpc/auth.login',
-      { identifier: this.account.email, password: this.account.password },
+      { identifier: this.account.email, password: this.account.password, deviceKey: LOCAL_TEST_DEVICE_KEY },
       { auth: false },
     );
     const data = res.json?.result?.data;
@@ -345,7 +346,7 @@ class EdgeClient {
     const login = await this.http(
       'POST',
       '/api/identity/trpc/auth.login',
-      { identifier: this.account.email, password: this.account.password },
+      { identifier: this.account.email, password: this.account.password, deviceKey: LOCAL_TEST_DEVICE_KEY },
       { auth: false },
     );
     if (login.json?.result?.data?.accessToken) {
@@ -357,7 +358,7 @@ class EdgeClient {
     const reg = await this.http(
       'POST',
       '/api/identity/trpc/auth.register',
-      { handle: this.account.handle, email: this.account.email, password: this.account.password },
+      { handle: this.account.handle, email: this.account.email, password: this.account.password, deviceKey: LOCAL_TEST_DEVICE_KEY },
       { auth: false },
     );
     const data = reg.json?.result?.data;

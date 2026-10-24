@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { EDGE, ORIGIN, signUpInBrowser } from './stack.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, signUpInBrowser } from './stack.mjs';
 
 // J-ops-console-04 step #1: a founder freezes one TEST customer's account with a reason on the console's Account controls.
 // Identity records the freeze against the version the console read; the history shows the founder and the reason; the
@@ -20,7 +20,7 @@ test('J-ops-console-04 #1 freezes an account with a reason: identity records it,
   const login = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
     method: 'POST',
     headers: { origin: ORIGIN, 'content-type': 'application/json' },
-    body: JSON.stringify({ identifier: who.email, password: who.password }),
+    body: JSON.stringify({ deviceKey: DEVICE_KEY, identifier: who.email, password: who.password }),
   }).then((r) => r.json());
   const userId = login?.result?.data?.userId;
   if (!userId) throw new Error(`the new TEST customer could not sign in: ${JSON.stringify(login).slice(0, 300)}`);
@@ -53,7 +53,7 @@ test('J-ops-console-04 #1 freezes an account with a reason: identity records it,
   const again = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
     method: 'POST',
     headers: { origin: ORIGIN, 'content-type': 'application/json' },
-    body: JSON.stringify({ identifier: who.email, password: who.password }),
+    body: JSON.stringify({ deviceKey: DEVICE_KEY, identifier: who.email, password: who.password }),
   });
   expect(again.status, 'a frozen account cannot sign in').not.toBe(200);
   expect((await fetch(`${LEDGER}/ready`)).status, 'the posting freeze is untouched').toBe(200);

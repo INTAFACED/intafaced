@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { EDGE, ORIGIN, api, signUpInBrowser } from './stack.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, api, signUpInBrowser } from './stack.mjs';
 import { verify } from './desk.mjs';
 
 // J-ops-console-04 step #7: staff close an account with a second approver, then reopen it. Founder A asks on Account
@@ -15,7 +15,7 @@ const login = (who) =>
   fetch(`${EDGE}/api/identity/trpc/auth.login`, {
     method: 'POST',
     headers: { origin: ORIGIN, 'content-type': 'application/json' },
-    body: JSON.stringify({ identifier: who.email, password: who.password }),
+    body: JSON.stringify({ deviceKey: DEVICE_KEY, identifier: who.email, password: who.password }),
   });
 
 /** One step of the two-founder request, posted as the signed-in founder in `page` (the console's own CSRF header). */

@@ -72,6 +72,7 @@ import { localStackState, assertActiveLocalStack, localPgBin } from './local-tes
 import { GuardError, assertLocalTarget as assertMarketTarget } from './local-test-market.mjs';
 import { FOUNDER_STEPS_NAME, FOUNDER_VAULT_NAME, enrolledFounderPair } from './local-test-founders.mjs';
 import { TEST_AGREEMENTS, TEST_ELIGIBILITY_RULES } from './local-test-futures-terms.mjs';
+import { LOCAL_TEST_DEVICE_KEY } from './local-test-device.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const REPO = path.resolve(path.dirname(SCRIPT), '..', '..');
@@ -470,7 +471,7 @@ async function freshCode(ctx, op) {
 }
 
 async function operatorLogin(ctx, op) {
-  const input = { identifier: op.email ?? op.handle, password: op.password };
+  const input = { identifier: op.email ?? op.handle, password: op.password, deviceKey: LOCAL_TEST_DEVICE_KEY };
   if (op.totpSecret) input.totpCode = await freshCode(ctx, op);
   const res = await ctx.edge.mutate('identity', 'auth.login', input);
   const d = data(res);
@@ -488,12 +489,21 @@ export async function ensureOperators(ctx) {
     const op = ops[l];
     let token = null;
     if (!op.totpSecret) {
-      const reg = await ctx.edge.mutate('identity', 'auth.register', { handle: op.handle, email: op.email, password: op.password });
+      const reg = await ctx.edge.mutate('identity', 'auth.register', {
+        handle: op.handle,
+        email: op.email,
+        password: op.password,
+        deviceKey: LOCAL_TEST_DEVICE_KEY,
+      });
       if (data(reg)?.accessToken) {
         token = data(reg).accessToken;
         ctx.log(`operator ${op.handle} registered (${MARKERS.label})`);
       } else {
-        const login = await ctx.edge.mutate('identity', 'auth.login', { identifier: op.email, password: op.password });
+        const login = await ctx.edge.mutate('identity', 'auth.login', {
+          identifier: op.email,
+          password: op.password,
+          deviceKey: LOCAL_TEST_DEVICE_KEY,
+        });
         token = data(login)?.accessToken ?? null;
         if (!token)
           throw new Error(`operator ${op.handle}: register refused (${refusalText(reg)}) and login refused (${refusalText(login)})`);
@@ -1447,6 +1457,7 @@ export async function submitOwnedAccounts(ctx, { users, approved, pending }, { f
     const login = await ctx.edge.mutate('identity', 'auth.login', {
       identifier: acct.email,
       password: acct.password,
+      deviceKey: LOCAL_TEST_DEVICE_KEY,
       ...(totpCode ? { totpCode } : {}),
     });
     const token = data(login)?.accessToken;

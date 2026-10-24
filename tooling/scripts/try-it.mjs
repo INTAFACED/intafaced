@@ -23,6 +23,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { localStackState } from './local-test-state.mjs';
+import { LOCAL_TEST_DEVICE_KEY } from './local-test-device.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const REPO = path.resolve(path.dirname(SCRIPT), '..', '..');
@@ -498,7 +499,7 @@ async function cmdCheck(base) {
   const signIn = await fetch(`${origin}/api/identity/trpc/auth.login`, {
     method: 'POST',
     headers: { origin, cookie, 'content-type': 'application/json' },
-    body: JSON.stringify({ identifier: DEMO.email, password }),
+    body: JSON.stringify({ identifier: DEMO.email, password, deviceKey: LOCAL_TEST_DEVICE_KEY }),
   });
   const token = (await signIn.json())?.result?.data?.accessToken;
   step(signIn.status === 200 && Boolean(token), 'the demo account signs in through the link', signIn);

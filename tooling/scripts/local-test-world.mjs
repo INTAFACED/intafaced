@@ -40,6 +40,7 @@ import {
 import * as gatesLocal from './local-test-gates.mjs';
 import { approvePending, makeContext as makeGatesContext, pendingKycCount } from './local-test-gates.mjs';
 import { founderVaultFiles as testStackFounderVaultFiles } from './local-test-founders.mjs';
+import { LOCAL_TEST_DEVICE_KEY } from './local-test-device.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const STACK_SCRIPT = path.join(path.dirname(SCRIPT), 'local-test-stack.mjs');
@@ -333,6 +334,7 @@ export function loginRequestBody(account, totpCode) {
   return {
     identifier: account.email,
     password: account.password,
+    deviceKey: LOCAL_TEST_DEVICE_KEY,
     ...(typeof totpCode === 'string' && totpCode.length > 0 ? { totpCode } : {}),
   };
 }
@@ -507,7 +509,7 @@ class EdgeClient {
     const login = await this.http(
       'POST',
       '/api/identity/trpc/auth.login',
-      { identifier: this.account.email, password: this.account.password },
+      { identifier: this.account.email, password: this.account.password, deviceKey: LOCAL_TEST_DEVICE_KEY },
       false,
     );
     if (login.json?.result?.data?.accessToken) {
@@ -517,7 +519,7 @@ class EdgeClient {
     const reg = await this.http(
       'POST',
       '/api/identity/trpc/auth.register',
-      { handle: this.account.handle, email: this.account.email, password: this.account.password },
+      { handle: this.account.handle, email: this.account.email, password: this.account.password, deviceKey: LOCAL_TEST_DEVICE_KEY },
       false,
     );
     const data = reg.json?.result?.data;
@@ -3546,6 +3548,7 @@ async function signInLocalFounders(gctx, gates, founders) {
     const login = await gctx.edge.mutate('identity', 'auth.login', {
       identifier: founder.handle,
       password: founder.password,
+      deviceKey: LOCAL_TEST_DEVICE_KEY,
       totpCode: code,
     });
     const data = trpcData(login);
