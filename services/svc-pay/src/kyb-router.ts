@@ -9,6 +9,11 @@ import {
   kybApplicationSubmitInputSchema,
   kybApplicationViewSchema,
   kybDocumentChecklistViewSchema,
+  kybDocumentFileInputSchema,
+  kybDocumentFileSchema,
+  kybDocumentReviewInputSchema,
+  kybDocumentReviewViewInputSchema,
+  kybDocumentReviewViewSchema,
   kybDocumentsChecklistInputSchema,
   kybDocumentsUploadInputSchema,
   kybDocumentsUploadResultSchema,
@@ -109,7 +114,8 @@ function toTrpcError(err: unknown): unknown {
       err.code === 'pay.psp_pricing_history_limit_unset' ||
       err.code === 'pay.kyb_requirements_unset' ||
       err.code === 'pay.kyb_upload_rules_unset' ||
-      err.code === 'pay.kyb_doc_key_unset'
+      err.code === 'pay.kyb_doc_key_unset' ||
+      err.code === 'pay.kyb_document_unreadable'
     ) {
       return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
     }
@@ -121,7 +127,14 @@ function toTrpcError(err: unknown): unknown {
     ) {
       return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
     }
-    if (err.code === 'pay.kyb_application_not_found') {
+    if (
+      err.code === 'pay.kyb_document_already_reviewed' ||
+      err.code === 'pay.kyb_document_not_current' ||
+      err.code === 'pay.kyb_application_decided'
+    ) {
+      return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
+    }
+    if (err.code === 'pay.kyb_application_not_found' || err.code === 'pay.kyb_document_not_found') {
       return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
     }
     if (
@@ -155,7 +168,7 @@ export function createKybPspRouter(
   },
   /** Unwired means no application can be kept: every call refuses. */
   applications?: Pick<KybApplicationService, 'merchantOf' | 'start' | 'current' | 'saveSection' | 'restart' | 'changeType' | 'submit'>,
-  documents?: Pick<KybDocumentService, 'checklist' | 'upload'>,
+  documents?: Pick<KybDocumentService, 'checklist' | 'upload' | 'reviewView' | 'review' | 'file'>,
 ) {
   const applicationService = () => {
     if (!applications) throw new KybError('Business applications are not wired in this build', 'pay.kyb_application_unwired');
@@ -282,6 +295,50 @@ export function createKybPspRouter(
             wrap(async () => {
               await ownedApplication(ctx.principal.userId, input.applicationId);
               return { row: await documentService().upload({ ...input, actorId: ctx.principal.userId }) };
+            }),
+          ),
+
+        /** Compliance: a merchant's current application and each document, with who gave each verdict. Interactive sign-in with a second factor. */
+        reviewView: scopedProcedure('admin:compliance', { module: 'pay' })
+          .input(kybDocumentReviewViewInputSchema)
+          .output(kybDocumentReviewViewSchema)
+          .query(({ ctx, input }) =>
+            wrap(async () => {
+              requireMfa(ctx.principal);
+              return documentService().reviewView(input.merchantId);
+            }),
+          ),
+
+        /**
+         * Compliance: one verdict on a current upload. Accepted reads Verified to the business; rejected reads Invalid
+         * with the reason given here. One reviewer is enough: a verdict unlocks nothing, `kyb.decide` stays two-person.
+         */
+        review: scopedProcedure('admin:compliance', { module: 'pay' })
+          .input(kybDocumentReviewInputSchema)
+          .output(kybDocumentsUploadResultSchema)
+          .mutation(({ ctx, input }) =>
+            wrap(async () => {
+              requireMfa(ctx.principal);
+              return {
+                row: await documentService().review({
+                  applicationId: input.applicationId,
+                  documentId: input.documentId,
+                  verdict: input.verdict,
+                  reason: input.reason ?? null,
+                  actorId: ctx.principal.userId,
+                }),
+              };
+            }),
+          ),
+
+        /** Compliance: the bytes of one upload, so the reviewer can read it. A mutation, because every read is recorded. */
+        file: scopedProcedure('admin:compliance', { module: 'pay' })
+          .input(kybDocumentFileInputSchema)
+          .output(kybDocumentFileSchema)
+          .mutation(({ ctx, input }) =>
+            wrap(async () => {
+              requireMfa(ctx.principal);
+              return documentService().file({ ...input, actorId: ctx.principal.userId });
             }),
           ),
       }),

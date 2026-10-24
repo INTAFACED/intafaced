@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import { MerchantDetailView, parseTab } from '@/components/merchants/merchant-detail';
 import { dayOf } from '@/lib/merchants/dates';
 import { loadNotes } from '@/lib/founder-ops/reads';
+import { loadKybReview } from '@/lib/merchants/kyb-review';
 import { loadMerchantApprovals, loadMerchantControls, loadMerchantDetail, loadMerchantHalts, parsePreset } from '@/lib/merchants/loaders';
 import { isTestData } from '@/components/merchants/test-data-badge';
 import { requireModulePage } from '@/lib/module-page-guard';
@@ -40,7 +41,9 @@ export default async function MerchantPage({
           ? { halts: await loadMerchantHalts(ctx, merchantId, now) }
           : tab === 'notes'
             ? { notes: await loadNotes(ctx, merchantId, query) }
-            : {};
+            : tab === 'verification'
+              ? { verification: await loadKybReview(ctx, merchantId) }
+              : {};
   return (
     <MerchantDetailView
       merchantId={merchantId}
