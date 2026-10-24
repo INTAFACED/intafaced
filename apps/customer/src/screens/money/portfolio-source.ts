@@ -166,7 +166,7 @@ export function fromDerived(summary: PortfolioSummary): MoneyView {
     changeRatio: changeRatioOf(dec(holding.usdValue), dec(holding.usdChange24h)),
     share: holding.share,
     priceSymbol: holding.priceSymbol,
-    priceUsd: null,
+    priceUsd: holding.priceUsd ?? null,
   }));
   rows.sort(byValue);
   return {

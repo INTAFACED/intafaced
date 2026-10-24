@@ -824,6 +824,7 @@
   }
   @media (max-width: 640px) {
     .money-cell--today,
+    .money-cell--price,
     .money-cell--value {
       display: none;
     }

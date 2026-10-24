@@ -67,6 +67,8 @@ export interface Holding {
   usdChange24h: Decimal | null;
   share: Decimal | null;
   priceSymbol: string | null;
+  /** The USD price the value used: "1" for dollar coins, the ticker's last price otherwise; absent when not priced. */
+  priceUsd?: Decimal | null;
 }
 
 export interface PortfolioSummary {

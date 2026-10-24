@@ -6,7 +6,7 @@ import type { MoneyRow, MoneyView } from './portfolio-source';
  * the total (each row's own 24 h move over what it was worth a day ago). Dollar coins do not move and are left out. A
  * coin with no 24 h figure is never ranked as flat: it is named apart, so nothing missing reads as "no move".
  */
-export interface Movers {
+export interface CoinMovers {
   /** Coins that rose, biggest rise first. */
   best: MoneyRow[];
   /** Coins that fell, biggest fall first. */
@@ -20,7 +20,7 @@ export interface Movers {
 /** At most this many coins on each side. */
 export const MOVERS_PER_SIDE = 3;
 
-export function moversOf(view: Pick<MoneyView, 'rows'>, perSide = MOVERS_PER_SIDE): Movers {
+export function moversOf(view: Pick<MoneyView, 'rows'>, perSide = MOVERS_PER_SIDE): CoinMovers {
   const ranked: Array<{ row: MoneyRow; move: bigint }> = [];
   const unranked: string[] = [];
   for (const row of view.rows) {

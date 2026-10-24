@@ -1,8 +1,9 @@
-import { CoinIcon, fmtUsd } from './deps';
+import { CoinIcon } from './deps';
 import { moneyCopy } from './copy';
 import type { MoneyView } from './portfolio-source';
+import { fmtCoinPrice, marketName } from './price-text';
 import { clockTime } from './time';
-import { usePreferences } from '../../shared/preferences';
+import type { Preferences } from '../../shared/preferences';
 
 type Copy = ReturnType<typeof moneyCopy.useCopy>;
 
@@ -11,9 +12,18 @@ type Copy = ReturnType<typeof moneyCopy.useCopy>;
  * each coin, when, how often the page asks again, that dollar coins count as exactly one dollar, and which coins were
  * left out and why. Every figure is the valuation's own; nothing here is worked out again.
  */
-export function ValuationNote({ view, copy, refreshMs }: { view: MoneyView; copy: Copy; refreshMs: number }) {
+export function ValuationNote({
+  view,
+  copy,
+  refreshMs,
+  timeZone,
+}: {
+  view: MoneyView;
+  copy: Copy;
+  refreshMs: number;
+  timeZone: Preferences['timeZone'];
+}) {
   const { t } = copy;
-  const { timeZone } = usePreferences();
   return (
     <section id="valuation" className="money-card" aria-labelledby="money-valuation-title">
       <header className="money-card__head">
@@ -51,7 +61,7 @@ export function ValuationNote({ view, copy, refreshMs }: { view: MoneyView; copy
                 : row.class === 'cash'
                   ? t('Counted at exactly $1')
                   : row.priceSymbol
-                    ? t('Last trade on {market}', { market: row.priceSymbol.replace('-', '/') })
+                    ? t('Last trade on {market}', { market: marketName(row.priceSymbol) })
                     : t('Last trade price');
             return (
               <tr key={row.asset} data-coin={row.asset}>
@@ -63,7 +73,7 @@ export function ValuationNote({ view, copy, refreshMs }: { view: MoneyView; copy
                 </td>
                 <td data-col="source">{source}</td>
                 <td className="money-num" data-col="price">
-                  {row.usdValue === null ? t('Not counted') : row.priceUsd === null ? '—' : fmtUsd(row.priceUsd)}
+                  {row.usdValue === null ? t('Not counted') : row.priceUsd === null ? '—' : fmtCoinPrice(row.priceUsd)}
                 </td>
               </tr>
             );

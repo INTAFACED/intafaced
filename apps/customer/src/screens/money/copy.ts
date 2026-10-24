@@ -31,6 +31,7 @@ const messages = {
   'Not counted label': 'Coins not counted',
   Price: 'Price',
   Movers: 'Best and worst today',
+  'Movers since {time}': 'Since {time}',
   'Movers note': 'Price moves of the coins you hold, from the same prices as your total. Not profit and loss.',
   Best: 'Best',
   Worst: 'Worst',

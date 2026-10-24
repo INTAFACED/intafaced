@@ -50,6 +50,7 @@ import {
 } from './portfolio-source';
 import { DerivedTotalNote } from './total-note';
 import { Movers } from './Movers';
+import { fmtCoinPrice } from './price-text';
 import { ValuationNote } from './ValuationNote';
 import { savePreferences, usePreferences } from '../../shared/preferences';
 
@@ -193,7 +194,7 @@ function Colgroup({ pro }: { pro: boolean }) {
     <colgroup>
       <col className="money-col--coin" />
       <col className="money-col--amount" />
-      <col className="money-col--price money-cell--value" />
+      <col className="money-col--price money-cell--price" />
       <col className="money-col--value money-cell--value" />
       <col className="money-col--today money-cell--today" />
       {pro ? <col className="money-col--free money-cell--pro" /> : null}
@@ -325,8 +326,8 @@ function CoinRow({
         </span>
       </td>
       {/* The price the total used; a coin with no published price shows a dash that says so, never a zero. */}
-      <td className="money-num money-cell--value" data-col="price" title={row.priceUsd === null ? copy.t('No price published') : undefined}>
-        {row.priceUsd === null ? '—' : fmtUsd(row.priceUsd)}
+      <td className="money-num money-cell--price" data-col="price" title={row.priceUsd === null ? copy.t('No price published') : undefined}>
+        {row.priceUsd === null ? '—' : fmtCoinPrice(row.priceUsd)}
       </td>
       <td className="money-num money-cell--value" data-col="value" title={row.usdValue === null ? copy.t('No price published') : undefined}>
         <Money value={row.usdValue === null ? null : fmtUsd(row.usdValue)} hidden={hidden} />
@@ -372,7 +373,7 @@ function CoinTable({
               {t('Amount')}
               <span className="money-num__value"> · {t('Value')}</span>
             </th>
-            <th scope="col" className="money-num money-cell--value">
+            <th scope="col" className="money-num money-cell--price">
               {t('Price')}
             </th>
             <th scope="col" className="money-num money-cell--value">
@@ -663,9 +664,15 @@ export default function Portfolio() {
           view={view}
           hidden={hideBalances}
           copy={copy}
-          sinceLabel={view.windowStart !== null ? t('Since {time}', { time: clockTime(view.windowStart, timeZone) }) : t('Today')}
+          sinceLabel={
+            view.windowStart !== null
+              ? t('Movers since {time}', { time: clockTime(view.windowStart, timeZone) })
+              : view.source === 'derived'
+                ? t('Today, from price moves')
+                : t('Today')
+          }
         />
-        <ValuationNote view={view} copy={copy} refreshMs={SUMMARY_INTERVAL} />
+        <ValuationNote view={view} copy={copy} refreshMs={SUMMARY_INTERVAL} timeZone={timeZone} />
         {!scoped && accounts.status === 'ready' && accounts.data.some((account) => (dec(account.balance) ?? 0n) > 0n) ? (
           <Accounts accounts={accounts.data} hidden={hideBalances} copy={copy} />
         ) : null}

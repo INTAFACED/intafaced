@@ -264,29 +264,36 @@ test(`${J} #3 places a TEST limit order, then reads the breakdown: available fal
 
 const futuresAccess = (page) => page.getByTestId('futures-access');
 
-/** The TEST futures gates for this account: the knowledge check, the agreements and the auto-deleveraging notice. */
+/** The TEST futures gates for this account, each cleared as the access panel names it: knowledge check, notice, agreements. */
 async function openFuturesAccess(page) {
   await page.goto('/trade/futures');
   await expect(page.getByRole('button', { name: 'Open long' })).toBeVisible();
   const panel = futuresAccess(page);
-  if (await panel.getByText('Open for your account').isVisible()) return;
-  const quiz = page.getByTestId('futures-quiz');
-  if (await quiz.count()) {
+  const open = panel.getByText('Open for your account');
+  await expect(open.or(panel.getByText('Blocked for your account'))).toBeVisible();
+  if (await open.isVisible()) return;
+  const reasons = panel.getByRole('list', { name: 'What blocks it' });
+  if (await reasons.locator('[data-code="trade.derivatives_eligibility_unset"]').count()) {
+    const quiz = page.getByTestId('futures-quiz');
     await quiz.getByRole('radio', { name: /liquidated and can lose all of its margin/ }).check();
     await quiz.getByRole('button', { name: 'Submit answers' }).click();
     await expect(page.getByText('Passed. You can trade derivatives under the current rules.')).toBeVisible();
   }
-  const read = page.getByRole('button', { name: 'I have read this' });
-  if (await read.count()) await read.click();
-  for (const kind of ['derivatives_risk', 'margin_terms']) {
-    const card = panel.getByTestId(`agreement-${kind}`);
-    const accept = card.getByRole('button', { name: /^Accept / });
-    if (await accept.count()) {
-      await accept.click();
-      await expect(card).toContainText('Accepted');
+  if (await reasons.locator('[data-code="trade.adl_disclosure_required"]').count()) {
+    await page.getByRole('button', { name: 'I have read this' }).click();
+    await expect(reasons.locator('[data-code="trade.adl_disclosure_required"]')).toHaveCount(0);
+  }
+  if (await reasons.locator('[data-code="trade.agreement_required"]').count()) {
+    for (const kind of ['derivatives_risk', 'margin_terms']) {
+      const card = panel.getByTestId(`agreement-${kind}`);
+      const accept = card.getByRole('button', { name: /^Accept / });
+      if (await accept.count()) {
+        await accept.click();
+        await expect(card).toContainText('Accepted');
+      }
     }
   }
-  await expect(panel.getByText('Open for your account')).toBeVisible();
+  await expect(open).toBeVisible();
 }
 
 async function positionsOf(who) {
