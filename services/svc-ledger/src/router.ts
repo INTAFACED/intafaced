@@ -452,6 +452,8 @@ export function createLedgerRouter(
               rail: z.enum(HISTORY_RAILS).nullable(),
               /** The page owner's own trade order this line belongs to (hold, amend, release, fill), else null. */
               orderId: z.string().min(1).max(128).nullable(),
+              /** Decimal string: the fee taken from the owner's receiving line of a fill (`0` when none), else null. */
+              fee: z.string().nullable(),
             }),
           ),
           nextCursor: z.string().nullable(),
