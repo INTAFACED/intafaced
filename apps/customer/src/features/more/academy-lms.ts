@@ -358,9 +358,13 @@ export type AcademyRoute =
   | { kind: 'tab'; tab: AcademyTab; hub?: true }
   | { kind: 'progress' }
   | { kind: 'reader'; slug: string | undefined }
-  | { kind: 'course'; slug: string | undefined };
+  | { kind: 'course'; slug: string | undefined }
+  | { kind: 'assignment'; slug: string | undefined; itemId: string | undefined };
 /** The public course page (AC-catalogue-03). Until courses are rows a course is one curriculum path. */
 export const academyCourseHref = (slug: string) => `/academy/learning/course/${encodeURIComponent(slug)}`;
+/** An assignment's page in a course staff made (AC-assignments-01). */
+export const academyAssignmentHref = (slug: string, itemId: string) =>
+  `${academyCourseHref(slug)}/assignment/${encodeURIComponent(itemId)}`;
 /** Sign in from a course page and come back to its plain address: a private link's `#key=` never rides in a URL. */
 export const academyCourseSignInHref = (slug: string) => `/login?redirect=${encodeURIComponent(academyCourseHref(slug))}`;
 const decoded = (segment: string) => {
@@ -372,8 +376,10 @@ const decoded = (segment: string) => {
 };
 /** What an `/academy` address opens: a tab, the progress page, or the reader. A tab segment always wins over a lesson. */
 export function academyRoute(pathname: string): AcademyRoute {
-  const [, , segment, part, course] = pathname.split('/');
+  const [, , segment, part, course, child, itemId] = pathname.split('/');
   if (!segment) return { kind: 'tab', tab: 'Learning', hub: true };
+  if (segment === 'learning' && part === 'course' && child === 'assignment')
+    return { kind: 'assignment', slug: course ? decoded(course) : undefined, itemId: itemId ? decoded(itemId) : undefined };
   if (segment === 'learning' && part === 'course') return { kind: 'course', slug: course ? decoded(course) : undefined };
   const tab = academyTabs.find(([, slug]) => slug === segment);
   if (tab) return { kind: 'tab', tab: tab[0] };

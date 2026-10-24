@@ -313,6 +313,22 @@ export class CourseRecords {
       `;
       if (written!.n > 0) throw new AcademyError('an item with a lesson does not become a subheader or a link', 'academy.item_kind_locked');
     }
+    // An assignment with a brief stays an assignment, and one learners handed in to stays in the outline (AC-assignments-01).
+    const kept = new Set(sections.flatMap((s) => s.items).flatMap((i) => (i.id !== undefined && i.kind === 'assignment' ? [i.id] : [])));
+    const briefs = await tx<Array<{ item_id: string; handed_in: boolean }>>`
+      SELECT a.item_id, EXISTS (SELECT 1 FROM academy.assignment_submissions s WHERE s.item_id = a.item_id) AS handed_in
+      FROM academy.course_assignments a JOIN academy.course_items i ON i.id = a.item_id WHERE i.course_id = ${courseId}
+    `;
+    const listed = new Set(sections.flatMap((s) => s.items).flatMap((i) => (i.id === undefined ? [] : [i.id])));
+    for (const brief of briefs) {
+      if (kept.has(brief.item_id)) continue;
+      if (brief.handed_in && !listed.has(brief.item_id))
+        throw new AcademyError(
+          'learners handed in to this assignment, so it stays in the outline; withdraw it instead',
+          'academy.assignment_has_submissions',
+        );
+      if (listed.has(brief.item_id)) throw new AcademyError('an assignment with a brief stays an assignment', 'academy.item_kind_locked');
+    }
     await tx`UPDATE academy.course_items SET position = -1 - position WHERE course_id = ${courseId}`;
     await tx`UPDATE academy.course_sections SET position = -1 - position WHERE course_id = ${courseId}`;
     const sectionRows = sections.map((s, position) => ({ id: s.id ?? randomUUID(), course_id: courseId, position, title: s.title }));

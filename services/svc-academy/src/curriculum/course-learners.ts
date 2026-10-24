@@ -49,7 +49,9 @@ export class CourseLearners {
     >`
       SELECT c.slug, c.title, c.summary, c.thumbnail_url, c.pricing, c.price, c.price_asset,
         (SELECT count(*)::int FROM academy.course_items i
-          WHERE i.course_id = c.id AND (i.kind = 'link' OR (i.kind <> 'subheader' AND i.live_revision IS NOT NULL))) AS items
+          WHERE i.course_id = c.id AND (i.kind = 'link'
+            OR (i.kind = 'assignment' AND EXISTS (SELECT 1 FROM academy.course_assignments a WHERE a.item_id = i.id))
+            OR (i.kind NOT IN ('subheader', 'assignment') AND i.live_revision IS NOT NULL))) AS items
       FROM academy.courses c
       WHERE c.state = 'published'
       ORDER BY (SELECT max(e.at) FROM academy.course_events e

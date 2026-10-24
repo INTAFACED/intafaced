@@ -66,6 +66,14 @@ import {
   academyAuthoredCourseInputSchema,
   academyCourseByLinkInputSchema,
   academyLeaveAuthoredCourseInputSchema,
+  academyAdminAssignmentSchema,
+  academyAssignmentInputSchema,
+  academyAssignmentViewSchema,
+  academySaveAssignmentInputSchema,
+  academySubmissionFileSchema,
+  academySubmitAssignmentInputSchema,
+  academyUploadAssignmentFileInputSchema,
+  academyWithdrawAssignmentInputSchema,
   academyPublishedCourseListSchema,
   academyPublishedCoursesInputSchema,
   academyCourseIdInputSchema,
@@ -889,7 +897,13 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.revision_stale':
     case 'academy.item_kind_locked':
     case 'academy.topic_slug_taken':
+    case 'academy.assignment_closed':
+    case 'academy.submission_version_stale':
+    case 'academy.assignment_has_submissions':
       return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
+
+    case 'academy.enrolment_required':
+      return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
 
     case 'academy.price_unset':
     case 'academy.course_outline_empty':
@@ -908,6 +922,7 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.item_has_no_lesson':
     case 'academy.import_too_large':
     case 'academy.lesson_blocks_invalid':
+    case 'academy.submission_incomplete':
     case 'academy.upload_too_large':
     case 'academy.upload_type_refused':
     case 'academy.file_type_mismatch':
@@ -918,6 +933,7 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.media_not_found':
     case 'academy.topic_not_found':
     case 'academy.private_link_not_found':
+    case 'academy.assignment_not_found':
       return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
 
     case 'academy.prerequisite_cycle':
@@ -2398,6 +2414,24 @@ export function createAcademyRouter(
       .output(academyAuthoredCourseEnrolmentSchema)
       .mutation(({ input, ctx }) => guard(() => academy.leaveAuthoredCourse({ ...input, userId: ctx.principal!.userId }))),
 
+    /** AC-assignments-01: an assignment as the enrolled learner sees it, with their own hand-ins, newest first. */
+    assignment: scopedProcedure('academy:read', { module: 'academy' })
+      .input(academyAssignmentInputSchema)
+      .output(academyAssignmentViewSchema)
+      .query(({ input, ctx }) => guard(() => academy.assignment({ itemId: input.itemId, userId: ctx.principal.userId }))),
+
+    /** AC-assignments-01: a file for the next hand-in, checked against the owner's limits; the same file is the same row. */
+    uploadAssignmentFile: scopedProcedure('academy:write', { module: 'academy' })
+      .input(academyUploadAssignmentFileInputSchema)
+      .output(academySubmissionFileSchema)
+      .mutation(({ input, ctx }) => guard(() => academy.uploadAssignmentFile({ ...input, userId: ctx.principal!.userId }))),
+
+    /** AC-assignments-01: hand in version n, keyed `submit:<item>:<account>:<n>`; a retry returns the stored hand-in. */
+    submitAssignment: scopedProcedure('academy:write', { module: 'academy' })
+      .input(academySubmitAssignmentInputSchema)
+      .output(academyAssignmentViewSchema)
+      .mutation(({ input, ctx }) => guard(() => academy.submitAssignment({ ...input, userId: ctx.principal!.userId }))),
+
     /** AC-catalogue-02: My learning, the caller's enrolled courses with real progress and where Continue goes. */
     myLearning: scopedProcedure('academy:read', { module: 'academy' })
       .output(z.array(academyMyCourseSchema))
@@ -2968,6 +3002,24 @@ export function createAcademyRouter(
         .input(academyImportLessonInputSchema)
         .output(academyImportLessonResultSchema)
         .mutation(({ input, ctx }) => guard(() => academy.importLesson({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-assignments-01: an assignment item's brief, who saved it, and how many learners handed in. */
+      assignment: scopedProcedure('admin:read', { module: 'academy' })
+        .input(z.object({ itemId: z.string().guid() }).strict())
+        .output(academyAdminAssignmentSchema)
+        .query(({ input }) => guard(() => academy.assignmentForStaff(input.itemId))),
+
+      /** AC-assignments-01: the brief over the revision read; a saved brief releases the item to enrolled learners. */
+      saveAssignment: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academySaveAssignmentInputSchema)
+        .output(academyAdminAssignmentSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.saveAssignment({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-assignments-01: learners can no longer hand in; the brief and every hand-in stay. */
+      withdrawAssignment: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyWithdrawAssignmentInputSchema)
+        .output(academyAdminAssignmentSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.withdrawAssignment({ ...input, operatorId: ctx.principal!.userId }))),
 
       /** AC-videos-02: one item's uploads, caption languages and the owner's upload limits. */
       itemMedia: scopedProcedure('admin:read', { module: 'academy' })
