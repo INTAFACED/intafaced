@@ -9,7 +9,7 @@ export const totpStatus = z.object({
 });
 export type TotpStatus = z.infer<typeof totpStatus>;
 
-export const stepUpBegun = z.object({ challengeId: z.string().uuid() }).passthrough();
+export const stepUpBegun = z.object({ challengeId: z.string().guid() }).passthrough();
 export const stepUpDone = z.object({ stepUpApprovalId: z.string().min(1) }).passthrough();
 export const disabledAnswer = z.object({ disabled: z.literal(true), recoveryCodeSpent: z.boolean() });
 export const replaceStarted = z.object({ secret: z.string().regex(/^[A-Z2-7]{16,}$/), uri: z.string() });

@@ -82,7 +82,7 @@ const changelogSchema = z.object({
   retired: z.array(z.string()),
 });
 export const entrySchema = z.object({
-  id: z.string().uuid(),
+  id: z.string().guid(),
   kind: z.enum(['announcement', 'maintenance', 'incident', 'changelog']),
   title: z.string(),
   body: z.string(),
@@ -92,12 +92,14 @@ export const entrySchema = z.object({
   endsAt: z.string().nullable(),
   version: z.number().int(),
   changelog: changelogSchema.nullable(),
+  /** The founders' category an announcement is filed under, as filed (SP-status-03). Absent from an older svc-notify. */
+  category: z.object({ id: z.string(), name: z.string() }).nullable().optional(),
 });
 export type ChangelogEntry = z.infer<typeof entrySchema>;
 
 const upcomingSchema = z.object({
   upcoming: z.array(entrySchema),
-  retired: z.array(z.object({ endpoint: z.string(), entryId: z.string().uuid(), title: z.string(), releaseOn: day.nullable() })),
+  retired: z.array(z.object({ endpoint: z.string(), entryId: z.string().guid(), title: z.string(), releaseOn: day.nullable() })),
 });
 export type UpcomingChanges = z.infer<typeof upcomingSchema>;
 

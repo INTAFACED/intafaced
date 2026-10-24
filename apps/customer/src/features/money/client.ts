@@ -31,7 +31,7 @@ const balanceEntry = z
 const balancesSchema = z.object({
   timestamp: z.number().int(),
   datetime: z.string().datetime({ offset: true }),
-  balances: z.record(balanceEntry),
+  balances: z.record(z.string(), balanceEntry),
 });
 const unnamedSchema = z.array(z.object({ assetId: z.string(), balance: decimalSchema }));
 export type TransferDraft = {
@@ -44,6 +44,8 @@ export type TransferDraft = {
   note?: string;
   /** A printable payment reference. Left out when the customer wrote none. */
   reference?: string;
+  /** The single-use step-up approval for this exact send to a person (J-bank-04 #4). */
+  stepUpApprovalId?: string;
 };
 export function validateTransfer(spaces: Space[], input: TransferDraft): string | null {
   const from = spaces.find((space) => space.id === input.fromSpaceId);
@@ -56,13 +58,13 @@ export function validateTransfer(spaces: Space[], input: TransferDraft): string 
     if (input.toSpaceId === from.id) return copyText('client.choose.a.different.destination.space');
     const destination = spaces.find((space) => space.id === input.toSpaceId);
     if (destination && destination.assetId !== from.assetId) return copyText('client.both.spaces.must.use.the.same.asset');
-    if (!z.string().uuid().safeParse(input.toSpaceId).success) return copyText('client.enter.a.valid.destination.space.id');
+    if (!z.string().guid().safeParse(input.toSpaceId).success) return copyText('client.enter.a.valid.destination.space.id');
   } else if (!input.toUserId?.trim()) return copyText('client.enter.the.recipient.user.id');
   const note = noteProblem(input.note);
   if (note) return transferDepthCopy.t(note === 'tooLong' ? 'noteTooLong' : 'noteControl');
   const reference = referenceProblem(input.reference);
   if (reference) return transferDepthCopy.t(reference === 'tooLong' ? 'referenceTooLong' : 'referenceCharacters');
-  if (!z.string().uuid().safeParse(input.fromSpaceId).success) return copyText('client.choose.a.valid.source.space');
+  if (!z.string().guid().safeParse(input.fromSpaceId).success) return copyText('client.choose.a.valid.source.space');
   return null;
 }
 export function createMoneyClient(api: ApiClient) {

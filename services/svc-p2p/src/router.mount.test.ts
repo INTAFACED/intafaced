@@ -108,7 +108,7 @@ const customerAmount = z
   .refine((value) => /^\d+(\.\d{1,18})?$/.test(value));
 
 const customerOfferSchema = z.object({
-  id: z.string().uuid(),
+  id: z.string().guid(),
   makerId: z.string(),
   side: z.enum(['buy', 'sell']),
   asset: z.string().min(1).max(16),
@@ -470,8 +470,8 @@ describe('svc-p2p mount — instruments.methods schema dual-control', () => {
             enabled: true,
           };
         },
-        setMethodSchemaEnabled: async (methodId: string, country: string, enabled: boolean) => {
-          calls.push(['setEnabled', { methodId, country, enabled }]);
+        setMethodSchemaEnabled: async (methodId: string, country: string, enabled: boolean, reason?: string) => {
+          calls.push(['setEnabled', { methodId, country, enabled, ...(reason ? { reason } : {}) }]);
           return {
             methodId,
             country,
@@ -508,6 +508,7 @@ describe('svc-p2p mount — instruments.methods schema dual-control', () => {
         methodId: 'bank_transfer',
         country: 'DE',
         enabled: false,
+        reason: 'regulation',
         confirmOperatorId: CONFIRM,
         ...APPROVED,
       }),
@@ -535,14 +536,26 @@ describe('svc-p2p mount — instruments.methods schema dual-control', () => {
     const caller = createP2pRouter(stubP2p(), instruments, undefined, { approvals: stubApprovalConsumer(CONFIRM) }).createCaller(
       signed(principal({ scopes: ['admin:compliance'], mfa: true })),
     );
-    await expect(caller.instruments.methods.setEnabled({ methodId: 'bank_transfer', country: 'DE', enabled: false })).rejects.toMatchObject(
-      { code: 'PRECONDITION_FAILED' },
-    );
     await expect(
-      caller.instruments.methods.setEnabled({ methodId: 'bank_transfer', country: 'DE', enabled: false, confirmOperatorId: USER }),
+      caller.instruments.methods.setEnabled({ methodId: 'bank_transfer', country: 'DE', enabled: false, reason: 'regulation' }),
     ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
     await expect(
-      caller.instruments.methods.setEnabled({ methodId: 'bank_transfer', country: 'DE', enabled: false, confirmOperatorId: '   ' }),
+      caller.instruments.methods.setEnabled({
+        methodId: 'bank_transfer',
+        country: 'DE',
+        enabled: false,
+        reason: 'regulation',
+        confirmOperatorId: USER,
+      }),
+    ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
+    await expect(
+      caller.instruments.methods.setEnabled({
+        methodId: 'bank_transfer',
+        country: 'DE',
+        enabled: false,
+        reason: 'regulation',
+        confirmOperatorId: '   ',
+      }),
     ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
     expect(calls).toEqual([]);
   });
@@ -582,6 +595,7 @@ describe('svc-p2p mount — instruments.methods schema dual-control', () => {
         methodId: 'bank_transfer',
         country: 'DE',
         enabled: false,
+        reason: 'regulation',
         confirmOperatorId: CONFIRM,
         ...APPROVED,
       }),
@@ -590,7 +604,21 @@ describe('svc-p2p mount — instruments.methods schema dual-control', () => {
       enabled: false,
       confirmOperatorId: CONFIRM,
     });
-    expect(calls).toEqual([['setEnabled', { methodId: 'bank_transfer', country: 'DE', enabled: false }]]);
+    expect(calls).toEqual([['setEnabled', { methodId: 'bank_transfer', country: 'DE', enabled: false, reason: 'regulation' }]]);
+  });
+
+  it('refuses retiring a method without a reason, before any approval is used, and does not write', async () => {
+    const { calls, instruments } = schemaStub();
+    const consumed: unknown[] = [];
+    const approvals = { consume: async (input: unknown) => (consumed.push(input), { approverId: CONFIRM, requesterId: REQUESTER }) };
+    const caller = createP2pRouter(stubP2p(), instruments, undefined, { approvals: approvals as never }).createCaller(
+      signed(principal({ scopes: ['admin:compliance'], mfa: true })),
+    );
+    await expect(
+      caller.instruments.methods.setEnabled({ methodId: 'bank_transfer', country: 'DE', enabled: false, ...APPROVED }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST', cause: { code: 'p2p.delist_reason_required' } });
+    expect(consumed).toEqual([]);
+    expect(calls).toEqual([]);
   });
 
   it('refuses register when the consumed approver is missing and does not write', async () => {
@@ -621,7 +649,13 @@ describe('svc-p2p mount — instruments.methods schema dual-control', () => {
       signed(principal({ scopes: ['admin:compliance'], mfa: true })),
     );
     await expect(
-      caller.instruments.methods.setEnabled({ methodId: 'bank_transfer', country: 'DE', enabled: false, ...APPROVED }),
+      caller.instruments.methods.setEnabled({
+        methodId: 'bank_transfer',
+        country: 'DE',
+        enabled: false,
+        reason: 'regulation',
+        ...APPROVED,
+      }),
     ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
     expect(calls).toEqual([]);
   });
@@ -632,7 +666,13 @@ describe('svc-p2p mount — instruments.methods schema dual-control', () => {
       signed(principal({ scopes: ['admin:compliance'], mfa: true })),
     );
     await expect(
-      caller.instruments.methods.setEnabled({ methodId: 'bank_transfer', country: 'DE', enabled: false, ...APPROVED }),
+      caller.instruments.methods.setEnabled({
+        methodId: 'bank_transfer',
+        country: 'DE',
+        enabled: false,
+        reason: 'regulation',
+        ...APPROVED,
+      }),
     ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
     expect(calls).toEqual([]);
   });
@@ -1366,6 +1406,16 @@ describe('svc-p2p mount — trade/dispute read IDOR', () => {
     expect(strangerHit).toEqual(missing);
     expect(missing).toEqual({ code: 'NOT_FOUND', message: `Trade ${tradeId} not found` });
     expect(reads).toBe(1);
+  });
+
+  it('gives a party the order with the terms copied when it was placed, and an older order null', async () => {
+    const ctx = signed(principal({ userId: BUYER, sub: BUYER, scopes: ['p2p:read'] }));
+    const read = (termsSnapshot: string | null) =>
+      createP2pRouter(stubP2p({ getTrade: async () => ({ ...foreignTrade, termsSnapshot }) }), stubInstruments())
+        .createCaller(ctx)
+        .trades.get({ tradeId });
+    expect((await read('pay within 15 minutes')).terms).toBe('pay within 15 minutes');
+    expect((await read(null)).terms).toBeNull();
   });
 
   it("hides another pair's dispute as NOT_FOUND rather than FORBIDDEN or 500", async () => {

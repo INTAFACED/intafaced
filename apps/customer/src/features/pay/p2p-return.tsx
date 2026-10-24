@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, type MouseEvent, type ReactNode } from 'react';
 import { currentReturnLocation, navigate } from '../../app/location';
 import { safeReturnTo } from '../../app/navigation';
-import { id } from './schemas';
+import { BOARD_SORTS, id, type BoardQuery } from './schemas';
 
 export type P2PReturn = { href: string; kind: 'offer' | 'order' | 'offers' | 'orders' };
 const offerPaths = new Set(['/p2p', '/uc/ad']);
@@ -22,7 +22,11 @@ export function p2pReturn(candidate: string | null): P2PReturn {
       (offer && key === 'asset' && /^[A-Z0-9._-]{1,16}$/.test(value)) ||
       (offer && key === 'fiatCurrency' && /^[A-Z]{3}$/.test(value)) ||
       (offer && key === 'side' && ['buy', 'sell'].includes(value)) ||
-      (offer && key === 'limit' && ['50', '200'].includes(value));
+      (offer && key === 'limit' && ['50', '200'].includes(value)) ||
+      (offer && key === 'makerId' && id.safeParse(value).success) ||
+      (offer && key === 'methodId' && /^[A-Za-z0-9._-]{1,64}$/.test(value)) ||
+      (offer && key === 'fiatAmount' && /^\d{1,18}(\.\d{1,18})?$/.test(value)) ||
+      (offer && key === 'sort' && (BOARD_SORTS as readonly string[]).includes(value));
     if (valid) params.append(key, value);
   }
   if (url.pathname === '/chat' && !params.has(reference)) return fallback;
@@ -32,9 +36,9 @@ export function p2pReturn(candidate: string | null): P2PReturn {
     kind: params.has(reference) ? (offer ? 'offer' : 'order') : offer ? 'offers' : 'orders',
   };
 }
-export function offerReturn(offerId: string, filters: { asset?: string; fiatCurrency?: string; side?: 'buy' | 'sell' }, limit: number) {
+export function offerReturn(offerId: string, filters: Partial<Record<keyof BoardQuery, string>>, limit: number) {
   const url = new URL(currentReturnLocation(), 'https://intafaced.invalid');
-  for (const key of ['asset', 'fiatCurrency', 'side']) url.searchParams.delete(key);
+  for (const key of ['asset', 'fiatCurrency', 'side', 'methodId', 'fiatAmount', 'sort']) url.searchParams.delete(key);
   for (const [key, value] of Object.entries(filters)) url.searchParams.set(key, value);
   url.searchParams.set('limit', String(limit));
   url.searchParams.set('offerId', offerId);

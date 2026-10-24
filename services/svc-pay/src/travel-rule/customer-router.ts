@@ -22,7 +22,7 @@ export function createTravelRuleCustomerRouter(service: TravelRuleService) {
     travelRule: router({
       status: router({
         get: scopedProcedure('trade:read', { module: 'ledger' })
-          .input(z.object({ withdrawalId: z.string().uuid() }).strict())
+          .input(z.object({ withdrawalId: z.string().guid() }).strict())
           .output(customerStatusSchema)
           .query(({ ctx, input }) => wrap(() => service.statusForCustomer(ctx.principal.userId, input.withdrawalId))),
       }),

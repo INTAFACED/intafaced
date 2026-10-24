@@ -23,6 +23,9 @@ import {
 } from './AcademyLearning';
 import { academyLearningCopy } from './academy-learning-copy';
 import { AcademyCourse, AcademyHub } from './AcademyHub';
+import { AcademyAccessGrants, AcademyMyLearning } from './AcademyMyLearning';
+import { AcademyCourseProgress, AcademyPlanner } from './AcademyProgressPage';
+import { AcademyCourseOutline } from './AcademyCourseOutline';
 import { academySectionRedirect, academyTabHref, academyTabs, type AcademyRoute } from './academy-lms';
 import { navigate } from '../../app/location';
 
@@ -54,6 +57,8 @@ export function AcademyRoom({
 function Academy({ route, slug, initialPath }: { route: AcademyRoute; slug?: string; initialPath?: string }) {
   const { userId } = useSession(),
     action = useAcademyAction();
+  // A finished quiz or a watched video can meet an item's course rule: the outline beside it reads itself again.
+  const [progressMade, setProgressMade] = useState(0);
   // Each tab is its own address: a click pushes history, so the back button returns to the previous tab.
   const tab = route.kind === 'tab' ? route.tab : route.kind === 'reader' || route.kind === 'course' ? 'Learning' : '';
   const [selection, setSelection] = useState({ owner: userId, id: selectedCertificate(userId) });
@@ -92,7 +97,18 @@ function Academy({ route, slug, initialPath }: { route: AcademyRoute; slug?: str
       ) : route.kind === 'progress' ? (
         <AcademyProgress action={action} />
       ) : tab === 'Learning' ? (
-        <AcademyLearning slug={slug} initialPath={initialPath} certId={selected} chooseCertificate={chooseCertificate} action={action} />
+        <>
+          {!slug && <AcademyMyLearning />}
+          {slug && <AcademyCourseOutline key={slug} itemSlug={slug} refresh={action.result} progress={progressMade} />}
+          <AcademyLearning
+            slug={slug}
+            initialPath={initialPath}
+            certId={selected}
+            chooseCertificate={chooseCertificate}
+            action={action}
+            onProgress={() => setProgressMade((n) => n + 1)}
+          />
+        </>
       ) : tab === 'Certificates' ? (
         <Certificates selected={selected} setSelected={chooseCertificate} action={action} />
       ) : tab === 'Rooms' ? (
@@ -107,7 +123,7 @@ function Academy({ route, slug, initialPath }: { route: AcademyRoute; slug?: str
     </div>
   );
 }
-const uuid = z.string().uuid();
+const uuid = z.string().guid();
 const grantReceipt = z
   .object({
     grant: z.object({
@@ -398,7 +414,10 @@ function Certificates({ action, selected, setSelected }: { action: AcademyAction
   );
 }
 
-/** `/academy/progress`: the learner's certificate grant records on their own page (AC-order-01), outside the five tabs. */
+/**
+ * `/academy/progress`: course progress, grades and the planner (AC-progress-02), then the access records and certificate
+ * grant records (AC-order-01), on their own page outside the five tabs.
+ */
 function AcademyProgress({ action }: { action: AcademyAction }) {
   const api = useApi(),
     { userId } = useSession();
@@ -408,6 +427,9 @@ function AcademyProgress({ action }: { action: AcademyAction }) {
   );
   return (
     <div className="academy-grant-certificates">
+      <AcademyCourseProgress />
+      <AcademyPlanner />
+      <AcademyAccessGrants />
       {/* Without the definitions the records still list, by reference; the failure says why the titles are missing. */}
       {definitions.resource.status === 'failed' && <AcademyRefusal failure={definitions.resource.failure} retry={definitions.reload} />}
       <AcademyGrantRecords

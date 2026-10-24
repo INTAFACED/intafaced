@@ -37,7 +37,7 @@ export function createLimitFeeTierRouter(sql: Sql, rank: RankService, approvals:
         z.object({
           rank: z.number().int().min(0),
           feeDiscountBps: z.number().int().min(0).max(10_000),
-          confirmActorId: z.string().uuid().optional(),
+          confirmActorId: z.string().guid().optional(),
           approvalId: z.string().max(128).nullish(),
           operationId: z.string().max(128).nullish(),
         }),
@@ -68,7 +68,7 @@ export function createLimitFeeTierRouter(sql: Sql, rank: RankService, approvals:
         z.object({
           rank: z.number().int().min(0),
           p2pLimitMultiplier: z.number().min(1),
-          confirmActorId: z.string().uuid().optional(),
+          confirmActorId: z.string().guid().optional(),
           approvalId: z.string().max(128).nullish(),
           operationId: z.string().max(128).nullish(),
         }),

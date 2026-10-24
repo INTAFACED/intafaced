@@ -22,6 +22,7 @@ export const STATUS_PAGE_ERROR_CODES = [
   'status.reading_in_future',
   'status.reading_conflict',
   'status.page_revision_stale',
+  'status.category_unknown',
 ] as const;
 export type StatusPageErrorCode = (typeof STATUS_PAGE_ERROR_CODES)[number];
 
@@ -72,6 +73,16 @@ export const statusComponentDefinitionSchema = z
   .strict();
 export type StatusComponentDefinition = z.infer<typeof statusComponentDefinitionSchema>;
 
+/**
+ * Notice categories (SP-status-03): an owner-set list a founder files an announcement under, beside its kind. Blank (null)
+ * means the kinds alone: a notice that names a category is then refused (`status.category_unknown`), as is one naming a
+ * category not on the list.
+ */
+export const NOTICE_CATEGORY_ID = /^[a-z][a-z0-9-]{1,39}$/;
+export const NOTICE_CATEGORIES_MAX = 20;
+export const noticeCategorySchema = z.object({ id: z.string().regex(NOTICE_CATEGORY_ID), name: text(60) }).strict();
+export type NoticeCategory = z.infer<typeof noticeCategorySchema>;
+
 const ownerValue = (max: number) => z.number().int().min(1).max(max).nullable();
 
 /**
@@ -84,12 +95,20 @@ export const statusPageConfigureInputSchema = z
     componentCap: ownerValue(STATUS_COMPONENTS_MAX).optional(),
     stalenessSeconds: ownerValue(STATUS_STALENESS_SECONDS_MAX).optional(),
     uptimeDays: ownerValue(STATUS_UPTIME_DAYS_MAX).optional(),
+    /** Subscriptions (SP-status-04): proof-of-work strength in leading zero bits, and subscribe requests per address per hour. */
+    challengeBits: ownerValue(32).optional(),
+    subscribeRatePerHour: ownerValue(1000).optional(),
+    /** The whole category list, in display order; `null` clears it. */
+    noticeCategories: z.array(noticeCategorySchema).min(1).max(NOTICE_CATEGORIES_MAX).nullable().optional(),
     expectedRevision: z.number().int().min(0).max(2_147_483_646),
     reason: text(STATUS_PAGE_REASON_MAX),
   })
   .strict()
   .refine((input) => new Set((input.components ?? []).map((c) => c.id)).size === (input.components ?? []).length, {
     message: 'status.component_duplicate',
+  })
+  .refine((input) => new Set((input.noticeCategories ?? []).map((c) => c.id)).size === (input.noticeCategories ?? []).length, {
+    message: 'status.category_duplicate',
   });
 export type StatusPageConfigureInput = z.infer<typeof statusPageConfigureInputSchema>;
 
@@ -112,6 +131,8 @@ export const statusPageSettingsSchema = z
     componentCap: z.number().int().nullable(),
     stalenessSeconds: z.number().int().nullable(),
     uptimeDays: z.number().int().nullable(),
+    challengeBits: z.number().int().nullable(),
+    subscribeRatePerHour: z.number().int().nullable(),
   })
   .strict();
 export type StatusPageSettings = z.infer<typeof statusPageSettingsSchema>;
@@ -168,3 +189,39 @@ export type StatusPage = z.infer<typeof statusPageSchema>;
 export function statusPageConfigureKey(expectedRevision: number): string {
   return `status.page:r${expectedRevision}`;
 }
+
+/**
+ * Status badge (SP-status-05): the top level or one component as a small image another page can show, and the JSON the
+ * share panel reads. The image carries no script and no personal data, and is cached no longer than the staleness
+ * window (at most STATUS_BADGE_MAX_AGE_SECONDS); with the window unset it is not cached and every state reads no data.
+ */
+export const STATUS_BADGE_MAX_AGE_SECONDS = 300;
+
+/** Any short string: an id the page does not define, in any shape, is not found, the same answer the image route gives. */
+export const statusBadgeInputSchema = z.object({ componentId: z.string().min(1).max(64).nullable() }).strict();
+export type StatusBadgeInput = z.infer<typeof statusBadgeInputSchema>;
+
+export const statusBadgeSchema = z
+  .object({
+    /** null for the whole page. */
+    componentId: z.string().nullable(),
+    name: z.string(),
+    state: z.union([z.enum(STATUS_PAGE_STATES), z.literal('none_defined')]),
+    /** The words the image shows. */
+    label: z.string(),
+    /** How long the image may be cached, in seconds: never longer than the staleness window. */
+    maxAgeSeconds: z.number().int().min(0),
+    asOf: z.string(),
+  })
+  .strict();
+export type StatusBadge = z.infer<typeof statusBadgeSchema>;
+
+export const STATUS_BADGE_LABELS: Readonly<Record<StatusBadge['state'], string>> = {
+  operational: 'operational',
+  degraded: 'degraded',
+  partial_outage: 'partial outage',
+  major_outage: 'major outage',
+  maintenance: 'maintenance',
+  no_data: 'no data',
+  none_defined: 'no components',
+};

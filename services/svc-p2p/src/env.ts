@@ -65,6 +65,40 @@ const schema = serviceEnvSchema
       P2P_SECURITY_CHANGE_LOCK_SECONDS: ownerInt,
 
       /**
+       * P-trade-orders-03. Most ongoing orders (created, escrowed, paid, disputed) one person may hold as taker.
+       * Empty is unset: every take then refuses `p2p.config_unset`. Not 5 by default.
+       */
+      P2P_ACTIVE_ORDER_CAP: ownerInt,
+
+      /**
+       * P-trade-orders-05. Cancelled orders (own cancels and lapsed payment windows) within P2P_BUYER_CANCEL_WINDOW_HOURS that pause buying.
+       * Empty is unset: every buy then refuses `p2p.config_unset`. Not 3 by default.
+       */
+      P2P_BUYER_CANCEL_LIMIT: ownerInt,
+
+      /**
+       * P-trade-orders-05. The window, in hours, that P2P_BUYER_CANCEL_LIMIT counts cancelled orders over.
+       * Empty is unset: every buy then refuses `p2p.config_unset`. Not 24 by default.
+       */
+      P2P_BUYER_CANCEL_WINDOW_HOURS: ownerInt,
+
+      /**
+       * P-trade-orders-03. Per-order fiat bounds by pair, as JSON decimal strings: `{"USDT/EUR":{"min":"10","max":"5000"}}`.
+       * Empty is unset and a pair missing from the table is unset for that pair: those takes refuse `p2p.config_unset`.
+       */
+      P2P_PAIR_LIMITS: z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), z.string().optional()),
+
+      /**
+       * P-disputes-security-08. The P2P risk notice version a person accepts
+       * before their first take. Empty is unset: every take then refuses
+       * `p2p.risk_notice_unset`. Changing it asks everyone to accept again.
+       */
+      P2P_RISK_NOTICE_VERSION: z.preprocess(
+        (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+        z.string().trim().min(1).max(64).optional(),
+      ),
+
+      /**
        * Largest `maxAmt` an offer may advertise — the merchant badge's first
        * real entitlement (`merchant-limits.ts` argues why the numbers are not
        * invented in code).

@@ -10,7 +10,7 @@ import { TradeOpsError } from './common.js';
 import type { TradeOpsAdmin } from './service.js';
 
 const limit = z.number().int().min(1).max(200);
-const id = z.string().uuid();
+const id = z.string().guid();
 const reason = z.string().trim().min(3).max(500);
 const clientRequestId = z.string().trim().min(1).max(128);
 const nullableText = z.string().trim().min(1).max(128).nullish();
@@ -58,6 +58,12 @@ const limits = z
     slippageCap: z.string().nullable(),
     throttle: z.string().nullable(),
     circuitBreaker: z.string().nullable(),
+    // Optional: a write that leaves them out keeps the market's current open-interest limits.
+    oiLimit: z.string().nullable().optional(),
+    oiShareBps: z.string().nullable().optional(),
+    priceRangeMax: z.string().nullable().optional(),
+    priceRangeTrigger: z.string().nullable().optional(),
+    priceRangeCadenceSeconds: z.string().nullable().optional(),
   })
   .strict();
 
@@ -164,6 +170,9 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
       history: operator
         .input(z.object({ market: id }).strict())
         .query(({ ctx, input }) => ready().riskHistory(ctx.principal, input.market).catch(fail)),
+      priceBand: operator
+        .input(z.object({ market: id }).strict())
+        .query(({ ctx, input }) => ready().riskPriceBand(ctx.principal, input.market).catch(fail)),
       set: operatorWrite
         .input(
           z.object({
@@ -183,7 +192,7 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
       set: operatorWrite
         .input(
           z.object({
-            schedule: z.record(z.unknown()),
+            schedule: z.record(z.string(), z.unknown()),
             effectiveAt: z.string().trim().min(1).max(40),
             expectedVersion: z.string().regex(/^(?:0|[1-9]\d*)$/),
             reason,
@@ -378,7 +387,7 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
               kind: agreementKind.nullish(),
               version: z.number().int().min(1).nullish(),
               region: z.string().trim().min(1).max(16).nullish(),
-              userId: z.string().uuid().nullish(),
+              userId: z.string().guid().nullish(),
               from: z.string().nullish(),
               to: z.string().nullish(),
               cursor: z.string().nullish(),
@@ -394,7 +403,7 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
               kind: agreementKind.nullish(),
               version: z.number().int().min(1).nullish(),
               region: z.string().trim().min(1).max(16).nullish(),
-              userId: z.string().uuid().nullish(),
+              userId: z.string().guid().nullish(),
               from: z.string().nullish(),
               to: z.string().nullish(),
               reason,

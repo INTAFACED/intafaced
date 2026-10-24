@@ -4,6 +4,7 @@
  */
 
 import type { Sql } from 'postgres';
+import type { NoticeCategory } from '@intafaced/contracts';
 import {
   INCIDENT_IMPACTS,
   INCIDENT_PHASES,
@@ -12,6 +13,7 @@ import {
   STATUS_COMPONENT_PATTERN,
   type IncidentImpact,
   type IncidentPhase,
+  type NoticeCursor,
   type NoticeKind,
   type NoticeRow,
   type NoticeStore,
@@ -37,6 +39,8 @@ type NoticePg = {
   network: string | null;
   phase: string | null;
   changelog: unknown;
+  reminder_offsets: number[] | null;
+  category: NoticeCategory | null;
   author_id: string;
   client_request_id: string;
   publish_client_request_id: string | null;
@@ -93,6 +97,8 @@ function fromPg(row: NoticePg): NoticeRow {
     network: row.network,
     phase: asPhase(row.phase),
     changelog: asChangelog(row.changelog),
+    reminderOffsets: row.reminder_offsets ?? [],
+    category: row.category ?? null,
     authorId: row.author_id,
     clientRequestId: row.client_request_id,
     publishClientRequestId: row.publish_client_request_id,
@@ -103,7 +109,7 @@ function fromPg(row: NoticePg): NoticeRow {
 
 const COLUMNS = `
   id, kind, title, body, status, published_at, starts_at, ends_at, version,
-  impact, components, parent_id, resolves, asset, network, phase, changelog,
+  impact, components, parent_id, resolves, asset, network, phase, changelog, reminder_offsets, category,
   author_id, client_request_id, publish_client_request_id, approval_id, created_at
 `;
 
@@ -123,13 +129,16 @@ export class PostgresNoticeStore implements NoticeStore {
     await this.sql`
       INSERT INTO notify.notices (
         id, kind, title, body, status, published_at, starts_at, ends_at, version,
-        impact, components, parent_id, resolves, asset, network, phase, changelog, author_id, client_request_id
+        impact, components, parent_id, resolves, asset, network, phase, changelog, reminder_offsets, category, author_id,
+        client_request_id
       ) VALUES (
         ${row.id}, ${row.kind}, ${row.title}, ${row.body}, ${row.status},
         ${row.publishedAt}, ${row.startsAt}, ${row.endsAt}, ${row.version},
         ${row.impact}, ${row.components as string[]}, ${row.parentId}, ${row.resolves},
         ${row.asset}, ${row.network}, ${row.phase},
         ${row.changelog ? this.sql.json(row.changelog as never) : null},
+        ${[...(row.reminderOffsets ?? [])]}::integer[],
+        ${row.category ? this.sql.json(row.category as never) : null},
         ${row.authorId}, ${row.clientRequestId}
       )
     `;
@@ -151,21 +160,26 @@ export class PostgresNoticeStore implements NoticeStore {
     return rows[0] ? fromPg(rows[0]) : null;
   }
 
-  async listPublished(kind: NoticeKind | null, limit: number): Promise<readonly NoticeRow[]> {
-    const rows =
-      kind == null
-        ? await this.sql<NoticePg[]>`
-            SELECT ${this.sql.unsafe(COLUMNS)} FROM notify.notices
-             WHERE status = 'published'
-             ORDER BY published_at DESC, id ASC
-             LIMIT ${limit}
-          `
-        : await this.sql<NoticePg[]>`
-            SELECT ${this.sql.unsafe(COLUMNS)} FROM notify.notices
-             WHERE status = 'published' AND kind = ${kind}
-             ORDER BY published_at DESC, id ASC
-             LIMIT ${limit}
-          `;
+  async listPublished(kind: NoticeKind | null, limit: number, after?: NoticeCursor): Promise<readonly NoticeRow[]> {
+    // Newest first, ties by id: the page after a cursor is what sorts after it in that same order. The cursor's time is
+    // read from its row here, so the comparison keeps the column's microseconds (a JS Date holds milliseconds).
+    const rows = after
+      ? await this.sql<NoticePg[]>`
+          WITH c AS (SELECT published_at AS cursor_at FROM notify.notices WHERE id = ${after.id})
+          SELECT ${this.sql.unsafe(COLUMNS)} FROM notify.notices, c
+           WHERE status = 'published'
+             ${kind == null ? this.sql`` : this.sql`AND kind = ${kind}`}
+             AND (published_at < c.cursor_at OR (published_at = c.cursor_at AND id > ${after.id}))
+           ORDER BY published_at DESC, id ASC
+           LIMIT ${limit}
+        `
+      : await this.sql<NoticePg[]>`
+          SELECT ${this.sql.unsafe(COLUMNS)} FROM notify.notices
+           WHERE status = 'published'
+             ${kind == null ? this.sql`` : this.sql`AND kind = ${kind}`}
+           ORDER BY published_at DESC, id ASC
+           LIMIT ${limit}
+        `;
     return rows.map(fromPg);
   }
 
@@ -179,17 +193,76 @@ export class PostgresNoticeStore implements NoticeStore {
     return rows.map(fromPg);
   }
 
-  async markPublished(id: string, patch: { publishedAt: Date; approvalId: string; publishClientRequestId: string }): Promise<void> {
-    const rows = await this.sql<{ id: string }[]>`
-      UPDATE notify.notices
-         SET status = 'published',
-             published_at = ${patch.publishedAt},
-             approval_id = ${patch.approvalId},
-             publish_client_request_id = ${patch.publishClientRequestId}
-       WHERE id = ${id} AND status = 'draft'
-       RETURNING id
+  async listUpcomingMaintenance(at: Date, limit: number): Promise<readonly NoticeRow[]> {
+    const rows = await this.sql<NoticePg[]>`
+      SELECT ${this.sql.unsafe(COLUMNS)} FROM notify.notices
+       WHERE status = 'published' AND kind = 'maintenance' AND starts_at > ${at}
+         AND cardinality(reminder_offsets) > 0
+       ORDER BY starts_at ASC, id ASC
+       LIMIT ${limit}
     `;
-    if (rows.length === 0) throw new NoticeError('notify.notice_published_immutable');
+    return rows.map(fromPg);
+  }
+
+  async listAll(kind: NoticeKind | null, limit: number): Promise<readonly NoticeRow[]> {
+    const rows =
+      kind == null
+        ? await this.sql<NoticePg[]>`
+            SELECT ${this.sql.unsafe(COLUMNS)} FROM notify.notices ORDER BY created_at DESC, id ASC LIMIT ${limit}
+          `
+        : await this.sql<NoticePg[]>`
+            SELECT ${this.sql.unsafe(COLUMNS)} FROM notify.notices WHERE kind = ${kind} ORDER BY created_at DESC, id ASC LIMIT ${limit}
+          `;
+    return rows.map(fromPg);
+  }
+
+  async resolved(rootId: string): Promise<boolean> {
+    const rows = await this.sql<{ one: number }[]>`
+      SELECT 1 AS one FROM notify.notices WHERE parent_id = ${rootId} AND status = 'published' AND resolves LIMIT 1
+    `;
+    return rows.length > 0;
+  }
+
+  async openIncidentThreads(limit: number): Promise<readonly NoticeRow[]> {
+    const rows = await this.sql<NoticePg[]>`
+      WITH open AS (
+        SELECT r.id FROM notify.notices r
+         WHERE r.kind = 'incident' AND r.parent_id IS NULL AND r.status = 'published'
+           AND NOT EXISTS (
+             SELECT 1 FROM notify.notices c WHERE c.parent_id = r.id AND c.status = 'published' AND c.resolves
+           )
+      )
+      SELECT ${this.sql.unsafe(COLUMNS)} FROM notify.notices
+       WHERE id IN (SELECT id FROM open) OR parent_id IN (SELECT id FROM open)
+       ORDER BY created_at DESC, id ASC
+       LIMIT ${limit}
+    `;
+    return rows.map(fromPg);
+  }
+
+  async markPublished(id: string, patch: { publishedAt: Date; approvalId: string; publishClientRequestId: string }): Promise<void> {
+    await this.sql.begin(async (tx) => {
+      const [draft] = await tx<{ parent_id: string | null }[]>`SELECT parent_id FROM notify.notices WHERE id = ${id}`;
+      if (draft?.parent_id) {
+        // Every publish under one incident takes the incident's row first, so the check below sees any resolution that
+        // committed before it, and a resolution racing it waits for this one.
+        await tx`SELECT id FROM notify.notices WHERE id = ${draft.parent_id} FOR UPDATE`;
+        const resolved = await tx<{ one: number }[]>`
+          SELECT 1 AS one FROM notify.notices WHERE parent_id = ${draft.parent_id} AND status = 'published' AND resolves LIMIT 1
+        `;
+        if (resolved.length > 0) throw new NoticeError('notify.notice_incident_resolved');
+      }
+      const rows = await tx<{ id: string }[]>`
+        UPDATE notify.notices
+           SET status = 'published',
+               published_at = ${patch.publishedAt},
+               approval_id = ${patch.approvalId},
+               publish_client_request_id = ${patch.publishClientRequestId}
+         WHERE id = ${id} AND status = 'draft'
+         RETURNING id
+      `;
+      if (rows.length === 0) throw new NoticeError('notify.notice_published_immutable');
+    });
   }
 
   async approvalOutcome(approvalId: string): Promise<'published' | 'refused_same_operator' | null> {

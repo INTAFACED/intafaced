@@ -8,7 +8,8 @@ import { withdrawStepUpCopy } from './withdraw-step-up-copy';
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 type Key = Parameters<ReturnType<typeof withdrawStepUpCopy.useCopy>['t']>[0];
 
-const refusalKeys: Record<string, Key> = {
+/** Identity's step-up refusals in plain words: shared by every "Confirm it's you" in the money rooms. */
+export const stepUpRefusalKeys: Record<string, Key> = {
   'auth.mfa_invalid': 'codeBad',
   'auth.mfa_not_enrolled': 'noAuthenticator',
   'auth.webauthn_not_enrolled': 'noPasskey',
@@ -53,7 +54,7 @@ export function WithdrawStepUp({
   const gone = () => alive.current?.signal.aborted ?? true;
 
   const wordsFor = (result: Failed) =>
-    result.code && refusalKeys[result.code] ? t(refusalKeys[result.code]!) : result.message || t('failed');
+    result.code && stepUpRefusalKeys[result.code] ? t(stepUpRefusalKeys[result.code]!) : result.message || t('failed');
 
   async function confirm(method: WithdrawStepUpMethod, how: 'code' | 'passkey') {
     if (busy) return;

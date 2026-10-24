@@ -377,7 +377,9 @@ export function createPersonalPayApi(
     a.method === b.method &&
     parseAmount(a.amount) === parseAmount(b.amount) &&
     parseAmount(a.fiatAmount) === parseAmount(b.fiatAmount) &&
-    parseAmount(a.price) === parseAmount(b.price);
+    parseAmount(a.price) === parseAmount(b.price) &&
+    // Only `trades.get` carries the ad's terms: two readings that both have them must agree.
+    (a.terms === undefined || b.terms === undefined || a.terms === b.terms);
   const sameTerms = (a: s.Trade, b: s.Trade) => sameImmutableTerms(a, b) && a.status === b.status && a.deadlineAt === b.deadlineAt;
   async function currentOffer(offerId: string, signal?: AbortSignal) {
     const denied = signedIn();
@@ -466,10 +468,26 @@ export function createPersonalPayApi(
     },
     offers: (input: { asset?: string; fiatCurrency?: string; side?: 'buy' | 'sell'; limit: number }, signal?: AbortSignal) =>
       signedIn() ? Promise.resolve(signedIn()!) : api.query('p2p', 'offers.list', input, z.array(s.offerSchema), { signal }),
+    /** One board page, filtered and sorted by the service; `cursor` continues the previous page under the same query. */
+    offerPage: (input: s.BoardQuery & { makerId?: string; limit: number; cursor?: string | null }, signal?: AbortSignal) =>
+      signedIn() ? Promise.resolve(signedIn()!) : api.query('p2p', 'offers.page', input, s.offerPageSchema, { signal }),
     offer: currentOffer,
-    trades: (limit: number, signal?: AbortSignal) =>
-      signedIn() ? Promise.resolve(signedIn()!) : api.query('p2p', 'trades.list', { limit }, z.array(s.tradeSchema), { signal }),
     trade: currentTrade,
+    /** One page of the order list: `tab` narrows it, `cursor` continues from the previous page's `nextCursor`. */
+    orderPage: ({ tab, cursor, limit }: { limit: number; tab?: s.OrderTab; cursor?: string | null }, signal?: AbortSignal) =>
+      signedIn()
+        ? Promise.resolve(signedIn()!)
+        : api.query('p2p', 'trades.page', { limit, ...(tab ? { tab } : {}), ...(cursor ? { cursor } : {}) }, s.orderPageSchema, {
+            signal,
+          }),
+    /** The caller's orders created in [from, to] as the service's CSV; a range or row count over the owner cap refuses. */
+    exportOrders: (range: { from: string; to: string }, signal?: AbortSignal) =>
+      signedIn()
+        ? Promise.resolve(signedIn()!)
+        : api.query('p2p', 'trades.export', { ...range, format: 'csv' }, s.orderExportSchema, { signal }),
+    /** A receipt for one released order. Each call spends one download of the owner quotas, so it is a write. */
+    receipt: (tradeId: string) =>
+      signedIn() ? Promise.resolve(signedIn()!) : api.mutate('p2p', 'trades.receipt', { tradeId }, s.orderReceiptSchema),
     health: (signal?: AbortSignal) => api.query('p2p', 'health', undefined, s.p2pHealthSchema, { signal }),
     fiat: (signal?: AbortSignal) => api.query('p2p', 'fiat.list', undefined, z.array(s.fiatSchema), { signal }),
     methods: (signal?: AbortSignal) => api.query('p2p', 'instruments.methods.list', { limit: 200 }, z.array(s.methodSchema), { signal }),
@@ -564,6 +582,18 @@ export function createPersonalPayApi(
       if (denied) return Promise.resolve(denied);
       if (!p2pCurrent()) return Promise.resolve(p2pDeparted());
       return api.mutate('p2p', `contacts.${change}`, { peerId, idempotencyKey }, s.contactsSchema, { signal });
+    },
+    /** `access.eligibility`: what this person needs before taking an ad, check by check. */
+    eligibility(signal?: AbortSignal) {
+      const denied = signedIn();
+      if (denied) return Promise.resolve(denied);
+      return api.query('p2p', 'access.eligibility', undefined, s.p2pEligibilitySchema, { signal });
+    },
+    /** `risk.accept`: accept exactly the version shown. Accepting again returns the first acceptance. */
+    acceptRisk(version: string) {
+      const denied = signedIn();
+      if (denied) return Promise.resolve(denied);
+      return api.mutate('p2p', 'risk.accept', { version }, s.p2pRiskNoticeSchema.extend({ acceptedAt: z.string() }));
     },
     standing: (signal?: AbortSignal) => api.query('p2p', 'merchants.me', undefined, s.p2pStandingSchema.nullable(), { signal }),
     apiAccess: (signal?: AbortSignal) => api.query('p2p', 'merchants.apiAccess', undefined, s.p2pApiAccessSchema, { signal }),
@@ -741,6 +771,57 @@ export function createPersonalPayApi(
       return quoteIsConsistent(offer, request, result.data) ? result : takeRefusal('pay.take_quote_invalid', 'invalid_response');
     },
     /**
+     * Hold the reviewed figures: `trades.lockQuote`. The service keeps this price, fee and amount until the quote ends,
+     * and a take that names it places exactly them or refuses before anything is reserved. The reply must describe the
+     * same request and add up, like a preview quote.
+     */
+    async lockQuote(offer: s.Offer, request: TakeRequest, signal?: AbortSignal): Promise<ApiResult<s.TakeQuote>> {
+      const denied = signedIn();
+      if (denied) return denied;
+      if (isOwnOffer(offer, userId)) return takeRefusal('pay.take_own_offer', 'forbidden');
+      if (request.offerId.toLowerCase() !== offer.id.toLowerCase()) return takeRefusal('pay.take_terms_changed', 'invalid_response');
+      if (!p2pCurrent()) return p2pDeparted();
+      // A new quote each time the order is reviewed: the id names this quote, it is not a retry key for a money step.
+      let quoteId: string;
+      try {
+        quoteId = globalThis.crypto.randomUUID();
+      } catch {
+        return takeRefusal('pay.take_quote_invalid', 'not_supported');
+      }
+      const result = await api.mutate('p2p', 'trades.lockQuote', { ...request, quoteId }, s.lockedQuoteSchema, { signal });
+      if (!p2pCurrent()) return p2pDeparted();
+      if (!result.ok) return result;
+      // Count down from the time left the service gave, on this device's clock: a device clock that runs fast or slow
+      // must not end the quote early or keep it open late.
+      const { expiresAt: _serverEnd, expiresInMs, ...figures } = result.data;
+      const held: s.TakeQuote = { ...figures, reservationExpiresAt: new Date(Date.now() + expiresInMs).toISOString() };
+      return quoteIsConsistent(offer, request, held) && held.quoteId === quoteId
+        ? { ok: true, data: held }
+        : takeRefusal('pay.take_quote_invalid', 'invalid_response');
+    },
+    /**
+     * The coin amount a fiat amount buys on this offer, as the service converts it (`trades.quote` with `fiatAmount`,
+     * rounded down so the fiat is never more than asked). Only the amount is used: the order is then quoted by it.
+     */
+    async coinForFiat(offer: s.Offer, input: { fiatAmount: string; method: string }, signal?: AbortSignal): Promise<ApiResult<string>> {
+      const denied = signedIn();
+      if (denied) return denied;
+      if (!p2pCurrent()) return p2pDeparted();
+      const result = await api.query(
+        'p2p',
+        'trades.quote',
+        { offerId: offer.id.toLowerCase(), fiatAmount: input.fiatAmount, method: input.method },
+        s.takeQuoteSchema,
+        { signal },
+      );
+      if (!p2pCurrent()) return p2pDeparted();
+      if (!result.ok) return result;
+      // The reply must price exactly the fiat asked for; anything else is not this conversion.
+      return parseAmount(result.data.fiatAmount) === parseAmount(input.fiatAmount)
+        ? { ok: true, data: result.data.amount }
+        : takeRefusal('pay.take_quote_invalid', 'invalid_response');
+    },
+    /**
      * Place the order: `trades.take`, which locks the seller's asset in escrow. Money moves, so:
      *  - the order id is chosen here, stored on this device before the request leaves, and sent with it;
      *  - the offer and the quote are read again first and must be what was reviewed;
@@ -753,7 +834,7 @@ export function createPersonalPayApi(
     async takeOffer(
       offer: s.Offer,
       request: TakeRequest,
-      reviewed: { quote: s.TakeQuote; current: () => boolean; recoveryCurrent?: () => boolean },
+      reviewed: { quote: s.TakeQuote; current: () => boolean; recoveryCurrent?: () => boolean; stepUpApprovalId?: string },
     ) {
       const denied = signedIn();
       if (denied) return denied;
@@ -787,7 +868,15 @@ export function createPersonalPayApi(
         const sent = await api.mutate(
           'p2p',
           'trades.take',
-          { offerId: request.offerId, tradeId, amount: request.amount, method: request.method },
+          {
+            offerId: request.offerId,
+            tradeId,
+            amount: request.amount,
+            method: request.method,
+            ...(reviewed.quote.quoteId ? { quoteId: reviewed.quote.quoteId } : {}),
+            // The fresh confirmation of exactly this review; inside this session's confirmed ten minutes there is none.
+            ...(reviewed.stepUpApprovalId ? { stepUpApprovalId: reviewed.stepUpApprovalId } : {}),
+          },
           s.tradeSchema,
         );
         if (sent.ok)
@@ -852,6 +941,8 @@ export function createPersonalPayApi(
       }
       return guard.run(key, () => place(tradeId), tradeId, current, reviewed.recoveryCurrent ?? p2pCurrent);
     },
+    /** Until when this session's orders need no new confirmation, or null when the next one does. */
+    takeStepUpWindow: (signal?: AbortSignal) => api.query('p2p', 'trades.stepUpWindow', undefined, s.takeStepUpWindowSchema, { signal }),
     /** Look up an unconfirmed take by the order id stored before it was sent. Clears the stored id only when found. */
     async reconcileTake(offer: s.Offer, frameCurrent: () => boolean = () => true) {
       const denied = signedIn();

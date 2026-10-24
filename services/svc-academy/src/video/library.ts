@@ -12,7 +12,7 @@ import type { Amount } from '@intafaced/ledger-client';
 import { AcademyError } from '../errors.js';
 import { listVideoSpine, getVideoSpineItem, type VideoSpineEntry } from './catalog.js';
 import { captionsPublished, readVideoCaptions, readVideoTranscript, transcriptFor, VIDEO_TRANSCRIPTS } from './player.js';
-import { assertVideoEntitled, type VideoCaller, type VideoGateConfig } from './entitlement.js';
+import { assertVideoEntitled, videoGateNeedsStake, type VideoCaller, type VideoGateConfig } from './entitlement.js';
 import {
   assertPlaybackUrlGranted,
   assertVideoStorageConfigured,
@@ -109,7 +109,7 @@ export async function grantAcademyVideoPlayback(input: {
   if (!item) {
     throw new AcademyError(`Video "${input.slug}" is not on the named spine`, 'academy.video_grant_required');
   }
-  const stake = await input.deps.stakeOf(input.caller.userId);
+  const stake = videoGateNeedsStake(input.deps.gate) ? await input.deps.stakeOf(input.caller.userId) : 0n;
   assertVideoEntitled({ gate: input.deps.gate, caller: input.caller, stake });
   const now = input.deps.now?.() ?? new Date();
   const issued = signGetObjectUrl(storage, item.objectKey, now);
@@ -122,9 +122,14 @@ export async function grantAcademyVideoPlayback(input: {
   };
 }
 
+/** The same storage, tier and stake checks as playback, for a read that hands out no URL (AC-videos-01 player settings). */
+export async function assertAcademyVideoEntitled(deps: VideoLibraryDeps, caller: VideoCaller): Promise<void> {
+  await entitle(deps, caller);
+}
+
 async function entitle(deps: VideoLibraryDeps, caller: VideoCaller): Promise<VideoStorageConfig> {
   const storage = assertVideoStorageConfigured(deps.storage);
-  const stake = await deps.stakeOf(caller.userId);
+  const stake = videoGateNeedsStake(deps.gate) ? await deps.stakeOf(caller.userId) : 0n;
   assertVideoEntitled({ gate: deps.gate, caller, stake });
   return storage;
 }

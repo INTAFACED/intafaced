@@ -1,5 +1,5 @@
 import { t as copyText, Text } from './copy';
-import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { z, type ZodType } from 'zod';
 import { currentPreferences } from '../../shared/preferences';
 import { stamp } from '../../screens/money/time';
@@ -18,6 +18,8 @@ import {
   type PendingReservation,
 } from './pending-outcomes';
 import { settleRefusal } from './money-refusal-copy';
+import { StepUpConfirm } from './StepUpConfirm';
+import type { StepUpBegin } from '../account/security-step-up';
 
 export const PAGE_SIZE = 50;
 export const amount = (value: string | null | undefined, asset: string) =>
@@ -37,7 +39,7 @@ export function useBankRead<K extends BankRead>(procedure: K, input: unknown, en
     async (signal) => {
       if (!enabled) return { ok: false, reason: 'not_supported', message: copyText('components.select.a.record.to.load.its.details') };
       if (!userId) return { ok: false, reason: 'unauthorized', message: copyText('components.sign.in.to.read.your.bank.information') };
-      return api.query('bank', procedure, input, bankReads[procedure] as ZodType<z.infer<(typeof bankReads)[K]>>, { signal });
+      return api.query('bank', procedure, input, bankReads[procedure] as unknown as ZodType<z.infer<(typeof bankReads)[K]>>, { signal });
     },
     `${userId}:${procedure}:${JSON.stringify(input)}:${enabled}`,
   );
@@ -133,6 +135,22 @@ export type ActionSpec = {
   /** Plain-words rows for a confirmed result, in place of the raw field list. Return null to fall back to it. */
   describeOutcome?: (data: unknown, input: Record<string, unknown>) => [string, string][] | null;
   transferSpaces?: Space[];
+  /**
+   * What the service itself says about this exact request, read when the review opens (fees and limits). Its rows show in
+   * the review; while it is reading, or when it names a reason, Confirm stays off and the reason is shown.
+   */
+  reviewTerms?: {
+    checking: string;
+    read: (input: Record<string, unknown>, signal: AbortSignal) => Promise<{ rows: [string, string][]; blocked: string | null }>;
+  };
+  /**
+   * A fresh second factor for this exact request (a send to another person): the `stepUp.begin` request naming its
+   * fields, and the words around it. Confirm becomes the code or passkey, and the single-use approval goes with the request.
+   */
+  stepUp?: {
+    request: (input: Record<string, unknown>) => StepUpBegin;
+    words: { why: string; code: string; codeHint: string; codeShort: string; noFactor: string; sendWithout: string };
+  };
   submit?: string;
   unit?: string;
 };
@@ -151,7 +169,7 @@ export const positiveMoney = (asset: string | undefined, name = 'amount', label 
 export const uuidField = (name: string, label: string): ActionField => ({
   name,
   label,
-  validate: (value) => (z.string().uuid().safeParse(value).success ? null : copyText('components.enter.a.valid.id')),
+  validate: (value) => (z.string().guid().safeParse(value).success ? null : copyText('components.enter.a.valid.id')),
 });
 export const startsField: ActionField = {
   name: 'startsAt',
@@ -305,6 +323,22 @@ export function MutationDialog({
     spec.fields?.length ? null : spec.input(spec.initial ?? {}, requestId),
   );
   const reviewed = useRef(reviewInput);
+  // The service's terms for the request under review. Kept with the request they were read for, so a stale answer never shows.
+  const [terms, setTerms] = useState<{ for: Record<string, unknown>; rows: [string, string][]; blocked: string | null } | null>(null);
+  const termsFor = spec.reviewTerms && reviewInput ? (terms?.for === reviewInput ? terms : null) : null;
+  const termsHold = Boolean(spec.reviewTerms) && (termsFor === null || termsFor.blocked !== null);
+  useEffect(() => {
+    if (!spec.reviewTerms || stage !== 'review' || !reviewInput) return;
+    const controller = new AbortController();
+    const input = reviewInput;
+    spec.reviewTerms
+      .read(input, controller.signal)
+      .catch(() => ({ rows: [], blocked: copyText('components.review.check.failed.no.request.sent') }))
+      .then((read) => {
+        if (!controller.signal.aborted) setTerms({ for: input, ...read });
+      });
+    return () => controller.abort();
+  }, [spec, stage, reviewInput]);
   const staged = useRef({ reviewInput, values });
   staged.current = { reviewInput, values };
   const rendering = {};
@@ -382,11 +416,18 @@ export function MutationDialog({
     setReviewInput(input);
     setStage('review');
   }
-  async function submit() {
-    if (!admitted() || stage !== 'review' || sending.current || !reviewInput || reviewed.current !== reviewInput) return;
+  // The confirmation answers after an async factor check; it must reach this render's submit, not the one it began with.
+  const latestSubmit = useRef<(stepUpApprovalId?: string | null) => Promise<void>>(async () => {});
+  latestSubmit.current = (approval) => submit(approval);
+  async function submit(stepUpApprovalId?: string | null) {
+    if (!admitted() || stage !== 'review' || sending.current || !reviewInput || reviewed.current !== reviewInput || termsHold) return;
+    // A step-up review sends only after its confirmation answered: an approval, or null for a person with no factor.
+    if (spec.stepUp && stepUpApprovalId === undefined) return;
     const run = {};
     sending.current = run;
     const input = reviewInput;
+    // The approval is spent by this one call. It is sent, never journaled and never kept for a retry.
+    const sent = stepUpApprovalId ? { ...input, stepUpApprovalId } : input;
     setStage('sending');
     const currentRun = () => current() && sending.current === run && reviewed.current === input;
     const dispatch = async (): Promise<ApiResult<unknown>> => {
@@ -436,11 +477,11 @@ export function MutationDialog({
       let outcome: ApiResult<unknown>;
       try {
         outcome = spec.transferSpaces
-          ? await createMoneyClient(api).transfer(spec.transferSpaces, input as TransferDraft)
+          ? await createMoneyClient(api).transfer(spec.transferSpaces, sent as TransferDraft)
           : await api.mutate(
               'bank',
               spec.procedure,
-              input,
+              sent,
               bankWriteForReview(spec.procedure, input).refine((data) => spec.verifyOutcome?.(data, input) ?? true),
             );
       } catch {
@@ -615,7 +656,19 @@ export function MutationDialog({
                   <dd>{value}</dd>
                 </div>
               ))}
+              {termsFor?.rows.map(([label, value]) => (
+                <div key={label} data-testid="review-terms-row">
+                  <dt>{label}</dt>
+                  <dd>{value}</dd>
+                </div>
+              ))}
             </dl>
+            {spec.reviewTerms && stage === 'review' && termsFor === null && <Loading label={spec.reviewTerms.checking} />}
+            {termsFor?.blocked && (
+              <p className="notice" role="alert" data-testid="review-terms-blocked">
+                {termsFor.blocked}
+              </p>
+            )}
             <p className="money-reference">
               <Text k="components.request.reference" />
               {requestId}
@@ -624,7 +677,18 @@ export function MutationDialog({
               <Loading label={copyText('components.waiting.for.the.authoritative.outcome')} />
             ) : (
               <div className="actions">
-                <Button onClick={() => void submit()}>{spec.submit ?? copyText('components.confirm')}</Button>
+                {spec.stepUp ? (
+                  <StepUpConfirm
+                    request={() => spec.stepUp!.request(reviewInput!)}
+                    words={spec.stepUp.words}
+                    disabled={termsHold}
+                    onApproved={(approval) => void latestSubmit.current(approval)}
+                  />
+                ) : (
+                  <Button disabled={termsHold} onClick={() => void submit()}>
+                    {spec.submit ?? copyText('components.confirm')}
+                  </Button>
+                )}
                 {Boolean(spec.fields?.length) && (
                   <Button variant="secondary" onClick={edit}>
                     <Text k="components.edit" />

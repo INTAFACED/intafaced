@@ -3,7 +3,7 @@ import type { ApiClient, ApiResult } from '../../shared/api';
 import { createMinimalOriginalJournal, type JournalPorts } from '../../shared/minimal-original-journal';
 import type { ApiKeyRecord } from './api-key-records-api';
 
-const uuid = z.string().uuid();
+const uuid = z.string().guid();
 const timestamp = z.string().refine((value) => {
   const time = Date.parse(value);
   return Number.isFinite(time) && new Date(time).toISOString() === value;

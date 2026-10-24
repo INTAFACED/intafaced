@@ -1,3 +1,4 @@
+import { P2P_DELIST_REASONS } from '@intafaced/contracts/p2p-delist';
 import { z, type ZodType } from 'zod';
 import { uiMessage, type UiMessage } from './ui-copy';
 
@@ -17,7 +18,27 @@ export type ApiResult<T> =
       retryAfterSeconds?: number;
       /** Only on sign-in's `auth.account_frozen`, sent after the password verified: which state the account is in. */
       accountState?: 'frozen' | 'closed';
+      /** Only on a P2P take limit: when it ends, the published bounds, what is left, and the open orders on the cap. */
+      p2pLimit?: P2pLimit;
     };
+
+const limitDecimal = z.string().regex(/^(0|[1-9]\d*)(\.\d+)?$/);
+/** The figures behind a P2P take limit, as svc-p2p sends them (contracts `p2pLimitOf`). Anything malformed is dropped. */
+export const p2pLimitSchema = z.object({
+  until: z.string().datetime().nullable(),
+  cap: limitDecimal.optional(),
+  min: limitDecimal.optional(),
+  max: limitDecimal.optional(),
+  remaining: limitDecimal.optional(),
+  windowHours: limitDecimal.optional(),
+  currency: z
+    .string()
+    .regex(/^[A-Z]{3}$/)
+    .optional(),
+  openTradeIds: z.array(z.string().guid()).max(50).optional(),
+  reason: z.enum(P2P_DELIST_REASONS).optional(),
+});
+export type P2pLimit = z.infer<typeof p2pLimitSchema>;
 export type RequestOptions = {
   signal?: AbortSignal;
   /**
@@ -67,6 +88,7 @@ const errorEnvelope = z
                 requestId: z.string().optional(),
                 retryAfterSeconds: z.number().int().positive().optional(),
                 accountState: z.enum(['frozen', 'closed']).optional().catch(undefined),
+                p2pLimit: p2pLimitSchema.optional().catch(undefined),
                 cause: z.object({ code: z.string().optional() }).passthrough().optional(),
               })
               .passthrough()
@@ -215,6 +237,7 @@ export function createApiClient(
           ...(requestId ? { requestId } : {}),
           ...(error?.data?.retryAfterSeconds ? { retryAfterSeconds: error.data.retryAfterSeconds } : {}),
           ...(code === 'auth.account_frozen' && error?.data?.accountState ? { accountState: error.data.accountState } : {}),
+          ...(error?.data?.p2pLimit ? { p2pLimit: error.data.p2pLimit } : {}),
         };
       }
       const envelope = z.object({ result: z.object({ data: z.unknown() }) }).safeParse(body);

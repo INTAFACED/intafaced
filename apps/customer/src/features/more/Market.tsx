@@ -12,7 +12,7 @@ import { filterListings, NO_FILTER, type ListingFilter } from './market-explorer
 import { marketExplorerCopy } from './market-explorer-copy';
 import { Details, Limit, Read, Select, TextArea, useAction, presentActionFailure } from './common';
 import type { ApiResult, RefusalReason } from '../../shared/api';
-const uuid = z.string().uuid(),
+const uuid = z.string().guid(),
   time = z.string().datetime();
 type MarketFailureKey =
   | 'market.original.purchase.is.still.pending.settlement.is'

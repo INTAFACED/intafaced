@@ -74,6 +74,11 @@ const schema = serviceEnvSchema
        */
       SUPPORT_BULK_CAP: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
       /**
+       * How many comments a requester may add to one request (SP-api-01). Blank is an owner value left unset: a
+       * requester's comment refuses support.comment_cap_unset. Operators are not capped. Never defaulted.
+       */
+      SUPPORT_COMMENT_CAP: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
+      /**
        * How many personal views one person may save, and how many shared views the desk may keep.
        * Blank is unset: a save refuses support.view_cap_unset and names the setting. Never defaulted.
        */

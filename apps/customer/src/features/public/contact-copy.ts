@@ -18,6 +18,7 @@ export const contactCopy = defineCopy('public-contact', {
   addressNotSetNote: 'No address has been published, so there is no email link on this page.',
   loadingContact: 'Loading contact details…',
   phoneLabel: 'Phone:',
+  phoneNotSet: 'Support phone is not set.',
   hoursLabel: 'Chat hours:',
   contactUnread: 'The published contact details could not be read just now, so only what this page was built with is shown.',
   noForm: 'This opens a draft in your email app. Nothing is sent from this page.',

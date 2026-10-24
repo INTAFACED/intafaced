@@ -184,7 +184,9 @@ an open incident or active maintenance notice that names it, else its newest rea
 
 - `statusPage.configure` (`admin:write`, module notify) replaces the component list and sets the owner values, from the
   revision the founder read and with a reason. Changes are logged append-only in `notify.status_page_log` under
-  `status.page:r<revision>`; a replay of the same change returns the stored state.
+  `status.page:r<revision>`; a replay of the same change returns the stored state. `statusPage.definition` (same scope)
+  and `configure` also answer `publicOrigin`, the site address from `NOTIFY_PUBLIC_ORIGIN` (null when unset), which the
+  founder console's status desk (`/notify/status`) builds badge snippets on.
 - `statusPage.record` (same scope) stores one reading (`component`, `observedAt`, `state`, `source`). The pair is the key:
   a replay is one row, a different state at the same instant is `status.reading_conflict`. Readings are append-only.
 - Owner values, blank until a founder sets them: component cap (blank refuses any component, `status.component_cap_unset`),
@@ -193,6 +195,135 @@ an open incident or active maintenance notice that names it, else its newest rea
 - Incident and maintenance notices may name a defined component as well as `api`, `webhooks` and `console`; a trigger on
   `notify.notices` refuses any other name. `notify.statusFeed` still reports only the three built-in components.
 - Readings come from founders today; a service that publishes its own health reading does it in its own contract PR.
+
+### Incident desk (SP-status-02)
+
+The founder console's incident desk (`/notify/incidents`) writes incidents through the notice board, so a publish
+still spends an identity four-eyes approval (`notify.notice.publish`) and the approver cannot also publish.
+
+- `notify.operatorNotices` (`admin:write`) lists notices of one kind, drafts included, newest written first, with the
+  incident fields and the author. `notify.noticeProposal` (same scope) answers the exact approval a draft's publish
+  spends (action, target, version and payload hash), so the console never computes the hash itself.
+- A resolved incident is final: a draft update naming it, or publishing an update drafted before it resolved, is refused
+  with `notify.notice_incident_resolved`.
+- `statusPage.templates.list | define | retire` (`admin:write`) keep the founders' incident templates in
+  `notify.status_incident_templates` (migration 0029): id, name, optional group, title, first update, impact and the
+  components it names (each must be defined on the page; an incident template naming components must name its impact).
+  None is seeded. At most 100 active (`status.template_cap_reached`); the same wording defined again is a replay, and a
+  retired id defined again comes back.
+- `statusPage.postmortems.*` (migration 0031): one postmortem per incident, written on its first entry only once a
+  published entry has resolved it (`status.postmortem_requires_resolved` while open). `write` (`admin:write`) names the
+  version it read (0 for none): the same words again are a replay, an edit over a newer version is
+  `status.postmortem_version_stale`. `proposal` is the identity approval (`notify.postmortem.publish`, target
+  `postmortem:<incident>`, bound to the version and wording) a second founder approves; `publish` spends it once, with a
+  request id made from the approval so a retry after a lost reply is answered by identity, and records the use with the
+  publish in one transaction. An approval for another action, or the approver publishing
+  (`status.postmortem_publish_same_operator`), is spent and publishes nothing; identity not answering is
+  `status.postmortem_approval_unreachable` and leaves the approval usable. A published postmortem is never edited.
+  `forIncidents` (up to 200 ids) is the founders' desk; `published` is signed-out and carries no author. The customer
+  `/status` page does not show postmortems yet.
+
+### Scheduled maintenance (SP-status-03)
+
+- A maintenance draft (`notify.draftNotice`, kind `maintenance`) may carry `reminderOffsets`: whole minutes before its
+  start, at most 10, each 1 to 43200, stored distinct and largest first. They need a start and belong to maintenance
+  alone (`notify.notice_reminders_invalid`), and they are part of the payload hash its publish approval binds. None is
+  none: no reminder is invented.
+- Once published, the state is derived, never held by a timer: `scheduled` before the start, `in_progress` from it, then
+  only an operator moves it on with `statusPage.maintenance.move` (`admin:write`, `{ id, to, reason }`): to `verifying`
+  from in progress, to `completed` from verifying, to `cancelled` before verifying. A completed or cancelled window is
+  final (`status.maintenance_reopen_refused`); any other move that does not follow is `status.maintenance_illegal_move`;
+  the same move again is a replay. Each move is stored once in `notify.maintenance_moves` (migration 0032) with who and
+  why, decided under the window's row lock. A window past its planned end stays where the operators left it.
+- A completed or cancelled window leaves `notify.noticeStatus`, the status feed and the funding banners at once, before
+  its planned end. A window still open past its planned end leaves them at that end, as before; the desk says so and the
+  operators complete it or publish an incident.
+- Reminders: a sweep every 15 seconds reads the published windows with offsets that have not started (soonest first,
+  at most 500), makes the missing `notify.maintenance_reminders` rows of each in one insert, keyed (window, offset), and
+  sends each due one while the window is still scheduled: one email per active subscriber it concerns, keyed
+  `<window>:reminder:<offset>:<subscriber>:email`, so a reminder sent again after a crash reaches no one twice. An offset
+  whose time had already passed when the window was published is marked `published_late` and never sent. A reminder some
+  subscriber did not get (failed, or waiting with no sender) stays unsent and is tried again when its two-minute lease
+  runs out, until the window starts. A window that started, completed or was cancelled first marks its due reminder
+  skipped. The offsets of a published window are held by the published-row trigger like its other fields.
+- `statusPage.maintenance.windows` (`admin:write`) is the founders' desk: windows (drafts too) with state, moves and
+  reminders.
+- Notice categories: `statusPage.configure` takes `noticeCategories`, the whole list of `{ id, name }` (at most 20; `null`
+  clears it), an owner value on the status page row (migration 0033). Blank means the kinds alone. A draft
+  (`notify.draftNotice`) may name one `category` id from the list; any other, or any at all with no list set, is
+  `status.category_unknown`. It is stored with its name as listed then, bound by the publish approval's payload hash,
+  held by the published-row trigger, and carried on every notice read as `category` (`null` for none), so renaming a
+  category later leaves published notices as they were filed. The founders file announcements at `/notify/notices`.
+
+### Status badge (SP-status-05)
+
+`GET /status/badge.svg?component=<id>` (through Edge at `/api/notify/status/badge.svg`) draws the top level, or one
+component, as a small SVG another page can show with an `<img>`: no script, no personal data, no frame. `statusPage.badge`
+is the same answer as JSON. It says `no data` without a fresh reading, and an id the page does not define is a 404 with
+`status.component_unknown` and no image. The service sends `Cache-Control: public, max-age` no longer than the staleness
+window (at most 300 s), and `no-cache` while the window is unset; Edge currently replaces it with `no-store`, which is
+shorter still. The customer `/status` page has a "Share this status" panel with the image link and the HTML to paste.
+
+### Read API for status and notices (SP-api-01)
+
+Plain GETs for developers, signed out, through Edge at `/api/notify/v1/...`. Each answers exactly what the site reads
+through tRPC; nothing here writes.
+
+| Route                                                  | Same as           | Answer                                                                                                                                                  |
+| ------------------------------------------------------ | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /v1/notices?limit=<n>[&kind=<kind>][&after=<id>]` | `notify.notices`  | `{ notices, next }`: published notices, newest first (ties by id). `next` is the id to pass as `after` for the following page, `null` on the last page. |
+| `GET /v1/notices/:id`                                  | `notify.notice`   | One published notice.                                                                                                                                   |
+| `GET /v1/status`                                       | `statusPage.read` | Components, groups, top-level status, uptime and the incident and maintenance feed.                                                                     |
+
+`limit` is required (there is no default page size) and is capped at 50. `/v1/status` may answer a read up to 5 s old,
+shared with the badge, since unsigned callers poll it. `kind` is `announcement`, `maintenance`,
+`incident` or `changelog`. Refusals are `{ code }`: 400 `notify.notices_limit_invalid`, `notify.notice_kind_unknown`,
+`notify.notices_cursor_unknown` (an `after` that is not a published notice of that kind: a page never silently restarts
+from the top); 404 `notify.notice_not_found` (a draft reads the same as an id that never existed); 503
+`notify.notices_unavailable` or `notify.status_page_unavailable`. `notify.notices` takes the same `after`.
+
+### Status subscriptions (SP-status-04)
+
+`statusPage.subscriptions.*` is signed-out; the signed link is the credential. A visitor subscribes by email to every
+component or to chosen ones, confirms by the link in the confirmation message (double opt-in: nothing else is sent before
+that, and confirming again is the same one active subscriber), may add a webhook, and leaves by the link in every update.
+
+- Safeguards, owner values on the status page row and blank until a founder sets them: `challengeBits` (a self-hosted
+  sha256 proof of work the form solves in the browser; blank refuses `status.challenge_unset`) and `subscribeRatePerHour`
+  (requests per address per hour; blank refuses `status.rate_limit_unset`, over it `status.rate_limited`). A request
+  that fails the challenge stores nothing; a challenge is spent once.
+- Links are HMAC-signed with `NOTIFY_STATUS_LINK_SECRET`: confirm links expire after `NOTIFY_VERIFY_TTL_MINUTES` and are
+  tied to the subscriber's revision, so leaving and subscribing again voids old ones; manage and unsubscribe links do not
+  expire. Opening a link page changes nothing until its button is pressed, so a mail scanner spends nothing.
+- A webhook must be https to a public address. Loopback, private, link-local, shared and reserved addresses, `localhost`,
+  `.local` and `.internal` names, and names that do not resolve are refused (`status.webhook_target_refused`), when it is
+  saved and again at send time; redirects are not followed.
+- A published incident or maintenance notice fans out to the active subscribers it concerns (a notice naming no
+  component goes to all). Each send writes `notify.status_deliveries` first, keyed `<notice>:<subscriber>:<channel>`, so a
+  second fan-out never sends again once accepted, and takes the row for a two-minute lease before sending (migration
+  0030), so two fan-outs racing on one notice cannot both send it.
+- Mail transport: the email gateway with `NOTIFY_PUBLIC_ORIGIN` for the links; with either missing, nothing is attempted
+  and the delivery waits `pending` with `vendor.email`, which the form says. `NOTIFY_STATUS_MAIL_TRANSPORT=local-outbox`
+  writes LOCAL-TEST lines to `NOTIFY_STATUS_MAIL_OUTBOX` and refuses to boot unless `APP_ENV` is exactly dev or test.
+  SMS and push are named not connected (`vendor.sms`, `vendor.push`).
+- The founders' subscriber desk (`/notify/subscribers` in the console), all `admin:write`:
+  - `statusPage.subscriptions.find` is one address with its delivery rows; `list` (`state`, `limit` up to 200) is the
+    subscribers newest first with their delivery counts and source; `channels` says how each channel leaves (the email
+    gateway, the LOCAL TEST outbox, or none with `vendor.email`; SMS and push are `vendor.sms` and `vendor.push`).
+  - `deliveries` (`noticeId`) is one published notice's rows, one per subscriber and channel (the first 500, with `more`
+    when there are others). `resend` tries that notice's pending and failed rows once more, for subscribers still
+    active: accepted and refused rows are left, no row is doubled, and no one who subscribed since is sent it
+    (`status.notice_unknown` for a notice that is not published).
+  - `import` (`source`, 1 to 500 addresses) adds addresses as unconfirmed with their source; a duplicate in the list, in
+    any letter case, is one record, and a known address is left as it is (no confirmation, its hourly budget untouched).
+    Each added address gets one confirmation, within the per-address hourly limit, so importing the list again sends
+    nothing. A blank proof of work or rate limit refuses the import as it refuses subscribing (`status.challenge_unset`,
+    `status.rate_limit_unset`); a malformed one is `status.import_invalid`.
+- A send that throws fails its own row and the fan-out goes on; a sender that lost its lease records nothing over the
+  sender that took the row.
+- Not yet: a per-source rate limit (only per address); a retry worker that tries pending and failed deliveries on its
+  own (a founder resends from the desk); sending webhooks apart from email, so a slow webhook does not hold up the next
+  subscriber's mail; export.
 
 ### Guest outreach emails
 
@@ -696,6 +827,10 @@ is actually open.
 | `NOTIFY_{EMAIL,PUSH,SMS}_GATEWAY_URL`   | —       | Unset ⇒ the channel refuses `channel.not_configured`.                                                                                                               |
 | `NOTIFY_{EMAIL,PUSH,SMS}_GATEWAY_TOKEN` | —       | ≥16 chars. A URL without a token refuses to boot: it is an open relay.                                                                                              |
 | `NOTIFY_PUSH_PUBLIC_KEY`                | —       | Push gateway's public application key, served by `notify.pushKey` so a browser can subscribe. Given only with the push URL and token; else `notify.push_key_unset`. |
+| `NOTIFY_STATUS_LINK_SECRET`             | —       | ≥32 chars. Signs status subscription links. Unset ⇒ subscribing refuses `status.challenge_unset`.                                                                   |
+| `NOTIFY_PUBLIC_ORIGIN`                  | —       | Site origin the links in status mail open. Unset ⇒ status mail waits with `vendor.email`.                                                                           |
+| `NOTIFY_STATUS_MAIL_TRANSPORT`          | —       | `local-outbox` only, and only with `APP_ENV` dev or test; else boot refuses. Unset ⇒ the email gateway.                                                             |
+| `NOTIFY_STATUS_MAIL_OUTBOX`             | —       | Absolute path of the LOCAL-TEST status mail file, with `local-outbox`.                                                                                              |
 | `NOTIFY_REQUIRED_CHANNELS`              | —       | Subset of `email,push,sms`, or `none`. **Mandatory in staging/prod.**                                                                                               |
 | `NOTIFY_GATEWAY_TIMEOUT_MS`             | `5000`  | Budget for one gateway call. Max **25000** (claim-lease ceiling) so a lease always outlasts one attempt.                                                            |
 | `NOTIFY_MAX_DELIVERY_ATTEMPTS`          | —       | 1–5, at or below the bus `maxDeliver`. Blank refuses `notify.max_delivery_attempts_unset` — never invent 3. Owner may set 3 explicitly.                             |

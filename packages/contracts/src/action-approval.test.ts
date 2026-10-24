@@ -161,10 +161,15 @@ describe('same-person approvals', () => {
       expect(samePersonTargetService(`identity.step_up.${action}`)).toBe('svc-identity');
     }
     expect(samePersonTargetService('pay.step_up.payoutDestination.set')).toBe('svc-pay');
+    expect(samePersonTargetService('p2p.step_up.trades.take')).toBe('svc-p2p');
     expect(samePersonTargetService('bank.step_up.transfers.toUser')).toBe('svc-bank');
     expect(
       SAME_PERSON_ACTION_TYPES.every(
-        (t) => t.startsWith('bank.step_up.') || t.startsWith('pay.step_up.') || t.startsWith('identity.step_up.'),
+        (t) =>
+          t.startsWith('bank.step_up.') ||
+          t.startsWith('pay.step_up.') ||
+          t.startsWith('identity.step_up.') ||
+          t.startsWith('p2p.step_up.'),
       ),
     ).toBe(true);
   });

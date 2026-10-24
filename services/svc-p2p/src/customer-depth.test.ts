@@ -172,6 +172,8 @@ describe('svc-p2p customer depth', () => {
       SELECT terms_snapshot FROM p2p.p2p_trades WHERE id = ${trade.id}
     `;
     expect(snap[0]?.terms_snapshot).toBe('pay within 15 minutes');
+    // The order record carries the same copy, so the order page shows the terms it was placed under.
+    expect(stored.termsSnapshot).toBe('pay within 15 minutes');
     await expect(p2p.updateOffer({ offerId: offer.id, makerId: TAKER, idempotencyKey: 'not-maker', terms: 'no' })).rejects.toMatchObject({
       code: 'p2p.not_a_party',
     });
@@ -311,15 +313,89 @@ describe('svc-p2p customer depth', () => {
       }),
     );
     const seen: string[] = [];
+    const references: Array<[string, unknown]> = [];
     let cursor: string | null = null;
     for (let i = 0; i < 6; i++) {
       const page = await board.offers.page({ limit: 1, ...(cursor ? { cursor } : {}) });
       seen.push(...page.offers.map((o) => o.id));
+      references.push(...page.offers.map((o): [string, unknown] => [o.priceType, o.referencePrice]));
       if (!page.nextCursor) break;
       cursor = page.nextCursor;
     }
     expect(new Set(seen).size).toBe(seen.length);
     expect(seen.length).toBe(4);
+    // No market feed is wired here: the floating ad says so with a null reference; fixed ads carry none.
+    expect(references).toEqual([
+      ['fixed', undefined],
+      ['fixed', undefined],
+      ['fixed', undefined],
+      ['float', null],
+    ]);
+  });
+
+  it('sorts fixed-price ads cheapest or dearest first, floating ads last, and pages each sort without a gap or a repeat', async () => {
+    const at = async (price: string, key: string, priceType: 'fixed' | 'float' = 'fixed') =>
+      (await sell({ price: parseAmount(price), priceType, idempotencyKey: key })).id;
+    const one = await at('1', 'sort-1');
+    const three = await at('3', 'sort-3');
+    const twoA = await at('2', 'sort-2a');
+    const twoB = await at('2', 'sort-2b');
+    const float = await at('1.01', 'sort-float', 'float');
+
+    const walk = async (sort: 'price_asc' | 'price_desc') => {
+      const seen: string[] = [];
+      let cursor: string | null = null;
+      for (let i = 0; i < 10; i++) {
+        const page = await p2p.listOfferBoard({ limit: 2, sort, viewerId: TAKER, ...(cursor ? { cursor } : {}) });
+        seen.push(...page.offers.map((o) => o.id));
+        if (!page.nextCursor) break;
+        cursor = page.nextCursor;
+      }
+      return seen;
+    };
+    expect(await walk('price_asc')).toEqual([one, twoA, twoB, three, float]);
+    expect(await walk('price_desc')).toEqual([three, twoA, twoB, one, float]);
+    expect((await p2p.listOfferBoard({ limit: 10, viewerId: TAKER })).offers.map((o) => o.id)).toEqual([one, twoA, twoB, three, float]);
+
+    // A cursor carries its sort: reading it under the other sort refuses rather than skipping rows.
+    const first = await p2p.listOfferBoard({ limit: 2, sort: 'price_asc', viewerId: TAKER });
+    await expect(p2p.listOfferBoard({ limit: 2, sort: 'price_desc', viewerId: TAKER, cursor: first.nextCursor! })).rejects.toMatchObject({
+      code: 'p2p.offer_cursor_invalid',
+    });
+    // The three-part cursor of the old board order is refused, never read as a position in the new one.
+    const legacy = Buffer.from(`1\n${'0'.repeat(20)}\n${one}`, 'utf8').toString('base64url');
+    await expect(p2p.listOfferBoard({ limit: 2, viewerId: TAKER, cursor: legacy })).rejects.toMatchObject({
+      code: 'p2p.offer_cursor_invalid',
+    });
+  });
+
+  it('filters by a fiat amount the ad can take whole, and leaves floating ads out', async () => {
+    // Fiat ranges: the price-2 ad takes 20 to 200, the price-1 ad 10 to 100.
+    const two = (await sell({ price: parseAmount('2'), idempotencyKey: 'fiat-2' })).id;
+    const one = (await sell({ price: parseAmount('1'), idempotencyKey: 'fiat-1' })).id;
+    await sell({ price: parseAmount('1.01'), priceType: 'float', idempotencyKey: 'fiat-float' });
+    const ids = async (fiatAmount: string) =>
+      (await p2p.listOfferBoard({ limit: 10, fiatAmount, viewerId: TAKER })).offers.map((o) => o.id).sort();
+    expect(await ids('15')).toEqual([one]);
+    expect(await ids('50')).toEqual([one, two].sort());
+    expect(await ids('150')).toEqual([two]);
+    expect(await ids('201')).toEqual([]);
+    await expect(p2p.listOfferBoard({ limit: 10, fiatAmount: '-1', viewerId: TAKER })).rejects.toMatchObject({
+      code: 'p2p.offer_cursor_invalid',
+    });
+  });
+
+  it('a floating ad on the board names its market reference, or null when no feed prices the pair', async () => {
+    await sell({ price: parseAmount('1.01'), priceType: 'float', idempotencyKey: 'ref-float' });
+    await sell({ price: parseAmount('1'), idempotencyKey: 'ref-fixed' });
+    expect(await p2p.referencePrice(ASSET, 'USD')).toBeNull();
+    const fed = new P2pService(sql, ledger, bus, {
+      instruments,
+      feeBps: 100,
+      referencePrices: { price: async (asset, fiat) => (asset === ASSET && fiat === 'USD' ? parseAmount('0.99') : null) },
+    });
+    expect(await fed.referencePrice(ASSET, 'USD')).toBe(parseAmount('0.99'));
+    expect(await fed.referencePrice(ASSET, 'EUR')).toBeNull();
   });
 
   it('reports total, filled and completed counts from the offer and its released trades', async () => {

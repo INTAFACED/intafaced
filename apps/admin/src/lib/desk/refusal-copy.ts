@@ -343,6 +343,206 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'svc-edge has no route to svc-ledger on this deployment, so nothing was sent to it.',
     next: 'Ask engineering. Nothing was changed.',
   },
+  'notify.notice_publish_same_operator': {
+    title: 'The approver cannot also publish',
+    body: 'svc-notify publishes only for a founder other than the one who approved, so this approval was used up and nothing was published.',
+    next: 'Ask for approval again; the founder who did not approve publishes.',
+  },
+  'notify.notice_approval_spent': {
+    title: 'That approval is already used',
+    body: 'svc-notify spends each approval once. Nothing more was published.',
+    next: 'Read the incident again. If the entry is still a draft, ask for a new approval.',
+  },
+  'notify.notice_incident_resolved': {
+    title: 'This incident is resolved',
+    body: 'A resolved incident is final, so svc-notify takes no further update on it. Nothing was saved.',
+    next: 'If the problem is back, declare a new incident.',
+  },
+  'notify.notice_published_immutable': {
+    title: 'Already published',
+    body: 'A published entry is never edited. Nothing was changed.',
+    next: 'Post an update with the correction instead.',
+  },
+  'notify.notice_impact_unset': {
+    title: 'Name the impact',
+    body: 'An incident that names components has to say how bad it is. Nothing was saved.',
+    next: 'Pick an impact and save again.',
+  },
+  'notify.notice_component_unknown': {
+    title: 'That component is not on the status page',
+    body: 'svc-notify does not know one of the components named. Nothing was saved.',
+    next: 'Read the desk again and pick from the components it lists.',
+  },
+  'notify.notice_copy_unset': {
+    title: 'Write a title and a message',
+    body: 'Both are needed. Nothing was saved.',
+    next: 'Fill them in and save again.',
+  },
+  'notify.notice_parent_invalid': {
+    title: 'That incident cannot take an update',
+    body: 'Updates go on a published incident, never on a draft or on another update. Nothing was saved.',
+    next: 'Publish the incident first, then post the update.',
+  },
+  'status.rate_limit_unset': {
+    title: 'The subscribe rate limit is blank',
+    body: 'svc-notify takes no subscriber, from /status or an import, until a founder sets how many requests an address may make an hour. Nothing was stored.',
+    next: 'Set the rate limit under Safeguards, then try again.',
+  },
+  'status.challenge_unset': {
+    title: 'The subscribe safeguards are not set',
+    body: 'The proof of work strength is blank, or this deployment has no link key, so svc-notify takes no subscriber. Nothing was stored.',
+    next: 'Set the proof of work strength under Safeguards. A missing link key is a deployment setting.',
+  },
+  'status.rate_limited': {
+    title: 'Too many requests for that address',
+    body: 'The address asked more often this hour than the rate limit allows. Nothing more was sent to it.',
+    next: 'Wait for the hour to pass.',
+  },
+  'status.import_invalid': {
+    title: 'That import is not complete',
+    body: 'An import names its source (lowercase letters, digits and dashes) and holds 1 to 500 addresses. Nothing was stored.',
+    next: 'Correct it and import again.',
+  },
+  'status.notice_unknown': {
+    title: 'That notice is not published',
+    body: 'Only a published notice has deliveries to send again. Nothing was sent.',
+    next: 'Read the desk again and pick a published notice.',
+  },
+  'status.category_unknown': {
+    title: 'That category is not on the list',
+    body: "An announcement may name only a category on the founders' list, and none while no list is set. Nothing was saved.",
+    next: 'Choose a category from the list, or none, or set the list first.',
+  },
+  'status.maintenance_illegal_move': {
+    title: 'That move does not follow',
+    body: 'A window goes from in progress to verifying, then to completed, and is cancelled only before it is verifying. Scheduled and in progress follow from its start. Nothing was changed.',
+    next: 'Read the desk again and make the move that follows.',
+  },
+  'status.maintenance_reopen_refused': {
+    title: 'A finished window does not reopen',
+    body: 'This window is completed or cancelled, which is final. Nothing was changed.',
+    next: 'If the work is needed again, schedule a new window.',
+  },
+  'status.maintenance_unknown': {
+    title: 'That is not a published maintenance window',
+    body: 'Moves are made on published windows only. Nothing was changed.',
+    next: 'Publish the window first, or read the desk again.',
+  },
+  'status.maintenance_reason_unset': {
+    title: 'Say why',
+    body: 'Every move on a window is recorded with its reason, 1 to 500 characters. Nothing was changed.',
+    next: 'Write the reason and try again.',
+  },
+  'notify.notice_reminders_invalid': {
+    title: 'Those reminders do not fit',
+    body: 'Reminders belong to a maintenance window with a start: whole minutes from 1 to 43200 before it, at most 10. Nothing was saved.',
+    next: 'Correct the offsets, or leave them blank for none.',
+  },
+  'status.postmortem_requires_resolved': {
+    title: 'The incident is not resolved yet',
+    body: 'A postmortem is the account of an incident that is over, so svc-notify takes one only once a published update has resolved it. Nothing was saved.',
+    next: 'Resolve the incident first, then write the postmortem.',
+  },
+  'status.postmortem_incident_unknown': {
+    title: 'That is not a published incident',
+    body: 'A postmortem goes on the first entry of a published incident. Nothing was saved.',
+    next: 'Read the desk again and pick the incident.',
+  },
+  'status.postmortem_invalid': {
+    title: 'That postmortem is not complete',
+    body: 'A postmortem is 1 to 20000 characters. Nothing was saved.',
+    next: 'Correct it and save again.',
+  },
+  'status.postmortem_version_stale': {
+    title: 'The postmortem changed since you read it',
+    body: 'Another founder saved a newer version first, or the version an approval was asked for moved on. Nothing was changed.',
+    next: 'Read the desk again, then edit the version shown.',
+  },
+  'status.postmortem_published': {
+    title: 'The postmortem is published',
+    body: 'A published postmortem is never edited. Nothing was changed.',
+    next: 'Nothing to do.',
+  },
+  'status.postmortem_not_found': {
+    title: 'No postmortem is written for this incident',
+    body: 'There is no draft to ask an approval for or to publish. Nothing was changed.',
+    next: 'Write the postmortem first.',
+  },
+  'status.postmortem_approval_spent': {
+    title: 'That approval cannot publish this postmortem',
+    body: 'It was already spent, or it was asked for another version or wording. Nothing was published.',
+    next: 'Ask for a new approval for the postmortem as it stands now.',
+  },
+  'status.postmortem_approval_unavailable': {
+    title: 'Approvals are not connected',
+    body: 'svc-notify has no connection to identity approvals, so it publishes no postmortem. Nothing was published.',
+    next: 'Connect svc-notify to svc-identity (IDENTITY_URL and the internal service secret).',
+  },
+  'status.postmortem_approval_unreachable': {
+    title: 'Identity did not answer',
+    body: 'svc-notify could not reach identity to spend the approval, or could not read its answer. Nothing was published, and the approval was not refused here.',
+    next: 'Read the desk again and publish again with the same approval.',
+  },
+  'status.postmortem_publish_same_operator': {
+    title: 'The approver cannot also publish',
+    body: 'The founder who approved a postmortem does not publish it. svc-notify spent the approval and published nothing.',
+    next: 'Ask for a new approval; the founder who asked publishes it after another founder approves.',
+  },
+  'status.template_invalid': {
+    title: 'That template is not complete',
+    body: 'A template needs an id (lowercase letters, digits and dashes), a name, a title and a message. Nothing was saved.',
+    next: 'Correct it and save again.',
+  },
+  'status.template_component_unknown': {
+    title: 'That component is not on the status page',
+    body: 'A template may only name components the page defines. Nothing was saved.',
+    next: 'Pick from the components the desk lists.',
+  },
+  'status.template_impact_unset': {
+    title: 'Name the impact',
+    body: 'A template that names components has to say how bad the incident is. Nothing was saved.',
+    next: 'Pick an impact and save again.',
+  },
+  'status.template_cap_reached': {
+    title: 'Too many templates',
+    body: 'svc-notify keeps at most 100 active templates. Nothing was saved.',
+    next: 'Retire one you no longer use, then save again.',
+  },
+  'status.template_not_found': {
+    title: 'No such template',
+    body: 'That template is not active. Nothing was changed.',
+    next: 'Read the desk again.',
+  },
+  'status.component_cap_unset': {
+    title: 'The component cap is blank',
+    body: 'svc-notify refuses any list of components until a founder sets how many the page may hold. Nothing was changed.',
+    next: 'Fill in the component cap in the same change, then save again.',
+  },
+  'status.component_cap_reached': {
+    title: 'More components than the cap allows',
+    body: 'The list is longer than the component cap, so svc-notify kept the page as it was.',
+    next: 'Remove components or raise the cap, then save again.',
+  },
+  'status.component_unknown': {
+    title: 'That component is not on the page',
+    body: 'svc-notify has no component with that id, so no reading was stored.',
+    next: 'Read the page again and pick a component it lists.',
+  },
+  'status.reading_in_future': {
+    title: 'That reading is in the future',
+    body: 'A reading cannot be later than the service clock, so nothing was stored.',
+    next: 'Check the time and enter the reading again.',
+  },
+  'status.reading_conflict': {
+    title: 'A different reading exists for that moment',
+    body: 'svc-notify already holds another state for this component at that exact time. Nothing was stored.',
+    next: 'Read the page again; enter a new reading for the time it is now.',
+  },
+  'status.page_revision_stale': {
+    title: 'Someone changed the page first',
+    body: 'The definition moved on since you read it, so your change was not applied.',
+    next: 'Read the page again and make your change on what it says now.',
+  },
   'operator.denied': {
     title: 'Not allowed',
     body: 'The service did not accept your founder session for this action.',
@@ -427,6 +627,91 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     title: 'This address is not quarantined',
     body: 'Someone released it first, or it never was quarantined, so there is nothing to lift.',
     next: 'Read the list again. Nothing was changed.',
+  },
+  'academy.slug_reserved': {
+    title: 'That address is an Academy tab',
+    body: 'learning, certificates, rooms, videos, programmes and progress are the Academy’s own tabs, so no course can use one.',
+    next: 'Choose another address. Nothing was saved.',
+  },
+  'academy.course_slug_taken': {
+    title: 'That address is taken',
+    body: 'Another course, a shipped course or a lesson already uses this address.',
+    next: 'Choose another address. Nothing was saved.',
+  },
+  'academy.course_revision_stale': {
+    title: 'The course changed since you opened it',
+    body: 'Someone saved or moved this course after you read it, so your change was not applied.',
+    next: 'Read the course again and decide again. Nothing was changed.',
+  },
+  'academy.course_not_editable': {
+    title: 'Only a draft is edited here',
+    body: 'This course is no longer a draft, so its details are not changed from this form.',
+    next: 'Nothing was changed.',
+  },
+  'academy.item_transition_illegal': {
+    title: 'That move is not open from this state',
+    body: 'The course is not in a state this move starts from.',
+    next: 'Read the course again. Nothing was changed.',
+  },
+  'academy.price_unset': {
+    title: 'A paid course needs a price',
+    body: 'This course is paid and has no price, so it was not published.',
+    next: 'Set a price and its asset, save, then publish. Nothing was changed.',
+  },
+  'academy.course_outline_empty': {
+    title: 'The course has nothing in it yet',
+    body: 'Its outline has no sections or items, so there is nothing for a learner to open and it was not published.',
+    next: 'Build the outline first. Nothing was changed.',
+  },
+  'academy.outline_limits_unset': {
+    title: 'The outline limits are not set',
+    body: 'The owner has not set how many sections and items a course outline may hold, so no outline is saved.',
+    next: 'The owner sets both limits for this deployment. Nothing was saved.',
+  },
+  'academy.outline_too_large': {
+    title: 'The outline is over the limit',
+    body: 'It has more sections or items than the owner allows for one course.',
+    next: 'Remove some, then save again. Nothing was saved.',
+  },
+  'academy.outline_item_unknown': {
+    title: 'The outline changed since you opened it',
+    body: 'Your outline names a section or item this course no longer holds.',
+    next: 'Read the course again and redo your change. Nothing was saved.',
+  },
+  'academy.revision_stale': {
+    title: 'The lesson changed since you opened it',
+    body: 'Someone saved this lesson after you read it, so your change was not applied.',
+    next: 'Read the lesson again and decide again. Nothing was changed.',
+  },
+  'academy.lesson_revision_unknown': {
+    title: 'No such lesson revision',
+    body: 'This lesson has no revision with that number.',
+    next: 'Read the lesson again. Nothing was changed.',
+  },
+  'academy.item_has_no_lesson': {
+    title: 'This item holds no lesson',
+    body: 'A subheader is a label and a link opens its address, so neither has lesson content.',
+    next: 'Write the lesson on another item. Nothing was changed.',
+  },
+  'academy.item_kind_locked': {
+    title: 'This item has a lesson',
+    body: 'An item with lesson revisions stays a type that holds a lesson, so it does not become a subheader or a link.',
+    next: 'Add a new subheader or link instead. Nothing was saved.',
+  },
+  'academy.import_limit_unset': {
+    title: 'The import size limit is not set',
+    body: 'The owner has not set the largest lesson file the desk imports, so no file is imported.',
+    next: 'The owner sets the limit for this deployment. Nothing was read or created.',
+  },
+  'academy.import_too_large': {
+    title: 'The file is over the size limit',
+    body: 'This lesson file is larger than the owner allows, so it was refused before it was read.',
+    next: 'Split the lesson or shorten it. Nothing was created.',
+  },
+  'academy.course_not_found': {
+    title: 'No such course',
+    body: 'svc-academy has no course with this id.',
+    next: 'Go back to the course list. Nothing was changed.',
   },
   'admin.session_required': {
     title: 'You are signed out',

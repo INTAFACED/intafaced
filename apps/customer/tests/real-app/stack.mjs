@@ -76,6 +76,17 @@ export function mailedLines(email, purpose) {
     .filter((line) => line.includes(`purpose=${purpose} `) && line.includes(` email=${wanted} `));
 }
 
+/** Every LOCAL-TEST status subscription message to `email`, oldest first, from svc-notify's status outbox file. */
+export function statusMail(email) {
+  const file = path.join(STATE, 'status-mail-outbox.log');
+  if (!existsSync(file)) return [];
+  return readFileSync(file, 'utf8')
+    .split('\n')
+    .filter((line) => line.startsWith('LOCAL-TEST '))
+    .map((line) => JSON.parse(line.slice('LOCAL-TEST '.length)))
+    .filter((mail) => mail.purpose === 'status' && mail.to === email);
+}
+
 /** The next code mailed to `email` once more than `seen` have arrived. The relay sends right after the request commits. */
 export async function nextMailedCode(email, seen = 0, waitMs = 20_000) {
   const until = Date.now() + waitMs;

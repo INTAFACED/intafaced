@@ -58,8 +58,10 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
       },
       z
         .number({
-          required_error: 'PROTOCOL_CHAIN_ID is unset — will not echo Anvil 31337 as live',
-          invalid_type_error: 'PROTOCOL_CHAIN_ID must be a positive integer (blank/unset must not echo Anvil 31337 as live)',
+          error: (issue) =>
+            issue.input === undefined
+              ? 'PROTOCOL_CHAIN_ID is unset — will not echo Anvil 31337 as live'
+              : 'PROTOCOL_CHAIN_ID must be a positive integer (blank/unset must not echo Anvil 31337 as live)',
         })
         .int()
         .positive(),
@@ -80,8 +82,10 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
       },
       z
         .string({
-          required_error: 'PROTOCOL_RPC_URL is unset — will not invent http://evm:8545 as live',
-          invalid_type_error: 'PROTOCOL_RPC_URL must be a non-empty RPC URL (blank/unset must not invent http://evm:8545 as live)',
+          error: (issue) =>
+            issue.input === undefined
+              ? 'PROTOCOL_RPC_URL is unset — will not invent http://evm:8545 as live'
+              : 'PROTOCOL_RPC_URL must be a non-empty RPC URL (blank/unset must not invent http://evm:8545 as live)',
         })
         .url(),
     ),
@@ -102,10 +106,10 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
       },
       z
         .string({
-          required_error:
-            'PROTOCOL_ENTRYPOINT_ADDRESS is unset — will not publish Ethereum EntryPoint 0x0000000071727De22E5E9d8BAf0edAc6f37da032 as this venue',
-          invalid_type_error:
-            'PROTOCOL_ENTRYPOINT_ADDRESS must be a 20-byte hex address (blank/unset must not invent Ethereum EntryPoint as this venue)',
+          error: (issue) =>
+            issue.input === undefined
+              ? 'PROTOCOL_ENTRYPOINT_ADDRESS is unset — will not publish Ethereum EntryPoint 0x0000000071727De22E5E9d8BAf0edAc6f37da032 as this venue'
+              : 'PROTOCOL_ENTRYPOINT_ADDRESS must be a 20-byte hex address (blank/unset must not invent Ethereum EntryPoint as this venue)',
         })
         .regex(/^0x[0-9a-fA-F]{40}$/, 'must be a 20-byte hex address'),
     ),
@@ -171,6 +175,14 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
      * read with `owner.decision` unless the caller names a window.
      */
     PROTOCOL_OPS_WINDOW_SECONDS: blankIsUnset(z.coerce.number().int().min(60).max(2_592_000).optional()),
+
+    /**
+     * Gas tracker percentiles and history length (D-explorer-01). No default.
+     * Blank or malformed refuses `protocol.gasPrice` with `protocol.gas_percentiles_unset`.
+     * TEST fixtures may pass `10,50,90` and a block count; this schema does not.
+     */
+    PROTOCOL_GAS_PERCENTILES: z.string().default(''),
+    PROTOCOL_GAS_HISTORY_BLOCKS: z.string().default(''),
 
     /** Kill-switch mirror for `protocol.smartAccounts` (§14 admin controls). */
     PROTOCOL_RELAY_ENABLED: z

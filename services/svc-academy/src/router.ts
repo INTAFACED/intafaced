@@ -11,7 +11,49 @@ import {
   academyPublicVideoSchema,
   academyPublicCourseCardSchema,
   academyPublicCourseSchema,
+  academyCourseEnrolmentSchema,
+  academyEnrolCourseInputSchema,
+  academyMyCourseSchema,
+  academyAccessGrantSchema,
+  academyCourseOutlineSchema,
+  academyQuizAttemptSchema,
+  academyQuizReviewSchema,
+  academyQuizSchema,
+  academySetQuizInputSchema,
+  academyItemVideoSchema,
+  academySetItemVideoInputSchema,
+  academySetVideoTracksInputSchema,
+  academyVideoPlayerSchema,
+  academyVideoPositionSavedSchema,
+  academyVideoPositionSchema,
+  academyVideoTrackSchema,
+  academyProgressPageSchema,
+  academyPlannerSchema,
+  academyPlannerTodoSchema,
+  academyGoalSchema,
+  academyGoalReminderSchema,
+  academyAddTodoInputSchema,
+  academySetTodoDoneInputSchema,
+  academyRemoveTodoInputSchema,
+  academySetGoalInputSchema,
+  academyUndoCompletionInputSchema,
+  academyUndoCompletionSchema,
   academyPublicHubSchema,
+  academyCourseSchema,
+  academyCourseDetailSchema,
+  academyCourseListSchema,
+  academyCourseListInputSchema,
+  academyCreateCourseInputSchema,
+  academyUpdateCourseInputSchema,
+  academySetCourseStateInputSchema,
+  academySaveOutlineInputSchema,
+  academyLessonSchema,
+  academySaveLessonInputSchema,
+  academyRevertLessonInputSchema,
+  academyPublishLessonInputSchema,
+  academyDuplicateItemInputSchema,
+  academyImportLessonInputSchema,
+  academyImportLessonResultSchema,
 } from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { DualControlError } from './dual-control.js';
@@ -93,6 +135,7 @@ import { bulkScoreStatusLine, validateBulkScoreWrite } from './tournaments/bulk-
 import { seasonWindowAt } from './tournaments/season-calendar.js';
 import { describeTournamentPolicy } from './tournaments/tournament-policy.js';
 import {
+  assertAcademyVideoEntitled,
   assertAcademyVideoUrlGranted,
   grantAcademyVideoCaptions,
   grantAcademyVideoPlayback,
@@ -142,29 +185,29 @@ const curriculumPath = z.enum(['foundations', 'markets', 'builder', 'sovereign']
 const curriculumKind = z.enum(['playbook', 'workbook', 'lesson']);
 
 const roomOut = z.object({
-  id: z.string().uuid(),
+  id: z.string().guid(),
   slug: z.string(),
   name: z.string(),
   kind: roomKind,
   access: roomAccess,
   minStake: amountString,
   capacity: z.number().int(),
-  hostId: z.string().uuid(),
+  hostId: z.string().guid(),
   seated: z.boolean(),
   role: z.enum(['host', 'speaker', 'attendee']).nullable(),
 });
 
 const sessionOut = z.object({
-  id: z.string().uuid(),
-  roomId: z.string().uuid(),
+  id: z.string().guid(),
+  roomId: z.string().guid(),
   title: z.string(),
-  hostId: z.string().uuid(),
+  hostId: z.string().guid(),
   status: sessionStatus,
   startsAt: z.date(),
   endsAt: z.date().nullable(),
   /** Null when no SFU is configured — the lobby still runs as text and presence. */
   streamProvider: z.string().nullable(),
-  scene: z.record(z.unknown()),
+  scene: z.record(z.string(), z.unknown()),
   /** Always on read — client supplies this as expectedFingerprint on updateScene. */
   sceneFingerprint: z.string().min(1),
   seated: z.boolean(),
@@ -379,23 +422,23 @@ const paperDrillResultOut = z.discriminatedUnion('ok', [
 
 const ambassadorStatus = z.enum(['active', 'frozen']);
 const ambassadorOut = z.object({
-  userId: z.string().uuid(),
+  userId: z.string().guid(),
   status: ambassadorStatus,
-  appointedBy: z.string().uuid(),
+  appointedBy: z.string().guid(),
   appointedAt: z.date(),
   frozenAt: z.date().nullable(),
-  frozenBy: z.string().uuid().nullable(),
+  frozenBy: z.string().guid().nullable(),
   freezeReason: z.string().nullable(),
 });
 const ambassadorBadgeOut = z.object({
-  userId: z.string().uuid(),
+  userId: z.string().guid(),
   isAmbassador: z.boolean(),
   status: ambassadorStatus.nullable(),
 });
 
 const seasonStatus = z.enum(['scheduled', 'live', 'frozen', 'ended']);
 const seasonOut = z.object({
-  id: z.string().uuid(),
+  id: z.string().guid(),
   slug: z.string(),
   title: z.string(),
   status: seasonStatus,
@@ -404,15 +447,15 @@ const seasonOut = z.object({
   endsAt: z.date().nullable(),
 });
 const standingOut = z.object({
-  seasonId: z.string().uuid(),
-  userId: z.string().uuid(),
+  seasonId: z.string().guid(),
+  userId: z.string().guid(),
   score: z.number().int(),
   updatedAt: z.date(),
   rank: z.number().int(),
 });
 
 const seasonCalendarOut = z.object({
-  seasonId: z.string().uuid(),
+  seasonId: z.string().guid(),
   status: seasonStatus,
   startsAt: z.date(),
   endsAt: z.date().nullable(),
@@ -423,14 +466,14 @@ const seasonCalendarOut = z.object({
 
 const residencyStatus = z.enum(['applied', 'accepted', 'rejected', 'withdrawn']);
 const residencyOut = z.object({
-  id: z.string().uuid(),
-  userId: z.string().uuid(),
+  id: z.string().guid(),
+  userId: z.string().guid(),
   cohortSlug: z.string(),
   statement: z.string(),
   status: residencyStatus,
   appliedAt: z.date(),
   decidedAt: z.date().nullable(),
-  decidedBy: z.string().uuid().nullable(),
+  decidedBy: z.string().guid().nullable(),
   decisionNote: z.string().nullable(),
 });
 /** Public IFC / residency pay door — typed refuse only (no quote amounts). */
@@ -464,7 +507,7 @@ const certDefinitionOut = z.object({
   requiredItemSlugs: z.array(z.string()),
 });
 const enrollmentOut = z.object({
-  userId: z.string().uuid(),
+  userId: z.string().guid(),
   pathSlug: z.string(),
   enrolledAt: z.date(),
 });
@@ -487,10 +530,7 @@ const cohortOut = z.object({
   entryRules: z.string().nullable(),
   seatsLeft: z.number().int().nullable(),
 });
-const videoProgressOut = z.object({
-  videoSlug: z.string(),
-  positionSeconds: z.number().int().nullable(),
-});
+const videoProgressOut = academyVideoPositionSchema;
 const metricCellOut = z.object({
   value: z.number().int().nullable(),
   reason: z.enum(['metric_not_recorded']).nullable(),
@@ -498,12 +538,12 @@ const metricCellOut = z.object({
 const attendeeRole = z.enum(['host', 'speaker', 'attendee']);
 const upcomingSessionOut = sessionOut.extend({ seated: z.literal(true), role: attendeeRole });
 const itemCompletionOut = z.object({
-  userId: z.string().uuid(),
+  userId: z.string().guid(),
   itemSlug: z.string(),
   completedAt: z.date(),
 });
 const certGrantOut = z.object({
-  userId: z.string().uuid(),
+  userId: z.string().guid(),
   certId: z.string(),
   grantedAt: z.date(),
   idempotencyKey: z.string(),
@@ -562,7 +602,7 @@ const certPerkPlaneOut = z.object({
   statusLine: z.string(),
 });
 const certProgressOut = z.object({
-  userId: z.string().uuid(),
+  userId: z.string().guid(),
   certId: z.string(),
   title: z.string(),
   requiredCount: z.number().int(),
@@ -752,6 +792,8 @@ function toTrpcError(err: unknown): TRPCError {
         cause: err,
       });
 
+    case 'academy.goal_invalid':
+    case 'academy.captions_invalid':
     case 'academy.seconds_out_of_range':
     case 'academy.video_position_out_of_range':
     case 'academy.metrics_range_invalid':
@@ -765,12 +807,27 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.assessment_unpublished':
     case 'academy.pass_mark_unset':
     case 'academy.certificate_unpublished':
+    case 'academy.enrolment_closed':
     case 'academy.verify_rate_unset':
     case 'academy.verify_address_unset':
     case 'academy.video_captions_unpublished':
     case 'academy.video_transcript_unpublished':
     case 'academy.watch_threshold_unset':
+    case 'academy.completion_rule_unmet':
+    case 'academy.grades_hidden':
+    case 'academy.planner_limit_unset':
       return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
+
+    case 'academy.request_reused':
+    case 'academy.attempt_closed':
+    case 'academy.attempt_open':
+    case 'academy.attempt_required':
+    case 'academy.planner_full':
+      return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
+
+    case 'academy.attempt_not_found':
+    case 'academy.todo_not_found':
+      return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
 
     case 'academy.attempt_limit':
     case 'academy.attempt_cooldown':
@@ -789,6 +846,30 @@ function toTrpcError(err: unknown): TRPCError {
 
     case 'academy.slug_reserved':
       return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
+
+    case 'academy.course_slug_taken':
+    case 'academy.course_revision_stale':
+    case 'academy.course_not_editable':
+    case 'academy.item_transition_illegal':
+    case 'academy.outline_item_unknown':
+    case 'academy.revision_stale':
+    case 'academy.item_kind_locked':
+      return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
+
+    case 'academy.price_unset':
+    case 'academy.course_outline_empty':
+    case 'academy.courses_list_limit_unset':
+    case 'academy.outline_limits_unset':
+    case 'academy.import_limit_unset':
+      return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
+
+    case 'academy.outline_too_large':
+    case 'academy.item_has_no_lesson':
+    case 'academy.import_too_large':
+      return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
+
+    case 'academy.lesson_revision_unknown':
+      return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
 
     case 'academy.prerequisite_cycle':
     case 'academy.window_invalid':
@@ -1193,6 +1274,26 @@ export function createAcademyRouter(
       ),
 
     /**
+     * AC-videos-01: the player's caption tracks (as cues; the transcript is the same cues), the renditions that exist and
+     * the owner's save interval and watch threshold. Behind the same storage, tier and stake gate as playback.
+     */
+    videoPlayer: scopedProcedure('academy:read', { module: 'academy' })
+      .input(z.object({ slug: z.string().min(1).max(120) }).strict())
+      .output(academyVideoPlayerSchema)
+      .query(({ ctx, input }) =>
+        guard(async () => {
+          await assertAcademyVideoEntitled(video, { userId: ctx.principal.userId, tier: ctx.principal.tier });
+          return academy.videoPlayer(input.slug);
+        }),
+      ),
+
+    /** AC-videos-01: the video attached to one curriculum item (null: none), so the reader shows its player. */
+    itemVideo: scopedProcedure('academy:read', { module: 'academy' })
+      .input(z.object({ itemSlug: z.string().min(1).max(120) }).strict())
+      .output(academyItemVideoSchema)
+      .query(({ input }) => guard(() => academy.itemVideo(input.itemSlug))),
+
+    /**
      * Paper drill gate for a workbook (TRK-academy.paper-trading Stage 2+3).
      *
      * Read-only on purpose: the drill loop is a pure state machine and academy
@@ -1418,7 +1519,7 @@ export function createAcademyRouter(
 
     /** A room, its terms, and what is on in it. `seated` and `role` are the caller's. */
     room: scopedProcedure('academy:read', { module: 'academy' })
-      .input(z.object({ roomId: z.string().uuid(), limit: z.number().optional() }))
+      .input(z.object({ roomId: z.string().guid(), limit: z.number().optional() }))
       .output(z.object({ room: roomOut, sessions: z.array(sessionOut) }))
       .query(({ ctx, input }) =>
         guard(async () => {
@@ -1433,7 +1534,7 @@ export function createAcademyRouter(
       ),
 
     session: scopedProcedure('academy:read', { module: 'academy' })
-      .input(z.object({ sessionId: z.string().uuid() }))
+      .input(z.object({ sessionId: z.string().guid() }))
       .output(z.object({ session: sessionOut, occupancy: z.number().int() }))
       .query(({ ctx, input }) =>
         guard(async () => {
@@ -1453,12 +1554,12 @@ export function createAcademyRouter(
      * else.
      */
     join: scopedProcedure('academy:write', { module: 'academy' })
-      .input(z.object({ sessionId: z.string().uuid() }))
+      .input(z.object({ sessionId: z.string().guid() }))
       .output(z.object({ role: z.enum(['host', 'speaker', 'attendee']) }))
       .mutation(({ ctx, input }) => guard(() => academy.join({ sessionId: input.sessionId, userId: ctx.principal.userId }))),
 
     leave: scopedProcedure('academy:write', { module: 'academy' })
-      .input(z.object({ sessionId: z.string().uuid() }))
+      .input(z.object({ sessionId: z.string().guid() }))
       .output(z.object({ ok: z.literal(true) }))
       .mutation(({ ctx, input }) =>
         guard(async () => {
@@ -1475,7 +1576,7 @@ export function createAcademyRouter(
      * `socket.stream-provider`). A lobby with no stream still runs.
      */
     streamCredential: scopedProcedure('academy:write', { module: 'academy' })
-      .input(z.object({ sessionId: z.string().uuid() }))
+      .input(z.object({ sessionId: z.string().guid() }))
       .output(z.object({ url: z.string(), token: z.string(), expiresAt: z.date() }))
       .mutation(({ ctx, input }) => guard(() => academy.streamCredential({ sessionId: input.sessionId, userId: ctx.principal.userId }))),
 
@@ -1518,7 +1619,7 @@ export function createAcademyRouter(
       }),
 
     invite: scopedProcedure('academy:write', { module: 'academy' })
-      .input(z.object({ roomId: z.string().uuid(), userId: z.string().uuid(), expiresAt: z.coerce.date().nullable().optional() }))
+      .input(z.object({ roomId: z.string().guid(), userId: z.string().guid(), expiresAt: z.coerce.date().nullable().optional() }))
       .output(z.object({ ok: z.literal(true) }))
       .mutation(({ ctx, input }) =>
         guard(async () => {
@@ -1533,7 +1634,7 @@ export function createAcademyRouter(
       ),
 
     scheduleSession: scopedProcedure('academy:write', { module: 'academy' })
-      .input(z.object({ roomId: z.string().uuid(), title: z.string().min(1).max(160), startsAt: z.coerce.date() }))
+      .input(z.object({ roomId: z.string().guid(), title: z.string().min(1).max(160), startsAt: z.coerce.date() }))
       .output(sessionOut)
       .mutation(({ ctx, input }) =>
         guard(async () => {
@@ -1544,7 +1645,7 @@ export function createAcademyRouter(
       ),
 
     startSession: scopedProcedure('academy:write', { module: 'academy' })
-      .input(z.object({ sessionId: z.string().uuid() }))
+      .input(z.object({ sessionId: z.string().guid() }))
       .output(sessionOut)
       .mutation(({ ctx, input }) =>
         guard(async () => {
@@ -1555,7 +1656,7 @@ export function createAcademyRouter(
       ),
 
     endSession: scopedProcedure('academy:write', { module: 'academy' })
-      .input(z.object({ sessionId: z.string().uuid() }))
+      .input(z.object({ sessionId: z.string().guid() }))
       .output(sessionOut)
       .mutation(({ ctx, input }) =>
         guard(async () => {
@@ -1572,8 +1673,8 @@ export function createAcademyRouter(
     updateScene: scopedProcedure('academy:write', { module: 'academy' })
       .input(
         z.object({
-          sessionId: z.string().uuid(),
-          scene: z.record(z.unknown()),
+          sessionId: z.string().guid(),
+          scene: z.record(z.string(), z.unknown()),
           expectedFingerprint: z.string().min(1).max(128).optional(),
         }),
       )
@@ -1599,7 +1700,7 @@ export function createAcademyRouter(
     // A typed-in `confirmOperatorId` is display-only, not the second person.
 
     ambassadorBadge: scopedProcedure('academy:read', { module: 'academy' })
-      .input(z.object({ userId: z.string().uuid() }))
+      .input(z.object({ userId: z.string().guid() }))
       .output(ambassadorBadgeOut)
       .query(({ input }) => guard(() => academy.ambassadorBadge(input.userId))),
 
@@ -1616,7 +1717,7 @@ export function createAcademyRouter(
       ),
 
     appointAmbassador: scopedProcedure('admin:write', { module: 'academy' })
-      .input(z.object({ userId: z.string().uuid(), ...operatorApprovalIds }))
+      .input(z.object({ userId: z.string().guid(), ...operatorApprovalIds }))
       .output(ambassadorOut.extend({ confirmOperatorId: z.string() }))
       .mutation(({ input, ctx }) =>
         guard(async () => {
@@ -1629,7 +1730,7 @@ export function createAcademyRouter(
       ),
 
     freezeAmbassador: scopedProcedure('admin:write', { module: 'academy' })
-      .input(z.object({ userId: z.string().uuid(), reason: z.string().min(1).max(500), ...operatorApprovalIds }))
+      .input(z.object({ userId: z.string().guid(), reason: z.string().min(1).max(500), ...operatorApprovalIds }))
       .output(ambassadorOut.extend({ confirmOperatorId: z.string() }))
       .mutation(({ input, ctx }) =>
         guard(async () => {
@@ -1648,7 +1749,7 @@ export function createAcademyRouter(
 
     /** Reactivate a frozen ambassador without re-appoint (clear freeze reason). */
     unfreezeAmbassador: scopedProcedure('admin:write', { module: 'academy' })
-      .input(z.object({ userId: z.string().uuid(), ...operatorApprovalIds }))
+      .input(z.object({ userId: z.string().guid(), ...operatorApprovalIds }))
       .output(ambassadorOut.extend({ confirmOperatorId: z.string() }))
       .mutation(({ input, ctx }) =>
         guard(async () => {
@@ -1700,7 +1801,7 @@ export function createAcademyRouter(
     ambassadorIfcPay: scopedProcedure('admin:write', { module: 'academy' })
       .input(
         z.object({
-          beneficiaryId: z.string().uuid(),
+          beneficiaryId: z.string().guid(),
           dryRun: z.boolean().optional(),
           residencyStatus: z.enum(['applied', 'accepted', 'rejected', 'withdrawn']).optional(),
         }),
@@ -1722,7 +1823,7 @@ export function createAcademyRouter(
     ambassadorRevenueShare: scopedProcedure('admin:write', { module: 'academy' })
       .input(
         z.object({
-          beneficiaryId: z.string().uuid(),
+          beneficiaryId: z.string().guid(),
           dryRun: z.boolean().optional(),
           residencyStatus: z.enum(['applied', 'accepted', 'rejected', 'withdrawn']).optional(),
         }),
@@ -1758,7 +1859,7 @@ export function createAcademyRouter(
     residencyIfcPayQuote: scopedProcedure('admin:write', { module: 'academy' })
       .input(
         z.object({
-          beneficiaryId: z.string().uuid(),
+          beneficiaryId: z.string().guid(),
           residencyStatus: z.enum(['applied', 'accepted', 'rejected', 'withdrawn']),
           dryRun: z.boolean().optional().default(true),
         }),
@@ -1796,7 +1897,7 @@ export function createAcademyRouter(
       ),
 
     withdrawResidency: scopedProcedure('academy:write', { module: 'academy' })
-      .input(z.object({ id: z.string().uuid() }))
+      .input(z.object({ id: z.string().guid() }))
       .output(residencyOut)
       .mutation(({ input, ctx }) => guard(() => academy.withdrawResidency({ id: input.id, userId: ctx.principal!.userId }))),
 
@@ -1820,7 +1921,7 @@ export function createAcademyRouter(
     decideResidency: scopedProcedure('admin:write', { module: 'academy' })
       .input(
         z.object({
-          id: z.string().uuid(),
+          id: z.string().guid(),
           decision: z.enum(['accepted', 'rejected']),
           note: z.string().max(500).optional(),
           ...operatorApprovalIds,
@@ -1864,12 +1965,12 @@ export function createAcademyRouter(
       ),
 
     season: scopedProcedure('academy:read', { module: 'academy' })
-      .input(z.object({ seasonId: z.string().uuid() }))
+      .input(z.object({ seasonId: z.string().guid() }))
       .output(seasonOut)
       .query(({ input }) => guard(() => academy.season(input.seasonId))),
 
     seasonCalendar: scopedProcedure('academy:read', { module: 'academy' })
-      .input(z.object({ seasonId: z.string().uuid(), at: z.coerce.date().optional() }))
+      .input(z.object({ seasonId: z.string().guid(), at: z.coerce.date().optional() }))
       .output(seasonCalendarOut)
       .query(async ({ input }) =>
         guard(async () => {
@@ -1883,7 +1984,7 @@ export function createAcademyRouter(
     }),
 
     standings: scopedProcedure('academy:read', { module: 'academy' })
-      .input(z.object({ seasonId: z.string().uuid(), limit: z.number().optional() }))
+      .input(z.object({ seasonId: z.string().guid(), limit: z.number().optional() }))
       .output(z.array(standingOut))
       .query(({ input }) => guard(() => academy.standings(input.seasonId, { limit: input.limit }))),
 
@@ -1919,7 +2020,7 @@ export function createAcademyRouter(
     setSeasonStatus: scopedProcedure('admin:write', { module: 'academy' })
       .input(
         z.object({
-          seasonId: z.string().uuid(),
+          seasonId: z.string().guid(),
           status: seasonStatus,
           ...operatorApprovalIds,
         }),
@@ -1944,11 +2045,11 @@ export function createAcademyRouter(
      * Null when the season was never frozen through setSeasonStatus.
      */
     freezeSnapshot: scopedProcedure('admin:read', { module: 'academy' })
-      .input(z.object({ seasonId: z.string().uuid() }))
+      .input(z.object({ seasonId: z.string().guid() }))
       .output(
         z
           .object({
-            seasonId: z.string().uuid(),
+            seasonId: z.string().guid(),
             frozenAt: z.date(),
             standings: z.array(
               z.object({
@@ -2056,7 +2157,7 @@ export function createAcademyRouter(
     tournamentPrizeStart: scopedProcedure('admin:write', { module: 'academy' })
       .input(
         z.object({
-          seasonId: z.string().uuid().optional(),
+          seasonId: z.string().guid().optional(),
           /** Owner pool amount (decimal string). Blank / omitted → unset refuse. */
           prizePool: z
             .union([z.string(), z.object({ amount: z.string().optional().nullable() }).passthrough()])
@@ -2075,8 +2176,8 @@ export function createAcademyRouter(
     setStanding: scopedProcedure('admin:write', { module: 'academy' })
       .input(
         z.object({
-          seasonId: z.string().uuid(),
-          userId: z.string().uuid(),
+          seasonId: z.string().guid(),
+          userId: z.string().guid(),
           score: z.number().int(),
           ...operatorApprovalIds,
         }),
@@ -2105,8 +2206,8 @@ export function createAcademyRouter(
     bulkSetStandings: scopedProcedure('admin:write', { module: 'academy' })
       .input(
         z.object({
-          seasonId: z.string().uuid(),
-          patches: z.array(z.object({ userId: z.string().uuid(), score: z.number().int() })).max(500),
+          seasonId: z.string().guid(),
+          patches: z.array(z.object({ userId: z.string().guid(), score: z.number().int() })).max(500),
           ...operatorApprovalIds,
         }),
       )
@@ -2187,11 +2288,93 @@ export function createAcademyRouter(
       .output(enrollmentOut)
       .mutation(({ input, ctx }) => guard(() => academy.enrollCertPath({ userId: ctx.principal!.userId, pathSlug: input.pathSlug }))),
 
+    /** AC-enrolment-01: Enrol now from a course page. A repeat while enrolled answers with the same enrolment. */
+    enrolCourse: scopedProcedure('academy:write', { module: 'academy' })
+      .input(academyEnrolCourseInputSchema)
+      .output(academyCourseEnrolmentSchema)
+      .mutation(({ input, ctx }) =>
+        guard(() => academy.enrolCourse({ userId: ctx.principal!.userId, slug: input.slug, track: input.track })),
+      ),
+
+    /** AC-enrolment-01: the terms of enrolling in a course (tracks, start date, seats, closed reason) and the caller's own enrolment. */
+    courseEnrolment: scopedProcedure('academy:read', { module: 'academy' })
+      .input(z.object({ slug: z.string().min(1).max(64) }).strict())
+      .output(academyCourseEnrolmentSchema)
+      .query(({ input, ctx }) => guard(() => academy.courseEnrolment({ userId: ctx.principal.userId, slug: input.slug }))),
+
+    /** AC-catalogue-02: My learning, the caller's enrolled courses with real progress and where Continue goes. */
+    myLearning: scopedProcedure('academy:read', { module: 'academy' })
+      .output(z.array(academyMyCourseSchema))
+      .query(({ ctx }) => guard(() => academy.myLearning(ctx.principal.userId))),
+
+    /** AC-course-structure-02: the outline of an item's course, with the caller's own release state per item. */
+    courseOutline: scopedProcedure('academy:read', { module: 'academy' })
+      .input(z.object({ itemSlug: z.string().min(1).max(120) }).strict())
+      .output(academyCourseOutlineSchema)
+      .query(({ input, ctx }) => guard(() => academy.courseOutline({ userId: ctx.principal.userId, itemSlug: input.itemSlug }))),
+
+    /** AC-access-grants-01: the caller's access records, with source and expiry. */
+    myAccessGrants: scopedProcedure('academy:read', { module: 'academy' })
+      .output(z.array(academyAccessGrantSchema))
+      .query(({ ctx }) => guard(() => academy.myAccessGrants(ctx.principal.userId))),
+
+    /** AC-progress-02: the caller's progress page: percent complete per enrolled course, check marks, and grades. */
+    myProgress: scopedProcedure('academy:read', { module: 'academy' })
+      .output(academyProgressPageSchema)
+      .query(({ ctx }) => guard(() => academy.progressPage(ctx.principal.userId))),
+
+    /** AC-progress-02: the caller's own planner: to-do items and a weekly goal. Nothing here is visible to anyone else. */
+    planner: router({
+      get: scopedProcedure('academy:read', { module: 'academy' })
+        .output(academyPlannerSchema)
+        .query(({ ctx }) => guard(() => academy.planner(ctx.principal.userId))),
+      addTodo: scopedProcedure('academy:write', { module: 'academy' })
+        .input(academyAddTodoInputSchema)
+        .output(academyPlannerTodoSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.addTodo({ ...input, userId: ctx.principal.userId }))),
+      setTodoDone: scopedProcedure('academy:write', { module: 'academy' })
+        .input(academySetTodoDoneInputSchema)
+        .output(academyPlannerTodoSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.setTodoDone({ ...input, userId: ctx.principal.userId }))),
+      removeTodo: scopedProcedure('academy:write', { module: 'academy' })
+        .input(academyRemoveTodoInputSchema)
+        .output(z.object({ id: z.string().guid(), removed: z.literal(true) }))
+        .mutation(({ input, ctx }) => guard(() => academy.removeTodo({ ...input, userId: ctx.principal.userId }))),
+      setGoal: scopedProcedure('academy:write', { module: 'academy' })
+        .input(academySetGoalInputSchema)
+        .output(academyGoalSchema.nullable())
+        .mutation(({ input, ctx }) => guard(() => academy.setGoal({ ...input, userId: ctx.principal.userId }))),
+      sendGoalReminder: scopedProcedure('academy:write', { module: 'academy' })
+        .output(academyGoalReminderSchema)
+        .mutation(({ ctx }) => guard(() => academy.sendGoalReminder({ userId: ctx.principal.userId }))),
+    }),
+
     markCurriculumComplete: scopedProcedure('academy:write', { module: 'academy' })
       .input(z.object({ itemSlug: z.string().min(1).max(120) }))
       .output(itemCompletionOut)
       .mutation(({ input, ctx }) =>
-        guard(() => academy.markCurriculumComplete({ userId: ctx.principal!.userId, itemSlug: input.itemSlug })),
+        guard(() =>
+          academy.markCurriculumComplete({
+            userId: ctx.principal!.userId,
+            itemSlug: input.itemSlug,
+            mayWatch: () => assertAcademyVideoEntitled(video, { userId: ctx.principal!.userId, tier: ctx.principal!.tier }),
+          }),
+        ),
+      ),
+
+    /** AC-progress-01: Undo a completion. Progress drops and the history keeps both events; completing again adds one. */
+    undoCurriculumComplete: scopedProcedure('academy:write', { module: 'academy' })
+      .input(academyUndoCompletionInputSchema)
+      .output(academyUndoCompletionSchema)
+      .mutation(({ input, ctx }) =>
+        guard(() =>
+          academy.undoCurriculumComplete({
+            userId: ctx.principal.userId,
+            itemSlug: input.itemSlug,
+            completedAt: input.completedAt,
+            clientRequestId: input.clientRequestId,
+          }),
+        ),
       ),
 
     /**
@@ -2212,7 +2395,7 @@ export function createAcademyRouter(
           extendedUntil: z.date().nullable(),
           reason: z.string().nullable(),
           grantedAt: z.date().nullable(),
-          grantedBy: z.string().uuid().nullable(),
+          grantedBy: z.string().guid().nullable(),
         }),
       )
       .query(({ input, ctx }) => guard(() => academy.itemRelease({ userId: ctx.principal!.userId, itemSlug: input.itemSlug }))),
@@ -2340,23 +2523,46 @@ export function createAcademyRouter(
     assessment: router({
       get: scopedProcedure('academy:read', { module: 'academy' })
         .input(z.object({ slug: z.string().min(1).max(120) }))
-        .output(
-          z.object({
-            slug: z.string(),
-            kind: z.literal('quiz'),
-            passMark: z.number().int(),
-            questions: z.array(
-              z.object({
-                id: z.string(),
-                prompt: z.string(),
-                kind: z.literal('single'),
-                points: z.number().int(),
-                choices: z.array(z.object({ id: z.string(), text: z.string() })),
-              }),
-            ),
-          }),
+        .output(academyQuizSchema)
+        .query(({ input }) => guard(() => academy.getAssessment(input.slug))),
+
+      /** AC-quizzes-03: Start a timed attempt, or get back the one already open with its server-held time left. */
+      start: scopedProcedure('academy:write', { module: 'academy' })
+        .input(z.object({ slug: z.string().min(1).max(120) }).strict())
+        .output(academyQuizAttemptSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.startQuizAttempt({ userId: ctx.principal.userId, slug: input.slug }))),
+
+      /** The caller's open attempt on this quiz, or null (one past its deadline is finished on this read). */
+      current: scopedProcedure('academy:read', { module: 'academy' })
+        .input(z.object({ slug: z.string().min(1).max(120) }).strict())
+        .output(academyQuizAttemptSchema.nullable())
+        .query(({ input, ctx }) => guard(() => academy.currentQuizAttempt({ userId: ctx.principal.userId, slug: input.slug }))),
+
+      /** Autosave one answer on the caller's open attempt. */
+      answer: scopedProcedure('academy:write', { module: 'academy' })
+        .input(
+          z
+            .object({
+              attemptId: z.string().guid(),
+              questionId: z.string().min(1).max(80),
+              choiceId: z.string().min(1).max(80),
+            })
+            .strict(),
         )
-        .query(({ input }) => guard(async () => academy.getAssessment(input.slug))),
+        .output(academyQuizAttemptSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.answerQuizAttempt({ userId: ctx.principal.userId, ...input }))),
+
+      /** Score the saved answers once; finishing again answers with the same result. */
+      finish: scopedProcedure('academy:write', { module: 'academy' })
+        .input(z.object({ attemptId: z.string().guid() }).strict())
+        .output(academyQuizAttemptSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.finishQuizAttempt({ userId: ctx.principal.userId, attemptId: input.attemptId }))),
+
+      /** A finished attempt of the caller's own, with answers against the key or the score only. */
+      review: scopedProcedure('academy:read', { module: 'academy' })
+        .input(z.object({ attemptId: z.string().guid() }).strict())
+        .output(academyQuizReviewSchema)
+        .query(({ input, ctx }) => guard(() => academy.reviewQuizAttempt({ userId: ctx.principal.userId, attemptId: input.attemptId }))),
 
       submit: scopedProcedure('academy:write', { module: 'academy' })
         .input(
@@ -2390,12 +2596,14 @@ export function createAcademyRouter(
         .input(z.object({ slug: z.string().min(1).max(120) }))
         .output(
           z.array(
+            // While the quiz's results are hidden (AC-progress-02) an attempt carries `hiddenUntil` and no score.
             z.object({
               slug: z.string(),
-              score: z.number().int(),
-              maxScore: z.number().int(),
-              pass: z.boolean(),
+              score: z.number().int().nullable(),
+              maxScore: z.number().int().nullable(),
+              pass: z.boolean().nullable(),
               submittedAt: z.date(),
+              hiddenUntil: z.date().nullable(),
             }),
           ),
         )
@@ -2533,7 +2741,7 @@ export function createAcademyRouter(
             clientRequestId: z.string().min(1).max(200),
           }),
         )
-        .output(videoProgressOut)
+        .output(academyVideoPositionSavedSchema)
         .mutation(({ ctx, input }) =>
           guard(() =>
             academy.setVideoProgress({
@@ -2541,6 +2749,7 @@ export function createAcademyRouter(
               videoSlug: input.videoSlug,
               positionSeconds: input.positionSeconds,
               clientRequestId: input.clientRequestId,
+              mayWatch: () => assertAcademyVideoEntitled(video, { userId: ctx.principal.userId, tier: ctx.principal.tier }),
             }),
           ),
         ),
@@ -2585,18 +2794,131 @@ export function createAcademyRouter(
       .query(({ ctx, input }) => guard(() => academy.myUpcomingSessions({ userId: ctx.principal.userId, limit: input.limit }))),
 
     sessionCalendar: scopedProcedure('academy:read', { module: 'academy' })
-      .input(z.object({ sessionId: z.string().uuid() }))
+      .input(z.object({ sessionId: z.string().guid() }))
       .output(z.object({ calendar: z.string() }))
       .query(({ ctx, input }) =>
         guard(async () => ({ calendar: await academy.sessionCalendar({ userId: ctx.principal.userId, sessionId: input.sessionId }) })),
       ),
 
     admin: router({
+      /** AC-course-structure-01: the courses staff created, newest first, and how many are in each state. */
+      courses: scopedProcedure('admin:read', { module: 'academy' })
+        .input(academyCourseListInputSchema)
+        .output(academyCourseListSchema)
+        .query(({ input }) => guard(() => academy.courses(input))),
+
+      /** AC-course-structure-01: one course with its history (who did what, and why), newest first. */
+      course: scopedProcedure('admin:read', { module: 'academy' })
+        .input(z.object({ courseId: z.string().guid() }).strict())
+        .output(academyCourseDetailSchema)
+        .query(({ input }) => guard(() => academy.course(input.courseId))),
+
+      /** AC-course-structure-01: create a course as a draft. Keyed by its slug; a repeat answers with the stored course. */
+      createCourse: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyCreateCourseInputSchema)
+        .output(academyCourseSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.createCourse({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-course-structure-01: edit a draft's details over the revision the editor read. The slug never changes. */
+      updateCourse: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyUpdateCourseInputSchema)
+        .output(academyCourseSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.updateCourse({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-course-structure-01: one lifecycle move with a reason. Publishing refuses a paid course with no price, and an empty outline. */
+      setCourseState: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academySetCourseStateInputSchema)
+        .output(academyCourseSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.setCourseState({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-course-structure-02: replace a draft's outline (sections of typed items) over the revision read, inside the owner's limits. */
+      saveOutline: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academySaveOutlineInputSchema)
+        .output(academyCourseDetailSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.saveOutline({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-course-structure-03: one item's lesson revisions, newest first, and the revision learners see. */
+      lesson: scopedProcedure('admin:read', { module: 'academy' })
+        .input(z.object({ itemId: z.string().guid() }).strict())
+        .output(academyLessonSchema)
+        .query(({ input }) => guard(() => academy.lesson(input.itemId))),
+
+      /** AC-course-structure-03: a new lesson revision of ordered blocks, over the revision read. Learners keep the live one. */
+      saveLesson: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academySaveLessonInputSchema)
+        .output(academyLessonSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.saveLesson({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-course-structure-03: a new revision with an older revision's blocks. History is never rewritten. */
+      revertLesson: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyRevertLessonInputSchema)
+        .output(academyLessonSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.revertLesson({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-course-structure-03: learners see this lesson revision from now on; a course event names who and why. */
+      publishLesson: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyPublishLessonInputSchema)
+        .output(academyLessonSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.publishLesson({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-course-structure-03: copy a draft course's item and its newest lesson after it. No learner record is copied. */
+      duplicateItem: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyDuplicateItemInputSchema)
+        .output(academyLessonSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.duplicateItem({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-course-structure-03: a lesson file as a new revision; over the size limit refuses before parsing, a bad block is reported. */
+      importLesson: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyImportLessonInputSchema)
+        .output(academyImportLessonResultSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.importLesson({ ...input, operatorId: ctx.principal!.userId }))),
+
       /** AC-articles-01: staff choose the hub's featured item with a reason; `itemSlug: null` clears the slot. */
       setFeatured: scopedProcedure('admin:write', { module: 'academy' })
         .input(z.object({ itemSlug: z.string().min(1).max(120).nullable(), reason: z.string().max(500) }).strict())
         .output(z.object({ itemSlug: z.string().nullable(), reason: z.string().nullable(), chosenAt: z.date().nullable() }))
         .mutation(({ input, ctx }) => guard(() => academy.setFeatured({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-quizzes-03: publish or take down the quiz on one curriculum item. The answer key never leaves the service. */
+      setQuiz: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academySetQuizInputSchema)
+        .output(z.object({ slug: z.string(), published: z.boolean() }))
+        .mutation(({ input, ctx }) => guard(() => academy.setQuiz({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-videos-01: attach a spine video to one curriculum item (it then completes by `watch`), or take it off with null. */
+      setItemVideo: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academySetItemVideoInputSchema)
+        .output(academyItemVideoSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.setItemVideo({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-videos-01: replace every caption track of one video (WebVTT per language); `tracks: []` removes them. */
+      setVideoTracks: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academySetVideoTracksInputSchema)
+        .output(z.object({ videoSlug: z.string(), tracks: z.array(academyVideoTrackSchema) }))
+        .mutation(({ input, ctx }) => guard(() => academy.setVideoTracks({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-enrolment-01 step 4: staff set a course's start date with a reason; `startsAt: null` clears it, keeping who and why. */
+      setCourseStart: scopedProcedure('admin:write', { module: 'academy' })
+        .input(
+          z
+            .object({
+              slug: z.string().min(1).max(120),
+              startsAt: z.string().datetime({ offset: true }).nullable(),
+              reason: z.string().max(500),
+            })
+            .strict(),
+        )
+        .output(z.object({ slug: z.string(), startsAt: z.date().nullable(), reason: z.string(), setAt: z.date() }))
+        .mutation(({ input, ctx }) =>
+          guard(() =>
+            academy.setCourseStart({
+              slug: input.slug,
+              startsAt: input.startsAt === null ? null : new Date(input.startsAt),
+              reason: input.reason,
+              operatorId: ctx.principal!.userId,
+            }),
+          ),
+        ),
 
       setItemPrerequisites: scopedProcedure('admin:write', { module: 'academy' })
         .input(z.object({ itemSlug: z.string().min(1).max(120), prerequisites: z.array(z.string().min(1).max(120)).max(40) }))
@@ -2634,7 +2956,7 @@ export function createAcademyRouter(
       grantItemExtension: scopedProcedure('admin:write', { module: 'academy' })
         .input(
           z.object({
-            userId: z.string().uuid(),
+            userId: z.string().guid(),
             itemSlug: z.string().min(1).max(120),
             reason: z.string().max(500),
             extendedUntil: z.string().datetime({ offset: true }),
@@ -2643,7 +2965,7 @@ export function createAcademyRouter(
         )
         .output(
           z.object({
-            userId: z.string().uuid(),
+            userId: z.string().guid(),
             itemSlug: z.string(),
             revision: z.number().int().positive(),
             reason: z.string(),
@@ -2697,7 +3019,7 @@ export function createAcademyRouter(
           z.object({
             items: z.array(
               z.object({
-                accountId: z.string().uuid(),
+                accountId: z.string().guid(),
                 certificateId: z.string(),
                 grantedAt: z.date(),
                 status: z.literal('granted'),

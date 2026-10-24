@@ -20,7 +20,7 @@ const authenticationResponse = z.object({
     signature: z.string().min(1),
     userHandle: z.string().optional(),
   }),
-  clientExtensionResults: z.record(z.unknown()).optional(),
+  clientExtensionResults: z.record(z.string(), z.unknown()).optional(),
 });
 
 /**

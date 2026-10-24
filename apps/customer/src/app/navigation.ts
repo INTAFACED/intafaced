@@ -15,6 +15,11 @@ export type Room = {
   hidden?: boolean;
   /** Redesigned screen that renders this route; rooms without one render their old view inside `.legacy-room`. */
   screen?: ScreenId;
+  /**
+   * A public room a sign-in returns to. The help centre promises that an answer kept for signed-in readers opens again
+   * after sign-in; every other public room (sign-in, sign-up, recovery, the front page) sends a signed-in person home.
+   */
+  returnAfterSignIn?: true;
 };
 
 const WEB3_DESCRIPTION = {
@@ -33,10 +38,29 @@ export const rooms: readonly Room[] = [
   { path: '/reg', title: 'Create account', description: 'Your personal account', area: 'public', alias: '/register' },
   { path: '/findPwd', title: 'Password recovery', description: 'Recover account access', area: 'public', hidden: true },
   { path: '/confirm-email', title: 'Confirm email', description: 'Prove your email address', area: 'public', hidden: true },
-  { path: '/help', title: 'Help centre', description: 'Find answers and contact support', area: 'public' },
-  { path: '/helplist', title: 'Help centre', description: 'Published help', area: 'public', alias: '/help' },
-  { path: '/helpdetail', title: 'Help article', description: 'Published guidance', area: 'public', hidden: true },
+  { path: '/help', title: 'Help centre', description: 'Find answers and contact support', area: 'public', returnAfterSignIn: true },
+  { path: '/helplist', title: 'Help centre', description: 'Published help', area: 'public', alias: '/help', returnAfterSignIn: true },
+  { path: '/helpdetail', title: 'Help article', description: 'Published guidance', area: 'public', hidden: true, returnAfterSignIn: true },
+  {
+    path: '/help/category/:id',
+    title: 'Help topic',
+    description: 'Sections of one help topic',
+    area: 'public',
+    hidden: true,
+    returnAfterSignIn: true,
+  },
+  {
+    path: '/help/section/:id',
+    title: 'Help section',
+    description: 'Published answers in one section',
+    area: 'public',
+    hidden: true,
+    returnAfterSignIn: true,
+  },
   { path: '/status', title: 'Platform status', description: 'Trading mode of each market', area: 'public' },
+  { path: '/status/confirm', title: 'Confirm status updates', description: 'Start status emails', area: 'public', hidden: true },
+  { path: '/status/manage', title: 'Status updates', description: 'Choose what you are told about', area: 'public', hidden: true },
+  { path: '/status/unsubscribe', title: 'Stop status updates', description: 'Leave status emails', area: 'public', hidden: true },
   { path: '/notice', title: 'Notices', description: 'Product announcements', area: 'public' },
   { path: '/notice/:id', title: 'Notice', description: 'Product announcement', area: 'public', hidden: true },
   { path: '/announcement', title: 'Notices', description: 'Product announcements', area: 'public', alias: '/notice' },
@@ -416,6 +440,15 @@ export const rooms: readonly Room[] = [
   },
   { path: '/p2p', title: 'Person-to-person', description: 'Offers, orders and counterparties', door: 'Pay', area: 'pay' },
   { path: '/ctc', title: 'Person-to-person', description: 'Offers and orders', door: 'Pay', area: 'pay', alias: '/p2p' },
+  // The P2P Trading access room: what a person needs before taking an ad (eligibility) and their programme standing.
+  {
+    path: '/p2p/access',
+    title: 'Person-to-person',
+    description: 'Offers, orders and counterparties',
+    door: 'Pay',
+    area: 'pay',
+    hidden: true,
+  },
   { path: '/uc/ad', title: 'My offers', description: 'Manage your person-to-person offers', door: 'Pay', area: 'pay' },
   { path: '/uc/ad/create', title: 'Create offer', description: 'Publish a person-to-person offer', door: 'Pay', area: 'pay', hidden: true },
   { path: '/uc/ad/update', title: 'Edit offer', description: 'Review a person-to-person offer', door: 'Pay', area: 'pay', hidden: true },
@@ -906,10 +939,15 @@ export function customerRoomHref(candidate: string | null | undefined): string |
     return undefined;
   }
 }
+/** Where a sign-in may land: a signed-in room, or a public room marked `returnAfterSignIn`. One rule for every guard. */
+export function isSignInDestination(room: Room): boolean {
+  return room.area === 'public' ? room.returnAfterSignIn === true : !['team', 'web3'].includes(room.area);
+}
+
 export function safeReturnTo(candidate: string | null | undefined): string {
   const href = customerRoomHref(candidate);
   const room = href ? findRoom(href.split('?')[0] ?? '') : undefined;
-  if (!href || room?.area === 'public') return '/home';
+  if (!href || !room || !isSignInDestination(room)) return '/home';
   const url = new URL(candidate!, 'https://intafaced.invalid');
   return url.origin === 'https://intafaced.invalid' && !url.username && !url.password ? `${href}${url.hash}` : '/home';
 }

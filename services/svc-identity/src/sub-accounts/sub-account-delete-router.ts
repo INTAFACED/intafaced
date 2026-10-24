@@ -45,7 +45,7 @@ export function createSubAccountDeleteProcedures(service: SubAccountDeleteServic
   };
   return {
     deleteCheck: protectedProcedure
-      .input(z.object({ subAccountId: z.string().uuid() }).strict())
+      .input(z.object({ subAccountId: z.string().guid() }).strict())
       .output(z.object({ blockers: z.array(blocker), balances: z.array(balance) }))
       .query(async ({ ctx, input }) => {
         try {
@@ -55,7 +55,7 @@ export function createSubAccountDeleteProcedures(service: SubAccountDeleteServic
         }
       }),
     assets: protectedProcedure
-      .input(z.object({ subAccountId: z.string().uuid() }).strict())
+      .input(z.object({ subAccountId: z.string().guid() }).strict())
       .output(z.object({ balances: z.array(balance) }))
       .query(async ({ ctx, input }) => {
         try {
@@ -67,7 +67,7 @@ export function createSubAccountDeleteProcedures(service: SubAccountDeleteServic
     delete: protectedProcedure
       .input(
         z
-          .object({ subAccountId: z.string().uuid(), stepUpApprovalId: z.string().uuid(), clientRequestId: z.string().min(1).max(128) })
+          .object({ subAccountId: z.string().guid(), stepUpApprovalId: z.string().guid(), clientRequestId: z.string().min(1).max(128) })
           .strict(),
       )
       .output(z.object({ deleted: z.literal(true), changed: z.boolean() }))
