@@ -222,6 +222,62 @@ describe('custody deposit record (real Postgres)', () => {
     expect(logs.some((l) => l.extra?.alert === true)).toBe(true);
   });
 
+  describe('an extra address after its expiry (W-deposit-02)', () => {
+    const EXTRA = '0x00000000000000000000000000000000000000b2';
+    async function extra(expiresIn: string) {
+      await db.sql`
+        INSERT INTO pay.custody_deposit_addresses (user_id, asset_id, network_id, address_index, address, expires_at)
+        VALUES (${ALICE}, 'USDT', 'ethereum', 1, ${EXTRA}, now() + ${expiresIn}::interval)`;
+    }
+
+    it('a new transfer is held for release with an alert, recorded for the owner and never credited', async () => {
+      await extra('-1 hour');
+      const b = book();
+      expect(await b.receive(seen({ address: EXTRA }))).toEqual({
+        state: 'recorded',
+        status: 'held_for_release',
+        reason: 'address_expired',
+      });
+      // Redeliveries and the open-row pass leave it held: only a person releases it.
+      await b.receive(seen({ address: EXTRA }));
+      await book().receive(seen({ address: EXTRA }));
+      expect(await book().settleOpen()).toBe(0);
+      expect(await db.sql`SELECT user_id, status, reason, amount, credited_at FROM pay.custody_deposits`).toEqual([
+        { user_id: ALICE, status: 'held_for_release', reason: 'address_expired', amount: '25', credited_at: null },
+      ]);
+      expect(posts()).toHaveLength(0);
+      expect(await balance()).toBe(0n);
+      expect(logs.some((l) => l.msg === 'custody deposit held for release: the address had expired' && l.extra?.alert === true)).toBe(true);
+      expect((await book().records({ userId: ALICE, offset: 0, limit: 10 })).items).toEqual([
+        expect.objectContaining({ status: 'held_for_release', reason: 'address_expired', amount: '25' }),
+      ]);
+    });
+
+    it('a transfer to an extra address before its expiry credits as any other', async () => {
+      await extra('30 days');
+      expect(await book().receive(seen({ address: EXTRA }))).toMatchObject({ state: 'recorded', status: 'credited' });
+      expect(posts()).toHaveLength(1);
+    });
+
+    it('a transfer first seen before the expiry still credits when it confirms after it', async () => {
+      await extra('30 days');
+      await book().receive(seen({ address: EXTRA, confirmations: 3 }));
+      await db.sql`UPDATE pay.custody_deposit_addresses SET expires_at = now() - interval '1 hour' WHERE address_index = 1`;
+      expect(await book().receive(seen({ address: EXTRA, confirmations: 12 }))).toMatchObject({ state: 'recorded', status: 'credited' });
+      expect(posts()).toHaveLength(1);
+      expect(await balance()).toBe(parseAmount('25'));
+    });
+
+    it('a token the expired address was not issued for is still rejected, not held', async () => {
+      await extra('-1 hour');
+      expect(await book().receive(seen({ address: EXTRA, assetId: 'DAI' }))).toEqual({
+        state: 'recorded',
+        status: 'rejected',
+        reason: 'unknown_asset',
+      });
+    });
+  });
+
   it('lists a customer own rows only, filtered and paged with a true total', async () => {
     const b = book();
     await b.receive(seen());

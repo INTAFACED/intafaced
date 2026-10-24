@@ -28,6 +28,9 @@ import type { RegistryReader } from '../../registries/read-api.js';
  *   same key, so the record and the ledger cannot disagree because an owner setting moved in between.
  * - A finalized amount that differs from the one first seen is `needs_review`, never credited; an asset the address was not
  *   issued for is `rejected` and logged as an alert. `held_for_screening` and `reversed` are W-deposit-06.
+ * - A transfer first seen at an extra address after its expiry (W-deposit-02) is `held_for_release` with reason
+ *   `address_expired`: recorded, never credited on its own and never dropped, left for a support or compliance release. One
+ *   first seen before the expiry is judged and credited as any other, however long it takes to confirm.
  * - ANNOUNCED ONCE CREDITED (W-deposit-09). A credited row is published for the customer's inbox (`announceCredit`), then
  *   `credit_notified_at` is written. Crediting never waits for it: the flip only starts an announcing pass in the background,
  *   and the service runs one on a timer too. One pass runs at a time and stops at the first bus failure; a crash or a bus
@@ -95,6 +98,15 @@ interface Row {
   credit_started_at: Date | null;
 }
 
+/** The customer an address was issued to, and whether it had expired when this transfer was first seen. */
+interface AddressOwner {
+  user_id: string;
+  asset_id: string;
+  network_id: string;
+  address: string;
+  expired: boolean;
+}
+
 const COLUMNS =
   'id, user_id, asset_id, network_id, address, tx_hash, output_index, amount, confirmations, confirmations_required, minimum_deposit, status, reason, detected_at, credited_at, credit_started_at';
 const ASSET_RE = /^[A-Za-z0-9]{1,16}$/;
@@ -131,6 +143,10 @@ export class CustodyDepositBook {
         expected: owner.asset_id,
         received: input.assetId,
       });
+    }
+    if (row.status === 'held_for_release' && row.reason === 'address_expired') {
+      // For the support desk: funds reached custody and wait for a release; nothing was credited.
+      this.deps.log?.('custody deposit held for release: the address had expired', { alert: true, depositId: row.id });
     }
     const judged = await this.settle(row);
     const outcome: ChainDepositOutcome = { state: 'recorded', status: judged.status, reason: judged.reason };
@@ -252,9 +268,11 @@ export class CustodyDepositBook {
     return { items: rows.map(toRecord), total: Number(count[0]?.n ?? '0') };
   }
 
-  private async addressOwner(address: string): Promise<{ user_id: string; asset_id: string; network_id: string; address: string } | null> {
-    const rows = await this.deps.sql<Array<{ user_id: string; asset_id: string; network_id: string; address: string }>>`
-      SELECT user_id, asset_id, network_id, address FROM pay.custody_deposit_addresses
+  private async addressOwner(address: string): Promise<AddressOwner | null> {
+    // `expired` is the database's own clock, the same one `detected_at` is written with.
+    const rows = await this.deps.sql<AddressOwner[]>`
+      SELECT user_id, asset_id, network_id, address, (expires_at IS NOT NULL AND expires_at <= now()) AS expired
+        FROM pay.custody_deposit_addresses
        WHERE lower(address) = ${address.toLowerCase()} LIMIT 2`;
     // Two owners of one address is a fault, not a guess: nothing is credited until a person looks.
     if (rows.length > 1) throw new Error('pay.deposit_address_ambiguous');
@@ -262,20 +280,18 @@ export class CustodyDepositBook {
   }
 
   /** Insert the row, or read the one that is there and apply the new confirmation depth. A different amount is `needs_review`. */
-  private async upsert(
-    input: ChainDeposit & { txHash: string },
-    owner: { user_id: string; asset_id: string; network_id: string; address: string },
-    unknownAsset: boolean,
-  ): Promise<Row> {
+  private async upsert(input: ChainDeposit & { txHash: string }, owner: AddressOwner, unknownAsset: boolean): Promise<Row> {
     const { sql } = this.deps;
     const amount = formatAmount(input.amount);
     const conf = Math.max(0, Math.trunc(input.confirmations));
-    const first = unknownAsset ? 'rejected' : conf > 0 ? 'confirming' : 'detected';
+    // Only a NEW row is judged against the expiry: a transfer already recorded before the address expired keeps its course.
+    const first = unknownAsset ? 'rejected' : owner.expired ? 'held_for_release' : conf > 0 ? 'confirming' : 'detected';
+    const firstReason = unknownAsset ? 'unknown_asset' : owner.expired ? 'address_expired' : null;
     return sql.begin(async (tx) => {
       const inserted = await tx<Row[]>`
         INSERT INTO pay.custody_deposits (user_id, asset_id, network_id, address, tx_hash, output_index, amount, confirmations, status, reason)
         VALUES (${owner.user_id}, ${input.assetId}, ${owner.network_id}, ${owner.address}, ${input.txHash}, ${input.outputIndex},
-                ${amount}, ${conf}, ${first}, ${unknownAsset ? 'unknown_asset' : null})
+                ${amount}, ${conf}, ${first}, ${firstReason})
         ON CONFLICT (asset_id, network_id, tx_hash, output_index) DO NOTHING
         RETURNING ${sql.unsafe(COLUMNS)}`;
       if (inserted[0]) return inserted[0];
