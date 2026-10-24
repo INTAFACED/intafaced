@@ -61,6 +61,7 @@ import {
 } from './login-code.js';
 import { queueServiceMail } from './service-mail.js';
 import { queuePasswordChangedNotice } from './password-changed-notice.js';
+import { queueFactorChangedNotice } from './factor-changed-notice.js';
 import {
   cancelMfaReset,
   completeDueMfaReset,
@@ -2203,7 +2204,9 @@ export class AuthService {
       if (!pending) {
         throw new AuthError('TOTP enrolment session expired or secret mismatch — start enrolment again', 'auth.mfa_invalid');
       }
-      await tx`UPDATE users SET totp_secret = ${sealed}, totp_enrolled_at = now(), totp_last_step = ${matched.toString()}, recovery_code_hashes = ${tx.json(pending.recoveryHashes as never)}, updated_at = now() WHERE id = ${userId} AND totp_secret IS NULL`;
+      const turnedOn =
+        await tx`UPDATE users SET totp_secret = ${sealed}, totp_enrolled_at = now(), totp_last_step = ${matched.toString()}, recovery_code_hashes = ${tx.json(pending.recoveryHashes as never)}, updated_at = now() WHERE id = ${userId} AND totp_secret IS NULL RETURNING id`;
+      if (turnedOn.length > 0) await queueFactorChangedNotice(tx, { userId, change: 'totp_added', now: this.passwordResetNow() });
       // Sessions opened before the second factor existed carry `mfa: false` and
       // refresh copies that onto every rotation, so one stolen before enrolment
       // would outlive it. The enrolling door names its own session; every other
@@ -2275,6 +2278,7 @@ export class AuthService {
       }
       const next = [...existing, stored];
       await tx`UPDATE users SET webauthn_creds = ${tx.json(next as never)}, updated_at = now() WHERE id = ${userId}`;
+      await queueFactorChangedNotice(tx, { userId, change: 'passkey_added', now: this.passwordResetNow() });
       return existing.length;
     });
     if (existingCount === 0) {
@@ -2402,6 +2406,7 @@ export class AuthService {
       // The last way in stays (I-account-lifecycle-07): a passkey is removed only while another method remains.
       assertLeavesAWayIn(await lockedSigninMethods(tx, userId));
       await tx`UPDATE users SET webauthn_creds = ${tx.json(next as never)}, updated_at = now() WHERE id = ${userId}`;
+      await queueFactorChangedNotice(tx, { userId, change: 'passkey_removed', now: this.passwordResetNow() });
       return true;
     });
   }

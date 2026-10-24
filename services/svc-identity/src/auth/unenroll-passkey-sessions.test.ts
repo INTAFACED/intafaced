@@ -5,6 +5,9 @@ import { describe, expect, it } from 'vitest';
 import { PlaceDoor } from './place-door.js';
 import { unenrollPasskeyAndRevokeSessions } from './unenroll-passkey-sessions.js';
 
+/** The factor-changed outbox rows each removal queued. */
+const factorNotices: unknown[][] = [];
+
 type StoredCred = { credentialId?: unknown };
 type UserRow = { id: string; webauthn_creds: StoredCred[] };
 type SessionRow = { id: string; user_id: string; revoked: boolean };
@@ -73,6 +76,13 @@ function combinedStore(users: UserRow[], sessions: SessionRow[]) {
       const named = values[0];
       return sessions.filter((s) => s.user_id === named && s.revoked === false).map((s) => ({ id: s.id }));
     }
+    // The factor-changed notice (I-signin-sessions-08): the account's address, the change count, and its two outbox rows.
+    if (text.includes('email_verified_at') && text.includes('from users')) return [];
+    if (text.includes('from security_factor_events')) return [{ n: 0 }];
+    if (text.includes('into security_factor_events') || text.includes('into mail_outbox')) {
+      factorNotices.push(values);
+      return [];
+    }
     throw new Error(`unexpected sql: ${text}`);
   };
   return Object.assign(fn, {
@@ -115,8 +125,11 @@ describe('unenrollPasskeyAndRevokeSessions', () => {
         { id: 'dead', user_id: A, revoked: true },
       ],
     );
+    const before = factorNotices.length;
     const out = await unenrollPasskeyAndRevokeSessions(sql, A, 'cred-1');
     expect(out).toEqual({ credentialId: 'cred-1', remaining: 1, sessionsRevoked: 2 });
+    // The removal queued its factor-changed notice (I-signin-sessions-08).
+    expect(factorNotices.slice(before).some((values) => values.includes('passkey_removed'))).toBe(true);
     expect(sql.sessions.map((s) => s.revoked)).toEqual([true, true, true]);
 
     const liveDoor = new PlaceDoor((async () => [

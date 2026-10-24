@@ -256,7 +256,10 @@ test(`${J} #5 support recovery: a case with a mailed one-time link, a second app
 test(`${J} #6 mail and inbox notices for each factor change`, async ({ page }) => {
   test.setTimeout(120_000);
   const { who } = await withAuthenticator(page);
-  await expect.poll(() => mailedLines(who.email, 'factor-changed').length, UNBUILT).toBeGreaterThan(0);
+  // The mail to the proved address says what changed (I-signin-sessions-08).
+  await expect
+    .poll(() => mailedLines(who.email, 'factor-changed').some((line) => line.includes('change=totp_added')), { timeout: 20_000 })
+    .toBe(true);
   await page.goto('/notifications');
   await expect(page.getByText('Authenticator app turned on')).toBeVisible(UNBUILT);
 });
