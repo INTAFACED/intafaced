@@ -153,6 +153,7 @@ import {
   type MismatchKind,
   type MismatchReport,
 } from './amount-mismatch.js';
+import { railMismatch, type PaymentRail, type RailMismatch } from './rail-validate.js';
 
 /**
  * svc-p2p — PEER-TO-PEER TRADING WITH ESCROW (§6.2).
@@ -206,6 +207,9 @@ export type P2pErrorCode =
   | 'p2p.remind_too_early'
   | 'p2p.remind_rate_limited'
   | 'p2p.mismatch_report_exists'
+  | 'rail.bank'
+  | 'p2p.method_not_rail_validated'
+  | 'p2p.rail_mismatch'
   | 'p2p.pair_limit_exceeded'
   | 'p2p.method_delisted'
   | 'p2p.offer_not_found'
@@ -750,6 +754,11 @@ export interface P2pServiceOptions {
    * omitted) classifies nothing: every report goes to a person.
    */
   mismatchToleranceBps?: number | null;
+  /**
+   * P-trade-orders-11. The bank rail that validates payments, or null: no banking partner is wired in this build, so
+   * every validation refuses `rail.bank`. Tests pass a TEST rail.
+   */
+  paymentRail?: PaymentRail | null;
 }
 
 /**
@@ -1180,6 +1189,7 @@ export class P2pService {
   private readonly takeLimits: TakeLimits | undefined;
   private readonly reminders: ReminderPolicy;
   private readonly mismatchToleranceBps: number | null;
+  private readonly paymentRail: PaymentRail | null;
   private tradingEnabled: boolean;
 
   /**
@@ -1218,6 +1228,7 @@ export class P2pService {
     this.takeLimits = options.takeLimits;
     this.reminders = options.reminders ?? { waitSeconds: null, max: null };
     this.mismatchToleranceBps = options.mismatchToleranceBps ?? null;
+    this.paymentRail = options.paymentRail ?? null;
   }
 
   /**
@@ -2673,6 +2684,88 @@ export class P2pService {
   /** An order's amount report, or null. Reads only; callers filter parties first. */
   async mismatchReport(tradeId: string): Promise<MismatchReport | null> {
     return readMismatch(this.sql, tradeId);
+  }
+
+  // ── Payment validation through a bank rail (P-trade-orders-11) ──────────────
+
+  /**
+   * What stands between this order and an automatic check: `rail.bank` while no rail is wired, or
+   * `p2p.method_not_rail_validated` when the rail does not cover the order's method. Null when it can be checked.
+   */
+  paymentValidationBlocker(trade: Pick<TradeRecord, 'method'>): 'rail.bank' | 'p2p.method_not_rail_validated' | null {
+    if (!this.paymentRail) return 'rail.bank';
+    return this.paymentRail.methods.has(trade.method) ? null : 'p2p.method_not_rail_validated';
+  }
+
+  /**
+   * J-p2p-02 #4: the seller of a paid order asks the bank rail whether the payment arrived. An exact match (currency,
+   * amount and the order's id as the reference) releases once, through the same decide-then-post as the seller's own
+   * release, so a release by hand at the same moment still posts once. Nothing arrived yet answers `pending`. Anything
+   * else leaves an exception row for a person and refuses `p2p.rail_mismatch`; nothing is released.
+   */
+  async validatePayment(
+    tradeId: string,
+    actorId: string,
+  ): Promise<{ outcome: 'released'; trade: TradeRecord } | { outcome: 'pending'; trade: TradeRecord }> {
+    return withMoneySpan('p2p.validatePayment', { operation: 'escrow.release', tradeId }, async () => {
+      const trade = await this.getTrade(tradeId);
+      if (trade.buyerId !== actorId && trade.sellerId !== actorId) throw unknownTrade(tradeId);
+      if (trade.sellerId !== actorId) {
+        throw new P2pError('Only the seller, who receives the payment, can have it checked', 'p2p.not_the_seller');
+      }
+      const blocker = this.paymentValidationBlocker(trade);
+      if (blocker === 'rail.bank')
+        throw new P2pError('Payment validation needs a bank rail. It is switched off in this build', 'rail.bank');
+      if (blocker) throw new P2pError(`The bank rail does not validate ${trade.method} payments`, 'p2p.method_not_rail_validated');
+      // A second press after the release answers the same released order.
+      if (trade.status === 'released' && trade.resolution === 'released') return { outcome: 'released', trade };
+      if (trade.status !== 'fiat_sent') {
+        throw new TradeStateError(
+          `Trade ${tradeId} is ${trade.status}: a payment is checked once the buyer marked it paid`,
+          isTerminal(trade.status) ? 'p2p.trade_terminal' : 'p2p.invalid_transition',
+          trade.status,
+          'fiat_sent',
+        );
+      }
+      const confirmation = await this.paymentRail!.confirmation({
+        tradeId,
+        sellerId: trade.sellerId,
+        method: trade.method,
+        reference: tradeId,
+      });
+      if (!confirmation) return { outcome: 'pending', trade };
+      const mismatch = railMismatch({ fiatCurrency: trade.fiatCurrency, fiatAmount: trade.fiatAmount, reference: tradeId }, confirmation);
+      if (mismatch) {
+        await this.recordRailException(trade, confirmation, mismatch);
+        throw new P2pError(`The bank rail's payment does not match this order (${mismatch}); a person will check it`, 'p2p.rail_mismatch');
+      }
+      assertReleasePostable(trade.amount, trade.feeBps);
+      try {
+        await this.recordDecision({ tradeId, to: 'released', resolution: 'released', reason: 'rail.validated', expectStatus: 'fiat_sent' });
+      } catch (err) {
+        // The seller released by hand between the read and this decision: one release, already decided.
+        const now = await this.getTrade(tradeId);
+        if (now.resolution === 'released') return { outcome: 'released', trade: await this.settle(tradeId) };
+        throw err;
+      }
+      return { outcome: 'released', trade: await this.settle(tradeId) };
+    });
+  }
+
+  private async recordRailException(
+    trade: TradeRecord,
+    confirmation: { confirmationId: string; currency: string; amount: Amount; reference: string },
+    reason: RailMismatch,
+  ): Promise<void> {
+    await this.sql`
+      INSERT INTO p2p.rail_exceptions
+        (confirmation_id, trade_id, reason, expected_currency, expected_amount, received_currency, received_amount,
+         received_reference, recorded_at)
+      VALUES (${confirmation.confirmationId}, ${trade.id}, ${reason}, ${trade.fiatCurrency},
+              ${formatAmount(trade.fiatAmount)}::numeric, ${confirmation.currency},
+              ${formatAmount(confirmation.amount)}::numeric, ${confirmation.reference}, now())
+      ON CONFLICT (confirmation_id) DO NOTHING
+    `;
   }
 
   // ── Release · refund · dispute ─────────────────────────────────────────────

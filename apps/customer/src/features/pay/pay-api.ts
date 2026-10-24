@@ -1009,6 +1009,14 @@ export function createPersonalPayApi(
         undefined,
         p2pCurrent,
       ),
+    /** P-trade-orders-11: the seller has the bank rail check the payment; svc-p2p releases only on an exact match. */
+    validatePayment: (tradeId: string) =>
+      guard.run(
+        `${userId}:validate:${tradeId}`,
+        () => api.mutate('p2p', 'trades.validatePayment', { tradeId }, s.validatePaymentSchema),
+        undefined,
+        p2pCurrent,
+      ),
     appendEvidence: (tradeId: string, evidence: string) =>
       guard.run(
         `${userId}:evidence:${tradeId}`,

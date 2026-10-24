@@ -136,6 +136,8 @@ export const tradeSchema = z.object({
   /** `trades.get` only: the buyer's reminders to the seller (P-trade-orders-15). */
   reminders: z.lazy(() => tradeRemindersSchema).optional(),
   mismatch: z.lazy(() => tradeMismatchSchema.nullable()).optional(),
+  /** svc-p2p `trades.get` `paymentValidation`: what stops the bank rail checking this order, or null. */
+  paymentValidation: z.object({ blocker: z.enum(['rail.bank', 'p2p.method_not_rail_validated']).nullable() }).optional(),
 });
 /** svc-p2p `trades.remind` and `trades.get` `reminders`: how many went, the last, when the next may go, the owner's count. */
 export const tradeRemindersSchema = z.object({
@@ -158,6 +160,8 @@ export const tradeMismatchSchema = z.object({
   reportedAt: z.string().datetime(),
 });
 export type TradeMismatch = z.infer<typeof tradeMismatchSchema>;
+/** svc-p2p `trades.validatePayment`: released on an exact match, or pending while the bank shows nothing. */
+export const validatePaymentSchema = z.object({ outcome: z.enum(['released', 'pending']), trade: tradeSchema });
 /** svc-p2p `trades.page`: one keyset page newest first, the server's tab and readable status per row, and exact per-tab counts. */
 export const orderTabs = ['in_progress', 'in_dispute', 'completed', 'cancelled'] as const;
 export const orderPageSchema = z.object({

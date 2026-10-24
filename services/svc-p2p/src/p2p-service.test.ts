@@ -718,6 +718,104 @@ describe('svc-p2p escrow', () => {
       });
     });
 
+    // P-trade-orders-11 / J-p2p-02 #4: the bank rail checks the payment; an exact match releases once, anything else waits.
+    describe('payment validation through a bank rail', () => {
+      type Confirmation = { confirmationId: string; currency: string; amount: bigint; reference: string } | null;
+      /** A TEST rail: answers what the test says arrived, for the methods it covers. */
+      const testRail = (answer: (tradeId: string) => Confirmation, methods = ['sepa']) => ({
+        methods: new Set(methods),
+        confirmation: async (order: { tradeId: string }) => answer(order.tradeId),
+      });
+      const railService = (rail: ReturnType<typeof testRail> | null) => {
+        p2p = new P2pService(sql, ledger, bus, { ...options, paymentRail: rail });
+        return p2p;
+      };
+      const paid = async () => {
+        const trade = await escrowedTrade('100');
+        return p2p.markFiatSent(trade.id, TAKER);
+      };
+      const exact = (trade: { id: string; fiatCurrency: string; fiatAmount: bigint }) => ({
+        confirmationId: `TEST-${trade.id}`,
+        currency: trade.fiatCurrency,
+        amount: trade.fiatAmount,
+        reference: trade.id,
+      });
+      const exceptions = async (tradeId: string) => sql`SELECT * FROM p2p.rail_exceptions WHERE trade_id = ${tradeId}`;
+
+      it('with no rail refuses rail.bank and nothing moves', async () => {
+        railService(null);
+        const trade = await paid();
+        expect(p2p.paymentValidationBlocker(trade)).toBe('rail.bank');
+        await expect(p2p.validatePayment(trade.id, MAKER)).rejects.toMatchObject({ code: 'rail.bank' });
+        expect((await p2p.getTrade(trade.id)).status).toBe('fiat_sent');
+      });
+
+      it('refuses a method the rail does not validate, and a buyer or a stranger', async () => {
+        railService(testRail(() => null, ['other-method']));
+        const trade = await paid();
+        expect(p2p.paymentValidationBlocker(trade)).toBe('p2p.method_not_rail_validated');
+        await expect(p2p.validatePayment(trade.id, MAKER)).rejects.toMatchObject({ code: 'p2p.method_not_rail_validated' });
+        railService(testRail(() => null));
+        await expect(p2p.validatePayment(trade.id, TAKER)).rejects.toMatchObject({ code: 'p2p.not_the_seller' });
+        await expect(p2p.validatePayment(trade.id, crypto.randomUUID())).rejects.toMatchObject({ code: 'p2p.trade_not_found' });
+      });
+
+      it('answers pending while nothing has arrived, and refuses before the order is marked paid', async () => {
+        railService(testRail(() => null));
+        const trade = await paid();
+        expect((await p2p.validatePayment(trade.id, MAKER)).outcome).toBe('pending');
+        expect((await p2p.getTrade(trade.id)).status).toBe('fiat_sent');
+        const escrowed = await escrowedTrade('100');
+        await expect(p2p.validatePayment(escrowed.id, MAKER)).rejects.toMatchObject({ code: 'p2p.invalid_transition' });
+      });
+
+      it('an exact match releases once; a second check answers the same released order', async () => {
+        const before = await availableOf(TAKER);
+        let order: Awaited<ReturnType<typeof paid>> | undefined;
+        railService(testRail(() => exact(order!)));
+        order = await paid();
+        const first = await p2p.validatePayment(order.id, MAKER);
+        expect(first).toMatchObject({ outcome: 'released', trade: { status: 'released', resolution: 'released' } });
+        const received = await availableOf(TAKER);
+        expect(amt(received)).toBeGreaterThan(amt(before));
+        const again = await p2p.validatePayment(order.id, MAKER);
+        expect(again.outcome).toBe('released');
+        expect(await availableOf(TAKER)).toBe(received);
+      });
+
+      it('a release by hand at the same moment posts once', async () => {
+        const before = await availableOf(TAKER);
+        let order: Awaited<ReturnType<typeof paid>> | undefined;
+        railService(testRail(() => exact(order!)));
+        order = await paid();
+        const [byRail, byHand] = await Promise.allSettled([p2p.validatePayment(order.id, MAKER), p2p.confirmFiatReceived(order.id, MAKER)]);
+        expect(byRail.status === 'fulfilled' || byHand.status === 'fulfilled').toBe(true);
+        expect((await p2p.getTrade(order.id)).status).toBe('released');
+        const once = amt(await availableOf(TAKER)) - amt(before);
+        // Exactly the net of one release: a second posting would double it.
+        const settled = await p2p.getTrade(order.id);
+        expect(once).toBe(settled.amount - (settled.amount * BigInt(settled.feeBps)) / 10_000n);
+      });
+
+      it('a mismatch releases nothing and leaves one exception row per confirmation', async () => {
+        let order: Awaited<ReturnType<typeof paid>> | undefined;
+        railService(testRail(() => ({ ...exact(order!), amount: order!.fiatAmount - amt('1') })));
+        order = await paid();
+        await expect(p2p.validatePayment(order.id, MAKER)).rejects.toMatchObject({ code: 'p2p.rail_mismatch' });
+        await expect(p2p.validatePayment(order.id, MAKER)).rejects.toMatchObject({ code: 'p2p.rail_mismatch' });
+        expect((await p2p.getTrade(order.id)).status).toBe('fiat_sent');
+        const rows = await exceptions(order.id);
+        expect(rows).toHaveLength(1);
+        expect(rows[0]).toMatchObject({ reason: 'amount', received_reference: order.id });
+
+        let other: Awaited<ReturnType<typeof paid>> | undefined;
+        railService(testRail(() => ({ ...exact(other!), confirmationId: `TEST-ref-${other!.id}`, reference: 'someone else' })));
+        other = await paid();
+        await expect(p2p.validatePayment(other.id, MAKER)).rejects.toMatchObject({ code: 'p2p.rail_mismatch' });
+        expect((await exceptions(other.id))[0]).toMatchObject({ reason: 'reference' });
+      });
+    });
+
     it('still marks paid when the bus is down, and the sweep tells the seller on the next tick', async () => {
       bus = new BusFailingOnce('svc-p2p', 'p2pTradeFiatSent');
       p2p = new P2pService(sql, ledger, bus, options);

@@ -212,12 +212,20 @@ test('J-p2p-02 #3 a payment within tolerance lets the order go on; one outside i
   await expect(page.getByRole('button', { name: 'Open dispute' })).toBeVisible();
 });
 
-test('J-p2p-02 #4 with no payment validation rail the order says the bank rail is switched off, and nothing is released', async () => {
+test('J-p2p-02 #4 with no payment validation rail the order says the bank rail is switched off, and nothing is released', async ({
+  page,
+}) => {
   const state = journey();
   const s = await sellerClient(state);
   const res = await s.raw.mutate('trades.validatePayment', { tradeId: state.tradeId });
   expect(refusalCode(res), 'svc-p2p has no payment validation door yet (P-trade-orders-11)').toBe('rail.bank');
   expect((await s.query('trades.get', { tradeId: state.tradeId })).status).toBe('fiat_sent');
+  // The seller's order shows the check, switched off, with the blocker named.
+  await signIn(page, state.seller);
+  await page.goto(`/uc/order?tradeId=${state.tradeId}`);
+  const check = page.getByTestId('order-validate');
+  await expect(check.getByRole('button', { name: 'Check the payment with the bank' })).toBeDisabled();
+  await expect(check).toContainText('Payment validation needs a bank rail. It is switched off in this build');
 });
 
 test('J-p2p-02 #5 the seller ticks the five checks, confirms with a passkey and releases once; a second press returns the same order', async ({
