@@ -74,6 +74,7 @@ const EXTRA: Partial<Record<(typeof MERCHANT_PORTAL_ROOMS)[number], readonly Act
   'product-new': [productManage],
   'product-import': [productManage],
   product: [productManage],
+  'settings-stores': [productManage],
 };
 
 export interface RoomAccessContext {

@@ -565,6 +565,7 @@ export const rooms: readonly Room[] = [
       ['products', 'Products', 'What you sell, kept in one catalogue'],
       ['products/new', 'Add a product', 'Name what you sell and how it shows'],
       ['products/import', 'Import products', 'Add many products from one file'],
+      ['settings/stores', 'Stores', 'Where you sell, and what each store sells'],
       ['developer/sandbox', 'Sandbox', 'Try payments with test money'],
       ['developer/docs', 'Developer docs', 'How to connect your systems'],
     ] as const

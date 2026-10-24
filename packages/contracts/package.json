@@ -198,6 +198,10 @@
       "types": "./dist/merchant-catalog.d.ts",
       "default": "./dist/merchant-catalog.js"
     },
+    "./merchant-stores": {
+      "types": "./dist/merchant-stores.d.ts",
+      "default": "./dist/merchant-stores.js"
+    },
     "./campaigns-drops": {
       "types": "./dist/campaigns-drops.d.ts",
       "default": "./dist/campaigns-drops.js"
