@@ -10,6 +10,7 @@ import {
 } from '@intafaced/contracts';
 import { KybError, type KybService } from './kyb-service.js';
 import type { KybEntityTypeService } from './kyb-entity-types.js';
+import { currentDocuments } from './kyb-documents.js';
 
 /**
  * THE BUSINESS VERIFICATION APPLICATION (I-kyc-compliance-21).
@@ -20,7 +21,24 @@ import type { KybEntityTypeService } from './kyb-entity-types.js';
  * moves in the same transaction as the application, and a submitted application is never edited again.
  *
  * Section answers are bounded named fields. This file holds no requirement and no field list: both are owner data.
+ *
+ * The documents section counts only the uploads made since the last restart or type change (`documents_after_seq`),
+ * and it cannot be marked complete, nor the application submitted, while a required document has no upload or its
+ * latest was rejected. How long a business has to finish is the owner's `PAY_KYB_APPLICATION_DUE_DAYS`; blank means
+ * no due date, never a made-up one.
  */
+
+export const KYB_APPLICATION_DUE_DAYS_ENV = 'PAY_KYB_APPLICATION_DUE_DAYS';
+
+/** Days from the start of an application to its due date, or null while unpublished. A malformed value refuses to boot. */
+export function readKybApplicationDueDays(env: Record<string, string | undefined>): number | null {
+  const raw = env[KYB_APPLICATION_DUE_DAYS_ENV]?.trim() ?? '';
+  if (!raw) return null;
+  if (!/^[1-9][0-9]{0,2}$/.test(raw) || Number(raw) > 365) {
+    throw new Error(`${KYB_APPLICATION_DUE_DAYS_ENV} must be a whole number of days from 1 to 365. Refusing to boot.`);
+  }
+  return Number(raw);
+}
 
 const ALL_SECTIONS = ['company_details', 'people', 'owners', 'documents', 'questionnaires'] as const;
 
@@ -44,6 +62,8 @@ interface ApplicationRow {
   state: 'draft' | 'submitted';
   kyb_ref: string | null;
   submitted_at: Date | null;
+  created_at: Date;
+  documents_after_seq: string;
 }
 
 interface SectionRow {
@@ -54,7 +74,8 @@ interface SectionRow {
   updated_at: Date;
 }
 
-const APPLICATION_COLUMNS = `id, merchant_id, entity_type, country, required_sections, state, kyb_ref, submitted_at`;
+const APPLICATION_COLUMNS = `id, merchant_id, entity_type, country, required_sections, state, kyb_ref, submitted_at, created_at, documents_after_seq`;
+const DAY_MS = 86_400_000;
 
 function sameData(a: KybApplicationSectionData, b: KybApplicationSectionData): boolean {
   const canon = (d: KybApplicationSectionData) => JSON.stringify(Object.entries(d).sort(([x], [y]) => (x < y ? -1 : 1)));
@@ -66,6 +87,8 @@ export class KybApplicationService {
     private readonly sql: Sql,
     private readonly kyb: Pick<KybService, 'submit'>,
     private readonly entityTypes: Pick<KybEntityTypeService, 'requirements'>,
+    /** `readKybApplicationDueDays`: null while the owner publishes none. */
+    private readonly dueDays: number | null = null,
   ) {}
 
   /** Which merchant an application belongs to, for the ownership check. Null when there is no such application. */
@@ -167,6 +190,7 @@ export class KybApplicationService {
             },
           );
         }
+        if (input.section === 'documents' && input.complete) await this.assertDocuments(tx, app);
         const next = current + 1;
         await tx`
           INSERT INTO pay.kyb_application_sections (application_id, section, version, complete, data)
@@ -190,16 +214,62 @@ export class KybApplicationService {
     return transaction(
       this.sql,
       async (tx) => {
-        const app = await this.lockDraft(tx, input.applicationId);
-        await tx`DELETE FROM pay.kyb_application_sections WHERE application_id = ${input.applicationId}`;
-        await tx`UPDATE pay.kyb_applications SET updated_at = now() WHERE id = ${input.applicationId}`;
+        await this.lockDraft(tx, input.applicationId);
+        const cleared = await this.clear(tx, input.applicationId);
         await tx`
           INSERT INTO pay.kyb_application_events (application_id, kind, actor_id) VALUES (${input.applicationId}, 'restarted', ${input.actorId})
         `;
-        return this.view(tx, app);
+        return this.view(tx, cleared);
       },
       { isolation: 'read committed', maxAttempts: 5 },
     );
+  }
+
+  /**
+   * Change the draft's entity type or country. Refuses an unpublished type or unserved country like `start`. Clears
+   * every section, takes the required sections from the new type, and stops earlier uploads from counting, so what is
+   * still needed is listed again from the start. The same type and country again change nothing.
+   */
+  async changeType(input: {
+    applicationId: string;
+    entityType: KybEntityType;
+    country: string;
+    actorId: string;
+  }): Promise<KybApplicationView> {
+    const requirements = await this.entityTypes.requirements(input.entityType, input.country);
+    const required = requiredSectionsFor(requirements);
+    return transaction(
+      this.sql,
+      async (tx) => {
+        const app = await this.lockDraft(tx, input.applicationId);
+        if (app.entity_type === input.entityType && app.country === input.country) return this.view(tx, app);
+        await tx`
+          UPDATE pay.kyb_applications SET entity_type = ${input.entityType}, country = ${input.country}, required_sections = ${required}
+           WHERE id = ${input.applicationId}
+        `;
+        const changed = await this.clear(tx, input.applicationId);
+        await tx`
+          INSERT INTO pay.kyb_application_events (application_id, kind, actor_id, entity_type, country)
+          VALUES (${input.applicationId}, 'type_changed', ${input.actorId}, ${input.entityType}, ${input.country})
+        `;
+        return this.view(tx, changed);
+      },
+      { isolation: 'read committed', maxAttempts: 5 },
+    );
+  }
+
+  /** Delete the sections and move the document boundary past every upload so far. The caller holds the row lock. */
+  private async clear(tx: Sql, applicationId: string): Promise<ApplicationRow> {
+    await tx`DELETE FROM pay.kyb_application_sections WHERE application_id = ${applicationId}`;
+    const [row] = await tx<ApplicationRow[]>`
+      UPDATE pay.kyb_applications
+         SET documents_after_seq = coalesce((SELECT max(seq) FROM pay.kyb_documents WHERE application_id = ${applicationId}), documents_after_seq),
+             updated_at = now()
+       WHERE id = ${applicationId}
+       RETURNING ${tx.unsafe(APPLICATION_COLUMNS)}
+    `;
+    if (!row) throw new KybError('No such application', 'pay.kyb_application_not_found');
+    return row;
   }
 
   /**
@@ -217,6 +287,7 @@ export class KybApplicationService {
       beforeWrite: async (tx) => {
         const app = await this.lockDraft(tx, input.applicationId);
         if (app.merchant_id !== input.merchantId) throw new KybError('No such application', 'pay.kyb_application_not_found');
+        if (app.required_sections.includes('documents')) await this.assertDocuments(tx, app);
         const missing = await this.missing(tx, app);
         if (missing.length > 0) {
           throw new KybError(`Required sections are not complete: ${missing.join(', ')}`, 'pay.kyb_incomplete', { missing });
@@ -247,12 +318,54 @@ export class KybApplicationService {
     return app;
   }
 
+  /**
+   * Required sections not marked complete. The documents section also counts as missing while a required document has
+   * no current upload, its current one was rejected, or the type or country is no longer published, so the view never
+   * says ready while submit would refuse.
+   */
   private async missing(q: Sql, app: ApplicationRow): Promise<KybApplicationSection[]> {
     const done = await q<Array<{ section: KybApplicationSection }>>`
       SELECT section FROM pay.kyb_application_sections WHERE application_id = ${app.id} AND complete
     `;
     const complete = new Set(done.map((r) => r.section));
+    if (app.required_sections.includes('documents') && complete.has('documents')) {
+      const absent = await this.absentDocuments(q, app);
+      if (absent instanceof KybError || absent.length > 0) complete.delete('documents');
+    }
     return ALL_SECTIONS.filter((s) => app.required_sections.includes(s) && !complete.has(s));
+  }
+
+  /**
+   * The published document keys of the application's type with no current upload since the boundary, or whose current
+   * upload was rejected. Read with the caller's connection. A refusal when the type or its country is no longer published.
+   */
+  private async absentDocuments(q: Sql, app: ApplicationRow): Promise<string[] | KybError> {
+    const [type] = await q<Array<{ document_keys: string[]; countries: string[] }>>`
+      SELECT document_keys, countries FROM pay.kyb_entity_types WHERE entity_type = ${app.entity_type}
+    `;
+    if (!type) {
+      return new KybError(`Requirements for ${app.entity_type} are not published.`, 'pay.kyb_requirements_unset', {
+        entityType: app.entity_type,
+      });
+    }
+    if (!type.countries.includes(app.country)) {
+      return new KybError(`${app.entity_type} is not offered in ${app.country}`, 'pay.kyb_country_not_served', {
+        entityType: app.entity_type,
+        country: app.country,
+      });
+    }
+    const current = await currentDocuments(q, app.id, app.documents_after_seq);
+    const usable = new Set(current.filter((d) => d.state !== 'rejected').map((d) => d.document_key));
+    return type.document_keys.filter((key) => !usable.has(key));
+  }
+
+  /** Refuses `pay.kyb_documents_missing`, naming the keys, unless every required document has a usable current upload. */
+  private async assertDocuments(q: Sql, app: ApplicationRow): Promise<void> {
+    const absent = await this.absentDocuments(q, app);
+    if (absent instanceof KybError) throw absent;
+    if (absent.length > 0) {
+      throw new KybError(`Documents are still needed: ${absent.join(', ')}`, 'pay.kyb_documents_missing', { missing: absent });
+    }
   }
 
   private async view(q: Sql, app: ApplicationRow): Promise<KybApplicationView> {
@@ -280,6 +393,8 @@ export class KybApplicationService {
       missing: await this.missing(q, app),
       kybRef: app.kyb_ref,
       submittedAt: app.submitted_at ? app.submitted_at.toISOString() : null,
+      startedAt: app.created_at.toISOString(),
+      dueAt: this.dueDays === null ? null : new Date(app.created_at.getTime() + this.dueDays * DAY_MS).toISOString(),
     };
   }
 }

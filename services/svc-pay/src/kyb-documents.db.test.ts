@@ -185,6 +185,24 @@ describe('kyb documents', () => {
     expect(view.uploadRules).toEqual({ maxBytes: 1024, contentTypes: [PDF, 'image/png'] });
   });
 
+  it('after a restart the checklist asks for every document again, and the same file sent again counts as new', async () => {
+    const id = await startApplication();
+    await publishRules();
+    const owner = await api();
+    const input = { applicationId: id, key: 'trust_deed', contentType: PDF, bytesBase64: b64('the deed') };
+    const before = await owner.kyb.documents.upload(input);
+    await owner.kyb.application.restart({ applicationId: id, confirm: true });
+    const cleared = await owner.kyb.documents.checklist({ applicationId: id });
+    expect(cleared.rows.map((r) => r.state)).toEqual(['missing', 'missing']);
+    const after = await owner.kyb.documents.upload(input);
+    expect(after.row.document?.id).not.toBe(before.row.document?.id);
+    const view = await owner.kyb.documents.checklist({ applicationId: id });
+    expect(view.rows.find((r) => r.key === 'trust_deed')).toMatchObject({ state: 'provided', document: { id: after.row.document?.id } });
+    // Both uploads are kept; only the one after the restart counts.
+    const kept = await sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM pay.kyb_documents WHERE application_id = ${id}`;
+    expect(kept[0]?.n).toBe('2');
+  });
+
   it('a later upload for the key replaces what the checklist shows', async () => {
     const id = await startApplication();
     await publishRules();
@@ -236,6 +254,24 @@ describe('kyb documents', () => {
     const outcome = await rejection(owner.kyb.documents.upload(input));
     await holder;
     expect(outcome).toMatchObject({ cause: expect.objectContaining({ code: 'pay.kyb_application_submitted' }) });
+    const count = await sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM pay.kyb_documents`;
+    expect(count[0]?.n).toBe('0');
+  });
+
+  it('an upload racing a restart or type change is refused, so a cleared list never gets an old pick', async () => {
+    const id = await startApplication();
+    await publishRules();
+    const owner = await api();
+    const input = { applicationId: id, key: 'trust_deed', contentType: PDF, bytesBase64: b64('picked before the restart') };
+    const holder = sql.begin(async (tx) => {
+      await tx`SELECT 1 FROM pay.kyb_applications WHERE id = ${id} FOR UPDATE`;
+      await new Promise((r) => setTimeout(r, 300));
+      await tx`UPDATE pay.kyb_applications SET documents_after_seq = documents_after_seq + 1 WHERE id = ${id}`;
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    const outcome = await rejection(owner.kyb.documents.upload(input));
+    await holder;
+    expect(outcome).toMatchObject({ code: 'CONFLICT', cause: expect.objectContaining({ code: 'pay.kyb_application_changed' }) });
     const count = await sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM pay.kyb_documents`;
     expect(count[0]?.n).toBe('0');
   });

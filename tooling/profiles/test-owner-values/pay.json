@@ -45,6 +45,11 @@
       "service": "pay",
       "value": "https://terms.example/TEST-merchant-terms-1",
       "note": "Placeholder address for the TEST terms. Not a real document."
+    },
+    "PAY_KYB_APPLICATION_DUE_DAYS": {
+      "service": "pay",
+      "value": "30",
+      "note": "TEST days a business has to finish its verification application. Not an owner decision."
     }
   }
 }
