@@ -93,6 +93,15 @@ const en = {
   scheduleEditOff: 'Changing standing orders is not set up on this service. Nothing was changed.',
   scheduleInactive: 'This standing order has ended or was cancelled, so it cannot be changed. Nothing was changed.',
   scheduleNotFound: 'That standing order could not be found. Refresh your standing orders. Nothing was changed.',
+  spaceForbidden: 'You can see this shared pot, but your part in it does not let you move this money. Nothing was sent.',
+  jointUnset:
+    'The bank has not decided how long an invite lasts or how many people can share a pot, so pots are not shared. Nothing was changed.',
+  inviteExpired: 'This invite has ended. Ask the pot’s owner for a new one. Nothing was changed.',
+  inviteNotFound: 'This invite is no longer open to you. Nothing was changed.',
+  inviteeNotFound: 'No active account has this handle or email. Check it and try again. Nothing was sent.',
+  sharedPotFull: 'This pot is shared with as many people as the bank allows, open invites included. Nothing was sent.',
+  sharedPotInvalid:
+    'That cannot be done with this pot: the person may already share it or have an open invite, or it is your own. Nothing was changed.',
 } as const;
 const es = {
   cardNotFound: 'No se encontró esa tarjeta. Actualiza tus tarjetas e inténtalo de nuevo.',
@@ -184,6 +193,15 @@ const es = {
   scheduleEditOff: 'Cambiar órdenes permanentes no está configurado en este servicio. No se cambió nada.',
   scheduleInactive: 'Esta orden permanente terminó o se canceló, así que no se puede cambiar. No se cambió nada.',
   scheduleNotFound: 'No se encontró esa orden permanente. Actualiza tus órdenes permanentes. No se cambió nada.',
+  spaceForbidden: 'Puedes ver esta hucha compartida, pero tu papel en ella no te deja mover este dinero. No se envió nada.',
+  jointUnset:
+    'El banco no ha decidido cuánto dura una invitación ni con cuántas personas se comparte una hucha, así que no se comparten huchas. No se cambió nada.',
+  inviteExpired: 'Esta invitación terminó. Pide una nueva al propietario de la hucha. No se cambió nada.',
+  inviteNotFound: 'Esta invitación ya no está abierta para ti. No se cambió nada.',
+  inviteeNotFound: 'Ninguna cuenta activa tiene ese usuario o correo. Revísalo e inténtalo de nuevo. No se envió nada.',
+  sharedPotFull: 'Esta hucha se comparte con tantas personas como permite el banco, invitaciones abiertas incluidas. No se envió nada.',
+  sharedPotInvalid:
+    'Eso no se puede hacer con esta hucha: puede que la persona ya la comparta o tenga una invitación abierta, o es la tuya. No se cambió nada.',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
   cardNotFound: 'Cette carte est introuvable. Actualisez vos cartes et réessayez.',
@@ -276,6 +294,16 @@ const fr = {
   scheduleEditOff: 'La modification des ordres permanents n’est pas configurée sur ce service. Rien n’a été modifié.',
   scheduleInactive: 'Cet ordre permanent est terminé ou annulé, il ne peut donc pas être modifié. Rien n’a été modifié.',
   scheduleNotFound: 'Cet ordre permanent est introuvable. Actualisez vos ordres permanents. Rien n’a été modifié.',
+  spaceForbidden: 'Tu vois cette cagnotte partagée, mais ton rôle ne te permet pas de déplacer cet argent. Rien n’a été envoyé.',
+  jointUnset:
+    'La banque n’a pas décidé combien de temps dure une invitation ni avec combien de personnes une cagnotte se partage, donc les cagnottes ne se partagent pas. Rien n’a été modifié.',
+  inviteExpired: 'Cette invitation a pris fin. Demande-en une nouvelle au propriétaire de la cagnotte. Rien n’a été modifié.',
+  inviteNotFound: 'Cette invitation n’est plus ouverte pour toi. Rien n’a été modifié.',
+  inviteeNotFound: 'Aucun compte actif n’a cet identifiant ou cet e-mail. Vérifie-le et réessaie. Rien n’a été envoyé.',
+  sharedPotFull:
+    'Cette cagnotte est partagée avec autant de personnes que la banque le permet, invitations ouvertes comprises. Rien n’a été envoyé.',
+  sharedPotInvalid:
+    'Ce n’est pas possible avec cette cagnotte : la personne la partage peut-être déjà ou a une invitation ouverte, ou c’est la tienne. Rien n’a été modifié.',
 } satisfies Record<keyof typeof en, string>;
 
 export const moneyRefusalCopy = defineCopy('customer.money.refusals', en, { es, fr });
@@ -353,6 +381,13 @@ const WORDS: Readonly<Record<string, Key>> = {
   'bank.schedule_edit_cutoff_unset': 'scheduleEditOff',
   'bank.schedule_inactive': 'scheduleInactive',
   'bank.schedule_not_found': 'scheduleNotFound',
+  'bank.space_forbidden': 'spaceForbidden',
+  'bank.joint_unset': 'jointUnset',
+  'bank.invite_expired': 'inviteExpired',
+  'bank.invite_not_found': 'inviteNotFound',
+  'bank.invitee_not_found': 'inviteeNotFound',
+  'bank.shared_pot_full': 'sharedPotFull',
+  'bank.shared_pot_invalid': 'sharedPotInvalid',
 };
 
 /**
@@ -388,6 +423,13 @@ export const REFUSAL_CHECKED_WRITES: ReadonlySet<string> = new Set([
   'ramps.destinations.rename',
   // One UPDATE in a transaction, after every check: a refusal changes nothing.
   'transfers.updateSchedule',
+  // Shared pots (BK-acct-09): each change is one transaction that a refusal rolls back, and none moves money.
+  'sharedPots.invite',
+  'sharedPots.cancelInvite',
+  'sharedPots.accept',
+  'sharedPots.decline',
+  'sharedPots.leave',
+  'sharedPots.remove',
 ]);
 
 /** The code's sentence key. A few sentences depend on which write was refused. */

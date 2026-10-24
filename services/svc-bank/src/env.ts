@@ -427,6 +427,18 @@ const schema = serviceEnvSchema
       BANK_INCOME_SORTER_MIN_CREDIT: z.string().optional(),
 
       /**
+       * Owner-set minutes a shared pot invite stays open (BK-acct-09), 1 to 43200. NO DEFAULT. Blank / unset / not a whole
+       * number → inviting someone to a pot, and accepting an invite, refuse `bank.joint_unset`. Boot stays up.
+       */
+      BANK_SHARED_POT_INVITE_MINUTES: z.string().optional(),
+
+      /**
+       * Owner-set number of people one pot may be shared with, open invites included (BK-acct-09), 1 to 50. NO DEFAULT.
+       * Blank / unset → inviting and accepting refuse `bank.joint_unset`. Boot stays up.
+       */
+      BANK_SHARED_POT_PEOPLE_CAP: z.string().optional(),
+
+      /**
        * Owner-published rules for the purpose, source of funds and reference of a global send, as JSON: `{ reference:
        * [{ deliveryMethod, country?, maxLength }], purposeRequired: ["INR", ...], sourceOfFunds: [{ asset, threshold }] }`.
        * No default. Blank / unset / not in shape → `bank.send_field_rules_unset`; a reference with no rule for its rail →

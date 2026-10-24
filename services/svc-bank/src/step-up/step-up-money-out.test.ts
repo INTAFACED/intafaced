@@ -173,6 +173,8 @@ function fixture(mode: StepUpMode = 'required') {
   const spacesFind = vi.fn(async (id: string) => spaces.get(id) ?? null);
   const bank = {
     spaces: { get: async (id: string) => spaces.get(id), find: spacesFind },
+    // Nobody here is a member of a shared pot (BK-acct-09): both transfer checks let the call through.
+    sharedPots: { assertMayTakeOut: async () => undefined, assertMayAddTo: async () => undefined },
     transfers: {
       transfer: mk('transfers.transfer', posted),
       transferToUser: mk('transfers.transferToUser', posted),

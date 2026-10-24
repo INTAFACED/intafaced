@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { test, expect } from '@playwright/test';
-import { DEVICE_KEY, EDGE, ORIGIN, fromUnits, fund, journeyState, toUnits } from './stack.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, fromUnits, fund, journeyState, signOutBrowser, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 
 // J-bank-07, in the running app (docs/roadmap/journeys.json): I organise money in pots, goals and a shared account. Steps 1
@@ -20,7 +20,12 @@ import { signIn, signUp, verify } from './desk.mjs';
 // pot first and the bill pays once. Step 5 (BK-pots-03): instant-access savings on the Spaces page show the bank's rate
 // for the stack's seeded TEST instant-access pool; TEST 10 saved there earns three days of interest, each paid once by the
 // bank's own job procedure (the stack has no accrual timer), the interest view lists them from the server and they add up
-// to what the account was paid; then the savings go back to the account whole.
+// to what the account was paid; then the savings go back to the account whole. Step 6 (BK-acct-09): the owner shares the
+// pot from the Spaces page by handle with a viewer and a contributor. The stack publishes TEST terms: an invite lasts two
+// minutes and a pot is shared with two people at most, open invites included. A third invite is refused, the contributor
+// accepts and adds TEST 5 once, the viewer's invite outlives its two minutes and is refused as expired, and once the
+// viewer has joined, adding money or taking it out is refused bank.space_forbidden and nothing moves. The pot's log names
+// who invited and who joined.
 const J = 'J-bank-07';
 const POT = 'Holiday TEST';
 const BILLS = 'Bills TEST';
@@ -664,4 +669,154 @@ test(`${J} #5 uses instant-access savings: the bank's rate, TEST 10 saved, three
   await expect(card.getByTestId('instant-savings-position')).toHaveCount(0);
   await expect(card.getByTestId('instant-savings-day')).toHaveCount(3);
   await expect(card.getByTestId('instant-savings-earned')).toHaveAttribute('data-amount', history.data.total);
+});
+
+// Step 6's first part. It carries no step number until the card-freeze line of the pot's log (the step's last clause)
+// is built, so the journey does not count step 6 as passed before it is whole.
+test(`${J} step 6 (part 1) shares a pot: invites by handle, an invite that expires, a contributor who adds money, a viewer refused bank.space_forbidden, and a log that names who did what`, async ({
+  page,
+}) => {
+  test.setTimeout(480_000);
+  const who = person();
+  const api = await bank(who);
+  const pot = named(await spaces(who), POT);
+  expect(pot, `${J} #1 made the pot this step shares`).toBeTruthy();
+  // The partner adds money, the viewer only looks, and a third person is one too many for the stack's TEST cap of 2.
+  const partner = await signUp(page, 'jb07p');
+  await verify(page, partner);
+  const viewer = await signUp(page, 'jb07v');
+  await verify(page, viewer);
+  const third = await signUp(page, 'jb07t');
+  await signOutBrowser(page.context());
+  for (const p of [partner, viewer]) expect(fund(p.email, 'USDT', '20').tx).toBeTruthy();
+  const partnerApi = await bank(partner);
+  const viewerApi = await bank(viewer);
+  const potBalance = async () => toUnits(named(await spaces(who), POT).balance);
+  const mainOf = async (p) => toUnits(main(await spaces(p)).balance);
+
+  // The owner shares the pot from the Spaces page: the bank's TEST terms, then an invite to the viewer and one to the partner.
+  await signIn(page, who);
+  await page.goto('/bank/spaces');
+  const shared = page.getByTestId('shared-pots');
+  await expect(shared.getByTestId('shared-pots-terms')).toHaveAttribute('data-state', 'set');
+  await expect(shared.getByTestId('shared-pots-terms')).toHaveAttribute('data-minutes', '2');
+  await expect(shared.getByTestId('shared-pots-terms')).toHaveAttribute('data-cap', '2');
+  const invite = async (person, role) => {
+    await shared.getByRole('button', { name: 'Share a pot', exact: true }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByLabel('Pot', { exact: true }).selectOption(pot.id);
+    await dialog.getByLabel('Their handle or email').fill(`@${person.handle}`);
+    await dialog.getByLabel('What they can do').selectOption(role);
+    await dialog.getByRole('button', { name: 'Review' }).click();
+    await confirm(dialog, 'Send invite');
+    await close(page);
+  };
+  await invite(viewer, 'viewer');
+  const firstInviteAt = Date.now();
+  await invite(partner, 'contributor');
+  // Two open invites fill the TEST cap: a third is refused by name, and nothing is stored for it.
+  const full = await api.mutate('sharedPots.invite', { inviteId: randomUUID(), spaceId: pot.id, handle: third.handle, role: 'viewer' });
+  expect(full).toMatchObject({ ok: false, code: 'bank.shared_pot_full' });
+  await page.reload();
+  const mine = shared.locator(`[data-testid="shared-pot-owned"][data-pot="${pot.id}"]`);
+  await expect(mine.getByTestId('shared-pot-open-invite')).toHaveCount(2);
+
+  // The partner accepts in the app and adds TEST 5 from their own account; the pot is TEST 5 fuller, once.
+  await signOutBrowser(page.context());
+  await signIn(page, partner);
+  await page.goto('/bank/spaces');
+  const partnerInvite = shared.getByTestId('shared-pot-invite');
+  await expect(partnerInvite).toContainText(`@${who.handle} invites you to ${POT} (USDT) as a contributor.`);
+  await partnerInvite.getByRole('button', { name: 'Accept', exact: true }).click();
+  await confirm(page.getByRole('dialog'), 'Accept');
+  await close(page);
+  await page.reload();
+  const asPartner = shared.locator(`[data-testid="shared-pot-shared"][data-pot="${pot.id}"]`);
+  await expect(asPartner).toHaveAttribute('data-role', 'contributor');
+  const before = await potBalance();
+  const partnerBefore = await mainOf(partner);
+  await expect(asPartner.getByTestId('shared-pot-balance')).toHaveAttribute('data-amount', fromUnits(before));
+  await asPartner.getByRole('button', { name: 'Add money', exact: true }).click();
+  const add = page.getByRole('dialog');
+  await add.getByLabel('Amount (USDT)').fill('5');
+  await add.getByRole('button', { name: 'Review' }).click();
+  await confirm(add, 'Add money');
+  await close(page);
+  expect(await potBalance()).toBe(before + toUnits('5'));
+  expect(await mainOf(partner)).toBe(partnerBefore - toUnits('5'));
+
+  // The viewer's invite has outlived the TEST two minutes: it shows as ended, and accepting it is refused by name.
+  await page.waitForTimeout(Math.max(0, firstInviteAt + 2 * 60_000 + 5_000 - Date.now()));
+  await signOutBrowser(page.context());
+  await signIn(page, viewer);
+  await page.goto('/bank/spaces');
+  const ended = shared.getByTestId('shared-pot-invite');
+  await expect(ended).toHaveAttribute('data-expired', 'true');
+  await expect(ended).toContainText('This invite ended at');
+  await ended.getByRole('button', { name: 'Accept', exact: true }).click();
+  const refusedDialog = page.getByRole('dialog');
+  await refusedDialog.getByRole('button', { name: 'Accept', exact: true }).click();
+  await expect(refusedDialog).toContainText('This invite has ended. Ask the pot’s owner for a new one.');
+  const expiredId = await ended.getAttribute('data-invite');
+  expect(await viewerApi.mutate('sharedPots.accept', { inviteId: expiredId })).toMatchObject({ ok: false, code: 'bank.invite_expired' });
+  expect((await viewerApi.query('sharedPots.list', { limit: 50 })).data.shared).toEqual([]);
+
+  // The owner asks again, and the viewer joins. Adding money from the app is refused by name and moves nothing; so is
+  // taking money out.
+  const again = await api.mutate('sharedPots.invite', { inviteId: randomUUID(), spaceId: pot.id, handle: viewer.handle, role: 'viewer' });
+  expect(again.ok, JSON.stringify(again.body ?? {}).slice(0, 300)).toBe(true);
+  expect(await viewerApi.mutate('sharedPots.accept', { inviteId: again.data.inviteId })).toMatchObject({
+    ok: true,
+    data: { role: 'viewer' },
+  });
+  await page.goto('/bank/spaces');
+  const asViewer = shared.locator(`[data-testid="shared-pot-shared"][data-pot="${pot.id}"]`);
+  await expect(asViewer).toHaveAttribute('data-role', 'viewer');
+  const held = await potBalance();
+  const viewerHeld = await mainOf(viewer);
+  await expect(asViewer.getByTestId('shared-pot-balance')).toHaveAttribute('data-amount', fromUnits(held));
+  await asViewer.getByRole('button', { name: 'Add money', exact: true }).click();
+  const tried = page.getByRole('dialog');
+  await tried.getByLabel('Amount (USDT)').fill('5');
+  await tried.getByRole('button', { name: 'Review' }).click();
+  await tried.getByRole('button', { name: 'Add money', exact: true }).click();
+  await expect(tried).toContainText('You can see this shared pot, but your part in it does not let you move this money. Nothing was sent.');
+  const viewerMain = main(await spaces(viewer));
+  const into = await viewerApi.mutate('transfers.create', {
+    transferId: `jb07v-${randomUUID()}`,
+    fromSpaceId: viewerMain.id,
+    toSpaceId: pot.id,
+    amount: '5',
+  });
+  expect(into).toMatchObject({ ok: false, code: 'bank.space_forbidden' });
+  const out = await viewerApi.mutate('transfers.create', {
+    transferId: `jb07v-${randomUUID()}`,
+    fromSpaceId: pot.id,
+    toSpaceId: viewerMain.id,
+    amount: '1',
+  });
+  expect(out).toMatchObject({ ok: false, code: 'bank.space_forbidden' });
+  expect(await potBalance()).toBe(held);
+  expect(await mainOf(viewer)).toBe(viewerHeld);
+
+  // The pot's log, read by its owner in the app, names who did each thing.
+  await signOutBrowser(page.context());
+  await signIn(page, who);
+  await page.goto('/bank/spaces');
+  await mine.getByTestId('shared-pot-log').locator('summary').click();
+  const lines = mine.getByTestId('shared-pot-log-entry');
+  await expect(lines).toHaveCount(5);
+  await expect(lines.nth(0)).toContainText(`@${viewer.handle} joined as a viewer`);
+  await expect(lines.nth(1)).toContainText(`@${who.handle} invited @${viewer.handle} as a viewer`);
+  await expect(lines.nth(2)).toContainText(`@${partner.handle} joined as a contributor`);
+  await expect(lines.nth(3)).toContainText(`@${who.handle} invited @${partner.handle} as a contributor`);
+  await expect(lines.nth(4)).toContainText(`@${who.handle} invited @${viewer.handle} as a viewer`);
+  const log = await api.query('sharedPots.activity', { spaceId: pot.id, limit: 50 });
+  expect(log.data.map((e) => [e.kind, e.actor.handle])).toEqual([
+    ['joined', viewer.handle],
+    ['invited', who.handle],
+    ['joined', partner.handle],
+    ['invited', who.handle],
+    ['invited', who.handle],
+  ]);
 });

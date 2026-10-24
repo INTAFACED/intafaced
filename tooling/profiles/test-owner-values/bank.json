@@ -36,6 +36,16 @@
       "value": "24",
       "note": "TEST hours an early unlock of a locked space waits before it opens (J-bank-07 #2); not an owner decision."
     },
+    "BANK_SHARED_POT_INVITE_MINUTES": {
+      "service": "bank",
+      "value": "2",
+      "note": "TEST minutes a shared pot invite stays open, short so a journey can see one expire (J-bank-07 #6); not an owner decision."
+    },
+    "BANK_SHARED_POT_PEOPLE_CAP": {
+      "service": "bank",
+      "value": "2",
+      "note": "TEST people one pot may be shared with, open invites included, small so a journey can reach it (J-bank-07 #6); not an owner decision."
+    },
     "BANK_INCOME_SORTER_MIN_CREDIT": {
       "service": "bank",
       "value": "1",

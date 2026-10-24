@@ -26,9 +26,10 @@ import {
 import { listSupportedAssets, withdrawNetworksFrom, type AssetRegistryReads, type SupportedAssetView } from './assets/supported-assets.js';
 import { AutoInvestService, type AutoInvestServiceOptions } from './auto-invest/auto-invest-service.js';
 import { IncomeSorterService } from './sorter/income-sorter.js';
+import { SharedPotService } from './spaces/shared-pots.js';
 import { BillsPotService } from './spaces/bills-pot.js';
 import { BusinessService } from './business/business-service.js';
-import { unconfiguredBusinessDirectory, type BusinessDirectoryPort, type BusinessLookupLimiter } from './business/business-directory.js';
+import { BusinessLookupLimiter, unconfiguredBusinessDirectory, type BusinessDirectoryPort } from './business/business-directory.js';
 import { PortfolioService, type PortfolioServiceOptions } from './portfolio/portfolio-service.js';
 import { ActivityService, type ActivityServiceOptions } from './activity/activity-service.js';
 import { ActivityRecordService } from './activity/activity-records.js';
@@ -75,6 +76,7 @@ export interface BankServices {
   readonly sorter: IncomeSorterService;
   /** The person's bills pot per asset, and whether a standing order from it may top it up from the main account. */
   readonly billsPots: BillsPotService;
+  readonly sharedPots: SharedPotService;
   readonly earn: EarnService;
   readonly analytics: SpendAnalytics;
   readonly portfolio: PortfolioService;
@@ -201,6 +203,10 @@ export interface BankServiceOptions {
   spaceUnlockWaitHours?: string | undefined;
   /** Owner-set smallest payment the income sorter splits (`BANK_INCOME_SORTER_MIN_CREDIT`). No default: blank refuses a sorter. */
   incomeSorterMinCredit?: string | undefined;
+  /** Owner-set minutes a shared pot invite lasts (`BANK_SHARED_POT_INVITE_MINUTES`). No default: blank refuses sharing. */
+  sharedPotInviteMinutes?: string | undefined;
+  /** Owner-set people one pot may be shared with (`BANK_SHARED_POT_PEOPLE_CAP`). No default: blank refuses sharing. */
+  sharedPotPeopleCap?: string | undefined;
   /**
    * Auto-invest wiring: optional convert port for DCA.
    *
@@ -270,6 +276,15 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
   const billsPots = new BillsPotService(sql, spaces);
   const transfers = new TransferService(sql, ledger, spaces, { editCutoffMinutes: options.scheduleEditCutoffMinutes }, billsPots);
   const sorter = new IncomeSorterService(sql, ledger, spaces, { minCredit: () => options.incomeSorterMinCredit });
+  // One lookup budget per caller for every door that asks the directory for a person: business and shared pots.
+  const directoryLookups = options.directoryLookups ?? new BusinessLookupLimiter();
+  const sharedPots = new SharedPotService(
+    sql,
+    spaces,
+    options.directory ?? unconfiguredBusinessDirectory(),
+    { inviteMinutes: () => options.sharedPotInviteMinutes, peopleCap: () => options.sharedPotPeopleCap },
+    directoryLookups,
+  );
   const personalPay = new PersonalPayService(sql, ledger, transfers, spaces, {
     handles: options.handles,
     notices: options.requestNotices,
@@ -349,7 +364,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     spaces,
     transfers,
     options.directory ?? unconfiguredBusinessDirectory(),
-    options.directoryLookups,
+    directoryLookups,
   );
 
   const bills = new BillPayService(sql, ledger, spaces, options.bills ?? emptyBillPorts());
@@ -374,6 +389,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     spaces,
     sorter,
     billsPots,
+    sharedPots,
     transfers,
     personalPay,
     earn,
