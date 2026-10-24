@@ -1,3 +1,4 @@
+-- intafaced:destructive — swaps the positive-price check for a kind check and drops NOT NULL on stop_loss; no row or column is removed
 -- trade.order_bracket_intent · an OTO: an entry with one attached close, placed when the entry fills (J-cex-spot-08 #10)
 -- Reversal: 20261024171500_order_bracket_intent_oto.down.sql
 --
