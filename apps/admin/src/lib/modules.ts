@@ -72,6 +72,7 @@ const API_PREFIXES: readonly (readonly [string, ModuleId])[] = [
   ['/api/crm', 'crm'],
   ['/api/accounts', 'accounts'],
   ['/api/kill-switch', 'killswitches'],
+  ['/api/service-records', 'killswitches'],
   ['/api/ledger-freeze', 'ledger'],
   ['/api/ledger-lookup', 'ledger'],
   ['/api/ledger-reconciliation', 'ledger'],

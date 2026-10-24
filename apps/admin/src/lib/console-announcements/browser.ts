@@ -57,7 +57,7 @@ const unknown = (body: string): ConsoleChangeReply => ({
  * change with a new key.
  */
 export async function postConsoleChange(
-  path: '/api/console-announcements' | '/api/console-preferences',
+  path: '/api/console-announcements' | '/api/console-preferences' | '/api/service-records',
   body: Record<string, unknown>,
 ): Promise<ConsoleChangeReply> {
   let headers: Record<string, string>;

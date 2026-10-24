@@ -71,6 +71,7 @@ describe('ADMIN_MODULES gate', () => {
     expect(moduleForApi('/api/crm/privacy')).toBe('crm');
     expect(moduleForApi('/api/accounts')).toBe('accounts');
     expect(moduleForApi('/api/kill-switch')).toBe('killswitches');
+    expect(moduleForApi('/api/service-records')).toBe('killswitches');
     expect(moduleForApi('/api/ledger-freeze')).toBe('ledger');
     expect(moduleForApi('/api/operator-tools')).toBe('tools');
     expect(moduleForApi('/api/analytics/warehouse')).toBe('tools');

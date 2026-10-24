@@ -10,6 +10,7 @@ import { createClientIpResolver } from './outreach/client-ip.js';
 import { SqlConsoleModeStore } from './console-mode/store.js';
 import { SqlAnnouncementStore } from './console-announcements/store.js';
 import { SqlPreferenceStore } from './console-preferences/store.js';
+import { SqlServiceRecordStore } from './service-records/store.js';
 import { SqlPublicSettingsBook } from './outreach/public-settings.js';
 import { createFeeRevenueClient } from './fee-revenue-client.js';
 import { createOutreachNotificationClient } from './outreach/notification-client.js';
@@ -165,6 +166,7 @@ const appRouter = createOpsRouter(
     consoleMode: crmSql ? new SqlConsoleModeStore(crmSql) : undefined,
     announcements: crmSql ? new SqlAnnouncementStore(crmSql) : undefined,
     preferences: crmSql ? new SqlPreferenceStore(crmSql) : undefined,
+    serviceRecords: crmSql ? new SqlServiceRecordStore(crmSql) : undefined,
     alertSourceUrl: env.OPS_ALERT_SOURCE_URL,
     approvals: approvalConsumer,
     protocolListing: crmSql
