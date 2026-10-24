@@ -168,6 +168,8 @@ export const en = {
   'notify.p2p.escrow.refunded.body': '{amount} {asset} returned to the seller ({reason}).',
   'notify.p2p.trade.disputed.title': 'Trade disputed',
   'notify.p2p.trade.disputed.body': 'Dispute opened on trade {tradeId}. Reason: {reason}.',
+  'notify.p2p.trade.fiat_sent.title': 'The buyer marked the order paid',
+  'notify.p2p.trade.fiat_sent.body': 'Check that the payment for trade {tradeId} arrived in your account before you release.',
   'notify.identity.kyc.approved.title': 'Verification approved',
   'notify.identity.kyc.approved.body': 'You are verified at the {tier} tier.',
   'notify.identity.rank.updated.title': 'Rank updated',

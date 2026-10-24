@@ -94,6 +94,8 @@ export const tradeSchema = z.object({
   escrowedAt: z.string().nullable(),
   resolvedAt: z.string().nullable(),
   settledAt: z.string().nullable(),
+  /** `trades.get` only: the ad's terms when the order was placed (later ad edits never change them); null when the order predates the copy. */
+  terms: z.string().nullable().optional(),
 });
 /** svc-p2p `trades.page`: one keyset page newest first, the server's tab and readable status per row, and exact per-tab counts. */
 export const orderTabs = ['in_progress', 'in_dispute', 'completed', 'cancelled'] as const;
