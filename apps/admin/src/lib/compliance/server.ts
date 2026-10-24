@@ -1,6 +1,6 @@
 import 'server-only';
 import { describeUnconfigured, readConsoleStatus } from '@/lib/console-status';
-import { readQueue, readStatus, type ComplianceRead, type ComplianceSection, type Disposition } from './model';
+import { readQueue, readStatus, type ComplianceRead, type ComplianceSection, type Disposition, type EdgeComplianceStatus } from './model';
 
 /**
  * svc-edge `/admin/status` and `/admin/compliance/*`, with the console's module operator credential
@@ -56,6 +56,11 @@ export async function loadCompliance(now: Date = new Date()): Promise<Compliance
     get('/admin/compliance/queue', readQueue, 'the compliance queue'),
   ]);
   return { asOf: now.toISOString(), status, queue };
+}
+
+/** svc-edge's compliance status alone (screening and network posture), for the effective settings page. */
+export async function loadComplianceStatus(): Promise<ComplianceSection<EdgeComplianceStatus>> {
+  return get('/admin/status', readStatus, 'the compliance status');
 }
 
 export type DisposeResult =
