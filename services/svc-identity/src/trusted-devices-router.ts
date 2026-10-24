@@ -15,7 +15,9 @@ export function trustedDeviceTrpcError(err: TrustedDeviceError): TRPCError {
           ? 'CONFLICT'
           : err.code === 'identity.device_not_found'
             ? 'NOT_FOUND'
-            : err.code === 'auth.device_authorisation_required' || err.code === 'auth.device_not_trusted'
+            : err.code === 'auth.device_authorisation_required' ||
+                err.code === 'auth.device_not_trusted' ||
+                err.code === 'auth.account_frozen'
               ? 'FORBIDDEN'
               : 'PRECONDITION_FAILED';
   return new TRPCError({ code, message: err.message, cause: err });

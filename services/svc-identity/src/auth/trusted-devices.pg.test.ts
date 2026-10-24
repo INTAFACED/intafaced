@@ -220,15 +220,42 @@ if (!available) {
       );
     });
 
-    it('refuses approval from a session that is not on a trusted device', async () => {
-      auth.useNewDevicePolicy({ check: false });
+    it('refuses approval from a session that is not on a trusted device, and a flow locked by wrong codes', async () => {
       const who = await account();
-      const untrusted = await auth.login({ identifier: who.email, password: PASSWORD });
-      auth.useNewDevicePolicy(POLICY);
+      const untrusted = await auth.login({ identifier: who.email, password: PASSWORD, deviceKey: who.deviceKey });
+      await db.sql`UPDATE sessions SET trusted_device_id = NULL WHERE id = ${untrusted.sessionId}`;
       const waiting = await newDevice(who);
       expect(
         (await refused(auth.deviceApproveFromSession({ flowId: waiting.flowId, userId: who.userId, sessionId: untrusted.sessionId }))).code,
       ).toBe('auth.device_not_trusted');
+
+      const code = codesTo(who.email)[0]!;
+      const wrong = code === '000000' ? '111111' : '000000';
+      for (let i = 0; i < 3; i++) await refused(auth.deviceApprove({ flowId: waiting.flowId, secret: waiting.secret, code: wrong }));
+      expect(
+        (await refused(auth.deviceApproveFromSession({ flowId: waiting.flowId, userId: who.userId, sessionId: who.sessionId }))).code,
+      ).toBe('auth.too_many_attempts');
+    });
+
+    it('caps new-device requests per account inside the lifetime window, and says when to try again', async () => {
+      const who = await account();
+      for (let i = 0; i < 3; i++) await newDevice(who);
+      const capped = await refused(auth.login({ identifier: who.email, password: PASSWORD }));
+      expect(capped.code).toBe('auth.too_many_attempts');
+      expect(capped.details?.retryAfterSeconds).toBe(600);
+      expect(codesTo(who.email)).toHaveLength(3);
+      nowMs = T0 + 601_000;
+      await newDevice(who);
+    });
+
+    it('spends nothing when the account was frozen between approval and completion', async () => {
+      const who = await account();
+      const waiting = await newDevice(who);
+      await auth.deviceApproveFromSession({ flowId: waiting.flowId, userId: who.userId, sessionId: who.sessionId });
+      await db.sql`UPDATE users SET status = 'frozen' WHERE id = ${who.userId}`;
+      expect((await refused(auth.deviceComplete({ flowId: waiting.flowId, secret: waiting.secret }))).code).toBe('auth.account_frozen');
+      await db.sql`UPDATE users SET status = 'active' WHERE id = ${who.userId}`;
+      expect((await auth.deviceComplete({ flowId: waiting.flowId, secret: waiting.secret })).userId).toBe(who.userId);
     });
 
     it('removing a device ends its sessions, including rotated ones, and the next sign-in there asks again', async () => {
@@ -248,14 +275,17 @@ if (!available) {
       await newDevice(who, who.deviceKey);
     });
 
-    it('signs in without asking while the check is off, untrusted', async () => {
+    it('while the check is off, trusts each browser as it signs in, so it is not asked once the check is on', async () => {
       auth.useNewDevicePolicy({ check: false });
       const who = await account();
       const session = await auth.login({ identifier: who.email, password: PASSWORD });
+      expect(session.deviceKey).toEqual(expect.any(String));
       const [row] = await db.sql<
         Array<{ trusted_device_id: string | null }>
       >`SELECT trusted_device_id FROM sessions WHERE id = ${session.sessionId}`;
-      expect(row!.trusted_device_id).toBeNull();
+      expect(row!.trusted_device_id).toEqual(expect.any(String));
+      auth.useNewDevicePolicy(POLICY);
+      await auth.login({ identifier: who.email, password: PASSWORD, deviceKey: session.deviceKey! });
     });
 
     it('refuses rather than skip the check when its lifetime is unpublished', async () => {
@@ -271,6 +301,16 @@ if (!available) {
       expect(waiting.mailed).toBe(false);
       await db.sql`UPDATE trusted_devices SET removed_at = ${new Date(T0)} WHERE user_id = ${who.userId}`;
       expect((await refused(auth.login({ identifier: who.email, password: PASSWORD }))).code).toBe('vendor.email');
+    });
+
+    it('names the real blocker when nothing could approve: unpublished code setting, or no proved address', async () => {
+      const who = await account();
+      await db.sql`UPDATE trusted_devices SET removed_at = ${new Date(T0)} WHERE user_id = ${who.userId}`;
+      auth.useNewDevicePolicy({ check: true, flowTtlSeconds: 600 });
+      expect((await refused(auth.login({ identifier: who.email, password: PASSWORD }))).code).toBe('auth.device_check_unwired');
+      auth.useNewDevicePolicy(POLICY);
+      await db.sql`UPDATE users SET email_verified_at = NULL WHERE id = ${who.userId}`;
+      expect((await refused(auth.login({ identifier: who.email, password: PASSWORD }))).code).toBe('auth.device_approval_unavailable');
     });
 
     it('never opens a flow for a frozen account', async () => {

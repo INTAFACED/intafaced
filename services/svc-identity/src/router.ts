@@ -1388,6 +1388,7 @@ export function createIdentityRouter(
               flowId: z.string().guid(),
               secret: z.string().min(16).max(128),
               code: z.string().trim().min(1).max(12),
+              deviceKey: z.string().min(16).max(128).optional(),
             })
             .strict(),
         )
@@ -1396,7 +1397,7 @@ export function createIdentityRouter(
           try {
             return sessionWire(
               ctx,
-              await auth.deviceApprove({ ...input, ip: requestIpAls.getStore(), deviceKey: presentedDeviceKey(ctx, undefined) }),
+              await auth.deviceApprove({ ...input, ip: requestIpAls.getStore(), deviceKey: presentedDeviceKey(ctx, input.deviceKey) }),
             );
           } catch (err) {
             throw toTrpcError(err);
@@ -1408,13 +1409,17 @@ export function createIdentityRouter(
        * Not approved yet answers `auth.device_authorisation_pending`; a second completion `auth.device_authorisation_used`.
        */
       deviceComplete: publicProcedure
-        .input(z.object({ flowId: z.string().guid(), secret: z.string().min(16).max(128) }).strict())
+        .input(
+          z
+            .object({ flowId: z.string().guid(), secret: z.string().min(16).max(128), deviceKey: z.string().min(16).max(128).optional() })
+            .strict(),
+        )
         .output(sessionOutput)
         .mutation(async ({ input, ctx }) => {
           try {
             return sessionWire(
               ctx,
-              await auth.deviceComplete({ ...input, ip: requestIpAls.getStore(), deviceKey: presentedDeviceKey(ctx, undefined) }),
+              await auth.deviceComplete({ ...input, ip: requestIpAls.getStore(), deviceKey: presentedDeviceKey(ctx, input.deviceKey) }),
             );
           } catch (err) {
             throw toTrpcError(err);

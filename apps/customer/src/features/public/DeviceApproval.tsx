@@ -45,7 +45,8 @@ export function DeviceApproval({
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
   const [final, setFinal] = useState(false);
-  const inFlight = useRef(false);
+  // The request on the wire, if any. A press waits for a background check to land instead of being dropped.
+  const inFlight = useRef<Promise<void> | null>(null);
   const done = useRef(false);
   const heading = useRef<HTMLHeadingElement>(null);
 
@@ -69,16 +70,24 @@ export function DeviceApproval({
   }
 
   async function call(procedure: 'auth.deviceApprove' | 'auth.deviceComplete', input: object, quiet = false) {
-    if (inFlight.current || done.current) return;
-    inFlight.current = true;
+    if (done.current) return;
+    if (inFlight.current) {
+      if (quiet) return;
+      await inFlight.current;
+      if (done.current) return;
+    }
     if (!quiet) {
       setBusy(true);
       setRefusal(null);
     }
-    try {
+    const request = (async () => {
       finish(await api.mutate('identity', procedure, input, sessionSchema), quiet);
+    })();
+    inFlight.current = request;
+    try {
+      await request;
     } finally {
-      inFlight.current = false;
+      if (inFlight.current === request) inFlight.current = null;
       if (!quiet) setBusy(false);
     }
   }

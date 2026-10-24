@@ -755,7 +755,11 @@ export class AuthService {
   }
 
   /** After every factor passed: the live trusted device, or (check on) a new-device authorisation refusal. */
-  private gateDevice(userId: string, mfa: boolean, deviceKey: string | null | undefined): Promise<string | null> {
+  private gateDevice(
+    userId: string,
+    mfa: boolean,
+    deviceKey: string | null | undefined,
+  ): Promise<{ trustedDeviceId: string; deviceKey?: string }> {
     return gateDevice(this.deviceDeps(), { userId, mfa, deviceKey, label: deviceLabel(currentUserAgent()) });
   }
 
@@ -852,8 +856,9 @@ export class AuthService {
       await recordSuccess(this.sql, user.id, 'mfa');
     }
     await consumeLoginCode(deps, { flowId: input.flowId, codeHash });
-    const trustedDeviceId = await this.gateDevice(user.id, mfa, input.deviceKey);
-    return this.issueSession(user.id, { device: input.device, ip: input.ip, mfa, trustedDeviceId });
+    const device = await this.gateDevice(user.id, mfa, input.deviceKey);
+    const session = await this.issueSession(user.id, { device: input.device, ip: input.ip, mfa, trustedDeviceId: device.trustedDeviceId });
+    return device.deviceKey ? { ...session, deviceKey: device.deviceKey } : session;
   }
 
   private emailConfirmDeps() {
@@ -1209,8 +1214,9 @@ export class AuthService {
       const upgraded = await hashPassword(input.password);
       await this.sql`UPDATE users SET password_hash = ${upgraded}, updated_at = now() WHERE id = ${user.id}`;
     }
-    const trustedDeviceId = await this.gateDevice(user.id, mfa, input.deviceKey);
-    return this.issueSession(user.id, { device: input.device, ip: input.ip, mfa, trustedDeviceId });
+    const device = await this.gateDevice(user.id, mfa, input.deviceKey);
+    const session = await this.issueSession(user.id, { device: input.device, ip: input.ip, mfa, trustedDeviceId: device.trustedDeviceId });
+    return device.deviceKey ? { ...session, deviceKey: device.deviceKey } : session;
   }
 
   /**
@@ -1236,8 +1242,9 @@ export class AuthService {
       mfa = true;
       await recordSuccess(this.sql, user.id, 'mfa');
     }
-    const trustedDeviceId = await this.gateDevice(user.id, mfa, input.deviceKey);
-    return this.issueSession(user.id, { device: input.device, ip: input.ip, mfa, trustedDeviceId });
+    const device = await this.gateDevice(user.id, mfa, input.deviceKey);
+    const session = await this.issueSession(user.id, { device: input.device, ip: input.ip, mfa, trustedDeviceId: device.trustedDeviceId });
+    return device.deviceKey ? { ...session, deviceKey: device.deviceKey } : session;
   }
 
   private async issueSession(
@@ -1295,6 +1302,7 @@ export class AuthService {
       family_id: string;
       ip: string | null;
       user_agent: string | null;
+      trusted_device_id: string | null;
     };
     type RefreshOutcome =
       | { kind: 'reuse'; userId: string; sessionId: string }
@@ -1313,7 +1321,7 @@ export class AuthService {
     const result = await transaction<RefreshOutcome>(this.sql, async (tx) => {
       const rows = await tx<
         RefreshRow[]
-      >`SELECT s.id, s.user_id, s.revoked, s.mfa, s.expires_at, u.status AS user_status, s.rotated_at, s.successor_id, s.successor_refresh, s.device, s.family_id, s.ip, s.user_agent FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.refresh_hash = ${hash} FOR UPDATE OF s, u`;
+      >`SELECT s.id, s.user_id, s.revoked, s.mfa, s.expires_at, u.status AS user_status, s.rotated_at, s.successor_id, s.successor_refresh, s.device, s.family_id, s.ip, s.user_agent, s.trusted_device_id FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.refresh_hash = ${hash} FOR UPDATE OF s, u`;
       const session = rows[0];
       if (!session) throw new AuthError('Session not found', 'auth.session_invalid');
       if (session.revoked) {
@@ -1371,7 +1379,7 @@ export class AuthService {
       // The successor stays on the predecessor's trusted device (I-signin-sessions-07).
       const nextSession = await tx<
         Array<{ id: string }>
-      >`INSERT INTO sessions (user_id, family_id, refresh_hash, device, ip, user_agent, mfa, expires_at, trusted_device_id) VALUES (${session.user_id}, ${session.family_id}, ${hashToken(nextToken)}, ${options.device ?? session.device}, ${options.ip ?? currentRequestIp() ?? session.ip}, ${currentUserAgent() ?? session.user_agent}, ${session.mfa}, ${expiresAt}, (SELECT trusted_device_id FROM sessions WHERE id = ${session.id})) RETURNING id`;
+      >`INSERT INTO sessions (user_id, family_id, refresh_hash, device, ip, user_agent, mfa, expires_at, trusted_device_id) VALUES (${session.user_id}, ${session.family_id}, ${hashToken(nextToken)}, ${options.device ?? session.device}, ${options.ip ?? currentRequestIp() ?? session.ip}, ${currentUserAgent() ?? session.user_agent}, ${session.mfa}, ${expiresAt}, ${session.trusted_device_id}) RETURNING id`;
       const sessionId = nextSession[0]!.id;
       await tx`UPDATE sessions SET successor_id = ${sessionId}, successor_refresh = ${sealRefreshToken(this.tokens.secret, nextToken)} WHERE id = ${session.id}`;
       const tier = await this.kycTier(session.user_id, tx);

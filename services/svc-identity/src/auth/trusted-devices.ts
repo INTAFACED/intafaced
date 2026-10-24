@@ -34,6 +34,8 @@ export type TrustedDeviceErrorCode =
   | 'auth.device_authorisation_invalid'
   | 'auth.device_authorisation_used'
   | 'auth.device_check_unwired'
+  | 'auth.device_approval_unavailable'
+  | 'auth.account_frozen'
   | 'auth.device_not_trusted'
   | 'auth.code_invalid'
   | 'auth.code_expired'
@@ -161,16 +163,26 @@ export async function trustDevice(
 }
 
 /**
- * Called once every factor of a sign-in has passed. A live device answers its id; with the check off, a browser with
- * no live device signs in untrusted (null). With the check on it opens an authorisation and refuses with its details.
+ * Called once every factor of a sign-in has passed. A live device answers its id. With the check off, the browser is
+ * trusted as it signs in (so the browsers people already use are trusted on the day the owner turns the check on) and
+ * gets its key back for the cookie. With the check on, an unknown browser opens an authorisation and is refused with it.
  */
 export async function gateDevice(
   deps: TrustedDeviceDeps,
   input: { userId: string; mfa: boolean; deviceKey: string | null | undefined; label: string },
-): Promise<string | null> {
+): Promise<{ trustedDeviceId: string; deviceKey?: string }> {
   const now = deps.now();
   const live = await liveDevice(deps.sql, input.userId, input.deviceKey, now);
-  if (live || !deps.policy.check) return live;
+  if (live) return { trustedDeviceId: live };
+  if (!deps.policy.check) {
+    const device = await trustDevice(deps.sql, deps.policy, {
+      userId: input.userId,
+      label: input.label,
+      now,
+      presentedKey: input.deviceKey,
+    });
+    return { trustedDeviceId: device.id, deviceKey: device.key };
+  }
   throw new TrustedDeviceError(
     'This device has not been used to sign in to this account before. Approve it to continue.',
     'auth.device_authorisation_required',
@@ -188,16 +200,32 @@ async function openAuthorisation(
   if (ttl === undefined || subjectKey === undefined) {
     throw new TrustedDeviceError('New-device approval is not available: its settings are not published.', 'auth.device_check_unwired');
   }
-  const codes = intIn(deps.policy.maxAttempts, 1, MAX_ATTEMPTS_CEILING) !== undefined && deps.mail !== undefined;
+  const max = intIn(deps.policy.maxAttempts, 1, MAX_ATTEMPTS_CEILING);
+  const codes = max !== undefined && deps.mail !== undefined;
   const expiresAt = new Date(now.getTime() + ttl * 1000);
   const secret = randomBytes(32).toString('base64url');
   const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
   let mailed = false;
   const flowId = await deps.sql.begin(async (tx) => {
+    // One account's waiting sign-ins inside one lifetime window share one budget: at most the owner's count of
+    // requests (each mails one code) and of wrong codes across them, so a stolen password cannot keep drawing fresh
+    // codes to guess, or flood the inbox. The window is the flow lifetime.
+    await tx`SELECT pg_advisory_xact_lock(hashtext(${`new-device:${input.userId}`}))`;
+    const since = new Date(now.getTime() - ttl * 1000);
+    const [recent] = await tx<Array<{ flows: number; wrong: number; oldest: Date | null }>>`
+      SELECT count(*)::int AS flows, coalesce(sum(attempts), 0)::int AS wrong, min(created_at) AS oldest
+      FROM auth_flows WHERE kind = 'new_device' AND user_id = ${input.userId} AND created_at > ${since}
+    `;
+    const budget = max ?? MAX_ATTEMPTS_CEILING;
+    if (recent && recent.oldest && (recent.flows >= budget || recent.wrong >= budget)) {
+      const retryAfterSeconds = Math.max(1, Math.ceil((new Date(recent.oldest).getTime() + ttl * 1000 - now.getTime()) / 1000));
+      throw new TrustedDeviceError('Too many new-device sign-ins. Try again later.', 'auth.too_many_attempts', { retryAfterSeconds });
+    }
     const [user] = await tx<Array<{ email: string | null; email_verified_at: Date | null }>>`
       SELECT email, email_verified_at FROM users WHERE id = ${input.userId}
     `;
-    mailed = codes && Boolean(user?.email && user.email_verified_at);
+    const proved = Boolean(user?.email && user.email_verified_at);
+    mailed = codes && proved;
     if (!mailed) {
       // Without a mailed code the only way is a session on a trusted device; with none, nothing could approve it.
       const [trusted] = await tx<Array<{ n: number }>>`
@@ -205,9 +233,22 @@ async function openAuthorisation(
         WHERE user_id = ${input.userId} AND removed_at IS NULL AND (trusted_until IS NULL OR trusted_until > ${now})
       `;
       if (!trusted || trusted.n === 0) {
+        // Name the real blocker: no transport, no published code setting, or no proved address on the account.
+        if (!deps.mail) {
+          throw new TrustedDeviceError(
+            'Email delivery is switched off in this build and no other device is trusted, so this device cannot be approved.',
+            'vendor.email',
+          );
+        }
+        if (max === undefined) {
+          throw new TrustedDeviceError(
+            'Device codes by email are not available: their settings are not published, and no other device is trusted.',
+            'auth.device_check_unwired',
+          );
+        }
         throw new TrustedDeviceError(
-          'Email delivery is switched off in this build and no other device is trusted, so this device cannot be approved.',
-          'vendor.email',
+          'This account has no proved email address and no other trusted device, so this device cannot be approved. Contact support.',
+          'auth.device_approval_unavailable',
         );
       }
     }
@@ -313,20 +354,22 @@ export async function approveFromSession(
   await deps.sql.begin(async (tx) => {
     const [session] = await tx<Array<{ ok: boolean }>>`
       SELECT true AS ok FROM sessions s JOIN trusted_devices t ON t.id = s.trusted_device_id
-      WHERE s.id = ${input.sessionId} AND s.user_id = ${input.userId} AND s.revoked = false
+      WHERE s.id = ${input.sessionId} AND s.user_id = ${input.userId} AND s.revoked = false AND s.expires_at > ${now}
         AND t.removed_at IS NULL AND (t.trusted_until IS NULL OR t.trusted_until > ${now})
     `;
     if (!session) {
       throw new TrustedDeviceError('Approve new devices from a device that is already trusted.', 'auth.device_not_trusted');
     }
-    const [row] = await tx<Array<{ approved_at: Date | null; completed_at: Date | null; expires_at: Date }>>`
-      SELECT d.approved_at, d.completed_at, f.expires_at
+    const [row] = await tx<Array<{ approved_at: Date | null; completed_at: Date | null; expires_at: Date; status: string }>>`
+      SELECT d.approved_at, d.completed_at, f.expires_at, f.status
       FROM device_authorisations d JOIN auth_flows f ON f.id = d.flow_id
       WHERE d.flow_id = ${input.flowId} AND d.user_id = ${input.userId}
       FOR UPDATE OF d
     `;
     if (!row) throw new TrustedDeviceError('That sign-in request was not found.', 'identity.device_not_found');
     if (row.approved_at || row.completed_at) return;
+    // Locked by wrong codes: whoever is waiting failed the mailed check; that request is over.
+    if (row.status === 'locked') throw new TrustedDeviceError('Too many wrong codes were tried on that sign-in.', 'auth.too_many_attempts');
     if (row.expires_at.getTime() <= now.getTime()) {
       throw new TrustedDeviceError('That sign-in request has expired.', 'auth.code_expired');
     }
@@ -353,6 +396,9 @@ export async function completeAuthorisation(
     if (!row.approved_at) {
       throw new TrustedDeviceError('This device has not been approved yet.', 'auth.device_authorisation_pending');
     }
+    // A freeze between approval and completion: nothing is spent or trusted, and the state is named.
+    const [user] = await tx<Array<{ status: string }>>`SELECT status FROM users WHERE id = ${row.user_id} FOR UPDATE`;
+    if (!user || user.status !== 'active') throw new TrustedDeviceError('This account is not active.', 'auth.account_frozen');
     await tx`UPDATE device_authorisations SET completed_at = ${now} WHERE flow_id = ${input.flowId}`;
     await tx`UPDATE auth_flows SET status = 'consumed', consumed_at = ${now} WHERE id = ${input.flowId}`;
     const device = await trustDevice(tx, deps.policy, { userId: row.user_id, label: row.label, now, presentedKey: input.presentedKey });
