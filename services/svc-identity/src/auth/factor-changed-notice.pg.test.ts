@@ -209,7 +209,7 @@ if (!available) {
       const sent: Array<{ email: string; purpose?: string; detail?: string }> = [];
       await relayMailOutbox({
         sql: db.sql,
-        mail: { send: async (message) => void sent.push(message) },
+        mail: { send: async (message: { email: string; purpose?: string; detail?: string }) => void sent.push(message) },
         ttlSeconds: 900,
         now: () => new Date(),
         log: { warn: () => undefined },
