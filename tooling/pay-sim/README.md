@@ -40,9 +40,11 @@ and cannot exceed 120 seconds. Each effect checks the deadline. SQL connection,
 statement and lock waits are limited to 3 seconds, 5 seconds and 1 second. Expiry
 or Ctrl-C cancels tracked clients and cleans up only the generated
 `pay_sim_<random UUID>_test` database; there is no database enumeration or stale
-database sweep. Cleanup is bounded to 5 seconds and a cleanup failure refuses a
-pass report. A final CLI watchdog terminates at deadline plus 10 seconds if
-startup or cleanup unexpectedly hangs; forced termination is an error and never
+database sweep. Dropping that database has its own budget: 3 seconds to connect
+and 9 seconds for the drop, whose forced checkpoint is slow on a busy shared test
+server. A cleanup failure refuses a pass report. A final CLI watchdog terminates
+at deadline plus 17 seconds (startup headroom, then the cleanup connect and drop)
+if startup or cleanup unexpectedly hangs; forced termination is an error and never
 a successful run.
 
 The capability manifest is pinned to main
