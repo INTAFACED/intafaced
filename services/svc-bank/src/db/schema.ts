@@ -1464,6 +1464,7 @@ export const incomeSorterRunLegs = bank.table(
     ledgerTxId: text('ledger_tx_id'),
     rejectionCode: text('rejection_code'),
     settledAt: tstz('settled_at'),
+    attemptedAt: tstz('attempted_at'),
   },
   (t) => [primaryKey({ columns: [t.runId, t.position] })],
 );

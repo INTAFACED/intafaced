@@ -16,6 +16,7 @@ import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafa
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import {
   MemoryLedger,
+  stampPostAttempts,
   formatAmount,
   parseAmount,
   recipes,
@@ -27,7 +28,8 @@ import { memoryLedgerHistory } from '../analytics/ledger-history.js';
 import { createBankServices, memoryRecipientState, type BankServiceOptions, type BankServices } from '../bank-service.js';
 import { createBankRouter } from '../router.js';
 import { memoryPartyHandles } from '../transfers/party-handles.js';
-import { legShare } from './income-sorter.js';
+import { accountForSpace } from '../spaces/space-service.js';
+import { legShare, sorterTransferId } from './income-sorter.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -51,6 +53,8 @@ describe('income sorter (BK-pots-03)', () => {
   let loseSorterReplies = false;
   /** When set, a sorter split's post never answers: the ledger hangs. */
   let hangSorterPosts = false;
+  /** When set, a sorter split's post fails with no typed code before it reaches the book: it may still land later. */
+  let dropSorterPosts = false;
 
   beforeAll(async () => {
     const url = process.env.TEST_DATABASE_URL?.trim();
@@ -71,16 +75,24 @@ describe('income sorter (BK-pots-03)', () => {
     ledger = new MemoryLedger();
     loseSorterReplies = false;
     hangSorterPosts = false;
+    dropSorterPosts = false;
     const flaky = new Proxy(ledger, {
       get(target, prop, receiver) {
         if (prop === 'post') {
           return async (req: Parameters<LedgerClient['post']>[0]) => {
             if (hangSorterPosts && req.idempotencyKey.includes(':sorter:')) return new Promise<never>(() => {});
+            if (dropSorterPosts && req.idempotencyKey.includes(':sorter:')) throw new Error('socket hang up');
             if (loseSorterReplies && req.idempotencyKey.includes(':sorter:')) {
               await target.post(req);
               throw new Error('socket hang up');
             }
-            return target.post(req);
+            try {
+              return await target.post(req);
+            } catch (err) {
+              // As the shared HTTP client does: one attempt, its count stamped on the error it gives up with.
+              stampPostAttempts(err, 1);
+              throw err;
+            }
           };
         }
         const value = Reflect.get(target, prop, receiver);
@@ -211,7 +223,15 @@ describe('income sorter (BK-pots-03)', () => {
     expect(await make(legs, id)).toEqual(made);
     await expect(make([{ spaceId: bills.id, shareBp: 5000 }], id)).rejects.toMatchObject(refused('bank.sorter_conflict'));
     await expect(make([{ spaceId: bills.id, shareBp: 5000 }])).rejects.toMatchObject(refused('bank.sorter_exists'));
-    expect((await caller(ADA).sorter.list()).sorters).toEqual([made]);
+    expect((await caller(ADA).sorter.list()).sorters).toEqual([
+      {
+        ...made,
+        legs: [
+          { spaceId: bills.id, shareBp: 6000, spaceName: bills.name, archived: false },
+          { spaceId: savings.id, shareBp: 4000, spaceName: savings.name, archived: false },
+        ],
+      },
+    ]);
     expect((await caller(BOB).sorter.list()).sorters).toEqual([]);
     await expect(caller(BOB).sorter.cancel({ sorterId: id })).rejects.toMatchObject(refused('bank.sorter_not_found'));
     await expect(caller(BOB).sorter.runs({ sorterId: id, limit: 10 })).rejects.toMatchObject(refused('bank.sorter_not_found'));
@@ -360,6 +380,12 @@ describe('income sorter (BK-pots-03)', () => {
       { status: 'settled', rejectionCode: null },
       { status: 'rejected', rejectionCode: 'bank.space_archived' },
     ]);
+    // The sorter still names the archived space and says so: its share stays in the account until the person changes it.
+    const [listed] = (await caller(ADA).sorter.list()).sorters;
+    expect(listed!.legs.map(({ spaceName, archived }) => ({ spaceName, archived }))).toEqual([
+      { spaceName: bills.name, archived: false },
+      { spaceName: savings.name, archived: true },
+    ]);
     // A refused split is final: the sweep does not move it later.
     expect(await bank.sorter.sweep(10, later())).toEqual({ creditsRecorded: 0, runsDriven: 0, legsStillPending: 0 });
     expect(await mainOf()).toBe('40');
@@ -379,6 +405,68 @@ describe('income sorter (BK-pots-03)', () => {
     expect(await balanceOf(bills.id)).toBe('0');
     expect(await balanceOf(savings.id)).toBe('0');
     expect(sorterMoves()).toHaveLength(0);
+  });
+
+  it('an absent key is no proof while an earlier post may still land: the split waits out the in-flight bound', async () => {
+    const { bills, savings, sorter } = await sixtyForty();
+    dropSorterPosts = true;
+    const paid = await bobPays('100');
+    dropSorterPosts = false;
+    // The account empties while both posts are still in flight: nothing under the keys, and nothing may be refused yet.
+    const main = await bank.spaces.ensurePrimary(ADA, 'USDT');
+    const elsewhere = await pot('TEST elsewhere');
+    await caller(ADA).transfers.create({ transferId: `own-${randomUUID()}`, fromSpaceId: main.id, toSpaceId: elsewhere.id, amount: '100' });
+    expect(await bank.sorter.sweep(10, later())).toEqual({ creditsRecorded: 0, runsDriven: 1, legsStillPending: 2 });
+    const [waiting] = await caller(ADA).sorter.runs({ sorterId: sorter.id, limit: 10 });
+    expect(waiting!.legs.map(({ status, rejectionCode }) => ({ status, rejectionCode }))).toEqual([
+      { status: 'pending', rejectionCode: null },
+      { status: 'pending', rejectionCode: null },
+    ]);
+    expect(sorterMoves()).toHaveLength(0);
+
+    // The first split's post lands late; the next sweep finds it under its key and settles it.
+    await caller(ADA).transfers.create({ transferId: `own-${randomUUID()}`, fromSpaceId: elsewhere.id, toSpaceId: main.id, amount: '60' });
+    await ledger.post(
+      recipes.bankTransfer({
+        transferId: sorterTransferId(sorter.id, paid.ledgerTxId!),
+        occurrence: 0,
+        from: accountForSpace(main),
+        to: accountForSpace(bills),
+        amount: parseAmount('60'),
+        kind: 'manual',
+        keySpace: 'own',
+      }),
+    );
+    expect(await bank.sorter.sweep(10, later())).toEqual({ creditsRecorded: 0, runsDriven: 1, legsStillPending: 1 });
+
+    // Past the bound with nothing under its key, the second post is dead: the split posts again, and the empty account
+    // refuses it by the ledger's code.
+    await sql`UPDATE bank.income_sorter_run_legs SET attempted_at = attempted_at - interval '8 minutes'`;
+    expect(await bank.sorter.sweep(10, later())).toEqual({ creditsRecorded: 0, runsDriven: 1, legsStillPending: 0 });
+    const [run] = await caller(ADA).sorter.runs({ sorterId: sorter.id, limit: 10 });
+    expect(run!.legs.map(({ status, rejectionCode }) => ({ status, rejectionCode }))).toEqual([
+      { status: 'settled', rejectionCode: null },
+      { status: 'rejected', rejectionCode: 'ledger.insufficient_funds' },
+    ]);
+    expect(await balanceOf(bills.id)).toBe('60');
+    expect(await balanceOf(savings.id)).toBe('0');
+    expect(sorterMoves()).toHaveLength(1);
+  });
+
+  it('a space archived while its split may still land waits out the bound before the split is refused', async () => {
+    const { savings, sorter } = await sixtyForty();
+    dropSorterPosts = true;
+    await bobPays('100');
+    dropSorterPosts = false;
+    await bank.spaces.archive(savings.id);
+    expect(await bank.sorter.sweep(10, later())).toMatchObject({ runsDriven: 1, legsStillPending: 2 });
+    await sql`UPDATE bank.income_sorter_run_legs SET attempted_at = attempted_at - interval '8 minutes'`;
+    expect(await bank.sorter.sweep(10, later())).toMatchObject({ runsDriven: 1, legsStillPending: 0 });
+    const [run] = await caller(ADA).sorter.runs({ sorterId: sorter.id, limit: 10 });
+    expect(run!.legs.map(({ status, rejectionCode }) => ({ status, rejectionCode }))).toEqual([
+      { status: 'settled', rejectionCode: null },
+      { status: 'rejected', rejectionCode: 'bank.space_archived' },
+    ]);
   });
 
   it('a cancelled sorter sorts nothing new; what it sorted stays', async () => {

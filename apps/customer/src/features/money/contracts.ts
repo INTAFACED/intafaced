@@ -202,7 +202,12 @@ export const sorterListSchema = z.object({
     z.object({ state: z.literal('set'), minCredit: money }),
     z.object({ state: z.literal('not_set'), code: z.literal('bank.sorter_terms_unset') }),
   ]),
-  sorters: z.array(sorterSchema),
+  /** Each leg names its space and says whether it was archived since: its share then stays in the account. */
+  sorters: z.array(
+    sorterSchema.extend({
+      legs: z.array(z.object({ spaceId: z.string(), shareBp: z.number().int(), spaceName: z.string(), archived: z.boolean() })),
+    }),
+  ),
 });
 /** What one sorted payment came to: each split's amount and what became of it. */
 export const sorterRunSchema = z.object({

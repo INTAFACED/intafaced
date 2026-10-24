@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { router, scopedProcedure } from '@intafaced/contracts';
 import { formatAmount } from '@intafaced/ledger-client';
 import type { BankServices } from '../bank-service.js';
-import { SORTER_MAX_LEGS, type IncomeSorter, type SorterRun } from './income-sorter.js';
+import { SORTER_MAX_LEGS, type IncomeSorter, type ListedSorter, type SorterRun } from './income-sorter.js';
 
 /**
  * `bank.sorter.*` (BK-pots-03, J-bank-07 #4): the income sorter. A payment from another person is split across the
@@ -22,6 +22,11 @@ const sorterView = z.object({
   legs: z.array(z.object({ spaceId: z.string(), shareBp: z.number().int() })),
   createdAt: z.string(),
   cancelledAt: z.string().nullable(),
+});
+
+/** A live sorter on the list: each leg names its space and says whether it was archived since (its share then stays). */
+const listedView = sorterView.extend({
+  legs: z.array(z.object({ spaceId: z.string(), shareBp: z.number().int(), spaceName: z.string(), archived: z.boolean() })),
 });
 
 const runView = z.object({
@@ -55,6 +60,15 @@ const viewOf = (sorter: IncomeSorter) => ({
   cancelledAt: sorter.cancelledAt?.toISOString() ?? null,
 });
 
+const listedOf = (sorter: ListedSorter) => ({
+  ...viewOf(sorter),
+  legs: sorter.legs.map((leg) => ({
+    ...leg,
+    spaceName: sorter.spaces[leg.spaceId]?.name ?? '',
+    archived: sorter.spaces[leg.spaceId]?.archived ?? false,
+  })),
+});
+
 const runOf = (run: SorterRun) => ({
   id: run.id,
   creditTransferId: run.creditTransferId,
@@ -83,7 +97,7 @@ export function createSorterRouter(bank: BankServices, guard: Guard) {
             z.object({ state: z.literal('set'), minCredit: amountString }),
             z.object({ state: z.literal('not_set'), code: z.literal('bank.sorter_terms_unset') }),
           ]),
-          sorters: z.array(sorterView),
+          sorters: z.array(listedView),
         }),
       )
       .query(({ ctx }) =>
@@ -94,7 +108,7 @@ export function createSorterRouter(bank: BankServices, guard: Guard) {
               min === null
                 ? { state: 'not_set' as const, code: 'bank.sorter_terms_unset' as const }
                 : { state: 'set' as const, minCredit: formatAmount(min) },
-            sorters: (await bank.sorter.list(ctx.principal.userId)).map(viewOf),
+            sorters: (await bank.sorter.list(ctx.principal.userId)).map(listedOf),
           };
         }),
       ),
