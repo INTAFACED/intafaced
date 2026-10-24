@@ -13,6 +13,7 @@ import type { Sql, TransactionSql } from 'postgres';
 import {
   bankTransferKey,
   formatAmount,
+  POST_IN_FLIGHT_BOUND_SECONDS,
   provesPostNotCommitted,
   parseAmount,
   type Amount,
@@ -27,6 +28,7 @@ import { PartyHandleUnavailableError, type PartyHandlePort } from './party-handl
 import type { PersonalRequestNotices } from './request-notices.js';
 import type { PersonalTransferNotices } from './transfer-notices.js';
 import type { IncomingCredit } from '../sorter/income-sorter.js';
+import { assertSecurityLockOpen, unconfiguredSecurityLock, type SecurityLockPort } from '../security-lock.js';
 
 const NOTE_MAX = 140;
 const REFERENCE_MAX = 64;
@@ -225,7 +227,7 @@ export class PersonalPayService {
     private readonly sql: Sql,
     private readonly ledger: Pick<LedgerClient, 'getTx' | 'getTxByKey' | 'balance'>,
     private readonly transfers: Pick<TransferService, 'transferToUser'>,
-    private readonly spaces: Pick<SpaceService, 'get' | 'findPrimary'>,
+    private readonly spaces: Pick<SpaceService, 'get' | 'findPrimary' | 'ensurePrimary' | 'assertCanReceive'>,
     private readonly options: {
       handles?: PartyHandlePort;
       notices?: PersonalRequestNotices;
@@ -240,6 +242,11 @@ export class PersonalPayService {
       onCreditPosted?: (credit: IncomingCredit) => Promise<unknown>;
       /** How long a send waits for `onCreditPosted`. Tests shorten it. */
       sortTimeoutMs?: number;
+      /**
+       * The owner's security lock (W-withdraw-09), asked by `settleWithdrawal` only: a withdrawal to an address is refused
+       * while it holds. Unset refuses every such withdrawal (`bank.security_lock_unset`), never "no lock".
+       */
+      securityLock?: SecurityLockPort;
       now?: () => Date;
     } = {},
   ) {}
@@ -368,6 +375,72 @@ export class PersonalPayService {
     if (row.status === 'posted' && !row.announced_at) await this.announcePosted(row, ledgerTxId, now);
     if (row.status === 'posted') await this.creditPosted(row, ledgerTxId);
     return this.toTransferView(row);
+  }
+
+  /**
+   * svc-pay's withdrawal to another person's platform address, settled inside the book (W-withdraw-14). It is one
+   * person-to-person send from the sender's main account, under svc-pay's key `withdraw:<withdrawal id>`, so the same terms,
+   * limits, freezes and history apply as to a send the person makes here, and the receiver sees who sent it. A retry with the
+   * same key resumes the same send and posts once.
+   *
+   * `refused` only when this send provably posted nothing: a typed refusal (an unknown, frozen or closed receiver, the limits,
+   * too little money) or a ledger refusal that proves no commit. Every other failure throws, so the caller hears "unknown"
+   * and asks again with the same key.
+   */
+  async settleWithdrawal(input: {
+    transferId: string;
+    fromUserId: string;
+    toUserId: string;
+    assetId: string;
+    amount: Amount;
+    now?: Date;
+  }): Promise<{ state: 'posted'; transferId: string; ledgerTxId: string } | { state: 'refused'; code: string }> {
+    const now = this.now(input.now);
+    // An earlier ask under this key that is still inside the ledger's in-flight bound may yet post, so no refusal from this
+    // ask can prove the key empty: such a refusal throws ("unknown") and svc-pay asks again later.
+    const [earlier] = await this.sql<Array<{ created_at: Date }>>`
+      SELECT created_at FROM bank.personal_transfers WHERE transfer_id = ${input.transferId} AND status = 'reserved'
+    `;
+    const earlierInFlight = earlier !== undefined && now.getTime() - earlier.created_at.getTime() < POST_IN_FLIGHT_BOUND_SECONDS * 1000;
+    try {
+      // A withdrawal to an address while the owner's security lock holds is refused before anything is written, unless this
+      // key already holds the send (a replay of one that posted before the lock was set answers as it did).
+      if (!(await this.ledger.getTxByKey(bankTransferKey('p2p', input.transferId, 0))))
+        await assertSecurityLockOpen(this.options.securityLock ?? unconfiguredSecurityLock(), input.fromUserId, 'a withdrawal');
+      // No edge stands in front of this door, so the sender's own account state is asked here, as it is for a receiver.
+      await this.spaces.assertCanReceive(input.fromUserId).catch((err: unknown) => {
+        if (err instanceof BankError && err.code === 'bank.recipient_cannot_receive')
+          throw new BankError('The sending account cannot send money right now; nothing was sent.', 'bank.sender_cannot_send');
+        throw err;
+      });
+      const from =
+        (await this.spaces.findPrimary(input.fromUserId, input.assetId)) ??
+        (await this.spaces.ensurePrimary(input.fromUserId, input.assetId));
+      const sent = await this.send({
+        actorUserId: input.fromUserId,
+        transferId: input.transferId,
+        fromSpaceId: from.id,
+        toUserId: input.toUserId,
+        amount: input.amount,
+        now,
+      });
+      return { state: 'posted', transferId: sent.transferId, ledgerTxId: sent.ledgerTxId };
+    } catch (err) {
+      if (!isDefinitePersonalRefusal(err)) throw err;
+      // A refusal is the caller's licence to close its withdrawal, so it is checked against the book first: if this key
+      // already holds this very send (an earlier attempt that landed after a race), the answer is that send.
+      const booked = await this.ledger.getTxByKey(bankTransferKey('p2p', input.transferId, 0));
+      if (booked) {
+        const from = await this.spaces.findPrimary(input.fromUserId, input.assetId);
+        if (from && (await this.bookedSendMatches(booked, from.id, input.toUserId, input.assetId, input.amount)))
+          return { state: 'posted', transferId: input.transferId, ledgerTxId: booked.id };
+        throw err;
+      }
+      // A conflict means something is already filed under this key: never a licence to close.
+      if (earlierInFlight || (err instanceof BankError && err.code === 'bank.personal_transfer_conflict')) throw err;
+      const code = (err as { code?: unknown }).code;
+      return { state: 'refused', code: typeof code === 'string' && code ? code : 'bank.internal_withdrawal_refused' };
+    }
   }
 
   /**
