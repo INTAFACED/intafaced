@@ -56,6 +56,7 @@ import { USD_UNIT, changeText, valueText, type ValueUnit } from './display-unit'
 import { Movers } from './Movers';
 import { fmtCoinPrice } from './price-text';
 import { ValuationNote } from './ValuationNote';
+import { HoldingsChange } from './HoldingsChange';
 import { savePreferences, usePreferences } from '../../shared/preferences';
 
 type Copy = ReturnType<typeof moneyCopy.useCopy>;
@@ -708,6 +709,8 @@ export default function Portfolio() {
           }
         />
         <ValuationNote view={view} copy={copy} refreshMs={SUMMARY_INTERVAL} timeZone={timeZone} />
+        {/* Main account and spaces together, so it is shown for all accounts only. */}
+        {!scoped ? <HoldingsChange hidden={hideBalances} /> : null}
         {!scoped && accounts.status === 'ready' && accounts.data.some((account) => (dec(account.balance) ?? 0n) > 0n) ? (
           <Accounts accounts={accounts.data} hidden={hideBalances} copy={copy} />
         ) : null}

@@ -1,5 +1,11 @@
 import { z } from 'zod';
-import { bankValueOverTimeInputSchema, bankValueOverTimeSchema, router, scopedProcedure } from '@intafaced/contracts';
+import {
+  bankHoldingsChangeSchema,
+  bankValueOverTimeInputSchema,
+  bankValueOverTimeSchema,
+  router,
+  scopedProcedure,
+} from '@intafaced/contracts';
 import { activityFailure } from '../activity/activity.router.js';
 import { BALANCE_ENTRIES_DEFAULT_LIMIT, BALANCE_ENTRIES_MAX_LIMIT } from '../portfolio/portfolio-service.js';
 import { portfolioSummaryOutput, balanceAccountsOutput, balanceBreakdownOutput, balanceEntriesOutput, allocationOutput } from './shared.js';
@@ -48,6 +54,15 @@ export function createPortfolioRouter(c: BankRouterContext) {
       .query(async ({ ctx, input }) =>
         guard(async () =>
           bank.portfolio.valueOverTime(ctx.principal.userId, { from: input.from, ...(input.to === undefined ? {} : { to: input.to }) }),
+        ),
+      ),
+    /** What rose and fell in amount over a range, per coin, priced at both ends (J-portfolio-06 #3). Same reads and refusals. */
+    holdingsChange: scopedProcedure('bank:read', { module: 'bank' })
+      .input(bankValueOverTimeInputSchema)
+      .output(bankHoldingsChangeSchema)
+      .query(async ({ ctx, input }) =>
+        guard(async () =>
+          bank.portfolio.holdingsChange(ctx.principal.userId, { from: input.from, ...(input.to === undefined ? {} : { to: input.to }) }),
         ),
       ),
     /** The wallet selector: `main` and each named Space the caller can narrow `balanceBreakdown` to. */

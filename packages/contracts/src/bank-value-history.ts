@@ -80,3 +80,29 @@ export const bankValueOverTimeSchema = z.object({
   bridge: bankValueBridgeSchema,
 });
 export type BankValueOverTime = z.infer<typeof bankValueOverTimeSchema>;
+
+/**
+ * HOLDINGS CHANGE (J-portfolio-06 #3, PF-balances-02): what rose and fell in amount over a range, per coin, from the same
+ * replay as the value over time (main account and every named Space). `startAmount` is what was held at `from` ("0" when
+ * nothing was held yet), `endAmount` at `to`; `change` = end − start exactly. Each end is priced at the close of the last
+ * candle that had ended by then (USDT, USDC and USD at 1); a coin with no price there has a null price and value, never zero.
+ */
+export const bankHoldingsChangeRowSchema = z.object({
+  assetId: z.string().min(1),
+  startAmount: z.string().regex(signedDecimal),
+  endAmount: z.string().regex(signedDecimal),
+  change: z.string().regex(signedDecimal),
+  startPriceUsd: usd.nullable(),
+  endPriceUsd: usd.nullable(),
+  startValueUsd: usd.nullable(),
+  endValueUsd: usd.nullable(),
+});
+export type BankHoldingsChangeRow = z.infer<typeof bankHoldingsChangeRowSchema>;
+
+export const bankHoldingsChangeSchema = z.object({
+  from: isoTime,
+  to: isoTime,
+  /** Every coin held at either end, by coin. */
+  rows: z.array(bankHoldingsChangeRowSchema),
+});
+export type BankHoldingsChange = z.infer<typeof bankHoldingsChangeSchema>;

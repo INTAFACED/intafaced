@@ -16,6 +16,7 @@ import {
   BANK_VALUE_RANGE_INVALID,
   BANK_VALUE_RANGE_TOO_LONG,
   LEDGER_HOLDINGS_HISTORY_TOO_LARGE,
+  type BankHoldingsChange,
   type BankValueOverTime,
   type LedgerHoldingsHistory,
   type RegistryAssetKind,
@@ -24,7 +25,7 @@ import type { AssetRegistryReads } from '../assets/supported-assets.js';
 import { BankError } from '../errors.js';
 import type { LedgerHoldingsHistoryReads } from '../ledger-client.js';
 import type { CloseSeries, CloseSeriesSource } from './candles.js';
-import { bucketOf, chooseInterval, coinsOf, gridOf, valueOverTime } from './value-history.js';
+import { bucketOf, chooseInterval, coinsOf, gridOf, holdingsChange, valueOverTime, type ValueInputs } from './value-history.js';
 import {
   ActivityLookupBoundedError,
   ActivityUnavailableError,
@@ -293,6 +294,16 @@ export class PortfolioService {
    * candles. Read only; self only: `userId` is the verified principal.
    */
   async valueOverTime(userId: string, input: { from: string; to?: string }): Promise<BankValueOverTime> {
+    return valueOverTime(await this.replayInputs(userId, input));
+  }
+
+  /** What rose and fell in amount over a range, per coin (J-portfolio-06 #3); the same reads and refusals as `valueOverTime`. */
+  async holdingsChange(userId: string, input: { from: string; to?: string }): Promise<BankHoldingsChange> {
+    return holdingsChange(await this.replayInputs(userId, input));
+  }
+
+  /** The ledger's holdings history for every account the person owns and the candles of every coin in it, over a range. */
+  private async replayInputs(userId: string, input: { from: string; to?: string }): Promise<ValueInputs> {
     const now = this.now();
     const from = new Date(input.from);
     const asked = input.to === undefined ? now : new Date(input.to);
@@ -340,7 +351,7 @@ export class PortfolioService {
         throw unavailable();
       }
     }
-    return valueOverTime({ histories, interval, samples: grid.samples, live: grid.live, closes });
+    return { histories, interval, samples: grid.samples, live: grid.live, closes };
   }
 
   /**

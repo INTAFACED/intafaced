@@ -181,6 +181,41 @@ test(`${J} #2 holds a coin with no class: it shows as unclassified, named, and s
   ).toBeVisible();
 });
 
+test(`${J} #3 reads holdings change over a period: each coin then and now, what rose and fell, valued at both ends`, async ({ page }) => {
+  const who = account();
+  const me = await bank(who);
+  // What is held now across the main account and the space, from the ledger: the end of any range that runs to now.
+  const main = await (await api(who)).balances();
+  const now = { BTC: toUnits(main.BTC?.total ?? '0'), USDT: toUnits(main.USDT.total) + toUnits(MOVED) };
+
+  await signIn(page, who);
+  await page.goto('/money');
+  const card = page.getByRole('region', { name: 'What you hold, then and now' });
+  await card.getByRole('group', { name: 'Compare with' }).getByRole('button', { name: '7 days ago', exact: true }).click();
+  await expect(card.getByRole('button', { name: '7 days ago', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  for (const asset of ['BTC', 'USDT']) {
+    const row = card.locator(`tr[data-change-asset="${asset}"]`);
+    // The account did not exist 7 days ago: nothing held then, so everything held now is what rose.
+    await expect(row).toHaveAttribute('data-start', '0');
+    expect(toUnits(await row.getAttribute('data-end'))).toBe(now[asset]);
+    expect(toUnits(await row.getAttribute('data-change'))).toBe(now[asset]);
+    await expect(row.locator('td').nth(0)).toHaveText('No holding yet');
+    await expect(row.locator('td').nth(2)).toHaveText(new RegExp(`^\\+[\\d,.]+ ${asset}$`));
+  }
+
+  // The bank's own answer for the same range adds up row by row, and values each end at its price there.
+  const answer = await me.query('portfolio.holdingsChange', { from: new Date(Date.now() - 7 * 86_400_000).toISOString() });
+  for (const row of answer.rows) {
+    expect(toUnits(row.endAmount) - toUnits(row.startAmount)).toBe(toUnits(row.change));
+    if (row.endPriceUsd === null) continue;
+    // amount x price, rounded once at 18 places.
+    const exact = toUnits(row.endAmount) * toUnits(row.endPriceUsd);
+    const diff = toUnits(row.endValueUsd) * 10n ** 18n - exact;
+    expect(diff >= -(10n ** 18n) && diff <= 10n ** 18n).toBe(true);
+  }
+  expect(answer.rows.find((r) => r.assetId === 'USDT')).toMatchObject({ endPriceUsd: '1', endValueUsd: fromUnits(now.USDT) });
+});
+
 /** Picks the display currency on the View settings page, as the person would. */
 async function displayIn(page, code) {
   await page.goto('/view');
