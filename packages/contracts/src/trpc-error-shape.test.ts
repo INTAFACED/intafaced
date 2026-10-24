@@ -281,6 +281,15 @@ describe('errorFormatter p2p take limits', () => {
     expect(p2pLimitOf(refused('p2p.buying_restricted', { until: '2026-10-24T09:00:00.000Z', cap: '3', windowHours: 24 }))).toBeUndefined();
   });
 
+  it('keeps a short balance with the seller’s free amount and the shortfall, and drops a malformed one', () => {
+    expect(p2pLimitOf(refused('p2p.insufficient_balance', { until: null, available: '30', shortBy: '70' }))).toEqual({
+      until: null,
+      available: '30',
+      shortBy: '70',
+    });
+    expect(p2pLimitOf(refused('p2p.insufficient_balance', { until: null, available: '30', shortBy: 'seventy' }))).toBeUndefined();
+  });
+
   it('keeps a limit with no end time and its bounds', () => {
     expect(p2pLimitOf(refused('p2p.pair_limit_exceeded', { until: null, min: '10', max: '500', currency: 'EUR' }))).toEqual({
       until: null,

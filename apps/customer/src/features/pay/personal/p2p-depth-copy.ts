@@ -157,6 +157,9 @@ const en = {
     'You cancelled {cap} orders, or let their payment time run out, within {hours} hours, so buying is paused until {time}. Selling is not paused. Nothing was placed.',
   failBuyingPausedPlain:
     'You cancelled too many orders, or let their payment time run out, in a short time, so buying is paused; selling is not. Nothing was placed.',
+  failShortBalance:
+    'Your free balance of this coin is {available}, {shortBy} short of this order. Nothing was held: add funds or sell less.',
+  failShortBalancePlain: 'Your free balance of this coin is short of this order. Nothing was held: add funds or sell less.',
   failStepUp: 'Confirm this order with your authenticator app or a passkey before it is placed. Nothing was placed.',
   failStepUpExpired:
     'Your last confirmation has ended. Confirm this order again with your authenticator app or a passkey. Nothing was placed.',
@@ -450,6 +453,9 @@ const es = {
     'Cancelaste {cap} pedidos, o dejaste que se acabara su plazo de pago, en {hours} horas, así que las compras quedan en pausa hasta las {time}. Las ventas no se pausan. No se hizo nada.',
   failBuyingPausedPlain:
     'Cancelaste demasiados pedidos, o dejaste que se acabara su plazo de pago, en poco tiempo, así que las compras quedan en pausa; las ventas no. No se hizo nada.',
+  failShortBalance:
+    'Tu saldo libre de esta moneda es {available}; faltan {shortBy} para este pedido. No se retuvo nada: añade fondos o vende menos.',
+  failShortBalancePlain: 'Tu saldo libre de esta moneda no alcanza para este pedido. No se retuvo nada: añade fondos o vende menos.',
   failStepUp: 'Confirma este pedido con tu app de autenticación o una passkey antes de hacerlo. No se hizo nada.',
   failStepUpExpired:
     'Tu última confirmación ha terminado. Confirma este pedido de nuevo con tu app de autenticación o una passkey. No se hizo nada.',
@@ -744,6 +750,10 @@ const fr = {
     'Vous avez annulé {cap} commandes, ou laissé passer leur délai de paiement, en {hours} heures, les achats sont donc en pause jusqu’à {time}. Les ventes ne sont pas en pause. Rien n’a été passé.',
   failBuyingPausedPlain:
     'Vous avez annulé trop de commandes, ou laissé passer leur délai de paiement, en peu de temps, les achats sont donc en pause ; les ventes non. Rien n’a été passé.',
+  failShortBalance:
+    'Votre solde libre de cette crypto est de {available}, il manque {shortBy} pour cette commande. Rien n’a été bloqué : ajoutez des fonds ou vendez moins.',
+  failShortBalancePlain:
+    'Votre solde libre de cette crypto ne suffit pas pour cette commande. Rien n’a été bloqué : ajoutez des fonds ou vendez moins.',
   failStepUp: 'Confirmez cette commande avec votre app d’authentification ou une passkey avant qu’elle soit passée. Rien n’a été passé.',
   failStepUpExpired:
     'Votre dernière confirmation a pris fin. Confirmez de nouveau cette commande avec votre app d’authentification ou une passkey. Rien n’a été passé.',

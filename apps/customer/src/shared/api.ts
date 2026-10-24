@@ -42,6 +42,8 @@ export const p2pLimitSchema = z.object({
   max: limitDecimal.optional(),
   remaining: limitDecimal.optional(),
   windowHours: limitDecimal.optional(),
+  available: limitDecimal.optional(),
+  shortBy: limitDecimal.optional(),
   currency: z
     .string()
     .regex(/^[A-Z]{3}$/)

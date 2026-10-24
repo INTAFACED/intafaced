@@ -14,6 +14,16 @@ describe('svc-p2p public profile from identity', () => {
     expect(await profile.lookup(USER)).toEqual({ handle: 'TESTbuyer', memberSince: null });
   });
 
+  it('never follows a redirect with the signed request', async () => {
+    const seen: RequestInit[] = [];
+    const recorder = (async (_url: string, init: RequestInit) => {
+      seen.push(init);
+      return new Response(JSON.stringify({ userId: USER, handle: 'TESTbuyer' }), { status: 200 });
+    }) as unknown as typeof fetch;
+    await createIdentityPublicProfile('http://identity', SECRET, undefined, recorder).lookup(USER);
+    expect(seen.map((init) => init.redirect)).toEqual(['error']);
+  });
+
   it('no such account is null; a refusal, a reply for another account or a malformed reply refuses by name', async () => {
     expect(await createIdentityPublicProfile('http://identity', SECRET, undefined, answer(404, {})).lookup(USER)).toBeNull();
     await expect(createIdentityPublicProfile('http://identity', SECRET, undefined, answer(503, {})).lookup(USER)).rejects.toMatchObject({

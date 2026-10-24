@@ -170,7 +170,10 @@ test('J-p2p-02 #2 selling into a buy ad from a balance that falls short refuses 
     method: METHOD,
   });
   expect(refusalCode(refused)).toBe('p2p.insufficient_balance');
-  expect(refused.body?.error?.data?.cause?.shortBy ?? null).toBe(fromUnits(toUnits('400') - toUnits(free)));
+  expect(refused.body?.error?.data?.p2pLimit?.shortBy ?? null).toBe(fromUnits(toUnits('400') - toUnits(free)));
+  const available = refused.body?.error?.data?.p2pLimit?.available;
+  expect(available, 'the refusal names the seller’s free balance').toBeTruthy();
+  expect(toUnits(available)).toBe(toUnits(free));
   expect((await (await api(state.seller)).balances()).USDT?.free ?? '0').toBe(free);
 });
 

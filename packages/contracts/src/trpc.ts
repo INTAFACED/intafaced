@@ -284,9 +284,10 @@ const P2P_LIMIT_CODES = new Set([
   'p2p.verification_lifetime_limit',
   'p2p.method_delisted',
   'p2p.buying_restricted',
+  'p2p.insufficient_balance',
 ]);
 const DELIST_REASONS: ReadonlySet<string> = new Set(P2P_DELIST_REASONS);
-const P2P_LIMIT_DECIMALS = ['cap', 'min', 'max', 'remaining', 'windowHours'] as const;
+const P2P_LIMIT_DECIMALS = ['cap', 'min', 'max', 'remaining', 'windowHours', 'available', 'shortBy'] as const;
 const P2P_LIMIT_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
 const P2P_LIMIT_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -299,6 +300,9 @@ export interface P2pLimitDetails {
   remaining?: string;
   /** On `p2p.buying_restricted`: the hours the cancelled orders (`cap` of them) are counted over. */
   windowHours?: string;
+  /** On `p2p.insufficient_balance`: the seller's free balance of the order's coin, and how much more the order needs. */
+  available?: string;
+  shortBy?: string;
   currency?: string;
   openTradeIds?: string[];
   /** On `p2p.method_delisted` only: why the method was retired. */

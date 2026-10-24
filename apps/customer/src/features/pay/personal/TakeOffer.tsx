@@ -60,6 +60,8 @@ export function takeFailureText(t: CopyT, kind: TakeFailure, context: 'quote' | 
       return t('failNonInstant');
     case 'buyingPaused':
       return t('failBuyingPausedPlain');
+    case 'shortBalance':
+      return t('failShortBalancePlain');
     case 'ownOffer':
       return t('failOwnOffer');
     case 'unavailable':
@@ -124,7 +126,10 @@ function limitText(
   if (failure.code === 'p2p.verification_limit_currency') return t('failVerificationCurrency');
   const limit = failure.p2pLimit;
   if (!limit) return null;
-  const { cap, min, max, remaining, currency, until, reason, windowHours } = limit;
+  const { cap, min, max, remaining, currency, until, reason, windowHours, available, shortBy } = limit;
+  if (kind === 'shortBalance') {
+    return available && shortBy ? t('failShortBalance', { available: displayAmount(available), shortBy: displayAmount(shortBy) }) : null;
+  }
   if (kind === 'buyingPaused') {
     return cap && windowHours && until ? t('failBuyingPaused', { cap, hours: windowHours, time: limitTime(until) }) : null;
   }
