@@ -255,9 +255,9 @@ test(`${J} #6 a second person approves; the new parent applies from then; approv
   if (own.data && ['submitted', 'under_review'].includes(own.data.state))
     await ctx.edge.mutate('identity', 'affiliates.withdrawRebind', { requestId: own.data.requestId }, opA.token);
   // On a fresh stack the operator's own account is minutes old and could still attach by link, which needs no review:
-  // time passes for it too.
+  // half an hour passes for it, past the ten-minute window and short of the one-hour lapse period.
   if (result(await ctx.edge.query('identity', 'affiliates.attachWindow', undefined, opA.token)).data?.state === 'open')
-    expect(tool('local-test-gates.mjs', 'age', opA.op.handle, '3600')).toContain('LOCAL TEST');
+    expect(tool('local-test-gates.mjs', 'age', opA.op.handle, '1800')).toContain('LOCAL TEST');
   const asked = result(
     await ctx.edge.mutate('identity', 'affiliates.requestRebind', { token, reason: 'TEST: operator asks for their own change' }, opA.token),
   );
@@ -368,5 +368,6 @@ test(`${J} #7 my relationship screen shows the referrer and the date; with no fe
   const { token } = state('token');
   const outcome = await accept(page, token);
   await expect(outcome.getByRole('heading', { name: /Referral status\s*recorded\./ })).toBeVisible();
+  await expect(page.getByText('Your earlier referral relationship ended', { exact: false })).toBeVisible();
   expect((await (await api(friend)).get('/api/identity/trpc/affiliates.myReferrer')).body.result.data.referrerId).toBe(referrerId);
 });

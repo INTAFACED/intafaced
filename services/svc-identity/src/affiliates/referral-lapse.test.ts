@@ -62,7 +62,12 @@ if (!available) {
     await referral.attribute({ userId, referrerId });
     await db.sql`UPDATE referral_edges SET attributed_at = attributed_at - make_interval(secs => ${ageSeconds}) WHERE user_id = ${userId}`;
   }
-  async function feeEvent(payerId: string, beneficiaryId: string, ageSeconds: number, id: string) {
+  /** A fee event reached identity `ageSeconds` ago (the producer door stamps it now; the test moves it back). */
+  async function feeEvent(payerId: string, ageSeconds: number) {
+    await lapse().recordFeeEvent(payerId);
+    await db.sql`UPDATE referral_activity SET last_fee_at = now() - make_interval(secs => ${ageSeconds}) WHERE user_id = ${payerId}`;
+  }
+  async function storedAccrual(payerId: string, beneficiaryId: string, ageSeconds: number, id: string) {
     await db.sql`
       INSERT INTO affiliate_commission_accruals
         (fee_event_id, beneficiary_id, payer_id, hop, rate, fee_amount, commission_amount, asset, accrued_at, source_module)
@@ -94,7 +99,8 @@ if (!available) {
 
   it('past the period with no fee event: two sweeps end it once, record one event, and nobody above earns any more', async () => {
     await attachAged(FRIEND, REFERRER, 31 * DAY);
-    await feeEvent(FRIEND, REFERRER, 40 * DAY, 'fee:before-attach');
+    await feeEvent(FRIEND, 40 * DAY);
+    await storedAccrual(FRIEND, REFERRER, 40 * DAY, 'fee:before-attach');
     const stored = await db.sql`SELECT * FROM affiliate_commission_accruals ORDER BY fee_event_id`;
 
     const first = await lapse().sweep();
@@ -115,7 +121,7 @@ if (!available) {
 
   it('a fee event inside the period keeps the relationship and moves its end date', async () => {
     await attachAged(FRIEND, REFERRER, 300 * DAY);
-    await feeEvent(FRIEND, REFERRER, 10 * DAY, 'fee:recent');
+    await feeEvent(FRIEND, 10 * DAY);
     expect(await lapse().sweep()).toEqual([]);
     expect(await edgeOf(FRIEND)).toMatchObject({ referrer_id: REFERRER });
     const standing = await lapse().standingOf(FRIEND);
@@ -130,11 +136,35 @@ if (!available) {
   it("only the inactive person's own edge ends; the people they invited keep them as referrer", async () => {
     await attachAged(FRIEND, REFERRER, 31 * DAY);
     await attachAged(INVITEE, FRIEND, 31 * DAY);
-    await feeEvent(INVITEE, FRIEND, 1 * DAY, 'fee:invitee');
+    await feeEvent(INVITEE, 1 * DAY);
     const ended = await lapse().sweep();
     expect(ended.map((l) => l.userId)).toEqual([FRIEND]);
     expect(await edgeOf(INVITEE)).toMatchObject({ referrer_id: FRIEND });
     expect(await referral.ancestorsOf(INVITEE)).toEqual([FRIEND]);
+  });
+
+  it('a fee event counts with the database clock even when it earned nothing; an accrual row alone (a backfill) does not', async () => {
+    await attachAged(FRIEND, REFERRER, 31 * DAY);
+    // An operator backfill dated in the future is not activity.
+    await storedAccrual(FRIEND, REFERRER, -365 * DAY, 'fee:backfill');
+    expect((await lapse().standingOf(FRIEND)).state).toBe('active');
+    // A fee event that earned no commission (no accrual row) is: it is stamped now, so the relationship stays.
+    await lapse().recordFeeEvent(FRIEND);
+    expect(await lapse().sweep()).toEqual([]);
+    const standing = await lapse().standingOf(FRIEND);
+    expect(standing.state === 'active' && Math.abs(standing.lastActivityAt.getTime() - Date.now())).toBeLessThan(60_000);
+    // A later event never moves activity back.
+    await db.sql`UPDATE referral_activity SET last_fee_at = now() + interval '1 hour' WHERE user_id = ${FRIEND}`;
+    await lapse().recordFeeEvent(FRIEND);
+    const [row] = await db.sql`SELECT last_fee_at > now() AS ahead FROM referral_activity WHERE user_id = ${FRIEND}`;
+    expect(row?.ahead).toBe(true);
+    // An unknown account is ignored.
+    await lapse().recordFeeEvent('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee');
+    expect(await db.sql`SELECT * FROM referral_activity`).toHaveLength(1);
+  });
+
+  it('a person with no referrer reads none, even while the period is blank', async () => {
+    expect(await lapse('blank').standingOf(INVITEE)).toEqual({ state: 'none' });
   });
 
   it('two sweeps at once end the relationship once', async () => {

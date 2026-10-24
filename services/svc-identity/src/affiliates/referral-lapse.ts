@@ -1,19 +1,21 @@
 /**
  * The referral lapse (CM-referral-01, ENGINE RF-4; J-campaigns-05 #7).
  *
- * A referral relationship ends when the referred person has had no commission-bearing fee event for the owner's
- * inactivity period `IDENTITY_REFERRAL_LAPSE_PERIOD_SECONDS`, counted from the later of the attach and their latest fee
- * event. The sweep removes the edge and writes one `referral_lapses` row in the same transaction, under the referral
- * graph lock; the row is keyed by the edge, so a second sweep (or a second process) of the same edge writes nothing.
+ * A referral relationship ends when the referred person has had no fee event for the owner's inactivity period
+ * `IDENTITY_REFERRAL_LAPSE_PERIOD_SECONDS`, counted from the later of the attach and their latest fee event. The sweep
+ * removes the edge and writes one `referral_lapses` row in one statement, under the referral graph lock; the row is
+ * keyed by the edge, so a second sweep (or a second process) of the same edge writes nothing.
  * From then on nobody above the person earns from their fees. Stored accruals are not touched. The person may attach
  * again through a link: their attach window is measured from the lapse (see `attachWindowStart`).
  *
  * A blank period refuses with `referral.lapse_period_unset` and the sweep does not run; a blank sweep interval
  * (`IDENTITY_REFERRAL_LAPSE_SWEEP_SECONDS`) leaves the timer off. Either way the service logs a status line saying so.
  *
- * Activity is what identity can see: fee events reach it through the accrue door for a referred person only. A trade
- * whose fee was never sent to identity does not count, so a producer that does not report its fees lets a relationship
- * lapse; the relationship never outlives the period by mistake.
+ * Activity is what identity can see: every fee event a producer sends to the accrue door stamps `referral_activity` with
+ * the database's clock, whether or not it earns commission (rates unset, a frozen referrer, a zero rate). A trade whose
+ * fee was never sent to identity does not count, so a producer that does not report its fees lets a relationship lapse.
+ * A fee event that arrives while the sweep is ending that same relationship may still accrue to the old referrer: the fee
+ * was paid inside the relationship, and the accrue door does not take the graph lock.
  */
 
 import type { Sql } from 'postgres';
@@ -90,7 +92,7 @@ const toLapse = (r: LapseRow): ReferralLapse => ({
   lapsedAt: r.lapsed_at,
 });
 
-/** Where this person's current relationship stands against the period. `unset` invents no end date. */
+/** Where this person's current relationship stands against the period: none, a blank period (no end date invented), or active. */
 export type LapseStanding =
   | { readonly state: 'unset' }
   | { readonly state: 'none' }
@@ -113,6 +115,18 @@ export class ReferralLapseService {
     return period;
   }
 
+  /**
+   * A fee event for this person reached identity: their activity is now, on the database's clock, never a time the
+   * caller supplies. Unknown accounts are ignored.
+   */
+  async recordFeeEvent(userId: string): Promise<void> {
+    await this.sql`
+      INSERT INTO referral_activity (user_id, last_fee_at)
+      SELECT id, now() FROM users WHERE id = ${userId}
+      ON CONFLICT (user_id) DO UPDATE SET last_fee_at = GREATEST(referral_activity.last_fee_at, EXCLUDED.last_fee_at)
+    `;
+  }
+
   /** Ends every relationship past the period, once each. Returns the relationships this run ended. */
   async sweep(): Promise<ReferralLapse[]> {
     const period = this.period();
@@ -127,10 +141,8 @@ export class ReferralLapseService {
           WITH due AS (
             SELECT user_id, referrer_id, attributed_at, last_activity_at FROM (
               SELECT e.user_id, e.referrer_id, e.attributed_at,
-                     GREATEST(e.attributed_at, COALESCE(
-                       (SELECT max(a.accrued_at) FROM affiliate_commission_accruals a WHERE a.payer_id = e.user_id),
-                       e.attributed_at)) AS last_activity_at
-              FROM referral_edges e
+                     GREATEST(e.attributed_at, COALESCE(act.last_fee_at, e.attributed_at)) AS last_activity_at
+              FROM referral_edges e LEFT JOIN referral_activity act ON act.user_id = e.user_id
             ) d
             WHERE d.last_activity_at + make_interval(secs => ${period}) <= now()
           ),
@@ -155,15 +167,13 @@ export class ReferralLapseService {
   /** This person's current relationship against the period, read without changing anything. */
   async standingOf(userId: string): Promise<LapseStanding> {
     const period = this.options.periodSeconds;
-    if (period === undefined) return { state: 'unset' };
     const rows = await this.sql<Array<{ last_activity_at: Date }>>`
-      SELECT GREATEST(e.attributed_at, COALESCE(
-               (SELECT max(a.accrued_at) FROM affiliate_commission_accruals a WHERE a.payer_id = e.user_id),
-               e.attributed_at)) AS last_activity_at
-      FROM referral_edges e WHERE e.user_id = ${userId}
+      SELECT GREATEST(e.attributed_at, COALESCE(act.last_fee_at, e.attributed_at)) AS last_activity_at
+      FROM referral_edges e LEFT JOIN referral_activity act ON act.user_id = e.user_id WHERE e.user_id = ${userId}
     `;
     const row = rows[0];
     if (!row) return { state: 'none' };
+    if (period === undefined) return { state: 'unset' };
     return {
       state: 'active',
       periodSeconds: period,

@@ -32,8 +32,8 @@
  *   8. the two operators who register what a P2P payment method needs in a market (svc-p2p ships its method registry
  *      empty and refuses every payment method, and so every P2P ad, while it is). It runs after 3, because svc-p2p
  *      refuses an operator who has no verified tier.
- *   9. time passing for one TEST journey account (`age`): its sign-up time, referral relationship and paid fee events
- *      move back, so a journey can show a window measured from sign-up closed (J-campaigns-05 #5, the referral attach
+ *   9. time passing for one TEST journey account (`age`): its sign-up time, referral relationship, latest fee event and
+ *      ended relationships move back, so a journey can show a window measured from sign-up closed (J-campaigns-05 #5, the referral attach
  *      window) or a relationship past the inactivity period (#7) without waiting for it.
  * Every record it writes is labelled "LOCAL TEST — not a real approval" and carries one of the markers
  * below, so a production check can recognise and refuse them (see MARKERS).
@@ -329,30 +329,26 @@ export function listAccountsAndTiers(secrets) {
 }
 
 /**
- * Moves one journey account's sign-up time, referral relationship and paid fee events `seconds` into the past. Only
- * `@local-test.invalid` accounts.
+ * Moves one journey account's sign-up time, referral relationship, latest fee event and ended relationships `seconds`
+ * into the past. Only `@local-test.invalid` accounts.
  */
 export function ageAccount(secrets, handle, seconds) {
   if (!/^[a-z0-9_]{3,32}$/i.test(handle ?? '') || !/^[1-9]\d{0,8}$/.test(String(seconds ?? '')))
     throw new Error('usage: local-test-gates.mjs age <handle> <seconds>');
+  // One statement, so the account never ends up half-aged: sign-up, referral relationship, latest fee event and any
+  // ended relationship all move back together.
+  const by = `make_interval(secs => ${Number(seconds)})`;
   const rows = psqlRead(
     secrets,
     'svc_identity',
-    `UPDATE identity.users SET created_at = created_at - make_interval(secs => ${Number(seconds)})
-      WHERE handle = '${handle}' AND email LIKE '%@local-test.invalid' RETURNING created_at::text`,
-  ).filter(([line]) => !/^UPDATE \d+$/.test(line));
-  if (rows.length !== 1) throw new Error(`no LOCAL TEST journey account with handle ${handle}`);
-  // The account's referral relationship and the fee events it paid move back with it, so the relationship can pass
-  // the inactivity period too (J-campaigns-05 #7).
-  psqlRead(
-    secrets,
-    'svc_identity',
-    `WITH me AS (SELECT id FROM identity.users WHERE handle = '${handle}' AND email LIKE '%@local-test.invalid'),
-       edge AS (UPDATE identity.referral_edges SET attributed_at = attributed_at - make_interval(secs => ${Number(seconds)})
-                WHERE user_id IN (SELECT id FROM me) RETURNING 1)
-     UPDATE identity.affiliate_commission_accruals SET accrued_at = accrued_at - make_interval(secs => ${Number(seconds)})
-      WHERE payer_id IN (SELECT id FROM me)`,
+    `WITH me AS (UPDATE identity.users SET created_at = created_at - ${by}
+                 WHERE handle = '${handle}' AND email LIKE '%@local-test.invalid' RETURNING id, created_at),
+       edge AS (UPDATE identity.referral_edges SET attributed_at = attributed_at - ${by} WHERE user_id IN (SELECT id FROM me) RETURNING 1),
+       fee AS (UPDATE identity.referral_activity SET last_fee_at = last_fee_at - ${by} WHERE user_id IN (SELECT id FROM me) RETURNING 1),
+       ended AS (UPDATE identity.referral_lapses SET lapsed_at = lapsed_at - ${by} WHERE user_id IN (SELECT id FROM me) RETURNING 1)
+     SELECT created_at::text FROM me`,
   );
+  if (rows.length !== 1) throw new Error(`no LOCAL TEST journey account with handle ${handle}`);
   return rows[0][0];
 }
 

@@ -733,6 +733,7 @@ registerAffiliateProducerAccrue(app, {
   freeze,
   accruals,
   accrualTierLaw,
+  activity: referralLapse,
 });
 
 registerBusinessDirectoryRoutes(app, {
@@ -944,19 +945,19 @@ app.log.info(
 
 // Referral lapse sweep (CM-referral-01 RF-4). Off, with a status line saying why, while either owner value is blank.
 app.log.info(lapseSweepStatusLine(referralLapsePeriodSeconds, referralLapseSweepSeconds));
+let lapseSweep: Promise<unknown> | null = null;
+let lapseTimer: NodeJS.Timeout | undefined;
 if (referralLapsePeriodSeconds !== undefined && referralLapseSweepSeconds !== undefined) {
-  let sweeping = false;
-  setInterval(() => {
-    if (sweeping) return;
-    sweeping = true;
-    void referralLapse
+  lapseTimer = setInterval(() => {
+    if (lapseSweep) return;
+    lapseSweep = referralLapse
       .sweep()
       .then((ended) => {
         if (ended.length) app.log.info({ ended: ended.length }, 'referral.lapse_swept');
       })
       .catch((err) => app.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'referral.lapse_sweep_failed'))
       .finally(() => {
-        sweeping = false;
+        lapseSweep = null;
       });
   }, referralLapseSweepSeconds * 1000).unref();
 }
@@ -964,7 +965,9 @@ if (referralLapsePeriodSeconds !== undefined && referralLapseSweepSeconds !== un
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     void (async () => {
+      clearInterval(lapseTimer);
       await app.close();
+      await lapseSweep;
       await Promise.all([...blueprintSubs, xpSub].map((s) => s.unsubscribe()));
       await bus.close();
       await sql.end({ timeout: 5 });

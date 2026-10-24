@@ -231,6 +231,11 @@ function OwnerRecords({ userId }: { userId: string }) {
         <Read resource={lapse.resource} retry={lapse.reload}>
           {(row) => (
             <>
+              {row.state === 'none' && (
+                <p className="referral-caption">
+                  <Copy k="termNone" />
+                </p>
+              )}
               {row.state === 'unset' && (
                 <p className="referral-caption">
                   <Copy k="termUnset" />
