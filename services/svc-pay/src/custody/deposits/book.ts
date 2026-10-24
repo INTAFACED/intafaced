@@ -27,6 +27,10 @@ import type { RegistryReader } from '../../registries/read-api.js';
  *   same key, so the record and the ledger cannot disagree because an owner setting moved in between.
  * - A finalized amount that differs from the one first seen is `needs_review`, never credited; an asset the address was not
  *   issued for is `rejected` and logged as an alert. `held_for_screening` and `reversed` are W-deposit-06.
+ * - ANNOUNCED ONCE CREDITED (W-deposit-09). After the flip to `credited` the credit is published for the customer's inbox
+ *   (`announceCredit`), then `credit_notified_at` is written. A crash or a bus error in between leaves it unrecorded, and every
+ *   `settleOpen` pass announces such rows again under the same business key; consumers key on the deposit id. An announcement
+ *   that fails never undoes or holds the credit.
  */
 
 /** One transfer to a watched address, as the chain saw it. */
@@ -55,8 +59,28 @@ export interface CustodyDepositBookDeps {
     outputIndex: number;
   }) => Promise<{ id: string }>;
   readonly registries: Pick<RegistryReader, 'listRoutableNetworks'>;
+  /**
+   * Publishes one credited deposit for the inbox (`payDepositCreditPosted`, key `pay:deposit-credit:posted:<id>`). Omitted,
+   * nothing is announced and the rows wait unrecorded, to be announced once a publisher is passed.
+   */
+  readonly announceCredit?: (credit: DepositCreditAnnouncement) => Promise<void>;
   readonly log?: (msg: string, extra?: Record<string, unknown>) => void;
 }
+
+/** What is announced about one credited deposit: the payload of `payDepositCreditPosted`. */
+export interface DepositCreditAnnouncement {
+  readonly depositId: string;
+  readonly userId: string;
+  readonly assetId: string;
+  readonly networkId: string;
+  readonly amount: string;
+  readonly txHash: string;
+  readonly ledgerTxId: string;
+  readonly creditedAt: string;
+}
+
+/** Most credited rows one pass announces again, so a long backlog drains over passes instead of in one burst. */
+const ANNOUNCE_BATCH = 200;
 
 interface Row {
   id: string;
@@ -132,7 +156,58 @@ export class CustodyDepositBook {
         this.deps.log?.('custody deposit left confirming', { depositId: row.id, err: err instanceof Error ? err.message : String(err) });
       }
     }
+    await this.announceOwed();
     return credited;
+  }
+
+  /** Announce every credited row not yet recorded as announced (a crash or a bus error after its credit), oldest first. */
+  async announceOwed(): Promise<number> {
+    if (!this.deps.announceCredit) return 0;
+    const owed = await this.deps.sql<Array<{ id: string }>>`
+      SELECT id FROM pay.custody_deposits
+       WHERE status = 'credited' AND credit_notified_at IS NULL ORDER BY credited_at, id LIMIT ${ANNOUNCE_BATCH}`;
+    let announced = 0;
+    for (const { id } of owed) if (await this.announce(id)) announced += 1;
+    return announced;
+  }
+
+  /** Publish one credited row, then record it. False when it was not announced now (nothing owed, or the bus refused). */
+  private async announce(id: string): Promise<boolean> {
+    const { sql, announceCredit } = this.deps;
+    if (!announceCredit) return false;
+    const rows = await sql<
+      Array<{
+        id: string;
+        user_id: string;
+        asset_id: string;
+        network_id: string;
+        amount: string;
+        tx_hash: string;
+        ledger_tx_id: string;
+        credited_at: Date;
+      }>
+    >`
+      SELECT id, user_id, asset_id, network_id, amount, tx_hash, ledger_tx_id, credited_at FROM pay.custody_deposits
+       WHERE id = ${id} AND status = 'credited' AND credit_notified_at IS NULL`;
+    const row = rows[0];
+    if (!row) return false;
+    try {
+      await announceCredit({
+        depositId: row.id,
+        userId: row.user_id,
+        assetId: row.asset_id,
+        networkId: row.network_id,
+        amount: row.amount,
+        txHash: row.tx_hash,
+        ledgerTxId: row.ledger_tx_id,
+        creditedAt: row.credited_at.toISOString(),
+      });
+    } catch (err) {
+      this.deps.log?.('custody deposit credit not announced yet', { depositId: id, err: err instanceof Error ? err.message : String(err) });
+      return false;
+    }
+    await sql`UPDATE pay.custody_deposits SET credit_notified_at = now() WHERE id = ${id} AND credit_notified_at IS NULL`;
+    return true;
   }
 
   async records(input: PayCustodyDepositRecordsInput & { offset: number; limit: number }): Promise<PayCustodyDepositRecordsReply> {
@@ -254,7 +329,17 @@ export class CustodyDepositBook {
          SET status = 'credited', reason = NULL, confirmations_required = ${required}, minimum_deposit = ${minimum},
              ledger_tx_id = ${tx.id}, credited_at = now(), updated_at = now()
        WHERE id = ${row.id} AND status IN ('detected', 'confirming') RETURNING ${sql.unsafe(COLUMNS)}`;
-    return credited[0] ?? (await this.reload(row.id));
+    if (credited[0]) {
+      // The credit stands whatever happens to its announcement; one not recorded is announced on a later pass.
+      await this.announce(row.id).catch((err: unknown) =>
+        this.deps.log?.('custody deposit credit not announced yet', {
+          depositId: row.id,
+          err: err instanceof Error ? err.message : String(err),
+        }),
+      );
+      return credited[0];
+    }
+    return this.reload(row.id);
   }
 
   private async park(row: Row, required: number | null, minimum: string | null, reason: PayCustodyDepositReason): Promise<Row> {

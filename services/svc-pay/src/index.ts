@@ -22,6 +22,7 @@ import { ConversionService } from './conversion/service.js';
 import { CONVERSION_HOLD_SWEEP_MS, CONVERSION_LATE_FILL_TICK_MS } from './conversion/late-fill-schedule.js';
 import { assertConversionBoot, openConversionVenue, readConversionConfig } from './conversion/venue.js';
 import { createRegistryReader } from './registries/read-api.js';
+import { JetStreamEventBus } from '@intafaced/events';
 import { createIdentityKycTierClient } from './limits/identity-tier.js';
 import { PAY_WITHDRAWAL_LIMITS_ENV, loadWithdrawalLimitMode } from './limits/config.js';
 import { createWithdrawalEligibility, ledgerNegativeBalanceSource } from './withdrawals/eligibility.js';
@@ -327,11 +328,26 @@ const chargebackOutcomeSlots = env.DATABASE_POOL_MAX - 1;
 if (chargebackOutcomeSlots < 1) {
   throw new Error('pay.chargeback_outcome_slots: DATABASE_POOL_MAX must leave one connection free of the chargeback outcome lock');
 }
+/**
+ * `ownedStreams: ['pay']`: this process creates `INTAFACED_PAY`. It carries no money. Its one live subject says a crypto
+ * deposit was credited (W-deposit-09), after the ledger post that is the credit; the inbox reads it.
+ */
+const bus = await JetStreamEventBus.connect({
+  servers: env.NATS_URL,
+  producer: env.SERVICE_NAME,
+  streamPrefix: env.NATS_STREAM_PREFIX,
+  ownedStreams: ['pay'],
+});
+
 // W-deposit-05: the record of customer crypto deposits. A chain delivery to a customer address is booked here, not as a payment.
 const custodyDepositBook = new CustodyDepositBook({
   sql,
   postDeposit: (input) => userMoney.postCustodyDeposit(input),
   registries: createRegistryReader(sql),
+  // W-deposit-09: one announcement per credited deposit, keyed by the deposit; the book records it and retries what it did not.
+  announceCredit: async (credit) => {
+    await bus.publish('payDepositCreditPosted', credit, { idempotencyKey: `pay:deposit-credit:posted:${credit.depositId}` });
+  },
   log: (msg, extra) => app.log.warn(extra ?? {}, msg),
 });
 
@@ -1147,6 +1163,15 @@ if (chain instanceof EvmLiveChain && env.PAY_CRYPTO_WATCHER_ENABLED === 'true') 
 const railProbe = new RailHealthProbeLoop(rails.list());
 void railProbe.start();
 
+// W-deposit-09: a credit whose announcement failed (bus down, crash) is announced again, with or without the chain watcher.
+const announceOwedCredits = () =>
+  custodyDepositBook
+    .announceOwed()
+    .catch((err: unknown) => app.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'deposit credits not announced'));
+void announceOwedCredits();
+const creditAnnouncements = setInterval(() => void announceOwedCredits(), 60_000);
+creditAnnouncements.unref();
+
 /**
  * The posture goes in the log on every start. In dev, where `assertRailPosture`
  * does not throw, THIS LINE IS THE CONTROL'S ONLY VISIBILITY — the same reason
@@ -1183,6 +1208,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       railProbe.stop();
       clearInterval(lateFillSweep);
       clearInterval(holdSweep);
+      clearInterval(creditAnnouncements);
       payoutReconciler?.stop();
       // No new metrics pass may start against a pool that is closing; an in-flight one rolls back and its marks stay.
       metricsRefresher.stop();
@@ -1190,6 +1216,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       // process exits, because the alternative is a payment captured at a rail
       // that this service never got to book.
       await app.close();
+      await bus.close();
       await sql.end({ timeout: 5 });
       process.exit(0);
     })();

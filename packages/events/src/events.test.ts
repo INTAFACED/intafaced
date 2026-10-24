@@ -1033,6 +1033,16 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
       requestId: 'req-1',
       occurredAt: ts(),
     },
+    payDepositCreditPosted: {
+      depositId: uid(),
+      userId: uid(),
+      assetId: 'USDT',
+      networkId: 'ethereum',
+      amount: '100',
+      txHash: `0x${'ab'.repeat(32)}`,
+      ledgerTxId: uid(),
+      creditedAt: ts(),
+    },
     stakeCreated: {
       stakeId: uid(),
       userId: uid(),
