@@ -31,6 +31,7 @@ import {
 import { RampService } from './ramp-service.js';
 import { BANK_OFFRAMP_COOLING_HOURS_ENV } from '../offramp-cooling.js';
 import { assertOnlyWithdrawDestinations, memoryWithdrawDestinations } from '../withdraw-destination.js';
+import { memorySecurityLock } from '../security-lock.js';
 
 /**
  * bank.ramps — CRYPTO LEDGER half (D-S-09).
@@ -176,7 +177,7 @@ describe('ramps PG-hard', () => {
     await sql`TRUNCATE bank.ramp_offramps, bank.ramp_onramps, bank.user_withdraw_destinations, bank.spaces RESTART IDENTITY CASCADE`;
     ledger = new MemoryLedger();
     bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-      ramps: { programme: CRYPTO_LEDGER_PROGRAMME },
+      ramps: { securityLock: memorySecurityLock(), programme: CRYPTO_LEDGER_PROGRAMME },
     });
     ramps = bank.ramps;
   });
@@ -191,7 +192,7 @@ describe('ramps PG-hard', () => {
       const livePay: PayFiatRampPort = {
         listFiatRails: () => [{ railId: 'pay-fiat-ach', mode: 'live', capabilities: ['onramp', 'offramp'] }],
       };
-      const none = new RampService(sql, ledger, { programme: NO_RAMP_PROGRAMME, payFiat: livePay });
+      const none = new RampService(sql, ledger, { securityLock: memorySecurityLock(), programme: NO_RAMP_PROGRAMME, payFiat: livePay });
       await expect(
         none.creditOnramp({
           userId: USER,
@@ -219,7 +220,7 @@ describe('ramps PG-hard', () => {
     });
 
     it('refuses every money path when no programme is configured', async () => {
-      const none = new RampService(sql, ledger, { programme: NO_RAMP_PROGRAMME });
+      const none = new RampService(sql, ledger, { securityLock: memorySecurityLock(), programme: NO_RAMP_PROGRAMME });
       await expect(
         none.creditOnramp({
           userId: USER,
@@ -277,6 +278,7 @@ describe('ramps PG-hard', () => {
         listFiatRails: () => [{ railId: 'card-sandbox', mode: 'sandbox', capabilities: ['onramp', 'offramp'] }],
       };
       const withSandbox = new RampService(sql, ledger, {
+        securityLock: memorySecurityLock(),
         programme: CRYPTO_LEDGER_PROGRAMME,
         payFiat: sandboxOnly,
       });
@@ -302,6 +304,7 @@ describe('ramps PG-hard', () => {
 
     it('refuses a fiat on-ramp when a live pay rail is injected', async () => {
       const fiatRamps = new RampService(sql, ledger, {
+        securityLock: memorySecurityLock(),
         programme: CRYPTO_LEDGER_PROGRAMME,
         payFiat: livePay,
       });
@@ -327,6 +330,7 @@ describe('ramps PG-hard', () => {
         listFiatRails: () => order.map((railId) => ({ railId, mode: 'live' as const, capabilities: ['onramp' as const] })),
       };
       const fiatRamps = new RampService(sql, ledger, {
+        securityLock: memorySecurityLock(),
         programme: CRYPTO_LEDGER_PROGRAMME,
         payFiat: shifting,
       });
@@ -364,6 +368,7 @@ describe('ramps PG-hard', () => {
 
     it('refuses a non-positive fiat amount with the socket before a row or a deposit', async () => {
       const fiatRamps = new RampService(sql, ledger, {
+        securityLock: memorySecurityLock(),
         programme: CRYPTO_LEDGER_PROGRAMME,
         payFiat: livePay,
       });
@@ -386,6 +391,7 @@ describe('ramps PG-hard', () => {
 
     it('refuses a fiat off-ramp when a live pay rail is injected', async () => {
       const fiatRamps = new RampService(sql, ledger, {
+        securityLock: memorySecurityLock(),
         programme: CRYPTO_LEDGER_PROGRAMME,
         payFiat: livePay,
       });
@@ -539,6 +545,7 @@ describe('ramps PG-hard', () => {
 
       for (const hours of ['', '  ', '24h', '-1', '1.5']) {
         const closed = new RampService(sql, ledger, {
+          securityLock: memorySecurityLock(),
           programme: CRYPTO_LEDGER_PROGRAMME,
           offrampCoolingHours: hours,
         });
@@ -558,7 +565,7 @@ describe('ramps PG-hard', () => {
       const prev = process.env[BANK_OFFRAMP_COOLING_HOURS_ENV];
       delete process.env[BANK_OFFRAMP_COOLING_HOURS_ENV];
       try {
-        const unset = new RampService(sql, ledger, { programme: CRYPTO_LEDGER_PROGRAMME });
+        const unset = new RampService(sql, ledger, { securityLock: memorySecurityLock(), programme: CRYPTO_LEDGER_PROGRAMME });
         await expect(
           unset.offramp({
             offrampId: randomUUID(),
@@ -590,6 +597,7 @@ describe('ramps PG-hard', () => {
          WHERE user_id = ${USER} AND kind = 'crypto'
       `;
       const set = new RampService(sql, ledger, {
+        securityLock: memorySecurityLock(),
         programme: CRYPTO_LEDGER_PROGRAMME,
         offrampCoolingHours: '48',
       });
@@ -872,6 +880,7 @@ describe('ramps PG-hard', () => {
 
     it('refuses crypto withdraw when no EVM dest is stored — nothing held', async () => {
       const closed = new RampService(sql, ledger, {
+        securityLock: memorySecurityLock(),
         programme: CRYPTO_LEDGER_PROGRAMME,
         destinations: assertOnlyWithdrawDestinations(),
       });
@@ -904,6 +913,7 @@ describe('ramps PG-hard', () => {
       const evm = '0x000000000000000000000000000000000000dEaD';
       await dests.persist({ userId: USER, kind: 'crypto', ref: evm });
       const live = new RampService(sql, ledger, {
+        securityLock: memorySecurityLock(),
         programme: CRYPTO_LEDGER_PROGRAMME,
         destinations: dests,
       });

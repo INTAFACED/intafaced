@@ -25,6 +25,7 @@ import { globalPortsFor } from './personal-pay/global-sim.js';
 import { rampProgrammeFor } from './ramps/rails.js';
 import { eventMarginCallSink } from './loans/margin-call-publisher.js';
 import { createIdentityPartyHandles } from './transfers/party-handles.js';
+import { createIdentitySecurityLock, unconfiguredSecurityLock } from './security-lock.js';
 import { eventPersonalRequestNotices } from './transfers/request-notices.js';
 import { eventPersonalTransferNotices } from './transfers/transfer-notices.js';
 import { tickerPriceSource } from './loans/prices.js';
@@ -263,6 +264,11 @@ const bank = createBankServices(sql, ledger, history, {
     addressBookCap: env.BANK_ADDRESS_BOOK_CAP,
     walletProofWindowMinutes: env.BANK_WALLET_PROOF_WINDOW_MINUTES,
     walletProofValidDays: env.BANK_WALLET_PROOF_VALID_DAYS,
+    // The owner's security lock (W-withdraw-09): identity owns it, bank asks per request. No IDENTITY_URL refuses every
+    // address change and send with `bank.security_lock_unset` rather than acting as if no lock were set.
+    securityLock: env.IDENTITY_URL
+      ? createIdentitySecurityLock(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, undefined, undefined, ledgerS2s)
+      : unconfiguredSecurityLock(),
     /** Which asset may be withdrawn on which network: svc-ledger's registry, the one list deposit and trade read too. */
     withdrawNetworks: createLedgerAssetRegistry(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s),
   },

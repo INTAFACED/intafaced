@@ -15,6 +15,7 @@ import {
 import { BankError } from '../errors.js';
 import { assertOfframpsListLimit, assertOnrampsListLimit } from '../owner-list-limit.js';
 import { BANK_OFFRAMP_COOLING_HOURS_ENV, assertOfframpDestCoolingElapsed, requireOfframpCoolingHours } from '../offramp-cooling.js';
+import { assertSecurityLockOpen, unconfiguredSecurityLock, type SecurityLockPort } from '../security-lock.js';
 import { withSessionAdvisoryLock } from '../session-lock.js';
 import { withMoneySpan } from '../tracing.js';
 import { emptyPayFiatRampPort, resolvePayFiatRailId, assertEmptyRailsCannotLookLive, type PayFiatRampPort } from './pay-fiat-adapter.js';
@@ -24,6 +25,7 @@ import {
   createOnramp,
   onrampQuoteOf,
   customerOnrampsByIds,
+  destinationReadiness,
   listDestinations,
   quoteOfframp,
   quoteOnramp,
@@ -33,6 +35,7 @@ import {
   type CustomerOnrampView,
   type CustomerRampDeps,
   type DestinationCheck,
+  type DestinationReadiness,
   type DestinationView,
   type OfframpQuoteView,
   type OnrampQuoteView,
@@ -240,6 +243,12 @@ export interface RampServiceOptions {
    */
   walletProofWindowMinutes?: string;
   walletProofValidDays?: string;
+  /**
+   * The owner's security lock, read from svc-identity per request (W-withdraw-09). While it holds, adding or removing a
+   * withdrawal address and sending to one refuse `bank.security_locked`. Omitted, every one of those refuses
+   * `bank.security_lock_unset`: a bank that cannot read the lock does not act as if there were none.
+   */
+  securityLock?: SecurityLockPort;
 }
 
 export class RampService {
@@ -254,6 +263,7 @@ export class RampService {
   private readonly walletProofs: WalletProofStore;
   private readonly walletProofWindowMinutes: string | undefined;
   private readonly walletProofValidDays: string | undefined;
+  private readonly securityLock: SecurityLockPort;
 
   constructor(
     private readonly sql: Sql,
@@ -275,6 +285,7 @@ export class RampService {
     this.walletProofs = options.walletProofs ?? sqlWalletProofs(sql);
     this.walletProofWindowMinutes = options.walletProofWindowMinutes;
     this.walletProofValidDays = options.walletProofValidDays;
+    this.securityLock = options.securityLock ?? unconfiguredSecurityLock();
   }
 
   private walletProofDeps(): WalletProofDeps {
@@ -300,6 +311,7 @@ export class RampService {
       networks: this.withdrawNetworkSource,
       coolingRaw: () => this.ownerOfframpCoolingHoursRaw(),
       proofs: this.walletProofs,
+      securityLock: this.securityLock,
     };
   }
 
@@ -331,8 +343,9 @@ export class RampService {
     throw new BankError('A live cash ramp is refused. The missing piece is an outside company, the cash rail.', 'bank.live_ramp_unset');
   }
 
-  /** Persist a user withdraw dest (IBAN/IFSC/EVM) so a later offramp has a real ref. */
-  setWithdrawDestination(input: { userId: string; kind: string; ref: string; label?: string }) {
+  /** Persist a user withdraw dest (IBAN/IFSC/EVM) so a later offramp has a real ref. Refused while the security lock holds. */
+  async setWithdrawDestination(input: { userId: string; kind: string; ref: string; label?: string }) {
+    await assertSecurityLockOpen(this.securityLock, input.userId, 'changing a withdrawal address');
     return this.destinations.persist(input);
   }
 
@@ -372,6 +385,11 @@ export class RampService {
   /** Check the signature of an open proof offer: the saved address must have signed it. */
   verifyWalletProof(input: { userId: string; proofId: string; signature: string }) {
     return verifyWalletProof(this.walletProofDeps(), input);
+  }
+
+  /** Whether money may be sent to one saved address now, or what stands in the way first (W-withdraw-09). Read-only. */
+  destinationReadiness(input: { userId: string; destinationId: string }): Promise<DestinationReadiness> {
+    return destinationReadiness(this.customerDeps(), input);
   }
 
   /** Remove one saved destination. `idempotencyKey` replays the same removal. */
@@ -524,6 +542,10 @@ export class RampService {
     }
     assertRampAssetId(input.assetId);
     const rail = assertCryptoRamp(this.programme);
+    // While the owner's security lock holds nothing is sent (W-withdraw-09). Asked before the claim, so a locked account
+    // writes no row and posts no hold. A send claimed before the lock was set and resumed now waits here with its hold
+    // in place: held, not lost, and resumed with the same id once the lock ends.
+    await assertSecurityLockOpen(this.securityLock, input.userId, 'a withdrawal');
     const coolingHours = requireOfframpCoolingHours(this.ownerOfframpCoolingHoursRaw());
     const dest = await this.resolveWithdrawDestination(input.userId, input.kind, input.destinationRef);
     assertOfframpDestCoolingElapsed(coolingHours, dest.updatedAt);

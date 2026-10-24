@@ -183,6 +183,8 @@ Honest residual: KYB (Lane B), expense cards, invoicing (`pay.gateway`), multi-r
 | `ramps.offramps`  | `bank:read`  | The user's off-ramps. Every row carries `simulated`                                                                       |
 | `ramps.offramp`   | `bank:write` | Crypto: hold then settle to `bank-crypto-ledger`. Kind fiat refuses before any row or ledger post. Does **not** broadcast |
 
+The customer security lock (W-withdraw-09) belongs to svc-identity; svc-bank reads it per request from `GET /internal/security-lock/:userId` and keeps no copy. While it holds, adding or removing a withdrawal address (`ramps.destinations.check/save/remove`, `ramps.setWithdrawDestination`) and `ramps.offramp` refuse `bank.security_locked` before any row or ledger post. Identity unreachable refuses `bank.security_lock_unavailable`; no `IDENTITY_URL` refuses `bank.security_lock_unset`. `ramps.destinations.readiness` (`bank:read`) answers whether one saved address can be used now, first reason first: `locked`, `blocked`, `cooling_unset`, `cooling` (with its end) or `ready`.
+
 `ops.creditOnramp` (admin:treasury) is the inbound credit for the crypto ledger half — same reason deposit.credit lives under ops in svc-pay: a user who credits themselves does not need a ramp. Kind fiat refuses `bank.fiat_ramp_socket` before any row or ledger post. These tables do not store a fiat onramp or offramp, and kind fiat does not post.
 
 ```bash

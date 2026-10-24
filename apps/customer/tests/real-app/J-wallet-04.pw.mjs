@@ -8,8 +8,11 @@ import { addAuthenticator, nextCode } from './identity-factors.mjs';
 // J-wallet-04, in the running app (docs/roadmap/journeys.json): I save a withdrawal address. One test per step, titled
 // "J-wallet-04 #<n>", run in order on one verified TEST account with an authenticator app, because saving and removing
 // an address each ask for a fresh confirmation. The assets and networks offered are the ledger's registry rows the
-// stack's founders publish (`local-test-gates.mjs assets`: TEST USDT and USDC on TEST Ethereum and TEST Base). Not here
-// yet: #5 and #7 (the allowlist, W-withdraw-09).
+// stack's founders publish (`local-test-gates.mjs assets`: TEST USDT and USDC on TEST Ethereum and TEST Base). #5 and #7
+// are W-withdraw-09: here the bank's part (a new address refused with the end of its cooling-off; the security lock
+// stopping address changes and withdrawals); the lock itself and the password refusal are in J-wallet-04-security-lock.
+// Not here yet: #5's approval by email link or by another signed-in device, and an expired link, so #5 is titled
+// "part of #5" and does not count as passed; #7 counts only when both its halves pass (each is titled "#7").
 const J = 'J-wallet-04';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const ADDRESS = '0x52908400098527886E0F7030069857D2E4169EE7';
@@ -211,6 +214,37 @@ test(`${J} #4 removes a saved address after a fresh confirmation, and it is gone
   await expect(page.getByText('You have no saved withdrawal addresses.')).toBeVisible();
 });
 
+test(`${J}, part of #5: using a new address at once is refused with the time its cooling-off ends`, async ({ page }) => {
+  test.setTimeout(180_000);
+  await signInWithCode(page);
+  await page.goto('/uc/withdraw/address');
+  const form = addForm(page);
+  await field(page, 'Label').fill('TEST new wallet');
+  await field(page, 'Asset').selectOption('USDT');
+  await field(page, 'Network').selectOption('ethereum');
+  await field(page, 'Address').fill(ADDRESS);
+  await form.getByRole('button', { name: 'Save address' }).click();
+  await confirmItsMe(page);
+  await expect(page.getByText('TEST new wallet was saved to your address book.')).toBeVisible();
+
+  // The book's cooling-off column and the bank's answer to "withdraw to it now" name the same end time.
+  const row = savedRows(page).filter({ hasText: 'TEST new wallet' });
+  const ends = ((await row.locator('td').nth(5).textContent()) ?? '').replace(/^Ends\s*/, '').trim();
+  expect(ends).not.toBe('');
+  await row.getByRole('button', { name: 'Withdraw to this address' }).click();
+  const use = page.getByTestId('address-use');
+  await expect(use.getByRole('alert')).toHaveText(
+    `TEST new wallet is a new address. Money can be sent to it from ${ends}, when its cooling-off ends.`,
+  );
+  await expect(use.getByRole('link', { name: 'Go to Withdraw' })).toHaveCount(0);
+  await use.getByRole('button', { name: 'Close' }).click();
+
+  // Leave the book as #6 expects it: this entry removed again.
+  await row.getByRole('button', { name: 'Remove' }).click();
+  await confirmItsMe(page);
+  await expect(page.getByText('TEST new wallet was removed from your address book.')).toBeVisible();
+});
+
 test(`${J} #6 proves a private wallet by signing a message: another wallet's signature is refused, its own is proved`, async ({ page }) => {
   test.setTimeout(180_000);
   await signInWithCode(page);
@@ -251,4 +285,61 @@ test(`${J} #6 proves a private wallet by signing a message: another wallet's sig
   const proved = savedRows(page).filter({ hasText: 'TEST private wallet' });
   await expect(proved.getByTestId('address-ownership')).toContainText('Ownership proved · until');
   await expect(proved.getByRole('button', { name: 'Prove ownership' })).toHaveCount(0);
+});
+
+test(`${J} #7 (the bank's half): with the security lock on, the bank refuses adding or removing an address and withdrawing`, async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  await signInWithCode(page);
+  await page.goto('/uc/safe');
+  const card = page.locator('.security__lock');
+  await card.getByRole('button', { name: 'Turn on the lock' }).click();
+  await card.getByRole('button', { name: 'Turn it on now' }).click();
+  await expect(card.locator('.notice')).toHaveText('The lock is on.');
+
+  const LOCKED =
+    'Your security lock is on, so withdrawal addresses cannot be added or removed and nothing can be withdrawn until it ends. Nothing was changed.';
+  await page.goto('/uc/withdraw/address');
+  // Adding: the bank refuses before a confirmation code is asked for.
+  const form = addForm(page);
+  await field(page, 'Label').fill('TEST while locked');
+  await field(page, 'Asset').selectOption('USDT');
+  await field(page, 'Network').selectOption('base');
+  await field(page, 'Address').fill(ADDRESS);
+  await form.getByRole('button', { name: 'Save address' }).click();
+  await expect(form.getByRole('alert')).toHaveText(LOCKED);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+
+  // Withdrawing to the proved wallet from #6: refused with the lock, and Security is one step away.
+  const row = savedRows(page).filter({ hasText: 'TEST private wallet' });
+  await row.getByRole('button', { name: 'Withdraw to this address' }).click();
+  const use = page.getByTestId('address-use');
+  await expect(use.getByRole('alert')).toHaveText(
+    'Your security lock is on, so nothing can be withdrawn until it ends. Ask to unlock it on Security.',
+  );
+  await expect(use.getByRole('link', { name: 'Open Security' })).toHaveAttribute('href', '/uc/safe');
+
+  // Removing: even after a fresh confirmation the bank refuses, and the entry stays.
+  await row.getByRole('button', { name: 'Remove' }).click();
+  await confirmItsMe(page);
+  await expect(page.getByRole('dialog').getByRole('alert')).toContainText(LOCKED);
+  await page.reload();
+  await expect(savedRows(page).filter({ hasText: 'TEST private wallet' })).toHaveCount(1);
+
+  // Asking to unlock fixes an end time; the bank's refusal then names it, and still nothing can be withdrawn.
+  await page.goto('/uc/safe');
+  await card.getByRole('button', { name: 'Ask to unlock' }).click();
+  const state = account();
+  const { totp } = await totpLib();
+  const { code, step } = await nextCode(totp, state.secret, state.step);
+  run.reset({ ...state, step });
+  await card.getByLabel('6-digit code from your authenticator app').fill(code);
+  await card.getByRole('button', { name: 'Ask with code' }).click();
+  await expect(card.locator('.notice')).toContainText('Unlock asked for. The lock ends');
+  await page.goto('/uc/withdraw/address');
+  await savedRows(page).filter({ hasText: 'TEST private wallet' }).getByRole('button', { name: 'Withdraw to this address' }).click();
+  await expect(page.getByTestId('address-use').getByRole('alert')).toContainText(
+    'Your security lock is on, so nothing can be withdrawn until it ends. It ends',
+  );
 });

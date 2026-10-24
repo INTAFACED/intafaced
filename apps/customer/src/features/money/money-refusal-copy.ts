@@ -52,6 +52,11 @@ const en = {
   cannotReceive: 'That person cannot receive this right now. Nothing was sent.',
   receiveCheckDown: 'We could not check whether the recipient can receive money. Nothing was sent. Try again in a moment.',
   receiveCheckOff: 'Paying other people is not set up on this service. Nothing was sent.',
+  securityLocked:
+    'Your security lock is on, so withdrawal addresses cannot be added or removed and nothing can be withdrawn until it ends. Nothing was changed.',
+  securityLockDown: 'We could not check your security lock, so nothing was changed. Try again in a moment.',
+  securityLockOff:
+    'Withdrawal addresses and withdrawals are not set up on this service, because the security lock cannot be checked. Nothing was changed.',
   notEnough: 'There is not enough available to cover this. Lower the amount.',
   noteInvalid: 'A note is plain text up to 140 characters, with no line breaks.',
   referenceInvalid: 'A reference is 1 to 64 letters, numbers or keyboard symbols, with no accents or emoji.',
@@ -122,6 +127,11 @@ const es = {
   cannotReceive: 'Esa persona no puede recibir esto ahora. No se envió nada.',
   receiveCheckDown: 'No pudimos comprobar si el destinatario puede recibir dinero. No se envió nada. Inténtalo de nuevo en un momento.',
   receiveCheckOff: 'Pagar a otras personas no está configurado en este servicio. No se envió nada.',
+  securityLocked:
+    'Tu bloqueo de seguridad está activado: no se pueden añadir ni quitar direcciones de retiro ni retirar nada hasta que termine. No se cambió nada.',
+  securityLockDown: 'No pudimos comprobar tu bloqueo de seguridad, así que no se cambió nada. Inténtalo de nuevo en un momento.',
+  securityLockOff:
+    'Las direcciones de retiro y los retiros no están configurados en este servicio, porque no se puede comprobar el bloqueo de seguridad. No se cambió nada.',
   notEnough: 'No hay saldo disponible suficiente para cubrirlo. Reduce el importe.',
   noteInvalid: 'Una nota es texto sencillo de hasta 140 caracteres, sin saltos de línea.',
   referenceInvalid: 'Una referencia tiene de 1 a 64 letras, números o símbolos del teclado, sin acentos ni emojis.',
@@ -197,6 +207,11 @@ const fr = {
   receiveCheckDown:
     'Nous n’avons pas pu vérifier si le destinataire peut recevoir de l’argent. Rien n’a été envoyé. Réessayez dans un instant.',
   receiveCheckOff: 'Payer d’autres personnes n’est pas configuré sur ce service. Rien n’a été envoyé.',
+  securityLocked:
+    'Votre verrou de sécurité est activé : aucune adresse de retrait ne peut être ajoutée ni supprimée, et rien ne peut être retiré tant qu’il dure. Rien n’a été modifié.',
+  securityLockDown: 'Nous n’avons pas pu vérifier votre verrou de sécurité, donc rien n’a été modifié. Réessayez dans un instant.',
+  securityLockOff:
+    'Les adresses de retrait et les retraits ne sont pas configurés sur ce service, car le verrou de sécurité ne peut pas être vérifié. Rien n’a été modifié.',
   notEnough: 'Le solde disponible ne suffit pas. Réduisez le montant.',
   noteInvalid: 'Une note est du texte simple, jusqu’à 140 caractères, sans saut de ligne.',
   referenceInvalid: 'Une référence compte de 1 à 64 lettres, chiffres ou symboles du clavier, sans accents ni émojis.',
@@ -269,6 +284,9 @@ const WORDS: Readonly<Record<string, Key>> = {
   'bank.dest_user_missing': 'cannotReceive',
   'bank.recipient_check_unavailable': 'receiveCheckDown',
   'bank.recipient_check_unset': 'receiveCheckOff',
+  'bank.security_locked': 'securityLocked',
+  'bank.security_lock_unavailable': 'securityLockDown',
+  'bank.security_lock_unset': 'securityLockOff',
   'ledger.insufficient_funds': 'notEnough',
   'bank.personal_note_invalid': 'noteInvalid',
   'bank.personal_reference_invalid': 'referenceInvalid',

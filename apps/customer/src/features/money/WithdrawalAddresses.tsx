@@ -5,10 +5,12 @@ import { useSession } from '../session/session';
 import { date, useBankRead, type ActionSpec } from './components';
 import {
   destinationCheckSchema,
+  destinationReadinessSchema,
   destinationRemovedSchema,
   destinationSchema,
   type Destination,
   type DestinationCheck,
+  type DestinationReadiness,
   type WithdrawAsset,
   walletProofStartedSchema,
   walletProofVerifiedSchema,
@@ -56,12 +58,14 @@ export function AddressTable({
   onRename,
   onRemove,
   onProve,
+  onUse,
 }: {
   rows: readonly Destination[];
   now?: number;
   onRename?: (row: Destination) => void;
   onRemove?: (row: Destination) => void;
   onProve?: (row: Destination) => void;
+  onUse?: (row: Destination) => void;
 }) {
   const { t } = withdrawalCopy.useCopy();
   return (
@@ -122,6 +126,11 @@ export function AddressTable({
                     </td>
                     <td>{row.state ? t(STATE_KEYS[shownState(row.state, cooling.state)]) : t('aNotReturned')}</td>
                     <td>
+                      {onUse && provable(row) ? (
+                        <Button variant="ghost" onClick={() => onUse(row)}>
+                          {t('aUse')}
+                        </Button>
+                      ) : null}
                       {onRename && row.state !== 'archived' ? (
                         <Button variant="ghost" onClick={() => onRename(row)}>
                           {t('aRename')}
@@ -167,6 +176,7 @@ export function AddressBook({
   onRename,
   onRemove,
   onProve,
+  onUse,
 }: {
   resource: Resource<readonly Destination[]>;
   reload: () => void;
@@ -174,10 +184,88 @@ export function AddressBook({
   onRename?: (row: Destination) => void;
   onRemove?: (row: Destination) => void;
   onProve?: (row: Destination) => void;
+  onUse?: (row: Destination) => void;
 }) {
   if (resource.status === 'loading') return <Loading />;
   if (resource.status === 'failed') return <Failure result={resource.failure} retry={reload} />;
-  return <AddressTable rows={resource.data} now={now} onRename={onRename} onRemove={onRemove} onProve={onProve} />;
+  return <AddressTable rows={resource.data} now={now} onRename={onRename} onRemove={onRemove} onProve={onProve} onUse={onUse} />;
+}
+
+/** The answer to "can money be sent to this address now?" in the customer's words, first reason first. */
+export function readinessWords(
+  answer: DestinationReadiness,
+  label: string,
+  t: ReturnType<typeof withdrawalCopy.useCopy>['t'],
+): { text: string; ready: boolean; locked: boolean } {
+  switch (answer.state) {
+    case 'ready':
+      return { text: t('aUseReady', { label }), ready: true, locked: false };
+    case 'cooling':
+      return { text: t('aUseCooling', { label, time: date(answer.coolingOffEndsAt ?? '') }), ready: false, locked: false };
+    case 'cooling_unset':
+      return { text: t('aUseCoolingUnset', { label }), ready: false, locked: false };
+    case 'blocked':
+      return { text: t('aUseBlocked', { label }), ready: false, locked: false };
+    case 'locked':
+      return {
+        text: `${t('aUseLocked')} ${answer.lockUnlocksAt ? t('aUseLockEnds', { time: date(answer.lockUnlocksAt) }) : t('aUseLockAsk')}`,
+        ready: false,
+        locked: true,
+      };
+  }
+}
+
+/**
+ * "Withdraw to this address" (W-withdraw-09): the bank says whether money may be sent to this saved address now
+ * (`ramps.destinations.readiness`), with the same rules its send path applies. A new address is refused with the time
+ * its cooling-off ends, a locked account with the lock, and a ready one points to Withdraw. Nothing is sent from here.
+ */
+export function UseAddress({ row, onClose }: { row: Destination; onClose: () => void }) {
+  const { t } = withdrawalCopy.useCopy();
+  const { api } = useSession();
+  const [answer, setAnswer] = useState<DestinationReadiness | null>(null);
+  // The refusal's code, or '' when the bank gave none; worded at render, in the language shown then.
+  const [failed, setFailed] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    api
+      .query('bank', 'ramps.destinations.readiness', { destinationId: row.destinationId }, destinationReadinessSchema)
+      .then((result) => {
+        if (!live) return;
+        if (result.ok) setAnswer(result.data);
+        else setFailed(result.code ?? '');
+      })
+      .catch(() => {
+        if (live) setFailed('');
+      });
+    return () => {
+      live = false;
+    };
+  }, [api, row.destinationId]);
+  const problem = failed === null ? null : (moneyRefusalWords(failed) ?? t('aUseFailed'));
+  const words = answer ? readinessWords(answer, row.label ?? shortenAddress(row.ref), t) : null;
+  return (
+    <div className="bd-stack" data-testid="address-use">
+      {!answer && !problem && <p role="status">{t('aUseChecking')}</p>}
+      {words && <p role={words.ready ? 'status' : 'alert'}>{words.text}</p>}
+      {problem && <p role="alert">{problem}</p>}
+      <p>
+        {words?.ready && (
+          <a className="button button--primary" href="/uc/withdraw">
+            {t('aUseGo')}
+          </a>
+        )}
+        {words?.locked && (
+          <a className="button button--secondary" href="/uc/safe">
+            {t('aUseSecurity')}
+          </a>
+        )}
+        <Button variant="ghost" onClick={onClose}>
+          {t('aUseClose')}
+        </Button>
+      </p>
+    </div>
+  );
 }
 
 type ProofOffer = { proofId: string; message: string; expiresAt: string };
@@ -552,7 +640,9 @@ function AddForm({ onSaved }: { onSaved: () => void }) {
             // The two address refusals in the customer's own words; the check above makes them rare.
             if (!answer.ok && answer.code === 'bank.address_lookalike') return { ...answer, message: t('aLookalikeRefused') };
             if (!answer.ok && answer.code === 'bank.address_checksum_mismatch') return { ...answer, message: t('aAddressChecksum') };
-            return answer;
+            // Any other refusal the bank names (the security lock among them) in the customer's words.
+            const words = answer.ok ? null : moneyRefusalWords(answer.code);
+            return words ? { ...answer, message: words } : answer;
           }}
           onDone={() => {
             setConfirming(false);
@@ -582,6 +672,7 @@ export function WithdrawalAddresses({ open }: { open?: (spec: ActionSpec) => voi
   const [removing, setRemoving] = useState<Destination | null>(null);
   const [removed, setRemoved] = useState<string | null>(null);
   const [proving, setProving] = useState<Destination | null>(null);
+  const [using, setUsing] = useState<Destination | null>(null);
   // Renaming changes only the label (`bank:write`), so it needs no confirmation.
   const rename = open
     ? (row: Destination) =>
@@ -616,7 +707,9 @@ export function WithdrawalAddresses({ open }: { open?: (spec: ActionSpec) => voi
               setRemoving(row);
             }}
             onProve={(row) => setProving(row)}
+            onUse={(row) => setUsing(row)}
           />
+          {using && <UseAddress key={using.destinationId} row={using} onClose={() => setUsing(null)} />}
           {removed && <p role="status">{t('aRemoved', { label: removed })}</p>}
           {proving && <ProveOwnership key={proving.destinationId} row={proving} onProved={book.reload} onClose={() => setProving(null)} />}
         </DepthPanel>
@@ -626,16 +719,19 @@ export function WithdrawalAddresses({ open }: { open?: (spec: ActionSpec) => voi
         {removing && (
           <WithdrawStepUp
             why={t('aRemoveWhy', { address: shortenAddress(removing.ref) })}
-            run={(token) =>
-              api.mutate(
+            run={async (token) => {
+              const answer = await api.mutate(
                 'bank',
                 'ramps.destinations.remove',
                 // One removal of one entry: a retry of it is the same request.
                 { destinationId: removing.destinationId, idempotencyKey: `destination-remove:${removing.destinationId}` },
                 destinationRemovedSchema,
                 { bearer: token },
-              )
-            }
+              );
+              // A refusal the bank names (the security lock among them) in the customer's words.
+              const words = answer.ok ? null : moneyRefusalWords(answer.code);
+              return words ? { ...answer, message: words } : answer;
+            }}
             onDone={() => {
               setRemoved(removing.label ?? shortenAddress(removing.ref));
               setRemoving(null);

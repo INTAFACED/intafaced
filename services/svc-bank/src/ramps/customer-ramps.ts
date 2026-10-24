@@ -18,6 +18,7 @@ import { resolvePayFiatRailId, type PayFiatRampPort } from './pay-fiat-adapter.j
 import { assertFiatSocketWhenNone, refuseFiatRamp, type RampProgramme } from './rails.js';
 import type { OfframpFeeSource, OnrampMethod, OnrampPaymentInstruction, OnrampPaymentPort, OnrampQuoteSource } from './customer-ports.js';
 import { ownershipOf, type Ownership, type WalletProofStore } from './wallet-ownership.js';
+import { assertSecurityLockOpen, type SecurityLockPort } from '../security-lock.js';
 
 /**
  * Customer-callable quote and destination procedures.
@@ -41,6 +42,8 @@ export interface CustomerRampDeps {
   coolingRaw: () => string | undefined;
   /** Signed-message proofs that the customer controls a saved wallet (W-withdraw-17). */
   proofs: WalletProofStore;
+  /** The owner's security lock, read from identity per request (W-withdraw-09). */
+  securityLock: SecurityLockPort;
 }
 
 interface QuoteRow {
@@ -409,6 +412,8 @@ export type DestinationCheck = {
 
 /** Read-only: the same address rules `saveDestination` applies, answered as data so the form can warn before step-up. */
 export async function checkDestination(deps: CustomerRampDeps, input: { userId: string; ref: string }): Promise<DestinationCheck> {
+  // Asked first, so a locked account is told before the form asks for a confirmation code; `save` asks again.
+  await assertSecurityLockOpen(deps.securityLock, input.userId, 'adding a withdrawal address');
   const ref = input.ref.trim();
   if (!isEvmAddressRef(ref)) return { address: 'invalid', lookalike: null };
   const near = lookalikeOf(ref, await deps.destinations.list(input.userId));
@@ -427,6 +432,8 @@ export async function saveDestination(
   // The look-alike record is this function's alone: whatever a caller passed is dropped, and only `near` sets it.
   const { confirmLookalike, lookalikeOf: _caller, ...book } = input;
   const entry = assertBookEntry(book);
+  // While the owner's security lock holds, no address is added (W-withdraw-09). Read from identity before anything is stored.
+  await assertSecurityLockOpen(deps.securityLock, book.userId, 'adding a withdrawal address');
   await assertWithdrawNetwork(deps.networks, entry.assetId, entry.network);
   // An address that shows like a saved one but is not is saved only when the customer has said they checked it.
   const near = lookalikeOf(entry.ref, await deps.destinations.list(book.userId));
@@ -447,11 +454,46 @@ export async function renameDestination(
   return viewWithOwnership(deps, input.userId, await deps.destinations.rename(input));
 }
 
-export function removeDestination(
+export async function removeDestination(
   deps: CustomerRampDeps,
   input: { userId: string; destinationId: string; idempotencyKey: string },
 ): Promise<{ destinationId: string; removed: true }> {
+  // The lock stops every change to the book, removal included (identity's contract: "changes to withdrawal addresses").
+  await assertSecurityLockOpen(deps.securityLock, input.userId, 'removing a withdrawal address');
   return deps.destinations.remove(input);
+}
+
+/**
+ * Whether money may be sent to one saved address now, and if not, what stands in the way, first reason first: the
+ * owner's security lock (`locked`, with when it ends once an unlock is asked for), an entry the book does not hold as
+ * active (`blocked`), no published cooling-off period (`cooling_unset`), or a cooling-off that has not ended (`cooling`,
+ * with its end). The same rules the send path applies; the answer is read-only and changes nothing.
+ */
+export type DestinationReadiness = {
+  destinationId: string;
+  state: 'ready' | 'locked' | 'blocked' | 'cooling_unset' | 'cooling';
+  coolingOffEndsAt: string | null;
+  lockUnlocksAt: string | null;
+};
+
+export async function destinationReadiness(
+  deps: CustomerRampDeps,
+  input: { userId: string; destinationId: string },
+  now: Date = new Date(),
+): Promise<DestinationReadiness> {
+  const row = (await deps.destinations.list(input.userId)).find((entry) => entry.destinationId === input.destinationId);
+  if (!row) {
+    throw new BankError(`User ${input.userId} has no saved address ${input.destinationId}`, 'bank.withdraw_destination_missing');
+  }
+  const base = { destinationId: row.destinationId, coolingOffEndsAt: null, lockUnlocksAt: null };
+  const lock = await deps.securityLock.read(input.userId);
+  if (lock.locked) return { ...base, state: 'locked', lockUnlocksAt: lock.unlocksAt };
+  if (row.state !== 'active') return { ...base, state: 'blocked' };
+  const hours = readOfframpCoolingHours(deps.coolingRaw());
+  if (hours === null) return { ...base, state: 'cooling_unset' };
+  const ends = coolingOffEndsAt(hours, row.updatedAt);
+  if (now.getTime() < ends.getTime()) return { ...base, state: 'cooling', coolingOffEndsAt: ends.toISOString() };
+  return { ...base, state: 'ready', coolingOffEndsAt: ends.toISOString() };
 }
 
 async function loadQuote(deps: CustomerRampDeps, userId: string, quoteId: string): Promise<QuoteRow> {

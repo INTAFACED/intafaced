@@ -222,6 +222,14 @@ export const withdrawAssetSchema = z.object({
 });
 export type WithdrawAsset = z.infer<typeof withdrawAssetSchema>;
 export const destinationRemovedSchema = z.object({ destinationId: z.string(), removed: z.literal(true) });
+/** svc-bank `bank.ramps.destinations.readiness`: whether money may be sent to one saved address now, or what stands first. */
+export const destinationReadinessSchema = z.object({
+  destinationId: z.string(),
+  state: z.enum(['ready', 'locked', 'blocked', 'cooling_unset', 'cooling']),
+  coolingOffEndsAt: z.string().nullable(),
+  lockUnlocksAt: z.string().nullable(),
+});
+export type DestinationReadiness = z.infer<typeof destinationReadinessSchema>;
 /** svc-bank `bank.ramps.destinations.check`: whether the bank takes an address as typed, before any confirmation. */
 export const destinationCheckSchema = z.object({
   address: z.enum(['ok', 'invalid', 'checksum_mismatch']),

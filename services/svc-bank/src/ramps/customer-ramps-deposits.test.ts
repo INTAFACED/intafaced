@@ -23,6 +23,7 @@ import type { CustodyDepositPort } from '../deposits/custody-port.js';
 import type { OfframpFeeSource, OnrampPaymentPort, OnrampQuoteSource } from './customer-ports.js';
 import type { PayFiatRampPort } from './pay-fiat-adapter.js';
 import { CRYPTO_LEDGER_PROGRAMME, NO_RAMP_PROGRAMME } from './rails.js';
+import { memorySecurityLock } from '../security-lock.js';
 
 const SECRET = 'bank-customer-ramps-deposits-edge-secret';
 const HOLDER = '11111111-1111-4111-8111-111111111111';
@@ -129,23 +130,25 @@ describe('customer ramps and deposits', () => {
   const readWrite = ['bank:read', 'bank:write', 'trade:withdraw'];
 
   it('onrampQuote refuses a blank PSP and a blank rate source, and returns the source decimals when both exist', async () => {
-    const none = bankWith({ ramps: { programme: NO_RAMP_PROGRAMME, payFiat: livePay, onrampQuotes: quoteSource() } });
+    const none = bankWith({
+      ramps: { securityLock: memorySecurityLock(), programme: NO_RAMP_PROGRAMME, payFiat: livePay, onrampQuotes: quoteSource() },
+    });
     await expect(
       caller(none, HOLDER, readWrite).ramps.onrampQuote({ assetId: 'USDT', amount: '10', method: 'card', country: 'DE' }),
     ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED', cause: { code: 'bank.fiat_ramp_socket' } });
 
-    const empty = bankWith({ ramps: { programme: CRYPTO_LEDGER_PROGRAMME } });
+    const empty = bankWith({ ramps: { securityLock: memorySecurityLock(), programme: CRYPTO_LEDGER_PROGRAMME } });
     await expect(
       caller(empty, HOLDER, readWrite).ramps.onrampQuote({ assetId: 'USDT', amount: '10', method: 'card', country: 'DE' }),
     ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED', cause: { code: 'bank.fiat_ramp_no_pay_adapter' } });
 
-    const noRate = bankWith({ ramps: { programme: CRYPTO_LEDGER_PROGRAMME, payFiat: livePay } });
+    const noRate = bankWith({ ramps: { securityLock: memorySecurityLock(), programme: CRYPTO_LEDGER_PROGRAMME, payFiat: livePay } });
     await expect(
       caller(noRate, HOLDER, readWrite).ramps.onrampQuote({ assetId: 'USDT', amount: '10', method: 'bank_transfer', country: 'DE' }),
     ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED', cause: { code: 'bank.onramp_rate_unset' } });
 
     const quoted = bankWith({
-      ramps: { programme: CRYPTO_LEDGER_PROGRAMME, payFiat: livePay, onrampQuotes: quoteSource() },
+      ramps: { securityLock: memorySecurityLock(), programme: CRYPTO_LEDGER_PROGRAMME, payFiat: livePay, onrampQuotes: quoteSource() },
     });
     const quote = await caller(quoted, HOLDER, readWrite).ramps.onrampQuote({
       assetId: 'USDT',
@@ -183,7 +186,13 @@ describe('customer ramps and deposits', () => {
       },
     };
     const bank = bankWith({
-      ramps: { programme: CRYPTO_LEDGER_PROGRAMME, payFiat: livePay, onrampQuotes: quoteSource(), onrampPayments: payments },
+      ramps: {
+        securityLock: memorySecurityLock(),
+        programme: CRYPTO_LEDGER_PROGRAMME,
+        payFiat: livePay,
+        onrampQuotes: quoteSource(),
+        onrampPayments: payments,
+      },
     });
     const user = caller(bank, HOLDER, readWrite);
     const missingId = randomUUID();
@@ -193,7 +202,7 @@ describe('customer ramps and deposits', () => {
 
     const quote = await user.ramps.onrampQuote({ assetId: 'USDT', amount: '10', method: 'card', country: 'DE' });
     const blocked = bankWith({
-      ramps: { programme: CRYPTO_LEDGER_PROGRAMME, payFiat: livePay, onrampQuotes: quoteSource() },
+      ramps: { securityLock: memorySecurityLock(), programme: CRYPTO_LEDGER_PROGRAMME, payFiat: livePay, onrampQuotes: quoteSource() },
     });
     await expect(
       caller(blocked, HOLDER, readWrite).ramps.onrampCreate({ onrampId: randomUUID(), quoteId: quote.quoteId, method: 'card' }),
@@ -250,7 +259,13 @@ describe('customer ramps and deposits', () => {
       },
     };
     const bank = bankWith({
-      ramps: { programme: CRYPTO_LEDGER_PROGRAMME, payFiat: livePay, onrampQuotes: quoteSource(), onrampPayments: payments },
+      ramps: {
+        securityLock: memorySecurityLock(),
+        programme: CRYPTO_LEDGER_PROGRAMME,
+        payFiat: livePay,
+        onrampQuotes: quoteSource(),
+        onrampPayments: payments,
+      },
     });
     const user = caller(bank, HOLDER, readWrite);
     const quote = await user.ramps.onrampQuote({ assetId: 'USDT', amount: '10', method: 'bank_transfer', country: 'DE' });
@@ -270,13 +285,15 @@ describe('customer ramps and deposits', () => {
         return { fee: '0.37', netAmount: '9.63', expiresAt: new Date(QUOTE_EXPIRY) };
       },
     };
-    const crypto = bankWith({ ramps: { programme: CRYPTO_LEDGER_PROGRAMME, payFiat: livePay, offrampFees: fees } });
+    const crypto = bankWith({
+      ramps: { securityLock: memorySecurityLock(), programme: CRYPTO_LEDGER_PROGRAMME, payFiat: livePay, offrampFees: fees },
+    });
     const user = caller(crypto, HOLDER, readWrite);
     await expect(user.ramps.offrampQuote({ assetId: 'USDT', amount: '15', kind: 'fiat', destinationRef: IBAN })).rejects.toMatchObject({
       cause: { code: 'bank.fiat_ramp_socket' },
     });
 
-    const noFee = bankWith({ ramps: { programme: CRYPTO_LEDGER_PROGRAMME } });
+    const noFee = bankWith({ ramps: { securityLock: memorySecurityLock(), programme: CRYPTO_LEDGER_PROGRAMME } });
     await expect(
       caller(noFee, HOLDER, readWrite).ramps.offrampQuote({ assetId: 'USDT', amount: '10', kind: 'crypto', destinationRef: EVM }),
     ).rejects.toMatchObject({ cause: { code: 'bank.offramp_fee_unset' } });
@@ -298,7 +315,7 @@ describe('customer ramps and deposits', () => {
         return { fee: '1', netAmount: '1', expiresAt: new Date(QUOTE_EXPIRY) };
       },
     };
-    const bad = bankWith({ ramps: { programme: CRYPTO_LEDGER_PROGRAMME, offrampFees: broken } });
+    const bad = bankWith({ ramps: { securityLock: memorySecurityLock(), programme: CRYPTO_LEDGER_PROGRAMME, offrampFees: broken } });
     await expect(
       caller(bad, HOLDER, readWrite).ramps.offrampQuote({ assetId: 'USDT', amount: '10', kind: 'crypto', destinationRef: EVM }),
     ).rejects.toMatchObject({ cause: { code: 'bank.offramp_fee_inconsistent' } });
@@ -307,7 +324,7 @@ describe('customer ramps and deposits', () => {
 
   it('kind fiat offramp still refuses the bank partner before a row, even when cooling is unpublished', async () => {
     delete process.env.BANK_OFFRAMP_COOLING_HOURS;
-    const bank = bankWith({ ramps: { programme: CRYPTO_LEDGER_PROGRAMME, payFiat: livePay } });
+    const bank = bankWith({ ramps: { securityLock: memorySecurityLock(), programme: CRYPTO_LEDGER_PROGRAMME, payFiat: livePay } });
     const user = caller(bank, HOLDER, readWrite);
     await expect(
       user.ramps.offramp({
@@ -331,7 +348,7 @@ describe('customer ramps and deposits', () => {
 
   it('lists saved destinations with label and cooling end, and remove replays by idempotency key', async () => {
     process.env.BANK_OFFRAMP_COOLING_HOURS = '24';
-    const bank = bankWith({ ramps: { programme: CRYPTO_LEDGER_PROGRAMME } });
+    const bank = bankWith({ ramps: { securityLock: memorySecurityLock(), programme: CRYPTO_LEDGER_PROGRAMME } });
     const user = caller(bank, HOLDER, readWrite);
     const other = caller(bank, OTHER, readWrite);
     await user.ramps.setWithdrawDestination({ kind: 'crypto', ref: EVM, label: 'Holiday wallet' });
