@@ -142,7 +142,7 @@ export async function acceptCopyDisclosure(
   return presentCopyDisclosureAcceptance(stored);
 }
 
-/** Mirror gate. Follow is not gated: it moves no value. */
+/** The gate for every mirror, and for startFollow before a follow is written (CB-copy-04). */
 export async function requireCopyDisclosureForMirror(law: CopyDisclosureLaw, store: CopyFollowStore, followerId: string): Promise<void> {
   const published = requirePublishedDisclosure(law);
   const row = await store.getDisclosureAcceptance(followerId, published.version);

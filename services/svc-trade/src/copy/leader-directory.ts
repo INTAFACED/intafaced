@@ -266,7 +266,13 @@ export class LeaderDirectory {
    * Capacity is the published integer only. Unpublished capacity does not
    * refuse. The listing row is locked so two new follows cannot both pass.
    */
-  async admitNewFollow(leaderUserId: string, followStore: CopyFollowStore, follow: CopyFollow): Promise<void> {
+  /** `beforeSave` runs inside the same transaction, on the store the follow is saved through (the reserve check). */
+  async admitNewFollow(
+    leaderUserId: string,
+    followStore: CopyFollowStore,
+    follow: CopyFollow,
+    beforeSave?: (store: CopyFollowStore, follow: CopyFollow) => Promise<void>,
+  ): Promise<void> {
     const outcome = await this.backend.transaction(async (tx) => {
       const listing = await tx.getByUser(leaderUserId, true);
       if (listing?.capacity != null) {
@@ -276,11 +282,9 @@ export class LeaderDirectory {
           return 'full' as const;
         }
       }
-      if (tx.boundSql && followStore instanceof SqlCopyFollowStore) {
-        await new SqlCopyFollowStore(tx.boundSql).saveFollow(follow, 0n);
-      } else {
-        await followStore.saveFollow(follow, 0n);
-      }
+      const store = tx.boundSql && followStore instanceof SqlCopyFollowStore ? new SqlCopyFollowStore(tx.boundSql) : followStore;
+      await beforeSave?.(store, follow);
+      await store.saveFollow(follow, 0n);
       return 'ok' as const;
     });
     if (outcome === 'full') {

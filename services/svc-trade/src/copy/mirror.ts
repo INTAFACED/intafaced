@@ -125,14 +125,22 @@ export function planMirror(input: {
     throw new CopyError('Leader fill qty/notional must be strictly positive', 'trade.copy_envelope_invalid');
   }
 
-  if (observation.notional > follow.envelope.maxNotionalPerOrder) {
+  // A fixed amount sizes every copied order at that quote amount, the quantity scaled from the leader's fill price.
+  const fixed = follow.envelope.fixedOrderSize;
+  const notional = fixed ?? observation.notional;
+  const qty = fixed === undefined ? observation.qty : (observation.qty * fixed) / observation.notional;
+  if (qty <= 0n) {
+    throw new CopyError('The fixed amount buys less than the smallest quantity at this price', 'trade.copy_cap_exceeded');
+  }
+
+  if (notional > follow.envelope.maxNotionalPerOrder) {
     throw new CopyError(
-      `Mirror notional ${formatAmount(observation.notional)} exceeds per-order cap ${formatAmount(follow.envelope.maxNotionalPerOrder)}`,
+      `Mirror notional ${formatAmount(notional)} exceeds per-order cap ${formatAmount(follow.envelope.maxNotionalPerOrder)}`,
       'trade.copy_cap_exceeded',
     );
   }
 
-  const nextExposure = exposureAfterMirror(input.currentExposure, observation.side, observation.notional);
+  const nextExposure = exposureAfterMirror(input.currentExposure, observation.side, notional);
   if (nextExposure > follow.envelope.maxAggregateExposure) {
     throw new CopyError(
       `Mirror would exceed aggregate exposure cap ${formatAmount(follow.envelope.maxAggregateExposure)}`,
@@ -147,8 +155,8 @@ export function planMirror(input: {
     leaderId: follow.leaderId,
     marketId: observation.marketId,
     side: observation.side,
-    qty: observation.qty,
-    notional: observation.notional,
+    qty,
+    notional,
     nextExposure,
     reason: 'within_envelope',
   };
