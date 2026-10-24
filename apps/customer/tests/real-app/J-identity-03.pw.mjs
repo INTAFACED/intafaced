@@ -45,24 +45,31 @@ async function askReset(page, email) {
   return page.getByRole('status').filter({ hasText: 'a code is on its way' }).innerText();
 }
 
+/**
+ * Send the reset form and wait until it is no longer busy. The submit clears the last message at once (a discrete
+ * React event), so the next check reads this attempt's message, never the previous one.
+ */
 async function submitReset(page, code, password, confirm = password) {
   await page.getByLabel('Code from the email').fill(code);
   await page.getByLabel('New password', { exact: true }).fill(password);
   await page.getByLabel('Repeat the new password').fill(confirm);
   await page.getByRole('button', { name: 'Save new password' }).click();
+  await expect(page.getByRole('button', { name: 'Saving…' })).toHaveCount(0);
 }
 
 test(`${J} #1 the find-password page answers the same whether or not the account exists`, async ({ page, browser }) => {
   const { who, device } = await account(browser);
   await device.close();
   const seen = resetCodes(who.email).length;
-  const forKnown = await askReset(page, who.email);
   const unknown = `nobody-${who.handle}@local-test.invalid`;
   const forUnknown = await askReset(page, unknown);
+  const forKnown = await askReset(page, who.email);
   expect(forUnknown).toBe(forKnown);
-  // Only the real account is mailed a code.
+  // Only the real account is mailed. The relay sends in order, so once the later request's code is out, the earlier
+  // unknown address's job has been handled too: nothing reached it (the stack keeps no-account notices off).
   await nextResetCode(who.email, seen);
-  expect(resetCodes(unknown)).toHaveLength(0);
+  expect(mailedLines(unknown, 'password-reset')).toHaveLength(0);
+  expect(mailedLines(unknown, 'reset-no-account')).toHaveLength(0);
 });
 
 test(`${J} #2 the code step: three wrong codes lock the reset, and a used code is refused`, async ({ page, browser }) => {

@@ -99,7 +99,7 @@
     "IDENTITY_PASSWORD_RESET_REQUEST_MAX": {
       "service": "identity",
       "value": "10",
-      "note": "Ten reset or username-recovery mails per address an hour."
+      "note": "Ten reset mails and ten username-recovery mails per address an hour (each kind is counted on its own)."
     },
     "IDENTITY_PASSWORD_RESET_REQUEST_WINDOW_SECONDS": {
       "service": "identity",
