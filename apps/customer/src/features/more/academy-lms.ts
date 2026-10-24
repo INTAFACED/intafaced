@@ -404,7 +404,8 @@ export type AcademyRoute =
   | { kind: 'assignment'; slug: string | undefined; itemId: string | undefined }
   | { kind: 'verify'; code: string | undefined }
   | { kind: 'programme'; slug: string }
-  | { kind: 'discussion'; courseSlug: string; postId: string | undefined };
+  | { kind: 'discussion'; courseSlug: string; postId: string | undefined }
+  | { kind: 'messages'; conversationId: string | undefined };
 /** The public course page (AC-catalogue-03). Until courses are rows a course is one curriculum path. */
 export const academyCourseHref = (slug: string) => `/academy/learning/course/${encodeURIComponent(slug)}`;
 /** An assignment's page in a course staff made (AC-assignments-01). */
@@ -415,6 +416,9 @@ export const academyProgrammeHref = (slug: string) => `/academy/programmes/${enc
 /** A course's discussion, and one post in it (AC-rooms-01). */
 export const academyDiscussionHref = (courseSlug: string, postId?: string) =>
   `/academy/rooms/discussion/${encodeURIComponent(courseSlug)}${postId ? `/${encodeURIComponent(postId)}` : ''}`;
+/** The reader's conversations with course teams, and one of them (AC-rooms-04). */
+export const academyMessagesHref = (conversationId?: string) =>
+  `/academy/rooms/messages${conversationId ? `/${encodeURIComponent(conversationId)}` : ''}`;
 /** The public check of one certificate (AC-certificates-01): the link a learner shares. Open to anyone, signed in or not. */
 export const academyVerifyHref = (code: string) => `/academy/certificates/verify/${encodeURIComponent(code)}`;
 /** Sign in from a course page and come back to its plain address: a private link's `#key=` never rides in a URL. */
@@ -436,6 +440,7 @@ export function academyRoute(pathname: string): AcademyRoute {
   if (segment === 'certificates' && part === 'verify') return { kind: 'verify', code: course ? decoded(course) : undefined };
   if (segment === 'rooms' && part === 'discussion' && course)
     return { kind: 'discussion', courseSlug: decoded(course) ?? course, postId: child ? decoded(child) : undefined };
+  if (segment === 'rooms' && part === 'messages') return { kind: 'messages', conversationId: course ? decoded(course) : undefined };
   if (segment === 'programmes' && part) return { kind: 'programme', slug: decoded(part) ?? part };
   const tab = academyTabs.find(([, slug]) => slug === segment);
   if (tab) return { kind: 'tab', tab: tab[0] };

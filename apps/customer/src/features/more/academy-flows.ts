@@ -195,7 +195,10 @@ export type RefusalKey =
   | 'refAttachmentTypeRefused'
   | 'refPostNotFound'
   | 'refPermissionDenied'
-  | 'refTopicNotFound';
+  | 'refTopicNotFound'
+  | 'refMessageLimitUnset'
+  | 'refMessageTooLong'
+  | 'refConversationNotFound';
 
 /** Which sentence words a typed Academy refusal, or null when Academy did not type it (a dropped connection, a sign-in problem). */
 export function academyRefusalKey(failure: Pick<Failure, 'code' | 'message'>): RefusalKey | null {
@@ -329,6 +332,12 @@ export function academyRefusalKey(failure: Pick<Failure, 'code' | 'message'>): R
       return 'refPermissionDenied';
     case 'academy.topic_not_found':
       return 'refTopicNotFound';
+    case 'academy.message_limit_unset':
+      return 'refMessageLimitUnset';
+    case 'academy.message_too_long':
+      return 'refMessageTooLong';
+    case 'academy.conversation_not_found':
+      return 'refConversationNotFound';
     default:
       return null;
   }

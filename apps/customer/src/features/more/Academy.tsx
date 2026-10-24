@@ -26,6 +26,7 @@ import { AcademyCoursePage, AcademyHub } from './AcademyHub';
 import { AcademyAssignment } from './AcademyAssignment';
 import { AcademyProgrammePage } from './AcademyCourseProgrammes';
 import { AcademyDiscussionCourses, AcademyDiscussionPage, AcademyDiscussionThread } from './AcademyDiscussion';
+import { AcademyCourseConversation, AcademyCourseInbox, AcademyCourseMessagesLink } from './AcademyCourseMessages';
 import { AcademyAccessGrants, AcademyMyLearning } from './AcademyMyLearning';
 import { AcademyCourseProgress, AcademyPlanner } from './AcademyProgressPage';
 import { AcademyCourseOutline } from './AcademyCourseOutline';
@@ -72,7 +73,7 @@ function Academy({ route, slug, initialPath }: { route: AcademyRoute; slug?: str
         ? 'Learning'
         : route.kind === 'programme'
           ? 'Programmes'
-          : route.kind === 'discussion'
+          : route.kind === 'discussion' || route.kind === 'messages'
             ? 'Rooms'
             : '';
   const [selection, setSelection] = useState({ owner: userId, id: selectedCertificate(userId) });
@@ -116,6 +117,12 @@ function Academy({ route, slug, initialPath }: { route: AcademyRoute; slug?: str
         ) : (
           <AcademyDiscussionPage key={route.courseSlug} courseSlug={route.courseSlug} />
         )
+      ) : route.kind === 'messages' ? (
+        route.conversationId ? (
+          <AcademyCourseConversation key={route.conversationId} conversationId={route.conversationId} />
+        ) : (
+          <AcademyCourseInbox />
+        )
       ) : route.kind === 'programme' ? (
         <AcademyProgrammePage key={route.slug} slug={route.slug} />
       ) : route.kind === 'progress' ? (
@@ -138,6 +145,7 @@ function Academy({ route, slug, initialPath }: { route: AcademyRoute; slug?: str
       ) : tab === 'Rooms' ? (
         <>
           <AcademyDiscussionCourses />
+          <AcademyCourseMessagesLink />
           <AcademyRooms action={action} />
         </>
       ) : tab === 'Videos' ? (

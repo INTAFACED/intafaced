@@ -783,6 +783,22 @@ export const rooms: readonly Room[] = [
     hidden: true,
   },
   {
+    path: '/academy/rooms/messages',
+    title: 'Course team messages',
+    description: 'Rooms, learning and certifications',
+    door: 'More',
+    area: 'more',
+    hidden: true,
+  },
+  {
+    path: '/academy/rooms/messages/:conversationId',
+    title: 'Course team conversation',
+    description: 'Rooms, learning and certifications',
+    door: 'More',
+    area: 'more',
+    hidden: true,
+  },
+  {
     path: '/academy/certificates/verify/:code',
     title: 'Certificate check',
     description: 'Check a certificate by its link',

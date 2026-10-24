@@ -47,6 +47,7 @@ export interface SettingsEnv {
   readonly ACADEMY_PROGRAMME_MAX_COURSES?: number | undefined;
   readonly ACADEMY_POST_MAX_CHARS?: number | undefined;
   readonly ACADEMY_POST_IMAGE_MAX_BYTES?: number | undefined;
+  readonly ACADEMY_MESSAGE_MAX_CHARS?: number | undefined;
   readonly ACADEMY_UPLOAD_VIDEO_TYPES?: readonly string[] | undefined;
   readonly ACADEMY_UPLOAD_HANDOUT_TYPES?: readonly string[] | undefined;
   readonly ACADEMY_PAPER_MARKETS_LIMIT?: number | undefined;
@@ -247,6 +248,14 @@ export function settingsRegister(env: SettingsEnv): readonly SettingRow[] {
       store: 'env',
       readOnly: false,
       refusalCode: 'academy.attachment_limit_unset',
+    },
+    {
+      // Blank: every message to or from a course team refuses.
+      key: 'message_max_chars',
+      state: state(positiveInt(env.ACADEMY_MESSAGE_MAX_CHARS)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.message_limit_unset',
     },
     {
       key: 'upload_size_limit',

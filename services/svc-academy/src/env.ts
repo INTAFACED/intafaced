@@ -147,6 +147,15 @@ const schema = serviceEnvSchema
       ),
 
       /**
+       * AC-rooms-04: the longest message to or from a course team, in characters. Blank / unset is unpublished: sending
+       * refuses `academy.message_limit_unset`.
+       */
+      ACADEMY_MESSAGE_MAX_CHARS: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1).max(20_000)]),
+      ),
+
+      /**
        * AC-certificates-02: seconds between issue sweeps, which issue delayed certificates once due. Blank / unset is
        * unpublished: no sweep runs and a delayed issue rule refuses `academy.cert_sweep_unset`.
        */

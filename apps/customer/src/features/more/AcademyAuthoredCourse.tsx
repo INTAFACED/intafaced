@@ -14,6 +14,7 @@ import { academyLmsCopy as copy } from './academy-lms-copy';
 import { academyAssignmentHref, academyCourseHref, academyCourseSignInHref } from './academy-lms';
 import { AcademyRefusal } from './AcademyLmsParts';
 import { AcademyCourseEnrol } from './AcademyCourseEnrol';
+import { CourseTeamContact } from './AcademyCourseMessages';
 
 /**
  * Courses staff made on the founder console, on the learner side (AC-catalogue-03, AC-enrolment-01): the catalogue
@@ -165,6 +166,7 @@ export function AcademyAuthoredCourse({ slug, signedIn }: { slug: string; signed
           )}
         </div>
       </Panel>
+      {signedIn && <CourseTeamContact courseSlug={data.slug} />}
     </div>
   );
 }

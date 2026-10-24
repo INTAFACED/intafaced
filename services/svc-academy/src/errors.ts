@@ -318,7 +318,13 @@ export type AcademyErrorCode =
   /** AC-rooms-01: no discussion post or reply with that id the reader may open. */
   | 'academy.post_not_found'
   /** AC-rooms-01: the action belongs to someone else (only the asker marks the accepted answer). */
-  | 'academy.permission_denied';
+  | 'academy.permission_denied'
+  /** AC-rooms-04: the owner has not set how long a message to the course team may be. */
+  | 'academy.message_limit_unset'
+  /** AC-rooms-04: a message longer than the owner's limit. */
+  | 'academy.message_too_long'
+  /** AC-rooms-04: no conversation with that id the reader is in. */
+  | 'academy.conversation_not_found';
 
 export class AcademyError extends Error {
   constructor(
@@ -497,6 +503,9 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.attachment_type_refused',
   'academy.post_not_found',
   'academy.permission_denied',
+  'academy.message_limit_unset',
+  'academy.message_too_long',
+  'academy.conversation_not_found',
 ] as const;
 
 /** L3 — catalog size. */

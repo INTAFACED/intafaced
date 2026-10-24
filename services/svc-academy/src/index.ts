@@ -139,6 +139,7 @@ const academy = new AcademyService(
     programmeMaxCourses: env.ACADEMY_PROGRAMME_MAX_COURSES,
     postMaxChars: env.ACADEMY_POST_MAX_CHARS,
     postImageMaxBytes: env.ACADEMY_POST_IMAGE_MAX_BYTES,
+    messageMaxChars: env.ACADEMY_MESSAGE_MAX_CHARS,
     uploadVideoTypes: env.ACADEMY_UPLOAD_VIDEO_TYPES,
     uploadHandoutTypes: env.ACADEMY_UPLOAD_HANDOUT_TYPES,
     videoWatchThresholdSeconds: env.ACADEMY_VIDEO_WATCH_THRESHOLD_SECONDS,

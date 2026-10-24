@@ -182,6 +182,10 @@
       "types": "./dist/academy-courses.d.ts",
       "default": "./dist/academy-courses.js"
     },
+    "./academy-course-messages": {
+      "types": "./dist/academy-course-messages.d.ts",
+      "default": "./dist/academy-course-messages.js"
+    },
     "./academy-discussion": {
       "types": "./dist/academy-discussion.d.ts",
       "default": "./dist/academy-discussion.js"
