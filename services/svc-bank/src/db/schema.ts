@@ -1390,6 +1390,80 @@ export const autoInvestRuns = bank.table(
   ],
 );
 
+// ── Income sorter (BK-pots-03) ───────────────────────────────────────────────
+// A payment from another person split across the person's own spaces by percentage, once. Instructions and what became
+// of each split; every split moves with the own-space bankTransfer recipe, so no balance lives here.
+
+export const incomeSorters = bank.table(
+  'income_sorters',
+  {
+    id: uuid('id').primaryKey(),
+    userId: text('user_id').notNull(),
+    assetId: text('asset_id').notNull(),
+    status: text('status').notNull().default('active'),
+    createdAt: createdAt(),
+    cancelledAt: tstz('cancelled_at'),
+  },
+  (t) => [
+    uniqueIndex('income_sorters_one_active_uq')
+      .on(t.userId, t.assetId)
+      .where(sql`${t.status} = 'active'`),
+  ],
+);
+
+export const incomeSorterLegs = bank.table(
+  'income_sorter_legs',
+  {
+    sorterId: uuid('sorter_id')
+      .notNull()
+      .references(() => incomeSorters.id),
+    position: integer('position').notNull(),
+    spaceId: uuid('space_id')
+      .notNull()
+      .references(() => spaces.id),
+    shareBp: integer('share_bp').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.sorterId, t.position] }), uniqueIndex('income_sorter_legs_space_uq').on(t.sorterId, t.spaceId)],
+);
+
+export const incomeSorterRuns = bank.table(
+  'income_sorter_runs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    sorterId: uuid('sorter_id')
+      .notNull()
+      .references(() => incomeSorters.id),
+    /** The posted personal send this run sorts (bank.personal_transfers). */
+    creditTransferId: text('credit_transfer_id').notNull(),
+    creditTxId: text('credit_tx_id').notNull(),
+    creditAmount: amount('credit_amount').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('income_sorter_runs_credit_uq').on(t.creditTransferId),
+    index('income_sorter_runs_sorter_idx').on(t.sorterId, t.createdAt),
+  ],
+);
+
+export const incomeSorterRunLegs = bank.table(
+  'income_sorter_run_legs',
+  {
+    runId: uuid('run_id')
+      .notNull()
+      .references(() => incomeSorterRuns.id),
+    position: integer('position').notNull(),
+    spaceId: uuid('space_id')
+      .notNull()
+      .references(() => spaces.id),
+    amount: amount('amount').notNull(),
+    status: text('status').notNull().default('pending'),
+    ledgerTxId: text('ledger_tx_id'),
+    rejectionCode: text('rejection_code'),
+    settledAt: tstz('settled_at'),
+  },
+  (t) => [primaryKey({ columns: [t.runId, t.position] })],
+);
+
 // ── Business maker/checker (§31:811 partial) ─────────────────────────────────
 
 export const businessMemberRoleEnum = bank.enum('business_member_role', [

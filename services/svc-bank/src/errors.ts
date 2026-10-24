@@ -801,6 +801,18 @@ export type BankErrorCode =
   | 'bank.space_unlock_rule_unset'
   /** An early unlock was asked for, or withdrawn, on a pot that is not locked now (BK-pots-02). */
   | 'bank.space_not_locked'
+  /** The owner has not published when incoming payments are sorted (`BANK_INCOME_SORTER_MIN_CREDIT`), so no sorter is made (BK-pots-03). */
+  | 'bank.sorter_terms_unset'
+  /** A sorter that cannot be: no spaces or too many, a space twice, a share outside 1 to 10000 basis points, shares over 100%, or the account itself (BK-pots-03). */
+  | 'bank.sorter_invalid'
+  /** The account already sorts this asset; cancel that sorter first (BK-pots-03). */
+  | 'bank.sorter_exists'
+  /** The sorter id is already taken by a sorter on different terms (BK-pots-03). */
+  | 'bank.sorter_conflict'
+  /** No such sorter of the caller's; another person's reads the same (BK-pots-03). */
+  | 'bank.sorter_not_found'
+  /** One split of a sorted credit failed without a typed code (BK-pots-03). */
+  | 'bank.sorter_split_failed'
   /** The profile a bank call names is not one the caller holds: an unknown or closed business, or one they are not a member of. */
   | 'bank.profile_not_held'
   /** A business profile has no company account of its own in this build, so there is no company terms, currency or detail to show. */

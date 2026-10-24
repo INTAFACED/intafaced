@@ -420,6 +420,13 @@ const schema = serviceEnvSchema
       BANK_SPACE_UNLOCK_WAIT_HOURS: z.string().optional(),
 
       /**
+       * Owner-set smallest payment from another person that the income sorter splits (BK-pots-03), a decimal; 0 sorts
+       * every payment. NO DEFAULT. Blank / unset / not a decimal → making a sorter refuses `bank.sorter_terms_unset` and
+       * no payment is sorted. Boot stays up; the ask is the refuse.
+       */
+      BANK_INCOME_SORTER_MIN_CREDIT: z.string().optional(),
+
+      /**
        * Owner-published rules for the purpose, source of funds and reference of a global send, as JSON: `{ reference:
        * [{ deliveryMethod, country?, maxLength }], purposeRequired: ["INR", ...], sourceOfFunds: [{ asset, threshold }] }`.
        * No default. Blank / unset / not in shape → `bank.send_field_rules_unset`; a reference with no rule for its rail →

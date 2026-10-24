@@ -43,6 +43,7 @@ import { OwnerRailRecords } from './RailRecords';
 import { railCopy } from './rail-copy';
 import { SelectedSpace } from './SelectedSpace';
 import { SpaceInflows } from './SpaceInflows';
+import { IncomeSorter } from './IncomeSorter';
 import { AccountHome } from './AccountHome';
 import { AddMoney } from './AddMoney';
 import { addMoneyCopy } from './add-money-copy';
@@ -313,6 +314,7 @@ function Spaces({ open, search }: { open: (spec: ActionSpec) => void; search: st
           </ResourceView>
         )}
       </Section>
+      {spaces.resource.status === 'ready' && <IncomeSorter spaces={spaces.resource.data} open={open} />}
       <Section
         title={copyText('rooms.assets.without.a.space')}
         description={copyText('rooms.positive.user.available.accounts.only.these.quantities')}

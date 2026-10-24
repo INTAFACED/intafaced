@@ -1,0 +1,545 @@
+import { z } from 'zod';
+import type { Sql } from 'postgres';
+import { LedgerError, formatAmount, parseAmount, recipes, type Amount, type LedgerClient } from '@intafaced/ledger-client';
+import { BankError } from '../errors.js';
+import { isDefiniteLedgerRefusal } from '../ledger-outcome.js';
+import { accountForSpace, type SpaceService } from '../spaces/space-service.js';
+import { withMoneySpan } from '../tracing.js';
+import { bookedTransferMatches } from '../transfers/booked-transfer.js';
+
+/**
+ * INCOME SORTER (BK-pots-03, J-bank-07 #4).
+ *
+ * A payment from another person into the account is split across the person's own named spaces by percentage, once.
+ * The sorter is an instruction; the credit is the posted row in `bank.personal_transfers`; each split is an own-space
+ * `bankTransfer` from the account into one space, keyed `sorter:<sorter>:<credit ledger tx>` with the leg's position as
+ * its occurrence. Whatever is not sorted stays in the account. No balance lives here.
+ *
+ * Two paths drive a credit, and both end in the same keys: the send that posted it (right after the post) and the
+ * sweep (`run-income-sorter`), which picks up a credit whose send crashed before sorting and any split whose outcome was
+ * unknown. A credit has one run, ever (`income_sorter_runs.credit_transfer_id` is unique), so it is sorted once by the
+ * sorter that was live when it arrived.
+ *
+ * The owner decides whether credits are sorted at all and from what size (`BANK_INCOME_SORTER_MIN_CREDIT`). Blank:
+ * making a sorter refuses `bank.sorter_terms_unset`, and no credit is sorted.
+ */
+
+export const BANK_INCOME_SORTER_MIN_CREDIT_ENV = 'BANK_INCOME_SORTER_MIN_CREDIT';
+export const SORTER_MAX_LEGS = 10;
+const FULL_BP = 10_000;
+
+export type SorterStatus = 'active' | 'cancelled';
+export type SorterLegStatus = 'pending' | 'settled' | 'rejected';
+
+export interface SorterLeg {
+  spaceId: string;
+  /** Share of each credit in basis points (6000 = 60%). */
+  shareBp: number;
+}
+
+export interface IncomeSorter {
+  id: string;
+  userId: string;
+  assetId: string;
+  status: SorterStatus;
+  legs: SorterLeg[];
+  createdAt: Date;
+  cancelledAt: Date | null;
+}
+
+export interface SorterRunLeg {
+  position: number;
+  spaceId: string;
+  amount: Amount;
+  status: SorterLegStatus;
+  ledgerTxId: string | null;
+  rejectionCode: string | null;
+  settledAt: Date | null;
+}
+
+export interface SorterRun {
+  id: string;
+  sorterId: string;
+  creditTransferId: string;
+  creditTxId: string;
+  creditAmount: Amount;
+  createdAt: Date;
+  legs: SorterRunLeg[];
+}
+
+/** A posted payment from another person, as `bank.personal_transfers` holds it. */
+export interface IncomingCredit {
+  transferId: string;
+  fromUserId: string;
+  toUserId: string;
+  assetId: string;
+  amount: Amount;
+  ledgerTxId: string;
+  postedAt: Date;
+}
+
+/** What one credit came to. `unsorted` moved nothing and recorded nothing. */
+export type SortOutcome =
+  { status: 'unsorted'; reason: 'no_sorter' | 'below_minimum' | 'terms_unset' | 'own_money' } | { status: 'sorted'; run: SorterRun };
+
+export interface SorterSweepReport {
+  creditsSorted: number;
+  runsDriven: number;
+  legsStillPending: number;
+}
+
+interface SorterRow {
+  id: string;
+  user_id: string;
+  asset_id: string;
+  status: SorterStatus;
+  created_at: Date;
+  cancelled_at: Date | null;
+}
+
+interface LegRow {
+  sorter_id: string;
+  position: number;
+  space_id: string;
+  share_bp: number;
+}
+
+interface RunRow {
+  id: string;
+  sorter_id: string;
+  credit_transfer_id: string;
+  credit_tx_id: string;
+  credit_amount: string;
+  created_at: Date;
+}
+
+interface RunLegRow {
+  run_id: string;
+  position: number;
+  space_id: string;
+  amount: string;
+  status: SorterLegStatus;
+  ledger_tx_id: string | null;
+  rejection_code: string | null;
+  settled_at: Date | null;
+}
+
+const SORTER_COLS = 'id, user_id, asset_id, status, created_at, cancelled_at';
+const RUN_COLS = 'id, sorter_id, credit_transfer_id, credit_tx_id, credit_amount::text AS credit_amount, created_at';
+const RUN_LEG_COLS = 'run_id, position, space_id, amount::text AS amount, status, ledger_tx_id, rejection_code, settled_at';
+
+/** The ledger key's transfer id for one credit under one sorter. Longer than any id `transfers.create` accepts (64). */
+export function sorterTransferId(sorterId: string, creditTxId: string): string {
+  return `sorter:${sorterId}:${creditTxId}`;
+}
+
+/** One leg's share of a credit, rounded down at the ledger's scale: a split never moves more than its share. */
+export function legShare(credit: Amount, shareBp: number): Amount {
+  return (credit * BigInt(shareBp)) / BigInt(FULL_BP);
+}
+
+/** Parse the owner's minimum credit; blank or not a non-negative decimal is not a decision. */
+export function parseMinCredit(raw: string | undefined): Amount | null {
+  const value = raw?.trim();
+  if (!value || !/^\d+(\.\d{1,18})?$/.test(value)) return null;
+  return parseAmount(value);
+}
+
+function isDefiniteLegRefusal(err: unknown): boolean {
+  return err instanceof BankError || isDefiniteLedgerRefusal(err);
+}
+
+function legRefusalCode(err: unknown): string {
+  if (err instanceof BankError) return err.code;
+  if (err instanceof LedgerError) return err.code;
+  return 'bank.sorter_split_failed';
+}
+
+function toSorter(row: SorterRow, legs: LegRow[]): IncomeSorter {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    assetId: row.asset_id,
+    status: row.status,
+    legs: legs
+      .filter((leg) => leg.sorter_id === row.id)
+      .sort((a, b) => a.position - b.position)
+      .map((leg) => ({ spaceId: leg.space_id, shareBp: leg.share_bp })),
+    createdAt: row.created_at,
+    cancelledAt: row.cancelled_at,
+  };
+}
+
+function toRunLeg(row: RunLegRow): SorterRunLeg {
+  return {
+    position: row.position,
+    spaceId: row.space_id,
+    amount: parseAmount(row.amount),
+    status: row.status,
+    ledgerTxId: row.ledger_tx_id,
+    rejectionCode: row.rejection_code,
+    settledAt: row.settled_at,
+  };
+}
+
+function toRun(row: RunRow, legs: RunLegRow[]): SorterRun {
+  return {
+    id: row.id,
+    sorterId: row.sorter_id,
+    creditTransferId: row.credit_transfer_id,
+    creditTxId: row.credit_tx_id,
+    creditAmount: parseAmount(row.credit_amount),
+    createdAt: row.created_at,
+    legs: legs
+      .filter((leg) => leg.run_id === row.id)
+      .sort((a, b) => a.position - b.position)
+      .map(toRunLeg),
+  };
+}
+
+const sameLegs = (a: SorterLeg[], b: SorterLeg[]) =>
+  a.length === b.length && a.every((leg, i) => leg.spaceId === b[i]!.spaceId && leg.shareBp === b[i]!.shareBp);
+
+export class IncomeSorterService {
+  constructor(
+    private readonly sql: Sql,
+    private readonly ledger: Pick<LedgerClient, 'post' | 'getTx' | 'balance'>,
+    private readonly spaces: Pick<SpaceService, 'get' | 'findPrimary' | 'resolveForDebit' | 'resolveForCredit'>,
+    private readonly options: { minCredit?: () => string | undefined } = {},
+  ) {}
+
+  /** The owner's smallest credit that is sorted, or null while the owner has published none. */
+  minimumCredit(): Amount | null {
+    return parseMinCredit(this.options.minCredit?.());
+  }
+
+  /** The owner's smallest credit that is sorted. Blank refuses: the owner has not said credits are sorted at all. */
+  private minCredit(): Amount {
+    const min = this.minimumCredit();
+    if (min === null) {
+      throw new BankError(
+        'The bank has not published when incoming payments are sorted (bank.sorter_terms_unset)',
+        'bank.sorter_terms_unset',
+      );
+    }
+    return min;
+  }
+
+  /**
+   * Make the account's sorter for one asset: each leg one of the person's own live named spaces of that asset, with a
+   * whole-number share in basis points; the shares total at most 100% and the rest stays in the account. The client's
+   * `sorterId` makes a retry the same sorter. One live sorter per asset (`bank.sorter_exists`); cancel it first.
+   */
+  async create(input: { userId: string; sorterId: string; assetId: string; legs: SorterLeg[] }): Promise<IncomeSorter> {
+    this.minCredit();
+    const legs = input.legs.map((leg) => ({ spaceId: leg.spaceId, shareBp: leg.shareBp }));
+    if (legs.length < 1 || legs.length > SORTER_MAX_LEGS) {
+      throw new BankError(`A sorter has 1 to ${SORTER_MAX_LEGS} spaces`, 'bank.sorter_invalid');
+    }
+    if (new Set(legs.map((leg) => leg.spaceId)).size !== legs.length) {
+      throw new BankError('Each space appears once in a sorter', 'bank.sorter_invalid');
+    }
+    let total = 0;
+    for (const leg of legs) {
+      if (!Number.isInteger(leg.shareBp) || leg.shareBp < 1 || leg.shareBp > FULL_BP) {
+        throw new BankError('Each share is a whole number of basis points from 1 to 10000', 'bank.sorter_invalid');
+      }
+      total += leg.shareBp;
+    }
+    if (total > FULL_BP) {
+      throw new BankError(`The shares total ${total / 100}%, more than 100% (bank.sorter_invalid)`, 'bank.sorter_invalid');
+    }
+    for (const leg of legs) await this.ownTargetSpace(input.userId, leg.spaceId, input.assetId);
+
+    return this.sql.begin(async (tx) => {
+      await tx`SELECT pg_advisory_xact_lock(hashtext(${input.userId}), hashtext(${`sorter:${input.assetId}`}))`;
+      const prior = await tx<SorterRow[]>`SELECT ${tx.unsafe(SORTER_COLS)} FROM bank.income_sorters WHERE id = ${input.sorterId}::uuid`;
+      if (prior[0]) {
+        const priorLegs = await tx<LegRow[]>`
+          SELECT sorter_id, position, space_id, share_bp FROM bank.income_sorter_legs WHERE sorter_id = ${input.sorterId}::uuid
+        `;
+        const existing = toSorter(prior[0], priorLegs);
+        if (existing.userId !== input.userId || existing.assetId !== input.assetId || !sameLegs(existing.legs, legs)) {
+          throw new BankError(`Sorter ${input.sorterId} already exists on different terms`, 'bank.sorter_conflict');
+        }
+        return existing;
+      }
+      const live = await tx<Array<{ id: string }>>`
+        SELECT id FROM bank.income_sorters WHERE user_id = ${input.userId} AND asset_id = ${input.assetId} AND status = 'active'
+      `;
+      if (live[0]) {
+        throw new BankError(`This account already sorts ${input.assetId}; cancel that sorter first`, 'bank.sorter_exists');
+      }
+      const [row] = await tx<SorterRow[]>`
+        INSERT INTO bank.income_sorters (id, user_id, asset_id, status)
+        VALUES (${input.sorterId}::uuid, ${input.userId}, ${input.assetId}, 'active')
+        RETURNING ${tx.unsafe(SORTER_COLS)}
+      `;
+      const inserted: LegRow[] = [];
+      for (const [position, leg] of legs.entries()) {
+        const [legRow] = await tx<LegRow[]>`
+          INSERT INTO bank.income_sorter_legs (sorter_id, position, space_id, share_bp)
+          VALUES (${input.sorterId}::uuid, ${position}, ${leg.spaceId}::uuid, ${leg.shareBp})
+          RETURNING sorter_id, position, space_id, share_bp
+        `;
+        inserted.push(legRow!);
+      }
+      return toSorter(row!, inserted);
+    });
+  }
+
+  /** Stop sorting. Credits already sorted stay where they went; a run still settling keeps its fixed splits. */
+  async cancel(userId: string, sorterId: string, now: Date = new Date()): Promise<IncomeSorter> {
+    const sorter = await this.own(userId, sorterId);
+    if (sorter.status === 'cancelled') return sorter;
+    await this.sql`
+      UPDATE bank.income_sorters SET status = 'cancelled', cancelled_at = ${now}
+       WHERE id = ${sorterId}::uuid AND status = 'active'
+    `;
+    return this.own(userId, sorterId);
+  }
+
+  /** The account's live sorters, one per asset at most. */
+  async list(userId: string): Promise<IncomeSorter[]> {
+    const rows = await this.sql<SorterRow[]>`
+      SELECT ${this.sql.unsafe(SORTER_COLS)} FROM bank.income_sorters
+       WHERE user_id = ${userId} AND status = 'active'
+       ORDER BY asset_id
+    `;
+    if (!rows.length) return [];
+    const legs = await this.sql<LegRow[]>`
+      SELECT sorter_id, position, space_id, share_bp FROM bank.income_sorter_legs
+       WHERE sorter_id IN ${this.sql(rows.map((row) => row.id))}
+    `;
+    return rows.map((row) => toSorter(row, legs));
+  }
+
+  /** What each sorted credit came to, newest first. Another person's sorter reads as not found. */
+  async runs(userId: string, sorterId: string, limit: number): Promise<SorterRun[]> {
+    await this.own(userId, sorterId);
+    const rows = await this.sql<RunRow[]>`
+      SELECT ${this.sql.unsafe(RUN_COLS)} FROM bank.income_sorter_runs
+       WHERE sorter_id = ${sorterId}::uuid
+       ORDER BY created_at DESC, id
+       LIMIT ${limit}
+    `;
+    return this.withLegs(rows);
+  }
+
+  /**
+   * Sort one posted credit. Called by the send that posted it and by the sweep; both are safe to repeat. Never throws
+   * for a refused split: that split is recorded `rejected` with its code and its share stays in the account.
+   */
+  async sortCredit(credit: IncomingCredit): Promise<SortOutcome> {
+    return withMoneySpan(
+      'bank.sorter.sort',
+      { operation: 'income-sorter', amount: formatAmount(credit.amount), userId: credit.toUserId, assetId: credit.assetId },
+      async () => {
+        if (credit.fromUserId === credit.toUserId) return { status: 'unsorted', reason: 'own_money' };
+        const existing = await this.runForCredit(credit.transferId);
+        if (existing) return { status: 'sorted', run: await this.drive(existing, credit.toUserId) };
+
+        const min = this.minimumCredit();
+        if (min === null) return { status: 'unsorted', reason: 'terms_unset' };
+        if (credit.amount < min) return { status: 'unsorted', reason: 'below_minimum' };
+        const sorters = await this.sql<SorterRow[]>`
+          SELECT ${this.sql.unsafe(SORTER_COLS)} FROM bank.income_sorters
+           WHERE user_id = ${credit.toUserId} AND asset_id = ${credit.assetId} AND status = 'active'
+             AND created_at <= ${credit.postedAt}
+        `;
+        const row = sorters[0];
+        if (!row) return { status: 'unsorted', reason: 'no_sorter' };
+        const legs = await this.sql<LegRow[]>`
+          SELECT sorter_id, position, space_id, share_bp FROM bank.income_sorter_legs WHERE sorter_id = ${row.id}::uuid
+        `;
+        const sorter = toSorter(row, legs);
+
+        const created = await this.sql.begin(async (tx) => {
+          const [run] = await tx<RunRow[]>`
+            INSERT INTO bank.income_sorter_runs (sorter_id, credit_transfer_id, credit_tx_id, credit_amount)
+            VALUES (${sorter.id}::uuid, ${credit.transferId}, ${credit.ledgerTxId}, ${formatAmount(credit.amount)}::numeric)
+            ON CONFLICT (credit_transfer_id) DO NOTHING
+            RETURNING ${tx.unsafe(RUN_COLS)}
+          `;
+          if (!run) return null;
+          for (const [position, leg] of sorter.legs.entries()) {
+            const share = legShare(credit.amount, leg.shareBp);
+            if (share <= 0n) continue;
+            await tx`
+              INSERT INTO bank.income_sorter_run_legs (run_id, position, space_id, amount, status)
+              VALUES (${run.id}::uuid, ${position}, ${leg.spaceId}::uuid, ${formatAmount(share)}::numeric, 'pending')
+            `;
+          }
+          return run;
+        });
+        // Another path made this credit's run first: drive that one, never a second.
+        const run = created ?? (await this.runForCredit(credit.transferId));
+        if (!run) throw new BankError(`No sorter run for ${credit.transferId}`, 'bank.sorter_split_failed');
+        return { status: 'sorted', run: await this.drive(run, credit.toUserId) };
+      },
+    );
+  }
+
+  /**
+   * The sweep: sort posted credits that reached an account with a live sorter but have no run (the send crashed after
+   * its post), then drive every split still pending. Oldest first, `limit` of each.
+   */
+  async sweep(limit: number): Promise<SorterSweepReport> {
+    const report: SorterSweepReport = { creditsSorted: 0, runsDriven: 0, legsStillPending: 0 };
+    const unsorted = await this.sql<
+      Array<{
+        transfer_id: string;
+        from_user_id: string;
+        to_user_id: string;
+        asset_id: string;
+        amount: string;
+        ledger_tx_id: string;
+        posted_at: Date;
+      }>
+    >`
+      SELECT t.transfer_id, t.from_user_id, t.to_user_id, t.asset_id, t.amount::text AS amount, t.ledger_tx_id,
+             COALESCE(t.posted_at, t.created_at) AS posted_at
+        FROM bank.income_sorters s
+        JOIN bank.personal_transfers t
+          ON t.to_user_id = s.user_id AND t.asset_id = s.asset_id AND t.status = 'posted'
+         AND COALESCE(t.posted_at, t.created_at) >= s.created_at
+       WHERE s.status = 'active'
+         AND t.from_user_id <> t.to_user_id
+         AND NOT EXISTS (SELECT 1 FROM bank.income_sorter_runs r WHERE r.credit_transfer_id = t.transfer_id)
+       ORDER BY COALESCE(t.posted_at, t.created_at)
+       LIMIT ${limit}
+    `;
+    for (const row of unsorted) {
+      const outcome = await this.sortCredit({
+        transferId: row.transfer_id,
+        fromUserId: row.from_user_id,
+        toUserId: row.to_user_id,
+        assetId: row.asset_id,
+        amount: parseAmount(row.amount),
+        ledgerTxId: row.ledger_tx_id,
+        postedAt: row.posted_at,
+      });
+      if (outcome.status === 'sorted') report.creditsSorted += 1;
+    }
+    const pending = await this.sql<Array<RunRow & { user_id: string }>>`
+      SELECT r.id, r.sorter_id, r.credit_transfer_id, r.credit_tx_id, r.credit_amount::text AS credit_amount, r.created_at, s.user_id
+        FROM bank.income_sorter_runs r
+        JOIN bank.income_sorters s ON s.id = r.sorter_id
+       WHERE EXISTS (SELECT 1 FROM bank.income_sorter_run_legs l WHERE l.run_id = r.id AND l.status = 'pending')
+       ORDER BY r.created_at
+       LIMIT ${limit}
+    `;
+    for (const row of pending) {
+      const run = await this.drive(row, row.user_id);
+      report.runsDriven += 1;
+      report.legsStillPending += run.legs.filter((leg) => leg.status === 'pending').length;
+    }
+    return report;
+  }
+
+  /** Post every pending split of one run, in order, and answer the run as it now stands. */
+  private async drive(run: RunRow, userId: string): Promise<SorterRun> {
+    const [sorter] = await this.sql<
+      SorterRow[]
+    >`SELECT ${this.sql.unsafe(SORTER_COLS)} FROM bank.income_sorters WHERE id = ${run.sorter_id}::uuid`;
+    const legs = await this.sql<RunLegRow[]>`
+      SELECT ${this.sql.unsafe(RUN_LEG_COLS)} FROM bank.income_sorter_run_legs WHERE run_id = ${run.id}::uuid ORDER BY position
+    `;
+    for (const leg of legs) {
+      if (leg.status !== 'pending') continue;
+      await this.driveLeg(run, sorter!.asset_id, userId, leg);
+    }
+    const [settled] = await this.withLegs([run]);
+    return settled!;
+  }
+
+  /**
+   * One split: an own-space `bankTransfer` from the account into the space. A ledger in `detect` mode answers a reused
+   * key with the original transaction; only this movement settles the split, anything else leaves it pending (unknown
+   * outcome), as does a lost reply. A typed refusal (an empty account, an archived or locked-out space) proves nothing
+   * moved: the split is rejected with its code and its share stays in the account.
+   */
+  private async driveLeg(run: RunRow, assetId: string, userId: string, leg: RunLegRow): Promise<void> {
+    const now = new Date();
+    const amount = parseAmount(leg.amount);
+    try {
+      const primary = await this.spaces.findPrimary(userId, assetId);
+      if (!primary) throw new BankError(`No ${assetId} account to sort from`, 'bank.space_not_found');
+      const from = await this.spaces.resolveForDebit(primary.id, now);
+      const to = await this.spaces.resolveForCredit(leg.space_id, { actingUserId: userId });
+      if (to.userId !== userId || to.kind !== 'named') throw new BankError(`Space ${leg.space_id} not found`, 'bank.space_not_found');
+      if (to.assetId !== assetId) {
+        throw new BankError(`Sorter asset ${assetId} does not match space asset ${to.assetId}`, 'bank.asset_mismatch');
+      }
+      const fromAccount = accountForSpace(from);
+      const toAccount = accountForSpace(to);
+      const tx = await this.ledger.post(
+        recipes.bankTransfer({
+          transferId: sorterTransferId(run.sorter_id, run.credit_tx_id),
+          occurrence: leg.position,
+          from: fromAccount,
+          to: toAccount,
+          amount,
+          kind: 'manual',
+          keySpace: 'own',
+        }),
+      );
+      if (!(await bookedTransferMatches(this.ledger, tx, fromAccount, toAccount, amount))) return;
+      await this.sql`
+        UPDATE bank.income_sorter_run_legs
+           SET status = 'settled', ledger_tx_id = ${tx.id}, rejection_code = NULL, settled_at = ${now}
+         WHERE run_id = ${run.id}::uuid AND position = ${leg.position} AND status = 'pending'
+      `;
+    } catch (err) {
+      if (!isDefiniteLegRefusal(err)) return;
+      await this.sql`
+        UPDATE bank.income_sorter_run_legs
+           SET status = 'rejected', rejection_code = ${legRefusalCode(err)}, settled_at = ${now}
+         WHERE run_id = ${run.id}::uuid AND position = ${leg.position} AND status = 'pending'
+      `;
+    }
+  }
+
+  private async runForCredit(transferId: string): Promise<RunRow | null> {
+    const rows = await this.sql<RunRow[]>`
+      SELECT ${this.sql.unsafe(RUN_COLS)} FROM bank.income_sorter_runs WHERE credit_transfer_id = ${transferId}
+    `;
+    return rows[0] ?? null;
+  }
+
+  private async withLegs(rows: RunRow[]): Promise<SorterRun[]> {
+    if (!rows.length) return [];
+    const legs = await this.sql<RunLegRow[]>`
+      SELECT ${this.sql.unsafe(RUN_LEG_COLS)} FROM bank.income_sorter_run_legs
+       WHERE run_id IN ${this.sql(rows.map((row) => row.id))}
+    `;
+    return rows.map((row) => toRun(row, legs));
+  }
+
+  /** The person's own sorter; another person's reads as not found. */
+  private async own(userId: string, sorterId: string): Promise<IncomeSorter> {
+    const rows = await this.sql<SorterRow[]>`SELECT ${this.sql.unsafe(SORTER_COLS)} FROM bank.income_sorters WHERE id = ${sorterId}::uuid`;
+    const row = rows[0];
+    if (!row || row.user_id !== userId) throw new BankError(`Sorter ${sorterId} not found`, 'bank.sorter_not_found');
+    const legs = await this.sql<LegRow[]>`
+      SELECT sorter_id, position, space_id, share_bp FROM bank.income_sorter_legs WHERE sorter_id = ${sorterId}::uuid
+    `;
+    return toSorter(row, legs);
+  }
+
+  /** One of the person's own live named spaces of `assetId`. The account itself keeps what is not sorted. */
+  private async ownTargetSpace(userId: string, spaceId: string, assetId: string): Promise<void> {
+    const space = await this.spaces.get(spaceId);
+    if (space.userId !== userId) throw new BankError(`Space ${spaceId} not found`, 'bank.space_not_found');
+    if (space.kind !== 'named') {
+      throw new BankError('What is not sorted stays in the account, so the account itself is not a sorter space', 'bank.sorter_invalid');
+    }
+    if (space.archivedAt) throw new BankError(`Space "${space.name}" is archived`, 'bank.space_archived');
+    if (space.assetId !== assetId) {
+      throw new BankError(`Sorter asset ${assetId} does not match space asset ${space.assetId}`, 'bank.asset_mismatch');
+    }
+  }
+}
+
+/** `/internal/jobs/run-income-sorter`: how many credits, and how many runs with a pending split, one pass may take. */
+export const incomeSorterBody = z.object({ limit: z.number().int().min(1).max(1000) }).strict();
