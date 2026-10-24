@@ -1,6 +1,7 @@
 import { AdminSessionError } from './founder-session';
 
-export async function readAdminJson(request: Request): Promise<Record<string, unknown>> {
+/** The founder console's JSON body, at most 16 KiB unless a route that carries documents (a lesson) names a larger cap. */
+export async function readAdminJson(request: Request, maxBytes = 16_384): Promise<Record<string, unknown>> {
   if (request.headers.get('content-type')?.split(';')[0]?.trim() !== 'application/json' || !request.body)
     throw new AdminSessionError('admin.json_required', 400);
   const reader = request.body.getReader();
@@ -11,7 +12,7 @@ export async function readAdminJson(request: Request): Promise<Record<string, un
       const next = await reader.read();
       if (next.done) break;
       size += next.value.length;
-      if (size > 16_384) {
+      if (size > maxBytes) {
         await reader.cancel();
         throw new AdminSessionError('admin.body_too_large', 413);
       }

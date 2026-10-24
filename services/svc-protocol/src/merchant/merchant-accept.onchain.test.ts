@@ -31,6 +31,16 @@ describeOnChain('MerchantAccept on chain (S-A6)', () => {
   let tokenAbi: Abi;
   let acceptAbi: Abi;
 
+  /**
+   * A write counts once it is mined, and mined as a success. `writeContract` returns at submission: reading balances
+   * straight after `pay` could see the merchant before the block and the fee after it (flaky #5728).
+   */
+  async function mined(client: typeof deployer, hash: `0x${string}`) {
+    const receipt = await client.publicClient.waitForTransactionReceipt({ hash });
+    expect(receipt.status).toBe('success');
+    return receipt;
+  }
+
   beforeAll(async () => {
     if (!chainUp && devChainMod.devChainRequired()) {
       throw new Error('REQUIRE_EVM_CHAIN=1 but no RPC at ' + devChainMod.devRpcUrl());
@@ -48,7 +58,7 @@ describeOnChain('MerchantAccept on chain (S-A6)', () => {
       account: deployer.walletClient.account!,
       chain: deployer.walletClient.chain,
     });
-    token = (await deployer.publicClient.waitForTransactionReceipt({ hash: tTx })).contractAddress!;
+    token = (await mined(deployer, tTx)).contractAddress!;
 
     const m = loadArtifact('MerchantAccept');
     acceptAbi = m.abi;
@@ -59,47 +69,58 @@ describeOnChain('MerchantAccept on chain (S-A6)', () => {
       account: deployer.walletClient.account!,
       chain: deployer.walletClient.chain,
     });
-    accept = (await deployer.publicClient.waitForTransactionReceipt({ hash: mTx })).contractAddress!;
+    accept = (await mined(deployer, mTx)).contractAddress!;
 
-    await deployer.walletClient.writeContract({
-      address: token,
-      abi: tokenAbi,
-      functionName: 'mint',
-      args: [payer.deployer, 100n * WAD],
-      account: deployer.walletClient.account!,
-      chain: deployer.walletClient.chain,
-    });
+    await mined(
+      deployer,
+      await deployer.walletClient.writeContract({
+        address: token,
+        abi: tokenAbi,
+        functionName: 'mint',
+        args: [payer.deployer, 100n * WAD],
+        account: deployer.walletClient.account!,
+        chain: deployer.walletClient.chain,
+      }),
+    );
   }, 120_000);
 
   it('splits payment to merchant + merchant-chosen fee recipient', async () => {
     const amount = 10n * WAD;
-    await payer.walletClient.writeContract({
-      address: token,
-      abi: tokenAbi,
-      functionName: 'approve',
-      args: [accept, amount],
-      account: payer.walletClient.account!,
-      chain: payer.walletClient.chain,
-    });
-    await payer.walletClient.writeContract({
-      address: accept,
-      abi: acceptAbi,
-      functionName: 'pay',
-      args: [token, amount, keccak256(toBytes('inv-1'))],
-      account: payer.walletClient.account!,
-      chain: payer.walletClient.chain,
-    });
+    await mined(
+      payer,
+      await payer.walletClient.writeContract({
+        address: token,
+        abi: tokenAbi,
+        functionName: 'approve',
+        args: [accept, amount],
+        account: payer.walletClient.account!,
+        chain: payer.walletClient.chain,
+      }),
+    );
+    const paid = await mined(
+      payer,
+      await payer.walletClient.writeContract({
+        address: accept,
+        abi: acceptAbi,
+        functionName: 'pay',
+        args: [token, amount, keccak256(toBytes('inv-1'))],
+        account: payer.walletClient.account!,
+        chain: payer.walletClient.chain,
+      }),
+    );
     const mBal = (await deployer.publicClient.readContract({
       address: token,
       abi: tokenAbi,
       functionName: 'balanceOf',
       args: [merchant.deployer],
+      blockNumber: paid.blockNumber,
     })) as bigint;
     const fBal = (await deployer.publicClient.readContract({
       address: token,
       abi: tokenAbi,
       functionName: 'balanceOf',
       args: [fee.deployer],
+      blockNumber: paid.blockNumber,
     })) as bigint;
     expect(fBal).toBe(amount / 100n);
     expect(mBal).toBe(amount - amount / 100n);

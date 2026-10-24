@@ -97,7 +97,14 @@ const FORBIDDEN = [
   // lookahead — `(?!CLAUDE\b)…/i` looks correct and is not: under `i` the
   // lookahead matches every casing too, so it excludes everything and the rule
   // silently stops firing. That version was written, tested, and caught here.
-  { pattern: /\b(?:Claude|claude)\b/, reason: 'model provider' },
+  //
+  // `.claude/` is the same kind of name: the config directory the agent tool
+  // requires (already allowlisted below as a path). The gate lists in tooling/ci
+  // and tooling/scripts must name it to gate it. Only that exact form passes: a
+  // dot with no word character or `-` before it, and a `/` after the word.
+  // `providers.claude`, `api.claude.ai`, prose `Claude`, and `claude` anywhere
+  // else stay forbidden, because the scan covers service code too.
+  { pattern: /\bClaude\b|(?<!\.)\bclaude\b|(?<=[\w-]\.)claude\b|\bclaude\b(?!\/)/, reason: 'model provider' },
   { pattern: /\bOpenAI\b/i, reason: 'model provider' },
   { pattern: /\bGPT-\d/i, reason: 'model provider' },
 
@@ -298,6 +305,27 @@ function selfTest() {
   assert(isInternalPastePath('docs/START-HERE.md') === false, 'ordinary docs not paste');
   assert(isInternalPastePath('docs/paste-extra/nope.md') === false, 'paste-extra is not paste-wN');
   assert(isAllowlisted('docs/START-HERE.md') === false, 'ordinary doc not archive');
+
+  // The model name stays forbidden; the required file and directory names do not trip it.
+  {
+    const provider = FORBIDDEN.find((f) => f.reason === 'model provider' && f.pattern.test('Claude'));
+    const hits = (text) => provider.pattern.test(text);
+    assert(
+      hits('Ask Claude anything') && hits('powered by claude') && hits('Claude.') && hits('the claude.ai site'),
+      'model name still forbidden',
+    );
+    for (const t of [
+      'providers.claude',
+      'this.claude.send(x)',
+      'models.claude-3',
+      'https://api.claude.ai/v1',
+      'status.claude.com',
+      '.claude.ai',
+    ])
+      assert(hits(t), `dotted use still forbidden: ${t}`);
+    for (const t of ['see CLAUDE.md', "'.claude/'", '.claude/settings.json', "['.claude/**', 'x']", '`.claude/`', '(.claude/agents)'])
+      assert(!hits(t), `a required name, not copy: ${t}`);
+  }
 
   // D26-P2-14: vendor product surfaces must be discoverable when the tree exists.
   // The old Vue customer site was deleted 2026-10-19; the modules apps/invitation bundles live in

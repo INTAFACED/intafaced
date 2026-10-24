@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { transferQuoteSchema } from '../pay/schemas';
 import { decimalSchema as money, parseAmount, signedDecimalSchema } from '../../shared/money';
 import { spaceSchema } from './client';
 
@@ -376,6 +377,55 @@ export const cashOutRequestSchema = z.object({
   createdAt: z.string(),
 });
 export type CashOutRequest = z.infer<typeof cashOutRequestSchema>;
+/** svc-bank `bank.railSends.*` (J-bank-04 #1): send to a bank account over a bank rail, each rail with its own form. */
+export const BANK_RAILS = ['ach', 'wire', 'instant', 'sepa', 'proxy'] as const;
+export const railRequirementsSchema = z.object({
+  rails: z.array(
+    z.object({
+      rail: z.enum(BANK_RAILS),
+      fields: z.array(z.object({ name: z.string(), required: z.boolean(), choices: z.array(z.string()).nullable() })),
+      // Null while no banking partner carries the rail; the blocker names what is missing.
+      partner: z.string().nullable(),
+      blocker: z.string().nullable(),
+    }),
+  ),
+  // The countries the recipient book takes (J-bank-04 #2), each with the rails its forms come from.
+  countries: z.array(z.object({ country: z.string(), rails: z.array(z.enum(BANK_RAILS)) })),
+});
+export type RailRequirements = z.infer<typeof railRequirementsSchema>;
+export const railSendSchema = z.object({
+  requestId: z.string(),
+  fromSpaceId: z.string(),
+  assetId: z.string(),
+  amount: money,
+  rail: z.enum(BANK_RAILS),
+  recipient: z.string(),
+  status: z.literal('refused'),
+  refusalCode: z.string(),
+  createdAt: z.string(),
+});
+export type RailSend = z.infer<typeof railSendSchema>;
+export const railSendCheckSchema = z.object({ assetId: z.string(), amount: money, available: money });
+/** svc-bank `bank.railSends.payees` (J-bank-04 #2): the recipient book, each with its name check and cooling-off. */
+export const railPayeeSchema = z.object({
+  payeeId: z.string(),
+  nickname: z.string(),
+  country: z.string(),
+  rail: z.enum(BANK_RAILS),
+  recipient: z.string(),
+  verification: z.literal('cannot_check'),
+  verificationRail: z.string(),
+  addedAt: z.string(),
+  cooling: z.object({ state: z.enum(['unset', 'active', 'open']), endsAt: z.string().nullable() }),
+});
+export type RailPayee = z.infer<typeof railPayeeSchema>;
+export const railPayeeRemovedSchema = z.object({ payeeId: z.string(), removed: z.literal(true) });
+export const railPayeeCheckSchema = z.object({
+  nickname: z.string(),
+  country: z.string(),
+  rail: z.enum(BANK_RAILS),
+  recipient: z.string(),
+});
 /** svc-bank `bank.activity.list` lines read for incoming payments (J-bank-02 #7). Unknown fields are dropped. */
 export const incomingLineSchema = z.object({
   id: z.string(),
@@ -403,7 +453,12 @@ export const bankReads = {
   'eligibility.get': eligibilitySchema,
   'linkedAccounts.list': z.object({ accounts: z.array(linkedAccountSchema) }),
   'cashOut.quote': cashOutQuoteSchema,
+  // The same wire shape Pay reads (J-bank-04 #3): one definition of `bank.transfers.quote`.
+  'transfers.quote': transferQuoteSchema,
   'cashOut.requests': z.array(cashOutRequestSchema),
+  'railSends.requirements': railRequirementsSchema,
+  'railSends.list': z.array(railSendSchema),
+  'railSends.payees': z.array(railPayeeSchema),
   'activity.list': z.object({ items: z.array(incomingLineSchema), nextCursor: z.string().nullable() }),
   'spaces.list': z.array(spaceSchema),
   'spaces.unnamed': z.array(z.object({ assetId: z.string(), balance: money })),

@@ -5,7 +5,7 @@ vi.mock('../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../shared/preferences')>();
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
-const answers: { chain: unknown } = { chain: undefined };
+const answers: { chain: unknown; indexer?: unknown } = { chain: undefined };
 vi.mock('../session/session', async (original) => {
   const real = await original<typeof import('../session/session')>();
   const api = { query: () => new Promise(() => undefined), canWrite: () => true };
@@ -14,7 +14,12 @@ vi.mock('../session/session', async (original) => {
 vi.mock('../../shared/resource', () => ({
   // Only the chain status is answered; every other source stays loading, so the rooms show their own checking state.
   useResource: (_load: unknown, key: string) => ({
-    resource: key.endsWith(':chain') && answers.chain ? answers.chain : { status: 'loading' },
+    resource:
+      key.endsWith(':chain') && answers.chain
+        ? answers.chain
+        : key.endsWith(':indexer') && answers.indexer
+          ? answers.indexer
+          : { status: 'loading' },
     reload: () => undefined,
   }),
 }));
@@ -50,6 +55,25 @@ describe('Web3 shell', () => {
     expect(page('/dex')).toContain('Checking network…');
     answers.chain = { status: 'failed', failure: { ok: false, reason: 'unreachable', message: 'x', code: 'edge.upstream_unavailable' } };
     expect(page('/dex')).toContain('Network unreachable · The Protocol service did not answer');
+  });
+  it('lists the Swap blockers in order, chain unreachable first, and says a shared source line once', () => {
+    answers.chain = {
+      status: 'ready',
+      data: { configuredChainId: 84532, reachable: false, observedChainId: null, refusalCode: 'protocol.chain_unreachable' },
+    };
+    answers.indexer = { status: 'failed', failure: { ok: false, reason: 'unreachable', message: 'x', code: 'edge.upstream_unavailable' } };
+    const html = page('/dex');
+    answers.indexer = undefined;
+    const swap = /<li data-action="swap">([\s\S]*?)<\/details>/.exec(html)?.[1] ?? '';
+    expect(swap).toContain('rail.crypto');
+    expect([...swap.matchAll(/<li[^>]*data-blocker="([a-z_]+)"/g)].map((match) => match[1])).toEqual([
+      'chain_unreachable',
+      'source_no_reply',
+      'no_execution_path',
+      'not_audited',
+      'network_label',
+    ]);
+    expect(swap).not.toMatch(/INTACHAIN mainnet/i);
   });
   it('gives a detail route its full layout and names the indexer as the blocker, never a blank', () => {
     answers.chain = chain(84532);

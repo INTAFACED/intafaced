@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   amountProblem,
   askedField,
+  canRecall,
   canonicalCompliance,
   complianceMap,
   compareAmounts,
   destinationsFrom,
+  hasLeft,
   progressOf,
   proofProblem,
   recipientKey,
@@ -111,6 +113,7 @@ describe('refusals', () => {
       'bank.global_bic_format_invalid',
       'bank.global_payout_refused',
       'bank.global_corridor_unknown',
+      'bank.global_amount_outside_corridor',
       'bank.global_travel_rule_incomplete',
       'bank.payee_blocked',
       'bank.exchange_allowance_exceeded',
@@ -121,6 +124,10 @@ describe('refusals', () => {
       'bank.proof_not_requested',
       'bank.proof_already_uploaded',
       'bank.transfer_settled',
+      'bank.global_send_cancelled',
+      'bank.global_send_not_cancellable',
+      'bank.receipt_not_ready',
+      'bank.receipt_signing_unset',
     ];
     for (const code of codes) {
       const words = refusalCopy(code);
@@ -133,7 +140,15 @@ describe('refusals', () => {
 
 describe('tracking and recipients', () => {
   it('counts the steps a send has passed and none for a failed one', () => {
-    expect(['submitted', 'sent', 'on_the_way', 'arrived', 'failed', 'held'].map((s) => progressOf(s as never))).toEqual([0, 1, 2, 3, 0, 0]);
+    expect(['submitted', 'sent', 'on_the_way', 'arrived', 'failed', 'held', 'cancelled'].map((s) => progressOf(s as never))).toEqual([
+      0, 1, 2, 3, 0, 0, 0,
+    ]);
+  });
+  it('gives a receipt for any send that left, and lets only one that has not come back be asked back', () => {
+    const all = ['submitted', 'held', 'sent', 'on_the_way', 'arrived', 'failed', 'cancelled', 'returned', 'refunded'] as const;
+    expect(all.filter(hasLeft)).toEqual(['sent', 'on_the_way', 'arrived', 'returned', 'refunded']);
+    expect(all.filter(canRecall)).toEqual(['sent', 'on_the_way', 'arrived']);
+    expect(progressOf('returned')).toBe(0);
   });
   it('keys a saved recipient by the person, the country and the normalised account', () => {
     expect(recipientKey('u1', 'de', 'de89 3704 0044 0532 0130 00')).toBe('global-recipient:u1:DE:DE89370400440532013000');

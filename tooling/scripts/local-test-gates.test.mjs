@@ -229,7 +229,7 @@ assert.deepEqual(
   ],
   ['ledger.asset_edit', 'svc-ledger', 'USDT', '3', 'local-test:v1'],
 );
-const ownerProfile = JSON.parse(readFileSync(resolve(here, '..', 'profiles', 'test-owner-values.json'), 'utf8'));
+const ownerProfile = JSON.parse(readFileSync(resolve(here, '..', 'profiles', 'test-owner-values', 'ledger.json'), 'utf8'));
 const usdtRow = TEST_ASSET_ROWS.find((row) => row.id === 'USDT');
 assert.equal(String(usdtRow.precision), ownerProfile.values.LEDGER_ASSET_PRECISION_USDT.value);
 assert.notEqual(ownerProfile.values.LEDGER_ASSET_PRECISION_USDT.value.trim(), '');

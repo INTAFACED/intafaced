@@ -16,6 +16,7 @@
  *   node tooling/scripts/local-test-gates.mjs charts     publish the TEST charts owner values (counts; data class two-person approval)
  *   node tooling/scripts/local-test-gates.mjs chart-class <SYMBOL> <dataClass>   one market's data class (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs risk <SYMBOL> collar=0.1|unset throttle=20|unset   change one market's limits
+ *   node tooling/scripts/local-test-gates.mjs p2p        register the TEST P2P payment method (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs status     read-only: what is open, who is verified
  *
  * What this stands in for, and nothing else:
@@ -27,6 +28,9 @@
  *   6. the operator who halts and resumes one market (a journey step: new orders refused, cancels still work).
  *   7. the owner who lists the TEST perpetual and publishes the derivatives risk agreement, margin terms and quiz
  *      (every futures order refuses while none are published).
+ *   8. the two operators who register what a P2P payment method needs in a market (svc-p2p ships its method registry
+ *      empty and refuses every payment method, and so every P2P ad, while it is). It runs after 3, because svc-p2p
+ *      refuses an operator who has no verified tier.
  * Every record it writes is labelled "LOCAL TEST — not a real approval" and carries one of the markers
  * below, so a production check can recognise and refuse them (see MARKERS).
  *
@@ -563,6 +567,10 @@ async function signInPair(ctx, ops, saveSteps) {
       async crmToken() {
         return mintOperatorToken(ctx, op, ['ops:read', 'ops:write']);
       },
+      /** Same session with the support desk staff scope svc-support checks (help-centre settings, article publishing). */
+      async supportOpsToken() {
+        return mintOperatorToken(ctx, op, ['support:read', 'support:write', 'support:ops']);
+      },
     };
   }
   return sessions;
@@ -900,6 +908,25 @@ export async function publishAssetRegistry(ctx) {
  * there; the other limits on the row are kept as they are.
  */
 export const TEST_RISK_LIMITS = { collar: '0.1', throttle: '20' };
+/**
+ * LOCAL TEST open-interest limits on the TEST perpetual (D-margin-05), not owner values: 1000 BTC of open interest and
+ * half of it per account, far above what the journeys and the TEST market maker hold, so only a journey step that
+ * lowers them meets them. Spot markets carry the fields and never read them.
+ */
+export const TEST_FUTURES_OI_LIMITS = { oiLimit: '1000', oiShareBps: '5000' };
+/** Every field of a market's operator limits row, in the order `admin.risk.get` answers them. */
+export const RISK_LIMIT_FIELDS = [
+  'collar',
+  'fatFinger',
+  'slippageCap',
+  'throttle',
+  'circuitBreaker',
+  'oiLimit',
+  'oiShareBps',
+  'priceRangeMax',
+  'priceRangeTrigger',
+  'priceRangeCadenceSeconds',
+];
 export const RISK_SET_ACTION = 'trade.risk_set';
 
 /** Keys sorted, no spaces, null for an unset value: the form svc-trade hashes (services/svc-trade/src/admin/common.ts). */
@@ -939,7 +966,7 @@ export async function setPairRisk(ctx, symbol, changes, sessions = null) {
   const pair = sessions ?? (await approverSessions(ctx));
   const current = data(await ctx.edge.query('trade', 'admin.risk.get', { market: market.id }, await pair.a.tradeOpsToken()));
   if (!current?.version) throw new Error(`trade admin.risk.get for ${symbol} gave no version`);
-  const fields = ['collar', 'fatFinger', 'slippageCap', 'throttle', 'circuitBreaker'];
+  const fields = RISK_LIMIT_FIELDS;
   const limits = Object.fromEntries(fields.map((f) => [f, f in changes ? changes[f] : (current[f] ?? null)]));
   if (fields.every((f) => limits[f] === (current[f] ?? null)))
     return { symbol, marketId: market.id, version: current.version, changed: false, limits };
@@ -955,7 +982,7 @@ export async function setPairRisk(ctx, symbol, changes, sessions = null) {
   const row = data(res);
   if (!row?.version) throw new Error(`trade admin.risk.set for ${symbol} refused (${res.status}): ${refusalText(res)}`);
   ctx.log(
-    `pair limits ${symbol}: version ${row.version}, band ${row.collar ?? 'not set'}, cap ${row.throttle ?? 'not set'} (${MARKERS.label}); approval ${ids.approvalId}`,
+    `pair limits ${symbol}: version ${row.version}, band ${row.collar ?? 'not set'}, cap ${row.throttle ?? 'not set'}${row.oiLimit != null || row.oiShareBps != null ? `, open interest ${row.oiLimit ?? 'not set'} at ${row.oiShareBps ?? 'not set'} bps per account` : ''}${row.priceRangeMax != null ? `, price range up to ${row.priceRangeMax} past ${row.priceRangeTrigger ?? 'not set'} every ${row.priceRangeCadenceSeconds ?? 'not set'}s` : ''} (${MARKERS.label}); approval ${ids.approvalId}`,
   );
   return { symbol, marketId: market.id, version: row.version, changed: true, limits };
 }
@@ -966,7 +993,79 @@ export async function publishPairRisk(ctx) {
   if (markets.length === 0) return [];
   const sessions = await approverSessions(ctx);
   const out = [];
-  for (const m of markets) out.push(await setPairRisk(ctx, m.symbol, TEST_RISK_LIMITS, sessions));
+  for (const m of markets)
+    out.push(await setPairRisk(ctx, m.symbol, m.swap ? { ...TEST_RISK_LIMITS, ...TEST_FUTURES_OI_LIMITS } : TEST_RISK_LIMITS, sessions));
+  return out;
+}
+
+// ── 2d'. TEST P2P payment method (two-person approval) ─────────────────────
+
+/**
+ * LOCAL TEST payment method for P2P: what a payer needs to send a TEST bank transfer in Germany. Not researched rail
+ * requirements: svc-p2p ships its method registry empty, and an operator registers what a market really needs.
+ */
+export const TEST_P2P_METHODS = [
+  {
+    methodId: 'test-bank-transfer',
+    country: 'DE',
+    label: 'TEST bank transfer',
+    fields: [
+      // In the order svc-p2p normalises a field to (key, label, required, pattern, minLength, maxLength, sensitive):
+      // the approval hash covers the normalised fields, so any other order is a different action.
+      { key: 'account_holder', label: 'Account holder', required: true, minLength: 2, maxLength: 120 },
+      { key: 'iban', label: 'IBAN', required: true, pattern: '^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$', sensitive: true },
+    ],
+  },
+];
+export const P2P_METHOD_REGISTER_ACTION = 'p2p.method_register';
+
+/** The hash svc-p2p recomputes when it consumes a p2p.method_register approval (p2pActionPayloadHash, fixed key order). */
+export function p2pMethodRegisterHash(method) {
+  const payload = JSON.stringify({
+    actionType: P2P_METHOD_REGISTER_ACTION,
+    methodId: method.methodId,
+    country: method.country,
+    label: method.label,
+    fields: JSON.stringify(method.fields),
+    enabled: 'preserve-or-default',
+  });
+  return `sha256:${crypto.createHash('sha256').update(payload).digest('hex')}`;
+}
+
+/** Register each TEST method once, through svc-p2p's own operator door with a second founder's approval. */
+export async function publishP2pMethods(ctx) {
+  const pair = await approverSessions(ctx);
+  const out = [];
+  for (const method of TEST_P2P_METHODS) {
+    // A market with no registered method refuses the read (p2p.instrument_method_unknown) rather than answer empty.
+    const read = await ctx.edge.query(
+      'p2p',
+      'instruments.methods.list',
+      { country: method.country, methodId: method.methodId, limit: 1 },
+      pair.a.token,
+    );
+    const listed = data(read);
+    if (!Array.isArray(listed) && !read.text.includes('p2p.instrument_method_unknown'))
+      throw new Error(`p2p instruments.methods.list for ${method.methodId} refused (${read.status}): ${refusalText(read)}`);
+    if (listed?.length > 0) {
+      out.push({ methodId: method.methodId, country: method.country, changed: false });
+      continue;
+    }
+    const ids = await twoPerson(ctx, pair, {
+      actionType: P2P_METHOD_REGISTER_ACTION,
+      targetService: 'svc-p2p',
+      targetId: P2P_METHOD_REGISTER_ACTION,
+      expectedVersion: '1',
+      payloadHash: p2pMethodRegisterHash(method),
+      policyVersion: MARKERS.policyVersion,
+    });
+    assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
+    const res = await ctx.edge.mutate('p2p', 'instruments.methods.register', { ...method, ...ids }, await pair.a.complianceToken());
+    const row = data(res);
+    if (!row?.methodId) throw new Error(`p2p instruments.methods.register ${method.methodId} refused (${res.status}): ${refusalText(res)}`);
+    out.push({ methodId: method.methodId, country: method.country, changed: true, approvalId: ids.approvalId });
+    ctx.log(`p2p method ${method.methodId} ${method.country} registered (${MARKERS.label}); approval ${ids.approvalId}`);
+  }
   return out;
 }
 
@@ -1428,6 +1527,13 @@ async function main() {
       for (const a of v.approved) say(`  verify    ${a.handle} ${a.tier}: ${a.ok ? 'approved' : a.why}`);
       if (v.stillWithoutFull.length)
         say(`  still without a verified tier (they must submit the request themselves): ${v.stillWithoutFull.join(', ')}`);
+      // After verify: svc-p2p refuses an operator without a verified tier, and a fresh stack's founders have none
+      // before it (every journeys shard stopped here in run 231).
+      for (const r of await publishP2pMethods(ctx))
+        say(`  p2p       ${r.methodId} ${r.country} ${r.changed ? 'registered' : 'already registered'}`);
+    } else if (cmd === 'p2p') {
+      for (const r of await publishP2pMethods(ctx))
+        say(`  p2p       ${r.methodId} ${r.country} ${r.changed ? 'registered' : 'already registered'}`);
     } else if (cmd === 'assets') {
       for (const r of await publishAssetRegistry(ctx)) say(`  asset     ${r.assetId.padEnd(10)} ${r.status} (revision ${r.revision})`);
     } else if (cmd === 'halt' || cmd === 'resume') {
@@ -1456,12 +1562,15 @@ async function main() {
       // risk <SYMBOL> <field>=<value|unset> ...: a journey step's own change to one market's limits.
       const symbol = process.argv[3];
       const pairs = process.argv.slice(4);
-      if (!symbol || pairs.length === 0) die('usage: local-test-gates.mjs risk <SYMBOL> collar=0.1|unset throttle=20|unset ...', 2);
+      if (!symbol || pairs.length === 0)
+        die(
+          'usage: local-test-gates.mjs risk <SYMBOL> collar=0.1|unset throttle=20|unset oiLimit=1000|unset priceRangeMax=0.2|unset ...',
+          2,
+        );
       const changes = {};
       for (const p of pairs) {
         const [k, v] = p.split('=');
-        if (!['collar', 'fatFinger', 'slippageCap', 'throttle', 'circuitBreaker'].includes(k) || v === undefined)
-          die(`not a limit: ${p}`, 2);
+        if (!RISK_LIMIT_FIELDS.includes(k) || v === undefined) die(`not a limit: ${p}`, 2);
         changes[k] = v === 'unset' ? null : v;
       }
       const r = await setPairRisk(ctx, symbol, changes);
@@ -1470,7 +1579,7 @@ async function main() {
       say(JSON.stringify(await status(ctx), null, 2));
     } else {
       die(
-        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | verify | halt <SYMBOL> | resume <SYMBOL> | status',
+        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | p2p | verify | halt <SYMBOL> | resume <SYMBOL> | status',
         2,
       );
     }

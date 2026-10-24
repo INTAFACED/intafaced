@@ -63,10 +63,16 @@ export function ContactSupport({ context = 'general' }: { context?: 'general' | 
           <strong>{copy.t('addressNotSet')}</strong> {copy.t('addressNotSetNote')}
         </p>
       )}
-      {contact.phone && (
+      {contact.phone ? (
         <p className="contact-card__small" data-testid="support-phone">
           {copy.t('phoneLabel')} <span lang="zxx">{contact.phone}</span>
         </p>
+      ) : (
+        contact.status === 'ready' && (
+          <p className="contact-card__small" data-testid="support-phone-unset">
+            {copy.t('phoneNotSet')}
+          </p>
+        )
       )}
       {contact.chatHours && (
         <p className="contact-card__small" data-testid="support-hours">

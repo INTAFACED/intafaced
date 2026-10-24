@@ -9,7 +9,7 @@ const value = (name: string): string => profile.values[name]!.value;
 
 describe('the TEST owner profile for svc-bank holds', () => {
   it('is read as published by the service’s own parsers, so a journey does not meet the unset refusals', () => {
-    expect(parsePayeeControls(value('BANK_PAYEE_CONTROLS_JSON'))?.blocked.has('TEST-BLOCKED-ACCOUNT')).toBe(true);
+    expect(parsePayeeControls(value('BANK_PAYEE_CONTROLS_JSON'))?.blocked.has('999000000001')).toBe(true);
     const allowance = parseExchangeAllowance(value('BANK_EXCHANGE_ALLOWANCE_JSON'));
     expect(allowance?.accounts.has('TEST-EXCHANGE-ACCOUNT')).toBe(true);
     expect(allowance?.limits.get('USDT')).toBe('1000');

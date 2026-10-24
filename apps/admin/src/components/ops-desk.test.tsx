@@ -11,7 +11,7 @@ import {
   DisputeActions,
   ListingActions,
 } from './ops-actions';
-import { DESKS, allReads } from '@/lib/ops-desk/catalog';
+import { DESKS, academySectionDesk, allReads } from '@/lib/ops-desk/catalog';
 import { readData } from '@/lib/ops-desk/model';
 import type { DeskView, OpsDeskId, ReadOutcome, Row } from '@/lib/ops-desk/types';
 
@@ -158,10 +158,14 @@ describe('p2p desk', () => {
 });
 
 describe('academy and more desks', () => {
-  it('academy names the two things it cannot audit', () => {
+  it('academy reads its grants and enrolments, and links each section to a page of its own', () => {
     const html = render(props('academy', view('academy', [])));
-    expect(html).toContain('Not available: Enrolments, lesson completions and completion rate');
-    expect(html).toContain('Not available: Certificate grant audit');
+    expect(html).not.toContain('Not available:');
+    expect(html).toContain('Certificate grants');
+    expect(html).toContain('href="/academy-ops/grants"');
+    const page = render({ ...props('academy', view('academy', [])), spec: academySectionDesk('grants') });
+    expect(page).toContain('aria-current="page"');
+    expect(page).not.toContain('Ambassadors and residencies');
   });
   it('more names mining, launch and campaigns as not available, and Predict as waiting on a decision', () => {
     const html = render(props('more', view('more', [])));
@@ -283,7 +287,7 @@ describe('Export CSV on every list read', () => {
                         ? [{ assetId: 'USDC', amount: '1' }]
                         : 'x';
         }
-        const raw = spec.rowsKey ? { [spec.rowsKey]: [sample] } : [sample];
+        const raw = spec.rowsKey ? { [spec.rowsKey]: [sample], ...(spec.cursorKey ? { [spec.cursorKey]: null } : {}) } : [sample];
         const html = render(props(id, view(id, [okOutcome(id, spec.id, raw)])));
         expect(html, spec.id).toContain('Export CSV (1 row shown)');
       }

@@ -338,7 +338,13 @@ function instrumentService() {
       rows.set(key, row);
       return { ...row };
     },
-    async setMethodSchemaEnabled(methodId, country, enabled) {
+    async setMethodSchemaEnabled(methodId, country, enabled, reason) {
+      // As svc-p2p: switching a method off needs a retirement reason.
+      if (!enabled && !reason) {
+        const err = new Error('Retiring a payment method needs a reason');
+        err.code = 'p2p.delist_reason_required';
+        throw err;
+      }
       const row = rows.get(keyOf(methodId, country));
       if (!row) {
         const err = new Error(`No schema for "${methodId}" in ${country}`);

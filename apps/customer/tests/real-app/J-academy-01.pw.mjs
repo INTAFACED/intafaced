@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { EDGE, ORIGIN } from './stack.mjs';
+import { EDGE, ORIGIN, tool } from './stack.mjs';
 
 // J-academy-01, in the running app (docs/roadmap/journeys.json): look around the Academy and open a lesson before I
 // have an account. Tests titled "J-academy-01 #<n>" prove a whole step. Every step runs signed out, in a fresh browser
@@ -111,12 +111,33 @@ test(`${J} #6 a lesson opens in the reader by its address, with related items; a
   }
 });
 
+/**
+ * Academy restarted with its video storage off (blank settings) or back on the stack's TEST video store. The stack
+ * serves video by default (J-academy-03 #4 plays one), so this step sets up its own "not configured" first.
+ */
+function academyVideoStorage(on) {
+  const before = process.env.LOCAL_STACK_ACADEMY_VIDEO_STORAGE;
+  if (on) delete process.env.LOCAL_STACK_ACADEMY_VIDEO_STORAGE;
+  else process.env.LOCAL_STACK_ACADEMY_VIDEO_STORAGE = 'off';
+  try {
+    tool('local-test-stack.mjs', 'restart', 'academy');
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_ACADEMY_VIDEO_STORAGE;
+    else process.env.LOCAL_STACK_ACADEMY_VIDEO_STORAGE = before;
+  }
+}
+
 test(`${J} #7 Videos keeps its full layout and says video storage is not configured`, async ({ page }) => {
-  await page.goto('/academy/videos');
-  await expect(page.getByRole('heading', { name: 'Video library', level: 2 })).toBeVisible();
-  await expect(page.getByText('Video storage is not configured, so recordings cannot be listed or played.')).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Playback', level: 2 })).toBeVisible();
-  await expect(page.getByText('This can’t be done right now')).toHaveCount(0);
+  academyVideoStorage(false);
+  try {
+    await page.goto('/academy/videos');
+    await expect(page.getByRole('heading', { name: 'Video library', level: 2 })).toBeVisible();
+    await expect(page.getByText('Video storage is not configured, so recordings cannot be listed or played.')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Playback', level: 2 })).toBeVisible();
+    await expect(page.getByText('This can’t be done right now')).toHaveCount(0);
+  } finally {
+    academyVideoStorage(true);
+  }
 });
 
 test(`${J} #5 a course card opens the public course page: summary, outcomes, syllabus, instructor and Enrol; an unknown course is not found`, async ({
