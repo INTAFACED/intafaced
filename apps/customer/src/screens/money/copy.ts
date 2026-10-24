@@ -58,6 +58,8 @@ const messages = {
   'Group by': 'Group by',
   Kind: 'Kind',
   Place: 'Place',
+  'No rate for display currency': 'No exchange rate is set for {currency}, so your values are shown in USD.',
+  'Display currency not checked': 'We couldn’t check {currency} right now, so your values are shown in USD.',
   'Dollar coins': 'Dollar coins',
   'Other crypto': 'Other crypto',
   Commodities: 'Commodities',

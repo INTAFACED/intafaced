@@ -202,9 +202,9 @@ describe('display unit and account scope (PF-overview-03)', () => {
 
   it("keeps the bank's BTC total verbatim, with the reason when there is no BTC price", () => {
     const withBtc = fromServer(summary({ btc: { total: '0.18406493', priceUsd: '67812.40', reason: null } }));
-    expect(withBtc.btc).toEqual({ total: '0.18406493', reason: null });
+    expect(withBtc.btc).toEqual({ total: '0.18406493', priceUsd: '67812.40', reason: null });
     const noPrice = fromServer(summary({ btc: { total: null, priceUsd: null, reason: 'no_price_published' } }));
-    expect(noPrice.btc).toEqual({ total: null, reason: 'no_price_published' });
+    expect(noPrice.btc).toEqual({ total: null, priceUsd: null, reason: 'no_price_published' });
     expect(fromServer(summary()).btc).toBeNull();
   });
 });

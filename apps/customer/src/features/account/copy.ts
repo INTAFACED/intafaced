@@ -164,7 +164,8 @@ const messages = {
   'view.money': 'Money',
   'view.hide.balance.values': 'Hide balance values',
   'view.display.currency': 'Display currency',
-  'view.display.currency.hint': 'Home and Money show your total in this unit. With no BTC price, the total stays in dollars and says so.',
+  'view.display.currency.hint':
+    'Home and Money show your values in this unit. With no BTC price, or no exchange rate for the currency, they stay in dollars and say so.',
   'view.a.converted.total.requires.a.complete.valuation': 'Totals are shown in this currency when every coin you hold has a price.',
   'view.hiding.small.balances.requires.a.valuation.threshold':
     'Hiding small balances requires a valuation threshold. That isn’t available.',

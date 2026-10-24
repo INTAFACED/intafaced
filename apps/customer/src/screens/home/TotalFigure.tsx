@@ -1,5 +1,6 @@
 import { homeCopy } from './copy';
-import { HeroNumber, dec, roundScaled, toFixedString, type HomePortfolio } from './deps';
+import type { UiDisplayCurrency } from '@intafaced/contracts/ui-view-preferences';
+import { HeroNumber, dec, roundScaled, toFixedString, refusalCopy, useDisplayRate, type HomePortfolio } from './deps';
 
 /** A decimal rounded half-up to `places`, as the string HeroNumber animates. Unknown stays null. */
 function rounded(value: string | null, places: number): string | null {
@@ -14,10 +15,10 @@ function dollars(value: string | null): string {
 }
 
 /**
- * Home's total in the display unit the person chose (USD or BTC). The BTC figure is the bank's own (`btc.total`), never
+ * Home's total in the display unit the person chose (USD or BTC; any other currency has no rate and stays in USD). The BTC figure is the bank's own (`btc.total`), never
  * the dollar total divided here; with no BTC price the dollar total stays and a note says why. Same rule as Money's headline.
  */
-export function totalUnit(data: HomePortfolio, displayCurrency: 'USD' | 'BTC') {
+export function totalUnit(data: HomePortfolio, displayCurrency: UiDisplayCurrency) {
   const inBtc = displayCurrency === 'BTC' && data.btc != null && data.btc.total !== null;
   // No BTC total for any reason (no BTC price, or the bank did not answer and the total was built on this device): dollars, said so.
   const btcMissing = displayCurrency === 'BTC' && !inBtc;
@@ -31,7 +32,7 @@ export function TotalFigure({
   pro,
 }: {
   data: HomePortfolio;
-  displayCurrency: 'USD' | 'BTC';
+  displayCurrency: UiDisplayCurrency;
   hidden: boolean;
   pro: boolean;
 }) {
@@ -44,7 +45,8 @@ export function TotalFigure({
   );
 }
 
-/** The line under the total when it is shown in BTC, or when BTC was chosen and has no price. */
+/** The line under the total when it is shown in BTC, when BTC was chosen and has no price, or when the bank has no rate for the
+ * chosen currency (it refuses by name and the total stays in USD). */
 export function TotalUnitNote({
   data,
   displayCurrency,
@@ -52,12 +54,14 @@ export function TotalUnitNote({
   className,
 }: {
   data: HomePortfolio;
-  displayCurrency: 'USD' | 'BTC';
+  displayCurrency: UiDisplayCurrency;
   hidden: boolean;
   className: string;
 }) {
   const { t } = homeCopy.useCopy();
   const { inBtc, btcMissing } = totalUnit(data, displayCurrency);
+  // Only a currency other than USD or BTC asks the bank for a rate.
+  if (displayCurrency !== 'USD' && displayCurrency !== 'BTC') return <RateNote currency={displayCurrency} className={className} />;
   if (inBtc)
     return (
       <p className={className} data-total-unit="BTC">
@@ -69,6 +73,28 @@ export function TotalUnitNote({
     return (
       <p className={className} data-total-unit="USD">
         {t('BTC price missing')}
+      </p>
+    );
+  return null;
+}
+
+/** The total stays in USD for a currency the bank was asked about: no rate (refused by name), or it could not be asked. */
+function RateNote({ currency, className }: { currency: UiDisplayCurrency; className: string }) {
+  const { t } = homeCopy.useCopy();
+  const rate = useDisplayRate(currency);
+  if (rate.state === 'no_rate') {
+    const reference = refusalCopy(rate.code).reference;
+    return (
+      <p className={className} data-total-unit="USD" data-refusal={rate.code}>
+        {t('No rate for display currency', { currency })}
+        {reference ? ` ${reference}` : null}
+      </p>
+    );
+  }
+  if (rate.state === 'unchecked')
+    return (
+      <p className={className} data-total-unit="USD">
+        {t('Display currency not checked', { currency })}
       </p>
     );
   return null;

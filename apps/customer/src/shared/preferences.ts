@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import { z } from 'zod';
-import { UI_ACTIVE_PROFILE_PATTERN } from '@intafaced/contracts/ui-view-preferences';
+import { UI_ACTIVE_PROFILE_PATTERN, UI_DISPLAY_CURRENCIES } from '@intafaced/contracts/ui-view-preferences';
 import { canonicalUiLocale } from './locale';
 
 const fields = z.object({
@@ -15,7 +15,7 @@ const fields = z.object({
       return z.NEVER;
     }),
   hideBalances: z.boolean().default(false),
-  displayCurrency: z.enum(['USD', 'BTC']).default('USD'),
+  displayCurrency: z.enum(UI_DISPLAY_CURRENCIES).default('USD'),
   phoneChart: z.enum(['top', 'bottom', 'hidden']).default('top'),
   upColor: z.enum(['green', 'red']).default('green'),
   /** Which clock times are shown in. Until the person picks one (`timeZoneChosen`) it is the browser's own zone. */
