@@ -67,7 +67,9 @@ async function fillAd(page, terms) {
   await form.getByLabel('Minimum per order').fill(AD.min);
   await form.getByLabel('Maximum per order').fill(AD.max);
   await form.getByLabel('Total quantity (optional)').fill(AD.total);
-  await form.getByLabel('TEST bank transfer', { exact: false }).first().check();
+  // Exactly the stack's TEST bank transfer the advertiser holds an account for: the TEST content also registers
+  // "TEST bank transfer (local test, not a real rail)", which this advertiser has no details for.
+  await form.getByLabel('TEST bank transfer', { exact: true }).check();
   await form.getByLabel('Terms (optional)').fill(terms);
   return form;
 }
