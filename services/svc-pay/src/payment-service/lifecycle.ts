@@ -501,7 +501,8 @@ export async function capture(
           refuseUnusableRail(adapter, svc.now());
           const railRef = row.rail_ref;
 
-          const result = await withRailSpan(adapter.id, 'capture', async () => adapter.capture(railRef));
+          // The whole authorization, named: a chain address can receive more after authorize, and the rail books what it authorized.
+          const result = await withRailSpan(adapter.id, 'capture', async () => adapter.capture(railRef, { authorized }));
           await appendEvent(tx, row.id, 'rail.capture', railPayload(result));
 
           if (!result.ok) {

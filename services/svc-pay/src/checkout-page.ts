@@ -33,7 +33,7 @@
 
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { checkoutButtonTextColor } from '@intafaced/contracts';
-import { parseAmount } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { formatMoney } from '@intafaced/i18n';
 import { PAYER_COPY_KEYS, payerTranslator, resolvePayerCopy } from './payer-copy.js';
 
@@ -65,6 +65,7 @@ export type CheckoutSessionPageView = {
   method: string;
   expiresAt: string;
   instruction: { reference: string; amount: string; currency: string } | null;
+  progress?: { received: string; missing: string; confirming?: string } | null;
   confirmationMessage?: string | null;
   confirmationUrl?: string | null;
 };
@@ -343,6 +344,47 @@ export function brandLook(look: CheckoutPageLook | null): { style: string; logo:
   return { style, logo };
 }
 
+/**
+ * Paid in part (J-merchant-04 step 5): what arrived, what is missing, and what to send to the same reference. An amount
+ * already on its way (sent, not yet final) is not asked for again. Nothing reaches the business until it is all in.
+ */
+function partReceived(
+  session: CheckoutSessionPageView,
+  progress: NonNullable<CheckoutSessionPageView['progress']>,
+  reference: string,
+  amountLine: string,
+  closed: boolean,
+): string {
+  const ccy = escapeHtml(session.currency);
+  const money = (amount: string) => `${escapeHtml(displayAmount(amount))} ${ccy}`;
+  const confirming = parseAmount(progress.confirming ?? '0');
+  const toSend = parseAmount(progress.missing) - confirming;
+  const onItsWay =
+    confirming > 0n ? `<p class="hint">${money(formatAmount(confirming))} is on its way and waiting for confirmations.</p>` : '';
+  const next =
+    toSend > 0n
+      ? `<p class="label">Send the missing ${money(formatAmount(toSend))} to the same reference</p>
+      <p class="reference"><code>${escapeHtml(reference)}</code></p>`
+      : `<p class="label">Nothing more to send</p>`;
+  const closedNote = closed
+    ? `<p class="hint">This checkout window has closed, but the payment has not: what you send to this reference still reaches the merchant.</p>`
+    : '';
+  return `
+    <header class="head">
+      <p class="eyebrow">Part received</p>
+      <h1>${escapeHtml(session.label)}</h1>
+    </header>
+    <section class="card" aria-label="Payment instruction">
+      ${amountLine}
+      <p class="cta" role="status">${money(progress.received)} of ${money(session.amount)} received, ${money(progress.missing)} missing</p>
+      ${onItsWay}
+      ${next}
+      ${closedNote}
+      <p class="hint">The business is paid once the full amount has arrived and is confirmed.${closed ? '' : ' This page refreshes on its own.'}</p>
+    </section>
+  `;
+}
+
 function sessionBody(session: CheckoutSessionPageView): string {
   const amountLine = `<p class="amount"><span class="num">${escapeHtml(displayAmount(session.amount))}</span> <span class="ccy">${escapeHtml(
     session.currency,
@@ -368,6 +410,12 @@ function sessionBody(session: CheckoutSessionPageView): string {
         ${next}
       </section>
     `;
+  }
+
+  if (session.status === 'expired' && session.progress && session.instruction) {
+    // Closed over a payment paid in part: the payment does not close with the window, so the payer still reads what
+    // arrived and where the rest goes. "Nothing has been charged" would be false here.
+    return partReceived(session, session.progress, session.instruction.reference, amountLine, true);
   }
 
   if (session.status === 'expired' || session.status === 'cancelled') {
@@ -403,6 +451,8 @@ function sessionBody(session: CheckoutSessionPageView): string {
       </section>
     `;
   }
+
+  if (session.progress) return partReceived(session, session.progress, session.instruction.reference, amountLine, false);
 
   return `
     <header class="head">

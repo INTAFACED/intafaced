@@ -436,7 +436,7 @@ export interface RailEvent {
  *   id: string;
  *   capabilities: RailCapability[];
  *   authorize(p: PaymentIntent): Promise<RailResult>;
- *   capture(ref: string): Promise<RailResult>;
+ *   capture(ref: string, opts?: RailCaptureOptions): Promise<RailResult>;
  *   refund(ref: string, amount: Amount, opts?: RailRefundOptions): Promise<RailResult>;
  *   payout(s: SettlementInstruction): Promise<RailResult>;
  *   verifyWebhook(req): RailEvent | null;
@@ -455,11 +455,23 @@ export interface RailEvent {
  * `capturePartial`, below, and it is optional: a rail declares `capture.partial`
  * or the core refuses to ask it, by name.
  *
+ * `capture` optional `authorized` (J-merchant-04 step 5) is not a partial
+ * capture: it is the whole authorization, named, for a rail whose reference
+ * can keep receiving value after authorize (a chain acceptance address paid in
+ * parts). Such a rail books exactly what it authorized, so a later transfer to
+ * the address (anyone can send dust to a public address) cannot make every
+ * capture disagree with the authorization. Other rails ignore it.
+ *
  * `refund` optional `refundId` (M226-02): irreversible chain refunds must key
  * the outbound broadcast on the core's durable refund id, not a process-local
  * counter. Sandbox rails may ignore it.
  */
 /** Optional third argument to `RailAdapter.refund` (backward compatible). */
+export interface RailCaptureOptions {
+  /** The amount the core holds as authorized for this reference: the whole authorization, never less. */
+  readonly authorized?: Amount;
+}
+
 export interface RailRefundOptions {
   /**
    * Durable business key from the payment core (ledger / payment_events).
@@ -859,7 +871,7 @@ export interface RailAdapter {
   probe?(): Promise<RailProbeResult>;
 
   authorize(p: PaymentIntent): Promise<RailResult>;
-  capture(ref: string): Promise<RailResult>;
+  capture(ref: string, opts?: RailCaptureOptions): Promise<RailResult>;
   refund(ref: string, amount: Amount, opts?: RailRefundOptions): Promise<RailResult>;
   payout(s: SettlementInstruction): Promise<RailResult>;
 

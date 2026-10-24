@@ -158,15 +158,93 @@ describe('crypto-native — finality is the whole rail', () => {
     expect(result.failureCode).toBe('chain.insufficient_confirmations');
   });
 
-  it('fails an underpayment without pretending the funds are gone', async () => {
+  it('keeps an underpayment pending, with where the money is and what is missing', async () => {
     const address = await localChain.acceptanceAddress('p-fin-1', 'USDT');
     localChain.credit({ address, assetId: 'USDT', amount: amt('60'), from: '0xbuyer', confirmations: 12 });
 
     const result = await adapter.authorize(intent());
-    expect(result.ok).toBe(false);
-    expect(result.failureCode).toBe('chain.underpaid');
+    // Not failed: the payer may send the rest, and failing the payment would leave that second transfer pointing at nothing.
+    expect(result.ok).toBe(true);
+    expect(result.status).toBe('pending');
+    expect(formatAmount(result.amount)).toBe('60');
     // Where the money is, and who to send it back to — in the result, not in a log.
-    expect(result.raw).toMatchObject({ address, from: '0xbuyer' });
+    expect(result.raw).toMatchObject({ address, received: '60', missing: '40', transfers: [{ from: '0xbuyer', amount: '60' }] });
+  });
+
+  it('authorizes and captures once two final transfers add up, booking both (M-payments-core-04b)', async () => {
+    const address = await localChain.acceptanceAddress('p-fin-1', 'USDT');
+    localChain.creditAnother({ address, assetId: 'USDT', amount: amt('60'), from: '0xbuyer', confirmations: 12, txHash: '0x60' });
+    expect((await adapter.authorize(intent())).status).toBe('pending');
+
+    // The rest arrives, but shallow: it counts for nothing yet.
+    localChain.creditAnother({ address, assetId: 'USDT', amount: amt('40'), from: '0xbuyer', confirmations: 2, txHash: '0x40' });
+    const shallow = await adapter.authorize(intent());
+    expect(shallow.status).toBe('pending');
+    // On its way, so the page does not ask for it again.
+    expect(shallow.raw).toMatchObject({ received: '60', missing: '40', confirming: '40' });
+
+    localChain.setConfirmations(address, 6, '0x40');
+    const auth = await adapter.authorize(intent());
+    expect(auth.status).toBe('authorized');
+    expect(formatAmount(auth.amount)).toBe('100');
+    expect(auth.raw).toMatchObject({ txHashes: ['0x60', '0x40'], from: '0xbuyer' });
+
+    const captured = await adapter.capture(auth.railRef);
+    expect(captured).toMatchObject({ ok: true, status: 'captured', assetId: 'USDT' });
+    expect(formatAmount(captured.amount)).toBe('100');
+
+    // A later transfer that is still shallow, or was reorganised away, is not counted.
+    localChain.creditAnother({ address, assetId: 'USDT', amount: amt('5'), from: '0xbuyer', confirmations: 0, txHash: '0x05' });
+    expect(formatAmount((await adapter.capture(auth.railRef)).amount)).toBe('100');
+
+    // Nor is one that lands, final, after authorize (anyone can send dust to a public address): the core names the
+    // authorization and the rail books exactly that.
+    localChain.creditAnother({ address, assetId: 'USDT', amount: amt('0.000001'), from: '0xanyone', confirmations: 12, txHash: '0xdust' });
+    const named = await adapter.capture(auth.railRef, { authorized: auth.amount });
+    expect(formatAmount(named.amount)).toBe('100');
+    expect(named.raw).toMatchObject({ txHashes: ['0x60', '0x40'] });
+
+    // One part reorganised away between authorize and capture: the total comes back short of the 100 authorized, which
+    // the core refuses to book (pay.rail_amount_mismatch).
+    localChain.setConfirmations(address, 1, '0x60');
+    expect(formatAmount((await adapter.capture(auth.railRef, { authorized: auth.amount })).amount)).toBe('40.000001');
+    localChain.setConfirmations(address, 1);
+    expect((await adapter.capture(auth.railRef)).failureCode).toBe('chain.insufficient_confirmations');
+  });
+
+  it('never adds a transfer in another token to the payment, and lists it for support', async () => {
+    const address = await localChain.acceptanceAddress('p-fin-1', 'USDT');
+    localChain.creditAnother({ address, assetId: 'USDT', amount: amt('60'), from: '0xbuyer', confirmations: 12, txHash: '0x60' });
+    localChain.creditAnother({ address, assetId: 'USDC', amount: amt('40'), from: '0xbuyer', confirmations: 12, txHash: '0xc40' });
+
+    const result = await adapter.authorize(intent());
+    expect(result.status).toBe('pending');
+    expect(result.raw).toMatchObject({ received: '60', missing: '40', strays: [{ txHash: '0xc40', assetId: 'USDC', amount: '40' }] });
+  });
+
+  it('refunds up to everything a payment paid in parts received', async () => {
+    const address = await localChain.acceptanceAddress('p-fin-1', 'USDT');
+    localChain.creditAnother({ address, assetId: 'USDT', amount: amt('60'), from: '0xbuyer', confirmations: 12, txHash: '0x60' });
+    localChain.creditAnother({ address, assetId: 'USDT', amount: amt('40'), from: '0xbuyer', confirmations: 12, txHash: '0x40' });
+    const auth = await adapter.authorize(intent());
+    await adapter.capture(auth.railRef);
+
+    // A shallow transfer after capture is not refundable value.
+    localChain.creditAnother({ address, assetId: 'USDT', amount: amt('20'), from: '0xbuyer', confirmations: 0, txHash: '0x20' });
+    expect((await adapter.refund(auth.railRef, amt('100'))).ok).toBe(true);
+    expect(localChain.outboundTransfers()[0]).toMatchObject({ to: '0xbuyer', assetId: 'USDT' });
+    expect((await adapter.refund(auth.railRef, amt('1'))).failureCode).toBe('refund.exceeds_captured');
+  });
+
+  it('refuses to refund a payment paid from two addresses rather than send one payer the money of another', async () => {
+    const address = await localChain.acceptanceAddress('p-fin-1', 'USDT');
+    localChain.creditAnother({ address, assetId: 'USDT', amount: amt('60'), from: '0xalice', confirmations: 12, txHash: '0x60' });
+    localChain.creditAnother({ address, assetId: 'USDT', amount: amt('40'), from: '0xbob', confirmations: 12, txHash: '0x40' });
+    const auth = await adapter.authorize(intent());
+    await adapter.capture(auth.railRef);
+
+    expect((await adapter.refund(auth.railRef, amt('10'))).failureCode).toBe('refund.destination_ambiguous');
+    expect(localChain.outboundTransfers()).toHaveLength(0);
   });
 
   it('fails when the payer sent the wrong token to the right address', async () => {

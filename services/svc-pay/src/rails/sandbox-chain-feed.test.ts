@@ -28,6 +28,22 @@ describe('feeding the in-memory chain from a verified delivery', () => {
     expect((await chain.inboundTransfer('addr_usdc_p1'))?.confirmations).toBe(12);
   });
 
+  it('adds a second transfer to the same address beside the first, so a payer can pay in parts', async () => {
+    const chain = new MemoryChain();
+    await feedSandboxChain(chain, captured({ amount: 60n }));
+    await feedSandboxChain(
+      chain,
+      captured({ amount: 40n, eventId: 'chain:0xdef:addr_usdc_p1:0', chain: { txHash: '0xdef', logIndex: 0, confirmations: 3 } }),
+    );
+    expect(await chain.inboundTransfers('addr_usdc_p1')).toMatchObject([
+      { txHash: '0xabc', amount: 60n, confirmations: 12 },
+      { txHash: '0xdef', amount: 40n, confirmations: 3 },
+    ]);
+    // The second seen deeper replaces itself, not the first.
+    await feedSandboxChain(chain, captured({ amount: 40n, chain: { txHash: '0xdef', logIndex: 0, confirmations: 12 } }));
+    expect((await chain.inboundTransfers('addr_usdc_p1')).map((t) => t.confirmations)).toEqual([12, 12]);
+  });
+
   it('records no payer address, so a refund cannot go to an invented one', async () => {
     const chain = new MemoryChain();
     await feedSandboxChain(chain, captured());
@@ -41,8 +57,12 @@ describe('feeding the in-memory chain from a verified delivery', () => {
       captured({ type: 'chain.reorged', amount: undefined, chain: { txHash, logIndex: 0, confirmations: 0 } });
     expect(await feedSandboxChain(chain, reorg('0xother'))).toBe(false);
     expect((await chain.inboundTransfer('addr_usdc_p1'))?.confirmations).toBe(12);
+    await feedSandboxChain(chain, captured({ chain: { txHash: '0xdef', logIndex: 0, confirmations: 12 } }));
     expect(await feedSandboxChain(chain, reorg('0xabc'))).toBe(true);
-    expect((await chain.inboundTransfer('addr_usdc_p1'))?.confirmations).toBe(0);
+    expect((await chain.inboundTransfers('addr_usdc_p1')).map((t) => [t.txHash, t.confirmations])).toEqual([
+      ['0xabc', 0],
+      ['0xdef', 12],
+    ]);
   });
 
   it('records nothing for a refused delivery, another event type, a delivery without a transfer, or any other chain', async () => {
