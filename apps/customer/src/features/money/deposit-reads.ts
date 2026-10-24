@@ -22,8 +22,19 @@ export const depositNetworkSchema = z.object({
 });
 export type DepositNetworkView = z.infer<typeof depositNetworkSchema>;
 
+/** A pair the owner switched off: listed so the person sees why, never given an address. `haltNote` is the owner's line, as written. */
+export const depositHaltedSchema = z.object({
+  assetId: z.string().min(1),
+  networkId: z.string().min(1),
+  label: z.string().min(1),
+  haltNote: z.string().min(1).nullable(),
+});
+export type DepositHaltedView = z.infer<typeof depositHaltedSchema>;
+
 export const depositCatalogueSchema = z.object({
   assets: z.array(z.object({ assetId: z.string().min(1), networks: z.array(depositNetworkSchema) })),
+  /** Absent from an older bank: none are known to be switched off. */
+  halted: z.array(depositHaltedSchema).optional(),
 });
 export type DepositCatalogue = z.infer<typeof depositCatalogueSchema>;
 

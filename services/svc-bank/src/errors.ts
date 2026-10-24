@@ -345,6 +345,8 @@ export type BankErrorCode =
   | 'bank.deposit_catalogue_invalid'
   /** The asset or network is not in the published catalogue. */
   | 'bank.deposit_asset_unpublished'
+  /** The owner switched deposits of this asset on this network off: no address is issued. */
+  | 'bank.deposit_network_halted'
   /** Custody returned more incoming deposits than this door will publish. None are dropped. */
   | 'bank.deposit_pending_unbounded'
   | 'bank.ramp_invalid_amount'
@@ -790,7 +792,9 @@ export type BankErrorCode =
   /** The guarantee period for this debit has ended. */
   | 'bank.dd_refund_window_closed'
   /** No direct debit guarantee period is set, so a refund request is refused rather than assumed. */
-  | 'bank.dd_guarantee_unset';
+  | 'bank.dd_guarantee_unset'
+  /** A money calendar read is 1 to 62 days from a valid date. */
+  | 'bank.calendar_window_invalid';
 
 export class BankError extends Error {
   constructor(

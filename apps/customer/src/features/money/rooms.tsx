@@ -46,6 +46,8 @@ import { addMoneyCopy } from './add-money-copy';
 import { LinkedAccounts } from './LinkedAccounts';
 import { DirectDebits } from './DirectDebits';
 import { directDebitsCopy } from './direct-debits-copy';
+import { MoneyCalendar } from './Calendar';
+import { calendarCopy } from './calendar-copy';
 import { linkedAccountsCopy } from './linked-accounts-copy';
 import { cashOutCopy } from './cash-out-copy';
 import { CashOut } from './CashOut';
@@ -617,6 +619,7 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
   return (
     <BankPage room="Transfers" description={copyText('rooms.move.available.quantities.between.spaces.or.to')}>
       <DirectDebitsLink />
+      <CalendarLink />
       <Section title={copyText('rooms.new.transfer')}>
         <ResourceView resource={query.resource} reload={query.reload}>
           {(spaces) => {
@@ -1469,6 +1472,27 @@ function DirectDebitsRoom() {
     </BankPage>
   );
 }
+/** The way into the money calendar from Transfers. */
+function CalendarLink() {
+  const { t } = calendarCopy.useCopy();
+  return (
+    <p className="money-caption">
+      <a className="text-link" href="/bank/calendar">
+        {t('open')}
+      </a>{' '}
+      {t('openHint')}
+    </p>
+  );
+}
+/** `/bank/calendar`: everything dated, inside the Transfers room (J-bank-06 #5). */
+function CalendarRoom() {
+  const { t } = calendarCopy.useCopy();
+  return (
+    <BankPage room="Transfers" title={t('title')} description={t('description')}>
+      <MoneyCalendar />
+    </BankPage>
+  );
+}
 /** `/bank/ramps/accounts`: linked bank accounts, inside the Ramps room. */
 function LinkedAccountsRoom() {
   const { t } = linkedAccountsCopy.useCopy();
@@ -1903,6 +1927,8 @@ export function BankRoutes({ path, search, open }: { path: string; search: strin
       return <Transfers open={open} search={search} />;
     case '/bank/direct-debits':
       return <DirectDebitsRoom />;
+    case '/bank/calendar':
+      return <CalendarRoom />;
     case '/bank/earn':
       return <Earn open={open} />;
     case '/bank/loans':

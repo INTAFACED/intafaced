@@ -25,6 +25,7 @@ import {
   TEST_ASSET_ROWS,
   TEST_DEPOSIT_NETWORKS,
   TEST_DEPOSIT_TERMS,
+  TEST_HALTED_DEPOSIT,
   networkRowMatches,
   payProposal,
   assetEditProposal,
@@ -271,13 +272,25 @@ for (const n of TEST_DEPOSIT_NETWORKS) {
   assert.ok(!networkRowMatches({ ...published, confirmationsRequired: null }, n));
   assert.ok(!networkRowMatches(null, n));
 }
+// The TEST networks ask for as many confirmations as the stack's svc-pay credits at, so the room's count and the credit agree.
+{
+  const { default: payService } = await import('./local-stack-services/pay.mjs');
+  const payEnv = payService({ c: () => ({}), secrets: {}, dbUrl: () => '', urlOf: () => '', PORTS: {} }).env();
+  for (const n of TEST_DEPOSIT_NETWORKS) assert.equal(String(n.confirmationsRequired), payEnv.PAY_MIN_CONFIRMATIONS, n.networkId);
+}
 assert.equal(TEST_DEPOSIT_TERMS.length, 4);
 for (const t of TEST_DEPOSIT_TERMS) {
   const network = TEST_DEPOSIT_NETWORKS.find((n) => n.networkId === t.networkId);
   assert.ok(network?.assetCodes.includes(t.assetId), `${t.assetId} on ${t.networkId} is not on a TEST network`);
   assert.equal(t.label, network.displayName);
   assert.equal(typeof t.minimumDeposit, 'string');
+  // Exactly one TEST pair stays switched off, with a TEST note; every other pair is on with none.
+  const off = t.assetId === TEST_HALTED_DEPOSIT.assetId && t.networkId === TEST_HALTED_DEPOSIT.networkId;
+  assert.equal(t.enabled, !off);
+  if (off) assert.match(t.haltNote, /^TEST: /);
+  else assert.equal(t.haltNote, null);
 }
+assert.equal(TEST_DEPOSIT_TERMS.filter((t) => !t.enabled).length, 1);
 assert.deepEqual(payProposal('pay.registry_change', 'sha256:abc'), {
   actionType: 'pay.registry_change',
   targetService: 'svc-pay',

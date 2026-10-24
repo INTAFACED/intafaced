@@ -451,6 +451,7 @@ describe('customer ramps and deposits', () => {
           ],
         },
       ],
+      halted: [],
     });
     const first = await user.deposits.address({ assetId: 'USDT', networkId: 'testnet' });
     expect(first).toEqual({
@@ -487,7 +488,7 @@ describe('customer ramps and deposits', () => {
       pending: async () => [],
     };
     const empty = caller(bankWith({ deposits: { custody: quiet } }), HOLDER, readWrite);
-    expect(await empty.deposits.assets()).toEqual({ assets: [] });
+    expect(await empty.deposits.assets()).toEqual({ assets: [], halted: [] });
     expect(await empty.deposits.pending()).toEqual({ items: [] });
 
     const readOnly = caller(wired, HOLDER, ['bank:read']);
@@ -495,5 +496,87 @@ describe('customer ramps and deposits', () => {
     await expect(readOnly.ramps.onrampCreate({ onrampId: randomUUID(), quoteId: randomUUID(), method: 'card' })).rejects.toMatchObject({
       code: 'FORBIDDEN',
     });
+  });
+
+  it('a pair the owner switched off is listed with its note and gives no address, not even one issued before', async () => {
+    const network = { id: 'testnet', label: 'Test network', minimumDeposit: '10', confirmationsRequired: 6, estimatedArrivalMinutes: 15 };
+    let halted = false;
+    let issued = 0;
+    const custody: CustodyDepositPort = {
+      listAssets: async () => {
+        throw new Error('a port with the whole catalogue is read once, through catalogue()');
+      },
+      catalogue: async () =>
+        halted
+          ? {
+              assets: [{ assetId: 'USDC', networks: [network] }],
+              halted: [{ assetId: 'USDT', networkId: 'testnet', label: 'Test network', haltNote: 'TEST maintenance until Monday' }],
+            }
+          : {
+              assets: [
+                { assetId: 'USDT', networks: [network] },
+                { assetId: 'USDC', networks: [network] },
+              ],
+              halted: [],
+            },
+      address: async () => {
+        issued += 1;
+        return { address: `test-address-${issued}`, memo: null, qrPayload: null };
+      },
+      pending: async () => [],
+    };
+    const user = caller(bankWith({ deposits: { custody } }), HOLDER, readWrite);
+    const before = await user.deposits.address({ assetId: 'USDT', networkId: 'testnet' });
+    expect(before.address).toBe('test-address-1');
+
+    halted = true;
+    expect(await user.deposits.assets()).toEqual({
+      assets: [{ assetId: 'USDC', networks: [network] }],
+      halted: [{ assetId: 'USDT', networkId: 'testnet', label: 'Test network', haltNote: 'TEST maintenance until Monday' }],
+    });
+    await expect(user.deposits.address({ assetId: 'USDT', networkId: 'testnet' })).rejects.toMatchObject({
+      cause: { code: 'bank.deposit_network_halted' },
+    });
+    expect(issued).toBe(1);
+    // Another pair is not touched by the switch.
+    expect((await user.deposits.address({ assetId: 'USDC', networkId: 'testnet' })).address).toBe('test-address-2');
+
+    halted = false;
+    expect((await user.deposits.address({ assetId: 'USDT', networkId: 'testnet' })).address).toBe('test-address-1');
+    expect(issued).toBe(2);
+    expect(ledger.journal()).toHaveLength(0);
+  });
+
+  it('refuses a catalogue that lists a pair as both open and switched off, or a switched-off pair without a label', async () => {
+    const network = { id: 'testnet', label: 'Test network', minimumDeposit: '10', confirmationsRequired: 6, estimatedArrivalMinutes: 15 };
+    for (const halted of [
+      { assetId: 'USDT', networkId: 'testnet', label: 'Test network', haltNote: null },
+      { assetId: 'USDC', networkId: 'testnet', label: ' ', haltNote: null },
+      { assetId: 'USDC', networkId: 'testnet', label: 'Test network', haltNote: ' padded ' },
+    ]) {
+      const custody: CustodyDepositPort = {
+        listAssets: async () => [],
+        catalogue: async () => ({ assets: [{ assetId: 'USDT', networks: [network] }], halted: [halted] }),
+        address: async () => null,
+        pending: async () => [],
+      };
+      const user = caller(bankWith({ deposits: { custody } }), HOLDER, readWrite);
+      await expect(user.deposits.assets()).rejects.toMatchObject({ cause: { code: 'bank.deposit_catalogue_invalid' } });
+    }
+  });
+
+  it('a bad switched-off row does not stop addresses for the open pairs', async () => {
+    const network = { id: 'testnet', label: 'Test network', minimumDeposit: '10', confirmationsRequired: 6, estimatedArrivalMinutes: 15 };
+    const custody: CustodyDepositPort = {
+      listAssets: async () => [],
+      catalogue: async () => ({
+        assets: [{ assetId: 'USDT', networks: [network] }],
+        halted: [{ assetId: 'USDC', networkId: 'testnet', label: ' bad ', haltNote: null }],
+      }),
+      address: async () => ({ address: 'test-address-open', memo: null, qrPayload: null }),
+      pending: async () => [],
+    };
+    const user = caller(bankWith({ deposits: { custody } }), HOLDER, readWrite);
+    expect((await user.deposits.address({ assetId: 'USDT', networkId: 'testnet' })).address).toBe('test-address-open');
   });
 });

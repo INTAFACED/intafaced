@@ -8,8 +8,10 @@ import {
   type CustodyDepositPort,
   type CustodyDepositRecord,
   type CustodyPendingDeposit,
+  type CustodyDepositCatalogue,
   type DepositAsset,
   type DepositNetwork,
+  type HaltedDepositPair,
 } from './custody-port.js';
 
 /**
@@ -30,6 +32,14 @@ export interface PublishedDepositAsset {
     confirmationsRequired: number;
     estimatedArrivalMinutes: number;
   }>;
+}
+
+/** A pair the owner switched off, as customers see it: no address is issued for it. */
+export interface HaltedDepositView {
+  assetId: string;
+  networkId: string;
+  label: string;
+  haltNote: string | null;
 }
 
 export interface IssuedDepositAddress {
@@ -71,10 +81,18 @@ export class DepositService {
     this.custody = options.custody ?? unsetCustodyDepositPort;
   }
 
-  async assets(): Promise<{ assets: PublishedDepositAsset[] }> {
-    const published = await this.custody.listAssets();
+  async assets(): Promise<{ assets: PublishedDepositAsset[]; halted: HaltedDepositView[] }> {
+    const published = await this.readCatalogue();
     if (published === null) refuseCustody('Deposit assets are not published');
-    return { assets: validateCatalogue(published) };
+    const assets = validateCatalogue(published.assets);
+    return { assets, halted: validateHalted(published.halted, assets) };
+  }
+
+  /** One custody read. A port that knows nothing of switched-off pairs names none. */
+  private async readCatalogue(): Promise<CustodyDepositCatalogue | null> {
+    if (this.custody.catalogue) return this.custody.catalogue();
+    const assets = await this.custody.listAssets();
+    return assets === null ? null : { assets, halted: [] };
   }
 
   /**
@@ -82,9 +100,14 @@ export class DepositService {
    * is the one later calls return. A second custody answer is not swapped in.
    */
   async address(input: { userId: string; assetId: string; networkId: string }): Promise<IssuedDepositAddress> {
-    const catalogue = await this.custody.listAssets();
+    const catalogue = await this.readCatalogue();
     if (catalogue === null) refuseCustody('Deposit assets are not published');
-    const assets = validateCatalogue(catalogue);
+    const assets = validateCatalogue(catalogue.assets);
+    // A switched-off pair gives no address, not even one issued before it was switched off. Only this pair is looked at, so a
+    // bad switched-off row elsewhere never stops the open pairs.
+    if (catalogue.halted.some((row) => row.assetId === input.assetId && row.networkId === input.networkId)) {
+      throw new BankError(`Deposits of ${input.assetId} on ${input.networkId} are switched off`, 'bank.deposit_network_halted');
+    }
     const network = findNetwork(assets, input.assetId, input.networkId);
 
     const existing = await this.sql<AddressRow[]>`
@@ -200,6 +223,29 @@ function validateCatalogue(assets: readonly DepositAsset[]): PublishedDepositAss
       assetId: asset.assetId,
       networks: asset.networks.map((network) => validateNetwork(asset.assetId, network, networks)),
     };
+  });
+}
+
+/** Switched-off pairs: short tokens, a label, the owner's note as written or null. A pair that is also live is a broken catalogue. */
+function validateHalted(halted: readonly HaltedDepositPair[], assets: readonly PublishedDepositAsset[]): HaltedDepositView[] {
+  if (halted.length > 500) throw new BankError('Deposit catalogue has more than 500 switched-off pairs', 'bank.deposit_catalogue_invalid');
+  const seen = new Set<string>();
+  return halted.map((row) => {
+    if (!ASSET_RE.test(row.assetId) || !NETWORK_RE.test(row.networkId)) {
+      throw new BankError('Switched-off deposit pair asset or network is not a short token', 'bank.deposit_catalogue_invalid');
+    }
+    const key = `${row.assetId}:${row.networkId}`;
+    if (seen.has(key)) throw new BankError(`Deposit catalogue lists ${key} as switched off twice`, 'bank.deposit_catalogue_invalid');
+    seen.add(key);
+    if (assets.some((asset) => asset.assetId === row.assetId && asset.networks.some((network) => network.id === row.networkId))) {
+      throw new BankError(`Deposit catalogue lists ${key} as both open and switched off`, 'bank.deposit_catalogue_invalid');
+    }
+    const label = row.label?.trim() ?? '';
+    if (!label || label !== row.label || label.length > 64) {
+      throw new BankError(`Switched-off deposit pair ${key} has no label`, 'bank.deposit_catalogue_invalid');
+    }
+    const haltNote = optionalText(row.haltNote, 280, 'switch-off note');
+    return { assetId: row.assetId, networkId: row.networkId, label, haltNote };
   });
 }
 

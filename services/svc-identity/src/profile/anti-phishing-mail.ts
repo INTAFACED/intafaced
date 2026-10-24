@@ -26,6 +26,7 @@ export const ANTI_PHISHING_MAIL_PURPOSES: ReadonlySet<MailPurpose> = new Set<Mai
   'signup-existing',
   'login-code',
   'new-device-code',
+  'withdraw-address-approval',
 ]);
 
 /** The code set on the account (by id, else by its address), or null (no account, no code, no key, or unreadable). */

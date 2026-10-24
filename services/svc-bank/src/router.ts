@@ -23,6 +23,7 @@ import { createCreditCardPreviewRouter } from './loans/credit-card-preview.route
 import { createBillsRouter, createGlobalRouter } from './personal-pay/router.js';
 import { createPersonalRequestRouter } from './transfers/personal-request.router.js';
 import { createDirectDebitsRouter } from './direct-debits/direct-debits.router.js';
+import { createCalendarRouter } from './calendar/calendar.router.js';
 import { amountString, type BankRouterOptions } from './router/shared.js';
 import { guard } from './router/errors.js';
 import { createRouterContext } from './router/context.js';
@@ -127,7 +128,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     ramps,
     deposits: router({
       /**
-       * Assets custody says can be paid in. A blank port refuses
+       * Assets custody says can be paid in, and the pairs the owner switched off. A blank port refuses
        * `bank.deposit_custody_unset`. Minimums are the port's decimals.
        */
       assets: scopedProcedure('bank:read', { module: 'bank' })
@@ -147,6 +148,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
                 ),
               }),
             ),
+            /** Pairs the owner switched off, with the owner's note (null: the standard line only). They take no address. */
+            halted: z.array(z.object({ assetId: z.string(), networkId: z.string(), label: z.string(), haltNote: z.string().nullable() })),
           }),
         )
         .query(() => guard(async () => bank.deposits.assets())),
@@ -236,6 +239,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     personalRequest: createPersonalRequestRouter(bank, guard),
     /** BK-xfer-11: Direct Debit mandates, block and unblock, refund requests. `rail.bank` while no scheme is wired. */
     directDebits: createDirectDebitsRouter(bank, guard),
+    /** BK-acct-10: the money calendar. Read only. */
+    calendar: createCalendarRouter(bank, guard),
     limits: createLimitsRouter(limitRequests, guard),
     ops,
   });

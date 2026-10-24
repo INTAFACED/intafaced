@@ -222,9 +222,17 @@ export class DirectDebitService {
 
   private async collections(
     db: Sql,
-    where: { userId?: string; rowId?: string; upcomingUntil?: Date; history?: boolean },
+    where: {
+      userId?: string;
+      rowId?: string;
+      upcomingUntil?: Date;
+      history?: boolean;
+      /** Every status due in `[from, to)`, soonest first, `limit` rows. */
+      due?: { from: Date; to: Date; limit: number };
+    },
   ): Promise<CollectionRow[]> {
     const until = where.upcomingUntil ?? null;
+    const due = where.due ?? null;
     return db<CollectionRow[]>`
       SELECT c.id, c.mandate_id, c.collection_id, c.user_id, c.asset_id, c.amount::text AS amount, c.due_at, c.status,
              c.failure_code, c.ledger_tx_id, c.presented_at, c.settled_at, c.guarantee_ends_at, m.creditor_name,
@@ -236,9 +244,18 @@ export class DirectDebitService {
          AND (${where.rowId ?? null}::uuid IS NULL OR c.id = ${where.rowId ?? null}::uuid)
          AND (${until}::timestamptz IS NULL OR (c.status = 'upcoming' AND c.due_at <= ${until}::timestamptz))
          AND (${where.history ?? false} = false OR c.status <> 'upcoming')
-       ORDER BY c.due_at DESC, c.id DESC
-       LIMIT 200
+         AND (${due?.from ?? null}::timestamptz IS NULL OR c.due_at >= ${due?.from ?? null}::timestamptz)
+         AND (${due?.to ?? null}::timestamptz IS NULL OR c.due_at < ${due?.to ?? null}::timestamptz)
+       ORDER BY ${due ? db`c.due_at ASC, c.id ASC` : db`c.due_at DESC, c.id DESC`}
+       LIMIT ${due?.limit ?? 200}
     `;
+  }
+
+  /** The person's collections due in `[from, to)`, soonest first, for the money calendar. */
+  async dated(input: { userId: string; from: Date; to: Date; limit: number; now?: Date }): Promise<CollectionView[]> {
+    const now = input.now ?? new Date();
+    const rows = await this.collections(this.sql, { userId: input.userId, due: { from: input.from, to: input.to, limit: input.limit } });
+    return rows.map((row) => this.collectionView(row, now));
   }
 
   /** The person's mandates with their upcoming collections, and their collections newest first. */

@@ -38,6 +38,7 @@ import type { RecipientStatePort } from './recipient-state.js';
 import { BillPayService } from './personal-pay/bills.js';
 import { GlobalSendService } from './personal-pay/global.js';
 import { DirectDebitService } from './direct-debits/direct-debits.js';
+import { CalendarService } from './calendar/calendar.js';
 import { unsetDirectDebitScheme, type DirectDebitScheme } from './direct-debits/scheme.js';
 import { BANK_GLOBAL_HOLD_CANCEL_HOURS_ENV, GlobalHoldService } from './personal-pay/holds.js';
 import { SpendFiguresReader } from './insufficient-funds.js';
@@ -97,6 +98,8 @@ export interface BankServices {
   readonly globalHolds: GlobalHoldService;
   /** BK-xfer-11: Direct Debit mandates and collections. Every control refuses `rail.bank` while no scheme is wired. */
   readonly directDebits: DirectDebitService;
+  /** BK-acct-10: one read of what is dated, merged from svc-bank's own sources. Reads only. */
+  readonly calendar: CalendarService;
   /** RC-wallet-09: figures for a refused spend. Reads only. */
   readonly spendFigures: SpendFiguresReader;
   /**
@@ -316,6 +319,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     options.holdCancelHours !== undefined ? options.holdCancelHours : process.env[BANK_GLOBAL_HOLD_CANCEL_HOURS_ENV],
   );
   globalSend.screenWith((sendId) => globalHolds.screen(sendId));
+  const directDebits = new DirectDebitService(sql, ledger, spaces, options.directDebitScheme ?? unsetDirectDebitScheme);
 
   return {
     spaces,
@@ -351,7 +355,25 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     bills,
     globalSend,
     globalHolds,
-    directDebits: new DirectDebitService(sql, ledger, spaces, options.directDebitScheme ?? unsetDirectDebitScheme),
+    directDebits,
+    calendar: new CalendarService({
+      sql,
+      transfers,
+      bills,
+      directDebits,
+      earn,
+      loans,
+      log: (source, err) =>
+        console.error(
+          JSON.stringify({
+            level: 'error',
+            service: 'svc-bank',
+            event: 'bank.calendar_source_failed',
+            source,
+            error: err instanceof Error ? err.message : String(err),
+          }),
+        ),
+    }),
     spendFigures: new SpendFiguresReader(sql, ledger),
     transferOps: { sql, handles: options.handles },
   };

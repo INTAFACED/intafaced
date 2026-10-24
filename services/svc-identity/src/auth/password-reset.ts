@@ -56,6 +56,8 @@ export interface PasswordResetMail {
     readonly userId?: string;
     /** The account's anti-phishing code, on mails to its own address when its owner set one. */
     readonly antiPhishingCode?: string;
+    /** A plain line naming what a service mail is about (`POST /internal/mail`), for example the address to approve. */
+    readonly detail?: string;
   }): Promise<void>;
 }
 
@@ -72,7 +74,8 @@ export type MailPurpose =
   | 'signup-existing'
   | 'login-code'
   | 'login-no-account'
-  | 'new-device-code';
+  | 'new-device-code'
+  | 'withdraw-address-approval';
 
 export interface PasswordResetDeps {
   readonly sql: Sql;
@@ -238,7 +241,16 @@ export async function relayMailOutbox(
   limit = 25,
 ): Promise<{ sent: number; undeliverable: number; unknown: number }> {
   const claimed = await deps.sql<
-    Array<{ id: string; purpose: string; recipient: string; code: string | null; handle: string | null; expires_at: Date }>
+    Array<{
+      id: string;
+      purpose: string;
+      recipient: string;
+      code: string | null;
+      handle: string | null;
+      expires_at: Date;
+      user_id: string | null;
+      detail: string | null;
+    }>
   >`
     WITH due AS (
       SELECT id, code, handle FROM mail_outbox WHERE status = 'pending' ORDER BY created_at LIMIT ${limit} FOR UPDATE SKIP LOCKED
@@ -247,7 +259,7 @@ export async function relayMailOutbox(
     SET status = ${deps.mail ? 'unknown' : 'undeliverable'}, code = NULL, handle = NULL
     FROM due
     WHERE m.id = due.id
-    RETURNING m.id, m.purpose, m.recipient, due.code, due.handle, m.expires_at
+    RETURNING m.id, m.purpose, m.recipient, due.code, due.handle, m.expires_at, m.user_id, m.detail
   `;
   const out = { sent: 0, undeliverable: 0, unknown: 0 };
   const mail = deps.mail;
@@ -256,6 +268,12 @@ export async function relayMailOutbox(
     return out;
   }
   for (const job of claimed) {
+    // A service mail (POST /internal/mail) goes out only while its account is still active and the address is still
+    // its proved one; a freeze or an address change between the request and the send withdraws it.
+    if (job.user_id && !(await stillOwnAddress(deps.sql, job.user_id, job.recipient))) {
+      await deps.sql`UPDATE mail_outbox SET status = 'suppressed' WHERE id = ${job.id}`;
+      continue;
+    }
     try {
       await mail.send({
         email: job.recipient,
@@ -263,6 +281,8 @@ export async function relayMailOutbox(
         expiresAt: job.expires_at instanceof Date ? job.expires_at : new Date(job.expires_at),
         purpose: job.purpose as MailPurpose,
         ...(job.handle ? { handle: job.handle } : {}),
+        ...(job.user_id ? { userId: job.user_id } : {}),
+        ...(job.detail ? { detail: job.detail } : {}),
       });
       await deps.sql`UPDATE mail_outbox SET status = 'sent', sent_at = ${deps.now()} WHERE id = ${job.id}`;
       out.sent += 1;
@@ -273,6 +293,13 @@ export async function relayMailOutbox(
     }
   }
   return out;
+}
+
+async function stillOwnAddress(sql: Sql, userId: string, recipient: string): Promise<boolean> {
+  const [user] = await sql<Array<{ status: string; email: string | null; email_verified_at: Date | null }>>`
+    SELECT status, email, email_verified_at FROM users WHERE id = ${userId}
+  `;
+  return user?.status === 'active' && user.email === recipient && user.email_verified_at !== null;
 }
 
 type OpenFlow = { id: string; user_id: string | null; code_hash: string; status: string; attempts: number; expires_at: Date };

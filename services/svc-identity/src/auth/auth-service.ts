@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
-import type { AccountState, EmailProof } from '@intafaced/contracts';
+import type { AccountState, EmailProof, ServiceMailAccepted, ServiceMailRequest } from '@intafaced/contracts';
 import {
   assertDelegatableScopes,
   FOUNDER_SESSION_SCOPE_ALLOWLIST,
@@ -50,6 +50,7 @@ import {
   type LoginCodeDeps,
   type LoginCodePolicy,
 } from './login-code.js';
+import { queueServiceMail } from './service-mail.js';
 import {
   approveFromSession,
   approveWithCode,
@@ -634,6 +635,14 @@ export class AuthService {
   /** Run the mail relay after a recovery request commits. A returned promise is awaited (tests); production returns nothing. Unset: rows wait for `drainMailOutbox`. */
   useMailRelayTrigger(trigger: (() => void | Promise<void>) | undefined): void {
     this.mailRelayTrigger = trigger;
+  }
+
+  /** A mail another service asked for (`POST /internal/mail`, service-mail.ts), on the recovery flows' clock and relay. */
+  async queueServiceMail(input: ServiceMailRequest): Promise<ServiceMailAccepted> {
+    return queueServiceMail(
+      { sql: this.sql, now: this.passwordResetNow, mailWired: this.passwordResetMail !== undefined, afterCommit: this.mailRelayTrigger },
+      input,
+    );
   }
 
   /** Send the pending recovery mail, once each. Safe to call from a timer and from a trigger at the same time. */
