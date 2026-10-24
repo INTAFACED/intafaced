@@ -1,23 +1,17 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { moneyCopy } from './copy';
-import { Amount, Skeleton, StateBlock, dec, fmtAmount, fmtUsd, refusalCopy } from './deps';
+import { Amount, Skeleton, StateBlock, dec, fmtAmount, refusalCopy } from './deps';
+import { useValueText } from './display-unit';
+import { VALUE_REFUSAL } from './ValueOverTime';
 import { CHANGE_RANGES, useHoldingsChange, type BankHoldingsChange, type ChangeRangeKey } from './holdings-change-source';
 import { stamp } from './time';
 import { usePreferences } from '../../shared/preferences';
 
 type Copy = ReturnType<typeof moneyCopy.useCopy>;
 
-const RANGE_COPY: Record<ChangeRangeKey, 'Change 24h' | 'Change 7d' | 'Change 30d'> = {
-  '24h': 'Change 24h',
-  '7d': 'Change 7d',
-  '30d': 'Change 30d',
-};
-
 /** "+0.5 BTC", "−100 USDT", "0 USDT": the change in the coin's own unit, signed. */
 function signedAmount(change: string, asset: string): string {
-  const value = dec(change) ?? 0n;
-  const abs = change.startsWith('-') ? change.slice(1) : change;
-  return `${value > 0n ? '+' : value < 0n ? '−' : ''}${fmtAmount(abs)} ${asset}`;
+  return `${(dec(change) ?? 0n) > 0n ? '+' : ''}${fmtAmount(change)} ${asset}`;
 }
 
 /**
@@ -30,12 +24,7 @@ export function HoldingsChange({ hidden }: { hidden: boolean }) {
   const { t } = copy;
   const { timeZone } = usePreferences();
   const [key, setKey] = useState<ChangeRangeKey>('7d');
-  // Read the clock only when the range changes, so the start stays put while the page is open.
-  const from = useMemo(() => {
-    const hours = CHANGE_RANGES.find((range) => range.key === key)!.hours;
-    return new Date(Date.now() - hours * 3_600_000).toISOString();
-  }, [key]);
-  const result = useHoldingsChange(from);
+  const result = useHoldingsChange(CHANGE_RANGES.find((range) => range.key === key)!.hours);
 
   let body;
   if (result.status === 'loading') body = <Skeleton width="100%" height={96} className="bg-field" />;
@@ -44,10 +33,12 @@ export function HoldingsChange({ hidden }: { hidden: boolean }) {
       <StateBlock kind="error" className="money-state" title={t('Change unreadable')} onRetry={result.retry} retryLabel={t('Try again')} />
     );
   else if (result.status === 'refused') {
+    // The bank's own value-history refusals have their own words (pick a later start, history down); others the shared ones.
+    const own = VALUE_REFUSAL[result.code];
     const words = refusalCopy(result.code);
     body = (
       <p className="money-note" data-refused={result.code}>
-        {words.title}. {words.body ?? ''} {words.reference ?? ''}
+        {own ? t(own) : `${words.title}. ${words.body ?? ''}`} {words.reference ?? ''}
       </p>
     );
   } else if (result.status === 'empty' || result.data.rows.length === 0) body = <p className="money-note">{t('Change nothing held')}</p>;
@@ -67,7 +58,7 @@ export function HoldingsChange({ hidden }: { hidden: boolean }) {
             aria-pressed={key === range.key}
             onClick={() => setKey(range.key)}
           >
-            {t(RANGE_COPY[range.key])}
+            {t(range.label)}
           </button>
         ))}
       </div>
@@ -89,6 +80,7 @@ function ChangeTable({
   timeZone: Parameters<typeof stamp>[1];
 }) {
   const { t } = copy;
+  const value = useValueText();
   return (
     <table
       className="money-table"
@@ -136,10 +128,16 @@ function ChangeTable({
                 <Amount value={signedAmount(row.change, row.assetId)} hidden={hidden} />
               </td>
               <td className="money-num">
-                {none ? '—' : row.startValueUsd === null ? t('Not priced') : <Amount value={fmtUsd(row.startValueUsd)} hidden={hidden} />}
+                {none ? (
+                  '—'
+                ) : row.startValueUsd === null ? (
+                  t('Not priced')
+                ) : (
+                  <Amount value={value(row.startValueUsd) ?? '—'} hidden={hidden} />
+                )}
               </td>
               <td className="money-num">
-                {row.endValueUsd === null ? t('Not priced') : <Amount value={fmtUsd(row.endValueUsd)} hidden={hidden} />}
+                {row.endValueUsd === null ? t('Not priced') : <Amount value={value(row.endValueUsd) ?? '—'} hidden={hidden} />}
               </td>
             </tr>
           );

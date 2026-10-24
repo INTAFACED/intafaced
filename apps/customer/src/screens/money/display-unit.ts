@@ -1,4 +1,5 @@
-import { dec, toFixedString } from './deps';
+import { createContext, useContext } from 'react';
+import { dec, fmtUsd, toFixedString } from './deps';
 
 /**
  * The display unit of the Money screen's values (PF-overview-03). USD is the base every value is worked out in. BTC is the
@@ -51,4 +52,13 @@ export function changeText(
   const zero = /^-?0\.0+$/.test(btc);
   const amount = `${zero ? '' : negative ? '−' : '+'}₿${negative ? btc.slice(1) : btc}`;
   return pct !== null && dec(pct) !== null ? `${amount} (${pctText(pct)})` : amount;
+}
+
+/** The unit every value on the Money screen is shown in (USD, or BTC at the bank's own BTC price). */
+export const UnitContext = createContext<ValueUnit>(USD_UNIT);
+
+/** A USD value as the Money screen shows it, in the chosen unit. */
+export function useValueText(): (usd: string | null) => string | null {
+  const unit = useContext(UnitContext);
+  return (usd) => valueText(unit, usd, fmtUsd);
 }

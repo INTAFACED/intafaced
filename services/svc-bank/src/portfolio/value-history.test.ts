@@ -371,3 +371,38 @@ describe('PortfolioService.valueOverTime', () => {
     });
   });
 });
+
+describe('PortfolioService.holdingsChange', () => {
+  it('gives the two ends through the router for the caller only, with the same range refusals as the value over time', async () => {
+    const { portfolio } = service();
+    const out = await callerFor(portfolio, ALICE).portfolio.holdingsChange({ from: day(1, 7).toISOString(), to: day(5).toISOString() });
+    expect(out.rows.map((r) => [r.assetId, r.startAmount, r.endAmount, r.change])).toEqual([
+      ['BTC', '0', '1', '1'],
+      ['USDT', '0', '400', '400'],
+    ]);
+    await expect(
+      callerFor(portfolio, ALICE).portfolio.holdingsChange({ from: day(1).toISOString(), userId: BOB } as never),
+    ).rejects.toThrow();
+    await expect(portfolio.holdingsChange(ALICE, { from: day(6).toISOString() })).rejects.toMatchObject({
+      code: 'bank.value_range_invalid',
+    });
+    const tooBig = service({ fail: new LedgerError('too many rows', 'ledger.holdings_history_too_large') });
+    await expect(tooBig.portfolio.holdingsChange(ALICE, { from: day(1).toISOString() })).rejects.toMatchObject({
+      code: 'bank.value_history_too_large',
+    });
+    const down = service({ fail: new Error('connection reset') });
+    await expect(down.portfolio.holdingsChange(ALICE, { from: day(1).toISOString() })).rejects.toMatchObject({
+      code: 'bank.value_history_unavailable',
+    });
+  });
+
+  it('still answers the amounts when the prices cannot be read: those coins are not priced, never zero', async () => {
+    for (const closes of [null, { closes: async () => Promise.reject(new Error('timeout')) }]) {
+      const { portfolio } = service({ closes });
+      const out = await portfolio.holdingsChange(ALICE, { from: day(1, 7).toISOString(), to: day(5).toISOString() });
+      expect(out.rows.find((r) => r.assetId === 'BTC')).toMatchObject({ endAmount: '1', endPriceUsd: null, endValueUsd: null });
+      // Dollar coins need no price.
+      expect(out.rows.find((r) => r.assetId === 'USDT')).toMatchObject({ endPriceUsd: '1', endValueUsd: '400' });
+    }
+  });
+});

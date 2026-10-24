@@ -299,11 +299,17 @@ export class PortfolioService {
 
   /** What rose and fell in amount over a range, per coin (J-portfolio-06 #3); the same reads and refusals as `valueOverTime`. */
   async holdingsChange(userId: string, input: { from: string; to?: string }): Promise<BankHoldingsChange> {
-    return holdingsChange(await this.replayInputs(userId, input));
+    // Only the two ends are needed, and the amounts need no price: a coin whose candles cannot be read is shown not priced.
+    const inputs = await this.replayInputs(userId, input, { pricesOptional: true });
+    return holdingsChange({ ...inputs, samples: [inputs.samples[0]!, inputs.samples[inputs.samples.length - 1]!] });
   }
 
   /** The ledger's holdings history for every account the person owns and the candles of every coin in it, over a range. */
-  private async replayInputs(userId: string, input: { from: string; to?: string }): Promise<ValueInputs> {
+  private async replayInputs(
+    userId: string,
+    input: { from: string; to?: string },
+    options: { pricesOptional?: boolean } = {},
+  ): Promise<ValueInputs> {
     const now = this.now();
     const from = new Date(input.from);
     const asked = input.to === undefined ? now : new Date(input.to);
@@ -342,13 +348,21 @@ export class PortfolioService {
     const closes = new Map<string, CloseSeries | null>();
     if (coins.length > 0) {
       const source = this.closes;
-      if (!source) throw unavailable();
       const end = grid.samples[grid.samples.length - 1]!;
-      try {
-        const series = await inBatches(coins, (assetId) => source.closes(assetId, interval, grid.samples[0]!, end));
+      if (!source) {
+        if (!options.pricesOptional) throw unavailable();
+        for (const assetId of coins) closes.set(assetId, null);
+      } else if (options.pricesOptional) {
+        // One coin's candles that cannot be read leave that coin unpriced, not the whole answer refused.
+        const series = await inBatches(coins, (assetId) => source.closes(assetId, interval, grid.samples[0]!, end).catch(() => null));
         coins.forEach((assetId, i) => closes.set(assetId, series[i]!));
-      } catch {
-        throw unavailable();
+      } else {
+        try {
+          const series = await inBatches(coins, (assetId) => source.closes(assetId, interval, grid.samples[0]!, end));
+          coins.forEach((assetId, i) => closes.set(assetId, series[i]!));
+        } catch {
+          throw unavailable();
+        }
       }
     }
     return { histories, interval, samples: grid.samples, live: grid.live, closes };
