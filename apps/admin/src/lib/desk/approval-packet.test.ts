@@ -39,6 +39,14 @@ describe('request packets', () => {
       { kind: 'edge.kill', module: 'pay', disabled: false, reason: 'cause resolved, reconciled' },
       { kind: 'ledger.freeze', reason: 'reconciliation mismatch on USD', version: '2026-10-17 03:00:00.123456+00' },
       { kind: 'ledger.unfreeze', version: '2026-10-17 03:00:00.123456+00' },
+      {
+        kind: 'ledger.reconciliation_control.run',
+        controlId: '0b4f6c2e-1111-4222-8333-444455556666',
+        version: '3',
+        asOf: '2026-10-23T06:30:00.000Z',
+        margin: '0',
+        reason: 'LOCAL TEST run the USDT floor control',
+      },
       { kind: 'academy.ambassador.appoint', userId: '9f8e7d6c-1111-4222-8333-444455556666' },
       { kind: 'academy.residency.decide', id: '5a3b9c10-1111-4222-8333-444455556666', decision: 'accepted' },
     ] as const) {
@@ -96,6 +104,20 @@ describe('request reading is strict', () => {
     expect(readDeskRequest({ kind: 'edge.kill', module: 'trade', disabled: 'true', reason: 'twelve chars' })).toBeNull();
     expect(readDeskRequest({ kind: 'ledger.freeze', reason: 'twelve chars' })).toBeNull();
     expect(readDeskRequest({ kind: 'ledger.unfreeze', version: '' })).toBeNull();
+    const run = {
+      kind: 'ledger.reconciliation_control.run',
+      controlId: '0b4f6c2e-1111-4222-8333-444455556666',
+      version: '3',
+      asOf: 'now',
+      margin: 'unset',
+      reason: 'LOCAL TEST run the USDT floor control',
+    };
+    expect(readDeskRequest(run)).toEqual(run);
+    // A run now carries no margin; a past run names one; an instant is only the exact ISO text svc-ledger hashes.
+    expect(readDeskRequest({ ...run, margin: '30' })).toBeNull();
+    expect(readDeskRequest({ ...run, asOf: '2026-10-23T06:30:00.000Z' })).toBeNull();
+    expect(readDeskRequest({ ...run, asOf: '2026-10-23T06:30:00Z', margin: '0' })).toBeNull();
+    expect(readDeskRequest({ ...run, version: '0' })).toBeNull();
     expect(readDeskRequest(null)).toBeNull();
     expect(readDeskRequest([])).toBeNull();
   });
@@ -107,6 +129,16 @@ describe('what the founder is asked to type and read', () => {
     expect(confirmPhrase({ ...kill, disabled: false })).toBe('RE-ENABLE trade');
     expect(confirmPhrase({ kind: 'ledger.freeze', reason: 'twelve chars', version: 'v' })).toBe('FREEZE LEDGER');
     expect(confirmPhrase({ kind: 'ledger.unfreeze', version: 'v' })).toBe('UNFREEZE LEDGER');
+    expect(
+      confirmPhrase({
+        kind: 'ledger.reconciliation_control.run',
+        controlId: '0b4f6c2e-1111-4222-8333-444455556666',
+        version: '3',
+        asOf: 'now',
+        margin: 'unset',
+        reason: 'LOCAL TEST run the USDT floor control',
+      }),
+    ).toBe('RUN CONTROL 0b4f6c2e');
   });
   it('the description says what will happen in plain words', () => {
     expect(describeRequest(kill)).toContain('Kill module "trade"');

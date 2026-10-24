@@ -1,0 +1,71 @@
+/* Reconciliation controls on /ledger. Admin tokens and shared primitives keep their authority; this only lays them out. */
+.rc.adm-control-card {
+  max-width: none;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+.rc h2,
+.rc h3,
+.rc p {
+  margin: 0;
+}
+.rc-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 16px;
+}
+.rc-head > div {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 72ch;
+}
+.rc-block,
+.rc-list,
+.rc-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.rc-block {
+  padding-top: 16px;
+  border-top: 1px solid var(--if-border);
+}
+.rc-block > summary {
+  font-weight: 500;
+}
+.rc-fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 12px 16px 16px;
+  border: 1px solid var(--if-border);
+  border-radius: 8px;
+  min-width: 0;
+}
+.rc-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+.rc-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rc-chip {
+  margin-left: 8px;
+}
+.rc tr[aria-selected='true'] td {
+  background: color-mix(in srgb, var(--if-accent) 8%, transparent);
+}
+@media (max-width: 640px) {
+  .rc-head {
+    flex-direction: column;
+  }
+}

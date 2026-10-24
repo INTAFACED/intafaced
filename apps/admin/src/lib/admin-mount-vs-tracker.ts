@@ -27,7 +27,7 @@ export const ADMIN_API_ROUTES = [
 
 export const ADMIN_DONE_BAR_TEST_FILES = [
   'lib/console-status.test.ts',
-  'lib/operator-commands.test.ts',
+  'lib/ledger/reconciliation.test.ts',
   'app/api/operator-tools/route.test.ts',
   'lib/admin-compose-wiring.test.ts',
 ] as const;
