@@ -120,6 +120,18 @@ export const NOTIFY_EVENT_CONSUMERS: readonly NotifyConsumerRow[] = [
     effect: 'Inbox rows pay.transfer_received for the recipient and pay.transfer_sent for the sender of one posted personal send',
   },
   {
+    event: 'bankScheduledReminder',
+    durable: 'notify-bank-scheduled-reminder',
+    subject: 'intafaced.bank.scheduled_reminder.triggered',
+    effect: 'Inbox row bank.scheduled_reminder for the owner of a standing order due within their reminder lead time',
+  },
+  {
+    event: 'bankScheduledFailed',
+    durable: 'notify-bank-scheduled-failed',
+    subject: 'intafaced.bank.scheduled_run.failed',
+    effect: 'Inbox row bank.scheduled_failed for the owner of a standing order run the bank refused, with its reason',
+  },
+  {
     event: 'supportTicketResolved',
     durable: 'notify-support-ticket-resolved',
     subject: 'intafaced.support.ticket.resolved',
