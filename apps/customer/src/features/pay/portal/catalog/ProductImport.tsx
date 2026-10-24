@@ -14,6 +14,7 @@ import type { PortalApi } from '../api';
 import { DateTime } from '../ui/DateTime';
 import { EntityList } from '../ui/EntityList';
 import { useMayAddProducts } from './access';
+import { inMode, useCatalogMode } from './mode';
 import { catalogCopy as c } from './copy';
 
 const productHref = (id: string) => `/pay/products/${encodeURIComponent(id)}`;
@@ -26,6 +27,7 @@ const productHref = (id: string) => `/pay/products/${encodeURIComponent(id)}`;
 export function ProductImport({ portal }: { portal: PortalApi }) {
   const { t } = c.useCopy();
   const may = useMayAddProducts();
+  const [mode] = useCatalogMode();
   const [file, setFile] = useState<{ name: string; text: string } | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [answer, setAnswer] = useState<ImportAnswer | null>(null);
@@ -53,7 +55,7 @@ export function ProductImport({ portal }: { portal: PortalApi }) {
     setBusy(commit ? 'import' : 'check');
     setRefused(null);
     try {
-      const result = await portal.importProducts({ csv: file.text, commit });
+      const result = await portal.importProducts({ csv: file.text, commit, ...(mode === 'test' ? { mode } : {}) });
       if (result.ok) setAnswer(result.data);
       else {
         setRefused(result.message);
@@ -70,6 +72,11 @@ export function ProductImport({ portal }: { portal: PortalApi }) {
   return (
     <PaySection title={t('importTitle')} description={t('importPurpose')}>
       <div className="form-stack pp-form">
+        {mode === 'test' && (
+          <p className="pp-callout" role="note">
+            {t('testCatalogueImportNote')}
+          </p>
+        )}
         <ImportFormat />
         <Field
           label={t('importFile')}
@@ -108,6 +115,7 @@ function ImportFormat() {
   return (
     <div className="stack">
       <p className="muted">{t('importFormat')}</p>
+      <p className="muted">{t('importEditedNote')}</p>
       <EntityList
         label={t('importColumnsLabel')}
         rows={PRODUCT_IMPORT_COLUMNS}
@@ -124,6 +132,7 @@ function ImportFormat() {
 
 function ImportAnswerView({ answer, busy, onImport }: { answer: ImportAnswer; busy: 'check' | 'import' | null; onImport: () => void }) {
   const { t } = c.useCopy();
+  const [mode] = useCatalogMode();
   if (answer.imported)
     return (
       <div className="stack">
@@ -140,7 +149,7 @@ function ImportAnswerView({ answer, busy, onImport }: { answer: ImportAnswer; bu
         {answer.products.length < answer.rows && <p className="muted">{t('importSomeDeleted')}</p>}
         <ImportedProducts products={answer.products} />
         <div className="pp-actions">
-          <Button variant="secondary" nativeButton={false} role="link" render={<a href="/pay/products" />}>
+          <Button variant="secondary" nativeButton={false} role="link" render={<a href={inMode('/pay/products', mode)} />}>
             {t('importBack')}
           </Button>
         </div>

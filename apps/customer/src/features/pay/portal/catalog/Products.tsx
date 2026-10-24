@@ -16,6 +16,8 @@ import { useServerList } from '../ui/useServerList';
 import { useReadAt, useUrlParam } from '../hooks';
 import { useBodyRequestId } from '../payments/invoice-model';
 import { useMayAddProducts } from './access';
+import { CatalogCopyControl } from './CatalogCopy';
+import { inMode, useCatalogMode, type CatalogMode as Mode } from './mode';
 import { ProductImport } from './ProductImport';
 import { ProductPrices } from './Prices';
 import { catalogCopy as c } from './copy';
@@ -31,35 +33,46 @@ export function Products({ portal, route }: { portal: PortalApi; route: { room: 
   return <ProductList portal={portal} />;
 }
 
-const addButton = (label: string, importLabel: string) => (
+const addButton = (label: string, importLabel: string, mode: Mode) => (
   <div className="pp-actions">
-    <Button variant="primary" nativeButton={false} role="link" render={<a href="/pay/products/new" />}>
+    <Button variant="primary" nativeButton={false} role="link" render={<a href={inMode('/pay/products/new', mode)} />}>
       {label}
     </Button>
-    <Button variant="secondary" nativeButton={false} role="link" render={<a href="/pay/products/import" />}>
+    <Button variant="secondary" nativeButton={false} role="link" render={<a href={inMode('/pay/products/import', mode)} />}>
       {importLabel}
     </Button>
   </div>
 );
 
 /**
- * The catalogue, active products first. An archived product is listed only under Show › Archived products; an empty
+ * One catalogue (Catalogue › Live or Test), active products first. Copy to live or Copy to test sits above it. An archived product is listed only under Show › Archived products; an empty
  * active list says whether archived products exist, so "No products yet" is said only of a catalogue that has none.
  */
 export function ProductList({ portal }: { portal: PortalApi }) {
   const { t } = c.useCopy();
   const may = useMayAddProducts();
   const [shown, setShown] = useUrlParam('status', 'active');
+  const [mode, setMode] = useCatalogMode();
   const status = shown === 'archived' ? 'archived' : 'active';
   const list = useServerList(
-    (f, cursor, signal) => portal.products(f.status, cursor, signal),
-    { status },
+    (f, cursor, signal) => portal.products(f.status, cursor, signal, f.mode),
+    { status, mode },
     (p: MerchantProduct) => p.id,
   );
   const readAt = useReadAt(list.state.status === 'ready', list.state);
   return (
     <div className="stack">
       <Freshness asOf={readAt} />
+      <SelectField
+        label={t('catalogueLabel')}
+        value={mode}
+        onChange={(value) => setMode(value === 'test' ? 'test' : 'live')}
+        options={[
+          ['live', t('mode_live')],
+          ['test', t('mode_test')],
+        ]}
+      />
+      <CatalogCopyControl key={mode} portal={portal} from={mode} />
       <SelectField
         label={t('showLabel')}
         value={status}
@@ -76,11 +89,11 @@ export function ProductList({ portal }: { portal: PortalApi }) {
           status === 'archived' ? (
             <EmptyState title={t('emptyArchivedTitle')}>{t('emptyArchivedBody')}</EmptyState>
           ) : (
-            <EmptyActive portal={portal} add={may.allowed ? addButton(t('add'), t('importLink')) : undefined} />
+            <EmptyActive portal={portal} mode={mode} add={may.allowed ? addButton(t('add'), t('importLink'), mode) : undefined} />
           )
         ) : (
           <>
-            {may.allowed && addButton(t('add'), t('importLink'))}
+            {may.allowed && addButton(t('add'), t('importLink'), mode)}
             <EntityList
               label={t('listLabel')}
               rows={list.state.items}
@@ -103,10 +116,13 @@ export function ProductList({ portal }: { portal: PortalApi }) {
 }
 
 /** An empty active list: "No products yet" only when nothing is archived either. */
-function EmptyActive({ portal, add }: { portal: PortalApi; add: ReturnType<typeof addButton> | undefined }) {
+function EmptyActive({ portal, mode, add }: { portal: PortalApi; mode: Mode; add: ReturnType<typeof addButton> | undefined }) {
   const { t } = c.useCopy();
   const may = useMayAddProducts();
-  const { resource, reload } = useResource((signal) => portal.products('archived', undefined, signal), 'portal:catalog:archived-probe');
+  const { resource, reload } = useResource(
+    (signal) => portal.products('archived', undefined, signal, mode),
+    `portal:catalog:archived-probe:${mode}`,
+  );
   if (resource.status === 'loading') return <PortalLoading />;
   if (resource.status === 'failed') return <PortalFailure result={resource.failure} retry={reload} />;
   if (resource.data.items.length > 0)
@@ -127,9 +143,10 @@ export function ProductCreate({ portal }: { portal: PortalApi }) {
   const may = useMayAddProducts();
   const rules = useResource((signal) => portal.productImageRules(signal), 'portal:catalog:image-rules');
   const [draft, setDraft] = useState<ProductDraft>(blankProduct);
+  const [mode] = useCatalogMode();
   // One request id per body: a retry of the same product after a lost answer is the same request, and any change to it
   // is a new one, so the service never sees one id with two different products.
-  const { requestId: _unsent, ...body } = productBody(draft, '');
+  const { requestId: _unsent, ...body } = productBody(draft, '', mode);
   const request = useBodyRequestId('catalog:product-new', body);
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -161,6 +178,11 @@ export function ProductCreate({ portal }: { portal: PortalApi }) {
   return (
     <PaySection title={t('newTitle')} description={t('newPurpose')}>
       <div className="form-stack pp-form">
+        {mode === 'test' && (
+          <p className="pp-callout" role="note">
+            {t('testCatalogueNote')}
+          </p>
+        )}
         <Field
           label={t('name')}
           hint={t('nameHint')}
@@ -378,7 +400,11 @@ export function ProductDetail({ portal, productId }: { portal: PortalApi; produc
     <Gate resource={resource} retry={reload} rows={4}>
       {(product) => (
         <div className="stack">
-          <DetailHeader back={{ href: '/pay/products', label: t('back') }} title={product.name} status={t(`status_${product.status}`)} />
+          <DetailHeader
+            back={{ href: inMode('/pay/products', product.mode), label: t('back') }}
+            title={product.name}
+            status={t(`status_${product.status}`)}
+          />
           {product.status === 'archived' && <p className="pp-callout">{t('archivedNotice')}</p>}
           <ProductActions
             portal={portal}
@@ -399,6 +425,17 @@ export function ProductDetail({ portal, productId }: { portal: PortalApi; produc
               [t('factName'), product.name],
               [t('factType'), t(`type_${product.type}`)],
               [t('factId'), <code key="id">{product.productKey}</code>],
+              [t('factCatalogue'), t(`mode_${product.mode}`)],
+              ...(product.copiedFrom
+                ? ([
+                    [
+                      t('factCopiedFrom'),
+                      <a key="from" className="text-link" href={productHref(product.copiedFrom)}>
+                        {t(product.mode === 'live' ? 'copiedFromTest' : 'copiedFromLive')}
+                      </a>,
+                    ],
+                  ] as const)
+                : []),
               [t('factUnit'), product.unitLabel ?? t('none')],
               [t('factDescriptor'), product.statementDescriptor ?? t('none')],
               ...(product.event
@@ -479,7 +516,7 @@ function ProductActions({
             onClick={() =>
               void act(
                 () => portal.deleteProduct(product.id),
-                () => navigate('/pay/products'),
+                () => navigate(inMode('/pay/products', product.mode)),
               ).finally(() => setConfirming(false))
             }
           >

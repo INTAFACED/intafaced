@@ -8,12 +8,14 @@ import { assertPermission, type MerchantCaller } from '../merchant-ops/roles.js'
 import type { ProductImageRule } from './image-rules.js';
 
 /**
- * The product catalogue (M-catalogue-01, J-merchant-03 steps 1 and 2; archive and delete, M-adv-payments-core-20, step 4).
+ * The product catalogue (M-catalogue-01, J-merchant-03 steps 1 and 2; archive and delete, M-adv-payments-core-20, step 4;
+ * the test catalogue, M-adv-payments-core-21, step 6).
  *
  * Scoped to the caller's own business, resolved from the signed principal (`resolveMerchantCaller`): another
  * business's product or image answers exactly as one that does not exist. Every role reads (`products.read`); the
  * owner, an admin or a developer adds (`products.manage`), from an interactive session only, since an API key or a
- * session without a second factor holds no writes. The portal writes `live` products; nothing here writes `test`.
+ * session without a second factor holds no writes. A business keeps a live and a test catalogue (`mode`): a list or a
+ * create names one, live when left out, and a product reads, archives and deletes by its id in either.
  *
  * A create is keyed by the client's request id: the same id with the same details answers with the product it made,
  * the same id with other details is refused. An archived product leaves the lists and pickers that offer products
@@ -22,7 +24,15 @@ import type { ProductImageRule } from './image-rules.js';
  * when no other product shows that image. Nothing here moves money; prices are in `prices.ts`.
  */
 
-const MODE = 'live' as const;
+type Mode = MerchantProduct['mode'];
+
+/**
+ * Writes that make products in one catalogue from many lines at once (an import, a copy) take turns per business and
+ * catalogue, so two of them never both see an id free and race for it. The key keeps the name imports took it by
+ * first, so a pod still running the import alone takes the same lock during a deploy.
+ */
+export const lockCatalog = (tx: TransactionSql, merchantId: string, mode: Mode) =>
+  tx`SELECT pg_advisory_xact_lock(hashtext(${`catalog-import:${merchantId}:${mode}`}))`;
 
 type ImageType = (typeof PRODUCT_IMAGE_TYPES)[number];
 
@@ -38,6 +48,7 @@ export interface ProductRow {
   event_starts_at: Date | null;
   event_location: string | null;
   image_id: string | null;
+  copied_from: string | null;
   status: 'active' | 'archived';
   version: number;
   created_by: string;
@@ -48,7 +59,7 @@ export interface ProductRow {
 
 export const FIELDS = (sql: Sql | TransactionSql) => sql`
   id, product_key, mode, request_hash, name, type, unit_label, statement_descriptor, event_starts_at, event_location,
-  image_id, status, version, created_by, created_at, updated_at,
+  image_id, copied_from, status, version, created_by, created_at, updated_at,
   to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_ts`;
 
 export const view = (row: ProductRow): MerchantProduct => ({
@@ -61,6 +72,7 @@ export const view = (row: ProductRow): MerchantProduct => ({
   statementDescriptor: row.statement_descriptor,
   event: row.event_starts_at && row.event_location ? { startsAt: iso(row.event_starts_at), location: row.event_location } : null,
   imageId: row.image_id,
+  copiedFrom: row.copied_from,
   status: row.status,
   version: row.version,
   createdAt: iso(row.created_at),
@@ -79,6 +91,8 @@ export function assertWriter(caller: MerchantCaller): void {
 /** What a create asked for, so a replay can tell the same request from a reused id. */
 export function requestHash(input: ProductCreateInput): string {
   const canonical = {
+    // Named only for a test product, so every live create keeps the key it always had.
+    ...(input.mode === 'test' ? { mode: 'test' } : {}),
     productKey: input.productKey ?? null,
     name: input.name,
     type: input.type,
@@ -129,7 +143,12 @@ export class ProductCatalog {
 
   async list(
     caller: MerchantCaller,
-    input: { status?: 'active' | 'archived' | undefined; limit?: number | undefined; cursor?: string | undefined },
+    input: {
+      mode?: Mode | undefined;
+      status?: 'active' | 'archived' | undefined;
+      limit?: number | undefined;
+      cursor?: string | undefined;
+    },
   ) {
     assertPermission(caller, 'products.read');
     const limit = requireLimit(input.limit);
@@ -138,7 +157,7 @@ export class ProductCatalog {
     const sql = this.sql;
     const rows = await sql<ProductRow[]>`
       SELECT ${FIELDS(sql)} FROM pay.catalog_products
-       WHERE merchant_id = ${caller.merchantId} AND mode = ${MODE}
+       WHERE merchant_id = ${caller.merchantId} AND mode = ${input.mode ?? 'live'}
          ${input.status ? sql`AND status = ${input.status}` : sql``}
          ${after ? sql`AND (created_at, id) < ((${after.ts}::text)::timestamptz, ${after.key}::uuid)` : sql``}
        ORDER BY created_at DESC, id DESC
@@ -152,7 +171,7 @@ export class ProductCatalog {
     const sql = this.sql;
     const rows = await sql<ProductRow[]>`
       SELECT ${FIELDS(sql)} FROM pay.catalog_products
-       WHERE id = ${productId}::uuid AND merchant_id = ${caller.merchantId} AND mode = ${MODE}`;
+       WHERE id = ${productId}::uuid AND merchant_id = ${caller.merchantId}`;
     if (!rows[0]) throw productNotFound();
     return view(rows[0]);
   }
@@ -179,7 +198,7 @@ export class ProductCatalog {
           (merchant_id, mode, product_key, request_id, request_hash, name, type, unit_label, statement_descriptor,
            event_starts_at, event_location, image_id, created_by)
         VALUES
-          (${caller.merchantId}, ${MODE}, ${input.productKey ?? generatedKey()}, ${input.requestId}::uuid, ${hash}, ${input.name},
+          (${caller.merchantId}, ${input.mode ?? 'live'}, ${input.productKey ?? generatedKey()}, ${input.requestId}::uuid, ${hash}, ${input.name},
            ${input.type}, ${input.unitLabel ?? null}, ${input.statementDescriptor ?? null},
            ${input.event ? new Date(input.event.startsAt) : null}, ${input.event?.location ?? null}, ${input.imageId ?? null},
            ${caller.userId})
@@ -205,7 +224,7 @@ export class ProductCatalog {
     const sql = this.sql;
     const rows = await sql<ProductRow[]>`
       UPDATE pay.catalog_products SET status = ${status}, version = version + 1, updated_at = now()
-       WHERE id = ${productId}::uuid AND merchant_id = ${caller.merchantId} AND mode = ${MODE} AND status <> ${status}
+       WHERE id = ${productId}::uuid AND merchant_id = ${caller.merchantId} AND status <> ${status}
       RETURNING ${FIELDS(sql)}`;
     return rows[0] ? view(rows[0]) : this.get(caller, productId);
   }
@@ -221,7 +240,7 @@ export class ProductCatalog {
     return this.sql.begin(async (tx) => {
       const [row] = await tx<Array<{ id: string; image_id: string | null; request_id: string; request_hash: string }>>`
         SELECT id, image_id, request_id, request_hash FROM pay.catalog_products
-         WHERE id = ${productId}::uuid AND merchant_id = ${caller.merchantId} AND mode = ${MODE}
+         WHERE id = ${productId}::uuid AND merchant_id = ${caller.merchantId}
          FOR UPDATE`;
       if (!row) throw productNotFound();
       // Prices take the product's lock to be made, so none can appear between this check and the delete.

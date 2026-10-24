@@ -20,6 +20,7 @@ import { assertWriter, isUnique, productNotFound, UUID } from './products.js';
  * subscription) stays on it. Nothing here moves money; a quote only says what a price would charge.
  */
 
+/** Pickers offer live prices only: what a live document or checkout can charge. A test price reads and quotes by id. */
 const MODE = 'live' as const;
 
 interface PriceRow {
@@ -274,7 +275,7 @@ export class ProductPrices {
     const sql = this.sql;
     const [row] = await sql<PricedRow[]>`
       SELECT ${PRICED(sql)} FROM pay.catalog_prices pr JOIN pay.catalog_products p ON p.id = pr.product_id
-       WHERE pr.id = ${priceId}::uuid AND pr.merchant_id = ${caller.merchantId} AND p.mode = ${MODE}`;
+       WHERE pr.id = ${priceId}::uuid AND pr.merchant_id = ${caller.merchantId}`;
     if (!row) throw priceNotFound();
     return pricedView(row);
   }
@@ -314,14 +315,15 @@ export class ProductPrices {
   }
 
   /**
-   * What an active price of an active live product charges. A fixed price takes no amount. A customer-chosen price takes the amount the customer
-   * entered and refuses one below its minimum or above its maximum.
+   * What an active price of an active product charges, in either catalogue (the amount check on a product's page). A
+   * fixed price takes no amount. A customer-chosen price takes the amount the customer entered and refuses one below its
+   * minimum or above its maximum.
    */
   async quote(caller: MerchantCaller, input: { priceId: string; amount?: string | undefined }): Promise<PriceQuote> {
     assertPermission(caller, 'products.read');
     const sql = this.sql;
     const [row] = await sql<Array<PriceRow & { product_status: 'active' | 'archived' }>>`
-      SELECT ${FIELDS(sql)}, (SELECT p.status FROM pay.catalog_products p WHERE p.id = product_id AND p.mode = ${MODE}) AS product_status
+      SELECT ${FIELDS(sql)}, (SELECT p.status FROM pay.catalog_products p WHERE p.id = product_id) AS product_status
         FROM pay.catalog_prices WHERE id = ${input.priceId}::uuid AND merchant_id = ${caller.merchantId}`;
     if (!row || !row.product_status) throw priceNotFound();
     if (row.product_status !== 'active') throw new MerchantOpsError('pay.product_archived', 'precondition');
@@ -358,12 +360,12 @@ export class ProductPrices {
     return view(rows[0]!);
   }
 
-  /** The caller's own live product, locked for the transaction when asked; anything else is not found. */
+  /** The caller's own product, test or live, locked for the transaction when asked; anything else is not found. */
   private async product(db: Sql | TransactionSql, caller: MerchantCaller, productId: string, lock = false) {
     if (!UUID.test(productId)) throw productNotFound();
     const [row] = await db<Array<{ id: string; status: 'active' | 'archived' }>>`
       SELECT id, status FROM pay.catalog_products
-       WHERE id = ${productId}::uuid AND merchant_id = ${caller.merchantId} AND mode = ${MODE}
+       WHERE id = ${productId}::uuid AND merchant_id = ${caller.merchantId}
        ${lock ? db`FOR UPDATE` : db``}`;
     if (!row) throw productNotFound();
     return row;

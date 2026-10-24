@@ -21,6 +21,7 @@ export function createCatalogMock(ctx) {
               statementDescriptor: 'TEST TEE SHOP',
               event: null,
               imageId: null,
+              copiedFrom: null,
               status: 'active',
               version: 1,
               createdAt: iso(now - 86_400_000),
@@ -36,7 +37,16 @@ export function createCatalogMock(ctx) {
     async handle(procedure, input, route) {
       switch (procedure) {
         case 'merchantCatalog.products.list':
-          return ok(route, page(state.products.filter((p) => !input.status || p.status === input.status).map(strip), input));
+          return ok(
+            route,
+            page(
+              state.products
+                .filter((p) => p.mode === (input.mode ?? 'live'))
+                .filter((p) => !input.status || p.status === input.status)
+                .map(strip),
+              input,
+            ),
+          );
         case 'merchantCatalog.products.get': {
           const found = state.products.find((p) => p.id === input.productId);
           return found ? ok(route, strip(found)) : refuse(route, 404, 'pay.product_not_found');
@@ -45,18 +55,20 @@ export function createCatalogMock(ctx) {
           const replay = state.products.find((p) => p.requestId === input.requestId);
           if (replay) return ok(route, { product: strip(replay), replayed: true });
           const key = input.productKey ?? `prod_test${String(state.products.length + 1).padStart(12, 'a')}`;
-          if (state.products.some((p) => p.productKey === key)) return refuse(route, 409, 'pay.product_id_taken');
+          const mode = input.mode ?? 'live';
+          if (state.products.some((p) => p.mode === mode && p.productKey === key)) return refuse(route, 409, 'pay.product_id_taken');
           const at = iso(Date.now());
           const product = {
             id: hex('c1', state.products.length + 2),
             productKey: key,
-            mode: 'live',
+            mode,
             name: input.name,
             type: input.type,
             unitLabel: input.unitLabel ?? null,
             statementDescriptor: input.statementDescriptor ?? null,
             event: input.event ? { startsAt: new Date(input.event.startsAt).toISOString(), location: input.event.location } : null,
             imageId: input.imageId ?? null,
+            copiedFrom: null,
             status: 'active',
             version: 1,
             createdAt: at,
@@ -184,7 +196,8 @@ export function createCatalogMock(ctx) {
         case 'merchantCatalog.products.import': {
           // A plain stand-in: one product a line, no quoted cells. svc-pay reads full CSV and checks every column.
           state.productImports ??= [];
-          const earlier = state.productImports.find((i) => i.csv === input.csv);
+          const mode = input.mode ?? 'live';
+          const earlier = state.productImports.find((i) => i.csv === input.csv && i.mode === mode);
           if (earlier)
             return ok(route, {
               ...earlier.answer,
@@ -201,7 +214,7 @@ export function createCatalogMock(ctx) {
             if (!cell(row, 'name')) problems.push({ line: row.line, column: 'name', problem: 'value_required' });
             if (!['physical', 'digital', 'service', 'event'].includes(cell(row, 'type').toLowerCase()))
               problems.push({ line: row.line, column: 'type', problem: 'value_invalid' });
-            if (cell(row, 'product_id') && state.products.some((p) => p.productKey === cell(row, 'product_id')))
+            if (cell(row, 'product_id') && state.products.some((p) => p.mode === mode && p.productKey === cell(row, 'product_id')))
               problems.push({ line: row.line, column: 'product_id', problem: 'id_taken' });
           }
           const base = { fileSha256: 'a'.repeat(64), rows: rows.length, problems, problemCount: problems.length };
@@ -215,13 +228,14 @@ export function createCatalogMock(ctx) {
             .map((row, i) => ({
               id: hex('c1', first + i + 2),
               productKey: cell(row, 'product_id') || `prod_test${String(first + i + 1).padStart(12, 'a')}`,
-              mode: 'live',
+              mode,
               name: cell(row, 'name'),
               type: cell(row, 'type').toLowerCase(),
               unitLabel: cell(row, 'unit_label') || null,
               statementDescriptor: cell(row, 'statement_descriptor') || null,
               event: null,
               imageId: null,
+              copiedFrom: null,
               status: 'active',
               version: 1,
               createdAt: at,
@@ -230,8 +244,52 @@ export function createCatalogMock(ctx) {
             }))
             .map((product) => (state.products.unshift({ ...product, requestId: product.id }), product));
           const answer = { ...base, imported: true, replayed: false, importedAt: at, products: made };
-          state.productImports.push({ csv: input.csv, answer });
+          state.productImports.push({ csv: input.csv, mode, answer });
           return ok(route, answer);
+        }
+        case 'merchantCatalog.copy': {
+          if (input.from === input.to) return refuse(route, 400, 'pay.catalog_copy_same_mode');
+          const report = { from: input.from, to: input.to, created: [], skipped: [] };
+          const target = state.products.filter((p) => p.mode === input.to);
+          for (const source of state.products.filter((p) => p.mode === input.from).reverse()) {
+            const skip = (reason, productId) =>
+              report.skipped.push({ sourceId: source.id, productKey: source.productKey, name: source.name, reason, productId });
+            const copy = target.find((p) => p.copiedFrom === source.id || p.id === source.copiedFrom);
+            const holder = target.find((p) => p.productKey === source.productKey);
+            if (copy) skip('copied_before', copy.id);
+            else if (source.status !== 'active') skip('archived', null);
+            else if (holder) skip('id_taken', holder.id);
+            else {
+              const at = iso(Date.now());
+              const made = {
+                ...source,
+                id: hex('c1', state.products.length + 2),
+                mode: input.to,
+                copiedFrom: source.id,
+                version: 1,
+                createdAt: at,
+                updatedAt: at,
+              };
+              state.products.unshift({ ...made, requestId: made.id });
+              const prices = state.prices.filter((p) => p.productId === source.id && p.status === 'active');
+              for (const price of prices)
+                state.prices.push({
+                  ...price,
+                  id: hex('c3', state.prices.length + 1),
+                  productId: made.id,
+                  replacesId: null,
+                  requestId: hex('c4', state.prices.length + 1),
+                });
+              report.created.push({
+                sourceId: source.id,
+                productId: made.id,
+                productKey: made.productKey,
+                name: made.name,
+                prices: prices.length,
+              });
+            }
+          }
+          return ok(route, report);
         }
         case 'merchantCatalog.products.delete': {
           const at = state.products.findIndex((p) => p.id === input.productId);

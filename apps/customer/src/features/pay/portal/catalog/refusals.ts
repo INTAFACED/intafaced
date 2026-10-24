@@ -31,4 +31,6 @@ registerRefusals({
   'pay.product_import_invalid': () => catalogCopy.t('rImportInvalid'),
   'pay.product_import_empty': () => catalogCopy.t('rImportEmpty'),
   'pay.product_import_too_many_rows': () => catalogCopy.t('rImportTooManyRows'),
+  'pay.catalog_copy_too_large': () => catalogCopy.t('rCopyTooLarge'),
+  'pay.catalog_copy_conflict': () => catalogCopy.t('rCopyConflict'),
 });
