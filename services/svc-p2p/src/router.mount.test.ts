@@ -1418,6 +1418,23 @@ describe('svc-p2p mount — trade/dispute read IDOR', () => {
     expect((await read(null)).terms).toBeNull();
   });
 
+  it('gives a party the readable status and the release split from the fee rate frozen at take', async () => {
+    const ctx = signed(principal({ userId: BUYER, sub: BUYER, scopes: ['p2p:read'] }));
+    const read = (patch: Partial<typeof foreignTrade> & { resolutionReason?: string | null; resolution?: 'released' | null }) =>
+      createP2pRouter(stubP2p({ getTrade: async () => ({ ...foreignTrade, termsSnapshot: null, ...patch }) }), stubInstruments())
+        .createCaller(ctx)
+        .trades.get({ tradeId });
+    const open = await read({ amount: parseAmount('50') });
+    expect(open).toMatchObject({ displayStatus: 'waiting_for_buyer_to_pay', feeBps: 100, fee: '0.5', netAmount: '49.5' });
+    const done = await read({ amount: parseAmount('50'), status: 'released' as never, resolution: 'released', resolutionReason: 'confirmed' });
+    expect(done.displayStatus).toBe('completed');
+    // The ledger ceils the fee: the buyer's share is never rounded up.
+    const odd = await read({ amount: parseAmount('0.000000000000000003'), feeBps: 1 });
+    expect(odd).toMatchObject({ fee: '0.000000000000000001', netAmount: '0.000000000000000002' });
+    const free = await read({ amount: parseAmount('50'), feeBps: 0 });
+    expect(free).toMatchObject({ fee: '0', netAmount: '50' });
+  });
+
   it("hides another pair's dispute as NOT_FOUND rather than FORBIDDEN or 500", async () => {
     let reads = 0;
     const dispute = {

@@ -2,7 +2,7 @@ import { CounterpartyLink, p2pReturn } from './p2p-return';
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
-import { Button } from '@intafaced/ui';
+import { Button, StatusTag } from '@intafaced/ui';
 import { displayAmount } from '../../shared/money';
 import { type PersonalPayApi } from './pay-api';
 import { id, type Trade } from './schemas';
@@ -10,13 +10,20 @@ import { payCopy, PayCopy, payRefusal } from './copy';
 import { orderCopy } from './p2p-order-copy';
 import { PayAmount, PayDetails, PayFailure, PayState, PayTime } from './components';
 import { TradeStatus } from './personal/P2PDepth';
+import { orderHistoryCopy } from './personal/order-history-copy';
 import { ContactActions } from './personal/ContactActions';
 import './p2p-order.css';
 
+/** A fee rate in basis points as a percentage, in integer arithmetic: 100 → "1", 25 → "0.25", 0 → "0". */
+export function feeRate(bps: number): string {
+  const cents = bps % 100;
+  return cents === 0 ? String((bps - cents) / 100) : `${(bps - cents) / 100}.${String(cents).padStart(2, '0').replace(/0$/, '')}`;
+}
+
 /**
  * What a released order came to, from the order record alone. "Released" is the recorded decision; the ledger pays out
- * after it, so nothing is called received until the record carries the settlement time. The record has no fee, and the
- * screen says so for the buyer, whose share the fee comes out of.
+ * after it, so nothing is called received until the record carries the settlement time. The order read carries the fee
+ * frozen at take and the buyer's share after it; a record without them says the fee is not on it.
  */
 export function OrderResult({ trade, seller }: { trade: Trade; seller: boolean }) {
   const { t } = orderCopy.useCopy();
@@ -37,17 +44,39 @@ export function OrderResult({ trade, seller }: { trade: Trade; seller: boolean }
                   [t('youSent'), t('sentValue', quantity)],
                   [t('youReceivedExternal'), fiat],
                 ]
-              : [
-                  [t('youReceived'), t('receivedValue', quantity)],
-                  [t('youPaidExternal'), fiat],
-                  [t('serviceFee'), t('serviceFeeValue')],
-                ]
+              : trade.netAmount !== undefined && trade.fee !== undefined && trade.feeBps !== undefined
+                ? [
+                    [t('youReceived'), t('receivedNetValue', { amount: displayAmount(trade.netAmount), asset: trade.asset })],
+                    [t('youPaidExternal'), fiat],
+                    [
+                      t('serviceFee'),
+                      t('serviceFeeRateValue', { amount: displayAmount(trade.fee), asset: trade.asset, rate: feeRate(trade.feeBps) }),
+                    ],
+                  ]
+                : [
+                    [t('youReceived'), t('receivedValue', quantity)],
+                    [t('youPaidExternal'), fiat],
+                    [t('serviceFee'), t('serviceFeeValue')],
+                  ]
           }
         />
       )}
     </section>
   );
 }
+/** The readable status the order list shows for this order, in the same words and tone. */
+function OrderDisplayStatus({ status, display }: { status: Trade['status']; display: NonNullable<Trade['displayStatus']> }) {
+  const { t } = orderHistoryCopy.useCopy();
+  return <StatusTag status={DISPLAY_TONE[status]} label={t(display)} />;
+}
+const DISPLAY_TONE = {
+  created: 'working',
+  escrowed: 'working',
+  fiat_sent: 'working',
+  disputed: 'pending',
+  released: 'filled',
+  cancelled: 'failed',
+} as const satisfies Record<Trade['status'], 'working' | 'pending' | 'filled' | 'failed'>;
 type Outcome = ApiResult<Trade>;
 export function P2POrder({
   pay,
@@ -202,7 +231,12 @@ export function P2POrder({
                     {trade.id}
                   </p>
                   <p className="muted">
-                    <Copy k="reported" /> · <TradeStatus status={trade.status} />
+                    <Copy k="reported" /> ·{' '}
+                    {trade.displayStatus ? (
+                      <OrderDisplayStatus status={trade.status} display={trade.displayStatus} />
+                    ) : (
+                      <TradeStatus status={trade.status} />
+                    )}
                   </p>
                 </header>
                 <div className="p2p-order-quantities">

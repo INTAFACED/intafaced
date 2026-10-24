@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { test, expect } from '@playwright/test';
-import { api, fund, journeyState, tool } from './stack.mjs';
+import { api, fromUnits, fund, journeyState, tool, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { PASSKEY_ORIGIN } from './identity-factors.mjs';
 import {
@@ -678,4 +678,43 @@ test('J-p2p-01 #7 the buyer ticks the checklist and marks paid; the order moves 
   // Still one after the next svc-p2p sweep (every 30 s on the stack) has had its chance to hand it over again.
   await page.waitForTimeout(35_000);
   expect(await notices()).toHaveLength(1);
+});
+
+test('J-p2p-01 #8 the seller releases; the order says Completed with the coins after the fee, they are in the balance, and the list says Completed', async ({
+  page,
+}) => {
+  const state = journey();
+  const buyer = await api(state.buyer);
+  const seller = await api(state.seller);
+  const usdt = async () => (await buyer.balances()).USDT?.free ?? '0';
+  const before = await usdt();
+
+  // The seller saw the money in their own bank and releases the escrow once.
+  expect((await p2p(seller).mutate('trades.confirmReceived', { tradeId: state.tradeId })).status).toBe('released');
+  const trade = await p2p(buyer).query('trades.get', { tradeId: state.tradeId });
+  expect(trade).toMatchObject({ status: 'released', displayStatus: 'completed' });
+  // The release split is the fee rate frozen at take; the buyer's share is what the ledger pays out.
+  expect(fromUnits(toUnits(trade.netAmount) + toUnits(trade.fee))).toBe(fromUnits(toUnits(trade.amount)));
+  await expect
+    .poll(async () => (await p2p(buyer).query('trades.get', { tradeId: state.tradeId })).settledAt, { timeout: 30_000 })
+    .not.toBeNull();
+  await expect.poll(usdt, { timeout: 30_000 }).toBe(fromUnits(toUnits(before) + toUnits(trade.netAmount)));
+
+  await signIn(page, state.buyer);
+  await page.goto(`/uc/order?tradeId=${state.tradeId}`);
+  const order = page.getByRole('main');
+  await expect(order.locator('.p2p-order-identity')).toContainText('Completed');
+  const result = order.getByTestId('order-result');
+  await expect(result).toContainText(`${trade.netAmount} USDT, after the service fee`);
+  await expect(result).toContainText(`${trade.fee} USDT (`);
+
+  // The order list puts it under Completed, in the same words.
+  await page.goto('/uc/order');
+  const row = page.locator(`tr[data-order="${state.tradeId}"]`);
+  await expect(row).toContainText('Completed');
+  await page
+    .getByTestId('order-filters')
+    .getByRole('button', { name: /^Completed \(\d+\)$/ })
+    .click();
+  await expect(row).toBeVisible();
 });

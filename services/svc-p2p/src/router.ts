@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { AuthError, requireMfa, type Principal } from '@intafaced/auth';
 import { router, publicProcedure, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import { enabledFiat } from '@intafaced/config';
-import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
+import { formatAmount, mulBps, parseAmount, sub, type Amount } from '@intafaced/ledger-client';
 import {
   ActionApprovalConsumeError,
   consumeDisputeResolveApproval,
@@ -205,7 +205,17 @@ const tradeOutput = z.object({
   settledAt: z.string().nullable(),
 });
 /** One order as its page reads it: plus the ad's terms as they were when it was placed (null before terms were copied). */
-const tradeDetailOutput = tradeOutput.extend({ terms: z.string().nullable() });
+/**
+ * `trades.get` adds what one order page needs: the ad's terms when placed, the readable status the order list shows,
+ * and the release split from the fee rate frozen at take, computed as the ledger's escrow release does (`mulBps`).
+ */
+const tradeDetailOutput = tradeOutput.extend({
+  terms: z.string().nullable(),
+  displayStatus: z.enum(DISPLAY_STATUSES),
+  feeBps: z.number().int(),
+  fee: amountString,
+  netAmount: amountString,
+});
 
 const blockQuoteOutput = z.object({
   quoteId: z.string().guid(),
@@ -1338,7 +1348,15 @@ export function createP2pRouter(
             if (trade.buyerId !== ctx.principal.userId && trade.sellerId !== ctx.principal.userId) {
               throw unknownTrade(input.tradeId);
             }
-            return { ...toTradeOut(trade), terms: trade.termsSnapshot };
+            const fee = mulBps(trade.amount, trade.feeBps);
+            return {
+              ...toTradeOut(trade),
+              terms: trade.termsSnapshot,
+              displayStatus: displayStatus(trade),
+              feeBps: trade.feeBps,
+              fee: formatAmount(fee),
+              netAmount: formatAmount(sub(trade.amount, fee)),
+            };
           }),
         ),
 
