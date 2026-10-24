@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import postgres from 'postgres';
 import type { Principal } from '@intafaced/auth';
-import { createTestDatabase } from '@intafaced/db';
+import { createTestDatabase, postgresAvailable } from '@intafaced/db';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader, type AnnouncementSaveInput } from '@intafaced/contracts';
 import { migrateOutreach } from '../db/migrate.js';
 import { OpsService } from '../ops-service.js';
@@ -173,30 +173,38 @@ describe('console announcement banner', () => {
   });
 });
 
-describe.runIf(Boolean(process.env.TEST_DATABASE_URL))('console announcement banner on real PostgreSQL', () => {
-  it('keeps one active window, survives a new store, and its log is append-only', async () => {
-    const database = await createTestDatabase({ service: 'ops' });
-    const sql = postgres(database.url, { max: 4, onnotice: () => undefined });
-    try {
-      await migrateOutreach(sql);
-      const { caller } = build(new SqlAnnouncementStore(sql));
-      const c = await caller();
-      const input = draft();
-      const first = await c.announcements.save(input);
-      expect(await c.announcements.save(input)).toMatchObject({ outcome: 'replayed', announcement: { id: first.announcement.id } });
-      await c.announcements.save(draft({ publish: false }));
-      expect((await new SqlAnnouncementStore(sql).activeAt(at(T0)))?.id).toBe(first.announcement.id);
-      // The table refuses two overlapping published windows even past the desk's own check.
-      await expect(
-        sql`UPDATE ops.console_announcements SET status = 'published', published_at = now() WHERE id <> ${first.announcement.id}`,
-      ).rejects.toThrow();
-      await c.announcements.change({ id: first.announcement.id, op: 'withdraw' });
-      expect(await new SqlAnnouncementStore(sql).activeAt(at(T0))).toBeNull();
-      await expect(sql`DELETE FROM ops.console_announcement_log`).rejects.toThrow(/append-only/);
-      await migrateOutreach(sql, 'down');
-    } finally {
-      await sql.end();
-      await database.drop();
-    }
+const announcementsPg = await postgresAvailable();
+
+if (!announcementsPg) {
+  describe.skip('console announcement banner (Postgres unavailable)', () => {
+    it('skipped', () => undefined);
   });
-});
+} else {
+  describe('console announcement banner on real PostgreSQL', () => {
+    it('keeps one active window, survives a new store, and its log is append-only', async () => {
+      const database = await createTestDatabase({ service: 'ops' });
+      const sql = postgres(database.url, { max: 4, onnotice: () => undefined });
+      try {
+        await migrateOutreach(sql);
+        const { caller } = build(new SqlAnnouncementStore(sql));
+        const c = await caller();
+        const input = draft();
+        const first = await c.announcements.save(input);
+        expect(await c.announcements.save(input)).toMatchObject({ outcome: 'replayed', announcement: { id: first.announcement.id } });
+        await c.announcements.save(draft({ publish: false }));
+        expect((await new SqlAnnouncementStore(sql).activeAt(at(T0)))?.id).toBe(first.announcement.id);
+        // The table refuses two overlapping published windows even past the desk's own check.
+        await expect(
+          sql`UPDATE ops.console_announcements SET status = 'published', published_at = now() WHERE id <> ${first.announcement.id}`,
+        ).rejects.toThrow();
+        await c.announcements.change({ id: first.announcement.id, op: 'withdraw' });
+        expect(await new SqlAnnouncementStore(sql).activeAt(at(T0))).toBeNull();
+        await expect(sql`DELETE FROM ops.console_announcement_log`).rejects.toThrow(/append-only/);
+        await migrateOutreach(sql, 'down');
+      } finally {
+        await sql.end();
+        await database.drop();
+      }
+    });
+  });
+}

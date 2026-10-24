@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import postgres from 'postgres';
 import type { Principal } from '@intafaced/auth';
-import { createTestDatabase } from '@intafaced/db';
+import { createTestDatabase, postgresAvailable } from '@intafaced/db';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader, UNSET_PREFERENCES } from '@intafaced/contracts';
 import { migrateOutreach } from '../db/migrate.js';
 import { OpsService } from '../ops-service.js';
@@ -42,7 +42,7 @@ function build(store: PreferenceStore | null = new MemoryPreferenceStore()) {
   };
 }
 
-const values = (over: Partial<typeof UNSET_PREFERENCES>) => ({ ...UNSET_PREFERENCES, ...over });
+const values = (over: Partial<Record<keyof typeof UNSET_PREFERENCES, string | null>>) => ({ ...UNSET_PREFERENCES, ...over });
 
 describe('console preferences', () => {
   it('with nothing set, every preference is the server’s; the team level names its blocker', async () => {
@@ -129,31 +129,39 @@ describe('console preferences', () => {
   });
 });
 
-describe.runIf(Boolean(process.env.TEST_DATABASE_URL))('console preferences on real PostgreSQL', () => {
-  it('stores each level once, logs before and after, and the log is append-only', async () => {
-    const database = await createTestDatabase({ service: 'ops' });
-    const sql = postgres(database.url, { max: 4, onnotice: () => undefined });
-    try {
-      await migrateOutreach(sql);
-      const { as } = build(new SqlPreferenceStore(sql));
-      const a = await as();
-      await a.preferences.set({ level: 'organisation', expectedRevision: 0, values: values({ timeZone: 'Europe/Berlin' }) });
-      await a.preferences.set({ level: 'person', expectedRevision: 0, values: values({ timeZone: 'Asia/Dubai' }) });
-      await a.preferences.set({ level: 'person', expectedRevision: 1, values: values({ weekStart: 'saturday' }) });
-      // Two saves from the same read: the second is refused, and the first one's values stay.
-      await expect(a.preferences.set({ level: 'person', expectedRevision: 1, values: values({}) })).rejects.toThrow(
-        /ops\.preferences_stale/,
-      );
-      const fresh = await (await build(new SqlPreferenceStore(sql)).as()).preferences.get();
-      expect(fresh.effective.timeZone).toEqual({ value: 'Europe/Berlin', from: 'organisation' });
-      expect(fresh.effective.weekStart).toEqual({ value: 'saturday', from: 'person' });
-      const log = await sql<{ before: { timeZone: string | null } }[]>`SELECT before FROM ops.console_preference_log ORDER BY seq`;
-      expect(log.map((r) => r.before.timeZone)).toEqual([null, null, 'Asia/Dubai']);
-      await expect(sql`DELETE FROM ops.console_preference_log`).rejects.toThrow(/append-only/);
-      await migrateOutreach(sql, 'down');
-    } finally {
-      await sql.end();
-      await database.drop();
-    }
+const preferencesPg = await postgresAvailable();
+
+if (!preferencesPg) {
+  describe.skip('console preferences (Postgres unavailable)', () => {
+    it('skipped', () => undefined);
   });
-});
+} else {
+  describe('console preferences on real PostgreSQL', () => {
+    it('stores each level once, logs before and after, and the log is append-only', async () => {
+      const database = await createTestDatabase({ service: 'ops' });
+      const sql = postgres(database.url, { max: 4, onnotice: () => undefined });
+      try {
+        await migrateOutreach(sql);
+        const { as } = build(new SqlPreferenceStore(sql));
+        const a = await as();
+        await a.preferences.set({ level: 'organisation', expectedRevision: 0, values: values({ timeZone: 'Europe/Berlin' }) });
+        await a.preferences.set({ level: 'person', expectedRevision: 0, values: values({ timeZone: 'Asia/Dubai' }) });
+        await a.preferences.set({ level: 'person', expectedRevision: 1, values: values({ weekStart: 'saturday' }) });
+        // Two saves from the same read: the second is refused, and the first one's values stay.
+        await expect(a.preferences.set({ level: 'person', expectedRevision: 1, values: values({}) })).rejects.toThrow(
+          /ops\.preferences_stale/,
+        );
+        const fresh = await (await build(new SqlPreferenceStore(sql)).as()).preferences.get();
+        expect(fresh.effective.timeZone).toEqual({ value: 'Europe/Berlin', from: 'organisation' });
+        expect(fresh.effective.weekStart).toEqual({ value: 'saturday', from: 'person' });
+        const log = await sql<{ before: { timeZone: string | null } }[]>`SELECT before FROM ops.console_preference_log ORDER BY seq`;
+        expect(log.map((r) => r.before.timeZone)).toEqual([null, null, 'Asia/Dubai']);
+        await expect(sql`DELETE FROM ops.console_preference_log`).rejects.toThrow(/append-only/);
+        await migrateOutreach(sql, 'down');
+      } finally {
+        await sql.end();
+        await database.drop();
+      }
+    });
+  });
+}
