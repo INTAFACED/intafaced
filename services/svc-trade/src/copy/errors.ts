@@ -66,7 +66,11 @@ export type CopyErrorCode =
   | 'trade.copy_leader_request_mismatch'
   | 'trade.copy_leader_record_blank'
   | 'trade.copy_leader_state_invalid'
-  | 'trade.copy_leader_state_reason_unset';
+  | 'trade.copy_leader_state_reason_unset'
+  | 'trade.copy_leader_mode_invalid'
+  | 'trade.copy_leader_search_invalid'
+  | 'trade.copy_leader_trades_limit_unset'
+  | 'trade.copy_leader_trades_cursor_invalid';
 
 /**
  * Closed set for the customer desk and blank-law refusals.
