@@ -1,5 +1,8 @@
 import { z } from 'zod';
 import {
+  ASSET_ACTIONS,
+  ASSET_STATES,
+  REGISTRY_ASSET_KINDS,
   router,
   publicProcedure,
   scopedProcedure,
@@ -127,6 +130,32 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     loans,
     cards,
     ramps,
+    assets: router({
+      /**
+       * W-balances-05: svc-ledger's supported asset and network list, every state, retired included, so history that
+       * names a retired asset still resolves. The same rows the address book offers and the deposit catalogue is narrowed
+       * to. No registry, or an unreadable one, refuses `bank.asset_registry_unavailable`; never an empty list.
+       */
+      list: scopedProcedure('bank:read', { module: 'bank' })
+        .output(
+          z.object({
+            assets: z.array(
+              z
+                .object({
+                  assetId: z.string(),
+                  kind: z.enum(REGISTRY_ASSET_KINDS),
+                  precision: z.number().int().nonnegative(),
+                  networks: z.array(z.object({ networkId: z.string(), label: z.string() }).strict()),
+                  defaultNetworkId: z.string().nullable(),
+                  allowedActions: z.array(z.enum(ASSET_ACTIONS)),
+                  state: z.enum(ASSET_STATES),
+                })
+                .strict(),
+            ),
+          }),
+        )
+        .query(() => guard(async () => ({ assets: await bank.supportedAssets.list() }))),
+    }),
     deposits: router({
       /**
        * Assets custody says can be paid in, and the pairs the owner switched off. A blank port refuses

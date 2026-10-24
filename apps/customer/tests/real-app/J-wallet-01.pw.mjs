@@ -6,7 +6,8 @@ import { awayBid, confirm, deskPath, free, held, openDesk, openOrders, reviewLim
 // One test per step, titled "J-wallet-01 #<n>", run in order on one verified TEST account funded with TEST 500 USDT.
 // Every figure on screen is checked against the ledger through the customer's own API. #4 holds TEST gold (XAU): the
 // stack lists it only against USD, and a coin is priced only against USDT or USDC, so no price is published for it.
-// Not here yet: #5, an asset and network list.
+// #5 reads the ledger's asset registry, which the stack's founders publish (`local-test-gates.mjs assets`): TEST USDT and
+// USDC, and TESTRETIRED, a TEST asset published retired, which the account is credited so its history has a line.
 const J = 'J-wallet-01';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
@@ -136,6 +137,74 @@ test(`${J} #4 holds an asset with no published price: its value says so, never z
   const note = page.locator('.money-note').filter({ hasText: 'Excludes' });
   await expect(note).toContainText('Excludes 1 coin (no USD price)');
   await expect(note).toContainText('Not counted: XAU');
+});
+
+const RETIRED = 'TESTRETIRED';
+
+test(`${J} #5 opens the asset and network list: the rows Deposit and Withdraw use, and a retired asset stays listed with its history`, async ({
+  page,
+}) => {
+  const who = account();
+  const credit = fund(who.email, RETIRED, '5', `jw01-ret-${who.email.split('@')[0].replace(/[^A-Za-z0-9-]/g, '')}`.slice(0, 64));
+  expect(credit.out).toMatch(/TEST FUNDS credited/);
+  const customer = await api(who);
+  const read = async (procedure) => {
+    const { status, body } = await customer.get(`/api/bank/trpc/${procedure}`);
+    expect(status, `${procedure}: ${JSON.stringify(body).slice(0, 300)}`).toBe(200);
+    return body.result.data;
+  };
+  const { assets: listed } = await read('assets.list');
+  const withdrawable = await read('ramps.destinations.networks');
+  const deposits = await read('deposits.assets');
+  const row = (id) => listed.find((asset) => asset.assetId === id);
+
+  // Withdraw's address book offers exactly the listed rows that are active and allow withdrawals, at the same precision.
+  expect(withdrawable).toEqual(
+    listed
+      .filter((asset) => asset.state === 'active' && asset.allowedActions.includes('withdraw') && asset.networks.length > 0)
+      .map(({ assetId, precision, networks, defaultNetworkId }) => ({ assetId, precision, networks, defaultNetworkId })),
+  );
+  // Deposit offers only pairs the list allows for deposits; the retired asset takes none.
+  expect(deposits.assets.length).toBeGreaterThan(0);
+  for (const asset of deposits.assets) {
+    expect(row(asset.assetId)).toMatchObject({ state: 'active', allowedActions: expect.arrayContaining(['deposit']) });
+    for (const network of asset.networks) expect(row(asset.assetId).networks.map((n) => n.networkId)).toContain(network.id);
+  }
+  expect(deposits.assets.map((asset) => asset.assetId)).not.toContain(RETIRED);
+  expect(row(RETIRED)).toMatchObject({ state: 'retired', allowedActions: [] });
+
+  // The page: from Deposit, every listed row with its precision and networks, the retired one marked and linked to its history.
+  await signIn(page, who);
+  await page.goto('/uc/recharge');
+  await page.mouse.move(0, 600);
+  await page.getByRole('link', { name: 'Supported assets and networks' }).click();
+  await expect(page).toHaveURL(/\/uc\/assets$/);
+  await expect(page.getByRole('heading', { name: 'Supported assets and networks', level: 1 })).toBeVisible();
+  const table = page.getByTestId('supported-assets');
+  await expect(table.locator('tbody tr')).toHaveCount(listed.length);
+  for (const asset of listed) {
+    const tr = table.locator(`tr[data-asset="${asset.assetId}"]`);
+    await expect(tr.locator('[data-col="precision"]')).toHaveText(String(asset.precision));
+    await expect(tr.locator('[data-col="networks"] li')).toHaveText(
+      asset.networks.map((n) => (n.networkId === asset.defaultNetworkId ? `${n.label} (default)` : n.label)),
+    );
+    await expect(tr).toHaveAttribute('data-state', asset.state);
+  }
+  const usdt = table.locator('tr[data-asset="USDT"]');
+  await expect(usdt.locator('[data-col="actions"]')).toContainText('Deposit');
+  await expect(usdt.locator('[data-col="actions"]')).toContainText('Withdraw');
+  const retired = table.locator(`tr[data-asset="${RETIRED}"]`);
+  await expect(retired.locator('[data-col="state"]')).toContainText('Retired');
+  await expect(retired.locator('[data-col="state"]')).toContainText('What you hold and your history with it stay.');
+  await expect(retired.locator('[data-col="actions"]')).toHaveText('Nothing new');
+  await retired.getByRole('link', { name: `Your ${RETIRED} history` }).click();
+  await expect(page).toHaveURL(new RegExp(`/money/balance/${RETIRED}$`));
+  await expect(page.getByRole('region', { name: `${RETIRED} balance, entry by entry` })).toContainText(credit.tx);
+
+  // Withdraw links the same list.
+  await page.goto('/uc/withdraw');
+  await page.mouse.move(0, 600);
+  await expect(page.getByRole('link', { name: 'Supported assets and networks' })).toHaveAttribute('href', '/uc/assets');
 });
 
 test(`${J} #6 opens membership on Account: with no tier published, it says membership is not offered`, async ({ page }) => {

@@ -18,6 +18,7 @@ import { BANK_PAYEE_COOLING_HOURS_ENV, PayeeService } from './rail-sends/payees.
 import { BANK_ADDRESS_BOOK_CAP_ENV } from './withdraw-destination.js';
 import { BANK_OFFRAMP_COOLING_HOURS_ENV } from './offramp-cooling.js';
 import { DepositService, type DepositServiceOptions } from './deposits/deposit-service.js';
+import { listSupportedAssets, type AssetRegistryReads, type SupportedAssetView } from './assets/supported-assets.js';
 import { AutoInvestService, type AutoInvestServiceOptions } from './auto-invest/auto-invest-service.js';
 import { BusinessService } from './business/business-service.js';
 import { unconfiguredBusinessDirectory, type BusinessDirectoryPort, type BusinessLookupLimiter } from './business/business-directory.js';
@@ -92,6 +93,8 @@ export interface BankServices {
   /** BK-xfer-06: the recipient book for bank rails, with the owner's cooling-off on a new recipient. */
   readonly railPayees: PayeeService;
   readonly deposits: DepositService;
+  /** W-balances-05: svc-ledger's supported asset and network list, every state, as customers read it. */
+  readonly supportedAssets: { list(): Promise<SupportedAssetView[]> };
   readonly autoInvest: AutoInvestService;
   readonly business: BusinessService;
   readonly bills: BillPayService;
@@ -167,6 +170,11 @@ export interface BankServiceOptions {
    * This service does not derive an address.
    */
   deposits?: DepositServiceOptions;
+  /**
+   * svc-ledger's asset and network registry (W-balances-05). The customer's supported-asset list reads it, and the
+   * deposit catalogue is narrowed to it. Unset refuses both with `bank.asset_registry_unavailable`.
+   */
+  assetRegistry?: AssetRegistryReads | null;
   /**
    * Account details and the eligibility statement (BK-acct-03). The currencies and the rule set are the owner's and have no
    * default; the banking partner is not wired today, so details refuse `rail.bank`.
@@ -294,7 +302,9 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     offrampCoolingHours: () =>
       options.ramps?.offrampCoolingHours !== undefined ? options.ramps.offrampCoolingHours : process.env[BANK_OFFRAMP_COOLING_HOURS_ENV],
   });
-  const deposits = new DepositService(sql, options.deposits ?? {});
+  const assetRegistry = options.assetRegistry ?? null;
+  const deposits = new DepositService(sql, { ...options.deposits, registry: assetRegistry });
+  const supportedAssets = { list: () => listSupportedAssets(assetRegistry) };
   // The owner's window for a new recipient: a value passed in wins, otherwise the live env. Blank refuses a send.
   const railPayees = new PayeeService(sql, () =>
     options.payeeCoolingHours !== undefined ? options.payeeCoolingHours : process.env[BANK_PAYEE_COOLING_HOURS_ENV],
@@ -355,6 +365,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     railSends: new RailSendService(sql, spaces, railPayees),
     railPayees,
     deposits,
+    supportedAssets,
     autoInvest,
     business,
     bills,

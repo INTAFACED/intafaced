@@ -929,6 +929,21 @@ export const TEST_ASSET_ROWS = ['USDT', 'USDC'].map((id) => ({
   allowedActions: ['deposit', 'withdraw', 'trade', 'transfer'],
   state: 'active',
 }));
+/**
+ * A LOCAL TEST asset published retired (J-wallet-01 #5): a retired asset stays in the customer's supported-asset list with
+ * its history, and nothing new is allowed on it. Its id names it TEST; it is no real coin, so its places are part of this
+ * TEST row, not an owner value. Journeys credit it TEST funds so the history has a line.
+ */
+export const TEST_RETIRED_ASSET_ROW = {
+  id: 'TESTRETIRED',
+  kind: 'crypto',
+  precision: 6,
+  networks: [{ networkId: 'ethereum', label: 'TEST Ethereum' }],
+  defaultNetworkId: 'ethereum',
+  allowedActions: [],
+  state: 'retired',
+};
+const PUBLISHED_TEST_ASSET_ROWS = [...TEST_ASSET_ROWS, TEST_RETIRED_ASSET_ROW];
 export const ASSET_EDIT_ACTION = 'ledger.asset_edit';
 
 /** True when the published row already says what the TEST row says (revision and clock aside). */
@@ -988,7 +1003,7 @@ export async function publishAssetRegistry(ctx) {
   if (listed.status !== 200 || !Array.isArray(listed.json?.assets))
     throw new Error(`ledger GET /operator/assets refused (${listed.status}): ${listed.text.slice(0, 300)}`);
   const out = [];
-  for (const want of TEST_ASSET_ROWS) {
+  for (const want of PUBLISHED_TEST_ASSET_ROWS) {
     const row = listed.json.assets.find((a) => a.id === want.id) ?? null;
     if (assetRowMatches(row, want)) {
       out.push({ assetId: want.id, status: 'already published', revision: row.revision });

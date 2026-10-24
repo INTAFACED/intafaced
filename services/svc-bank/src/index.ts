@@ -120,6 +120,7 @@ const bus = await JetStreamEventBus.connect({
   ownedStreams: ['bank'],
 });
 
+const assetRegistry = createLedgerAssetRegistry(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s);
 const bank = createBankServices(sql, ledger, history, {
   nativeAssetId: env.TOKEN_ASSET_ID,
   payeeCoolingHours: env.BANK_PAYEE_COOLING_HOURS,
@@ -132,6 +133,9 @@ const bank = createBankServices(sql, ledger, history, {
   deposits: {
     custody: createPayCustodyDepositPort(createPayCustodyDepositClient({ payUrl: env.PAY_URL, secret: env.INTERNAL_SERVICE_SECRET })),
   },
+  // svc-ledger's asset and network registry (W-balances-05): the customer's supported-asset list, and the deposit catalogue
+  // narrowed to it. The address book reads the same instance below.
+  assetRegistry,
   // Frozen/closed recipients are refused before any posting. Identity owns that
   // state; with no IDENTITY_URL every credit to ANOTHER user refuses
   // `bank.recipient_check_unset` (see the boot warning below). No default of
@@ -305,7 +309,7 @@ const bank = createBankServices(sql, ledger, history, {
       NODE_ENV: process.env.NODE_ENV,
     }),
     /** Which asset may be withdrawn on which network: svc-ledger's registry, the one list deposit and trade read too. */
-    withdrawNetworks: createLedgerAssetRegistry(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s),
+    withdrawNetworks: assetRegistry,
   },
 });
 

@@ -8,6 +8,7 @@ import { useSession } from '../session/session';
 import { amount, date, Section } from './components';
 import { WithdrawForm } from './WithdrawForm';
 import { allowlistCopy } from './withdrawal-allowlist-copy';
+import { supportedAssetsCopy } from './supported-assets-copy';
 import { approvalCopy } from './withdrawal-approval-copy';
 import { withdrawalCopy } from './withdrawal-copy';
 import {
@@ -319,6 +320,9 @@ export function Withdrawal({ context, search }: { context: WithdrawalReadContext
             </a>{' '}
             <a className="text-link" href="/uc/withdraw/allowlist">
               {allowlistCopy.t('title')} ↗
+            </a>{' '}
+            <a className="text-link" href="/uc/assets">
+              {supportedAssetsCopy.t('linkLabel')} ↗
             </a>
           </p>
         )}

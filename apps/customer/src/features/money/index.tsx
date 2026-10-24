@@ -12,6 +12,7 @@ import { WithdrawalApprovals } from './WithdrawalApprovals';
 import { WithdrawalAddresses } from './WithdrawalAddresses';
 import { ApproveAddress } from './ApproveAddress';
 import { Deposit } from './Deposit';
+import { SupportedAssets } from './SupportedAssets';
 import { pendingKey, pendingOutcomes, restorePendingOutcomes } from './pending-outcomes';
 import './money.css';
 
@@ -121,6 +122,7 @@ function MoneyRooms({ path }: { path: string }) {
   const match = pathname.match(/^\/(?:portfolio|money\/asset)\/([^/]+)(\/repeat-buy)?$/);
   let content;
   if (pathname === '/uc/recharge') content = <Deposit />;
+  else if (pathname === '/uc/assets') content = <SupportedAssets />;
   else if (pathname === '/uc/withdraw/address')
     content = <WithdrawalAddresses key={`addresses:${revision}:${context.epoch}`} open={open} />;
   // Read once: the page takes the link's token out of the address bar.

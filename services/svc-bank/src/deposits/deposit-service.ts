@@ -2,6 +2,7 @@ import type { Sql } from 'postgres';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import type { PayCustodyDepositStatus } from '@intafaced/contracts';
 import { BankError } from '../errors.js';
+import { readRegistry, registryAllowsDeposit, type AssetRegistryReads } from '../assets/supported-assets.js';
 import {
   unsetCustodyDepositPort,
   type CustodyDepositAddress,
@@ -17,6 +18,13 @@ import {
 /**
  * Customer crypto deposits. Catalogue, address, and pending rows come from
  * the custody port. This service posts nothing to the ledger and derives no key.
+ *
+ * The catalogue is narrowed to svc-ledger's asset registry (W-balances-05): a pair
+ * is offered, and given an address, only while the registry lists the asset as
+ * active, allowing deposits, on that network. So Deposit, Withdraw and the
+ * customer's supported-asset list read one set of rows; a retired asset takes no
+ * new address, and its history stays readable. No registry, or an unreadable one,
+ * refuses `bank.asset_registry_unavailable`: custody alone never decides.
  */
 
 const ASSET_RE = /^[A-Za-z0-9]{1,16}$/;
@@ -69,23 +77,41 @@ interface AddressRow {
 
 export interface DepositServiceOptions {
   custody?: CustodyDepositPort | null;
+  /** svc-ledger's registry. Absent refuses every catalogue and address read; it is never read as "everything allowed". */
+  registry?: AssetRegistryReads | null;
 }
 
 export class DepositService {
   private readonly custody: CustodyDepositPort;
+  private readonly registry: AssetRegistryReads | null;
 
   constructor(
     private readonly sql: Sql,
     options: DepositServiceOptions = {},
   ) {
     this.custody = options.custody ?? unsetCustodyDepositPort;
+    this.registry = options.registry ?? null;
   }
 
   async assets(): Promise<{ assets: PublishedDepositAsset[]; halted: HaltedDepositView[] }> {
     const published = await this.readCatalogue();
     if (published === null) refuseCustody('Deposit assets are not published');
     const assets = validateCatalogue(published.assets);
-    return { assets, halted: validateHalted(published.halted, assets) };
+    // The custody catalogue is checked whole first, so a broken one is still refused as broken; then the registry narrows it.
+    const halted = validateHalted(published.halted, assets);
+    const allows = await this.registryAllows();
+    return {
+      assets: assets
+        .map((asset) => ({ ...asset, networks: asset.networks.filter((network) => allows(asset.assetId, network.id)) }))
+        .filter((asset) => asset.networks.length > 0),
+      halted: halted.filter((row) => allows(row.assetId, row.networkId)),
+    };
+  }
+
+  /** The registry's answer for each pair, read once per request. */
+  private async registryAllows(): Promise<(assetId: string, networkId: string) => boolean> {
+    const registry = await readRegistry(this.registry);
+    return (assetId, networkId) => registryAllowsDeposit(registry, assetId, networkId);
   }
 
   /** One custody read. A port that knows nothing of switched-off pairs names none. */
@@ -109,6 +135,13 @@ export class DepositService {
       throw new BankError(`Deposits of ${input.assetId} on ${input.networkId} are switched off`, 'bank.deposit_network_halted');
     }
     const network = findNetwork(assets, input.assetId, input.networkId);
+    // Before any stored address is returned: a pair the registry no longer allows (retired, halted, network dropped) gets none.
+    if (!(await this.registryAllows())(network.assetId, network.networkId)) {
+      throw new BankError(
+        `${network.assetId} on ${network.networkId} is not in the supported asset list for deposits`,
+        'bank.deposit_asset_unpublished',
+      );
+    }
 
     const existing = await this.sql<AddressRow[]>`
       SELECT asset_id, network_id, address, memo, qr_payload

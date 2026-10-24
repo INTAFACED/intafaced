@@ -56,6 +56,13 @@ Unconfigured product surfaces refuse without posting: `cards.rewards` names
 programme never claims live fiat settlement; kind `fiat` refuses
 `bank.fiat_ramp_socket` before any row or ledger post.
 
+**Supported assets and networks (W-balances-05).** svc-ledger's registry (`/trpc/assetsList`) is the one list. `assets.list`
+(`bank:read`) hands customers every published row, any state: a retired asset stays listed so history that names it still
+resolves. The address book offers only active rows that allow withdrawals (`ramps.destinations.networks`), and the deposit
+catalogue (`deposits.assets`, `deposits.address`) is narrowed to pairs the registry lists as active, allowing deposits, on that
+network: a retired, halted or deposit-less asset takes no new address, not even one issued before. No registry, or an
+unreadable one, refuses `bank.asset_registry_unavailable`; custody alone never decides.
+
 **Recipients who cannot receive.** Every credit to another user (`transfers.toUser`,
 `transfers.create` to someone else's space, `scheduleToUser` and each standing-order run, business
 payroll and proposals) first asks svc-identity (`GET /internal/account/:userId`, service-signed, a
