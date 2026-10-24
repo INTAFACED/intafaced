@@ -211,8 +211,10 @@ test('portfolio from the bank at 1440x900: numbers, layout, words, keyboard path
   ]);
   const btc = page.locator('#crypto tr[data-asset="BTC"]');
   expect(await seen(btc.locator('td').nth(1))).toEqual(['0.1 BTC']);
-  expect(await texts(btc.locator('td').nth(2))).toEqual(['$6,781.24']);
-  expect(await texts(btc.locator('td').nth(3))).toEqual(['▲+$181.24 (+2.75%)']);
+  // The price the bank valued it at, then the value it gives.
+  expect(await texts(btc.locator('td').nth(2))).toEqual(['$67,812.40']);
+  expect(await texts(btc.locator('td').nth(3))).toEqual(['$6,781.24']);
+  expect(await texts(btc.locator('td').nth(4))).toEqual(['▲+$181.24 (+2.75%)']);
   // No link to the old coin page (critic H3): the row's own buttons are the way on.
   expect(await page.locator('.if-money a[href^="/coin/"]').count()).toBe(0);
   // Unpriced rows show a dash, never zero.
@@ -245,7 +247,7 @@ test('portfolio from the bank at 1440x900: numbers, layout, words, keyboard path
   await expect(page.locator('tr[data-asset="DOGE"]')).toHaveCount(0);
   await page.locator('.money-small__trigger').click();
   await expect(page.locator('tr[data-asset="DOGE"]')).toBeVisible();
-  expect(await texts(page.locator('tr[data-asset="DOGE"] td').nth(2))).toEqual(['$0.6173']);
+  expect(await texts(page.locator('tr[data-asset="DOGE"] td').nth(3))).toEqual(['$0.6173']);
   await page.locator('.money-small__trigger').click();
 
   // Named accounts, each with its balance (the main account is not one of them).
@@ -577,6 +579,7 @@ test('Pro Money: Available and In orders columns, 40 px rows, hero 32/40, Buy an
   expect(await seen(page.locator('#crypto > .money-table thead th'))).toEqual([
     'Coin',
     'Amount',
+    'Price',
     'Value',
     'Today',
     'Available',
@@ -685,7 +688,7 @@ test('Simple Money has no Available and In orders columns', async ({ page }) => 
   await simple(page);
   await mock(page);
   await open(page);
-  expect(await seen(page.locator('#crypto > .money-table thead th'))).toEqual(['Coin', 'Amount', 'Value', 'Today', 'Actions']);
+  expect(await seen(page.locator('#crypto > .money-table thead th'))).toEqual(['Coin', 'Amount', 'Price', 'Value', 'Today', 'Actions']);
 });
 
 test('Money lists the named accounts only when one of them holds something (critic M9)', async ({ page }) => {

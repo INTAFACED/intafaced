@@ -340,7 +340,7 @@ export function valuePortfolio(input: ValuationInput): PortfolioSummary {
       priceSymbol: null,
     };
     if (PAR_ASSETS.has(asset.toUpperCase())) {
-      values.push({ holding: base, value: total, change: ZERO, prior: total, windowStart: null });
+      values.push({ holding: { ...base, priceUsd: '1' }, value: total, change: ZERO, prior: total, windowStart: null });
       continue;
     }
     if (base.class === 'cash') {
@@ -359,7 +359,7 @@ export function valuePortfolio(input: ValuationInput): PortfolioSummary {
       const change = open === null ? null : times(total, sub(last, open));
       const partial = ticker?.windowStart != null && ticker.windowStart > input.nowMs - DAY_MS ? ticker.windowStart : null;
       values.push({
-        holding: { ...base, priceSymbol: symbol },
+        holding: { ...base, priceSymbol: symbol, priceUsd: str(last) },
         value,
         change,
         prior: open === null ? null : times(total, open),
