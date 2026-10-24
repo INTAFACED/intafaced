@@ -1393,7 +1393,7 @@ export const recipes = {
   payReceivedRelease,
   payReceivedReturn,
   bankTransferReversal,
-  // ops staff holds (OPS-accounts-desk-01, ops ENGINE LC-8/LC-9). §13 until svc-ops posts them. See ./staff-hold.ts.
+  // ops staff holds (OPS-accounts-desk-01, ops ENGINE LC-8/LC-9), posted by svc-ops staff-holds/desk.ts. See ./staff-hold.ts.
   staffHoldPlace,
   staffHoldRelease,
   staffHoldConfirm,

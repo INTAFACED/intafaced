@@ -69,6 +69,8 @@ import type { AnnouncementStore } from './console-announcements/store.js';
 import { createPreferencesRouter } from './console-preferences/router.js';
 import type { PreferenceStore } from './console-preferences/store.js';
 import { createServiceRecordsRouter } from './service-records/router.js';
+import { StaffHoldDesk } from './staff-holds/desk.js';
+import { createStaffHoldsRouter } from './staff-holds/router.js';
 import type { ServiceRecordStore } from './service-records/store.js';
 import { createProtocolListingRouter } from './protocol-listing/router.js';
 import type { ListingDesk } from './protocol-listing/wiring.js';
@@ -247,6 +249,8 @@ export interface OperatorDeskConfig {
   readonly preferences?: PreferenceStore;
   /** Service records per module (owner, dependencies, runbook). Absent means every call refuses `ops.service_storage_unconfigured`. */
   readonly serviceRecords?: ServiceRecordStore;
+  /** Staff holds on funds. Absent means every call refuses `ops.hold_storage_unconfigured`. */
+  readonly staffHolds?: StaffHoldDesk;
 }
 
 export function createOpsRouter(
@@ -833,6 +837,17 @@ export function createOpsRouter(
     preferences: createPreferencesRouter({ store: desks.preferences, now }),
 
     services: createServiceRecordsRouter({ store: desks.serviceRecords, now }),
+
+    staffHolds: createStaffHoldsRouter(
+      desks.staffHolds ??
+        new StaffHoldDesk({
+          store: undefined,
+          ledger: undefined,
+          approvals: desks.approvals,
+          settings: { confirmAccount: null, expiryMaxHours: null },
+          now: () => new Date(),
+        }),
+    ),
 
     alerts: router({
       list: scopedProcedure('admin:read', guards)

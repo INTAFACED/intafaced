@@ -8,6 +8,9 @@ import { OutreachError } from './outreach/config.js';
 import { createFounderAuthority } from './outreach/authority.js';
 import { createClientIpResolver } from './outreach/client-ip.js';
 import { SqlConsoleModeStore } from './console-mode/store.js';
+import { StaffHoldDesk } from './staff-holds/desk.js';
+import { createStaffHoldLedger } from './staff-holds/ledger.js';
+import { SqlStaffHoldStore } from './staff-holds/store.js';
 import { SqlAnnouncementStore } from './console-announcements/store.js';
 import { SqlPreferenceStore } from './console-preferences/store.js';
 import { SqlServiceRecordStore } from './service-records/store.js';
@@ -40,7 +43,7 @@ import { env } from './env.js';
 import { createOpsRouter, type OpsRouter } from './router.js';
 import { createOpsApprovalClient } from './operator-desks.js';
 import { OpsService } from './ops-service.js';
-import { OPS_IDENTITY_UNWIRED, OPS_SUPPORT_UNWIRED } from './codes.js';
+import { OPS_IDENTITY_UNWIRED, OPS_SUPPORT_UNWIRED, OpsError } from './codes.js';
 import { opsReadyUrlHonesty } from './ready-honesty.js';
 
 if (process.env.OPS_OUTREACH_RESTORE_QUARANTINED === '1') throw new Error('ops.crm.restore_quarantined');
@@ -118,6 +121,16 @@ const approvalConsumer =
   env.IDENTITY_URL && env.INTERNAL_SERVICE_SECRET
     ? createOpsApprovalClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey)
     : undefined;
+const staffHolds = new StaffHoldDesk({
+  store: crmSql ? new SqlStaffHoldStore(crmSql) : undefined,
+  ledger: createStaffHoldLedger({ ledgerUrl: env.LEDGER_URL, secret: env.INTERNAL_SERVICE_SECRET, ...(s2sKey ? { s2s: s2sKey } : {}) }),
+  approvals: approvalConsumer,
+  settings: {
+    confirmAccount: env.OPS_STAFF_HOLD_CONFIRM_ACCOUNT ?? null,
+    expiryMaxHours: env.OPS_STAFF_HOLD_EXPIRY_MAX_HOURS ?? null,
+  },
+  now: () => new Date(),
+});
 const protocolReasonCodes = env.OPS_PROTOCOL_REASON_CODES
   ? env.OPS_PROTOCOL_REASON_CODES.split(',')
       .map((code) => code.trim())
@@ -167,6 +180,7 @@ const appRouter = createOpsRouter(
     announcements: crmSql ? new SqlAnnouncementStore(crmSql) : undefined,
     preferences: crmSql ? new SqlPreferenceStore(crmSql) : undefined,
     serviceRecords: crmSql ? new SqlServiceRecordStore(crmSql) : undefined,
+    staffHolds,
     alertSourceUrl: env.OPS_ALERT_SOURCE_URL,
     approvals: approvalConsumer,
     protocolListing: crmSql
@@ -280,16 +294,37 @@ const retentionTimer = setInterval(() => {
 }, 60000);
 retentionTimer.unref();
 
+// Staff holds (LC-9): release what is left of each hold whose stored expiry has passed, then settle any post whose answer
+// was lost or that the posting freeze turned back. Both only ever re-send a stored request under its stored key.
+let holdRun: Promise<void> | null = null;
+const holdTimer = setInterval(() => {
+  if (!crmSql || holdRun) return;
+  holdRun = (async () => {
+    await staffHolds.expireDue();
+    await staffHolds.resolve();
+  })()
+    .catch((error: unknown) => {
+      const code = error instanceof OpsError ? error.code : 'ops.hold_worker_unavailable';
+      app.log.warn({ code }, 'Staff hold expiry and settlement will retry on the next tick');
+    })
+    .finally(() => {
+      holdRun = null;
+    });
+}, 5000);
+holdTimer.unref();
+
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     void (async () => {
       clearInterval(notificationTimer);
       clearInterval(retentionTimer);
       clearInterval(alertTimer);
+      clearInterval(holdTimer);
       await app.close();
       await notificationRun;
       await retentionRun;
       await alertRun;
+      await holdRun;
       await crmSql?.end({ timeout: 5 });
       process.exit(0);
     })();

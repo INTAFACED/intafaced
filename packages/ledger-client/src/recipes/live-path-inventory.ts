@@ -144,24 +144,9 @@ export const RECIPE_MATRIX = {
     reason:
       '§13 — consented reversal of a posted internal send (bank-transfers BK-xfer-09): recipient available back to the original sender, only with the recipient consent. svc-bank has no production writer until BK-xfer-09 lands and no grant is added yet; the recipe-gate catalog samples it and does not ledger.post.',
   },
-  staffHoldPlace: {
-    kind: 'socket',
-    socket: '§13',
-    reason:
-      '§13 — staff holds on funds (ops ENGINE LC-8, OPS-accounts-desk-01; ADR 2026-10-22 service-access-calls 3.7): customer available into a pot of its own per hold. svc-ops has no production writer until its hold store lands and no grant is added yet; the recipe-gate catalog samples it and does not ledger.post.',
-  },
-  staffHoldRelease: {
-    kind: 'socket',
-    socket: '§13',
-    reason:
-      '§13 — staff holds on funds (ops ENGINE LC-8/LC-9, OPS-accounts-desk-01): held funds back to the same customer in part or in full, by a second approver or the expiry worker. svc-ops has no production writer until its hold store lands and no grant is added yet; the recipe-gate catalog samples it and does not ledger.post.',
-  },
-  staffHoldConfirm: {
-    kind: 'socket',
-    socket: '§13',
-    reason:
-      '§13 — staff holds on funds (ops ENGINE LC-8, OPS-accounts-desk-01): the rest of a hold to the one owner-named ops:hold-confirm account, with a second approver. svc-ops has no production writer until its hold store lands and no grant is added yet; the recipe-gate catalog samples it and does not ledger.post.',
-  },
+  staffHoldPlace: { kind: 'live', module: 'ops', proof: 'services/svc-ops/src/staff-holds/desk.ts' },
+  staffHoldRelease: { kind: 'live', module: 'ops', proof: 'services/svc-ops/src/staff-holds/desk.ts' },
+  staffHoldConfirm: { kind: 'live', module: 'ops', proof: 'services/svc-ops/src/staff-holds/desk.ts' },
   marketPurchase: { kind: 'live', module: 'market', proof: 'services/svc-market/src/commerce/commerce-service.ts' },
   marketListingFee: {
     kind: 'socket',
