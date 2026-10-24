@@ -205,3 +205,75 @@ test(`${J} #2 the owner makes a link from a product's price: the receipt shows t
   await expect(page.locator('dl.pp-facts')).toContainText('TEST Tote bag · 25.00 USDC');
   expect(refused).toEqual([]);
 });
+
+test(`${J} #3 the owner copies the full address, the QR and the payment button; an http page after payment is refused; a link turned off shows its message`, async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(300_000);
+  const state = journey();
+  if (!state.toteLinkId) throw new Error(`${J} #2 made no link, so this step has none to share`);
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await signInOwner(page, state, `/pay/links/${state.toteLinkId}`);
+  const refused = refusedPayCalls(page);
+  const clipboard = () => page.evaluate(() => navigator.clipboard.readText());
+
+  // Copy puts the full address on the clipboard: the same one Open the link goes to, with this site's host.
+  const address = page.getByTestId('link-address');
+  const href = await address.getByRole('link', { name: 'Open the link' }).getAttribute('href');
+  expect(href).toMatch(/^https?:\/\/[^/]+\/api\/pay\/checkout\?token=pl_/);
+  await address.getByRole('button', { name: 'Copy link address' }).click();
+  await expect(address.getByRole('status').filter({ hasText: 'Copied' })).toBeVisible();
+  expect(await clipboard()).toBe(href);
+  await expect(address.getByRole('img', { name: 'QR code for the link address' })).toBeVisible();
+
+  // The payment button's code carries the same full address and the link's label.
+  const button = page
+    .locator('section.pay-section')
+    .filter({ has: page.getByRole('heading', { name: 'Payment button for your website' }) });
+  await button.getByRole('button', { name: 'Copy button code' }).click();
+  const code = await clipboard();
+  expect(code).toContain(`href="${href}"`);
+  expect(code).toContain('>TEST Tote bag</a>');
+
+  // An after-payment page that is not https is refused before anything is sent; an https one is kept.
+  await page.goto('/pay/links/new');
+  await page.getByLabel('Link label *').fill('TEST Pop-up stall');
+  await page.getByLabel('Fixed amount', { exact: true }).fill('10');
+  await page.getByRole('combobox', { name: /^Asset/ }).selectOption('USDT');
+  await page.getByRole('combobox', { name: /^What the customer sees after paying/ }).selectOption({ label: 'Your own web page' });
+  const pageAddress = page.getByLabel('Page address *');
+  await pageAddress.fill('http://shop.example/thanks');
+  await expect(page.getByText('Use an address that starts with https://.', { exact: false })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Create link' })).toBeDisabled();
+  await pageAddress.fill('https://shop.example/thanks');
+  await page.getByRole('button', { name: 'Create link' }).click();
+  const review = page.getByRole('dialog');
+  await expect(review).toContainText('Your own web page: https://shop.example/thanks');
+  await review.getByRole('button', { name: 'Create link' }).click();
+  await expect(page.getByRole('heading', { name: 'Your link is ready' })).toBeVisible();
+  const stallAddress = await page.getByTestId('link-address').getByRole('link', { name: 'Open the link' }).getAttribute('href');
+  const stallId = (await page.locator('.pp-facts .pp-mono').first().textContent())?.trim();
+
+  // Turned off with a message: the link's page and a customer opening it both show it.
+  await page.goto(`/pay/links/${stallId}`);
+  await expect(page.locator('dl.pp-facts')).toContainText('Your own web page: https://shop.example/thanks');
+  await page.getByLabel('Message for customers').fill('TEST Sold out until Monday');
+  await page.getByRole('button', { name: 'Deactivate link' }).click();
+  const off = page.getByRole('dialog');
+  await expect(off).toContainText('TEST Sold out until Monday');
+  await off.getByRole('button', { name: 'Deactivate link' }).click();
+  await expect(page.locator('dl.pp-facts')).toContainText('TEST Sold out until Monday');
+  await expect(page.getByText('Deactivated').first()).toBeVisible();
+  expect(refused).toEqual([]);
+
+  const payer = await browser.newContext();
+  try {
+    const payerPage = await payer.newPage();
+    await payerPage.goto(stallAddress);
+    await expect(payerPage.getByText('TEST Sold out until Monday').first()).toBeVisible();
+    await expect(payerPage.getByRole('button', { name: /continue/i })).toHaveCount(0);
+  } finally {
+    await payer.close();
+  }
+});

@@ -24,6 +24,18 @@ const OWNER_ONLY = new Set([
   'merchant.profile',
 ]);
 
+const escapeHtml = (value) => String(value).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+/** An https address with a host, as svc-pay's parseLinkConfirmation takes it. */
+function httpsPage(value) {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'https:' && parsed.hostname.length > 0 && parsed.href.startsWith('https://');
+  } catch {
+    return false;
+  }
+}
+
 export function createWritesMock(ctx) {
   const { now, state, scenario, world } = ctx;
   const replays = new Map();
@@ -85,6 +97,14 @@ export function createWritesMock(ctx) {
         }
         case 'merchant.createLink': {
           if (input.amount && !input.currency) return refuse(route, 400, 'pay.payment_link_currency_required');
+          // As the service: a blank message and a page that is not https are refused before anything is made.
+          const after = input.confirmation;
+          const afterUrl = typeof after?.url === 'string' ? after.url.trim() : '';
+          const afterMessage = typeof after?.message === 'string' ? after.message.trim() : '';
+          if (after?.kind === 'redirect' && !afterUrl) return refuse(route, 400, 'pay.link_confirmation_unset');
+          if (after?.kind === 'redirect' && !httpsPage(afterUrl)) return refuse(route, 400, 'pay.link_redirect_not_https');
+          if (after?.kind === 'message' && (!afterMessage || afterMessage.length > 500))
+            return refuse(route, 400, 'pay.link_confirmation_unset');
           // The same request sent twice (a lost reply, then "check and finish") makes one link, and answers the same way.
           const seenLink = input.idempotencyKey ? replays.get(`link:${input.idempotencyKey}`) : undefined;
           if (seenLink) return ok(route, seenLink);
@@ -104,6 +124,14 @@ export function createWritesMock(ctx) {
             uses: 0,
             createdAt: iso(Date.now()),
             checkoutUrl: `/pay/checkout?token=TEST-token-${prefix}`,
+            priceId: input.priceId ?? null,
+            inactiveMessage: null,
+            confirmationMessage: after?.kind === 'message' ? afterMessage : null,
+            confirmationUrl: after?.kind === 'redirect' ? afterUrl : null,
+            // As the service's paymentLinkEmbedSnippet: the label as the button's text, attributes and text escaped.
+            embedSnippet: input.amount
+              ? `<a href="/pay/checkout?token=TEST-token-${prefix}" data-amount="${escapeHtml(input.amount)}" data-asset="${escapeHtml(input.currency)}">${escapeHtml(input.label)}</a>`
+              : null,
           };
           world.links.unshift(link);
           const made = {
@@ -122,7 +150,10 @@ export function createWritesMock(ctx) {
         case 'merchant.deactivateLink': {
           const link = world.links.find((l) => l.id === input.linkId);
           if (!link) return refuse(route, 404, 'pay.payment_link_not_found');
+          // Turning a link off is one-way, and its message is the one sent with the first deactivate.
+          if (!link.active) return ok(route, { deactivated: false });
           link.active = false;
+          link.inactiveMessage = input.message?.trim() || null;
           return ok(route, { deactivated: true });
         }
         case 'merchant.checkoutSettings.get': {
