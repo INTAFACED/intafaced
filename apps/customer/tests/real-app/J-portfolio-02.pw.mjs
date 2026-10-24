@@ -202,7 +202,9 @@ test(`${J} #6 sells coins that arrived by deposit: the sale reaches no lot, its 
   await expect(sale).toBeVisible();
   await expect(sale.locator('td').nth(0)).toHaveText('0.02');
   await expect(sale.locator('td').nth(2)).toHaveText('Not known');
-  await expect(sale.locator('[data-col="result"]')).toHaveText(/^(Part has no cost|Cost unknown)$/);
+  // The result is unknown, and the part sold with no cost is named (Missing cost, PF-cost-basis-04).
+  await expect(sale.locator('[data-col="result"]')).toContainText(/^(Part has no cost|Cost unknown)/);
+  await expect(sale.locator('[data-col="result"] [data-effect="unknown-share"]')).toHaveText('Unknown share: 0.02 ETH sold with no cost');
   // Never a made-up cost: the realised total is blank as soon as one sale's result is unknown.
   await expect(main.locator('[data-figure="realised"]')).toHaveText('Not known');
   await expect(main.getByRole('list', { name: 'Why some figures are not known' })).toBeVisible();
