@@ -28,6 +28,10 @@ describe('a stop order’s trigger', () => {
     expect(orderTrigger(stop({ triggered: null, status: 'canceled' }), true)).toEqual({ kind: 'not-recorded', stopPrice: '100' });
   });
 
+  it('reads a stop-market’s trigger the same way', () => {
+    expect(orderTrigger(stop({ type: 'stop', triggered: null }), false)).toEqual({ kind: 'waiting', stopPrice: '100' });
+  });
+
   it('says nothing it was not told: a wire without the field is "not stated"', () => {
     expect(orderTrigger(stop({}), false)).toEqual({ kind: 'not-stated', stopPrice: '100' });
   });

@@ -1,11 +1,14 @@
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { TradeError } from './types.js';
+import type { StopKind } from './stop-market.js';
 
 export const TRADE_STOP_TRIGGER_INVALID = 'trade.stop_trigger_invalid' as const;
 
 /** Order types a spot caller may place. One list feeds the order mapper and `GET /api/v1/capabilities`. */
 export const SPOT_ORDER_TYPES = ['market', 'limit', 'stop_limit'] as const;
+/** What a caller may place beside those: a stop-market (`stop`) rests as the stop-limit at its protection price. */
+export const SPOT_PLACE_TYPES = [...SPOT_ORDER_TYPES, 'stop'] as const;
 
 /** When a stop fired, from matching.order.triggered: the reference it watches and the price that reached the stop. */
 export interface FiredTrigger {
@@ -16,10 +19,15 @@ export interface FiredTrigger {
 }
 
 export interface StopTriggerStore {
-  /** Keep the first trigger for this order id. Returns the stored trigger (the first one wins). */
-  remember(orderId: string, userId: string, stopPrice: string): Promise<string>;
+  /**
+   * Keep the first trigger for this order id. Returns the stored trigger (the first one wins). A replay of the same id
+   * as the other stop kind (a stop-limit id sent again as a stop-market, or back) is refused.
+   */
+  remember(orderId: string, userId: string, stopPrice: string, kind?: StopKind): Promise<string>;
   read(orderId: string): Promise<string | null>;
   readMany(orderIds: readonly string[]): Promise<ReadonlyMap<string, string>>;
+  /** The stop-markets among these orders. An order absent here is a stop-limit (or no stop at all). */
+  readStopMarkets(orderIds: readonly string[]): Promise<ReadonlySet<string>>;
   /** Record that this order's stop fired. The first record wins; false when the order has no stop here (not a spot stop). */
   recordFired(orderId: string, fired: FiredTrigger): Promise<boolean>;
   /** Fired stops among these orders. An order whose stop has not fired is absent. */
@@ -46,17 +54,22 @@ function positivePrice(raw: string): boolean {
 
 export function sqlStopTrigger(sql: Sql): StopTriggerStore {
   return {
-    async remember(orderId, userId, stopPrice) {
+    async remember(orderId, userId, stopPrice, kind = 'stop_limit') {
       await sql`
-        INSERT INTO order_stop_trigger (order_id, user_id, stop_price)
-        VALUES (${orderId}, ${userId}, ${stopPrice}::numeric)
+        INSERT INTO order_stop_trigger (order_id, user_id, stop_price, kind)
+        VALUES (${orderId}, ${userId}, ${stopPrice}::numeric, ${kind})
         ON CONFLICT (order_id) DO NOTHING
       `;
-      const rows = await sql<Array<{ stop_price: string; user_id: string }>>`
-        SELECT stop_price::text AS stop_price, user_id FROM order_stop_trigger WHERE order_id = ${orderId}
+      const rows = await sql<Array<{ stop_price: string; user_id: string; kind: StopKind }>>`
+        SELECT stop_price::text AS stop_price, user_id, kind FROM order_stop_trigger WHERE order_id = ${orderId}
       `;
       const row = rows[0];
       if (!row || row.user_id !== userId) throw new TradeError('stop trigger could not be recorded', TRADE_STOP_TRIGGER_INVALID);
+      if (row.kind !== kind)
+        throw new TradeError(
+          `this clientOrderId was already used for a ${row.kind === 'stop' ? 'stop-market' : 'stop-limit'}`,
+          TRADE_STOP_TRIGGER_INVALID,
+        );
       return formatAmount(parseAmount(row.stop_price));
     },
     async read(orderId) {
@@ -74,6 +87,13 @@ export function sqlStopTrigger(sql: Sql): StopTriggerStore {
       `;
       for (const row of rows) out.set(row.order_id, formatAmount(parseAmount(row.stop_price)));
       return out;
+    },
+    async readStopMarkets(orderIds) {
+      if (orderIds.length === 0) return new Set<string>();
+      const rows = await sql<Array<{ order_id: string }>>`
+        SELECT order_id FROM order_stop_trigger WHERE order_id IN ${sql(orderIds as string[])} AND kind = 'stop'
+      `;
+      return new Set(rows.map((row) => row.order_id));
     },
     async recordFired(orderId, fired) {
       // An id or price the table would refuse is not recorded: a retry could never land it, and the event would come back forever.
@@ -111,12 +131,17 @@ export function sqlStopTrigger(sql: Sql): StopTriggerStore {
 }
 
 export function memoryStopTrigger(): StopTriggerStore {
-  const byId = new Map<string, { userId: string; stopPrice: string; fired?: FiredTrigger }>();
+  const byId = new Map<string, { userId: string; stopPrice: string; kind: StopKind; fired?: FiredTrigger }>();
   return {
-    async remember(orderId, userId, stopPrice) {
+    async remember(orderId, userId, stopPrice, kind = 'stop_limit') {
       const held = byId.get(orderId);
       if (held && held.userId !== userId) throw new TradeError('stop trigger could not be recorded', TRADE_STOP_TRIGGER_INVALID);
-      if (!held) byId.set(orderId, { userId, stopPrice });
+      if (held && held.kind !== kind)
+        throw new TradeError(
+          `this clientOrderId was already used for a ${held.kind === 'stop' ? 'stop-market' : 'stop-limit'}`,
+          TRADE_STOP_TRIGGER_INVALID,
+        );
+      if (!held) byId.set(orderId, { userId, stopPrice, kind });
       return (held ?? { stopPrice }).stopPrice;
     },
     async read(orderId) {
@@ -129,6 +154,9 @@ export function memoryStopTrigger(): StopTriggerStore {
         if (held) out.set(id, held.stopPrice);
       }
       return out;
+    },
+    async readStopMarkets(orderIds) {
+      return new Set(orderIds.filter((id) => byId.get(id)?.kind === 'stop'));
     },
     async recordFired(orderId, fired) {
       if (!ORDER_UUID.test(orderId) || !positivePrice(fired.referencePrice)) return false;

@@ -1358,6 +1358,7 @@ registerPrivateRest(app, {
   statements: { ledger: ledgerPages, exports: new StatementExports(sql, ledgerPages) },
   icebergDisplay: sqlIcebergDisplay(sql),
   stopTriggers,
+  stopMarketCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
   ocoExits: (ids) => readOcoIntents(sql, ids),
   orderHolds: (orders) => readOrderHolds(sql, orders),
   findClientOrder: (principal, input) => trade.findClientOrder(principal, input),

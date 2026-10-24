@@ -133,7 +133,7 @@ const exitLegFeeSchema = z.object({
 export const previewSchema = z.object({
   symbol: z.string(),
   side: z.enum(['buy', 'sell']),
-  type: z.enum(['market', 'limit', 'stop_limit']),
+  type: z.enum(['market', 'limit', 'stop_limit', 'stop']),
   amount: positive,
   price: positive.nullable(),
   stopPrice: positive.nullable().optional(),
@@ -160,11 +160,15 @@ export const previewSchema = z.object({
     .optional(),
 });
 export type Preview = z.infer<typeof previewSchema>;
+/** A stop-limit or a stop-market: both wait off the book for their trigger. */
+export const isStopType = (type: string): type is 'stop_limit' | 'stop' => type === 'stop_limit' || type === 'stop';
+
 export const draftSchema = z
   .object({
     symbol: z.string().min(3),
     side: z.enum(['buy', 'sell']),
-    type: z.enum(['market', 'limit', 'stop_limit']),
+    /** `stop` is a stop-market: a trigger and no price; the service places it at its protection price. */
+    type: z.enum(['market', 'limit', 'stop_limit', 'stop']),
     amount: positive,
     price: positive.optional(),
     stopPrice: positive.optional(),
@@ -210,15 +214,16 @@ export const draftSchema = z
         if (kind === 'oco' && draft.price !== undefined && parseAmount(draft.price) !== parseAmount(takeProfit))
           bad('price', copy.t('enterALimitPrice'));
       }
-      if (kind === 'bracket' && (draft.side !== 'buy' || draft.type === 'stop_limit' || draft.postOnly || draft.timeInForce === 'PO'))
+      if (kind === 'bracket' && (draft.side !== 'buy' || isStopType(draft.type) || draft.postOnly || draft.timeInForce === 'PO'))
         bad('kind', copy.t('enterALimitPrice'));
     }
-    if (draft.type === 'stop_limit' && !draft.stopPrice)
+    if (isStopType(draft.type) && !draft.stopPrice)
       ctx.addIssue({ code: 'custom', path: ['stopPrice'], message: copy.t('enterALimitPrice') });
-    if (draft.type !== 'stop_limit' && draft.stopPrice !== undefined)
+    if (!isStopType(draft.type) && draft.stopPrice !== undefined)
       ctx.addIssue({ code: 'custom', path: ['stopPrice'], message: copy.t('enterALimitPrice') });
-    if (draft.type !== 'market' && !draft.price) ctx.addIssue({ code: 'custom', path: ['price'], message: copy.t('enterALimitPrice') });
-    if (draft.type === 'market' && draft.price !== undefined)
+    if (draft.type !== 'market' && draft.type !== 'stop' && !draft.price)
+      ctx.addIssue({ code: 'custom', path: ['price'], message: copy.t('enterALimitPrice') });
+    if ((draft.type === 'market' || draft.type === 'stop') && draft.price !== undefined)
       ctx.addIssue({ code: 'custom', path: ['price'], message: copy.t('aMarketOrderCannotCarryALimitPrice') });
     if (draft.timeInForce === 'GTD' && (draft.type !== 'limit' || !draft.expireAt || draft.exit))
       ctx.addIssue({ code: 'custom', path: ['expireAt'], message: copy.t('aGoodTillDateLimitOrderNeedsAnExpiry') });
@@ -334,7 +339,12 @@ function matchesPreview(draft: Draft, preview: Preview) {
       ? preview.stopPrice != null && parseAmount(draft.stopPrice) === parseAmount(preview.stopPrice)
       : preview.stopPrice == null) &&
     parseAmount(preview.amount) === parseAmount(draft.amount) &&
-    (draft.price ? preview.price !== null && parseAmount(draft.price) === parseAmount(preview.price) : preview.price === null) &&
+    // A stop-market names no price; the preview answers with the protection price the service will place it at.
+    (draft.type === 'stop'
+      ? preview.price !== null
+      : draft.price
+        ? preview.price !== null && parseAmount(draft.price) === parseAmount(preview.price)
+        : preview.price === null) &&
     preview.timeInForce === (draft.postOnly ? 'PO' : draft.timeInForce)
   );
 }

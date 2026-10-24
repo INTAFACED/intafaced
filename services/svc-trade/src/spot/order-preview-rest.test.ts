@@ -415,6 +415,30 @@ describe('POST /api/v1/orders/preview', () => {
     await app.close();
   });
 
+  it('previews a stop-market as the stop-limit it is placed as: limit at the protection price, hold sized to it', async () => {
+    const { app } = appWith({ stopLimitEnabled: true, slippageCapBps: 50 });
+    const stop = { symbol: MARKET.symbol, side: 'buy', type: 'stop', amount: '2', stopPrice: '100' };
+    const ok = await app.inject({ method: 'POST', url: SPOT_ORDER_PREVIEW_PATH, headers: headers(), payload: stop });
+    expect(ok.statusCode, ok.body).toBe(200);
+    expect(ok.json()).toMatchObject({ stopPrice: '100', price: '100.5', holdAsset: 'fixture-quote', holdAmount: '201', orderable: true });
+    const sell = await app.inject({ method: 'POST', url: SPOT_ORDER_PREVIEW_PATH, headers: headers(), payload: { ...stop, side: 'sell' } });
+    expect(sell.json()).toMatchObject({ price: '99.5', holdAsset: 'fixture-base', holdAmount: '2', orderable: true });
+    for (const [bad, code] of [
+      [{ ...stop, price: '101' }, 'trade.invalid_price'],
+      [{ ...stop, timeInForce: 'IOC' }, 'trade.invalid_tif'],
+      [{ ...stop, stopPrice: undefined }, 'trade.stop_trigger_invalid'],
+    ] as const) {
+      const refused = await app.inject({ method: 'POST', url: SPOT_ORDER_PREVIEW_PATH, headers: headers(), payload: bad });
+      expect(refused.json().orderable, refused.body).toBe(false);
+      expect(refused.json().refusals.map((row: { code: string }) => row.code)).toContain(code);
+    }
+    await app.close();
+    const blank = appWith({ stopLimitEnabled: true, slippageCapBps: null }).app;
+    const unset = await blank.inject({ method: 'POST', url: SPOT_ORDER_PREVIEW_PATH, headers: headers(), payload: stop });
+    expect(unset.json().refusals.map((row: { code: string }) => row.code)).toContain('trade.protection_unset');
+    await blank.close();
+  });
+
   it('previews a stop-limit when the trigger store is wired: hold sized to the limit price, trigger echoed', async () => {
     const { app } = appWith({ stopLimitEnabled: true });
     const stopLimit = { symbol: MARKET.symbol, side: 'sell', type: 'stop_limit', amount: '2', price: '95', stopPrice: '96' };

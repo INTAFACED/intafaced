@@ -333,13 +333,19 @@ export function OrderDetailRoom({ orderId }: { orderId: string }) {
           <Row label={t('type')}>
             {o.type === 'market'
               ? t('typeMarket')
-              : o.type === 'stop_limit'
-                ? `${t('typeStopLimit')}${o.stopPrice ? ` @ ${fmtPrice(o.stopPrice, tick)}` : ''}`
+              : o.type === 'stop_limit' || o.type === 'stop'
+                ? `${t(o.type === 'stop' ? 'typeStopMarket' : 'typeStopLimit')}${o.stopPrice ? ` @ ${fmtPrice(o.stopPrice, tick)}` : ''}`
                 : t('typeLimit')}
           </Row>
           <Trigger order={o} average={average} tick={tick} quote={quote} t={t} />
           <Row label={t('price')}>
-            <span className="if-num">{o.price === null ? t('marketPrice') : `${fmtPrice(o.price, tick)} ${quote}`}</span>
+            <span className="if-num">
+              {o.price === null
+                ? t('marketPrice')
+                : o.type === 'stop'
+                  ? t('protectionPrice', { price: fmtPrice(o.price, tick), quote })
+                  : `${fmtPrice(o.price, tick)} ${quote}`}
+            </span>
           </Row>
           <Row label={t('amount')}>
             <span className="if-num">

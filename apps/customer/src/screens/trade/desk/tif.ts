@@ -2,7 +2,7 @@
  * Time in force on the spot ticket: what the trader may pick, what the order carries, and how the outcome is worded.
  *
  * The service accepts GTC, good-till-date (GTD, with an expiry the trader picks), post-only (PO), IOC and FOK on a limit order, and a market order is already immediate
- * (the engine sends it as IOC, or FOK when asked). Stop-limit is accepted (GTC only). An OCO (GTC, either side) and a buy
+ * (the engine sends it as IOC, or FOK when asked). Stop-limit and stop-market are accepted (GTC only). An OCO (GTC, either side) and a buy
  * bracket (market, IOC, FOK or a resting GTC limit entry) are accepted. Trailing stop is refused by the service
  * (`trade.order_type_unsupported`), so the ticket shows it disabled (`UNSUPPORTED_TYPES`).
  */
@@ -31,7 +31,7 @@ const BRACKET_TIFS: readonly Tif[] = ['IOC', 'FOK', 'GTC'];
 export const tifsFor = (type: OrderType): readonly Tif[] =>
   type === 'limit'
     ? LIMIT_TIFS
-    : type === 'stop_limit'
+    : type === 'stop_limit' || type === 'stop_market'
       ? STOP_TIFS
       : type === 'oco'
         ? OCO_TIFS

@@ -4,7 +4,7 @@ import { useDataEnv } from '../../../data/hooks';
 import { useSession } from '../../../features/session/session';
 import { usePreferences } from '../../../shared/preferences';
 import { fitsPlaces } from '../../../features/account/trading-settings';
-import { draftSchema, type Draft, type Preview, type TradeApi } from '../../../features/trade/trade-api';
+import { draftSchema, isStopType, type Draft, type Preview, type TradeApi } from '../../../features/trade/trade-api';
 import type { BookPick } from './OrderBook';
 import { deskCopy } from './copy';
 import { useDeskApi, useListedFees, useOpenOrders, useRefreshPrivate } from './data';
@@ -49,6 +49,7 @@ import {
   hasExits,
   isBuyOco,
   isPriced,
+  isStopTab,
   serviceType,
   type OrderType,
   type Reference,
@@ -611,7 +612,7 @@ function SideForm({
         }
       }}
     >
-      {type === 'stop_limit' ? stopInput(t('Stop price')) : null}
+      {isStopTab(type) ? stopInput(t('Stop price')) : null}
       {type === 'bracket' ? (
         <AmountInput
           label={t('Entry price')}
@@ -797,6 +798,11 @@ function SideForm({
         {hint ? <p className="dk-note">{hint}</p> : null}
         {signedIn && !market.open ? <p className="dk-note">{t('Market is closed')}</p> : null}
         {signedIn && market.open && exitOff ? <p className="dk-note">{t('Bracket sell off', { asset: market.base })}</p> : null}
+        {market.open && type === 'stop_market' ? (
+          <p className="dk-note-small">
+            {side === 'buy' ? t('Stop market note buy', { asset: market.base }) : t('Stop market note sell', { asset: market.base })}
+          </p>
+        ) : null}
         {market.open && hasExits(type) && !exitOff ? (
           <p className="dk-note-small">
             {type === 'oco'
@@ -863,7 +869,7 @@ function ReviewRows({ market, review, side }: { market: DeskMarket; review: { dr
   const { t } = deskCopy.useCopy();
   const { draft, preview } = review;
   const limit = draft.type !== 'market';
-  const stop = draft.type === 'stop_limit';
+  const stop = isStopType(draft.type);
   const exit = draft.exit ?? null;
   const value = limit && draft.price ? orderValue({ side, type: 'limit', price: draft.price, amount: draft.amount }, null) : null;
   const rate = preview.feeBps === null ? null : fmtPct(bpsToRatio(preview.feeBps), { signed: false });
@@ -881,7 +887,7 @@ function ReviewRows({ market, review, side }: { market: DeskMarket; review: { dr
               ? t('Order type oco')
               : t('Order type bracket')
             : stop
-              ? t('Order type stopLimit')
+              ? t(draft.type === 'stop' ? 'Order type stopMarket' : 'Order type stopLimit')
               : limit
                 ? t('Order type limit')
                 : t('Order type market')}
@@ -889,7 +895,7 @@ function ReviewRows({ market, review, side }: { market: DeskMarket; review: { dr
       </div>
       <div>
         <dt>{t('Review time in force')}</dt>
-        <dd>{t(tifLabelKey(draft.type, tifOfDraft(draft)))}</dd>
+        <dd>{t(tifLabelKey(draft.type === 'stop' ? 'stop_market' : draft.type, tifOfDraft(draft)))}</dd>
       </div>
       {draft.expireAt ? (
         <div>
@@ -905,7 +911,15 @@ function ReviewRows({ market, review, side }: { market: DeskMarket; review: { dr
           </dd>
         </div>
       ) : null}
-      {exit?.kind === 'oco' ? null : (
+      {draft.type === 'stop' && preview.price ? (
+        <div>
+          <dt>{t('Review protection price')}</dt>
+          <dd className="if-num">
+            {fmtPrice(preview.price, market.tickSize)} {market.quote}
+          </dd>
+        </div>
+      ) : null}
+      {exit?.kind === 'oco' || draft.type === 'stop' ? null : (
         <div>
           <dt>{exit ? t('Entry price') : t('Review price')}</dt>
           <dd className="if-num">
@@ -1218,6 +1232,7 @@ export const OrderPanel = memo(function OrderPanel({
         <TabsList className="dk-tabs" aria-label={t('Order type')}>
           <TabsTab value="limit">{t('Limit')}</TabsTab>
           <TabsTab value="stop_limit">{t('Order type stopLimit')}</TabsTab>
+          <TabsTab value="stop_market">{t('Order type stopMarket')}</TabsTab>
           <TabsTab value="oco">{t('Order type oco')}</TabsTab>
           <TabsTab value="bracket">{t('Order type bracket')}</TabsTab>
           <TabsTab value="market">{t('Market')}</TabsTab>

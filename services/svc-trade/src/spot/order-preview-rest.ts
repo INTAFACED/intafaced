@@ -18,6 +18,7 @@ import {
   sellProtectionPriceFor,
 } from './risk.js';
 import { assertStopTrigger, TRADE_STOP_TRIGGER_INVALID } from './stop-trigger-door.js';
+import { STOP_MARKET, stopMarketLimit } from './stop-market.js';
 import { validateSlippageTolerance } from './slippage-tolerance.js';
 import { FeeScheduleError, previewFeeBps, type OwnerFeeSchedule } from './fee-schedule.js';
 import { TradeError, type Market, type OrderSide, type OrderType, type TimeInForce } from './types.js';
@@ -235,7 +236,7 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
     const side: OrderSide | null = body.side === 'buy' || body.side === 'sell' ? body.side : null;
     const typeWire = typeof body.type === 'string' ? body.type.trim() : '';
     const amountWire = typeof body.amount === 'string' ? body.amount.trim() : '';
-    const priceWire = body.price === undefined ? null : typeof body.price === 'string' ? body.price.trim() : '';
+    let priceWire = body.price === undefined ? null : typeof body.price === 'string' ? body.price.trim() : '';
     if (
       !symbol ||
       !side ||
@@ -307,7 +308,12 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
     } else if (expireWire !== null) {
       refusals.push({ code: 'trade.invalid_tif', field: 'expireAt', message: 'an expiry only applies to a good-till-date order' });
     }
-    const isStopLimit = typeWire === 'stop_limit' && deps.stopLimitEnabled === true;
+    // A stop-market (`stop`) is previewed as the stop-limit it is placed as, at its protection price (spot/stop-market.ts).
+    const isStopMarket = typeWire === STOP_MARKET && deps.stopLimitEnabled === true;
+    const isStopLimit = (typeWire === 'stop_limit' || isStopMarket) && deps.stopLimitEnabled === true;
+    if (isStopMarket && priceWire !== null) {
+      refusals.push({ code: 'trade.invalid_price', field: 'price', message: 'a stop-market is priced by the market: send no price' });
+    }
     let orderType: OrderType | null = null;
     try {
       orderType = isStopLimit ? 'limit' : requireSupportedType(typeWire);
@@ -407,6 +413,13 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
           stopTrigger = parsedStop;
         } catch (error) {
           pushError(refusals, error, 'stopPrice');
+        }
+        if (isStopMarket && stopTrigger !== null && priceWire === null) {
+          try {
+            priceWire = formatAmount(stopMarketLimit(market, side, stopTrigger, deps.slippageCapBps));
+          } catch (error) {
+            pushError(refusals, error, 'stopPrice');
+          }
         }
       }
       if (tif !== 'GTC') {

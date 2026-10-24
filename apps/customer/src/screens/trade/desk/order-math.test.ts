@@ -4,6 +4,7 @@ import {
   bboPrice,
   checkOrder,
   exitSideOff,
+  isPriced,
   serviceType,
   maxAmount,
   orderValue,
@@ -186,6 +187,24 @@ describe('helpers', () => {
       price: '70000.1',
       stopPrice: '70100.1',
     });
+  });
+
+  it('a stop-market needs only a stop price on the tick grid, is judged at it, and is sent as type stop', () => {
+    const base = { side: 'sell' as const, type: 'stop_market' as const, price: '', amount: '0.0002' };
+    expect(checkOrder({ ...base, stopPrice: '' }, market, ref)).toEqual({ ok: false, problem: { kind: 'stopEmpty' } });
+    expect(checkOrder({ ...base, stopPrice: '70100.005' }, market, ref)).toEqual({
+      ok: false,
+      problem: { kind: 'stopTick', tick: '0.01' },
+    });
+    expect(checkOrder({ ...base, stopPrice: '70100.10' }, market, ref)).toEqual({
+      ok: true,
+      amount: '0.0002',
+      price: null,
+      stopPrice: '70100.1',
+    });
+    expect(serviceType('stop_market', '')).toBe('stop');
+    expect(isPriced('stop_market')).toBe(false);
+    expect(orderValue({ ...base, stopPrice: '70000' }, ref)).toEqual({ value: '14', estimated: true });
   });
 });
 
