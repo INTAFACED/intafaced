@@ -10,6 +10,7 @@ import { useSession } from '../../session/session';
 import { createTradeApi, type Order } from '../trade-api';
 import { appendPage, NO_PARAMS, PAGE_SIZES, readParams, toQuery, writeParams, type HistoryParams } from './history-query';
 import { ordersCopy, type OrdersT } from './orders-copy';
+import { ProductSwitch } from './FuturesOrdersRoom';
 import './orders.css';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
@@ -167,6 +168,7 @@ export function OrderHistoryRoom({ path }: { path: string }) {
       }
     >
       <div className="orders-room">
+        <ProductSwitch product="spot" />
         <form className="orders-filters" role="search" aria-label={t('historyTitle')} onSubmit={(event) => event.preventDefault()}>
           <Pick
             label={t('filterSide')}

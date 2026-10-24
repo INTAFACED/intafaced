@@ -14,6 +14,8 @@ import { CalendarRoom, NewsRoom } from './news/NewsRooms';
 import { RiskControl } from './risk/RiskControl';
 import { OrderDetailRoom } from './orders/OrderDetailRoom';
 import { OrderHistoryRoom } from './orders/OrderHistoryRoom';
+import { FuturesOrderDetail } from './orders/FuturesOrderDetail';
+import { FuturesOrdersRoom } from './orders/FuturesOrdersRoom';
 import './trade.css';
 
 const modes = ['Spot', 'Margin', 'Futures', 'Options', 'Copy', 'Bots', 'Execution', 'Quote desk'];
@@ -49,9 +51,14 @@ export function TradeRoutes({ path }: { path: string }) {
   if (pathname === '/trade/news') return <NewsRoom />;
   if (pathname === '/trade/calendar') return <CalendarRoom />;
   if (pathname === '/trade/risk') return <RiskControl />;
-  if (pathname === '/trade/orders') return <OrderHistoryRoom path={path} />;
+  // Spot and futures orders are two halves of one room; `?product=futures` picks the futures half and its order pages.
+  const futures = new URL(path, location.origin).searchParams.get('product') === 'futures';
+  if (pathname === '/trade/orders') return futures ? <FuturesOrdersRoom path={path} /> : <OrderHistoryRoom path={path} />;
   const orderMatch = /^\/trade\/orders\/([^/]+)$/.exec(pathname);
-  if (orderMatch) return <OrderDetailRoom orderId={decodedSegment(orderMatch[1]!)} />;
+  if (orderMatch) {
+    const orderId = decodedSegment(orderMatch[1]!);
+    return futures ? <FuturesOrderDetail orderId={orderId} /> : <OrderDetailRoom orderId={orderId} />;
+  }
   return <TradeModeRoutes path={path} />;
 }
 function TradeModeRoutes({ path }: { path: string }) {

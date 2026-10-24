@@ -12,7 +12,26 @@ import { parseAmount, type Amount } from '@intafaced/ledger-client';
 import { AdlDisclosureError } from './adl-disclosure.js';
 import { isDerivativesAccessError, presentDerivativesAccessError } from './derivatives-access.js';
 import { presentFuturesErrorWire } from './futures-error-wire.js';
-import { MatchedOrderError, type MatchedOrderView, type PlaceMatchedOrderInput } from './matched-orders.js';
+import {
+  FUTURES_ORDER_ORIGINS,
+  MATCHED_ORDER_STATUSES,
+  MatchedOrderError,
+  ORDER_LABEL_INVALID,
+  ORDER_LABEL_PATTERN,
+  type FuturesOrderOrigin,
+  type FuturesOrderQuery,
+  type MatchedOrderStatus,
+  type MatchedOrderView,
+  type PlaceMatchedOrderInput,
+} from './matched-orders.js';
+import {
+  FUTURES_EXECUTION_KINDS,
+  FUTURES_EXECUTIONS_LIMIT_MAX,
+  FuturesExecutionsError,
+  type FuturesExecution,
+  type FuturesExecutionKind,
+  type FuturesExecutionQuery,
+} from './futures-executions.js';
 import { FuturesError } from './position-service.js';
 import type { EntryProtectionInput, EntryProtectionView } from './conditional-orders/service.js';
 import type { ReverseInput, ReverseView } from './reverse.js';
@@ -41,10 +60,14 @@ export interface MatchedOrdersRestDeps {
     readonly stopped: { readonly child: number; readonly code: string; readonly message: string } | null;
   }>;
   readonly cancel?: (principal: Principal, orderId: string) => Promise<FuturesOrderWire>;
-  readonly list?: (
+  readonly list?: (principal: Principal, input: FuturesOrderQuery) => Promise<readonly FuturesOrderWire[]>;
+  /** One of the caller's own orders; null answers 404. Absent answers 503 like `list`. */
+  readonly get?: (principal: Principal, orderId: string) => Promise<FuturesOrderWire | null>;
+  /** The caller's futures executions (`futures-executions.ts`). Absent answers 503 like `list`. */
+  readonly executions?: (
     principal: Principal,
-    input: { readonly scope: 'open' | 'all'; readonly limit: number; readonly symbol?: string | null },
-  ) => Promise<readonly FuturesOrderWire[]>;
+    input: FuturesExecutionQuery,
+  ) => Promise<{ readonly executions: readonly FuturesExecution[]; readonly next: string | null }>;
   /**
    * A take profit and a stop loss attached to an opening order: checked and recorded before the order is placed, armed
    * on its fills by the conditional job. Absent refuses an order that asks for one.
@@ -141,6 +164,13 @@ export function readPlaceBody(
       message: 'clientOrderId is required (1–64 chars) — omit would double-lock margin on retry',
     };
   }
+  let orderLabel: string | undefined;
+  if (body.orderLabel !== undefined) {
+    if (typeof body.orderLabel !== 'string' || !ORDER_LABEL_PATTERN.test(body.orderLabel)) {
+      return { ok: false, code: ORDER_LABEL_INVALID, message: 'orderLabel is 1 to 36 of letters, digits and . _ : -' };
+    }
+    orderLabel = body.orderLabel;
+  }
   const confirmTier = readConfirmTier(body.confirmTier);
   if (!confirmTier.ok) {
     return { ok: false, code: CONFIRM_TIER_INVALID, message: 'confirmTier is the margin tier you accept, a whole number from 1' };
@@ -162,8 +192,51 @@ export function readPlaceBody(
       ...(body.collateralClass !== undefined ? { collateralClass: body.collateralClass } : {}),
       ...(body.priceCorrection !== undefined ? { priceCorrection: body.priceCorrection } : {}),
       ...(confirmTier.tier !== undefined ? { confirmTier: confirmTier.tier } : {}),
+      ...(orderLabel !== undefined ? { orderLabel } : {}),
     },
   };
+}
+
+/** A whole-number page size from 1 to `max`; anything else is null, and the caller refuses rather than picks one. */
+function pageLimit(raw: unknown, max: number): number | null {
+  const text = typeof raw === 'string' ? raw.trim() : '';
+  const limit = /^\d+$/.test(text) ? Number(text) : NaN;
+  return Number.isInteger(limit) && limit >= 1 && limit <= max ? limit : null;
+}
+
+/** A named filter: absent or blank is no filter, a value outside the known set is refused (never read as "all"). */
+function filterOf<T extends string>(raw: unknown, known: readonly T[]): { ok: true; value: T | null } | { ok: false } {
+  if (raw === undefined || raw === '') return { ok: true, value: null };
+  return typeof raw === 'string' && (known as readonly string[]).includes(raw) ? { ok: true, value: raw as T } : { ok: false };
+}
+
+type ListQuery = { scope?: string; limit?: string; symbol?: string; label?: string; origin?: string; status?: string; before?: string };
+
+/** Reads a list query into the service's, or answers why it cannot. Exported for the route test. */
+export function readListQuery(query: ListQuery): { ok: true; input: FuturesOrderQuery } | { ok: false; code: string; message: string } {
+  const scope = query.scope;
+  if (scope !== 'open' && scope !== 'history' && scope !== 'all') {
+    return { ok: false, code: 'trade.futures_orders_scope_invalid', message: 'scope must be open, history or all' };
+  }
+  const limit = pageLimit(query.limit, FUTURES_ORDERS_LIMIT_MAX);
+  if (limit === null) {
+    return {
+      ok: false,
+      code: 'trade.futures_orders_limit_unset',
+      message: `limit is required, 1–${FUTURES_ORDERS_LIMIT_MAX} — refuse to invent one`,
+    };
+  }
+  const label = typeof query.label === 'string' && query.label !== '' ? query.label : null;
+  if (label !== null && !ORDER_LABEL_PATTERN.test(label)) {
+    return { ok: false, code: ORDER_LABEL_INVALID, message: 'label is 1 to 36 of letters, digits and . _ : -' };
+  }
+  const origin = filterOf<FuturesOrderOrigin>(query.origin, FUTURES_ORDER_ORIGINS);
+  if (!origin.ok) return { ok: false, code: 'trade.invalid_filter', message: `origin must be one of ${FUTURES_ORDER_ORIGINS.join(', ')}` };
+  const status = filterOf<MatchedOrderStatus>(query.status, MATCHED_ORDER_STATUSES);
+  if (!status.ok) return { ok: false, code: 'trade.invalid_filter', message: `status must be one of ${MATCHED_ORDER_STATUSES.join(', ')}` };
+  const symbol = typeof query.symbol === 'string' && query.symbol.trim() !== '' ? query.symbol.trim() : null;
+  const before = typeof query.before === 'string' && query.before !== '' ? query.before : null;
+  return { ok: true, input: { scope, limit, symbol, label, origin: origin.value, status: status.value, before } };
 }
 
 function sendFuturesFailure(reply: FastifyReply, err: unknown, gates: MatchedOrdersRestGates): FastifyReply | null {
@@ -259,21 +332,65 @@ export function attachMatchedOrderRoutes(app: FastifyInstance, deps: MatchedOrde
     }
   });
 
-  app.get<{ Querystring: { scope?: string; limit?: string; symbol?: string } }>('/api/v1/futures/orders', async (req, reply) => {
+  app.get<{ Querystring: ListQuery }>('/api/v1/futures/orders', async (req, reply) => {
     const principal = gates.requirePrincipal(req, reply);
     if (!principal) return;
     if (!deps.list) return reply.code(503).send(UNMOUNTED);
-    const scope = req.query.scope;
-    if (scope !== 'open' && scope !== 'all') return bad(reply, 'trade.futures_orders_scope_invalid', 'scope must be open or all');
-    const limitRaw = typeof req.query.limit === 'string' ? req.query.limit.trim() : '';
-    const limit = /^\d+$/.test(limitRaw) ? Number(limitRaw) : NaN;
-    if (!Number.isInteger(limit) || limit < 1 || limit > FUTURES_ORDERS_LIMIT_MAX) {
-      return bad(reply, 'trade.futures_orders_limit_unset', `limit is required, 1–${FUTURES_ORDERS_LIMIT_MAX} — refuse to invent one`);
-    }
+    const read = readListQuery(req.query ?? {});
+    if (!read.ok) return bad(reply, read.code, read.message);
     try {
       requireScope(principal, 'trade:read');
-      const symbol = typeof req.query.symbol === 'string' && req.query.symbol.trim() !== '' ? req.query.symbol.trim() : null;
-      return reply.code(200).send(await deps.list(principal, { scope, limit, symbol }));
+      return reply.code(200).send(await deps.list(principal, read.input));
+    } catch (err) {
+      const sent = sendFuturesFailure(reply, err, gates);
+      if (sent) return sent;
+      throw err;
+    }
+  });
+
+  // Executions before the `:id` route: Fastify matches the static path first either way, this keeps it readable.
+  app.get<{ Querystring: { limit?: string; symbol?: string; kind?: string; orderId?: string; before?: string } }>(
+    '/api/v1/futures/executions',
+    async (req, reply) => {
+      const principal = gates.requirePrincipal(req, reply);
+      if (!principal) return;
+      if (!deps.executions) return reply.code(503).send(UNMOUNTED);
+      const query = req.query ?? {};
+      const limit = pageLimit(query.limit, FUTURES_EXECUTIONS_LIMIT_MAX);
+      if (limit === null) {
+        return bad(
+          reply,
+          'trade.futures_executions_limit_unset',
+          `limit is required, 1–${FUTURES_EXECUTIONS_LIMIT_MAX} — refuse to invent one`,
+        );
+      }
+      const kind = filterOf<FuturesExecutionKind>(query.kind, FUTURES_EXECUTION_KINDS);
+      if (!kind.ok) return bad(reply, 'trade.invalid_filter', `kind must be one of ${FUTURES_EXECUTION_KINDS.join(', ')}`);
+      const symbol = typeof query.symbol === 'string' && query.symbol.trim() !== '' ? query.symbol.trim() : null;
+      const before = typeof query.before === 'string' && query.before !== '' ? query.before : null;
+      const orderId = typeof query.orderId === 'string' && query.orderId !== '' ? query.orderId : null;
+      try {
+        requireScope(principal, 'trade:read');
+        return reply.code(200).send(await deps.executions(principal, { limit, symbol, kind: kind.value, orderId, before }));
+      } catch (err) {
+        if (err instanceof FuturesExecutionsError) return reply.code(err.status).send({ error: err.code, message: err.message });
+        const sent = sendFuturesFailure(reply, err, gates);
+        if (sent) return sent;
+        throw err;
+      }
+    },
+  );
+
+  app.get<{ Params: { id: string } }>('/api/v1/futures/orders/:id', async (req, reply) => {
+    const principal = gates.requirePrincipal(req, reply);
+    if (!principal) return;
+    if (!deps.get) return reply.code(503).send(UNMOUNTED);
+    try {
+      requireScope(principal, 'trade:read');
+      const order = await deps.get(principal, req.params.id);
+      if (!order)
+        return reply.code(404).send({ error: 'trade.futures_order_not_found', message: `futures order ${req.params.id} not found` });
+      return reply.code(200).send(order);
     } catch (err) {
       const sent = sendFuturesFailure(reply, err, gates);
       if (sent) return sent;

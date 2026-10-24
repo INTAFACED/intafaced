@@ -43,7 +43,15 @@ import { fmtAmount, fmtPct, fmtPctPoints, fmtPrice } from '../../../data/format'
 import { bpsToRatio } from '../desk/form-logic';
 import type { BalanceEntry } from '../../../data/derive';
 import type { Loadable } from '../../../data/types';
-import type { AdlDisclosure, FuturesListing, FuturesOrder, OrderTypeEntry, PositionPreview, TickerStrip } from './api';
+import {
+  ORDER_LABEL,
+  type AdlDisclosure,
+  type FuturesListing,
+  type FuturesOrder,
+  type OrderTypeEntry,
+  type PositionPreview,
+  type TickerStrip,
+} from './api';
 import { STALE_AFTER_MS, useFuturesApi, useFuturesRefresh, useOrderTypes } from './data';
 import { entryLegProblem, legSide } from './protection-logic';
 import { newNonce, useFuturesWriter, type Writer } from './hooks';
@@ -141,6 +149,7 @@ export function Ticket(props: TicketProps) {
   const [leverage, setLeverage] = useState('');
   const [takeProfit, setTakeProfit] = useState('');
   const [stopLoss, setStopLoss] = useState('');
+  const [label, setLabel] = useState('');
   // What the last open asked to be protected with, shown once it is placed.
   const [protectedOpen, setProtectedOpen] = useState<{ takeProfit: string | null; stopLoss: string | null } | null>(null);
   const [nonce, setNonce] = useState(newNonce);
@@ -243,8 +252,11 @@ export function Ticket(props: TicketProps) {
     stop_loss: entryLegProblem(side, 'stop_loss', stopLoss, markNow),
   };
   const protecting = takeProfit.trim() !== '' || stopLoss.trim() !== '';
+  // The service's own rule for a label; checked here so a bad one is named before review, not after a refusal.
+  const labelBad = label.trim() !== '' && !ORDER_LABEL.test(label.trim());
   const protectOff = legProblems.take_profit !== null || legProblems.stop_loss !== null ? ('protectionProblem' as const) : null;
-  const openOff = gate(shown) ?? typeOff ?? protectOff;
+  const labelOff = labelBad ? ('labelBad' as const) : null;
+  const openOff = gate(shown) ?? typeOff ?? protectOff ?? labelOff;
   // Above the max-order the review names a split: it may be placed as those children when nothing else refuses.
   const splitShown = splitPreview(shown);
   const splitOff = splitShown ? (gate(splitShown) ?? typeOff ?? (protecting ? ('protectionSplit' as const) : null)) : null;
@@ -253,7 +265,8 @@ export function Ticket(props: TicketProps) {
     : (reviewBlock({ planeOff, signedOut, markKnown: markNow !== null, markStale, size, leverage: lev }) ??
       (orderType === 'limit' && limitPrice === null ? 'noLimitPrice' : null));
   // A reduce-only order needs a size and its type's price; the service checks the position it lowers.
-  const reduceOff = writer.note.state !== 'none' ? ('locked' as const) : size === null || !isPositive(size) ? ('noSize' as const) : typeOff;
+  const reduceOff =
+    writer.note.state !== 'none' ? ('locked' as const) : size === null || !isPositive(size) ? ('noSize' as const) : (typeOff ?? labelOff);
 
   if (planeOff)
     return (
@@ -341,6 +354,7 @@ export function Ticket(props: TicketProps) {
           ...(tier !== null ? { confirmTier: tier } : {}),
           ...(!confirm.split && takeProfit.trim() !== '' ? { takeProfit: takeProfit.trim() } : {}),
           ...(!confirm.split && stopLoss.trim() !== '' ? { stopLoss: stopLoss.trim() } : {}),
+          ...(label.trim() !== '' ? { orderLabel: label.trim() } : {}),
           clientOpenId: openId(nonce),
         },
       }),
@@ -360,6 +374,7 @@ export function Ticket(props: TicketProps) {
         ...(limitPrice !== null ? { price: limitPrice } : {}),
         ...(orderType === 'limit' && adjust ? { priceCorrection: 'adjust' as const } : {}),
         clientOrderId: reduceId(nonce),
+        ...(label.trim() !== '' ? { orderLabel: label.trim() } : {}),
       },
     });
     // A refused reduce is final: the next press is a new request, not a replay of the refused one.
@@ -499,10 +514,11 @@ export function Ticket(props: TicketProps) {
   };
 
   const offWords: Record<
-    Exclude<OpenBlock | ReviewBlock | typeof typeOff | 'protectionProblem' | 'protectionSplit' | 'reduceOnly', null>,
+    Exclude<OpenBlock | ReviewBlock | typeof typeOff | 'protectionProblem' | 'protectionSplit' | 'reduceOnly' | 'labelBad', null>,
     string
   > = {
     reduceOnly: t('Off reduce review'),
+    labelBad: t('Order label invalid'),
     protectionProblem: t('Off protection problem'),
     protectionSplit: t('Off protection split'),
     typeUnavailable: catalogue.status === 'ready' ? t('Off type unavailable') : t('Off types loading'),
@@ -835,6 +851,19 @@ export function Ticket(props: TicketProps) {
           );
         })}
       </section>
+
+      <Field label={t('Order label')} hint={t('Order label hint')} error={labelBad ? t('Order label invalid') : undefined}>
+        <Input
+          value={label}
+          maxLength={36}
+          onValueChange={(v) => {
+            setLabel(v);
+            // Part of the order's request, so a changed label is sent under a new id.
+            setNonce(newNonce());
+            if (writer.outcome && writer.outcome.kind !== 'uncertain') writer.dismiss();
+          }}
+        />
+      </Field>
 
       <Button
         variant="secondary"

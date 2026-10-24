@@ -31,6 +31,9 @@ const order: FuturesOrderWire = {
   reduceOnly: false,
   positionId: null,
   bankruptcyPrice: null,
+  origin: 'user',
+  originRef: null,
+  orderLabel: null,
 };
 
 async function app(deps: MatchedOrdersRestDeps, opts: { signedIn?: boolean; jurisdiction?: boolean } = {}) {
@@ -176,6 +179,67 @@ describe('futures orders through the book: REST', () => {
     expect(cancelled).toBe(1);
   });
 
+  it('an order label is passed as sent, and one the service would refuse is refused here first', async () => {
+    const seen: PlaceMatchedOrderInput[] = [];
+    const server = await app({
+      place: async (_p, input) => {
+        seen.push(input);
+        return { ...order, orderLabel: input.orderLabel ?? null };
+      },
+    });
+    const ok = await server.inject({ method: 'POST', url: '/api/v1/futures/orders', payload: { ...body, orderLabel: 'grid-7' } });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json().orderLabel).toBe('grid-7');
+    expect(seen[0]!.orderLabel).toBe('grid-7');
+    // The body never names an origin: a trader cannot call their own order a stop or a liquidation.
+    const spoof = await server.inject({
+      method: 'POST',
+      url: '/api/v1/futures/orders',
+      payload: { ...body, origin: { kind: 'liquidation' } },
+    });
+    expect(spoof.statusCode).toBe(200);
+    expect(seen[1]!.origin).toBeUndefined();
+    for (const orderLabel of ['', 'two words', 'x'.repeat(37), 7]) {
+      const res = await server.inject({ method: 'POST', url: '/api/v1/futures/orders', payload: { ...body, orderLabel } });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toBe('trade.order_label_invalid');
+    }
+    expect(seen).toHaveLength(2);
+  });
+
+  it('reads one order of the signed account, and answers 404 for one that is not theirs', async () => {
+    const server = await app({ get: async (_p, id) => (id === order.orderId ? { ...order, symbol: 'BTC/USDT:USDT' } : null) });
+    const ok = await server.inject({ method: 'GET', url: `/api/v1/futures/orders/${order.orderId}` });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json()).toMatchObject({ orderId: order.orderId, origin: 'user' });
+    const missing = await server.inject({ method: 'GET', url: '/api/v1/futures/orders/someone-elses' });
+    expect(missing.statusCode).toBe(404);
+    expect(missing.json().error).toBe('trade.futures_order_not_found');
+    expect((await (await app({})).inject({ method: 'GET', url: `/api/v1/futures/orders/${order.orderId}` })).statusCode).toBe(503);
+  });
+
+  it('lists executions a page at a time; a blank limit or an unknown kind refuses', async () => {
+    const seen: unknown[] = [];
+    const server = await app({
+      executions: async (p, input) => {
+        seen.push({ userId: p.userId, ...input });
+        return { executions: [], next: null };
+      },
+    });
+    const ok = await server.inject({ method: 'GET', url: '/api/v1/futures/executions?limit=50&kind=liquidation&orderId=o-1' });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json()).toEqual({ executions: [], next: null });
+    expect(seen).toEqual([{ userId: USER, limit: 50, symbol: null, kind: 'liquidation', orderId: 'o-1', before: null }]);
+    expect((await server.inject({ method: 'GET', url: '/api/v1/futures/executions' })).json().error).toBe(
+      'trade.futures_executions_limit_unset',
+    );
+    expect((await server.inject({ method: 'GET', url: '/api/v1/futures/executions?limit=201' })).statusCode).toBe(400);
+    expect((await server.inject({ method: 'GET', url: '/api/v1/futures/executions?limit=5&kind=funding' })).json().error).toBe(
+      'trade.invalid_filter',
+    );
+    expect(seen).toHaveLength(1);
+  });
+
   it('lists the signed account’s orders; a blank scope or limit refuses rather than picking one', async () => {
     const seen: unknown[] = [];
     const server = await app({
@@ -187,7 +251,9 @@ describe('futures orders through the book: REST', () => {
     const ok = await server.inject({ method: 'GET', url: '/api/v1/futures/orders?scope=open&limit=50&symbol=BTC/USDT:USDT' });
     expect(ok.statusCode).toBe(200);
     expect(ok.json()).toEqual([order]);
-    expect(seen).toEqual([{ userId: USER, scope: 'open', limit: 50, symbol: 'BTC/USDT:USDT' }]);
+    expect(seen).toEqual([
+      { userId: USER, scope: 'open', limit: 50, symbol: 'BTC/USDT:USDT', label: null, origin: null, status: null, before: null },
+    ]);
     expect((await server.inject({ method: 'GET', url: '/api/v1/futures/orders?limit=50' })).json().error).toBe(
       'trade.futures_orders_scope_invalid',
     );

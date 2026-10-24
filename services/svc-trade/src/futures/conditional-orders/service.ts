@@ -83,6 +83,18 @@ export interface ReduceOnInstruction {
   readonly qty: Amount;
   readonly limitPrice?: Amount;
   readonly clientOrderId: string;
+  /** Which kind of conditional order placed it, shown on the book order as its origin. */
+  readonly origin: { readonly kind: ConditionalOrigin };
+}
+
+export type ConditionalOrigin = 'stop' | 'take_profit' | 'stop_loss' | 'trailing_stop';
+
+/** A position's take profit or stop loss leg is named by its attachment; a free-standing order by its kind. */
+export function conditionalOriginOf(row: { readonly kind: ConditionalKind; readonly attachment: AttachmentLeg | null }): ConditionalOrigin {
+  if (row.attachment) return row.attachment;
+  if (row.kind === 'take_profit') return 'take_profit';
+  if (row.kind === 'trailing_stop') return 'trailing_stop';
+  return 'stop';
 }
 
 /** What the book order became, as far as the caller knows on return. */
@@ -869,6 +881,7 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
           qty,
           ...(row.kind === 'stop_limit' ? { limitPrice: parseAmount(row.limit_price!) } : {}),
           clientOrderId: bookClientId(row.id, attempt),
+          origin: { kind: conditionalOriginOf(row) },
         },
         row.id,
       );

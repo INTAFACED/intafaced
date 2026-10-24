@@ -94,7 +94,14 @@ import { summarizeMargin, type MarginSummary } from './margin-summary.js';
 import { readTradePlanes } from './plane-capabilities.js';
 import { assertEmailProved, type EmailProofSource } from '../spot/email-proof.js';
 import { decideModeWrite, presentAccountMode, type AccountModeRead, type StoredAccountMode } from './account-mode.js';
-import { holdOf, MatchedFuturesOrders, type MatchedFillEvent, type OrderRow, type PlaceMatchedOrderInput } from './matched-orders.js';
+import {
+  holdOf,
+  MatchedFuturesOrders,
+  type FuturesOrderQuery,
+  type MatchedFillEvent,
+  type OrderRow,
+  type PlaceMatchedOrderInput,
+} from './matched-orders.js';
 import type { FeeRates } from './matched-order-plan.js';
 import type { MatchingClient } from '../spot/matching-client.js';
 import type { LifecycleAdmissionProof } from '../lifecycle-proof.js';
@@ -1166,11 +1173,13 @@ export class PositionService {
   }
 
   /** The caller's own matched futures orders (`MatchedFuturesOrders.listForUser`). */
-  async listMatchedOrders(
-    userId: string,
-    input: { readonly scope: 'open' | 'all'; readonly limit: number; readonly symbol?: string | null },
-  ) {
+  async listMatchedOrders(userId: string, input: FuturesOrderQuery) {
     return this.matched.listForUser(userId, input);
+  }
+
+  /** One of the caller's own matched futures orders, or null (`MatchedFuturesOrders.getForUser`). */
+  async getMatchedOrder(userId: string, orderId: string) {
+    return this.matched.getForUser(userId, orderId);
   }
 
   /** Cancel a matched futures order the caller owns, and release the part of its hold no fill used. */

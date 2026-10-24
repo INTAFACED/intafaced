@@ -183,6 +183,22 @@ export const MATCHED_ORDER_STATUSES = [
 ] as const;
 export type MatchedOrderStatus = (typeof MATCHED_ORDER_STATUSES)[number];
 
+/**
+ * Who placed a futures order (migration 20261024062001): the trader, one of their fired conditional orders, a
+ * liquidation, or a one-tap reverse. Written by the code that places the order, never read from a request body.
+ */
+export const FUTURES_ORDER_ORIGINS = ['user', 'stop', 'take_profit', 'stop_loss', 'trailing_stop', 'liquidation', 'reverse'] as const;
+export type FuturesOrderOrigin = (typeof FUTURES_ORDER_ORIGINS)[number];
+/** The origins a fired conditional order places under (`placeOnInstruction`). */
+export const CONDITIONAL_ORDER_ORIGINS = ['stop', 'take_profit', 'stop_loss', 'trailing_stop'] as const;
+export type ConditionalOrderOrigin = (typeof CONDITIONAL_ORDER_ORIGINS)[number];
+
+/** A trader's own tag on an order: 1 to 36 of letters, digits and `. _ : -`. Per user; it decides nothing. */
+export const ORDER_LABEL_PATTERN = /^[A-Za-z0-9._:-]{1,36}$/;
+export const ORDER_LABEL_INVALID = 'trade.order_label_invalid';
+/** A liquidation order works for the venue's liquidation of the position; its trader cannot cancel it. */
+export const FUTURES_ORDER_NOT_CANCELLABLE = 'trade.futures_order_not_cancellable';
+
 export interface PlaceMatchedOrderInput {
   readonly userId: string;
   /** Market symbol, e.g. BTC/USDT-PERP. Must be kind `futures` and active. */
@@ -209,7 +225,28 @@ export interface PlaceMatchedOrderInput {
    * the tier, until this names it. Not part of the request's identity: a retry with it finds the same order.
    */
   readonly confirmTier?: number;
+  /** The trader's own label (`ORDER_LABEL_PATTERN`). Part of the request: the same clientOrderId with another label conflicts. */
+  readonly orderLabel?: string;
+  /**
+   * Who placed it, set by the placing code only: `place` takes `user` (the default) or `reverse`, and
+   * `placeOnInstruction` takes a conditional origin. `ref` names the conditional order or the reverse request.
+   */
+  readonly origin?: { readonly kind: FuturesOrderOrigin; readonly ref?: string | null };
 }
+
+/** A read of the caller's own futures orders (`listForUser`). */
+export interface FuturesOrderQuery {
+  readonly scope: 'open' | 'history' | 'all';
+  readonly limit: number;
+  readonly symbol?: string | null;
+  readonly label?: string | null;
+  readonly origin?: FuturesOrderOrigin | null;
+  readonly status?: MatchedOrderStatus | null;
+  /** The last order id of the previous page. */
+  readonly before?: string | null;
+}
+
+export type FuturesOrderListed = MatchedOrderView & { readonly symbol: string; readonly createdAt: string };
 
 /** What a split request placed: every child, in order, and the refusal that stopped it early, if one did. */
 export interface SplitPlacement {
@@ -246,6 +283,12 @@ export interface MatchedOrderView {
   readonly positionId: string | null;
   /** The bankruptcy price a reduce-only order was bounded by at placement; null for an opening order. */
   readonly bankruptcyPrice: string | null;
+  /** Who placed it (`FUTURES_ORDER_ORIGINS`). */
+  readonly origin: FuturesOrderOrigin;
+  /** The conditional order, liquidation rung or reverse request it came from; null for the trader's own order. */
+  readonly originRef: string | null;
+  /** The trader's own label; null when none was given. */
+  readonly orderLabel: string | null;
 }
 
 /** One order's share of one engine fill, and which side of it the order was on. */
@@ -391,6 +434,9 @@ export interface OrderRow {
   bankruptcy_price: string | null;
   /** The matched liquidation rung this order works for (slice 7); null for every trader's order. */
   liquidation_rung_id: string | null;
+  origin: FuturesOrderOrigin;
+  origin_ref: string | null;
+  order_label: string | null;
   /** The listing's published rates when the order was accepted (migration 0099). Zero on an older order. */
   maker_fee_bps: string;
   taker_fee_bps: string;
@@ -603,6 +649,9 @@ function presentOrder(row: OrderRow): MatchedOrderView {
     reduceOnly: row.reduce_only,
     positionId: row.position_id,
     bankruptcyPrice: row.bankruptcy_price == null ? null : formatAmount(parseAmount(row.bankruptcy_price)),
+    origin: row.origin,
+    originRef: row.origin_ref,
+    orderLabel: row.order_label,
   };
 }
 
@@ -948,6 +997,10 @@ export class MatchedFuturesOrders {
       refuse('trade.futures_matching_disabled', 'futures orders through the matching engine are switched off on this deployment', 503);
     }
     if (principal.userId !== input.userId) refuse('auth.credential_denied', 'the order must be placed by its own account', 403);
+    // A trader's own order, or a reverse they asked for. A stop or a liquidation is never placed through this door.
+    const origin = input.origin?.kind ?? 'user';
+    if (origin !== 'user' && origin !== 'reverse')
+      refuse('trade.futures_order_origin_invalid', `an order placed for its trader is not a ${origin} order`, 500);
     const clientOrderId = input.clientOrderId?.trim() ?? '';
     if (clientOrderId.length === 0 || clientOrderId.length > 64) {
       refuse('trade.client_order_id_required', 'clientOrderId is required (1–64 chars) — omit would double-lock margin on retry');
@@ -1075,12 +1128,13 @@ export class MatchedFuturesOrders {
     const inserted = await this.deps.sql<{ id: string }[]>`
       INSERT INTO trade.futures_orders (
         id, user_id, market_id, client_order_id, side, order_type, qty, limit_price, mark_price,
-        band_low, band_high, leverage, hold_asset, status, maker_fee_bps, taker_fee_bps
+        band_low, band_high, leverage, hold_asset, status, maker_fee_bps, taker_fee_bps, origin, origin_ref, order_label
       ) VALUES (
         ${orderId}, ${input.userId}, ${market.id}, ${clientOrderId}, ${input.side}, ${input.type},
         ${formatAmount(input.qty)}, ${formatAmount(limit)}, ${formatAmount(mark)},
         ${formatAmount(bandAt.low)}, ${formatAmount(bandAt.high)}, ${formatAmount(input.leverage)},
-        ${market.quote_asset}, 'pending', ${rates.makerBps}, ${rates.takerBps}
+        ${market.quote_asset}, 'pending', ${rates.makerBps}, ${rates.takerBps},
+        ${input.origin?.kind ?? 'user'}, ${input.origin?.ref ?? null}, ${input.orderLabel ?? null}
       )
       ON CONFLICT (user_id, market_id, client_order_id) DO NOTHING
       RETURNING id
@@ -1257,11 +1311,17 @@ export class MatchedFuturesOrders {
    * is the reduce-only path a trader's own order takes: the position's own bound, the band, the reduce room left by
    * its other reduce-only orders, and a retry on the same `clientOrderId` that finds the same order. It never opens.
    */
-  async placeOnInstruction(input: PlaceMatchedOrderInput, instructionId: string): Promise<MatchedOrderView> {
+  async placeOnInstruction(raw: PlaceMatchedOrderInput, instructionId: string): Promise<MatchedOrderView> {
     if (!this.deps.enabled) {
       refuse('trade.futures_matching_disabled', 'futures orders through the matching engine are switched off on this deployment', 503);
     }
-    if (input.reduceOnly !== true) refuse('trade.conditional_would_increase', 'a conditional order only ever places a reduce-only order');
+    if (raw.reduceOnly !== true) refuse('trade.conditional_would_increase', 'a conditional order only ever places a reduce-only order');
+    // The order names the conditional order that placed it; a caller that does not say which kind it was is a stop.
+    const kind = raw.origin?.kind ?? 'stop';
+    if (!(CONDITIONAL_ORDER_ORIGINS as readonly string[]).includes(kind)) {
+      refuse('trade.futures_order_origin_invalid', `a fired conditional order is not a ${kind} order`, 500);
+    }
+    const input: PlaceMatchedOrderInput = { ...raw, origin: { kind, ref: instructionId } };
     const clientOrderId = input.clientOrderId?.trim() ?? '';
     if (clientOrderId.length === 0 || clientOrderId.length > 64) {
       refuse('trade.client_order_id_required', 'clientOrderId is required (1–64 chars) — omit would double-lock margin on retry');
@@ -1421,13 +1481,14 @@ export class MatchedFuturesOrders {
         INSERT INTO trade.futures_orders (
           id, user_id, market_id, client_order_id, side, order_type, qty, limit_price, mark_price,
           band_low, band_high, leverage, hold_asset, status, reduce_only, position_id, bankruptcy_price,
-          maker_fee_bps, taker_fee_bps
+          maker_fee_bps, taker_fee_bps, origin, origin_ref, order_label
         ) VALUES (
           ${orderId}, ${input.userId}, ${market.id}, ${clientOrderId}, ${input.side}, ${input.type},
           ${formatAmount(input.qty)}, ${formatAmount(limit)}, ${formatAmount(mark)},
           ${formatAmount(bandAt.low)}, ${formatAmount(bandAt.high)}, ${formatAmount(parseAmount(position.leverage))},
           ${position.margin_asset}, 'pending', true, ${position.id}, ${formatAmount(bankruptcy)},
-          ${reduceRates.makerBps}, ${reduceRates.takerBps}
+          ${reduceRates.makerBps}, ${reduceRates.takerBps},
+          ${input.origin?.kind ?? 'user'}, ${input.origin?.ref ?? null}, ${input.orderLabel ?? null}
         )
         ON CONFLICT (user_id, market_id, client_order_id) DO NOTHING
         RETURNING id
@@ -2657,14 +2718,14 @@ export class MatchedFuturesOrders {
       INSERT INTO trade.futures_orders (
         id, user_id, market_id, client_order_id, side, order_type, qty, limit_price, mark_price,
         band_low, band_high, leverage, hold_asset, status, refusal_code, engine_filled_qty,
-        reduce_only, position_id, bankruptcy_price, liquidation_rung_id
+        reduce_only, position_id, bankruptcy_price, liquidation_rung_id, origin, origin_ref
       ) VALUES (
         ${orderId}, ${position.user_id}, ${position.market_id}, ${clientOrderId}, ${reducingSide(position.side)}, 'market',
         ${formatAmount(input.sizeClosed)}, ${formatAmount(limit ?? widened)}, ${formatAmount(input.mark)},
         ${formatAmount(bandAt.low)}, ${formatAmount(bandAt.high)}, ${formatAmount(parseAmount(position.leverage))},
         ${position.margin_asset}, ${limit === null ? 'refused' : 'pending'},
         ${limit === null ? FUTURES_REDUCE_BANKRUPTCY_OUTSIDE_BAND : null}, ${limit === null ? '0' : null},
-        true, ${position.id}, ${formatAmount(bankruptcy)}, ${input.rungId}
+        true, ${position.id}, ${formatAmount(bankruptcy)}, ${input.rungId}, 'liquidation', ${input.rungId}
       )
       ON CONFLICT (user_id, market_id, client_order_id) DO NOTHING
     `;
@@ -2720,27 +2781,63 @@ export class MatchedFuturesOrders {
    * The caller's own matched orders, newest first. `open` is every order that can still fill or still holds margin
    * for a fill on its way (`LIVE_OR_UNKNOWN` plus `pending`); `all` is every state. The page size is the caller's.
    */
-  async listForUser(
-    userId: string,
-    input: { readonly scope: 'open' | 'all'; readonly limit: number; readonly symbol?: string | null },
-  ): Promise<(MatchedOrderView & { readonly symbol: string; readonly createdAt: string })[]> {
+  /**
+   * The caller's own futures orders, newest first: what may still rest or fill (`open`), what has ended (`history`),
+   * or both (`all`), narrowed by contract, label, origin and status. `before` is the last order of the previous page;
+   * one that is not the caller's refuses rather than starting over. Liquidation orders are listed with their origin:
+   * they worked on the trader's own position.
+   */
+  async listForUser(userId: string, input: FuturesOrderQuery): Promise<FuturesOrderListed[]> {
+    const sql = this.deps.sql;
     const live = ['pending', ...LIVE_OR_UNKNOWN];
-    const rows = await this.deps.sql<(OrderRow & { symbol: string; created_at: Date })[]>`
+    const before = input.before ?? null;
+    if (before) {
+      const [row] = mayBeMatchedOrderId(before)
+        ? await sql<{ id: string }[]>`SELECT id FROM trade.futures_orders WHERE id = ${before} AND user_id = ${userId}`
+        : [];
+      if (!row) refuse('trade.invalid_cursor', 'before names no order of yours');
+    }
+    const rows = await sql<(OrderRow & { symbol: string; created_at: Date })[]>`
       SELECT o.*, m.symbol FROM trade.futures_orders o JOIN trade.markets m ON m.id = o.market_id
        WHERE o.user_id = ${userId}
-         ${input.scope === 'open' ? this.deps.sql`AND o.status IN ${this.deps.sql(live)}` : this.deps.sql``}
-         ${input.symbol ? this.deps.sql`AND m.symbol = ${input.symbol}` : this.deps.sql``}
-         AND o.liquidation_rung_id IS NULL
-       ORDER BY o.created_at DESC, o.id
+         ${input.scope === 'open' ? sql`AND o.status IN ${sql(live)}` : sql``}
+         ${input.scope === 'history' ? sql`AND o.status NOT IN ${sql(live)}` : sql``}
+         ${input.symbol ? sql`AND m.symbol = ${input.symbol}` : sql``}
+         ${input.label ? sql`AND o.order_label = ${input.label}` : sql``}
+         ${input.origin ? sql`AND o.origin = ${input.origin}` : sql``}
+         ${input.status ? sql`AND o.status = ${input.status}` : sql``}
+         ${
+           // Compared in the database, at its own precision, so a page never repeats or skips an order.
+           before ? sql`AND (o.created_at, o.id) < (SELECT c.created_at, c.id FROM trade.futures_orders c WHERE c.id = ${before})` : sql``
+         }
+       ORDER BY o.created_at DESC, o.id DESC
        LIMIT ${input.limit}
     `;
     return rows.map((row) => ({ ...presentOrder(row), symbol: row.symbol, createdAt: new Date(row.created_at).toISOString() }));
+  }
+
+  /** One of the caller's own futures orders; null when it is not theirs or not a futures order. */
+  async getForUser(userId: string, orderId: string): Promise<FuturesOrderListed | null> {
+    if (!mayBeMatchedOrderId(orderId)) return null;
+    const [row] = await this.deps.sql<(OrderRow & { symbol: string; created_at: Date })[]>`
+      SELECT o.*, m.symbol FROM trade.futures_orders o JOIN trade.markets m ON m.id = o.market_id
+       WHERE o.id = ${orderId} AND o.user_id = ${userId}
+    `;
+    return row ? { ...presentOrder(row), symbol: row.symbol, createdAt: new Date(row.created_at).toISOString() } : null;
   }
 
   /** Cancel a resting order we own, then release the part of its hold that no fill used. */
   async cancel(principal: Principal, orderId: string): Promise<MatchedOrderView> {
     const row = await this.loadOrder(orderId).catch(() => null);
     if (!row || row.user_id !== principal.userId) refuse('trade.futures_order_not_found', `futures order ${orderId} not found`, 404);
+    // The liquidation owns its order until the rung finishes; the trader's cancel would leave the position unliquidated.
+    if (row.origin === 'liquidation') {
+      refuse(
+        FUTURES_ORDER_NOT_CANCELLABLE,
+        "a liquidation order is the venue's, placed to bring the position back within margin; it cannot be cancelled",
+        409,
+      );
+    }
     if (!LIVE_OR_UNKNOWN.includes(row.status as (typeof LIVE_OR_UNKNOWN)[number])) {
       await this.releaseWhenDone(orderId);
       return presentOrder(await this.loadOrder(orderId));
@@ -2973,6 +3070,8 @@ export function splitRequestTag(input: PlaceMatchedOrderInput): string {
     input.priceCorrection === 'adjust' ? 'adjust' : 'reject',
     formatAmount(input.leverage),
     typeof input.collateralClass === 'string' ? input.collateralClass : 'cash',
+    // Only when given, so a request sent before labels existed keeps the tag its children were keyed with.
+    ...(input.orderLabel !== undefined ? [`label:${input.orderLabel}`] : []),
   ];
   return createHash('sha256').update(parts.join('|')).digest('hex').slice(0, 8);
 }
@@ -2987,6 +3086,9 @@ function typedRefusal(err: unknown): { code: string; message: string } | null {
 
 /** The order's own shape, before anything is read: the same refusals for a single order and a split. */
 function refuseMalformedOrder(input: PlaceMatchedOrderInput): void {
+  if (input.orderLabel !== undefined && !ORDER_LABEL_PATTERN.test(input.orderLabel)) {
+    refuse(ORDER_LABEL_INVALID, 'orderLabel is 1 to 36 of letters, digits and . _ : -');
+  }
   if (input.priceCorrection !== undefined && input.priceCorrection !== 'reject' && input.priceCorrection !== 'adjust') {
     refuse('trade.price_correction_invalid', 'priceCorrection is reject or adjust');
   }
@@ -3005,6 +3107,7 @@ function sameRequest(row: OrderRow, input: PlaceMatchedOrderInput): boolean {
   if (row.user_id !== input.userId || row.side !== input.side || row.order_type !== input.type) return false;
   if (parseAmount(row.qty) !== input.qty) return false;
   if (row.reduce_only !== (input.reduceOnly === true)) return false;
+  if ((row.order_label ?? null) !== (input.orderLabel ?? null)) return false;
   // A reduce-only order carries its position's leverage, whatever the request said.
   if (!row.reduce_only && parseAmount(row.leverage) !== input.leverage) return false;
   if (input.type === 'limit') {

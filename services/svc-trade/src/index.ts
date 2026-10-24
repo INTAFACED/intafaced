@@ -47,6 +47,7 @@ import {
 } from './futures/conditional-orders/index.js';
 import { createReverseService } from './futures/reverse.js';
 import { listCallerLiquidations, listFundingPayments, loadPositionLiquidation, readFuturesTickerFacts } from './futures/futures-reads.js';
+import { listFuturesExecutions } from './futures/futures-executions.js';
 import { listPayoutsForUser } from './futures/futures-payouts.js';
 import { registerPrivateRest } from './private-rest.js';
 import { bindExpireAt, installGtdGttPlace } from './spot/gtd-gtt-place.js';
@@ -1214,6 +1215,8 @@ registerPrivateRest(app, {
           placeSplit: (principal, input, context) => positions.placeMatchedSplit(principal, input, context),
           cancel: (principal, orderId) => positions.cancelMatchedOrder(principal, orderId),
           list: (principal, input) => positions.listMatchedOrders(principal.userId, input),
+          get: (principal, orderId) => positions.getMatchedOrder(principal.userId, orderId),
+          executions: (principal, input) => listFuturesExecutions(sql, principal.userId, input),
           entryProtection: { record: (userId, input) => conditionalOrders.recordEntryProtection(userId, input) },
           reverse: (principal, input, context) => reverses.reverse(principal, input, context),
         },

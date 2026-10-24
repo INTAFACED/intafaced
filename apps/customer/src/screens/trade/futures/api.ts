@@ -8,7 +8,7 @@
 import { z } from 'zod';
 import { positionSchema } from '@intafaced/exchange-contract/schemas';
 import type { ApiClient, ApiResult } from '../../../shared/api';
-import { decimalSchema } from '../../../shared/money';
+import { decimalSchema, signedDecimalSchema } from '../../../shared/money';
 import { listingSchema } from '../../../features/trade/trade-api';
 import { positionPreviewSchema } from '../../../features/trade/tool-api';
 
@@ -155,6 +155,13 @@ export const entryProtectionSchema = z.object({
 });
 export type EntryProtection = z.infer<typeof entryProtectionSchema>;
 
+/** The service's rule for a trader's order label: 1 to 36 of letters, digits and . _ : - */
+export const ORDER_LABEL = /^[A-Za-z0-9._:-]{1,36}$/;
+
+/** Who can place a futures order (the service's own list, `FUTURES_ORDER_ORIGINS`). */
+export const FUTURES_ORDER_ORIGINS = ['user', 'stop', 'take_profit', 'stop_loss', 'trailing_stop', 'liquidation', 'reverse'] as const;
+export const FUTURES_EXECUTION_KINDS = ['open', 'close', 'liquidation', 'adl'] as const;
+
 export const futuresOrderSchema = z.object({
   orderId: z.string(),
   clientOrderId: z.string().optional(),
@@ -181,8 +188,46 @@ export const futuresOrderSchema = z.object({
   createdAt: z.string().optional(),
   /** Present when the order asked for a take profit or stop loss. */
   protection: entryProtectionSchema.optional(),
+  /** Who placed it: the trader, a fired stop, take profit, stop loss or trailing stop, a liquidation, or a reverse. */
+  origin: z.enum(FUTURES_ORDER_ORIGINS).optional(),
+  /** The conditional order, liquidation or reverse it came from. */
+  originRef: z.string().nullable().optional(),
+  /** The trader's own label. */
+  orderLabel: z.string().nullable().optional(),
 });
 export type FuturesOrder = z.infer<typeof futuresOrderSchema>;
+export type FuturesOrderOrigin = (typeof FUTURES_ORDER_ORIGINS)[number];
+
+/** One change to a futures position a trade or the venue made: a fill through the book, or an ADL pair. */
+export const futuresExecutionSchema = z.object({
+  id: z.string(),
+  kind: z.enum(FUTURES_EXECUTION_KINDS),
+  symbol: z.string(),
+  side: z.enum(['buy', 'sell']),
+  qty: decimalSchema,
+  price: decimalSchema,
+  fee: decimalSchema.nullable(),
+  feeRole: z.enum(['maker', 'taker']).nullable(),
+  // A close realises a loss as often as a profit.
+  realizedPnl: signedDecimalSchema.nullable(),
+  orderId: z.string().nullable(),
+  origin: z.enum(FUTURES_ORDER_ORIGINS).nullable(),
+  orderLabel: z.string().nullable(),
+  positionId: z.string(),
+  at: z.string(),
+});
+export type FuturesExecution = z.infer<typeof futuresExecutionSchema>;
+export const futuresExecutionPageSchema = z.object({ executions: z.array(futuresExecutionSchema), next: z.string().nullable() });
+
+/** A page of the trader's futures orders, as the orders room asks for it. */
+export interface FuturesOrderQuery {
+  scope: 'open' | 'history' | 'all';
+  limit: number;
+  symbol?: string;
+  label?: string;
+  origin?: string;
+  before?: string;
+}
 
 /**
  * A futures conditional order: a stop, take-profit or trailing stop, or one leg of a position's take-profit and
@@ -343,6 +388,8 @@ export interface OpenInput {
   /** A take profit and a stop loss attached to the order: they arm on what it fills (never with a split). */
   takeProfit?: string;
   stopLoss?: string;
+  /** The trader's own tag on the order. */
+  orderLabel?: string;
   /** The margin tier the trader accepted in the confirm step; the service refuses a crossing into a tier not named. */
   confirmTier?: number;
   clientOpenId: string;
@@ -392,6 +439,7 @@ export interface ReduceInput {
   price?: string;
   priceCorrection?: 'adjust';
   clientOrderId: string;
+  orderLabel?: string;
 }
 
 export interface PlaceOrderInput {
@@ -408,6 +456,8 @@ export interface PlaceOrderInput {
   confirmTier?: number;
   takeProfit?: string;
   stopLoss?: string;
+  /** The trader's own tag, 1 to 36 of letters, digits and . _ : - */
+  orderLabel?: string;
 }
 
 /** What the review asks: the form as it would be sent, so the band, the slippage cap and the split are this order's own. */
@@ -451,6 +501,13 @@ export function createFuturesApi(api: ApiClient) {
     cancelOrder: (orderId: string) => api.rest(`/futures/orders/${encodeURIComponent(orderId)}`, futuresOrderSchema, { method: 'DELETE' }),
     orders: (scope: 'open' | 'all', signal?: AbortSignal) =>
       api.rest('/futures/orders', z.array(futuresOrderSchema), { query: { scope, limit: 100 }, signal }),
+    /** A page of the trader's orders, newest first; `before` is the last order of the page before. */
+    orderPage: (query: FuturesOrderQuery, signal?: AbortSignal) =>
+      api.rest('/futures/orders', z.array(futuresOrderSchema), { query: { ...query }, signal }),
+    order: (orderId: string, signal?: AbortSignal) =>
+      api.rest(`/futures/orders/${encodeURIComponent(orderId)}`, futuresOrderSchema, { signal }),
+    executions: (query: { limit: number; symbol?: string; kind?: string; orderId?: string; before?: string }, signal?: AbortSignal) =>
+      api.rest('/futures/executions', futuresExecutionPageSchema, { query: { ...query }, signal }),
     /** Every recent order on one contract, up to the service's page cap: where a split's children are looked up. */
     ordersOn: (symbol: string) => api.rest('/futures/orders', z.array(futuresOrderSchema), { query: { scope: 'all', limit: 500, symbol } }),
     orderTypes: (signal?: AbortSignal) => api.rest('/futures/order-types', orderTypeCatalogueSchema, { query: { limit: 50 }, signal }),
