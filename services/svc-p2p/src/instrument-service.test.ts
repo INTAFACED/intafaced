@@ -1252,6 +1252,7 @@ describe('svc-p2p payment instruments', () => {
         'reviews.edit': { tradeId: trade.id, comment: 'probe' },
         'reviews.reply': { tradeId: trade.id, text: 'probe' },
         'reviews.list': { userId: SELLER, limit: 20 },
+        'reviews.forTrade': { tradeId: trade.id },
         'reviews.moderate': { reviewId: crypto.randomUUID(), reason: 'probe' },
         'access.eligibility': undefined,
         'risk.notice': undefined,

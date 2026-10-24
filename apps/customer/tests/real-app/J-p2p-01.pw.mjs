@@ -12,6 +12,7 @@ import {
   p2p,
   readyTaker,
   refusalCode,
+  restorePasskey,
   registerRetiringMethod,
   retireRetiringMethod,
   testInstrument,
@@ -767,12 +768,14 @@ test('J-p2p-01 #9 the completed order has a receipt and an open one none; each s
   const rows = await buyer.query('reviews.forTrade', { tradeId: state.tradeId });
   expect(rows.theirs).toMatchObject({ authorId: rows.mine.subjectId, subjectId: rows.mine.authorId, rating: 'bad' });
 
-  // An order that did not complete has neither a receipt nor a review.
-  const cancelled = (await buyer.query('trades.page', { limit: 1, tab: 'cancelled' })).trades[0];
-  expect(cancelled).toBeTruthy();
-  await page.goto(`/uc/order?tradeId=${cancelled.id}`);
+  // An order that has not completed has neither a receipt nor a review: a fresh one on the same ad, then cancelled.
+  const taker = p2p(await api(state.buyer), await restorePasskey(state.passkey));
+  const open = await taker.mutate('trades.take', { offerId: state.offerId, tradeId: randomUUID(), amount: AD.min, method: METHOD });
+  expect(open.status).toBe('escrowed');
+  await page.goto(`/uc/order?tradeId=${open.id}`);
   await expect(page.getByText('A receipt is available once the order is completed.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Get receipt' })).toHaveCount(0);
   await expect(page.getByText('You can review this order once it is completed.')).toBeVisible();
-  expect(refusalCode(await buyer.raw.mutate('reviews.leave', { tradeId: cancelled.id, rating: 'good' }))).toBe('p2p.review_not_eligible');
+  expect(refusalCode(await buyer.raw.mutate('reviews.leave', { tradeId: open.id, rating: 'good' }))).toBe('p2p.review_not_eligible');
+  await taker.mutate('trades.cancel', { tradeId: open.id, reason: 'TEST journey order that never completes' });
 });
