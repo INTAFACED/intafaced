@@ -96,7 +96,7 @@ export type SecurityLockView = z.infer<typeof securityLockSchema>;
  * - `withdraw-address-approval` (svc-bank, W-withdraw new-address approval): `approveAddress?token=<token>`.
  *
  * `key` is the caller's business key (for example `address-approval:<addressId>:<n>`). The same key with the same body
- * answers with the first mail and sends nothing more; the same key with a different body is refused
+ * answers with the first mail and sends nothing more, even after the link expired; the same key with a different body is refused
  * (`identity.mail_key_conflict`). `detail` is a short plain line shown in the mail (for example the network and the
  * address's first and last characters) so the customer can see what they approve.
  */
@@ -124,7 +124,7 @@ export const serviceMailRequestSchema = z
       .max(120)
       .regex(/^[A-Za-z0-9 .:,()_-]+$/)
       .optional(),
-    /** When the link stops working, as the caller enforces it. Shown in the mail; at most seven days ahead. */
+    /** When the link stops working, as the caller enforces it. Shown in the mail. Identity refuses a time past or more than seven days ahead. */
     expiresAt: z.string().datetime({ offset: true }),
   })
   .strict();

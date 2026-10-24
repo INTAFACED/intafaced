@@ -820,12 +820,6 @@ app.get<{ Params: { subAccountId: string } }>('/internal/sub-accounts/:subAccoun
   return gated.body;
 });
 
-/**
- * Service-to-service API key ownership (place gate).
- * Fail-closed at the caller: missing credentials → 401; unknown id → 404.
- * Body is the published `apiKeyOwnershipSchema` contract (no permission scopes).
- * Bind lists ride as extra JSON fields so WS/edge live-check can read them.
- */
 /** Mail another service asks identity to send to a customer's own proved address (service-mail.ts). */
 registerServiceMailRoute(app, {
   queue: (input) => auth.queueServiceMail(input),
@@ -834,6 +828,12 @@ registerServiceMailRoute(app, {
   ...(doorS2s ? { s2s: doorS2s } : {}),
 });
 
+/**
+ * Service-to-service API key ownership (place gate).
+ * Fail-closed at the caller: missing credentials → 401; unknown id → 404.
+ * Body is the published `apiKeyOwnershipSchema` contract (no permission scopes).
+ * Bind lists ride as extra JSON fields so WS/edge live-check can read them.
+ */
 registerApiKeyOwnershipRoute(app, {
   privateAuthoritySecret: env.IDENTITY_WS_AUTHORITY_SECRET,
   edgeAuthoritySecret: env.IDENTITY_EDGE_AUTHORITY_SECRET,

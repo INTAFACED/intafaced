@@ -267,6 +267,12 @@ export async function relayMailOutbox(
     return out;
   }
   for (const job of claimed) {
+    // A service mail (POST /internal/mail) goes out only while its account is still active and the address is still
+    // its proved one; a freeze or an address change between the request and the send withdraws it.
+    if (job.user_id && !(await stillOwnAddress(deps.sql, job.user_id, job.recipient))) {
+      await deps.sql`UPDATE mail_outbox SET status = 'suppressed' WHERE id = ${job.id}`;
+      continue;
+    }
     try {
       await mail.send({
         email: job.recipient,
@@ -286,6 +292,13 @@ export async function relayMailOutbox(
     }
   }
   return out;
+}
+
+async function stillOwnAddress(sql: Sql, userId: string, recipient: string): Promise<boolean> {
+  const [user] = await sql<Array<{ status: string; email: string | null; email_verified_at: Date | null }>>`
+    SELECT status, email, email_verified_at FROM users WHERE id = ${userId}
+  `;
+  return user?.status === 'active' && user.email === recipient && user.email_verified_at !== null;
 }
 
 type OpenFlow = { id: string; user_id: string | null; code_hash: string; status: string; attempts: number; expires_at: Date };

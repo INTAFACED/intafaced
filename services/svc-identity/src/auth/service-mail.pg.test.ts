@@ -176,6 +176,42 @@ if (!available) {
       expect(await count('mail_outbox')).toBe(0);
     });
 
+    it('answers a retry with the first mail even after its link expired', async () => {
+      const who = await proved();
+      const first = await auth.queueServiceMail(request(who.userId));
+      nowMs = T0 + 2 * 3_600_000;
+      expect(await auth.queueServiceMail(request(who.userId))).toEqual(first);
+      expect(approvals()).toHaveLength(1);
+    });
+
+    it('withdraws a queued mail when the account is frozen or its address changes before the send', async () => {
+      auth.useMailRelayTrigger(undefined);
+      const frozen = await proved();
+      const moved = await proved();
+      const a = await auth.queueServiceMail(request(frozen.userId));
+      const b = await auth.queueServiceMail(request(moved.userId));
+      await db.sql`UPDATE users SET status = 'frozen' WHERE id = ${frozen.userId}`;
+      await db.sql`UPDATE users SET email = ${`new-${moved.email}`} WHERE id = ${moved.userId}`;
+      await auth.drainMailOutbox();
+      expect(approvals()).toHaveLength(0);
+      const rows = await db.sql<Array<{ id: string; status: string; code: string | null }>>`
+        SELECT id, status, code FROM mail_outbox ORDER BY id
+      `;
+      expect(rows).toEqual(
+        expect.arrayContaining([
+          { id: a.mailId, status: 'suppressed', code: null },
+          { id: b.mailId, status: 'suppressed', code: null },
+        ]),
+      );
+    });
+
+    it('refuses while no mail transport is configured, and queues nothing', async () => {
+      const who = await proved();
+      auth.usePasswordResetMail(undefined);
+      expect(await refusal(auth.queueServiceMail(request(who.userId)))).toBe('identity.mail_unwired');
+      expect(await count('mail_outbox')).toBe(0);
+    });
+
     it('keeps a queued mail when the send fails, and never sends it twice', async () => {
       const who = await proved();
       auth.usePasswordResetMail({

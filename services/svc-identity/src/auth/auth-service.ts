@@ -621,7 +621,10 @@ export class AuthService {
 
   /** A mail another service asked for (`POST /internal/mail`, service-mail.ts), on the recovery flows' clock and relay. */
   async queueServiceMail(input: ServiceMailRequest): Promise<ServiceMailAccepted> {
-    return queueServiceMail({ sql: this.sql, now: this.passwordResetNow, afterCommit: this.mailRelayTrigger }, input);
+    return queueServiceMail(
+      { sql: this.sql, now: this.passwordResetNow, mailWired: this.passwordResetMail !== undefined, afterCommit: this.mailRelayTrigger },
+      input,
+    );
   }
 
   /** Send the pending recovery mail, once each. Safe to call from a timer and from a trigger at the same time. */

@@ -9,7 +9,7 @@
  */
 import { createHash } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
-import type { Sql } from 'postgres';
+import type { Sql, TransactionSql } from 'postgres';
 import {
   SERVICE_MAIL_PATH,
   serviceMailRequestSchema,
@@ -33,7 +33,8 @@ export type ServiceMailRefusal =
   | 'identity.account_not_active'
   | 'identity.email_unproved'
   | 'identity.mail_key_conflict'
-  | 'identity.mail_expiry_invalid';
+  | 'identity.mail_expiry_invalid'
+  | 'identity.mail_unwired';
 
 export class ServiceMailError extends Error {
   constructor(
@@ -48,6 +49,8 @@ export class ServiceMailError extends Error {
 export interface ServiceMailDeps {
   readonly sql: Sql;
   readonly now: () => Date;
+  /** Whether a mail transport is configured. Without one nothing can be delivered, so the request is refused. */
+  readonly mailWired: boolean;
   /** Starts the relay after the row is committed. */
   readonly afterCommit?: (() => void | Promise<void>) | undefined;
 }
@@ -60,23 +63,26 @@ function bodyHash(input: ServiceMailRequest): string {
 /** Queue the mail once per key. The answer names the outbox row; a repeat of the same request names the same row. */
 export async function queueServiceMail(deps: ServiceMailDeps, input: ServiceMailRequest): Promise<ServiceMailAccepted> {
   const now = deps.now();
-  const expiresAt = new Date(input.expiresAt);
-  if (!(expiresAt.getTime() > now.getTime()) || expiresAt.getTime() - now.getTime() > MAX_AHEAD_MS) {
-    throw new ServiceMailError('identity.mail_expiry_invalid', 'expiresAt must be in the future and at most seven days ahead');
-  }
   const hash = bodyHash(input);
-  let created = false;
-  const mailId = await deps.sql.begin(async (tx) => {
-    // One request per key at a time, so two retries racing see one row.
-    await tx`SELECT pg_advisory_xact_lock(hashtext(${`service-mail:${input.key}`}))`;
+  // A repeat of a request already queued answers with its mail, whatever the clock or the transport says now.
+  const repeat = async (tx: TransactionSql): Promise<string | null> => {
     const [prior] = await tx<Array<{ id: string; body_hash: string | null }>>`
       SELECT id, body_hash FROM mail_outbox WHERE dedupe_key = ${input.key}
     `;
-    if (prior) {
-      if (prior.body_hash !== hash) {
-        throw new ServiceMailError('identity.mail_key_conflict', 'this key was already used for a different mail');
-      }
-      return prior.id;
+    if (!prior) return null;
+    if (prior.body_hash !== hash) {
+      throw new ServiceMailError('identity.mail_key_conflict', 'this key was already used for a different mail');
+    }
+    return prior.id;
+  };
+  let created = false;
+  const mailId = await deps.sql.begin(async (tx) => {
+    const prior = await repeat(tx);
+    if (prior) return prior;
+    if (!deps.mailWired) throw new ServiceMailError('identity.mail_unwired', 'no mail transport is configured');
+    const expiresAt = new Date(input.expiresAt);
+    if (!(expiresAt.getTime() > now.getTime()) || expiresAt.getTime() - now.getTime() > MAX_AHEAD_MS) {
+      throw new ServiceMailError('identity.mail_expiry_invalid', 'expiresAt must be in the future and at most seven days ahead');
     }
     const [user] = await tx<Array<{ status: string; email: string | null; email_verified_at: Date | null }>>`
       SELECT status, email, email_verified_at FROM users WHERE id = ${input.userId}
@@ -86,16 +92,19 @@ export async function queueServiceMail(deps: ServiceMailDeps, input: ServiceMail
     if (!user.email || !user.email_verified_at) {
       throw new ServiceMailError('identity.email_unproved', 'the account has no proved email address');
     }
+    // The unique key settles a race between two retries: the loser inserts nothing and reads the winner's row.
     const [row] = await tx<Array<{ id: string }>>`
       INSERT INTO mail_outbox (flow_id, user_id, dedupe_key, body_hash, purpose, recipient, code, detail, expires_at, status, created_at)
       VALUES (
         NULL, ${input.userId}, ${input.key}, ${hash}, ${input.purpose}, ${user.email}, ${input.token}, ${input.detail ?? null},
         ${expiresAt}, 'pending', ${now}
       )
+      ON CONFLICT (dedupe_key) WHERE dedupe_key IS NOT NULL DO NOTHING
       RETURNING id
     `;
+    if (!row) return (await repeat(tx))!;
     created = true;
-    return row!.id;
+    return row.id;
   });
   if (created) await deps.afterCommit?.();
   return { accepted: true, mailId };
@@ -107,6 +116,7 @@ const STATUS: Readonly<Record<ServiceMailRefusal, number>> = {
   'identity.email_unproved': 409,
   'identity.mail_key_conflict': 409,
   'identity.mail_expiry_invalid': 400,
+  'identity.mail_unwired': 503,
 };
 
 export function registerServiceMailRoute(

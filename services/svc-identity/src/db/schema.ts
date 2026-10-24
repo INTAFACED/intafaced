@@ -327,7 +327,11 @@ export const mailOutbox = identity.table(
     bodyHash: text('body_hash'),
     detail: text('detail'),
   },
-  (t) => [index('mail_outbox_pending_idx').on(t.createdAt)],
+  (t) => [
+    index('mail_outbox_pending_idx').on(t.createdAt),
+    // Partial in the migration (WHERE dedupe_key IS NOT NULL); owner check: a flow, or a key, account and body hash.
+    uniqueIndex('mail_outbox_dedupe_key_uq').on(t.dedupeKey),
+  ],
 );
 
 /**

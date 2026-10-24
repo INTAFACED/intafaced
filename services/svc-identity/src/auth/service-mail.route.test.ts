@@ -83,6 +83,7 @@ describe('POST /internal/mail', () => {
       ['identity.email_unproved', 409],
       ['identity.mail_key_conflict', 409],
       ['identity.mail_expiry_invalid', 400],
+      ['identity.mail_unwired', 503],
     ] as const;
     for (const [code, status] of cases) {
       const server = await app(async () => {
