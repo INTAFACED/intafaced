@@ -36,6 +36,7 @@ export * from './ops-venue-economics.js';
 export * from './ops-console-mode.js';
 export * from './ops-console-announcements.js';
 export * from './ops-console-preferences.js';
+export * from './ops-console-services.js';
 export * from './ops-restore-watermarks.js';
 export * from './openapi-from-zod.js';
 export * from './action-approval.js';

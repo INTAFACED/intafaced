@@ -54,6 +54,10 @@
       "types": "./dist/ops-console-preferences.d.ts",
       "default": "./dist/ops-console-preferences.js"
     },
+    "./ops-console-services": {
+      "types": "./dist/ops-console-services.d.ts",
+      "default": "./dist/ops-console-services.js"
+    },
     "./instruments": {
       "types": "./dist/instruments.d.ts",
       "default": "./dist/instruments.js"

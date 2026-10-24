@@ -77,6 +77,36 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'svc-ops has no database configured for console preferences, so every preference is the server’s and none can be saved.',
     next: 'Ask whoever runs the svc-ops host to connect its database.',
   },
+  'ops.service_not_found': {
+    title: 'That is not a platform module',
+    body: 'svc-ops knows no module by that name, so it has no service page. Nothing was saved.',
+    next: 'Open the module from the module health board.',
+  },
+  'ops.service_record_invalid': {
+    title: 'That is not a value the service record takes',
+    body: 'An owner team is at most 80 characters, a runbook is a path inside docs/runbooks/ ending in .md, and each dependency is another platform module, once. Nothing was saved.',
+    next: 'Correct the field it names and save again.',
+  },
+  'ops.service_record_stale': {
+    title: 'Someone saved this service record first',
+    body: 'Another save reached svc-ops after you opened this page, so yours was not applied. Nothing of theirs was overwritten.',
+    next: 'The page now shows what is stored. Make your change again and save.',
+  },
+  'ops.service_storage_unconfigured': {
+    title: 'Service records have no storage',
+    body: 'svc-ops has no database configured for service records, so no owner, dependency or runbook can be read or saved.',
+    next: 'Ask whoever runs the svc-ops host to connect its database.',
+  },
+  'ops.service_owner_unset': {
+    title: 'Owner not set',
+    body: 'Nobody has named the team that owns this module, so no owner is shown rather than a guess.',
+    next: 'Set the owner team on the module’s service page.',
+  },
+  'ops.service_source_unavailable': {
+    title: 'One panel could not be read',
+    body: 'The source behind this panel did not answer or refused, so it shows nothing in place of its data. The other panels are unaffected.',
+    next: 'Reload the page to read it again.',
+  },
   'custody_approval.initiator_cannot_decide': {
     title: 'A different approver has to decide this',
     body: 'The person who started a task cannot approve or reject it. Nothing was recorded.',

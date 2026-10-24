@@ -30,7 +30,7 @@ export function HealthBoard({ rows, startedAt }: { rows: readonly HealthRow[]; s
           <h1>Module health</h1>
           <p>
             Every platform module: how much it did, what failed and the oldest item still waiting, each from that module’s own operator read
-            and labelled with what it counts. A module with no source says why and shows no count.
+            and labelled with what it counts. A module with no source says why and shows no count. Open a module for its service page.
           </p>
         </div>
       </div>
@@ -58,7 +58,7 @@ export function HealthBoard({ rows, startedAt }: { rows: readonly HealthRow[]; s
             {rows.map((row) => (
               <tr key={row.module} data-testid={`health-${row.module}`} data-state={row.state}>
                 <th scope="row">
-                  {row.label}
+                  <Link href={`/health/${row.module}`}>{row.label}</Link>
                   {row.state === 'read' && <div className="dk-asof">As of {formatAsOf(row.asOf)}</div>}
                 </th>
                 {row.state === 'read' && (

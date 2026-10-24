@@ -11,7 +11,8 @@ import {
 import type { OpsRead } from '@/lib/console-announcements/model';
 import { founderCall, type FounderCallContext } from '@/lib/desk/founder-call';
 import { opsReadOf } from '@/lib/desk/ops-read';
-import { explainRefusal, type RefusalView } from '@/lib/desk/refusal-copy';
+import { writeRefusalOf } from '@/lib/desk/write-refusal';
+import type { RefusalView } from '@/lib/desk/refusal-copy';
 
 export type PreferencesView = OpsRead<Preferences>;
 
@@ -42,10 +43,5 @@ export async function setPreferences(
 ): Promise<{ status: number; reply: { ok: true; preferences: Preferences } | ({ ok: false } & RefusalView) }> {
   const result = await founderCall(ctx, 'ops', 'preferences.set', 'POST', input, parse);
   if (result.kind === 'ok') return { status: 200, reply: { ok: true, preferences: result.data } };
-  const status =
-    result.kind === 'refused' ? result.refusal.status : result.kind === 'forbidden' ? 403 : result.kind === 'not_built' ? 501 : 503;
-  const code =
-    result.kind === 'refused' ? result.refusal.code : result.kind === 'forbidden' ? (result.refusal.code ?? 'operator.denied') : null;
-  const uncertain = result.kind === 'unavailable' ? result.uncertain : result.kind === 'invalid';
-  return { status: status >= 400 && status < 600 ? status : 502, reply: { ok: false, ...explainRefusal(code, status, uncertain) } };
+  return writeRefusalOf(result);
 }

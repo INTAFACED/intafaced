@@ -68,6 +68,8 @@ import { createAnnouncementsRouter } from './console-announcements/router.js';
 import type { AnnouncementStore } from './console-announcements/store.js';
 import { createPreferencesRouter } from './console-preferences/router.js';
 import type { PreferenceStore } from './console-preferences/store.js';
+import { createServiceRecordsRouter } from './service-records/router.js';
+import type { ServiceRecordStore } from './service-records/store.js';
 import { createProtocolListingRouter } from './protocol-listing/router.js';
 import type { ListingDesk } from './protocol-listing/wiring.js';
 import { createComplianceRouter } from './compliance/router.js';
@@ -243,6 +245,8 @@ export interface OperatorDeskConfig {
   readonly announcements?: AnnouncementStore;
   /** Console preferences. Absent means every call refuses `ops.preferences_storage_unconfigured`. */
   readonly preferences?: PreferenceStore;
+  /** Service records per module (owner, dependencies, runbook). Absent means every call refuses `ops.service_storage_unconfigured`. */
+  readonly serviceRecords?: ServiceRecordStore;
 }
 
 export function createOpsRouter(
@@ -827,6 +831,8 @@ export function createOpsRouter(
     announcements: createAnnouncementsRouter(new AnnouncementDesk({ store: desks.announcements, now })),
 
     preferences: createPreferencesRouter({ store: desks.preferences, now }),
+
+    services: createServiceRecordsRouter({ store: desks.serviceRecords, now }),
 
     alerts: router({
       list: scopedProcedure('admin:read', guards)

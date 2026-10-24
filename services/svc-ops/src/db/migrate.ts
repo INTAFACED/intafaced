@@ -24,6 +24,7 @@ export async function migrateOutreach(sql: Sql, direction: 'up' | 'down' = 'up')
     '0016_alert_notify',
     '20261024080000_console_mode',
     '20261024100000_console_announcements',
+    '20261024110000_service_records',
   ];
   const migrations = await Promise.all(
     (direction === 'down' ? [...names].reverse() : names).map(async (name) => ({
