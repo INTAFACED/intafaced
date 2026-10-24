@@ -152,7 +152,7 @@ async function queueMail(
   tx: Sql,
   deps: LoginCodeDeps,
   flow: { id: string; identifier: string; account: Account | undefined; code: string; expiresAt: Date },
-): Promise<boolean> {
+): Promise<void> {
   const notice = !flow.account && deps.notifyUnknown === true && looksLikeEmail(flow.identifier);
   const sendable = flow.account !== undefined || notice;
   await tx`
@@ -162,14 +162,20 @@ async function queueMail(
       ${flow.account ? flow.code : null}, NULL, ${flow.expiresAt}, ${sendable ? 'pending' : 'suppressed'}, ${deps.now()}
     )
   `;
-  return sendable;
 }
 
-/** Codes sent for this identifier inside the window, and when the oldest of them was sent. */
-async function recentSends(tx: Sql, subjectHash: string, since: Date): Promise<{ n: number; oldest: Date | null }> {
+/**
+ * Codes sent inside the window for this typed name, or for the account it names by any of its names, and when the
+ * oldest of them was sent. Counting by account too means asking by handle and by email does not double the guesses an
+ * account can be tried with. The same statement runs for an unknown name (its account is null).
+ */
+async function recentSends(tx: Sql, subjectHash: string, userId: string | null, since: Date): Promise<{ n: number; oldest: Date | null }> {
+  // Both locks are taken for every name, so the cap cannot be raced from two names of one account.
+  await tx`SELECT pg_advisory_xact_lock(hashtext(${subjectHash}))`;
+  await tx`SELECT pg_advisory_xact_lock(hashtext(${`login-code:${userId ?? subjectHash}`}))`;
   const rows = await tx<Array<{ n: number; oldest: Date | null }>>`
     SELECT count(*)::int AS n, min(m.created_at) AS oldest FROM mail_outbox m JOIN auth_flows f ON f.id = m.flow_id
-    WHERE f.subject_hash = ${subjectHash} AND f.kind = 'login_code' AND m.created_at > ${since}
+    WHERE (f.subject_hash = ${subjectHash} OR f.user_id = ${userId}) AND f.kind = 'login_code' AND m.created_at > ${since}
   `;
   return { n: rows[0]?.n ?? 0, oldest: rows[0]?.oldest ? new Date(rows[0].oldest) : null };
 }
@@ -198,11 +204,10 @@ export async function requestLoginCode(deps: LoginCodeDeps, input: { identifier:
   const expiresAt = new Date(now.getTime() + budget.ttlSeconds * 1000);
   const since = new Date(now.getTime() - budget.requestWindowSeconds * 1000);
 
-  const { flowId, sendable } = await transaction(
+  const flowId = await transaction(
     deps.sql,
     async (tx) => {
-      await tx`SELECT pg_advisory_xact_lock(hashtext(${subjectHash}))`;
-      const recent = await recentSends(tx, subjectHash, since);
+      const recent = await recentSends(tx, subjectHash, account?.id ?? null, since);
       if (recent.n >= budget.requestMax) throw overCap(budget, recent.oldest, now);
       const flow = await tx<Array<{ id: string }>>`
         INSERT INTO auth_flows (kind, subject_hash, user_id, code_hash, status, expires_at, created_at)
@@ -215,11 +220,13 @@ export async function requestLoginCode(deps: LoginCodeDeps, input: { identifier:
         UPDATE auth_flows SET code_hash = ${codeHash(budget.subjectKey, id, account ? code : randomBytes(16).toString('hex'))}
         WHERE id = ${id}
       `;
-      return { flowId: id, sendable: await queueMail(tx, deps, { id, identifier, account, code, expiresAt }) };
+      await queueMail(tx, deps, { id, identifier, account, code, expiresAt });
+      return id;
     },
     { isolation: 'read committed' },
   );
-  if (sendable) await deps.afterCommit?.();
+  // The relay is started for every name, mailed or not, so the response path does the same work (FLW-3).
+  await deps.afterCommit?.();
   return { accepted: true, flowId, resendAfterSeconds: budget.resendSeconds };
 }
 
@@ -258,7 +265,7 @@ export async function resendLoginCode(deps: LoginCodeDeps, input: { flowId: stri
   const now = deps.now();
   const since = new Date(now.getTime() - budget.requestWindowSeconds * 1000);
   const code = newCode();
-  const sendable = await transaction(
+  await transaction(
     deps.sql,
     async (tx) => {
       // Locked, so two resends at once cannot both pass the interval.
@@ -274,8 +281,7 @@ export async function resendLoginCode(deps: LoginCodeDeps, input: { flowId: stri
           retryAfterSeconds: secondsUntil(due, now),
         });
       }
-      await tx`SELECT pg_advisory_xact_lock(hashtext(${flow.subject_hash}))`;
-      const recent = await recentSends(tx, flow.subject_hash, since);
+      const recent = await recentSends(tx, flow.subject_hash, flow.user_id, since);
       if (recent.n >= budget.requestMax) throw overCap(budget, recent.oldest, now);
       const account = flow.user_id
         ? (await tx<Array<{ id: string; email: string }>>`SELECT id, email FROM users WHERE id = ${flow.user_id} AND status = 'active'`)[0]
@@ -309,7 +315,8 @@ export async function resendLoginCode(deps: LoginCodeDeps, input: { flowId: stri
     },
     { isolation: 'read committed' },
   );
-  if (sendable) await deps.afterCommit?.();
+  // As on the first send, the relay is started whether or not this name is mailed.
+  await deps.afterCommit?.();
   return { accepted: true, flowId: input.flowId, resendAfterSeconds: budget.resendSeconds };
 }
 
@@ -317,13 +324,16 @@ export async function resendLoginCode(deps: LoginCodeDeps, input: { flowId: stri
  * Step 2a. Is this the flow's code? A wrong code counts and the owner's count locks the flow. A right code is NOT
  * spent: the caller still checks the second factor, then calls `consumeLoginCode`.
  */
-export async function checkLoginCode(deps: LoginCodeDeps, input: { flowId: string; code: string }): Promise<{ userId: string }> {
+export async function checkLoginCode(
+  deps: LoginCodeDeps,
+  input: { flowId: string; code: string },
+): Promise<{ userId: string; codeHash: string }> {
   const budget = requireBudget(deps);
   const now = deps.now();
   // One locked read decides the count and the compare, so a burst of guesses is checked one at a time.
   const outcome = await transaction(
     deps.sql,
-    async (tx): Promise<{ userId: string } | LoginCodeError> => {
+    async (tx): Promise<{ userId: string; codeHash: string } | LoginCodeError> => {
       const flow = await lockFlow(tx, input.flowId);
       if (flow && (flow.consumed_at || flow.status === 'consumed')) return new LoginCodeError(INVALID, 'auth.code_invalid');
       if (!flow || new Date(flow.expires_at) <= now) return new LoginCodeError(EXPIRED, 'auth.code_expired');
@@ -338,7 +348,7 @@ export async function checkLoginCode(deps: LoginCodeDeps, input: { flowId: strin
         await tx`UPDATE auth_flows SET attempts = ${attempts}, status = ${lock ? 'locked' : flow.status} WHERE id = ${flow.id}`;
         return lock ? tooMany(flow, now) : new LoginCodeError(INVALID, 'auth.code_invalid');
       }
-      return { userId: flow.user_id! };
+      return { userId: flow.user_id!, codeHash: flow.code_hash };
     },
     { isolation: 'read committed' },
   );
@@ -346,11 +356,15 @@ export async function checkLoginCode(deps: LoginCodeDeps, input: { flowId: strin
   return outcome;
 }
 
-/** Step 2b. Spend the code: a compare-and-swap from `code_sent`, so two right answers at once make one session. */
-export async function consumeLoginCode(deps: LoginCodeDeps, input: { flowId: string }): Promise<void> {
+/**
+ * Step 2b. Spend the code: a compare-and-swap from `code_sent` on the hash `check` matched, so two right answers at once
+ * make one session, and a resend that landed in between (a new hash) leaves the old code unable to spend.
+ */
+export async function consumeLoginCode(deps: LoginCodeDeps, input: { flowId: string; codeHash: string }): Promise<void> {
   const spent = await deps.sql<Array<{ id: string }>>`
     UPDATE auth_flows SET status = 'consumed', consumed_at = ${deps.now()}
-    WHERE id = ${input.flowId} AND kind = 'login_code' AND status = 'code_sent' AND consumed_at IS NULL AND expires_at > ${deps.now()}
+    WHERE id = ${input.flowId} AND kind = 'login_code' AND status = 'code_sent' AND code_hash = ${input.codeHash}
+      AND consumed_at IS NULL AND expires_at > ${deps.now()}
     RETURNING id
   `;
   if (!spent[0]) throw new LoginCodeError(INVALID, 'auth.code_invalid');

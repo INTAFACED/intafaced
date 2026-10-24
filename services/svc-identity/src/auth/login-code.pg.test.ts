@@ -8,6 +8,7 @@ import { postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db'
 import { MemoryEventBus } from '@intafaced/events';
 import { createTestDb } from '../fixture-truncate.testkit.js';
 import { AuthService } from './auth-service.js';
+import { checkLoginCode, consumeLoginCode } from './login-code.js';
 import { stubActionApprovals } from './privileged-dual-control.js';
 import { totp } from './totp.js';
 import { createIdentityRouter } from '../router.js';
@@ -193,6 +194,34 @@ if (!available) {
         code: 'auth.too_many_attempts',
         retryAfterSeconds: 3600,
       });
+    });
+
+    it('counts the cap per account too, so asking by handle and by email does not double the codes', async () => {
+      const who = await account();
+      for (let i = 0; i < POLICY.requestMax; i++) {
+        await anon().auth.loginCodeRequest({ identifier: i % 2 === 0 ? who.email : who.handle });
+      }
+      for (const identifier of [who.email, who.handle]) {
+        expect(await refusal(anon().auth.loginCodeRequest({ identifier }))).toMatchObject({ code: 'auth.too_many_attempts' });
+      }
+    });
+
+    it('a resend that lands after a code was checked stops that code from being spent', async () => {
+      const who = await account();
+      const { flowId } = await anon().auth.loginCodeRequest({ identifier: who.email });
+      const [oldCode] = codesTo(who.email);
+      const deps = {
+        ...POLICY,
+        sql: db.sql,
+        mail: { send: async () => undefined },
+        subjectKey: 'test-only-flow-subject-key-0123456789abcdef',
+        now: () => new Date(nowMs),
+        log: { warn: () => undefined },
+      };
+      const checked = await checkLoginCode(deps, { flowId, code: oldCode! });
+      nowMs += 61_000;
+      await anon().auth.loginCodeResend({ flowId });
+      await expect(consumeLoginCode(deps, { flowId, codeHash: checked.codeHash })).rejects.toMatchObject({ code: 'auth.code_invalid' });
     });
 
     it('a code never signs in an account with an authenticator without it; the code stays good until it comes', async () => {

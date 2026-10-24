@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
-import { ROOT, mailedCodes, nextMailedCode, signUpInBrowser, staffFreeze } from './stack.mjs';
+import { EDGE, ORIGIN, ROOT, mailedCodes, nextMailedCode, signUpInBrowser, staffFreeze } from './stack.mjs';
 import { PASSKEY_ORIGIN, addAuthenticator, addPasskey, forgetSession, nextCode, virtualAuthenticator } from './identity-factors.mjs';
 
 // J-identity-02, in the running app (docs/roadmap/journeys.json): sign in, on a new device too. One test per step this
@@ -123,22 +123,24 @@ test(`${J} #3 "send me a code" instead of a password: wrong codes lock, a used c
   // The person's own code signs in once, by email this time.
   await page.getByRole('button', { name: 'Use a different email or handle' }).click();
   const seen = mailedCodes(who.email, 'login-code').length;
+  const asked = page.waitForResponse((res) => res.url().includes('auth.loginCodeRequest'));
   await askForCode(page, who.email);
+  const { flowId } = (await (await asked).json()).result.data;
   const code = await nextMailedCode(who.email, seen, 20_000, 'login-code');
   await page.getByLabel('Sign-in code from the email').fill(code);
   await page.getByRole('button', { name: 'Sign in with the code' }).click();
   await expect(page).not.toHaveURL(/\/login/);
 
-  // The same code from another browser is refused.
-  const fresh = await browser.newContext();
-  const again = await fresh.newPage();
-  await again.goto('/login');
-  await askForCode(again, who.email);
-  await again.getByLabel('Sign-in code from the email').fill(code);
-  await again.getByRole('button', { name: 'Sign in with the code' }).click();
-  await expect(again.getByRole('alert')).toContainText('That code is not right, or it was already used');
-  await expect(again).toHaveURL(/\/login/);
-  await fresh.close();
+  // The same code on the same request, sent again from outside the browser, is refused and opens nothing.
+  const reused = await fetch(`${EDGE}/api/identity/trpc/auth.loginWithCode`, {
+    method: 'POST',
+    headers: { origin: ORIGIN, 'content-type': 'application/json' },
+    body: JSON.stringify({ flowId, code }),
+  });
+  const body = await reused.json();
+  expect(reused.status).toBe(401);
+  expect(JSON.stringify(body)).toContain('auth.code_invalid');
+  expect(JSON.stringify(body)).not.toContain('accessToken');
 });
 
 test(`${J} #5 a browser never used before is asked to authorise this device, by a signed-in session or a mailed code`, async ({

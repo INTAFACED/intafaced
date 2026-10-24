@@ -104,7 +104,9 @@ export function CodeSignIn() {
         return;
       }
       commit(answer.data);
-      navigate(publicAuthContext(location.pathname, location.search).destination, true);
+      // Signing in from an invitation goes back to it, as the password form does.
+      const context = publicAuthContext(location.pathname, location.search);
+      navigate(context.invite ? `/invite?token=${encodeURIComponent(context.invite)}` : context.destination, true);
     });
   }
 
@@ -135,9 +137,11 @@ export function CodeSignIn() {
         ? t(code, { minutes: Math.max(1, Math.ceil((refusal?.retryAfterSeconds ?? 60) / 60)) })
         : code === 'identity.resend_too_soon' && wait > 0
           ? t('resendIn', { seconds: wait })
-          : code
-            ? t(code)
-            : null;
+          : code === 'auth.account_frozen' && refusal?.accountState === 'closed'
+            ? t('closed')
+            : code
+              ? t(code)
+              : null;
 
   return (
     <section className="public-auth-code" aria-labelledby={`${problemId}-title`}>
@@ -192,6 +196,11 @@ export function CodeSignIn() {
       {problem ? (
         <div id={problemId} className="pub-notice" role="alert">
           <p>{problem}</p>
+          {code === 'auth.account_frozen' && (
+            <a className="text-link" href="/help">
+              {t('stateHelp')}
+            </a>
+          )}
           {refusal?.code && refusal.code !== 'codeMissing' && <small lang="zxx">{refusal.code}</small>}
         </div>
       ) : (

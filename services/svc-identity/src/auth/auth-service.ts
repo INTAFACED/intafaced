@@ -741,7 +741,7 @@ export class AuthService {
    */
   async loginWithCode(input: { flowId: string; code: string; totpCode?: string; device?: string; ip?: string }): Promise<SessionTokens> {
     const deps = this.loginCodeDeps();
-    const { userId } = await checkLoginCode(deps, input);
+    const { userId, codeHash } = await checkLoginCode(deps, input);
     const [user] = await this.sql<
       Array<{ id: string; status: string; totp_secret: string | null }>
     >`SELECT id, status, totp_secret FROM users WHERE id = ${userId}`;
@@ -756,7 +756,7 @@ export class AuthService {
       mfa = true;
       await recordSuccess(this.sql, user.id, 'mfa');
     }
-    await consumeLoginCode(deps, input);
+    await consumeLoginCode(deps, { flowId: input.flowId, codeHash });
     return this.issueSession(user.id, { device: input.device, ip: input.ip, mfa });
   }
 

@@ -25,7 +25,10 @@ const messages = {
   'auth.too_many_attempts': 'Too many tries. Try again in {minutes} min.',
   'auth.mfa_required': 'The code is right. This account also needs its authenticator code: enter it and sign in again.',
   'auth.mfa_invalid': 'That authenticator code did not work, or it was already used. Wait for the next one.',
-  'auth.account_frozen': 'This account is frozen or closed, so it cannot sign in. Help explains how to lift it.',
+  'auth.account_frozen':
+    'This account is frozen. Sign-in and money actions are paused. Only support can lift a freeze, so contact them to ask why.',
+  closed: 'This account is closed. A closed account cannot be reopened. Contact support if you have a question about it.',
+  stateHelp: 'Contact support',
   'identity.resend_too_soon': 'A code was sent a moment ago. Wait a little, then ask again.',
   'vendor.email': 'Email delivery is switched off in this build, so a sign-in code cannot be sent. Use your password.',
   'vendor.sms': 'Codes by text message need a provider that is switched off in this build. Use your email or handle.',
