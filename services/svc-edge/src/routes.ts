@@ -90,6 +90,8 @@ export const UPSTREAMS: readonly Upstream[] = [
   { prefix: '/api/execution', module: 'execution', envVar: 'EXECUTION_URL', devUrl: 'http://localhost:4019' },
   { prefix: '/api/tax', module: 'tax', envVar: 'TAX_URL', devUrl: 'http://localhost:4020' },
   { prefix: '/api/quant', module: 'quant', envVar: 'QUANT_URL', devUrl: 'http://localhost:4021' },
+  // Campaigns: seasons, limited drops and the TGE claim (RC-campaigns-04/-05). Holds no balance.
+  { prefix: '/api/campaigns', module: 'campaigns', envVar: 'CAMPAIGNS_URL', devUrl: 'http://localhost:4024' },
   // CRM / team / warehouse revenue / projects. Module stays `core-ops` (registry
   // id); the shell queries `/api/ops` so query('ops', …) matches the surface.
   { prefix: '/api/ops', module: 'core-ops', envVar: 'OPS_URL', devUrl: 'http://localhost:4022' },

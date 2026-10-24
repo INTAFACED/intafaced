@@ -300,6 +300,7 @@ export const EDGE_PERIMETER_MODULES: ReadonlySet<ModuleId> = new Set([
   'execution',
   'tax',
   'quant',
+  'campaigns',
   'core-ops',
 ]);
 
