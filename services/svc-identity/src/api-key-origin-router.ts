@@ -27,8 +27,8 @@ async function currentList(sql: Sql, userId: string, keyId: string): Promise<str
 export function createApiKeyOriginRouter(sql: Sql, minter: ApiKeyMinter, gate: ApiKeyFactorGate) {
   return router({
     bindApiKeyOriginAllowlist: scopedProcedure('identity:write')
-      .input(z.object({ keyId: z.string().uuid(), origins: z.array(z.string()), factorProof: optionalFactorProof }))
-      .output(z.object({ id: z.string().uuid(), originAllowlist: z.array(z.string()) }))
+      .input(z.object({ keyId: z.string().guid(), origins: z.array(z.string()), factorProof: optionalFactorProof }))
+      .output(z.object({ id: z.string().guid(), originAllowlist: z.array(z.string()) }))
       .mutation(async ({ ctx, input }) => {
         try {
           assertDelegateCannotGrant(ctx.principal.kid);
@@ -57,8 +57,8 @@ export function createApiKeyOriginRouter(sql: Sql, minter: ApiKeyMinter, gate: A
         }
       }),
     unbindApiKeyOriginAllowlist: scopedProcedure('identity:write')
-      .input(z.object({ keyId: z.string().uuid(), origin: z.string(), factorProof: optionalFactorProof }))
-      .output(z.object({ id: z.string().uuid(), originAllowlist: z.array(z.string()) }))
+      .input(z.object({ keyId: z.string().guid(), origin: z.string(), factorProof: optionalFactorProof }))
+      .output(z.object({ id: z.string().guid(), originAllowlist: z.array(z.string()) }))
       .mutation(async ({ ctx, input }) => {
         try {
           assertDelegateCannotGrant(ctx.principal.kid);

@@ -13,7 +13,7 @@ export const supportAwaitingMineSchema = z
     /** The caller's own open requests whose next move is theirs. Zero is a real answer, not a missing one. */
     count: z.number().int().nonnegative(),
     /** The one that has waited longest, so the banner can link to it. Null exactly when the count is zero. */
-    longestWaiting: z.object({ ticketId: z.string().uuid(), since: z.string().datetime() }).strict().nullable(),
+    longestWaiting: z.object({ ticketId: z.string().guid(), since: z.string().datetime() }).strict().nullable(),
   })
   .strict()
   .refine((v) => (v.count === 0) === (v.longestWaiting === null), {

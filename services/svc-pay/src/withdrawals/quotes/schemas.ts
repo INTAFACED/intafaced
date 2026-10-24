@@ -25,7 +25,7 @@ export const setPolicyInputSchema = z.object({ feeMode: z.enum(FEE_MODES), ttlSe
 export type SetPolicyInput = z.infer<typeof setPolicyInputSchema>;
 
 export const listInputSchema = z
-  .object({ userId: z.string().uuid().optional(), assetId: assetId.optional(), limit: z.number().int().min(1).max(200) })
+  .object({ userId: z.string().guid().optional(), assetId: assetId.optional(), limit: z.number().int().min(1).max(200) })
   .strict();
 export type ListInput = z.infer<typeof listInputSchema>;
 
@@ -65,5 +65,5 @@ export const policyViewSchema = z.object({
 });
 export type PolicyView = z.infer<typeof policyViewSchema>;
 
-export const adminQuoteViewSchema = quoteViewSchema.extend({ userId: z.string().uuid() });
+export const adminQuoteViewSchema = quoteViewSchema.extend({ userId: z.string().guid() });
 export type AdminQuoteView = z.infer<typeof adminQuoteViewSchema>;

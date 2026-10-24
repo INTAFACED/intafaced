@@ -9,7 +9,7 @@ const holdRef = z
   .string()
   .regex(/^[A-Za-z0-9:_.-]{1,128}$/, "a hold reference is the caller's own business key, such as card:<payment id>");
 const assetId = z.string().regex(/^[A-Za-z0-9._-]{1,32}$/);
-const userId = z.string().uuid();
+const userId = z.string().guid();
 const limit = z.number().int().min(1).max(200);
 
 export const PURCHASE_RAILS = ['card', 'ach', 'paypal'] as const;
@@ -31,7 +31,7 @@ export type SetPolicyInput = z.infer<typeof setPolicyInputSchema>;
 export const releaseDueInputSchema = z.object({}).strict();
 
 export const holdViewSchema = z.object({
-  id: z.string().uuid(),
+  id: z.string().guid(),
   holdRef: z.string(),
   userId,
   assetId: z.string(),
@@ -55,7 +55,7 @@ export const policyViewSchema = z.object({
 });
 export type PolicyView = z.infer<typeof policyViewSchema>;
 
-export const releaseResultSchema = z.object({ released: z.array(z.string().uuid()) });
+export const releaseResultSchema = z.object({ released: z.array(z.string().guid()) });
 export type ReleaseResult = z.infer<typeof releaseResultSchema>;
 
 export const heldViewSchema = z.object({

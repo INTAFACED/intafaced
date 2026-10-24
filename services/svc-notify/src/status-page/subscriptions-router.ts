@@ -135,7 +135,7 @@ export function statusSubscriptionsRouter(subscriptions?: StatusSubscriptions, n
 
     /** The delivery rows of one published notice: one per subscriber and channel; `more` when there are more than shown. */
     deliveries: founder
-      .input(z.object({ noticeId: z.string().uuid() }))
+      .input(z.object({ noticeId: z.string().guid() }))
       .output(eventRows)
       .query(({ input }) => call(async (s) => rowsOf(await s.eventDeliveries(input.noticeId)))),
 
@@ -144,7 +144,7 @@ export function statusSubscriptionsRouter(subscriptions?: StatusSubscriptions, n
      * rows are left, and no row is made for anyone the notice did not reach when it was published.
      */
     resend: founder
-      .input(z.object({ noticeId: z.string().uuid() }))
+      .input(z.object({ noticeId: z.string().guid() }))
       .output(eventRows)
       .mutation(({ input }) =>
         call(async (s) => {

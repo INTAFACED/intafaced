@@ -51,7 +51,7 @@ export const payHaltStateSchema = z
     reason: z.string().nullable(),
     /** `operator` = a founder set it; `auto_trip` = consecutive venue or rail failures tripped it. */
     source: z.enum(['operator', 'auto_trip']).nullable(),
-    actorUserId: z.string().uuid().nullable(),
+    actorUserId: z.string().guid().nullable(),
     version: payVersionSchema,
     changedAt: payTimestampSchema.nullable(),
   })
@@ -115,7 +115,7 @@ export const payHaltSetResultSchema = z
   .strict();
 
 /** One audited change. `confirmedByUserId` is the second founder on a dual-controlled clear. */
-export const payHaltEventSchema = payHaltStateSchema.extend({ confirmedByUserId: z.string().uuid().nullable() }).strict();
+export const payHaltEventSchema = payHaltStateSchema.extend({ confirmedByUserId: z.string().guid().nullable() }).strict();
 export type PayHaltEvent = z.infer<typeof payHaltEventSchema>;
 
 export const payHaltHistoryInputSchema = z
@@ -134,7 +134,7 @@ export const payHaltPendingClearSchema = z
     target: payHaltTargetSchema,
     expectedVersion: payVersionSchema,
     reason: z.string().min(1).max(4000),
-    requestedByUserId: z.string().uuid(),
+    requestedByUserId: z.string().guid(),
     requestedAt: payTimestampSchema,
   })
   .strict();
