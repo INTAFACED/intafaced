@@ -1257,6 +1257,8 @@ registerPrivateRest(app, {
   markets: (limit) => trade.markets(limit),
   feeSchedule,
   feeScheduleNow: () => feeScheduleAt(sql, feeSchedule, new Date()),
+  feeTier: (userId) => trade.feeTierAt(userId),
+  feeDiscountBps: async (userId) => (await perks.perksOf(userId)).feeDiscountBps,
   now: () => new Date(),
   lifecycleForMarket: (market) => trade.marketLifecycleSnapshot(market),
   userBalances: (userId) => ledger.balances('user', userId),

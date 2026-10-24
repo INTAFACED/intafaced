@@ -40,10 +40,12 @@ import {
   type PlaceOrderInput,
 } from './spot/trade-service.js';
 import {
+  discountedFeeBps,
   FEE_SCHEDULE_RESIDUAL,
   FeeScheduleError,
   publicFeeSchedule,
   publishedProductBps,
+  REGULAR_FEE_TIER,
   type OwnerFeeSchedule,
 } from './spot/fee-schedule.js';
 import {
@@ -272,6 +274,10 @@ export interface PrivateRestDeps {
   feeSchedule?: OwnerFeeSchedule;
   /** The schedule in force now (a later approved version, else `feeSchedule`). Absent: `feeSchedule` as booted. */
   feeScheduleNow?: () => Promise<OwnerFeeSchedule>;
+  /** The caller's fee tier for a new spot order (the last finished snapshot). Absent: regular. */
+  feeTier?(userId: string): Promise<string>;
+  /** The caller's rank discount in bps of the published rate. Absent: none. */
+  feeDiscountBps?(userId: string): Promise<number>;
   /** Clock for `serverTime` on private reads. Default `new Date()`. */
   now?: () => Date;
   /** Authenticated PX-S01 projection; missing publisher remains typed refusal. */
@@ -724,19 +730,42 @@ export function presentCcxtTradingFee(market: Market) {
   };
 }
 
+/** Whose rates `presentAccountFees` answers: the caller's fee tier and rank discount, as the order check reads them. */
+export interface AccountFeeTerms {
+  readonly tierId: string;
+  readonly discountBps: number;
+}
+
+const REGULAR_TERMS: AccountFeeTerms = { tierId: REGULAR_FEE_TIER, discountBps: 0 };
+
 /**
- * Customer fee card. Maker/taker are the owner schedule, once per symbol.
- * Listing-row bps are not copied onto this wire.
+ * Customer fee card: once per symbol, the rates `terms` pays on the owner schedule in force, the way placement and the
+ * order check resolve them. Spot reads the market's pair-group row at the tier (a paper market is regular), futures the
+ * `perpetual` block, and both take the rank discount; options have no rate and are left out. Listing-row bps are not
+ * copied onto this wire. With no terms, the regular tier before any discount (the public schedule).
  */
 export function presentAccountFees(
   markets: readonly Market[],
   schedule: Extract<OwnerFeeSchedule, { published: true }>,
-): Record<string, ReturnType<typeof presentCcxtTradingFee> & { makerBps: number; takerBps: number; version: string }> {
-  const out: Record<string, ReturnType<typeof presentCcxtTradingFee> & { makerBps: number; takerBps: number; version: string }> = {};
+  terms: AccountFeeTerms = REGULAR_TERMS,
+): Record<
+  string,
+  ReturnType<typeof presentCcxtTradingFee> & { makerBps: number; takerBps: number; version: string; tier: string; discountBps: number }
+> {
+  const out: ReturnType<typeof presentAccountFees> = {};
   for (const market of markets) {
+    const product = market.kind === 'spot' ? 'spot' : market.kind === 'futures' ? 'perpetual' : null;
+    if (!product) continue;
+    const tierId = product === 'spot' && !market.paper ? terms.tierId : REGULAR_FEE_TIER;
     let rates: { makerBps: number; takerBps: number } | null;
     try {
-      rates = publishedProductBps(schedule, 'spot', { symbol: market.symbol });
+      rates = publishedProductBps(schedule, product, product === 'spot' ? { symbol: market.symbol, tierId } : undefined);
+      if (rates) {
+        rates = {
+          makerBps: discountedFeeBps(rates.makerBps, terms.discountBps),
+          takerBps: discountedFeeBps(rates.takerBps, terms.discountBps),
+        };
+      }
     } catch (err) {
       // A market whose schedule row refuses shows no rate; the order path refuses it with the typed code.
       if (err instanceof FeeScheduleError) continue;
@@ -751,6 +780,8 @@ export function presentAccountFees(
       makerBps: rates.makerBps,
       takerBps: rates.takerBps,
       version: schedule.version,
+      tier: tierId,
+      discountBps: terms.discountBps,
     };
   }
   return out;
@@ -1500,10 +1531,11 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
   });
 
   /**
-   * Owner `TRADE_FEE_SCHEDULE` maker/taker, once per listed symbol. Same bps
-   * order preview returns as `feeBps`. Listing-row maker_bps/taker_bps are not
-   * this schedule. No rank personalisation. Empty listing → `{}`. Unpublished
-   * schedule with symbols listed → `trade.fee_schedule_blank`.
+   * The rates this caller pays, once per listed symbol: the owner schedule in force at the caller's fee tier (the last
+   * finished snapshot, as placement reads it) less its rank discount, the same bps the order check returns as `feeBps`.
+   * Listing-row maker_bps/taker_bps are not this schedule. Empty listing → `{}`. Unpublished schedule with symbols
+   * listed → `trade.fee_schedule_blank`; a tier or rank read that fails refuses rather than answer the regular rate.
+   * The volume behind the tier is `GET /api/v1/account/fee-tier`.
    */
   app.get('/api/v1/account/fees', async (req, reply) => {
     const principal = requirePrincipal(req, reply);
@@ -1521,7 +1553,25 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
           intafacedCode: 'trade.fee_schedule_blank',
         });
       }
-      return reply.code(200).send(presentAccountFees(listed, schedule));
+      let tierId: string = REGULAR_FEE_TIER;
+      let discountBps = 0;
+      try {
+        if (deps.feeTier) tierId = await deps.feeTier(principal.userId);
+      } catch (err) {
+        req.log.warn({ err }, 'fee tier read failed; the fee read refuses');
+        return reply
+          .code(503)
+          .send({ code: 'ExchangeNotAvailable', message: 'fee tier is unavailable', intafacedCode: 'trade.fee_tier_unavailable' });
+      }
+      try {
+        if (deps.feeDiscountBps) discountBps = await deps.feeDiscountBps(principal.userId);
+      } catch (err) {
+        req.log.warn({ err }, 'rank discount read failed; the fee read refuses');
+        return reply
+          .code(503)
+          .send({ code: 'ExchangeNotAvailable', message: 'rank discount is unavailable', intafacedCode: 'trade.perks_unavailable' });
+      }
+      return reply.code(200).send(presentAccountFees(listed, schedule, { tierId, discountBps }));
     } catch (err) {
       const sent = sendDomainError(reply, err);
       if (sent) return sent;

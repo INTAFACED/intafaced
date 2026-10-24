@@ -314,8 +314,8 @@ const messages = {
   'Fee maker': 'Fee {rate} · maker',
   'Rebate maker': 'Rebate up to {rate} · maker',
   'Fee taker': 'Fee {rate} · taker',
-  'Fee listed': 'Listed: maker {maker} · taker {taker}',
-  'Fee listed title': 'The market’s listed maker and taker rates, before any rank discount. The rate on the left is what this order pays.',
+  'Fee listed': 'Your rates: maker {maker} · taker {taker}',
+  'Fee listed title': 'Your maker and taker rates on this market, at your fee tier and after any rank discount. The rate on the left is what this order pays.',
 
   // Changing and cancelling open orders
   'Average price': 'Average price',
