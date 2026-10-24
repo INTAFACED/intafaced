@@ -184,6 +184,9 @@ export const DEFAULT_MODULE_RULES: Readonly<Record<ModuleId, JurisdictionRule>> 
   tax: { status: 'open', minTier: 'none' },
   // Paper sandbox, no custody. Sanctioned regions still refuse via screening.
   quant: { status: 'open', minTier: 'none' },
+  // Catalogue and participations, no custody. Who may take part and be paid is each
+  // campaign's own eligibility rule set (region, tier), checked by svc-campaigns.
+  campaigns: { status: 'open', minTier: 'none' },
   // Inbox only — no custody, no money movement. minTier none so a user can
   // always read their own notifications regardless of verification tier.
   notify: { status: 'open', minTier: 'none' },
