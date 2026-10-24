@@ -72,12 +72,13 @@ archived spaces remain visible. `loans.releaseExcess` requires a caller-supplied
 
 ### `spaces`
 
-| Procedure        | Scope        | Purpose                                                                       |
-| ---------------- | ------------ | ----------------------------------------------------------------------------- |
-| `spaces.list`    | `bank:read`  | Spaces with their **ledger** balances, and the account ref they are a view of |
-| `spaces.unnamed` | `bank:read`  | Assets held with no space yet — sourced from the ledger, not this table       |
-| `spaces.create`  | `bank:write` | New named space (ensures the primary exists first)                            |
-| `spaces.archive` | `bank:write` | Archive a named space. **Moves no value**                                     |
+| Procedure              | Scope                  | Purpose                                                                                                                                                       |
+| ---------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `spaces.list`          | `bank:read`            | Spaces with their **ledger** balances, and the account ref they are a view of                                                                                 |
+| `spaces.unnamed`       | `bank:read`            | Assets held with no space yet — sourced from the ledger, not this table                                                                                       |
+| `spaces.create`        | `bank:write`           | New named space (ensures the primary exists first)                                                                                                            |
+| `spaces.archive`       | `bank:write`           | Archive a named space. **Moves no value**                                                                                                                     |
+| `spaces.ownedAccounts` | service (svc-tax only) | Every named space the customer ever owned (id, asset, name, archived), so svc-tax can follow own-account moves in the lot book (PF-cost-basis-02). No balance |
 
 ### `transfers`
 
