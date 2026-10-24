@@ -7,7 +7,7 @@ import { SESSION_SCOPES, issueAccessToken, verifyAccessToken } from '@intafaced/
 import type { Context } from '@intafaced/contracts';
 import { createIdentityRouter } from './router.js';
 import { requestIpAls } from './auth/auth-service-ip.js';
-import { stubActionApprovals } from './auth/privileged-dual-control.js';
+import { identityActionPayloadHash, stubActionApprovals } from './auth/privileged-dual-control.js';
 import { AuthError, type AuthService, type KycRecordView } from './auth/auth-service.js';
 import { userCopy } from './user-copy.js';
 import type { RankService } from './rank/rank-service.js';
@@ -2066,6 +2066,108 @@ describe('waitlist door — unbuilt / flag / operator', () => {
     expect(explicit.total).toBe(1);
     expect(explicit.entries).toHaveLength(1);
     expect(await store.count()).toBe(1);
+  });
+});
+
+// ── Referral-ranked waves (RC-campaigns-03) ─────────────────────────────────
+
+describe('waitlist waves — rank on the public read, second-person release', () => {
+  function wavesRouter(waveSize: number | undefined, approvals?: Parameters<typeof createIdentityRouter>[2]['actionApprovals']) {
+    const store = new MemoryWaitlistStore();
+    const waitlist = new WaitlistService(store, { drop: '0' }, waveSize);
+    const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, waitlist, actionApprovals: approvals });
+    return { api, store };
+  }
+
+  async function seed(api: ReturnType<typeof createIdentityRouter>) {
+    const pub = api.createCaller(await ctx([]));
+    const a = await pub.waitlist.enroll({ email: 'a@example.com' });
+    const b = await pub.waitlist.enroll({ email: 'b@example.com' });
+    const c = await pub.waitlist.enroll({ email: 'c@example.com' });
+    await pub.waitlist.enroll({ email: 'c1@example.com', referralCode: c.referralCode });
+    return { pub, a, b, c };
+  }
+
+  it('the public position read shows the rank: a referral moves its referrer up', async () => {
+    const { api } = wavesRouter(2);
+    const { pub, a, c } = await seed(api);
+    expect(await pub.waitlist.position({ referralCode: c.referralCode })).toMatchObject({ position: 3, rank: 1, release: null });
+    expect(await pub.waitlist.position({ referralCode: a.referralCode })).toMatchObject({ position: 1, rank: 2, waiting: 4 });
+  });
+
+  it('release without an approval refuses action_approval.missing and releases nobody', async () => {
+    const consumed: unknown[] = [];
+    const { api } = wavesRouter(2, {
+      async consume(service, input) {
+        consumed.push(input);
+        return stubActionApprovals().consume(service, input);
+      },
+    });
+    const { pub, c } = await seed(api);
+    const op = api.createCaller(await ctx(['admin:write'], { userId: OPERATOR }));
+    const err = await op.waitlist.waves.release({ waveNumber: 1 }).catch((e: unknown) => e);
+    expect(codeOf(err)).toBe('PRECONDITION_FAILED');
+    expect(String((err as { message?: string }).message)).toContain('action_approval.missing');
+    expect((await pub.waitlist.position({ referralCode: c.referralCode })).release).toBeNull();
+    expect(consumed).toEqual([]);
+  });
+
+  it('release needs admin:write and a second factor', async () => {
+    const { api } = wavesRouter(2, stubActionApprovals());
+    await seed(api);
+    const reader = api.createCaller(await ctx(['admin:read'], { userId: OPERATOR }));
+    expect(codeOf(await reader.waitlist.waves.release({ waveNumber: 1, approvalId: 'a', operationId: 'o' }).catch((e: unknown) => e))).toBe(
+      'FORBIDDEN',
+    );
+    const noMfa = api.createCaller(await ctx(['admin:write'], { userId: OPERATOR, mfa: false }));
+    const mfaErr = await noMfa.waitlist.waves.release({ waveNumber: 1, approvalId: 'a', operationId: 'o' }).catch((e: unknown) => e);
+    expect(String((mfaErr as { message?: string }).message)).toContain('two-factor');
+    const user = api.createCaller(await ctx(['identity:read']));
+    expect(codeOf(await user.waitlist.waves.list().catch((e: unknown) => e))).toBe('FORBIDDEN');
+  });
+
+  it('an approved release binds wave and size, releases the top N once and shows on the position read', async () => {
+    const consumed: Array<{ targetId: string; payloadHash: string }> = [];
+    const { api } = wavesRouter(2, {
+      async consume(service, input) {
+        consumed.push(input);
+        return stubActionApprovals().consume(service, input);
+      },
+    });
+    const { pub, a, b, c } = await seed(api);
+    const op = api.createCaller(await ctx(['admin:write', 'admin:read'], { userId: OPERATOR }));
+    expect(await op.waitlist.waves.list()).toMatchObject({ waveSize: 2, nextWave: 1, waiting: 4, waves: [] });
+    const out = await op.waitlist.waves.release({ waveNumber: 1, approvalId: 'appr-1', operationId: 'op-1' });
+    expect(out).toMatchObject({ created: true, wave: { waveNumber: 1, size: 2, releasedCount: 2, releasedBy: OPERATOR } });
+    expect(consumed).toHaveLength(1);
+    expect(consumed[0]).toMatchObject({
+      targetId: 'waitlist.wave.release',
+      payloadHash: identityActionPayloadHash('waitlist.wave.release', { wave: '1', size: '2' }),
+    });
+    const again = await op.waitlist.waves.release({ waveNumber: 1, approvalId: 'appr-1', operationId: 'op-1' });
+    expect(again.created).toBe(false);
+    expect(consumed).toHaveLength(1);
+    expect(await pub.waitlist.position({ referralCode: c.referralCode })).toMatchObject({ rank: null, release: { waveNumber: 1 } });
+    expect(await pub.waitlist.position({ referralCode: a.referralCode })).toMatchObject({ rank: null, release: { waveNumber: 1 } });
+    expect(await pub.waitlist.position({ referralCode: b.referralCode })).toMatchObject({ rank: 1, release: null });
+  });
+
+  it('a blank wave size refuses drop.wave_unset before the approval is spent', async () => {
+    const consumed: unknown[] = [];
+    const { api } = wavesRouter(undefined, {
+      async consume(service, input) {
+        consumed.push(input);
+        return stubActionApprovals().consume(service, input);
+      },
+    });
+    const { pub, c } = await seed(api);
+    const op = api.createCaller(await ctx(['admin:write', 'admin:read'], { userId: OPERATOR }));
+    expect((await op.waitlist.waves.list()).waveSize).toBeNull();
+    const err = await op.waitlist.waves.release({ waveNumber: 1, approvalId: 'appr-1', operationId: 'op-1' }).catch((e: unknown) => e);
+    expect(codeOf(err)).toBe('PRECONDITION_FAILED');
+    expect(String((err as { message?: string }).message)).toContain('[drop.wave_unset]');
+    expect(consumed).toEqual([]);
+    expect((await pub.waitlist.position({ referralCode: c.referralCode })).release).toBeNull();
   });
 });
 

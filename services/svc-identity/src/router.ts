@@ -78,6 +78,7 @@ import { KycDocumentError, KycDocumentsListLimitUnsetError, type KycDocumentVaul
 import { ProviderRefBindError, type BindProviderRefInput, type BindProviderRefResult } from './kyc/provider-ref-bind.js';
 import { FlagDisabledError } from '@intafaced/config';
 import { WaitlistError, type WaitlistService } from './waitlist/waitlist-service.js';
+import type { WaitlistWave } from './waitlist/waitlist-store.js';
 import { ACTION_APPROVAL_MISSING, PrivilegedDualControlError, requirePrivilegedDualControl } from './auth/privileged-dual-control.js';
 import { ActionApprovalError } from './auth/action-approval-service.js';
 import { optionalFactorProof, guardedApiKeyAction } from './auth/api-key-fresh-factor.js';
@@ -287,9 +288,13 @@ function toTrpcError(err: unknown): TRPCError {
         return new TRPCError({ code: 'NOT_FOUND', message: `${err.message} [${err.code}]`, cause: err });
       case 'waitlist.self_referral':
       case 'waitlist.referral_locked':
+      case 'waitlist.wave_unknown':
         return new TRPCError({ code: 'CONFLICT', message: `${err.message} [${err.code}]`, cause: err });
       case 'waitlist.invalid':
         return new TRPCError({ code: 'BAD_REQUEST', message: `${err.message} [${err.code}]`, cause: err });
+      case 'drop.wave_unset':
+      case 'waitlist.wave_empty':
+        return new TRPCError({ code: 'PRECONDITION_FAILED', message: `${err.message} [${err.code}]`, cause: err });
     }
   }
 
@@ -544,6 +549,28 @@ function toSocialTrpcError(err: unknown): TRPCError {
 }
 
 const iso = (d: Date | null) => (d ? d.toISOString() : null);
+const waveOutput = z.object({
+  waveNumber: z.number().int().positive(),
+  size: z.number().int().positive(),
+  releasedCount: z.number().int().positive(),
+  flagKey: z.string(),
+  releasedBy: z.string().guid(),
+  approvedBy: z.string().guid(),
+  releasedAt: z.string(),
+});
+
+function waveView(w: WaitlistWave): z.infer<typeof waveOutput> {
+  return {
+    waveNumber: w.waveNumber,
+    size: w.size,
+    releasedCount: w.releasedCount,
+    flagKey: w.flagKey,
+    releasedBy: w.releasedBy,
+    approvedBy: w.approvedBy,
+    releasedAt: w.releasedAt.toISOString(),
+  };
+}
+
 const rebindStateSchema = z.enum(['submitted', 'under_review', 'approved', 'rejected', 'withdrawn', 'expired']);
 /** What the person sees of their own referrer change request. The deciding operator is not named. */
 const rebindForCustomer = z.object({
@@ -3413,15 +3440,77 @@ export function createIdentityRouter(
             referralCode: z.string(),
             referredCount: z.number().int().min(0),
             queueLength: z.number().int().min(0),
+            /** Place among those still waiting (more referrals first, ties by join order); null once released. */
+            rank: z.number().int().positive().nullable(),
+            waiting: z.number().int().min(0),
+            release: z.object({ waveNumber: z.number().int().positive(), releasedAt: z.string() }).nullable(),
           }),
         )
         .query(async ({ input }) => {
           try {
-            return await requireWaitlist().position(input.referralCode);
+            const out = await requireWaitlist().position(input.referralCode);
+            return {
+              ...out,
+              release: out.release ? { waveNumber: out.release.waveNumber, releasedAt: out.release.releasedAt.toISOString() } : null,
+            };
           } catch (err) {
             throw toTrpcError(err);
           }
         }),
+
+      /**
+       * Referral-ranked waves (RC-campaigns-03, J-campaigns-20 #3). `list` shows the owner's wave size (null while blank),
+       * the next wave number and every released wave. `release` needs a second person: an action approval for target
+       * `waitlist.wave.release` whose payload binds { wave, size } as strings, in that order. It releases the top N
+       * waiting entries once; the same wave again returns the stored wave and spends no approval.
+       */
+      waves: router({
+        list: scopedProcedure('admin:read')
+          .output(
+            z.object({
+              waveSize: z.number().int().positive().nullable(),
+              nextWave: z.number().int().positive(),
+              waiting: z.number().int().min(0),
+              waves: z.array(waveOutput),
+            }),
+          )
+          .query(async () => {
+            try {
+              const out = await requireWaitlist().waves();
+              return { ...out, waves: out.waves.map(waveView) };
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+
+        release: scopedProcedure('admin:write')
+          .input(
+            z.object({
+              waveNumber: z.number().int().positive(),
+              approvalId: z.string().max(128).nullish(),
+              operationId: z.string().max(128).nullish(),
+            }),
+          )
+          .output(z.object({ wave: waveOutput, created: z.boolean() }))
+          .mutation(async ({ ctx, input }) => {
+            try {
+              requireMfa(ctx.principal);
+              const out = await requireWaitlist().release(
+                { waveNumber: input.waveNumber, releasedBy: ctx.principal.userId },
+                async (size) => {
+                  const { approverId } = await consumePrivileged(ctx.principal.userId, input, 'waitlist.wave.release', {
+                    wave: String(input.waveNumber),
+                    size: String(size),
+                  });
+                  return { approverId };
+                },
+              );
+              return { wave: waveView(out.wave), created: out.created };
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+      }),
 
       list: scopedProcedure('admin:read')
         .input(

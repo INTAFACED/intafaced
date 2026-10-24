@@ -98,6 +98,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     // (referral.lapse_period_unset); a blank cadence leaves the sweep timer off.
     IDENTITY_REFERRAL_LAPSE_PERIOD_SECONDS: testValue('IDENTITY_REFERRAL_LAPSE_PERIOD_SECONDS'),
     IDENTITY_REFERRAL_LAPSE_SWEEP_SECONDS: testValue('IDENTITY_REFERRAL_LAPSE_SWEEP_SECONDS'),
+    // LOCAL TEST waitlist wave size (J-campaigns-20 #3), same profile. Blank refuses every release (drop.wave_unset).
+    IDENTITY_WAITLIST_WAVE_SIZE: testValue('IDENTITY_WAITLIST_WAVE_SIZE'),
     // LOCAL TEST founder pair only: local_test_founder_a / local_test_founder_b from
     // <state>/founders.json. Absent until that vault exists. Never the Docker vault.
     ...identityFounderEnv(),

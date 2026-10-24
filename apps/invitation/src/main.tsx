@@ -17,6 +17,7 @@ import { AMOUNT_ERROR, amountAmbiguity, groupAmount, parseAmount, storedAmount }
 import heroPhone from './vendored/assets/images/outreach/graphite-fins-phone.webp';
 import logo from './vendored/assets/images/logo.svg';
 import './outreach.css';
+import { WaitlistPage } from './waitlist';
 
 /** Our own wording for what the browser would otherwise say in its own language. */
 const REQUIRED_ERROR = 'Please answer this to continue.';
@@ -1101,7 +1102,10 @@ function App() {
               </span>{' '}
               <button type="button" className="outreach-inline-link" onClick={openPrivacy}>
                 Privacy
-              </button>
+              </button>{' '}
+              <a className="outreach-inline-link" href="/waitlist">
+                Join the waitlist
+              </a>
             </p>
           </div>
         </section>
@@ -1349,7 +1353,8 @@ function App() {
 
 const splash = document.getElementById('initLoading');
 if (splash) splash.remove();
-document.title = 'Join INTAFACED';
+const waitlist = window.location.pathname === '/waitlist';
+document.title = waitlist ? 'INTAFACED waitlist' : 'Join INTAFACED';
 const container = document.getElementById('app');
 if (!container) throw new Error('intake_root_unavailable');
-createRoot(container).render(<App />);
+createRoot(container).render(waitlist ? <WaitlistPage /> : <App />);
