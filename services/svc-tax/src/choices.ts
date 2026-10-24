@@ -1,6 +1,8 @@
 import type { Sql } from 'postgres';
 import type { EngineDispose, EngineMethod, SaleRule } from './lot-engine.js';
 
+export type { MethodSource } from './lot-engine.js';
+
 /**
  * COST-BASIS CHOICES. What the customer chose for their own profit and loss indicator: a matching method for the whole
  * account, one for a coin, one for a single day, and which lot a given sale used. These are settings rows in svc-tax's own
@@ -33,8 +35,6 @@ export interface CostBasisChoices {
 
 export const NO_CHOICES: CostBasisChoices = { accountMethod: null, assetMethods: new Map(), days: [], picks: [] };
 
-export type MethodSource = 'preview' | 'day' | 'asset' | 'account' | 'default';
-
 export interface ChoiceStore {
   read(userId: string): Promise<CostBasisChoices>;
   /** `assetId` null: the account's method. `method` null: clear it (the coin follows the account, the account the default). */
@@ -51,7 +51,7 @@ export function saleRules(
   choices: CostBasisChoices,
   fallback: EngineMethod,
   preview: EngineMethod | null,
-): (sale: EngineDispose) => SaleRule & { source: MethodSource } {
+): (sale: EngineDispose) => SaleRule {
   if (preview !== null) return () => ({ method: preview, source: 'preview' });
   const days = new Map(choices.days.map((d) => [`${d.day}|${d.assetId ?? '*'}`, d.method]));
   const picks = new Map(choices.picks.map((p) => [`${p.saleTxId}|${p.assetId}`, p.lotId]));

@@ -341,6 +341,8 @@ export class TaxService {
       if (!sale || sale.pickedLotId !== input.lotId) {
         throw new TaxError(TAX_LOT_PICK_INVALID, 'that lot is not one this sale could draw on: same coin, arrived by then, not used up');
       }
+      // Under AVERAGE every coin costs the pool's average, so a picked lot would change no figure: refused, not stored.
+      if (sale.method === 'AVERAGE') throw new TaxError(TAX_LOT_PICK_INVALID, 'a sale matched at the average cost draws on no one lot');
     }
     await store.setPick(input.userId, input.saleTxId, input.assetId, input.lotId);
   }

@@ -75,8 +75,11 @@ export interface LotMatch {
 export interface SaleRule {
   readonly method: EngineMethod;
   readonly lotId?: string | null;
-  readonly source: string;
+  readonly source: MethodSource;
 }
+
+/** Where a sale's method came from, most specific first. `preview`: one method asked for every sale. */
+export type MethodSource = 'preview' | 'day' | 'asset' | 'account' | 'default';
 
 export type SaleRules = EngineMethod | ((sale: EngineDispose) => SaleRule);
 
@@ -161,7 +164,7 @@ export function runLotEngine(
   /** Price per unit, in dollars, for a lot whose own cost is null. Keyed by the lot id this function assigns. */
   overridePricePerUnit?: ReadonlyMap<string, Amount>,
 ): EngineRun {
-  const ruleOf = typeof rules === 'string' ? (): SaleRule => ({ method: rules, source: 'call' }) : rules;
+  const ruleOf = typeof rules === 'string' ? (): SaleRule => ({ method: rules, source: 'default' }) : rules;
   const byAsset = new Map<string, EngineMovement[]>();
   for (const m of movements) {
     if (m.qty <= 0n) continue;

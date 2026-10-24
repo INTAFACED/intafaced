@@ -82,7 +82,15 @@ const RESIDUAL_COPY: Record<
   'tax.price_at_time_unavailable': 'Residual price at time',
 };
 
-type Save = (choice: LotChoice) => Promise<void>;
+/** True when the choice was saved. */
+type Save = (choice: LotChoice) => Promise<boolean>;
+
+/** The service's refusals for a choice, in the screen's words; anything else goes through the shared refusal copy. */
+const CHOICE_REFUSAL: Record<string, 'Pick refused' | 'Choices not saved here' | 'Method not offered'> = {
+  'tax.lot_pick_invalid': 'Pick refused',
+  'tax.basis_store_unwired': 'Choices not saved here',
+  'tax.lot_method_required': 'Method not offered',
+};
 
 /** Saves a choice and says how it went in one status line. The book reads itself again after a save. */
 function useChoiceSaver(copy: Copy): { save: Save; busy: boolean; message: string } {
@@ -94,7 +102,17 @@ function useChoiceSaver(copy: Copy): { save: Save; busy: boolean; message: strin
     setMessage('');
     const result = await send(choice);
     setBusy(false);
-    setMessage(result.ok ? copy.t('Choice saved') : result.unsure ? copy.t('Choice unsure') : refusalCopy(result.code).title);
+    const refusal = result.ok ? undefined : CHOICE_REFUSAL[result.code];
+    setMessage(
+      result.ok
+        ? copy.t('Choice saved')
+        : result.unsure
+          ? copy.t('Choice unsure')
+          : refusal
+            ? copy.t(refusal)
+            : refusalCopy(result.code).title,
+    );
+    return result.ok;
   };
   return { save, busy, message };
 }
@@ -269,8 +287,13 @@ function SaleRows({
                 <td data-col="method">
                   <span data-method={sale.method}>{t(METHOD_COPY[sale.method])}</span>{' '}
                   <span className="money-note">{t(METHOD_SOURCE_COPY[sale.methodSource])}</span>
-                  {save !== null ? <LotPick book={book} sale={sale} save={save} busy={busy} copy={copy} /> : null}
-                  {sale.pickedLotId === null && savedPick(book, sale) ? <span className="money-note"> {t('Pick not used')}</span> : null}
+                  {/* At the average cost no one lot sets the cost, so no pick is offered; a saved one can still be cleared. */}
+                  {save !== null && (sale.method !== 'AVERAGE' || savedPick(book, sale)) ? (
+                    <LotPick book={book} sale={sale} save={save} busy={busy} copy={copy} />
+                  ) : null}
+                  {!book.preview && sale.pickedLotId === null && savedPick(book, sale) ? (
+                    <span className="money-note"> {t('Pick not used')}</span>
+                  ) : null}
                 </td>
               </tr>
             ))}
@@ -315,6 +338,8 @@ function LotPick({ book, sale, save, busy, copy }: { book: LotBook; sale: LotBoo
           {t('Lot option', { time: stamp(lot.acquiredAt, timeZone), qty: fmtAmount(lot.qty), source: t(SOURCE_COPY[lot.source]) })}
         </option>
       ))}
+      {/* A saved lot that is no longer in the book at all still shows, so it can be cleared. */}
+      {saved && !stale && !lots.some((lot) => lot.id === saved.lotId) ? <option value={saved.lotId}>{t('Lot gone')}</option> : null}
     </select>
   );
 }
@@ -674,9 +699,9 @@ export default function Pnl({ search = '' }: { search?: string }) {
                 size={40}
                 disabled={saver.busy}
                 onClick={() =>
-                  void saver
-                    .save({ procedure: 'setLotMethod', input: { assetId: null, method: data.method } })
-                    .then(() => navigate('/money/pnl', true))
+                  void saver.save({ procedure: 'setLotMethod', input: { assetId: null, method: data.method } }).then((saved) => {
+                    if (saved) navigate('/money/pnl', true);
+                  })
                 }
               >
                 {t('Save method for all coins', { method: t(METHOD_COPY[data.method]) })}

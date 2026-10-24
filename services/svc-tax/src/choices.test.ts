@@ -185,6 +185,15 @@ describe('the lot book applies what the customer saved', () => {
     expect((await tax.lotBook({ userId: USER })).sales[0]).toMatchObject({ pickedLotId: null, realizedUsd: '200' });
   });
 
+  it('a sale matched at the average cost takes no pick: it would change no figure', async () => {
+    const tax = service();
+    await tax.setLotMethod({ userId: USER, assetId: 'BTC', method: 'AVERAGE' });
+    await expect(tax.pickSaleLot({ userId: USER, saleTxId: 's1', assetId: 'BTC', lotId: 'lot:b2:BTC' })).rejects.toMatchObject({
+      code: TAX_LOT_PICK_INVALID,
+    });
+    expect((await tax.lotBook({ userId: USER })).choices).toMatchObject({ picks: [] });
+  });
+
   it('a lot that arrived after the sale cannot be picked for it', async () => {
     const late: Fill = { ...fills[1]!, txId: 'b9', postedAt: at(9) };
     const tax = service(memoryChoices(), reads({ [USER]: [...fills, late] }));

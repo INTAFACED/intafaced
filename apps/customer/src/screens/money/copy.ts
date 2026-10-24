@@ -170,6 +170,8 @@ const messages = {
   Remove: 'Remove',
   'Choice saved': 'Saved. The figures above use it.',
   'Choices not saved here': 'Choices can’t be saved on this server: its settings store is not connected. FIFO is used.',
+  'Pick refused': 'That lot can’t be used for this sale: it must be the same coin and still open when the sale happened.',
+  'Lot gone': 'A lot no longer in your history',
   'Choice unsure': 'We couldn’t confirm that was saved. The figures above show what is saved now.',
   'Choices unreadable': 'Your saved choices couldn’t be read just now, so these figures use FIFO. Try again in a moment.',
   'Pick not used': 'The lot you picked was used up by then, so this sale used its method.',

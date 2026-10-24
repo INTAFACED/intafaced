@@ -23,7 +23,7 @@ export type LotSourceKind = (typeof LOT_SOURCES)[number];
 export const lotBookInputSchema = z.object({ method: lotBookMethodSchema.optional() }).strict().optional();
 
 /** A coin as the ledger names it, e.g. `BTC`. */
-const lotAssetIdSchema = z.string().regex(/^[A-Z0-9]{1,20}$/);
+const lotAssetIdSchema = z.string().regex(/^[A-Za-z0-9]{1,20}$/);
 /** A UTC calendar day, `YYYY-MM-DD`, that exists. */
 const utcDaySchema = z
   .string()

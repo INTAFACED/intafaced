@@ -1,6 +1,14 @@
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { TAX_COST_BASIS_UNAVAILABLE, TAX_LOT_BOOK_INCOMPLETE, TAX_LOT_BOOK_UNRECONCILED, TAX_TERM_RULE_UNSET } from './codes.js';
-import { runLotEngine, type EngineMethod, type EngineMovement, type LotSource, type SaleRules, type ValuedAt } from './lot-engine.js';
+import {
+  runLotEngine,
+  type EngineMethod,
+  type EngineMovement,
+  type LotSource,
+  type MethodSource,
+  type SaleRules,
+  type ValuedAt,
+} from './lot-engine.js';
 
 /**
  * LOT BOOK. Profit and loss as an indicator, built only from the customer's own trade fills. Not a tax form and not tied to
@@ -99,7 +107,7 @@ export interface BookMatch {
   readonly basisSource?: 'customer-entered';
 }
 
-export type BookMethodSource = 'preview' | 'day' | 'asset' | 'account' | 'default';
+export type BookMethodSource = MethodSource;
 
 export interface BookSale {
   /** The method this sale was matched by, and where it came from. */
@@ -206,10 +214,6 @@ function movementsOf(fills: readonly Fill[], residuals: Set<string>): EngineMove
 }
 
 const DAY_MS = 86_400_000;
-const METHOD_SOURCES: readonly BookMethodSource[] = ['preview', 'day', 'asset', 'account', 'default'];
-/** One method passed for the whole book (no saved choices) reads as the default. */
-const methodSourceOf = (source: string): BookMethodSource =>
-  (METHOD_SOURCES as readonly string[]).includes(source) ? (source as BookMethodSource) : 'default';
 const money = (v: Amount | null): string | null => (v === null ? null : formatAmount(v));
 
 export function buildLotBook(input: {
@@ -306,7 +310,7 @@ export function buildLotBook(input: {
     });
     return {
       method: sale.rule.method,
-      methodSource: methodSourceOf(sale.rule.source),
+      methodSource: sale.rule.source,
       pickedLotId: sale.pickedLotId,
       assetId: sale.assetId,
       txId: sale.txId,
