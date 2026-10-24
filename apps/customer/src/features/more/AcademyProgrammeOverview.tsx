@@ -31,7 +31,7 @@ import { AcademyRefusal, GuardedButton, pathLabel } from './AcademyLmsParts';
 import { usePreferences } from '../../shared/preferences';
 
 const badge = z.object({
-  userId: z.string().uuid(),
+  userId: z.string().guid(),
   isAmbassador: z.boolean(),
   status: z.enum(['active', 'frozen']).nullable(),
 });

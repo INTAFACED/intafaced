@@ -111,7 +111,7 @@ export const opsAlertRuleDraftSchema = z.object({
 export type OpsAlertRuleDraft = z.infer<typeof opsAlertRuleDraftSchema>;
 
 export const opsAlertRuleSchema = z.object({
-  id: z.string().uuid(),
+  id: z.string().guid(),
   name: ruleName,
   folder: ruleFolder,
   group: ruleFolder,

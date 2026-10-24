@@ -18,8 +18,8 @@ const nonblank = z
 const amount = decimalSchema.and(z.string().regex(/^(0|[1-9]\d*)(\.\d{1,18})?$/));
 const accrual = z.object({
   feeEventId: nonblank,
-  beneficiaryId: z.string().uuid(),
-  payerId: z.string().uuid(),
+  beneficiaryId: z.string().guid(),
+  payerId: z.string().guid(),
   hop: z.number().int().nonnegative(),
   rate: amount.refine((value) => parseAmount(value) <= parseAmount('1'), 'Rate exceeds one'),
   feeAmount: amount,
@@ -93,7 +93,7 @@ function OwnerRecords({ userId }: { userId: string }) {
         'affiliates.myReferrer',
         undefined,
         z
-          .object({ userId: z.string().uuid(), referrerId: z.string().uuid(), attributedAt: date })
+          .object({ userId: z.string().guid(), referrerId: z.string().guid(), attributedAt: date })
           .nullable()
           .refine((row) => !row || (row.userId === userId && row.referrerId !== userId), 'Referral attribution ownership is invalid'),
         { signal },
@@ -118,7 +118,7 @@ function OwnerRecords({ userId }: { userId: string }) {
         'affiliates.myAncestors',
         undefined,
         z
-          .array(z.string().uuid())
+          .array(z.string().guid())
           .refine((rows) => !rows.includes(userId) && new Set(rows).size === rows.length, 'Referral chain contains a cycle'),
         { signal },
       ),

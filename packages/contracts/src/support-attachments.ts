@@ -120,9 +120,9 @@ export type SupportAttachmentScanState = z.infer<typeof supportAttachmentScanSta
 /** One stored file's metadata. The store key is internal and is not part of the wire. */
 export const supportAttachmentSchema = z
   .object({
-    id: z.string().uuid(),
-    ticketId: z.string().uuid(),
-    ownerId: z.string().uuid(),
+    id: z.string().guid(),
+    ticketId: z.string().guid(),
+    ownerId: z.string().guid(),
     contentType: z.string().min(1),
     byteLength: z.number().int().nonnegative(),
     scanState: supportAttachmentScanStateSchema,
@@ -130,7 +130,7 @@ export const supportAttachmentSchema = z
      * The operator who added the file on the request, or `null` when its owner did. The file belongs to the request either way.
      * A service that predates the field answers without it, which reads as `null`.
      */
-    uploadedBy: z.string().uuid().nullable().default(null),
+    uploadedBy: z.string().guid().nullable().default(null),
     createdAt: z.string().datetime(),
   })
   .strict();
@@ -139,7 +139,7 @@ export type SupportAttachment = z.infer<typeof supportAttachmentSchema>;
 /** What a download answers: the bytes as base64, a fixed content type, and always a download. */
 export const supportAttachmentDownloadSchema = z
   .object({
-    id: z.string().uuid(),
+    id: z.string().guid(),
     contentType: z.literal(SUPPORT_ATTACHMENT_DOWNLOAD_TYPE),
     disposition: z.literal('attachment'),
     byteLength: z.number().int().nonnegative(),
@@ -148,5 +148,5 @@ export const supportAttachmentDownloadSchema = z
   .strict();
 export type SupportAttachmentDownload = z.infer<typeof supportAttachmentDownloadSchema>;
 
-export const supportAttachmentIdInputSchema = z.object({ attachmentId: z.string().uuid() }).strict();
+export const supportAttachmentIdInputSchema = z.object({ attachmentId: z.string().guid() }).strict();
 export type SupportAttachmentIdInput = z.infer<typeof supportAttachmentIdInputSchema>;

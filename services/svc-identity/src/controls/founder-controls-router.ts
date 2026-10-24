@@ -180,11 +180,11 @@ export function createFounderControlsRouter(controls: FounderControlsPort) {
               rows: z.array(
                 z
                   .object({
-                    accountId: z.string().uuid(),
+                    accountId: z.string().guid(),
                     area: z.enum(['identity', 'trading']),
                     since: z.string().datetime({ offset: true }),
                     reason: z.string(),
-                    actor: z.string().uuid(),
+                    actor: z.string().guid(),
                   })
                   .strict(),
               ),
@@ -204,7 +204,7 @@ export function createFounderControlsRouter(controls: FounderControlsPort) {
       // Enabled is a query-time observation, never account-change or future
       // admission authority. Consumers must not positive-cache.
       operatorEntitlement: serviceProcedure
-        .input(z.object({ userId: z.string().uuid() }).strict())
+        .input(z.object({ userId: z.string().guid() }).strict())
         .output(accountOperatorEntitlementSchema)
         .mutation(({ ctx, input }) => controlCall(() => controls.operatorEntitlement(ctx, input.userId))),
       // Service-only: no principal is forwarded. The caller names the user and the session it authenticated

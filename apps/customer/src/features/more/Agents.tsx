@@ -14,7 +14,7 @@ import { AgentsCatalogue } from './AgentsCatalogue';
 import { agentsCatalogueCopy } from './agents-catalogue-copy';
 import { SESSION_AGENT_IDS } from './agents-catalogue';
 import { preservePaperHref } from './trade-context';
-const uuid = z.string().uuid();
+const uuid = z.string().guid();
 const routeSchema = z.object({
   task: z.string(),
   maxOutputTokens: z.number().int().positive().safe(),
@@ -68,7 +68,7 @@ const actionSchema = z.object({
   cost: decimalSchema,
   refusalCode: z.string().nullable(),
   messageKey: z.string(),
-  messageParams: z.record(z.union([z.string(), z.number()])),
+  messageParams: z.record(z.string(), z.union([z.string(), z.number()])),
   occurredAt: z.string().datetime({ offset: true }),
 });
 type AgentAction = z.infer<typeof actionSchema>;

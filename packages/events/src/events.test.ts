@@ -464,7 +464,7 @@ describe('schema drift: the bus refuses rather than strips', () => {
         ts: new Date().toISOString(),
       }),
     ).not.toThrow();
-    // `z.record(z.unknown())` is a declared open bag — its keys are not drift.
+    // `z.record(z.string(), z.unknown())` is a declared open bag — its keys are not drift.
     expect(() =>
       validatePayload('xpEarned', {
         userId: crypto.randomUUID(),

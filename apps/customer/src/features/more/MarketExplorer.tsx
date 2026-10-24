@@ -10,11 +10,11 @@ import { assetsOf, isFiltered, NO_FILTER, periodUnit, type ListingFilter, type L
 import { marketExplorerCopy } from './market-explorer-copy';
 import type { ApiResult } from '../../shared/api';
 
-const sellerSchema = z.object({ id: z.string().uuid(), displayName: z.string(), description: z.string(), createdAt: z.string() });
+const sellerSchema = z.object({ id: z.string().guid(), displayName: z.string(), description: z.string(), createdAt: z.string() });
 const accessSchema = z.object({
   granted: z.literal(true),
-  listingId: z.string().uuid(),
-  buyerId: z.string().uuid(),
+  listingId: z.string().guid(),
+  buyerId: z.string().guid(),
   accessUntil: z.string(),
 });
 

@@ -285,7 +285,7 @@ export async function handleS2sTxByKey(ledger: LedgerService, body: unknown) {
   };
 }
 
-const txByIdInput = z.object({ txId: z.string().uuid() });
+const txByIdInput = z.object({ txId: z.string().guid() });
 
 /**
  * Fetch one booked transaction by its id. A read, never a post. The twin of

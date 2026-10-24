@@ -47,7 +47,7 @@ export type AcademyCreateCourseInput = z.infer<typeof academyCreateCourseInputSc
 
 /** `admin.updateCourse`: the details as a whole, over the revision the editor read. The slug never changes. */
 export const academyUpdateCourseInputSchema = z
-  .object({ courseId: z.string().uuid(), revision: z.number().int().positive(), ...details })
+  .object({ courseId: z.string().guid(), revision: z.number().int().positive(), ...details })
   .strict()
   .refine(pricingHolds, PRICING_RULE);
 export type AcademyUpdateCourseInput = z.infer<typeof academyUpdateCourseInputSchema>;
@@ -55,7 +55,7 @@ export type AcademyUpdateCourseInput = z.infer<typeof academyUpdateCourseInputSc
 /** `admin.setCourseState`: one lifecycle move over the revision the editor read, with the reason staff give. */
 export const academySetCourseStateInputSchema = z
   .object({
-    courseId: z.string().uuid(),
+    courseId: z.string().guid(),
     to: z.enum(ACADEMY_COURSE_MOVES),
     revision: z.number().int().positive(),
     reason: z.string().trim().min(1).max(500),
@@ -66,7 +66,7 @@ export type AcademySetCourseStateInput = z.infer<typeof academySetCourseStateInp
 const isoInstant = z.string().datetime({ offset: true });
 
 export const academyCourseSchema = z.object({
-  id: z.string().uuid(),
+  id: z.string().guid(),
   slug: z.string().min(1),
   title: z.string().min(1),
   summary: z.string().nullable(),
@@ -78,7 +78,7 @@ export const academyCourseSchema = z.object({
   revision: z.number().int().positive(),
   /** Items in the course's outline a learner can open (subheaders are labels and are not counted). */
   items: z.number().int().nonnegative(),
-  createdBy: z.string().uuid(),
+  createdBy: z.string().guid(),
   createdAt: isoInstant,
   updatedAt: isoInstant,
 });
@@ -90,7 +90,7 @@ export const academyCourseEventSchema = z.object({
   revision: z.number().int().positive(),
   fromState: z.enum(ACADEMY_COURSE_STATES).nullable(),
   toState: z.enum(ACADEMY_COURSE_STATES),
-  actor: z.string().uuid(),
+  actor: z.string().guid(),
   reason: z.string().nullable(),
   at: isoInstant,
 });
@@ -107,7 +107,7 @@ export type AcademyOutlineItemKind = (typeof ACADEMY_OUTLINE_ITEM_KINDS)[number]
 const outlineItemInput = z
   .object({
     /** A stored item keeps its id (and with it its lesson revisions); a new one has none. */
-    id: z.string().uuid().optional(),
+    id: z.string().guid().optional(),
     kind: z.enum(ACADEMY_OUTLINE_ITEM_KINDS),
     title: z.string().trim().min(1).max(120),
     indent: z.number().int().min(0).max(2),
@@ -122,13 +122,13 @@ const outlineItemInput = z
  */
 export const academySaveOutlineInputSchema = z
   .object({
-    courseId: z.string().uuid(),
+    courseId: z.string().guid(),
     revision: z.number().int().positive(),
     sections: z
       .array(
         z
           .object({
-            id: z.string().uuid().optional(),
+            id: z.string().guid().optional(),
             title: z.string().trim().min(1).max(120),
             items: z.array(outlineItemInput).max(1000),
           })
@@ -140,7 +140,7 @@ export const academySaveOutlineInputSchema = z
 export type AcademySaveOutlineInput = z.infer<typeof academySaveOutlineInputSchema>;
 
 export const academyOutlineItemSchema = z.object({
-  id: z.string().uuid(),
+  id: z.string().guid(),
   kind: z.enum(ACADEMY_OUTLINE_ITEM_KINDS),
   title: z.string().min(1),
   indent: z.number().int().min(0).max(2),
@@ -151,7 +151,7 @@ export const academyOutlineItemSchema = z.object({
   liveRevision: z.number().int().positive().nullable(),
 });
 export const academyOutlineSectionSchema = z.object({
-  id: z.string().uuid(),
+  id: z.string().guid(),
   title: z.string().min(1),
   items: z.array(academyOutlineItemSchema),
 });
@@ -214,20 +214,20 @@ export const academyLessonBlocksSchema = z.array(academyLessonBlockSchema).min(1
 
 /** `admin.saveLesson`: the blocks as a whole over the lesson revision the editor read (0 when nothing is written yet). */
 export const academySaveLessonInputSchema = z
-  .object({ itemId: z.string().uuid(), revision: z.number().int().nonnegative(), blocks: academyLessonBlocksSchema })
+  .object({ itemId: z.string().guid(), revision: z.number().int().nonnegative(), blocks: academyLessonBlocksSchema })
   .strict();
 export type AcademySaveLessonInput = z.infer<typeof academySaveLessonInputSchema>;
 
 /** `admin.revertLesson`: a new revision with an older one's blocks, over the newest revision the editor read. */
 export const academyRevertLessonInputSchema = z
-  .object({ itemId: z.string().uuid(), revision: z.number().int().positive(), toRevision: z.number().int().positive() })
+  .object({ itemId: z.string().guid(), revision: z.number().int().positive(), toRevision: z.number().int().positive() })
   .strict();
 export type AcademyRevertLessonInput = z.infer<typeof academyRevertLessonInputSchema>;
 
 /** `admin.publishLesson`: learners see this lesson revision from now on, with the reason staff give. */
 export const academyPublishLessonInputSchema = z
   .object({
-    itemId: z.string().uuid(),
+    itemId: z.string().guid(),
     lessonRevision: z.number().int().positive(),
     courseRevision: z.number().int().positive(),
     reason: z.string().trim().min(1).max(500),
@@ -237,7 +237,7 @@ export type AcademyPublishLessonInput = z.infer<typeof academyPublishLessonInput
 
 /** `admin.duplicateItem`: a copy of a draft course's item right after it, with its newest lesson as revision 1. */
 export const academyDuplicateItemInputSchema = z
-  .object({ itemId: z.string().uuid(), courseRevision: z.number().int().positive() })
+  .object({ itemId: z.string().guid(), courseRevision: z.number().int().positive() })
   .strict();
 export type AcademyDuplicateItemInput = z.infer<typeof academyDuplicateItemInputSchema>;
 
@@ -248,16 +248,16 @@ export const academyLessonRevisionSchema = z.object({
   /** The revision a revert copied, or null. */
   fromRevision: z.number().int().positive().nullable(),
   /** The item a duplicate was copied from, or null. */
-  fromItemId: z.string().uuid().nullable(),
+  fromItemId: z.string().guid().nullable(),
   blocks: academyLessonBlocksSchema,
-  actor: z.string().uuid(),
+  actor: z.string().guid(),
   at: isoInstant,
 });
 export type AcademyLessonRevision = z.infer<typeof academyLessonRevisionSchema>;
 
 /** `admin.lesson`: one item with every lesson revision, newest first, and which one learners see. */
 export const academyLessonSchema = z.object({
-  courseId: z.string().uuid(),
+  courseId: z.string().guid(),
   courseTitle: z.string().min(1),
   courseState: z.enum(ACADEMY_COURSE_STATES),
   courseRevision: z.number().int().positive(),
@@ -276,7 +276,7 @@ export type AcademyLesson = z.infer<typeof academyLessonSchema>;
  */
 export const ACADEMY_LESSON_FORMAT = 'intafaced.lesson.v1';
 export const academyImportLessonInputSchema = z
-  .object({ itemId: z.string().uuid(), revision: z.number().int().nonnegative(), document: z.string().max(1_048_576) })
+  .object({ itemId: z.string().guid(), revision: z.number().int().nonnegative(), document: z.string().max(1_048_576) })
   .strict();
 export type AcademyImportLessonInput = z.infer<typeof academyImportLessonInputSchema>;
 export const academyImportProblemSchema = z.object({
