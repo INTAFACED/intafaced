@@ -640,12 +640,28 @@ describe('customer ramps and deposits', () => {
       registryRow('PYUSD', ['testnet'], { allowedActions: ['withdraw', 'trade'] }),
     ];
     const user = caller(bankWith({ deposits: { custody }, assetRegistry: { listed: async () => rows } }), HOLDER, readWrite);
+    // Open: only what the registry allows. The rest stays listed as switched off by the registry, with the asset's state there.
+    const blocked = (assetId: string, networkId: string, assetState: string | null) => ({
+      assetId,
+      networkId,
+      label: `Test ${networkId}`,
+      haltNote: null,
+      blockedBy: 'registry',
+      assetState,
+    });
     expect(await user.deposits.assets()).toEqual({
       assets: [
         { assetId: 'USDT', networks: [network('testnet')] },
         { assetId: 'USDC', networks: [network('testnet')] },
       ],
-      halted: [{ assetId: 'USDC', networkId: 'othernet', label: 'Test othernet', haltNote: null }],
+      halted: [
+        { assetId: 'USDC', networkId: 'othernet', label: 'Test othernet', haltNote: null },
+        { assetId: 'DAI', networkId: 'othernet', label: 'Test othernet', haltNote: null },
+        blocked('USDT', 'othernet', 'active'),
+        blocked('DAI', 'testnet', 'retired'),
+        blocked('EURC', 'testnet', 'halted'),
+        blocked('PYUSD', 'testnet', 'active'),
+      ],
     });
     for (const [assetId, networkId] of [
       ['USDT', 'othernet'],
@@ -667,6 +683,10 @@ describe('customer ramps and deposits', () => {
       cause: { code: 'bank.deposit_asset_unpublished' },
     });
     expect((await user.deposits.assets()).assets.map((a) => a.assetId)).toEqual(['USDC']);
+    expect((await user.deposits.assets()).halted).toContainEqual(blocked('USDT', 'testnet', 'retired'));
+    // An asset the registry does not publish at all is listed as switched off, its state unknown there.
+    rows = rows.filter((row) => row.id !== 'USDT');
+    expect((await user.deposits.assets()).halted).toContainEqual(blocked('USDT', 'testnet', null));
     expect(issued).toBe(1);
     expect(ledger.journal()).toHaveLength(0);
   });
@@ -693,6 +713,12 @@ describe('customer ramps and deposits', () => {
     await expect(caller(bankWith({ deposits: { custody }, assetRegistry: failing }), HOLDER, readWrite).deposits.assets()).rejects.toThrow(
       'The list of supported assets and networks could not be read. Try again shortly',
     );
+    // With custody unset too, custody's refusal is the one named: a registry outage never hides it.
+    const both = caller(bankWith({ assetRegistry: failing }), HOLDER, readWrite);
+    await expect(both.deposits.assets()).rejects.toMatchObject({ cause: { code: 'bank.deposit_custody_unset' } });
+    await expect(both.deposits.address({ assetId: 'USDT', networkId: 'testnet' })).rejects.toMatchObject({
+      cause: { code: 'bank.deposit_custody_unset' },
+    });
     expect(issued).toBe(0);
     const stored = await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM bank.deposit_addresses`;
     expect(stored[0]!.n).toBe(0);

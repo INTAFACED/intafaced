@@ -178,8 +178,21 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
                 ),
               }),
             ),
-            /** Pairs the owner switched off, with the owner's note (null: the standard line only). They take no address. */
-            halted: z.array(z.object({ assetId: z.string(), networkId: z.string(), label: z.string(), haltNote: z.string().nullable() })),
+            /**
+             * Pairs switched off, with the owner's note (null: the standard line only). They take no address. `blockedBy:
+             * 'registry'` marks a pair the supported asset list does not allow, with the asset's state there (null: the
+             * list does not publish the asset), so the coin stays visible with its reason.
+             */
+            halted: z.array(
+              z.object({
+                assetId: z.string(),
+                networkId: z.string(),
+                label: z.string(),
+                haltNote: z.string().nullable(),
+                blockedBy: z.literal('registry').optional(),
+                assetState: z.enum(ASSET_STATES).nullable().optional(),
+              }),
+            ),
           }),
         )
         .query(() => guard(async () => bank.deposits.assets())),

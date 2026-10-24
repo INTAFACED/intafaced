@@ -18,7 +18,7 @@ import { BANK_PAYEE_COOLING_HOURS_ENV, PayeeService } from './rail-sends/payees.
 import { BANK_ADDRESS_BOOK_CAP_ENV } from './withdraw-destination.js';
 import { BANK_OFFRAMP_COOLING_HOURS_ENV } from './offramp-cooling.js';
 import { DepositService, type DepositServiceOptions } from './deposits/deposit-service.js';
-import { listSupportedAssets, type AssetRegistryReads, type SupportedAssetView } from './assets/supported-assets.js';
+import { listSupportedAssets, withdrawNetworksFrom, type AssetRegistryReads, type SupportedAssetView } from './assets/supported-assets.js';
 import { AutoInvestService, type AutoInvestServiceOptions } from './auto-invest/auto-invest-service.js';
 import { BusinessService } from './business/business-service.js';
 import { unconfiguredBusinessDirectory, type BusinessDirectoryPort, type BusinessLookupLimiter } from './business/business-directory.js';
@@ -292,7 +292,12 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     onCaptureSettled: options.cards?.onCaptureSettled ?? ((event) => autoInvest.applyRoundUp(event)),
   });
   // No ramp programme = every ramp procedure refuses `bank.no_ramp_rail`.
-  const ramps = new RampService(sql, ledger, options.ramps ?? {});
+  // One registry: the address book reads the same one as deposits and the supported-asset list unless a test passes its own.
+  const assetRegistry = options.assetRegistry ?? null;
+  const ramps = new RampService(sql, ledger, {
+    ...options.ramps,
+    withdrawNetworks: options.ramps?.withdrawNetworks ?? (assetRegistry ? withdrawNetworksFrom(assetRegistry) : null),
+  });
   const addMoney = new AddMoneyService(sql, ramps);
   // The same owner values as the crypto address book: its cap, and the payout cooling-off window.
   const linkedAccounts = new LinkedAccountService(sql, {
@@ -302,8 +307,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     offrampCoolingHours: () =>
       options.ramps?.offrampCoolingHours !== undefined ? options.ramps.offrampCoolingHours : process.env[BANK_OFFRAMP_COOLING_HOURS_ENV],
   });
-  const assetRegistry = options.assetRegistry ?? null;
-  const deposits = new DepositService(sql, { ...options.deposits, registry: assetRegistry });
+  const deposits = new DepositService(sql, options.deposits ?? {}, assetRegistry);
   const supportedAssets = { list: () => listSupportedAssets(assetRegistry) };
   // The owner's window for a new recipient: a value passed in wins, otherwise the live env. Blank refuses a send.
   const railPayees = new PayeeService(sql, () =>

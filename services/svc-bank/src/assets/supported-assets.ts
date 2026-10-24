@@ -1,6 +1,6 @@
 import { assetAllows, type RegistryAsset } from '@intafaced/contracts';
 import { BankError } from '../errors.js';
-import { ASSET_REGISTRY_UNAVAILABLE } from '../ramps/withdraw-networks.js';
+import type { WithdrawNetworkSource } from '../ramps/withdraw-networks.js';
 
 /**
  * THE SUPPORTED ASSET AND NETWORK LIST, AS CUSTOMERS SEE IT (W-balances-05, J-wallet-01 #5).
@@ -28,17 +28,31 @@ export interface SupportedAssetView {
   state: RegistryAsset['state'];
 }
 
-/** The registry's rows, or the one refusal that says it could not be read. */
-export async function readRegistry(source: AssetRegistryReads | null): Promise<RegistryAsset[]> {
+/** The ledger's registry could not be read, or this deployment has no route to it. Nothing was saved or issued. */
+export const ASSET_REGISTRY_UNAVAILABLE = 'bank.asset_registry_unavailable' as const;
+
+/**
+ * One read of the registry through `source`, or the one refusal that says it could not be read. Every reader (the list,
+ * deposits, the address book) goes through here, so they refuse alike.
+ */
+export async function askRegistry<S>(source: S | null, ask: (source: S) => Promise<RegistryAsset[]>): Promise<RegistryAsset[]> {
   if (!source) {
     throw new BankError('The list of supported assets and networks is not connected', ASSET_REGISTRY_UNAVAILABLE);
   }
   try {
-    return await source.listed();
+    return await ask(source);
   } catch {
     // A fixed sentence: the ledger's own error wording is not the customer's to read.
     throw new BankError('The list of supported assets and networks could not be read. Try again shortly', ASSET_REGISTRY_UNAVAILABLE);
   }
+}
+
+/** Every published row, any state. */
+export const readRegistry = (source: AssetRegistryReads | null) => askRegistry(source, (registry) => registry.listed());
+
+/** The address book's view of the same registry: the active rows that allow withdrawals. */
+export function withdrawNetworksFrom(registry: AssetRegistryReads): WithdrawNetworkSource {
+  return { withdrawable: async () => (await registry.listed()).filter((asset) => assetAllows(asset, 'withdraw')) };
 }
 
 /** Every published asset with its networks, precision, actions and state, in the registry's order. */

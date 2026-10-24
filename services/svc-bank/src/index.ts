@@ -133,8 +133,8 @@ const bank = createBankServices(sql, ledger, history, {
   deposits: {
     custody: createPayCustodyDepositPort(createPayCustodyDepositClient({ payUrl: env.PAY_URL, secret: env.INTERNAL_SERVICE_SECRET })),
   },
-  // svc-ledger's asset and network registry (W-balances-05): the customer's supported-asset list, and the deposit catalogue
-  // narrowed to it. The address book reads the same instance below.
+  // svc-ledger's asset and network registry (W-balances-05), the one list: the customer's supported-asset list, the deposit
+  // catalogue narrowed to it, and the address book's assets and networks.
   assetRegistry,
   // Frozen/closed recipients are refused before any posting. Identity owns that
   // state; with no IDENTITY_URL every credit to ANOTHER user refuses
@@ -308,8 +308,6 @@ const bank = createBankServices(sql, ledger, history, {
       APP_ENV: process.env.APP_ENV,
       NODE_ENV: process.env.NODE_ENV,
     }),
-    /** Which asset may be withdrawn on which network: svc-ledger's registry, the one list deposit and trade read too. */
-    withdrawNetworks: assetRegistry,
   },
 });
 

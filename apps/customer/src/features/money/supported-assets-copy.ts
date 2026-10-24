@@ -28,7 +28,7 @@ const en = {
   history: 'Your {asset} history',
   emptyTitle: 'No asset is published',
   emptyBody: 'The founders have not published any asset, so Deposit and Withdraw offer none either.',
-  count: '{count} assets, {retired} retired',
+  count: 'Assets listed: {count}. Retired: {retired}.',
 } as const;
 
 const es = {
@@ -59,7 +59,7 @@ const es = {
   history: 'Tu historial de {asset}',
   emptyTitle: 'No hay ningún activo publicado',
   emptyBody: 'Los fundadores no han publicado ningún activo, así que Depositar y Retirar tampoco ofrecen ninguno.',
-  count: '{count} activos, {retired} retirados',
+  count: 'Activos en la lista: {count}. Retirados: {retired}.',
 } satisfies Record<keyof typeof en, string>;
 
 const fr = {
@@ -90,7 +90,7 @@ const fr = {
   history: 'Votre historique {asset}',
   emptyTitle: 'Aucun actif n’est publié',
   emptyBody: 'Les fondateurs n’ont publié aucun actif, donc Dépôt et Retrait n’en proposent aucun non plus.',
-  count: '{count} actifs, dont {retired} retirés',
+  count: 'Actifs listés : {count}. Retirés : {retired}.',
 } satisfies Record<keyof typeof en, string>;
 
 export const supportedAssetsCopy = defineCopy('customer.bank.supported-assets', en, { es, fr });
