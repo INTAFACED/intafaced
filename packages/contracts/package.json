@@ -190,6 +190,10 @@
       "types": "./dist/academy-courses.d.ts",
       "default": "./dist/academy-courses.js"
     },
+    "./academy-course-quizzes": {
+      "types": "./dist/academy-course-quizzes.d.ts",
+      "default": "./dist/academy-course-quizzes.js"
+    },
     "./academy-course-messages": {
       "types": "./dist/academy-course-messages.d.ts",
       "default": "./dist/academy-course-messages.js"

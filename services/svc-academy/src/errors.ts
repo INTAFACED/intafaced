@@ -324,7 +324,23 @@ export type AcademyErrorCode =
   /** AC-rooms-04: a message longer than the owner's limit. */
   | 'academy.message_too_long'
   /** AC-rooms-04: no conversation with that id the reader is in. */
-  | 'academy.conversation_not_found';
+  | 'academy.conversation_not_found'
+  /** AC-quizzes-01: the outline item is not a quiz. */
+  | 'academy.quiz_not_found'
+  /** AC-quizzes-01: a quiz with no questions is not published. */
+  | 'academy.quiz_no_questions'
+  /** AC-quizzes-01: more than one attempt is allowed and no scoring policy says which counts. */
+  | 'academy.scoring_policy_unset'
+  /** AC-quizzes-01: learners have attempts, so the questions stay and the quiz stays published (and in the outline). */
+  | 'academy.item_has_attempts'
+  /** AC-quizzes-01: the quiz needs an access code and the one given is missing or wrong. */
+  | 'academy.access_code_invalid'
+  /** AC-quizzes-01: the quiz has an IP filter and the caller's address could not be read. */
+  | 'academy.ip_unreadable'
+  /** AC-quizzes-01: the caller's address is outside the quiz's IP filter. */
+  | 'academy.ip_not_allowed'
+  /** AC-quizzes-01: an IP filter entry that is not an address or a CIDR range. */
+  | 'academy.ip_rule_invalid';
 
 export class AcademyError extends Error {
   constructor(
@@ -506,6 +522,14 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.message_limit_unset',
   'academy.message_too_long',
   'academy.conversation_not_found',
+  'academy.quiz_not_found',
+  'academy.quiz_no_questions',
+  'academy.scoring_policy_unset',
+  'academy.item_has_attempts',
+  'academy.access_code_invalid',
+  'academy.ip_unreadable',
+  'academy.ip_not_allowed',
+  'academy.ip_rule_invalid',
 ] as const;
 
 /** L3 — catalog size. */

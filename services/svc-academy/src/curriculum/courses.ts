@@ -331,6 +331,18 @@ export class CourseRecords {
         );
       if (listed.has(brief.item_id)) throw new AcademyError('an assignment with a brief stays an assignment', 'academy.item_kind_locked');
     }
+    // A saved quiz stays a quiz, and one learners attempted stays in the outline (AC-quizzes-01).
+    const quizKept = new Set(sections.flatMap((s) => s.items).flatMap((i) => (i.id !== undefined && i.kind === 'quiz' ? [i.id] : [])));
+    const quizzes = await tx<Array<{ item_id: string; attempted: boolean }>>`
+      SELECT q.item_id, EXISTS (SELECT 1 FROM academy.quiz_attempts t WHERE t.slug = q.item_id::text) AS attempted
+      FROM academy.course_quizzes q JOIN academy.course_items i ON i.id = q.item_id WHERE i.course_id = ${courseId}
+    `;
+    for (const quiz of quizzes) {
+      if (quizKept.has(quiz.item_id)) continue;
+      if (quiz.attempted && !listed.has(quiz.item_id))
+        throw new AcademyError('learners attempted this quiz, so it stays in the outline', 'academy.item_has_attempts');
+      if (listed.has(quiz.item_id)) throw new AcademyError('a saved quiz stays a quiz', 'academy.item_kind_locked');
+    }
     await tx`UPDATE academy.course_items SET position = -1 - position WHERE course_id = ${courseId}`;
     await tx`UPDATE academy.course_sections SET position = -1 - position WHERE course_id = ${courseId}`;
     const sectionRows = sections.map((s, position) => ({ id: s.id ?? randomUUID(), course_id: courseId, position, title: s.title }));

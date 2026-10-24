@@ -1100,6 +1100,41 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'This item is not an assignment, or it has no brief to change.',
     next: 'Read the course again. Nothing was changed.',
   },
+  'academy.quiz_not_found': {
+    title: 'Not a quiz',
+    body: 'This outline item is not a quiz, so it has no questions or attempt rules.',
+    next: 'Read the course again. Nothing was changed.',
+  },
+  'academy.quiz_no_questions': {
+    title: 'The quiz has no questions',
+    body: 'A quiz with no questions is not published, because there is nothing to take.',
+    next: 'Add at least one question and save, then publish. Nothing was published.',
+  },
+  'academy.pass_mark_unset': {
+    title: 'The pass mark is not set',
+    body: 'Learners could not be marked passed or failed, so a quiz with no pass mark is not published. A pass mark of 0 means taking it completes it.',
+    next: 'Set the pass mark and save, then publish. Nothing was published.',
+  },
+  'academy.scoring_policy_unset': {
+    title: 'No scoring policy for more than one attempt',
+    body: 'This quiz allows more than one attempt, so it needs to say which attempt counts: highest, latest, first or average.',
+    next: 'Choose a scoring policy, or allow one attempt, and save. Nothing was published.',
+  },
+  'academy.item_has_attempts': {
+    title: 'Learners have taken this quiz',
+    body: 'A quiz with attempts keeps its questions and stays published, so every attempt is read against what was asked.',
+    next: 'Its rules can still change. To ask different questions, add a new quiz item. Nothing was changed.',
+  },
+  'academy.assessment_invalid': {
+    title: 'The quiz does not add up',
+    body: 'svc-academy found this quiz inconsistent, for example a pass mark above the questions’ points together, so nobody could pass.',
+    next: 'Check the pass mark, points and answers, then save again. Nothing was saved.',
+  },
+  'academy.ip_rule_invalid': {
+    title: 'An IP filter entry is not an address',
+    body: 'Each entry is one address or a CIDR range, such as 203.0.113.7 or 203.0.113.0/24.',
+    next: 'Correct the entry and save. Nothing was saved.',
+  },
   'academy.assignment_closed': {
     title: 'Assignment withdrawn',
     body: 'This assignment was withdrawn, so its brief is not edited and learners hand in nothing more.',
