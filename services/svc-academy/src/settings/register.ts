@@ -40,6 +40,9 @@ export interface SettingsEnv {
   readonly ACADEMY_OUTLINE_MAX_SECTIONS?: number | undefined;
   readonly ACADEMY_OUTLINE_MAX_ITEMS?: number | undefined;
   readonly ACADEMY_LESSON_IMPORT_MAX_BYTES?: number | undefined;
+  readonly ACADEMY_UPLOAD_MAX_BYTES?: number | undefined;
+  readonly ACADEMY_UPLOAD_VIDEO_TYPES?: readonly string[] | undefined;
+  readonly ACADEMY_UPLOAD_HANDOUT_TYPES?: readonly string[] | undefined;
   readonly ACADEMY_PAPER_MARKETS_LIMIT?: number | undefined;
   readonly TRADE_URL?: string | undefined;
   readonly ACADEMY_STREAM_PROVIDER?: 'none' | 'livekit' | undefined;
@@ -68,8 +71,6 @@ const state = (ok: boolean): SettingState => (ok ? 'set' : 'not_set');
  */
 export const PENDING_OWNER_SETTINGS: readonly string[] = [
   'undelete_window',
-  'upload_size_limit',
-  'upload_type_list',
   'lease_length',
   'dwell_seconds',
   'expiry_duration',
@@ -195,6 +196,27 @@ export function settingsRegister(env: SettingsEnv): readonly SettingRow[] {
       store: 'env',
       readOnly: false,
       refusalCode: 'academy.import_limit_unset',
+    },
+    {
+      key: 'upload_size_limit',
+      state: state(positiveInt(env.ACADEMY_UPLOAD_MAX_BYTES)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.upload_limits_unset',
+    },
+    {
+      key: 'upload_video_types',
+      state: state((env.ACADEMY_UPLOAD_VIDEO_TYPES?.length ?? 0) > 0),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.upload_limits_unset',
+    },
+    {
+      key: 'upload_handout_types',
+      state: state((env.ACADEMY_UPLOAD_HANDOUT_TYPES?.length ?? 0) > 0),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.upload_limits_unset',
     },
     {
       // No store and no recipe: always not set, always refuse-closed.

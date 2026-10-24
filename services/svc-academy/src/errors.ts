@@ -229,7 +229,21 @@ export type AcademyErrorCode =
   /** AC-course-structure-04: no such assistant draft, or it was already decided the other way. */
   | 'academy.draft_not_found'
   /** Lesson blocks built by the service do not fit the lesson format (a block over its limit); nothing was written. */
-  | 'academy.lesson_blocks_invalid';
+  | 'academy.lesson_blocks_invalid'
+  /** AC-videos-02: the owner has not set the upload size limit or the accepted video or handout types. */
+  | 'academy.upload_limits_unset'
+  /** The file is over the owner's upload size limit; no upload address was issued. */
+  | 'academy.upload_too_large'
+  /** The file's declared type is not one the owner accepts for that kind. */
+  | 'academy.upload_type_refused'
+  /** The stored file's leading bytes are not the declared type; the upload is refused. */
+  | 'academy.file_type_mismatch'
+  /** No upload with that id. */
+  | 'academy.media_not_found'
+  /** The stored object is missing or its size is not the declared size. */
+  | 'academy.upload_incomplete'
+  /** Captions need a stored video on the item first. */
+  | 'academy.item_video_missing';
 
 export class AcademyError extends Error {
   constructor(
@@ -363,6 +377,13 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.import_too_large',
   'academy.draft_not_found',
   'academy.lesson_blocks_invalid',
+  'academy.upload_limits_unset',
+  'academy.upload_too_large',
+  'academy.upload_type_refused',
+  'academy.file_type_mismatch',
+  'academy.media_not_found',
+  'academy.upload_incomplete',
+  'academy.item_video_missing',
 ] as const;
 
 /** L3 — catalog size. */
