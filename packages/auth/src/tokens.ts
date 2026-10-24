@@ -38,6 +38,10 @@ export const accessClaimsSchema = z.object({
    * The session family: one per sign-in, the same on every refresh of it (`sid` changes on each refresh, because a
    * refresh opens a successor session). Interactive sessions carry it; API-key tokens and tokens minted before it
    * existed do not, so a reader treats absence as unknown, never as a match.
+   *
+   * `fam` and `dev` say which sign-in and which device a call came from, as of minting. They prove nothing about the
+   * device still being trusted: a device removed since keeps its id on tokens already issued until they expire, so a
+   * reader that needs "still trusted" asks identity.
    */
   fam: z.string().guid().optional(),
   /**
@@ -155,7 +159,18 @@ export interface IssueAccessInput {
   trustedDeviceId?: string | null;
 }
 
+const SESSION_CLAIM_ID = z.string().guid();
+
 export async function issueAccessToken(input: IssueAccessInput, config: TokenConfig): Promise<{ token: string; expiresAt: Date }> {
+  // Refuse at minting what every verifier would refuse later, and keep API-key tokens free of sign-in claims.
+  for (const [name, value] of [
+    ['familyId', input.familyId],
+    ['trustedDeviceId', input.trustedDeviceId],
+  ] as const) {
+    if (value === undefined || value === null) continue;
+    if (!SESSION_CLAIM_ID.safeParse(value).success) throw new AuthError(`${name} must be a UUID`, 'token.invalid');
+    if (input.apiKeyId) throw new AuthError(`${name} is a sign-in claim and never goes on an API-key token`, 'token.invalid');
+  }
   const now = Math.floor(Date.now() / 1000);
   const exp = now + config.accessTtlSeconds;
 

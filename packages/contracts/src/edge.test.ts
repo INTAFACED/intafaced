@@ -475,6 +475,16 @@ describe('edge principal — only svc-edge can sign (Ed25519)', () => {
     expect(got.principal?.tier).toBe('full');
   });
 
+  it('carries fam and dev on the Ed25519 path too', () => {
+    const fam = '66666666-6666-4666-8666-666666666666';
+    const dev = '77777777-7777-4777-8777-777777777777';
+    const { raw, sig } = signed(principal({ fam, dev }));
+    const got = verifyForwardedPrincipal(raw, sig, TRUST, new Date(), 'DE');
+    expect(got.rejected).toBeNull();
+    expect(got.principal?.fam).toBe(fam);
+    expect(got.principal?.dev).toBe(dev);
+  });
+
   it('the legacy shared-secret form still verifies for any holder of the secret until services migrate', () => {
     // Existing behaviour, unchanged by this package; services move to the public key in follow-ups.
     const forged = forward(founder, SECRET, 'DE');

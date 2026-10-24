@@ -43,6 +43,17 @@ describe('fam and dev on access tokens', () => {
     }
   });
 
+  it('refuses to mint a fam or dev that is not a UUID, or either one on an API-key token', async () => {
+    const base = { userId: USER, sessionId: SESSION, scopes: ['trade:read'] };
+    for (const extra of [{ familyId: '' }, { familyId: 'not-a-uuid' }, { trustedDeviceId: 'abc' }]) {
+      await expect(issueAccessToken({ ...base, ...extra }, config)).rejects.toMatchObject({ code: 'token.invalid' });
+    }
+    const apiKeyId = '55555555-5555-4555-8555-555555555555';
+    for (const extra of [{ familyId: FAMILY }, { trustedDeviceId: DEVICE }]) {
+      await expect(issueAccessToken({ ...base, apiKeyId, ...extra }, config)).rejects.toMatchObject({ code: 'token.invalid' });
+    }
+  });
+
   it('refuses a token whose fam or dev is not a UUID', async () => {
     const now = Math.floor(Date.now() / 1000);
     for (const bad of [{ fam: 'not-a-uuid' }, { dev: 42 }]) {
