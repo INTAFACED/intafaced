@@ -84,6 +84,7 @@ export type WaveReleaseInput = {
   readonly size: number;
   readonly flagKey: string;
   readonly releasedBy: string;
+  readonly approvedBy: string;
 };
 
 /** Queue order: more referrals first, ties by join order. */
@@ -105,12 +106,11 @@ export interface WaitlistStore {
   waves(): Promise<readonly WaitlistWave[]>;
   /**
    * Releases wave `waveNumber`: the top `size` waiting entries, once. The same wave number again returns the stored wave
-   * (`created: false`), writes nothing and never calls `authorize`. Refuses a number that is not the next one
-   * (`waitlist.wave_unknown`) and a queue with nobody waiting (`waitlist.wave_empty`), also without calling it.
-   * `authorize` (the second person's approval) runs once every check has passed, inside the release, so a release that
-   * loses a race or refuses spends no approval, and a refused approval writes nothing. It returns who approved.
+   * (`created: false`) and writes nothing. Refuses a number that is not the next one (`waitlist.wave_unknown`) and a
+   * queue with nobody waiting (`waitlist.wave_empty`). The caller has already spent the second person's approval; this
+   * call makes no other database call while it holds its connection and lock.
    */
-  releaseWave(input: WaveReleaseInput, authorize: () => Promise<{ approverId: string }>): Promise<{ wave: WaitlistWave; created: boolean }>;
+  releaseWave(input: WaveReleaseInput): Promise<{ wave: WaitlistWave; created: boolean }>;
 }
 
 export class WaitlistStoreError extends Error {
@@ -280,10 +280,7 @@ export class MemoryWaitlistStore implements WaitlistStore {
     return [...this.waveRows];
   }
 
-  async releaseWave(
-    input: WaveReleaseInput,
-    authorize: () => Promise<{ approverId: string }>,
-  ): Promise<{ wave: WaitlistWave; created: boolean }> {
+  async releaseWave(input: WaveReleaseInput): Promise<{ wave: WaitlistWave; created: boolean }> {
     const existing = this.waveRows.find((w) => w.waveNumber === input.waveNumber);
     if (existing) return { wave: existing, created: false };
     if (input.waveNumber !== this.waveRows.length + 1) {
@@ -291,9 +288,8 @@ export class MemoryWaitlistStore implements WaitlistStore {
     }
     const picks = this.waitingEntries().slice(0, input.size);
     if (picks.length === 0) throw new WaitlistStoreError('Nobody is waiting to be released', 'waitlist.wave_empty');
-    const { approverId } = await authorize();
     const releasedAt = new Date();
-    const wave: WaitlistWave = { id: randomUUID(), ...input, approvedBy: approverId, releasedCount: picks.length, releasedAt };
+    const wave: WaitlistWave = { id: randomUUID(), ...input, releasedCount: picks.length, releasedAt };
     this.waveRows.push(wave);
     for (const e of picks) this.releases.set(e.id, { waveNumber: input.waveNumber, releasedAt });
     return { wave, created: true };
@@ -509,10 +505,7 @@ export class SqlWaitlistStore implements WaitlistStore {
     return rows.map(toWave);
   }
 
-  async releaseWave(
-    input: WaveReleaseInput,
-    authorize: () => Promise<{ approverId: string }>,
-  ): Promise<{ wave: WaitlistWave; created: boolean }> {
+  async releaseWave(input: WaveReleaseInput): Promise<{ wave: WaitlistWave; created: boolean }> {
     return transaction(
       this.sql,
       async (tx) => {
@@ -535,11 +528,9 @@ export class SqlWaitlistStore implements WaitlistStore {
           LIMIT ${input.size}
         `;
         if (picks.length === 0) throw new WaitlistStoreError('Nobody is waiting to be released', 'waitlist.wave_empty');
-        // Spent here, under the lock and after every check: a throw rolls the release back and writes nothing.
-        const { approverId } = await authorize();
         const waves = await tx<WaveRow[]>`
           INSERT INTO waitlist_waves (wave_number, size, released_count, flag_key, released_by, approved_by)
-          VALUES (${input.waveNumber}, ${input.size}, ${picks.length}, ${input.flagKey}, ${input.releasedBy}, ${approverId})
+          VALUES (${input.waveNumber}, ${input.size}, ${picks.length}, ${input.flagKey}, ${input.releasedBy}, ${input.approvedBy})
           RETURNING id, wave_number, size, released_count, flag_key, released_by, approved_by, released_at
         `;
         const wave = toWave(waves[0]!);
