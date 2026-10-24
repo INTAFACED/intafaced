@@ -52,6 +52,7 @@ const en = {
   dispatchingNote:
     'A send was asked for and its outcome is not known. The withdrawal stays held until the original outcome is known, so it cannot be cancelled.',
   heldUnknownNote: 'Whether this withdrawal was sent is not on record, so it stays held and cannot be cancelled.',
+  requestedSentNote: 'A send was asked for and its outcome is not known, so this withdrawal cannot be cancelled.',
   irreversible: 'A withdrawal can be cancelled only before it is sent. After it is broadcast, it cannot be reversed.',
   statusNote: 'This is the status we have recorded. It doesn’t confirm that the money reached its destination.',
   clientRef: 'Your reference',
@@ -317,6 +318,7 @@ const es = {
   dispatchingNote:
     'Se pidió un envío y no se conoce su resultado. El retiro sigue retenido hasta conocer el resultado original, así que no se puede cancelar.',
   heldUnknownNote: 'No consta si este retiro se envió, así que sigue retenido y no se puede cancelar.',
+  requestedSentNote: 'Se pidió un envío y no se conoce su resultado, así que este retiro no se puede cancelar.',
   irreversible: 'Un retiro solo se puede cancelar antes de enviarse. Una vez emitido no se puede revertir.',
   statusNote: 'Este es el estado que tenemos registrado. No confirma que el dinero haya llegado a su destino.',
   clientRef: 'Tu referencia',
@@ -584,6 +586,7 @@ const fr = {
   dispatchingNote:
     'Un envoi a été demandé et son résultat n’est pas connu. Le retrait reste retenu jusqu’à ce que le résultat d’origine soit connu, il ne peut donc pas être annulé.',
   heldUnknownNote: 'Rien n’indique si ce retrait a été envoyé : il reste retenu et ne peut pas être annulé.',
+  requestedSentNote: 'Un envoi a été demandé et son résultat n’est pas connu, ce retrait ne peut donc pas être annulé.',
   irreversible: 'Un retrait ne peut être annulé qu’avant son envoi. Une fois diffusé, il ne peut pas être inversé.',
   statusNote: 'C’est le statut que nous avons enregistré. Il ne confirme pas que l’argent est arrivé à destination.',
   clientRef: 'Ta référence',

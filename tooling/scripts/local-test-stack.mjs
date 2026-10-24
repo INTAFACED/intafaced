@@ -1966,7 +1966,12 @@ async function cmdSeedWithdrawal(rawArgs) {
   if (!found) fail('svc-pay has no row for that reference after the insert');
   const [id, stored, storedAmount, storedAsset] = found.split('\t');
   const load = (pkg) => import(pathToFileURL(path.join(REPO, 'packages', pkg, 'dist', 'index.js')).href);
-  const [ledgerClient, contracts] = await Promise.all([load('ledger-client'), load('contracts')]);
+  let ledgerClient, contracts;
+  try {
+    [ledgerClient, contracts] = await Promise.all([load('ledger-client'), load('contracts')]);
+  } catch (err) {
+    fail(`packages are not built (${err.message}). Run: pnpm local:stack --rebuild`);
+  }
   if (ledgerClient.parseAmount(storedAmount) !== ledgerClient.parseAmount(amountStr) || storedAsset !== asset)
     fail(`--ref ${ref} already names a withdrawal of ${storedAmount} ${storedAsset}`, 2);
 
@@ -2007,6 +2012,16 @@ async function cmdSeedWithdrawal(rawArgs) {
       { id, outcome: state === 'broadcast' ? 'accepted' : 'requested', tx: state === 'broadcast' ? txRef : '' },
     );
   }
+  // Read back what svc-pay holds: a reference reused for another state is refused, never reported as the state asked for.
+  const [after] = asPay(
+    `SELECT w.status::text || E'\\t' || coalesce(a.outcome, 'none') FROM pay.withdrawals w
+       LEFT JOIN pay.withdrawal_rail_attempts a ON a.withdrawal_id = w.id AND a.attempt = w.attempts
+      WHERE w.id = :'id'`,
+    { id },
+  );
+  const [nowStored, journal] = (after ?? '').split('\t');
+  const reached = { pending: 'requested', held: { none: 'held', requested: 'dispatching', accepted: 'broadcast' }[journal] }[nowStored];
+  if (reached !== state) fail(`--ref ${ref} already names a withdrawal that is ${reached ?? nowStored}, not ${state}; use a new --ref`, 2);
   say(`TEST withdrawal (LOCAL TEST, not real money)`);
   say(`  withdrawal ${id}`);
   say(`  state      ${state}   ${asset} ${amountStr}   reference ${clientRef}`);

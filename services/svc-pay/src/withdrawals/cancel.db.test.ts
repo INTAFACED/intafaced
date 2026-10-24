@@ -17,7 +17,7 @@ import { CardSandboxAdapter } from '../rails/card-sandbox.js';
 import { RailRegistry } from '../rails/registry.js';
 import { UserMoneyService } from '../user-money-service.js';
 import { createWithdrawalHistory } from './history.js';
-import { WITHDRAWAL_CANCELED_CODE } from './status.js';
+import { isCancellable, WITHDRAWAL_CANCELED_CODE } from './status.js';
 
 /** Cancelling a withdrawal against a real Postgres and the reference ledger. TEST figures only. */
 const here = dirname(fileURLToPath(import.meta.url));
@@ -475,5 +475,18 @@ describe('cancel a withdrawal (real Postgres)', () => {
     const listed = new Map((await money.listWithdrawals(USER, 10)).map((w) => [w.id, w]));
     expect(listed.get(held)).toMatchObject({ journal: 'requested', dispatchJournaled: true });
     expect(listed.get(legacy)).toMatchObject({ journal: null, dispatchJournaled: null });
+  });
+
+  it('a held row carrying a refusal code is refused like the page says, and its hold stays', async () => {
+    const id = await heldRow(null, { clientRef: 'w-held-refused' });
+    await db.sql`UPDATE pay.withdrawals SET failure_code = 'rail.refused' WHERE id = ${id}`;
+    const [read] = (await money.listWithdrawals(USER, 10)).filter((w) => w.id === id);
+    expect(isCancellable(read!.status, read!.failureCode, read!.journal, read!.dispatchJournaled)).toBe(false);
+
+    await expect(money.cancelWithdrawal({ userId: USER, withdrawalId: id })).rejects.toMatchObject({
+      code: 'pay.withdrawal_not_cancellable',
+    });
+    expect(await holdOf(id, 0)).toBe('40');
+    expect(await reverseTxs(id, 0)).toBe(false);
   });
 });

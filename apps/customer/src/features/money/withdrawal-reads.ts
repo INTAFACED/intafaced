@@ -38,7 +38,8 @@ export const withdrawalSchema = z.object({
   status: z.enum(['pending', 'held', 'sent', 'failed']),
   createdAt: z.string().datetime({ offset: true }),
   // W-withdraw-07: the row in the customer vocabulary (a held row split by its dispatch journal), and whether a cancel would
-  // run now. Optional so an older svc-pay without them still reads; absent means no Cancel button.
+  // run now. Optional so an older svc-pay without them still reads; without `cancellable` the page offers Cancel on a
+  // requested withdrawal only, which is what an older svc-pay cancels.
   customerStatus: z.enum(WITHDRAWAL_SHOWN).optional(),
   cancellable: z.boolean().optional(),
 });

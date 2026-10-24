@@ -59,7 +59,10 @@ export interface NonceChain {
   status(input: { originalTxHash: string; nonce: number }): Promise<NonceStatus>;
 }
 
-/** The customer-withdrawal cancel (W-withdraw-07). It refuses a withdrawal that is held, sent or failed. */
+/**
+ * The customer-withdrawal cancel (W-withdraw-07). It cancels a requested withdrawal with no send on record, and a held one only
+ * when its dispatch journal proves nothing was sent; anything that may have been sent, a sent and a failed one are refused.
+ */
 export interface WithdrawalCanceller {
   cancelWithdrawal(input: { userId: string; withdrawalId: string }): Promise<unknown>;
 }
@@ -366,7 +369,10 @@ export class CustodyStuckService {
 
   // ── cancel before broadcast ──────────────────────────────────────────────────────────────────────────────
 
-  /** An operator cancels a customer's withdrawal before any send attempt (W-withdraw-07). A held or sent one is refused there. */
+  /**
+   * An operator cancels a customer's withdrawal before any send attempt (W-withdraw-07), through the customer's own cancel: a
+   * held one only when its dispatch journal proves nothing was sent; one that may have been sent, or was sent, is refused there.
+   */
   async cancel(actor: string, withdrawalId: string): Promise<{ withdrawalId: string; canceled: true }> {
     const canceller = this.deps.canceller;
     if (!canceller) throw new CustodyStuckError('stuck.cancel_unwired', 'the withdrawal cancel is not connected here');

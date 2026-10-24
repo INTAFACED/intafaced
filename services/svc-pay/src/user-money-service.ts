@@ -31,6 +31,7 @@ import {
   assertStoredTransition,
   assertTransition,
   customerStatus,
+  isCancellable,
   WITHDRAWAL_CANCELED_CODE,
   WITHDRAWAL_DROPPED_CODE,
   type DispatchJournal,
@@ -724,8 +725,9 @@ export class UserMoneyService {
                 { withdrawalId: claimed.id },
               );
             }
-            // The hold is booked and the row is still `pending`: stop here when the caller asked to.
-            if (options.stopAfterHold) return claimed;
+            // The hold is booked and the row is still `pending`: stop here when the caller asked to. No send is journalled
+            // for it, so the answer can say it may be cancelled.
+            if (options.stopAfterHold) return { ...claimed, journal: null };
             // `dispatch_journaled`: from here every send of this attempt is journalled `requested` before the rail is asked,
             // so a held row with no journal row for its attempt provably sent nothing and may be cancelled (W-withdraw-07).
             await connection`
@@ -1177,6 +1179,11 @@ export class UserMoneyService {
       if (attempt) return refuse('The withdrawal has a send attempt on record and cannot be cancelled');
       if (current.status === 'held' && row!.dispatch_journaled !== true) {
         return refuse('The withdrawal was held before sends were journalled, so whether it was sent is unknown; it stays held');
+      }
+      // The same rule the reads show as `cancellable`, so the page and the cancel never disagree (a held row carrying a
+      // refusal code is a refusal being put back, not something to cancel).
+      if (!isCancellable(current.status, current.failureCode, null, row!.dispatch_journaled)) {
+        return refuse('The withdrawal is being put back after a refusal and cannot be cancelled');
       }
       // Checked before anything is posted: an illegal move throws and posts nothing.
       assertTransition(current.status === 'held' ? 'held' : 'requested', 'canceled');

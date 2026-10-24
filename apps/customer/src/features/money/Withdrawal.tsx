@@ -248,9 +248,11 @@ function Detail({ id, current }: { id: string; current: () => boolean }) {
       ? t('cancelNote')
       : shown === 'broadcast' || shown === 'confirming'
         ? t('broadcastNote')
-        : shown === 'dispatching' || record.status === 'pending'
+        : shown === 'dispatching'
           ? t('dispatchingNote')
-          : t('heldUnknownNote');
+          : record.status === 'pending'
+            ? t('requestedSentNote')
+            : t('heldUnknownNote');
     return (
       <div className="withdrawal-cancel" data-testid="withdrawal-cancel" data-cancellable={may}>
         <p className="muted" id={`withdrawal-cancel-note-${record.id}`}>
@@ -258,7 +260,8 @@ function Detail({ id, current }: { id: string; current: () => boolean }) {
         </p>
         <Button
           variant="secondary"
-          disabled={canceling}
+          // Off once cancelled, until the record reads back as cancelled.
+          disabled={canceling || canceled !== null}
           aria-describedby={`withdrawal-cancel-note-${record.id}`}
           onClick={() => void cancel()}
         >
@@ -388,7 +391,7 @@ export function Withdrawal({ context, search }: { context: WithdrawalReadContext
         {!requested.ok ? (
           <Lookup current={current} invalid />
         ) : requested.id ? (
-          <Detail id={requested.id} current={current} />
+          <Detail key={requested.id} id={requested.id} current={current} />
         ) : (
           <List current={current} />
         )}
