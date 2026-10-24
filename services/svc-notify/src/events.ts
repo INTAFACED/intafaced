@@ -14,6 +14,7 @@ import {
   p2pEscrowRefunded,
   p2pEscrowReleased,
   p2pTradeDisputed,
+  p2pTradeFiatSent,
   positionUpdated,
   rankUpdated,
   stakeCreated,
@@ -63,6 +64,7 @@ export { NOTIFY_EVENT_CONSUMERS, SKIPPED_NOTIFY_SUBJECTS, notifyEventConsumerCou
  * userId principal, and has clear user-facing meaning. No invented publishers.
  * Skipped (no user ids on payload): p2pDisputeResolved, p2pTradeExpired.
  * p2pTradeDisputed notifies openedBy only — the counterparty is not on the payload.
+ * p2pTradeFiatSent notifies the seller only — the buyer is the one who marked it.
  * orderUpdated notifies cancelled/rejected/expired only — fills already have fillSettled.
  * agentActionCompleted notifies completion/session_close only — never tool_call/embedding noise.
  */
@@ -502,6 +504,26 @@ export async function subscribeNotificationEvents(
           severity: 'action',
           sourceSubject: p2pTradeDisputed.subject,
           sourceIdempotencyKey: payload.disputeId,
+        }),
+      );
+    }),
+  );
+
+  attachments.push(
+    await attach(bus, 'p2pTradeFiatSent', p2pTradeFiatSent.subject, 'notify-p2p-trade-fiat-sent', async (payload) => {
+      // P-trade-orders-23: the buyer says the money is on its way; the seller is the one who must check and release.
+      // One notice per trade: a trade is marked paid once, so the trade id is the business key.
+      nakIfRetryable(
+        await notify.create({
+          userId: payload.sellerId,
+          kind: 'p2p.trade.fiat_sent',
+          titleKey: 'notify.p2p.trade.fiat_sent.title',
+          bodyKey: 'notify.p2p.trade.fiat_sent.body',
+          params: { tradeId: payload.tradeId },
+          href: `/p2p/orders/${payload.tradeId}`,
+          severity: 'action',
+          sourceSubject: p2pTradeFiatSent.subject,
+          sourceIdempotencyKey: `${payload.tradeId}:seller`,
         }),
       );
     }),

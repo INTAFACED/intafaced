@@ -1,5 +1,14 @@
 import { test, expect } from '@playwright/test';
-import { contactChannels, helpCentre, publishText, saveCategory, saveSection, setHelpCentre, unpublish } from './help-centre.mjs';
+import {
+  contactChannels,
+  helpCentre,
+  publishText,
+  saveCategory,
+  saveSection,
+  setAudience,
+  setHelpCentre,
+  unpublish,
+} from './help-centre.mjs';
 import { signUp } from './desk.mjs';
 import { EDGE, ORIGIN } from './stack.mjs';
 
@@ -259,5 +268,100 @@ test(`${J} #5 an answer reads as text; another language shows it with a label na
     await setHelpCentre({ languages: found.languages }, `TEST ${J} #5 put the languages back`);
     if (answer) await unpublish(answer.id, answer.revision);
     await saveCategory({ ...category, retired: true, reason: `TEST ${J} #5 retire the run's topic` });
+  }
+});
+
+/**
+ * The run's own topic and one answer in it, narrowed to an audience. `cleanup` is set before anything is made, so a step
+ * that throws part-way still takes down what it made and retires the topic.
+ */
+async function narrowedAnswer(step, slug, audience, made) {
+  const category = { id: `j01-${RUN}-${slug}`, name: `TEST ${J} ${RUN} ${slug}`, position: 9003, reason: `TEST ${J} ${step}` };
+  const section = { id: `j01-${RUN}-${slug}1`, categoryId: category.id, name: `TEST ${slug} ${RUN}`, position: 0, reason: category.reason };
+  made.cleanup = async () => {
+    if (made.answer) await unpublish(made.answer.id, made.answer.revision);
+    await saveCategory({ ...category, retired: true, reason: `TEST ${J} ${step} retire the run's topic` });
+  };
+  await saveCategory(category);
+  await saveSection(section);
+  made.word = `j01${slug}${RUN}`;
+  made.answer = await publishText({
+    id: `j01-${RUN}-${slug}-answer`,
+    title: `TEST ${audience} answer ${made.word}`,
+    body: `TEST Only for ${audience}: ${made.word} body text.`,
+    language: 'en',
+    sectionId: section.id,
+    baseRevision: 0,
+  });
+  made.answer = await setAudience(made.answer.id, made.answer.revision, audience);
+  return made;
+}
+
+test(`${J} #6 a link to a signed-in-only answer asks the visitor to sign in and shows no body`, async ({ browser }) => {
+  const made = {};
+  let page = null;
+  try {
+    const { answer, word } = await narrowedAnswer('#6', 'si', 'signed_in', made);
+    page = await visitor(browser);
+    const who = await signUp(page, 'j01a');
+    await page.context().clearCookies();
+
+    await page.goto(`/helpdetail?id=${answer.id}`);
+    const main = page.locator('main');
+    const prompt = main.getByTestId('help-sign-in');
+    await expect(prompt).toBeVisible();
+    await expect(main.getByText(word)).toHaveCount(0);
+    await expect(main.locator('.help__body')).toHaveCount(0);
+
+    // Signed in, the same link reads the answer.
+    await prompt.getByRole('link').click();
+    await page.fill('input[name=identifier]', who.email);
+    await page.fill('input[name=password]', who.password);
+    await page.getByRole('button', { name: /^sign in$/i }).click();
+    // The prompt promised the address opens again after sign-in.
+    await expect(page).toHaveURL(new RegExp(`/helpdetail\\?id=${answer.id}$`));
+    await expect(main.getByRole('heading', { level: 1, name: answer.title })).toBeVisible();
+    await expect(main.locator('.help__body')).toContainText(`${word} body text.`);
+  } finally {
+    await page?.context().close();
+    await made.cleanup?.();
+  }
+});
+
+test(`${J} #7 a staff-only answer reads as an address that never existed, and is absent from the list and the search`, async ({
+  browser,
+}) => {
+  const made = {};
+  let page = null;
+  try {
+    const { answer, word } = await narrowedAnswer('#7', 'st', 'staff', made);
+    page = await visitor(browser);
+    const main = page.locator('main');
+    // Signed out and then signed in as a customer: the staff answer and an id that never existed read the same.
+    for (const signedIn of [false, true]) {
+      if (signedIn) await signUp(page, 'j01b');
+      const seen = [];
+      for (const id of [answer.id, `j01-${RUN}-never-existed`]) {
+        await page.goto(`/helpdetail?id=${id}`);
+        await expect(main.getByRole('heading', { level: 1, name: 'No answer found' })).toBeVisible();
+        await expect(main.getByText('Loading this answer')).toHaveCount(0);
+        await expect(main.getByText('Loading contact details')).toHaveCount(0);
+        seen.push((await main.innerText()).replaceAll(id, '<id>'), await main.getByTestId('help-sign-in').count());
+      }
+      expect(seen[0]).toBe(seen[2]);
+      expect(seen[1]).toBe(seen[3]);
+      expect(seen[0]).not.toContain(word);
+
+      await page.goto('/help');
+      await expect(main.getByText('Published answers', { exact: false }).first()).toBeVisible();
+      await expect(main.getByText(word)).toHaveCount(0);
+      await main.getByRole('textbox', { name: 'Search answers' }).fill(word);
+      await main.getByRole('button', { name: 'Search', exact: true }).click();
+      await expect(main.getByText('No matches')).toBeVisible();
+      await expect(main.locator('.help__row')).toHaveCount(0);
+    }
+  } finally {
+    await page?.context().close();
+    await made.cleanup?.();
   }
 });

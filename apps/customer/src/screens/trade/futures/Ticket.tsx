@@ -17,8 +17,6 @@ import {
   AlertDialogTitle,
   Button,
   Checkbox,
-  Collapsible,
-  CollapsibleTrigger,
   EmptyState,
   Field,
   Input,
@@ -47,6 +45,7 @@ import type { BalanceEntry } from '../../../data/derive';
 import type { Loadable } from '../../../data/types';
 import type { AdlDisclosure, FuturesListing, FuturesOrder, OrderTypeEntry, PositionPreview, TickerStrip } from './api';
 import { STALE_AFTER_MS, useFuturesApi, useFuturesRefresh, useOrderTypes } from './data';
+import { entryLegProblem, legSide } from './protection-logic';
 import { newNonce, useFuturesWriter, type Writer } from './hooks';
 import { allInCost, isStale, leveragePresets, openId, stateOf } from './model';
 import { futuresRefusal, isPlaneOff, type FuturesRefusal } from './refusals';
@@ -140,6 +139,10 @@ export function Ticket(props: TicketProps) {
   const [unit, setUnit] = useState<SizeUnit>('base');
   const [sizeRaw, setSizeRaw] = useState('');
   const [leverage, setLeverage] = useState('');
+  const [takeProfit, setTakeProfit] = useState('');
+  const [stopLoss, setStopLoss] = useState('');
+  // What the last open asked to be protected with, shown once it is placed.
+  const [protectedOpen, setProtectedOpen] = useState<{ takeProfit: string | null; stopLoss: string | null } | null>(null);
   const [nonce, setNonce] = useState(newNonce);
   const [review, setReview] = useState<Review>({ status: 'idle' });
   const [modeAsked, setModeAsked] = useState<string | null>(null);
@@ -193,6 +196,9 @@ export function Ticket(props: TicketProps) {
     }
     touch();
     setSizeRaw('');
+    setTakeProfit('');
+    setStopLoss('');
+    setProtectedOpen(null);
     setCap(null);
     setOffSeen(false);
     // Only a different contract resets the form; `touch` reads fresh state each call.
@@ -227,10 +233,17 @@ export function Ticket(props: TicketProps) {
       free,
     });
   const typeOff = !offered.includes(orderType) ? 'typeUnavailable' : orderType === 'limit' && limitPrice === null ? 'noLimitPrice' : null;
-  const openOff = gate(shown) ?? typeOff;
+  // A take profit or stop loss on the order: checked against the mark here, and again by the service.
+  const legProblems = {
+    take_profit: entryLegProblem(side, 'take_profit', takeProfit, markNow),
+    stop_loss: entryLegProblem(side, 'stop_loss', stopLoss, markNow),
+  };
+  const protecting = takeProfit.trim() !== '' || stopLoss.trim() !== '';
+  const protectOff = legProblems.take_profit !== null || legProblems.stop_loss !== null ? ('protectionProblem' as const) : null;
+  const openOff = gate(shown) ?? typeOff ?? protectOff;
   // Above the max-order the review names a split: it may be placed as those children when nothing else refuses.
   const splitShown = splitPreview(shown);
-  const splitOff = splitShown ? (gate(splitShown) ?? typeOff) : null;
+  const splitOff = splitShown ? (gate(splitShown) ?? typeOff ?? (protecting ? ('protectionSplit' as const) : null)) : null;
   const reviewOff =
     reviewBlock({ planeOff, signedOut, markKnown: markNow !== null, markStale, size, leverage: lev }) ??
     (orderType === 'limit' && limitPrice === null ? 'noLimitPrice' : null);
@@ -319,6 +332,8 @@ export function Ticket(props: TicketProps) {
           ...(askedPrice !== undefined ? { price: askedPrice } : {}),
           ...(confirm.split ? { split: true as const } : {}),
           ...(tier !== null ? { confirmTier: tier } : {}),
+          ...(!confirm.split && takeProfit.trim() !== '' ? { takeProfit: takeProfit.trim() } : {}),
+          ...(!confirm.split && stopLoss.trim() !== '' ? { stopLoss: stopLoss.trim() } : {}),
           clientOpenId: openId(nonce),
         },
       }),
@@ -332,6 +347,12 @@ export function Ticket(props: TicketProps) {
       setNonce(newNonce());
       setReview({ status: 'idle' });
       setConfirm(null);
+      const asked = outcome.order?.protection;
+      setProtectedOpen(asked ? { takeProfit: asked.takeProfit, stopLoss: asked.stopLoss } : null);
+      if (asked) {
+        setTakeProfit('');
+        setStopLoss('');
+      }
       onOpened(outcome.order ?? null);
     } else if (outcome.kind === 'refused' && isPlaneOff(outcome.refusal.code)) setOffSeen(true);
   }
@@ -450,7 +471,9 @@ export function Ticket(props: TicketProps) {
     return items;
   };
 
-  const offWords: Record<Exclude<OpenBlock | ReviewBlock | typeof typeOff, null>, string> = {
+  const offWords: Record<Exclude<OpenBlock | ReviewBlock | typeof typeOff | 'protectionProblem' | 'protectionSplit', null>, string> = {
+    protectionProblem: t('Off protection problem'),
+    protectionSplit: t('Off protection split'),
     typeUnavailable: catalogue.status === 'ready' ? t('Off type unavailable') : t('Off types loading'),
     noLimitPrice: t('Off no limit price'),
     planeOff: t('Off plane'),
@@ -726,14 +749,39 @@ export function Ticket(props: TicketProps) {
           {t('Reduce only off')}
         </p>
       </div>
-      <Collapsible disabled>
-        <CollapsibleTrigger aria-describedby="ticket-tpsl-why" className="w-full text-left text-sm text-fg-2">
+      <section aria-labelledby="ticket-tpsl" className="flex flex-col gap-2">
+        <h3 id="ticket-tpsl" className="text-sm text-fg-2">
           {t('Take profit stop loss')}
-        </CollapsibleTrigger>
-        <p id="ticket-tpsl-why" className={note}>
-          {t('Take profit off')}
-        </p>
-      </Collapsible>
+        </h3>
+        <p className={note}>{t('Entry protection hint')}</p>
+        {(['take_profit', 'stop_loss'] as const).map((leg) => {
+          const value = leg === 'take_profit' ? takeProfit : stopLoss;
+          const set = leg === 'take_profit' ? setTakeProfit : setStopLoss;
+          const problem = legProblems[leg];
+          return (
+            <Field
+              key={leg}
+              label={t(leg === 'take_profit' ? 'Entry take profit' : 'Entry stop loss', { quote: asset })}
+              hint={t(legSide(side, leg) === 'above' ? 'Entry side above' : 'Entry side below')}
+              error={problem ? t(`Entry problem ${problem}`) : undefined}
+            >
+              <Input
+                kind="decimal"
+                value={value}
+                precision={fractionDigits(market.precision.price) ?? 2}
+                trailing={asset}
+                onValueChange={(v) => {
+                  set(v);
+                  // Part of the order's request, so a changed one is sent under a new id. The review stays: it does
+                  // not price the protection, and a review still loading must land.
+                  setNonce(newNonce());
+                  if (writer.outcome && writer.outcome.kind !== 'uncertain') writer.dismiss();
+                }}
+              />
+            </Field>
+          );
+        })}
+      </section>
 
       <Button
         variant="secondary"
@@ -817,6 +865,14 @@ export function Ticket(props: TicketProps) {
       </Button>
       {openWhy !== null ? <p className={note}>{openWhy}</p> : null}
 
+      {protectedOpen ? (
+        <p role="status" className={note}>
+          {t('Entry protection placed', {
+            takeProfit: price(protectedOpen.takeProfit) ?? t('Entry protection none'),
+            stopLoss: price(protectedOpen.stopLoss) ?? t('Entry protection none'),
+          })}
+        </p>
+      ) : null}
       <Outcome
         writer={writer}
         onCheck={(p, resend) => void writer.check(p, { resend }).then(finish)}
@@ -866,6 +922,12 @@ export function Ticket(props: TicketProps) {
                   label: t('Order type'),
                   value: orderType === 'market' ? t('Type market') : t('Limit at', { price: price(limitPrice) ?? '—' }),
                 },
+                ...(!confirm.split && protecting
+                  ? [
+                      { label: t('Take profit row'), value: price(takeProfit.trim() || null) ?? t('Entry protection none') },
+                      { label: t('Stop loss row'), value: price(stopLoss.trim() || null) ?? t('Entry protection none') },
+                    ]
+                  : []),
                 ...costItems(confirm.data, null),
               ]}
             />

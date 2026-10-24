@@ -68,6 +68,8 @@ import type {
   AcademyPublishLessonInput,
   AcademyDuplicateItemInput,
   AcademyImportLessonInput,
+  AcademyAssistantDraftInput,
+  AcademyDecideDraftInput,
   AcademyUpdateCourseInput,
 } from '@intafaced/contracts';
 import { normaliseHolderName } from './certs/holder-name.js';
@@ -2201,6 +2203,15 @@ export class AcademyService {
 
   importLesson(input: AcademyImportLessonInput & { operatorId: string; now?: Date }) {
     return this.lessonRecords.import({ ...input, now: input.now ?? new Date() });
+  }
+
+  /** AC-course-structure-04: the authoring assistant's draft, and a person's accept or discard. */
+  assistantDraft(input: AcademyAssistantDraftInput & { operatorId: string; now?: Date }) {
+    return this.lessonRecords.assistantDraft({ ...input, now: input.now ?? new Date() });
+  }
+
+  decideDraft(input: AcademyDecideDraftInput & { operatorId: string; now?: Date }) {
+    return this.lessonRecords.decideDraft({ ...input, now: input.now ?? new Date() });
   }
 
   setFeatured(input: { itemSlug: string | null; reason: string; operatorId: string; now?: Date }) {

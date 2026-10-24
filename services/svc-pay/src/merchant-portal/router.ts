@@ -6,6 +6,7 @@ import {
   merchantAnalyticsFeesSchema,
   merchantAnalyticsInputSchema,
   merchantAnalyticsVolumeSchema,
+  merchantRoomAccessSchema,
   merchantBusinessProfileConfirmInputSchema,
   merchantBusinessProfileDecideResultSchema,
   merchantBusinessProfileReviewInputSchema,
@@ -36,6 +37,7 @@ import { listMyAccess } from './access.js';
 import { MerchantAnalyticsService } from './analytics.js';
 import { PortalError, wrapPortal } from './errors.js';
 import { readOnboardingProgress } from './onboarding.js';
+import { readRoomAccess } from './room-access.js';
 import { MerchantProfileService, type ProfileWriter } from './profile.js';
 import { ownMerchantRead } from '../own-merchant-read.js';
 
@@ -173,6 +175,22 @@ export function merchantPortalExtensions(deps: {
             const loaded = await profile.get(ctx.principal?.userId, input.merchantId);
             return readOnboardingProgress(deps.sql, deps.pay, deps.trees, deps.team, ctx.principal?.userId, loaded);
           }),
+        ),
+    }),
+    rooms: router({
+      access: read
+        .input(merchantPortalMerchantInputSchema)
+        .output(merchantRoomAccessSchema)
+        .query(({ ctx, input }) =>
+          wrapPortal(async () =>
+            readRoomAccess({
+              pay: deps.pay,
+              team: deps.team,
+              userId: ctx.principal?.userId,
+              interactive: ctx.principal ? isInteractivePrincipal(ctx.principal) : false,
+              merchantId: input.merchantId,
+            }),
+          ),
         ),
     }),
     // Not merged as its own `merchant` key: `createPayRouter` already owns that key and spreads this object.

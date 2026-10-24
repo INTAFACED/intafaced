@@ -92,8 +92,22 @@ export const ticketCopy = defineCopy('trade.futures.ticket', {
   'Reduce only off':
     'To reduce or close a position, use Close in the positions table: it sends a reduce-only order for the size you choose.',
   'Take profit stop loss': 'Take profit / Stop loss',
-  'Take profit off':
-    'Set them on the position once it is open: Positions, Manage, Take profit / stop loss. Each closes the whole position through the book when the mark price crosses it.',
+  'Entry protection hint':
+    'Optional. They arm on the position for what this order fills, and close that much through the book when the mark price crosses them. To protect the whole position, use Positions, Manage, Take profit / stop loss.',
+  'Entry take profit': 'Take profit ({quote})',
+  'Entry stop loss': 'Stop loss ({quote})',
+  'Entry side above': 'Above the mark price for this direction.',
+  'Entry side below': 'Below the mark price for this direction.',
+  'Entry problem invalid': 'Enter a price above zero.',
+  'Entry problem wrongSide': 'This price is on the wrong side of the mark for this direction, so it would fire at once.',
+  'Take profit row': 'Take profit',
+  'Stop loss row': 'Stop loss',
+  'Entry protection placed':
+    'Take profit {takeProfit} and stop loss {stopLoss} arm on what this order fills. Follow them on the Orders tab, under take-profit, stop-loss and stop orders.',
+  'Entry protection none': 'none',
+  'Off protection problem': 'Fix the take profit or stop loss first.',
+  'Off protection split':
+    'A take profit or stop loss attaches to one order. To split, clear them here and set them on the position once it is open.',
   Review: 'Review',
   Reviewing: 'Reviewing…',
   'Review to see cost': 'Review to see the all-in cost before you open.',
