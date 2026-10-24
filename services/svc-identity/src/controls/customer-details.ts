@@ -11,6 +11,7 @@ import {
   customerDetailsResultSchema,
   customerDetailsSchema,
   customerDetailsStateSchema,
+  holderNameCheckInputSchema,
   type Context,
   type CustomerDetailDecisionInput,
   type CustomerDetailKey,
@@ -19,6 +20,8 @@ import {
   type CustomerDetailsEditInput,
   type CustomerDetailsResult,
   type CustomerDetailsState,
+  type HolderNameCheck,
+  type HolderNameCheckInput,
 } from '@intafaced/contracts';
 import { decryptDocument, encryptDocument } from '../kyc/document-crypto.js';
 import { FounderControlError, type FounderControls, type UserRow } from './founder-controls.js';
@@ -56,6 +59,22 @@ const proposedSchema = customerDetailsSchema.pick({ legalName: true, dateOfBirth
 export const EMPTY_CUSTOMER_DETAILS: CustomerDetails = customerDetailsSchema.parse(
   Object.fromEntries(CUSTOMER_DETAIL_KEYS.map((key) => [key, null])),
 );
+
+/**
+ * A name as the own-name rule compares it: compatibility-decomposed with accents dropped, lower case, the separators
+ * `-`, `'`, `’`, `.` and `,` read as spaces, and runs of space collapsed. The words and their order still count, so
+ * "Anna-Lena Müller" matches "anna lena muller" and not "Müller Anna-Lena". Exact after this, never fuzzy: a looser
+ * tolerance is an owner decision the rule does not have yet.
+ */
+export function holderNameKey(name: string): string {
+  return name
+    .normalize('NFKD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .replace(/[-'’.,]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 export class CustomerDetailsDesk {
   constructor(
@@ -346,6 +365,25 @@ export class CustomerDetailsDesk {
         archived: founder.target.archived_at !== null,
       });
     });
+  }
+
+  /**
+   * The own-name rule (P-ads-merchant-18): is `name` this account's verified legal name? Only the outcome leaves identity.
+   * The legal name is verified because a change to it applies only when the other founder passes its compliance review.
+   * Null when identity has no such account. No row, or a row with no legal name, is `unverified`; an unset key is
+   * `unconfigured`; a row the key cannot open refuses `identity.details_unreadable`. Read-only: no founder, no row written.
+   */
+  async holderNameCheck(raw: HolderNameCheckInput): Promise<HolderNameCheck | null> {
+    const input = holderNameCheckInputSchema.parse(raw);
+    const userId = input.userId.toLowerCase();
+    const [user] = await this.sql<Array<{ id: string }>>`SELECT id FROM users WHERE id = ${userId}`;
+    if (!user) return null;
+    if (!this.key) return { userId, outcome: 'unconfigured' };
+    const [row] = await this.sql<Sealed[]>`SELECT ciphertext, nonce, key_id FROM customer_details WHERE user_id = ${userId}`;
+    const legalName = row ? this.unseal(row, customerDetailsSchema).legalName : null;
+    const verified = legalName === null ? '' : holderNameKey(legalName);
+    if (verified === '') return { userId, outcome: 'unverified' };
+    return { userId, outcome: holderNameKey(input.name) === verified ? 'match' : 'mismatch' };
   }
 
   /** The customer's reviews, newest first. */

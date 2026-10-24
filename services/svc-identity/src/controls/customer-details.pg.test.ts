@@ -205,4 +205,36 @@ if (!available) {
       expect(await desk.state(first, { userId: target })).toMatchObject({ version: '1', details: { city: 'Leeds' } });
     });
   });
+
+  describe('the own-name rule (P-ads-merchant-18, J-p2p-04 #2)', () => {
+    it('answers only the outcome: unverified until a legal name passes review, then match or mismatch after normalising', async () => {
+      expect(await desk.holderNameCheck({ userId: target, name: 'Anna-Lena Müller' })).toEqual({ userId: target, outcome: 'unverified' });
+      // An open review is not a verified name.
+      const opened = await desk.edit(first, edit({ legalName: 'Anna-Lena Müller' }));
+      expect(await desk.holderNameCheck({ userId: target, name: 'Anna-Lena Müller' })).toMatchObject({ outcome: 'unverified' });
+      await desk.decide(second, decision(opened.reviewId!, 'pass'));
+      for (const name of ['Anna-Lena Müller', 'anna lena muller', '  ANNA  LENA  MÜLLER ', 'Anna-Lena Mu\u0308ller']) {
+        expect(await desk.holderNameCheck({ userId: target, name })).toEqual({ userId: target, outcome: 'match' });
+      }
+      for (const name of ['Müller Anna-Lena', 'Anna Müller', 'Anna-Lena Müllerr']) {
+        expect(await desk.holderNameCheck({ userId: target, name })).toEqual({ userId: target, outcome: 'mismatch' });
+      }
+      // Open details alone are not a name: a customer with only a city is unverified too.
+      const other = id(await seed());
+      await desk.edit(first, { ...edit({ city: 'Leeds' }), userId: other });
+      expect(await desk.holderNameCheck({ userId: other, name: 'Leeds' })).toMatchObject({ outcome: 'unverified' });
+      expect(await desk.holderNameCheck({ userId: randomUUID(), name: 'Anna-Lena Müller' })).toBeNull();
+    });
+
+    it('is unconfigured without the key, and refuses a record the key cannot open', async () => {
+      const opened = await desk.edit(first, edit({ legalName: 'Ada Lovelace' }));
+      await desk.decide(second, decision(opened.reviewId!, 'pass'));
+      const keyless = new CustomerDetailsDesk(db.sql, controls, null);
+      expect(await keyless.holderNameCheck({ userId: target, name: 'Ada Lovelace' })).toEqual({ userId: target, outcome: 'unconfigured' });
+      const otherKey = new CustomerDetailsDesk(db.sql, controls, randomBytes(32));
+      await expect(otherKey.holderNameCheck({ userId: target, name: 'Ada Lovelace' })).rejects.toMatchObject({
+        code: 'identity.details_unreadable',
+      });
+    });
+  });
 }

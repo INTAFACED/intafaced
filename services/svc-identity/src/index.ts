@@ -137,6 +137,7 @@ import { SqlWaitlistStore } from './waitlist/waitlist-store.js';
 import { parseWaveSize, WaitlistService } from './waitlist/waitlist-service.js';
 import { registerAffiliateProducerAccrue } from './affiliates/producer-accrue.js';
 import { registerBusinessDirectoryRoutes, sqlBusinessDirectory } from './business-directory.js';
+import { registerHolderNameCheck } from './holder-name-check.js';
 import { registerAffiliateProducerPayout } from './affiliates/producer-payout.js';
 import { createNavigatorSessionStore } from './agents/navigator-session-store.js';
 import { registerNavigatorSessionRoutes } from './agents/navigator-session-routes.js';
@@ -788,6 +789,9 @@ registerBusinessDirectoryRoutes(app, {
   store: sqlBusinessDirectory(sql),
   installRawBody: false,
 });
+
+// The own-name rule for svc-p2p's payout destinations (P-ads-merchant-18): only the outcome leaves identity.
+registerHolderNameCheck(app, { internalSecret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s, details: customerDetails });
 
 registerClosureFinalize(app, { secret: env.INTERNAL_SERVICE_SECRET, s2s: doorS2s, closure });
 registerAffiliateProducerPayout(app, {
