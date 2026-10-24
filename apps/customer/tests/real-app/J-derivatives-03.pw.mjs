@@ -539,3 +539,101 @@ test(`${J} #7 a fired stop fails: the reason in words and what happened to the p
     'no open position after the close',
   );
 });
+
+test(`${J} #8 a reduce-only order with nothing open is refused; a linked take profit and stop loss: one fills, the other is cancelled`, async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  const me = await api(account());
+  // #7 closed everything on the contract.
+  expect((await me.get('/api/v1/positions')).body.filter((p) => p.symbol === SYMBOL && p.status === 'open')).toEqual([]);
+  await desk(page);
+  const ticket = page.getByRole('region', { name: 'Order ticket' });
+
+  // Reduce-only from the ticket: a sell only lowers a long, and there is none.
+  await ticket.getByRole('button', { name: 'Short', exact: true }).click();
+  await ticket.getByRole('switch', { name: 'Reduce-only' }).click();
+  await expect(ticket.getByText(/^On: a buy only lowers an open short and a sell only lowers an open long/)).toBeVisible();
+  await expect(ticket.getByRole('textbox', { name: 'Leverage' })).toBeDisabled();
+  await expect(ticket.getByRole('textbox', { name: /^Take profit/ })).toBeDisabled();
+  // The direction says what the order does once reduce-only is on.
+  await expect(ticket.getByRole('button', { name: 'Sell (lowers a long)', exact: true })).toBeVisible();
+  await ticket.getByRole('textbox', { name: 'Size' }).fill(SIZE);
+  await ticket.getByRole('button', { name: 'Sell, reduce only' }).click();
+  const confirm = page.getByRole('alertdialog', { name: `Reduce-only sell on ${SYMBOL}` });
+  await expect(confirm).toContainText('It can only lower your open long, by at most this size.');
+  const sent = page.waitForResponse((r) => r.url().endsWith('/futures/orders') && r.request().method() === 'POST');
+  await confirm.getByRole('button', { name: 'Confirm reduce-only sell' }).click();
+  const answer = await sent;
+  const request = answer.request().postDataJSON();
+  expect(request).toMatchObject({ side: 'sell', amount: SIZE, reduceOnly: true });
+  expect(request.leverage).toBeUndefined();
+  expect(request.clientOrderId).toMatch(/^reduce:/);
+  expect((await answer.json()).error).toBe('trade.futures_reduce_only_no_position');
+  await expect(ticket.getByText('No open position to reduce')).toBeVisible();
+  await expect(ticket.getByText('trade.futures_reduce_only_no_position')).toBeVisible();
+  // Nothing was placed and nothing opened.
+  const { body } = await me.get('/api/v1/futures/orders?scope=all&limit=50');
+  expect((body.orders ?? body).filter((o) => o.clientOrderId === request.clientOrderId && o.status !== 'refused')).toEqual([]);
+  expect((await me.get('/api/v1/positions')).body.filter((p) => p.symbol === SYMBOL && p.status === 'open')).toEqual([]);
+  await ticket.getByRole('switch', { name: 'Reduce-only' }).click();
+
+  // A linked pair: a take profit and a stop loss each on half of a new long, 3 bps either side of the mark.
+  const position = await openPosition(me);
+  const half = fromUnits(toUnits(position.contracts) / 2n);
+  await page.reload();
+  const dialog = await protection(page);
+  for (let attempt = 0; ; attempt += 1) {
+    const now = await markOf(me);
+    await dialog.getByLabel(/Take-profit trigger/).fill(fromUnits(now + (now * 3n) / 10_000n + 10n ** 18n).split('.')[0]);
+    await dialog.getByLabel(/Stop-loss trigger/).fill(fromUnits(now - (now * 3n) / 10_000n - 10n ** 18n).split('.')[0]);
+    await dialog.getByLabel('Take-profit size (optional)').fill(half);
+    await dialog.getByLabel('Stop-loss size (optional)').fill(half);
+    const saved = page.waitForResponse((r) => r.url().includes(`/positions/${position.id}/protection`) && r.request().method() === 'PUT');
+    await dialog.getByRole('button', { name: 'Save' }).click();
+    const reply = await saved;
+    if (reply.status() === 200) break;
+    expect((await reply.json()).error).toBe('trade.protection_wrong_side');
+    expect(attempt).toBeLessThan(4);
+  }
+  const pair = (await legs(me, position.id)).filter((o) => o.status === 'armed');
+  expect(pair.map((o) => [o.attachment, o.quantity, o.wholePosition]).sort()).toEqual([
+    ['stop_loss', half, false],
+    ['take_profit', half, false],
+  ]);
+
+  // The walk crosses one: it fills its half, and its partner is cancelled as linked. The other half stays open.
+  await dialog.getByRole('button', { name: 'Close dialog' }).first().click();
+  await page.getByRole('tab', { name: 'Orders' }).click();
+  const rows = page.getByRole('region', { name: 'Take-profit, stop-loss and stop orders' }).getByRole('row');
+  const linked = 'Its linked take profit or stop loss filled, so this one was cancelled.';
+  await expect(rows.filter({ hasText: linked })).toHaveCount(1, { timeout: 180_000 });
+  await expect(rows.filter({ hasText: `Fired for ${half}; ${half} closed so far` })).toHaveCount(1);
+  const done = (await legs(me, position.id)).filter((o) => pair.some((p) => p.id === o.id));
+  const fired = done.find((o) => o.status === 'filled');
+  expect(fired).toMatchObject({ closedQuantity: half });
+  expect(done.find((o) => o.id !== fired.id)).toMatchObject({ status: 'cancelled', cancelReason: 'linked' });
+  const left = await until(
+    async () => (await me.get('/api/v1/positions')).body.find((p) => p.id === position.id),
+    (p) => p?.contracts === half,
+    'the half left open',
+  );
+  expect(left).toMatchObject({ status: 'open' });
+
+  // Back to nothing open for the next step.
+  const close = await me.post('/api/v1/futures/orders', {
+    symbol: SYMBOL,
+    side: 'sell',
+    type: 'market',
+    amount: half,
+    reduceOnly: true,
+    marginMode: 'isolated',
+    clientOrderId: `${J}-close-8-${Date.now()}`,
+  });
+  expect(close.status, JSON.stringify(close.body)).toBeLessThan(300);
+  await until(
+    async () => (await me.get('/api/v1/positions')).body.filter((p) => p.id === position.id && p.status === 'open'),
+    (open) => open.length === 0,
+    'no open position after the close',
+  );
+});

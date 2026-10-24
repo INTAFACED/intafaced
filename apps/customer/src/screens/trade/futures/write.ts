@@ -19,6 +19,7 @@ import type {
   FuturesSplit,
   OpenInput,
   PlaceOrderInput,
+  ReduceInput,
   Protection,
   ProtectionInput,
   StopInput,
@@ -27,6 +28,8 @@ import { futuresRefusal, type FuturesRefusal } from './refusals';
 
 export type Intent =
   | { op: 'open'; input: OpenInput }
+  /** A reduce-only order from the ticket: it can only lower an open position on the other side, and is refused with none. */
+  | { op: 'reduce'; input: ReduceInput }
   | { op: 'close'; positionId: string; symbol: string; side: 'long' | 'short'; size: string; clientCloseId: string }
   | { op: 'leverage'; input: { symbol: string; positionId: string; leverage: string; clientAdjustmentId: string } }
   | { op: 'margin-add'; input: { symbol: string; positionId: string; amount: string; clientAdjustmentId: string } }
@@ -46,6 +49,8 @@ export function intentId(intent: Intent): string {
   switch (intent.op) {
     case 'open':
       return intent.input.clientOpenId;
+    case 'reduce':
+      return intent.input.clientOrderId;
     case 'close':
       return `close:${intent.positionId}`;
     case 'protection':
@@ -120,6 +125,20 @@ function openOrder(input: OpenInput): PlaceOrderInput {
   };
 }
 
+/** A reduce-only order: it keeps the position's own leverage and carries no take profit or stop loss. */
+function reduceOrder(input: ReduceInput): PlaceOrderInput {
+  return {
+    symbol: input.symbol,
+    side: input.side,
+    type: input.type,
+    amount: input.size,
+    ...(input.type === 'limit' && input.price ? { price: input.price } : {}),
+    ...(input.type === 'limit' && input.priceCorrection ? { priceCorrection: input.priceCorrection } : {}),
+    reduceOnly: true,
+    clientOrderId: input.clientOrderId,
+  };
+}
+
 /** A split open: every child the book took. Nothing filled and nothing rests in any of them is the first child's refusal. */
 async function sendSplit(api: FuturesApi, input: OpenInput): Promise<ApiResult<WriteResult>> {
   const placed = await api.placeSplit(openOrder(input));
@@ -130,23 +149,26 @@ async function sendSplit(api: FuturesApi, input: OpenInput): Promise<ApiResult<W
   return { ok: true, data: { order: orders[0], orders, ...(stopped ? { stopped } : {}) } };
 }
 
-async function sendOrder(api: FuturesApi, intent: Extract<Intent, { op: 'open' | 'close' }>): Promise<ApiResult<WriteResult>> {
+async function sendOrder(api: FuturesApi, intent: Extract<Intent, { op: 'open' | 'reduce' | 'close' }>): Promise<ApiResult<WriteResult>> {
   if (intent.op === 'open' && intent.input.split) return sendSplit(api, intent.input);
   const placed =
     intent.op === 'open'
       ? await api.placeOrder(openOrder(intent.input))
-      : await api.placeOrder({
-          symbol: intent.symbol,
-          side: intent.side === 'long' ? 'sell' : 'buy',
-          type: 'market',
-          amount: intent.size,
-          reduceOnly: true,
-          clientOrderId: intent.clientCloseId,
-        });
+      : intent.op === 'reduce'
+        ? await api.placeOrder(reduceOrder(intent.input))
+        : await api.placeOrder(
+            reduceOrder({
+              symbol: intent.symbol,
+              side: intent.side === 'long' ? 'sell' : 'buy',
+              size: intent.size,
+              type: 'market',
+              clientOrderId: intent.clientCloseId,
+            }),
+          );
   if (!placed.ok) return placed;
   const none = nothingDone(placed.data);
   if (none) return none;
-  if (intent.op === 'open') return { ok: true, data: { order: placed.data } };
+  if (intent.op !== 'close') return { ok: true, data: { order: placed.data } };
   // A close answers with the position as it now stands (smaller, or closed). The order is the record if that read fails.
   const after = await api.position(intent.positionId);
   return { ok: true, data: after.ok ? { order: placed.data, position: after.data } : { order: placed.data } };
@@ -166,7 +188,10 @@ export interface WriteResult {
   trigger?: ConditionalOrder;
 }
 
-async function sendAdjustment(api: FuturesApi, intent: Exclude<Intent, { op: 'open' | 'close' }>): Promise<ApiResult<WriteResult>> {
+async function sendAdjustment(
+  api: FuturesApi,
+  intent: Exclude<Intent, { op: 'open' | 'reduce' | 'close' }>,
+): Promise<ApiResult<WriteResult>> {
   if (intent.op === 'protection') {
     const set = await api.setProtection(intent.input);
     return set.ok ? { ok: true, data: { protection: set.data } } : set;
@@ -184,12 +209,12 @@ async function sendAdjustment(api: FuturesApi, intent: Exclude<Intent, { op: 'op
 }
 
 export function send(api: FuturesApi, intent: Intent): Promise<ApiResult<WriteResult>> {
-  return intent.op === 'open' || intent.op === 'close' ? sendOrder(api, intent) : sendAdjustment(api, intent);
+  return intent.op === 'open' || intent.op === 'reduce' || intent.op === 'close' ? sendOrder(api, intent) : sendAdjustment(api, intent);
 }
 
 function sendPosition(
   api: FuturesApi,
-  intent: Exclude<Intent, { op: 'open' | 'close' | 'protection' | 'cancel-trigger' | 'place-trigger' }>,
+  intent: Exclude<Intent, { op: 'open' | 'reduce' | 'close' | 'protection' | 'cancel-trigger' | 'place-trigger' }>,
 ): Promise<ApiResult<Position>> {
   switch (intent.op) {
     case 'leverage':
@@ -324,8 +349,8 @@ export async function checkPending(
     const total = found.reduce((sum, order) => sum + (dec(order.qty) ?? 0n), 0n);
     if (total === dec(intent.input.size)) return settle(userId, pending.id, { kind: 'done', order: found[0], orders: found });
     return { kind: 'uncertain', id: pending.id, notFound: true, found };
-  } else if (intent.op === 'open' && !options.resend) {
-    const order = await lookupOrder(api, intent.input.clientOpenId);
+  } else if ((intent.op === 'open' || intent.op === 'reduce') && !options.resend) {
+    const order = await lookupOrder(api, intentId(intent));
     if (order === undefined) return { kind: 'uncertain', id: pending.id };
     if (order === null) return { kind: 'uncertain', id: pending.id, notFound: true };
     const none = nothingDone(order);

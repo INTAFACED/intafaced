@@ -2,7 +2,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Position } from '@intafaced/exchange-contract/schemas';
 import type { ApiResult } from '../../../shared/api';
 import { pendingKey, readPending, type Pending } from '../buy/write-lock';
-import type { ConditionalOrder, FuturesApi, FuturesOrder, FuturesSplit, OpenInput, PlaceOrderInput, Protection, StopInput } from './api';
+import type {
+  ConditionalOrder,
+  FuturesApi,
+  FuturesOrder,
+  FuturesSplit,
+  OpenInput,
+  PlaceOrderInput,
+  Protection,
+  ReduceInput,
+  StopInput,
+} from './api';
 import { checkPending, intentId, loadIntent, runIntent, type Intent } from './write';
 
 function memoryStorage() {
@@ -194,6 +204,63 @@ describe('runIntent: orders through the book', () => {
       clientOrderId: 'close-intent-1',
     });
     expect(api.position).toHaveBeenCalledWith('pos-1');
+  });
+});
+
+describe('a reduce-only order from the ticket (J-derivatives-03 #8)', () => {
+  const reduceInput: ReduceInput = { symbol: 'BTC/USDT:USDT', side: 'sell', size: '0.5', type: 'market', clientOrderId: 'open-red' };
+  const reduceIntent: Intent = { op: 'reduce', input: reduceInput };
+
+  it('is one reduce-only order keyed by its own id, with no leverage, tier or take profit', async () => {
+    const { api, typed } = fakeApi();
+    api.placeOrder.mockResolvedValue(ok(order({ side: 'sell', reduceOnly: true })));
+    expect(await runIntent(typed, USER, reduceIntent)).toMatchObject({ kind: 'done', order: { reduceOnly: true } });
+    expect(api.placeOrder.mock.calls[0]![0]).toEqual({
+      symbol: 'BTC/USDT:USDT',
+      side: 'sell',
+      type: 'market',
+      amount: '0.5',
+      reduceOnly: true,
+      clientOrderId: 'open-red',
+    });
+    expect(api.position).not.toHaveBeenCalled();
+    expect(intentId(reduceIntent)).toBe('open-red');
+  });
+
+  it('a limit carries its price and correction', async () => {
+    const { api, typed } = fakeApi();
+    api.placeOrder.mockResolvedValue(ok(order({ status: 'open', filledQty: '0', reduceOnly: true })));
+    await runIntent(typed, USER, {
+      op: 'reduce',
+      input: { ...reduceInput, side: 'buy', type: 'limit', price: '99', priceCorrection: 'adjust' },
+    });
+    expect(api.placeOrder.mock.calls[0]![0]).toMatchObject({
+      side: 'buy',
+      type: 'limit',
+      price: '99',
+      priceCorrection: 'adjust',
+      reduceOnly: true,
+    });
+  });
+
+  it('with nothing open on the other side it is refused by name, and the note is cleared', async () => {
+    const { api, typed } = fakeApi();
+    api.placeOrder.mockResolvedValue(failure('rejected', 'trade.futures_reduce_only_no_position', 409));
+    const outcome = await runIntent(typed, USER, reduceIntent);
+    expect(outcome).toMatchObject({
+      kind: 'refused',
+      refusal: { code: 'trade.futures_reduce_only_no_position', title: 'No open position to reduce' },
+    });
+    expect(readPending(USER)).toEqual({ state: 'none' });
+  });
+
+  it('an unknown answer is looked up by its id and nothing is sent again', async () => {
+    const { api, typed } = fakeApi();
+    api.placeOrder.mockResolvedValue(failure('uncertain', undefined, 504));
+    await runIntent(typed, USER, reduceIntent);
+    api.orders.mockResolvedValue(ok([order({ orderId: 'ord-7', clientOrderId: 'open-red', reduceOnly: true })]));
+    expect(await checkPending(typed, USER, pendingFor('open-red'))).toMatchObject({ kind: 'done', order: { orderId: 'ord-7' } });
+    expect(api.placeOrder).toHaveBeenCalledTimes(1);
   });
 });
 

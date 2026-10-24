@@ -348,6 +348,17 @@ export interface OpenInput {
   clientOpenId: string;
 }
 
+/** A reduce-only order from the ticket. A sell lowers a long and a buy lowers a short; with none open it is refused. */
+export interface ReduceInput {
+  symbol: string;
+  side: 'buy' | 'sell';
+  size: string;
+  type: 'market' | 'limit';
+  price?: string;
+  priceCorrection?: 'adjust';
+  clientOrderId: string;
+}
+
 export interface PlaceOrderInput {
   symbol: string;
   side: 'buy' | 'sell';
