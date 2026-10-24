@@ -73,6 +73,11 @@ export const p2pLimitSchema = z.object({
   openTradeIds: z.array(z.string().guid()).max(50).optional(),
   reason: z.enum(P2P_DELIST_REASONS).optional(),
   ruleClass: z.string().regex(P2P_RULE_CLASS).optional(),
+  /** The field a refused payment-method detail is about (`p2p.account_format_invalid`, field missing or invalid). */
+  field: z
+    .string()
+    .regex(/^[a-z][a-z0-9_]{0,39}$/)
+    .optional(),
 });
 export type P2pLimit = z.infer<typeof p2pLimitSchema>;
 export type RequestOptions = {

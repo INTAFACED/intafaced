@@ -1377,10 +1377,19 @@ export const TEST_P2P_METHODS = [
     country: 'DE',
     label: 'TEST bank transfer',
     fields: [
-      // In the order svc-p2p normalises a field to (key, label, required, pattern, minLength, maxLength, sensitive):
+      // In the order svc-p2p normalises a field to (key, label, required, pattern, minLength, maxLength, sensitive, help,
+      // holderName):
       // the approval hash covers the normalised fields, so any other order is a different action.
-      { key: 'account_holder', label: 'Account holder', required: true, minLength: 2, maxLength: 120 },
-      { key: 'iban', label: 'IBAN', required: true, pattern: '^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$', sensitive: true },
+      // The holder is the person's own verified legal name (P-ads-merchant-18); the IBAN's hint shows on a format refusal.
+      { key: 'account_holder', label: 'Account holder', required: true, minLength: 2, maxLength: 120, holderName: true },
+      {
+        key: 'iban',
+        label: 'IBAN',
+        required: true,
+        pattern: '^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$',
+        sensitive: true,
+        help: 'Two capital letters, two digits, then 11 to 30 capital letters or digits, with no spaces',
+      },
     ],
   },
 ];
@@ -1414,7 +1423,9 @@ export async function publishP2pMethods(ctx) {
     const listed = data(read);
     if (!Array.isArray(listed) && !read.text.includes('p2p.instrument_method_unknown'))
       throw new Error(`p2p instruments.methods.list for ${method.methodId} refused (${read.status}): ${refusalText(read)}`);
-    if (listed?.length > 0) {
+    // Registered with these very fields: nothing to do. Registered with older ones (a stack from before the TEST method
+    // gained its holder-name field and format hint): register again, which replaces the fields and keeps the rest.
+    if (listed?.length > 0 && JSON.stringify(listed[0].fields) === JSON.stringify(method.fields)) {
       out.push({ methodId: method.methodId, country: method.country, changed: false });
       continue;
     }

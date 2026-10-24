@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { test, expect } from '@playwright/test';
 import { api, fund, fromUnits, journeyState, tool, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
-import { p2p, readyTaker, testPasskey } from './p2p.mjs';
+import { p2p, readyTaker, testPasskey, verifiedName } from './p2p.mjs';
 
 // J-p2p-18, in the running app (docs/roadmap/journeys.json): I export my P2P order history and keep a receipt. One test
 // per step, titled "J-p2p-18 #<n>", run in order on one verified TEST account. The journey starts "signed in with a few
@@ -58,7 +58,7 @@ test('J-p2p-18 #1 the order list counts every order exactly, pages back to the o
     country: 'DE',
     fiatCurrency: 'EUR',
     label: 'TEST account',
-    details: { account_holder: seller.handle, iban: 'DE89370400440532013000' },
+    details: { account_holder: await verifiedName(sellerSession, seller), iban: 'DE89370400440532013000' },
   });
   const offer = await s.mutate('offers.create', {
     side: 'sell',
