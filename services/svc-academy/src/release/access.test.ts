@@ -7,6 +7,7 @@ import {
   findPrerequisiteCycle,
   normalizePrerequisites,
   refuseRelease,
+  releaseOpensAt,
   requireExtensionReason,
 } from './access.js';
 
@@ -118,5 +119,35 @@ describe('item release rules', () => {
       now: from,
     });
     expect(done).toMatchObject({ state: 'completed', lock: null, missing: [] });
+  });
+
+  it('holds an open item until its course starts, keeps a completed or more specifically locked one, and opens at the later date', () => {
+    const start = new Date('2026-10-30T09:00:00.000Z');
+    const before = new Date('2026-10-29T09:00:00.000Z');
+    const base = { completed: false, started: false, missing: [], window: null, extensionUntil: null, now: before };
+    expect(decideRelease({ ...base, courseStartsAt: start })).toEqual({ state: 'locked', missing: [], lock: 'window' });
+    expect(decideRelease({ ...base, courseStartsAt: start, missing: ['a'] })).toMatchObject({ lock: 'prerequisite', missing: ['a'] });
+    expect(decideRelease({ ...base, courseStartsAt: start, completed: true }).state).toBe('completed');
+    expect(decideRelease({ ...base, courseStartsAt: start, now: start }).lock).toBeNull();
+    expect(decideRelease({ ...base, courseStartsAt: null }).lock).toBeNull();
+
+    const opens = (window: { availableFrom: Date; availableUntil: Date; dueAt: Date | null } | null) =>
+      releaseOpensAt({ window, extensionUntil: null, courseStartsAt: start, now: before });
+    expect(opens(null)).toEqual(start);
+    const later = new Date('2026-11-05T00:00:00.000Z');
+    expect(opens({ availableFrom: later, availableUntil: new Date('2026-12-01T00:00:00.000Z'), dueAt: null })).toEqual(later);
+    // A window that has already closed keeps its own (past) start: no opening is promised.
+    const closed = { availableFrom: from, availableUntil: until, dueAt: null };
+    expect(opens(closed)).toEqual(from);
+    expect(releaseOpensAt({ window: closed, extensionUntil: null, courseStartsAt: null, now: before })).toEqual(from);
+    // A window that ends before the course starts never opens, so it gets no date; an extension past the start gives it one.
+    const short = {
+      availableFrom: new Date('2026-10-29T12:00:00.000Z'),
+      availableUntil: new Date('2026-10-30T00:00:00.000Z'),
+      dueAt: null,
+    };
+    expect(opens(short)).toBeNull();
+    const extended = new Date('2026-11-02T00:00:00.000Z');
+    expect(releaseOpensAt({ window: short, extensionUntil: extended, courseStartsAt: start, now: before })).toEqual(start);
   });
 });

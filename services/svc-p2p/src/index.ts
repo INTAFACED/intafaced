@@ -26,6 +26,7 @@ import type { MerchantStatus } from './merchant-programme.js';
 import { programmeVouch, reputationOnPublicDoor } from './merchant-programme.js';
 import { MerchantService } from './merchant-service.js';
 import { createIdentityApprovalClient, unwiredApprovalConsumer } from './action-approval-consume.js';
+import { createTakeStepUp } from './take-step-up.js';
 import { OpsReads } from './ops/ops-reads.js';
 import { createP2pRouter, type P2pRouter } from './router.js';
 import { BlockRfqService } from './block-rfq.js';
@@ -37,7 +38,15 @@ import { assertNoLocalTestFixtures } from '@intafaced/config';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 import { instrumentKeyHealth } from './instrument-key-provider.js';
 import { parseVerificationLimits } from './verification-limits.js';
+import { parseActiveOrderCap, parseBuyerCancelLimit, parsePairLimits } from './take-limits.js';
 import { createLocalTestKeyProvider } from './local-test-kms.js';
+import {
+  createIdentityContactReader,
+  createTakeGate,
+  RiskAcceptances,
+  riskNoticeVersion,
+  unwiredContactReader,
+} from './take-eligibility.js';
 
 // §9 — register the TracerProvider before the first span is created.
 // `@opentelemetry/api` alone is a no-op: without this call every span in
@@ -156,6 +165,11 @@ const p2p: P2pService = new P2pService(sql, ledger, bus, {
   affiliatePayout: env.IDENTITY_URL ? createAffiliatePayoutClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, s2sKey) : undefined,
   verificationLimits: parseVerificationLimits(env.P2P_VERIFICATION_LIMITS),
   securityChangeLockSeconds: env.P2P_SECURITY_CHANGE_LOCK_SECONDS,
+  takeLimits: {
+    activeOrderCap: parseActiveOrderCap(env.P2P_ACTIVE_ORDER_CAP),
+    pairLimits: parsePairLimits(env.P2P_PAIR_LIMITS),
+    buyerCancels: parseBuyerCancelLimit(env.P2P_BUYER_CANCEL_LIMIT, env.P2P_BUYER_CANCEL_WINDOW_HOURS),
+  },
   deadlines: {
     escrowSeconds: publishedEscrowDeadlineSeconds(env.P2P_ESCROW_DEADLINE_SECONDS),
     paymentSeconds: publishedPaymentDeadlineSeconds(env.P2P_PAYMENT_DEADLINE_SECONDS),
@@ -188,9 +202,21 @@ const blockRfq = new BlockRfqService(new SqlBlockQuoteStore(sql), {
   isTradingEnabled: () => p2p.isTradingEnabled(),
 });
 
+// P-trade-orders-02 / P-disputes-security-08: contact is read from identity as the person of the request;
+// the risk notice acceptance is held here. Without IDENTITY_URL contact is unknown and every take refuses.
+const takeGate = createTakeGate({
+  contact: env.IDENTITY_URL ? createIdentityContactReader({ identityUrl: env.IDENTITY_URL }) : unwiredContactReader(),
+  acceptances: new RiskAcceptances(sql),
+  riskVersion: riskNoticeVersion(env.P2P_RISK_NOTICE_VERSION),
+});
+
 const actionApprovals = env.IDENTITY_URL
   ? createIdentityApprovalClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET)
   : unwiredApprovalConsumer();
+
+// P-trade-orders-07: a take is confirmed with identity's single-use same-person approval; without IDENTITY_URL
+// no confirmation can be spent and every take refuses.
+const takeStepUp = createTakeStepUp({ sql, approvals: actionApprovals });
 
 export const appRouter = createP2pRouter(
   p2p,
@@ -204,6 +230,8 @@ export const appRouter = createP2pRouter(
     instrumentKeyProvider: instrumentKey.instrumentKeyProvider,
     opsReads: new OpsReads(sql),
     disputeResolveRequiresApproval: env.P2P_DISPUTE_RESOLVE_REQUIRES_APPROVAL,
+    takeGate,
+    takeStepUp,
   },
   merchants,
 );

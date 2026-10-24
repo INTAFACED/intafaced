@@ -163,6 +163,9 @@ export function Actions({ actions, snapshot, t }: { actions: readonly ProtocolAc
         {actions.map((action) => {
           const found = blockersFor(action, snapshot);
           const first = found[0] as Blocker;
+          // Two checks can wait on the same source and read the same sentence (venue and finality both need the indexer):
+          // the list says each sentence once.
+          const listed = [...new Map(found.map((entry) => [capital(t(entry.key, entry.params)), entry.code] as const)).entries()];
           const reason = t(first.key, first.params);
           // On its own (button title) the sentence starts a capital; after "Blocked:" it reads on from the colon.
           const standalone = capital(reason);
@@ -181,12 +184,14 @@ export function Actions({ actions, snapshot, t }: { actions: readonly ProtocolAc
                   {t('blockedBy', { reason })}
                 </p>
               )}
-              {found.length > 1 && (
+              {listed.length > 1 && (
                 <details>
                   <summary>{t('allBlockers')}</summary>
                   <ol>
-                    {found.map((entry) => (
-                      <li key={`${entry.code}:${entry.params.source ?? ''}`}>{capital(t(entry.key, entry.params))}</li>
+                    {listed.map(([sentence, code]) => (
+                      <li key={sentence} data-blocker={code}>
+                        {sentence}
+                      </li>
                     ))}
                   </ol>
                 </details>
@@ -516,7 +521,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
     body = (
       <>
         {venuePanel}
-        <SupportedNetworksPanel t={t} />
+        <SupportedNetworksPanel t={t} chain={chainRef} />
       </>
     );
   else if (slug === 'protocol' && tab === 'overview')

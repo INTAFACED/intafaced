@@ -39,6 +39,11 @@ export const helpArticle = z
     published: z.boolean().optional(),
     version: generation.optional(),
     revision: generation.optional(),
+    /** Text typed in the desk (SP-kb-01), shown as text. A catalogue-keyed answer has none. */
+    title: z.string().min(1).optional(),
+    body: z.string().min(1).optional(),
+    language: z.string().min(2).optional(),
+    sectionId: z.string().min(1).optional(),
   })
   .refine((article) => article.published !== false);
 export type HelpArticle = z.infer<typeof helpArticle>;

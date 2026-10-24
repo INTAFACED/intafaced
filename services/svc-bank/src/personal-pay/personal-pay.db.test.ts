@@ -2,7 +2,7 @@
  * Bill pay and global send. Acceptance tests enter through the router.
  * TEST_DATABASE_URL only. This file does not start Docker.
  */
-import { randomUUID } from 'node:crypto';
+import { createHash, createHmac, hkdfSync, randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,13 +16,16 @@ import {
   type ActionApproval,
   type ActionApprovalConsumeInput,
 } from '@intafaced/contracts';
-import { MemoryLedger, parseAmount, recipes, userAvailable } from '@intafaced/ledger-client';
+import { MemoryLedger, parseAmount, railBoundary, recipes, userAvailable } from '@intafaced/ledger-client';
 import { ActionApprovalConsumeError, bankActionPayloadHash } from '../action-approval-consume.js';
 import { memoryLedgerHistory } from '../analytics/ledger-history.js';
 import { createBankServices, memoryRecipientState, type BankServices } from '../bank-service.js';
 import { createBankRouter } from '../router.js';
 import { createStepUpGate } from '../step-up/step-up-gate.js';
 import type { BillPorts, GlobalPorts } from './ports.js';
+import { GLOBAL_SIM_RAIL, globalSimPorts, parseGlobalSim } from './global-sim.js';
+import { SCREENING_OPERATOR } from './holds.js';
+import { reverseFromRail } from './post.js';
 import { billPayStepUp } from './step-up-fields.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -231,6 +234,9 @@ describe('personal bill pay and global send', () => {
       payeeControls?: string | null;
       exchangeAllowance?: string | null;
       proofLimits?: string;
+      holdCancelHours?: string;
+      receiptSecret?: string;
+      refundFee?: string;
     } = {},
   ) {
     const ledger = new MemoryLedger();
@@ -243,6 +249,9 @@ describe('personal bill pay and global send', () => {
       payeeControls: options.payeeControls === null ? undefined : (options.payeeControls ?? PAYEE_OK),
       exchangeAllowance: options.exchangeAllowance === null ? undefined : (options.exchangeAllowance ?? ALLOWANCE_NONE),
       proofLimits: options.proofLimits,
+      holdCancelHours: options.holdCancelHours ?? '',
+      receiptSecret: options.receiptSecret,
+      refundFee: options.refundFee,
     });
     return { ledger, bank };
   }
@@ -786,6 +795,7 @@ describe('personal bill pay and global send', () => {
       infoRequest: 'Please send your payslip.',
       proofUploaded: false,
       proofLimits: { allowedTypes: ['application/pdf'], maxBytes: 64 },
+      autoCancel: { state: 'unset', hours: null, at: null },
     });
     expect(JSON.stringify(mine)).not.toMatch(/screening|heldBy|reason/);
     await expect(caller(await seededOther(), OTHER, write).global.hold.get({ id })).rejects.toBeTruthy();
@@ -927,6 +937,116 @@ describe('personal bill pay and global send', () => {
     expect(released).toMatchObject({ status: 'sent', providerRef: 'payout-9' });
     expect(submits).toBe(1);
     expect(transfers(ledger)).toHaveLength(1);
+  });
+
+  it('a send held and cancelled while its forward entry posts is turned back once, by a later read when the first reversal fails', async () => {
+    const { ledger, bank } = mount({ sendFieldRules: RULES, global: liveGlobal() });
+    const space = await funded(bank, ledger);
+    const me = caller(bank, USER, write);
+    const ops = caller(bank, OP_A, compliance);
+    const saved = await me.global.recipients.add({ idempotencyKey: 'recip-race-02', name: 'Ada', account: '123456789', country: 'DE' });
+    const post = ledger.post.bind(ledger);
+    let calls = 0;
+    ledger.post = (async (...args: Parameters<typeof post>) => {
+      calls += 1;
+      // Both reversals tried at once (by the cancel's own read, then by the send) fail, as if the ledger were briefly away.
+      if (calls === 2 || calls === 3) throw new Error('ledger away');
+      const result = await post(...args);
+      if (calls === 1) {
+        const rows = await sql<{ id: string }[]>`SELECT id FROM bank.global_sends`;
+        await ops.global.ops.hold({ sendId: rows[0]!.id, holdKey: 'hold-race-02', reason: 'late screening' });
+        expect(await me.global.cancel({ id: rows[0]!.id })).toMatchObject({ status: 'cancelled', ledgerTxId: null });
+      }
+      return result;
+    }) as typeof ledger.post;
+    const body = { ...sendBody, idempotencyKey: 'send-race-02', amount: '10', fromSpaceId: space.id, recipientId: saved.id };
+    await expect(me.global.send(body)).rejects.toMatchObject({ cause: { code: 'bank.global_outcome_unknown' } });
+    expect(transfers(ledger)).toHaveLength(1);
+    expect((await ledger.balance(userAvailable(USER, 'USDT'))).amount).toBe(parseAmount('90'));
+    // The next read finds the forward entry by its key and turns it back; later reads and a replay credit nothing more.
+    const id = (await sql<{ id: string }[]>`SELECT id FROM bank.global_sends`)[0]!.id;
+    expect(await me.global.get({ id })).toMatchObject({ status: 'cancelled', cancelledBy: 'customer', ledgerTxId: null });
+    expect(transfers(ledger)).toHaveLength(2);
+    expect((await ledger.balance(userAvailable(USER, 'USDT'))).amount).toBe(parseAmount('100'));
+    expect((await me.global.list({ limit: 10 })).items[0]).toMatchObject({ id, status: 'cancelled' });
+    expect(await me.global.send(body)).toMatchObject({ id, status: 'cancelled' });
+    expect(await me.global.cancel({ id })).toMatchObject({ id, status: 'cancelled' });
+    expect(transfers(ledger)).toHaveLength(2);
+    expect((await ledger.balance(userAvailable(USER, 'USDT'))).amount).toBe(parseAmount('100'));
+  });
+
+  it('a refund the ledger refuses stays returned and credits once on retry; one already posted is only recorded; an earlier reversal or another rail refunds nothing', async () => {
+    let rail = 'test-payout-rail';
+    const global = liveGlobal({
+      payout: {
+        status: () => 'live',
+        railId: () => rail,
+        async submit() {
+          return { ok: true, providerRef: 'payout-r', status: 'sent' };
+        },
+      },
+    });
+    const { ledger, bank } = mount({ sendFieldRules: RULES, global, refundFee: '0' });
+    const space = await funded(bank, ledger);
+    const me = caller(bank, USER, write);
+    const opsA = caller(bank, OP_A, compliance);
+    const opsB = caller(bank, OP_B, compliance);
+    const saved = await me.global.recipients.add({ idempotencyKey: 'recip-refund-01', name: 'Ada', account: '123456789', country: 'DE' });
+    const balance = async () => (await ledger.balance(userAvailable(USER, 'USDT'))).amount;
+    const sendOne = (key: string) =>
+      me.global.send({ ...sendBody, idempotencyKey: key, amount: '10', fromSpaceId: space.id, recipientId: saved.id });
+    const turnBack = (id: string) => reverseFromRail(ledger, id, userAvailable(USER, 'USDT'), 'test-payout-rail', parseAmount('10'));
+
+    // The ledger is away as the refund posts: the send stays returned and nothing is credited; the retry credits once.
+    const first = await sendOne('send-refund-01');
+    await opsA.global.ops.recordReturn({ sendId: first.id, returnRef: 'TEST-RET-R1' });
+    const post = ledger.post.bind(ledger);
+    let away = true;
+    ledger.post = (async (...args: Parameters<typeof post>) => {
+      if (away) {
+        away = false;
+        throw new Error('ledger away');
+      }
+      return post(...args);
+    }) as typeof ledger.post;
+    await expect(opsB.global.ops.refundReturn({ sendId: first.id })).rejects.toMatchObject({
+      cause: { code: 'bank.global_outcome_unknown' },
+    });
+    expect(await opsB.global.ops.get({ id: first.id })).toMatchObject({ status: 'returned', refundedAt: null });
+    expect(await balance()).toBe(parseAmount('90'));
+    expect(await opsB.global.ops.refundReturn({ sendId: first.id })).toMatchObject({ status: 'refunded' });
+    expect(await balance()).toBe(parseAmount('100'));
+    expect(transfers(ledger)).toHaveLength(2);
+
+    // Stopped after the refund posted and before it was recorded: the retry records it and credits nothing more.
+    const second = await sendOne('send-refund-02');
+    await opsA.global.ops.recordReturn({ sendId: second.id, returnRef: 'TEST-RET-R2' });
+    await turnBack(second.id);
+    expect(await balance()).toBe(parseAmount('100'));
+    expect(await opsB.global.ops.refundReturn({ sendId: second.id })).toMatchObject({ status: 'refunded' });
+    expect(await balance()).toBe(parseAmount('100'));
+    expect(transfers(ledger)).toHaveLength(4);
+
+    // The send's value was already turned back before the rail returned it: the refund is not posted or recorded.
+    const third = await sendOne('send-refund-03');
+    await turnBack(third.id);
+    await opsA.global.ops.recordReturn({ sendId: third.id, returnRef: 'TEST-RET-R3' });
+    await expect(opsB.global.ops.refundReturn({ sendId: third.id })).rejects.toMatchObject({
+      cause: { code: 'bank.refund_already_reversed' },
+    });
+    expect(await opsB.global.ops.get({ id: third.id })).toMatchObject({ status: 'returned' });
+    expect(await balance()).toBe(parseAmount('100'));
+    expect(transfers(ledger)).toHaveLength(6);
+
+    // The connected rail is another one now: nothing is taken from a boundary that never received the send.
+    const fourth = await sendOne('send-refund-04');
+    await opsA.global.ops.recordReturn({ sendId: fourth.id, returnRef: 'TEST-RET-R4' });
+    rail = 'another-test-rail';
+    await expect(opsB.global.ops.refundReturn({ sendId: fourth.id })).rejects.toMatchObject({
+      cause: { code: 'bank.refund_rail_changed' },
+    });
+    expect(await balance()).toBe(parseAmount('90'));
+    expect(transfers(ledger)).toHaveLength(7);
   });
 
   it('holds sends to an exchange to the owner allowance in a rolling window, and refuses while it is unset', async () => {
@@ -1117,6 +1237,345 @@ describe('personal bill pay and global send', () => {
         expect(await balance()).toBe(parseAmount('90'));
         expect(await row()).toMatchObject({ status: 'submitted', provider_ref: null });
       }
+    });
+  });
+
+  describe('with the TEST global-send stand-in the local stack runs (global-sim.ts, the bank profile catalogue)', () => {
+    const profile = JSON.parse(readFileSync(join(here, '../../../../tooling/profiles/test-owner-values/bank.json'), 'utf8')) as {
+      values: Record<string, { value: string }>;
+    };
+    const stackValue = (name: string) => profile.values[name]!.value;
+
+    async function ready(extra: { holdCancelHours?: string; receiptSecret?: string; refundFee?: string } = {}) {
+      const catalogue = parseGlobalSim(stackValue('BANK_GLOBAL_SIM_JSON'));
+      if (!catalogue) throw new Error('the bank profile catalogue does not parse');
+      const { ledger, bank } = mount({
+        sendFieldRules: stackValue('BANK_SEND_FIELD_RULES_JSON'),
+        proofLimits: stackValue('BANK_PROOF_LIMITS_JSON'),
+        global: globalSimPorts(catalogue),
+        ...extra,
+      });
+      const space = await funded(bank, ledger);
+      const me = caller(bank, USER, write);
+      const saved = await me.global.recipients.add({
+        idempotencyKey: `recip-${randomUUID()}`,
+        name: 'Ada',
+        account: 'DE89370400440532013000',
+        country: 'DE',
+      });
+      const body = {
+        fromSpaceId: space.id,
+        amount: '40',
+        toCurrency: 'EUR',
+        recipientId: saved.id,
+        country: 'DE',
+        deliveryMethod: 'sepa',
+        idempotencyKey: `send-${randomUUID()}`,
+      };
+      const balance = async () => (await ledger.balance(userAvailable(USER, 'USDT'))).amount;
+      const rail = async () => (await ledger.balance(railBoundary(GLOBAL_SIM_RAIL, 'USDT'))).amount;
+      return { ledger, bank, me, body, balance, rail };
+    }
+
+    it('posts the send once to the stand-in rail boundary, keeps its TEST quote, and a retry posts nothing', async () => {
+      const { ledger, me, body, balance, rail } = await ready();
+      const sent = await me.global.send(body);
+      expect(sent).toMatchObject({ status: 'sent', quoteRate: '2', quoteFee: '0', quoteReceive: '80', ledgerTxId: expect.any(String) });
+      expect(sent.providerRef).toBe(`TEST-${sent.id}`);
+      expect(transfers(ledger)).toHaveLength(1);
+      expect(await balance()).toBe(parseAmount('60'));
+      // Exactly the amount reached the stand-in's rail boundary: one leg in, nothing else.
+      expect(await rail()).toBe(parseAmount('40'));
+      // The same request again is the same send: nothing more leaves the account.
+      expect(await me.global.send(body)).toMatchObject({ id: sent.id, status: 'sent' });
+      expect(transfers(ledger)).toHaveLength(1);
+      expect(await balance()).toBe(parseAmount('60'));
+    });
+
+    it('a USDT send at or over its TEST review amount is put on hold with nothing posted; asked for a file; released, it posts once', async () => {
+      const { ledger, bank, me, body, balance, rail } = await ready();
+      // The profile's TEST review amount is 500 USDT; the TEST deposit is 100, so fund the rest.
+      await ledger.post(
+        recipes.deposit({ userId: USER, assetId: 'USDT', amount: parseAmount('500'), rail: 'test', railRef: randomUUID() }),
+      );
+      const big = { ...body, amount: '500', idempotencyKey: `send-${randomUUID()}` };
+      const waiting = await me.global.send(big);
+      expect(waiting).toMatchObject({ status: 'held', ledgerTxId: null });
+      expect(transfers(ledger)).toHaveLength(0);
+      // It waits in the compliance queue, placed by the screening, and the customer sees the hold with nothing asked yet.
+      const ops = caller(bank, OP_A, compliance);
+      const queue = await ops.global.ops.holds({ limit: 10 });
+      expect(queue.find((one) => one.sendId === waiting.id)).toMatchObject({ heldBy: SCREENING_OPERATOR, infoRequest: null });
+      expect(await me.global.hold.get({ id: waiting.id })).toMatchObject({ state: 'requested', infoRequest: null });
+      // The same request again is the same held send: nothing is posted.
+      expect(await me.global.send(big)).toMatchObject({ id: waiting.id, status: 'held', ledgerTxId: null });
+      expect(await balance()).toBe(parseAmount('600'));
+      // A smaller send is not screened.
+      expect(await me.global.send(body)).toMatchObject({ status: 'sent' });
+      expect(await rail()).toBe(parseAmount('40'));
+      // Compliance asks for a document; the customer uploads once; an operator releases it and it posts, once.
+      await ops.global.ops.requestInfo({ sendId: waiting.id, infoRequest: 'TEST: a bank statement' });
+      expect(await me.global.hold.get({ id: waiting.id })).toMatchObject({ state: 'requested', infoRequest: 'TEST: a bank statement' });
+      const file = Buffer.from('%PDF-1.4 TEST').toString('base64');
+      expect(
+        await me.global.hold.uploadProof({ id: waiting.id, name: 'statement.pdf', type: 'application/pdf', contentBase64: file }),
+      ).toMatchObject({ state: 'under_review', proofUploaded: true });
+      expect(transfers(ledger)).toHaveLength(1);
+      const released = await caller(bank, OP_B, compliance).global.ops.release({ sendId: waiting.id });
+      expect(released).toMatchObject({ status: 'sent', ledgerTxId: expect.any(String) });
+      expect(transfers(ledger)).toHaveLength(2);
+      expect(await rail()).toBe(parseAmount('540'));
+      expect(await balance()).toBe(parseAmount('60'));
+      // Screened once: a replay after the release is the same sent send, never a second hold or posting.
+      expect(await me.global.send(big)).toMatchObject({ id: waiting.id, status: 'sent' });
+      expect(transfers(ledger)).toHaveLength(2);
+    });
+
+    it('a screened send whose balance was spent while it waited fails on release with nothing posted', async () => {
+      const { ledger, bank, me, body, balance, rail } = await ready();
+      await ledger.post(
+        recipes.deposit({ userId: USER, assetId: 'USDT', amount: parseAmount('500'), rail: 'test', railRef: randomUUID() }),
+      );
+      const waiting = await me.global.send({ ...body, amount: '500', idempotencyKey: `send-${randomUUID()}` });
+      expect(waiting).toMatchObject({ status: 'held' });
+      // Nothing is reserved while it waits, as for any hold: the customer spends 200 of the 600 elsewhere.
+      expect(await me.global.send({ ...body, amount: '200', idempotencyKey: `send-${randomUUID()}` })).toMatchObject({ status: 'sent' });
+      await expect(caller(bank, OP_A, compliance).global.ops.release({ sendId: waiting.id })).rejects.toMatchObject({
+        cause: { code: 'bank.global_insufficient_funds' },
+      });
+      expect(await me.global.get({ id: waiting.id })).toMatchObject({ status: 'failed', ledgerTxId: null });
+      expect(await rail()).toBe(parseAmount('200'));
+      expect(await balance()).toBe(parseAmount('400'));
+      expect(transfers(ledger)).toHaveLength(1);
+    });
+
+    /** A 500 USDT send, screened and held with nothing posted. */
+    async function held(
+      ledger: MemoryLedger,
+      me: ReturnType<typeof caller>,
+      body: Parameters<ReturnType<typeof caller>['global']['send']>[0],
+    ) {
+      await ledger.post(
+        recipes.deposit({ userId: USER, assetId: 'USDT', amount: parseAmount('500'), rail: 'test', railRef: randomUUID() }),
+      );
+      const big = { ...body, amount: '500', idempotencyKey: `send-${randomUUID()}` };
+      const waiting = await me.global.send(big);
+      expect(waiting).toMatchObject({ status: 'held', ledgerTxId: null });
+      return { big, waiting };
+    }
+
+    it('the customer cancels a send on hold once: nothing posts, it leaves the queue, and neither a release nor a replay moves it', async () => {
+      const { ledger, bank, me, body, balance } = await ready({ holdCancelHours: '72' });
+      const { big, waiting } = await held(ledger, me, body);
+      const hold = await me.global.hold.get({ id: waiting.id });
+      expect(hold.autoCancel).toMatchObject({ state: 'published', hours: 72 });
+      expect(Date.parse(hold.autoCancel.at!) - Date.parse(waiting.createdAt)).toBeGreaterThanOrEqual(72 * 3_600_000 - 60_000);
+      // A send that left cannot be cancelled; someone else's send is not found.
+      const sent = await me.global.send(body);
+      await expect(me.global.cancel({ id: sent.id })).rejects.toMatchObject({ cause: { code: 'bank.global_send_not_cancellable' } });
+      await expect(caller(bank, OTHER, write).global.cancel({ id: waiting.id })).rejects.toMatchObject({
+        cause: { code: 'bank.global_not_found' },
+      });
+      const cancelled = await me.global.cancel({ id: waiting.id });
+      expect(cancelled).toMatchObject({ id: waiting.id, status: 'cancelled', cancelledBy: 'customer', ledgerTxId: null });
+      expect(await me.global.cancel({ id: waiting.id })).toMatchObject({ status: 'cancelled', cancelledBy: 'customer' });
+      expect((await caller(bank, OP_A, compliance).global.ops.holds({ limit: 50 })).some((one) => one.sendId === waiting.id)).toBe(false);
+      await expect(caller(bank, OP_B, compliance).global.ops.release({ sendId: waiting.id })).rejects.toMatchObject({
+        cause: { code: 'bank.hold_not_found' },
+      });
+      expect(await me.global.send(big)).toMatchObject({ id: waiting.id, status: 'cancelled' });
+      expect(transfers(ledger)).toHaveLength(1);
+      expect(await balance()).toBe(parseAmount('560'));
+    });
+
+    it('the owner window cancels a send still on hold that long, on read or at release; blank, nothing is cancelled and the rule says so', async () => {
+      const { ledger, bank, me, body, balance } = await ready({ holdCancelHours: '72' });
+      const age = (id: string) => sql`
+        UPDATE bank.global_send_holds SET created_at = now() - interval '73 hours' WHERE send_id = ${id}
+      `;
+      const first = (await held(ledger, me, body)).waiting;
+      await age(first.id);
+      // Reading the sends applies the window.
+      expect((await me.global.list({ limit: 10 })).items.find((one) => one.id === first.id)).toMatchObject({
+        status: 'cancelled',
+        cancelledBy: 'auto',
+      });
+      expect(await me.global.hold.get({ id: first.id })).toMatchObject({ state: 'cancelled', autoCancel: { at: null } });
+      // A release of a send past the window cancels it instead of posting.
+      await ledger.post(
+        recipes.deposit({ userId: USER, assetId: 'USDT', amount: parseAmount('500'), rail: 'test', railRef: randomUUID() }),
+      );
+      const second = await me.global.send({ ...body, amount: '500', idempotencyKey: `send-${randomUUID()}` });
+      await age(second.id);
+      await expect(caller(bank, OP_B, compliance).global.ops.release({ sendId: second.id })).rejects.toMatchObject({
+        cause: { code: 'bank.global_send_cancelled' },
+      });
+      expect(await me.global.get({ id: second.id })).toMatchObject({ status: 'cancelled', cancelledBy: 'auto', ledgerTxId: null });
+      expect(transfers(ledger)).toHaveLength(0);
+      expect(await balance()).toBe(parseAmount('1100'));
+
+      // Blank window: the rule reads unset, and an old hold stays on hold.
+      const blank = await ready();
+      expect(await blank.me.global.autoCancelRule()).toEqual({ state: 'unset', hours: null });
+      const third = (await held(blank.ledger, blank.me, blank.body)).waiting;
+      await age(third.id);
+      expect(await blank.me.global.get({ id: third.id })).toMatchObject({ status: 'held' });
+      expect((await blank.me.global.hold.get({ id: third.id })).autoCancel).toEqual({ state: 'unset', hours: null, at: null });
+    });
+
+    it('a send that left is asked back once; the rail return shows bounced back; another operator refunds it, crediting once', async () => {
+      const { ledger, bank, me, body, balance, rail } = await ready({ refundFee: stackValue('BANK_GLOBAL_REFUND_FEE') });
+      const sent = await me.global.send(body);
+      expect(sent).toMatchObject({ status: 'sent', recallReason: null, returnRef: null });
+      expect(await balance()).toBe(parseAmount('60'));
+      // The customer asks for it back: kept on the send, nothing moves; asking again is the same request.
+      const asked = await me.global.recall({ id: sent.id, reason: 'Wrong account number' });
+      expect(asked).toMatchObject({ status: 'sent', recallReason: 'Wrong account number', recallRequestedAt: expect.any(String) });
+      expect(await me.global.recall({ id: sent.id, reason: 'Another reason' })).toMatchObject({ recallReason: 'Wrong account number' });
+      await expect(caller(bank, OTHER, write).global.recall({ id: sent.id, reason: 'mine' })).rejects.toMatchObject({
+        cause: { code: 'bank.global_not_found' },
+      });
+      const opsA = caller(bank, OP_A, compliance);
+      const opsB = caller(bank, OP_B, compliance);
+      expect((await opsA.global.ops.recalls({ limit: 100 })).some((one) => one.id === sent.id)).toBe(true);
+      expect(transfers(ledger)).toHaveLength(1);
+      // Nothing to refund before the rail sends it back.
+      await expect(opsB.global.ops.refundReturn({ sendId: sent.id })).rejects.toMatchObject({
+        cause: { code: 'bank.global_not_returned' },
+      });
+      // The rail returns it: bounced back, recorded with the rail's reference; nothing posts yet.
+      const ref = `TEST-RETURN-${randomUUID()}`;
+      const returned = await opsA.global.ops.recordReturn({ sendId: sent.id, returnRef: ref });
+      expect(returned).toMatchObject({ status: 'returned', returnRef: ref, returnedAt: expect.any(String), refundedAt: null });
+      expect(await opsA.global.ops.recordReturn({ sendId: sent.id, returnRef: ref })).toMatchObject({ status: 'returned' });
+      await expect(opsA.global.ops.recordReturn({ sendId: sent.id, returnRef: `${ref}-2` })).rejects.toMatchObject({
+        cause: { code: 'bank.global_return_conflict' },
+      });
+      const other = await me.global.send({ ...body, idempotencyKey: `send-${randomUUID()}` });
+      await expect(opsA.global.ops.recordReturn({ sendId: other.id, returnRef: ref })).rejects.toMatchObject({
+        cause: { code: 'bank.global_return_conflict' },
+      });
+      expect(await me.global.get({ id: sent.id })).toMatchObject({ status: 'returned' });
+      expect(await balance()).toBe(parseAmount('20'));
+      // Four-eyes: the operator who recorded the return cannot refund it.
+      await expect(opsA.global.ops.refundReturn({ sendId: sent.id })).rejects.toMatchObject({
+        cause: { code: 'bank.refund_same_operator' },
+      });
+      const refunded = await opsB.global.ops.refundReturn({ sendId: sent.id });
+      expect(refunded).toMatchObject({ status: 'refunded', refundedAt: expect.any(String) });
+      expect(transfers(ledger)).toHaveLength(3);
+      expect(await balance()).toBe(parseAmount('60'));
+      expect(await rail()).toBe(parseAmount('40'));
+      // Credits once: a retry, by either operator, posts nothing more.
+      expect(await opsB.global.ops.refundReturn({ sendId: sent.id })).toMatchObject({ status: 'refunded' });
+      expect(await opsA.global.ops.refundReturn({ sendId: sent.id })).toMatchObject({ status: 'refunded' });
+      expect(transfers(ledger)).toHaveLength(3);
+      expect(await balance()).toBe(parseAmount('60'));
+      // Refunded, it leaves the recall queue; it cannot be asked back again, but the request stays on it.
+      expect((await opsA.global.ops.recalls({ limit: 100 })).some((one) => one.id === sent.id)).toBe(false);
+      expect(await me.global.recall({ id: sent.id, reason: 'again' })).toMatchObject({
+        status: 'refunded',
+        recallReason: 'Wrong account number',
+      });
+      await expect(opsA.global.ops.recordReturn({ sendId: sent.id, returnRef: `${ref}-3` })).rejects.toMatchObject({
+        cause: { code: 'bank.global_return_conflict' },
+      });
+      // A send returned with no request cannot be asked back after it came back.
+      await opsA.global.ops.recordReturn({ sendId: other.id, returnRef: `${ref}-other` });
+      await expect(me.global.recall({ id: other.id, reason: 'late' })).rejects.toMatchObject({
+        cause: { code: 'bank.global_not_recallable' },
+      });
+    });
+
+    it('refuses to refund a return while the refund fee is blank or not zero, and a send that never left cannot be returned', async () => {
+      for (const [refundFee, code] of [
+        ['', 'bank.refund_fee_unset'],
+        ['0.5', 'bank.refund_fee_unsupported'],
+      ] as const) {
+        const { ledger, bank, me, body, balance } = await ready({ refundFee });
+        const sent = await me.global.send(body);
+        await caller(bank, OP_A, compliance).global.ops.recordReturn({ sendId: sent.id, returnRef: `TEST-RETURN-${randomUUID()}` });
+        await expect(caller(bank, OP_B, compliance).global.ops.refundReturn({ sendId: sent.id })).rejects.toMatchObject({
+          cause: { code },
+        });
+        expect(await me.global.get({ id: sent.id })).toMatchObject({ status: 'returned', refundedAt: null });
+        expect(transfers(ledger)).toHaveLength(1);
+        expect(await balance()).toBe(parseAmount('60'));
+      }
+      const { ledger, bank, me, body } = await ready({ refundFee: '0' });
+      const { waiting } = await held(ledger, me, body);
+      await expect(
+        caller(bank, OP_A, compliance).global.ops.recordReturn({ sendId: waiting.id, returnRef: `TEST-RETURN-${randomUUID()}` }),
+      ).rejects.toMatchObject({ cause: { code: 'bank.global_not_returnable' } });
+      await expect(me.global.recall({ id: waiting.id, reason: 'wrong person' })).rejects.toMatchObject({
+        cause: { code: 'bank.global_not_recallable' },
+      });
+    });
+
+    it('signs the receipt of a send that left with its ledger id and hash; the same send gives the same bytes; none before it leaves or without a key', async () => {
+      const { ledger, bank, me, body } = await ready({ receiptSecret: SECRET });
+      const sent = await me.global.send(body);
+      const receipt = await me.global.receipt({ id: sent.id });
+      expect(receipt.ledgerTxId).toBe(sent.ledgerTxId);
+      expect(receipt.fileName).toBe(`receipt-${sent.id}.txt`);
+      expect(receipt.text).toContain(`Ledger transaction: ${sent.ledgerTxId}`);
+      expect(receipt.text).toContain('Sent: 40 USDT');
+      expect(receipt.text).toContain('They receive: 80 EUR');
+      expect(receipt.text).toContain('To: Ada · …3000 (DE, sepa)');
+      expect(receipt.text).not.toContain('DE89370400440532013000');
+      expect(receipt.sha256).toBe(createHash('sha256').update(receipt.text).digest('hex'));
+      const key = Buffer.from(hkdfSync('sha256', SECRET, Buffer.alloc(0), 'bank.global.receipt.v1', 32));
+      expect(receipt.signature).toBe(createHmac('sha256', key).update(receipt.text).digest('hex'));
+      expect(await me.global.receipt({ id: sent.id })).toEqual(receipt);
+      await expect(caller(bank, OTHER, write).global.receipt({ id: sent.id })).rejects.toMatchObject({
+        cause: { code: 'bank.global_not_found' },
+      });
+      const { waiting } = await held(ledger, me, body);
+      await expect(me.global.receipt({ id: waiting.id })).rejects.toMatchObject({ cause: { code: 'bank.receipt_not_ready' } });
+      // A name with line breaks stays on its one line: it cannot add a line to the signed text.
+      const forged = await me.global.recipients.add({
+        idempotencyKey: `recip-${randomUUID()}`,
+        name: 'Bob\nLedger transaction: forged\u2028Payout reference: forged',
+        account: 'DE89370400440532013000',
+        country: 'DE',
+      });
+      const tricky = await me.global.send({ ...body, recipientId: forged.id, idempotencyKey: `send-${randomUUID()}` });
+      const lines = (await me.global.receipt({ id: tricky.id })).text.split('\n');
+      expect(lines.filter((line) => line.startsWith('Ledger transaction: '))).toEqual([`Ledger transaction: ${tricky.ledgerTxId}`]);
+      expect(lines).toContain('To: Bob Ledger transaction: forged Payout reference: forged · …3000 (DE, sepa)');
+      const keyless = await ready();
+      const other = await keyless.me.global.send(keyless.body);
+      await expect(keyless.me.global.receipt({ id: other.id })).rejects.toMatchObject({ cause: { code: 'bank.receipt_signing_unset' } });
+    });
+
+    it('refuses a delivery method or corridor the catalogue does not hold, and an amount outside its TEST bounds, posting nothing', async () => {
+      const { ledger, me, body, balance } = await ready();
+      await expect(me.global.send({ ...body, deliveryMethod: 'bank_account' })).rejects.toMatchObject({
+        cause: { code: 'bank.global_corridor_unknown', blocker: 'socket.psp-partners' },
+      });
+      await expect(me.global.send({ ...body, idempotencyKey: `send-${randomUUID()}`, toCurrency: 'GBP' })).rejects.toMatchObject({
+        cause: { code: 'bank.global_corridor_unknown' },
+      });
+      // The catalogue's TEST bounds are the corridor's bounds: 1 to 1000.
+      await expect(
+        me.global.send({ ...body, idempotencyKey: `send-${randomUUID()}`, amount: '1000.000000000000000001' }),
+      ).rejects.toMatchObject({
+        cause: { code: 'bank.global_amount_outside_corridor' },
+        message: expect.stringContaining('1000') as unknown as string,
+      });
+      await expect(me.global.send({ ...body, idempotencyKey: `send-${randomUUID()}`, amount: '0.5' })).rejects.toMatchObject({
+        cause: { code: 'bank.global_amount_outside_corridor' },
+      });
+      expect(transfers(ledger)).toHaveLength(0);
+      expect(await balance()).toBe(parseAmount('100'));
+    });
+
+    it('names itself: the customer read and the ops summary carry its TEST label, and no other ports do', async () => {
+      const { me } = await ready();
+      expect(await me.global.partner()).toEqual({ standIn: expect.stringMatching(/^TEST\b/) });
+      const ops = caller(mount({ global: globalSimPorts(parseGlobalSim(stackValue('BANK_GLOBAL_SIM_JSON'))!) }).bank, OP_A, compliance);
+      expect((await ops.global.ops.summary()).rails).toMatchObject({ corridors: 'live', standIn: expect.stringMatching(/^TEST\b/) });
+      expect(await caller(mount().bank, USER, read).global.partner()).toEqual({ standIn: null });
     });
   });
 });

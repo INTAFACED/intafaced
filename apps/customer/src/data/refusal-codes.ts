@@ -84,8 +84,14 @@ export type RefusalKind =
   | 'globalRecipientInvalid'
   | 'globalPayoutRefused'
   | 'globalCorridorUnknown'
+  | 'globalAmountOutside'
   | 'globalDetailsMissing'
   | 'globalNoSend'
+  | 'globalCancelled'
+  | 'globalNotCancellable'
+  | 'globalNotRecallable'
+  | 'receiptNotReady'
+  | 'receiptOff'
   | 'proofOff'
   | 'proofType'
   | 'proofSize'
@@ -249,6 +255,7 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'bank.global_bic_format_invalid': 'globalRecipientInvalid',
   'bank.global_payout_refused': 'globalPayoutRefused',
   'bank.global_corridor_unknown': 'globalCorridorUnknown',
+  'bank.global_amount_outside_corridor': 'globalAmountOutside',
   'bank.global_travel_rule_incomplete': 'globalDetailsMissing',
   'bank.payee_blocked': 'globalNoSend',
   'bank.exchange_allowance_exceeded': 'globalNoSend',
@@ -262,6 +269,11 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'bank.proof_already_uploaded': 'proofDone',
   'bank.hold_not_found': 'notFound',
   'bank.transfer_settled': 'globalNoSend',
+  'bank.global_send_cancelled': 'globalCancelled',
+  'bank.global_send_not_cancellable': 'globalNotCancellable',
+  'bank.global_not_recallable': 'globalNotRecallable',
+  'bank.receipt_not_ready': 'receiptNotReady',
+  'bank.receipt_signing_unset': 'receiptOff',
   'bank.global_insufficient_funds': 'insufficient',
   'bank.global_outcome_unknown': 'tryAgain',
   'bank.global_conflict': 'duplicate',

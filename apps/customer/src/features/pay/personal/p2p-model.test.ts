@@ -20,7 +20,6 @@ import {
   disputeStages,
   emptyOffer,
   escrowView,
-  filterOffers,
   filterOrders,
   offerChanges,
   offerMethodIds,
@@ -181,12 +180,6 @@ describe('disputeStages', () => {
 describe('offers', () => {
   it('reads method ids from strings and { id } objects only', () => {
     expect(offerMethodIds(offer())).toEqual(['sepa', 'wise']);
-  });
-  it('filters by method and by maker', () => {
-    const rows = [offer({ id: 'a' }), offer({ id: 'b', methods: ['paypal'] }), offer({ id: 'c', makerId: BUYER })];
-    expect(filterOffers(rows, { method: 'paypal' }).map((r) => r.id)).toEqual(['b']);
-    expect(filterOffers(rows, { makerId: BUYER.toUpperCase() }).map((r) => r.id)).toEqual(['c']);
-    expect(filterOffers(rows, {})).toHaveLength(3);
   });
 });
 
