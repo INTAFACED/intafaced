@@ -7,6 +7,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     DATABASE_URL: dbUrl('svc_pay', secrets),
     LEDGER_URL: urlOf('ledger'),
     IDENTITY_URL: urlOf('identity'),
+    // W-withdraw-14: a withdrawal to another account's platform address is one send at svc-bank (transfers.settleWithdrawal).
+    BANK_URL: urlOf('bank'),
     IDENTITY_ADMISSION_SECRET: secrets.payAdmission,
     PAY_CRYPTO_WEBHOOK_SECRET: secrets.payCryptoWebhook,
     PAY_CARD_SANDBOX_WEBHOOK_SECRET: secrets.payCardWebhook,

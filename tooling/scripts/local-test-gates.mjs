@@ -1220,6 +1220,45 @@ export async function publishDepositTerms(ctx) {
   return out;
 }
 
+/**
+ * LOCAL TEST withdrawal limits (svc-pay `founderAdmin.limits`, W-withdraw-05), not owner values: TEST 1000 a withdrawal and
+ * TEST 5000 a rolling day, for every verified tier and every TEST deposit coin. svc-pay refuses every withdrawal for a tier
+ * and coin with no limit (`pay.guard_withdrawal_limit_unset`), so J-wallet-07 #3-#5 (a send to another account's platform
+ * address, W-withdraw-14) needs them. The `none` tier stays unset: an unverified account withdraws nothing.
+ */
+export const TEST_WITHDRAWAL_LIMITS = Object.freeze({ tiers: ['basic', 'full', 'institutional'], perTx: '1000', rolling24h: '5000' });
+
+/** Publish the TEST withdrawal limits through the founders' door (a second founder approves when svc-pay asks). */
+export async function publishWithdrawalLimits(ctx) {
+  const sessions = await approverSessions(ctx);
+  const token = sessions.a.token;
+  const listed = await ctx.edge.query('pay', 'founderAdmin.limits.list', {}, token);
+  if (!Array.isArray(data(listed))) throw new Error(`pay limits.list refused (${listed.status}): ${refusalText(listed)}`);
+  const want = { perTx: TEST_WITHDRAWAL_LIMITS.perTx, rolling24h: TEST_WITHDRAWAL_LIMITS.rolling24h };
+  const out = [];
+  for (const assetId of [...new Set(TEST_DEPOSIT_TERMS.map((t) => t.assetId))].sort()) {
+    for (const tier of TEST_WITHDRAWAL_LIMITS.tiers) {
+      const what = `withdrawal limit ${tier} ${assetId}`;
+      const row = data(listed).find((r) => r.tier === tier && r.assetId === assetId) ?? null;
+      if (row?.limit && row.limit.perTx === want.perTx && row.limit.rolling24h === want.rolling24h) {
+        out.push({ what, status: 'already published' });
+        continue;
+      }
+      const change = { tier, assetId, limit: want, expectedVersion: row ? row.version : null, reason: `${MARKERS.label}: TEST withdrawal limit` };
+      const r = await payFounderSave(ctx, sessions, {
+        preview: 'founderAdmin.limits.preview',
+        previewInput: change,
+        save: 'founderAdmin.limits.change',
+        input: change,
+        what,
+      });
+      out.push({ what, status: 'published', approvalId: r.approvalId });
+      ctx.log(`${what}: ${want.perTx} a withdrawal, ${want.rolling24h} a day (${MARKERS.label})`);
+    }
+  }
+  return out;
+}
+
 // ── 2d. Pair price band and open-order cap (two-person approval) ────────────
 
 /**
@@ -1923,6 +1962,7 @@ async function main() {
         say(`  p2p       ${r.methodId} ${r.country} ${r.changed ? 'registered' : 'already registered'}`);
       // Last: a svc-pay refusal here stops nothing the trading and transfer journeys need.
       for (const r of await publishDepositTerms(ctx)) say(`  deposits  ${r.what}: ${r.status}`);
+      for (const r of await publishWithdrawalLimits(ctx)) say(`  withdraw  ${r.what}: ${r.status}`);
     } else if (cmd === 'kyb') {
       const out = await seedPayKybRequirements(ctx);
       for (const t of out.types) say(`  kyb       ${t.entityType} ${t.changed ? 'published' : 'already published'}`);
@@ -1933,6 +1973,8 @@ async function main() {
       for (const r of await publishAssetRegistry(ctx)) say(`  asset     ${r.assetId.padEnd(10)} ${r.status} (revision ${r.revision})`);
     } else if (cmd === 'deposit-terms') {
       for (const r of await publishDepositTerms(ctx)) say(`  deposits  ${r.what}: ${r.status}`);
+    } else if (cmd === 'withdrawal-limits') {
+      for (const r of await publishWithdrawalLimits(ctx)) say(`  withdraw  ${r.what}: ${r.status}`);
     } else if (cmd === 'halt' || cmd === 'resume') {
       const symbol = process.argv[3];
       if (!symbol) die(`usage: local-test-gates.mjs ${cmd} <SYMBOL>, for example ETH/USDT`, 2);
@@ -1979,7 +2021,7 @@ async function main() {
       say(JSON.stringify(await status(ctx), null, 2));
     } else {
       die(
-        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | p2p | verify | halt <SYMBOL> | resume <SYMBOL> | age <handle> <seconds> | status',
+        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | deposit-terms | withdrawal-limits | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | p2p | verify | halt <SYMBOL> | resume <SYMBOL> | age <handle> <seconds> | status',
         2,
       );
     }
