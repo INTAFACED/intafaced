@@ -257,10 +257,11 @@ function OrderDetail({ pay, tradeId, userId }: { pay: PersonalPayApi; tradeId: s
     />
   );
 }
-/** The agreed destination's values under their schema labels, in the schema's order; any other key under its own name. */
+/** The agreed destination's values under the server's labels, in the server's order; any other key under its own name. */
 export function destinationRows(data: Pick<TradeDestination, 'details' | 'fields'>): [string, string][] {
-  const named = (data.fields ?? []).filter((field) => field.key in data.details);
-  const rest = Object.keys(data.details).filter((key) => !named.some((field) => field.key === key));
+  const named = (data.fields ?? []).filter((field) => Object.hasOwn(data.details, field.key));
+  const known = new Set(named.map((field) => field.key));
+  const rest = Object.keys(data.details).filter((key) => !known.has(key));
   return [
     ...named.map((field): [string, string] => [field.label, data.details[field.key]!]),
     ...rest.map((key): [string, string] => [key, data.details[key]!]),
@@ -268,6 +269,8 @@ export function destinationRows(data: Pick<TradeDestination, 'details' | 'fields
 }
 export function OrderPaymentDetails({ trade, pay, userId }: { trade: Trade; pay: PersonalPayApi; userId: string | null }) {
   const order = orderCopy.useCopy();
+  // The payee rule and the change notice are for the one who pays; the seller sees their own details plainly.
+  const isBuyer = userId !== null && userId === trade.buyerId;
   const [requested, setRequested] = useState(false);
   const destination = useResource(
     (signal) =>
@@ -282,7 +285,7 @@ export function OrderPaymentDetails({ trade, pay, userId }: { trade: Trade; pay:
         <PayState resource={destination.resource} retry={destination.reload}>
           {(data) => (
             <>
-              {data.payeeChange ? (
+              {isBuyer && data.payeeChange ? (
                 <div data-testid="order-payee-changed">
                   <PayNotice title={order.t(data.payeeChange.kind === 'removed' ? 'payeeRemovedTitle' : 'payeeChangedTitle')}>
                     {order.t('payeeChangedBody')}
@@ -300,9 +303,11 @@ export function OrderPaymentDetails({ trade, pay, userId }: { trade: Trade; pay:
                   ]),
                 ]}
               />
-              <p className="muted" data-testid="order-payee-name-rule">
-                {order.t('payeeNameRule')}
-              </p>
+              {isBuyer ? (
+                <p className="muted" data-testid="order-payee-name-rule">
+                  {order.t('payeeNameRule')}
+                </p>
+              ) : null}
             </>
           )}
         </PayState>

@@ -1523,7 +1523,11 @@ describe('svc-p2p payment instruments', () => {
     it('are display only: a stored schema that cannot be read still shows the details, under their keys', async () => {
       await sellerInstrument();
       const { trade } = await liveTrade();
-      await sql`UPDATE p2p.payment_method_schemas SET fields = ${sql.json([{ nope: 1 }] as never)}`;
+      // A shape the database accepts but a pattern the service will not run, so reading the schema throws.
+      await sql`UPDATE p2p.payment_method_schemas SET fields = ${sql.json([
+        { key: 'account_reference', label: 'Account reference', pattern: '(?=[0-9]{4})[0-9]+' },
+        { key: 'holder_name', label: 'Account holder' },
+      ] as never)}`;
       const view = await callerFor(BUYER).trades.paymentInstrument({ tradeId: trade.id });
       expect(view.details).toEqual({ account_reference: CANARY, holder_name: 'A Seller' });
       expect(view.fields).toHaveLength(2);

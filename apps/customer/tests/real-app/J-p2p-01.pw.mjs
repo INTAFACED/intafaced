@@ -614,8 +614,11 @@ test('J-p2p-01 #6 the payment details name the seller’s account holder and num
   await expect(card.getByTestId('order-payee-changed')).toHaveCount(0);
 
   // The seller changes their saved account mid-order: the buyer is told, and the order still pays the agreed one.
-  const [saved] = await s.query('instruments.list', { limit: 10 });
-  const switched = 'DE02120300000000202051';
+  const saved = (await s.query('instruments.list', { limit: 10 })).find(
+    (instrument) => instrument.methodId === METHOD && instrument.fiatCurrency === 'EUR',
+  );
+  expect(saved, 'the seller holds the TEST bank transfer account the order uses').toBeTruthy();
+  const switched = 'DE00TESTPAYEECHANGED01';
   await s.mutate('instruments.update', {
     instrumentId: saved.id,
     details: { account_holder: state.seller.handle, iban: switched },

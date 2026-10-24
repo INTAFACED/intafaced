@@ -23,10 +23,11 @@ afterEach(() => {
 
 const TRADE = '0b6f1c1e-4a7d-4c55-9d1e-2f6f0e8a1b2c';
 const BUYER = '22222222-2222-4222-8222-222222222222';
+const SELLER = '11111111-1111-4111-8111-111111111111';
 const trade: Trade = {
   id: TRADE,
   offerId: '33333333-3333-4333-8333-333333333333',
-  sellerId: '11111111-1111-4111-8111-111111111111',
+  sellerId: SELLER,
   buyerId: BUYER,
   asset: 'USDT',
   amount: '10',
@@ -57,11 +58,11 @@ const destination = (payeeChange: TradeDestination['payeeChange']): TradeDestina
   payeeChange,
 });
 
-async function revealed(data: TradeDestination) {
+async function revealed(data: TradeDestination, userId: string = BUYER) {
   const pay = { destination: async () => ({ ok: true, data }) } as unknown as PersonalPayApi;
   root = createRoot(host);
   const mounted = root;
-  await act(async () => mounted.render(<OrderPaymentDetails trade={trade} pay={pay} userId={BUYER} />));
+  await act(async () => mounted.render(<OrderPaymentDetails trade={trade} pay={pay} userId={userId} />));
   await act(async () => host.querySelector('button')!.click());
   await act(async () => undefined);
   return host;
@@ -92,7 +93,7 @@ describe('P2P payee card (J-p2p-01 #6)', () => {
   });
 
   it('says when the seller changed or removed the details after the order, and still shows the agreed ones', async () => {
-    const changed = await revealed(destination({ kind: 'changed', at: '2026-10-23T20:05:00.000Z' }));
+    const changed = await revealed(destination({ kind: 'changed' }));
     expect(changed.querySelector('[data-testid="order-payee-changed"]')!.textContent).toContain(
       'The seller changed these payment details after this order was placed',
     );
@@ -100,9 +101,28 @@ describe('P2P payee card (J-p2p-01 #6)', () => {
     expect(changed.textContent).toContain('DE00 TEST 0000');
     act(() => root?.unmount());
     root = null;
-    const removed = await revealed(destination({ kind: 'removed', at: null }));
+    const removed = await revealed(destination({ kind: 'removed' }));
     expect(removed.querySelector('[data-testid="order-payee-changed"]')!.textContent).toContain(
       'The seller removed these payment details after this order was placed',
     );
+  });
+
+  it('shows the seller their own details plainly, without the payee rule or the change notice', async () => {
+    const card = await revealed(destination({ kind: 'changed' }), SELLER);
+    expect(card.textContent).toContain('DE00 TEST 0000');
+    expect(card.querySelector('[data-testid="order-payee-name-rule"]')).toBeNull();
+    expect(card.querySelector('[data-testid="order-payee-changed"]')).toBeNull();
+  });
+
+  it('ignores a label for a key the details only inherit', () => {
+    expect(
+      destinationRows({
+        details: { iban: 'X' },
+        fields: [
+          { key: 'toString', label: 'Nope' },
+          { key: 'iban', label: 'IBAN' },
+        ],
+      }),
+    ).toEqual([['IBAN', 'X']]);
   });
 });

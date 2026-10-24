@@ -208,7 +208,7 @@ export const tradeDestinationSchema = z.object({
   attachedAt: z.string(),
   /** The seller changed or removed this destination after the order was placed; the order still pays the details above. */
   payeeChange: z
-    .object({ kind: z.enum(['changed', 'removed']), at: z.string().nullable() })
+    .object({ kind: z.enum(['changed', 'removed']) })
     .nullable()
     .optional(),
 });
