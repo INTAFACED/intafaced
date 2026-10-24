@@ -1,4 +1,5 @@
 import { CounterpartyLink, p2pReturn } from './p2p-return';
+import { SellerReminder } from './p2p-remind';
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
@@ -251,6 +252,7 @@ export function P2POrder({
                   </div>
                 </div>
                 {trade.status === 'released' ? <OrderResult trade={trade} seller={seller} /> : null}
+                {seller && trade.status === 'fiat_sent' ? <SellerReminder reminders={trade.reminders} /> : null}
                 {!held && typeof trade.escrowHeld === 'string' ? (
                   <p className="muted" data-testid="order-escrow-held">
                     <Copy k="escrowHeld" /> <PayAmount value={trade.escrowHeld} unit={trade.asset} label={t('escrowHeld')} />

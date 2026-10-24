@@ -184,6 +184,8 @@ function stubP2p(overrides: Partial<Record<string, unknown>> = {}) {
     }),
     assertNotBlocked: async () => undefined,
     payTimingOf: async () => ({ avgPaySecs: null, paySamples: 0 }),
+    // P-trade-orders-15: no reminders on a stubbed order, and the owner's figures unset.
+    reminderState: async () => ({ count: 0, lastAt: null, nextAt: null, max: null }),
     reviewRating: async () => null,
     ...overrides,
   } as unknown as P2pService;

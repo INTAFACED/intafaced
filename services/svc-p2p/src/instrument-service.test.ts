@@ -1111,6 +1111,8 @@ describe('svc-p2p payment instruments', () => {
         // The caller's own confirmation window: a time, never an instrument.
         'trades.stepUpWindow': undefined,
         'trades.releaseStepUpWindow': undefined,
+        // A reminder answers counts and times only.
+        'trades.remind': { tradeId: trade.id },
         'trades.quote': { offerId: offer.id, amount: '10', method: METHOD },
         'trades.lockQuote': { quoteId: '77777777-7777-4777-8777-777777777777', offerId: offer.id, amount: '10', method: METHOD },
         'trades.export': { from: '2020-01-01T00:00:00.000Z', to: '2030-01-01T00:00:00.000Z' },

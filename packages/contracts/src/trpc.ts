@@ -285,6 +285,8 @@ const P2P_LIMIT_CODES = new Set([
   'p2p.method_delisted',
   'p2p.buying_restricted',
   'p2p.insufficient_balance',
+  'p2p.remind_too_early',
+  'p2p.remind_rate_limited',
 ]);
 const DELIST_REASONS: ReadonlySet<string> = new Set(P2P_DELIST_REASONS);
 const P2P_LIMIT_DECIMALS = ['cap', 'min', 'max', 'remaining', 'windowHours', 'available', 'shortBy'] as const;

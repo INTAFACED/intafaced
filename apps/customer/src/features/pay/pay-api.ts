@@ -993,6 +993,14 @@ export function createPersonalPayApi(
         undefined,
         p2pCurrent,
       ),
+    /** P-trade-orders-15: the buyer of a paid order reminds the seller to release. Moves nothing; svc-p2p decides when. */
+    remindSeller: (tradeId: string) =>
+      guard.run(
+        `${userId}:remind:${tradeId}`,
+        () => api.mutate('p2p', 'trades.remind', { tradeId }, s.tradeRemindersSchema),
+        undefined,
+        p2pCurrent,
+      ),
     appendEvidence: (tradeId: string, evidence: string) =>
       guard.run(
         `${userId}:evidence:${tradeId}`,

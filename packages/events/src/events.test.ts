@@ -1337,6 +1337,7 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
       outcome: 'refunded',
     },
     p2pTradeFiatSent: { tradeId: uid(), buyerId: uid(), sellerId: uid(), markedAt: ts() },
+    p2pTradeReminderSent: { tradeId: uid(), n: 1, buyerId: uid(), sellerId: uid(), remindedAt: ts() },
     p2pChatMessageSent: { tradeId: uid(), messageId: uid(), senderId: uid(), recipientId: uid(), sentAt: ts() },
     p2pDisputeEscalated: {
       disputeId: uid(),

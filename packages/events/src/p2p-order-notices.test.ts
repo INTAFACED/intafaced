@@ -40,6 +40,13 @@ describe('P-trade-orders-23 p2p order notice events', () => {
     expect(EVENT_CATALOG.p2pQuoteExpired.subject).toBe('intafaced.p2p.quote.expired');
   });
 
+  it('declares the seller reminder under the subject law, numbered from 1 per order (J-p2p-02 #2)', () => {
+    expect(EVENT_CATALOG.p2pTradeReminderSent.subject).toBe('intafaced.p2p.trade_reminder.sent');
+    const reminder = { tradeId: uid(), n: 1, buyerId: uid(), sellerId: uid(), remindedAt: ts() };
+    expect(EVENT_CATALOG.p2pTradeReminderSent.schema.safeParse(reminder).success).toBe(true);
+    expect(EVENT_CATALOG.p2pTradeReminderSent.schema.safeParse({ ...reminder, n: 0 }).success).toBe(false);
+  });
+
   it('refuses payloads missing a recipient or carrying a non-uuid party', () => {
     expect(EVENT_CATALOG.p2pTradeFiatSent.schema.safeParse({ tradeId: uid(), buyerId: uid(), markedAt: ts() }).success).toBe(false);
     expect(
