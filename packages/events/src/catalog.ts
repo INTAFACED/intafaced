@@ -1414,6 +1414,37 @@ export const payCustodyAuditCreated = defineEvent(
   'A wallet or custody action (withdrawal, address change, limit change, freeze, policy change) was recorded for the append-only audit log behind /custody-ops. Deduplicated by entryKey.',
 );
 
+// ── pay: a crypto deposit was credited (W-deposit-05, W-deposit-09) ─────────
+
+/**
+ * One crypto deposit the ledger has credited to the customer's available balance. Published by svc-pay after the
+ * deposit row turned `credited` (the ledger post is the credit; this only says it happened). svc-pay records that it
+ * announced the row and announces again any credited row it has not recorded, so a crash after the credit still reaches
+ * the customer. Business key `pay:deposit-credit:posted:<depositId>`; a consumer keys its notice on `depositId`.
+ */
+export const payDepositCreditPostedPayloadSchema = z
+  .object({
+    depositId: z.string().guid(),
+    userId: userIdSchema,
+    assetId: assetIdSchema,
+    networkId: z.string().min(1).max(64),
+    amount: amountSchema,
+    txHash: z.string().min(1).max(256),
+    ledgerTxId: z.string().guid(),
+    creditedAt: z.string().datetime({ offset: true }),
+  })
+  .strict();
+export type PayDepositCreditPostedPayload = z.infer<typeof payDepositCreditPostedPayloadSchema>;
+
+export const payDepositCreditPosted = defineEvent(
+  'pay',
+  'deposit_credit',
+  'posted',
+  1,
+  payDepositCreditPostedPayloadSchema,
+  'A crypto deposit was credited to the customer (the ledger deposit post is the credit). For the inbox notice; deduplicated by depositId.',
+);
+
 // ── The registry ─────────────────────────────────────────────────────────────
 
 export const EVENT_CATALOG = {
@@ -1441,6 +1472,7 @@ export const EVENT_CATALOG = {
   coreOpsRestoreCompleted,
   coreOpsRestoreFailed,
   payCustodyAuditCreated,
+  payDepositCreditPosted,
   stakeCreated,
   buybackExecuted,
   bankMarginCalled,
@@ -2155,6 +2187,13 @@ export const WIRING_SOCKETS = [
     class: 'A',
     reason:
       'The append-only audit store that /custody-ops reads subscribes in the service PR for W-security-accounts-05. Producers keep the entry as a durable row first, so an entry published before its consumer exists is replayed, not lost.',
+  },
+  {
+    event: 'payDepositCreditPosted',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'svc-notify turns it into the deposit-credited inbox row in the W-deposit-09 svc-notify PR, keyed by depositId. svc-pay publishes it to its own stream, which keeps 90 days and gives a new durable consumer everything kept, so a credit announced before the consumer exists is read when it subscribes.',
   },
 ] satisfies readonly WiringSocket[];
 

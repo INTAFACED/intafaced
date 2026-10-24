@@ -293,7 +293,13 @@ This is the state history §6.1 requires, and it is the truth this service reaso
 
 ### NATS
 
-**svc-pay publishes no NATS subjects yet.** Not an oversight: the bus is a contract, and §15.2 / AGENT_PROTOCOL §2 require a `packages/events` catalog PR — reviewed on its own — before a producer emits anything. `intafaced.pay.payment.captured` and `intafaced.pay.settlement.completed` are the two consumers will want; they land in the catalog first.
+svc-pay owns `INTAFACED_PAY` (`ownedStreams: ['pay']`) and publishes one subject:
+
+| Subject                               | When                                                                                                                                                                                                                                                                                                   |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `intafaced.pay.deposit_credit.posted` | A customer crypto deposit was credited (W-deposit-09), after its ledger post. Key `pay:deposit-credit:posted:<depositId>`. Sent in the background and recorded in `credit_notified_at`; a bus that is down leaves it owed and a later pass (every 60s) sends it, so crediting never waits for the bus. |
+
+The bus is connected on first need, not at boot: svc-pay starts and serves without NATS. Other subjects (`intafaced.pay.payment.captured`, `intafaced.pay.settlement.completed`) land in the `packages/events` catalog first.
 
 **Consumes:** nothing.
 

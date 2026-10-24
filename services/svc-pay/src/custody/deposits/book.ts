@@ -8,6 +8,7 @@ import {
   type PayCustodyDepositRecordsReply,
   type PayCustodyDepositStatus,
 } from '@intafaced/contracts';
+import { payDepositCreditPostedPayloadSchema, type PayDepositCreditPostedPayload } from '@intafaced/events';
 import type { RegistryReader } from '../../registries/read-api.js';
 
 /**
@@ -27,6 +28,11 @@ import type { RegistryReader } from '../../registries/read-api.js';
  *   same key, so the record and the ledger cannot disagree because an owner setting moved in between.
  * - A finalized amount that differs from the one first seen is `needs_review`, never credited; an asset the address was not
  *   issued for is `rejected` and logged as an alert. `held_for_screening` and `reversed` are W-deposit-06.
+ * - ANNOUNCED ONCE CREDITED (W-deposit-09). A credited row is published for the customer's inbox (`announceCredit`), then
+ *   `credit_notified_at` is written. Crediting never waits for it: the flip only starts an announcing pass in the background,
+ *   and the service runs one on a timer too. One pass runs at a time and stops at the first bus failure; a crash or a bus
+ *   error leaves the row unrecorded, and a later pass announces it again under the same business key (consumers key on the
+ *   deposit id). An announcement that fails never undoes or holds the credit.
  */
 
 /** One transfer to a watched address, as the chain saw it. */
@@ -55,8 +61,20 @@ export interface CustodyDepositBookDeps {
     outputIndex: number;
   }) => Promise<{ id: string }>;
   readonly registries: Pick<RegistryReader, 'listRoutableNetworks'>;
+  /**
+   * Publishes one credited deposit for the inbox (`payDepositCreditPosted`, key `pay:deposit-credit:posted:<id>`); throws when
+   * the bus did not take it. Omitted, nothing is announced and the rows wait unrecorded, to be announced once a publisher is
+   * passed.
+   */
+  readonly announceCredit?: (credit: DepositCreditAnnouncement) => Promise<void>;
   readonly log?: (msg: string, extra?: Record<string, unknown>) => void;
 }
+
+/** What is announced about one credited deposit: the payload of `payDepositCreditPosted`. */
+export type DepositCreditAnnouncement = PayDepositCreditPostedPayload;
+
+/** Most credited rows one pass announces again, so a long backlog drains over passes instead of in one burst. */
+const ANNOUNCE_BATCH = 200;
 
 interface Row {
   id: string;
@@ -85,6 +103,10 @@ const OPEN = new Set<PayCustodyDepositStatus>(PAY_CUSTODY_DEPOSIT_PENDING_STATUS
 export class CustodyDepositBook {
   /** Keys of rows that can no longer change by a chain observation, so a poll does not read them again. */
   private readonly settled = new Map<string, ChainDepositOutcome>();
+
+  /** The announcing pass running now, if any; a call while it runs asks for one more pass after it. */
+  private announcing: Promise<number> | null = null;
+  private announceAgain = false;
 
   constructor(private readonly deps: CustodyDepositBookDeps) {}
 
@@ -133,6 +155,85 @@ export class CustodyDepositBook {
       }
     }
     return credited;
+  }
+
+  /**
+   * Announce credited rows not yet recorded as announced (new, or left by a crash or a bus error), oldest first, and resolve
+   * with how many were. One pass runs at a time: a call while one runs gets that pass, followed by one more. A pass stops at
+   * the first bus failure, so a bus that is down costs one failed publish, not one per row.
+   */
+  announceOwed(): Promise<number> {
+    if (!this.deps.announceCredit) return Promise.resolve(0);
+    if (this.announcing) {
+      this.announceAgain = true;
+      return this.announcing;
+    }
+    const passes = async () => {
+      let announced = 0;
+      for (;;) {
+        this.announceAgain = false;
+        const pass = await this.announcePass();
+        announced += pass.announced;
+        if (pass.stopped || !this.announceAgain) return announced;
+      }
+    };
+    this.announcing = passes().finally(() => {
+      this.announcing = null;
+    });
+    return this.announcing;
+  }
+
+  private async announcePass(): Promise<{ announced: number; stopped: boolean }> {
+    const { sql, announceCredit } = this.deps;
+    if (!announceCredit) return { announced: 0, stopped: true };
+    const owed = await sql<
+      Array<{
+        id: string;
+        user_id: string;
+        asset_id: string;
+        network_id: string;
+        amount: string;
+        tx_hash: string;
+        ledger_tx_id: string;
+        credited_at: Date;
+      }>
+    >`
+      SELECT id, user_id, asset_id, network_id, amount, tx_hash, ledger_tx_id, credited_at FROM pay.custody_deposits
+       WHERE status = 'credited' AND credit_notified_at IS NULL ORDER BY credited_at, id LIMIT ${ANNOUNCE_BATCH}`;
+    let announced = 0;
+    for (const row of owed) {
+      const credit = payDepositCreditPostedPayloadSchema.safeParse({
+        depositId: row.id,
+        userId: row.user_id,
+        assetId: row.asset_id,
+        networkId: row.network_id,
+        amount: row.amount,
+        txHash: row.tx_hash,
+        ledgerTxId: row.ledger_tx_id,
+        creditedAt: row.credited_at.toISOString(),
+      });
+      if (!credit.success) {
+        // A row the event cannot carry is not a bus failure: it stays owed and is named, and the rows after it still go out.
+        this.deps.log?.('custody deposit credit cannot be announced', {
+          depositId: row.id,
+          fields: credit.error.issues.map((issue) => issue.path.join('.')),
+        });
+        continue;
+      }
+      try {
+        await announceCredit(credit.data);
+      } catch (err) {
+        this.deps.log?.('custody deposit credit not announced yet', {
+          depositId: row.id,
+          waiting: owed.length - announced,
+          err: err instanceof Error ? err.message : String(err),
+        });
+        return { announced, stopped: true };
+      }
+      await sql`UPDATE pay.custody_deposits SET credit_notified_at = now() WHERE id = ${row.id} AND credit_notified_at IS NULL`;
+      announced += 1;
+    }
+    return { announced, stopped: false };
   }
 
   async records(input: PayCustodyDepositRecordsInput & { offset: number; limit: number }): Promise<PayCustodyDepositRecordsReply> {
@@ -254,7 +355,16 @@ export class CustodyDepositBook {
          SET status = 'credited', reason = NULL, confirmations_required = ${required}, minimum_deposit = ${minimum},
              ledger_tx_id = ${tx.id}, credited_at = now(), updated_at = now()
        WHERE id = ${row.id} AND status IN ('detected', 'confirming') RETURNING ${sql.unsafe(COLUMNS)}`;
-    return credited[0] ?? (await this.reload(row.id));
+    if (credited[0]) {
+      // Announced in the background: the credit never waits for the bus, and one not announced now is on a later pass.
+      if (this.deps.announceCredit) {
+        this.announceOwed().catch((err: unknown) =>
+          this.deps.log?.('custody deposit credits not announced', { err: err instanceof Error ? err.message : String(err) }),
+        );
+      }
+      return credited[0];
+    }
+    return this.reload(row.id);
   }
 
   private async park(row: Row, required: number | null, minimum: string | null, reason: PayCustodyDepositReason): Promise<Row> {

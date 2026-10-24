@@ -1819,6 +1819,9 @@ importers:
       '@intafaced/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@intafaced/events':
+        specifier: workspace:*
+        version: link:../../packages/events
       '@intafaced/i18n':
         specifier: workspace:*
         version: link:../../packages/i18n

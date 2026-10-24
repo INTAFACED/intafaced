@@ -986,7 +986,8 @@ services:
     expose: ['4006']
     healthcheck: *healthcheck
     depends_on:
-      # No `nats` — svc-pay connects to no bus (see its index.ts).
+      # No `nats` dependency: svc-pay connects to the bus on first need and keeps
+      # deposit credit announcements owed until it answers (see its index.ts).
       <<: *needs-schema
       svc-ledger:
         condition: service_healthy

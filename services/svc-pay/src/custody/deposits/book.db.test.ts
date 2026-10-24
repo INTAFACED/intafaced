@@ -250,4 +250,166 @@ describe('custody deposit record (real Postgres)', () => {
     expect(new Set(credited.map((r) => r.ledger_tx_id)).size).toBe(5);
     await expect(db.sql`UPDATE pay.custody_deposits SET status = 'credited' WHERE output_index = 9`).rejects.toThrow();
   });
+
+  describe('announcing a credit for the inbox (W-deposit-09)', () => {
+    type Sent = Parameters<NonNullable<ConstructorParameters<typeof CustodyDepositBook>[0]['announceCredit']>>[0];
+    const announcing = (sent: Sent[], failing: { on: boolean; tries?: number } = { on: false }) =>
+      new CustodyDepositBook({
+        sql: db.sql,
+        postDeposit: async (input) => {
+          const { networkId, txHash, outputIndex, ...rest } = input;
+          return ledger.post(recipes.deposit({ ...rest, rail: 'crypto-native', railRef: `${networkId}:${txHash}:${outputIndex}` }));
+        },
+        registries: { listRoutableNetworks: async () => networks },
+        announceCredit: async (credit) => {
+          failing.tries = (failing.tries ?? 0) + 1;
+          if (failing.on) throw new Error('bus unavailable');
+          sent.push(credit);
+        },
+        log: (msg, extra) => logs.push({ msg, extra }),
+      });
+    const unannounced = async () =>
+      (await db.sql<Array<{ id: string }>>`SELECT id FROM pay.custody_deposits WHERE status = 'credited' AND credit_notified_at IS NULL`)
+        .length;
+
+    it('announces a credit once, with its deposit, ledger transaction and time, and records it', async () => {
+      const sent: Sent[] = [];
+      const b = announcing(sent);
+      expect(await b.receive(seen({ confirmations: 11 }))).toMatchObject({ status: 'confirming' });
+      expect(sent).toHaveLength(0);
+      await b.receive(seen());
+      await b.receive(seen());
+      await b.settleOpen();
+      await b.announceOwed();
+      const [row] = await db.sql<Array<{ id: string; ledger_tx_id: string; credited_at: Date; credit_notified_at: Date | null }>>`
+        SELECT id, ledger_tx_id, credited_at, credit_notified_at FROM pay.custody_deposits`;
+      expect(sent).toEqual([
+        {
+          depositId: row!.id,
+          userId: ALICE,
+          assetId: 'USDT',
+          networkId: 'ethereum',
+          amount: '25',
+          txHash: TX.toLowerCase(),
+          ledgerTxId: row!.ledger_tx_id,
+          creditedAt: row!.credited_at.toISOString(),
+        },
+      ]);
+      expect(row!.credit_notified_at).not.toBeNull();
+      expect(posts()).toHaveLength(1);
+    });
+
+    it('a bus failure after the credit keeps the credit; the next pass announces it once', async () => {
+      const sent: Sent[] = [];
+      const failing = { on: true };
+      const b = announcing(sent, failing);
+      expect(await b.receive(seen())).toMatchObject({ status: 'credited' });
+      expect(await balance()).toBe(parseAmount('25'));
+      expect(await b.announceOwed()).toBe(0);
+      expect(sent).toHaveLength(0);
+      expect(await unannounced()).toBe(1);
+      expect(logs.map((l) => l.msg)).toContain('custody deposit credit not announced yet');
+      failing.on = false;
+      expect(await b.announceOwed()).toBe(1);
+      expect(await b.announceOwed()).toBe(0);
+      expect(sent).toHaveLength(1);
+      expect(await unannounced()).toBe(0);
+      expect(posts()).toHaveLength(1);
+    });
+
+    it('a crash after publishing and before recording announces again under the same deposit id', async () => {
+      const sent: Sent[] = [];
+      const b = announcing(sent);
+      await b.receive(seen());
+      await b.announceOwed();
+      await db.sql`UPDATE pay.custody_deposits SET credit_notified_at = NULL`;
+      expect(await b.announceOwed()).toBe(1);
+      expect(sent).toHaveLength(2);
+      expect(sent[1]!.depositId).toBe(sent[0]!.depositId);
+      expect(sent[1]).toEqual(sent[0]);
+    });
+
+    it('a credit does not wait for its announcement', async () => {
+      let release: () => void = () => undefined;
+      const held = new Promise<void>((resolve) => (release = resolve));
+      const sent: Sent[] = [];
+      const b = new CustodyDepositBook({
+        sql: db.sql,
+        postDeposit: async (input) => {
+          const { networkId, txHash, outputIndex, ...rest } = input;
+          return ledger.post(recipes.deposit({ ...rest, rail: 'crypto-native', railRef: `${networkId}:${txHash}:${outputIndex}` }));
+        },
+        registries: { listRoutableNetworks: async () => networks },
+        announceCredit: async (credit) => {
+          await held;
+          sent.push(credit);
+        },
+      });
+      expect(await b.receive(seen())).toMatchObject({ status: 'credited' });
+      expect(await balance()).toBe(parseAmount('25'));
+      expect(sent).toHaveLength(0);
+      release();
+      expect(await b.announceOwed()).toBe(1);
+      expect(sent).toHaveLength(1);
+      expect(await unannounced()).toBe(0);
+    });
+
+    it('a bus that is down costs one failed publish per pass, not one per row, and overlapping calls share a pass', async () => {
+      await book().receive(seen());
+      await book().receive(seen({ outputIndex: 1 }));
+      await book().receive(seen({ outputIndex: 2 }));
+      const sent: Sent[] = [];
+      const failing = { on: true, tries: 0 };
+      const b = announcing(sent, failing);
+      expect(await b.announceOwed()).toBe(0);
+      expect(failing.tries).toBe(1);
+      expect(await unannounced()).toBe(3);
+      failing.on = false;
+      failing.tries = 0;
+      const [first, second] = await Promise.all([b.announceOwed(), b.announceOwed()]);
+      expect(first).toBe(3);
+      expect(second).toBe(3);
+      expect(failing.tries).toBe(3);
+      expect(sent.map((c) => c.depositId)).toHaveLength(3);
+      expect(new Set(sent.map((c) => c.depositId)).size).toBe(3);
+      expect(await unannounced()).toBe(0);
+    });
+
+    it('a row the event cannot carry is named and skipped; the rows after it are still announced', async () => {
+      await book().receive(seen());
+      await book().receive(seen({ outputIndex: 1 }));
+      const [first] = await db.sql<Array<{ id: string }>>`
+        SELECT id FROM pay.custody_deposits WHERE output_index = 0`;
+      await db.sql`UPDATE pay.custody_deposits SET user_id = 'not-a-user-id' WHERE id = ${first!.id}`;
+      const sent: Sent[] = [];
+      expect(await announcing(sent).announceOwed()).toBe(1);
+      expect(sent.map((c) => c.depositId)).not.toContain(first!.id);
+      expect(logs).toContainEqual({
+        msg: 'custody deposit credit cannot be announced',
+        extra: { depositId: first!.id, fields: ['userId'] },
+      });
+      expect(await unannounced()).toBe(1);
+    });
+
+    it('with no publisher nothing is announced; credits wait and are announced once one is passed', async () => {
+      await book().receive(seen());
+      await book().receive(seen({ outputIndex: 1 }));
+      expect(await unannounced()).toBe(2);
+      const sent: Sent[] = [];
+      expect(await announcing(sent).announceOwed()).toBe(2);
+      expect(sent.map((c) => c.amount)).toEqual(['25', '25']);
+      expect(await unannounced()).toBe(0);
+    });
+
+    it('the migration marks credits made before it as announced, so they are not told again', async () => {
+      await book().receive(seen());
+      expect(await unannounced()).toBe(1);
+      const migration = readFileSync(join(drizzleDir, '20261024123500_pay_custody_deposit_credit_notice.sql'), 'utf8');
+      await db.sql.unsafe(migration);
+      expect(await unannounced()).toBe(0);
+      const sent: Sent[] = [];
+      expect(await announcing(sent).announceOwed()).toBe(0);
+      expect(sent).toHaveLength(0);
+    });
+  });
 });
