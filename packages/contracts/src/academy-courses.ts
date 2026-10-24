@@ -744,6 +744,8 @@ export type AcademySubmission = z.infer<typeof academySubmissionSchema>;
 /** AC-assignments-02: the grade on the learner's newest graded hand-in, as they see it: never the grader. */
 export const academyLearnerGradeSchema = z.object({
   version: z.number().int().positive(),
+  /** The grade event shown: 1 for the first grade, higher after a change. Mark as read names it. */
+  n: z.number().int().positive(),
   score: z.string(),
   points: z.string(),
   comment: z.string().nullable(),
@@ -881,7 +883,8 @@ export type AcademySubmitPeerReviewInput = z.infer<typeof academySubmitPeerRevie
  * A grade is released to the learner when it is saved. Bulk grading by file and removing a response are later parts.
  */
 /** A score: a decimal string from 0 with at most two places, never above the assignment's points (`academy.grade_invalid`). */
-export const ACADEMY_SCORE = /^(?:0|[1-9]\d{0,5})(?:\.\d{1,2})?$/;
+/** A score is written as points are, so any score up to the points is one. */
+export const ACADEMY_SCORE = ACADEMY_POINTS;
 export const academyGradingQueueInputSchema = z.object({ itemId: z.string().guid() }).strict();
 export const academyGradingRowSchema = z.object({
   submissionId: z.string().guid(),
@@ -930,6 +933,8 @@ export const academyGradeSubmissionInputSchema = z
   .strict();
 export type AcademyGradeSubmissionInput = z.infer<typeof academyGradeSubmissionInputSchema>;
 
-/** `markFeedbackRead`: the caller read the feedback on version `version`; a repeat answers as stored. */
-export const academyMarkFeedbackReadInputSchema = z.object({ itemId: z.string().guid(), version: z.number().int().positive() }).strict();
+/** `markFeedbackRead`: the caller read grade event `n` on version `version`; a repeat answers as stored. */
+export const academyMarkFeedbackReadInputSchema = z
+  .object({ itemId: z.string().guid(), version: z.number().int().positive(), n: z.number().int().positive() })
+  .strict();
 export type AcademyMarkFeedbackReadInput = z.infer<typeof academyMarkFeedbackReadInputSchema>;

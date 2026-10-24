@@ -85,6 +85,7 @@ describe('an assignment page (AC-assignments-01)', () => {
 describe('a grade on an assignment page (AC-assignments-02)', () => {
   const GRADE = {
     version: 2,
+    n: 1,
     score: '8',
     points: '10',
     comment: 'TEST Clear sizing.',

@@ -161,6 +161,7 @@ describe('grading hand-ins (AC-assignments-02)', () => {
     const view = await assignments().learnerView({ itemId: item.id, userId: L });
     expect(view.grade).toEqual({
       version: 1,
+      n: 1,
       score: '8',
       points: '10',
       comment: 'Clear sizing.',
@@ -201,25 +202,36 @@ describe('grading hand-ins (AC-assignments-02)', () => {
     const [{ n }] = await db.sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM academy.assignment_grade_events`;
     expect(n).toBe(1);
     await expect(grade(item.id, id, { score: '9' })).rejects.toMatchObject({ code: 'academy.revision_stale' });
+    // The same n with another comment is a different grade, not a retry: refused, and the stored one stands.
+    await expect(grade(item.id, id, { comment: 'Units missing.' })).rejects.toMatchObject({ code: 'academy.revision_stale' });
     await expect(grade(item.id, id, { n: 2, score: '9' })).rejects.toMatchObject({ code: 'academy.reason_required' });
     const over = await grade(item.id, id, { n: 2, score: '9', reason: 'TEST regraded on appeal' });
     expect(over.rows[0]!.grade).toMatchObject({ score: '9', overrides: 1 });
     expect((await assignments().learnerView({ itemId: item.id, userId: L })).grade!.score).toBe('9');
     await expect(grade(item.id, '00000000-0000-4000-8000-000000000000')).rejects.toMatchObject({ code: 'academy.submission_not_found' });
+    await assignments().withdraw({ itemId: item.id, reason: 'TEST', operatorId: A, now: NOW });
+    await expect(grade(item.id, id, { n: 3, score: '7', reason: 'TEST late change' })).rejects.toMatchObject({
+      code: 'academy.assignment_closed',
+    });
   });
 
   it('marking feedback read is recorded once and changes no grade; a hand-in with no grade refuses', async () => {
     const { item } = await openAssignment();
     await handIn(item.id, L, 'L');
-    await expect(grading().markRead({ itemId: item.id, version: 1, userId: L, now: NOW })).rejects.toMatchObject({
+    await expect(grading().markRead({ itemId: item.id, version: 1, n: 1, userId: L, now: NOW })).rejects.toMatchObject({
       code: 'academy.submission_not_found',
     });
     await grade(item.id, (await grading().queue({ itemId: item.id, operatorId: A, now: NOW })).rows[0]!.submissionId);
-    await grading().markRead({ itemId: item.id, version: 1, userId: L, now: later(5) });
-    await grading().markRead({ itemId: item.id, version: 1, userId: L, now: later(9) });
+    await grading().markRead({ itemId: item.id, version: 1, n: 1, userId: L, now: later(5) });
+    await grading().markRead({ itemId: item.id, version: 1, n: 1, userId: L, now: later(9) });
     const grade1 = (await assignments().learnerView({ itemId: item.id, userId: L })).grade!;
     expect(grade1).toMatchObject({ score: '8', readAt: later(5).toISOString() });
-    await expect(grading().markRead({ itemId: item.id, version: 1, userId: OUTSIDER, now: NOW })).rejects.toMatchObject({
+    // A change of grade after the read is unread again; a read sent for the old event leaves it so.
+    const id = (await grading().queue({ itemId: item.id, operatorId: A, now: NOW })).rows[0]!.submissionId;
+    await grade(item.id, id, { n: 2, score: '9', reason: 'TEST regraded' });
+    await grading().markRead({ itemId: item.id, version: 1, n: 1, userId: L, now: later(10) });
+    expect((await assignments().learnerView({ itemId: item.id, userId: L })).grade).toMatchObject({ n: 2, score: '9', readAt: null });
+    await expect(grading().markRead({ itemId: item.id, version: 1, n: 1, userId: OUTSIDER, now: NOW })).rejects.toMatchObject({
       code: 'academy.enrolment_required',
     });
   });

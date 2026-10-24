@@ -104,7 +104,7 @@ function Row({ row, busy, onGrade }: { row: AcademyGradingRow; busy: boolean; on
         {row.grade?.comment && ` · ${row.grade.comment}`}
       </p>
       {row.lease && !row.lease.mine && <Chip tone="warn">Another grader holds it until {formatWhen(row.lease.expiresAt)}</Chip>}
-      <button type="button" className="adm-btn" disabled={busy} onClick={onGrade}>
+      <button type="button" className="adm-btn" disabled={busy || (row.lease !== null && !row.lease.mine)} onClick={onGrade}>
         {row.grade ? 'Change grade' : 'Grade'}
       </button>
     </li>

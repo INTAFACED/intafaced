@@ -47,12 +47,19 @@ type QueueRow = {
   expires_at: Date | null;
 };
 
-type HandIn = { submission_id: string; item_id: string; points: string; due_at: Date | null };
+type HandIn = {
+  submission_id: string;
+  item_id: string;
+  state: string;
+  points: string;
+  due_at: Date | null;
+  withdrawn_at: Date | null;
+};
 
 /** The learner's newest grade, with when they read it. Null before staff grade. */
 export async function learnerGradeOf(sql: Db, itemId: string, userId: string, points: string): Promise<AcademyLearnerGrade | null> {
-  const [row] = await sql<Array<{ version: number; score: string; comment: string | null; at: Date; read_at: Date | null }>>`
-    SELECT s.version, g.score::text AS score, g.comment, g.at, r.read_at
+  const [row] = await sql<Array<{ version: number; n: number; score: string; comment: string | null; at: Date; read_at: Date | null }>>`
+    SELECT s.version, g.n, g.score::text AS score, g.comment, g.at, r.read_at
     FROM academy.assignment_submissions s
     JOIN academy.assignment_grade_events g ON g.submission_id = s.id
     LEFT JOIN academy.assignment_feedback_reads r ON r.grade_event_id = g.id
@@ -63,6 +70,7 @@ export async function learnerGradeOf(sql: Db, itemId: string, userId: string, po
   if (!row) return null;
   return {
     version: row.version,
+    n: row.n,
     score: canonicalPrice(row.score)!,
     points: canonicalPrice(points)!,
     comment: row.comment,
@@ -87,25 +95,35 @@ export class AssignmentGrading {
   /** Take or renew the caller's lease on one hand-in. Another grader's live lease refuses `academy.grader_locked`. */
   async open(input: AcademyOpenGradingInput & { operatorId: string; now: Date }): Promise<AcademyGradingQueue> {
     const seconds = this.requireLease();
-    return this.sql.begin(async (tx) => {
+    await this.sql.begin(async (tx) => {
       const handIn = await this.handIn(tx, input.itemId, input.submissionId);
       await this.lease(tx, handIn.submission_id, input.operatorId, input.now, seconds);
-      return this.queueIn(tx, input.itemId, input.operatorId, input.now);
     });
+    // Read after the commit, so a reply never holds a second connection while the hand-in is locked.
+    return this.queueIn(this.sql, input.itemId, input.operatorId, input.now);
   }
 
   /** Grade event `n` on a hand-in, under the caller's lease, which it then releases. */
   async grade(input: AcademyGradeSubmissionInput & { operatorId: string; now: Date }): Promise<AcademyGradingQueue> {
     const seconds = this.requireLease();
-    return this.sql.begin(async (tx) => {
+    const comment = input.comment || null;
+    const reason = input.n > 1 ? input.reason : null;
+    await this.sql.begin(async (tx) => {
       const handIn = await this.handIn(tx, input.itemId, input.submissionId);
       const [stored] = await tx<Array<{ score: string; comment: string | null; reason: string | null; actor: string }>>`
         SELECT score::text AS score, comment, reason, actor FROM academy.assignment_grade_events
         WHERE submission_id = ${handIn.submission_id} AND n = ${input.n}
       `;
-      // A retry after a lost reply finds its own event and answers with the queue as it stands.
-      if (stored && stored.actor === input.operatorId && canonicalPrice(stored.score) === canonicalPrice(input.score))
-        return this.queueIn(tx, input.itemId, input.operatorId, input.now);
+      // A retry after a lost reply finds its own event, field for field, and answers with the queue as it stands; any
+      // other grade under a stored n is stale.
+      if (
+        stored &&
+        stored.actor === input.operatorId &&
+        canonicalPrice(stored.score) === canonicalPrice(input.score) &&
+        stored.comment === comment &&
+        stored.reason === reason
+      )
+        return;
       const [last] = await tx<Array<{ n: number }>>`
         SELECT coalesce(max(n), 0)::int AS n FROM academy.assignment_grade_events WHERE submission_id = ${handIn.submission_id}
       `;
@@ -120,24 +138,21 @@ export class AssignmentGrading {
       await this.lease(tx, handIn.submission_id, input.operatorId, input.now, seconds);
       await tx`
         INSERT INTO academy.assignment_grade_events (submission_id, n, score, comment, actor, reason, at)
-        VALUES (${handIn.submission_id}, ${input.n}, ${input.score}, ${input.comment || null}, ${input.operatorId},
-                ${input.n > 1 ? input.reason : null}, ${input.now})
+        VALUES (${handIn.submission_id}, ${input.n}, ${input.score}, ${comment}, ${input.operatorId}, ${reason}, ${input.now})
       `;
       await tx`UPDATE academy.assignment_submissions SET state = 'graded' WHERE id = ${handIn.submission_id}`;
       await tx`DELETE FROM academy.assignment_grader_leases WHERE submission_id = ${handIn.submission_id}`;
-      return this.queueIn(tx, input.itemId, input.operatorId, input.now);
     });
+    return this.queueIn(this.sql, input.itemId, input.operatorId, input.now);
   }
 
-  /** The learner read the newest grade on version `version`. A repeat answers as stored; it changes no grade. */
+  /** The learner read grade event `n` on version `version`, the one their page showed. A repeat answers as stored. */
   async markRead(input: AcademyMarkFeedbackReadInput & { userId: string; now: Date }): Promise<void> {
     await this.assignments.learnerRow(this.sql, input.itemId, input.userId);
     const [event] = await this.sql<Array<{ id: string }>>`
       SELECT g.id FROM academy.assignment_submissions s
       JOIN academy.assignment_grade_events g ON g.submission_id = s.id
-      WHERE s.item_id = ${input.itemId} AND s.user_id = ${input.userId} AND s.version = ${input.version}
-      ORDER BY g.n DESC
-      LIMIT 1
+      WHERE s.item_id = ${input.itemId} AND s.user_id = ${input.userId} AND s.version = ${input.version} AND g.n = ${input.n}
     `;
     if (!event) throw new AcademyError('that hand-in has no grade to read', 'academy.submission_not_found');
     await this.sql`
@@ -166,16 +181,18 @@ export class AssignmentGrading {
     if (!held) throw new AcademyError('another grader holds this hand-in', 'academy.grader_locked');
   }
 
-  /** The hand-in, locked, if it is the newest of its learner on this assignment item. */
+  /** The hand-in, locked, if it is the newest of its learner on this assignment item, neither withdrawn nor closed. */
   private async handIn(tx: TransactionSql, itemId: string, submissionId: string): Promise<HandIn> {
     const [row] = await tx<HandIn[]>`
-      SELECT s.id AS submission_id, s.item_id, a.points::text AS points, a.due_at
+      SELECT s.id AS submission_id, s.item_id, s.state, a.points::text AS points, a.due_at, a.withdrawn_at
       FROM academy.assignment_submissions s JOIN academy.course_assignments a ON a.item_id = s.item_id
       WHERE s.id = ${submissionId} AND s.item_id = ${itemId}
         AND s.version = (SELECT max(version) FROM academy.assignment_submissions o WHERE o.item_id = s.item_id AND o.user_id = s.user_id)
       FOR UPDATE OF s
     `;
-    if (!row) throw new AcademyError('no newest hand-in with that id on this assignment', 'academy.submission_not_found');
+    if (!row || row.state === 'withdrawn')
+      throw new AcademyError('no newest hand-in with that id on this assignment', 'academy.submission_not_found');
+    if (row.withdrawn_at) throw new AcademyError('staff withdrew this assignment', 'academy.assignment_closed');
     return row;
   }
 
@@ -192,17 +209,17 @@ export class AssignmentGrading {
       )
       SELECT l.id AS submission_id, f.alias, l.version, l.submitted_at, l.text,
         fl.file_name, fl.content_type, fl.bytes::text AS bytes,
-        (SELECT count(*) FROM academy.assignment_reviews r
-          WHERE r.item_id = l.item_id AND r.author_id = l.user_id AND r.version = l.version
-            AND r.reviewer_id <> r.author_id AND r.marks IS NOT NULL)::int AS received,
-        (SELECT round(avg(r.total), 2)::text FROM academy.assignment_reviews r
-          WHERE r.item_id = l.item_id AND r.author_id = l.user_id AND r.version = l.version
-            AND r.reviewer_id <> r.author_id AND r.marks IS NOT NULL) AS mean_total,
+        pr.received, pr.mean_total,
         g.score::text AS score, g.comment, g.at AS graded_at, coalesce(g.n, 0)::int AS last_n,
         le.holder, le.expires_at
       FROM latest l
       JOIN firsts f ON f.user_id = l.user_id
       LEFT JOIN academy.assignment_files fl ON fl.id = l.file_id
+      CROSS JOIN LATERAL (
+        SELECT count(*)::int AS received, round(avg(r.total), 2)::text AS mean_total FROM academy.assignment_reviews r
+        WHERE r.item_id = l.item_id AND r.author_id = l.user_id AND r.version = l.version
+          AND r.reviewer_id <> r.author_id AND r.marks IS NOT NULL
+      ) pr
       LEFT JOIN LATERAL (
         SELECT score, comment, at, n FROM academy.assignment_grade_events WHERE submission_id = l.id ORDER BY n DESC LIMIT 1
       ) g ON TRUE

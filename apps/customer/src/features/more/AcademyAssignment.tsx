@@ -154,7 +154,7 @@ export function AssignmentGrade({
 }: {
   grade: AcademyAssignmentView['grade'];
   marking: boolean;
-  onMarkRead: (version: number) => void;
+  onMarkRead: (version: number, n: number) => void;
 }) {
   const { t } = copy.useCopy();
   const { language } = usePreferences();
@@ -175,7 +175,7 @@ export function AssignmentGrade({
       {grade.readAt ? (
         <p role="status">{t('grdRead')}</p>
       ) : (
-        <Button type="button" variant="secondary" disabled={marking} onClick={() => onMarkRead(grade.version)}>
+        <Button type="button" variant="secondary" disabled={marking} onClick={() => onMarkRead(grade.version, grade.n)}>
           {marking ? t('grdMarking') : t('grdMarkRead')}
         </Button>
       )}
@@ -303,10 +303,10 @@ export function AcademyAssignment({ slug, itemId }: { slug: string; itemId: stri
     }
   };
 
-  const markRead = async (version: number) => {
+  const markRead = async (version: number, n: number) => {
     setMarking(true);
     setReadRefused(null);
-    const marked = await api.mutate('academy', 'markFeedbackRead', { itemId, version }, academyAssignmentViewSchema);
+    const marked = await api.mutate('academy', 'markFeedbackRead', { itemId, version, n }, academyAssignmentViewSchema);
     setMarking(false);
     if (marked.ok) setLast(marked.data);
     else if (marked.reason !== 'uncertain') setReadRefused(marked);
@@ -357,7 +357,7 @@ export function AcademyAssignment({ slug, itemId }: { slug: string; itemId: stri
           {outcome && <OutcomeLine outcome={outcome} />}
           <AssignmentSubmissions data={data} />
           <AcademyPeerReview itemId={data.itemId} handedIn={data.submissions.length} />
-          <AssignmentGrade grade={data.grade} marking={marking} onMarkRead={(version) => void markRead(version)} />
+          <AssignmentGrade grade={data.grade} marking={marking} onMarkRead={(version, n) => void markRead(version, n)} />
           {readRefused && <AcademyRefusal failure={readRefused} />}
         </div>
       </Panel>
