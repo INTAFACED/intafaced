@@ -114,3 +114,92 @@ test(`${J} #3 reads a deposit: valued at the time it arrived, with the price sou
   await expect(lots.locator('tbody tr[data-source="trade"] [data-col="cost"]').first()).not.toHaveText('Cost unknown');
   await expect(page.locator('tr[data-asset="BTC"] [data-col="cost"]')).toHaveText('Not known');
 });
+
+/** Sells `amount` BTC at once (a limit sell under the best bid takes the maker's bids). Returns the USDT that arrived. */
+async function sellNow(page, who, amount) {
+  const before = await (await api(who)).balances();
+  await page.goto(deskPath('BTC/USDT'));
+  const { bid } = await bestPrices('BTC/USDT');
+  await reviewLimit(page, 'sell', priceAt(bid, 99), amount);
+  await confirm(page, 'sell');
+  await expect.poll(async () => held(await (await api(who)).balances(), 'BTC'), { timeout: 20_000 }).toBe(0n);
+  const after = await (await api(who)).balances();
+  expect(total(before, 'BTC') - total(after, 'BTC')).toBe(toUnits(amount));
+  return total(after, 'USDT') - total(before, 'USDT');
+}
+
+test(`${J} #6 sells into the lot with no cost: the warning names that lot, and the sale shows its unknown share`, async ({ page }) => {
+  const who = account();
+  const { buys } = run.read();
+  const bought = buys.reduce((sum, b) => sum + toUnits(b.qty), 0n);
+  await signIn(page, who);
+  // FIFO uses the two bought lots first (a little under 0.005 BTC once the fees came out of them), so a sale of 0.006 BTC,
+  // a size the desk takes, reaches into the deposit's lot for the rest.
+  const amount = '0.006';
+  const part = toUnits(amount) - bought;
+  expect(part).toBeGreaterThan(0n);
+  expect(part).toBeLessThan(toUnits('0.004'));
+  const proceeds = await sellNow(page, who, amount);
+  run.write({ sold: amount, part: fromUnits(part), proceeds: fromUnits(proceeds) });
+
+  await page.goto('/money/pnl?asset=BTC');
+  const missing = page.getByRole('region', { name: 'Missing cost' });
+  await expect(missing).toBeVisible();
+  const lots = page.getByRole('region', { name: 'Lots' });
+  const depositLot = await lots.locator('tbody tr[data-source="deposit"]').getAttribute('data-lot');
+  const item = missing.locator(`li[data-missing-lot="${depositLot}"]`);
+  await expect(item).toContainText('Deposit on');
+  await expect(item).toContainText(`${fromUnits(toUnits('0.004') - part)} BTC with no cost`);
+  await expect(item.locator('[data-effect="unknown-share"]')).toHaveText(`Unknown share: ${fromUnits(part)} BTC sold with no cost`);
+  // The sale itself: what was received is known, its cost and result are not, and the unknown share is named.
+  const sale = page.getByRole('region', { name: 'Sales' }).locator('tr[data-sale]').first();
+  await expect(sale.locator('td').nth(0)).toHaveText(amount);
+  await expect(sale.locator('td').nth(1)).toHaveText(usd(proceeds));
+  await expect(sale.locator('[data-col="result"]')).toContainText('Cost unknown');
+  await expect(sale.locator('[data-effect="unknown-share"]')).toHaveText(`Unknown share: ${fromUnits(part)} BTC sold with no cost`);
+});
+
+test(`${J} #7 enters the price paid for that lot: the result recomputes, marked customer-entered, and our unknown stays on record`, async ({
+  page,
+}) => {
+  const who = account();
+  const { buys, proceeds, part } = run.read();
+  const boughtCost = buys.reduce((sum, b) => sum + toUnits(b.cost), 0n);
+  const PRICE = '61000.5';
+  await signIn(page, who);
+  await page.goto('/money/pnl?asset=BTC');
+  const missing = page.getByRole('region', { name: 'Missing cost' });
+  await missing.getByRole('button', { name: 'Enter a cost' }).click();
+  const form = missing.getByRole('form', { name: 'Enter a cost for this lot' });
+  await expect(form).toContainText('Our record: cost unknown.');
+  // A blank note is refused before anything is sent.
+  await form.getByLabel('Price you paid per BTC, in USD').fill(PRICE);
+  await form.getByRole('button', { name: 'Save price' }).click();
+  await expect(form.getByRole('status')).toHaveText('Say where this price comes from, for example the receipt of the purchase.');
+  await form.getByLabel('Where this price comes from').fill('TEST receipt from an earlier purchase');
+  await form.getByRole('button', { name: 'Save price' }).click();
+  await expect(form.getByRole('status')).toHaveText('Price saved. The figures use it, marked customer-entered.');
+
+  // The deposit's lot now has the customer's cost (0.004 at that price), labelled, with our own unknown beside it.
+  const lots = page.getByRole('region', { name: 'Lots' });
+  const lot = lots.locator('tbody tr[data-source="deposit"]');
+  await expect(lot.locator('[data-col="cost"]')).toContainText(usd((toUnits('0.004') * toUnits(PRICE)) / ONE));
+  await expect(lot.locator('[data-col="cost"] [data-label="customer-entered"]')).toContainText(
+    'Customer-entered · our record: cost unknown',
+  );
+  // The sale recomputes by hand: its cost is the two bought lots plus the deposit's part at the entered price; the result is
+  // what was received minus that, and it says it uses a price the customer entered.
+  const cost = boughtCost + (toUnits(part) * toUnits(PRICE)) / ONE;
+  const sale = page.getByRole('region', { name: 'Sales' }).locator('tr[data-sale]').first();
+  await expect(sale.locator('td').nth(2)).toHaveText(usd(cost));
+  await expect(sale.locator('[data-col="result"]')).toContainText(usd(toUnits(proceeds) - cost).replace(/^(?!−)/, '+'));
+  await expect(sale.locator('[data-col="result"] [data-label="customer-entered"]')).toHaveText('Customer-entered');
+  await expect(page.getByRole('region', { name: 'Missing cost' })).toHaveCount(0);
+
+  // Taking the price back: the lot's cost is unknown again, and the sale's result with it. Nothing else moved.
+  const balances = await (await api(who)).balances();
+  await lot.getByRole('button', { name: 'Remove my price' }).click();
+  await expect(lot.locator('[data-col="cost"]')).toHaveText('Cost unknown');
+  await expect(sale.locator('[data-col="result"]')).toContainText('Cost unknown');
+  expect(await (await api(who)).balances()).toEqual(balances);
+});

@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { lotAssetFromQuery, lotAssets, lotsOf, methodFromQuery, pnlView, type LotBook, type LotBookLot } from './pnl-model';
+import {
+  lotAssetFromQuery,
+  lotAssets,
+  lotsMissingCost,
+  lotsOf,
+  methodFromQuery,
+  pnlView,
+  unknownShareOf,
+  type LotBook,
+  type LotBookLot,
+} from './pnl-model';
 import type { MoneyRow } from './portfolio-source';
 
 // TEST data, hand-computed.
@@ -139,5 +149,46 @@ describe('lots', () => {
     expect(lotAssetFromQuery('?asset=btc', lotAssets(lots))).toBe('BTC');
     expect(lotAssetFromQuery('?asset=DOGE', lotAssets(lots))).toBe('ETH');
     expect(lotAssetFromQuery('', [])).toBeNull();
+  });
+});
+
+describe('missing cost', () => {
+  const missing = {
+    items: [
+      {
+        lotId: 'lot:d1:BTC',
+        assetId: 'BTC',
+        kind: 'open' as const,
+        qty: '0.003',
+        code: 'tax.cost_basis_unavailable' as const,
+        effect: 'unknown share' as const,
+        saleTxId: null,
+      },
+      {
+        lotId: 'lot:d1:BTC',
+        assetId: 'BTC',
+        kind: 'disposal' as const,
+        qty: '0.001',
+        code: 'tax.cost_basis_unavailable' as const,
+        effect: 'unknown share' as const,
+        saleTxId: 's1',
+      },
+      {
+        lotId: null,
+        assetId: 'BTC',
+        kind: 'disposal' as const,
+        qty: '0.0005',
+        code: 'tax.lot_underflow' as const,
+        effect: 'unknown share' as const,
+        saleTxId: 's2',
+      },
+    ],
+  };
+
+  it('lists the open lots with no cost, and the unknown parts of one sale', () => {
+    expect(lotsMissingCost(missing).map((item) => item.lotId)).toEqual(['lot:d1:BTC']);
+    expect(unknownShareOf(missing, { txId: 's1', assetId: 'BTC' }).map((item) => item.qty)).toEqual(['0.001']);
+    expect(unknownShareOf(missing, { txId: 's2', assetId: 'BTC' }).map((item) => item.lotId)).toEqual([null]);
+    expect(unknownShareOf(missing, { txId: 's3', assetId: 'BTC' })).toEqual([]);
   });
 });

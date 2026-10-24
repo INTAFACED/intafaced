@@ -9,8 +9,12 @@ import type { MoneyRow } from './portfolio-source';
  * a figure that cannot be known is null with a reason, never a zero.
  */
 
-export { lotBookSchema } from '@intafaced/contracts/tax-lot-book';
+export { basisWriteResultSchema, lotBookSchema, missingBasisSchema } from '@intafaced/contracts/tax-lot-book';
 export type { LotBookAnswer as LotBook, LotBookLot, LotBookSale } from '@intafaced/contracts/tax-lot-book';
+import type { missingBasisSchema as MissingBasisSchema } from '@intafaced/contracts/tax-lot-book';
+import type { z } from 'zod';
+export type MissingBasis = z.infer<typeof MissingBasisSchema>;
+export type MissingBasisItem = MissingBasis['items'][number];
 
 /** The methods the screen offers, in the order of the switch. AVERAGE is one running cost per coin for each asset. */
 export const LOT_METHODS = LOT_BOOK_METHODS;
@@ -106,4 +110,14 @@ export function lotAssetFromQuery(search: string, assets: readonly string[]): st
 
 export function lotsOf(book: LotBookAnswer, asset: string): LotBookLot[] {
   return book.lots.filter((lot) => lot.assetId === asset);
+}
+
+/** The part of one sale that reached a lot with no cost (or no lot at all), from the missing list; null when every part has a cost. */
+export function unknownShareOf(missing: MissingBasis, sale: { txId: string; assetId: string }): MissingBasisItem[] {
+  return missing.items.filter((item) => item.kind === 'disposal' && item.saleTxId === sale.txId && item.assetId === sale.assetId);
+}
+
+/** The open lots with no cost, each once, in the order the missing list names them. */
+export function lotsMissingCost(missing: MissingBasis): MissingBasisItem[] {
+  return missing.items.filter((item) => item.kind === 'open' && item.lotId !== null);
 }

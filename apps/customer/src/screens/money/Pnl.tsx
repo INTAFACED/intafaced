@@ -1,7 +1,8 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { InfoTip } from './InfoTip';
 import { moneyCopy } from './copy';
-import { Amount, Skeleton, StateBlock, fmtAmount, fmtPct, fmtUsd, navigate, refusalCopy, type Loadable } from './deps';
+import { Amount, Button, Skeleton, StateBlock, fmtAmount, fmtPct, fmtUsd, navigate, refusalCopy, type Loadable } from './deps';
+import { MissingCost, basisRefusalWords } from './MissingCost';
 import {
   LOT_METHODS,
   lotAssetFromQuery,
@@ -13,9 +14,11 @@ import {
   type LotBook,
   type LotBookLot,
   type LotMethod,
+  type MissingBasis,
   type UnknownReason,
+  unknownShareOf,
 } from './pnl-model';
-import { useLotBook } from './pnl-source';
+import { useBasisOverride, useLotBook, useMissingBasis, type BasisOutcome } from './pnl-source';
 import { useMoneyPortfolio } from './portfolio-source';
 import { stamp } from './time';
 import { usePreferences } from '../../shared/preferences';
@@ -148,7 +151,7 @@ function AssetRows({ assets, hidden, copy }: { assets: readonly AssetPnl[]; hidd
   );
 }
 
-function SaleRows({ book, hidden, copy }: { book: LotBook; hidden: boolean; copy: Copy }) {
+function SaleRows({ book, missing, hidden, copy }: { book: LotBook; missing: MissingBasis | null; hidden: boolean; copy: Copy }) {
   const { t } = copy;
   const { timeZone } = usePreferences();
   return (
@@ -198,6 +201,20 @@ function SaleRows({ book, hidden, copy }: { book: LotBook; hidden: boolean; copy
                   ) : (
                     <Amount value={usd(sale.realizedUsd, copy, true)} hidden={hidden} />
                   )}
+                  {sale.basisSource === 'customer-entered' ? (
+                    <span className="money-note" data-label="customer-entered">
+                      {' '}
+                      {t('Customer-entered')}
+                    </span>
+                  ) : null}
+                  {missing
+                    ? unknownShareOf(missing, sale).map((part) => (
+                        <span key={`${part.lotId ?? 'no-lot'}`} className="money-note" data-effect="unknown-share">
+                          {' '}
+                          {t('Unknown share', { qty: `${fmtAmount(part.qty)} ${part.assetId}` })}
+                        </span>
+                      ))
+                    : null}
                 </td>
               </tr>
             ))}
@@ -216,7 +233,19 @@ function priceSource(lot: LotBookLot, copy: Copy, timeZone: Parameters<typeof st
   return copy.t('Price source', { market: v.market, frame, time: v.candleAt === null ? '' : stamp(v.candleAt, timeZone) });
 }
 
-function LotRows({ book, search, hidden, copy }: { book: LotBook; search: string; hidden: boolean; copy: Copy }) {
+function LotRows({
+  book,
+  search,
+  hidden,
+  copy,
+  onRemove,
+}: {
+  book: LotBook;
+  search: string;
+  hidden: boolean;
+  copy: Copy;
+  onRemove: (lotId: string) => Promise<BasisOutcome>;
+}) {
   const { t } = copy;
   const { timeZone } = usePreferences();
   const assets = lotAssets(book);
@@ -282,6 +311,7 @@ function LotRows({ book, search, hidden, copy }: { book: LotBook; search: string
               </td>
               <td className="money-num" data-col="cost">
                 {lot.costUsd === null ? <span>{t('Cost unknown')}</span> : <Amount value={usd(lot.costUsd, copy)} hidden={hidden} />}
+                {lot.basisSource === 'customer-entered' ? <CustomerEntered lotId={lot.id} copy={copy} onRemove={onRemove} /> : null}
               </td>
               <td className="money-num" data-col="cost-left">
                 {lot.remainingCostUsd === null ? (
@@ -315,6 +345,34 @@ function LotRows({ book, search, hidden, copy }: { book: LotBook; search: string
   );
 }
 
+/** A lot whose cost is a price the customer entered: labelled so, with our own record beside it, and a way to take it back. */
+function CustomerEntered({ lotId, copy, onRemove }: { lotId: string; copy: Copy; onRemove: (lotId: string) => Promise<BasisOutcome> }) {
+  const { t } = copy;
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  return (
+    <span className="money-note" data-label="customer-entered">
+      {' '}
+      {t('Customer-entered')} · {t('Our record unknown')}{' '}
+      <Button
+        type="button"
+        variant="ghost"
+        size={28}
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true);
+          const result = await onRemove(lotId);
+          setBusy(false);
+          setMessage(result.ok ? t('Price removed') : basisRefusalWords(result.code, copy));
+        }}
+      >
+        {t('Remove my price')}
+      </Button>
+      <span role="status">{message ?? ''}</span>
+    </span>
+  );
+}
+
 export default function Pnl({ search = '' }: { search?: string }) {
   const copy = moneyCopy.useCopy();
   const { t } = copy;
@@ -324,6 +382,9 @@ export default function Pnl({ search = '' }: { search?: string }) {
   const method = typeof asked === 'string' ? asked : null;
   const pick = (next: LotMethod) => navigate(`/money/pnl?method=${next}`, true);
   const book = useLotBook(method);
+  const missing = useMissingBasis(method);
+  const basis = useBasisOverride(method);
+  const missingData = missing.status === 'ready' ? missing.data : null;
   const portfolio = useMoneyPortfolio();
   const rows = portfolio.status === 'ready' ? portfolio.data.rows : null;
   const view = useMemo(() => (book.status === 'ready' ? pnlView(book.data, rows) : null), [book, rows]);
@@ -396,9 +457,10 @@ export default function Pnl({ search = '' }: { search?: string }) {
             ))}
           </ul>
         ) : null}
+        {missingData ? <MissingCost book={book.data} missing={missingData} hidden={hideBalances} copy={copy} onSave={basis.set} /> : null}
         <AssetRows assets={view.assets} hidden={hideBalances} copy={copy} />
-        <SaleRows book={book.data} hidden={hideBalances} copy={copy} />
-        <LotRows book={book.data} search={search} hidden={hideBalances} copy={copy} />
+        <SaleRows book={book.data} missing={missingData} hidden={hideBalances} copy={copy} />
+        <LotRows book={book.data} search={search} hidden={hideBalances} copy={copy} onRemove={basis.remove} />
       </>
     );
   }
