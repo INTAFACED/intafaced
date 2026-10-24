@@ -180,7 +180,9 @@ test(`${J} #2 the owner chooses the legal entity type; changing it returns the a
   await change.getByLabel('Legal entity type *').selectOption({ label: 'Sole trader' });
   await change.getByRole('button', { name: 'Change type' }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Change type' }).click();
-  await expect(change.getByRole('status')).toHaveText('Type changed. Fill in each part again for the new type.');
+  await expect(change.getByRole('status').filter({ hasText: 'Type changed.' })).toHaveText(
+    'Type changed. Fill in each part again for the new type.',
+  );
   await expect(app.getByText('Pending', { exact: true })).toBeVisible();
   await expect(needed).toContainText('Company details');
   await expect(needed).toContainText('Documents: Test proof of identity, Test proof of address');
@@ -222,7 +224,7 @@ test(`${J} part of #3 the owner adds the people and documents a sole trader is a
   await questions.getByRole('button', { name: 'Save' }).click();
   await expect(questions.getByRole('status')).toHaveText('Saved. This part is done.');
 
-  const docs = app.getByRole('region', { name: 'Documents' });
+  const docs = app.getByRole('region', { name: 'Documents', exact: true });
   await expect(docs).toContainText('Files up to 1.0 MB. Accepted: PDF, PNG.');
   await expect(docs).toContainText('The automatic document check isn’t connected');
   const identity = docs.getByRole('row', { name: /Test proof of identity/ });
@@ -249,19 +251,19 @@ test(`${J} part of #3 the owner adds the people and documents a sole trader is a
   expect(uploads).toHaveLength(2);
 
   await docs.getByRole('button', { name: 'Confirm documents' }).click();
-  await expect(docs.getByRole('status')).toHaveText('Saved. This part is done.');
+  await expect(docs.getByRole('status').filter({ hasText: 'Saved.' })).toHaveText('Saved. This part is done.');
   await expect(app.getByText('Ready to send', { exact: true })).toBeVisible();
   await page.reload();
   await expect(app.getByText('Ready to send', { exact: true })).toBeVisible();
-  await expect(app.getByRole('region', { name: 'Documents' }).getByRole('row', { name: /Test proof of identity/ })).toContainText(
-    'Pending',
-  );
+  await expect(
+    app.getByRole('region', { name: 'Documents', exact: true }).getByRole('row', { name: /Test proof of identity/ }),
+  ).toContainText('Pending');
 
   await app.getByRole('button', { name: 'Send application for review' }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Send application for review' }).click();
   await expect(app.getByText('Sent for review', { exact: true })).toBeVisible();
   await expect(app).toContainText('INTAFACED is reviewing your application');
   await expect(page.getByText('INTAFACED is reviewing it')).toBeVisible();
-  await expect(app.getByRole('region', { name: 'Documents' }).locator('input[type=file]')).toHaveCount(0);
+  await expect(app.getByRole('region', { name: 'Documents', exact: true }).locator('input[type=file]')).toHaveCount(0);
   expect(refused).toEqual([]);
 });
