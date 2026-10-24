@@ -167,6 +167,11 @@ export const CONTROL_COPY: Record<string, PlainRefusal> = {
     body: 'A request needs a due date in the future, so the merchant has time to answer.',
     next: 'Pick a later due date and send it again. Nothing was sent.',
   },
+  'pay.kyb_request_asked_before': {
+    title: 'This exact request was already sent',
+    body: 'A request with the same words and due date was sent to this merchant and is already answered or closed, so nothing new went out.',
+    next: 'To ask again, change the words or the due date.',
+  },
   'pay.kyb_request_closed': {
     title: 'This request is already closed',
     body: 'It was closed with another note. A closed request stays as it is.',

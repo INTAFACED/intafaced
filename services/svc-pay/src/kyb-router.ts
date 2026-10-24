@@ -144,7 +144,8 @@ function toTrpcError(err: unknown): unknown {
       err.code === 'pay.kyb_application_decided' ||
       err.code === 'pay.kyb_request_already_answered' ||
       err.code === 'pay.kyb_request_closed' ||
-      err.code === 'pay.kyb_request_key_conflict'
+      err.code === 'pay.kyb_request_key_conflict' ||
+      err.code === 'pay.kyb_request_asked_before'
     ) {
       return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
     }

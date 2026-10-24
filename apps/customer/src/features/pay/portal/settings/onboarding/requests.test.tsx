@@ -5,7 +5,7 @@ vi.mock('../../../../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 import { failed, noop, plain, ready } from '../account/testing';
-import { InformationRequestsView } from './Requests';
+import { InformationRequestsView, OwnerOnlyRequests } from './Requests';
 import type { RequestsView } from './requests-api';
 
 // TEST DATA ONLY: the requests, answer and reviewer stand in for what INTAFACED asks.
@@ -79,8 +79,15 @@ describe('information requests on the Compliance page', () => {
     );
     expect(calm).not.toContain('past its due date');
     expect(calm).toContain('the malware check isn’t connected');
-    expect(calm).not.toContain('type="file"');
+    // The file control stays on the page, closed, with the reason beside it.
+    expect(calm).toMatch(/<input[^>]*type="file"[^>]*disabled=""/);
     expect(html(ready({ ...view, requests: [] }))).toContain('INTAFACED hasn’t asked for anything more.');
     expect(html(failed('pay.kyb_scan_failed', 503, 'error'))).not.toContain('Send answer');
+  });
+  it('tells a team member that only the owner reads and answers requests, without asking svc-pay', () => {
+    const out = renderToString(<OwnerOnlyRequests />);
+    plain(out);
+    expect(out).toContain('Information requests');
+    expect(out).toContain('Only the account owner can read and answer');
   });
 });

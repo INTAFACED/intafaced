@@ -6,7 +6,7 @@ import { PaySection } from '../../../components';
 import { Chip, Gate, ListShell, MoreFooter } from '../../components';
 import { useCursorList, type ListState } from '../../hooks';
 import type { PortalApi } from '../../api';
-import { kybCurrentSchema, type KybEvent } from '../../schemas';
+import { kybCurrentSchema, type KybEvent, type MemberRole } from '../../schemas';
 import { CopyReference } from '../../ui/CopyReference';
 import { Freshness } from '../../ui/Freshness';
 import { Timeline } from '../../ui/Timeline';
@@ -21,7 +21,7 @@ import { InformationRequests } from './Requests';
 type Kyb = z.infer<typeof kybCurrentSchema>;
 
 /** `/pay/compliance`: where your business verification stands and what INTAFACED still needs. Screening results are never shown here. */
-export function Compliance({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
+export function Compliance({ portal, merchantId, role }: { portal: PortalApi; merchantId: string; role: MemberRole }) {
   const current = useResource((signal) => portal.kybCurrent(signal), 'portal:compliance-current');
   const history = useCursorList(
     (cursor, signal) => portal.kybHistory(cursor, signal),
@@ -37,7 +37,7 @@ export function Compliance({ portal, merchantId }: { portal: PortalApi; merchant
         current.reload();
         history.reload();
       }}
-      requests={<InformationRequests portal={portal} merchantId={merchantId} />}
+      requests={<InformationRequests portal={portal} merchantId={merchantId} role={role} />}
     />
   );
 }

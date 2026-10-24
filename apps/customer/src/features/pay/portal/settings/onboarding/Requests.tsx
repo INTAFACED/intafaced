@@ -5,6 +5,7 @@ import type { ApiResult } from '../../../../../shared/api';
 import { PaySection } from '../../../components';
 import { Gate } from '../../components';
 import type { PortalApi } from '../../api';
+import type { MemberRole } from '../../schemas';
 import { DateTime } from '../../ui/DateTime';
 import { formatBytes } from '../reports/model';
 import { applicationCopy } from './application-copy';
@@ -15,8 +16,25 @@ import type { InformationRequest, RequestsView } from './requests-api';
 type File_ = { contentType: string; bytesBase64: string };
 export type AnswerRequest = (requestId: string, note: string | null, file: File_ | null) => Promise<ApiResult<unknown>>;
 
-/** `/pay/compliance`: what INTAFACED asked the business for, by when, the answer, and who closed each request. */
-export function InformationRequests({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
+/**
+ * `/pay/compliance`: what INTAFACED asked the business for, by when, the answer, and who closed each request. Only the
+ * account owner reads and answers them (svc-pay checks ownership); a team member sees the section and why it is closed.
+ */
+export function InformationRequests({ portal, merchantId, role }: { portal: PortalApi; merchantId: string; role: MemberRole }) {
+  if (role !== 'owner') return <OwnerOnlyRequests />;
+  return <OwnersRequests portal={portal} merchantId={merchantId} />;
+}
+
+export function OwnerOnlyRequests() {
+  const { t } = requestsCopy.useCopy();
+  return (
+    <PaySection title={t('title')} description={t('body')}>
+      <p className="muted">{t('ownerOnly')}</p>
+    </PaySection>
+  );
+}
+
+function OwnersRequests({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
   const { resource, reload } = useResource((signal) => portal.kybRequests(merchantId, signal), `portal:kyb-requests:${merchantId}`);
   return (
     <InformationRequestsView
@@ -133,6 +151,7 @@ function AnswerForm({
   const files = rules !== null && view.scanner.status === 'connected';
   const nothing = note.trim() === '' && !file;
   const noteId = `kyb-answer-note-${request.id}`;
+  const whyId = `kyb-answer-files-${request.id}`;
   async function send() {
     setBusy(true);
     setOutcome(null);
@@ -142,7 +161,11 @@ function AnswerForm({
       if (result.ok) {
         setOutcome({ ok: true, text: t('sent') });
         reload();
-      } else setOutcome({ ok: false, text: result.message });
+      } else {
+        setOutcome({ ok: false, text: result.message });
+        // Answered or closed meanwhile: show the request as it now stands rather than a form it no longer takes.
+        if (result.code === 'pay.kyb_request_already_answered' || result.code === 'pay.kyb_request_closed') reload();
+      }
     } finally {
       setBusy(false);
     }
@@ -153,30 +176,32 @@ function AnswerForm({
         <span>{t('noteLabel')}</span>
         <textarea id={noteId} rows={3} maxLength={2000} value={note} onChange={(event) => setNote(event.target.value)} />
       </label>
-      {files && rules ? (
-        <>
-          <p className="muted pp-note">{t('limits', { size: formatBytes(String(rules.maxBytes)), types: kindsOf(rules.contentTypes) })}</p>
-          <label className="field">
-            <span className="sr-only">{t('fileLabel')}</span>
-            <input
-              type="file"
-              aria-label={t('fileLabel')}
-              accept={rules.contentTypes.join(',')}
-              onChange={(event) => {
-                const picked = event.target.files?.[0] ?? null;
-                setFile(picked);
-                setProblem(picked ? fileProblem(picked, rules, a) : null);
-              }}
-            />
-          </label>
-          {problem && (
-            <small className="text-down-text" role="alert">
-              {problem}
-            </small>
-          )}
-        </>
-      ) : (
-        <p className="muted pp-note">{rules ? t('noScanner') : t('noRules')}</p>
+      <p className="muted pp-note" id={whyId}>
+        {files && rules
+          ? t('limits', { size: formatBytes(String(rules.maxBytes)), types: kindsOf(rules.contentTypes) })
+          : rules
+            ? t('noScanner')
+            : t('noRules')}
+      </p>
+      <label className="field">
+        <span className="sr-only">{t('fileLabel')}</span>
+        <input
+          type="file"
+          aria-label={t('fileLabel')}
+          aria-describedby={whyId}
+          disabled={!files}
+          accept={rules?.contentTypes.join(',')}
+          onChange={(event) => {
+            const picked = event.target.files?.[0] ?? null;
+            setFile(picked);
+            setProblem(picked && rules ? fileProblem(picked, rules, a) : null);
+          }}
+        />
+      </label>
+      {problem && (
+        <small className="text-down-text" role="alert">
+          {problem}
+        </small>
       )}
       <div className="pp-actions">
         <Button variant="primary" disabled={nothing || Boolean(problem) || busy} onClick={() => void send()}>

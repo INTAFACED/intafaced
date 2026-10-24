@@ -58,7 +58,7 @@ const html = (result: Parameters<typeof VerificationRequests>[0]['result']) =>
   renderToStaticMarkup(<VerificationRequests merchantId={base.merchantId} result={result} here="/merchants/x?tab=verification" />);
 
 describe('information requests card', () => {
-  it('shows past due, the answer and its file, and who closed a request; only open ones can be closed', () => {
+  it('shows past due, the answer and its file, and who closed a request; closed ones take no close form', () => {
     const out = html({ kind: 'ok', data: view });
     const [, pastDue = '', answered = '', closed = ''] = out.split('data-testid="kyb-request"');
     expect(pastDue).toMatch(/>Past due</);

@@ -248,7 +248,41 @@ describe('kyb information requests', () => {
     expect(await rejection(owner.kyb.requests.answer({ requestId: other.id, note: 'TEST late' }))).toMatchObject({
       cause: expect.objectContaining({ code: 'pay.kyb_request_closed' }),
     });
+    // The request's state is read first: a file to a closed request says closed, even with no scanner connected.
+    const unscanned = await api({ scanner: null });
+    expect(
+      await rejection(unscanned.kyb.requests.answer({ requestId: other.id, file: { contentType: PDF, bytesBase64: b64('%PDF late') } })),
+    ).toMatchObject({ cause: expect.objectContaining({ code: 'pay.kyb_request_closed' }) });
+    // The same bytes under another content type are another answer, not a retry.
+    expect(
+      await rejection(owner.kyb.requests.answer({ ...first, file: { ...first.file, contentType: 'image/png' } })),
+    ).toMatchObject({ cause: expect.objectContaining({ code: 'pay.kyb_request_already_answered' }) });
+    // Closing again with the same note changes nothing; another note is refused.
+    const closer = await reviewer();
+    const closed = (await closer.kyb.requests.close({ requestId: other.id, note: 'TEST no longer needed' })).request;
+    expect(closed.closeNote).toBe('TEST no longer needed');
+    expect(await rejection(closer.kyb.requests.close({ requestId: other.id, note: 'TEST another note' }))).toMatchObject({
+      code: 'CONFLICT',
+      cause: expect.objectContaining({ code: 'pay.kyb_request_closed' }),
+    });
     expect(await sql`SELECT 1 FROM pay.kyb_request_answers`).toHaveLength(1);
+    expect(await sql`SELECT 1 FROM pay.kyb_request_events WHERE kind = 'closed'`).toHaveLength(1);
+  });
+
+  it('a scanner that does not answer refuses the file and keeps nothing', async () => {
+    const asked = await ask();
+    const owner = await api({
+      scanner: {
+        scan: async () => {
+          throw new Error('scanner down');
+        },
+      },
+    });
+    expect(
+      await rejection(owner.kyb.requests.answer({ requestId: asked.id, file: { contentType: PDF, bytesBase64: b64('%PDF one') } })),
+    ).toMatchObject({ code: 'PRECONDITION_FAILED', cause: expect.objectContaining({ code: 'pay.kyb_scan_failed' }) });
+    expect(await sql`SELECT 1 FROM pay.kyb_request_answers`).toHaveLength(0);
+    expect((await owner.kyb.requests.list({ merchantId })).requests[0]?.state).toBe('open');
   });
 
   it('a request key makes asking idempotent; the due date must be in the future; past due shows while open', async () => {
@@ -270,6 +304,12 @@ describe('kyb information requests', () => {
     expect(byId.get(asked.id)?.pastDue).toBe(false);
     await owner.kyb.requests.answer({ requestId: soon.id, note: 'TEST late but here' });
     expect((await owner.kyb.requests.list({ merchantId })).requests.find((r) => r.id === soon.id)?.pastDue).toBe(false);
+    // Once a request is answered or closed, the same words and due date are refused, not silently returned.
+    await (await reviewer()).kyb.requests.close({ requestId: asked.id, note: 'TEST no longer needed' });
+    expect(await rejection(ask())).toMatchObject({
+      code: 'CONFLICT',
+      cause: expect.objectContaining({ code: 'pay.kyb_request_asked_before' }),
+    });
   });
 
   it('only the owner answers and reads; only compliance with a second factor asks, closes and opens files', async () => {

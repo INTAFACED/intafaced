@@ -6,7 +6,6 @@ import {
   type KybInformationRequest,
   type KybRequestFileBytes,
   type KybRequestsView,
-  type KybUploadRules,
 } from '@intafaced/contracts';
 import { KybError } from './kyb-service.js';
 import { decrypt, encrypt, type KybDocumentService } from './kyb-documents.js';
@@ -147,12 +146,17 @@ export class KybInformationRequestService {
         const [merchant] = await tx<Array<{ id: string }>>`SELECT id FROM pay.merchants WHERE id = ${input.merchantId}`;
         if (!merchant) throw new KybError(`No merchant ${input.merchantId}`, 'pay.merchant_not_found');
         await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`kyb-request:${input.requestKey}`}, 0))`;
-        const [existing] = await tx<Array<{ id: string; merchant_id: string; text: string; due_at: Date }>>`
-          SELECT id, merchant_id, text, due_at FROM pay.kyb_information_requests WHERE request_key = ${input.requestKey}
+        const [existing] = await tx<Array<{ id: string; merchant_id: string; text: string; due_at: Date; state: string }>>`
+          SELECT id, merchant_id, text, due_at, state FROM pay.kyb_information_requests WHERE request_key = ${input.requestKey}
         `;
         if (existing) {
           if (existing.merchant_id !== input.merchantId || existing.text !== text || existing.due_at.getTime() !== dueAt.getTime()) {
             throw new KybError('That request key was used for another request', 'pay.kyb_request_key_conflict');
+          }
+          // A retry of a request still open is the same request. Once it is answered or closed, the same words and due
+          // date are not a new request, and returning the old one would look to the reviewer as if a new one went out.
+          if (existing.state !== 'open') {
+            throw new KybError('The same request was already sent and is no longer open', 'pay.kyb_request_asked_before');
           }
           return this.readIn(tx, existing.id);
         }
@@ -187,31 +191,38 @@ export class KybInformationRequestService {
     actorId: string;
   }): Promise<KybInformationRequest> {
     const note = input.note?.trim() || null;
-    let file: { contentType: string; bytes: Buffer; sha256: string; rules: KybUploadRules } | null = null;
-    if (input.file) {
-      const rules = await this.documents.uploadRules();
-      if (!rules) throw new KybError('Document upload rules are not published', 'pay.kyb_upload_rules_unset');
-      if (!this.docKey) throw new KybError('The document encryption key is not set', 'pay.kyb_doc_key_unset');
-      if (!this.scanner) throw new KybError('No malware scanner is connected', 'pay.kyb_scan_unconfigured');
-      const contentType = input.file.contentType.trim().toLowerCase();
-      if (!rules.contentTypes.some((t) => t.toLowerCase() === contentType)) {
-        throw new KybError(`${contentType} is not an accepted document type`, 'pay.kyb_document_type_refused', {
-          contentTypes: rules.contentTypes,
-        });
-      }
-      const bytes = decodeFile(input.file.bytesBase64);
-      if (bytes.length > rules.maxBytes) {
-        throw new KybError(`The file is over the ${rules.maxBytes} byte limit`, 'pay.kyb_document_too_large', { maxBytes: rules.maxBytes });
-      }
-      file = { contentType, bytes, sha256: createHash('sha256').update(bytes).digest('hex'), rules };
-    }
-    if (!note && !file) throw new KybError('An answer needs a note or a file', 'pay.kyb_answer_empty');
-
+    if (!note && !input.file) throw new KybError('An answer needs a note or a file', 'pay.kyb_answer_empty');
+    // The request's state decides first: a closed or answered request refuses (or replays) whatever the file checks say.
     const [request] = await this.sql<
       Array<{ state: string }>
     >`SELECT state FROM pay.kyb_information_requests WHERE id = ${input.requestId}`;
     if (!request) throw new KybError('No such request', 'pay.kyb_request_not_found');
-    if (request.state === 'open' && file) {
+    const open = request.state === 'open';
+    let file: { contentType: string; bytes: Buffer; sha256: string } | null = null;
+    if (input.file) {
+      const contentType = input.file.contentType.trim().toLowerCase();
+      if (open) {
+        const rules = await this.documents.uploadRules();
+        if (!rules) throw new KybError('Document upload rules are not published', 'pay.kyb_upload_rules_unset');
+        if (!this.docKey) throw new KybError('The document encryption key is not set', 'pay.kyb_doc_key_unset');
+        if (!this.scanner) throw new KybError('No malware scanner is connected', 'pay.kyb_scan_unconfigured');
+        if (!rules.contentTypes.some((t) => t.toLowerCase() === contentType)) {
+          throw new KybError(`${contentType} is not an accepted document type`, 'pay.kyb_document_type_refused', {
+            contentTypes: rules.contentTypes,
+          });
+        }
+        const bytes = decodeFile(input.file.bytesBase64);
+        if (bytes.length > rules.maxBytes) {
+          throw new KybError(`The file is over the ${rules.maxBytes} byte limit`, 'pay.kyb_document_too_large', { maxBytes: rules.maxBytes });
+        }
+        file = { contentType, bytes, sha256: createHash('sha256').update(bytes).digest('hex') };
+      } else {
+        // Only to recognise a retry of the answer already kept; nothing of this file is stored.
+        const bytes = decodeFile(input.file.bytesBase64);
+        file = { contentType, bytes, sha256: createHash('sha256').update(bytes).digest('hex') };
+      }
+    }
+    if (open && file) {
       let verdict: 'clean' | 'infected';
       try {
         verdict = await this.scanner!.scan(file.bytes);
@@ -236,13 +247,17 @@ export class KybInformationRequestService {
         `;
         if (!locked) throw new KybError('No such request', 'pay.kyb_request_not_found');
         if (locked.state !== 'open') {
-          const [kept] = await tx<Array<{ note: string | null; sha256: string | null }>>`
-            SELECT note, sha256 FROM pay.kyb_request_answers WHERE request_id = ${input.requestId}
+          const [kept] = await tx<Array<{ note: string | null; sha256: string | null; content_type: string | null }>>`
+            SELECT note, sha256, content_type FROM pay.kyb_request_answers WHERE request_id = ${input.requestId}
           `;
-          if (kept && kept.note === note && kept.sha256 === (file?.sha256 ?? null)) return this.readIn(tx, input.requestId);
+          if (kept && kept.note === note && kept.sha256 === (file?.sha256 ?? null) && kept.content_type === (file?.contentType ?? null)) {
+            return this.readIn(tx, input.requestId);
+          }
           if (locked.state === 'closed') throw new KybError('The request is closed', 'pay.kyb_request_closed');
           throw new KybError('The request is already answered', 'pay.kyb_request_already_answered');
         }
+        // A state never moves back to open, so a file reaching here was checked and scanned above.
+        if (file && !open) throw new KybError('The file was not checked against an open request', 'pay.kyb_answer_unchecked');
         const sealed = file ? encrypt(this.docKey!, file.bytes, aad(input.requestId, file.sha256)) : null;
         await tx`
           INSERT INTO pay.kyb_request_answers (request_id, note, file_id, content_type, byte_length, sha256, ciphertext, nonce, answered_by)
