@@ -3038,6 +3038,8 @@ describe('svc-bank money PG-hard', () => {
         'loan_interest_accruals.interest_amount': "a RECORD of one day's charge; summing the table is the lifetime figure",
         'loan_repayments.interest_amount': 'a RECORD of one completed repayment; written once',
         'loan_repayments.principal_amount': 'a RECORD of one completed repayment; written once',
+        'loan_adjustments.amount':
+          'a RECORD of one approved interest correction, signed; written once and never edited (append-only trigger)',
         'loan_margin_calls.cure_collateral_amount':
           'a FIGURE quoted at one instant; the next mark writes a new row rather than revising this one',
         'loan_liquidations.mark_price': 'the PRICE one rung executed at, for the dispute nobody wants to have',

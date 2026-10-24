@@ -794,6 +794,12 @@ export type BankErrorCode =
   | 'bank.loan_payoff_window_unset'
   /** The loan's snapshotted rate cannot be used, so a projection is refused rather than invented (BK-loan-06). */
   | 'bank.loan_terms_missing'
+  /** An interest correction is not in shape: a zero or malformed amount, or a reason under 3 or over 500 characters (LOAN-05). */
+  | 'bank.correction_invalid'
+  /** A correction that takes off more interest than the loan owes now; paid interest is never given back by a correction (LOAN-05). */
+  | 'bank.correction_exceeds_interest'
+  /** A correction id already used with other terms (loan, amount or reason). The first row stands (LOAN-05). */
+  | 'bank.correction_conflict'
   // ── Direct debits (BK-xfer-11) ─────────────────────────────────────────
   /** A direct debit presentment or refund request is not in shape (amount, date, reason). */
   | 'bank.dd_invalid'

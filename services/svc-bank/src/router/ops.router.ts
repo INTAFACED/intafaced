@@ -24,6 +24,7 @@ import { customerBalanceEntriesProcedure, customerBalancesProcedure } from '../o
 import { transferDetailProcedure } from '../ops/transfer-detail.js';
 import { authorizationGetProcedure } from '../ops/authorization-detail.js';
 import { businessApprovalsProcedure } from '../ops/business-approvals.js';
+import { ADJUST_LOAN_INTEREST_ACTION, correctionApprovalFields } from '../loans/loan-adjustments.js';
 import { amountString, actionApprovalFields } from './shared.js';
 import { guard } from './errors.js';
 import type { BankRouterContext } from './context.js';
@@ -38,6 +39,7 @@ export function createOpsRouter(c: BankRouterContext) {
     autoInvestEnabled,
     limitRequests,
     consumeOpsApproval,
+    consumeOpsApprovalPair,
     jobProcedure,
   } = c;
   /**
@@ -257,6 +259,70 @@ export function createOpsRouter(c: BankRouterContext) {
             amount: parseAmount(input.amount),
           });
           return { ...posted, confirmOperatorId };
+        }),
+      ),
+
+    /**
+     * LOAN-05 interest correction, four-eyes: one founder proposes `bank.adjust_loan_interest` over these exact fields
+     * at identity, the other approves, and this door consumes that approval and writes one new correction row. It moves
+     * no value and edits no past day. A retry with the same id and terms returns the first row without consuming again;
+     * a correction that would be refused is refused before the approval is spent.
+     */
+    adjustLoanInterest: scopedProcedure('admin:treasury')
+      .input(
+        z.object({
+          loanId: z.string().guid(),
+          adjustmentId: z.string().guid(),
+          amount: z.string().regex(/^-?\d+(\.\d{1,18})?$/),
+          reason: z.string().min(3).max(500),
+          ...actionApprovalFields,
+        }),
+      )
+      .output(
+        z.object({
+          adjustmentId: z.string(),
+          loanId: z.string(),
+          amount: z.string(),
+          reason: z.string(),
+          proposedBy: z.string(),
+          approvedBy: z.string(),
+          effectiveDate: z.string(),
+          createdAt: z.string(),
+          replay: z.boolean(),
+          interestOwed: amountString,
+        }),
+      )
+      .mutation(async ({ input }) =>
+        guard(async () => {
+          const terms = { adjustmentId: input.adjustmentId, loanId: input.loanId, amount: input.amount, reason: input.reason };
+          const prior = await bank.loans.interestAdjustment(input.adjustmentId);
+          let written;
+          if (prior) {
+            bank.loans.assertSameCorrection(prior, terms);
+            written = { adjustment: prior, replay: true };
+          } else {
+            await bank.loans.checkCorrection(terms);
+            const pair = await consumeOpsApprovalPair(input, ADJUST_LOAN_INTEREST_ACTION, correctionApprovalFields(terms));
+            written = await bank.loans.correctInterest(terms, {
+              proposedBy: pair.requesterId,
+              approvedBy: pair.approverId,
+              approvalId: pair.approvalId,
+            });
+          }
+          const debt = await bank.loans.outstanding(input.loanId);
+          const a = written.adjustment;
+          return {
+            adjustmentId: a.id,
+            loanId: a.loanId,
+            amount: formatAmount(a.amount),
+            reason: a.reason,
+            proposedBy: a.proposedBy,
+            approvedBy: a.approvedBy,
+            effectiveDate: a.effectiveDate,
+            createdAt: a.createdAt.toISOString(),
+            replay: written.replay,
+            interestOwed: formatAmount(debt.interest),
+          };
         }),
       ),
 

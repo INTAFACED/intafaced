@@ -125,6 +125,19 @@ export async function consumeBankOpsApproval(
   actionType: string,
   fields: Record<string, string>,
 ): Promise<string> {
+  return (await consumeBankOpsApprovalPair(approvals, cmd, actionType, fields)).approverId;
+}
+
+/**
+ * The same consume, returning both people and the approval consumed, for an action that records who proposed it and
+ * who approved it on its own row (an interest correction).
+ */
+export async function consumeBankOpsApprovalPair(
+  approvals: ActionApprovalConsumer,
+  cmd: { readonly approvalId?: string | null; readonly operationId?: string | null },
+  actionType: string,
+  fields: Record<string, string>,
+): Promise<{ approvalId: string; requesterId: string; approverId: string }> {
   const ids = readApprovalIds(cmd);
   const consumed = await approvals.consume({
     approvalId: ids.approvalId,
@@ -141,5 +154,5 @@ export async function consumeBankOpsApproval(
       'action_approval.consume_failed',
     );
   }
-  return consumed.approverId;
+  return { approvalId: consumed.approvalId, requesterId: consumed.requesterId, approverId: consumed.approverId };
 }

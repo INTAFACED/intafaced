@@ -119,8 +119,10 @@ The occurrences that were written off are in the **response**, not merely in the
 | `loans.addCollateral` | `bank:write` | Top up collateral (the cheap way out of a margin call)               |
 | `loans.repay`         | `bank:write` | Pay interest first, then principal; may close the loan               |
 | `loans.close`         | `bank:write` | Release collateral when the loan owes nothing                        |
+| `loans.interestRows`  | `bank:read`  | Each accrual day and each approved interest correction, with totals  |
+| `loans.ledgerCheck`   | `bank:read`  | This loan's settled rows against the ledger's transactions, per leg  |
 
-Interest **capitalises** (raises debt, posts nothing). Mark / margin call / liquidation are the risk sweep under `ops`, not user procedures — a user who can choose when collateral is priced can game the staleness window.
+Interest **capitalises** (raises debt, posts nothing). A correction is a new `loan_adjustments` row approved by two founders (`ops.adjustLoanInterest`); accrual days and corrections are append-only (LOAN-05). Mark / margin call / liquidation are the risk sweep under `ops`, not user procedures — a user who can choose when collateral is priced can game the staleness window.
 
 ### `cards` — **the ledger half. No live card programme: off by default, simulator only.**
 
@@ -214,6 +216,7 @@ BANK_SEND_FIELD_RULES_JSON=    # owner-published purpose / source-of-funds / ref
 | `ops.resumePendingLoans`   | `admin:treasury` | Re-drive loans stuck between collateral lock and principal draw       |
 | `ops.resumePendingEarn`    | `admin:treasury` | Re-drive earn deposits stuck pending after ledger post                |
 | `ops.abandonPendingLoan`   | `admin:treasury` | Give up on a pending loan and return collateral                       |
+| `ops.adjustLoanInterest`   | `admin:treasury` | Four-eyes interest correction: a new signed row with its reason       |
 | `ops.cardAuthorize`        | `admin:treasury` | The authorisation "webhook" — decide, and hold if the answer is yes   |
 | `ops.cardCapture`          | `admin:treasury` | The merchant took this much; the remainder of the hold goes back      |
 | `ops.cardReverse`          | `admin:treasury` | The authorisation expired or was voided; the whole hold goes back     |

@@ -1,4 +1,4 @@
-import { consumeBankOpsApproval, unwiredApprovalConsumer } from '../action-approval-consume.js';
+import { consumeBankOpsApproval, consumeBankOpsApprovalPair, unwiredApprovalConsumer } from '../action-approval-consume.js';
 import { LimitRequestService } from '../transfers/limit-requests.js';
 import { stepUpOff } from '../step-up/step-up-gate.js';
 import type { DoorBinding } from '../step-up/money-out-fields.js';
@@ -47,6 +47,14 @@ export function createRouterContext(bank: BankServices, options: BankRouterOptio
   ): Promise<string> {
     return consumeBankOpsApproval(approvals, input, targetId, fields);
   }
+  /** As consumeOpsApproval, with the proposer and the approval consumed, for a row that records both people. */
+  async function consumeOpsApprovalPair(
+    input: { readonly approvalId?: string | null; readonly operationId?: string | null },
+    targetId: string,
+    fields: Record<string, string>,
+  ): Promise<{ approvalId: string; requesterId: string; approverId: string }> {
+    return consumeBankOpsApprovalPair(approvals, input, targetId, fields);
+  }
 
   return {
     ...kept,
@@ -65,6 +73,7 @@ export function createRouterContext(bank: BankServices, options: BankRouterOptio
     requireStepUp,
     assetOfSpace,
     consumeOpsApproval,
+    consumeOpsApprovalPair,
   };
 }
 

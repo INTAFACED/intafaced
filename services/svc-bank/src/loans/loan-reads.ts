@@ -240,6 +240,11 @@ async function debtBefore(sql: Sql, loanId: string, cutoff: Date, drawnPrincipal
       FROM bank.loan_interest_accruals
      WHERE loan_id = ${loanId} AND accrual_date < ${day}::date
   `;
+  const adjusted = await sql<Array<{ v: string }>>`
+    SELECT COALESCE(SUM(amount), 0)::text AS v
+      FROM bank.loan_adjustments
+     WHERE loan_id = ${loanId} AND kind = 'interest_correction' AND created_at < ${cutoff}
+  `;
   const repaid = await sql<Array<{ p: string; i: string }>>`
     SELECT COALESCE(SUM(principal_amount), 0)::text AS p, COALESCE(SUM(interest_amount), 0)::text AS i
       FROM bank.loan_repayments
@@ -262,7 +267,11 @@ async function debtBefore(sql: Sql, loanId: string, cutoff: Date, drawnPrincipal
   // Insured shortfall is principal the books wrote off. It counts on the sale's
   // cutoff, and only once bad_debt_ledger_tx_id is set, the same rule as outstanding().
   const principal = drawn - parseAmount(repaid[0]?.p ?? '0') - parseAmount(seized[0]?.p ?? '0') - parseAmount(seized[0]?.s ?? '0');
-  const interest = parseAmount(accrued[0]?.v ?? '0') - parseAmount(repaid[0]?.i ?? '0') - parseAmount(seized[0]?.i ?? '0');
+  const interest =
+    parseAmount(accrued[0]?.v ?? '0') +
+    parseAmount(adjusted[0]?.v ?? '0') -
+    parseAmount(repaid[0]?.i ?? '0') -
+    parseAmount(seized[0]?.i ?? '0');
   return { principal: principal > 0n ? principal : 0n, interest: interest > 0n ? interest : 0n };
 }
 
@@ -320,7 +329,7 @@ export async function buildLoanStatement(
     const drawnAt = drawnRows[0]?.drawn_at ?? null;
     // One more than the cap is read from each kind, so a range over the cap is refused, never cut.
     const cap = MAX_STATEMENT_LINES + 1;
-    const [opening, closing, accruals, repayments, collateral, liquidations] = await Promise.all([
+    const [opening, closing, accruals, adjustments, repayments, collateral, liquidations] = await Promise.all([
       debtBefore(sql, loan.id, from, loan.principal, drawnAt),
       debtBefore(sql, loan.id, to, loan.principal, drawnAt),
       sql<Array<{ accrual_date: string; interest_amount: string }>>`
@@ -330,6 +339,15 @@ export async function buildLoanStatement(
          AND accrual_date >= ${utcDay(from)}::date
          AND accrual_date < ${utcDay(to)}::date
        ORDER BY accrual_date ASC
+       LIMIT ${cap}
+    `,
+      sql<Array<{ created_at: Date; amount: string }>>`
+      SELECT created_at, amount::text AS amount
+        FROM bank.loan_adjustments
+       WHERE loan_id = ${loan.id} AND kind = 'interest_correction'
+         AND created_at >= ${from}
+         AND created_at < ${to}
+       ORDER BY created_at ASC, id ASC
        LIMIT ${cap}
     `,
       sql<Array<{ settled_at: Date; interest_amount: string; principal_amount: string; ledger_tx_id: string | null }>>`
@@ -372,9 +390,9 @@ export async function buildLoanStatement(
        LIMIT ${cap}
     `,
     ]);
-    return { drawnAt, opening, closing, accruals, repayments, collateral, liquidations };
+    return { drawnAt, opening, closing, accruals, adjustments, repayments, collateral, liquidations };
   });
-  const { drawnAt, opening, closing, accruals, repayments, collateral, liquidations } = read;
+  const { drawnAt, opening, closing, accruals, adjustments, repayments, collateral, liquidations } = read;
   const lines: StatementLine[] = [];
   if (drawnAt && drawnAt.getTime() >= fromMs && drawnAt.getTime() < toMs) {
     lines.push({
@@ -392,6 +410,19 @@ export async function buildLoanStatement(
     lines.push({
       kind: 'interest',
       at: `${row.accrual_date}T00:00:00.000Z`,
+      amount: interest,
+      interest,
+      principal: 0n,
+      asset: loan.debtAssetId,
+      ledgerTxId: '',
+    });
+  }
+  // An approved correction (LOAN-05), signed: below zero took interest off, above zero added interest. It moves no value.
+  for (const row of adjustments) {
+    const interest = parseAmount(row.amount);
+    lines.push({
+      kind: 'interest_correction',
+      at: row.created_at.toISOString(),
       amount: interest,
       interest,
       principal: 0n,

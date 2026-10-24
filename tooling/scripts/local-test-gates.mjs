@@ -626,6 +626,10 @@ async function signInPair(ctx, ops, saveSteps) {
       async approvalToken() {
         return mintOperatorToken(ctx, op);
       },
+      /** Same session with `admin:treasury`, the scope svc-bank's four-eyes treasury doors check (ops.adjustLoanInterest). */
+      async treasuryToken() {
+        return mintOperatorToken(ctx, op, ['admin:treasury']);
+      },
       /** Same session with the trade operator write scope svc-trade's admin doors check (admin.risk.set). */
       async tradeOpsToken() {
         return mintOperatorToken(ctx, op, ['admin:read', 'admin:write']);
@@ -648,7 +652,7 @@ async function signInPair(ctx, ops, saveSteps) {
 }
 
 /** Operator A proposes, operator B approves, with two different signed-in sessions. Returns { approvalId, operationId }. */
-async function twoPerson(ctx, sessions, proposal) {
+export async function twoPerson(ctx, sessions, proposal) {
   // Two different people, or the approval proves nothing: refuse when the proposer and approver are the same operator
   // or cannot be told apart.
   const who = (s) => s.op?.handle ?? s.op?.email ?? null;
