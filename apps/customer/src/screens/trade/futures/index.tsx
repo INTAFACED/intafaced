@@ -31,6 +31,7 @@ import {
   useFundingRate,
   useFuturesMarkets,
   useConditionalOrders,
+  useEntryProtections,
   useFuturesOrders,
   useFuturesRefresh,
   useMarginCalls,
@@ -69,6 +70,7 @@ export default function FuturesScreen({ search }: ScreenProps) {
   const openOrders = useFuturesOrders('open', tab === 'orders');
   const allOrders = useFuturesOrders('all', tab === 'orders');
   const triggers = useConditionalOrders(tab === 'orders');
+  const entries = useEntryProtections(tab === 'orders');
   const tiers = useRiskTiers(symbol, tab === 'tiers');
   const collateral = useCollateral(tab === 'collateral');
 
@@ -168,7 +170,7 @@ export default function FuturesScreen({ search }: ScreenProps) {
         </TabsPanel>
         <TabsPanel value="orders">
           <OrdersTab open={openOrders} all={allOrders} onChanged={refresh} />
-          <TriggersTable triggers={triggers} onChanged={refresh} />
+          <TriggersTable triggers={triggers} entries={entries} onChanged={refresh} />
         </TabsPanel>
         <TabsPanel value="history">
           <HistoryTab closed={closed} />

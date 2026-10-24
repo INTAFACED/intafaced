@@ -30,9 +30,9 @@ import { assertAttachWindowOpen } from './attach-window.js';
  */
 
 /** pg_advisory_xact_lock classid — fixed namespace for referral_edges mutations. */
-const REFERRAL_GRAPH_LOCK_CLASS = 87201401;
+export const REFERRAL_GRAPH_LOCK_CLASS = 87201401;
 /** pg_advisory_xact_lock objid — single graph mutex (attribution volume is low). */
-const REFERRAL_GRAPH_LOCK_OBJ = 1;
+export const REFERRAL_GRAPH_LOCK_OBJ = 1;
 
 /** Blank / non-integer / out of 1..500 affiliates.members window. Never invent 100. */
 export const IDENTITY_AFFILIATE_MEMBERS_LIMIT_UNSET = 'identity.affiliate_members_limit_unset' as const;

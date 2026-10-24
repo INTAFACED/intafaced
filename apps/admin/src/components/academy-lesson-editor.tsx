@@ -210,7 +210,72 @@ function BlocksEditor({ lesson, busy, onSave }: { lesson: AcademyLesson; busy: b
   );
 }
 
-const SOURCE_WORDS = { saved: 'saved', reverted: 'reverted', duplicated: 'duplicated', imported: 'imported' } as const;
+const SOURCE_WORDS = {
+  saved: 'saved',
+  reverted: 'reverted',
+  duplicated: 'duplicated',
+  imported: 'imported',
+  assisted: 'accepted from an assistant draft',
+} as const;
+
+/**
+ * The authoring assistant: a template draft from the course's own structure, or the model path, which waits for the
+ * owner to choose a provider. A draft is shown beside nothing live; only Accept writes a revision, and learners still
+ * see the published one until the next publish.
+ */
+function AssistantPanel({ lesson, busy, send }: { lesson: AcademyLesson; busy: boolean; send: (body: Record<string, unknown>) => void }) {
+  const revision = lesson.revisions[0]?.revision ?? 0;
+  const draft = lesson.draft;
+  return (
+    <section className="dk-stack" aria-labelledby="h-lesson-assistant">
+      <h2 id="h-lesson-assistant">Draft with the assistant</h2>
+      <p className="dk-muted">
+        The template drafts headings from this course’s own structure for you to fill in. Drafting with a model waits for an owner decision
+        on which provider to use. A draft never reaches learners: accepting it makes a new revision, and learners keep the published one
+        until you publish again.
+      </p>
+      <div className="dk-row">
+        <button type="button" className="adm-btn" disabled={busy} onClick={() => send({ op: 'draft', revision, path: 'template' })}>
+          Draft from the template
+        </button>
+        <button type="button" className="adm-btn" disabled={busy} onClick={() => send({ op: 'draft', revision, path: 'model' })}>
+          Draft with a model
+        </button>
+      </div>
+      {draft ? (
+        <div className="dk-stack" data-testid="lesson-draft">
+          <p>
+            <Chip tone="info">Draft, not live</Chip> From the template, based on revision {draft.basedOnRevision},{' '}
+            {formatWhen(draft.createdAt)}.
+          </p>
+          <Blocks blocks={draft.blocks} testId="lesson-draft-blocks" />
+          <div className="dk-row">
+            <button
+              type="button"
+              className="adm-btn"
+              disabled={busy}
+              onClick={() => send({ op: 'decide', basedOnRevision: draft.basedOnRevision, kind: draft.kind, decision: 'accept' })}
+            >
+              Accept draft
+            </button>
+            <button
+              type="button"
+              className="adm-btn"
+              disabled={busy}
+              onClick={() => send({ op: 'decide', basedOnRevision: draft.basedOnRevision, kind: draft.kind, decision: 'discard' })}
+            >
+              Discard draft
+            </button>
+          </div>
+        </div>
+      ) : (
+        <p className="dk-muted" data-testid="lesson-draft">
+          No draft is waiting.
+        </p>
+      )}
+    </section>
+  );
+}
 
 /** The import's report: every block svc-academy did not accept, by its place in the file. */
 function ImportReport({ reply }: { reply: LessonDeskReply | null }) {
@@ -339,6 +404,7 @@ export function AcademyLessonEditor({ courseId, itemId, initial }: { courseId: s
             busy={busy}
             onSave={(blocks) => void send({ op: 'save', revision: newest?.revision ?? 0, blocks })}
           />
+          <AssistantPanel lesson={lesson} busy={busy} send={(body) => void send(body)} />
           <ImportForm
             lesson={lesson}
             busy={busy}
