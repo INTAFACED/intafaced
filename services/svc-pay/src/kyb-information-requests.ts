@@ -213,7 +213,9 @@ export class KybInformationRequestService {
         }
         const bytes = decodeFile(input.file.bytesBase64);
         if (bytes.length > rules.maxBytes) {
-          throw new KybError(`The file is over the ${rules.maxBytes} byte limit`, 'pay.kyb_document_too_large', { maxBytes: rules.maxBytes });
+          throw new KybError(`The file is over the ${rules.maxBytes} byte limit`, 'pay.kyb_document_too_large', {
+            maxBytes: rules.maxBytes,
+          });
         }
         file = { contentType, bytes, sha256: createHash('sha256').update(bytes).digest('hex') };
       } else {

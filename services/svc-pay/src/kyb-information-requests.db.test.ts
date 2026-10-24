@@ -254,9 +254,9 @@ describe('kyb information requests', () => {
       await rejection(unscanned.kyb.requests.answer({ requestId: other.id, file: { contentType: PDF, bytesBase64: b64('%PDF late') } })),
     ).toMatchObject({ cause: expect.objectContaining({ code: 'pay.kyb_request_closed' }) });
     // The same bytes under another content type are another answer, not a retry.
-    expect(
-      await rejection(owner.kyb.requests.answer({ ...first, file: { ...first.file, contentType: 'image/png' } })),
-    ).toMatchObject({ cause: expect.objectContaining({ code: 'pay.kyb_request_already_answered' }) });
+    expect(await rejection(owner.kyb.requests.answer({ ...first, file: { ...first.file, contentType: 'image/png' } }))).toMatchObject({
+      cause: expect.objectContaining({ code: 'pay.kyb_request_already_answered' }),
+    });
     // Closing again with the same note changes nothing; another note is refused.
     const closer = await reviewer();
     const closed = (await closer.kyb.requests.close({ requestId: other.id, note: 'TEST no longer needed' })).request;
