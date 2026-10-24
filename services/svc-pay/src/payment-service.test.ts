@@ -108,6 +108,8 @@ const migrations = [
   '0083_pay_dispute_deadlines_evidence.sql',
   // createPaymentLink stores checkout_token and the create idempotency journal.
   '0087_pay_payment_link_checkout.sql',
+  // createPaymentLink writes the confirmation columns. Null when the caller omitted them.
+  '0132_pay_payment_link_share.sql',
   '0089_pay_payout_dispatched_outcome.sql',
 ].map((f) => readFileSync(join(here, '..', 'drizzle', f), 'utf8'));
 

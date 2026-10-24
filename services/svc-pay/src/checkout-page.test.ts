@@ -143,6 +143,30 @@ describe('checkout page rendering', () => {
     expect(open.html).not.toContain('Payment received');
   });
 
+  it('shows a stored confirmation and only redirects to a parsed https url', () => {
+    const told = renderCheckoutPage({
+      kind: 'session',
+      session: { ...stubSession, status: 'completed', confirmationMessage: 'Thanks <for> paying' },
+    });
+    expect(told.html).toContain('Thanks &lt;for&gt; paying');
+    expect(told.html).not.toContain('Payment received');
+    expect(told.html).not.toContain('<for>');
+
+    const go = renderCheckoutPage({
+      kind: 'session',
+      session: { ...stubSession, status: 'completed', confirmationUrl: 'https://merchant.example/done' },
+    });
+    expect(go.html).toContain('href="https://merchant.example/done"');
+    expect(go.html).not.toContain('javascript:');
+
+    const bad = renderCheckoutPage({
+      kind: 'session',
+      session: { ...stubSession, status: 'completed', confirmationUrl: 'javascript:alert(1)' },
+    });
+    expect(bad.html).toContain('Payment received');
+    expect(bad.html).not.toContain('javascript:');
+  });
+
   /**
    * THE SENTENCE THAT MATTERS MOST ON THIS SURFACE.
    *
@@ -245,6 +269,14 @@ describe('parsePayerAmount', () => {
 describe('stateForError', () => {
   it('maps only codes it has a page for, and falls to error otherwise', () => {
     expect(stateForError(payErr('pay.link_not_found', '')).kind).toBe('not_found');
+    expect(stateForError(payErr('pay.link_inactive', '   ')).kind).toBe('not_found');
+    const told = stateForError(payErr('pay.link_inactive', 'Closed for the day'));
+    expect(told).toEqual({ kind: 'inactive', message: 'Closed for the day' });
+    expect(renderCheckoutPage(told).html).toContain('Closed for the day');
+    const nasty = stateForError(payErr('pay.link_inactive', '<script>alert(1)</script>'));
+    const nastyHtml = renderCheckoutPage(nasty).html;
+    expect(nastyHtml).toContain('&lt;script&gt;');
+    expect(nastyHtml).not.toContain('<script>');
     expect(stateForError(payErr('pay.link_expired', '')).kind).toBe('expired');
     expect(stateForError(payErr('pay.link_exhausted', '')).kind).toBe('exhausted');
     expect(stateForError(payErr('pay.checkout_busy', '')).kind).toBe('busy');
