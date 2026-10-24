@@ -120,6 +120,12 @@ export const NOTIFY_EVENT_CONSUMERS: readonly NotifyConsumerRow[] = [
     effect: 'Inbox rows pay.transfer_received for the recipient and pay.transfer_sent for the sender of one posted personal send',
   },
   {
+    event: 'payDepositCreditPosted',
+    durable: 'notify-pay-deposit-credit-posted',
+    subject: 'intafaced.pay.deposit_credit.posted',
+    effect: 'Inbox row bank.deposit.credited for the customer whose crypto deposit the ledger credited, once per deposit',
+  },
+  {
     event: 'bankScheduledReminder',
     durable: 'notify-bank-scheduled-reminder',
     subject: 'intafaced.bank.scheduled_reminder.triggered',

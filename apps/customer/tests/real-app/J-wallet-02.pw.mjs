@@ -10,8 +10,9 @@ import { signIn, signUp, verify } from './desk.mjs';
 // ledger through the customer's own API.
 // "part of #2" covers the switched-off network (the stack keeps TEST USDC on TEST Base off), the unverified person and an
 // unpublished asset; it counts as #2 once the unsupported-case lists are published too.
+// #7 reads the inbox: svc-pay announces the credit (intafaced.pay.deposit_credit.posted) and svc-notify files it once.
 // Not here yet: #1 (custody unset, while this stack has it connected), #2's unsupported-case lists, #4 (labelled extra
-// addresses), #7 (the inbox row) and #8 (funding incident banners).
+// addresses) and #8 (funding incident banners).
 const J = 'J-wallet-02';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const ASSET = 'USDT';
@@ -131,6 +132,8 @@ test(`${J} #5 sends TEST 100 ${ASSET} on the TEST chain: detected, then confirmi
   await expect(recordRow(page, tx).locator('[data-status]')).toHaveAttribute('data-status', 'credited');
   await expect(pending).toContainText('Nothing is on its way.');
   expect(await usdt()).toBe(before + toUnits('100'));
+  // Each attempt that credits is one more deposit, so one more inbox notice in #7.
+  run.write({ credits: (run.read().credits ?? 0) + 1 });
 
   // Under the published minimum of 10: recorded as below minimum, with the reason, and nothing posts.
   const small = chainDeposit(address, '5', 6, `jw02-${who.handle}-5-r${testInfo.retry}`);
@@ -155,6 +158,24 @@ test(`${J} #6 the chain event is delivered three times: one row, one credit, and
   const history = page.locator('section', { has: page.getByRole('heading', { name: 'Your deposits' }) });
   await expect(history.locator('tbody tr')).toHaveCount(1);
   await expect(history.locator('tbody tr')).toContainText(`100 ${ASSET}`);
+});
+
+test(`${J} #7 the credit lands in the inbox once, however often the chain delivered it, and opens its deposit room`, async ({ page }) => {
+  test.setTimeout(180_000);
+  const { account: who, credited, credits } = state();
+  if (!credited || !credits) throw new Error(`${J} #5 credited nothing, so there is no notice to read`);
+  await signIn(page, who);
+  const notice = page.locator('.nf-row', { hasText: 'Deposit credited' });
+  // The notice is filed from the bus after the credit; read the inbox again until it is there. A credit whose
+  // announcement missed the first pass goes out on svc-pay's next one (every 60 s), so wait longer than that.
+  await expect(async () => {
+    await page.goto('/notifications');
+    await expect(notice).toHaveCount(credits, { timeout: 2_000 });
+  }).toPass({ timeout: 150_000 });
+  await expect(notice.first()).toContainText(`100 ${ASSET} is in your available balance.`);
+  await notice.first().click();
+  await expect(page).toHaveURL(/\/uc\/recharge\?asset=USDT&network=ethereum$/);
+  await expect(assetPicker(page)).toHaveValue(ASSET);
 });
 
 test(`${J}, part of #2 a switched-off network shows the owner's banner and no address; an unverified person is sent to Verification; an unpublished asset says so`, async ({

@@ -2188,13 +2188,6 @@ export const WIRING_SOCKETS = [
     reason:
       'The append-only audit store that /custody-ops reads subscribes in the service PR for W-security-accounts-05. Producers keep the entry as a durable row first, so an entry published before its consumer exists is replayed, not lost.',
   },
-  {
-    event: 'payDepositCreditPosted',
-    missing: 'subscriber',
-    class: 'A',
-    reason:
-      'svc-notify turns it into the deposit-credited inbox row in the W-deposit-09 svc-notify PR, keyed by depositId. svc-pay publishes it to its own stream, which keeps 90 days and gives a new durable consumer everything kept, so a credit announced before the consumer exists is read when it subscribes.',
-  },
 ] satisfies readonly WiringSocket[];
 
 /** The recorded reason a given end of an event is unwired, or null if none. */

@@ -35,8 +35,8 @@ describe('payDepositCreditPosted', () => {
     expect(payDepositCreditPostedPayloadSchema.safeParse({ ...base, balance: '100' }).success).toBe(false);
   });
 
-  it('names its unwired subscriber and why', () => {
-    expect(wiringSocketReason('payDepositCreditPosted', 'subscriber')).toMatch(/svc-notify/);
+  it('is wired at both ends: no socket names a missing publisher or subscriber', () => {
+    expect(wiringSocketReason('payDepositCreditPosted', 'subscriber')).toBeNull();
     expect(wiringSocketReason('payDepositCreditPosted', 'publisher')).toBeNull();
   });
 });
