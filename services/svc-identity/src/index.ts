@@ -17,6 +17,7 @@ import { fetchOwnerPayScopes } from './auth/owner-pay-scopes.js';
 import { fetchPayStepUpGrant } from './auth/pay-step-up-grant.js';
 import { registerApiKeyOwnershipRoute } from './auth/api-key-ownership-route.js';
 import { registerServiceMailRoute } from './auth/service-mail.js';
+import { registerTrustedDeviceReadRoute } from './auth/trusted-device-read.js';
 import { assertProdTotpKey, assertSigningEncKey, parseTotpSecretKey } from './auth/totp-crypto.js';
 import { RankService } from './rank/rank-service.js';
 import { ReferralService } from './affiliates/referral-service.js';
@@ -831,6 +832,14 @@ app.get<{ Params: { subAccountId: string } }>('/internal/sub-accounts/:subAccoun
 /** Mail another service asks identity to send to a customer's own proved address (service-mail.ts). */
 registerServiceMailRoute(app, {
   queue: (input) => auth.queueServiceMail(input),
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  bodyBind: env.INTERNAL_SERVICE_BODY_BIND,
+  ...(doorS2s ? { s2s: doorS2s } : {}),
+});
+
+/** Whether a customer's trusted device can still be relied on, for a service that lets one device approve another's request. */
+registerTrustedDeviceReadRoute(app, {
+  read: (userId, deviceId) => auth.trustedDeviceState(userId, deviceId),
   internalSecret: env.INTERNAL_SERVICE_SECRET,
   bodyBind: env.INTERNAL_SERVICE_BODY_BIND,
   ...(doorS2s ? { s2s: doorS2s } : {}),
