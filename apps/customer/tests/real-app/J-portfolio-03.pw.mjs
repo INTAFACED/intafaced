@@ -259,18 +259,28 @@ test(`${J} #3 reads a traded order: its lines share one row, a cancelled order i
   const sell = (await openOrders(who)).find((o) => o.side === 'sell');
   expect(sell).toBeTruthy();
   const other = await api(otherTrader());
-  for (const part of [1, 2]) {
-    if (!(await openOrders(who)).some((o) => o.id === sell.id)) break;
+  const open = async () => (await openOrders(who)).find((o) => o.id === sell.id);
+  // Each round buys 0.001 of the sale at its price. The market maker may have quoted asks under it since, and those
+  // fill first, so the buy also takes everything offered below the sale's price, as J-cex-spot-01 #8 does with bids.
+  for (let part = 1; part <= 6; part++) {
+    const before = await open();
+    if (!before) break;
+    const { body } = await bestPrices('BTC/USDT');
+    const ahead = body.asks.filter(([p]) => toUnits(p) < toUnits(price)).reduce((sum, [, size]) => sum + toUnits(size), 0n);
     const buy = await other.post('/api/v1/orders', {
       symbol: 'BTC/USDT',
       type: 'limit',
       side: 'buy',
-      amount: '0.001',
+      amount: fromUnits(ahead + toUnits('0.001')),
       price,
       timeInForce: 'IOC',
       clientOrderId: `${J}-3-${sell.id}-${part}`,
     });
     expect(buy.status).toBeLessThan(300);
+    await expect
+      .poll(async () => toUnits((await open())?.filled ?? before.amount) > toUnits(before.filled), { timeout: 10_000 })
+      .toBe(true)
+      .catch(() => undefined);
   }
   await expect.poll(async () => (await openOrders(who)).some((o) => o.id === sell.id), { timeout: 20_000 }).toBe(false);
   const fills = (await (await api(who)).get('/api/v1/account/trades?limit=100')).body.filter((f) => f.order === sell.id);
