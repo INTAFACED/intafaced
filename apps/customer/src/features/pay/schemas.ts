@@ -76,6 +76,18 @@ export type BoardQuery = {
   fiatAmount?: string;
   sort?: BoardSort;
 };
+/** svc-p2p's readable status, derived on the server from the state, the resolution and how it was reached. */
+export const displayStatuses = [
+  'waiting_for_escrow',
+  'waiting_for_buyer_to_pay',
+  'waiting_for_seller_to_release',
+  'appealing',
+  'completed',
+  'completed_by_dispute_ruling',
+  'cancelled',
+  'cancelled_by_timeout',
+  'cancelled_by_dispute_ruling',
+] as const;
 export const tradeSchema = z.object({
   id,
   offerId: id,
@@ -96,6 +108,12 @@ export const tradeSchema = z.object({
   settledAt: z.string().nullable(),
   /** `trades.get` only: the ad's terms when the order was placed (later ad edits never change them); null when the order predates the copy. */
   terms: z.string().nullable().optional(),
+  /** `trades.get` only: the readable status the order list shows. */
+  displayStatus: z.enum(displayStatuses).optional(),
+  /** `trades.get` only: the fee rate frozen at take, and for a released order the split the ledger posted from it (null otherwise). */
+  feeBps: z.number().int().min(0).max(9_999).optional(),
+  fee: amount.nullable().optional(),
+  netAmount: amount.nullable().optional(),
 });
 /** svc-p2p `trades.page`: one keyset page newest first, the server's tab and readable status per row, and exact per-tab counts. */
 export const orderTabs = ['in_progress', 'in_dispute', 'completed', 'cancelled'] as const;
@@ -103,17 +121,7 @@ export const orderPageSchema = z.object({
   trades: z.array(
     tradeSchema.extend({
       tab: z.enum(orderTabs),
-      displayStatus: z.enum([
-        'waiting_for_escrow',
-        'waiting_for_buyer_to_pay',
-        'waiting_for_seller_to_release',
-        'appealing',
-        'completed',
-        'completed_by_dispute_ruling',
-        'cancelled',
-        'cancelled_by_timeout',
-        'cancelled_by_dispute_ruling',
-      ]),
+      displayStatus: z.enum(displayStatuses),
     }),
   ),
   nextCursor: z.string().nullable(),
