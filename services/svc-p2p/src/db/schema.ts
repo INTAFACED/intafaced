@@ -89,6 +89,8 @@ export const offers = p2p.table(
     remainingAmt: amount('remaining_amt').notNull(),
     /** Payment methods the maker accepts, e.g. `[{"id":"sepa","label":"SEPA"}]`. */
     methods: jsonb('methods').notNull().default([]),
+    /** The seller's consent at post to non-instant methods (P-disputes-security-09). */
+    acceptsNonInstant: boolean('accepts_non_instant').notNull().default(false),
     terms: text('terms').notNull().default(''),
     /**
      * Verification tier of the maker at create. Null on older rows: a published
@@ -141,6 +143,9 @@ export const p2pTrades = p2p.table(
     method: text('method').notNull(),
     /** Snapshotted at take, for the same reason `token.stakes.multiplier_bps` is. */
     feeBps: bps('fee_bps').notNull().default('0'),
+    /** The method's settlement profile in the market it pays into, copied at take (P-disputes-security-09). */
+    nonInstant: boolean('non_instant').notNull().default(false),
+    settlementWindowSeconds: integer('settlement_window_seconds'),
     status: tradeStatusEnum('status').notNull().default('created'),
     /**
      * THE DECISION. Written and committed before the ledger post it authorises.
@@ -334,6 +339,9 @@ export const paymentMethodSchemas = p2p.table(
     /** Why the operator switched it off (0022): regulation | provider_withdrawn | fraud_risk | low_demand. */
     delistReason: text('delist_reason'),
     delistedAt: tstz('delisted_at'),
+    /** Settlement profile (P-disputes-security-09): instant, or a window of 60 s to 30 days (null = the published deadline). */
+    instant: boolean('instant').notNull().default(true),
+    settlementWindowSeconds: integer('settlement_window_seconds'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

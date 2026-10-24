@@ -23,7 +23,7 @@ import {
   type DisputeRecord,
   type P2pService,
 } from './p2p-service.js';
-import { InstrumentError, parseFieldSpecs } from './instruments.js';
+import { InstrumentError, methodIdFromOfferEntry, parseFieldSpecs, type MethodSettlement } from './instruments.js';
 import { BOARD_SORTS, type BoardSort } from './customer-depth.js';
 import { ELIGIBILITY_CHECK_IDS, ELIGIBILITY_STATES, TakeGateError, unwiredTakeGate, type TakeGate } from './take-eligibility.js';
 import { DELIST_REASONS, type InstrumentService } from './instrument-service.js';
@@ -181,10 +181,24 @@ const offerOutput = z.object({
    */
   referencePrice: amountString.nullable().optional(),
   methods: z.array(z.unknown()),
+  /**
+   * P-disputes-security-09: the listed methods whose money arrives within a settlement window, with the longest window
+   * any market sets (null when a market leaves it blank and the published payment deadline applies). Instant methods
+   * are not listed. The order carries the exact profile of the market it pays into.
+   */
+  nonInstantMethods: z.array(z.object({ methodId: z.string(), windowSeconds: z.number().int().positive().nullable() })),
+  /** P-disputes-security-09: the seller consented at post to non-instant methods. */
+  acceptsNonInstant: z.boolean(),
   terms: z.string(),
   status: z.enum(['active', 'paused', 'closed']),
   createdAt: z.string(),
 });
+
+/** P-disputes-security-09: how money on a method arrives in one market. */
+const settlementOutput = z.union([
+  z.object({ instant: z.literal(true) }),
+  z.object({ instant: z.literal(false), windowSeconds: z.number().int().positive().nullable() }),
+]);
 
 const tradeOutput = z.object({
   id: z.string().guid(),
@@ -217,6 +231,8 @@ const tradeDetailOutput = tradeOutput.extend({
   feeBps: z.number().int(),
   fee: amountString.nullable(),
   netAmount: amountString.nullable(),
+  /** P-disputes-security-09: the method's profile in the market the buyer pays into, copied at take. */
+  settlement: settlementOutput,
 });
 
 const blockQuoteOutput = z.object({
@@ -604,6 +620,10 @@ function toTrpcError(err: unknown): TRPCError {
       case 'p2p.pair_limit_exceeded':
       // The ad lists a method the operator retired: choose another method or ad.
       case 'p2p.method_delisted':
+      // P-disputes-security-09: a non-instant method without the sell ad's consent, and a dispute before the
+      // settlement window ends.
+      case 'p2p.non_instant_not_accepted':
+      case 'p2p.dispute_before_settlement':
       case 'p2p.offer_limit_exceeded':
       case 'p2p.invalid_fee_bps':
       case 'p2p.invalid_escrow_deadline':
@@ -673,6 +693,7 @@ const methodSchemaOutput = z.object({
   label: z.string(),
   fields: z.array(fieldSpecOutput),
   enabled: z.boolean(),
+  settlement: settlementOutput,
 });
 
 /**
@@ -856,9 +877,15 @@ export function createP2pRouter(
 
   /** The caller's own id, from the verified principal. Never from an input. */
   const presentOffer = async (offer: Awaited<ReturnType<P2pService['getOffer']>>): Promise<OfferOut> => {
-    const counts = await p2p.releasedTradeCounts([offer.id]);
-    return toOfferOut(offer, counts.get(offer.id) ?? 0);
+    const [counts, settlements] = await Promise.all([p2p.releasedTradeCounts([offer.id]), boardSettlements([offer])]);
+    return toOfferOut(offer, counts.get(offer.id) ?? 0, settlements);
   };
+
+  /** One catalogue read per page for every listed method's settlement profile. */
+  const boardSettlements = async (offers: ReadonlyArray<{ methods: readonly unknown[] }>) =>
+    instruments.boardSettlements(
+      offers.flatMap((offer) => offer.methods.map(methodIdFromOfferEntry).filter((id): id is string => id !== null)),
+    );
 
   const presentBoard = async (
     viewerId: string,
@@ -891,7 +918,10 @@ export function createP2pRouter(
       limit: input?.limit,
       viewerId,
     });
-    const counts = await p2p.releasedTradeCounts(page.offers.map((offer) => offer.id));
+    const [counts, settlements] = await Promise.all([
+      p2p.releasedTradeCounts(page.offers.map((offer) => offer.id)),
+      boardSettlements(page.offers),
+    ]);
     // One reference read per floating pair on the page, never per row.
     const references = new Map<string, Promise<string | null>>();
     const referenceFor = (asset: string, fiat: string) => {
@@ -911,7 +941,7 @@ export function createP2pRouter(
     return {
       offers: await Promise.all(
         page.offers.map(async (offer) => ({
-          ...toOfferOut(offer, counts.get(offer.id) ?? 0),
+          ...toOfferOut(offer, counts.get(offer.id) ?? 0, settlements),
           ...(offer.priceType === 'float' ? { referencePrice: await referenceFor(offer.asset, offer.fiatCurrency) } : {}),
         })),
       ),
@@ -1093,6 +1123,11 @@ export function createP2pRouter(
                */
               methods: z.array(z.union([z.string().min(1).max(64), z.object({ id: z.string().min(1).max(64) })])).min(1),
               terms: z.string().max(4000).optional(),
+              /**
+               * P-disputes-security-09: the seller accepts methods whose money arrives within a settlement window. A sell
+               * ad listing one without it refuses `p2p.non_instant_not_accepted`.
+               */
+              acceptsNonInstant: z.boolean().optional(),
               /** Client-chosen id. A retry with the same id must not publish a second offer. */
               offerId: z.string().guid().optional(),
               /** Client-chosen key. Required together with offerId: at least one. */
@@ -1123,6 +1158,7 @@ export function createP2pRouter(
                 ...(input.offerId === undefined ? {} : { offerId: input.offerId }),
                 ...(input.idempotencyKey === undefined ? {} : { idempotencyKey: input.idempotencyKey }),
                 makerTier: ctx.principal.tier,
+                ...(input.acceptsNonInstant === undefined ? {} : { acceptsNonInstant: input.acceptsNonInstant }),
               }),
             );
           }),
@@ -1404,6 +1440,7 @@ export function createP2pRouter(
               displayStatus: displayStatus(trade),
               feeBps: trade.feeBps,
               ...releaseSplit(trade),
+              settlement: trade.settlement,
             };
           }),
         ),
@@ -1838,6 +1875,16 @@ export function createP2pRouter(
               label: z.string().min(1).max(120),
               fields: z.array(z.unknown()).min(1),
               enabled: z.boolean().optional(),
+              /**
+               * P-disputes-security-09: whether money on the method arrives at once here, or within `windowSeconds`
+               * (null: the published payment deadline applies). Omitted keeps a row's profile; a new row is instant.
+               */
+              settlement: z
+                .discriminatedUnion('instant', [
+                  z.object({ instant: z.literal(true) }),
+                  z.object({ instant: z.literal(false), windowSeconds: z.number().int().min(60).max(2_592_000).nullable() }),
+                ])
+                .optional(),
               confirmOperatorId: z.string().max(128).nullish(),
               approvalId: z.string().max(128).nullish(),
               operationId: z.string().max(128).nullish(),
@@ -1861,6 +1908,8 @@ export function createP2pRouter(
                 label: input.label,
                 fields: JSON.stringify(parseFieldSpecs(input.fields)),
                 enabled: input.enabled === undefined ? 'preserve-or-default' : input.enabled ? 'true' : 'false',
+                // The approval covers the profile only when one is sent, so a register without it hashes as before.
+                ...(input.settlement === undefined ? {} : { settlement: JSON.stringify(input.settlement) }),
               });
               const schema = await instruments.registerMethodSchema({
                 methodId: input.methodId,
@@ -1868,6 +1917,7 @@ export function createP2pRouter(
                 label: input.label,
                 fields: input.fields,
                 ...(input.enabled === undefined ? {} : { enabled: input.enabled }),
+                ...(input.settlement === undefined ? {} : { settlement: input.settlement }),
               });
               return { ...schema, fields: [...schema.fields], confirmOperatorId };
             }),
@@ -3288,7 +3338,16 @@ function requireErasure(erasure: P2pErasure | undefined): P2pErasure {
   return erasure;
 }
 
-function toOfferOut(offer: Awaited<ReturnType<P2pService['getOffer']>>, tradesCompleted: number): OfferOut {
+function toOfferOut(
+  offer: Awaited<ReturnType<P2pService['getOffer']>>,
+  tradesCompleted: number,
+  settlements: ReadonlyMap<string, MethodSettlement>,
+): OfferOut {
+  const nonInstantMethods: OfferOut['nonInstantMethods'] = [];
+  for (const id of new Set(offer.methods.map(methodIdFromOfferEntry))) {
+    const settlement = id === null ? undefined : settlements.get(id);
+    if (id !== null && settlement && !settlement.instant) nonInstantMethods.push({ methodId: id, windowSeconds: settlement.windowSeconds });
+  }
   return {
     id: offer.id,
     makerId: offer.makerId,
@@ -3304,6 +3363,8 @@ function toOfferOut(offer: Awaited<ReturnType<P2pService['getOffer']>>, tradesCo
     filledAmount: formatAmount(subAmount(offer.totalAmt, offer.remainingAmt)),
     tradesCompleted,
     methods: offer.methods,
+    nonInstantMethods,
+    acceptsNonInstant: offer.acceptsNonInstant,
     terms: offer.terms,
     status: offer.status,
     createdAt: offer.createdAt.toISOString(),

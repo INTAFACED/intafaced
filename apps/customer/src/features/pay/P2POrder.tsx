@@ -10,6 +10,7 @@ import { payCopy, PayCopy, payRefusal } from './copy';
 import { orderCopy } from './p2p-order-copy';
 import { PayAmount, PayDetails, PayFailure, PayState, PayTime } from './components';
 import { TradeStatus } from './personal/P2PDepth';
+import { OrderSettlement } from './personal/Settlement';
 import { percentOf } from './portal/payments/payment-model';
 import { ContactActions } from './personal/ContactActions';
 import './p2p-order.css';
@@ -230,6 +231,7 @@ export function P2POrder({
                     <p className="muted" lang="zxx">
                       {trade.method}
                     </p>
+                    <OrderSettlement trade={trade} />
                   </div>
                 </div>
                 {trade.status === 'released' ? <OrderResult trade={trade} seller={seller} /> : null}

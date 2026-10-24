@@ -321,6 +321,24 @@ export async function registerRetiringMethod() {
   );
 }
 
+/**
+ * P-disputes-security-09: a third LOCAL TEST method, the same TEST bank transfer under another id, whose money takes up
+ * to two days to arrive (not instant). Registered switched on with that settlement profile, as the founder pair does.
+ */
+export const SLOW_METHOD = 'test-slow-transfer';
+export const SLOW_WINDOW_SECONDS = 172_800;
+export async function registerSlowMethod() {
+  const [base] = (await import('../../../../tooling/scripts/local-test-gates.mjs')).TEST_P2P_METHODS;
+  const method = { methodId: SLOW_METHOD, country: base.country, label: 'TEST slow transfer', fields: base.fields };
+  const settlement = { instant: false, windowSeconds: SLOW_WINDOW_SECONDS };
+  return operatorMethodChange(
+    'instruments.methods.register',
+    'p2p.method_register',
+    { ...method, fields: JSON.stringify(method.fields), enabled: 'true', settlement: JSON.stringify(settlement) },
+    { ...method, enabled: true, settlement },
+  );
+}
+
 /** Retires the retiring TEST method in its market with the operator's `reason`. */
 export async function retireRetiringMethod(reason) {
   const input = { methodId: RETIRING_METHOD, country: 'DE', enabled: false, reason };

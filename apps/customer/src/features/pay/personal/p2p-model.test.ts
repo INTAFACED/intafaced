@@ -215,8 +215,16 @@ describe('offer form', () => {
     totalAmount: '1000',
     methods: ['sepa'],
     terms: '',
+    acceptsNonInstant: false,
   };
   it('accepts a complete form', () => expect(checkOfferForm(good)).toEqual({}));
+  it('needs the seller to accept a method that is not instant, and only on a sell ad (P-disputes-security-09)', () => {
+    const slow = new Set(['slow']);
+    expect(checkOfferForm({ ...good, methods: ['sepa', 'Slow'] }, slow).methods).toBe('nonInstantConsent');
+    expect(checkOfferForm({ ...good, methods: ['sepa', 'slow'], acceptsNonInstant: true }, slow)).toEqual({});
+    expect(checkOfferForm({ ...good, side: 'buy', methods: ['slow'] }, slow)).toEqual({});
+    expect(checkOfferForm({ ...good, methods: ['sepa'] }, slow)).toEqual({});
+  });
   it('reports every missing field on an empty form', () => {
     expect(checkOfferForm(emptyOffer())).toEqual({
       asset: 'required',
