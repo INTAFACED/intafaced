@@ -124,26 +124,24 @@ describe('the hosted checkout look (M-payments-core-08, J-merchant-04 step 1)', 
   it('keeps the logo when a save leaves it out, takes it off with null, and refuses a save from an older version', async () => {
     const before = await as(admin).merchantCheckout.branding.get({});
     if (before.look.status !== 'saved') throw new Error('expected the saved look');
+    const version = before.look.version;
     const kept = await as(admin).merchantCheckout.branding.save({
       requestId: nid(),
-      expectedVersion: before.look.version,
+      expectedVersion: version,
       brandColor: '#0b1f3a',
     });
-    expect(kept.branding.look).toMatchObject({ brandColor: '#0b1f3a', version: before.look.version + 1, logo: { byteSize: 70 } });
+    expect(kept.branding.look).toMatchObject({ brandColor: '#0b1f3a', version: version + 1, logo: { byteSize: 70 } });
     expect(
-      (
-        await refusal(() =>
-          as(owner).merchantCheckout.branding.save({ requestId: nid(), expectedVersion: before.look.version, brandColor: '#111111' }),
-        )
-      ).cause,
+      (await refusal(() => as(owner).merchantCheckout.branding.save({ requestId: nid(), expectedVersion: version, brandColor: '#111111' })))
+        .cause,
     ).toBe('pay.checkout_branding_stale');
     const off = await as(owner).merchantCheckout.branding.save({
       requestId: nid(),
-      expectedVersion: before.look.version + 1,
+      expectedVersion: version + 1,
       brandColor: '#0b1f3a',
       logo: null,
     });
-    expect(off.branding.look).toMatchObject({ logo: null, version: before.look.version + 2 });
+    expect(off.branding.look).toMatchObject({ logo: null, version: version + 2 });
   });
 
   it('recognises a retried save after later saves, and answers with the look as it is now', async () => {
