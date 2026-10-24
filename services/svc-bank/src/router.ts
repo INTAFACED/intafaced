@@ -127,7 +127,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     ramps,
     deposits: router({
       /**
-       * Assets custody says can be paid in. A blank port refuses
+       * Assets custody says can be paid in, and the pairs the owner switched off. A blank port refuses
        * `bank.deposit_custody_unset`. Minimums are the port's decimals.
        */
       assets: scopedProcedure('bank:read', { module: 'bank' })
@@ -147,6 +147,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
                 ),
               }),
             ),
+            /** Pairs the owner switched off, with the owner's note (null: the standard line only). They take no address. */
+            halted: z.array(z.object({ assetId: z.string(), networkId: z.string(), label: z.string(), haltNote: z.string().nullable() })),
           }),
         )
         .query(() => guard(async () => bank.deposits.assets())),

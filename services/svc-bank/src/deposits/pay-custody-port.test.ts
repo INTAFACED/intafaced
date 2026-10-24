@@ -40,6 +40,42 @@ describe('pay custody deposit port', () => {
     ]);
   });
 
+  it('carries the pairs the owner switched off, with their notes, beside the open ones', async () => {
+    const port = createPayCustodyDepositPort({
+      catalogue: async () => ({
+        state: 'ok',
+        catalogue: {
+          entries: [entry('USDC', 'base')],
+          halted: [
+            { assetId: 'USDT', networkId: 'base', label: 'TEST Base', haltNote: 'TEST maintenance' },
+            { assetId: 'USDC', networkId: 'ethereum', label: 'TEST Ethereum', haltNote: null },
+          ],
+        },
+      }),
+      address: async () => UNAVAILABLE,
+      records: async () => UNAVAILABLE,
+    });
+    expect(await port.catalogue!()).toEqual({
+      assets: [
+        {
+          assetId: 'USDC',
+          networks: [{ id: 'base', label: 'base', minimumDeposit: '10', confirmationsRequired: 12, estimatedArrivalMinutes: 5 }],
+        },
+      ],
+      halted: [
+        { assetId: 'USDT', networkId: 'base', label: 'TEST Base', haltNote: 'TEST maintenance' },
+        { assetId: 'USDC', networkId: 'ethereum', label: 'TEST Ethereum', haltNote: null },
+      ],
+    });
+    // An older pay reply without the list names none as switched off.
+    const older = createPayCustodyDepositPort({
+      catalogue: async () => ({ state: 'ok', catalogue: { entries: [] } }),
+      address: async () => UNAVAILABLE,
+      records: async () => UNAVAILABLE,
+    });
+    expect(await older.catalogue!()).toEqual({ assets: [], halted: [] });
+  });
+
   it('publishes an empty catalogue as empty, and an unreachable pay as not published', async () => {
     const empty = createPayCustodyDepositPort({
       catalogue: async () => ({ state: 'ok', catalogue: { entries: [] } }),
@@ -53,6 +89,7 @@ describe('pay custody deposit port', () => {
       records: async () => UNAVAILABLE,
     });
     expect(await down.listAssets()).toBeNull();
+    expect(await down.catalogue!()).toBeNull();
   });
 
   it('returns an issued address, and null for a refusal or an unreachable pay, never an invented address', async () => {

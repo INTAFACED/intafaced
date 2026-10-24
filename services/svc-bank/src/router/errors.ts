@@ -351,6 +351,7 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.deposit_custody_unset': 'PRECONDITION_FAILED',
   'bank.deposit_catalogue_invalid': 'PRECONDITION_FAILED',
   'bank.deposit_asset_unpublished': 'PRECONDITION_FAILED',
+  'bank.deposit_network_halted': 'PRECONDITION_FAILED',
   'bank.deposit_pending_unbounded': 'PRECONDITION_FAILED',
   'bank.withdraw_destination_missing': 'PRECONDITION_FAILED',
   'bank.destination_label_taken': 'PRECONDITION_FAILED',

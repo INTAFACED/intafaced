@@ -226,3 +226,77 @@ describe('deposit room: what the network says', () => {
     expect(address).not.toHaveBeenCalled();
   });
 });
+
+describe('deposit room: a network the owner switched off, and a person not yet verified', () => {
+  const choose = (label: string, value: string) =>
+    act(async () => {
+      const node = select(label);
+      node.value = value;
+      node.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+
+  it('lists the switched-off network, and choosing it shows the owner note and no address control', async () => {
+    world.catalogue = {
+      status: 'ready',
+      data: {
+        assets: [USDT],
+        halted: [{ assetId: 'USDT', networkId: 'base', label: 'TEST Base', haltNote: 'TEST maintenance until Monday' }],
+      },
+    };
+    await open();
+    const options = [...select('Network').options].map((o) => o.textContent);
+    expect(options).toEqual(['Choose a network', 'Ethereum', 'Tron', 'TEST Base (switched off)']);
+    await choose('Network', 'base');
+    const banner = host.querySelector('[data-testid="deposit-halted"]')!;
+    expect(banner.getAttribute('role')).toBe('alert');
+    expect(banner.textContent).toContain('Deposits of USDT on TEST Base are switched off');
+    expect(banner.textContent).toContain('TEST maintenance until Monday');
+    expect([...host.querySelectorAll('button')].some((b) => b.textContent === 'Show my deposit address')).toBe(false);
+    expect(host.querySelector('input[type="checkbox"]')).toBeNull();
+    expect(address).not.toHaveBeenCalled();
+  });
+
+  it('keeps a coin whose every network is off in the list, and says so; with no note it shows only the standard line', async () => {
+    world.catalogue = {
+      status: 'ready',
+      data: { assets: [BTC], halted: [{ assetId: 'USDC', networkId: 'base', label: 'TEST Base', haltNote: null }] },
+    };
+    await open();
+    expect([...select('Asset').options].map((o) => o.value)).toEqual(['BTC', 'USDC']);
+    await choose('Asset', 'USDC');
+    expect(field('Network').textContent).toContain('Deposits of USDC are switched off on every network.');
+    await choose('Network', 'base');
+    const banner = host.querySelector('[data-testid="deposit-halted"]')!;
+    expect(banner.querySelectorAll('p')).toHaveLength(1);
+    expect(banner.textContent).toContain('No address is shown for it.');
+  });
+
+  it.each(['denied.kyc_required', 'tier.insufficient', 'bank.tier_required'])(
+    'a person the bank refuses until verified (%s) is sent to Verification, with no retry that cannot help',
+    async (code) => {
+      world.catalogue = {
+        status: 'failed',
+        failure: { ok: false, reason: 'error', message: 'Verification tier "full" required for bank in XX', code },
+      };
+      await open();
+      expect(field('Network').textContent).toContain('Crypto deposits open once your identity is verified.');
+      expect([...field('Network').querySelectorAll('button')]).toHaveLength(0);
+      const verify = host.querySelector('[data-testid="deposit-verify"]')!;
+      expect(verify.textContent).toContain('Verify your identity first');
+      expect(verify.querySelector('a')?.getAttribute('href')).toBe('/verification');
+      expect(address).not.toHaveBeenCalled();
+    },
+  );
+
+  it('a link to a switched-off pair chooses it, so its banner says why there is no address', async () => {
+    world.catalogue = {
+      status: 'ready',
+      data: { assets: [BTC], halted: [{ assetId: 'USDC', networkId: 'base', label: 'TEST Base', haltNote: null }] },
+    };
+    await open('?asset=usdc&network=BASE');
+    expect(select('Asset').value).toBe('USDC');
+    expect(select('Network').value).toBe('base');
+    expect(host.querySelector('[data-testid="deposit-halted"]')?.textContent).toContain('Deposits of USDC on TEST Base are switched off');
+    expect(host.querySelector('[role="alert"][data-code]')).toBeNull();
+  });
+});

@@ -1,5 +1,5 @@
 import { PAY_CUSTODY_DEPOSIT_PENDING_STATUSES, type PayCustodyDepositPort } from '@intafaced/contracts';
-import type { CustodyDepositPort, DepositAsset } from './custody-port.js';
+import type { CustodyDepositCatalogue, CustodyDepositPort, DepositAsset } from './custody-port.js';
 
 /**
  * The real `CustodyDepositPort` (W-deposit-01): every answer comes from svc-pay over the signed seam in
@@ -11,26 +11,38 @@ import type { CustodyDepositPort, DepositAsset } from './custody-port.js';
  * unreachable pay is `null`, never an empty list that would say "connected, nothing incoming".
  */
 export function createPayCustodyDepositPort(pay: PayCustodyDepositPort): CustodyDepositPort {
+  async function catalogue(): Promise<CustodyDepositCatalogue | null> {
+    const answer = await pay.catalogue();
+    if (answer.state !== 'ok') return null;
+    const byAsset = new Map<string, DepositAsset>();
+    for (const entry of answer.catalogue.entries) {
+      const asset = byAsset.get(entry.assetId) ?? { assetId: entry.assetId, networks: [] };
+      asset.networks = [
+        ...asset.networks,
+        {
+          id: entry.networkId,
+          label: entry.label,
+          minimumDeposit: entry.minimumDeposit,
+          confirmationsRequired: entry.confirmationsRequired,
+          estimatedArrivalMinutes: entry.estimatedArrivalMinutes,
+        },
+      ];
+      byAsset.set(entry.assetId, asset);
+    }
+    const halted = (answer.catalogue.halted ?? []).map(({ assetId, networkId, label, haltNote }) => ({
+      assetId,
+      networkId,
+      label,
+      haltNote,
+    }));
+    return { assets: [...byAsset.values()], halted };
+  }
+
   return {
+    catalogue,
+
     async listAssets() {
-      const answer = await pay.catalogue();
-      if (answer.state !== 'ok') return null;
-      const byAsset = new Map<string, DepositAsset>();
-      for (const entry of answer.catalogue.entries) {
-        const asset = byAsset.get(entry.assetId) ?? { assetId: entry.assetId, networks: [] };
-        asset.networks = [
-          ...asset.networks,
-          {
-            id: entry.networkId,
-            label: entry.label,
-            minimumDeposit: entry.minimumDeposit,
-            confirmationsRequired: entry.confirmationsRequired,
-            estimatedArrivalMinutes: entry.estimatedArrivalMinutes,
-          },
-        ];
-        byAsset.set(entry.assetId, asset);
-      }
-      return [...byAsset.values()];
+      return (await catalogue())?.assets ?? null;
     },
 
     async address(input) {

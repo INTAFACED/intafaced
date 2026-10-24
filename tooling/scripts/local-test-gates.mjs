@@ -976,14 +976,21 @@ export const TEST_DEPOSIT_NETWORKS = [
   feeEstimateSource: 'fixed',
   feeEstimateAmount: '1.5',
 }));
+/** The one TEST pair kept switched off, so the Deposit room's switched-off notice can be seen; every other pair is on. */
+export const TEST_HALTED_DEPOSIT = { assetId: 'USDC', networkId: 'base' };
 export const TEST_DEPOSIT_TERMS = TEST_DEPOSIT_NETWORKS.flatMap((n) =>
-  n.assetCodes.map((assetId) => ({
-    assetId,
-    networkId: n.networkId,
-    label: n.displayName,
-    minimumDeposit: '10',
-    estimatedArrivalMinutes: 15,
-  })),
+  n.assetCodes.map((assetId) => {
+    const off = assetId === TEST_HALTED_DEPOSIT.assetId && n.networkId === TEST_HALTED_DEPOSIT.networkId;
+    return {
+      assetId,
+      networkId: n.networkId,
+      label: n.displayName,
+      minimumDeposit: '10',
+      estimatedArrivalMinutes: 15,
+      enabled: !off,
+      haltNote: off ? 'TEST: switched off on this test stack so the notice can be seen.' : null,
+    };
+  }),
 );
 
 /** The svc-pay approval a founder change needs: the target is the action type itself, at version 1 (consumePayApproval). */
@@ -1066,35 +1073,32 @@ export async function publishDepositTerms(ctx) {
     const what = `deposit ${want.assetId} on ${want.networkId}`;
     let row = data(listed).find((r) => r.assetId === want.assetId && r.networkId === want.networkId) ?? null;
     const same = (r) =>
-      r && r.label === want.label && r.minimumDeposit === want.minimumDeposit && r.estimatedArrivalMinutes === want.estimatedArrivalMinutes;
-    if (row?.enabled && same(row)) {
+      r &&
+      r.label === want.label &&
+      r.minimumDeposit === want.minimumDeposit &&
+      r.estimatedArrivalMinutes === want.estimatedArrivalMinutes &&
+      r.enabled === want.enabled &&
+      r.haltNote === want.haltNote;
+    if (same(row)) {
       out.push({ what, status: 'already published' });
       continue;
     }
     const reason = `${MARKERS.label}: TEST deposit terms`;
-    if (!row) {
-      // A new pair must be created switched off; switching it on (with the TEST terms) is its own dual-controlled change.
-      const change = { ...want, enabled: false, haltNote: null, expectedVersion: null, reason };
-      row = (
-        await payFounderSave(ctx, sessions, {
-          preview: 'founderAdmin.depositSettings.preview',
-          previewInput: change,
-          save: 'founderAdmin.depositSettings.save',
-          input: change,
-          what,
-        })
-      ).row;
-    }
-    const on = { ...want, enabled: true, haltNote: null, expectedVersion: row.version, reason };
-    const r = await payFounderSave(ctx, sessions, {
-      preview: 'founderAdmin.depositSettings.preview',
-      previewInput: on,
-      save: 'founderAdmin.depositSettings.save',
-      input: on,
-      what,
-    });
+    const save = (change) =>
+      payFounderSave(ctx, sessions, {
+        preview: 'founderAdmin.depositSettings.preview',
+        previewInput: change,
+        save: 'founderAdmin.depositSettings.save',
+        input: change,
+        what,
+      });
+    // A new pair must be created switched off; switching it on (with the TEST terms) is its own dual-controlled change.
+    if (!row) row = (await save({ ...want, enabled: false, haltNote: null, expectedVersion: null, reason })).row;
+    const r = same(row) ? { approvalId: null } : await save({ ...want, expectedVersion: row.version, reason });
     out.push({ what, status: 'published', approvalId: r.approvalId });
-    ctx.log(`${what}: minimum ${want.minimumDeposit}, about ${want.estimatedArrivalMinutes} min, switched on (${MARKERS.label})`);
+    ctx.log(
+      `${what}: minimum ${want.minimumDeposit}, about ${want.estimatedArrivalMinutes} min, ${want.enabled ? 'switched on' : 'kept switched off'} (${MARKERS.label})`,
+    );
   }
   return out;
 }
