@@ -15,6 +15,8 @@ export const spaceSchema = z
     lockedUntil: z.string().datetime({ offset: true }).nullable(),
     /** An early unlock still waiting (BK-pots-02): when the space opens. Absent from a bank that predates it. */
     unlocksAt: z.string().datetime({ offset: true }).nullable().optional(),
+    /** Set when this pot pays the person's bills (BK-pots-03). Absent from a bank that predates it. */
+    billsPot: z.object({ fallback: z.boolean() }).nullable().optional(),
     balance: decimalSchema,
     ledgerAccount: z.object({ ownerType: z.string(), ownerId: z.string(), assetId: z.string(), kind: z.string() }),
   })

@@ -8,6 +8,7 @@ import { Text } from './copy';
 import { usePreferences } from '../../shared/preferences';
 import { GoalProgress } from './GoalAndMovement';
 import { EarlyUnlock } from './SpaceLock';
+import { BillsPotState } from './BillsPot';
 import { currentSpace, type SpaceContext } from './space-context';
 import { spaceCopy } from './space-copy';
 
@@ -116,6 +117,7 @@ export function SelectedSpace({
               )}
             </div>
             <EarlyUnlock space={space} />
+            <BillsPotState space={space} />
           </dl>
           <div className="money-selected-actions">
             {actions(space)}

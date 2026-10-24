@@ -18,6 +18,7 @@ import { assertTransferDueLimit } from '../job-batch-limit.js';
 import { RECIPIENT_CANNOT_RECEIVE_MESSAGE, accountForSpace, type SpaceService } from '../spaces/space-service.js';
 import { MAX_CATCH_UP_PER_PASS, dueOccurrence, lastOccurrenceBefore, planDue, occurrenceStart, type ScheduleCadence } from './schedule.js';
 import { withMoneySpan, withSpan } from '../tracing.js';
+import type { BillsPotService } from '../spaces/bills-pot.js';
 
 /**
  * TRANSFERS — the rails half of §8.1.
@@ -189,6 +190,16 @@ export interface RunReport {
   failures: Array<{ scheduleId: string; reason: string; code?: string }>;
 }
 
+/** The ledger's "too little money" refusal, from either ledger engine. */
+function isInsufficientFunds(err: unknown): err is InsufficientFundsError | LedgerError {
+  return err instanceof InsufficientFundsError || (err instanceof LedgerError && err.code === 'ledger.insufficient_funds');
+}
+
+/** The ledger key's transfer id for a bills pot top-up before one standing order (BK-pots-03); over 64 characters. */
+export function billsFallbackTransferId(scheduleId: string, potId: string): string {
+  return `bills-fallback:${scheduleId}:${potId}`;
+}
+
 export class TransferService {
   constructor(
     private readonly sql: Sql,
@@ -196,6 +207,8 @@ export class TransferService {
     private readonly spaces: SpaceService,
     /** `BANK_SCHEDULE_EDIT_CUTOFF_MINUTES`, read only when an edit is asked for. */
     private readonly scheduleTerms: { readonly editCutoffMinutes?: string } = {},
+    /** The person's bills pots (BK-pots-03): a standing order from one may top it up from the main account first. */
+    private readonly billsPots?: BillsPotService,
   ) {}
 
   // ── One-off transfer ───────────────────────────────────────────────────────
@@ -1157,8 +1170,16 @@ export class TransferService {
     to: Awaited<ReturnType<SpaceService['get']>>,
     occurrence: number,
   ): Promise<FiringOutcome> {
-    try {
-      const posted = await this.ledger.post(
+    const reject = async (code: string): Promise<FiringOutcome> => {
+      await tx`
+        UPDATE bank.transfer_executions
+           SET status = 'rejected', rejection_code = ${code}
+         WHERE id = ${executionId}
+      `;
+      return 'rejected';
+    };
+    const post = () =>
+      this.ledger.post(
         recipes.bankTransfer({
           transferId: schedule.id,
           occurrence,
@@ -1169,30 +1190,77 @@ export class TransferService {
           keySpace: 'sched',
         }),
       );
-
-      await tx`
-        UPDATE bank.transfer_executions
-           SET status = 'settled', ledger_tx_id = ${posted.id}, settled_at = now()
-         WHERE id = ${executionId}
-      `;
-      return 'settled';
+    let posted: Awaited<ReturnType<typeof post>>;
+    try {
+      posted = await post();
     } catch (err) {
       // An empty space is an ordinary outcome for a standing order, not an
       // incident: record WHY and move on. The occurrence is consumed rather than
       // queued — a monthly transfer that failed in March is a March transfer,
       // and silently making it up in April would move money the user is no
-      // longer expecting to move.
-      if (err instanceof InsufficientFundsError || (err instanceof LedgerError && err.code === 'ledger.insufficient_funds')) {
-        await tx`
-          UPDATE bank.transfer_executions
-             SET status = 'rejected', rejection_code = ${err.code}
-           WHERE id = ${executionId}
-        `;
-        return 'rejected';
-      }
+      // longer expecting to move. A bills pot whose owner turned the fallback on
+      // is topped up from the main account first, and the order tries once more.
+      //
       // Anything else — a network fault reaching svc-ledger, a frozen module —
       // must NOT consume the occurrence. Rethrowing rolls the claim back so the
       // next pass tries again.
+      if (!isInsufficientFunds(err)) throw err;
+      if (!(await this.topUpBillsPot(tx, schedule, from, occurrence))) return reject(err.code);
+      try {
+        posted = await post();
+      } catch (retryErr) {
+        if (isInsufficientFunds(retryErr)) return reject(retryErr.code);
+        throw retryErr;
+      }
+    }
+
+    await tx`
+      UPDATE bank.transfer_executions
+         SET status = 'settled', ledger_tx_id = ${posted.id}, settled_at = now()
+       WHERE id = ${executionId}
+    `;
+    return 'settled';
+  }
+
+  /**
+   * The bills pot fallback (BK-pots-03): when a standing order from the person's bills pot finds too little and they
+   * turned the fallback on, move the shortfall from their main account into the pot. Keyed per order, pot and
+   * occurrence, longer than any id a person can choose, so a re-driven occurrence finds its top-up instead of moving
+   * again. False when this space is no bills pot, the fallback is off, or the main account cannot cover the shortfall
+   * (that refusal moves nothing, and the order is recorded as refused).
+   */
+  private async topUpBillsPot(
+    tx: Sql,
+    schedule: ScheduleRecord,
+    pot: Awaited<ReturnType<SpaceService['get']>>,
+    occurrence: number,
+  ): Promise<boolean> {
+    if (pot.kind !== 'named' || !this.billsPots) return false;
+    const role = await this.billsPots.forSpace(pot.id, tx);
+    if (!role?.fallback) return false;
+    const transferId = billsFallbackTransferId(schedule.id, pot.id);
+    if (await this.ledger.getTxByKey(bankTransferKey('own', transferId, occurrence))) return true;
+    const held = (await this.ledger.balance(accountForSpace(pot))).amount;
+    const shortfall = schedule.amount - held;
+    if (shortfall <= 0n) return true;
+    const primary = await this.spaces.findPrimary(pot.userId, pot.assetId, tx);
+    if (!primary) return false;
+    const main = await this.spaces.resolveForDebit(primary.id, new Date(), tx);
+    try {
+      await this.ledger.post(
+        recipes.bankTransfer({
+          transferId,
+          occurrence,
+          from: accountForSpace(main),
+          to: accountForSpace(pot),
+          amount: shortfall,
+          kind: 'manual',
+          keySpace: 'own',
+        }),
+      );
+      return true;
+    } catch (err) {
+      if (isInsufficientFunds(err)) return false;
       throw err;
     }
   }

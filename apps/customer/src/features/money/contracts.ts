@@ -828,6 +828,9 @@ export const bankWrites = {
   'spaces.setLock': spaceLockStateSchema,
   'spaces.requestUnlock': spaceLockStateSchema,
   'spaces.cancelUnlock': spaceLockStateSchema,
+  // The bills pot (BK-pots-03): the space that pays bills, and whether a standing order from it tops it up from the account.
+  'spaces.setBillsPot': z.object({ spaceId: z.string(), assetId: z.string(), fallback: z.boolean() }),
+  'spaces.clearBillsPot': z.object({ spaceId: z.string(), billsPot: z.null() }),
   'transfers.create': z.object({ ledgerTxId: z.string(), amount: money }),
   // A personal send echoes the note and reference it stored, so the review can be checked against them.
   'transfers.toUser': z.object({ ledgerTxId: z.string(), amount: money, note: z.string().nullable(), reference: z.string().nullable() }),
@@ -965,6 +968,12 @@ export function bankWriteForReview(procedure: BankWrite, input: Record<string, u
           row.legs.every((leg, i) => leg.spaceId === legs[i]!.spaceId && leg.shareBp === legs[i]!.shareBp)
         );
       }
+      case 'spaces.setBillsPot': {
+        const row = data as z.infer<(typeof bankWrites)['spaces.setBillsPot']>;
+        return row.spaceId === input.spaceId && row.fallback === input.fallback;
+      }
+      case 'spaces.clearBillsPot':
+        return (data as z.infer<(typeof bankWrites)['spaces.clearBillsPot']>).spaceId === input.spaceId;
       case 'sorter.cancel': {
         const row = data as z.infer<typeof sorterSchema>;
         return row.id === input.sorterId && row.status === 'cancelled';

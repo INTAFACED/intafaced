@@ -50,6 +50,7 @@ export function createSpacesRouter(c: BankRouterContext) {
         guard(async () => {
           const userId = ctx.principal.userId;
           const views = await bank.spaces.overview(userId, input.assetId, input.limit);
+          const bills = new Map((await bank.billsPots.list(userId)).map((pot) => [pot.spaceId, pot]));
           const now = new Date();
           return views.map((v) => ({
             id: v.id,
@@ -57,6 +58,7 @@ export function createSpacesRouter(c: BankRouterContext) {
             kind: v.kind,
             name: v.name,
             ...potState(v, now),
+            billsPot: bills.has(v.id) ? { fallback: bills.get(v.id)!.fallback } : null,
             balance: v.balance,
             ledgerAccount: accountForSpace(v),
           }));
@@ -101,6 +103,7 @@ export function createSpacesRouter(c: BankRouterContext) {
           const space = await bank.spaces.get(input.spaceId);
           assertSelf(ctx.principal.userId, space.userId);
           await bank.spaces.archive(input.spaceId);
+          await bank.billsPots.released(input.spaceId);
           return { archived: true as const };
         }),
       ),
@@ -172,6 +175,33 @@ export function createSpacesRouter(c: BankRouterContext) {
           const now = new Date();
           const pot = await bank.spaces.cancelUnlock(input.spaceId, ctx.principal.userId, now);
           return { id: pot.id, ...potState(pot, now) };
+        }),
+      ),
+
+    /**
+     * Make one of the caller's live pots their bills pot for its asset (BK-pots-03), or change its fallback. With the
+     * fallback on, a standing order from the pot that finds too little first moves the shortfall from the main account;
+     * off (the default), it is refused `ledger.insufficient_funds` like any other. Another bills pot of the asset gives
+     * the role up.
+     */
+    setBillsPot: scopedProcedure('bank:write', { module: 'bank' })
+      .input(z.object({ spaceId: z.string().guid(), fallback: z.boolean() }))
+      .output(z.object({ spaceId: z.string(), assetId: z.string(), fallback: z.boolean() }))
+      .mutation(async ({ ctx, input }) =>
+        guard(async () => {
+          const pot = await bank.billsPots.set(ctx.principal.userId, input.spaceId, input.fallback);
+          return { spaceId: pot.spaceId, assetId: pot.assetId, fallback: pot.fallback };
+        }),
+      ),
+
+    /** The pot stops paying the caller's bills; its money stays where it is (BK-pots-03). */
+    clearBillsPot: scopedProcedure('bank:write', { module: 'bank' })
+      .input(z.object({ spaceId: z.string().guid() }))
+      .output(z.object({ spaceId: z.string(), billsPot: z.null() }))
+      .mutation(async ({ ctx, input }) =>
+        guard(async () => {
+          await bank.billsPots.clear(ctx.principal.userId, input.spaceId);
+          return { spaceId: input.spaceId, billsPot: null };
         }),
       ),
 

@@ -241,10 +241,10 @@ export class SpaceService {
   }
 
   /** Lookup only. Does not invent a dest user or a primary space. */
-  async findPrimary(userId: string, assetId: string): Promise<SpaceRecord | null> {
+  async findPrimary(userId: string, assetId: string, db: Sql = this.sql): Promise<SpaceRecord | null> {
     const id = userId.trim();
     if (!id) return null;
-    const rows = await this.sql<SpaceRow[]>`
+    const rows = await db<SpaceRow[]>`
       SELECT id, user_id, asset_id, kind, name, goal_target, locked_until, unlock_requested_at, unlocks_at, archived_at
         FROM bank.spaces
        WHERE user_id = ${id} AND asset_id = ${assetId} AND kind = 'primary' AND archived_at IS NULL

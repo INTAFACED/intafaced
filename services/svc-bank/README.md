@@ -79,17 +79,21 @@ archived spaces remain visible. `loans.releaseExcess` requires a caller-supplied
 
 ### `spaces`
 
-| Procedure              | Scope                  | Purpose                                                                                                                                                       |
-| ---------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `spaces.list`          | `bank:read`            | Spaces with their **ledger** balances, and the account ref they are a view of                                                                                 |
-| `spaces.unnamed`       | `bank:read`            | Assets held with no space yet — sourced from the ledger, not this table                                                                                       |
-| `spaces.create`        | `bank:write`           | New named space (ensures the primary exists first)                                                                                                            |
-| `spaces.archive`       | `bank:write`           | Archive a named space. **Moves no value**                                                                                                                     |
-| `spaces.setGoal`       | `bank:write`           | Set, change or clear the goal of one of the caller’s pots. **Moves no value** (BK-pots-02)                                                                    |
-| `spaces.setLock`       | `bank:write`           | Lock a pot until a later date, or keep it locked longer; a shorter date refuses `bank.space_change_invalid` (BK-pots-02)                                      |
-| `spaces.requestUnlock` | `bank:write`           | Early unlock: the pot opens after `BANK_SPACE_UNLOCK_WAIT_HOURS` (blank refuses `bank.space_unlock_rule_unset`); debits refuse until then                     |
-| `spaces.cancelUnlock`  | `bank:write`           | Withdraw an early unlock still waiting; the pot stays locked to its date                                                                                      |
-| `spaces.ownedAccounts` | service (svc-tax only) | Every named space the customer ever owned (id, asset, name, archived), so svc-tax can follow own-account moves in the lot book (PF-cost-basis-02). No balance |
+| Procedure              | Scope                  | Purpose                                                                                                                                                                                              |
+| ---------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `spaces.list`          | `bank:read`            | Spaces with their **ledger** balances, and the account ref they are a view of                                                                                                                        |
+| `spaces.unnamed`       | `bank:read`            | Assets held with no space yet — sourced from the ledger, not this table                                                                                                                              |
+| `spaces.create`        | `bank:write`           | New named space (ensures the primary exists first)                                                                                                                                                   |
+| `spaces.archive`       | `bank:write`           | Archive a named space. **Moves no value**                                                                                                                                                            |
+| `spaces.setGoal`       | `bank:write`           | Set, change or clear the goal of one of the caller’s pots. **Moves no value** (BK-pots-02)                                                                                                           |
+| `spaces.setLock`       | `bank:write`           | Lock a pot until a later date, or keep it locked longer; a shorter date refuses `bank.space_change_invalid` (BK-pots-02)                                                                             |
+| `spaces.requestUnlock` | `bank:write`           | Early unlock: the pot opens after `BANK_SPACE_UNLOCK_WAIT_HOURS` (blank refuses `bank.space_unlock_rule_unset`); debits refuse until then                                                            |
+| `spaces.cancelUnlock`  | `bank:write`           | Withdraw an early unlock still waiting; the pot stays locked to its date                                                                                                                             |
+| `spaces.setBillsPot`   | `bank:write`           | Make one of the caller's live pots their bills pot for its asset, with the top-up from the main account on or off (BK-pots-03). Another bills pot of the asset gives the role up. **Moves no value** |
+| `spaces.clearBillsPot` | `bank:write`           | The pot stops paying bills; its money stays. Archiving a pot ends the role too                                                                                                                       |
+| `spaces.ownedAccounts` | service (svc-tax only) | Every named space the customer ever owned (id, asset, name, archived), so svc-tax can follow own-account moves in the lot book (PF-cost-basis-02). No balance                                        |
+
+A standing order from the caller's bills pot that finds too little is refused `ledger.insufficient_funds` like any other, unless its top-up is on: then the shortfall moves first from the main account into the pot (an own-space `bankTransfer` keyed `bills-fallback:<order>:<pot>` with the occurrence), and the order pays once. When the main account is short too, nothing moves and the run is recorded as refused.
 
 ### `transfers`
 
