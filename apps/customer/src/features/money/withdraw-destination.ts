@@ -18,17 +18,18 @@ export type DestinationRead =
   | { state: 'failed' }
   | ({ state: 'known' } & WithdrawDestination);
 
-const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+/** Something an address could be: a run of 8 to 256 characters with no space. Shorter text is still being typed. */
+const ADDRESS_LIKE = /^\S{8,256}$/;
 
 /**
- * Asks svc-pay where a typed wallet address leads, once the address is whole (a 0x address of 40 hex digits): another
+ * Asks svc-pay where a typed wallet address leads, once it looks like an address (8 to 256 characters, no space): another
  * INTAFACED account (the send settles inside, at once, with no network fee), one of the person's own addresses (refused as a
  * send to yourself), a platform address that cannot take a transfer now, or somewhere outside. Anything else is `idle`.
  */
 export function useWithdrawDestination(address: string): DestinationRead {
   const { api } = useSession();
   const ref = address.trim();
-  const whole = EVM_ADDRESS.test(ref);
+  const whole = ADDRESS_LIKE.test(ref);
   const [read, setRead] = useState<{ ref: string; read: DestinationRead }>({ ref: '', read: { state: 'idle' } });
   useEffect(() => {
     if (!whole) return;

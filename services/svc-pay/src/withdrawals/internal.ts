@@ -1,5 +1,4 @@
 import type { Sql } from 'postgres';
-import { isEvmAddressRef } from '../payout-destination.js';
 
 /**
  * Internal settlement (W-withdraw-14, J-wallet-07 #3-#5): a withdrawal to an address that is another account's deposit
@@ -11,7 +10,7 @@ export const INTERNAL_RAIL = 'internal' as const;
 /**
  * Who an address belongs to, read only from svc-pay's own deposit address tables (no other service's table):
  *
- * - `external`: no account on the platform holds it, or it is not a chain address at all;
+ * - `external`: no account on the platform holds it, or it is not a wallet address (`crypto`) at all;
  * - `self`: it is one of the sender's own deposit addresses;
  * - `internal`: exactly one other account holds it, and it can take a deposit now;
  * - `unavailable`: it is frozen, past its expiry, or more than one account holds it. A chain deposit there would be held
@@ -30,7 +29,9 @@ export async function resolvePlatformDestination(
   destination: { kind: string; ref: string },
 ): Promise<PlatformDestination> {
   const ref = destination.ref.trim();
-  if (destination.kind !== 'crypto' || !isEvmAddressRef(ref)) return { kind: 'external' };
+  // An exact match on the address as the deposit table stores it (any chain's format), so no shape is assumed here; the
+  // table refuses blanks, spaces and anything over 256 characters, so such a ref can match nothing.
+  if (destination.kind !== 'crypto' || ref === '' || ref.length > 256 || /\s/.test(ref)) return { kind: 'external' };
   const owners = await q<Array<{ user_id: string; expired: boolean; frozen: boolean }>>`
     SELECT a.user_id,
            bool_or(a.expires_at IS NOT NULL AND a.expires_at <= now()) AS expired,
