@@ -581,6 +581,10 @@ test('J-p2p-01 #5 the order is placed once, confirmed with a fresh passkey; a ta
   await expect(order).toContainText('0.92');
   await expect(order).toContainText('9.2 EUR');
   await expect(order).not.toContainText('0.95');
+  // The ad's terms as they were when the order was placed, not the edit.
+  await order.getByText('Order details').click();
+  await expect(order.getByTestId('order-terms')).toHaveText('TEST terms: pay from an account in your own name; no third-party payments.');
+  await expect(order).not.toContainText('TEST terms changed after the order was placed.');
   run.write({ tradeId });
   await context.close();
 });
