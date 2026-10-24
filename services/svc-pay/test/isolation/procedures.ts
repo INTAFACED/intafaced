@@ -249,6 +249,13 @@ export const FOUNDER_INPUTS: Record<string, (w: World) => unknown> = {
   'founderAdmin.ops.notes.add': (w) => ({ merchantId: w.e.A.merchantId, body: 'isolation drill', tags: ['drill'], flagged: false }),
   'founderAdmin.ops.notes.list': (w) => ({ merchantId: w.e.A.merchantId, limit: 10 }),
   'founderAdmin.ops.notes.retract': (w) => ({ noteId: w.operatorNoteId, reason: 'isolation drill' }),
+  'founderAdmin.ops.receiptTemplate.save': () => ({
+    requestId: '00000000-0000-4000-8000-00000000007a',
+    logoRef: 'ops-logo',
+    accent: '#112233',
+    footer: 'Ops footer',
+    language: 'en',
+  }),
   'accountControls.change': () => control(),
   'merchantState.set': () => control(),
   'accountControls.getState': () => ({ target: { area: 'merchant', merchantId: NOBODY } }),

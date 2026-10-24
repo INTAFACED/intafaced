@@ -142,4 +142,24 @@
     white-space: pre-wrap;
     overflow-wrap: anywhere;
   }
+  /* J-p2p-01 #7: the buyer's checklist before Mark payment sent. The app resets native inputs to appearance: none; these keep the browser's own checkbox, one line each. */
+  .p2p-paid-checklist {
+    display: grid;
+    gap: var(--spacing-8);
+    margin: 0;
+    padding: var(--spacing-8) var(--spacing-12);
+  }
+  .p2p-paid-checklist label {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-8);
+    font-size: var(--text-14);
+  }
+  .p2p-paid-checklist input[type='checkbox'] {
+    appearance: auto;
+    flex: none;
+    width: 16px;
+    height: 16px;
+    margin: 0;
+  }
 }

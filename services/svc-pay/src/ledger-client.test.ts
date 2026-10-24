@@ -10,7 +10,7 @@ import {
   type PostRequest,
 } from '@intafaced/ledger-client';
 import { serviceAuthHeaders, verifyServiceHeaders } from '@intafaced/contracts';
-import { createLedgerClient } from './ledger-client.js';
+import { createLedgerClient, createReceiptAssetPlaces } from './ledger-client.js';
 import { fakeLedgerDoor, type DoorCall } from './ledger-door-fake.js';
 
 function retained(body: string) {
@@ -745,5 +745,58 @@ describe('getTx — the txById door', () => {
   it('throws when the ledger refuses, rather than reading it as "not booked"', async () => {
     respond = () => ({ status: 400, body: { message: 'txId must be a uuid', code: 'BAD_REQUEST' } });
     await expect(client().getTx('nope')).rejects.toThrow();
+  });
+});
+
+describe('receipt places — the published asset precision', () => {
+  const places = () => createReceiptAssetPlaces('http://ledger.test', SECRET);
+  const row = (precision: unknown) => ({
+    id: 'USDT',
+    kind: 'crypto',
+    precision,
+    networks: [],
+    defaultNetworkId: null,
+    allowedActions: ['transfer'],
+    state: 'active',
+    revision: 1,
+    updatedAt: '2026-10-23T00:00:00.000Z',
+  });
+
+  it('asks /trpc/assetsGet and returns the published integer, signed as svc-pay', async () => {
+    respond = () => ({ status: 200, body: row(6) });
+    await expect(places()('USDT')).resolves.toBe(6);
+    expect(sent[0]!.url).toBe('http://ledger.test/trpc/assetsGet');
+    expect(sent[0]!.body).toEqual({ assetId: 'USDT' });
+    expect(verifyServiceHeaders(sent[0]!.headers, SECRET, { rawBody: retained(sent[0]!.raw), mode: 'require' }).service).toBe('svc-pay');
+  });
+
+  it('returns null when the registry says the precision is unset', async () => {
+    respond = () => ({ status: 400, body: { message: 'unset', code: 'ledger.asset_precision_unset' } });
+    await expect(places()('USDT')).resolves.toBeNull();
+  });
+
+  it('returns null when a row carries a null or blank precision, and keeps a published zero', async () => {
+    respond = () => ({ status: 200, body: row(null) });
+    await expect(places()('USDT')).resolves.toBeNull();
+    respond = () => ({ status: 200, body: row('') });
+    await expect(places()('USDT')).resolves.toBeNull();
+    respond = () => ({ status: 200, body: row('   ') });
+    await expect(places()('USDT')).resolves.toBeNull();
+    respond = () => ({ status: 200, body: row(0) });
+    await expect(places()('JPY')).resolves.toBe(0);
+  });
+
+  it('returns an out-of-range integer unchanged and does not coerce a numeric string', async () => {
+    respond = () => ({ status: 200, body: row(19) });
+    await expect(places()('USDT')).resolves.toBe(19);
+    respond = () => ({ status: 200, body: row('6') });
+    await expect(places()('USDT')).rejects.toThrow(/not a number/);
+  });
+
+  it('does not turn an unknown asset or a ledger outage into a place count', async () => {
+    respond = () => ({ status: 400, body: { message: 'missing', code: 'ledger.asset_not_found' } });
+    await expect(places()('NOPE')).rejects.toThrow();
+    respond = () => ({ status: 503, body: 'busy' });
+    await expect(places()('USDT')).rejects.toThrow(/assetsGet/);
   });
 });

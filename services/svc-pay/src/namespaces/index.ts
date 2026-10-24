@@ -2,6 +2,7 @@ import { mergeRouters } from '@intafaced/contracts';
 import type { LedgerClient } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
 import type { ConversionService } from '../conversion/service.js';
+import type { ReceiptAssetPlaces } from '../merchant-ops/receipt-branding.js';
 import type { TeamEmailInviteLimit } from '../merchant-ops/team-email.js';
 import type { WebhookRetryLimit } from '../merchant-ops/webhooks.js';
 import type { ControlService } from '../control/service.js';
@@ -86,6 +87,11 @@ export function createPayNamespaces(deps: {
   pay?: PayService;
   /** Published local-test starter fee, the same value `merchant.me` returns. Omitted means it is not set. */
   starterFee?: MerchantStarterFee | null;
+  /**
+   * Published decimal places for a receipt preview. Absent, or a null answer,
+   * refuses `ledger.asset_precision_unset`. No place count is invented here.
+   */
+  receiptPlaces?: ReceiptAssetPlaces;
 }) {
   const opsDeps = {
     founderAuthority: deps.founderAuthority,
@@ -98,6 +104,7 @@ export function createPayNamespaces(deps: {
     evidence: deps.evidence,
     invoiceLinks: deps.invoiceLinks,
     disputes: deps.disputes,
+    receiptPlaces: deps.receiptPlaces,
   };
   return mergeRouters(
     createMerchantControlRouter(deps.control),

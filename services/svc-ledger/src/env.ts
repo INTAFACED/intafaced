@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { parseClockSkewBoundMs } from './ledger/clock-skew.js';
 import { resolveIdempotencyConflictMode } from './idempotency-conflict-mode.js';
 import { authEnvSchema, internalServiceEnvSchema, loadEnv, s2sEnvSchema, serviceEnvSchema } from '@intafaced/config';
 import {
@@ -110,6 +111,14 @@ const schema = serviceEnvSchema
         .transform((v) => (typeof v === 'boolean' ? v : ['true', 'yes', 'on', '1'].includes(v.trim().toLowerCase()))),
 
       /**
+       * Milliseconds the app clock may differ from `clock_timestamp()` before a new post
+       * refuses `ledger.writes_blocked_clock_skew`. A committed key still replays. Blank /
+       * unset stays unset (`ledger.skew_bound_unset` on the integrity read). No default.
+       * Explicit 0 is a real bound.
+       */
+      LEDGER_CLOCK_SKEW_BOUND_MS: z.preprocess((v) => (v === undefined || v === null ? undefined : v), z.string().optional()),
+
+      /**
        * Identity issuer for operator freeze/unfreeze/reconcile consume.
        * Blank / unset → those doors refuse (`action_approval.identity_unwired`).
        * Boot/cron freeze does not call identity.
@@ -120,6 +129,9 @@ const schema = serviceEnvSchema
 
 export const env = loadEnv(schema);
 export type Env = typeof env;
+
+/** Parsed owner bound. Blank stays null; a bad string refuses boot rather than becoming a number. */
+export const clockSkewBoundMs: number | null = parseClockSkewBoundMs(env.LEDGER_CLOCK_SKEW_BOUND_MS);
 
 export const idempotencyConflictMode: 'detect' | 'refuse' = resolveIdempotencyConflictMode(
   env.LEDGER_IDEMPOTENCY_CONFLICT_MODE,

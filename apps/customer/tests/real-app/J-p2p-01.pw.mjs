@@ -588,3 +588,94 @@ test('J-p2p-01 #5 the order is placed once, confirmed with a fresh passkey; a ta
   run.write({ tradeId });
   await context.close();
 });
+
+test('J-p2p-01 #6 the payment details name the seller’s account holder and number with the payee-name rule, and a changed payee shows a notice', async ({
+  page,
+}) => {
+  const state = journey();
+  const s = p2p(await api(state.seller));
+  await signIn(page, state.buyer);
+
+  // While escrow is held: the account holder and IBAN under their labels, and the name the payment must carry.
+  const reveal = async () => {
+    await page.goto(`/uc/order?tradeId=${state.tradeId}`);
+    const order = page.getByRole('main');
+    await order.getByRole('button', { name: 'Reveal agreed payment details' }).click();
+    const card = order.locator('section.pay-section', { has: page.getByRole('heading', { name: 'External payment destination' }) });
+    await expect(card).toContainText(TEST_IBAN);
+    return card;
+  };
+  const card = await reveal();
+  await expect(card).toContainText('Account holder');
+  await expect(card).toContainText(state.seller.handle);
+  await expect(card).toContainText('IBAN');
+  await expect(card).not.toContainText('account_holder');
+  await expect(card.getByTestId('order-payee-name-rule')).toContainText('Enter the payee’s name and account exactly as shown here');
+  await expect(card.getByTestId('order-payee-changed')).toHaveCount(0);
+
+  // The seller changes their saved account mid-order: the buyer is told, and the order still pays the agreed one.
+  const saved = (await s.query('instruments.list', { limit: 10 })).find(
+    (instrument) => instrument.methodId === METHOD && instrument.fiatCurrency === 'EUR',
+  );
+  expect(saved, 'the seller holds the TEST bank transfer account the order uses').toBeTruthy();
+  const switched = 'DE00TESTPAYEECHANGED01';
+  await s.mutate('instruments.update', {
+    instrumentId: saved.id,
+    details: { account_holder: state.seller.handle, iban: switched },
+  });
+  const after = await reveal();
+  await expect(after.getByTestId('order-payee-changed')).toContainText(
+    'The seller changed these payment details after this order was placed',
+  );
+  await expect(after).toContainText('Pay to the details shown here');
+  await expect(after).not.toContainText(switched);
+
+  // Put the seller's account back, so the later steps pay the account the ad was placed with.
+  await s.mutate('instruments.update', {
+    instrumentId: saved.id,
+    details: { account_holder: state.seller.handle, iban: TEST_IBAN },
+  });
+});
+
+test('J-p2p-01 #7 the buyer ticks the checklist and marks paid; the order moves to Paid with the release countdown, and the seller is told once', async ({
+  page,
+}) => {
+  const state = journey();
+  const seller = await api(state.seller);
+  await signIn(page, state.buyer);
+  await page.goto(`/uc/order?tradeId=${state.tradeId}`);
+  const order = page.getByRole('main');
+
+  // The fiat moves outside INTAFACED. The buyer then reports it, confirming what they did.
+  await order.getByRole('button', { name: 'Mark payment sent' }).click();
+  const review = page.getByRole('dialog');
+  const checklist = review.getByTestId('order-paid-checklist');
+  await expect(checklist).toContainText('the exact amount of this order');
+  await expect(checklist).toContainText('I paid from an account in my own name');
+  await expect(checklist).toContainText('I paid to the payment details shown on this order');
+  const confirm = review.getByRole('button', { name: 'Mark payment sent' });
+  await expect(confirm).toBeDisabled();
+  await expect(review).toContainText('Tick each line to mark the payment sent.');
+  for (const box of await checklist.getByRole('checkbox').all()) await box.check();
+  await expect(confirm).toBeEnabled();
+  await confirm.click();
+  await expect(review).toHaveCount(0);
+
+  // Paid, and the clock now runs on the seller's release.
+  await expect(order).toContainText('Payment marked sent');
+  const path = order.getByTestId('escrow-path');
+  await expect(path).toContainText('Waiting for the seller to release');
+  await expect(path).toContainText(/\d+ h \d+ min left/);
+  expect((await p2p(seller).query('trades.get', { tradeId: state.tradeId })).status).toBe('fiat_sent');
+
+  // The seller gets exactly one "the buyer marked it paid" notice for this order.
+  const notices = async () => {
+    const res = await seller.get(`/api/notify/trpc/notify.list?input=${encodeURIComponent(JSON.stringify({ limit: 100 }))}`);
+    expect(res.status).toBe(200);
+    return res.body.result.data.items.filter((n) => n.kind === 'p2p.trade.fiat_sent' && n.params?.tradeId === state.tradeId);
+  };
+  await expect.poll(async () => (await notices()).length, { timeout: 30_000 }).toBe(1);
+  // Still one after the next svc-p2p sweep (every 30 s on the stack) has had its chance to hand it over again.
+  await page.waitForTimeout(35_000);
+  expect(await notices()).toHaveLength(1);
+});

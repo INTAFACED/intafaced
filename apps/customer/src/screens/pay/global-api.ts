@@ -32,8 +32,9 @@ export function createGlobalApi(api: ApiClient) {
     ) => api.mutate('bank', 'global.recipients.add', input, recipientSchema, { signal }),
     removeRecipient: (input: { recipientId: string; idempotencyKey: string }, signal?: AbortSignal) =>
       api.mutate('bank', 'global.recipients.remove', input, removedSchema, { signal }),
+    /** Takes a quote and locks its rate until its valid-until; a send names the lock it was confirmed on. */
     quote: (input: { asset: string; amount: string; toCurrency: string }, signal?: AbortSignal) =>
-      api.query('bank', 'global.quote', input, quoteSchema, { signal }),
+      api.mutate('bank', 'global.quote', input, quoteSchema, { signal }),
     sends: (signal?: AbortSignal) => api.query('bank', 'global.list', { limit: 20 }, sendPageSchema, { signal }),
     send: (draft: SendDraft, stepUpApprovalId: string, signal?: AbortSignal) =>
       api.mutate('bank', 'global.send', sendInput(draft, stepUpApprovalId), sendSchema, { signal }),
