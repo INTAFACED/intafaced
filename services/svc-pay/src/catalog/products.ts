@@ -107,6 +107,9 @@ export function sniffImageType(bytes: Buffer): ImageType | null {
   return null;
 }
 
+/** Row ids are uuids; anything else in an address or a cursor names no row, so it never reaches a `::uuid` cast. */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 
 export class ProductCatalog {
@@ -128,6 +131,7 @@ export class ProductCatalog {
     assertPermission(caller, 'products.read');
     const limit = requireLimit(input.limit);
     const after = decodeCursor(input.cursor);
+    if (after && !UUID.test(after.key)) throw new MerchantOpsError('pay.cursor_invalid', 'bad_request');
     const sql = this.sql;
     const rows = await sql<ProductRow[]>`
       SELECT ${FIELDS(sql)} FROM pay.catalog_products
@@ -141,9 +145,11 @@ export class ProductCatalog {
 
   async get(caller: MerchantCaller, productId: string): Promise<MerchantProduct> {
     assertPermission(caller, 'products.read');
+    if (!UUID.test(productId)) throw productNotFound();
     const sql = this.sql;
     const rows = await sql<ProductRow[]>`
-      SELECT ${FIELDS(sql)} FROM pay.catalog_products WHERE id = ${productId}::uuid AND merchant_id = ${caller.merchantId}`;
+      SELECT ${FIELDS(sql)} FROM pay.catalog_products
+       WHERE id = ${productId}::uuid AND merchant_id = ${caller.merchantId} AND mode = ${MODE}`;
     if (!rows[0]) throw productNotFound();
     return view(rows[0]);
   }

@@ -239,6 +239,19 @@ describe('product catalogue (M-catalogue-01, J-merchant-03 steps 1 and 2)', () =
       code: 'NOT_FOUND',
       cause: 'pay.product_not_found',
     });
+    // A typed product ID in the address, and a test-mode row read from the live portal, are missing too.
+    expect(await refusal(() => as(owner).merchantCatalog.products.get({ productId: 'tee-classic' }))).toMatchObject({
+      code: 'NOT_FOUND',
+      cause: 'pay.product_not_found',
+    });
+    const [testRow] = await sql<Array<{ id: string }>>`
+      INSERT INTO pay.catalog_products (merchant_id, mode, product_key, request_id, request_hash, name, type, created_by)
+      VALUES (${merchant}, 'test', 'test-only-tee', ${nid()}, ${'0'.repeat(64)}, 'TEST Test-mode tee', 'physical', ${owner})
+      RETURNING id`;
+    expect(await refusal(() => as(owner).merchantCatalog.products.get({ productId: testRow!.id }))).toMatchObject({
+      code: 'NOT_FOUND',
+      cause: 'pay.product_not_found',
+    });
     const mine = await as(owner).merchantCatalog.products.list({ limit: 50 });
     expect(mine.items.every((p) => p.name !== 'TEST Their tee')).toBe(true);
   });
@@ -253,6 +266,12 @@ describe('product catalogue (M-catalogue-01, J-merchant-03 steps 1 and 2)', () =
       cursor = page.nextCursor ?? undefined;
     } while (cursor);
     expect(seen).toEqual(all.items.map((p) => p.id));
+    // A cursor whose key is not a row id is refused as a cursor, never sent to the database.
+    const forged = Buffer.from(JSON.stringify(['2026-10-24T12:00:00.000000Z', 'x'])).toString('base64url');
+    expect(await refusal(() => as(owner).merchantCatalog.products.list({ limit: 2, cursor: forged }))).toMatchObject({
+      code: 'BAD_REQUEST',
+      cause: 'pay.cursor_invalid',
+    });
   });
 
   it('refuses every image while no size is published, and says the rule when one is', async () => {

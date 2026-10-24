@@ -99,7 +99,8 @@ export const productCreateInputSchema = z
   .strict();
 export type ProductCreateInput = z.infer<typeof productCreateInputSchema>;
 
-export const productGetInputSchema = z.object({ productId: z.string().guid() }).strict();
+/** Any address segment: an id that names no product of this business (a typed product ID included) is not found. */
+export const productGetInputSchema = z.object({ productId: z.string().min(1).max(200) }).strict();
 
 /** The image types a product image may be. The bytes are checked, not only the name the browser gives them. */
 export const PRODUCT_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'] as const;
@@ -118,8 +119,9 @@ export const productImageUploadInputSchema = z
   .object({
     requestId: z.string().guid(),
     contentType: z.string().trim().min(1).max(100),
-    /** The file, base64. Its decoded size is checked against the rule. */
-    dataBase64: z.string().min(1).max(12_000_000),
+    /** The file, base64. Its decoded size is checked against the rule, which is at most 700 000 bytes (933 336 characters)
+     * because one request carries at most 1 MiB. */
+    dataBase64: z.string().min(1).max(933_336),
   })
   .strict();
 

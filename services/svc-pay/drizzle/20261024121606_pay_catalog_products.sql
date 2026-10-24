@@ -50,7 +50,8 @@ CREATE TABLE IF NOT EXISTS "pay"."catalog_products" (
   CONSTRAINT "catalog_products_request_once" UNIQUE ("merchant_id", "request_id")
 );
 
-CREATE INDEX IF NOT EXISTS "catalog_products_list_idx" ON "pay"."catalog_products" ("merchant_id", "mode", "status", "created_at" DESC, "id" DESC);
+-- The list walks newest first for one business and mode; a status filter is applied on top of the same order.
+CREATE INDEX IF NOT EXISTS "catalog_products_list_idx" ON "pay"."catalog_products" ("merchant_id", "mode", "created_at" DESC, "id" DESC);
 
 CREATE OR REPLACE FUNCTION "pay"."catalog_product_images_kept"() RETURNS trigger
 LANGUAGE plpgsql AS $$

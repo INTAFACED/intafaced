@@ -12,7 +12,8 @@ import { ROLE_CAPABILITIES } from '../access/capabilities';
 import type { PortalApi } from '../api';
 import { parsePortalRoute } from '../routes';
 import { ProductCreate } from './Products';
-import { blankProduct, checkImage, draftProblem, productBody, sizeText } from './model';
+import { productImageUploadInputSchema } from '@intafaced/contracts/merchant-catalog';
+import { blankProduct, checkImage, draftProblem, imageRequestId, productBody, sizeText } from './model';
 
 // TEST data only: nobody here is real.
 const MERCHANT = '11111111-1111-4111-8111-111111111111';
@@ -96,5 +97,12 @@ describe('product catalogue (J-merchant-03 steps 1 and 2)', () => {
     expect(checkImage({ size: 1000, type: 'image/webp' }, rules)).toEqual({ ok: true });
     expect(checkImage({ size: 1000, type: 'image/png' }, { ...rules, maxBytes: null })).toEqual({ ok: false, reason: 'rulesUnset' });
     expect([sizeText(512), sizeText(500_000), sizeText(3_000_000)]).toEqual(['512 bytes', '500 KB', '3 MB']);
+  });
+
+  it('names an upload by its file, so the same file sent again is the same request', async () => {
+    const one = await imageRequestId(new Blob([new Uint8Array([1, 2, 3])]));
+    expect(await imageRequestId(new Blob([new Uint8Array([1, 2, 3])]))).toBe(one);
+    expect(await imageRequestId(new Blob([new Uint8Array([1, 2, 4])]))).not.toBe(one);
+    expect(productImageUploadInputSchema.safeParse({ requestId: one, contentType: 'image/png', dataBase64: 'AQID' }).success).toBe(true);
   });
 });

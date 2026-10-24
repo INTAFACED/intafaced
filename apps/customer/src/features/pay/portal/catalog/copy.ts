@@ -6,7 +6,7 @@ import { defineCopy } from '../../../../shared/i18n';
  */
 const en = {
   productsTitle: 'Products',
-  productsPurpose: 'What you sell, kept in one catalogue. Payment links, invoices and subscriptions name these products.',
+  productsPurpose: 'What you sell, kept in one catalogue with its type, unit and how it shows on statements.',
   newTitle: 'Add a product',
   newPurpose: 'Name what you sell and how it shows to your customers.',
   productTitle: 'Product',
@@ -50,6 +50,7 @@ const en = {
   imageAdded: 'Image added.',
   imageRemove: 'Remove image',
   imageAlt: 'Picture of {name}',
+  imagePreviewAlt: 'The image you added',
   save: 'Save product',
   saving: 'Saving…',
   nameRequired: 'Give the product a name to save it.',

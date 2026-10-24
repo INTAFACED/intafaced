@@ -1,4 +1,4 @@
-import { useState, type ChangeEvent } from 'react';
+import { useEffect, useState, type ChangeEvent } from 'react';
 import { Button } from '@intafaced/ui';
 import { PRODUCT_TYPES, type MerchantProduct, type ProductImageRules } from '@intafaced/contracts/merchant-catalog';
 import { EmptyState, Field } from '../../ui-kit';
@@ -8,7 +8,6 @@ import { PaySection } from '../../components';
 import { useMerchantAccess } from '../access/MerchantAccess';
 import type { PortalApi } from '../api';
 import { Facts, Gate, MoreFooter, PortalFailure, PortalLoading, SelectField } from '../components';
-import { newRequestId } from '../model';
 import { base64Of } from '../settings/onboarding/Application';
 import { DateTime } from '../ui/DateTime';
 import { DetailHeader } from '../ui/DetailHeader';
@@ -18,7 +17,7 @@ import { useServerList } from '../ui/useServerList';
 import { useReadAt } from '../hooks';
 import { useBodyRequestId } from '../payments/invoice-model';
 import { catalogCopy as c } from './copy';
-import { blankProduct, checkImage, draftProblem, productBody, sizeText, type ProductDraft } from './model';
+import { blankProduct, checkImage, draftProblem, imageRequestId, productBody, sizeText, type ProductDraft } from './model';
 
 const productHref = (id: string) => `/pay/products/${encodeURIComponent(id)}`;
 
@@ -95,6 +94,7 @@ export function ProductCreate({ portal }: { portal: PortalApi }) {
   const { requestId: _unsent, ...body } = productBody(draft, '');
   const request = useBodyRequestId('catalog:product-new', body);
   const [busy, setBusy] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
   const [shown, setShown] = useState(false);
   const set = <K extends keyof ProductDraft>(key: K, value: ProductDraft[K]) => setDraft((d) => ({ ...d, [key]: value }));
@@ -102,7 +102,7 @@ export function ProductCreate({ portal }: { portal: PortalApi }) {
 
   async function save() {
     setShown(true);
-    if (problem) return;
+    if (problem || uploading) return;
     setBusy(true);
     setRefused(null);
     try {
@@ -181,7 +181,15 @@ export function ProductCreate({ portal }: { portal: PortalApi }) {
           error={shown && problem === 'keyInvalid' ? t('keyInvalid') : undefined}
         />
         <Gate resource={rules.resource} retry={rules.reload} rows={1}>
-          {(published) => <ImagePicker portal={portal} rules={published} imageId={draft.imageId} onChange={(id) => set('imageId', id)} />}
+          {(published) => (
+            <ImagePicker
+              portal={portal}
+              rules={published}
+              imageId={draft.imageId}
+              onChange={(id) => set('imageId', id)}
+              onBusy={setUploading}
+            />
+          )}
         </Gate>
         {refused && (
           <p className="pp-callout" role="alert">
@@ -189,7 +197,7 @@ export function ProductCreate({ portal }: { portal: PortalApi }) {
           </p>
         )}
         <div className="pp-actions">
-          <Button variant="primary" disabled={!draft.name.trim() || busy} onClick={() => void save()}>
+          <Button variant="primary" disabled={!draft.name.trim() || busy || uploading} onClick={() => void save()}>
             {busy ? t('saving') : t('save')}
           </Button>
         </div>
@@ -198,21 +206,33 @@ export function ProductCreate({ portal }: { portal: PortalApi }) {
   );
 }
 
-/** The image field: the owner's rule, checked on the picked file before it is sent, then kept by the service at once. */
+/**
+ * The image field: the owner's rule, checked on the picked file before it is sent, then kept by the service at once.
+ * Save waits while an upload runs (`onBusy`), so a product is never saved without the picture just picked.
+ */
 function ImagePicker({
   portal,
   rules,
   imageId,
   onChange,
+  onBusy,
 }: {
   portal: PortalApi;
   rules: ProductImageRules;
   imageId: string | null;
   onChange: (imageId: string | null) => void;
+  onBusy: (busy: boolean) => void;
 }) {
   const { t } = c.useCopy();
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusyState] = useState(false);
+  // The picked file shows from the browser's own copy; nothing is fetched back to preview it.
+  const [preview, setPreview] = useState<string | null>(null);
+  useEffect(() => () => void (preview && URL.revokeObjectURL(preview)), [preview]);
+  const setBusy = (value: boolean) => {
+    setBusyState(value);
+    onBusy(value);
+  };
   if (rules.maxBytes === null)
     return (
       <div className="field">
@@ -230,6 +250,7 @@ function ImagePicker({
     const check = checkImage(file, rules);
     if (!check.ok) {
       onChange(null);
+      setPreview(null);
       setNote({
         ok: false,
         text:
@@ -242,16 +263,20 @@ function ImagePicker({
     setBusy(true);
     setNote(null);
     try {
+      // The request id comes from the file's own bytes: sending the same file again after a lost answer is the same
+      // upload, and the service hands back the image it already kept instead of storing a second copy.
       const result = await portal.uploadProductImage({
-        requestId: newRequestId(),
+        requestId: await imageRequestId(file),
         contentType: file.type,
         dataBase64: await base64Of(file),
       });
       if (result.ok) {
         onChange(result.data.imageId);
+        setPreview(URL.createObjectURL(file));
         setNote({ ok: true, text: t('imageAdded') });
       } else {
         onChange(null);
+        setPreview(null);
         setNote({ ok: false, text: result.message });
       }
     } finally {
@@ -276,11 +301,12 @@ function ImagePicker({
       )}
       {imageId && (
         <>
-          <ProductImage portal={portal} imageId={imageId} name="" />
+          {preview && <img className="pp-product-image" src={preview} alt={t('imagePreviewAlt')} width={160} />}
           <Button
             variant="secondary"
             onClick={() => {
               onChange(null);
+              setPreview(null);
               setNote(null);
             }}
           >
