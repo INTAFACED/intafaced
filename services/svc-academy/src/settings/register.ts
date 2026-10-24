@@ -42,6 +42,7 @@ export interface SettingsEnv {
   readonly ACADEMY_LESSON_IMPORT_MAX_BYTES?: number | undefined;
   readonly ACADEMY_UPLOAD_MAX_BYTES?: number | undefined;
   readonly ACADEMY_TOPICS_LIST_LIMIT?: number | undefined;
+  readonly ACADEMY_GRADER_LEASE_SECONDS?: number | undefined;
   readonly ACADEMY_UPLOAD_VIDEO_TYPES?: readonly string[] | undefined;
   readonly ACADEMY_UPLOAD_HANDOUT_TYPES?: readonly string[] | undefined;
   readonly ACADEMY_PAPER_MARKETS_LIMIT?: number | undefined;
@@ -72,7 +73,6 @@ const state = (ok: boolean): SettingState => (ok ? 'set' : 'not_set');
  */
 export const PENDING_OWNER_SETTINGS: readonly string[] = [
   'undelete_window',
-  'lease_length',
   'dwell_seconds',
   'expiry_duration',
   'nudge_timings',
@@ -204,6 +204,13 @@ export function settingsRegister(env: SettingsEnv): readonly SettingRow[] {
       store: 'env',
       readOnly: false,
       refusalCode: 'academy.topics_list_limit_unset',
+    },
+    {
+      key: 'lease_length',
+      state: state(positiveInt(env.ACADEMY_GRADER_LEASE_SECONDS)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.grader_lease_unset',
     },
     {
       key: 'upload_size_limit',

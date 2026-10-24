@@ -170,6 +170,13 @@ export function AcademyAssignmentEditor({ itemId, initial }: { itemId: string; i
       {assignment && (
         <>
           <Facts assignment={assignment} />
+          {assignment.brief && (
+            <p>
+              <a className="adm-btn" href={`/academy-ops/catalogue/assignments/${assignment.itemId}`}>
+                Grade hand-ins
+              </a>
+            </p>
+          )}
           <BriefForm
             key={assignment.revision}
             assignment={assignment}

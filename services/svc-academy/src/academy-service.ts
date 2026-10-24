@@ -46,6 +46,7 @@ import { LessonRecords } from './curriculum/lessons.js';
 import { CourseMedia, type ReadBackFn } from './curriculum/media.js';
 import { CourseAssignments, type PutObjectFn } from './curriculum/assignments.js';
 import { PeerReviews, type GetObjectFn } from './curriculum/peer-review.js';
+import { AssignmentGrading } from './curriculum/grading.js';
 import { LearnHub } from './curriculum/learn-hub.js';
 import { CoursePreview } from './curriculum/course-preview.js';
 import { CourseLearners } from './curriculum/course-learners.js';
@@ -76,6 +77,9 @@ import type {
   AcademyDuplicateItemInput,
   AcademySaveAssignmentInput,
   AcademySaveReviewStepsInput,
+  AcademyGradeSubmissionInput,
+  AcademyMarkFeedbackReadInput,
+  AcademyOpenGradingInput,
   AcademySubmitPeerReviewInput,
   AcademySubmitAssignmentInput,
   AcademyUploadAssignmentFileInput,
@@ -290,6 +294,8 @@ export interface AcademyServiceOptions {
   assignmentPut?: PutObjectFn;
   /** Test seam: how a reviewed file is read back from the object store. Production GETs over HTTP. */
   assignmentGet?: GetObjectFn;
+  /** AC-assignments-02: seconds a grader holds a hand-in (`ACADEMY_GRADER_LEASE_SECONDS`). Unset, grading refuses. */
+  graderLeaseSeconds?: number;
   /** AC-articles-01: how many topics a list shows (`ACADEMY_TOPICS_LIST_LIMIT`). Unset, the list refuses. */
   topicsListLimit?: number;
   /** Stage-1 tournament ladder kill-switch (`ACADEMY_TOURNAMENT_ENABLED`). */
@@ -326,6 +332,7 @@ export class AcademyService {
   private readonly courseMedia: CourseMedia;
   private readonly courseAssignments: CourseAssignments;
   private readonly peerReviews: PeerReviews;
+  private readonly grading: AssignmentGrading;
   private readonly learnHub: LearnHub;
   private readonly coursePreview: CoursePreview;
   private readonly courseLearners: CourseLearners;
@@ -373,6 +380,7 @@ export class AcademyService {
       { maxBytes: this.options.uploadMaxBytes ?? null, types: this.options.uploadHandoutTypes ?? null },
       this.options.assignmentPut,
     );
+    this.grading = new AssignmentGrading(sql, this.courseAssignments, this.options.graderLeaseSeconds ?? null);
     this.peerReviews = new PeerReviews(sql, this.courseAssignments, this.options.mediaStorage ?? null, this.options.assignmentGet);
     this.courseStarts = new CourseStarts(sql);
     this.plannerStore = new PlannerStore(sql, this.options.plannerTodoLimit ?? null);
@@ -2400,6 +2408,25 @@ export class AcademyService {
   /** AC-assignments-03: the learner's review stage, handing out the next work when one is due and free. */
   peerReview(input: { itemId: string; userId: string; now?: Date }) {
     return this.peerReviews.state({ ...input, now: input.now ?? new Date() });
+  }
+
+  /** AC-assignments-02: the grading queue of one assignment, learners under aliases. */
+  gradingQueue(input: { itemId: string; operatorId: string; now?: Date }) {
+    return this.grading.queue({ ...input, now: input.now ?? new Date() });
+  }
+
+  openGrading(input: AcademyOpenGradingInput & { operatorId: string; now?: Date }) {
+    return this.grading.open({ ...input, now: input.now ?? new Date() });
+  }
+
+  gradeSubmission(input: AcademyGradeSubmissionInput & { operatorId: string; now?: Date }) {
+    return this.grading.grade({ ...input, now: input.now ?? new Date() });
+  }
+
+  /** AC-assignments-02: the learner read their feedback; answers with the assignment as they see it. */
+  async markFeedbackRead(input: AcademyMarkFeedbackReadInput & { userId: string; now?: Date }) {
+    await this.grading.markRead({ ...input, now: input.now ?? new Date() });
+    return this.courseAssignments.learnerView({ itemId: input.itemId, userId: input.userId });
   }
 
   /** AC-assignments-03: the file of work handed to the caller to review, read back through svc-academy. */

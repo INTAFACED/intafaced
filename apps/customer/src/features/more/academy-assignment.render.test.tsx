@@ -9,7 +9,7 @@ vi.mock('../../shared/preferences', async (original) => {
 });
 
 import { SessionProvider } from '../session/session';
-import { AssignmentBrief, AssignmentSubmissions, byteSize } from './AcademyAssignment';
+import { AssignmentBrief, AssignmentGrade, AssignmentSubmissions, byteSize } from './AcademyAssignment';
 import { academyRefusalKey } from './academy-flows';
 
 const html = (node: React.ReactNode) => renderToStaticMarkup(<SessionProvider>{node}</SessionProvider>);
@@ -28,6 +28,7 @@ const VIEW: AcademyAssignmentView = {
   fileLimits: { maxBytes: 1_048_576, types: ['application/pdf', 'image/png'] },
   withdrawnAt: null,
   submissions: [],
+  grade: null,
   nextVersion: 1,
 };
 
@@ -78,5 +79,34 @@ describe('an assignment page (AC-assignments-01)', () => {
     );
     expect(academyRefusalKey({ code: 'academy.enrolment_required', message: '' })).toBe('refEnrolmentRequired');
     expect(byteSize(1_048_576)).toBe('1 MiB');
+  });
+});
+
+describe('a grade on an assignment page (AC-assignments-02)', () => {
+  const GRADE = {
+    version: 2,
+    n: 1,
+    score: '8',
+    points: '10',
+    comment: 'TEST Clear sizing.',
+    gradedAt: '2026-10-24T10:00:00.000Z',
+    readAt: null,
+  };
+  it('shows score of points and the comment, never who graded it, with Mark as read until it is read', () => {
+    const out = html(<AssignmentGrade grade={GRADE} marking={false} onMarkRead={() => {}} />);
+    expect(out).toContain('8 of 10 points');
+    expect(out).toContain('TEST Clear sizing.');
+    expect(out).toContain('Mark as read');
+    expect(out).not.toMatch(/graded by|founder/i);
+    const read = html(<AssignmentGrade grade={{ ...GRADE, readAt: '2026-10-24T11:00:00.000Z' }} marking={false} onMarkRead={() => {}} />);
+    expect(read).toContain('You read this feedback');
+    expect(read).not.toContain('Mark as read');
+  });
+  it('says when there is no grade and when a grade has no comment, and words a missing grade refusal', () => {
+    expect(html(<AssignmentGrade grade={null} marking={false} onMarkRead={() => {}} />)).toContain('Ungraded');
+    expect(html(<AssignmentGrade grade={{ ...GRADE, comment: null }} marking={false} onMarkRead={() => {}} />)).toContain(
+      'No comment came with this grade.',
+    );
+    expect(academyRefusalKey({ code: 'academy.submission_not_found', message: '' })).toBe('refGradeNotFound');
   });
 });

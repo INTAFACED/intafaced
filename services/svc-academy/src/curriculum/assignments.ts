@@ -33,6 +33,7 @@ import { isVideoStorageConfigured, signPutObjectUrl, type VideoStorageConfig } f
 import { canonicalPrice } from './courses.js';
 import { FILE_SIGNATURES, signatureMatches } from './media.js';
 import { reviewStepsOf } from './peer-review.js';
+import { learnerGradeOf } from './grading.js';
 
 /** Hand-ins shown on the learner's page, newest first. */
 const SUBMISSIONS_SHOWN = 50;
@@ -351,6 +352,7 @@ export class CourseAssignments {
         submittedAt: s.submitted_at.toISOString(),
         late: row.due_at !== null && s.submitted_at.getTime() > row.due_at.getTime(),
       })),
+      grade: await learnerGradeOf(sql, itemId, userId),
       nextVersion: (rows[0]?.version ?? 0) + 1,
     };
   }

@@ -69,7 +69,7 @@ type ReviewRow = {
 };
 
 /** A rubric level as hundredths: "1.5" is 150n. Levels carry at most two places (ACADEMY_RUBRIC_LEVEL). */
-function hundredths(level: string): bigint {
+export function hundredths(level: string): bigint {
   // The ledger's decimal parser, scaled from 18 places down to 2; a level has at most 2, so this is exact.
   return parseAmount(level) / 10n ** 16n;
 }

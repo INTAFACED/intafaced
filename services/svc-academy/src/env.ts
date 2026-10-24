@@ -119,6 +119,15 @@ const schema = serviceEnvSchema
       ),
 
       /**
+       * AC-assignments-02: how many seconds a grader holds a hand-in while grading it. Blank / unset is unpublished:
+       * grading refuses `academy.grader_lease_unset`.
+       */
+      ACADEMY_GRADER_LEASE_SECONDS: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1).max(86_400)]),
+      ),
+
+      /**
        * AC-articles-01: how many topics the founder console's topic list shows. Blank / unset is unpublished: the list
        * refuses `academy.topics_list_limit_unset`.
        */

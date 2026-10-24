@@ -143,6 +143,46 @@ export function AssignmentSubmissions({ data }: { data: AcademyAssignmentView })
   );
 }
 
+/**
+ * The learner's grade on their newest graded hand-in (AC-assignments-02): score of points and the comment, never who
+ * graded it. Mark as read is sent once per grade; the same version again is answered as stored.
+ */
+export function AssignmentGrade({
+  grade,
+  marking,
+  onMarkRead,
+}: {
+  grade: AcademyAssignmentView['grade'];
+  marking: boolean;
+  onMarkRead: (version: number, n: number) => void;
+}) {
+  const { t } = copy.useCopy();
+  const { language } = usePreferences();
+  if (!grade)
+    return (
+      <p className="muted" data-testid="assignment-grade">
+        {t('grdNone')}
+      </p>
+    );
+  return (
+    <section className="academy-lms-stack" data-testid="assignment-grade" aria-label={t('grdTitle')}>
+      <h3>{t('grdTitle')}</h3>
+      <strong>{t('grdScore', { score: grade.score, points: grade.points })}</strong>
+      <span className="academy-lms-meta">{t('grdForVersion', { version: grade.version, date: when(grade.gradedAt, language) })}</span>
+      <p lang="und" style={{ whiteSpace: 'pre-wrap' }}>
+        {grade.comment ?? t('grdNoComment')}
+      </p>
+      {grade.readAt ? (
+        <p role="status">{t('grdRead')}</p>
+      ) : (
+        <Button type="button" variant="secondary" disabled={marking} onClick={() => onMarkRead(grade.version, grade.n)}>
+          {marking ? t('grdMarking') : t('grdMarkRead')}
+        </Button>
+      )}
+    </section>
+  );
+}
+
 /** The brief, its due date and points, what to hand in and the course's late rule. Pure. */
 export function AssignmentBrief({ data }: { data: AcademyAssignmentView }) {
   const { t } = copy.useCopy();
@@ -193,6 +233,8 @@ export function AcademyAssignment({ slug, itemId }: { slug: string; itemId: stri
   const [retryVersion, setRetryVersion] = useState<number | null>(null);
   // A re-read after a hand-in keeps the page (and what is typed in it) on screen until the new read lands.
   const [last, setLast] = useState<AcademyAssignmentView | null>(null);
+  const [marking, setMarking] = useState(false);
+  const [readRefused, setReadRefused] = useState<Failure | null>(null);
   const ready = view.resource.status === 'ready' ? view.resource.data : null;
   useEffect(() => {
     if (ready) setLast(ready);
@@ -261,6 +303,16 @@ export function AcademyAssignment({ slug, itemId }: { slug: string; itemId: stri
     }
   };
 
+  const markRead = async (version: number, n: number) => {
+    setMarking(true);
+    setReadRefused(null);
+    const marked = await api.mutate('academy', 'markFeedbackRead', { itemId, version, n }, academyAssignmentViewSchema);
+    setMarking(false);
+    if (marked.ok) setLast(marked.data);
+    else if (marked.reason !== 'uncertain') setReadRefused(marked);
+    view.reload();
+  };
+
   const closed = data.withdrawnAt !== null;
   return (
     <div className="more-columns" data-academy-assignment={data.itemId}>
@@ -305,6 +357,8 @@ export function AcademyAssignment({ slug, itemId }: { slug: string; itemId: stri
           {outcome && <OutcomeLine outcome={outcome} />}
           <AssignmentSubmissions data={data} />
           <AcademyPeerReview itemId={data.itemId} handedIn={data.submissions.length} />
+          <AssignmentGrade grade={data.grade} marking={marking} onMarkRead={(version, n) => void markRead(version, n)} />
+          {readRefused && <AcademyRefusal failure={readRefused} />}
         </div>
       </Panel>
     </div>

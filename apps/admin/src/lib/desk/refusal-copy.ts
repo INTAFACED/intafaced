@@ -859,6 +859,31 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'This assignment was withdrawn, so its brief is not edited and learners hand in nothing more.',
     next: 'Nothing was changed. What learners handed in stays readable to them.',
   },
+  'academy.grader_locked': {
+    title: 'Another grader holds this hand-in',
+    body: 'Someone else opened this hand-in for grading and their hold has not run out, so two grades never cross.',
+    next: 'Grade another hand-in, or try this one again later. Nothing was changed.',
+  },
+  'academy.grader_lease_unset': {
+    title: 'The grader hold time is not set',
+    body: 'The owner has not set how long a grader holds a hand-in, so no hand-in is graded.',
+    next: 'Ask the owner to set the grader hold time. Nothing was changed.',
+  },
+  'academy.grade_invalid': {
+    title: 'That score is above the points',
+    body: 'A score runs from 0 to the assignment’s points, with at most two decimals.',
+    next: 'Correct the score and save again. Nothing was changed.',
+  },
+  'academy.reason_required': {
+    title: 'A reason is needed',
+    body: 'Changing a grade that was already saved is an override, and an override keeps its reason.',
+    next: 'Say why the grade changes, then save again. Nothing was changed.',
+  },
+  'academy.submission_not_found': {
+    title: 'Not a hand-in to grade',
+    body: 'This is not the newest hand-in of a learner on this assignment.',
+    next: 'Read the queue again. Nothing was changed.',
+  },
   'academy.peer_count_unset': {
     title: 'Peer review has no review count',
     body: 'Peer review is on, but how many classmates each learner reviews is not set, so learners could not be handed work.',
