@@ -24,6 +24,7 @@ export const publicAuthCopy = defineCopy(
     password: 'Password sign-in',
     options: 'Passkey preparation',
     passkey: 'Passkey sign-in',
+    secondStep: 'Passkey after your password',
     help: 'Get account help',
     changed: 'This sign-in context changed. No further authentication was sent and no returned session was applied here.',
     storage:
@@ -50,6 +51,7 @@ export const publicAuthCopy = defineCopy(
     usePasskeyStep: 'Use your passkey',
     passkeyStepStopped: 'The passkey did not answer. Try again, or enter your password again.',
     passkeyMismatch: 'That passkey is not one this account signs in with. Enter your password again, then use one of your own passkeys.',
+    secondStepExpired: 'This sign-in step timed out. Enter your password again.',
   } as const,
   {
     es: {

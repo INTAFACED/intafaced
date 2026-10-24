@@ -9,7 +9,7 @@ import { MemoryEventBus } from '@intafaced/events';
 import { createTestDb } from '../fixture-truncate.testkit.js';
 import { RankService } from '../rank/rank-service.js';
 import { AuthError, AuthService } from './auth-service.js';
-import { listPasskeys, setPasskeyPurposes, setPasskeySecondStep } from './passkey-manage.js';
+import { listPasskeys, passkeySettings, setPasskeyPurposes, setPasskeySecondStep } from './passkey-manage.js';
 import { credentialsFor, encodePurposes, parsePurposes, stepUpPurposeOf } from './passkey-purposes.js';
 import {
   b64urlEncode,
@@ -79,11 +79,13 @@ describe('passkey purposes (pure)', () => {
     for (const bad of ['signin,money_out', 'signin,signin', 'admin', 'signin,', ',signin']) expect(parsePurposes(bad)).toBeNull();
   });
 
-  it('offers the passkeys bound to a purpose, or all of them when none is', () => {
+  it('offers the passkeys kept for a purpose, else those kept for nothing, else all of them', () => {
     const a = { credentialId: 'a' };
     const b = { credentialId: 'b', purposes: ['money_out'] };
+    const c = { credentialId: 'c', purposes: ['security_change'] };
     expect(credentialsFor([a, b], 'money_out')).toEqual([b]);
-    expect(credentialsFor([a, b], 'signin')).toEqual([a, b]);
+    expect(credentialsFor([a, b], 'signin')).toEqual([a]);
+    expect(credentialsFor([b, c], 'signin')).toEqual([b, c]);
     expect(stepUpPurposeOf('identity.step_up.passkey_rename')).toBe('security_change');
     expect(stepUpPurposeOf('bank.step_up.transfers.toUser')).toBe('money_out');
   });
@@ -169,7 +171,7 @@ if (!available) {
       await expect(verifyAccessToken(session.accessToken, tokenConfig)).resolves.toMatchObject({ userId: who.userId, mfa: true });
       // The challenge is spent.
       expect((await refusal(auth.loginSecondStepPasskey({ credential: key.assert(step.passkey!.challenge) }))).code).toBe(
-        'auth.webauthn_invalid',
+        'auth.second_step_expired',
       );
     });
 
@@ -204,6 +206,33 @@ if (!available) {
       expect(allowed(step.passkey)).toEqual([key.id]);
     });
 
+    it('answers a spent or unknown second-step challenge as timed out, so the password is asked for again', async () => {
+      const key = softPasskey();
+      await person([key]);
+      expect((await refusal(auth.loginSecondStepPasskey({ credential: key.assert(b64urlEncode(randomBytes(32))) }))).code).toBe(
+        'auth.second_step_expired',
+      );
+    });
+
+    it('asks for the passkey after a linked provider proved the person too', async () => {
+      const key = softPasskey();
+      const who = await person([key]);
+      await setPasskeySecondStep(db.sql, who.userId, true);
+      const err = await refusal(auth.signInVerifiedIdentity(who.userId, {}));
+      expect(err.code).toBe('auth.mfa_required');
+      expect(allowed(err.details!.secondStep!.passkey)).toEqual([key.id]);
+    });
+
+    it('is on only while a passkey exists', async () => {
+      const key = softPasskey();
+      const who = await person([key]);
+      await setPasskeySecondStep(db.sql, who.userId, true);
+      expect((await passkeySettings(db.sql, who.userId, 10)).secondStep).toBe(true);
+      await db.sql`UPDATE users SET webauthn_creds = '[]'::jsonb WHERE id = ${who.userId}`;
+      expect((await passkeySettings(db.sql, who.userId, 10)).secondStep).toBe(false);
+      await expect(auth.login({ identifier: who.email, password: PASSWORD })).resolves.toMatchObject({ userId: who.userId });
+    });
+
     it('cannot be turned on without a passkey', async () => {
       const who = await person([]);
       await expect(setPasskeySecondStep(db.sql, who.userId, true)).rejects.toMatchObject({ code: 'auth.webauthn_not_enrolled' });
@@ -230,7 +259,7 @@ if (!available) {
       });
     });
 
-    it('offers and accepts only the bound passkey for a security change, and any passkey for money while none is bound to it', async () => {
+    it('offers and accepts only the kept passkey for a security change, and only the other one for money while none is kept for it', async () => {
       const a = softPasskey();
       const b = softPasskey();
       const who = await person([a, b]);
@@ -238,7 +267,7 @@ if (!available) {
       const security = await auth.customerStepUpMaterial(who.userId, 'security_change');
       expect(security.credentials.map((c) => c.credentialId)).toEqual([a.id]);
       const money = await auth.customerStepUpMaterial(who.userId, 'money_out');
-      expect(money.credentials.map((c) => c.credentialId).sort()).toEqual([a.id, b.id].sort());
+      expect(money.credentials.map((c) => c.credentialId)).toEqual([b.id]);
 
       const challenge = b64urlEncode(randomBytes(32));
       const prove = (key: ReturnType<typeof softPasskey>, purpose: 'security_change' | 'money_out') =>
@@ -252,6 +281,7 @@ if (!available) {
       expect((await refusal(prove(b, 'security_change'))).code).toBe('auth.webauthn_invalid');
       await expect(prove(a, 'security_change')).resolves.toBeUndefined();
       await expect(prove(b, 'money_out')).resolves.toBeUndefined();
+      expect((await refusal(prove(a, 'money_out'))).code).toBe('auth.webauthn_invalid');
     });
 
     it('lists each passkey with its purposes; the same set again changes nothing', async () => {

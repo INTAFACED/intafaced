@@ -138,6 +138,7 @@ export class AuthError extends Error {
       | 'auth.handle_taken'
       | 'auth.email_taken'
       | 'auth.mfa_required'
+      | 'auth.second_step_expired'
       | 'auth.privileged_enrolment_requires_invite'
       | 'auth.mfa_invalid'
       | 'auth.mfa_already_enrolled'
@@ -868,19 +869,13 @@ export class AuthService {
     const deps = this.loginCodeDeps();
     const { userId, codeHash } = await checkLoginCode(deps, input);
     const [user] = await this.sql<
-      Array<{ id: string; status: string; totp_secret: string | null }>
-    >`SELECT id, status, totp_secret FROM users WHERE id = ${userId}`;
+      Array<{ id: string; status: string; totp_secret: string | null; passkey_second_step: boolean; webauthn_creds: unknown }>
+    >`SELECT id, status, totp_secret, passkey_second_step, webauthn_creds FROM users WHERE id = ${userId}`;
     if (!user) throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
     // The code proved the mailbox, so the state is named as on password sign-in.
     if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen', accountStateOf(user.status));
-    let mfa = false;
-    if (user.totp_secret) {
-      if (!input.totpCode) throw new AuthError('Two-factor code required', 'auth.mfa_required');
-      await this.reserve(user.id, 'mfa');
-      await this.verifyMfaCode(user.id, user.totp_secret, input.totpCode);
-      mfa = true;
-      await recordSuccess(this.sql, user.id, 'mfa');
-    }
+    // A passkey asked for after the password is asked for after a mailed code too; the code then stays unspent until it expires.
+    const mfa = await this.passSecondStep(user, input.totpCode);
     await consumeLoginCode(deps, { flowId: input.flowId, codeHash });
     const device = await this.gateDevice(user.id, mfa, input.deviceKey);
     const session = await this.issueSession(user.id, { device: input.device, ip: input.ip, mfa, trustedDeviceId: device.trustedDeviceId });
@@ -1238,36 +1233,51 @@ export class AuthService {
     // account cannot be restored (founder-controls.ts `restore.not_permitted`); a frozen one can.
     // After recordSuccess, so the owner of a frozen account is never locked out of reading why.
     if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen', accountStateOf(user.status));
-    let mfa = false;
-    // A passkey answers the second step when the account has an authenticator, or asked for a passkey after the password.
-    const signinPasskeys = credentialsFor(asCredentialList(user.webauthn_creds), 'signin');
-    const passkeyStep = signinPasskeys.length > 0 && (user.totp_secret !== null || user.passkey_second_step);
-    if (passkeyStep && !input.totpCode) {
-      throw new AuthError('Second step required', 'auth.mfa_required', {
-        secondStep: { totp: user.totp_secret !== null, passkey: await this.secondStepChallenge(user.id, signinPasskeys) },
-      });
-    }
-    if (user.totp_secret) {
-      if (!input.totpCode) {
-        throw new AuthError('Two-factor code required', 'auth.mfa_required', { secondStep: { totp: true, passkey: null } });
-      }
-      // Counted before the code is looked at; a locked account is refused here without consuming a step or a recovery code.
-      await this.reserve(user.id, 'mfa');
-      await this.verifyMfaCode(user.id, user.totp_secret, input.totpCode);
-      mfa = true;
-      await recordSuccess(this.sql, user.id, 'mfa');
-    } else if (passkeyStep) {
-      // A code sent to an account that asked for a passkey and has no authenticator is a wrong second step.
-      await this.reserve(user.id, 'mfa');
-      throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');
-    }
+    // The password verified, so its hash is upgraded now, whichever second step follows (a passkey one never comes back here).
     if (await needsRehash(user.password_hash)) {
       const upgraded = await hashPassword(input.password);
       await this.sql`UPDATE users SET password_hash = ${upgraded}, updated_at = now() WHERE id = ${user.id}`;
     }
+    const mfa = await this.passSecondStep(user, input.totpCode);
     const device = await this.gateDevice(user.id, mfa, input.deviceKey);
     const session = await this.issueSession(user.id, { device: input.device, ip: input.ip, mfa, trustedDeviceId: device.trustedDeviceId });
     return device.deviceKey ? { ...session, deviceKey: device.deviceKey } : session;
+  }
+
+  /**
+   * The second step after a first factor (the password, a mailed code or a linked provider). An account with an
+   * authenticator needs its code; a passkey that answers for sign-in is offered beside it, and is the second step on its
+   * own when the account asked for a passkey after its password (I-signin-sessions-10). With no code sent, the refusal
+   * names the steps that answer and carries a passkey challenge for `loginSecondStepPasskey`. Returns whether a second
+   * factor passed here.
+   */
+  private async passSecondStep(
+    user: { id: string; totp_secret: string | null; passkey_second_step: boolean; webauthn_creds: unknown },
+    totpCode: string | undefined,
+  ): Promise<boolean> {
+    const signinPasskeys = credentialsFor(asCredentialList(user.webauthn_creds), 'signin');
+    const passkeyStep = signinPasskeys.length > 0 && (user.totp_secret !== null || user.passkey_second_step);
+    if (!totpCode && (user.totp_secret !== null || passkeyStep)) {
+      throw new AuthError('Second step required', 'auth.mfa_required', {
+        secondStep: {
+          totp: user.totp_secret !== null,
+          passkey: passkeyStep ? await this.secondStepChallenge(user.id, signinPasskeys) : null,
+        },
+      });
+    }
+    if (user.totp_secret) {
+      // Counted before the code is looked at; a locked account is refused here without consuming a step or a recovery code.
+      await this.reserve(user.id, 'mfa');
+      await this.verifyMfaCode(user.id, user.totp_secret, totpCode!);
+      await recordSuccess(this.sql, user.id, 'mfa');
+      return true;
+    }
+    if (passkeyStep) {
+      // A code sent to an account that asked for a passkey and has no authenticator is a wrong second step.
+      await this.reserve(user.id, 'mfa');
+      throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');
+    }
+    return false;
   }
 
   /** A single-use passkey challenge for the second step, bound to the account whose password just verified. */
@@ -1295,7 +1305,8 @@ export class AuthService {
     const clientChallenge = readClientChallenge(input.credential.response.clientDataJSON);
     if (!clientChallenge) return refuse();
     const held = await this.challenges.take(clientChallenge, 'second-step');
-    if (!held?.userId) return refuse();
+    // An expired or spent challenge (or one this service never issued) asks for the password again.
+    if (!held?.userId) throw new AuthError('This sign-in step timed out', 'auth.second_step_expired');
     const userId = held.userId;
     const [user] = await this.sql<Array<{ status: string }>>`SELECT status FROM users WHERE id = ${userId}`;
     if (!user) return refuse();
@@ -1323,19 +1334,12 @@ export class AuthService {
     input: { totpCode?: string; device?: string; ip?: string; deviceKey?: string | null },
   ): Promise<SessionTokens> {
     const [user] = await this.sql<
-      Array<{ id: string; status: string; totp_secret: string | null }>
-    >`SELECT id, status, totp_secret FROM users WHERE id = ${userId}`;
+      Array<{ id: string; status: string; totp_secret: string | null; passkey_second_step: boolean; webauthn_creds: unknown }>
+    >`SELECT id, status, totp_secret, passkey_second_step, webauthn_creds FROM users WHERE id = ${userId}`;
     if (!user) throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
     // The provider proved the identity, so the state is named as on password sign-in.
     if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen', accountStateOf(user.status));
-    let mfa = false;
-    if (user.totp_secret) {
-      if (!input.totpCode) throw new AuthError('Two-factor code required', 'auth.mfa_required');
-      await this.reserve(user.id, 'mfa');
-      await this.verifyMfaCode(user.id, user.totp_secret, input.totpCode);
-      mfa = true;
-      await recordSuccess(this.sql, user.id, 'mfa');
-    }
+    const mfa = await this.passSecondStep(user, input.totpCode);
     const device = await this.gateDevice(user.id, mfa, input.deviceKey);
     const session = await this.issueSession(user.id, { device: input.device, ip: input.ip, mfa, trustedDeviceId: device.trustedDeviceId });
     return device.deviceKey ? { ...session, deviceKey: device.deviceKey } : session;

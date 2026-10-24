@@ -371,6 +371,7 @@ test(`${J} #4 sets a passkey as the second step and keeps one for signing in: an
   await signUpInBrowser(page, other);
   await addPasskey(page);
   const [theirs] = await heldPasskeys(device);
+  const { credentials: theirCredentials } = await device.cdp.send('WebAuthn.getCredentials', { authenticatorId: device.authenticatorId });
   await forgetSession(page);
 
   // This person adds a passkey on the device, then asks for it after the password.
@@ -398,20 +399,20 @@ test(`${J} #4 sets a passkey as the second step and keeps one for signing in: an
   await expect(names.locator('.security__row')).toHaveCount(2);
   const [kept] = await heldPasskeys(key);
   const securityKey = names.locator('.security__row', { hasText: 'Security key' });
-  await expect(securityKey).toContainText('Used for: every action');
+  await expect(securityKey).toContainText('Kept for: nothing in particular');
   await securityKey.getByRole('button', { name: /^Choose what passkey/ }).click();
   await securityKey.getByLabel('Signing in').check();
   await securityKey.getByRole('button', { name: 'Save with a passkey' }).click();
   await expect(names.getByRole('status')).toHaveText('Saved what this passkey is for.');
-  await expect(securityKey).toContainText('Used for: Signing in');
-  await expect(names.locator('.security__row', { hasText: 'This device' })).toContainText('Used for: every action');
+  await expect(securityKey).toContainText('Kept for: Signing in');
+  await expect(names.locator('.security__row', { hasText: 'This device' })).toContainText('Kept for: nothing in particular');
   await forgetSession(page);
 
   async function password() {
     await page.goto('/login');
     await page.fill('input[name=identifier]', who.email);
     await page.fill('input[name=password]', who.password);
-    const answer = page.waitForResponse((res) => res.url().includes('/api/identity/trpc/auth.login'));
+    const answer = page.waitForResponse((res) => new URL(res.url()).pathname.endsWith('/api/identity/trpc/auth.login'));
     await page.getByRole('button', { name: /^sign in$/i }).click();
     const body = await (await answer).json();
     await expect(page.getByRole('alert')).toContainText('Your password is right. Now confirm with one of your passkeys.');
@@ -424,8 +425,11 @@ test(`${J} #4 sets a passkey as the second step and keeps one for signing in: an
   expect(offered.passkey.allowCredentials.map((c) => c.id)).toEqual([kept]);
   expect(mine).toBeDefined();
 
-  // A browser that offers the other person's passkey instead gets it refused, and nothing signs in.
-  await page.route('**/api/identity/trpc/auth.login**', async (route) => {
+  // A browser that offers the other person's passkey instead gets it refused, and nothing signs in. Their passkey is put
+  // on the security key too, so whichever authenticator answers holds it.
+  await key.cdp.send('WebAuthn.addCredential', { authenticatorId: key.authenticatorId, credential: theirCredentials[0] });
+  const loginCall = (url) => url.pathname.endsWith('/api/identity/trpc/auth.login');
+  await page.route(loginCall, async (route) => {
     const res = await route.fetch();
     const body = await res.json();
     body.error.data.secondStep.passkey.allowCredentials = [{ type: 'public-key', id: theirs }];
@@ -435,7 +439,7 @@ test(`${J} #4 sets a passkey as the second step and keeps one for signing in: an
   await page.getByRole('button', { name: 'Use your passkey' }).click();
   await expect(page.getByRole('alert')).toContainText('That passkey is not one this account signs in with.');
   await expect(page).toHaveURL(/\/login/);
-  await page.unroute('**/api/identity/trpc/auth.login**');
+  await page.unroute(loginCall);
 
   // The person's own kept passkey signs them in.
   await password();

@@ -330,6 +330,7 @@ function toTrpcError(err: unknown): TRPCError {
       // half of the credential was right (including "key ok, origin wrong").
       return new TRPCError({ code: 'UNAUTHORIZED', message, cause: err });
     case 'auth.mfa_required':
+    case 'auth.second_step_expired':
       return new TRPCError({ code: 'UNAUTHORIZED', message, cause: err });
     case 'auth.too_many_attempts':
       // Per-account lockout (attempt-lockout.ts): retrying now cannot help, retrying later can.

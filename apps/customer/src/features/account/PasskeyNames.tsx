@@ -209,7 +209,14 @@ export function PasskeyNames({ revision = 0 }: { revision?: number } = {}) {
       ) : (
         <ul className="security__rows">
           {list.passkeys.map((key) => (
-            <li key={key.credentialId} className="security__row">
+            <li
+              key={key.credentialId}
+              className={
+                editing && 'credentialId' in editing && editing.credentialId === key.credentialId
+                  ? 'security__row security__row--editing'
+                  : 'security__row'
+              }
+            >
               <div>
                 <strong>{key.label ?? t('unnamed')}</strong> <span className="security__ref">{t(key.kind)}</span>
                 <span className="muted">
@@ -232,7 +239,7 @@ export function PasskeyNames({ revision = 0 }: { revision?: number } = {}) {
                     <legend>{t('purposesLegend')}</legend>
                     <p className="muted">{t('purposesHint')}</p>
                     {PASSKEY_PURPOSES.map((purpose) => (
-                      <label key={purpose} className="row">
+                      <label key={purpose} className="security__check">
                         <input
                           type="checkbox"
                           name={`purpose-${purpose}`}
@@ -245,7 +252,7 @@ export function PasskeyNames({ revision = 0 }: { revision?: number } = {}) {
                   </fieldset>,
                 )
               ) : (
-                <div className="row">
+                <>
                   <Button
                     variant="secondary"
                     aria-label={t('renameLabel', { id: key.label ?? key.credentialId })}
@@ -260,7 +267,7 @@ export function PasskeyNames({ revision = 0 }: { revision?: number } = {}) {
                   >
                     {t('choose')}
                   </Button>
-                </div>
+                </>
               )}
             </li>
           ))}

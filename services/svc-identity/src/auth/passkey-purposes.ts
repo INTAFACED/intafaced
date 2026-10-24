@@ -8,7 +8,8 @@
  * holds the users row lock that guards it.
  *
  * For one purpose, the passkeys bound to it are the only ones offered and the only ones accepted. When none is bound to
- * it, every passkey works, as before. A passkey with no purposes answers for everything nobody else is bound to.
+ * it, the passkeys bound to nothing answer, so a passkey kept for signing in does not confirm money out; with no
+ * purposes set anywhere every passkey works, as before.
  */
 export const PASSKEY_PURPOSES = ['signin', 'money_out', 'security_change'] as const;
 export type PasskeyPurpose = (typeof PASSKEY_PURPOSES)[number];
@@ -33,10 +34,15 @@ export function encodePurposes(purposes: readonly PasskeyPurpose[]): string {
   return [...new Set(purposes)].sort().join(',');
 }
 
-/** The credentials that answer for this purpose: those bound to it, or every one when none is. */
+/**
+ * The credentials that answer for this purpose: those kept for it; when none is, those kept for nothing in particular;
+ * and when every passkey is kept for something else, all of them, so keeping passkeys never locks the owner out.
+ */
 export function credentialsFor<T extends { purposes?: unknown }>(credentials: readonly T[], purpose: PasskeyPurpose): T[] {
   const bound = credentials.filter((credential) => purposesOf(credential).includes(purpose));
-  return bound.length > 0 ? bound : [...credentials];
+  if (bound.length > 0) return bound;
+  const free = credentials.filter((credential) => purposesOf(credential).length === 0);
+  return free.length > 0 ? free : [...credentials];
 }
 
 /** The purpose a customer step-up confirms: a change to the account's own security, or money (and money-like) doors. */

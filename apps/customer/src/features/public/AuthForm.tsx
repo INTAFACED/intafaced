@@ -3,7 +3,7 @@ import { SocialSignIn } from './SocialSignIn';
 import { CodeSignIn } from './CodeSignIn';
 import { DeviceApproval } from './DeviceApproval';
 import { Button, Field, Failure } from '../../shared/ui';
-import { authoredRefusal, type ApiClient, type ApiResult } from '../../shared/api';
+import { authoredRefusal, type ApiClient, type ApiResult, type SecondStep } from '../../shared/api';
 import { uiCopy } from '../../shared/ui-copy';
 import { LanguageMenu } from '../../shared/LanguageMenu';
 import { useAccountViewStatus } from '../account/ViewSync';
@@ -39,6 +39,7 @@ type Original = {
   invite?: string;
   target: string;
 };
+type SecondStepOptions = NonNullable<SecondStep['passkey']>;
 type Problem = 'changed' | 'storage' | 'locks' | 'another' | 'cleared' | 'retained' | 'passwordShape';
 export function AuthForm({ register }: { register: boolean }) {
   const { t: p, languageFor: publicLanguageFor } = publicCopy.useCopy();
@@ -166,10 +167,15 @@ export function AuthForm({ register }: { register: boolean }) {
       window.removeEventListener('storage', changed);
     };
   }, []);
-  async function run(kind: 'register' | 'password' | 'options') {
+  /**
+   * `secondStep` is the passkey after the password (I-signin-sessions-10): the service answered the password with a
+   * single-use challenge for this account's sign-in passkeys, the browser signs it, and the answer opens the session.
+   */
+  async function run(kind: 'register' | 'password' | 'options' | 'secondStep', secondStepOptions?: SecondStepOptions) {
     // Until the boot refresh answers, a cookie sign-in may still land and change the account under this form.
     if (!sameRender() || (running.current && same(running.current)) || pending || restoring) return;
     let identifierForRequest = identifier.trim();
+    if (kind === 'secondStep' && !secondStepOptions) return;
     if (kind === 'options' && !identifierForRequest) {
       const input = form.current?.elements.namedItem('identifier');
       // Some autofill tools change the DOM without an input event. Capture it now:
@@ -184,8 +190,8 @@ export function AuthForm({ register }: { register: boolean }) {
         return;
       }
     }
-    if (!identifierForRequest) return;
-    if (kind !== 'options' && !password) return;
+    if (kind !== 'secondStep' && !identifierForRequest) return;
+    if ((kind === 'register' || kind === 'password') && !password) return;
     // The service refuses a password it cannot hash (too long, one character repeated). Say so here instead of sending it and showing an uncertain answer.
     if (kind === 'register') {
       const issue = passwordIssue(password, password);
@@ -214,6 +220,7 @@ export function AuthForm({ register }: { register: boolean }) {
     const controller = new AbortController();
     abort.current = controller;
     running.current = original;
+    const previous = result;
     setPending(true);
     setProblem(null);
     setResult(null);
@@ -257,9 +264,22 @@ export function AuthForm({ register }: { register: boolean }) {
           setProblem('another');
           return;
         }
-        if (kind !== 'options' && !save(kind)) return;
+        if (kind !== 'options' && kind !== 'secondStep' && !save(kind)) return;
         let answer: ApiResult<Session>;
-        if (kind === 'options') {
+        if (kind === 'secondStep') {
+          // The passkey answers first; a cancelled or unavailable passkey sends nothing and keeps the challenge usable.
+          const assertion = await signAssertion(secondStepOptions!, controller.signal);
+          if (!same(original)) return;
+          if (!assertion.ok) {
+            setResult(previous);
+            setPasskeyStopped(true);
+            return;
+          }
+          if (!save('secondStep')) return;
+          answer = await original.api.mutate('identity', 'auth.loginSecondStepPasskey', { credential: assertion.data }, sessionSchema, {
+            signal: controller.signal,
+          });
+        } else if (kind === 'options') {
           answer = await signInWithPasskey(original.api, identifierForPasskey, {
             signal: controller.signal,
             current: () => same(original),
@@ -311,54 +331,6 @@ export function AuthForm({ register }: { register: boolean }) {
       }
     }
   }
-  /**
-   * The second step by passkey (I-signin-sessions-10): the service answered the password with a single-use challenge
-   * for this account's sign-in passkeys. The browser signs it and the answer opens the session; a passkey of another
-   * account is refused and the password is asked for again.
-   */
-  async function passkeySecondStep(options: NonNullable<NonNullable<Extract<ApiResult<Session>, { ok: false }>['secondStep']>['passkey']>) {
-    if (!sameRender() || (running.current && same(running.current)) || pending || restoring) return;
-    const original: Original = {
-      api,
-      owner: userId,
-      context,
-      url: renderedContext.url,
-      generation: renderedContext.generation,
-      destination,
-      invite: inviteToken,
-      target: inviteToken ? 'invite' : findRoom(destination.split(/[?#]/)[0] ?? '/money')!.path,
-    };
-    const controller = new AbortController();
-    abort.current = controller;
-    running.current = original;
-    setPending(true);
-    setPasskeyStopped(false);
-    try {
-      const assertion = await signAssertion(options, controller.signal);
-      if (!same(original)) return;
-      if (!assertion.ok) {
-        setPasskeyStopped(true);
-        return;
-      }
-      let answer = await original.api.mutate('identity', 'auth.loginSecondStepPasskey', { credential: assertion.data }, sessionSchema, {
-        signal: controller.signal,
-      });
-      if (!same(original)) return;
-      if (answer.ok && !validAuthSession(answer.data)) answer = authoredRefusal('uncertain', { key: 'unverifiedWrite' });
-      setPassword('');
-      setTotp('');
-      if (answer.ok) {
-        commit(answer.data);
-        navigate(original.invite ? `/invite?token=${encodeURIComponent(original.invite)}` : original.destination, true);
-      } else {
-        setResult(answer);
-      }
-    } finally {
-      if (running.current === original) running.current = null;
-      if (abort.current === controller) abort.current = null;
-      if (same(original)) setPending(false);
-    }
-  }
   function submit(event: FormEvent) {
     event.preventDefault();
     if (!sameRender()) return;
@@ -384,7 +356,9 @@ export function AuthForm({ register }: { register: boolean }) {
         ? ('codeMismatch' as const)
         : definite.code === 'auth.webauthn_invalid'
           ? ('passkeyMismatch' as const)
-          : null
+          : definite.code === 'auth.second_step_expired'
+            ? ('secondStepExpired' as const)
+            : null
     : null;
   return (
     <section className="auth-layout" lang={publicLanguageFor('SIGN IN')}>
@@ -632,7 +606,7 @@ export function AuthForm({ register }: { register: boolean }) {
                     <div className="failure" role="alert">
                       <p lang={languageFor(secondStep)}>{t(secondStep)}</p>
                       {passkeyOptions && (
-                        <Button variant="secondary" disabled={pending} onClick={() => void passkeySecondStep(passkeyOptions)}>
+                        <Button variant="secondary" disabled={pending} onClick={() => void run('secondStep', passkeyOptions)}>
                           {t('usePasskeyStep')}
                         </Button>
                       )}

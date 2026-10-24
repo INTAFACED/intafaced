@@ -2,10 +2,9 @@ import { z } from 'zod';
 import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import type { Sql } from 'postgres';
 import {
-  listPasskeys,
   normalizePasskeyLabel,
   PasskeyManageError,
-  passkeySecondStep,
+  passkeySettings,
   renamePasskey,
   setPasskeyPurposes,
   setPasskeySecondStep,
@@ -49,11 +48,7 @@ export function createPasskeyManageRouter(sql: Sql, stepUp: SecurityStepUp, limi
       .output(z.object({ passkeys: z.array(row), maxPerAccount: z.number().int().nullable(), secondStep: z.boolean() }))
       .query(async ({ ctx, input }) => {
         try {
-          return {
-            passkeys: await listPasskeys(sql, ctx.principal.userId, input.limit),
-            maxPerAccount: limits.maxPerAccount ?? null,
-            secondStep: await passkeySecondStep(sql, ctx.principal.userId),
-          };
+          return { ...(await passkeySettings(sql, ctx.principal.userId, input.limit)), maxPerAccount: limits.maxPerAccount ?? null };
         } catch (err) {
           return mapManage(err);
         }

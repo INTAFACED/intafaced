@@ -65,12 +65,25 @@ function asCreds(raw: unknown): Raw[] {
 }
 
 export async function listPasskeys(sql: Sql, userId: string, limit: number): Promise<PasskeyRow[]> {
-  const rows = await sql<Array<{ webauthn_creds: unknown }>>`SELECT webauthn_creds FROM users WHERE id = ${userId}`;
+  return (await passkeySettings(sql, userId, limit)).passkeys;
+}
+
+/**
+ * The passkeys and whether sign-in asks for one after the password, from one read of the row. The second step is on
+ * only while a passkey exists: with none, sign-in takes the password alone, and the list says so.
+ */
+export async function passkeySettings(sql: Sql, userId: string, limit: number): Promise<{ passkeys: PasskeyRow[]; secondStep: boolean }> {
+  const rows = await sql<Array<{ webauthn_creds: unknown; passkey_second_step: boolean }>>`
+    SELECT webauthn_creds, passkey_second_step FROM users WHERE id = ${userId}`;
   if (!rows[0]) throw new PasskeyManageError('auth.not_found');
-  return asCreds(rows[0].webauthn_creds)
-    .map(rowOf)
-    .sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0))
-    .slice(0, limit);
+  const creds = asCreds(rows[0].webauthn_creds);
+  return {
+    passkeys: creds
+      .map(rowOf)
+      .sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0))
+      .slice(0, limit),
+    secondStep: rows[0].passkey_second_step && creds.length > 0,
+  };
 }
 
 /** Same label on the same credential is a no-op that still answers the row. */
@@ -117,13 +130,6 @@ export async function setPasskeyPurposes(
     }
     return rowOf({ ...current, purposes: wanted });
   });
-}
-
-/** Whether sign-in asks for a passkey after the password. Read with the list. */
-export async function passkeySecondStep(sql: Sql, userId: string): Promise<boolean> {
-  const rows = await sql<Array<{ passkey_second_step: boolean }>>`SELECT passkey_second_step FROM users WHERE id = ${userId}`;
-  if (!rows[0]) throw new PasskeyManageError('auth.not_found');
-  return rows[0].passkey_second_step;
 }
 
 /**
