@@ -236,7 +236,7 @@ const fr = {
   haltedTitle: 'Les dépôts de {asset} sur {network} sont désactivés',
   haltedBody: 'Aucune adresse n’est affichée pour ce réseau. Choisissez-en un autre, ou revenez quand il sera réactivé.',
   haltedKept:
-    'Ce qui est envoyé à une adresse que vous aviez déjà pour ce réseau n’est pas perdu : il attend, et sera crédité une fois les dépôts réactivés.',
+    'Ce qui est envoyé à une adresse que vous aviez déjà pour ce réseau n’est pas perdu : il attend, et il est crédité quand les dépôts sont réactivés.',
   networkRetry: 'Réessayer',
   pickFirst: 'Choisissez un actif et un réseau, puis confirmez ci-dessous pour voir votre adresse.',
   ackLabel: 'J’enverrai uniquement {asset} sur le réseau {network}. Je comprends que tout autre envoi peut être perdu définitivement.',

@@ -268,6 +268,7 @@ describe('deposit room: a network the owner switched off, and a person not yet v
     await choose('Network', 'base');
     const banner = host.querySelector('[data-testid="deposit-halted"]')!;
     // No owner's note: only the two standard lines, the second saying a deposit to a kept address waits and is credited later.
+    expect(banner.querySelectorAll('p[lang="und"]')).toHaveLength(0);
     expect([...banner.querySelectorAll('p')].map((p) => p.textContent)).toEqual([
       'No address is shown for it. Choose another network, or come back when it is switched on.',
       'Anything sent to an address you already had for it is not lost: it waits, and is credited after deposits are switched back on.',
