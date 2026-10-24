@@ -110,3 +110,15 @@ export async function setStatusAsLead(ticketId, status, note) {
   const { ctx } = await founders();
   return data(await ctx.edge.mutate('support', 'setStatus', { ticketId, status, note }, await leadToken()), 'setStatus');
 }
+
+/** Define or change a ticket field (SP-tickets-03) as the support lead. */
+export async function defineRequestField(row) {
+  const { ctx } = await founders();
+  return data(await ctx.edge.mutate('support', 'defineRequestField', row, await leadToken()), 'defineRequestField');
+}
+
+/** Define or change a request type's form as the support lead. */
+export async function defineRequestForm(row) {
+  const { ctx } = await founders();
+  return data(await ctx.edge.mutate('support', 'defineRequestForm', row, await leadToken()), 'defineRequestForm');
+}
