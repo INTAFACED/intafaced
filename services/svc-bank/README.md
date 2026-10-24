@@ -81,15 +81,16 @@ archived spaces remain visible. `loans.releaseExcess` requires a caller-supplied
 
 ### `transfers`
 
-| Procedure                 | Scope        | Purpose                                                                                      |
-| ------------------------- | ------------ | -------------------------------------------------------------------------------------------- |
-| `transfers.create`        | `bank:write` | One-off transfer; `transferId` is client-supplied, so a retried request is the same transfer |
-| `transfers.schedule`      | `bank:write` | Standing order — daily, weekly, or monthly                                                   |
-| `transfers.listSchedules` | `bank:read`  | The user's standing orders                                                                   |
-| `transfers.executions`    | `bank:read`  | What ran, what did not, and **why** — the answer to "where is my rent"                       |
-| `transfers.cancel`        | `bank:write` | Stop future firings. Never reverses ones that happened                                       |
-| `transfers.pause`         | `bank:write` | Hold a standing order. The reversible half of `cancel`                                       |
-| `transfers.resume`        | `bank:write` | Start it again **from here** — returns the occurrences that will never be made up            |
+| Procedure                  | Scope        | Purpose                                                                                      |
+| -------------------------- | ------------ | -------------------------------------------------------------------------------------------- |
+| `transfers.create`         | `bank:write` | One-off transfer; `transferId` is client-supplied, so a retried request is the same transfer |
+| `transfers.schedule`       | `bank:write` | Standing order — daily, weekly, or monthly — or a one-off (`once`) on a date                 |
+| `transfers.listSchedules`  | `bank:read`  | The user's standing orders                                                                   |
+| `transfers.updateSchedule` | `bank:write` | Change the amount or end date at the revision read; refused inside the edit cutoff           |
+| `transfers.executions`     | `bank:read`  | What ran, what did not, and **why** — the answer to "where is my rent"                       |
+| `transfers.cancel`         | `bank:write` | Stop future firings. Never reverses ones that happened                                       |
+| `transfers.pause`          | `bank:write` | Hold a standing order. The reversible half of `cancel`                                       |
+| `transfers.resume`         | `bank:write` | Start it again **from here** — returns the occurrences that will never be made up            |
 
 **Resume does not settle up, and says so on the wire.** `planDue` fires every occurrence between `lastFired` and `now`, which is right after an outage and wrong after a pause: the user stopped the order precisely so those transfers would not happen, and catching up would move three months of rent in one pass on a day nobody chose. So `resume` records the elapsed occurrences as `skipped` — a **row**, not an absence, because `MAX(occurrence)` over `transfer_executions` _is_ `lastFired`, so writing the rows is what moves the schedule's floor forward. The same unique index that makes a double-fire impossible makes a double-skip impossible; there is no second watermark to keep in step. Resuming posts nothing to the ledger, ever.
 
@@ -450,6 +451,7 @@ Editing a standing order cancels it and writes a new one, so the history of what
 | `BANK_LOANS_ENABLED`                            | Module kill for loans (`FLAG_REGISTRY` bank.loans) — OFF refuses new opens                                         |
 | `BANK_CARDS_ENABLED`                            | Module kill for cards ledger half (`bank.cards`) — OFF refuses issue and authorise                                 |
 | `TRANSFER_BATCH_SIZE` / `LOAN_SWEEP_BATCH_SIZE` | Bounds the blast radius of a single bad pass                                                                       |
+| `BANK_SCHEDULE_EDIT_CUTOFF_MINUTES`             | Owner value: how close to its next run an active standing order may still be edited. Blank refuses every edit      |
 | `BANK_RECOVERY_JOBS_INTERVAL_MS`                | Recovery timer. Default 60000. Blank disables it and logs a startup warning                                        |
 | `BANK_RECOVERY_JOBS_BATCH_LIMIT`                | Recovery pass cap. Default 50. Blank disables the timer the same way                                               |
 

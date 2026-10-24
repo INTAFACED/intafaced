@@ -37,6 +37,20 @@ export function StandingFacts({ instruction }: { instruction: StandingInstructio
           <ReportedTime value={instruction.nextRunAt} />
         </dd>
       </div>
+      <div>
+        <dt>
+          <Copy k="endsAt" />
+        </dt>
+        <dd>{instruction.endsAt ? <ReportedTime value={instruction.endsAt} /> : <Copy k="noEnd" />}</dd>
+      </div>
+      <div>
+        <dt>
+          <Copy k="revision" />
+        </dt>
+        <dd lang="zxx" dir="ltr">
+          {instruction.revision}
+        </dd>
+      </div>
     </dl>
   );
 }

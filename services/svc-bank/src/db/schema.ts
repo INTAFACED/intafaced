@@ -19,8 +19,9 @@ import { amount, bps, createdAt, tstz, updatedAt } from '@intafaced/db';
  *      they attached to it. `spaces` is a label over a ledger account; it holds
  *      no value and cannot hold value.
  *   2. AN INSTRUCTION — "move 200 USDT on the 1st of every month". Amounts on
- *      instructions are immutable after insert: they are what the user asked
- *      for, not what anything currently holds.
+ *      instructions are what the user asked for, not what anything currently
+ *      holds. A standing order's amount changes only by a customer edit, which
+ *      writes the old value to `schedule_revisions` and bumps `revision`.
  *   3. A RECORD OF SOMETHING THAT ALREADY HAPPENED — one row per (schedule,
  *      occurrence) or per (pool, day), written once, never updated in place with
  *      a new figure. These exist to make a job idempotent and auditable, not to
@@ -51,7 +52,7 @@ export const bank = pgSchema('bank');
 export const spaceKindEnum = bank.enum('space_kind', ['primary', 'named']);
 
 /** §8.1 rails. Cadence is closed because the occurrence index must be derivable. */
-export const transferCadenceEnum = bank.enum('transfer_cadence', ['daily', 'weekly', 'monthly']);
+export const transferCadenceEnum = bank.enum('transfer_cadence', ['daily', 'weekly', 'monthly', 'once']);
 
 export const scheduleStatusEnum = bank.enum('schedule_status', ['active', 'paused', 'cancelled', 'completed']);
 
@@ -130,9 +131,10 @@ export const spaces = bank.table(
 /**
  * A STANDING ORDER (§8.1 rails).
  *
- * `amount` here is the instruction — "move this much" — and never changes after
- * insert. Editing a standing order cancels it and writes a new one, so the
- * history of what a user actually authorised survives.
+ * `amount` here is the instruction — "move this much". An edit changes it (and the
+ * end date) one revision at a time; what it said before each edit is kept in
+ * `schedule_revisions`, so the history of what a user authorised survives. The
+ * amount each run posted is on its execution row.
  */
 export const scheduledTransfers = bank.table(
   'scheduled_transfers',
@@ -160,6 +162,8 @@ export const scheduledTransfers = bank.table(
     /** Scheduling index only — the truth of "did occurrence N fire" is the execution row. */
     nextRunAt: tstz('next_run_at').notNull(),
     status: scheduleStatusEnum('status').notNull().default('active'),
+    /** Starts at 1; an edit names the revision it read and adds one. */
+    revision: integer('revision').notNull().default(1),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -204,6 +208,23 @@ export const transferExecutions = bank.table(
     uniqueIndex('transfer_executions_occurrence_idx').on(t.scheduleId, t.occurrence),
     index('transfer_executions_status_idx').on(t.status),
   ],
+);
+
+/** What a standing order said before an edit replaced it (one row per replaced revision; migration 20261024061755_schedule_revision). */
+export const scheduleRevisions = bank.table(
+  'schedule_revisions',
+  {
+    scheduleId: uuid('schedule_id')
+      .notNull()
+      .references(() => scheduledTransfers.id),
+    revision: integer('revision').notNull(),
+    amount: amount('amount').notNull(),
+    endsAt: tstz('ends_at'),
+    /** Who made the edit that replaced this revision. */
+    replacedBy: text('replaced_by').notNull(),
+    replacedAt: tstz('replaced_at').notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.scheduleId, t.revision] })],
 );
 
 /**

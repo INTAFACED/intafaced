@@ -3001,7 +3001,9 @@ describe('svc-bank money PG-hard', () => {
        */
       const MONEY_COLUMNS: Record<string, string> = {
         'spaces.goal_target': 'a savings TARGET the user set — never written by a money path',
-        'scheduled_transfers.amount': 'the INSTRUCTION; immutable after insert',
+        'scheduled_transfers.amount':
+          'the INSTRUCTION; a customer edit replaces it under a new revision, and the run posts the amount it locked',
+        'schedule_revisions.amount': 'a RECORD of one replaced instruction; written once when an edit lands',
         'transfer_executions.amount': 'a RECORD of one completed firing; written once',
         'personal_transfers.amount': 'a RECORD of one completed personal send; written once',
         'personal_transfer_terms.per_transfer_limit': 'a POLICY ceiling on one send; no money path writes it',

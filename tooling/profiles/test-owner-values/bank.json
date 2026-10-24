@@ -51,6 +51,11 @@
       "value": "24",
       "note": "How long a newly saved bank recipient waits before money may go to it (J-bank-04 #2)."
     },
+    "BANK_SCHEDULE_EDIT_CUTOFF_MINUTES": {
+      "service": "bank",
+      "value": "60",
+      "note": "How close to its next run a standing order may still be edited (J-bank-06 #2)."
+    },
     "BANK_GLOBAL_HOLD_CANCEL_HOURS": {
       "service": "bank",
       "value": "72",

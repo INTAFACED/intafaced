@@ -65,8 +65,12 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     BANK_GLOBAL_HOLD_CANCEL_HOURS: testValue('BANK_GLOBAL_HOLD_CANCEL_HOURS'),
     // LOCAL TEST value from the bank profile (BK-xfer-09): the fee on refunding a send the rail returned.
     BANK_GLOBAL_REFUND_FEE: testValue('BANK_GLOBAL_REFUND_FEE'),
+    // LOCAL TEST value from the bank profile (J-bank-06): how close to its next run a standing order may still be edited.
+    BANK_SCHEDULE_EDIT_CUTOFF_MINUTES: testValue('BANK_SCHEDULE_EDIT_CUTOFF_MINUTES'),
     // Nothing moves money in the background of a test stack.
-    SCHEDULED_TRANSFERS_ENABLED: 'false',
+    // The standing-order runner has no timer: it is a signed job door, and on this stack only a test's own signed call
+    // (J-bank-06) runs it. Left off, a one-off or a standing order could never be shown running here.
+    SCHEDULED_TRANSFERS_ENABLED: 'true',
     AUTO_INVEST_ENABLED: 'false',
     INTEREST_ACCRUAL_ENABLED: 'false',
     LOAN_ACCRUAL_ENABLED: 'false',

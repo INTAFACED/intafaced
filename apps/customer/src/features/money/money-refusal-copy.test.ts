@@ -122,7 +122,21 @@ describe('reading a refusal that has come back', () => {
       'ramps.destinations.rename',
       'transfers.create',
       'transfers.toUser',
+      'transfers.updateSchedule',
     ]);
+  });
+  it('reads a standing-order edit refusal as changing nothing, a stale revision included', () => {
+    for (const code of [
+      'bank.schedule_revision_conflict',
+      'bank.schedule_cutoff',
+      'bank.schedule_edit_cutoff_unset',
+      'bank.schedule_inactive',
+      'bank.schedule_not_found',
+    ]) {
+      const settled = settleRefusal({ ok: false, reason: 'error', status: 409, code, message: code }, 'transfers.updateSchedule');
+      expect(settled.refusedFirst, code).toBe(true);
+      expect(settled.outcome).toMatchObject({ reason: 'error', message: expect.stringContaining('Nothing was changed') });
+    }
   });
   it('leaves every other write as it was: insufficient funds on a loan repayment or a cash-out stays unconfirmed', () => {
     for (const procedure of [

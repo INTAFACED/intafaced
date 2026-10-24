@@ -253,6 +253,16 @@ const schema = serviceEnvSchema
       BANK_PAYEE_COOLING_HOURS: z.string().optional(),
 
       /**
+       * Owner-set minutes before a standing order's next run after which it can no longer be edited (BK-xfer-10,
+       * J-bank-06 #2).
+       *
+       * No default. Blank / unset / not a whole number → every edit refuses `bank.schedule_edit_cutoff_unset` and the
+       * page says edits are not open. Zero is a real owner choice (edit until the run). An edit inside the window
+       * refuses `bank.schedule_cutoff`.
+       */
+      BANK_SCHEDULE_EDIT_CUTOFF_MINUTES: z.string().optional(),
+
+      /**
        * Owner-set hours a global send may stay on a compliance hold before it is cancelled automatically, nothing posted
        * (BK-xfer-08, J-bank-04 #6).
        *

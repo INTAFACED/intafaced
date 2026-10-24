@@ -107,6 +107,8 @@ export interface BankServices {
 export interface BankServiceOptions {
   /** `BANK_PAYEE_COOLING_HOURS`: how long a new bank-rail recipient waits. Blank refuses; zero is no wait. */
   payeeCoolingHours?: string;
+  /** `BANK_SCHEDULE_EDIT_CUTOFF_MINUTES`: how close to its next run a standing order may still be edited. Blank refuses. */
+  scheduleEditCutoffMinutes?: string;
   /** `BANK_GLOBAL_HOLD_CANCEL_HOURS`: how long a global send may stay on hold before it is cancelled. Blank, never. */
   holdCancelHours?: string;
   /** The service secret a global-send receipt's signing key is derived from. Blank, no receipt is made. */
@@ -222,7 +224,7 @@ export interface BankServiceOptions {
 
 export function createBankServices(sql: Sql, ledger: LedgerClient, history: LedgerHistory, options: BankServiceOptions = {}): BankServices {
   const spaces = new SpaceService(sql, ledger, options.recipients, { spaceLimit: () => options.spaceLimit });
-  const transfers = new TransferService(sql, ledger, spaces);
+  const transfers = new TransferService(sql, ledger, spaces, { editCutoffMinutes: options.scheduleEditCutoffMinutes });
   const personalPay = new PersonalPayService(sql, ledger, transfers, spaces, {
     handles: options.handles,
     notices: options.requestNotices,

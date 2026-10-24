@@ -192,6 +192,30 @@ export const cadenceField: ActionField = {
     }));
   },
 };
+/** A bank transfer schedule also takes a one-off; auto-invest keeps `cadenceField`, which has no 'once'. */
+export const scheduleCadenceField: ActionField = {
+  name: 'cadence',
+  get label() {
+    return copyText('components.cadence');
+  },
+  get options() {
+    return [...cadenceField.options!, { value: 'once', label: copyText('form.once') }];
+  },
+};
+/** An optional last date for a repeating order. Blank means it runs until cancelled. */
+export const endsField: ActionField = {
+  name: 'endsAt',
+  get label() {
+    return copyText('components.last.run');
+  },
+  get hint() {
+    return copyText('components.last.run.hint');
+  },
+  type: 'datetime-local',
+  optional: true,
+  validate: (value) =>
+    Number.isFinite(Date.parse(value)) && Date.parse(value) > Date.now() ? null : copyText('components.choose.an.end.after.first.run'),
+};
 export const iso = (value: string) => new Date(value).toISOString();
 const outputNames: Record<string, string> = {
   get ledgerTxId() {

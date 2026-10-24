@@ -194,6 +194,9 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.loan_borrower_mismatch': 'CONFLICT',
   'bank.position_conflict': 'CONFLICT',
   'bank.schedule_conflict': 'CONFLICT',
+  'bank.schedule_revision_conflict': 'CONFLICT',
+  // The next run is too close: the request is fine, the moment is not.
+  'bank.schedule_cutoff': 'CONFLICT',
   'bank.business_payroll_conflict': 'CONFLICT',
   'bank.business_request_conflict': 'CONFLICT',
   'bank.personal_transfer_conflict': 'CONFLICT',
@@ -401,6 +404,7 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.loan_fee_unsupported': 'PRECONDITION_FAILED',
   'bank.loan_payoff_window_unset': 'PRECONDITION_FAILED',
   'bank.loan_terms_missing': 'PRECONDITION_FAILED',
+  'bank.schedule_edit_cutoff_unset': 'PRECONDITION_FAILED',
 
   // Kill switches. Same 503 class as the matching HTTP job endpoints —
   // operator flipped the flag off; tRPC must not be a back door past it.

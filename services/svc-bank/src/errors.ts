@@ -19,6 +19,12 @@ export type BankErrorCode =
   | 'bank.schedule_id_required'
   /** Retry reused a schedule id with different user, spaces, amount, cadence, or start. */
   | 'bank.schedule_conflict'
+  /** A standing order edit named a revision that is no longer current: another edit landed first. */
+  | 'bank.schedule_revision_conflict'
+  /** A standing order edit inside the owner-set cutoff before its next run. */
+  | 'bank.schedule_cutoff'
+  /** The standing order edit cutoff (BANK_SCHEDULE_EDIT_CUTOFF_MINUTES) is not published, so no edit is open. */
+  | 'bank.schedule_edit_cutoff_unset'
   | 'bank.pool_not_found'
   | 'bank.pool_closed'
   | 'bank.pool_underfunded'

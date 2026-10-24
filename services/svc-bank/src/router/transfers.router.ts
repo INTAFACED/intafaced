@@ -4,7 +4,13 @@ import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { activityFailure } from '../activity/activity.router.js';
 import { assertSelf } from '../assert-self.js';
 import { plainNote, plainReference } from '../transfers/personal-pay.js';
-import { createTransferBinding, scheduleBinding, scheduleToUserBinding, toUserBinding } from '../step-up/money-out-fields.js';
+import {
+  createTransferBinding,
+  scheduleBinding,
+  scheduleEditBinding,
+  scheduleToUserBinding,
+  toUserBinding,
+} from '../step-up/money-out-fields.js';
 import { amountString, gateDestination, hideDestinationDetail, stepUpApprovalField } from './shared.js';
 import { guard } from './errors.js';
 import type { BankRouterContext } from './context.js';
@@ -311,7 +317,7 @@ export function createTransfersRouter(c: BankRouterContext) {
           fromSpaceId: z.string().guid(),
           toUserId: z.string().min(1).max(64),
           amount: amountString,
-          cadence: z.enum(['daily', 'weekly', 'monthly']),
+          cadence: z.enum(['daily', 'weekly', 'monthly', 'once']),
           startsAt: z.string().datetime({ offset: true }),
           endsAt: z.string().datetime({ offset: true }).optional(),
           scheduleId: z.string().guid(),
@@ -323,8 +329,9 @@ export function createTransfersRouter(c: BankRouterContext) {
         guard(async () => {
           const from = await bank.spaces.get(input.fromSpaceId);
           assertSelf(ctx.principal.userId, from.userId);
-          // Approval happens at creation. The order's amount and payee are immutable afterwards and it runs
-          // without a session, so execution, pause and resume need none (cancel and pause are protective).
+          // Approval happens at creation, and again for an edit of the amount or end (updateSchedule). The payee
+          // never changes, and the order runs without a session, so execution, pause and resume need none (cancel
+          // and pause are protective).
           if (stepUpEnforced && input.toUserId !== ctx.principal.userId) {
             await requireStepUp(
               ctx.principal,
@@ -362,7 +369,7 @@ export function createTransfersRouter(c: BankRouterContext) {
           fromSpaceId: z.string().guid(),
           toSpaceId: z.string().guid(),
           amount: amountString,
-          cadence: z.enum(['daily', 'weekly', 'monthly']),
+          cadence: z.enum(['daily', 'weekly', 'monthly', 'once']),
           startsAt: z.string().datetime({ offset: true }),
           endsAt: z.string().datetime({ offset: true }).optional(),
           scheduleId: z.string().guid(),
@@ -443,8 +450,12 @@ export function createTransfersRouter(c: BankRouterContext) {
             assetId: z.string(),
             amount: amountString,
             cadence: z.string(),
+            startsAt: z.string(),
+            endsAt: z.string().nullable(),
             nextRunAt: z.string(),
             status: z.string(),
+            /** The revision an edit must name. */
+            revision: z.number().int(),
           }),
         ),
       )
@@ -456,9 +467,83 @@ export function createTransfersRouter(c: BankRouterContext) {
             assetId: s.assetId,
             amount: formatAmount(s.amount),
             cadence: s.cadence,
+            startsAt: s.startsAt.toISOString(),
+            endsAt: s.endsAt?.toISOString() ?? null,
             nextRunAt: s.nextRunAt.toISOString(),
             status: s.status,
+            revision: s.revision,
           }));
+        }),
+      ),
+
+    /**
+     * Change a standing order's amount or end date (BK-xfer-10). The caller names the revision it read; an edit at a
+     * revision that is no longer current refuses `bank.schedule_revision_conflict`. The recipient, cadence and start do
+     * not change. Inside the owner-set cutoff before the next run it refuses `bank.schedule_cutoff`, and while the cutoff
+     * is not published, `bank.schedule_edit_cutoff_unset`. Nothing is posted.
+     */
+    updateSchedule: scopedProcedure('bank:write', { module: 'bank' })
+      .input(
+        z
+          .object({
+            scheduleId: z.string().guid(),
+            revision: z.number().int().min(1),
+            amount: amountString,
+            /** The new last date, or null for "until cancelled". Required, so leaving it out never clears an end. */
+            endsAt: z.string().datetime({ offset: true }).nullable(),
+            stepUpApprovalId: stepUpApprovalField,
+          })
+          .strict(),
+      )
+      .output(
+        z.object({
+          id: z.string(),
+          revision: z.number().int(),
+          amount: amountString,
+          endsAt: z.string().nullable(),
+          nextRunAt: z.string(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) =>
+        guard(async () => {
+          // Ownership before the write, as `cancel` does.
+          const schedule = await bank.transfers.getSchedule(input.scheduleId);
+          assertSelf(ctx.principal.userId, schedule.userId);
+          if (stepUpEnforced) {
+            const to = await bank.spaces.find(schedule.toSpaceId);
+            if (to === null || to.userId !== ctx.principal.userId) {
+              await requireStepUp(
+                ctx.principal,
+                scheduleEditBinding({
+                  actor: ctx.principal.userId,
+                  scheduleId: schedule.id,
+                  fromSpaceId: schedule.fromSpaceId,
+                  toSpaceId: schedule.toSpaceId,
+                  assetId: schedule.assetId,
+                  amount: input.amount,
+                  cadence: schedule.cadence,
+                  startsAt: schedule.startsAt.toISOString(),
+                  endsAt: input.endsAt ?? undefined,
+                  revision: input.revision,
+                }),
+                input.stepUpApprovalId,
+              );
+            }
+          }
+          const updated = await bank.transfers.updateSchedule({
+            scheduleId: input.scheduleId,
+            userId: ctx.principal.userId,
+            revision: input.revision,
+            amount: parseAmount(input.amount),
+            endsAt: input.endsAt === null ? null : new Date(input.endsAt),
+          });
+          return {
+            id: updated.id,
+            revision: updated.revision,
+            amount: formatAmount(updated.amount),
+            endsAt: updated.endsAt?.toISOString() ?? null,
+            nextRunAt: updated.nextRunAt.toISOString(),
+          };
         }),
       ),
 
