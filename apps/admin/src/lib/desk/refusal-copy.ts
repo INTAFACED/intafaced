@@ -32,6 +32,51 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'svc-ops has no database configured for the console mode, so it cannot be turned on or off, and it is never on. Nothing was changed.',
     next: 'Ask whoever runs the svc-ops host to connect its database, then start a new request.',
   },
+  'ops.banner_window_invalid': {
+    title: 'That window cannot be shown',
+    body: 'The announcement’s window ends before it starts, or it has already ended. Nothing was published.',
+    next: 'Pick a start and an end in the future, then try again.',
+  },
+  'ops.banner_conflict': {
+    title: 'Another announcement holds that window',
+    body: 'Only one announcement shows at a time, and a published one already covers part of this window. Nothing was published.',
+    next: 'Withdraw the other announcement first, or pick a window that does not overlap it.',
+  },
+  'ops.announcement_not_found': {
+    title: 'That announcement is not there',
+    body: 'svc-ops has no announcement with that id. Nothing was changed.',
+    next: 'Read the desk again.',
+  },
+  'ops.announcement_withdrawn': {
+    title: 'That announcement was withdrawn',
+    body: 'A withdrawn announcement stays withdrawn. Nothing was published.',
+    next: 'Write a new announcement instead.',
+  },
+  'ops.announcement_storage_unconfigured': {
+    title: 'Announcements have no storage',
+    body: 'svc-ops has no database configured for console announcements, so none can be saved and none shows. Nothing was changed.',
+    next: 'Ask whoever runs the svc-ops host to connect its database.',
+  },
+  'ops.preference_invalid': {
+    title: 'That is not a value the console takes',
+    body: 'A preference was not one svc-ops accepts: a time zone must be a known one such as Europe/Berlin, and a home page a console path such as /ledger. Nothing was saved.',
+    next: 'Correct it and save again.',
+  },
+  'ops.preferences_team_unassigned': {
+    title: 'No team is named for you',
+    body: 'The staff directory names no team for a founder yet, so team preferences cannot be set.',
+    next: 'Set the organisation’s preferences or your own instead.',
+  },
+  'ops.preferences_stale': {
+    title: 'Someone saved these preferences first',
+    body: 'Another save reached svc-ops after you opened this page, so yours was not applied. Nothing of theirs was overwritten.',
+    next: 'The page now shows what is stored. Make your change again and save.',
+  },
+  'ops.preferences_storage_unconfigured': {
+    title: 'Preferences have no storage',
+    body: 'svc-ops has no database configured for console preferences, so every preference is the server’s and none can be saved.',
+    next: 'Ask whoever runs the svc-ops host to connect its database.',
+  },
   'custody_approval.initiator_cannot_decide': {
     title: 'A different approver has to decide this',
     body: 'The person who started a task cannot approve or reject it. Nothing was recorded.',

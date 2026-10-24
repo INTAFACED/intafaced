@@ -46,6 +46,14 @@
       "types": "./dist/ops-console-mode.d.ts",
       "default": "./dist/ops-console-mode.js"
     },
+    "./ops-console-announcements": {
+      "types": "./dist/ops-console-announcements.d.ts",
+      "default": "./dist/ops-console-announcements.js"
+    },
+    "./ops-console-preferences": {
+      "types": "./dist/ops-console-preferences.d.ts",
+      "default": "./dist/ops-console-preferences.js"
+    },
     "./instruments": {
       "types": "./dist/instruments.d.ts",
       "default": "./dist/instruments.js"
