@@ -9,6 +9,7 @@ const answer = (over: Partial<ServerAllocation> = {}): ServerAllocation => ({
     { class: 'stablecoin', valueUsd: '1500', share: '0.028436018957345972', assets: [] },
     { class: 'crypto', valueUsd: '51000', share: '0.966824644549763033', assets: [] },
   ],
+  classesRefused: null,
   types: [
     { type: 'available', valueUsd: '31750', share: '0.601895734597156398' },
     { type: 'locked', valueUsd: '21000', share: '0.398104265402843602' },

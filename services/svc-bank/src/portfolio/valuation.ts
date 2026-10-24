@@ -56,8 +56,8 @@ export interface Holding {
   readonly free: Amount;
   /** Locked (hold, escrow, stake, collateral). */
   readonly used: Amount;
-  /** The part of `used` in `stake` accounts (earn and staked positions). Absent = none. */
-  readonly staked?: Amount;
+  /** The part of `used` in the bank's earn positions (`stake` accounts whose purpose is `bank:earn:<id>`). Absent = none. */
+  readonly earn?: Amount;
   /** free + used. */
   readonly total: Amount;
 }
@@ -121,16 +121,21 @@ export interface PortfolioSummary {
  * not import svc-trade, so the rule is restated here from the ledger-client's
  * own lock-kind list. Zero and negative totals are dropped (no invented rows).
  */
+/** The purpose prefix of an earn position's stake account (`earnStakeAccount` in ledger-client). */
+const EARN_PURPOSE = 'bank:earn:';
+
 export function holdingsFromBalances(rows: readonly Balance[]): Holding[] {
   const free = new Map<string, Amount>();
   const used = new Map<string, Amount>();
-  const staked = new Map<string, Amount>();
+  const earn = new Map<string, Amount>();
   for (const row of rows) {
     const asset = row.account.assetId;
     if (row.account.kind === 'available') free.set(asset, (free.get(asset) ?? 0n) + row.amount);
     else if (LOCK_KINDS.has(row.account.kind)) {
       used.set(asset, (used.get(asset) ?? 0n) + row.amount);
-      if (row.account.kind === 'stake') staked.set(asset, (staked.get(asset) ?? 0n) + row.amount);
+      // Only the bank's earn positions: a token stake (`token:stake:<id>`) is locked but pays nothing here.
+      if (row.account.kind === 'stake' && (row.account.purpose ?? '').startsWith(EARN_PURPOSE))
+        earn.set(asset, (earn.get(asset) ?? 0n) + row.amount);
     }
   }
   const assets = [...new Set([...free.keys(), ...used.keys()])].sort();
@@ -138,8 +143,8 @@ export function holdingsFromBalances(rows: readonly Balance[]): Holding[] {
   for (const assetId of assets) {
     const f = free.get(assetId) ?? 0n;
     const u = used.get(assetId) ?? 0n;
-    const st = staked.get(assetId) ?? 0n;
-    if (f + u > 0n) out.push({ assetId, free: f, used: u, total: f + u, ...(st > 0n ? { staked: st } : {}) });
+    const e = earn.get(assetId) ?? 0n;
+    if (f + u > 0n) out.push({ assetId, free: f, used: u, total: f + u, ...(e > 0n ? { earn: e } : {}) });
   }
   return out;
 }

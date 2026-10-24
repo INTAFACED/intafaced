@@ -147,21 +147,31 @@ test(`${J} #1 opens allocation: by coin, kind and place; USDT as dollar coins, t
 test(`${J} #2 holds a coin with no class: it shows as unclassified, named, and still adds to the total`, async ({ page }) => {
   const who = account();
   const me = await bank(who);
-  // On this stack the asset list publishes the dollar coins only, so the BTC bought in step 1 has no class.
-  const published = (await me.query('assets.list')).assets.map((a) => a.assetId);
-  expect(published, 'BTC is not in the published asset list').not.toContain('BTC');
-
+  // A coin has no class when the bank's asset list does not publish it. Which of the coins held that is depends on what
+  // the stack publishes (today the dollar coins only), so the expected set is worked out from the list itself.
+  const published = new Set((await me.query('assets.list')).assets.map((a) => a.assetId));
   const allocation = await me.query('portfolio.allocation');
+  expect(allocation.classesRefused).toBeNull();
+  const held = allocation.classes.flatMap((row) => row.assets.map((a) => a.asset));
+  const noClass = [...new Set(held)].filter((asset) => !published.has(asset) && !['USDT', 'USDC', 'USD'].includes(asset)).sort();
+  expect(noClass.length, 'step 2 needs a held coin the asset list does not publish').toBeGreaterThan(0);
+
   const unclassified = allocation.classes.find((row) => row.class === 'unclassified');
-  expect(unclassified?.assets.map((a) => a.asset)).toEqual(['BTC']);
+  expect(unclassified?.assets.map((a) => a.asset).sort()).toEqual(noClass);
   expect(toUnits(unclassified.valueUsd)).toBeGreaterThan(0n);
   // Still counted: the classes add up to the total with it in.
   expect(sum(allocation.classes)).toBe(toUnits(allocation.totalValueUsd));
-  expect(allocation.unpriced.map((row) => row.asset)).not.toContain('BTC');
 
   await signIn(page, who);
   const kind = await grouped(page, 'Kind');
   await expect(kind.locator('li[data-group="unclassified"]')).toContainText('Unclassified');
-  await expect(kind.getByRole('row', { name: /^Unclassified/ })).toContainText('BTC');
-  await expect(kind.getByText('BTC has no class in our asset list yet. It still counts in your total.')).toBeVisible();
+  for (const asset of noClass) await expect(kind.getByRole('row', { name: /^Unclassified/ })).toContainText(asset);
+  const names = unclassified.assets.map((a) => a.asset).join(', ');
+  await expect(
+    kind.getByText(
+      noClass.length === 1
+        ? `${names} has no class in our asset list yet. It still counts in your total.`
+        : `${names} have no class in our asset list yet. They still count in your total.`,
+    ),
+  ).toBeVisible();
 });

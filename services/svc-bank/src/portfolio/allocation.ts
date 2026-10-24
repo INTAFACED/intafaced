@@ -6,9 +6,10 @@ import type { Holding, PortfolioSummary, UnpricedRow } from './valuation.js';
  * ALLOCATION (PF-balances-02). The priced holdings of the total-value rule, grouped; nothing new is priced here.
  *
  * Class comes from svc-ledger's asset registry (`kinds`, asset id -> registry kind): `fiat`, `crypto` (crypto and the native
- * token) and `commodity`, except the par assets USDT and USDC, which are `stablecoin` by their code. What sits in `stake`
- * accounts (earn and staked positions) is `earn`, whatever the coin. An asset the registry does not list (its precision is
- * not published) has no class: it lands in `unclassified`, named, and still counts in the total. An asset with no price is
+ * token) and `commodity`, except the par assets USDT and USDC, which are `stablecoin` by their code. What sits in the bank's
+ * earn positions is `earn`, whatever the coin (a token stake stays in its coin's class). An asset the registry does not list (its precision is
+ * not published) has no class: it lands in `unclassified`, named, and still counts in the total. With no registry to read
+ * (`kinds` null) the classes are left out and `classesRefused` says why; the places do not need it and are still given. An asset with no price is
  * not in any share (the same rule as the total) and is listed apart under `unpriced`. Type is where the money sits:
  * `available` (spendable) or `locked` (order, escrow, stake, loan collateral), from the same holdings. Each grouping adds
  * up to `totalValueUsd` exactly; a share is value / total at 18 places, so shares can differ from 1 by the last place.
@@ -21,7 +22,7 @@ export type AllocationType = (typeof ALLOCATION_TYPES)[number];
 
 const STABLECOINS: ReadonlySet<string> = new Set(['USDT', 'USDC']);
 
-/** The class of an asset's non-staked part. USD needs no registry: it is the base the total is counted in. */
+/** The class of an asset outside its earn part. USD needs no registry: it is the base the total is counted in. */
 export function classOf(asset: string, kinds: ReadonlyMap<string, RegistryAssetKind>): AllocationClass {
   const code = asset.toUpperCase();
   if (STABLECOINS.has(code)) return 'stablecoin';
@@ -56,6 +57,7 @@ export interface PortfolioAllocation {
   /** Sum of every priced value, full precision. "0" when nothing priced is held. */
   readonly totalValueUsd: string;
   readonly classes: AllocationClassRow[];
+  readonly classesRefused: 'bank.asset_registry_unavailable' | null;
   readonly types: AllocationTypeRow[];
   readonly unpriced: UnpricedRow[];
   readonly asOf: number;
@@ -64,7 +66,7 @@ export interface PortfolioAllocation {
 export function allocate(
   summary: PortfolioSummary,
   holdings: readonly Holding[],
-  kinds: ReadonlyMap<string, RegistryAssetKind>,
+  kinds: ReadonlyMap<string, RegistryAssetKind> | null,
 ): PortfolioAllocation {
   const byAsset = new Map<string, Holding>(holdings.map((h) => [h.assetId, h]));
   const lines = summary.priced.map((row) => {
@@ -72,23 +74,23 @@ export function allocate(
     const price = parseAmount(row.priceUsd);
     const holding = byAsset.get(row.asset);
     const used = holding?.used ?? 0n;
-    // Locked value is rounded once; available is what remains, so the two parts equal the row exactly. The staked part
-    // of the locked value is rounded the same way and never exceeds it.
+    // Locked value is rounded once; available is what remains, so the two parts equal the row exactly. The
+    // earn part of the locked value is rounded the same way and never exceeds it.
     const locked = used > 0n ? mul(used, price, 'half-up') : 0n;
-    const stakedRaw = holding?.staked ?? 0n;
-    const staked = stakedRaw <= 0n ? 0n : stakedRaw >= used ? locked : mul(stakedRaw, price, 'half-up');
-    return { asset: row.asset, value, locked, staked, available: value - locked, cls: classOf(row.asset, kinds) };
+    const earnRaw = holding?.earn ?? 0n;
+    const earn = earnRaw <= 0n ? 0n : earnRaw >= used ? locked : mul(earnRaw, price, 'half-up');
+    return { asset: row.asset, value, locked, earn, available: value - locked, cls: kinds ? classOf(row.asset, kinds) : null };
   });
   const total = lines.reduce<Amount>((sum, line) => sum + line.value, 0n);
   const share = (value: Amount): string => (total > 0n ? formatAmount(div(value, total, 'half-up')) : '0');
 
-  // One part per (class, asset): the staked value goes to `earn`, the rest to the asset's own class.
+  // One part per (class, asset): the earn value goes to `earn`, the rest to the asset's own class.
   const parts = lines.flatMap((line) => [
-    { asset: line.asset, cls: line.cls, value: line.value - line.staked },
-    { asset: line.asset, cls: 'earn' as AllocationClass, value: line.staked },
+    { asset: line.asset, cls: line.cls, value: line.value - line.earn },
+    { asset: line.asset, cls: 'earn' as AllocationClass, value: line.earn },
   ]);
   const classes: AllocationClassRow[] = [];
-  for (const cls of ALLOCATION_CLASSES) {
+  for (const cls of kinds ? ALLOCATION_CLASSES : []) {
     const members = parts
       .filter((part) => part.cls === cls && part.value > 0n)
       .sort((a, b) => (a.value === b.value ? a.asset.localeCompare(b.asset) : a.value > b.value ? -1 : 1));
@@ -112,5 +114,12 @@ export function allocate(
           { type: 'locked', valueUsd: formatAmount(lockedValue), share: share(lockedValue) },
         ];
 
-  return { totalValueUsd: formatAmount(total), classes, types, unpriced: summary.unpriced, asOf: summary.asOf };
+  return {
+    totalValueUsd: formatAmount(total),
+    classes,
+    classesRefused: kinds ? null : 'bank.asset_registry_unavailable',
+    types,
+    unpriced: summary.unpriced,
+    asOf: summary.asOf,
+  };
 }

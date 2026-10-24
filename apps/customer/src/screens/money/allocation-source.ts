@@ -22,6 +22,8 @@ export const allocationSchema = z.object({
       assets: z.array(z.object({ asset: z.string(), valueUsd: z.string(), share: z.string() })),
     }),
   ),
+  /** Set when the bank could not work out the classes (its asset list could not be read); `classes` is then empty. */
+  classesRefused: z.string().nullable(),
   types: z.array(z.object({ type: z.enum(['available', 'locked']), valueUsd: z.string(), share: z.string() })),
   unpriced: z.array(z.object({ asset: z.string(), amount: z.string(), reason: z.string() })),
   asOf: z.number(),

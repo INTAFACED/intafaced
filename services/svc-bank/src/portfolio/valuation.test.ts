@@ -198,31 +198,37 @@ describe('formatUsd2', () => {
 });
 
 describe('holdingsFromBalances, the same projection as /api/v1/account/balance', () => {
-  const row = (assetId: string, kind: 'available' | 'hold' | 'escrow' | 'stake' | 'collateral', amount: string): Balance => ({
-    account: { ownerType: 'user', ownerId: 'u', assetId, kind },
+  const row = (
+    assetId: string,
+    kind: 'available' | 'hold' | 'escrow' | 'stake' | 'collateral',
+    amount: string,
+    purpose?: string,
+  ): Balance => ({
+    account: { ownerType: 'user', ownerId: 'u', assetId, kind, ...(purpose ? { purpose } : {}) },
     accountId: `${assetId}-${kind}`,
     amount: amt(amount),
   });
 
-  it('free = available, used = hold + escrow + stake + collateral, total = free + used, staked = the stake part', () => {
+  it('free = available, used = hold + escrow + stake + collateral, total = free + used, earn = the bank earn stakes', () => {
     const rows = [
       row('BTC', 'available', '1'),
       row('BTC', 'hold', '0.25'),
-      row('BTC', 'stake', '0.5'),
+      row('BTC', 'stake', '0.5', 'bank:earn:p1'),
+      row('BTC', 'stake', '0.03125', 'token:stake:s1'),
       row('BTC', 'collateral', '0.125'),
       row('BTC', 'escrow', '0.0625'),
       row('USDT', 'available', '10'),
       row('ETH', 'available', '0'),
     ];
     expect(holdingsFromBalances(rows)).toEqual([
-      { assetId: 'BTC', free: amt('1'), used: amt('0.9375'), total: amt('1.9375'), staked: amt('0.5') },
+      { assetId: 'BTC', free: amt('1'), used: amt('0.96875'), total: amt('1.96875'), earn: amt('0.5') },
       { assetId: 'USDT', free: amt('10'), used: 0n, total: amt('10') },
     ]);
   });
 
   it('counts locked-only holdings, and needsPrices is false for stable-only books', () => {
     const locked = holdingsFromBalances([row('SOL', 'stake', '4')]);
-    expect(locked).toEqual([{ assetId: 'SOL', free: 0n, used: amt('4'), total: amt('4'), staked: amt('4') }]);
+    expect(locked).toEqual([{ assetId: 'SOL', free: 0n, used: amt('4'), total: amt('4') }]);
     expect(needsPrices(locked)).toBe(true);
     expect(needsPrices(holdingsFromBalances([row('usdt', 'available', '1'), row('USDC', 'hold', '1')]))).toBe(false);
     expect(needsPrices([])).toBe(false);

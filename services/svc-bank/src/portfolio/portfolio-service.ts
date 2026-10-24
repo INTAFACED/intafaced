@@ -20,7 +20,7 @@ import {
   type LedgerHoldingsHistory,
   type RegistryAssetKind,
 } from '@intafaced/contracts';
-import { readRegistry, type AssetRegistryReads } from '../assets/supported-assets.js';
+import type { AssetRegistryReads } from '../assets/supported-assets.js';
 import { BankError } from '../errors.js';
 import type { LedgerHoldingsHistoryReads } from '../ledger-client.js';
 import type { CloseSeries, CloseSeriesSource } from './candles.js';
@@ -39,7 +39,6 @@ import {
   needsPrices,
   valuePortfolio,
   type Holding,
-  PAR_ASSETS,
   PRICE_QUOTES,
   type PortfolioSummary,
   type PriceBook,
@@ -219,7 +218,7 @@ export interface PortfolioServiceOptions {
   history?: LedgerHoldingsHistoryReads;
   /** svc-trade's public candles. Unset = `valueOverTime` refuses `bank.prices_unavailable` once a coin needs a price. */
   closes?: CloseSeriesSource;
-  /** svc-ledger's asset registry, for the allocation's classes. Unset = `allocation` refuses `bank.asset_registry_unavailable`. */
+  /** svc-ledger's asset registry, for the allocation's classes. Unset = the classes are left out (`classesRefused`). */
   assets?: AssetRegistryReads | null;
   now?: () => Date;
 }
@@ -360,13 +359,19 @@ export class PortfolioService {
 
   /** The priced holdings grouped by class and by where they sit (PF-balances-02); same prices and refusals as `summary`. */
   async allocation(userId: string): Promise<PortfolioAllocation> {
-    const { summary, holdings } = await this.valued(userId);
-    // Par assets and USD are classed by their code; anything else priced needs the registry, and an unreadable registry
-    // refuses rather than calling every coin unclassified.
-    const needsKinds = summary.priced.some((row) => !PAR_ASSETS.has(row.asset.toUpperCase()));
-    const kinds = new Map<string, RegistryAssetKind>(
-      needsKinds ? (await readRegistry(this.assets)).map((asset) => [asset.id.toUpperCase(), asset.kind]) : [],
-    );
+    // The registry is read alongside the balances and prices. Par assets and USD are classed by their code, so a book of
+    // only those needs no registry; otherwise an unreadable registry leaves the classes out (and says so) rather than
+    // calling every coin unclassified, and the places are still answered.
+    const registry = this.assets
+      ? this.assets.listed().then(
+          (rows) => rows,
+          () => null,
+        )
+      : Promise.resolve(null);
+    const [{ summary, holdings }, listed] = await Promise.all([this.valued(userId), registry]);
+    const kinds = !needsPrices(holdings)
+      ? new Map<string, RegistryAssetKind>()
+      : listed && new Map<string, RegistryAssetKind>(listed.map((asset) => [asset.id.toUpperCase(), asset.kind]));
     return allocate(summary, holdings, kinds);
   }
 

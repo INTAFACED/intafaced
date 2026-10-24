@@ -63,6 +63,8 @@ const messages = {
   Commodities: 'Commodities',
   Earn: 'Earn',
   Unclassified: 'Unclassified',
+  Group: 'Group',
+  'Coins in it': 'Coins in it',
   'Unclassified note': '{assets} has no class in our asset list yet. It still counts in your total.',
   'Unclassified note many': '{assets} have no class in our asset list yet. They still count in your total.',
   Spendable: 'Spendable',

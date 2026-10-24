@@ -62,7 +62,8 @@ export function AllocationBar({ rows }: { rows: readonly MoneyRow[] }) {
   if (grouping !== 'coin') {
     if (server.status === 'ready') {
       const grouped = groupSlices(server.data, grouping);
-      if (grouped === null) note = t('Grouping invalid');
+      if (grouping === 'class' && server.data.classesRefused !== null) note = t('Grouping unavailable');
+      else if (grouped === null) note = t('Grouping invalid');
       else slices = grouped.map((slice) => ({ key: slice.key, label: t(slice.labelKey), share: slice.share, assets: slice.assets }));
     } else if (server.status === 'loading') {
       note = t('Grouping loading');
@@ -120,6 +121,13 @@ export function AllocationBar({ rows }: { rows: readonly MoneyRow[] }) {
           </ul>
           <table className="if-sr">
             <caption>{caption}</caption>
+            <thead>
+              <tr>
+                <th scope="col">{t('Group')}</th>
+                <th scope="col">{t('Share')}</th>
+                {grouping === 'class' ? <th scope="col">{t('Coins in it')}</th> : null}
+              </tr>
+            </thead>
             <tbody>
               {shown.map((slice) => (
                 <tr key={slice.key}>

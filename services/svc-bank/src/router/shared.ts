@@ -125,6 +125,8 @@ export const allocationOutput = z.object({
       assets: z.array(z.object({ asset: z.string(), valueUsd: signedAmountString, share: signedAmountString })),
     }),
   ),
+  /** Set when the classes could not be worked out (the asset registry could not be read); `classes` is then empty. */
+  classesRefused: z.literal('bank.asset_registry_unavailable').nullable(),
   types: z.array(z.object({ type: z.enum(ALLOCATION_TYPES), valueUsd: signedAmountString, share: signedAmountString })),
   unpriced: z.array(z.object({ asset: z.string(), amount: z.string(), reason: z.enum(['no_market', 'no_price_yet']) })),
   asOf: z.number().int(),
