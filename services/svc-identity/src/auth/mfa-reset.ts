@@ -27,6 +27,7 @@ import type { Sql } from 'postgres';
 import type { PasswordResetMail } from './password-reset.js';
 import { maskEmail } from '../ops/account-directory.js';
 import { assertNotSecurityLocked, securityLockHolds } from './security-lock.js';
+import { queueFactorChangedNotice } from './factor-changed-notice.js';
 
 /** One day. Longer than that is not a mailed code. */
 const MAX_CODE_TTL_SECONDS = 86_400;
@@ -384,6 +385,8 @@ export async function completeDueMfaReset(deps: MfaResetDeps, userId: string): P
     await tx`UPDATE users SET totp_secret = NULL, totp_label = NULL, totp_enrolled_at = NULL, totp_last_step = NULL,
       recovery_code_hashes = '[]'::jsonb, updated_at = now() WHERE id = ${userId}`;
     await tx`UPDATE sessions SET revoked = true WHERE user_id = ${userId} AND revoked = false`;
+    // The inbox hears the app went (I-signin-sessions-08); the mail is the mfa-reset-completed notice below.
+    await queueFactorChangedNotice(tx, { userId, change: 'totp_removed', now: deps.now(), mail: false });
     if (user.email && user.email_verified_at) {
       const now = deps.now();
       await queueMail(tx, {

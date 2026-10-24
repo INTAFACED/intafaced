@@ -83,7 +83,7 @@ const changelogSchema = z.object({
 });
 export const entrySchema = z.object({
   id: z.string().guid(),
-  kind: z.enum(['announcement', 'maintenance', 'incident', 'changelog']),
+  kind: z.enum(['announcement', 'maintenance', 'incident', 'changelog', 'fee_change']),
   title: z.string(),
   body: z.string(),
   status: z.enum(['draft', 'published']),

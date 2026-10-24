@@ -14,10 +14,12 @@ import {
   productImportSchema,
   productSchema,
   type PriceCreateInput,
+  type PricedProduct,
   type PriceReplaceInput,
   type ProductCreateInput,
 } from '@intafaced/contracts/merchant-catalog';
 import { productAvailabilitySchema, storeSchema, type SaleChannel, type StoreCreateInput } from '@intafaced/contracts/merchant-stores';
+import type { ApiResult } from '../../../../shared/api';
 import type { PortalTools } from '../api-tools';
 import './refusals';
 
@@ -25,6 +27,9 @@ import './refusals';
 // service's own schemas. The business is the signed-in person's own; the service resolves it and checks the role.
 
 type CatalogMode = 'live' | 'test';
+
+/** How many pages of 100 the link price picker reads: a business's newest 1,000 one-time prices. */
+export const LINK_PRICE_PAGES = 10;
 
 const created = z.object({ product: productSchema, replayed: z.boolean() }).strict();
 const priceCreated = z.object({ price: priceSchema, replayed: z.boolean() }).strict();
@@ -65,6 +70,27 @@ export const catalogApi = ({ query, mutate, list }: PortalTools) => ({
   /** Active monthly fixed prices with one asset and amount: the ones a subscription on a mandate with those terms can start on. */
   monthlyPriceChoices: (assetId: string, amount: string, signal?: AbortSignal) =>
     query('merchantCatalog.prices.choices', { billing: 'monthly', kind: 'fixed', assetId, amount, limit: 100 }, priceChoicesSchema, signal),
+  /**
+   * Active one-time fixed prices of active products: the ones a payment link can sell (M-catalogue-03). Every page up to
+   * `LINK_PRICE_PAGES` of 100, newest first; `more` says older ones were left out.
+   */
+  async linkPriceChoices(signal?: AbortSignal) {
+    const items: PricedProduct[] = [];
+    let cursor: string | null = null;
+    for (let read = 0; read < LINK_PRICE_PAGES; read += 1) {
+      const page: ApiResult<z.infer<typeof priceChoicesSchema>> = await query(
+        'merchantCatalog.prices.choices',
+        { billing: 'one_time', kind: 'fixed', limit: 100, ...(cursor ? { cursor } : {}) },
+        priceChoicesSchema,
+        signal,
+      );
+      if (!page.ok) return page;
+      items.push(...page.data.items);
+      cursor = page.data.nextCursor;
+      if (!cursor) return { ok: true as const, data: { items, more: false } };
+    }
+    return { ok: true as const, data: { items, more: true } };
+  },
   /** The business's stores (M-adv-org-access-05): open ones, or archived ones when `status` says so. */
   stores: (status: string, cursor: string | undefined, signal?: AbortSignal) =>
     list('merchantStores.list', storeSchema, { ...(status ? { status } : {}), ...(cursor ? { cursor } : {}) }, signal),

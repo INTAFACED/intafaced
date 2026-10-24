@@ -384,6 +384,7 @@ const en = {
   lk_profile: 'Checkout profile',
   lk_asset: 'Asset',
   lk_noAsset: 'Not set',
+  lk_usesOf: '{uses} of {max}',
   loadMoreLinkPayments: 'Load more payments',
   linkOwnerOnly: 'Only the account owner can create or turn off payment links.',
   kpiContested: 'Under review',

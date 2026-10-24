@@ -173,6 +173,28 @@ export const kycInfoRequested = defineEvent(
   'Compliance asked for more information on a KYC case. The case waits for the customer; nothing is approved or rejected.',
 );
 
+/**
+ * I-signin-sessions-08 (J-identity-05 #6). One change to a sign-in factor: the authenticator app turned on, off or
+ * replaced, or a passkey added or removed. svc-identity publishes it from an outbox row written in the same transaction
+ * as the change (at least once). No secret, code, credential id or address rides on it.
+ */
+export const SECURITY_FACTOR_CHANGES = ['totp_added', 'totp_removed', 'totp_replaced', 'passkey_added', 'passkey_removed'] as const;
+
+export const securityFactorChanged = defineEvent(
+  'identity',
+  'security_factor',
+  'updated',
+  1,
+  z.object({
+    userId: userIdSchema,
+    change: z.enum(SECURITY_FACTOR_CHANGES),
+    changedAt: z.string().datetime({ offset: true }),
+    /** The business key `factor-changed:<userId>:<n>`, n counted per account; a consumer dedupes on it. */
+    noticeKey: z.string().min(1).max(128),
+  }),
+  'A sign-in factor of an account changed. svc-notify writes the security inbox notice; svc-identity already mailed the proved address.',
+);
+
 // ── ledger (§4.2) ────────────────────────────────────────────────────────────
 
 export const ledgerTxPosted = defineEvent(
@@ -1455,6 +1477,7 @@ export const EVENT_CATALOG = {
   kycSubmitted,
   kycRejected,
   kycInfoRequested,
+  securityFactorChanged,
   ledgerTxPosted,
   ledgerReconciliationFailed,
   ledgerReconciliationRunFailed,
@@ -1655,6 +1678,13 @@ export const WIRING_SOCKETS = [
     class: 'A',
     reason:
       'No subscriber yet: svc-notify writes the information-request notice in its own PR. No publisher exists yet either, so no customer is promised a notice.',
+  },
+  {
+    event: 'securityFactorChanged',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      'Declared with the svc-identity publisher (I-signin-sessions-08). svc-notify writes the security inbox notice in its own PR, next. Until then the factor-changed mail to the proved address is the notice, so no customer is promised an inbox row.',
   },
   {
     event: 'spreadFilled',

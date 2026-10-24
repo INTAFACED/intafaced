@@ -174,6 +174,9 @@ if (!available) {
       expect(rows[0]!.kind).toBe('cross_device');
       await enrollPasskey(db.sql, user, rp, body('p3'), challenges(user), actor, ceremonyFor('p3'), {});
       expect(await listPasskeys(db.sql, user, 10)).toHaveLength(3);
+      // Each passkey added queued its factor-changed notice (I-signin-sessions-08); the refused third queued none.
+      const changes = await db.sql<Array<{ change: string }>>`SELECT change FROM security_factor_events WHERE user_id = ${user}`;
+      expect(changes.map((c) => c.change)).toEqual(['passkey_added', 'passkey_added', 'passkey_added']);
     });
   });
 }

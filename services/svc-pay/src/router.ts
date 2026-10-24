@@ -846,6 +846,7 @@ export function createPayRouter(
               profileId: input.profileId,
               amount: input.amount === undefined ? undefined : parseAmount(input.amount),
               currency: input.currency,
+              ...(input.priceId !== undefined ? { priceId: input.priceId } : {}),
               // `undefined`, NOT `null`. This line used to pass `null` when the
               // caller omitted an expiry, which the service reads as "never
               // expires" and now refuses outright — a payment link is a
@@ -2550,6 +2551,7 @@ export function toTrpcError(err: unknown): unknown {
       case 'pay.settlement_not_found':
       case 'pay.refund_not_found':
       case 'pay.checkout_session_not_found':
+      case 'pay.price_not_found':
         return 'NOT_FOUND' as const;
       case 'pay.link_expired':
       case 'pay.checkout_session_expired':
@@ -2612,6 +2614,8 @@ export function toTrpcError(err: unknown): unknown {
       case 'pay.chargeback_shortfall_unfunded':
       case 'pay.chargeback_ledger_failed':
       case 'pay.chargeback_outcome_busy':
+      case 'pay.price_archived':
+      case 'pay.product_archived':
         return 'PRECONDITION_FAILED' as const;
       case 'pay.invalid_transition':
       case 'pay.payout_recovery_conflict':

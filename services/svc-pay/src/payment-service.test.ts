@@ -110,6 +110,10 @@ const migrations = [
   '0087_pay_payment_link_checkout.sql',
   // createPaymentLink writes the confirmation columns. Null when the caller omitted them.
   '0132_pay_payment_link_share.sql',
+  // createPaymentLink writes price_id, which names a catalogue price. Null when the link has none.
+  '20261024121606_pay_catalog_products.sql',
+  '20261024132500_pay_catalog_prices.sql',
+  '20261024210512_pay_payment_link_price.sql',
   '0089_pay_payout_dispatched_outcome.sql',
   // createPayment and openCheckoutSession read the business's category (RC-merchant-08). Empty here: nothing refused.
   '20261024084448_pay_business_categories.sql',

@@ -7,6 +7,8 @@ import { feedNotices, isNoticeId, maintenancePhase, readNotice, readNotices, typ
 import './public-pages.css';
 
 const day = (value: string | null) => (value ? value.slice(0, 10) : null);
+/** The second a fee change takes effect, in UTC as stored: "2026-11-01 00:00:00 UTC" (a minute alone would read early). */
+const secondUtc = (value: string) => `${value.slice(0, 19).replace('T', ' ')} UTC`;
 
 /** The time, moving on each minute, so an open page's maintenance phase follows the clock across a window's edge. */
 function useMinute(): number {
@@ -24,6 +26,7 @@ function NoticeCard({ notice, link }: { notice: Notice; link: boolean }) {
   const to = day(notice.endsAt);
   const now = useMinute();
   const phase = maintenancePhase(notice, now);
+  const feeChange = notice.kind === 'fee_change';
   return (
     <article className="pub-card" data-kind={notice.kind} data-testid={`notice-${notice.id}`} {...(phase ? { 'data-phase': phase } : {})}>
       <h2>{notice.title}</h2>
@@ -37,9 +40,21 @@ function NoticeCard({ notice, link }: { notice: Notice; link: boolean }) {
         ) : null}
         {phase ? ` · ${t(`maintenance_${phase}` as const)}` : ''}
         {notice.publishedAt ? ` · ${t('published', { date: day(notice.publishedAt) ?? '' })}` : ''}
-        {from || to ? ` · ${t('window', { from: from ?? t('windowNotSet'), to: to ?? t('windowNotSet') })}` : ''}
+        {feeChange && notice.startsAt ? (
+          <>
+            {' · '}
+            <time data-testid="notice-effective" dateTime={notice.startsAt}>
+              {t('effective', { time: secondUtc(notice.startsAt) })}
+            </time>
+          </>
+        ) : from || to ? (
+          ` · ${t('window', { from: from ?? t('windowNotSet'), to: to ?? t('windowNotSet') })}`
+        ) : (
+          ''
+        )}
       </p>
       <p>{notice.body}</p>
+      {feeChange ? <p className="muted">{t('effectiveNote')}</p> : null}
       {link && (
         <a className="text-link" href={`/notice/${notice.id}`}>
           {t('open')} →

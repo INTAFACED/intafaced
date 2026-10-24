@@ -57,6 +57,11 @@ function localMailBody(message: LocalMailMessage): string {
     // The notice every contact gets while a second-step reset waits; `until` is when it would complete.
     return `LOCAL-TEST purpose=${purpose} email=${email} until=${message.expiresAt.toISOString()} notice=mfa-reset-started\n`;
   }
+  if (purpose === 'factor-changed') {
+    // What changed rides in `detail` (totp_added, passkey_removed, ...); never a secret or a credential id.
+    const change = (message.detail ?? '').replace(/[^a-z_]/g, '');
+    return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} notice=factor-changed change=${change}\n`;
+  }
   if (purpose === 'mfa-reset-cancelled' || purpose === 'mfa-reset-completed') {
     return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} notice=${purpose}\n`;
   }

@@ -20,6 +20,7 @@ export const catalogContract: ContractPart = {
     { method: 'availability', run: (p) => p.availability('c1000001-0000-4000-8000-000000000001') },
     { method: 'prices', run: (p) => p.prices('c1000001-0000-4000-8000-000000000001', undefined) },
     { method: 'monthlyPriceChoices', run: (p) => p.monthlyPriceChoices('USDC', '20') },
+    { method: 'linkPriceChoices', run: (p) => p.linkPriceChoices() },
     {
       method: 'createPrice',
       run: (p) =>

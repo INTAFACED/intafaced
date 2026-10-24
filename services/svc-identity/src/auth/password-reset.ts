@@ -82,7 +82,8 @@ export type MailPurpose =
   | 'mfa-reset-code'
   | 'mfa-reset-started'
   | 'mfa-reset-cancelled'
-  | 'mfa-reset-completed';
+  | 'mfa-reset-completed'
+  | 'factor-changed';
 
 export interface PasswordResetDeps {
   readonly sql: Sql;
@@ -251,7 +252,7 @@ export const MAIL_RETRY_FIRST_WAIT_MS = 60_000;
  * Notices that tell the person something already happened to the account's security: never withdrawn by a later freeze
  * or address change, and sent again when a send threw. They carry no secret.
  */
-const SECURITY_NOTICES = new Set(['password-changed', 'mfa-reset-started', 'mfa-reset-cancelled', 'mfa-reset-completed']);
+const SECURITY_NOTICES = new Set(['password-changed', 'mfa-reset-started', 'mfa-reset-cancelled', 'mfa-reset-completed', 'factor-changed']);
 
 /**
  * Send the pending jobs that are due. A row is claimed (its secret cleared) before the send, so a crash or
