@@ -944,7 +944,7 @@ export const p2pTradeFiatSent = defineEvent(
     sellerId: userIdSchema,
     markedAt: z.string().datetime({ offset: true }),
   }),
-  'The buyer marked the fiat payment as sent. The seller must check and release; consumers dedupe by event id.',
+  'The buyer marked the fiat payment as sent. The seller must check and release. A trade is marked paid once, so consumers dedupe on tradeId.',
 );
 
 export const p2pChatMessageSent = defineEvent(
@@ -1999,14 +1999,7 @@ export const WIRING_SOCKETS = [
     missing: 'publisher',
     class: 'A',
     reason:
-      'Declared by the P-trade-orders-23 events PR. svc-p2p publishes it through its outbox in the same transaction as the state change (svc-p2p PR, next). Nothing reads it yet, so nothing is waiting on it.',
-  },
-  {
-    event: 'p2pTradeFiatSent',
-    missing: 'subscriber',
-    class: 'A',
-    reason:
-      'svc-notify turns it into the buyer-paid notice to the seller in the P-trade-orders-23 svc-notify PR, idempotent by event id. Until then no publisher exists either, so no user is promised a notice.',
+      "Declared by the P-trade-orders-23 events PR. svc-p2p publishes it through its outbox in the same transaction as the state change (svc-p2p PR, next). svc-notify (notify-p2p-trade-fiat-sent) is waiting on it for the seller's buyer-paid notice.",
   },
   {
     event: 'p2pChatMessageSent',
