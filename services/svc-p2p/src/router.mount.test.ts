@@ -1426,7 +1426,12 @@ describe('svc-p2p mount — trade/dispute read IDOR', () => {
         .trades.get({ tradeId });
     const open = await read({ amount: parseAmount('50') });
     expect(open).toMatchObject({ displayStatus: 'waiting_for_buyer_to_pay', feeBps: 100, fee: '0.5', netAmount: '49.5' });
-    const done = await read({ amount: parseAmount('50'), status: 'released' as never, resolution: 'released', resolutionReason: 'confirmed' });
+    const done = await read({
+      amount: parseAmount('50'),
+      status: 'released' as never,
+      resolution: 'released',
+      resolutionReason: 'confirmed',
+    });
     expect(done.displayStatus).toBe('completed');
     // The ledger ceils the fee: the buyer's share is never rounded up.
     const odd = await read({ amount: parseAmount('0.000000000000000003'), feeBps: 1 });
