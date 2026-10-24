@@ -62,7 +62,16 @@ export function assertOperatorQueueLimit(limit: number | undefined): number {
   return Math.min(QUEUE_LIST_LIMIT_MAX, n);
 }
 
-function rankOperatorQueue(tickets: readonly SupportTicket[], now: Date): QueueEntry[] {
+/** Category weight plus age band. The same number the queue sorts by. Not a promise. */
+export function ticketQueueScore(ticket: SupportTicket, now: Date): number {
+  const createdMs = Date.parse(ticket.createdAt);
+  const ageMs = Number.isFinite(createdMs) ? Math.max(0, now.getTime() - createdMs) : 0;
+  const ageHours = Math.floor(ageMs / 3_600_000);
+  const cat = CATEGORY_WEIGHT[ticket.category] ?? CATEGORY_WEIGHT.other ?? 10;
+  return cat + Math.min(ageHours, 72);
+}
+
+export function rankOperatorQueue(tickets: readonly SupportTicket[], now: Date): QueueEntry[] {
   const nowMs = now.getTime();
   const entries: QueueEntry[] = [];
 
@@ -72,9 +81,7 @@ function rankOperatorQueue(tickets: readonly SupportTicket[], now: Date): QueueE
     if (t.assigneeId) continue;
     const createdMs = Date.parse(t.createdAt);
     const ageMs = Number.isFinite(createdMs) ? Math.max(0, nowMs - createdMs) : 0;
-    const ageHours = Math.floor(ageMs / 3_600_000);
-    const cat = CATEGORY_WEIGHT[t.category] ?? CATEGORY_WEIGHT.other ?? 10;
-    const score = cat + Math.min(ageHours, 72);
+    const score = ticketQueueScore(t, now);
     entries.push({
       ticketId: t.id,
       userId: t.userId,

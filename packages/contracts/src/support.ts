@@ -410,6 +410,107 @@ export const setTicketPropertiesInputSchema = z
   });
 export type SetTicketPropertiesInput = z.infer<typeof setTicketPropertiesInputSchema>;
 
+/**
+ * Saved desk views (SP-desk-01). A view stores a filter, a sort and a layout name.
+ * How many personal views one person may keep, and how many shared views the desk may keep, are owner
+ * values. Blank stays null and a save refuses `support.view_cap_unset`. Nothing here picks 10 or 100.
+ */
+export const SUPPORT_VIEW_ERROR_CODES = [
+  'support.view_cap_unset',
+  'support.view_cap_reached',
+  'support.filter_invalid',
+  'support.sort_invalid',
+  'support.view_not_owner',
+  'support.view_revision_stale',
+] as const;
+export type SupportViewErrorCode = (typeof SUPPORT_VIEW_ERROR_CODES)[number];
+
+export const SUPPORT_VIEW_PERSONAL_CAP_KEY = 'support.view_personal_cap' as const;
+export const SUPPORT_VIEW_SHARED_CAP_KEY = 'support.view_shared_cap' as const;
+
+export const SUPPORT_VIEW_SORT_KEYS = ['created', 'updated', 'subject', 'status', 'priority', 'score'] as const;
+export const supportViewSortSchema = z
+  .object({
+    key: z.enum(SUPPORT_VIEW_SORT_KEYS),
+    dir: z.enum(['asc', 'desc']),
+  })
+  .strict();
+export type SupportViewSort = z.infer<typeof supportViewSortSchema>;
+
+export const supportViewCapSchema = z
+  .object({
+    cap: z.number().int().min(0).nullable(),
+    missing: z.enum([SUPPORT_VIEW_PERSONAL_CAP_KEY, SUPPORT_VIEW_SHARED_CAP_KEY]).nullable(),
+  })
+  .strict()
+  .refine((v) => (v.cap === null) !== (v.missing === null), {
+    message: 'a cap is a number or a missing setting, not both and not neither',
+  });
+export type SupportViewCap = z.infer<typeof supportViewCapSchema>;
+
+export const supportViewSchema = z
+  .object({
+    id: z.string().guid(),
+    name: z.string().min(1).max(80),
+    ownerId: z.string().guid(),
+    shared: z.boolean(),
+    filter: z.unknown(),
+    sort: supportViewSortSchema.nullable(),
+    layout: z.string().min(1).max(40).nullable(),
+    favourite: z.boolean(),
+    revision: z.number().int().positive(),
+    updatedAt: z.string().datetime(),
+  })
+  .strict();
+export type SupportView = z.infer<typeof supportViewSchema>;
+
+export const supportViewListSchema = z
+  .object({
+    personalCap: supportViewCapSchema,
+    sharedCap: supportViewCapSchema,
+    views: z.array(supportViewSchema),
+  })
+  .strict();
+export type SupportViewList = z.infer<typeof supportViewListSchema>;
+
+export const supportViewCountsSchema = z
+  .object({
+    counts: z.array(
+      z
+        .object({
+          viewId: z.string().guid(),
+          count: z.number().int().min(0),
+        })
+        .strict(),
+    ),
+  })
+  .strict();
+export type SupportViewCounts = z.infer<typeof supportViewCountsSchema>;
+
+/** The whole view, so a lost reply replays this payload. `filter` and `sort` stay loose: the service names a bad field. */
+export const supportViewSaveInputSchema = z
+  .object({
+    viewId: z.string().guid().optional(),
+    name: z.string().trim().min(1).max(80),
+    expectedRevision: z.number().int().min(0),
+    shared: z.boolean(),
+    filter: z.unknown(),
+    sort: z.unknown().nullable().optional(),
+    layout: z.unknown().nullable().optional(),
+    favourite: z.boolean().optional(),
+    reason: z.string().trim().min(1).max(500),
+  })
+  .strict();
+export type SupportViewSaveInput = z.infer<typeof supportViewSaveInputSchema>;
+
+export const supportViewDeleteInputSchema = z
+  .object({
+    viewId: z.string().guid(),
+    reason: z.string().trim().min(1).max(500),
+  })
+  .strict();
+export type SupportViewDeleteInput = z.infer<typeof supportViewDeleteInputSchema>;
+
 export interface SupportContract {
   createTicket(input: { userId: string } & CreateTicketInput): Promise<SupportTicket>;
   listMyTickets(input: { userId: string }): Promise<SupportTicket[]>;

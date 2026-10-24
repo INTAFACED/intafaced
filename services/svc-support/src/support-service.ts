@@ -11,6 +11,8 @@ import {
   SUPPORT_LABELS_MAX,
   kbAudienceVisibleTo,
   SUPPORT_BULK_CAP_KEY,
+  SUPPORT_VIEW_PERSONAL_CAP_KEY,
+  SUPPORT_VIEW_SHARED_CAP_KEY,
   supportBulkKey,
   supportLabelSchema,
   supportTicketPrioritySchema,
@@ -44,6 +46,9 @@ import type {
   SupportTicket,
   SupportTicketEvent,
   SupportTicketStatus,
+  SupportView,
+  SupportViewList,
+  SupportViewSort,
 } from '@intafaced/contracts';
 import { DarkAccountState, type AccountStateSource } from './account-state.js';
 import {
@@ -83,9 +88,24 @@ import {
   assertOperatorQueueLimit as publishedOperatorQueueLimit,
   assignNext,
   buildOperatorQueue,
+  rankOperatorQueue,
   type QueueEntry,
   type QueueResult,
 } from './operator-queue.js';
+import {
+  MemoryViewBook,
+  ViewError,
+  filterMatches,
+  orderFacts,
+  parseDeskFilter,
+  parseDeskSort,
+  parseLayout,
+  searchHits,
+  viewCapWire,
+  type DeskFact,
+  type DeskFilter,
+  type ViewBook,
+} from './desk-views.js';
 import { SUPPORT_SETTLE_REFUSE, checkSupportSettlement, type SupportForbiddenSettlementAct } from './settlement-refuse.js';
 import {
   FEEDBACK_COMMENT_MAX,
@@ -358,6 +378,8 @@ export class SupportService implements SupportContract {
      * comment `support.comment_cap_unset`. Operators are not counted and not capped.
      */
     private readonly commentCap: number | null = null,
+    /** Saved views. Caps stay null until the owner sets them; a save then refuses rather than guessing 10 or 100. */
+    private readonly views: ViewBook = new MemoryViewBook({ personal: null, shared: null }),
   ) {}
 
   /** The viewer's place in the desk, or null while no group exists (visibility not restricted). */
@@ -406,9 +428,9 @@ export class SupportService implements SupportContract {
     return this.groups.list();
   }
 
-  private async requireLead(actorId: string): Promise<void> {
+  private async requireLead(actorId: string, message = 'only a lead can change desk groups'): Promise<void> {
     const actor = await this.staff.get(actorId);
-    if (actor?.role !== 'lead') throw new SupportError('only a lead can change desk groups', 'support.not_lead');
+    if (actor?.role !== 'lead') throw new SupportError(message, 'support.not_lead');
   }
 
   /** Creates a group (no groupId) or renames one. A replay of the same key returns the first answer. */
@@ -543,10 +565,12 @@ export class SupportService implements SupportContract {
     });
   }
 
-  async listAllTickets(options: { limit?: number } = {}): Promise<SupportTicket[]> {
+  async listAllTickets(options: { limit?: number; filter?: unknown; sort?: unknown; q?: string } = {}): Promise<SupportTicket[]> {
     return withSupportSpan('support.listAllTickets', { op: 'listAllTickets' }, async () => {
       const limit = assertListAllTicketsLimit(options.limit);
-      return this.store.listAll({ limit });
+      if (!this.deskQueryAsked(options)) return this.store.listAll({ limit });
+      const facts = orderFacts(await this.narrow(await this.deskFacts(undefined), options), this.deskSort(options.sort), this.now());
+      return facts.slice(0, limit).map((fact) => fact.ticket);
     });
   }
 
@@ -1130,7 +1154,9 @@ export class SupportService implements SupportContract {
   }
 
   /** Stage-2 — prioritised open/pending queue for operators. No money. */
-  async listOperatorQueue(options: { limit?: number; viewerId?: string; label?: string } = {}): Promise<QueueResult> {
+  async listOperatorQueue(
+    options: { limit?: number; viewerId?: string; label?: string; filter?: unknown; sort?: unknown; q?: string } = {},
+  ): Promise<QueueResult> {
     return withSupportSpan('support.listOperatorQueue', { op: 'listOperatorQueue' }, async () => {
       const limit = assertOperatorQueueLimit(options.limit);
       let tickets = await this.visibleTickets(options.viewerId, await this.store.listAll());
@@ -1139,7 +1165,32 @@ export class SupportService implements SupportContract {
         const carrying = await this.properties.ticketsWithLabel(options.label);
         tickets = tickets.filter((t) => carrying.has(t.id));
       }
-      return buildOperatorQueue(tickets, { limit });
+      if (!this.deskQueryAsked(options)) return buildOperatorQueue(tickets, { limit });
+      const facts = await this.narrow(await this.deskFacts(options.viewerId), { ...options, label: undefined });
+      const allowed = new Set(tickets.map((ticket) => ticket.id));
+      const visible = facts.filter((fact) => allowed.has(fact.ticket.id));
+      const sort = this.deskSort(options.sort);
+      // The queue's own ranking is score, highest first; any other order (score ascending too) is applied over it.
+      if (sort && !(sort.key === 'score' && sort.dir === 'desc')) {
+        const ranked = rankOperatorQueue(
+          visible.map((fact) => fact.ticket),
+          this.now(),
+        );
+        const byId = new Map(visible.map((fact) => [fact.ticket.id, fact]));
+        const ordered = orderFacts(
+          ranked.map((entry) => byId.get(entry.ticketId)).filter((fact): fact is DeskFact => fact !== undefined),
+          sort,
+          this.now(),
+        );
+        const page = ordered.slice(0, limit);
+        if (page.length === 0) return { status: 'empty' };
+        const entryById = new Map(ranked.map((entry) => [entry.ticketId, entry]));
+        return { status: 'ok', entries: page.map((fact) => entryById.get(fact.ticket.id)!) };
+      }
+      return buildOperatorQueue(
+        visible.map((fact) => fact.ticket),
+        { limit, now: this.now() },
+      );
     });
   }
 
@@ -1251,11 +1302,152 @@ export class SupportService implements SupportContract {
   }
 
   /** `listAllTickets` for a restricted desk: scope is applied before the page is cut, so a page holds only visible rows. */
-  async listAllTicketsInScope(options: { limit?: number; viewerId: string }): Promise<SupportTicket[]> {
+  async listAllTicketsInScope(options: {
+    limit?: number;
+    viewerId: string;
+    filter?: unknown;
+    sort?: unknown;
+    q?: string;
+  }): Promise<SupportTicket[]> {
     return withSupportSpan('support.listAllTicketsInScope', { op: 'listAllTicketsInScope' }, async () => {
       const limit = assertListAllTicketsLimit(options.limit);
-      return (await this.visibleTickets(options.viewerId, await this.store.listAll())).slice(0, limit);
+      if (!this.deskQueryAsked(options)) return (await this.visibleTickets(options.viewerId, await this.store.listAll())).slice(0, limit);
+      const facts = orderFacts(await this.narrow(await this.deskFacts(options.viewerId), options), this.deskSort(options.sort), this.now());
+      return facts.slice(0, limit).map((fact) => fact.ticket);
     });
+  }
+
+  /** Personal views of this person, plus every shared view. Caps are null while the owner has not set them. */
+  async listDeskViews(viewerId: string): Promise<SupportViewList> {
+    return {
+      personalCap: viewCapWire(this.views.caps.personal, SUPPORT_VIEW_PERSONAL_CAP_KEY),
+      sharedCap: viewCapWire(this.views.caps.shared, SUPPORT_VIEW_SHARED_CAP_KEY),
+      views: await this.views.listVisible(viewerId),
+    };
+  }
+
+  /**
+   * Save a view under the caller's id. A shared view needs a lead. Someone else's view is `support.view_not_owner`
+   * when they can see it, and not-found when they cannot. A blank cap refuses; a full cap refuses without adding a row.
+   */
+  async saveDeskView(input: {
+    actorId: string;
+    viewId?: string;
+    name: string;
+    expectedRevision: number;
+    shared: boolean;
+    filter?: unknown;
+    sort?: unknown;
+    layout?: unknown;
+    favourite?: boolean;
+    reason: string;
+  }): Promise<SupportView> {
+    if (input.filter === undefined) throw new SupportError('filter is missing', 'support.filter_invalid');
+    const filter = this.deskFilter(input.filter);
+    const sort = this.deskSort(input.sort);
+    let layout: string | null;
+    try {
+      layout = parseLayout(input.layout);
+    } catch (err) {
+      throw this.viewFailure(err);
+    }
+    if (input.viewId) {
+      const existing = await this.views.get(input.viewId);
+      if (!existing || existing.ownerId !== input.actorId) {
+        throw new SupportError('view not found', existing?.shared ? 'support.view_not_owner' : 'support.not_found');
+      }
+    }
+    if (input.shared) await this.requireLead(input.actorId, 'only a lead can share a view');
+    try {
+      return await this.views.save({
+        ...(input.viewId ? { viewId: input.viewId } : {}),
+        name: input.name,
+        ownerId: input.actorId,
+        expectedRevision: input.expectedRevision,
+        shared: input.shared,
+        filter,
+        sort,
+        layout,
+        favourite: input.favourite === true,
+        reason: input.reason,
+        at: this.now().toISOString(),
+      });
+    } catch (err) {
+      throw this.viewFailure(err);
+    }
+  }
+
+  async deleteDeskView(input: { actorId: string; viewId: string; reason: string }): Promise<SupportView> {
+    const existing = await this.views.get(input.viewId);
+    // A retried delete whose first answer was lost answers with the view it deleted.
+    if (!existing) {
+      const replay = await this.views.deleted({ viewId: input.viewId, actorId: input.actorId, reason: input.reason });
+      if (replay) return replay;
+    }
+    if (!existing || existing.ownerId !== input.actorId) {
+      throw new SupportError('view not found', existing?.shared ? 'support.view_not_owner' : 'support.not_found');
+    }
+    try {
+      return await this.views.remove({ viewId: input.viewId, actorId: input.actorId, reason: input.reason, at: this.now().toISOString() });
+    } catch (err) {
+      throw this.viewFailure(err);
+    }
+  }
+
+  /** How many tickets this caller may see match each view they may open. The count is the whole match, not one page. */
+  async deskViewCounts(viewerId: string): Promise<{ viewId: string; count: number }[]> {
+    const [views, facts] = await Promise.all([this.views.listVisible(viewerId), this.deskFacts(viewerId)]);
+    return views.map((view) => ({ viewId: view.id, count: facts.filter((fact) => filterMatches(view.filter as DeskFilter, fact)).length }));
+  }
+
+  private deskQueryAsked(options: { filter?: unknown; sort?: unknown; q?: string }): boolean {
+    return options.filter !== undefined || (options.sort !== undefined && options.sort !== null) || Boolean(options.q?.trim());
+  }
+
+  private deskFilter(raw: unknown): DeskFilter {
+    try {
+      return parseDeskFilter(raw);
+    } catch (err) {
+      throw this.viewFailure(err);
+    }
+  }
+
+  private deskSort(raw: unknown): SupportViewSort | null {
+    try {
+      return parseDeskSort(raw);
+    } catch (err) {
+      throw this.viewFailure(err);
+    }
+  }
+
+  private viewFailure(err: unknown): Error {
+    if (err instanceof ViewError) return new SupportError(err.code, err.code, err.missingKey);
+    if (err instanceof SupportError) return err;
+    return err instanceof Error ? err : new Error(String(err));
+  }
+
+  private async deskFacts(viewerId: string | undefined): Promise<DeskFact[]> {
+    const tickets = await this.visibleTickets(viewerId, await this.store.listAll());
+    const grouped = await this.groups.groupedTickets();
+    const facts: DeskFact[] = [];
+    for (const ticket of tickets) {
+      const [props, life] = await Promise.all([this.properties.get(ticket.id), this.lifecycle.get(ticket.id)]);
+      facts.push({
+        ticket,
+        priority: props.priority,
+        ticketType: props.ticketType,
+        labels: props.labels,
+        groupId: grouped.get(ticket.id) ?? null,
+        waitingOn: life.waitingOn,
+      });
+    }
+    return facts;
+  }
+
+  private async narrow(facts: DeskFact[], options: { filter?: unknown; q?: string; label?: string }): Promise<DeskFact[]> {
+    const filter = options.filter === undefined ? null : this.deskFilter(options.filter);
+    const needle = options.q?.trim() ?? '';
+    return facts.filter((fact) => (filter === null || filterMatches(filter, fact)) && (needle === '' || searchHits(fact.ticket, needle)));
   }
 
   /** Who the ticket waits on, the first public reply and the request it follows. Staff only. */
