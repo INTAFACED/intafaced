@@ -164,6 +164,11 @@ export const taskStepSchema = z
       .default(null),
     side: z.enum(['buy', 'sell']).nullable().default(null),
     count: z.number().int().min(1).max(1000),
+    /**
+     * A streak step: done on this many consecutive calendar days in the platform time zone, one matching event a day
+     * (`count` is then 1). A missed day resets it at the zone's midnight. Null: a plain count of events.
+     */
+    streakDays: z.number().int().min(2).max(365).nullable().default(null),
   })
   .strict();
 export type TaskStep = z.infer<typeof taskStepSchema>;
@@ -397,6 +402,19 @@ export const taskProgressSchema = z.object({
       done: z.number().int().min(0),
       target: z.number().int().positive(),
       complete: z.boolean(),
+      /** A streak step's run: null on a plain step. `reset` once a day was missed after the run began. */
+      streak: z
+        .object({
+          days: z.number().int().min(0),
+          best: z.number().int().min(0),
+          lastDay: z
+            .string()
+            .regex(/^\d{4}-\d{2}-\d{2}$/)
+            .nullable(),
+          resetsAt: iso.nullable(),
+          reset: z.boolean(),
+        })
+        .nullable(),
     }),
   ),
   completed: z.number().int().min(0),

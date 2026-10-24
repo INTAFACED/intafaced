@@ -31,6 +31,7 @@
  *   node tooling/scripts/local-test-stack.mjs expire-address-approvals <email>   TEST fixture: open approval links run out
  *   node tooling/scripts/local-test-stack.mjs expire-deposit-addresses <email>   TEST fixture: open extra deposit addresses expire
  *   node tooling/scripts/local-test-stack.mjs expire-staff-holds <email>   TEST fixture: open staff holds with an expiry reach it
+ *   node tooling/scripts/local-test-stack.mjs age-task-progress <email> <campaignId> <days>   TEST fixture: a task campaign's counted events happened days earlier
  *   node tooling/scripts/local-test-stack.mjs seed-withdrawal <email> <ASSET> <amount> --state <s> --ref <label> [--count <n>]   TEST fixture: a withdrawal in that state (or n requested ones)
  *
  * Rules this file keeps (AGENTS.md "Money"):
@@ -1764,6 +1765,46 @@ function cmdExpireStaffHolds(args) {
 }
 
 /**
+ * `age-task-progress <email-or-userId> <campaignId> <days>`: the TEST person's join of one task campaign and the events
+ * counted for its steps move `days` back in time (J-campaigns-02 #8), so a journey can show a streak step reset after a
+ * missed day without waiting a day out. svc-campaigns reads the streak from these stored times on every read. It writes
+ * no event, no reward and moves no value.
+ */
+function cmdAgeTaskProgress(args) {
+  const [who, campaignId, daysRaw] = args;
+  if (!who || !campaignId || !daysRaw) {
+    fail('usage: node tooling/scripts/local-test-stack.mjs age-task-progress <email-or-userId> <campaignId> <days>', 2);
+  }
+  const days = Number(daysRaw);
+  if (!Number.isInteger(days) || days < 1 || days > 30) fail('days must be a whole number from 1 to 30', 2);
+  if (!/^cmp_[0-9a-f-]{36}$/.test(campaignId)) fail('campaignId must be a cmp_<uuid> id', 2);
+  const { secrets, userId } = localFixturePerson(who);
+  const out = psql(
+    secrets,
+    `WITH joined AS (
+       UPDATE campaigns.participations SET created_at = created_at - make_interval(days => :'days'::int)
+        WHERE campaign_id = :'cid' AND lower(account_id) = lower(:'uid') RETURNING 1
+     ), moved AS (
+       UPDATE campaigns.task_progress SET occurred_at = occurred_at - make_interval(days => :'days'::int)
+        WHERE campaign_id = :'cid' AND lower(account_id) = lower(:'uid') RETURNING 1
+     )
+     SELECT (SELECT count(*) FROM joined) || ' ' || (SELECT count(*) FROM moved)`,
+    {
+      db: DB_NAME,
+      user: 'svc_campaigns',
+      password: secrets.pgService,
+      vars: { uid: userId, cid: campaignId, days: String(days) },
+      tuples: true,
+    },
+  )
+    .trim()
+    .split('\n')
+    .find((line) => /^[0-9]+ [0-9]+$/.test(line.trim()));
+  const [joined, moved] = (out ?? '0 0').trim().split(' ');
+  say(`  ${joined} join(s) and ${moved} counted event(s) of ${who} on ${campaignId} moved ${days} day(s) back (LOCAL TEST fixture)`);
+}
+
+/**
  * `expire-address-approvals <email-or-userId>`: the TEST person's open withdrawal-address approval links (W-withdraw-09)
  * run out now, so a journey can show, as J-wallet-04 #5 does, that an expired link is refused and a new one is needed,
  * without waiting the TEST lifetime out. Both times move back by the same amount, so a link stays as long as it was
@@ -2223,6 +2264,7 @@ async function runCli() {
   else if (cmd === 'expire-address-approvals') cmdExpireAddressApprovals(rest);
   else if (cmd === 'expire-deposit-addresses') cmdExpireDepositAddresses(rest);
   else if (cmd === 'expire-staff-holds') cmdExpireStaffHolds(rest);
+  else if (cmd === 'age-task-progress') cmdAgeTaskProgress(rest);
   else if (cmd === 'customer-dist') cmdCustomerDist(rest);
   else if (cmd === 'status') {
     const ok = await healthTable({ gateMarket: true });
@@ -2231,7 +2273,7 @@ async function runCli() {
     process.exit(ok ? 0 : 1);
   } else
     fail(
-      `unknown command "${cmd}". Use: start | stop | status | fund | seed-withdrawal | age-linked-accounts | expire-address-approvals | expire-deposit-addresses | expire-staff-holds | plan | restart | customer-dist`,
+      `unknown command "${cmd}". Use: start | stop | status | fund | seed-withdrawal | age-linked-accounts | expire-address-approvals | expire-deposit-addresses | expire-staff-holds | age-task-progress | plan | restart | customer-dist`,
       2,
     );
 }
