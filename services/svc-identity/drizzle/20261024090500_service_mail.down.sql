@@ -6,7 +6,7 @@ ALTER TABLE "identity"."mail_outbox" DROP CONSTRAINT IF EXISTS "mail_outbox_purp
 ALTER TABLE "identity"."mail_outbox"
   ADD CONSTRAINT "mail_outbox_purpose_check" CHECK ("purpose" IN (
     'password-reset', 'reset-no-account', 'handle-recovery', 'handle-recovery-no-account', 'signup-code', 'signup-existing',
-    'login-code', 'login-no-account'
+    'login-code', 'login-no-account', 'new-device-code'
   ));
 ALTER TABLE "identity"."mail_outbox" DROP CONSTRAINT IF EXISTS "mail_outbox_owner_check";
 DROP INDEX IF EXISTS "identity"."mail_outbox_dedupe_key_uq";

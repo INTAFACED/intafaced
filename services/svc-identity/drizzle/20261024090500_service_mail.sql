@@ -19,9 +19,10 @@ ALTER TABLE "identity"."mail_outbox"
     "flow_id" IS NOT NULL OR ("dedupe_key" IS NOT NULL AND "user_id" IS NOT NULL AND "body_hash" IS NOT NULL)
   );
 
+-- The list also names new-device-code (trusted devices, 20261024075857) so either migration applied last keeps both.
 ALTER TABLE "identity"."mail_outbox" DROP CONSTRAINT IF EXISTS "mail_outbox_purpose_check";
 ALTER TABLE "identity"."mail_outbox"
   ADD CONSTRAINT "mail_outbox_purpose_check" CHECK ("purpose" IN (
     'password-reset', 'reset-no-account', 'handle-recovery', 'handle-recovery-no-account', 'signup-code', 'signup-existing',
-    'login-code', 'login-no-account', 'withdraw-address-approval'
+    'login-code', 'login-no-account', 'new-device-code', 'withdraw-address-approval'
   ));
