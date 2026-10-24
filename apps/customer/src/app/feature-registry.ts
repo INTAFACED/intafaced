@@ -168,6 +168,16 @@ export const features: readonly Feature[] = [
     tab: 'money',
   },
   {
+    id: 'bank-loan-detail',
+    label: 'Loan details',
+    paths: ['/bank/loans/detail'],
+    status: 'blocked',
+    reason:
+      "The payoff fee and how long a quote holds are owner values: unset, the quote refuses bank.loan_fee_unset or bank.loan_payoff_window_unset. The projection and statement are the bank's own reads",
+    unlock: 'J-bank-11 #1 and #6 passing on main',
+    tab: 'money',
+  },
+  {
     id: 'bank-calendar',
     label: 'Money calendar',
     paths: ['/bank/calendar'],

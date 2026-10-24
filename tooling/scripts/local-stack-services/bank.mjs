@@ -82,6 +82,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     BANK_GLOBAL_REFUND_FEE: testValue('BANK_GLOBAL_REFUND_FEE'),
     // LOCAL TEST value from the bank profile (J-bank-06): how close to its next run a standing order may still be edited.
     BANK_SCHEDULE_EDIT_CUTOFF_MINUTES: testValue('BANK_SCHEDULE_EDIT_CUTOFF_MINUTES'),
+    // LOCAL TEST values from the bank profile (BK-loan-06, J-bank-11 #1): the fee on clearing a loan early and how long a
+    // payoff quote holds. Unset, every payoff quote refuses bank.loan_fee_unset, so the loan page could only show the refusal.
+    BANK_LOAN_PAYOFF_FEE: testValue('BANK_LOAN_PAYOFF_FEE'),
+    BANK_LOAN_PAYOFF_WINDOW_MINUTES: testValue('BANK_LOAN_PAYOFF_WINDOW_MINUTES'),
     // Nothing moves money in the background of a test stack.
     // The standing-order runner has no timer: it is a signed job door, and on this stack only a test's own signed call
     // (J-bank-06) runs it. Left off, a one-off or a standing order could never be shown running here.

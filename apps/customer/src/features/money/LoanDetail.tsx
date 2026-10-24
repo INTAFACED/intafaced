@@ -1,0 +1,362 @@
+import { useState, type FormEvent } from 'react';
+import { Download } from 'lucide-react';
+import { Button, Loading } from '../../shared/ui';
+import { useSession } from '../session/session';
+import type { ApiResult } from '../../shared/api';
+import { decodeBase64, monthRange, shortFingerprint } from '../../screens/money/statement-model';
+import { amount, bps, date, useBankRead } from './components';
+import { loanStatementSchema, type LoanProjection, type PayoffQuote } from './contracts';
+import { DepthPanel } from './DepthParts';
+import { loanDetailCopy } from './loan-detail-copy';
+import './bank-depth.css';
+
+/**
+ * `/bank/loans/detail?loan=<id>` (J-bank-11 #1 and #6, BK-loan-06): one loan's payoff quote, a projection of its
+ * interest and its monthly statement. Every figure is the bank's own answer (`bank.loans.payoffQuote`,
+ * `bank.loans.projection`, `bank.loans.statement`): the browser works nothing out. The projection is labelled as one,
+ * never as a schedule, and the quote is read again on request and never stored.
+ */
+
+type Copy = ReturnType<typeof loanDetailCopy.useCopy>['t'];
+type Failed = Extract<ApiResult<unknown>, { ok: false }>;
+
+export const PROJECTION_DAYS = [7, 30, 90, 180, 365] as const;
+type Days = (typeof PROJECTION_DAYS)[number];
+const DECIMAL = /^\d+(\.\d{1,18})?$/;
+
+/** What a refused loan read says, by the bank's code, with the code as a reference. Anything else keeps its own message. */
+export function loanRefusal(t: Copy, failure: Pick<Failed, 'code' | 'message' | 'reason'>): string {
+  const code = failure.code ?? '';
+  const words =
+    code === 'bank.loan_fee_unset'
+      ? t('feeUnset')
+      : code === 'bank.loan_payoff_window_unset'
+        ? t('windowUnset')
+        : code === 'bank.loan_closed'
+          ? t('closed')
+          : code === 'bank.loan_liquidating'
+            ? t('liquidating')
+            : code === 'bank.ledger_outcome_unknown'
+              ? t('outcomeUnknown')
+              : code === 'bank.accrual_backlog'
+                ? t('backlog')
+                : code === 'bank.loan_not_drawable'
+                  ? t('notDrawn')
+                  : code === 'bank.loan_not_found' || code === 'FORBIDDEN' || code === 'NOT_FOUND' || failure.reason === 'forbidden'
+                    ? t('notYours')
+                    : failure.message;
+  return code.includes('.') ? `${words} ${t('reference', { code })}` : words;
+}
+
+function Refused({ failure, retry, label }: { failure: Failed; retry: () => void; label: string }) {
+  const { t } = loanDetailCopy.useCopy();
+  return (
+    <div role="alert" className="error-text" data-code={failure.code ?? ''}>
+      <p>{loanRefusal(t, failure)}</p>
+      <Button variant="ghost" onClick={retry}>
+        {label}
+      </Button>
+    </div>
+  );
+}
+
+function QuotePanel({ loanId }: { loanId: string }) {
+  const { t } = loanDetailCopy.useCopy();
+  const quote = useBankRead('loans.payoffQuote', { loanId });
+  const [now, setNow] = useState(() => Date.now());
+  const reload = () => {
+    setNow(Date.now());
+    quote.reload();
+  };
+  return (
+    <DepthPanel title={t('quoteTitle')} lead={t('quoteLead')}>
+      {quote.resource.status === 'loading' && <Loading />}
+      {quote.resource.status === 'failed' && <Refused failure={quote.resource.failure} retry={reload} label={t('quoteRefresh')} />}
+      {quote.resource.status === 'ready' && <QuoteFigures quote={quote.resource.data} now={now} reload={reload} />}
+    </DepthPanel>
+  );
+}
+
+function QuoteFigures({ quote, now, reload }: { quote: PayoffQuote; now: number; reload: () => void }) {
+  const { t } = loanDetailCopy.useCopy();
+  const expired = Date.parse(quote.validUntil) <= now;
+  return (
+    <div className="bd-stack" data-testid="loan-quote" data-total={quote.total} data-valid-until={quote.validUntil}>
+      <dl className="detail-list">
+        <div>
+          <dt>{t('quotePrincipal')}</dt>
+          <dd>{amount(quote.principal, quote.assetId)}</dd>
+        </div>
+        <div>
+          <dt>{t('quoteInterest', { date: quote.interestThrough })}</dt>
+          <dd data-testid="loan-quote-interest" data-value={quote.interest}>
+            {amount(quote.interest, quote.assetId)}
+          </dd>
+        </div>
+        <div>
+          <dt>{t('quoteFee')}</dt>
+          <dd>{amount(quote.fee, quote.assetId)}</dd>
+        </div>
+        <div>
+          <dt>
+            <strong>{t('quoteTotal')}</strong>
+          </dt>
+          <dd>
+            <strong>{amount(quote.total, quote.assetId)}</strong>
+          </dd>
+        </div>
+      </dl>
+      <p className={expired ? 'error-text' : 'money-caption'} role={expired ? 'alert' : undefined}>
+        {expired ? t('quoteExpired') : t('quoteValid', { time: date(quote.validUntil) })}
+      </p>
+      <div className="actions">
+        <Button variant="secondary" onClick={reload}>
+          {t('quoteRefresh')}
+        </Button>
+        <a className="text-link" href="/bank/loans">
+          {t('quoteRepay')}
+        </a>
+      </div>
+    </div>
+  );
+}
+
+function ProjectionPanel({ loanId, assetId }: { loanId: string; assetId: string }) {
+  const { t } = loanDetailCopy.useCopy();
+  const [days, setDays] = useState<Days>(30);
+  const [extra, setExtra] = useState('');
+  const [asked, setAsked] = useState<{ days: Days; extra: string }>({ days: 30, extra: '' });
+  const [invalid, setInvalid] = useState(false);
+  const projection = useBankRead('loans.projection', {
+    loanId,
+    days: asked.days,
+    ...(asked.extra ? { extraRepayment: asked.extra } : {}),
+  });
+
+  function show(event: FormEvent) {
+    event.preventDefault();
+    const what = extra.trim();
+    if (what !== '' && !DECIMAL.test(what)) return setInvalid(true);
+    setInvalid(false);
+    setAsked({ days, extra: what });
+  }
+
+  return (
+    <DepthPanel title={t('projTitle')} lead={t('projLead')}>
+      <p>
+        <span className="badge" data-testid="loan-projection-label">
+          {t('projBadge')}
+        </span>
+      </p>
+      <form className="bd-stack" onSubmit={show} noValidate>
+        <label className="field">
+          <span>{t('projDays')}</span>
+          <select value={String(days)} onChange={(event) => setDays(Number(event.target.value) as Days)}>
+            {PROJECTION_DAYS.map((n) => (
+              <option key={n} value={String(n)}>
+                {t(`days_${n}`)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span>{t('projWhatIf')}</span>
+          <input value={extra} inputMode="decimal" onChange={(event) => setExtra(event.target.value)} aria-describedby="loan-whatif-hint" />
+          <small id="loan-whatif-hint" className="muted">
+            {t('projWhatIfHint')}
+          </small>
+        </label>
+        <div className="actions">
+          <Button type="submit" variant="secondary">
+            {t('projShow')}
+          </Button>
+        </div>
+        {invalid && (
+          <p role="alert" className="error-text">
+            {t('projInvalid')}
+          </p>
+        )}
+      </form>
+      {projection.resource.status === 'loading' && <Loading />}
+      {projection.resource.status === 'failed' && (
+        <Refused failure={projection.resource.failure} retry={projection.reload} label={t('projShow')} />
+      )}
+      {projection.resource.status === 'ready' && <ProjectionTable projection={projection.resource.data} assetId={assetId} />}
+    </DepthPanel>
+  );
+}
+
+function ProjectionTable({ projection, assetId }: { projection: LoanProjection; assetId: string }) {
+  const { t } = loanDetailCopy.useCopy();
+  return (
+    <div className="bd-stack">
+      <p className="money-caption">
+        {t('projRate', { apr: bps(projection.aprBps) })}{' '}
+        {t('projOpening', {
+          principal: amount(projection.openingPrincipal, assetId),
+          interest: amount(projection.openingInterest, assetId),
+        })}
+        {projection.extraApplied !== null && <> {t('projExtra', { amount: amount(projection.extraApplied, assetId) })}</>}
+      </p>
+      <div className="withdrawal-address-scroll">
+        <table
+          className="bd-table"
+          data-testid="loan-projection"
+          data-kind={projection.kind}
+          data-obligation={String(projection.obligation)}
+          data-days={projection.days}
+        >
+          <caption className="muted">{t('projBadge')}</caption>
+          <thead>
+            <tr>
+              <th scope="col">{t('colDate')}</th>
+              <th scope="col">{t('colBasis')}</th>
+              <th scope="col">{t('colInterest')}</th>
+              <th scope="col">{t('colDebt')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {projection.rows.map((row) => (
+              <tr key={row.date} data-date={row.date} data-basis={row.basis} data-interest={row.interest} data-debt={row.debt}>
+                <td>{row.date}</td>
+                <td>{amount(row.basis, assetId)}</td>
+                <td>{amount(row.interest, assetId)}</td>
+                <td>{amount(row.debt, assetId)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+type StatementSaid =
+  | { kind: 'done'; name: string; count: number; fingerprint: string; totals: string; provisional: boolean }
+  | { kind: 'error'; words: string }
+  | null;
+
+const thisMonth = (now: Date) => `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+
+function StatementPanel({ loanId, assetId }: { loanId: string; assetId: string }) {
+  const { t } = loanDetailCopy.useCopy();
+  const { api } = useSession();
+  const [month, setMonth] = useState(() => thisMonth(new Date()));
+  const [busy, setBusy] = useState(false);
+  const [said, setSaid] = useState<StatementSaid>(null);
+  const range = monthRange(month);
+
+  async function download(event: FormEvent) {
+    event.preventDefault();
+    if (busy || !range) return;
+    setBusy(true);
+    setSaid(null);
+    // The whole month is asked for: the bank marks a month still running provisional and closes it at the moment it answers.
+    const result = await api.query('bank', 'loans.statement', { loanId, from: range.from, to: range.to }, loanStatementSchema);
+    setBusy(false);
+    if (!result.ok) {
+      setSaid({ kind: 'error', words: result.code === 'bank.statement_unavailable' ? t('stUnavailable') : loanRefusal(t, result) });
+      return;
+    }
+    const bytes = decodeBase64(result.data.bodyBase64);
+    if (!bytes) return setSaid({ kind: 'error', words: t('stUnreadable') });
+    const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: result.data.contentType }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = result.data.filename;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    setSaid({
+      kind: 'done',
+      name: result.data.filename,
+      count: result.data.rowCount,
+      fingerprint: shortFingerprint(result.data.sha256),
+      provisional: result.data.provisional,
+      totals: t('stTotals', {
+        openingPrincipal: amount(result.data.openingPrincipal, assetId),
+        openingInterest: amount(result.data.openingInterest, assetId),
+        closingPrincipal: amount(result.data.closingPrincipal, assetId),
+        closingInterest: amount(result.data.closingInterest, assetId),
+      }),
+    });
+  }
+
+  return (
+    <DepthPanel title={t('stTitle')} lead={t('stLead')}>
+      <form className="bd-stack" onSubmit={(event) => void download(event)} data-testid="loan-statement">
+        <label className="field">
+          <span>{t('stMonth')}</span>
+          <input type="month" value={month} max={thisMonth(new Date())} onChange={(event) => setMonth(event.target.value)} />
+        </label>
+        <div className="actions">
+          <Button type="submit" variant="secondary" disabled={busy || !range}>
+            <Download size={16} aria-hidden="true" />
+            {t('stDownload')}
+          </Button>
+        </div>
+        <div role="status" aria-live="polite">
+          {!range && <p>{t('stMonthNeeded')}</p>}
+          {busy && <p>{t('stPreparing')}</p>}
+          {said?.kind === 'done' && (
+            <>
+              <p>{t('stDone', { name: said.name, count: String(said.count), fingerprint: said.fingerprint })}</p>
+              <p>{said.totals}</p>
+              {said.provisional && <p className="muted">{t('stProvisional')}</p>}
+            </>
+          )}
+        </div>
+        {said?.kind === 'error' && (
+          <p role="alert" className="error-text">
+            {said.words}
+          </p>
+        )}
+      </form>
+    </DepthPanel>
+  );
+}
+
+/** The page: the loan named in the address, read from the person's own loans so its asset is known. */
+export function LoanDetail({ loanId }: { loanId: string | null }) {
+  const { t } = loanDetailCopy.useCopy();
+  const loans = useBankRead('loans.list', { limit: 200 }, loanId !== null);
+  if (loanId === null) {
+    return (
+      <p role="note">
+        {t('noLoan')}{' '}
+        <a className="text-link" href="/bank/loans">
+          {t('back')}
+        </a>
+      </p>
+    );
+  }
+  if (loans.resource.status === 'loading') return <Loading />;
+  if (loans.resource.status === 'failed') return <Refused failure={loans.resource.failure} retry={loans.reload} label={t('back')} />;
+  const loan = loans.resource.data.find((one) => one.id === loanId);
+  if (!loan) {
+    return (
+      <p role="alert" className="error-text">
+        {t('notYours')}{' '}
+        <a className="text-link" href="/bank/loans">
+          {t('back')}
+        </a>
+      </p>
+    );
+  }
+  return (
+    <div className="bd-stack" data-loan-id={loan.id}>
+      <p className="money-caption" lang="und">
+        {t('loanRef', { id: loan.id })}
+      </p>
+      <QuotePanel loanId={loan.id} />
+      <ProjectionPanel loanId={loan.id} assetId={loan.debtAssetId} />
+      <StatementPanel loanId={loan.id} assetId={loan.debtAssetId} />
+      <p>
+        <a className="text-link" href="/bank/loans">
+          {t('back')}
+        </a>
+      </p>
+    </div>
+  );
+}

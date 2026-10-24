@@ -201,6 +201,13 @@ export const rooms: readonly Room[] = [
   },
   { path: '/bank/earn', title: 'Earn', description: 'Available earning products', door: 'Bank', area: 'money' },
   { path: '/bank/loans', title: 'Loans', description: 'Applications and repayments', door: 'Bank', area: 'money' },
+  {
+    path: '/bank/loans/detail',
+    title: 'Loan details',
+    description: 'Payoff quote, projection and statement for one loan',
+    door: 'Bank',
+    area: 'money',
+  },
   { path: '/bank/cards', title: 'Cards', description: 'Card issuer availability and controls', door: 'Bank', area: 'money' },
   { path: '/bank/ramps', title: 'Cash and crypto', description: 'Onramps and offramps', door: 'Bank', area: 'money' },
   { path: '/bank/ramps/new', title: 'Add money', description: 'Pay in by bank transfer, bank or card', door: 'Bank', area: 'money' },
