@@ -17,7 +17,12 @@ import { RailSendService } from './rail-sends/rail-sends.js';
 import { BANK_PAYEE_COOLING_HOURS_ENV, PayeeService } from './rail-sends/payees.js';
 import { BANK_ADDRESS_BOOK_CAP_ENV } from './withdraw-destination.js';
 import { BANK_OFFRAMP_COOLING_HOURS_ENV } from './offramp-cooling.js';
-import { DepositService, type DepositServiceOptions } from './deposits/deposit-service.js';
+import {
+  BANK_DEPOSIT_ADDRESS_CAP_ENV,
+  BANK_DEPOSIT_ADDRESS_EXPIRY_DAYS_ENV,
+  DepositService,
+  type DepositServiceOptions,
+} from './deposits/deposit-service.js';
 import { listSupportedAssets, withdrawNetworksFrom, type AssetRegistryReads, type SupportedAssetView } from './assets/supported-assets.js';
 import { AutoInvestService, type AutoInvestServiceOptions } from './auto-invest/auto-invest-service.js';
 import { BusinessService } from './business/business-service.js';
@@ -307,7 +312,16 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     offrampCoolingHours: () =>
       options.ramps?.offrampCoolingHours !== undefined ? options.ramps.offrampCoolingHours : process.env[BANK_OFFRAMP_COOLING_HOURS_ENV],
   });
-  const deposits = new DepositService(sql, options.deposits ?? {}, assetRegistry);
+  // The owner's extra-address cap and expiry window (W-deposit-02): a value passed in wins, otherwise the live env.
+  const deposits = new DepositService(
+    sql,
+    {
+      ...options.deposits,
+      addressCap: options.deposits?.addressCap ?? (() => process.env[BANK_DEPOSIT_ADDRESS_CAP_ENV]),
+      addressExpiryDays: options.deposits?.addressExpiryDays ?? (() => process.env[BANK_DEPOSIT_ADDRESS_EXPIRY_DAYS_ENV]),
+    },
+    assetRegistry,
+  );
   const supportedAssets = { list: () => listSupportedAssets(assetRegistry) };
   // The owner's window for a new recipient: a value passed in wins, otherwise the live env. Blank refuses a send.
   const railPayees = new PayeeService(sql, () =>

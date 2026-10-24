@@ -11,8 +11,10 @@ import { signIn, signUp, verify } from './desk.mjs';
 // "part of #2" covers the switched-off network (the stack keeps TEST USDC on TEST Base off), the unverified person and an
 // unpublished asset; it counts as #2 once the unsupported-case lists are published too.
 // #7 reads the inbox: svc-pay announces the credit (intafaced.pay.deposit_credit.posted) and svc-notify files it once.
-// Not here yet: #1 (custody unset, while this stack has it connected), #2's unsupported-case lists, #4 (labelled extra
-// addresses) and #8 (funding incident banners).
+// #4 makes labelled extra addresses up to the stack's TEST cap of 3 open (BANK_DEPOSIT_ADDRESS_CAP), lets them expire with
+// the LOCAL TEST tool (local-test-stack.mjs expire-deposit-addresses) and sends to an expired one: held for release.
+// Not here yet: #1 (custody unset, while this stack has it connected), #2's unsupported-case lists and #8 (funding incident
+// banners).
 const J = 'J-wallet-02';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const ASSET = 'USDT';
@@ -176,6 +178,79 @@ test(`${J} #7 the credit lands in the inbox once, however often the chain delive
   await notice.first().click();
   await expect(page).toHaveURL(/\/uc\/recharge\?asset=USDT&network=ethereum$/);
   await expect(assetPicker(page)).toHaveValue(ASSET);
+});
+
+test(`${J} #4 creates another address and labels it: a list with labels and expiry, the cap refused with the cap shown, and a deposit to an expired address held for release`, async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(180_000);
+  const { account: who } = state();
+  const usdt = await ledger(who);
+  const before = await usdt();
+  async function showAddresses(signedIn = false) {
+    if (signedIn) {
+      // Already signed in: back to the room, as a person would, rather than a second sign-in.
+      await page.goto('/uc/recharge');
+      await page.mouse.move(0, 600);
+    } else await openDeposit(page, who);
+    await assetPicker(page).selectOption(ASSET);
+    await page.getByRole('combobox', { name: 'Network', exact: true }).selectOption({ label: NETWORK });
+    await page.getByRole('checkbox', { name: `I will send only ${ASSET} on ${NETWORK}.` }).check();
+    await page.getByRole('button', { name: 'Show my deposit address' }).click();
+    return page.getByTestId('deposit-addresses');
+  }
+  const row = (list, n) => list.locator(`li[data-address-index="${n}"]`);
+
+  let list = await showAddresses();
+  await expect(list.getByRole('heading', { name: `Your addresses on ${NETWORK}` })).toBeVisible();
+  await expect(row(list, 0)).toContainText('First address');
+  await expect(row(list, 0)).toContainText('Does not expire');
+  await expect(list.getByTestId('deposit-addresses-cap')).toContainText('Open addresses here: 1 of 3');
+  await expect(list.getByTestId('deposit-addresses-cap')).toContainText('A new address lasts 30 days.');
+
+  // Two more, the first with a name: each gets its own address and an expiry 30 days out.
+  await list.getByLabel('Name for the new address (optional)').fill('Savings');
+  await list.getByRole('button', { name: 'Add another address' }).click();
+  await expect(list).toContainText('Address 1 is ready.');
+  await expect(row(list, 1)).toContainText('Savings');
+  await expect(row(list, 1)).toContainText('30 days left');
+  await list.getByRole('button', { name: 'Add another address' }).click();
+  await expect(list).toContainText('Address 2 is ready.');
+  await expect(row(list, 2)).toContainText('Address 2');
+  await expect(list.getByTestId('deposit-addresses-cap')).toContainText('Open addresses here: 3 of 3');
+  const extra = (await row(list, 1).locator('.numeric').innerText()).trim();
+  expect(extra).not.toBe(state().address);
+  expect((await row(list, 2).locator('.numeric').innerText()).trim()).not.toBe(extra);
+
+  // A fourth open address is past the TEST cap of 3: refused, with the cap named, and nothing is made.
+  await list.getByRole('button', { name: 'Add another address' }).click();
+  await expect(list.getByRole('alert')).toHaveText(
+    'You already hold 3 open addresses here, the most allowed. One frees up when an address expires.',
+  );
+  await expect(list.locator('li[data-address-index]')).toHaveCount(3);
+
+  // Name the second one.
+  await row(list, 2).getByRole('button', { name: 'Rename' }).click();
+  await row(list, 2).getByLabel('Name for Address 2').fill('Exchange payouts');
+  await row(list, 2).getByRole('button', { name: 'Save name' }).click();
+  await expect(row(list, 2).locator('strong')).toHaveText('Exchange payouts');
+
+  // Both extra addresses expire (LOCAL TEST tool, in custody and in the list); they stay listed, and their places free up.
+  const out = tool('local-test-stack.mjs', 'expire-deposit-addresses', who.email);
+  expect(out).toContain('2 extra deposit address(es)');
+  list = await showAddresses(true);
+  await expect(row(list, 1)).toHaveAttribute('data-state', 'expired');
+  await expect(row(list, 1)).toContainText('Money sent to it now is held for release.');
+  await expect(row(list, 2)).toContainText('Exchange payouts');
+  await expect(list.getByTestId('deposit-addresses-cap')).toContainText('Open addresses here: 1 of 3');
+
+  // TEST 50 USDT sent to the expired address: recorded as held for release with its reason, and nothing is credited.
+  const tx = chainDeposit(extra, '50', 6, `jw02-${who.handle}-expired-r${testInfo.retry}`);
+  await page.reload();
+  await expect(recordRow(page, tx).locator('[data-status]')).toHaveAttribute('data-status', 'held_for_release');
+  await expect(recordRow(page, tx)).toContainText('Held for release');
+  await expect(recordRow(page, tx)).toContainText('The funds are safe and wait for support to release them to you.');
+  expect(await usdt()).toBe(before);
 });
 
 test(`${J}, part of #2 a switched-off network shows the owner's banner and no address; an unverified person is sent to Verification; an unpublished asset says so`, async ({

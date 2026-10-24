@@ -349,6 +349,18 @@ export type BankErrorCode =
   | 'bank.deposit_network_halted'
   /** Custody returned more incoming deposits than this door will publish. None are dropped. */
   | 'bank.deposit_pending_unbounded'
+  /** BANK_DEPOSIT_ADDRESS_CAP is not published, so no extra deposit address is made (W-deposit-02). */
+  | 'bank.deposit_address_cap_unset'
+  /** The person already holds the owner's cap of open deposit addresses for this asset on this network. */
+  | 'bank.deposit_address_cap_reached'
+  /** BANK_DEPOSIT_ADDRESS_EXPIRY_DAYS is not published, so an extra address would have no expiry: none is made. */
+  | 'bank.deposit_address_expiry_unset'
+  /** Every address number (up to 9999) for this person, asset and network has been used; numbers are never reused. */
+  | 'bank.deposit_address_numbers_used'
+  /** No deposit address of this person has that asset, network and number. */
+  | 'bank.deposit_address_not_found'
+  /** A deposit address label must be 1 to 40 characters with no space at either end, or empty to clear it. */
+  | 'bank.deposit_address_label_invalid'
   | 'bank.ramp_invalid_amount'
   /**
    * Asset id is blank or not a usable crypto ledger symbol. The crypto half

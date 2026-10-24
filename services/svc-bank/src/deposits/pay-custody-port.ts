@@ -48,7 +48,15 @@ export function createPayCustodyDepositPort(pay: PayCustodyDepositPort): Custody
     async address(input) {
       const answer = await pay.address(input);
       if (answer.state !== 'issued') return null;
-      return { address: answer.address.address, memo: answer.address.memo, qrPayload: answer.address.qrPayload };
+      // An extra address must come back as the one asked for, with its stored expiry; anything else is not repeated.
+      if ((answer.address.addressIndex ?? 0) !== (input.addressIndex ?? 0)) return null;
+      if ((input.addressIndex ?? 0) > 0 && !answer.address.expiresAt) return null;
+      return {
+        address: answer.address.address,
+        memo: answer.address.memo,
+        qrPayload: answer.address.qrPayload,
+        expiresAt: answer.address.expiresAt ?? null,
+      };
     },
 
     async pending(userId) {
