@@ -222,7 +222,9 @@ function Detail({ id, current }: { id: string; current: () => boolean }) {
     setCanceling(true);
     setCancelFailure(null);
     const result = await createWithdrawalReads(api, userId, current).cancel(id);
-    if (!active()) return;
+    // The page re-rendered while the cancel ran (the button turned to "Cancelling…"), so this checks the page and account
+    // themselves, not the render that started it.
+    if (!current()) return;
     setCanceling(false);
     if (result.ok) setCanceled(result.data);
     else {

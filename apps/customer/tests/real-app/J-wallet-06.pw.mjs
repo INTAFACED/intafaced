@@ -14,7 +14,7 @@ const ASSET = 'USDT';
 /** One TEST withdrawal of `amount` USDT in `state`. Returns its id. */
 function seedWithdrawal(who, state, amount, label) {
   const out = tool('local-test-stack.mjs', 'seed-withdrawal', who.email, ASSET, amount, '--state', state, '--ref', label);
-  const id = /withdrawal (\S+)/.exec(out)?.[1];
+  const id = /^\s*withdrawal\s+([0-9a-f-]{36})$/m.exec(out)?.[1];
   expect(id, out).toMatch(/^[0-9a-f-]{36}$/);
   return id;
 }
