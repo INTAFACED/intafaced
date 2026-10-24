@@ -44,6 +44,7 @@ import { parseActiveOrderCap, parseBuyerCancelLimit, parsePairLimits } from './t
 import { parseReminderPolicy } from './seller-reminders.js';
 import { parseToleranceBps } from './amount-mismatch.js';
 import { parseAdContentRules } from './ad-content-rules.js';
+import { parsePostingThresholds } from './posting-eligibility.js';
 import { AdvertiserTermsAcceptances, advertiserTermsVersion, createAdvertiserTerms } from './advertiser-terms.js';
 import { createLocalTestKeyProvider } from './local-test-kms.js';
 import {
@@ -187,6 +188,7 @@ const p2p: P2pService = new P2pService(sql, ledger, bus, {
   }),
   sellBalanceAtPost: true,
   adContentRules: parseAdContentRules(env.P2P_AD_CONTENT_RULES),
+  postingThresholds: parsePostingThresholds(env.P2P_POSTING_THRESHOLDS),
   deadlines: {
     escrowSeconds: publishedEscrowDeadlineSeconds(env.P2P_ESCROW_DEADLINE_SECONDS),
     paymentSeconds: publishedPaymentDeadlineSeconds(env.P2P_PAYMENT_DEADLINE_SECONDS),

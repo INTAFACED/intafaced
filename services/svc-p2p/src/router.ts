@@ -26,6 +26,7 @@ import {
 import { InstrumentError, methodIdFromOfferEntry, parseFieldSpecs, type MethodSettlement } from './instruments.js';
 import { BOARD_SORTS, type BoardSort } from './customer-depth.js';
 import { ELIGIBILITY_CHECK_IDS, ELIGIBILITY_STATES, TakeGateError, unwiredTakeGate, type TakeGate } from './take-eligibility.js';
+import { POSTING_CHECK_IDS } from './posting-eligibility.js';
 import { DELIST_REASONS, type InstrumentService } from './instrument-service.js';
 import { assertModerator, isModerationConfigured, isModerator } from './moderation-auth.js';
 import { TakeStepUpError, unwiredTakeStepUp, type TakeStepUp, type TakeStepUpCaller } from './take-step-up.js';
@@ -597,6 +598,7 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'p2p.trade_list_limit_unset':
       case 'p2p.config_unset':
       case 'p2p.content_rules_invalid':
+      case 'p2p.posting_thresholds_invalid':
       case 'p2p.export_format_unbuilt':
       case 'p2p.ops_offers_limit_unset':
       case 'p2p.ops_trades_limit_unset':
@@ -3414,6 +3416,40 @@ export function createP2pRouter(
             }
             const accepted = await p2p.acceptAdvertiserTerms(requireUser(ctx), input.version);
             return { version: accepted.version, acceptedAt: accepted.acceptedAt.toISOString() };
+          }),
+        ),
+
+      /**
+       * P-ads-merchant-12. The posting checklist for one fiat: what compliance published for it (`thresholds`, `none`,
+       * `unset` or `invalid`) and every check, met, not met or unknown, with the caller's value and the target as strings.
+       * Posting in that fiat refuses on the same checks. `asset` is echoed: the thresholds are per fiat.
+       */
+      postingEligibility: merchantApiProcedure('p2p:read')
+        .input(z.object({ asset: z.string().min(1).max(16).optional(), fiatCurrency: z.string().length(3) }))
+        .output(
+          z.object({
+            asset: z.string().nullable(),
+            fiatCurrency: z.string(),
+            policy: z.enum(['thresholds', 'none', 'unset', 'invalid']),
+            checks: z.array(
+              z.object({
+                id: z.enum(POSTING_CHECK_IDS),
+                state: z.enum(['met', 'not_met', 'unknown']),
+                current: z.string().nullable(),
+                required: z.string().nullable(),
+                reason: z.string(),
+              }),
+            ),
+          }),
+        )
+        .query(async ({ ctx, input }) =>
+          guard(async () => {
+            const eligibility = await p2p.postingEligibility({
+              userId: requireUser(ctx),
+              tier: ctx.principal.tier,
+              fiatCurrency: input.fiatCurrency,
+            });
+            return { asset: input.asset ?? null, fiatCurrency: input.fiatCurrency, ...eligibility };
           }),
         ),
 

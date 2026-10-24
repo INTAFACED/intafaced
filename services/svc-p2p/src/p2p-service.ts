@@ -100,6 +100,15 @@ import {
 } from './pricing.js';
 import { brokenRuleClass, type AdContentRules } from './ad-content-rules.js';
 import {
+  asKycTier,
+  fiatPostingPolicy,
+  POSTING_THRESHOLDS_SETTING,
+  postingChecks,
+  type FiatPostingPolicy,
+  type PostingCheck,
+  type PostingThresholds,
+} from './posting-eligibility.js';
+import {
   buyAdRangeRefusal,
   isVerificationTier,
   remaining,
@@ -208,6 +217,8 @@ export type P2pErrorCode =
   | 'p2p.non_instant_not_accepted'
   | 'p2p.content_rule_violation'
   | 'p2p.content_rules_invalid'
+  | 'p2p.posting_threshold_not_met'
+  | 'p2p.posting_thresholds_invalid'
   | 'p2p.dispute_before_settlement'
   | 'p2p.quote_not_found'
   | 'p2p.quote_mismatch'
@@ -799,6 +810,12 @@ export interface P2pServiceOptions {
   sellBalanceAtPost?: boolean;
   /** P-ads-merchant-05. Compliance's content rules for an ad's terms. Absent: no list is published, the filter is off. */
   adContentRules?: AdContentRules;
+  /**
+   * P-ads-merchant-12. Compliance's posting thresholds per fiat (`posting-eligibility.ts`), or omitted for a service
+   * built without them (tests). `index.ts` always passes them, where a fiat with nothing published refuses every post
+   * in it `p2p.config_unset`.
+   */
+  postingThresholds?: PostingThresholds;
 }
 
 /**
@@ -1233,6 +1250,7 @@ export class P2pService {
   private readonly advertiserTerms: AdvertiserTerms | undefined;
   private readonly sellBalanceAtPost: boolean;
   private readonly adContentRules: AdContentRules;
+  private readonly postingThresholds: PostingThresholds | undefined;
   private tradingEnabled: boolean;
 
   /**
@@ -1275,6 +1293,72 @@ export class P2pService {
     this.advertiserTerms = options.advertiserTerms;
     this.sellBalanceAtPost = options.sellBalanceAtPost === true;
     this.adContentRules = options.adContentRules ?? { status: 'absent' };
+    this.postingThresholds = options.postingThresholds;
+  }
+
+  /**
+   * P-ads-merchant-12. The posting checklist for one fiat: what compliance published for it and every check, met or
+   * not, with the person's value and the target. The advertiser terms come first when the service has them. Posting
+   * in the fiat refuses on the same checks (`assertPostingThresholds`).
+   */
+  async postingEligibility(input: {
+    userId: string;
+    tier: string | undefined;
+    fiatCurrency: string;
+  }): Promise<{ policy: FiatPostingPolicy; checks: PostingCheck[] }> {
+    const { policy, threshold } = fiatPostingPolicy(this.postingThresholds ?? { status: 'absent' }, input.fiatCurrency);
+    const [terms, facts] = await Promise.all([
+      this.advertiserTermsCheck(input.userId),
+      threshold ? this.postingFacts(input.userId, input.tier) : null,
+    ]);
+    return { policy, checks: [...(terms ? [terms] : []), ...(threshold && facts ? postingChecks(threshold, facts) : [])] };
+  }
+
+  private async advertiserTermsCheck(userId: string): Promise<PostingCheck | null> {
+    if (!this.advertiserTerms) return null;
+    try {
+      const { version, acceptedAt } = await this.advertiserTerms.state(userId);
+      return acceptedAt
+        ? { id: 'advertiser_terms', state: 'met', current: version, required: version, reason: 'posting.met' }
+        : { id: 'advertiser_terms', state: 'not_met', current: null, required: version, reason: 'p2p.terms_not_accepted' };
+    } catch (error) {
+      if (error instanceof AdvertiserTermsError && error.code === 'p2p.config_unset')
+        return { id: 'advertiser_terms', state: 'unknown', current: null, required: null, reason: 'p2p.config_unset' };
+      throw error;
+    }
+  }
+
+  private async postingFacts(userId: string, tier: string | undefined) {
+    const rates = await completionRates(this.sql, userId);
+    return { tier: asKycTier(tier), completedOrders: rates.completedTotal, completionRatePct: rates.completionRateTotal };
+  }
+
+  /**
+   * P-ads-merchant-12. A new ad in a fiat needs every posting threshold compliance published for it. A fiat with
+   * nothing published refuses `p2p.config_unset` naming it; "none" leaves posting to the jurisdiction gate. Returned,
+   * not thrown, so the caller refuses in a fixed order whichever read finishes first.
+   */
+  private async postingRefusal(
+    thresholds: PostingThresholds,
+    makerId: string,
+    fiatCurrency: string,
+    tier: string | undefined,
+  ): Promise<P2pError | null> {
+    const { policy, threshold } = fiatPostingPolicy(thresholds, fiatCurrency);
+    if (policy === 'invalid') {
+      return new P2pError(`${POSTING_THRESHOLDS_SETTING} is not a whole list, so no ad can be posted`, 'p2p.posting_thresholds_invalid');
+    }
+    if (policy === 'unset') {
+      return new P2pError(`No posting threshold is published for ${fiatCurrency} (${POSTING_THRESHOLDS_SETTING})`, 'p2p.config_unset');
+    }
+    if (!threshold) return null;
+    const missing = postingChecks(threshold, await this.postingFacts(makerId, tier)).find((check) => check.state !== 'met');
+    return missing
+      ? new P2pError(
+          `Posting an ad in ${fiatCurrency} needs ${missing.id.replaceAll('_', ' ')} ${missing.required}; nothing was posted`,
+          'p2p.posting_threshold_not_met',
+        )
+      : null;
   }
 
   /** P-ads-merchant-01: the advertiser terms version to accept and the caller's acceptance, or `p2p.config_unset`. */
@@ -1647,8 +1731,9 @@ export class P2pService {
   /**
    * P-ads-merchant-01. What a new ad needs from its maker that the offer itself cannot show: the published advertiser
    * terms accepted (and, from the form, the version it showed), and for a sell ad a free balance of the coin that
-   * covers the total. The balance check is advisory, at post only: nothing is reserved, the escrow locks per order at
-   * take. A retry of a create that already published (same key, or with no key the same offer id) skips both, so a
+   * covers the total, and (P-ads-merchant-12) the posting thresholds for the ad's fiat. The balance check is advisory,
+   * at post only: nothing is reserved, the escrow locks per order at take. A retry of a create that already published
+   * (same key, or with no key the same offer id) skips every check, so a
    * lost reply always returns the ad; the transaction below then answers it as a replay.
    */
   private async assertPostable(
@@ -1658,11 +1743,13 @@ export class P2pService {
     totalAmt: Amount,
     retry: { idempotencyKey: string | undefined; offerId: string | undefined },
     shownTermsVersion: string | undefined,
-    content: { buyRange?: BuyAdRange; terms?: string },
+    content: { buyRange?: BuyAdRange; terms?: string; posting?: { fiatCurrency: string; tier: string | undefined } },
   ): Promise<void> {
     const checkBalance = this.sellBalanceAtPost && side === 'sell';
     const checkContent = this.adContentRules.status !== 'absent';
-    if (!this.advertiserTerms && !checkBalance && !content.buyRange && !checkContent) return;
+    const thresholds = this.postingThresholds;
+    const posting = thresholds ? content.posting : undefined;
+    if (!this.advertiserTerms && !checkBalance && !content.buyRange && !checkContent && !posting) return;
     if (retry.idempotencyKey) {
       const published = await this.sql<{ subject_id: string | null }[]>`
         SELECT subject_id FROM p2p.write_keys
@@ -1675,10 +1762,12 @@ export class P2pService {
     }
     this.assertAdContent(content.terms);
     if (content.buyRange) this.assertBuyAdRange(content.buyRange);
-    const [, free] = await Promise.all([
+    const [, free, refusal] = await Promise.all([
       this.advertiserTerms?.assertAccepted(makerId, shownTermsVersion),
       checkBalance ? this.sellBalance(makerId, asset) : null,
+      thresholds && posting ? this.postingRefusal(thresholds, makerId, posting.fiatCurrency, posting.tier) : null,
     ]);
+    if (refusal) throw refusal;
     if (free !== null && compare(totalAmt, free) > 0) throw shortOf(free, totalAmt, asset, "this ad's total; nothing was posted");
   }
 
@@ -1840,6 +1929,7 @@ export class P2pService {
       input.advertiserTermsVersion,
       {
         terms: input.terms,
+        posting: { fiatCurrency, tier: input.makerTier },
         buyRange:
           input.side === 'buy'
             ? {

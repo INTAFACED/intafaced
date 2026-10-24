@@ -1268,6 +1268,8 @@ describe('svc-p2p payment instruments', () => {
         'merchants.advertiserTerms': undefined,
         'merchants.acceptAdvertiserTerms': { version: 'TEST' },
         'offers.sellBalance': { asset: 'USDT' },
+        // P-ads-merchant-12: the caller's own posting checklist (tier, order counts, terms); no instrument table is read.
+        'merchants.postingEligibility': { asset: 'USDT', fiatCurrency: 'EUR' },
       };
 
       const paths = Object.keys((api as unknown as { _def: { procedures: Record<string, unknown> } })._def.procedures);
