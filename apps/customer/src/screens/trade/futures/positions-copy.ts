@@ -216,7 +216,7 @@ const messages = {
   'Stop source how mark': 'The mark price: the fair price the platform publishes, which one trade cannot move.',
   'Stop source how last': 'The last price this contract traded at in the book. It moves only when the book trades.',
   'Stop source how index':
-    'The index price is not published here yet, so a stop judged on it is refused. Choose the mark or the last trade.',
+    'The index price is not published on this exchange, so a stop judged on it is refused. Choose the mark or the last trade.',
   'Stop size': 'Size to close',
   'Stop size hint': 'Up to {size}, the whole position.',
   'Stop trigger': 'Trigger price ({quote})',

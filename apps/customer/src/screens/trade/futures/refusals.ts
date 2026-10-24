@@ -203,12 +203,12 @@ const WORDS: Readonly<Record<string, Words>> = {
     retryable: false,
   },
   'trade.last_price_missing': {
-    title: 'This contract has not traded yet',
+    title: 'This contract has no trades',
     body: 'There is no last trade to judge the stop on. Choose the mark price, or try again once the book has traded. Nothing was saved.',
   },
   'trade.conditional_already_crossed': {
     title: 'That trigger is already reached',
-    body: 'The price the stop is judged on is already past the trigger, so it would close at once. Set the trigger where the price has not reached yet: below it for a long, above it for a short. Nothing was saved.',
+    body: 'The price the stop is judged on is already past the trigger, so it would close at once. Set the trigger beyond the current price: below it for a long, above it for a short. Nothing was saved.',
     retryable: false,
   },
   'trade.conditional_would_increase': {

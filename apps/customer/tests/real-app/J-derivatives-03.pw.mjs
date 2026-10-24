@@ -329,7 +329,7 @@ test(`${J} #5 places a stop market, a stop limit and a trailing stop judged on t
 
   // The index is not published here: the choice says so, and the service refuses it by name.
   await dialog.getByRole('button', { name: 'Index', exact: true }).click();
-  await expect(dialog.getByText('The index price is not published here yet')).toBeVisible();
+  await expect(dialog.getByText('The index price is not published on this exchange')).toBeVisible();
   await dialog.getByRole('button', { name: 'Arm stop' }).click();
   await expect(dialog.getByText('The index price is not published here', { exact: true })).toBeVisible();
   await expect(dialog.getByText('trade.trigger_source_unset')).toBeVisible();
