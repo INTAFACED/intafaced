@@ -147,7 +147,9 @@ test('J-p2p-03 #2 posting before accepting the advertiser terms refuses and open
   expect(await adsMarked(state, `${state.marker}-unaccepted`)).toHaveLength(0);
 });
 
-test('J-p2p-03 #3 a floating price resolves to an exact decimal from the reference, or refuses without one while a fixed price posts', async () => {
+test('J-p2p-03 #3 a floating price resolves to an exact decimal from the reference, or refuses without one while a fixed price posts', async ({
+  page,
+}) => {
   const state = journey();
   const s = await advertiser(state);
   const marker = `${state.marker}-float`;
@@ -156,8 +158,28 @@ test('J-p2p-03 #3 a floating price resolves to an exact decimal from the referen
     idempotencyKey: `${J}:float:${state.seller.handle}`,
   });
   if (floating.status !== 200) {
-    // No reference price for USDT/EUR on this stack: the floating ad refuses with that reason.
+    // No reference price for USDT/EUR on this stack: the floating ad refuses with that reason, and nothing is listed.
     expect(refusalCode(floating)).toBe('p2p.reference_price_unavailable');
+    expect(await adsMarked(state, marker)).toHaveLength(0);
+    // From the form: the summary says why and points to a fixed price.
+    await signIn(page, state.seller);
+    await page.goto('/uc/ad/create');
+    const form = await fillAd(page, `TEST terms ${marker}-form`);
+    await form.getByLabel('Follows a reference (multiplier)').check();
+    await form.getByLabel('Multiplier on the reference price').fill('1.02');
+    await page.getByTestId('offer-submit').click();
+    await page.getByTestId('offer-confirm').click();
+    await expect(page.getByTestId('offer-summary').getByRole('alert')).toContainText(
+      'No market price is published for this coin and currency, so a floating price cannot be worked out. Choose a fixed price instead.',
+    );
+    expect(await adsMarked(state, `${marker}-form`)).toHaveLength(0);
+    // The same ad at a fixed price posts.
+    const fixed = await s.mutate('offers.create', {
+      ...sellAd(state, { terms: `TEST terms ${marker}-fixed` }),
+      idempotencyKey: `${J}:float-fixed:${state.seller.handle}`,
+    });
+    expect(fixed.status).toBe('active');
+    await s.mutate('offers.close', { offerId: fixed.id });
     return;
   }
   // Posted: the board must show the reference it resolves against, never an unresolved price.

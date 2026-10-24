@@ -415,6 +415,14 @@ interface BuyAdRange {
   maxAmt: Amount;
 }
 
+/** P-ads-merchant-03: a floating ad with no reference for its pair cannot be priced, so it is not listed. */
+function noReference(asset: string, fiatCurrency: string, what: 'posted' | 'resumed'): PricingError {
+  return new PricingError(
+    `No ${fiatCurrency} / ${asset} reference price is published, so a floating ad cannot be priced or ${what}; a fixed price still posts`,
+    'p2p.reference_price_unavailable',
+  );
+}
+
 function shortOf(free: Amount, requested: Amount, asset: string, what: string): P2pError {
   const available = formatAmount(free);
   const shortBy = formatAmount(sub(requested, free));
@@ -1722,7 +1730,8 @@ export class P2pService {
   /**
    * P-ads-merchant-01. What a new ad needs from its maker that the offer itself cannot show: the published advertiser
    * terms accepted (and, from the form, the version it showed), and for a sell ad a free balance of the coin that
-   * covers the total, and (P-ads-merchant-12) the posting thresholds for the ad's fiat. The balance check is advisory,
+   * covers the total, (P-ads-merchant-12) the posting thresholds for the ad's fiat, and (P-ads-merchant-03) for a
+   * floating ad a reference price to resolve against, or `p2p.reference_price_unavailable`. The balance check is advisory,
    * at post only: nothing is reserved, the escrow locks per order at take. A retry of a create that already published
    * (same key, or with no key the same offer id) skips every check, so a
    * lost reply always returns the ad; the transaction below then answers it as a replay.
@@ -1734,13 +1743,20 @@ export class P2pService {
     totalAmt: Amount,
     retry: { idempotencyKey: string | undefined; offerId: string | undefined },
     shownTermsVersion: string | undefined,
-    content: { buyRange?: BuyAdRange; terms?: string; posting?: { fiatCurrency: string; tier: string | undefined } },
+    content: {
+      buyRange?: BuyAdRange;
+      terms?: string;
+      posting?: { fiatCurrency: string; tier: string | undefined };
+      /** P-ads-merchant-03: a floating ad, whose pair (the posting fiat) needs a reference price to resolve against. */
+      floating?: boolean;
+    },
   ): Promise<void> {
     const checkBalance = this.sellBalanceAtPost && side === 'sell';
     const checkContent = this.adContentRules.status !== 'absent';
     const thresholds = this.postingThresholds;
     const posting = thresholds ? content.posting : undefined;
-    if (!this.advertiserTerms && !checkBalance && !content.buyRange && !checkContent && !posting) return;
+    const floatingFiat = content.floating ? content.posting?.fiatCurrency : undefined;
+    if (!this.advertiserTerms && !checkBalance && !content.buyRange && !checkContent && !posting && !floatingFiat) return;
     if (retry.idempotencyKey) {
       const published = await this.sql<{ subject_id: string | null }[]>`
         SELECT subject_id FROM p2p.write_keys
@@ -1753,12 +1769,14 @@ export class P2pService {
     }
     this.assertAdContent(content.terms);
     if (content.buyRange) this.assertBuyAdRange(content.buyRange);
-    const [, free, refusal] = await Promise.all([
+    const [, free, refusal, reference] = await Promise.all([
       this.advertiserTerms?.assertAccepted(makerId, shownTermsVersion),
       checkBalance ? this.sellBalance(makerId, asset) : null,
       thresholds && posting ? this.postingRefusal(thresholds, makerId, posting.fiatCurrency, posting.tier) : null,
+      floatingFiat ? this.referenceOrNull(asset, floatingFiat) : null,
     ]);
     if (refusal) throw refusal;
+    if (floatingFiat && reference === null) throw noReference(asset, floatingFiat, 'posted');
     if (free !== null && compare(totalAmt, free) > 0) throw shortOf(free, totalAmt, asset, "this ad's total; nothing was posted");
   }
 
@@ -1921,6 +1939,7 @@ export class P2pService {
       {
         terms: input.terms,
         posting: { fiatCurrency, tier: input.makerTier },
+        floating: input.priceType === 'float',
         buyRange:
           input.side === 'buy'
             ? {
@@ -2173,6 +2192,14 @@ export class P2pService {
     const preview = await this.loadOfferRaw(offerId);
     if (preview.makerId !== makerId) throw new P2pError('Only the maker can resume an offer', 'p2p.not_a_party');
     if (preview.side === 'sell') this.assertSellNotLocked(true);
+    // P-ads-merchant-03: a paused floating ad comes back on the board only while a reference prices its pair.
+    if (
+      preview.status === 'paused' &&
+      preview.priceType === 'float' &&
+      (await this.referenceOrNull(preview.asset, preview.fiatCurrency)) === null
+    ) {
+      throw noReference(preview.asset, preview.fiatCurrency, 'resumed');
+    }
     const rows = await this.sql<OfferRow[]>`
       UPDATE p2p.offers SET status = 'active', updated_at = now()
        WHERE id = ${offerId} AND maker_id = ${makerId} AND status = 'paused'
@@ -4785,6 +4812,11 @@ export class P2pService {
    */
   async referencePrice(asset: string, fiatCurrency: string): Promise<Amount | null> {
     return (await this.referencePrices?.price(asset, fiatCurrency)) ?? null;
+  }
+
+  /** The reference at post or resume: a feed that fails reads as no price, as on the board, so the refusal stays typed. */
+  private referenceOrNull(asset: string, fiatCurrency: string): Promise<Amount | null> {
+    return this.referencePrice(asset, fiatCurrency).catch(() => null);
   }
 
   async releasedTradeCounts(offerIds: readonly string[]): Promise<Map<string, number>> {

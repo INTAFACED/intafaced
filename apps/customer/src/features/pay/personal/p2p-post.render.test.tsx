@@ -247,7 +247,7 @@ describe('PostingChecklist', () => {
     );
   });
 
-  it('says a post below a threshold in the room’s words', async () => {
+  it('says a post below a threshold, and a floating price with no market price, in the room’s words', async () => {
     const page = await render(
       <OfferSummary
         input={input}
@@ -260,6 +260,20 @@ describe('PostingChecklist', () => {
       />,
     );
     expect(page.textContent).toContain('Your account does not meet what posting an ad in this currency needs. Go back to the form');
+    act(() => root?.unmount());
+    root = null;
+    const floating = await render(
+      <OfferSummary
+        input={{ ...input, priceType: 'float', price: '1.02' }}
+        methodLabels={['TEST bank transfer']}
+        termsNote={null}
+        failure={{ ok: false, reason: 'error', message: 'x', code: 'p2p.reference_price_unavailable' }}
+        posting={false}
+        onConfirm={() => {}}
+        onBack={() => {}}
+      />,
+    );
+    expect(floating.textContent).toContain('No market price is published for this coin and currency');
   });
 });
 
