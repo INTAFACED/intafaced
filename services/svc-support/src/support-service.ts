@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { AuthError, requireScope, type Principal } from '@intafaced/auth';
 import {
+  SUPPORT_CATEGORY_ROUTES,
+  SUPPORT_FRAUD_ROUTE_MISSING,
+  SUPPORT_FRAUD_ROUTE_UNSET,
+  supportTicketCategorySchema,
+  type SupportCategories,
   SUPPORT_KB_STORED_BODY_KEY,
   SUPPORT_KB_STORED_TITLE_KEY,
   supportKbBodyProblem,
@@ -385,7 +390,33 @@ export class SupportService implements SupportContract {
     private readonly commentCap: number | null = null,
     /** Saved views. Caps stay null until the owner sets them; a save then refuses rather than guessing 10 or 100. */
     private readonly views: ViewBook = new MemoryViewBook({ personal: null, shared: null }),
+    /**
+     * The name of the desk group fraud reports go to (SP-tickets-01). Owner value; blank (null) refuses a fraud report
+     * `support.fraud_route_unset` rather than leaving it on the open desk.
+     */
+    private readonly fraudGroupName: string | null = null,
   ) {}
+
+  /** The group a fraud report goes to, or the refusal that says why none can be sent now. */
+  private async fraudRoute(): Promise<
+    { groupId: string } | { refusal: typeof SUPPORT_FRAUD_ROUTE_UNSET | typeof SUPPORT_FRAUD_ROUTE_MISSING }
+  > {
+    if (this.fraudGroupName === null) return { refusal: SUPPORT_FRAUD_ROUTE_UNSET };
+    const group = (await this.groups.list()).find((row) => row.name === this.fraudGroupName);
+    return group ? { groupId: group.id } : { refusal: SUPPORT_FRAUD_ROUTE_MISSING };
+  }
+
+  /** The categories a person can send, where each goes, and which cannot be sent now and why. */
+  async categories(): Promise<SupportCategories> {
+    const fraud = await this.fraudRoute();
+    return {
+      categories: supportTicketCategorySchema.options.map((id) => ({
+        id,
+        routesTo: SUPPORT_CATEGORY_ROUTES[id],
+        refusal: SUPPORT_CATEGORY_ROUTES[id] === 'compliance' && 'refusal' in fraud ? fraud.refusal : null,
+      })),
+    };
+  }
 
   /** The viewer's place in the desk, or null while no group exists (visibility not restricted). */
   private async deskScope(viewerId: string): Promise<{ viewer: DeskViewer; grouped: Map<string, string> } | null> {
@@ -517,6 +548,13 @@ export class SupportService implements SupportContract {
       if (input.messageHeaders !== undefined && input.category !== 'phishing') {
         throw new SupportError('message headers belong to a phishing report only', 'support.headers_not_allowed');
       }
+      // A fraud report goes to the owner's compliance group; with none named or found it is refused before it exists.
+      const route = SUPPORT_CATEGORY_ROUTES[input.category] === 'compliance' ? await this.fraudRoute() : null;
+      if (route && 'refusal' in route)
+        throw new SupportError(
+          route.refusal === SUPPORT_FRAUD_ROUTE_UNSET ? 'fraud reports have no group set' : 'the fraud report group does not exist',
+          route.refusal,
+        );
       if (input.followsTicketId !== undefined) {
         // Only the caller's own closed request can be followed. Anyone else's reads the same as none.
         const followed = await this.store.findById(input.followsTicketId);
@@ -546,6 +584,10 @@ export class SupportService implements SupportContract {
       if (input.followsTicketId !== undefined) {
         await this.lifecycle.linkFollowUp(ticket.id, input.followsTicketId, ticket.createdAt);
       }
+      // Grouped only while ungrouped, so a replay after a crash here groups it, and never undoes a lead's later move.
+      // Until grouped, an ungrouped ticket is read by leads only (`deskCanSee`), so the gap exposes it to no agent.
+      if (route && (await this.groups.groupOfTicket(ticket.id)) === null)
+        await this.groups.setTicketGroup({ ticketId: ticket.id, groupId: route.groupId, by: 'support:fraud-route', at: ticket.createdAt });
       span.setAttribute('intafaced.support.ticket_id', ticket.id);
       return ticket;
     });

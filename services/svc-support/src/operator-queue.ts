@@ -17,6 +17,8 @@ export const CATEGORY_WEIGHT: Readonly<Record<string, number>> = {
   deposit_withdraw: 70,
   /** A reported scam is read before an ordinary question, below a stuck deposit. */
   phishing: 60,
+  /** A fraud report sits in the compliance group; it is read with the same weight as a reported scam. */
+  fraud_report: 60,
   other: 10,
 };
 

@@ -28,6 +28,7 @@ import {
 import { readRatedTicketIds } from './support-calls';
 import { CATEGORY_VALUES, ticketSchema, type Ticket } from './support-schemas';
 import { supportRequestFormsSchema, type SupportField, type SupportFieldValue } from '@intafaced/contracts/support-forms';
+import { supportCategoriesSchema } from '@intafaced/contracts/support-categories';
 import { formAnswers, formReady, RequestTypeFields, type FormAnswers } from './SupportRequestForm';
 
 import './support-desk.css';
@@ -49,6 +50,7 @@ const CATEGORY_KEYS = {
   trading: 'support.category.trading',
   deposit_withdraw: 'support.category.deposit_withdraw',
   phishing: 'support.category.phishing',
+  fraud_report: 'support.category.fraud_report',
   other: 'support.category.other',
 } as const;
 const categoryLabel = (value: string): string =>
@@ -297,6 +299,20 @@ function NewRequest({
     `support-forms:${userId}`,
   );
   const forms = catalogue.resource.status === 'ready' ? catalogue.resource.data : null;
+  // Where each category goes (SP-tickets-01): a fraud report goes to compliance, or cannot be sent and says why.
+  const routes = useResource(
+    (signal) => api.query('support', 'categories', undefined, supportCategoriesSchema, { signal }),
+    `support-categories:${userId}`,
+  );
+  const route = routes.resource.status === 'ready' ? routes.resource.data.categories.find((row) => row.id === category) : undefined;
+  const routeNote =
+    route?.routesTo === 'compliance'
+      ? route.refusal === null
+        ? { key: 'fraudNote' as const, blocks: false }
+        : { key: 'fraudUnset' as const, blocks: true }
+      : category === 'fraud_report' && routes.resource.status !== 'ready'
+        ? { key: 'fraudUnread' as const, blocks: true }
+        : null;
   const [formId, setFormId] = useState(''),
     [answers, setAnswers] = useState<FormAnswers>({});
   const form = forms?.forms.find((row) => row.id === formId) ?? null;
@@ -417,6 +433,11 @@ function NewRequest({
           <textarea lang="und" value={body} onChange={(event) => setBody(event.target.value)} maxLength={10000} rows={7} />
           <small>{copy.t('characters', { count: body.length, max: 10000 })}</small>
         </label>
+        {routeNote && (
+          <p className="support-warning" role="note">
+            {copy.t(routeNote.key)}
+          </p>
+        )}
         {category === 'phishing' && (
           <>
             <p className="support-warning" role="note">
@@ -430,7 +451,7 @@ function NewRequest({
             </label>
           </>
         )}
-        <Button type="submit" disabled={action.disabled || !subject.trim() || !body.trim() || !formOk}>
+        <Button type="submit" disabled={action.disabled || !subject.trim() || !body.trim() || !formOk || routeNote?.blocks === true}>
           {copy.t('reviewRequest')}
         </Button>
       </form>

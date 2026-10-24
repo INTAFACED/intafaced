@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { accountStateSchema } from './identity.js';
+import { supportTicketCategorySchema } from './support-categories.js';
 import { supportCreateFormSchema } from './support-forms.js';
 
 /**
@@ -13,8 +14,16 @@ import { supportCreateFormSchema } from './support-forms.js';
 export const supportTicketStatusSchema = z.enum(['open', 'pending', 'on_hold', 'resolved', 'closed']);
 export type SupportTicketStatus = z.infer<typeof supportTicketStatusSchema>;
 
-export const supportTicketCategorySchema = z.enum(['account', 'trading', 'deposit_withdraw', 'phishing', 'other']);
-export type SupportTicketCategory = z.infer<typeof supportTicketCategorySchema>;
+export {
+  SUPPORT_CATEGORY_ROUTES,
+  SUPPORT_CATEGORY_UNKNOWN,
+  SUPPORT_FRAUD_ROUTE_MISSING,
+  SUPPORT_FRAUD_ROUTE_UNSET,
+  supportCategoriesSchema,
+  supportTicketCategorySchema,
+  type SupportCategories,
+  type SupportTicketCategory,
+} from './support-categories.js';
 
 /**
  * Pasted message headers on a phishing report (I-signin-sessions-27). The same
@@ -85,6 +94,9 @@ export const createTicketInputSchema = z.object({
   form: supportCreateFormSchema.optional(),
 });
 export type CreateTicketInput = z.infer<typeof createTicketInputSchema>;
+
+/** `support.create` as it arrives: any category text, so the service can refuse an unknown one by name. */
+export const createTicketWireInputSchema = createTicketInputSchema.extend({ category: z.string().min(1).max(64) });
 
 /**
  * Who may read a help article (SP-help-centre-02). `public` is everyone, including a signed-out visitor;

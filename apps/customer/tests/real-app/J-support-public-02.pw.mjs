@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { defineRequestField, defineRequestForm, replyAsLead, setStatusAsLead } from './help-centre.mjs';
+import { defineRequestField, defineRequestForm, ensureDeskGroup, replyAsLead, setStatusAsLead } from './help-centre.mjs';
 import { signUp } from './desk.mjs';
 import { api, ORIGIN } from './stack.mjs';
 
@@ -214,10 +214,15 @@ test(`${J} #4 a fraud-report category says it goes to compliance, and an unknown
     clientRequestId: `j02:${RUN}:unknown`,
   });
   expect(JSON.stringify(res.body)).toContain('support.category_unknown');
-  // The owner's fraud-report category (SP-tickets-01 category list) names where it goes.
+  // A fraud report names where it goes: the compliance group the owner named (TEST Compliance on this stack).
+  await ensureDeskGroup('TEST Compliance');
   await page.goto('/support/new');
   const main = page.locator('main');
-  await expect(main.getByText('goes to our compliance team')).toBeVisible({ timeout: 5_000 });
+  await main.getByRole('combobox', { name: 'Topic' }).selectOption({ label: 'Report fraud on my account' });
+  await expect(main.getByRole('note').filter({ hasText: 'goes to our compliance team' })).toBeVisible({ timeout: 5_000 });
+  await main.getByLabel('Subject', { exact: true }).fill(`TEST ${J} ${RUN} fraud`);
+  await main.getByLabel('What happened').fill('TEST A payment I did not make.');
+  await expect(main.getByRole('button', { name: 'Review request' })).toBeEnabled();
 });
 
 test(`${J} #5 the review step sends one request with an audit event and "Open"; a lost reply re-reads the stored request and makes no second one`, async ({

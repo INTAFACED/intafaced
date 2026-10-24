@@ -1,7 +1,10 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import {
-  createTicketInputSchema,
+  createTicketWireInputSchema,
+  SUPPORT_CATEGORY_UNKNOWN,
+  supportCategoriesSchema,
+  supportTicketCategorySchema,
   escalateTicketInputSchema,
   getKbArticleInputSchema,
   setKbAudienceInputSchema,
@@ -137,7 +140,9 @@ function mapError(err: unknown): never {
       err.code === 'support.comment_cap_unset' ||
       err.code === 'support.comment_cap_reached' ||
       err.code === 'support.assistant_model_unset' ||
-      err.code === 'support.kb_section_unknown'
+      err.code === 'support.kb_section_unknown' ||
+      err.code === 'support.fraud_route_unset' ||
+      err.code === 'support.fraud_route_missing'
     ) {
       throw new TRPCError({ code: 'PRECONDITION_FAILED', message });
     }
@@ -212,10 +217,30 @@ export function createSupportRouter(
 
     kbPolicy: publicProcedure.query(() => describeKbPolicy()),
 
+    /** The categories a person can send, where each goes, and which cannot be sent now (SP-tickets-01). */
+    categories: scopedProcedure('support:read')
+      .output(supportCategoriesSchema)
+      .query(async () => {
+        try {
+          return await support.categories();
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
     create: scopedProcedure('support:write')
-      .input(createTicketInputSchema)
+      .input(createTicketWireInputSchema)
       .output(supportTicketSchema)
-      .mutation(async ({ ctx, input }) => {
+      .mutation(async ({ ctx, input: wire }) => {
+        // A category the service does not offer is refused by its own code, before anything else is read.
+        const category = supportTicketCategorySchema.safeParse(wire.category);
+        if (!category.success)
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: userCopy(SUPPORT_CATEGORY_UNKNOWN),
+            cause: Object.assign(new Error(SUPPORT_CATEGORY_UNKNOWN), { code: SUPPORT_CATEGORY_UNKNOWN }),
+          });
+        const input = { ...wire, category: category.data };
         const userId = ctx.principal!.userId;
         // A request sent with a form is checked against the stored form before the ticket exists (SP-tickets-03). A
         // replay of a key whose ticket already exists is not refused for a form changed since: it returns that ticket,

@@ -20,5 +20,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     // Production stays blank and every definition refuses (support.form_cap_unset, support.field_cap_unset).
     SUPPORT_FORM_CAP: '50',
     SUPPORT_FIELD_CAP: '200',
+    // LOCAL TEST only, labelled in the same file: the desk group fraud reports go to (the journey makes it).
+    // Production stays blank and every fraud report refuses (support.fraud_route_unset) until the owner names one.
+    SUPPORT_FRAUD_GROUP: 'TEST Compliance',
   }),
 });

@@ -50,6 +50,11 @@
       "service": "support",
       "value": "200",
       "note": "Live ticket fields the desk may keep, for the same journey. Not an owner decision."
+    },
+    "SUPPORT_FRAUD_GROUP": {
+      "service": "support",
+      "value": "TEST Compliance",
+      "note": "The desk group fraud reports go to, so J-support-public-02 #4 can send one; the journey makes the group. Not an owner decision."
     }
   }
 }

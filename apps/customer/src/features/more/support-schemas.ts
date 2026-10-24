@@ -4,7 +4,7 @@ import { z } from 'zod';
 export const ticketSchema = z.object({
   id: z.string().guid(),
   userId: z.string().guid(),
-  category: z.enum(['account', 'trading', 'deposit_withdraw', 'phishing', 'other']),
+  category: z.enum(['account', 'trading', 'deposit_withdraw', 'phishing', 'fraud_report', 'other']),
   subject: z.string().min(1).max(200),
   body: z.string().min(1).max(10000),
   status: z.enum(['open', 'pending', 'on_hold', 'resolved', 'closed']),
@@ -39,4 +39,4 @@ export type Ticket = z.infer<typeof ticketSchema>;
 export type Comment = z.infer<typeof commentSchema>;
 export type KbArticle = z.infer<typeof kbSchema>;
 
-export const CATEGORY_VALUES = ['account', 'trading', 'deposit_withdraw', 'phishing', 'other'] as const;
+export const CATEGORY_VALUES = ['account', 'trading', 'deposit_withdraw', 'phishing', 'fraud_report', 'other'] as const;

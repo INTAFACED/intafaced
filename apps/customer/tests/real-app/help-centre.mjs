@@ -122,3 +122,14 @@ export async function defineRequestForm(row) {
   const { ctx } = await founders();
   return data(await ctx.edge.mutate('support', 'defineRequestForm', row, await leadToken()), 'defineRequestForm');
 }
+
+/** The desk group with this name, made by the support lead when the desk has none (the TEST fraud-report route). */
+export async function ensureDeskGroup(name) {
+  const { ctx } = await founders();
+  const token = await leadToken();
+  const groups = data(await ctx.edge.query('support', 'groupsList', undefined, token), 'groupsList');
+  return (
+    groups.find((group) => group.name === name) ??
+    data(await ctx.edge.mutate('support', 'groupsSave', { name, idempotencyKey: `group:${name}` }, token), 'groupsSave')
+  );
+}
