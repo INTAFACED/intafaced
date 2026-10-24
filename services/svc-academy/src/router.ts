@@ -53,6 +53,8 @@ import {
   academyPublishLessonInputSchema,
   academyDuplicateItemInputSchema,
   academyImportLessonInputSchema,
+  academyAssistantDraftInputSchema,
+  academyDecideDraftInputSchema,
   academyImportLessonResultSchema,
 } from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
@@ -67,6 +69,7 @@ import {
 import { AcademyError } from './errors.js';
 import { relatedItems } from './curriculum/related.js';
 import { listPublicCourses, searchPublicCurriculum } from './curriculum/public-catalogue.js';
+import { OwnerDecisionError } from './curriculum/lessons.js';
 import { settingsRegister, type SettingsEnv } from './settings/register.js';
 import { userCopy } from './user-copy.js';
 import type { AcademyService, AttendeeRole, RoomRecord, SessionRecord } from './academy-service.js';
@@ -642,6 +645,8 @@ const serialiseSession = (session: SessionRecord, seat: { role: AttendeeRole } |
  */
 function toTrpcError(err: unknown): TRPCError {
   if (err instanceof TRPCError) return err;
+  // The allowlisted owner-decision refusal (no academy code): a path that waits for the owner's choice.
+  if (err instanceof OwnerDecisionError) return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
   if (err instanceof DualControlError) {
     return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
   }
@@ -866,9 +871,11 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.outline_too_large':
     case 'academy.item_has_no_lesson':
     case 'academy.import_too_large':
+    case 'academy.lesson_blocks_invalid':
       return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
 
     case 'academy.lesson_revision_unknown':
+    case 'academy.draft_not_found':
       return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
 
     case 'academy.prerequisite_cycle':
@@ -2872,6 +2879,18 @@ export function createAcademyRouter(
         .input(academyImportLessonInputSchema)
         .output(academyImportLessonResultSchema)
         .mutation(({ input, ctx }) => guard(() => academy.importLesson({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-course-structure-04: a template draft from the course's structure; the model path refuses `owner.decision`. */
+      assistantDraft: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyAssistantDraftInputSchema)
+        .output(academyLessonSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.assistantDraft({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-course-structure-04: a person accepts (a new lesson revision) or discards the open draft. */
+      decideDraft: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyDecideDraftInputSchema)
+        .output(academyLessonSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.decideDraft({ ...input, operatorId: ctx.principal!.userId }))),
 
       /** AC-articles-01: staff choose the hub's featured item with a reason; `itemSlug: null` clears the slot. */
       setFeatured: scopedProcedure('admin:write', { module: 'academy' })

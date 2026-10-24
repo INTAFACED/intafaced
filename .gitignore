@@ -91,3 +91,7 @@ __pycache__/
 # Private business files (audits, investor material) live in the private project-state repo, never in this public one.
 /audit/
 /docs/investor-product-audit-*/
+
+# Built on demand by `node tooling/scripts/owner-settings.mjs`, never committed: a committed copy changed in
+# nearly every slice and made open PRs conflict on each merge (owner decision 2026-10-23).
+docs/OWNER-SETTINGS.md

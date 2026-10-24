@@ -14,6 +14,7 @@ import { isDerivativesAccessError, presentDerivativesAccessError } from './deriv
 import { presentFuturesErrorWire } from './futures-error-wire.js';
 import { MatchedOrderError, type MatchedOrderView, type PlaceMatchedOrderInput } from './matched-orders.js';
 import { FuturesError } from './position-service.js';
+import type { EntryProtectionInput, EntryProtectionView } from './conditional-orders/service.js';
 import { CONFIRM_TIER_INVALID, readConfirmTier } from './risk-tier-confirm.js';
 
 /** The largest page one read may ask for; a blank or larger limit refuses rather than picking one. */
@@ -43,6 +44,13 @@ export interface MatchedOrdersRestDeps {
     principal: Principal,
     input: { readonly scope: 'open' | 'all'; readonly limit: number; readonly symbol?: string | null },
   ) => Promise<readonly FuturesOrderWire[]>;
+  /**
+   * A take profit and a stop loss attached to an opening order: checked and recorded before the order is placed, armed
+   * on its fills by the conditional job. Absent refuses an order that asks for one.
+   */
+  readonly entryProtection?: {
+    record(userId: string, input: EntryProtectionInput): Promise<EntryProtectionView | null>;
+  };
 }
 
 export interface MatchedOrdersRestGates {
@@ -52,6 +60,11 @@ export interface MatchedOrdersRestGates {
   /** The service's shared domain mapping (auth, CCXT); null when it does not know the error. */
   sendDomainError(reply: FastifyReply, err: unknown): FastifyReply | null;
 }
+
+const ENTRY_PROTECTION_UNMOUNTED = {
+  error: 'trade.entry_protection_unmounted',
+  message: 'a take profit or stop loss on an opening order is not mounted on this deployment; nothing was placed',
+};
 
 const UNMOUNTED = {
   error: 'trade.futures_orders_unmounted',
@@ -164,8 +177,23 @@ export function attachMatchedOrderRoutes(app: FastifyInstance, deps: MatchedOrde
       requireScope(principal, 'trade:write');
       const read = readPlaceBody(principal.userId, req.body);
       if (!read.ok) return bad(reply, read.code, read.message);
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const asks = body.takeProfit !== undefined || body.stopLoss !== undefined;
+      if (asks && !deps.entryProtection) return reply.code(503).send(ENTRY_PROTECTION_UNMOUNTED);
+      // Recorded before the order is placed, so an order is never live with its protection unrecorded, and a
+      // protection that would refuse refuses before anything is placed. The same request sent again finds the row.
+      const protection = asks
+        ? await deps.entryProtection!.record(principal.userId, {
+            symbol: read.input.symbol,
+            side: read.input.side,
+            reduceOnly: read.input.reduceOnly === true,
+            clientOrderId: read.input.clientOrderId,
+            takeProfit: body.takeProfit,
+            stopLoss: body.stopLoss,
+          })
+        : null;
       const order = await deps.place(principal, read.input, { region: gates.regionOf(req) ?? null });
-      return reply.code(200).send(order);
+      return reply.code(200).send(protection == null ? order : { ...order, protection });
     } catch (err) {
       const sent = sendFuturesFailure(reply, err, gates);
       if (sent) return sent;
@@ -183,6 +211,14 @@ export function attachMatchedOrderRoutes(app: FastifyInstance, deps: MatchedOrde
       requireScope(principal, 'trade:write');
       const read = readPlaceBody(principal.userId, req.body);
       if (!read.ok) return bad(reply, read.code, read.message);
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      if (body.takeProfit !== undefined || body.stopLoss !== undefined) {
+        return bad(
+          reply,
+          'trade.entry_protection_split_unsupported',
+          'a take profit or stop loss is attached to one order, not a split; set it on the position once it is open',
+        );
+      }
       return reply.code(200).send(await deps.placeSplit(principal, read.input, { region: gates.regionOf(req) ?? null }));
     } catch (err) {
       const sent = sendFuturesFailure(reply, err, gates);
