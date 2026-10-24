@@ -1,4 +1,5 @@
 import { formatAmount, mul, parseAmount, type Amount } from '@intafaced/ledger-client';
+import type { PnlOverTime } from '@intafaced/contracts/tax-lot-book';
 import { listMissingBasis, parseBasisSet, type BasisSetInput, type MissingBasisItem } from './basis-override.js';
 import { type ActiveBasis, type BasisRow, type BasisStore } from './basis-store.js';
 import {
@@ -21,12 +22,16 @@ import {
   TAX_LOT_PICK_INVALID,
   TAX_OWN_SPACES_UNAVAILABLE,
   TAX_OWN_SPACES_UNWIRED,
+  TAX_PNL_PRICES_UNAVAILABLE,
+  TAX_PNL_RANGE_INVALID,
+  TAX_PNL_RANGE_TOO_LONG,
   TAX_PRICE_AT_TIME_UNAVAILABLE,
   TaxError,
 } from './codes.js';
 import { parseJurisdictionMap, refuseExportCompleteness, requireMappedRegion, type JurisdictionMap } from './jurisdiction-map.js';
 import type { AccountLine, HistoryRange, InflowLine, SubAccountActivityLine, TaxLedgerReads } from './ledger-reads.js';
-import type { PriceAt, PriceAtTime } from './prices.js';
+import type { CloseSeries, CloseSeriesSource, PriceAt, PriceAtTime } from './prices.js';
+import { BookTimeline, chooseInterval, pnlOverTime } from './pnl-over-time.js';
 import {
   buildLotBook,
   DEFAULT_LOT_BOOK_METHOD,
@@ -44,6 +49,9 @@ import { outsideWithdrawals, WITHDRAWAL_HOLD_PREFIX } from './withdrawals.js';
 import { NO_CHOICES, saleRules, type ChoiceStore, type CostBasisChoices } from './choices.js';
 import { isLotMethod, runLots, type LotMethod, type LotMovement } from './lots.js';
 import { isEngineMethod, type EngineMethod, type ValuedAt } from './lot-engine.js';
+
+/** Candle series reads (one per coin) run this many at a time. */
+const CANDLE_READ_PARALLEL = 8;
 
 /** The lot book also offers AVERAGE; the year pack takes FIFO, LIFO or HIFO only. */
 function requireBookMethod(raw: string): EngineMethod {
@@ -117,6 +125,8 @@ export interface TaxServiceDeps {
   readonly depositBasis?: DepositBasisPolicy;
   /** Price of a coin at a past moment. Absent: arrivals are not valued, named `tax.price_at_time_unavailable`. */
   readonly prices?: PriceAtTime;
+  /** Each coin's candles over a window, for the result over time. Absent: that view refuses `tax.pnl_prices_unavailable`. */
+  readonly closes?: CloseSeriesSource;
   /** Customer-entered basis. Absent: writes refuse `tax.basis_store_unwired` and the book ignores overrides. */
   readonly basis?: BasisStore;
   /** The customer's saved cost-basis choices. Absent: saves refuse `tax.basis_store_unwired` and the product default applies. */
@@ -216,6 +226,7 @@ export class TaxService {
   private readonly now: () => Date;
   private readonly depositBasis: DepositBasisPolicy | undefined;
   private readonly prices: PriceAtTime | undefined;
+  private readonly closes: CloseSeriesSource | undefined;
   private readonly basis: BasisStore | undefined;
   private readonly choices: ChoiceStore | undefined;
   private readonly spaces: BankOwnSpacesPort | undefined;
@@ -229,6 +240,7 @@ export class TaxService {
     this.now = deps.now ?? (() => new Date());
     this.depositBasis = deps.depositBasis;
     this.prices = deps.prices;
+    this.closes = deps.closes;
     this.basis = deps.basis;
     this.choices = deps.choices;
     this.spaces = deps.spaces;
@@ -267,6 +279,41 @@ export class TaxService {
       saved,
       unreadable ? { status: 'unavailable', code: TAX_CHOICES_UNAVAILABLE } : this.bookChoices(saved),
     );
+  }
+
+  /**
+   * The indicator over a date range (J-portfolio-05 #4-#5): the cumulative result at each moment of the range and the
+   * change over it split by coin, market and day, from the customer's own lot book (pnl-over-time.ts). A range that
+   * ends in the future ends now. Read-only.
+   */
+  async pnlOverTime(input: { userId: string; from: string; to?: string; utcOffsetMinutes: number }): Promise<PnlOverTime> {
+    const now = this.now();
+    const from = new Date(input.from);
+    const asked = input.to === undefined ? now : new Date(input.to);
+    const to = asked.getTime() > now.getTime() ? now : asked;
+    if (!(from.getTime() < to.getTime())) throw new TaxError(TAX_PNL_RANGE_INVALID, 'the range must start before it ends, and before now');
+    const interval = chooseInterval(from, to, now);
+    if (interval === null) throw new TaxError(TAX_PNL_RANGE_TOO_LONG, 'the range starts too long ago to be priced: pick a later start');
+    const book = await this.lotBook({ userId: input.userId });
+    const timeline = new BookTimeline(book);
+    const coins = timeline.coins();
+    const closes = new Map<string, CloseSeries | null>();
+    if (coins.length > 0) {
+      const source = this.closes;
+      if (!source) throw new TaxError(TAX_PNL_PRICES_UNAVAILABLE, 'market data is not attached: no chart is drawn without prices');
+      try {
+        for (let i = 0; i < coins.length; i += CANDLE_READ_PARALLEL) {
+          await Promise.all(
+            coins
+              .slice(i, i + CANDLE_READ_PARALLEL)
+              .map(async (assetId) => closes.set(assetId, await source.closes(assetId, interval, from, to))),
+          );
+        }
+      } catch {
+        throw new TaxError(TAX_PNL_PRICES_UNAVAILABLE, 'market data could not be read: no chart is drawn from part of it');
+      }
+    }
+    return pnlOverTime({ book, from, to, now, interval, utcOffsetMinutes: input.utcOffsetMinutes, closes, timeline });
   }
 
   private async bookWith(userId: string, preview: EngineMethod | null, saved: CostBasisChoices, choices: BookChoices): Promise<LotBook> {

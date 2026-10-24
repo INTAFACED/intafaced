@@ -33,6 +33,7 @@ import {
   unknownShareOf,
 } from './pnl-model';
 import { useBasisOverride, useLotBook, useMissingBasis, useSaveLotChoice, type BasisOutcome, type LotChoice } from './pnl-source';
+import { PnlOverTimeCards } from './PnlOverTime';
 import { useMoneyPortfolio } from './portfolio-source';
 import { stamp } from './time';
 import { usePreferences } from '../../shared/preferences';
@@ -1013,6 +1014,7 @@ export default function Pnl({ search = '' }: { search?: string }) {
           <ViewCard figures={figures} view={viewName} search={search} saleFees={saleFeesUsd(data)} hidden={hideBalances} copy={copy} />
         ) : null}
         <TransfersCard book={data} save={canChoose ? transfers.save : null} busy={transfers.busy} message={transfers.message} copy={copy} />
+        <PnlOverTimeCards book={data} search={search} hidden={hideBalances} />
         {reasons.length > 0 ? (
           <ul className="money-note" aria-label={t('Why some figures are not known')}>
             {[...new Set(reasons)].map((key) => (
