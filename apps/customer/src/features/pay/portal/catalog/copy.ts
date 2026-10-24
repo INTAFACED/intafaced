@@ -178,7 +178,7 @@ const en = {
   importFormat:
     'One header line, then one product a line. Name and type are required; leave any other column out or blank. A file is imported whole or not at all.',
   importEditedNote:
-    'Each file is imported once. A changed file is a new file: its lines without a product_id make new products, so give each line a product_id to import a changed file without making them twice.',
+    'Each file is imported once. A changed file is a new file: its lines with no product ID make new products, so give every line a product ID before you import a changed file, and nothing is made twice.',
   importColumnsLabel: 'Columns a file may have',
   importColColumn: 'Column',
   importColMeaning: 'What it holds',
@@ -241,8 +241,10 @@ const en = {
   testCatalogueImportNote: 'These products join your test catalogue. Copy them to live when they are ready.',
   copyToLive: 'Copy to live',
   copyToTest: 'Copy to test',
-  copyAskLive: 'Copy every active test product that has no live copy yet, with its active prices? Nothing already in live is changed.',
-  copyAskTest: 'Copy every active live product that has no test copy yet, with its active prices? Nothing already in test is changed.',
+  copyAskLive:
+    'Copy every active test product that has no live copy yet, with its active prices? Nothing already in live is changed, and a product is copied once: prices added to it later stay in test.',
+  copyAskTest:
+    'Copy every active live product that has no test copy yet, with its active prices? Nothing already in test is changed, and a product is copied once: prices added to it later stay in live.',
   copyCancel: 'Keep as is',
   copying: 'Copying…',
   copyDone: '{created} copied to the {where}, {skipped} skipped.',
