@@ -140,7 +140,7 @@ const en = {
   aTagHint: 'Only if the place you send to asks for one.',
   aTagBad: 'Use 1 to 64 characters for the memo or tag, with no spaces at either end.',
   aSaveNote:
-    'Saving asks you to confirm it is you. A new address then waits for your approval with a link sent by email, and can be used once its cooling-off period ends after that.',
+    'Saving asks you to confirm it is you. A new address then waits for your approval, from another device where you are signed in or with a link sent by email, and can be used once its cooling-off period ends after that.',
   aSaveWhy: 'Saving a withdrawal address needs a fresh confirmation.',
   aSaved: '{label} was saved to your address book. Approve it before it can be used.',
   aNoAssetsTitle: 'No asset is open for withdrawals',
@@ -378,7 +378,7 @@ const es = {
   aTagHint: 'Solo si el lugar al que envías lo pide.',
   aTagBad: 'Usa de 1 a 64 caracteres para el memo o la etiqueta, sin espacios al principio ni al final.',
   aSaveNote:
-    'Al guardar te pediremos que confirmes que eres tú. Después, una dirección nueva espera tu aprobación con un enlace enviado por correo, y se puede usar cuando termina su periodo de espera.',
+    'Al guardar te pediremos que confirmes que eres tú. Después, una dirección nueva espera tu aprobación, desde otro dispositivo donde hayas iniciado sesión o con un enlace enviado por correo, y se puede usar cuando termina su periodo de espera.',
   aSaveWhy: 'Guardar una dirección de retiro requiere una nueva confirmación.',
   aSaved: '{label} se guardó en tu libreta de direcciones. Apruébala antes de usarla.',
   aNoAssetsTitle: 'Ningún activo está abierto a retiros',
@@ -619,7 +619,7 @@ const fr = {
   aTagHint: 'Seulement si l’endroit où tu envoies en demande un.',
   aTagBad: 'Utilise de 1 à 64 caractères pour le mémo ou le tag, sans espace au début ni à la fin.',
   aSaveNote:
-    'L’enregistrement te demande de confirmer que c’est bien toi. Une nouvelle adresse attend ensuite ton approbation avec un lien envoyé par e-mail, et peut servir à la fin de son délai de sécurité.',
+    'L’enregistrement te demande de confirmer que c’est bien toi. Une nouvelle adresse attend ensuite ton approbation, depuis un autre appareil où tu es connecté ou avec un lien envoyé par e-mail, et peut servir à la fin de son délai de sécurité.',
   aSaveWhy: 'Enregistrer une adresse de retrait demande une nouvelle confirmation.',
   aSaved: '{label} a été enregistrée dans ton carnet d’adresses. Approuve-la avant de l’utiliser.',
   aNoAssetsTitle: 'Aucun actif n’est ouvert aux retraits',

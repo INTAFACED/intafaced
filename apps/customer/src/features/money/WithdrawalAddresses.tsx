@@ -318,9 +318,11 @@ export function ApproveHere({ row, onApproved }: { row: Destination; onApproved?
   const label = row.label ?? shortenAddress(row.ref);
   if (done) {
     return (
-      <p role="status" data-testid="address-approve-here">
-        {done.coolingOffEndsAt ? t('apDone', { label, time: date(done.coolingOffEndsAt) }) : t('apDoneNoTime', { label })}
-      </p>
+      <div className="bd-stack" data-testid="address-approve-here">
+        <p role="status">
+          {done.coolingOffEndsAt ? t('apDone', { label, time: date(done.coolingOffEndsAt) }) : t('apDoneNoTime', { label })}
+        </p>
+      </div>
     );
   }
   return (

@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
-import { ROOT, journeyState, mailedLines } from './stack.mjs';
+import { ROOT, journeyState, mailedCodes, mailedLines, nextMailedCode } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
 
@@ -10,11 +10,11 @@ import { addAuthenticator, nextCode } from './identity-factors.mjs';
 // "J-wallet-04 #<n>", run in order on one verified TEST account with an authenticator app, because saving and removing
 // an address each ask for a fresh confirmation. The assets and networks offered are the ledger's registry rows the
 // stack's founders publish (`local-test-gates.mjs assets`: TEST USDT and USDC on TEST Ethereum and TEST Base). #5 and #7
-// are W-withdraw-09: a new address waits for approval by an emailed link (the stack's LOCAL-TEST outbox), an expired
-// link needs a new one, and the cooling-off starts at approval; the security lock stops address changes and withdrawals.
-// Not here yet: #5's approval from another signed-in device (it needs identity to name a session that survives a token
-// refresh), so #5 is titled "part of #5" and does not count as passed. The lock itself and the password refusal are in
-// J-wallet-04-security-lock, so #7 counts only when both its halves pass (each is titled "#7").
+// are W-withdraw-09: a new address waits for approval by an emailed link (the stack's LOCAL-TEST outbox) or from another
+// signed-in device, an expired link needs a new one, and the cooling-off starts at approval; the security lock stops
+// address changes and withdrawals. Every journey browser presents the stack's one TEST device key, so "another device" is
+// a browser with its cookies cleared, authorised by the mailed device code, as J-identity-02 #5 does. The lock itself
+// and the password refusal are in J-wallet-04-security-lock, so #7 counts only when both its halves pass (each is "#7").
 const J = 'J-wallet-04';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const ADDRESS = '0x52908400098527886E0F7030069857D2E4169EE7';
@@ -22,6 +22,8 @@ const ADDRESS = '0x52908400098527886E0F7030069857D2E4169EE7';
 const TAMPERED = '0x52908400098527886e0F7030069857D2E4169EE7';
 // Starts and ends like ADDRESS as the book shows it (0x5290…9EE7), a different middle: the address-poisoning shape.
 const LOOKALIKE = `0x5290${'1'.repeat(32)}9EE7`;
+// A second, unrelated checksummed address for #5's approval from another device.
+const DEVICE_ADDRESS = '0xde0B295669a9FD93d5F28D9Ec85E40f4cb697BAe';
 
 test.describe.configure({ mode: 'default' });
 
@@ -231,7 +233,7 @@ async function nextApprovalLink(email, seen) {
   return approvalLinks(email).at(-1);
 }
 
-test(`${J}, part of #5: a new address waits for approval by an emailed link; an expired link needs a new one`, async ({
+test(`${J} #5 a new address waits for approval by an emailed link (an expired one needs a new one) or from another signed-in device, never the one that saved it`, async ({
   page,
   browser,
 }) => {
@@ -255,7 +257,7 @@ test(`${J}, part of #5: a new address waits for approval by an emailed link; an 
   await row.getByRole('button', { name: 'Withdraw to this address' }).click();
   const use = page.getByTestId('address-use');
   await expect(use.getByRole('alert')).toHaveText(
-    'TEST new wallet is waiting for your approval, so nothing can be sent to it. Ask for an approval link by email and open it; its cooling-off starts when you approve it.',
+    'TEST new wallet is waiting for your approval, so nothing can be sent to it. Approve it on another device where you are signed in, or ask for an approval link by email and open it; its cooling-off starts when you approve it.',
   );
 
   // Ask for a link: the page says it was asked for and until when it works, never that it arrived.
@@ -327,10 +329,81 @@ test(`${J}, part of #5: a new address waits for approval by an emailed link; an 
     await other.close();
   }
 
-  // Leave the book as #6 expects it: this entry removed again.
-  await savedRows(page).filter({ hasText: 'TEST new wallet' }).getByRole('button', { name: 'Remove' }).click();
+  // From another device. A second address saved in this browser cannot be approved in this browser.
+  await page.goto('/uc/withdraw/address');
+  await field(page, 'Label').fill('TEST device wallet');
+  await field(page, 'Asset').selectOption('USDT');
+  await field(page, 'Network').selectOption('ethereum');
+  await field(page, 'Address').fill(DEVICE_ADDRESS);
+  await addForm(page).getByRole('button', { name: 'Save address' }).click();
   await confirmItsMe(page);
-  await expect(page.getByText('TEST new wallet was removed from your address book.')).toBeVisible();
+  await expect(page.getByText('TEST device wallet was saved to your address book. Approve it before it can be used.')).toBeVisible();
+  await savedRows(page).filter({ hasText: 'TEST device wallet' }).getByRole('button', { name: 'Withdraw to this address' }).click();
+  const here = page.getByTestId('address-approve-here');
+  await here.getByRole('button', { name: 'Approve on this device' }).click();
+  await confirmItsMe(page);
+  await expect(here.getByRole('alert')).toHaveText(
+    'This address was saved on this device, so it cannot be approved here. Approve it on another device where you are signed in, or by the emailed link.',
+  );
+  await page.reload();
+  await expect(savedRows(page).filter({ hasText: 'TEST device wallet' })).toContainText('Waiting for approval');
+
+  // A browser this account never used: its cookies cleared, signed in, and authorised by the mailed device code.
+  const device = await browser.newContext();
+  try {
+    await device.clearCookies();
+    const away = await device.newPage();
+    const seen = mailedCodes(who.email, 'new-device-code').length;
+    const state = account();
+    const { totp } = await totpLib();
+    const { code, step } = await nextCode(totp, state.secret, state.step);
+    run.reset({ ...state, step });
+    await away.goto('/login');
+    await away.fill('input[name=totp]', code);
+    await away.fill('input[name=identifier]', who.email);
+    await away.fill('input[name=password]', who.password);
+    await away.getByRole('button', { name: /^sign in$/i }).click();
+    // With the owner's new-device check on, the browser is authorised by the mailed code; with it off (the stack's
+    // value until J-identity-02 #5 turns it on), identity trusts the browser as it signs in. Either way it is its own device.
+    const authorise = away.getByRole('heading', { name: 'Authorise this device' });
+    await Promise.race([
+      away.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 10_000 }),
+      authorise.waitFor({ timeout: 10_000 }),
+    ]);
+    if (await authorise.isVisible()) {
+      await away.getByLabel('Device code from the email').fill(await nextMailedCode(who.email, seen, 20_000, 'new-device-code'));
+      await away.getByRole('button', { name: 'Approve this device' }).click();
+    }
+    await expect(away).not.toHaveURL(/\/login/, { timeout: 10_000 });
+
+    // There, the waiting address is approved after a fresh confirmation, and its cooling-off starts then.
+    await away.goto('/uc/withdraw/address');
+    const waiting = savedRows(away).filter({ hasText: 'TEST device wallet' });
+    await expect(waiting).toContainText('Waiting for approval');
+    await waiting.getByRole('button', { name: 'Withdraw to this address' }).click();
+    await away.getByTestId('address-approve-here').getByRole('button', { name: 'Approve on this device' }).click();
+    await confirmItsMe(away);
+    const approvedHere = away.getByTestId('address-approve-here').getByRole('status');
+    await expect(approvedHere).toContainText('TEST device wallet is approved. Money can be sent to it from');
+    const text = (await approvedHere.textContent()) ?? '';
+    const from = /from (.+), when its cooling-off ends\.$/.exec(text)?.[1];
+    expect(from, text).toBeTruthy();
+
+    // The browser that saved it sees it cooling off, ending when the other device said.
+    await page.reload();
+    const cooling = savedRows(page).filter({ hasText: 'TEST device wallet' });
+    await expect(cooling).toContainText('Cooling off');
+    await expect(cooling.locator('td').nth(5)).toHaveText(`Ends ${from}`);
+  } finally {
+    await device.close();
+  }
+
+  // Leave the book as #6 expects it: both entries removed again.
+  for (const label of ['TEST new wallet', 'TEST device wallet']) {
+    await savedRows(page).filter({ hasText: label }).getByRole('button', { name: 'Remove' }).click();
+    await confirmItsMe(page);
+    await expect(page.getByText(`${label} was removed from your address book.`)).toBeVisible();
+  }
 });
 
 test(`${J} #6 proves a private wallet by signing a message: another wallet's signature is refused, its own is proved`, async ({ page }) => {
