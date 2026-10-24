@@ -111,6 +111,7 @@ describe('tax.lotBook own-account carry', () => {
         termClass: null,
         spaceId: SPACE,
         carriedFrom: { lotId: 'lot:buy:BTC', txId: 'mv', movedAt: '2026-10-05T00:00:00.000Z' },
+        counted: true,
       },
     ]);
     // The main account's lot is used up by the move, not sold: no sale, and nothing left open on main to disagree with.

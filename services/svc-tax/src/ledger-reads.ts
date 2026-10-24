@@ -2,6 +2,7 @@ import { parseAmount, rehydrateLedgerHttpError, type AccountRef, type Amount } f
 import { serviceCallSigner, type ServiceAuthMode, type ServiceSigner } from '@intafaced/contracts';
 import { TAX_LEDGER_HISTORY_UNAVAILABLE, TAX_LEDGER_UNWIRED, TaxError } from './codes.js';
 import type { Fill } from './lot-book.js';
+import { WITHDRAWAL_HOLD_PREFIX } from './withdrawals.js';
 
 export interface HistoryRange {
   readonly from: Date;
@@ -41,6 +42,14 @@ export interface TradeFills {
   readonly inflows?: readonly InflowLine[];
   /** What left the available balance other than by a fill (a hold, a withdrawal, a move to a space), one per ledger line. */
   readonly outflows?: readonly AccountLine[];
+  /** Each of the customer's withdrawal holds (`withdraw:<id>`) with every line on it: held, settled, put back. */
+  readonly withdrawalHolds?: readonly WithdrawalHold[];
+}
+
+/** One withdrawal's own hold account and its lines (`withdrawalHoldAccount`, purpose `withdraw:<id>`). */
+export interface WithdrawalHold {
+  readonly purpose: string;
+  readonly lines: readonly AccountLine[];
 }
 
 /** One line on one of the customer's accounts. */
@@ -125,14 +134,17 @@ export function createTaxLedgerReads(
     }
   };
 
+  const accounts = (ownerType: AccountRef['ownerType'], ownerId: string) =>
+    call<Array<{ accountId: string; assetId: string; kind: string; purpose?: string; amount: string }>>(
+      url,
+      '/trpc/balances',
+      { ownerType, ownerId },
+      authHeaders,
+    );
+
   return {
     async balances(ownerType, ownerId) {
-      const result = await call<Array<{ accountId: string; assetId: string; kind: string; purpose?: string; amount: string }>>(
-        url,
-        '/trpc/balances',
-        { ownerType, ownerId },
-        authHeaders,
-      );
+      const result = await accounts(ownerType, ownerId);
       return result.map((b) => ({
         account: {
           ownerType,
@@ -166,6 +178,25 @@ export function createTaxLedgerReads(
           return line;
         });
         const outflows: AccountLine[] = availableEntries.filter((e) => e.direction === 'credit' && !FILL_REASONS.has(e.reason)).map(lineOf);
+        // Every withdrawal has its own hold account, so its lines pair by account, never by amount or time. The ledger
+        // lists every account the customer has, empty ones included.
+        const holdPurposes = [
+          ...new Set(
+            (await accounts('user', userId))
+              .filter((a) => a.kind === 'hold' && typeof a.purpose === 'string' && a.purpose.startsWith(WITHDRAWAL_HOLD_PREFIX))
+              .map((a) => a.purpose as string),
+          ),
+        ];
+        const withdrawalHolds: WithdrawalHold[] = [];
+        for (let i = 0; i < holdPurposes.length; i += HOLD_WALK_PARALLEL) {
+          const batch = await Promise.all(
+            holdPurposes.slice(i, i + HOLD_WALK_PARALLEL).map(async (purpose) => ({
+              purpose,
+              lines: (await walk({ ownerType: 'user', ownerId: userId, kind: 'hold', purpose })).map(lineOf),
+            })),
+          );
+          withdrawalHolds.push(...batch);
+        }
         const orderIds = [...new Set(received.map((e) => e.orderId).filter((id): id is string => typeof id === 'string' && id !== ''))];
         // Keyed by order AND transaction: a self-trade moves two of the same user's orders in one transaction.
         const paidByLeg = new Map<string, { assetId: string; amount: Amount }>();
@@ -186,8 +217,10 @@ export function createTaxLedgerReads(
           postedAt: new Date(e.postedAt),
           received: { assetId: e.assetId, amount: parseAmount(e.amount) },
           paid: (typeof e.orderId === 'string' && paidByLeg.get(`${e.orderId}|${e.txId}`)) || null,
+          // The ledger names the fee taken from this line (0 when none); a ledger that does not send it leaves it unknown.
+          fee: typeof e.fee === 'string' ? parseAmount(e.fee) : null,
         }));
-        return { fills, truncated, outsideInflows, inflows, outflows };
+        return { fills, truncated, outsideInflows, inflows, outflows, withdrawalHolds };
       } catch (err) {
         if (err instanceof TaxError) throw err;
         throw new TaxError(TAX_LEDGER_HISTORY_UNAVAILABLE, err instanceof Error ? err.message : 'ledger history read failed');
@@ -247,6 +280,8 @@ interface PageEntry {
   postedAt: string;
   assetId: string;
   orderId?: string | null;
+  /** On the customer's receiving line of a fill: the fee taken from it. */
+  fee?: string | null;
 }
 
 function lineOf(e: PageEntry): AccountLine {
@@ -276,6 +311,7 @@ const OWN_COIN_RETURNS: ReadonlySet<string> = new Set([
   // An overcharged trading fee given back: coins the customer already had.
   'trade.fill.fee.correction',
 ]);
+/** A withdrawal the rail failed, put back on available. Its coins are the customer's own coming back. */
 /** Order hold reads run this many at a time. */
 const HOLD_WALK_PARALLEL = 8;
 /** A technical read bound, not a business limit: 200 pages of 200 entries per scope. Past it the book says it is incomplete. */

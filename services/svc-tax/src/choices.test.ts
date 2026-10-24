@@ -40,6 +40,7 @@ describe('which method a sale uses', () => {
       { day: '2026-10-06', assetId: null, method: 'HIFO' },
     ],
     picks: [{ saleTxId: 's9', assetId: 'BTC', lotId: 'lot:b1:BTC' }],
+    includeTransfers: null,
   };
   const rule = saleRules(choices, 'FIFO', null);
 
@@ -140,6 +141,7 @@ describe('the lot book applies what the customer saved', () => {
       assetMethods: [{ assetId: 'BTC', method: 'AVERAGE' }],
       days: [],
       picks: [],
+      includeTransfers: null,
     });
     // A preview shows one method for everything and changes nothing saved.
     const preview = await tax.lotBook({ userId: USER, method: 'HIFO' });

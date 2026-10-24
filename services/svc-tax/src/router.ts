@@ -11,6 +11,7 @@ import {
   missingBasisSchema,
   pickSaleLotInputSchema,
   setDayMethodInputSchema,
+  setIncludeTransfersInputSchema,
   setLotMethodInputSchema,
 } from '@intafaced/contracts/tax-lot-book';
 import { TAX_EXPORT_INCOMPLETE, TAX_JURISDICTION_UNMAPPED, TaxError } from './codes.js';
@@ -178,6 +179,19 @@ export function createTaxRouter(tax: TaxService) {
       .mutation(async ({ ctx, input }) => {
         try {
           await tax.pickSaleLot({ userId: ctx.principal!.userId, saleTxId: input.saleTxId, assetId: input.assetId, lotId: input.lotId });
+          return { saved: true as const };
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** Whether the caller's own deposits, transfers in and withdrawals count in their profit and loss. Settings only. */
+    setIncludeTransfers: scopedProcedure('tax:write', { module: 'tax', plane: 'fiat' })
+      .input(setIncludeTransfersInputSchema)
+      .output(lotChoiceSavedSchema)
+      .mutation(async ({ ctx, input }) => {
+        try {
+          await tax.setIncludeTransfers({ userId: ctx.principal!.userId, include: input.include });
           return { saved: true as const };
         } catch (err) {
           mapError(err);

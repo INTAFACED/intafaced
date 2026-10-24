@@ -1,4 +1,5 @@
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
+import { LOT_TRANSFER_SOURCES } from '@intafaced/contracts/tax-lot-book';
 import { TAX_COST_BASIS_UNAVAILABLE, TAX_LOT_BOOK_INCOMPLETE, TAX_LOT_BOOK_UNRECONCILED, TAX_TERM_RULE_UNSET } from './codes.js';
 import {
   runLotEngine,
@@ -43,7 +44,22 @@ export interface Fill {
   readonly received: FillLeg;
   /** Left the customer's order hold. Null when the paying leg could not be read. */
   readonly paid: FillLeg | null;
+  /** The fee taken from `received`, in its asset (0 when none was taken); null or absent when the ledger did not say. */
+  readonly fee?: Amount | null;
 }
+
+/** Coins the customer sent out of the platform (a withdrawal), with their value when they left when a price was found. */
+export interface Withdrawal {
+  readonly txId: string;
+  readonly postedAt: Date;
+  readonly assetId: string;
+  readonly amount: Amount;
+  /** Value in dollars when it left; null when no price was found. */
+  readonly valueUsd: Amount | null;
+}
+
+/** Lots from these sources, and withdrawals, are left out of every figure while the customer leaves transfers out. */
+export const TRANSFER_SOURCES: ReadonlySet<LotSource> = new Set<LotSource>(LOT_TRANSFER_SOURCES);
 
 /** A coin that reached the customer's balance other than by a fill, already valued by the caller. */
 export interface Inflow {
@@ -62,13 +78,19 @@ export interface Inflow {
 
 export interface BookAsset {
   readonly assetId: string;
-  /** Quantity still open in lots. */
+  /** Quantity still open in main-account lots that the figures count. */
   readonly openQty: string;
   /** USD cost of that open quantity; null if any open lot has no known cost, or the book does not reconcile. */
   readonly openCostUsd: string | null;
-  /** Everything the customer holds of the asset now (main account, all lock kinds). */
+  /** Everything the customer holds of the asset now (main account, all lock kinds, less withdrawals on their way out). */
   readonly held: string;
+  /** Open main-account quantity left out of the figures (from transfers, while transfers are left out). */
+  readonly uncountedQty: string;
 }
+
+export type BookFee =
+  | { readonly status: 'known'; readonly assetId: string; readonly amount: string; readonly usd: string | null }
+  | { readonly status: 'unknown' };
 
 export interface BookValuedAt {
   readonly usd: string;
@@ -104,6 +126,10 @@ export interface BookLot {
   readonly basisLotId?: string;
   /** Present when the lot was moved here from another of the customer's own accounts, with its date and basis. */
   readonly carriedFrom?: { readonly lotId: string; readonly txId: string; readonly movedAt: string };
+  /** False when transfers are left out and the lot came from one. */
+  readonly counted: boolean;
+  /** The fee the buy took, on a lot bought on the exchange (not on a carried part). */
+  readonly fee?: BookFee;
 }
 
 export interface BookMatch {
@@ -114,11 +140,18 @@ export interface BookMatch {
   readonly realizedUsd: string | null;
   /** Present only when this part's cost is a price the customer entered. */
   readonly basisSource?: 'customer-entered';
+  readonly counted: boolean;
 }
 
 export type BookMethodSource = MethodSource;
 
 export interface BookSale {
+  /** `sale`: a trade. `moved_out`: a withdrawal, valued when it left. */
+  readonly kind: 'sale' | 'moved_out';
+  /** Which part the figures count; a part left out has no cost, proceeds or result in this sale's figures. */
+  readonly counted: 'all' | 'part' | 'none';
+  /** The fee taken from what this sale received; absent on a withdrawal. */
+  readonly fee?: BookFee;
   /** The method this sale was matched by, and where it came from. */
   readonly method: EngineMethod;
   readonly methodSource: BookMethodSource;
@@ -147,6 +180,7 @@ export type BookChoices =
       readonly assetMethods: Array<{ assetId: string; method: EngineMethod }>;
       readonly days: Array<{ day: string; assetId: string | null; method: EngineMethod }>;
       readonly picks: Array<{ saleTxId: string; assetId: string; lotId: string }>;
+      readonly includeTransfers: boolean | null;
     }
   | { readonly status: 'unwired'; readonly code: 'tax.basis_store_unwired' }
   | { readonly status: 'unavailable'; readonly code: 'tax.choices_unavailable' };
@@ -171,8 +205,12 @@ export interface LotBook {
   readonly assets: BookAsset[];
   readonly sales: BookSale[];
   readonly lots: BookLot[];
-  /** Sum of every sale's result; null as soon as any sale's result is unknown. Null, not 0, when there is no sale. */
+  /** Sum of every counted sale's result; null as soon as any is unknown. Null, not 0, when no sale counts. */
   readonly realizedUsd: string | null;
+  /** Whether deposits, transfers in and withdrawals count in these figures. */
+  readonly includeTransfers: boolean;
+  /** Every trading fee in dollars at each fill's price; null when any is not known. */
+  readonly feesUsd: string | null;
   /** The short-or-long-term rule is an owner value that is not published. */
   readonly termRule: { readonly status: 'unset'; readonly code: typeof TAX_TERM_RULE_UNSET };
   readonly residuals: string[];
@@ -235,6 +273,21 @@ function movementsOf(fills: readonly Fill[], residuals: Set<string>): EngineMove
 
 const DAY_MS = 86_400_000;
 const money = (v: Amount | null): string | null => (v === null ? null : formatAmount(v));
+const isPar = (assetId: string) => PAR_ASSETS.has(assetId.toUpperCase());
+
+/**
+ * The fee a fill took, with its dollar value: a fee in a dollar coin is its own value; a fee in the coin bought is valued at
+ * the fill's own price (what was paid over what the whole fill gave, fee included). Null `usd` when neither side is dollars.
+ */
+function feeOf(fill: Fill): { fee: BookFee; usd: Amount | null } {
+  if (fill.fee === undefined || fill.fee === null) return { fee: { status: 'unknown' }, usd: null };
+  const fee = fill.fee;
+  const { received, paid } = fill;
+  let usd: Amount | null = null;
+  if (isPar(received.assetId)) usd = fee;
+  else if (paid !== null && isPar(paid.assetId)) usd = fee === 0n ? 0n : (fee * paid.amount) / (received.amount + fee);
+  return { fee: { status: 'known', assetId: received.assetId, amount: formatAmount(fee), usd: money(usd) }, usd };
+}
 
 export function buildLotBook(input: {
   fills: readonly Fill[];
@@ -259,10 +312,40 @@ export function buildLotBook(input: {
   spaces?: BookSpaces;
   /** What each named space holds now, by coin, from its ledger history. Lots in a space are checked against it. */
   spaceHeld?: ReadonlyMap<string, ReadonlyMap<string, Amount>>;
+  /** Coins sent out of the platform: each draws lots like a sale and is labelled moved out. */
+  withdrawals?: readonly Withdrawal[];
+  /** False: deposits, transfers in and withdrawals are left out of every figure (the lots stay listed). Absent: true. */
+  includeTransfers?: boolean;
 }): LotBook {
   const residuals = new Set<string>();
   if (input.truncated) residuals.add(TAX_LOT_BOOK_INCOMPLETE);
+  const include = input.includeTransfers ?? true;
   const movements = movementsOf(input.fills, residuals);
+  for (const out of input.withdrawals ?? []) {
+    if (isPar(out.assetId)) continue; // a dollar coin is not a position
+    movements.push({
+      side: 'dispose',
+      kind: 'moved_out',
+      txId: out.txId,
+      postedAt: out.postedAt,
+      assetId: out.assetId,
+      qty: out.amount,
+      proceedsUsd: out.valueUsd,
+    });
+  }
+  // Each fill's fee, on the sale it made and the lot it bought; the dollar total is added up once the sales are known.
+  const saleFees = new Map<string, BookFee>();
+  const lotFees = new Map<string, BookFee>();
+  const feeParts: Array<{ saleKey: string | null; makesLot: boolean; usd: Amount | null }> = [];
+  for (const fill of input.fills) {
+    if (isPar(fill.received.assetId) && fill.paid !== null && isPar(fill.paid.assetId)) continue;
+    const { fee, usd } = feeOf(fill);
+    const makesLot = !isPar(fill.received.assetId);
+    const saleKey = fill.paid !== null && !isPar(fill.paid.assetId) ? `${fill.txId}|${fill.paid.assetId}` : null;
+    feeParts.push({ saleKey, makesLot, usd });
+    if (makesLot) lotFees.set(`${fill.txId}|${fill.received.assetId}`, fee);
+    if (saleKey !== null) saleFees.set(saleKey, fee);
+  }
   for (const inflow of input.inflows ?? []) {
     if (PAR_ASSETS.has(inflow.assetId.toUpperCase())) continue; // a dollar coin is not a position
     movements.push({
@@ -290,18 +373,36 @@ export function buildLotBook(input: {
       to: move.to,
     });
   }
-  const run = runLotEngine(movements, input.rules ?? input.method, input.overridePricePerUnit);
-  for (const r of run.residuals) residuals.add(r);
+  // Left out, the lots from transfers are a pool of their own, so their cost never reaches a trade's (KEPT APART).
+  const run = runLotEngine(movements, input.rules ?? input.method, input.overridePricePerUnit, include ? undefined : TRANSFER_SOURCES);
+  // Lots from transfers, and withdrawals, are left out while the customer leaves transfers out: they stay listed.
+  const lotCounted = new Map(run.lots.map((lot) => [lot.id, include || !TRANSFER_SOURCES.has(lot.source)]));
+  for (const r of run.residuals) {
+    // A missing cost only matters where it reaches a figure: on a lot or a sale part that is left out, it is not named.
+    if (r === TAX_COST_BASIS_UNAVAILABLE && !include) continue;
+    residuals.add(r);
+  }
+  if (!include) {
+    const openUnknown = run.lots.some((lot) => lot.remaining > 0n && lot.remainingCostUsd === null && lotCounted.get(lot.id));
+    const partUnknown = run.sales.some(
+      (sale) => sale.kind === 'sale' && sale.matches.some((m) => m.costUsd === null && lotCounted.get(m.lotId)),
+    );
+    if (openUnknown || partUnknown) residuals.add(TAX_COST_BASIS_UNAVAILABLE);
+  }
 
   // Open quantity per asset. If more or less is open than the customer holds, coins arrived or left in a way the book
   // cannot see, and there is no way to say which lot is open: the cost of that asset is unknown, not a guess.
-  const openByAsset = new Map<string, { qty: Amount; cost: Amount | null }>();
+  // `qty` is every open lot (checked against what is held); `countedQty` and `cost` are the lots the figures count.
+  const openByAsset = new Map<string, { qty: Amount; countedQty: Amount; cost: Amount | null }>();
   for (const lot of run.lots) {
     // `held` is the main account: lots in a space are listed under it and do not count here.
     if (lot.remaining === 0n || lot.space !== null) continue;
-    const entry = openByAsset.get(lot.assetId) ?? { qty: 0n, cost: 0n as Amount | null };
+    const entry = openByAsset.get(lot.assetId) ?? { qty: 0n, countedQty: 0n, cost: 0n as Amount | null };
     entry.qty += lot.remaining;
-    entry.cost = entry.cost === null || lot.remainingCostUsd === null ? null : entry.cost + lot.remainingCostUsd;
+    if (lotCounted.get(lot.id)) {
+      entry.countedQty += lot.remaining;
+      entry.cost = entry.cost === null || lot.remainingCostUsd === null ? null : entry.cost + lot.remainingCostUsd;
+    }
     openByAsset.set(lot.assetId, entry);
   }
   const soldAssets = new Set(run.sales.map((sale) => sale.assetId));
@@ -326,9 +427,10 @@ export function buildLotBook(input: {
     if (open?.cost === null) residuals.add(TAX_COST_BASIS_UNAVAILABLE);
     assets.push({
       assetId,
-      openQty: formatAmount(open?.qty ?? 0n),
+      openQty: formatAmount(open?.countedQty ?? 0n),
       openCostUsd: open === undefined || !reconciled || input.truncated || open.cost === null ? null : formatAmount(open.cost),
       held: formatAmount(held),
+      uncountedQty: formatAmount((open?.qty ?? 0n) - (open?.countedQty ?? 0n)),
     });
   }
   // A sale with no lot behind it at all leaves an asset unseen by the lots; it is unknown the same way.
@@ -353,6 +455,7 @@ export function buildLotBook(input: {
   const blankLot = (lot: { assetId: string; space: string | null }) =>
     lot.space === null ? blank(lot.assetId) : input.truncated || spaceOutside.has(`${lot.space}|${lot.assetId}`);
   const sales: BookSale[] = run.sales.map((sale) => {
+    const saleCounts = sale.kind === 'sale' || include;
     const matches = sale.matches.map((m) => {
       const costUsd = blank(sale.assetId) ? null : money(m.costUsd);
       return {
@@ -362,9 +465,44 @@ export function buildLotBook(input: {
         proceedsUsd: money(m.proceedsUsd),
         realizedUsd: blank(sale.assetId) ? null : money(m.realizedUsd),
         ...(m.customerEntered && costUsd !== null ? { basisSource: 'customer-entered' as const } : {}),
+        counted: saleCounts && (lotCounted.get(m.lotId) ?? true),
       };
     });
+    const countedParts = sale.matches.filter((m) => saleCounts && (lotCounted.get(m.lotId) ?? true));
+    const counted: BookSale['counted'] = !saleCounts
+      ? 'none'
+      : countedParts.length === sale.matches.length
+        ? 'all'
+        : countedParts.length === 0 && sale.unmatchedQty === 0n
+          ? 'none'
+          : 'part';
+    // The figures of the part that counts: all of it, some lots of it, or nothing. Quantity no lot covered stays unknown.
+    const sumOf = (pick: (m: (typeof sale.matches)[number]) => Amount | null): Amount | null => {
+      let total = 0n;
+      for (const m of countedParts) {
+        const v = pick(m);
+        if (v === null) return null;
+        total += v;
+      }
+      return total;
+    };
+    const partCost = sale.unmatchedQty > 0n ? null : sumOf((m) => m.costUsd);
+    const partProceeds = sumOf((m) => m.proceedsUsd);
+    const figures =
+      counted === 'all'
+        ? { proceedsUsd: money(sale.proceedsUsd), costUsd: money(sale.costUsd), realizedUsd: money(sale.realizedUsd) }
+        : counted === 'none'
+          ? { proceedsUsd: money(sale.proceedsUsd), costUsd: null, realizedUsd: null }
+          : {
+              proceedsUsd: money(partProceeds),
+              costUsd: money(partCost),
+              realizedUsd: partCost === null || partProceeds === null ? null : money(partProceeds - partCost),
+            };
+    const fee = sale.kind === 'sale' ? (saleFees.get(`${sale.txId}|${sale.assetId}`) ?? { status: 'unknown' as const }) : undefined;
     return {
+      kind: sale.kind,
+      counted,
+      ...(fee === undefined ? {} : { fee }),
       method: sale.rule.method,
       methodSource: sale.rule.source,
       pickedLotId: sale.pickedLotId,
@@ -373,9 +511,9 @@ export function buildLotBook(input: {
       disposedAt: sale.postedAt.toISOString(),
       qty: formatAmount(sale.qty),
       unmatchedQty: formatAmount(sale.unmatchedQty),
-      proceedsUsd: money(sale.proceedsUsd),
-      costUsd: blank(sale.assetId) ? null : money(sale.costUsd),
-      realizedUsd: blank(sale.assetId) ? null : money(sale.realizedUsd),
+      proceedsUsd: figures.proceedsUsd,
+      costUsd: blank(sale.assetId) ? null : figures.costUsd,
+      realizedUsd: blank(sale.assetId) ? null : figures.realizedUsd,
       matches,
       ...(matches.some((m) => m.basisSource === 'customer-entered') ? { basisSource: 'customer-entered' as const } : {}),
     };
@@ -410,10 +548,29 @@ export function buildLotBook(input: {
     ...(lot.carriedFrom === undefined
       ? {}
       : { carriedFrom: { lotId: lot.carriedFrom.lotId, txId: lot.carriedFrom.txId, movedAt: lot.carriedFrom.movedAt.toISOString() } }),
+    counted: lotCounted.get(lot.id) ?? true,
+    ...(lot.source === 'trade' && lot.carriedFrom === undefined && lotFees.has(`${lot.acquireTxId}|${lot.assetId}`)
+      ? { fee: lotFees.get(`${lot.acquireTxId}|${lot.assetId}`)! }
+      : {}),
   }));
 
+  // The fees inside the figures: a buy's is in its lot's cost (a bought lot always counts), a sale's in its result, so a
+  // sale left out entirely (transfers left out, drawn only on their lots) leaves its fee out too.
+  const saleByKey = new Map(sales.map((sale) => [`${sale.txId}|${sale.assetId}`, sale]));
+  let feesUsd: Amount | null = 0n;
+  for (const part of feeParts) {
+    const sale = part.saleKey === null ? undefined : saleByKey.get(part.saleKey);
+    if (!part.makesLot && sale?.counted === 'none') continue;
+    if (part.usd === null) {
+      feesUsd = null;
+      break;
+    }
+    feesUsd += part.usd;
+  }
+
   let realizedTotal: Amount | null = 0n;
-  for (const sale of sales) {
+  const countedSales = sales.filter((sale) => sale.counted !== 'none');
+  for (const sale of countedSales) {
     if (sale.realizedUsd === null) {
       realizedTotal = null;
       break;
@@ -429,7 +586,9 @@ export function buildLotBook(input: {
     assets,
     sales,
     lots,
-    realizedUsd: sales.length === 0 ? null : realizedTotal === null ? null : formatAmount(realizedTotal),
+    realizedUsd: countedSales.length === 0 ? null : realizedTotal === null ? null : formatAmount(realizedTotal),
+    includeTransfers: include,
+    feesUsd: money(feesUsd),
     termRule: { status: 'unset', code: TAX_TERM_RULE_UNSET },
     residuals: [...residuals].sort(),
     ...(input.spaces === undefined ? {} : { spaces: input.spaces }),

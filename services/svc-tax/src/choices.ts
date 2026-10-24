@@ -8,6 +8,9 @@ export type { MethodSource } from './lot-engine.js';
  * account, one for a coin, one for a single day, and which lot a given sale used. These are settings rows in svc-tax's own
  * schema, keyed by the caller. They move no value and post nothing to the ledger; the lot book applies them when it is read.
  *
+ * Whether transfers count is one more setting row (`tax.pnl_settings`): deposits, transfers in and withdrawals count unless the
+ * customer turned them off.
+ *
  * Which method a sale uses, most specific first: a method set for that coin on that day, a method set for every coin on that
  * day, the coin's method, the account's method, then the product default. A picked lot is drawn first whatever the method.
  */
@@ -31,9 +34,11 @@ export interface CostBasisChoices {
   readonly assetMethods: ReadonlyMap<string, EngineMethod>;
   readonly days: readonly DayChoice[];
   readonly picks: readonly LotPick[];
+  /** Whether deposits, transfers in and withdrawals count in the figures. Null: not chosen (they count). */
+  readonly includeTransfers: boolean | null;
 }
 
-export const NO_CHOICES: CostBasisChoices = { accountMethod: null, assetMethods: new Map(), days: [], picks: [] };
+export const NO_CHOICES: CostBasisChoices = { accountMethod: null, assetMethods: new Map(), days: [], picks: [], includeTransfers: null };
 
 export interface ChoiceStore {
   read(userId: string): Promise<CostBasisChoices>;
@@ -42,6 +47,8 @@ export interface ChoiceStore {
   setDayMethod(userId: string, day: string, assetId: string | null, method: EngineMethod | null): Promise<void>;
   /** `lotId` null: clear the pick. */
   setPick(userId: string, saleTxId: string, assetId: string, lotId: string | null): Promise<void>;
+  /** `include` null: clear the choice. */
+  setIncludeTransfers(userId: string, include: boolean | null): Promise<void>;
 }
 
 const utcDay = (at: Date) => at.toISOString().slice(0, 10);
@@ -74,6 +81,7 @@ export function createMemoryChoiceStore(): ChoiceStore {
   const methods = new Map<string, EngineMethod>();
   const days = new Map<string, DayChoice & { userId: string }>();
   const picks = new Map<string, LotPick & { userId: string }>();
+  const transfers = new Map<string, boolean>();
   return {
     async read(userId) {
       const assetMethods = new Map<string, EngineMethod>();
@@ -92,7 +100,12 @@ export function createMemoryChoiceStore(): ChoiceStore {
           .map(({ day, assetId, method }) => ({ day, assetId, method }))
           .sort((a, b) => a.day.localeCompare(b.day)),
         picks: [...picks.values()].filter((p) => p.userId === userId).map(({ saleTxId, assetId, lotId }) => ({ saleTxId, assetId, lotId })),
+        includeTransfers: transfers.get(userId) ?? null,
       };
+    },
+    async setIncludeTransfers(userId, include) {
+      if (include === null) transfers.delete(userId);
+      else transfers.set(userId, include);
     },
     async setMethod(userId, assetId, method) {
       const key = `${userId}|${assetId ?? '*'}`;
@@ -112,17 +125,22 @@ export function createMemoryChoiceStore(): ChoiceStore {
   };
 }
 
-/** Postgres store over schema `tax` (drizzle/20261024110000_cost_basis_choices.sql). Every query is keyed by the caller's id. */
+/**
+ * Postgres store over schema `tax` (drizzle/20261024110000_cost_basis_choices.sql, 20261024150000_pnl_settings.sql). Every
+ * query is keyed by the caller's id.
+ */
 export function createPgChoiceStore(sql: Sql): ChoiceStore {
   return {
     async read(userId) {
-      const [methods, days, picks] = await Promise.all([
+      const [methods, days, picks, settings] = await Promise.all([
         sql<Array<{ asset_id: string; method: EngineMethod }>>`
           SELECT asset_id, method FROM tax.method_choices WHERE user_id = ${userId}`,
         sql<Array<{ day: string; asset_id: string; method: EngineMethod }>>`
           SELECT to_char(day, 'YYYY-MM-DD') AS day, asset_id, method FROM tax.method_days WHERE user_id = ${userId} ORDER BY day`,
         sql<Array<{ sale_tx_id: string; asset_id: string; lot_id: string }>>`
           SELECT sale_tx_id, asset_id, lot_id FROM tax.lot_picks WHERE user_id = ${userId}`,
+        sql<Array<{ include_transfers: boolean }>>`
+          SELECT include_transfers FROM tax.pnl_settings WHERE user_id = ${userId}`,
       ]);
       const assetMethods = new Map<string, EngineMethod>();
       let accountMethod: EngineMethod | null = null;
@@ -135,7 +153,17 @@ export function createPgChoiceStore(sql: Sql): ChoiceStore {
         assetMethods,
         days: days.map((row) => ({ day: row.day, assetId: row.asset_id === '*' ? null : row.asset_id, method: row.method })),
         picks: picks.map((row) => ({ saleTxId: row.sale_tx_id, assetId: row.asset_id, lotId: row.lot_id })),
+        includeTransfers: settings[0]?.include_transfers ?? null,
       };
+    },
+    async setIncludeTransfers(userId, include) {
+      if (include === null) {
+        await sql`DELETE FROM tax.pnl_settings WHERE user_id = ${userId}`;
+        return;
+      }
+      await sql`
+        INSERT INTO tax.pnl_settings (user_id, include_transfers, updated_at) VALUES (${userId}, ${include}, now())
+        ON CONFLICT (user_id) DO UPDATE SET include_transfers = EXCLUDED.include_transfers, updated_at = now()`;
     },
     async setMethod(userId, assetId, method) {
       const asset = assetId ?? '*';
