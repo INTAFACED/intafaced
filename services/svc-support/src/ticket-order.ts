@@ -30,13 +30,13 @@ export const SUPPORT_ORDER_STATUSES = [
 export type SupportOrderStatus = (typeof SUPPORT_ORDER_STATUSES)[number];
 
 const decimalString = z
-  .string({ invalid_type_error: 'JS number refused — amounts are decimal strings' })
+  .string({ error: (issue) => (issue.input === undefined ? undefined : 'JS number refused — amounts are decimal strings') })
   .regex(/^\d+(\.\d{1,18})?$/, 'amounts are decimal strings with at most 18 decimal places');
 
 export const supportOrderSnapshotSchema = z
   .object({
-    orderId: z.string().uuid(),
-    userId: z.string().uuid(),
+    orderId: z.string().guid(),
+    userId: z.string().guid(),
     status: z.enum(SUPPORT_ORDER_STATUSES),
     symbol: z.string().regex(/^[A-Z0-9][A-Z0-9./_-]{0,40}$/),
     side: z.enum(['buy', 'sell']),
@@ -60,7 +60,7 @@ export const ticketOrderReadSchema = z.discriminatedUnion('outcome', [
   z
     .object({
       outcome: z.literal('read'),
-      orderId: z.string().uuid(),
+      orderId: z.string().guid(),
       status: z.enum(SUPPORT_ORDER_STATUSES),
       symbol: z.string(),
       side: z.enum(['buy', 'sell']),
@@ -72,7 +72,7 @@ export const ticketOrderReadSchema = z.discriminatedUnion('outcome', [
   z
     .object({
       outcome: z.literal('unknown'),
-      orderId: z.string().uuid(),
+      orderId: z.string().guid(),
       reason: z.enum(['trade_silent', 'matcher_down']),
       cancelled: z.literal(false),
     })

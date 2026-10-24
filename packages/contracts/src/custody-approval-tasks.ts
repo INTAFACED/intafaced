@@ -23,7 +23,7 @@ export type CustodyApproverRole = (typeof CUSTODY_APPROVER_ROLES)[number];
 export const custodyPayloadHashSchema = z.string().regex(/^[0-9a-f]{64}$/);
 
 export const custodyTaskViewSchema = z.object({
-  id: z.string().uuid(),
+  id: z.string().guid(),
   clientRef: z.string(),
   kind: z.enum(CUSTODY_TASK_KINDS),
   scope: z.enum(CUSTODY_CONFIG_SCOPES).nullable(),

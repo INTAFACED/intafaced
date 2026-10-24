@@ -20,7 +20,7 @@ export class NavigatorSessionPublishError extends Error {
 }
 const uuid = z
   .string()
-  .uuid()
+  .guid()
   .transform((value) => value.toLowerCase());
 type AuthSessionRow = { id: string; user_id: string; revoked: boolean; expires_at: Date; user_status: 'active' | 'frozen' | 'closed' };
 

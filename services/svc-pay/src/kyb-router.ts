@@ -59,9 +59,9 @@ import { MAX_FEE_BPS } from './fee-bps-bound.js';
 const kybStatusSchema = z.enum(KYB_STATUSES as unknown as [string, ...string[]]);
 
 const kybEventView = z.object({
-  id: z.string().uuid(),
+  id: z.string().guid(),
   seq: z.string(),
-  merchantId: z.string().uuid(),
+  merchantId: z.string().guid(),
   fromStatus: kybStatusSchema,
   toStatus: kybStatusSchema,
   kybRef: z.string().nullable(),
@@ -72,9 +72,9 @@ const kybEventView = z.object({
 });
 
 const pricingEventView = z.object({
-  id: z.string().uuid(),
+  id: z.string().guid(),
   seq: z.string(),
-  merchantId: z.string().uuid(),
+  merchantId: z.string().guid(),
   fromFeeBps: z.number().int(),
   toFeeBps: z.number().int(),
   reason: z.string(),
@@ -289,7 +289,7 @@ export function createKybPspRouter(
       submit: scopedProcedure('pay:onboard', { module: 'pay' })
         .input(
           z.object({
-            merchantId: z.string().uuid(),
+            merchantId: z.string().guid(),
             kybRef: z.string().trim().min(1).max(128),
             reason: z.string().trim().min(3).max(500).optional(),
           }),
@@ -326,7 +326,7 @@ export function createKybPspRouter(
        * not change this binding.
        */
       decisionBinding: scopedProcedure('admin:compliance', { module: 'pay' })
-        .input(z.object({ merchantId: z.string().uuid() }))
+        .input(z.object({ merchantId: z.string().guid() }))
         .output(kybDecisionBindingSchema)
         .query(({ ctx, input }) =>
           wrap(async () => {
@@ -353,7 +353,7 @@ export function createKybPspRouter(
       decide: scopedProcedure('admin:compliance', { module: 'pay' })
         .input(
           z.object({
-            merchantId: z.string().uuid(),
+            merchantId: z.string().guid(),
             decision: z.enum(['approved', 'rejected']),
             reason: z.string().trim().min(3).max(500),
             confirmOperatorId: z.string().max(128).nullish(),
@@ -408,7 +408,7 @@ export function createKybPspRouter(
       history: scopedProcedure('admin:read', { module: 'pay' })
         .input(
           z.object({
-            merchantId: z.string().uuid(),
+            merchantId: z.string().guid(),
             /**
              * Page size. Optional so omit reaches `pay.kyb_history_limit_unset`.
              * Blank is not 50; pass 50 explicitly.
@@ -427,7 +427,7 @@ export function createKybPspRouter(
         ),
 
       current: scopedProcedure('admin:read', { module: 'pay' })
-        .input(z.object({ merchantId: z.string().uuid() }))
+        .input(z.object({ merchantId: z.string().guid() }))
         .output(
           z.object({
             kybStatus: kybStatusSchema,
@@ -442,7 +442,7 @@ export function createKybPspRouter(
       setPricing: scopedProcedure('admin:write', { module: 'pay' })
         .input(
           z.object({
-            merchantId: z.string().uuid(),
+            merchantId: z.string().guid(),
             feeBps: z.number().int().min(0).max(MAX_FEE_BPS),
             reason: z.string().trim().min(3).max(500),
             confirmOperatorId: z.string().max(128).nullish(),
@@ -485,7 +485,7 @@ export function createKybPspRouter(
       pricingHistory: scopedProcedure('admin:read', { module: 'pay' })
         .input(
           z.object({
-            merchantId: z.string().uuid(),
+            merchantId: z.string().guid(),
             /**
              * Page size. Optional so omit reaches `pay.psp_pricing_history_limit_unset`.
              * Blank is not 50; pass 50 explicitly.
@@ -506,7 +506,7 @@ export function createKybPspRouter(
       enableMode: scopedProcedure('admin:write', { module: 'pay' })
         .input(
           z.object({
-            merchantId: z.string().uuid(),
+            merchantId: z.string().guid(),
             reason: z.string().trim().min(3).max(500),
             confirmOperatorId: z.string().max(128).nullish(),
             approvalId: z.string().max(128).nullish(),

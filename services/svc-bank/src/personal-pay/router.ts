@@ -162,7 +162,7 @@ export function createBillsRouter(bank: Pick<BankServices, 'bills' | 'spaces'>, 
             billerId: z.string().min(1).max(64),
             reference: z.string().min(1).max(64),
             amount: amountString,
-            fromSpaceId: z.string().uuid(),
+            fromSpaceId: z.string().guid(),
             stepUpApprovalId: stepUpApprovalField,
           })
           .strict(),
@@ -197,7 +197,7 @@ export function createBillsRouter(bank: Pick<BankServices, 'bills' | 'spaces'>, 
       .output(z.object({ items: z.array(billView), nextCursor: z.string().nullable() }))
       .query(({ ctx, input }) => guard(() => bank.bills.list({ userId: ctx.principal.userId, ...input }))),
     get: scopedProcedure('bank:read', { module: 'bank' })
-      .input(z.object({ id: z.string().uuid() }).strict())
+      .input(z.object({ id: z.string().guid() }).strict())
       .output(billView)
       .query(({ ctx, input }) => guard(() => bank.bills.get(ctx.principal.userId, input.id))),
     recurring: router({
@@ -209,7 +209,7 @@ export function createBillsRouter(bank: Pick<BankServices, 'bills' | 'spaces'>, 
               billerId: z.string().min(1).max(64),
               reference: z.string().min(1).max(64),
               amount: amountString,
-              fromSpaceId: z.string().uuid(),
+              fromSpaceId: z.string().guid(),
               cadence: z.enum(['weekly', 'monthly']),
               startsAt: z.string().datetime({ offset: true }),
               endsAt: z.string().datetime({ offset: true }).optional(),
@@ -248,11 +248,11 @@ export function createBillsRouter(bank: Pick<BankServices, 'bills' | 'spaces'>, 
           }),
         ),
       pause: scopedProcedure('bank:write', { module: 'bank' })
-        .input(z.object({ id: z.string().uuid() }).strict())
+        .input(z.object({ id: z.string().guid() }).strict())
         .output(recurringView)
         .mutation(({ ctx, input }) => guard(() => bank.bills.pauseRecurring(ctx.principal.userId, input.id))),
       cancel: scopedProcedure('bank:write', { module: 'bank' })
-        .input(z.object({ id: z.string().uuid() }).strict())
+        .input(z.object({ id: z.string().guid() }).strict())
         .output(recurringView)
         .mutation(({ ctx, input }) => guard(() => bank.bills.cancelRecurring(ctx.principal.userId, input.id))),
       list: scopedProcedure('bank:read', { module: 'bank' })
@@ -292,7 +292,7 @@ export function createBillsRouter(bank: Pick<BankServices, 'bills' | 'spaces'>, 
         .output(z.object({ items: z.array(billView.extend({ userId: z.string() })), nextCursor: z.string().nullable() }))
         .query(({ input }) => guard(() => bank.bills.opsFailed(input))),
       get: scopedProcedure('admin:read', { module: 'bank' })
-        .input(z.object({ id: z.string().uuid() }).strict())
+        .input(z.object({ id: z.string().guid() }).strict())
         .output(billView.extend({ userId: z.string() }))
         .query(({ input }) => guard(() => bank.bills.opsGet(input.id))),
     }),
@@ -387,7 +387,7 @@ export function createGlobalRouter(bank: Pick<BankServices, 'globalSend' | 'glob
         )
         .query(({ ctx, input }) => guard(() => bank.globalSend.listRecipients({ userId: ctx.principal.userId, limit: input.limit }))),
       remove: scopedProcedure('bank:write', { module: 'bank' })
-        .input(z.object({ recipientId: z.string().uuid(), idempotencyKey: idString }).strict())
+        .input(z.object({ recipientId: z.string().guid(), idempotencyKey: idString }).strict())
         .output(z.object({ removed: z.literal(true) }))
         .mutation(({ ctx, input }) => guard(() => bank.globalSend.removeRecipient({ userId: ctx.principal.userId, ...input }))),
     }),
@@ -409,10 +409,10 @@ export function createGlobalRouter(bank: Pick<BankServices, 'globalSend' | 'glob
         z
           .object({
             idempotencyKey: idString,
-            fromSpaceId: z.string().uuid(),
+            fromSpaceId: z.string().guid(),
             amount: amountString,
             toCurrency: z.string().min(3).max(8),
-            recipientId: z.string().uuid(),
+            recipientId: z.string().guid(),
             country: z.string().length(2),
             deliveryMethod: z.string().min(1).max(64),
             compliance: z.record(z.string().max(64), z.string().max(200)).optional(),
@@ -451,7 +451,7 @@ export function createGlobalRouter(bank: Pick<BankServices, 'globalSend' | 'glob
         }),
       ),
     get: scopedProcedure('bank:read', { module: 'bank' })
-      .input(z.object({ id: z.string().uuid() }).strict())
+      .input(z.object({ id: z.string().guid() }).strict())
       .output(sendView)
       .query(({ ctx, input }) =>
         guard(async () => {
@@ -462,17 +462,17 @@ export function createGlobalRouter(bank: Pick<BankServices, 'globalSend' | 'glob
       ),
     /** Cancel a send while it is on hold with nothing posted (BK-xfer-08). Nothing moves, so no step-up. */
     cancel: scopedProcedure('bank:write', { module: 'bank' })
-      .input(z.object({ id: z.string().uuid() }).strict())
+      .input(z.object({ id: z.string().guid() }).strict())
       .output(sendView)
       .mutation(({ ctx, input }) => guard(() => bank.globalHolds.cancel(ctx.principal.userId, input.id))),
     /** Ask for a send that left to come back (wrong person or wrong details). Nothing moves, so no step-up. */
     recall: scopedProcedure('bank:write', { module: 'bank' })
-      .input(z.object({ id: z.string().uuid(), reason: z.string().min(1).max(500) }).strict())
+      .input(z.object({ id: z.string().guid(), reason: z.string().min(1).max(500) }).strict())
       .output(sendView)
       .mutation(({ ctx, input }) => guard(() => bank.globalSend.recall({ userId: ctx.principal.userId, ...input }))),
     /** The signed receipt of a send that left: its text, SHA-256, signature and ledger transaction id. */
     receipt: scopedProcedure('bank:read', { module: 'bank' })
-      .input(z.object({ id: z.string().uuid() }).strict())
+      .input(z.object({ id: z.string().guid() }).strict())
       .output(
         z.object({ fileName: z.string(), text: z.string(), ledgerTxId: z.string(), sha256: z.string(), signature: z.string() }).strict(),
       )
@@ -483,14 +483,14 @@ export function createGlobalRouter(bank: Pick<BankServices, 'globalSend' | 'glob
       .query(() => guard(async () => bank.globalHolds.autoCancelRule())),
     hold: router({
       get: scopedProcedure('bank:read', { module: 'bank' })
-        .input(z.object({ id: z.string().uuid() }).strict())
+        .input(z.object({ id: z.string().guid() }).strict())
         .output(customerHoldView)
         .query(({ ctx, input }) => guard(() => bank.globalHolds.forCustomer(ctx.principal.userId, input.id))),
       uploadProof: scopedProcedure('bank:write', { module: 'bank' })
         .input(
           z
             .object({
-              id: z.string().uuid(),
+              id: z.string().guid(),
               name: z.string().min(1).max(200),
               type: z.string().min(3).max(100),
               contentBase64: z.string().min(4).max(40_000_000),
@@ -519,7 +519,7 @@ export function createGlobalRouter(bank: Pick<BankServices, 'globalSend' | 'glob
         .input(
           z
             .object({
-              sendId: z.string().uuid(),
+              sendId: z.string().guid(),
               holdKey: idString,
               reason: z.string().min(1).max(500),
               infoRequest: z.string().min(1).max(1000).optional(),
@@ -529,15 +529,15 @@ export function createGlobalRouter(bank: Pick<BankServices, 'globalSend' | 'glob
         .output(operatorHoldView)
         .mutation(({ ctx, input }) => guard(() => bank.globalHolds.hold({ ...input, operatorId: ctx.principal.userId }))),
       requestInfo: scopedProcedure('admin:compliance', { module: 'bank' })
-        .input(z.object({ sendId: z.string().uuid(), infoRequest: z.string().min(1).max(1000) }).strict())
+        .input(z.object({ sendId: z.string().guid(), infoRequest: z.string().min(1).max(1000) }).strict())
         .output(operatorHoldView)
         .mutation(({ input }) => guard(() => bank.globalHolds.requestInfo(input))),
       release: scopedProcedure('admin:compliance', { module: 'bank' })
-        .input(z.object({ sendId: z.string().uuid() }).strict())
+        .input(z.object({ sendId: z.string().guid() }).strict())
         .output(sendView)
         .mutation(({ ctx, input }) => guard(() => bank.globalHolds.release({ sendId: input.sendId, operatorId: ctx.principal.userId }))),
       linkReference: scopedProcedure('admin:compliance', { module: 'bank' })
-        .input(z.object({ sendId: z.string().uuid(), reference: z.string().min(6).max(64) }).strict())
+        .input(z.object({ sendId: z.string().guid(), reference: z.string().min(6).max(64) }).strict())
         .output(z.object({ linked: z.literal(true), send: sendView }))
         .mutation(({ ctx, input }) =>
           guard(() =>
@@ -545,7 +545,7 @@ export function createGlobalRouter(bank: Pick<BankServices, 'globalSend' | 'glob
           ),
         ),
       proof: scopedProcedure('admin:compliance', { module: 'bank' })
-        .input(z.object({ sendId: z.string().uuid() }).strict())
+        .input(z.object({ sendId: z.string().guid() }).strict())
         .output(z.object({ name: z.string(), type: z.string(), contentBase64: z.string() }))
         .query(({ input }) => guard(() => bank.globalHolds.proofFor(input.sendId))),
       controls: scopedProcedure('admin:read', { module: 'bank' })
@@ -602,7 +602,7 @@ export function createGlobalRouter(bank: Pick<BankServices, 'globalSend' | 'glob
         .output(z.array(sendView.extend({ userId: z.string() })))
         .query(({ input }) => guard(() => bank.globalSend.opsFailed(input))),
       get: scopedProcedure('admin:read', { module: 'bank' })
-        .input(z.object({ id: z.string().uuid() }).strict())
+        .input(z.object({ id: z.string().guid() }).strict())
         .output(sendView.extend({ userId: z.string() }))
         .query(({ input }) => guard(() => bank.globalSend.opsGet(input.id))),
       recalls: scopedProcedure('admin:read', { module: 'bank' })
@@ -611,12 +611,12 @@ export function createGlobalRouter(bank: Pick<BankServices, 'globalSend' | 'glob
         .query(({ input }) => guard(() => bank.globalSend.opsRecalls(input))),
       /** The rail sent a send back: record it with the rail's reference. Nothing posts. */
       recordReturn: scopedProcedure('admin:compliance', { module: 'bank' })
-        .input(z.object({ sendId: z.string().uuid(), returnRef: z.string().min(1).max(128) }).strict())
+        .input(z.object({ sendId: z.string().guid(), returnRef: z.string().min(1).max(128) }).strict())
         .output(sendView.extend({ userId: z.string() }))
         .mutation(({ ctx, input }) => guard(() => bank.globalSend.recordReturn({ ...input, operatorId: ctx.principal.userId }))),
       /** Refund a returned send to its sender, once, by a different operator from the one who recorded the return. */
       refundReturn: scopedProcedure('admin:compliance', { module: 'bank' })
-        .input(z.object({ sendId: z.string().uuid() }).strict())
+        .input(z.object({ sendId: z.string().guid() }).strict())
         .output(sendView.extend({ userId: z.string() }))
         .mutation(({ ctx, input }) =>
           guard(() => bank.globalSend.refundReturn({ sendId: input.sendId, operatorId: ctx.principal.userId })),

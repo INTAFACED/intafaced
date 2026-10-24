@@ -9,7 +9,7 @@ import { createApiClient, type ApiResult } from '../../shared/api';
 export const sessionSchema = z.object({
   accessToken: z.string().min(1),
   expiresAt: z.string().datetime({ offset: true }),
-  userId: z.string().uuid(),
+  userId: z.string().guid(),
 });
 export type Session = z.infer<typeof sessionSchema>;
 

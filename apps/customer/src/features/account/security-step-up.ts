@@ -5,7 +5,7 @@ import { signAssertion } from '../session/webauthn';
 
 const begun = z
   .object({
-    challengeId: z.string().uuid(),
+    challengeId: z.string().guid(),
     totp: z.boolean(),
     webauthn: z
       .object({

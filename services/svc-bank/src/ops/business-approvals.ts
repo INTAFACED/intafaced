@@ -50,7 +50,7 @@ export function businessApprovalsProcedure(bank: BankServices, guard: Guard) {
       z.object({
         approvals: z.array(
           z.object({
-            businessId: z.string().uuid(),
+            businessId: z.string().guid(),
             amount: amountString,
             assetId: z.string(),
             ageSeconds: z.number().int().nonnegative(),

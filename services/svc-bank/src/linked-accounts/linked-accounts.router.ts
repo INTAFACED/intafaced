@@ -11,7 +11,7 @@ import { LINKED_ACCOUNT_BLOCKERS, LINKED_ACCOUNT_STATES } from './linked-account
 
 const account = z
   .object({
-    accountId: z.string().uuid(),
+    accountId: z.string().guid(),
     label: z.string(),
     holderName: z.string(),
     ibanMasked: z.string(),
@@ -48,7 +48,7 @@ export function createLinkedAccountsRouter(bank: Pick<BankServices, 'linkedAccou
 
     /** Unlink, with the same step-up scope. Removing one already removed answers the same. */
     remove: scopedProcedure('trade:withdraw', { module: 'bank' })
-      .input(z.object({ accountId: z.string().uuid() }).strict())
+      .input(z.object({ accountId: z.string().guid() }).strict())
       .output(z.object({ accountId: z.string(), removed: z.literal(true) }).strict())
       .mutation(({ ctx, input }) => guard(async () => bank.linkedAccounts.remove(ctx.principal.userId, input.accountId))),
   });
