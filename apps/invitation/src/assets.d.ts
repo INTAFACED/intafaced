@@ -30,4 +30,5 @@ declare module '@outreach/countries' {
 
 declare module '@outreach/transport' {
   export const mutate: (...args: any[]) => Promise<any>;
+  export const query: (...args: any[]) => Promise<any>;
 }

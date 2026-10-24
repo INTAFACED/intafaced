@@ -96,7 +96,7 @@ test(`${J} #1 joins the waitlist signed out and sees a queue position`, async ({
   const read = await standing(code);
   expect(read.release).toBeNull();
   expect(shown).toEqual({ rank: read.rank, waiting: read.waiting });
-  expect(page.getByTestId('waitlist-referred')).toHaveText('0');
+  await expect(page.getByTestId('waitlist-referred')).toHaveText('0');
   await expect(page.getByLabel('Your invitation link')).toHaveValue(`${JOIN}/waitlist?ref=${code}`);
   // Coming back to the link shows the same place, read again, not remembered.
   await page.goto(`/waitlist?code=${code}`);
@@ -109,9 +109,9 @@ test(`${J} #2 each friend who joins with my link moves me up; ties go by join or
   const page = await visitor(browser);
   await page.goto(`/waitlist?code=${code}`);
   let before = await shownRank(page);
-  // Two friends at least; on a stack an earlier run left people waiting with friends of their own, so keep inviting
-  // (ten at most) until I am first in the queue, which #3's wave then reaches.
-  for (let n = 1; n <= 2 || (before.rank > 1 && n <= 10); n++) {
+  // Two friends at least; on a long-lived stack an earlier run may have left people waiting with friends of their own, so
+  // keep inviting (twenty-five at most) until I am first in the queue, which #3's wave then reaches.
+  for (let n = 1; n <= 2 || (before.rank > 1 && n <= 25); n++) {
     const friend = await visitor(browser);
     await friend.goto(`/waitlist?ref=${code}`);
     await expect(friend.getByTestId('waitlist-invited-by')).toContainText(code);

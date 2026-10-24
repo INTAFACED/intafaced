@@ -35,3 +35,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS "waitlist_releases_key_idx"
   ON "identity"."waitlist_releases" ("release_key");
 CREATE INDEX IF NOT EXISTS "waitlist_releases_wave_idx"
   ON "identity"."waitlist_releases" ("wave_id");
+
+-- The queue order a release picks by and the rank read counts by.
+CREATE INDEX IF NOT EXISTS "waitlist_entries_rank_idx"
+  ON "identity"."waitlist_entries" ("referred_count" DESC, "position");

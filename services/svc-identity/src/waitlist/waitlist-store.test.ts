@@ -19,6 +19,7 @@ describe('MemoryWaitlistStore', () => {
 
 const OPERATOR = '11111111-1111-4111-8111-111111111111';
 const APPROVER = '22222222-2222-4222-8222-222222222222';
+const approve = async () => ({ approverId: APPROVER });
 
 describe('MemoryWaitlistStore waves', () => {
   it('ranks by referrals then join order and releases once', async () => {
@@ -28,9 +29,9 @@ describe('MemoryWaitlistStore waves', () => {
     await store.enroll({ email: 'b1@example.com', referredBy: b.entry.referralCode });
     expect((await store.standing(b.entry)).rank).toBe(1);
     expect((await store.standing(a.entry)).rank).toBe(2);
-    const input = { waveNumber: 1, size: 1, flagKey: 'waitlist.enabled', releasedBy: OPERATOR, approvedBy: APPROVER };
-    await store.releaseWave(input);
-    expect(await store.releaseWave(input)).toMatchObject({ created: false });
+    const input = { waveNumber: 1, size: 1, flagKey: 'waitlist.enabled', releasedBy: OPERATOR };
+    await store.releaseWave(input, approve);
+    expect(await store.releaseWave(input, approve)).toMatchObject({ created: false });
     expect(await store.standing(b.entry)).toMatchObject({ rank: null, release: { waveNumber: 1 } });
     expect(await store.standing(a.entry)).toMatchObject({ rank: 1, waiting: 2 });
   });
@@ -101,12 +102,12 @@ if (!available) {
       expect((await rankOf(a.entry.referralCode)).rank).toBe(2);
       expect((await rankOf(b.entry.referralCode)).rank).toBe(3);
 
-      const input = { size: 2, flagKey: 'waitlist.enabled', releasedBy: OPERATOR, approvedBy: APPROVER };
-      await expect(store.releaseWave({ ...input, waveNumber: 2 })).rejects.toMatchObject({ code: 'waitlist.wave_unknown' });
-      const first = await store.releaseWave({ ...input, waveNumber: 1 });
+      const input = { size: 2, flagKey: 'waitlist.enabled', releasedBy: OPERATOR };
+      await expect(store.releaseWave({ ...input, waveNumber: 2 }, approve)).rejects.toMatchObject({ code: 'waitlist.wave_unknown' });
+      const first = await store.releaseWave({ ...input, waveNumber: 1 }, approve);
       expect(first.created).toBe(true);
       expect(first.wave).toMatchObject({ waveNumber: 1, size: 2, releasedCount: 2 });
-      const again = await store.releaseWave({ ...input, waveNumber: 1 });
+      const again = await store.releaseWave({ ...input, waveNumber: 1 }, approve);
       expect(again).toEqual({ wave: first.wave, created: false });
 
       const keys = await db.sql<Array<{ entry_id: string; release_key: string }>>`
@@ -122,17 +123,36 @@ if (!available) {
 
     it('two releases of the same wave at once release the top N once', async () => {
       for (const n of [1, 2, 3, 4]) await store.enroll({ email: `p${n}@example.com` });
-      const input = { waveNumber: 1, size: 2, flagKey: 'waitlist.enabled', releasedBy: OPERATOR, approvedBy: APPROVER };
-      const [x, y] = await Promise.all([store.releaseWave(input), store.releaseWave(input)]);
+      const input = { waveNumber: 1, size: 2, flagKey: 'waitlist.enabled', releasedBy: OPERATOR };
+      const [x, y] = await Promise.all([store.releaseWave(input, approve), store.releaseWave(input, approve)]);
       expect([x.created, y.created].sort()).toEqual([false, true]);
       expect(x.wave.id).toBe(y.wave.id);
       const n = await db.sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM waitlist_releases`;
       expect(n[0]?.n).toBe(2);
     });
 
+    it('a refused approval writes nothing; a release that finds its wave stored never asks for one', async () => {
+      await store.enroll({ email: 'q1@example.com' });
+      const input = { waveNumber: 1, size: 2, flagKey: 'waitlist.enabled', releasedBy: OPERATOR };
+      await expect(
+        store.releaseWave(input, async () => {
+          throw new Error('action_approval.consumed');
+        }),
+      ).rejects.toThrow('action_approval.consumed');
+      expect(await store.waves()).toEqual([]);
+      expect(await store.waitingCount()).toBe(1);
+      let asked = 0;
+      const counted = async () => {
+        asked++;
+        return { approverId: APPROVER };
+      };
+      await Promise.all([store.releaseWave(input, counted), store.releaseWave(input, counted)]);
+      expect(asked).toBe(1);
+    });
+
     it('refuses an empty queue without writing a wave', async () => {
-      const input = { waveNumber: 1, size: 2, flagKey: 'waitlist.enabled', releasedBy: OPERATOR, approvedBy: APPROVER };
-      await expect(store.releaseWave(input)).rejects.toMatchObject({ code: 'waitlist.wave_empty' });
+      const input = { waveNumber: 1, size: 2, flagKey: 'waitlist.enabled', releasedBy: OPERATOR };
+      await expect(store.releaseWave(input, approve)).rejects.toMatchObject({ code: 'waitlist.wave_empty' });
       expect(await store.waves()).toEqual([]);
     });
 

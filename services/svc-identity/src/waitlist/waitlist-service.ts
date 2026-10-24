@@ -133,8 +133,9 @@ export class WaitlistService {
 
   /**
    * Releases wave `waveNumber` (J-campaigns-20 #3). Refusals come before `authorize` spends the second person's
-   * approval: flag off, blank size, a number that is not the next wave, nobody waiting. The same wave number again
-   * returns the stored wave and spends nothing. `authorize` receives the size it binds the approval to.
+   * approval: flag off, blank size, a number that is not the next wave, nobody waiting (checked here, and again by the
+   * store under its lock, where `authorize` runs). The same wave number again returns the stored wave and spends
+   * nothing. `authorize` receives the size it binds the approval to.
    */
   async release(
     input: { waveNumber: number; releasedBy: string },
@@ -150,15 +151,11 @@ export class WaitlistService {
       throw new WaitlistError(`The next wave is ${waves.length + 1}`, 'waitlist.wave_unknown');
     }
     if (waiting === 0) throw new WaitlistError('Nobody is waiting to be released', 'waitlist.wave_empty');
-    const { approverId } = await authorize(size);
     try {
-      return await this.store.releaseWave({
-        waveNumber: input.waveNumber,
-        size,
-        flagKey: WAVE_FLAG_KEY,
-        releasedBy: input.releasedBy,
-        approvedBy: approverId,
-      });
+      return await this.store.releaseWave(
+        { waveNumber: input.waveNumber, size, flagKey: WAVE_FLAG_KEY, releasedBy: input.releasedBy },
+        () => authorize(size),
+      );
     } catch (err) {
       throw mapStoreError(err);
     }

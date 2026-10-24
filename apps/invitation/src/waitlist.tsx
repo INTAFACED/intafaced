@@ -3,6 +3,7 @@ import { HaloInput } from './components/halo-input';
 import { HaloField, HaloFieldLabel, HaloFieldContent, HaloFieldDescription } from './components/halo-field';
 import { PrimaryMetal } from './components/primary-metal';
 import { LivingBackdrop } from './components/living-backdrop';
+import { mutate, query } from '@outreach/transport';
 import heroPhone from './vendored/assets/images/outreach/graphite-fins-phone.webp';
 import logo from './vendored/assets/images/logo.svg';
 import './waitlist.css';
@@ -44,26 +45,30 @@ const REFUSAL_COPY: Record<string, string> = {
   'flag.referral.queue.drop_pending': 'Invitation codes are not open yet. You can join without one.',
 };
 
+/** The edge client's reasons for a call no service answered; each says what is missing, not "something went wrong". */
+const REASON_COPY: Record<string, string> = {
+  unreachable: 'The waitlist could not be reached. Check your connection and try again.',
+  not_routed: 'The waitlist is not connected on this site yet.',
+  not_mounted: 'The waitlist is not connected on this site yet.',
+};
+
 function refusalText(refusal: Refusal): string {
-  return REFUSAL_COPY[refusal.code] ?? `The waitlist could not answer (${refusal.code || 'no reason given'}). Try again in a moment.`;
+  return (
+    REFUSAL_COPY[refusal.code] ??
+    REASON_COPY[refusal.code] ??
+    `The waitlist could not answer (${refusal.code || 'no reason given'}). Try again in a moment.`
+  );
 }
 
-async function call<T>(procedure: string, input: unknown, method: 'GET' | 'POST'): Promise<T> {
-  const base = `/api/identity/trpc/${procedure}`;
-  let res: Response;
-  try {
-    res =
-      method === 'GET'
-        ? await fetch(`${base}?input=${encodeURIComponent(JSON.stringify(input))}`, { headers: { accept: 'application/json' } })
-        : await fetch(base, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) });
-  } catch {
-    throw { code: 'network', message: 'offline' } satisfies Refusal;
-  }
-  const body = await res.json().catch(() => null);
-  if (res.ok && body?.result) return body.result.data as T;
-  const error = body?.error;
-  const named = error?.data?.cause?.code ?? error?.data?.intafacedCode ?? /\[([a-z0-9_.]+)\]/.exec(error?.message ?? '')?.[1];
-  throw { code: typeof named === 'string' ? named : '', message: error?.message ?? `HTTP ${res.status}` } satisfies Refusal;
+/**
+ * One call through the site's edge client. A service refusal names its code last in the message (`... [code]`), so the
+ * last bracketed token is the code; a call no service answered keeps the client's own reason.
+ */
+async function call<T>(procedure: string, input: unknown, kind: 'query' | 'mutate'): Promise<T> {
+  const out = await (kind === 'query' ? query : mutate)('identity', procedure, input);
+  if (out.ok) return out.data as T;
+  const named = [...String(out.message ?? '').matchAll(/\[([a-z0-9_.]+)\]/g)].pop()?.[1];
+  throw { code: named ?? (out.reason === 'error' ? '' : out.reason), message: out.message ?? '' } satisfies Refusal;
 }
 
 function readStoredCode(): string | null {
@@ -111,40 +116,47 @@ export function WaitlistPage() {
     setBusy(true);
     setRefusal(null);
     try {
-      setStanding(await call<Standing>('waitlist.position', { referralCode: which }, 'GET'));
+      setStanding(await call<Standing>('waitlist.position', { referralCode: which }, 'query'));
     } catch (err) {
       setRefusal(err as Refusal);
       if ((err as Refusal).code === 'waitlist.not_found') {
+        // The code is gone: back to the join form, with nothing stale left on screen.
         forgetCode();
         setCode(null);
+        setStanding(null);
       }
     } finally {
       setBusy(false);
     }
   };
 
+  // The code in the address (or on this device) is read once, on arrival; a join reads its own code below.
   useEffect(() => {
     if (code) void load(code);
-  }, [code]);
+  }, []);
 
   const join = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (busy) return;
     setBusy(true);
     setRefusal(null);
+    let joined: string;
     try {
       const out = await call<{ referralCode: string }>(
         'waitlist.enroll',
         { email: email.trim(), ...(invitedBy ? { referralCode: invitedBy } : {}) },
-        'POST',
+        'mutate',
       );
-      storeCode(out.referralCode);
-      window.history.replaceState(null, '', `/waitlist?code=${out.referralCode}`);
-      setCode(out.referralCode);
+      joined = out.referralCode;
     } catch (err) {
       setRefusal(err as Refusal);
       setBusy(false);
+      return;
     }
+    storeCode(joined);
+    window.history.replaceState(null, '', `/waitlist?code=${joined}`);
+    setCode(joined);
+    await load(joined);
   };
 
   const shareLink = standing ? `${window.location.origin}/waitlist?ref=${standing.referralCode}` : '';
@@ -212,10 +224,14 @@ export function WaitlistPage() {
               ) : (
                 <>
                   <h1 id="waitlist-heading">Your place in the queue</h1>
-                  <p className="waitlist-rank" aria-label={`Place ${standing.rank} of ${standing.waiting} waiting`}>
-                    <span className="waitlist-rank-number">#{standing.rank}</span>
-                    <span className="outreach-small"> of {standing.waiting} waiting</span>
-                  </p>
+                  {standing.rank === null ? (
+                    <p className="outreach-small">Your place could not be read just now. Check again in a moment.</p>
+                  ) : (
+                    <p className="waitlist-rank" aria-label={`Place ${standing.rank} of ${standing.waiting} waiting`}>
+                      <span className="waitlist-rank-number">#{standing.rank}</span>
+                      <span className="outreach-small"> of {standing.waiting} waiting</span>
+                    </p>
+                  )}
                 </>
               )}
               <dl className="waitlist-facts">

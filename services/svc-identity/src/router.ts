@@ -554,8 +554,8 @@ const waveOutput = z.object({
   size: z.number().int().positive(),
   releasedCount: z.number().int().positive(),
   flagKey: z.string(),
-  releasedBy: z.string().uuid(),
-  approvedBy: z.string().uuid(),
+  releasedBy: z.string().guid(),
+  approvedBy: z.string().guid(),
   releasedAt: z.string(),
 });
 

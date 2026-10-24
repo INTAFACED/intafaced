@@ -84,7 +84,6 @@ export type WaveReleaseInput = {
   readonly size: number;
   readonly flagKey: string;
   readonly releasedBy: string;
-  readonly approvedBy: string;
 };
 
 /** Queue order: more referrals first, ties by join order. */
@@ -106,10 +105,12 @@ export interface WaitlistStore {
   waves(): Promise<readonly WaitlistWave[]>;
   /**
    * Releases wave `waveNumber`: the top `size` waiting entries, once. The same wave number again returns the stored wave
-   * (`created: false`) and writes nothing. Refuses a number that is not the next one (`waitlist.wave_unknown`) and a
-   * queue with nobody waiting (`waitlist.wave_empty`).
+   * (`created: false`), writes nothing and never calls `authorize`. Refuses a number that is not the next one
+   * (`waitlist.wave_unknown`) and a queue with nobody waiting (`waitlist.wave_empty`), also without calling it.
+   * `authorize` (the second person's approval) runs once every check has passed, inside the release, so a release that
+   * loses a race or refuses spends no approval, and a refused approval writes nothing. It returns who approved.
    */
-  releaseWave(input: WaveReleaseInput): Promise<{ wave: WaitlistWave; created: boolean }>;
+  releaseWave(input: WaveReleaseInput, authorize: () => Promise<{ approverId: string }>): Promise<{ wave: WaitlistWave; created: boolean }>;
 }
 
 export class WaitlistStoreError extends Error {
@@ -267,7 +268,8 @@ export class MemoryWaitlistStore implements WaitlistStore {
     const current = this.byEmail.get(entry.email) ?? entry;
     const waiting = this.waitingEntries();
     const release = this.releases.get(current.id) ?? null;
-    return { rank: release ? null : waiting.findIndex((e) => e.id === current.id) + 1, waiting: waiting.length, release };
+    const index = waiting.findIndex((e) => e.id === current.id);
+    return { rank: release || index < 0 ? null : index + 1, waiting: waiting.length, release };
   }
 
   async waitingCount(): Promise<number> {
@@ -278,7 +280,10 @@ export class MemoryWaitlistStore implements WaitlistStore {
     return [...this.waveRows];
   }
 
-  async releaseWave(input: WaveReleaseInput): Promise<{ wave: WaitlistWave; created: boolean }> {
+  async releaseWave(
+    input: WaveReleaseInput,
+    authorize: () => Promise<{ approverId: string }>,
+  ): Promise<{ wave: WaitlistWave; created: boolean }> {
     const existing = this.waveRows.find((w) => w.waveNumber === input.waveNumber);
     if (existing) return { wave: existing, created: false };
     if (input.waveNumber !== this.waveRows.length + 1) {
@@ -286,8 +291,9 @@ export class MemoryWaitlistStore implements WaitlistStore {
     }
     const picks = this.waitingEntries().slice(0, input.size);
     if (picks.length === 0) throw new WaitlistStoreError('Nobody is waiting to be released', 'waitlist.wave_empty');
+    const { approverId } = await authorize();
     const releasedAt = new Date();
-    const wave: WaitlistWave = { id: randomUUID(), ...input, releasedCount: picks.length, releasedAt };
+    const wave: WaitlistWave = { id: randomUUID(), ...input, approvedBy: approverId, releasedCount: picks.length, releasedAt };
     this.waveRows.push(wave);
     for (const e of picks) this.releases.set(e.id, { waveNumber: input.waveNumber, releasedAt });
     return { wave, created: true };
@@ -503,7 +509,10 @@ export class SqlWaitlistStore implements WaitlistStore {
     return rows.map(toWave);
   }
 
-  async releaseWave(input: WaveReleaseInput): Promise<{ wave: WaitlistWave; created: boolean }> {
+  async releaseWave(
+    input: WaveReleaseInput,
+    authorize: () => Promise<{ approverId: string }>,
+  ): Promise<{ wave: WaitlistWave; created: boolean }> {
     return transaction(
       this.sql,
       async (tx) => {
@@ -511,27 +520,28 @@ export class SqlWaitlistStore implements WaitlistStore {
         // the second one, once it holds the lock, sees the wave the first one wrote and returns it.
         await tx`SELECT pg_advisory_xact_lock(hashtext('identity.waitlist_waves'))`;
         const existing = await tx<WaveRow[]>`
-        SELECT id, wave_number, size, released_count, flag_key, released_by, approved_by, released_at
-        FROM waitlist_waves WHERE wave_number = ${input.waveNumber}
-      `;
+          SELECT id, wave_number, size, released_count, flag_key, released_by, approved_by, released_at
+          FROM waitlist_waves WHERE wave_number = ${input.waveNumber}
+        `;
         if (existing[0]) return { wave: toWave(existing[0]), created: false };
         const last = await tx<Array<{ n: number }>>`SELECT coalesce(max(wave_number), 0)::int AS n FROM waitlist_waves`;
         const next = (last[0]?.n ?? 0) + 1;
         if (input.waveNumber !== next) throw new WaitlistStoreError(`The next wave is ${next}`, 'waitlist.wave_unknown');
-        // Rows locked so a referral landing now cannot reorder the pick under us.
+        // One snapshot decides the wave: a referral that commits after this read counts toward the next wave.
         const picks = await tx<Array<{ id: string }>>`
-        SELECT e.id FROM waitlist_entries e
-        WHERE NOT EXISTS (SELECT 1 FROM waitlist_releases r WHERE r.entry_id = e.id)
-        ORDER BY e.referred_count DESC, e.position ASC
-        LIMIT ${input.size}
-        FOR UPDATE OF e
-      `;
+          SELECT e.id FROM waitlist_entries e
+          WHERE NOT EXISTS (SELECT 1 FROM waitlist_releases r WHERE r.entry_id = e.id)
+          ORDER BY e.referred_count DESC, e.position ASC
+          LIMIT ${input.size}
+        `;
         if (picks.length === 0) throw new WaitlistStoreError('Nobody is waiting to be released', 'waitlist.wave_empty');
+        // Spent here, under the lock and after every check: a throw rolls the release back and writes nothing.
+        const { approverId } = await authorize();
         const waves = await tx<WaveRow[]>`
-        INSERT INTO waitlist_waves (wave_number, size, released_count, flag_key, released_by, approved_by)
-        VALUES (${input.waveNumber}, ${input.size}, ${picks.length}, ${input.flagKey}, ${input.releasedBy}, ${input.approvedBy})
-        RETURNING id, wave_number, size, released_count, flag_key, released_by, approved_by, released_at
-      `;
+          INSERT INTO waitlist_waves (wave_number, size, released_count, flag_key, released_by, approved_by)
+          VALUES (${input.waveNumber}, ${input.size}, ${picks.length}, ${input.flagKey}, ${input.releasedBy}, ${approverId})
+          RETURNING id, wave_number, size, released_count, flag_key, released_by, approved_by, released_at
+        `;
         const wave = toWave(waves[0]!);
         const rows = picks.map((p) => ({
           entry_id: p.id,
