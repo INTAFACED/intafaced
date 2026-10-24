@@ -117,7 +117,7 @@ describe('session.log public door', () => {
     const routerTs = readFileSync(join(HERE, 'router.ts'), 'utf8');
     const runtimeTs = readFileSync(join(HERE, 'runtime.ts'), 'utf8');
     const auditTs = readFileSync(join(HERE, 'fleet/audit.ts'), 'utf8');
-    expect(routerTs).not.toMatch(/sessionId: z\.string\(\)\.uuid\(\).*default\(100\)/);
+    expect(routerTs).not.toMatch(/sessionId: z\.string\(\)\.guid\(\).*default\(100\)/);
     expect(routerTs).toMatch(/assertSessionLogPageLimit\(input\.limit\)/);
     expect(runtimeTs).not.toMatch(/sessionLog\(sessionId: string, limit = 100\)/);
     expect(auditTs).not.toMatch(/forSession\(sessionId: string, limit = 100\)/);

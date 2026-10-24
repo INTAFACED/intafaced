@@ -14,10 +14,10 @@ import { type Scope } from './scopes.js';
  */
 
 export const accessClaimsSchema = z.object({
-  sub: z.string().uuid(),
+  sub: z.string().guid(),
   scopes: z.array(z.string()),
   /** Present when the caller is a sub-account (§4.1 sub_accounts). */
-  sub_account: z.string().uuid().optional(),
+  sub_account: z.string().guid().optional(),
   /** Present when an API key issued this token, so a leak can be traced to a key. */
   kid: z.string().optional(),
   /**
@@ -33,7 +33,7 @@ export const accessClaimsSchema = z.object({
   tier: z.enum(['none', 'basic', 'full', 'institutional']).default('none'),
   /** True once the session has passed 2FA. Gates SESSION_MFA_SCOPES. */
   mfa: z.boolean().default(false),
-  sid: z.string().uuid(),
+  sid: z.string().guid(),
   /**
    * Pay scopes minted by `auth.stepUpPay`. Absent on a normal session and on
    * every refresh. An API key may copy `pay:refund` / `pay:payout` only when

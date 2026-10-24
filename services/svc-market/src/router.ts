@@ -83,8 +83,8 @@ import { MARKET_LISTING_PIN_IEEE, MARKET_LISTING_PIN_UNSET, MARKET_LISTING_SET_U
 const vendorStatus = z.enum(['applied', 'approved', 'rejected', 'suspended']);
 
 const vendorOut = z.object({
-  id: z.string().uuid(),
-  userId: z.string().uuid(),
+  id: z.string().guid(),
+  userId: z.string().guid(),
   displayName: z.string(),
   description: z.string(),
   status: vendorStatus,
@@ -94,8 +94,8 @@ const vendorOut = z.object({
 
 /** No amount, no capacity, no tier — a slot row records only that it was taken. */
 const slotOut = z.object({
-  id: z.string().uuid(),
-  vendorId: z.string().uuid(),
+  id: z.string().guid(),
+  vendorId: z.string().guid(),
   ref: z.string(),
   claimedAt: z.string().datetime(),
   releasedAt: z.string().datetime().nullable(),
@@ -107,21 +107,21 @@ const slotOut = z.object({
  * no slot refs, and nothing whatsoever from the operator event log.
  */
 const publicVendorOut = z.object({
-  id: z.string().uuid(),
+  id: z.string().guid(),
   displayName: z.string(),
   description: z.string(),
   createdAt: z.string().datetime(),
 });
 
 const statusEventOut = z.object({
-  id: z.string().uuid(),
+  id: z.string().guid(),
   /** `bigserial` as a string — an ordering key, never arithmetic. */
   seq: z.string(),
-  vendorId: z.string().uuid(),
+  vendorId: z.string().guid(),
   fromStatus: vendorStatus,
   toStatus: vendorStatus,
   reason: z.string(),
-  actorId: z.string().uuid(),
+  actorId: z.string().guid(),
   actorScope: z.string(),
   createdAt: z.string().datetime(),
 });
@@ -231,8 +231,8 @@ function mapError(err: unknown): never {
 }
 
 export const listingOut = z.object({
-  id: z.string().uuid(),
-  vendorId: z.string().uuid(),
+  id: z.string().guid(),
+  vendorId: z.string().guid(),
   title: z.string(),
   description: z.string(),
   offerType: z.enum(['one_time', 'subscription']),
@@ -276,16 +276,16 @@ export const listingDetailOut = z
   .strict();
 
 const purchaseOut = z.object({
-  id: z.string().uuid(),
-  listingId: z.string().uuid(),
-  buyerId: z.string().uuid(),
-  vendorId: z.string().uuid(),
-  vendorUserId: z.string().uuid(),
+  id: z.string().guid(),
+  listingId: z.string().guid(),
+  buyerId: z.string().guid(),
+  vendorId: z.string().guid(),
+  vendorUserId: z.string().guid(),
   assetId: z.string(),
   price: z.string(),
   commissionBps: z.number().int(),
   status: z.enum(['pending', 'settled', 'rejected']),
-  ledgerTxId: z.string().uuid().nullable(),
+  ledgerTxId: z.string().guid().nullable(),
   rejectionCode: z.string().nullable(),
   createdAt: z.string().datetime(),
   settledAt: z.string().datetime().nullable(),
@@ -294,7 +294,7 @@ const purchaseOut = z.object({
 });
 
 const salesRowOut = z.object({
-  vendorId: z.string().uuid(),
+  vendorId: z.string().guid(),
   assetId: z.string(),
   settledVolume: z.string(),
   settledCount: z.string(),
@@ -302,11 +302,11 @@ const salesRowOut = z.object({
 });
 
 const reviewOut = z.object({
-  id: z.string().uuid(),
-  purchaseId: z.string().uuid(),
-  listingId: z.string().uuid(),
-  vendorId: z.string().uuid(),
-  buyerId: z.string().uuid(),
+  id: z.string().guid(),
+  purchaseId: z.string().guid(),
+  listingId: z.string().guid(),
+  vendorId: z.string().guid(),
+  buyerId: z.string().guid(),
   score: z.number().int().min(1).max(5),
   text: z.string().nullable(),
   createdAt: z.string().datetime(),
@@ -315,9 +315,9 @@ const reviewOut = z.object({
 /** Public review. No buyer id and no purchase id — those stay on `reviews.submit`. */
 export const reviewPublicOut = z
   .object({
-    id: z.string().uuid(),
-    listingId: z.string().uuid(),
-    vendorId: z.string().uuid(),
+    id: z.string().guid(),
+    listingId: z.string().guid(),
+    vendorId: z.string().guid(),
     score: z.number().int().min(1).max(5),
     text: z.string().nullable(),
     createdAt: z.string().datetime(),
@@ -325,17 +325,17 @@ export const reviewPublicOut = z
   .strict();
 
 const takedownOut = z.object({
-  listingId: z.string().uuid(),
+  listingId: z.string().guid(),
   status: z.literal('taken_down'),
   reason: z.string(),
-  actorId: z.string().uuid(),
+  actorId: z.string().guid(),
   takenDownAt: z.string().datetime(),
 });
 
 const categorySetOut = z.object({
-  listingId: z.string().uuid(),
+  listingId: z.string().guid(),
   category: z.string().min(1).max(32),
-  actorId: z.string().uuid(),
+  actorId: z.string().guid(),
   reason: z.string(),
   businessKey: z.string().min(1).max(128),
   recordedAt: z.string().datetime(),
@@ -406,7 +406,7 @@ export function createMarketRouter(
     vet: scopedProcedure(MARKET_OPS_SCOPE)
       .input(
         z.object({
-          vendorId: z.string().uuid(),
+          vendorId: z.string().guid(),
           decision: z.enum(['approved', 'rejected', 'suspended']),
           reason: z.string().min(1).max(2_000),
           confirmOperatorId: z.string().max(128).nullish(),
@@ -465,7 +465,7 @@ export function createMarketRouter(
             .object({
               from: z.string().max(64).optional(),
               to: z.string().max(64).optional(),
-              vendorId: z.string().uuid().optional(),
+              vendorId: z.string().guid().optional(),
               limit: z.number().int().positive().max(50).optional(),
               cursor: z.string().max(512).optional(),
             })
@@ -503,7 +503,7 @@ export function createMarketRouter(
       takedownListing: scopedProcedure(MARKET_OPS_SCOPE)
         .input(
           z.object({
-            listingId: z.string().uuid(),
+            listingId: z.string().guid(),
             reason: z.string().max(2_000),
             approvalId: z.string().max(128).nullish(),
             operationId: z.string().max(128).nullish(),
@@ -541,7 +541,7 @@ export function createMarketRouter(
       setListingCategory: scopedProcedure(MARKET_OPS_SCOPE)
         .input(
           z.object({
-            listingId: z.string().uuid(),
+            listingId: z.string().guid(),
             /** Product slug. A string that is not the enum is market.category_invalid. */
             category: z.string().max(64),
             reason: z.string().max(2_000),
@@ -605,7 +605,7 @@ export function createMarketRouter(
       .input(
         z
           .object({
-            clientProposalId: z.string().uuid(),
+            clientProposalId: z.string().guid(),
             // Empty strings reach the domain gate so the caller receives its
             // typed missing-owner-decision code instead of an opaque Zod 400.
             symbol: z.string().max(80),
@@ -617,8 +617,8 @@ export function createMarketRouter(
       )
       .output(
         z.object({
-          id: z.string().uuid(),
-          proposerId: z.string().uuid(),
+          id: z.string().guid(),
+          proposerId: z.string().guid(),
           symbol: z.string(),
           settle: z.string(),
           oracleSource: z.string(),
@@ -651,7 +651,7 @@ export function createMarketRouter(
     slots: scopedProcedure('market:read', { module: 'market' })
       .output(
         z.object({
-          vendorId: z.string().uuid(),
+          vendorId: z.string().guid(),
           status: vendorStatus,
           tier: z.string(),
           capacity: z.number().int().nonnegative(),
@@ -682,7 +682,7 @@ export function createMarketRouter(
      * long after svc-token came back.
      */
     profile: publicProcedure
-      .input(z.object({ vendorId: z.string().uuid() }))
+      .input(z.object({ vendorId: z.string().guid() }))
       .output(publicVendorOut)
       .query(async ({ input }) => {
         let profile;
@@ -730,7 +730,7 @@ export function createMarketRouter(
      * you want.
      */
     history: scopedProcedure(MARKET_OPS_SCOPE)
-      .input(z.object({ vendorId: z.string().uuid(), limit: z.number().int().positive().max(200).optional() }))
+      .input(z.object({ vendorId: z.string().guid(), limit: z.number().int().positive().max(200).optional() }))
       .output(z.array(statusEventOut))
       .query(async ({ input }) => {
         try {
@@ -844,7 +844,7 @@ export function createMarketRouter(
       }),
 
     archiveListing: scopedProcedure('market:write', { module: 'market' })
-      .input(z.object({ listingId: z.string().uuid() }))
+      .input(z.object({ listingId: z.string().guid() }))
       .output(listingOut)
       .mutation(async ({ ctx, input }) => {
         requireCommerce(commerce);
@@ -939,7 +939,7 @@ export function createMarketRouter(
      * No seller user id. Performance is unreported: there is no source id to read.
      */
     listing: publicProcedure
-      .input(z.object({ listingId: z.string().uuid() }))
+      .input(z.object({ listingId: z.string().guid() }))
       .output(listingDetailOut)
       .query(async ({ input }) => {
         requireCommerce(commerce);
@@ -1068,7 +1068,7 @@ export function createMarketRouter(
      * Automatic recurring charge is not built (no second recipe / scheduler).
      * One period is `purchase`. Public so a missing procedure cannot look like 404.
      */
-    subscribe: publicProcedure.input(z.object({ listingId: z.string().uuid().optional() }).optional()).mutation(async () => {
+    subscribe: publicProcedure.input(z.object({ listingId: z.string().guid().optional() }).optional()).mutation(async () => {
       try {
         refuseRecurringSubscribe();
       } catch (err) {
@@ -1077,7 +1077,7 @@ export function createMarketRouter(
     }),
 
     /** Alias of `subscribe` — a `/trpc/recurring` 404 would look like "not a door". */
-    recurring: publicProcedure.input(z.object({ listingId: z.string().uuid().optional() }).optional()).mutation(async () => {
+    recurring: publicProcedure.input(z.object({ listingId: z.string().guid().optional() }).optional()).mutation(async () => {
       try {
         refuseRecurringSubscribe();
       } catch (err) {
@@ -1090,7 +1090,7 @@ export function createMarketRouter(
      * purchase. Blank commission config refuses before any post.
      */
     purchase: scopedProcedure('market:write', { module: 'market' })
-      .input(z.object({ listingId: z.string().uuid(), purchaseId: z.string().uuid() }))
+      .input(z.object({ listingId: z.string().guid(), purchaseId: z.string().guid() }))
       .output(purchaseOut)
       .mutation(async ({ ctx, input }) => {
         requireCommerce(commerce);
@@ -1142,13 +1142,13 @@ export function createMarketRouter(
           ),
           sales: z.array(
             z.object({
-              purchaseId: z.string().uuid(),
-              listingId: z.string().uuid(),
+              purchaseId: z.string().guid(),
+              listingId: z.string().guid(),
               assetId: z.string(),
               gross: z.string(),
               commission: z.string(),
               net: z.string(),
-              ledgerTxId: z.string().uuid(),
+              ledgerTxId: z.string().guid(),
               settledAt: z.string().datetime(),
             }),
           ),
@@ -1171,7 +1171,7 @@ export function createMarketRouter(
       submit: scopedProcedure('market:write', { module: 'market' })
         .input(
           z.object({
-            purchaseId: z.string().uuid(),
+            purchaseId: z.string().guid(),
             score: z.number(),
             text: z.string().max(1_000).optional(),
             clientRequestId: z.string().max(128),
@@ -1190,7 +1190,7 @@ export function createMarketRouter(
       list: scopedProcedure('market:read', { module: 'market' })
         .input(
           z.object({
-            listingId: z.string().uuid(),
+            listingId: z.string().guid(),
             limit: z.number().int().positive().max(50).optional(),
             cursor: z.string().max(512).optional(),
           }),
@@ -1210,10 +1210,10 @@ export function createMarketRouter(
         }),
 
       summary: scopedProcedure('market:read', { module: 'market' })
-        .input(z.object({ vendorId: z.string().uuid() }))
+        .input(z.object({ vendorId: z.string().guid() }))
         .output(
           z.object({
-            vendorId: z.string().uuid(),
+            vendorId: z.string().guid(),
             count: z.string(),
             mean: z.string().nullable(),
             meanRounding: z.literal(REVIEW_MEAN_ROUNDING),
@@ -1230,11 +1230,11 @@ export function createMarketRouter(
     }),
 
     cancelSubscription: scopedProcedure('market:write', { module: 'market' })
-      .input(z.object({ listingId: z.string().uuid() }))
+      .input(z.object({ listingId: z.string().guid() }))
       .output(
         z.object({
-          listingId: z.string().uuid(),
-          buyerId: z.string().uuid(),
+          listingId: z.string().guid(),
+          buyerId: z.string().guid(),
           cancelledAt: z.string().datetime(),
         }),
       )
@@ -1248,12 +1248,12 @@ export function createMarketRouter(
       }),
 
     subscriptionAccess: scopedProcedure('market:read', { module: 'market' })
-      .input(z.object({ listingId: z.string().uuid() }))
+      .input(z.object({ listingId: z.string().guid() }))
       .output(
         z.object({
           granted: z.literal(true),
-          listingId: z.string().uuid(),
-          buyerId: z.string().uuid(),
+          listingId: z.string().guid(),
+          buyerId: z.string().guid(),
           accessUntil: z.string().datetime(),
         }),
       )

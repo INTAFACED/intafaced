@@ -8,7 +8,7 @@ import { Button, Field, Panel } from '../../shared/ui';
 import { Details, Limit, Read, Select, type ActionControls } from './common';
 import { SessionMedia } from './SessionMedia';
 import { RoomNotes } from './AcademyRoomNotes';
-const uuid = z.string().uuid(),
+const uuid = z.string().guid(),
   room = z.object({
     id: uuid,
     slug: z.string(),
@@ -28,7 +28,7 @@ const session = z.object({
   startsAt: z.string(),
   endsAt: z.string().nullable(),
   streamProvider: z.string().nullable(),
-  scene: z.record(z.unknown()),
+  scene: z.record(z.string(), z.unknown()),
   sceneFingerprint: z.string().min(1),
 });
 export function AcademyRooms({ action }: { action: ActionControls }) {

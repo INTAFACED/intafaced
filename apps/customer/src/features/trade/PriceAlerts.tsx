@@ -18,7 +18,7 @@ const sourcedPrice = z.string().min(1).refine(validPrice);
 const date = z.string().datetime({ offset: true });
 const alertSchema = z
   .object({
-    id: z.string().uuid(),
+    id: z.string().guid(),
     userId: z.string(),
     marketId: z.string().min(1).max(64),
     kind: z.enum(['price', 'funding', 'liquidation_proximity', 'whale']),
@@ -45,10 +45,10 @@ type Review =
   | { action: 'create'; direction: Alert['direction']; targetPrice: string; evaluation: Evaluation }
   | { action: 'cancel' | 'check'; row: Alert; evaluation: Evaluation };
 const markerSchema = z.object({
-  requestId: z.string().uuid(),
+  requestId: z.string().guid(),
   action: z.enum(['create', 'cancel', 'check']),
   marketId: z.string().min(1).max(64),
-  alertId: z.string().uuid().nullable(),
+  alertId: z.string().guid().nullable(),
   createdAt: date,
 });
 type Marker = z.infer<typeof markerSchema>;

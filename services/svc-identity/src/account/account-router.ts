@@ -64,7 +64,7 @@ export function createAccountRouter(account: AccountChange | undefined) {
   return router({
     email: router({
       begin: protectedProcedure
-        .input(z.object({ newEmail: z.string().max(320), stepUpApprovalId: z.string().uuid() }).strict())
+        .input(z.object({ newEmail: z.string().max(320), stepUpApprovalId: z.string().guid() }).strict())
         .output(accepted)
         .mutation(async ({ ctx, input }) => {
           try {
@@ -93,7 +93,7 @@ export function createAccountRouter(account: AccountChange | undefined) {
     }),
     phone: router({
       begin: protectedProcedure
-        .input(z.object({ newPhone: z.string().max(32), stepUpApprovalId: z.string().uuid() }).strict())
+        .input(z.object({ newPhone: z.string().max(32), stepUpApprovalId: z.string().guid() }).strict())
         .output(accepted)
         .mutation(async ({ ctx, input }) => {
           try {
@@ -120,7 +120,7 @@ export function createAccountRouter(account: AccountChange | undefined) {
           }
         }),
       remove: protectedProcedure
-        .input(z.object({ stepUpApprovalId: z.string().uuid() }).strict())
+        .input(z.object({ stepUpApprovalId: z.string().guid() }).strict())
         .output(ok)
         .mutation(async ({ ctx, input }) => {
           try {
