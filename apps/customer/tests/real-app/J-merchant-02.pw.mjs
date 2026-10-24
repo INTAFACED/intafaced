@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { forgetSession, nextCode } from './identity-factors.mjs';
 import { businessReadyPerson, openBusiness, refusedPayCalls, signInWithCode, verifiedBusiness } from './merchant.mjs';
+import { tool } from './stack.mjs';
 
 // J-merchant-02, in the running app (docs/roadmap/journeys.json): get verified and go live. Tests titled
 // "J-merchant-02 #<n>" prove a whole step; the others prove part of one and say which.
@@ -195,12 +196,12 @@ test(`${J} #2 the owner chooses the legal entity type; changing it returns the a
   expect(refused).toEqual([]);
 });
 
-test(`${J} part of #3 the owner adds the people and documents a sole trader is asked for; a file over the limit or of a wrong type is refused before it is sent; each row reads Pending, and the application goes for review`, async ({
+test(`${J} #3 the owner adds the people and documents a sole trader is asked for; a file over the limit or of a wrong type is refused before it is sent; each row reads Pending, then Verified or Invalid with the reason once INTAFACED reviews it`, async ({
   page,
 }) => {
   test.setTimeout(240_000);
   const owner = await businessReadyPerson(page, 'mdc', '/pay/onboarding');
-  await openBusiness(page, owner, 'TEST Documents Ltd');
+  const merchantId = await openBusiness(page, owner, 'TEST Documents Ltd');
   const refused = refusedPayCalls(page);
   const uploads = [];
   page.on('request', (req) => req.url().includes('kyb.documents.upload') && uploads.push(req.url()));
@@ -265,5 +266,22 @@ test(`${J} part of #3 the owner adds the people and documents a sole trader is a
   await expect(app).toContainText('INTAFACED is reviewing your application');
   await expect(page.getByText('INTAFACED is reviewing it')).toBeVisible();
   await expect(app.getByRole('region', { name: 'Documents', exact: true }).locator('input[type=file]')).toHaveCount(0);
+
+  // INTAFACED's compliance reviewer gives each document a verdict through svc-pay's review door.
+  const verdict = (...args) =>
+    JSON.parse(
+      tool('local-test-world.mjs', 'review-kyb-document', merchantId, ...args)
+        .trim()
+        .split('\n')
+        .pop(),
+    );
+  expect(verdict('test_proof_of_identity', 'accepted')).toMatchObject({ state: 'accepted' });
+  expect(verdict('test_proof_of_address', 'rejected', 'TEST the address is cut off at the bottom')).toMatchObject({ state: 'rejected' });
+  await page.reload();
+  const reviewed = app.getByRole('region', { name: 'Documents', exact: true });
+  await expect(reviewed.getByRole('row', { name: /Test proof of identity/ })).toContainText('Verified');
+  const invalid = reviewed.getByRole('row', { name: /Test proof of address/ });
+  await expect(invalid).toContainText('Invalid');
+  await expect(invalid).toContainText('Reason: TEST the address is cut off at the bottom');
   expect(refused).toEqual([]);
 });

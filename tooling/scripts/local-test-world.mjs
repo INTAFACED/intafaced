@@ -4045,9 +4045,10 @@ async function main() {
   else if (cmd === 'status') cmdStatus();
   else if (cmd === 'populate') await cmdPopulate(process.argv.slice(3));
   else if (cmd === 'approve-kyb') await cmdApproveKyb(process.argv[3]);
+  else if (cmd === 'review-kyb-document') await cmdReviewKybDocument(process.argv.slice(3));
   else
     die(
-      'usage: local-test-world.mjs watch | seed | status | approve-kyb <merchantId> | populate [--only a,b] [--login-file <path>] [--dry-run] [--verify]',
+      'usage: local-test-world.mjs watch | seed | status | approve-kyb <merchantId> | review-kyb-document <merchantId> <key> accepted|rejected [reason] | populate [--only a,b] [--login-file <path>] [--dry-run] [--verify]',
       2,
     );
 }
@@ -4065,6 +4066,43 @@ async function cmdApproveKyb(merchantId) {
   const out = await decideKybByFounderPair(log, merchantId);
   if (!out.ok) die(out.refusal, 3);
   console.log(JSON.stringify({ merchantId, kybStatus: out.kybStatus, approvalId: out.approvalId }));
+}
+
+/**
+ * One of the stack's founders, as compliance, gives a verdict on a TEST merchant's current upload for one document key
+ * through svc-pay's own door (`kyb.documents.review`). For journey tests that show Verified or Invalid. Prints the row.
+ */
+async function cmdReviewKybDocument([merchantId, key, verdict, ...why]) {
+  const usage = 'usage: local-test-world.mjs review-kyb-document <merchantId> <key> accepted|rejected [reason]';
+  if (!/^[0-9a-f-]{36}$/i.test(String(merchantId ?? '')) || !/^[a-z][a-z0-9_]{1,63}$/.test(String(key ?? ''))) die(usage, 2);
+  if (verdict !== 'accepted' && verdict !== 'rejected') die(usage, 2);
+  const reason = why.join(' ').trim();
+  if ((verdict === 'rejected') !== reason.length > 0) die(`${usage} (a rejection needs a reason, an acceptance takes none)`, 2);
+  assertActiveLocalStack();
+  const log = (m) => console.error(m);
+  const ready = await ensureDecidersKycFull(log);
+  if (!ready.ok) die(ready.refusal, 3);
+  const gates = await gatesApi();
+  const gctx = await gates.makeContext({ log: (m) => log(`kyb document: ${m}`) });
+  const founders = loadEnrolledFounders(gctx);
+  const signedIn = founders ? await signInLocalFounders(gctx, gates, founders) : await signInTestOperatorPair(gctx, gates);
+  if (!signedIn) die(KYB_FOUNDERS_MISSING, 3);
+  if (!signedIn.ok) die(signedIn.refusal, 3);
+  const compliance = await founderComplianceToken(gctx, signedIn.sessions[0]);
+  const viewRes = await gctx.edge.query('pay', 'kyb.documents.reviewView', { merchantId }, compliance);
+  const view = trpcData(viewRes);
+  if (!view) die(gates.refusalText(viewRes), 3);
+  const row = view.rows.find((r) => r.key === key);
+  if (!view.application || !row?.document) die(`kyb document: ${key} has no current upload for ${merchantId}`, 3);
+  const reviewed = await gctx.edge.mutate(
+    'pay',
+    'kyb.documents.review',
+    { applicationId: view.application.applicationId, documentId: row.document.id, verdict, ...(reason ? { reason } : {}) },
+    compliance,
+  );
+  const out = trpcData(reviewed);
+  if (!out?.row) die(gates.refusalText(reviewed), 3);
+  console.log(JSON.stringify({ merchantId, key, state: out.row.state, rejectionReason: out.row.rejectionReason }));
 }
 
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) await main();
