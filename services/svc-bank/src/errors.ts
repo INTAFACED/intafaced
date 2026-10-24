@@ -794,7 +794,15 @@ export type BankErrorCode =
   /** No direct debit guarantee period is set, so a refund request is refused rather than assumed. */
   | 'bank.dd_guarantee_unset'
   /** A money calendar read is 1 to 62 days from a valid date. */
-  | 'bank.calendar_window_invalid';
+  | 'bank.calendar_window_invalid'
+  /** Rules that move money by themselves wait for the owner's published terms, so none can be created. */
+  | 'bank.rule_terms_unset'
+  /** A reminder lead time is one of the offered choices, or off. */
+  | 'bank.reminder_lead_invalid'
+  /** The reminder rule changed since the revision the write read. */
+  | 'bank.reminder_revision_conflict'
+  /** No bus is wired for standing-order notices, so owed ones stay owed. */
+  | 'bank.scheduled_notify_unwired';
 
 export class BankError extends Error {
   constructor(

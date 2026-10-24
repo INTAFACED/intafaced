@@ -28,12 +28,14 @@ import { cashOutPartnerFor } from './cash-out/payout-sim.js';
 import { payoutFailedBody, payoutPaidBody, payoutReturnedBody, payoutVerifyBody, redriveBody } from './cash-out/job-bodies.js';
 import { directDebitSchemeFor } from './direct-debits/scheme.js';
 import { ddRunBody, ddSimCollectionBody, ddSimMandateBody } from './direct-debits/job-bodies.js';
+import { scheduledNoticesBody } from './rules/job-bodies.js';
 import { rampProgrammeFor } from './ramps/rails.js';
 import { eventMarginCallSink } from './loans/margin-call-publisher.js';
 import { createIdentityPartyHandles } from './transfers/party-handles.js';
 import { createIdentitySecurityLock, unconfiguredSecurityLock } from './security-lock.js';
 import { eventPersonalRequestNotices } from './transfers/request-notices.js';
 import { eventPersonalTransferNotices } from './transfers/transfer-notices.js';
+import { eventScheduledNotices } from './rules/scheduled-notices.js';
 import { tickerPriceSource } from './loans/prices.js';
 import { httpTickerSource } from './portfolio/portfolio-service.js';
 import { createLedgerAssetRegistry, createLedgerClient, createLedgerHistory, createLedgerHistoryPages } from './ledger-client.js';
@@ -138,6 +140,7 @@ const bank = createBankServices(sql, ledger, history, {
   handles: env.IDENTITY_URL ? createIdentityPartyHandles(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, undefined, ledgerS2s) : undefined,
   requestNotices: eventPersonalRequestNotices(bus),
   transferNotices: eventPersonalTransferNotices(bus),
+  scheduledNotices: eventScheduledNotices(bus),
   // Handles and exact recipient lookup. No IDENTITY_URL refuses those reads
   // with bank.business_directory_unset. A 404 from identity is the same refusal:
   // the directory route is not published. No invented handle.
@@ -657,6 +660,13 @@ jobDoor('/internal/jobs/redrive-cash-outs', redriveBody, async (b) => recoveryCo
  */
 jobDoor('/internal/jobs/dd-sim/mandate', ddSimMandateBody, (b) => bank.directDebits.setUpMandate(b));
 jobDoor('/internal/jobs/dd-sim/collection', ddSimCollectionBody, (b) => bank.directDebits.present(b));
+
+/**
+ * Standing-order notices (BK-acct-10): owe a reminder for each order inside its owner's lead time and a failure notice
+ * for each refused run, then publish what is owed. A signed job door like the runner, called by the same scheduler;
+ * a pass that runs twice tells nobody twice.
+ */
+jobDoor('/internal/jobs/run-scheduled-notices', scheduledNoticesBody, (b) => bank.scheduledNotices.run({ limit: b.limit }));
 app.post('/internal/jobs/run-due-direct-debits', async (req, reply) => {
   if (!requireService(req)) return reply.code(401).send({ error: 'service credentials required', code: 'bank.unauthenticated' });
   if (!env.BANK_DD_COLLECTIONS_ENABLED) {

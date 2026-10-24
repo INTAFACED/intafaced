@@ -452,6 +452,25 @@ export const calendarViewSchema = z.object({
   ),
 });
 export type CalendarView = z.infer<typeof calendarViewSchema>;
+/** svc-bank `bank.rules.*` (J-bank-06 #6, BK-acct-10): the payment reminder rule, and money rules waiting on the owner. */
+export const reminderLeadChoices = [24, 48, 72, 168] as const;
+export const reminderRuleSchema = z.object({
+  ruleKey: z.string(),
+  leadHours: z.literal(reminderLeadChoices).nullable(),
+  revision: z.number().int(),
+  updatedAt: z.string(),
+});
+export type ReminderRule = z.infer<typeof reminderRuleSchema>;
+export const rulesViewSchema = z.object({
+  reminder: reminderRuleSchema.nullable(),
+  leadChoices: z.array(z.number().int()),
+  moneyRules: z.object({ state: z.literal('not_set'), code: z.string() }),
+});
+export type RulesView = z.infer<typeof rulesViewSchema>;
+export const rulesWrites = {
+  setReminder: reminderRuleSchema,
+  createMoneyRule: z.never(),
+};
 /** svc-bank `bank.cashOut.*` (J-bank-03): cash out to a linked bank account, with what stands in the way. */
 export const cashOutQuoteSchema = z.object({
   assetId: z.string(),
@@ -576,6 +595,7 @@ export const bankReads = {
   'linkedAccounts.list': z.object({ accounts: z.array(linkedAccountSchema) }),
   'directDebits.list': directDebitsViewSchema,
   'calendar.window': calendarViewSchema,
+  'rules.get': rulesViewSchema,
   'cashOut.quote': cashOutQuoteSchema,
   // The same wire shape Pay reads (J-bank-04 #3): one definition of `bank.transfers.quote`.
   'transfers.quote': transferQuoteSchema,

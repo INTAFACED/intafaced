@@ -192,6 +192,13 @@ export const rooms: readonly Room[] = [
     door: 'Bank',
     area: 'money',
   },
+  {
+    path: '/bank/rules',
+    title: 'Rules and notifications',
+    description: 'Payment reminders and notification choices',
+    door: 'Bank',
+    area: 'money',
+  },
   { path: '/bank/earn', title: 'Earn', description: 'Available earning products', door: 'Bank', area: 'money' },
   { path: '/bank/loans', title: 'Loans', description: 'Applications and repayments', door: 'Bank', area: 'money' },
   { path: '/bank/cards', title: 'Cards', description: 'Card issuer availability and controls', door: 'Bank', area: 'money' },

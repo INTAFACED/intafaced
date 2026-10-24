@@ -158,6 +158,16 @@ export const features: readonly Feature[] = [
     tab: 'money',
   },
   {
+    id: 'bank-rules',
+    label: 'Rules and notifications',
+    paths: ['/bank/rules'],
+    status: 'blocked',
+    reason:
+      'Rules that move money by themselves wait for owner-published terms (bank.rule_terms_unset), and the inbox notices for reminders and failed runs are not written by the notification service',
+    unlock: 'the notification service writing bank reminder and failure notices, then J-bank-06 #6 passing on main',
+    tab: 'money',
+  },
+  {
     id: 'bank-calendar',
     label: 'Money calendar',
     paths: ['/bank/calendar'],

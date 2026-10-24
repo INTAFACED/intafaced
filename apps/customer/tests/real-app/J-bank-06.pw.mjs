@@ -10,7 +10,9 @@ import { signIn, signUp, verify } from './desk.mjs';
 // TEST value of 60 minutes. Step 4 (BK-xfer-11): direct debits through the stack's TEST scheme stand-in (`dd-sim`),
 // whose creditors set up mandates and present collections only by its signed job doors, which this file calls as the
 // scheme would; the collection run is its job door too. Step 5 (BK-acct-10): the money calendar over what steps 3 and 4
-// left, read only. Not here: rules and notification choices (#6).
+// left, read only. Step 6 (BK-acct-10): the payment reminder rule saved under its business key, money-moving rules
+// refused while their terms are unpublished, the notification choices read from the account's own settings, and the
+// notices the bank's notice job owes, run with its signed job door as a scheduler would.
 const J = 'J-bank-06';
 const TRIP = 'Trip TEST';
 const EMPTY = 'Empty TEST';
@@ -18,8 +20,8 @@ const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
 test.describe.configure({ mode: 'default' });
 
-/** The person's own svc-bank API through Edge, with a session of its own (not the browser's). */
-async function bank(who) {
+/** The person's own svc-bank (or another service's) API through Edge, with a session of its own (not the browser's). */
+async function bank(who, service = 'bank') {
   const login = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
     method: 'POST',
     headers: { origin: ORIGIN, 'content-type': 'application/json' },
@@ -35,9 +37,11 @@ async function bank(who) {
   };
   return {
     query: (procedure, input) =>
-      fetch(`${EDGE}/api/bank/trpc/${procedure}?input=${encodeURIComponent(JSON.stringify(input))}`, { headers }).then(answer),
+      fetch(`${EDGE}/api/${service}/trpc/${procedure}${input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`}`, {
+        headers,
+      }).then(answer),
     mutate: (procedure, input) =>
-      fetch(`${EDGE}/api/bank/trpc/${procedure}`, {
+      fetch(`${EDGE}/api/${service}/trpc/${procedure}`, {
         method: 'POST',
         headers: { ...headers, 'content-type': 'application/json' },
         body: JSON.stringify(input),
@@ -543,4 +547,157 @@ test(`${J} #5 opens the calendar: standing orders and direct debits on their dat
 
   // Reading the calendar moved nothing.
   expect(main(await spaces(who)).balance).toBe(before);
+});
+
+test(`${J} #6 saves a payment reminder rule under its business key: a replay is the same rule, a stale save is refused, and a rule that moves money is refused with its reason`, async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  const who = person();
+  const api = await bank(who);
+  const before = main(await spaces(who)).balance;
+  const first = await api.query('rules.get', undefined);
+  expect(first.ok).toBe(true);
+  expect(first.data).toMatchObject({
+    reminder: null,
+    leadChoices: [24, 48, 72, 168],
+    moneyRules: { state: 'not_set', code: 'bank.rule_terms_unset' },
+  });
+
+  // In the app: from Transfers to the rules, two days before each run.
+  await signIn(page, who);
+  await page.goto('/bank/transfers');
+  await page.getByRole('link', { name: 'Rules and notifications', exact: true }).click();
+  await expect(page).toHaveURL(/\/bank\/rules$/);
+  const reminder = page.getByTestId('rules-reminder');
+  await expect(reminder).toContainText('You have no reminder rule. Reminders are off.');
+  await reminder.getByLabel('Remind me').selectOption({ label: '2 days before' });
+  await reminder.getByRole('button', { name: 'Save' }).click();
+  await expect(reminder.getByRole('status')).toContainText(/Saved as rule reminder:[0-9a-f-]{36}, revision 1\./);
+  const saved = (await api.query('rules.get', undefined)).data.reminder;
+  expect(saved).toMatchObject({ leadHours: 48, revision: 1 });
+  expect(saved.ruleKey).toMatch(/^reminder:[0-9a-f-]{36}$/);
+  await expect(page.getByTestId('rules-reminder-current')).toHaveAttribute('data-rule-key', saved.ruleKey);
+  await expect(page.getByTestId('rules-reminder-current')).toContainText('2 days before');
+
+  // The same request twice is one rule at one revision; a save that read an older revision is refused.
+  const write = { leadHours: 48, expectedRevision: 1, clientRequestId: `${J}-replay-${randomUUID()}` };
+  const once = await api.mutate('rules.setReminder', write);
+  const again = await api.mutate('rules.setReminder', write);
+  expect(once.data).toMatchObject({ ruleKey: saved.ruleKey, revision: 2 });
+  expect(again.data).toEqual(once.data);
+  const stale = await api.mutate('rules.setReminder', {
+    leadHours: 24,
+    expectedRevision: 1,
+    clientRequestId: `${J}-stale-${randomUUID()}`,
+  });
+  expect(stale).toMatchObject({ ok: false, status: 409 });
+  expect(JSON.stringify(stale.body)).toContain('bank.reminder_revision_conflict');
+  expect((await api.query('rules.get', undefined)).data.reminder).toMatchObject({ ruleKey: saved.ruleKey, leadHours: 48, revision: 2 });
+
+  // A rule that moves money: every field there, and saving it is refused with the missing terms. Nothing is stored.
+  await page.reload();
+  const money = page.getByTestId('rules-money');
+  await expect(page.getByTestId('rules-money-not-set')).toContainText('bank.rule_terms_unset');
+  const rows = await spaces(who);
+  await money.getByLabel('Rule name').fill('Sweep TEST');
+  await money.getByLabel('From').selectOption(main(rows).id);
+  await money.getByLabel('To').selectOption(named(rows, TRIP).id);
+  await money.getByLabel('When').selectOption({ label: 'When the balance goes over' });
+  await money.getByLabel('Balance over').fill('50');
+  await money.getByLabel('Amount to move').fill('10');
+  await money.getByRole('button', { name: 'Save rule' }).click();
+  await expect(money.getByRole('alert')).toContainText('Not saved: rules that move money by themselves are not open');
+  await expect(money.getByRole('alert')).toContainText('bank.rule_terms_unset');
+  const refused = await api.mutate('rules.createMoneyRule', {
+    name: 'Sweep TEST',
+    fromSpaceId: main(rows).id,
+    toSpaceId: named(rows, TRIP).id,
+    trigger: { kind: 'date', cadence: 'monthly' },
+    amount: '10',
+    clientRequestId: `${J}-money-${randomUUID()}`,
+  });
+  expect(refused).toMatchObject({ ok: false, status: 412 });
+  expect(JSON.stringify(refused.body)).toContain('bank.rule_terms_unset');
+
+  // Saving rules moved nothing.
+  expect(main(await spaces(who)).balance).toBe(before);
+  run.write({ rule: saved.ruleKey });
+});
+
+test(`${J} #6 the notification choices on the rules page are the account's own, and follow a change made in notification settings`, async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  const who = person();
+  const notify = await bank(who, 'notify');
+  const prefs = async () => {
+    const res = await notify.query('notify.categoryPrefs', undefined);
+    if (!res.ok) throw new Error(`notify.categoryPrefs refused: ${res.status}`);
+    return res.data.filter((row) => row.category === 'orders');
+  };
+  const sends = (row) => row.enabled && row.configured && !row.notConnected;
+  const shown = async (rows) => {
+    for (const row of rows) {
+      const cell = page.getByTestId(`rules-choice-${row.channel}`);
+      await expect(cell).toHaveAttribute('data-enabled', String(sends(row)));
+      if (row.notConnected) await expect(cell).toContainText(row.notConnected);
+      if (row.locked) await expect(cell).toContainText('Always on');
+    }
+  };
+  const orders = await prefs();
+  expect(orders.map((row) => row.channel).sort()).toEqual(['email', 'in_app', 'push', 'sms']);
+  expect(orders.find((row) => row.channel === 'in_app')).toMatchObject({ enabled: true, locked: true });
+
+  await signIn(page, who);
+  await page.goto('/bank/rules');
+  await shown(orders);
+  await expect(page.getByRole('link', { name: 'Change them in notification settings' })).toHaveAttribute(
+    'href',
+    '/notifications?view=settings',
+  );
+
+  // A channel switched in the account's settings reads back here as switched. On a stack with no delivery vendor every
+  // channel but the inbox is not connected: the switch is still stored, and the page says nothing is sent there.
+  const free = orders.find((row) => !row.locked) ?? orders[0];
+  const flipped = await notify.mutate('notify.setCategoryPref', {
+    category: 'orders',
+    channel: free.channel,
+    enabled: !free.enabled,
+    clientRequestId: `${J}-pref-${randomUUID()}`,
+  });
+  expect(flipped.ok).toBe(true);
+  const after = await prefs();
+  expect(after.find((row) => row.channel === free.channel).enabled).toBe(!free.enabled);
+  await page.reload();
+  await shown(after);
+  await notify.mutate('notify.setCategoryPref', {
+    category: 'orders',
+    channel: free.channel,
+    enabled: free.enabled,
+    clientRequestId: `${J}-pref-back-${randomUUID()}`,
+  });
+});
+
+test(`${J} #6 the notice job tells the person once: a reminder before the one-off runs and a notice for the run that failed`, async () => {
+  test.setTimeout(120_000);
+  const who = person();
+  const { once, short } = run.read();
+  if (!once || !short) throw new Error(`${J}: #1 or #3 left no order to tell the person about`);
+  const notify = await bank(who, 'notify');
+  // Two passes, as a scheduler that retried would make them: the outbox owes each notice once.
+  for (let pass = 0; pass < 2; pass += 1) await scheme('run-scheduled-notices', { limit: 100 });
+  const notices = async () => {
+    const res = await notify.query('notify.list', { limit: 100 });
+    if (!res.ok) throw new Error(`notify.list refused: ${res.status}`);
+    return res.data.items;
+  };
+  const of = (items, kind, scheduleId) => items.filter((n) => n.kind === kind && n.params?.scheduleId === scheduleId);
+  // The inbox notice is svc-notify's half of the step; on a stack without it this fails here, and quickly.
+  await expect.poll(async () => of(await notices(), 'bank.scheduled_failed', short).length, { timeout: 20_000 }).toBe(1);
+  await expect.poll(async () => of(await notices(), 'bank.scheduled_reminder', once).length, { timeout: 20_000 }).toBe(1);
+  await scheme('run-scheduled-notices', { limit: 100 });
+  const items = await notices();
+  expect(of(items, 'bank.scheduled_failed', short)).toHaveLength(1);
+  expect(of(items, 'bank.scheduled_reminder', once)).toHaveLength(1);
 });
