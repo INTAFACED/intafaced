@@ -1110,6 +1110,9 @@ function checkoutRailsAreUnsetPsp(checkoutRails: readonly CheckoutRail[], rails:
  * members; any other caller still gets a compile error for them.
  */
 export type PayServiceInternal = { [K in keyof PayService]: PayService[K] } & {
+  sql: PayService['sql'];
+  ledger: PayService['ledger'];
+  rails: PayService['rails'];
   accountRailOutcome: PayService['accountRailOutcome'];
   acquireChargebackOutcomeSlot: PayService['acquireChargebackOutcomeSlot'];
   admitPaymentOperation: PayService['admitPaymentOperation'];
@@ -1221,9 +1224,9 @@ export class PayService {
   private readonly chargebackOutcomeTails: Map<string, Promise<void>>;
 
   constructor(
-    readonly sql: Sql,
-    readonly ledger: LedgerClient,
-    readonly rails: RailRegistry,
+    private readonly sql: Sql,
+    private readonly ledger: LedgerClient,
+    private readonly rails: RailRegistry,
     options: PayServiceOptions = {},
   ) {
     this.defaultFeeBps = options.defaultFeeBps ?? null;
