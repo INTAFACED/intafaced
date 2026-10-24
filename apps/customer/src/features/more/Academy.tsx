@@ -22,7 +22,7 @@ import {
   rememberCertificate,
 } from './AcademyLearning';
 import { academyLearningCopy } from './academy-learning-copy';
-import { AcademyCourse, AcademyHub } from './AcademyHub';
+import { AcademyCoursePage, AcademyHub } from './AcademyHub';
 import { AcademyAccessGrants, AcademyMyLearning } from './AcademyMyLearning';
 import { AcademyCourseProgress, AcademyPlanner } from './AcademyProgressPage';
 import { AcademyCourseOutline } from './AcademyCourseOutline';
@@ -93,7 +93,7 @@ function Academy({ route, slug, initialPath }: { route: AcademyRoute; slug?: str
       />
       {route.kind === 'tab' && route.hub && <AcademyHub />}
       {route.kind === 'course' ? (
-        <AcademyCourse slug={route.slug} signedIn />
+        <AcademyCoursePage slug={route.slug} signedIn />
       ) : route.kind === 'progress' ? (
         <AcademyProgress action={action} />
       ) : tab === 'Learning' ? (

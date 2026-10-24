@@ -768,6 +768,16 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'No revision of this lesson is published to learners, so there is nothing to withdraw.',
     next: 'Read the lesson again. Nothing was changed.',
   },
+  'academy.private_link_not_found': {
+    title: 'No such private link',
+    body: 'svc-academy holds no private link with that id.',
+    next: 'Read the course again. Nothing was changed.',
+  },
+  'academy.private_link_course_closed': {
+    title: 'This course takes no private link',
+    body: 'The course is archived or deleted, so a private link would open nothing.',
+    next: 'Nothing was made.',
+  },
   'academy.topic_not_found': {
     title: 'No such topic',
     body: 'One of the chosen topics is not on the Learn hub’s topic list.',

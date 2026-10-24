@@ -62,6 +62,14 @@ import {
   academyFeatureLessonInputSchema,
   academyClearFeaturedInputSchema,
   academyTopicListSchema,
+  academyCourseByLinkInputSchema,
+  academyCourseIdInputSchema,
+  academyCourseLearnerViewSchema,
+  academyCreatedPrivateLinkSchema,
+  academyCreatePrivateLinkInputSchema,
+  academyPrivateLinkListSchema,
+  academyPrivateLinkSchema,
+  academyRevokePrivateLinkInputSchema,
   academyCreateTopicInputSchema,
   academyTopicSchema,
   academySetCourseTopicsInputSchema,
@@ -870,6 +878,7 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.course_slug_taken':
     case 'academy.course_revision_stale':
     case 'academy.course_not_editable':
+    case 'academy.private_link_course_closed':
     case 'academy.item_transition_illegal':
     case 'academy.outline_item_unknown':
     case 'academy.revision_stale':
@@ -903,6 +912,7 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.draft_not_found':
     case 'academy.media_not_found':
     case 'academy.topic_not_found':
+    case 'academy.private_link_not_found':
       return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
 
     case 'academy.prerequisite_cycle':
@@ -1078,6 +1088,15 @@ export function createAcademyRouter(
       .input(z.object({ slug: z.string().min(1).max(120) }).strict())
       .output(academyPublicCourseSchema)
       .query(({ input }) => guard(() => academy.publicCourse(input.slug))),
+
+    /**
+     * AC-catalogue-03: a course's unlisted page through a private link; anything else is `academy.course_not_found`. A
+     * POST so the key travels in the body, never in a URL the edge logs. It writes nothing.
+     */
+    publicCourseByLink: publicProcedure
+      .input(academyCourseByLinkInputSchema)
+      .output(academyCourseLearnerViewSchema)
+      .mutation(({ input }) => guard(() => academy.courseByLink(input))),
 
     /** AC-articles-01: the hub's featured slot, only what staff chose; null when nobody chose one. */
     publicHub: publicProcedure.output(academyPublicHubSchema).query(() => guard(async () => ({ featured: await academy.featuredItem() }))),
@@ -2843,7 +2862,7 @@ export function createAcademyRouter(
 
       /** AC-course-structure-01: one course with its history (who did what, and why), newest first. */
       course: scopedProcedure('admin:read', { module: 'academy' })
-        .input(z.object({ courseId: z.string().guid() }).strict())
+        .input(academyCourseIdInputSchema)
         .output(academyCourseDetailSchema)
         .query(({ input }) => guard(() => academy.course(input.courseId))),
 
@@ -2970,6 +2989,30 @@ export function createAcademyRouter(
         .input(academySetCourseTopicsInputSchema)
         .output(academyCourseDetailSchema)
         .mutation(({ input, ctx }) => guard(() => academy.setCourseTopics({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-catalogue-03: Preview as new learner, the real syllabus with its locks; nothing is written. */
+      previewCourse: scopedProcedure('admin:read', { module: 'academy' })
+        .input(academyCourseIdInputSchema)
+        .output(academyCourseLearnerViewSchema)
+        .query(({ input }) => guard(() => academy.previewCourse(input.courseId))),
+
+      /** AC-catalogue-03: the course's private links, newest first, without their keys. */
+      privateLinks: scopedProcedure('admin:read', { module: 'academy' })
+        .input(academyCourseIdInputSchema)
+        .output(academyPrivateLinkListSchema)
+        .query(({ input }) => guard(() => academy.privateLinks(input.courseId))),
+
+      /** AC-catalogue-03: a new link to the unlisted page; its key is shown once. */
+      createPrivateLink: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyCreatePrivateLinkInputSchema)
+        .output(academyCreatedPrivateLinkSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.createPrivateLink({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-catalogue-03: the link stops opening the page. */
+      revokePrivateLink: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyRevokePrivateLinkInputSchema)
+        .output(academyPrivateLinkSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.revokePrivateLink({ ...input, operatorId: ctx.principal!.userId }))),
 
       /** AC-course-structure-04: a template draft from the course's structure; the model path refuses `owner.decision`. */
       assistantDraft: scopedProcedure('admin:write', { module: 'academy' })

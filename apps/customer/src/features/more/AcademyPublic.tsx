@@ -20,7 +20,7 @@ import { academyTabHref, academyTabs, isAcademyPath, type AcademyRoute } from '.
 import { AcademyRefusal, kindLabel, pathLabel } from './AcademyLmsParts';
 import { LessonBody } from './AcademyLearning';
 import { VerifyPanel } from './AcademyCertificates';
-import { AcademyCourse, AcademyCourseCards, AcademyHub } from './AcademyHub';
+import { AcademyCoursePage, AcademyCourseCards, AcademyHub } from './AcademyHub';
 
 /**
  * The Academy for a visitor with no account (J-academy-01): the same five tabs at the same addresses, the published
@@ -66,7 +66,7 @@ export function AcademyPublic({ route }: { route: AcademyRoute }) {
       />
       {route.kind === 'tab' && route.hub && <AcademyHub />}
       {route.kind === 'course' ? (
-        <AcademyCourse slug={route.slug} signedIn={false} />
+        <AcademyCoursePage slug={route.slug} signedIn={false} />
       ) : route.kind === 'reader' && route.slug ? (
         <PublicReader slug={route.slug} />
       ) : route.kind === 'progress' || tab === 'Certificates' ? (

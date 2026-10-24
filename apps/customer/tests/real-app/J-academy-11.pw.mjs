@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { tool } from './stack.mjs';
+import { ORIGIN, tool } from './stack.mjs';
 
 // J-academy-11, in the running app (docs/roadmap/journeys.json): a founder creates a course on the founder console's
 // Academy desk and publishes it. One test per step, titled "J-academy-11 #<n>", run in order. The founder is the stack's
@@ -526,5 +526,64 @@ test(`${J} #8 a lesson featured on the Learn hub fills the slot and leaves it wh
   await expect(page.getByTestId('course-topics')).toHaveText(`Filed under: ${topic}.`);
   await expect(page.getByTestId('course-history')).toContainText('filed under topics');
   await expect(page.getByTestId('course-history')).toContainText('a lesson withdrawn from learners');
+  await page.context().close();
+});
+
+test(`${J} #9 Preview as new learner shows the real syllabus with locks and records nothing; a private link opens the unlisted page and a revoked one is not found`, async ({
+  browser,
+}) => {
+  test.setTimeout(180_000);
+  if (!courseUrl) throw new Error(`${J}: #2 left no course, so this step has nothing to preview`);
+  const page = await console_(browser);
+  await page.goto(courseUrl);
+  const history = page.getByTestId('course-history');
+  const before = await history.innerText();
+
+  // Preview as new learner: the stored syllabus, each item with its lock; nothing is recorded.
+  await page.getByRole('link', { name: 'Preview as new learner', exact: true }).click();
+  await page.waitForURL(/\/preview$/);
+  await expect(page.getByTestId('preview-note')).toContainText('Opening it records nothing');
+  const syllabus = page.getByTestId('preview-syllabus');
+  const item = (title) => syllabus.locator('li[data-lock]').filter({ hasText: title }).first();
+  // The course is still a draft, so a released item is locked because nobody can enrol yet.
+  await expect(item('TEST Position size')).toHaveAttribute('data-lock', 'enrolment_closed');
+  await expect(item('TEST Position size')).toContainText('enrolment is closed while the course is not published');
+  await expect(item('TEST Check yourself')).toHaveAttribute('data-lock', 'not_released');
+  await expect(item('TEST Reading list')).toHaveAttribute('data-lock', 'enrolment_closed');
+  await expect(item('TEST Part 1')).toHaveAttribute('data-lock', 'none');
+  await page.goto(courseUrl);
+  await expect(history).toHaveText(before);
+
+  // A private link, made with a reason: its address is shown once and opens the unlisted page signed out.
+  const links = page.locator('section', { has: page.getByRole('heading', { name: 'Learners’ view' }) });
+  await expect(links.getByTestId('course-links')).toHaveText('No private links.');
+  await links.getByLabel('Why make a link', { exact: true }).fill('TEST reviewer copy');
+  await links.getByRole('button', { name: 'Make a private link' }).click();
+  await expect(links.getByTestId('course-desk-outcome')).toContainText('Done: private link made');
+  const path = (await links.getByTestId('link-made').locator('code').innerText()).trim();
+  expect(path).toMatch(new RegExp(`^/academy/learning/course/${SLUG}#key=[A-Za-z0-9_-]{43}$`));
+  await expect(links.getByTestId('course-links').locator('li[data-state="open"]')).toContainText('TEST reviewer copy');
+
+  const visitor = await (await browser.newContext({ baseURL: ORIGIN })).newPage();
+  await visitor.goto(path);
+  const unlisted = visitor.locator(`[data-academy-linked-course="${SLUG}"]`);
+  await expect(unlisted).toContainText(TITLE);
+  await expect(unlisted).toContainText('You opened this course through a private link');
+  await expect(unlisted.locator('li[data-lock]').filter({ hasText: 'TEST Position size' }).first()).toContainText(
+    'Locked: enrolment is closed',
+  );
+  await expect(unlisted).toContainText('This course is unpublished, so enrolment is closed.');
+  await expect(unlisted.locator('li[data-lock="not_released"]').filter({ hasText: 'TEST Check yourself' })).toContainText('Unreleased');
+
+  // Revoked with a reason: the same address is not found, the same as a course that does not exist.
+  await links.getByLabel('Why revoke it', { exact: true }).fill('TEST review done');
+  await links.getByRole('button', { name: 'Revoke', exact: true }).click();
+  await expect(links.getByTestId('course-desk-outcome')).toContainText('Done: link revoked');
+  await expect(links.getByTestId('course-links').locator('li[data-state="revoked"]')).toContainText('TEST review done');
+  await visitor.reload();
+  await expect(visitor.getByText('There is no published course at this address.')).toBeVisible();
+  await expect(unlisted).toHaveCount(0);
+  await expect(history).toHaveText(before);
+  await visitor.context().close();
   await page.context().close();
 });

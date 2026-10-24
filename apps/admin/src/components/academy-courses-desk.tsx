@@ -18,6 +18,7 @@ import type { AcademyCourseDetail, AcademyTopicList } from '@intafaced/contracts
 import type { Part } from '@/lib/desk/part';
 import { ACADEMY_PAGES } from '@/lib/ops-desk/catalog';
 import { OutlineEditor } from '@/components/academy-outline-editor';
+import { CoursePrivateLinks } from '@/components/academy-course-preview';
 
 /**
  * ACADEMY COURSE DESK (AC-course-structure-01).
@@ -394,6 +395,7 @@ export function AcademyCourseDesk({ courseId, initial }: { courseId: string; ini
               </dd>
             </dl>
           </section>
+          <CoursePrivateLinks courseId={courseId} />
           <TopicsPicker
             key={`${detail.data.course.revision}`}
             detail={detail.data}

@@ -253,7 +253,11 @@ export type AcademyErrorCode =
   /** A topic already has that address under another name. */
   | 'academy.topic_slug_taken'
   /** The owner has not set how many topics a list shows. */
-  | 'academy.topics_list_limit_unset';
+  | 'academy.topics_list_limit_unset'
+  /** AC-catalogue-03: no private link with that id. */
+  | 'academy.private_link_not_found'
+  /** AC-catalogue-03: an archived or deleted course takes no new private link. */
+  | 'academy.private_link_course_closed';
 
 export class AcademyError extends Error {
   constructor(
@@ -399,6 +403,8 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.topic_not_found',
   'academy.topic_slug_taken',
   'academy.topics_list_limit_unset',
+  'academy.private_link_not_found',
+  'academy.private_link_course_closed',
 ] as const;
 
 /** L3 — catalog size. */
