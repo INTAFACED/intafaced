@@ -650,13 +650,15 @@ export const ACADEMY_REVIEW_MAX_PEERS = 20;
 const rubricLevel = z.string().regex(ACADEMY_RUBRIC_LEVEL);
 /** Levels as typed: "0", "1.5". Ascending, no two alike; compared as decimals, never as JavaScript numbers. */
 const ascending = (levels: readonly string[]) => levels.every((level, i) => i === 0 || decimalCompare(levels[i - 1]!, level) < 0);
-/** -1, 0 or 1 for two rubric levels, compared digit by digit. */
+/** A rubric level in hundredths, exactly: "1.5" is 150n. */
+const levelHundredths = (level: string) => {
+  const [whole, fraction = ''] = level.split('.');
+  return BigInt(whole!) * 100n + BigInt(`${fraction}00`.slice(0, 2));
+};
+/** -1, 0 or 1 for two rubric levels, compared as exact decimals. */
 export function decimalCompare(a: string, b: string): number {
-  const [ai, af = ''] = a.split('.');
-  const [bi, bf = ''] = b.split('.');
-  if (ai!.length !== bi!.length) return ai!.length < bi!.length ? -1 : 1;
-  const left = ai! + af.padEnd(2, '0');
-  const right = bi! + bf.padEnd(2, '0');
+  const left = levelHundredths(a);
+  const right = levelHundredths(b);
   return left === right ? 0 : left < right ? -1 : 1;
 }
 export const academyRubricCriterionSchema = z

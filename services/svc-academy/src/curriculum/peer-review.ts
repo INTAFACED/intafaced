@@ -27,6 +27,7 @@ import type {
   AcademySaveReviewStepsInput,
   AcademySubmitPeerReviewInput,
 } from '@intafaced/contracts';
+import { parseAmount } from '@intafaced/ledger-client';
 import { AcademyError } from '../errors.js';
 import { isVideoStorageConfigured, signGetObjectUrl, type VideoStorageConfig } from '../video/storage.js';
 import type { CourseAssignments } from './assignments.js';
@@ -69,8 +70,8 @@ type ReviewRow = {
 
 /** A rubric level as hundredths: "1.5" is 150n. Levels carry at most two places (ACADEMY_RUBRIC_LEVEL). */
 function hundredths(level: string): bigint {
-  const [whole, fraction = ''] = level.split('.');
-  return BigInt(whole!) * 100n + BigInt(fraction.padEnd(2, '0'));
+  // The ledger's decimal parser, scaled from 18 places down to 2; a level has at most 2, so this is exact.
+  return parseAmount(level) / 10n ** 16n;
 }
 
 /** The sum of the chosen levels as a decimal string with no trailing zeros. */
