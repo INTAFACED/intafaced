@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { api, journeyState, tool, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
+import { draftNotice, publishNotice } from './notices.mjs';
 
 // J-wallet-02, in the running app (docs/roadmap/journeys.json): I deposit crypto and watch it arrive.
 // One test per step, titled "J-wallet-02 #<n>", run in order on one verified TEST account. The stack publishes TEST
@@ -13,8 +14,9 @@ import { signIn, signUp, verify } from './desk.mjs';
 // #7 reads the inbox: svc-pay announces the credit (intafaced.pay.deposit_credit.posted) and svc-notify files it once.
 // #4 makes labelled extra addresses up to the stack's TEST cap of 3 open (BANK_DEPOSIT_ADDRESS_CAP), lets them expire with
 // the LOCAL TEST tool (local-test-stack.mjs expire-deposit-addresses) and sends to an expired one: held for release.
-// Not here yet: #1 (custody unset, while this stack has it connected), #2's unsupported-case lists and #8 (funding incident
-// banners).
+// #8 has the founders publish a TEST funding incident for USDT on TEST Ethereum (four-eyes, as the notice desk does) and
+// moves it on a stage: Deposit shows it, with its stage and dates, on that pair only. It closes the incident at the end.
+// Not here yet: #1 (custody unset, while this stack has it connected) and #2's unsupported-case lists.
 const J = 'J-wallet-02';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const ASSET = 'USDT';
@@ -251,6 +253,78 @@ test(`${J} #4 creates another address and labels it: a list with labels and expi
   await expect(recordRow(page, tx)).toContainText('Held for release');
   await expect(recordRow(page, tx)).toContainText('The funds are safe and wait for support to release them to you.');
   expect(await usdt()).toBe(before);
+});
+
+test(`${J} #8 a funding incident on this asset and network shows on Deposit with its stage and dates, and on no other pair`, async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(180_000);
+  const { account: who } = state();
+  // Unique per attempt, so a retry drafts a new incident rather than replaying the last one's keys.
+  const key = `${J}-8-${process.env.JOURNEY_RUN_ID ?? 'local'}-${Date.now()}-r${testInfo.retry}`;
+  const title = `TEST ${ASSET} deposits delayed ${key}`;
+  // A short window: if this run stops part way, the incident closes on its own within minutes.
+  const entry = (n, fields) => draftNotice({ kind: 'incident', title, minutes: 5, key: `${key}-${n}`, ...fields });
+  const incident = await publishNotice(
+    await entry('root', {
+      body: 'TEST deposits are slow to arrive; we are looking into it.',
+      asset: ASSET,
+      network: 'ethereum',
+      phase: 'investigating',
+    }),
+    `${key}-root`,
+  );
+  expect(incident.asset).toBe(ASSET);
+  expect(incident.network).toBe('ethereum');
+  await publishNotice(
+    await entry('update', { body: 'TEST cause found: a stuck TEST node. A fix is going out.', parentId: incident.id, phase: 'identified' }),
+    `${key}-update`,
+  );
+
+  const network = page.getByRole('combobox', { name: 'Network', exact: true });
+  const card = page.getByTestId(`funding-incident-${incident.id}`);
+  // The banner says where its read stands, so "not shown" is checked against an answer, not a read still running. Another
+  // run's notice may be open on a pair, so the answer is `none` or `open`, and this incident's own card is what must be absent.
+  const answered = () => expect(page.getByTestId('funding-notices')).toHaveAttribute('data-state', /^(none|open)$/);
+  await openDeposit(page, who);
+  await assetPicker(page).selectOption(ASSET);
+  await network.selectOption({ label: NETWORK });
+  // Shown as soon as the pair is chosen, before any address is asked for.
+  await expect(card).toHaveAttribute('role', 'alert');
+  await expect(card).toContainText(`Incident on ${ASSET} on ${NETWORK}`);
+  await expect(card.getByRole('heading', { name: title })).toBeVisible();
+  await expect(card.getByTestId('funding-incident-stage')).toHaveText('Stage: Cause identified');
+  await expect(card.getByTestId('funding-incident-dates')).toContainText(/^Started .+ · Last update .+$/);
+  await expect(card).toContainText('TEST cause found: a stuck TEST node. A fix is going out.');
+
+  // The same coin on another network, and another coin on this network: not shown.
+  await network.selectOption({ label: 'TEST Base' });
+  await expect(page.getByRole('checkbox', { name: `I will send only ${ASSET} on TEST Base.` })).toBeVisible();
+  await answered();
+  await expect(card).toHaveCount(0);
+  await assetPicker(page).selectOption('USDC');
+  await network.selectOption({ label: NETWORK });
+  await expect(page.getByRole('checkbox', { name: `I will send only USDC on ${NETWORK}.` })).toBeVisible();
+  await answered();
+  await expect(card).toHaveCount(0);
+
+  // Resolved, it leaves the deposit room.
+  await publishNotice(
+    await entry('resolved', {
+      body: 'TEST deposits are arriving normally again.',
+      parentId: incident.id,
+      phase: 'resolved',
+      resolves: true,
+    }),
+    `${key}-resolved`,
+  );
+  await page.reload();
+  await page.mouse.move(0, 600);
+  await assetPicker(page).selectOption(ASSET);
+  await network.selectOption({ label: NETWORK });
+  await expect(page.getByRole('checkbox', { name: `I will send only ${ASSET} on ${NETWORK}.` })).toBeVisible();
+  await answered();
+  await expect(card).toHaveCount(0);
 });
 
 test(`${J}, part of #2 a switched-off network shows the owner's banner and no address; an unverified person is sent to Verification; an unpublished asset says so`, async ({

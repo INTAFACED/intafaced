@@ -16,6 +16,11 @@ vi.mock('../../data/hooks', () => ({ useMarkets: () => ({ status: 'ready', data:
 vi.mock('../../data/activity', () => ({ useActivity: () => ({ status: 'ready', data: { items: [], hasMore: false } }) }));
 vi.mock('./AccountDetails', () => ({ AccountDetailsPanel: () => null }));
 vi.mock('./DepositRecords', () => ({ DepositPendingPanel: () => null, DepositRecordsPanel: () => null }));
+// The funding notice banner reads on its own; FundingNotices.render.test.tsx covers it.
+vi.mock('./funding-notices-reads', async (original) => ({
+  ...(await original<typeof import('./funding-notices-reads')>()),
+  readFundingNotices: () => new Promise(() => undefined),
+}));
 vi.mock('./deposit-reads', async (original) => ({
   ...(await original<typeof import('./deposit-reads')>()),
   useDepositCatalogue: () => ({ resource: world.catalogue, reload: () => undefined }),
