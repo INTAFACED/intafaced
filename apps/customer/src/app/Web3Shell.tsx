@@ -6,6 +6,7 @@ import { protocolCopy } from '../features/protocol/copy';
 import { ShellSwitch } from '../features/protocol/ShellSwitch';
 import { shortAddress } from '../features/protocol/wallet/eip1193';
 import { WalletProvider, useWallet } from '../features/protocol/wallet/WalletProvider';
+import { RegionContext, REGION_BLOCKED_CODE } from '../features/protocol/region';
 import { useApi, useSession } from '../features/session/session';
 import { usePreferences } from '../shared/preferences';
 import { useResource } from '../shared/resource';
@@ -47,6 +48,9 @@ function Web3Frame({ path, children }: { path: string; children: ReactNode }) {
   const transport = useApi();
   const api = useMemo(() => createProtocolApi(transport), [transport]);
   const chain = useResource((signal) => api.chainStatus(signal), 'web3-shell:chain').resource;
+  // The edge refuses every Protocol read from a blocked region. The shell says so once, in words, and the rooms offer no
+  // signing action while it holds.
+  const regionBlocked = chain.status === 'failed' && chain.failure.code === REGION_BLOCKED_CODE;
   const chip =
     chain.status === 'loading'
       ? t('networkChecking')
@@ -111,7 +115,12 @@ function Web3Frame({ path, children }: { path: string; children: ReactNode }) {
             </header>
             <main id="main" tabIndex={-1}>
               <SessionNotice />
-              {children}
+              {regionBlocked && (
+                <p className="web3-region-notice" role="alert" data-notice="region" data-code={REGION_BLOCKED_CODE}>
+                  {t('regionBlocked')}
+                </p>
+              )}
+              <RegionContext.Provider value={regionBlocked}>{children}</RegionContext.Provider>
             </main>
             <nav className="mobile-doors web3-doors" aria-label={t('shellNavPhone')}>
               {PHONE.map((key) => {

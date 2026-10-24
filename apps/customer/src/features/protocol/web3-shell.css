@@ -42,4 +42,11 @@
       justify-content: flex-start;
     }
   }
+  /* The edge refused this region: one line above the room, in words. */
+  .web3-region-notice {
+    margin: 12px 16px 0;
+    padding: 10px 12px;
+    border: 1px solid var(--color-warning);
+    border-radius: 6px;
+  }
 }
