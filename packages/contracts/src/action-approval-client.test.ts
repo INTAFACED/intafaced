@@ -4,6 +4,7 @@ import {
   ACTION_APPROVAL_CONSUME_FAILED,
   IDENTITY_CONSUME_TIMEOUT_MS,
   createIdentityApprovalClient,
+  refusalDetail,
   unwrapTrpcData,
 } from './action-approval-client.js';
 import { createServiceSigner, createServiceVerifier, type Keyring } from './service-keys.js';
@@ -68,6 +69,30 @@ describe('createIdentityApprovalClient', () => {
   it('refuses a non-2xx reply with the caller error type', async () => {
     vi.stubGlobal('fetch', reply({ error: 'no' }, 403));
     await expect(client().consume(input)).rejects.toBeInstanceOf(TestError);
+  });
+
+  it("passes on only the first line of identity's error message, never its stack", async () => {
+    const body = {
+      error: {
+        message: 'approval not found [action_approval.not_found]',
+        code: -32004,
+        data: {
+          code: 'NOT_FOUND',
+          httpStatus: 404,
+          stack: 'TRPCError: approval not found\n    at toTrpc (file:///svc-identity/dist/x.js:82:15)',
+        },
+      },
+    };
+    vi.stubGlobal('fetch', reply(body, 404));
+    const err = (await client()
+      .consume(input)
+      .catch((e: unknown) => e)) as Error;
+    expect(err).toBeInstanceOf(TestError);
+    expect(err.message).toBe('identity refused consume (404) approval not found [action_approval.not_found]');
+    expect(err.message).not.toContain('at toTrpc');
+    expect(refusalDetail('upstream unavailable')).toBe('upstream unavailable');
+    expect(refusalDetail('{"weird":true}')).toBe('');
+    expect(refusalDetail('x'.repeat(400))).toHaveLength(301);
   });
 
   it.each([

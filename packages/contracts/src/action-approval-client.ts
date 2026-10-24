@@ -17,6 +17,27 @@ export function unwrapTrpcData(body: unknown): unknown {
   return data;
 }
 
+/** Longest refusal detail kept from identity's reply. */
+const REFUSAL_DETAIL_MAX = 300;
+
+/**
+ * The part of a refused reply that is safe to pass on: tRPC's `error.message`, which carries the
+ * `[action_approval.<code>]` tag callers read. Never the rest of the body: in dev mode it holds identity's stack.
+ */
+export function refusalDetail(text: string): string {
+  let message: unknown;
+  try {
+    const body = JSON.parse(text) as unknown;
+    const first = Array.isArray(body) ? body[0] : body;
+    const envelope = first as { error?: { message?: unknown; json?: { message?: unknown } }; message?: unknown } | null;
+    message = envelope?.error?.message ?? envelope?.error?.json?.message ?? envelope?.message;
+  } catch {
+    message = /^\s*[[{]/.test(text) ? undefined : text;
+  }
+  const detail = typeof message === 'string' ? message.split('\n')[0]!.trim() : '';
+  return detail.length > REFUSAL_DETAIL_MAX ? `${detail.slice(0, REFUSAL_DETAIL_MAX)}…` : detail;
+}
+
 /** Fail closed, never hang a founder-gated door on identity: a timeout is "unavailable", and nothing posts. */
 export const IDENTITY_CONSUME_TIMEOUT_MS = 5000;
 
@@ -67,7 +88,7 @@ export function createIdentityApprovalClient(opts: IdentityApprovalClientOptions
         signal: AbortSignal.timeout(timeoutMs),
       });
       if (!res.ok) {
-        const detail = await res.text().catch(() => '');
+        const detail = refusalDetail(await res.text().catch(() => ''));
         throw opts.fail(`identity refused consume (${res.status}) ${detail}`.trim(), ACTION_APPROVAL_CONSUME_FAILED);
       }
       let raw: unknown;
