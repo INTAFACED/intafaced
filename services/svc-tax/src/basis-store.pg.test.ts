@@ -223,7 +223,8 @@ describe.skipIf(!available)('recorded 0000 and a fresh database both end on nume
       await expect(insertNotADecimal(database.sql, 'price_per_unit')).rejects.toThrow();
       await expect(insertNotADecimal(database.sql, 'qty')).rejects.toThrow();
       const names = await database.sql<{ name: string }[]>`SELECT name FROM tax.__migrations ORDER BY name`;
-      expect(names.map((row) => row.name)).toEqual([recordedName, numericName]);
+      // Later migrations (cost-basis choices) apply after these two.
+      expect(names.map((row) => row.name).slice(0, 2)).toEqual([recordedName, numericName]);
     });
   });
 

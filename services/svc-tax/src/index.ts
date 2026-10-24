@@ -11,6 +11,7 @@ import { createTradePrices } from './prices.js';
 import { createTaxRouter, type TaxRouter } from './router.js';
 import { taxReadyHonesty } from './ready-honesty.js';
 import { createPgBasisStore } from './basis-store.js';
+import { createPgChoiceStore } from './choices.js';
 import { indexerStatusFromUrl, lakeStatusFromUrl, TaxService } from './tax-service.js';
 
 registerProcessHooks(
@@ -53,7 +54,7 @@ const tax = new TaxService({
   historyYears: env.TAX_HISTORY_YEARS,
   ...(env.TAX_DEPOSIT_BASIS === undefined ? {} : { depositBasis: env.TAX_DEPOSIT_BASIS }),
   ...(env.TRADE_URL === undefined ? {} : { prices: createTradePrices(env.TRADE_URL) }),
-  ...(basisSql === undefined ? {} : { basis: createPgBasisStore(basisSql) }),
+  ...(basisSql === undefined ? {} : { basis: createPgBasisStore(basisSql), choices: createPgChoiceStore(basisSql) }),
 });
 
 const appRouter = createTaxRouter(tax);

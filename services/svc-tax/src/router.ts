@@ -7,7 +7,11 @@ import {
   basisWriteResultSchema,
   lotBookInputSchema,
   lotBookSchema,
+  lotChoiceSavedSchema,
   missingBasisSchema,
+  pickSaleLotInputSchema,
+  setDayMethodInputSchema,
+  setLotMethodInputSchema,
 } from '@intafaced/contracts/tax-lot-book';
 import { TAX_EXPORT_INCOMPLETE, TAX_JURISDICTION_UNMAPPED, TaxError } from './codes.js';
 import { LOT_METHODS } from './lots.js';
@@ -140,6 +144,45 @@ export function createTaxRouter(tax: TaxService) {
           }
         }),
     }),
+
+    /** The caller's own matching method for the account or one coin. Settings only: nothing is posted to the ledger. */
+    setLotMethod: scopedProcedure('tax:write', { module: 'tax', plane: 'fiat' })
+      .input(setLotMethodInputSchema)
+      .output(lotChoiceSavedSchema)
+      .mutation(async ({ ctx, input }) => {
+        try {
+          await tax.setLotMethod({ userId: ctx.principal!.userId, assetId: input.assetId, method: input.method });
+          return { saved: true as const };
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** The caller's own method for one UTC day. Settings only. */
+    setDayMethod: scopedProcedure('tax:write', { module: 'tax', plane: 'fiat' })
+      .input(setDayMethodInputSchema)
+      .output(lotChoiceSavedSchema)
+      .mutation(async ({ ctx, input }) => {
+        try {
+          await tax.setDayMethod({ userId: ctx.principal!.userId, day: input.day, assetId: input.assetId, method: input.method });
+          return { saved: true as const };
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** The lot one of the caller's own sales draws on first. Checked against the caller's own book. Settings only. */
+    pickSaleLot: scopedProcedure('tax:write', { module: 'tax', plane: 'fiat' })
+      .input(pickSaleLotInputSchema)
+      .output(lotChoiceSavedSchema)
+      .mutation(async ({ ctx, input }) => {
+        try {
+          await tax.pickSaleLot({ userId: ctx.principal!.userId, saleTxId: input.saleTxId, assetId: input.assetId, lotId: input.lotId });
+          return { saved: true as const };
+        } catch (err) {
+          mapError(err);
+        }
+      }),
 
     exportPreview: scopedProcedure('tax:read', { module: 'tax', plane: 'fiat' })
       .input(exportInput)

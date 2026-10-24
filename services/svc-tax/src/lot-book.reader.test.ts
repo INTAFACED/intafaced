@@ -129,6 +129,9 @@ describe('tax.lotBook', () => {
     expect(book.realizedUsd).toBe('200');
     expect(book.sales).toEqual([
       {
+        method: 'FIFO',
+        methodSource: 'default',
+        pickedLotId: null,
         assetId: 'BTC',
         txId: 'sell',
         disposedAt: '2026-10-03T00:00:00.000Z',
