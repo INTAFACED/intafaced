@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { ACADEMY_RESERVED_TAB_SLUGS } from '@intafaced/contracts';
 import {
   academyVerifyHref,
-  certificateState,
   issueWait,
   buildTracking,
   certificateCards,
