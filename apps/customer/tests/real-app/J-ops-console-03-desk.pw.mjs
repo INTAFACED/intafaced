@@ -18,8 +18,11 @@ const ASSET = 'XAG';
 
 test.use({ timezoneId: 'UTC' });
 
-/** A UTC instant as the `datetime-local` value the founder types (the browser runs in UTC here). */
-const typed = (iso) => iso.slice(0, 19);
+/**
+ * A UTC instant as the `datetime-local` value the founder types (the browser runs in UTC here). The browser drops a
+ * zero seconds field, so a whole minute is typed without one.
+ */
+const typed = (iso) => (iso.slice(17, 19) === '00' ? iso.slice(0, 16) : iso.slice(0, 19));
 
 let funded = null;
 
@@ -82,9 +85,9 @@ test('J-ops-console-03 #1 the ledger list filters by asset and time, with the le
   await list.getByRole('button', { name: 'Previous page' }).click();
   await expect(rows).toHaveCount(PAGE);
 
-  // A window before the deposits matches nothing, said in words.
-  await list.getByLabel('To (exclusive)').fill(typed(funded.since));
-  await list.getByLabel('From (inclusive)').fill(typed(new Date(Date.parse(funded.since) - 60_000).toISOString()));
+  // A window long before the book began matches nothing, said in words.
+  await list.getByLabel('From (inclusive)').fill('2000-01-01T00:00');
+  await list.getByLabel('To (exclusive)').fill('2000-01-02T00:00');
   await list.getByRole('button', { name: 'Show transactions' }).click();
   await expect(list.getByTestId('ledger-desk-transactions-empty')).toBeVisible({ timeout: 30_000 });
   await expect(list.getByTestId('ledger-desk-total')).toContainText('0 transactions match');
@@ -102,7 +105,7 @@ test('J-ops-console-03 #2 opening a transaction shows each posting’s source an
   await expect(lookup.getByTestId('ledger-lookup-business-key')).toHaveText(funded.newest.key);
   await expect(lookup.getByTestId('ledger-lookup-reference')).not.toBeEmpty();
   await expect(lookup.getByTestId('ledger-lookup-request-time')).toContainText('took the request');
-  await expect(lookup.getByTestId('ledger-lookup-ledger-time')).toContainText('committed');
+  await expect(lookup.getByTestId('ledger-lookup-ledger-time')).toContainText('database transaction began');
   const postings = lookup.getByTestId('ledger-lookup-postings');
   // The fifty-first TEST deposit of 1 XAG: the rail is the source, the customer's account the destination, 50 before and 51 after.
   const source = postings.locator('tr[data-side="source"]');
