@@ -9,6 +9,8 @@ import { migrateOutreach } from '../db/migrate.js';
 import { OpsService } from '../ops-service.js';
 import { createOpsRouter } from '../router.js';
 import { createPgAlertDesk } from './desk-store.js';
+import { createPgNotify } from './notify-store.js';
+import { OPS_IDEMPOTENCY_CONFLICT } from '../codes.js';
 import { AlertEvaluator } from './runner.js';
 import { createPgAlertRuleStore } from './rule-store.js';
 import { AlertRules, fingerprintOf } from './rules.js';
@@ -463,6 +465,61 @@ if (!available) {
         server.close();
         if (previous === undefined) delete process.env.OPS_ALERT_CHANNEL_KEY;
         else process.env.OPS_ALERT_CHANNEL_KEY = previous;
+        await sql.end();
+        await database.drop();
+      }
+    });
+
+    it('refuses a key another desk action used with a typed conflict, and replays a sent group after a silence', async () => {
+      const database = await createTestDatabase({ service: 'ops' });
+      const sql = postgres(database.url, { max: 4, onnotice: () => undefined });
+      try {
+        await migrateOutreach(sql);
+        const store = createPgNotify(sql);
+        const who = { actor: 'operator-1', reason: 'review fix', at: AT };
+        await store.saveContact({
+          id: 'desk',
+          name: 'Desk',
+          integrations: [{ id: 'mail', kind: 'email', address: 'ops@example.test' }],
+          key: 'shared-key-01',
+          ...who,
+        });
+        await expect(
+          store.createSilence({
+            id: 'quiet',
+            matchers: [{ label: 'team', op: 'eq', value: 'ops' }],
+            endsAt: '2026-10-24T00:00:00.000Z',
+            key: 'shared-key-01',
+            ...who,
+          }),
+        ).rejects.toMatchObject({ code: OPS_IDEMPOTENCY_CONFLICT });
+        expect(await store.getSilence('quiet')).toBeNull();
+
+        await store.saveRoute({
+          defaultContactId: 'desk',
+          groupBy: ['team'],
+          groupWaitSeconds: 30,
+          groupIntervalSeconds: 60,
+          repeatSeconds: 120,
+          flapSeconds: 15,
+          active: { days: [23], months: [10], years: [2026], start: '00:00', end: '23:59', location: 'UTC' },
+          mute: { days: [1], months: [1], years: [2026], start: '00:00', end: '01:00', location: 'UTC' },
+          policies: [],
+          key: 'route-key-0002',
+          ...who,
+        });
+        const input = { ruleId: 'rule-1', labels: { team: 'ops' }, key: 'group-key-0002', ...who };
+        const first = await store.groupingSend(input);
+        expect(first).toMatchObject({ code: VENDOR_EMAIL, suppressed: null });
+        await store.createSilence({
+          id: 'quiet',
+          matchers: [{ label: 'team', op: 'eq', value: 'ops' }],
+          endsAt: '2026-10-24T00:00:00.000Z',
+          key: 'silence-key-02',
+          ...who,
+        });
+        expect(await store.groupingSend(input)).toEqual(first);
+      } finally {
         await sql.end();
         await database.drop();
       }

@@ -313,9 +313,9 @@ export class AlertRules {
     const alerts: { ruleId: string; name: string; instance: string; labels: Readonly<Record<string, string>>; state: string }[] = [];
     let offset = 0;
     let truncated = false;
-    while (alerts.length < limit) {
+    // Truncated only when one more row that the silence matches exists past the page.
+    while (!truncated) {
       const batch = await read(offset, limit);
-      if (batch.length === 0) break;
       for (const row of batch) {
         if (!matchersHold(silence.matchers, row.labels)) continue;
         if (alerts.length === limit) {
@@ -324,13 +324,8 @@ export class AlertRules {
         }
         alerts.push(row);
       }
-      if (truncated || batch.length < limit) break;
+      if (batch.length < limit) break;
       offset += batch.length;
-      if (alerts.length === limit) {
-        const more = await read(offset, 1);
-        truncated = more.length > 0;
-        break;
-      }
     }
     return { endsAt: silence.endsAt, active: true, alerts, truncated };
   }

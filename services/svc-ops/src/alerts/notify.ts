@@ -22,6 +22,7 @@ import {
   VENDOR_SMS,
 } from '@intafaced/contracts';
 import { OpsError } from '../codes.js';
+import { assertChannelTarget } from './channel-target.js';
 
 const SLUG = /^[a-z][a-z0-9_-]{0,62}$/;
 const LABEL = /^[a-z][a-z0-9_]{0,62}$/;
@@ -404,41 +405,41 @@ interface Hit {
   readonly contactId: string;
   readonly policyId: string;
   readonly depth: number;
-  readonly timing: Timing | null;
+  /** The node's own timing, or the nearest ancestor's, or the tree's. */
+  readonly timing: Timing;
 }
 
+/**
+ * One level of the tree. A match that does not continue stops its own siblings only: the parent's
+ * own continue flag decides whether the parent's siblings are still read. Timing is inherited down the path.
+ */
 function walk(
   nodes: readonly PolicyNode[],
   labels: Readonly<Record<string, string>>,
   inherited: string,
+  inheritedTiming: Timing,
   depth: number,
   hits: Hit[],
-  stop: { done: boolean },
 ): void {
   for (const node of nodes) {
-    if (stop.done) return;
     if (!matchersHold(node.matchers, labels)) continue;
-    hits.push({ contactId: node.contactId ?? inherited, policyId: node.id, depth, timing: node.timing });
-    walk(node.children, labels, node.contactId ?? inherited, depth + 1, hits, stop);
-    if (!node.continue) {
-      stop.done = true;
-      return;
-    }
+    const timing = node.timing ?? inheritedTiming;
+    hits.push({ contactId: node.contactId ?? inherited, policyId: node.id, depth, timing });
+    walk(node.children, labels, node.contactId ?? inherited, timing, depth + 1, hits);
+    if (!node.continue) return;
   }
 }
 
 /** No matching policy uses the default contact. A continue flag keeps earlier matches as well as the deepest one. */
 export function resolveRoute(tree: RouteBody, labels: Readonly<Record<string, string>>): ResolveHit {
   const hits: Hit[] = [];
-  const stop = { done: false };
-  walk(tree.policies, labels, tree.defaultContactId, 1, hits, stop);
+  walk(tree.policies, labels, tree.defaultContactId, tree.timing, 1, hits);
   if (hits.length === 0) {
     return { contacts: [tree.defaultContactId], policyIds: [], timing: tree.timing, primaryContact: tree.defaultContactId };
   }
   const deepest = hits.reduce((best, hit) => (hit.depth >= best.depth ? hit : best));
-  const timing = deepest.timing ?? tree.timing;
   const contacts = [...new Set(hits.map((hit) => hit.contactId))];
-  return { contacts, policyIds: hits.map((hit) => hit.policyId), timing, primaryContact: deepest.contactId };
+  return { contacts, policyIds: hits.map((hit) => hit.policyId), timing: deepest.timing, primaryContact: deepest.contactId };
 }
 
 export function sealSecret(plain: string): string {
@@ -480,6 +481,7 @@ function httpUrl(raw: string): string {
   if (url.username || url.password) {
     throw new OpsError(OPS_CHANNEL_AUTH_CONFLICT, 'Put auth in one header, not in the URL. Nothing was saved.');
   }
+  assertChannelTarget(url);
   return url.toString();
 }
 

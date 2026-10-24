@@ -9,6 +9,8 @@ import {
   OPS_ALERT_ROUTE_UNSET,
   OPS_ALERT_ROUTE_VERSION_STALE,
   OPS_CHANNEL_DELIVERY_FAILED,
+  OPS_CHANNEL_SECRET_UNSET,
+  OPS_CHANNEL_TARGET_UNSET,
   OPS_CONTACT_POINT_IN_USE,
   OPS_CONTACT_POINT_NOT_FOUND,
   OPS_CONTACT_VERSION_STALE,
@@ -20,6 +22,7 @@ import {
 } from '@intafaced/contracts';
 import { OPS_ALERT_ACTOR_UNSET, OPS_IDEMPOTENCY_CONFLICT, OpsError } from '../codes.js';
 import { fingerprintOf } from './rules.js';
+import { assertChannelTarget, pinnedChannelPost } from './channel-target.js';
 import {
   assertAuthExclusive,
   contactIdsOf,
@@ -213,8 +216,19 @@ function finished(rows: readonly AttemptRow[]): AttemptRow | null {
   return rows.find((row) => row.code === null || VENDORS.has(row.code)) ?? null;
 }
 
-async function deliver(row: StoredIntegration, body: string): Promise<void> {
-  if (!row.url || !row.secret) throw new Error('no url');
+interface Delivery {
+  readonly url: string;
+  readonly headers: Record<string, string>;
+}
+
+/**
+ * Everything a POST needs, read before it is sent. A blank target, an unreadable secret, a blank channel key or a
+ * refused address is a typed refusal here, never stored as a failed delivery.
+ */
+function deliveryFor(row: StoredIntegration, body: string): Delivery {
+  if (!row.url) throw new OpsError(OPS_CHANNEL_TARGET_UNSET, 'The channel has no URL. Nothing was sent.');
+  if (!row.secret) throw new OpsError(OPS_CHANNEL_SECRET_UNSET, 'The channel has no signing secret. Nothing was sent.');
+  assertChannelTarget(new URL(row.url));
   const headers: Record<string, string> = {
     'content-type': 'application/json',
     'x-intafaced-signature': signWebhook(openSecret(row.secret), body),
@@ -223,8 +237,16 @@ async function deliver(row: StoredIntegration, body: string): Promise<void> {
   else if (row.basicPassword) {
     headers.authorization = `Basic ${Buffer.from(`${row.basicUser ?? ''}:${openSecret(row.basicPassword)}`).toString('base64')}`;
   }
-  const response = await fetch(row.url, { method: 'POST', headers, body, redirect: 'error', signal: AbortSignal.timeout(3_000) });
-  if (!response.ok) throw new Error(`status ${response.status}`);
+  return { url: row.url, headers };
+}
+
+/** True when the receiver answered 2xx. A network error, timeout, refused address or other status is false. */
+async function post(delivery: Delivery, body: string): Promise<boolean> {
+  try {
+    return (await pinnedChannelPost(delivery.url, body, delivery.headers, 3_000)).ok;
+  } catch {
+    return false;
+  }
 }
 
 export function createMemoryNotify(): AlertNotifyStore {
@@ -238,6 +260,12 @@ export function createMemoryNotify(): AlertNotifyStore {
   const notes: { id: string; contactId: string; integrationId: string; ordinal: number }[] = [];
   const audits: { key: string; fingerprint: string; action: string; after?: unknown }[] = [];
   const claims = new Map<string, { fingerprint: string; promise: Promise<TestResult> }>();
+
+  /** One key names one change across every desk action. */
+  const keyFree = (key: string): void => {
+    const taken = audits.find((row) => row.key === key);
+    if (taken) conflict(taken.action);
+  };
 
   const live = (id: string): LiveContact => {
     const found = contacts.get(id);
@@ -271,6 +299,8 @@ export function createMemoryNotify(): AlertNotifyStore {
     const finish = async (): Promise<TestResult> => {
       const again = rowsFor();
       if (again.some((row) => row.fingerprint !== fingerprint)) conflict('channel test');
+      const held = audits.find((row) => row.key === input.key);
+      if (held && (held.action !== action || held.fingerprint !== fingerprint)) conflict(held.action);
       const already = finished(again);
       if (already) return { notificationId: already.notificationId, code: already.code, stored: true };
       const contact = live(input.contactId);
@@ -304,12 +334,8 @@ export function createMemoryNotify(): AlertNotifyStore {
       const vendor = vendorCode(integration.kind);
       if (vendor) return write(vendor);
       const body = webhookBody({ notificationId: id, contactId: input.contactId, integrationId: input.integrationId, at: input.at });
-      try {
-        await deliver(integration, body);
-        return write(null);
-      } catch {
-        return write(OPS_CHANNEL_DELIVERY_FAILED);
-      }
+      const delivery = deliveryFor(integration, body);
+      return write((await post(delivery, body)) ? null : OPS_CHANNEL_DELIVERY_FAILED);
     };
     try {
       const result = await finish();
@@ -336,6 +362,7 @@ export function createMemoryNotify(): AlertNotifyStore {
         if (prior.fingerprint !== fingerprint) conflict('routing tree');
         return prior.tree;
       }
+      keyFree(input.key);
       const body = parseRoute(input);
       for (const id of contactIdsOf(body)) live(id);
       const current = route?.version;
@@ -369,6 +396,7 @@ export function createMemoryNotify(): AlertNotifyStore {
         if (prior.fingerprint !== fingerprint) conflict('silence');
         return prior.silence;
       }
+      keyFree(input.key);
       if (silences.has(id)) throw new OpsError(OPS_SILENCE_ID_TAKEN, 'That silence id is already stored. Nothing was saved.');
       const silence: OpsAlertSilence = { id, matchers, endsAt, actor, reason, createdAt: input.at };
       silences.set(id, silence);
@@ -394,6 +422,7 @@ export function createMemoryNotify(): AlertNotifyStore {
         if (prior.fingerprint !== fingerprint) conflict('contact point');
         return prior.contact;
       }
+      keyFree(input.key);
       const id = slug(input.id, 'The contact id is blank. Nothing was saved.');
       const name = input.name?.trim() ?? '';
       if (!name || name.length > 120) throw new OpsError(OPS_ALERT_ROUTE_INVALID, 'The contact name is blank. Nothing was saved.');
@@ -444,6 +473,7 @@ export function createMemoryNotify(): AlertNotifyStore {
         if (prior.fingerprint !== fingerprint) conflict('contact point');
         return prior.contact;
       }
+      keyFree(input.key);
       const found = contacts.get(input.id);
       if (!found) throw new OpsError(OPS_CONTACT_POINT_NOT_FOUND, 'No such contact point.');
       if (routeMentions(route, input.id))
@@ -471,6 +501,23 @@ export function createMemoryNotify(): AlertNotifyStore {
         }
         return { sent: false, code: after?.code ?? OPS_GROUP_TIMING_UNSET, notificationId: null, suppressed: null };
       }
+      // A key that already reached the send path is not decided again; the send replays or finishes it.
+      const sent = attempts.find((row) => row.key === input.key);
+      if (sent) {
+        const result = await send(
+          {
+            contactId: sent.contactId,
+            integrationId: sent.integrationId,
+            key: input.key,
+            actor: input.actor,
+            reason: input.reason,
+            at: input.at,
+          },
+          'grouping.sent',
+        );
+        return { sent: result.code === null, code: result.code, notificationId: result.notificationId, suppressed: null };
+      }
+      keyFree(input.key);
       if (!route) throw new OpsError(OPS_ALERT_ROUTE_UNSET, 'No routing tree is saved. Nothing was sent.');
       const hit = resolveRoute(route, input.labels);
       const silence = [...silences.values()]
@@ -576,6 +623,9 @@ export function createPgNotify(sql: Sql): AlertNotifyStore {
     fingerprint: string,
     at: string,
   ): Promise<void> => {
+    // One key names one change across every desk action; a key another action used is a conflict, not a 23505.
+    const [taken] = await tx<{ action: string }[]>`SELECT action FROM ops.alert_notify_audit WHERE idempotency_key = ${key}`;
+    if (taken) conflict(taken.action);
     await tx`INSERT INTO ops.alert_notify_audit (action, subject, before, after, actor, reason, idempotency_key, fingerprint, at)
       VALUES (${action}, ${subject}, ${before === null ? null : tx.json(before as never)}, ${after === null ? null : tx.json(after as never)}, ${actor}, ${reason}, ${key}, ${fingerprint}, ${at})`;
   };
@@ -753,7 +803,7 @@ export function createPgNotify(sql: Sql): AlertNotifyStore {
       return sql.begin(async (tx) => {
         await lock(tx);
         const [prior] = await tx<{ fingerprint: string; after: OpsAlertContact }[]>`
-          SELECT fingerprint, after FROM ops.alert_notify_audit WHERE idempotency_key = ${input.key}`;
+          SELECT fingerprint, after FROM ops.alert_notify_audit WHERE idempotency_key = ${input.key} AND action = 'contact.retired'`;
         if (prior) {
           if (prior.fingerprint !== fingerprint) conflict('contact point');
           return prior.after;
@@ -794,6 +844,11 @@ export function createPgNotify(sql: Sql): AlertNotifyStore {
             suppressed: null,
           };
         }
+        // A key that already reached the send path is not decided again: a later silence or route edit must not
+        // change what the same key did. The send replays its stored attempt or finishes a failed one.
+        const [noted] = await tx<{ contact_id: string; integration_id: string }[]>`
+          SELECT contact_id, integration_id FROM ops.alert_notifications WHERE idempotency_key = ${input.key}`;
+        if (noted) return { kind: 'send' as const, contactId: noted.contact_id, integrationId: noted.integration_id as string | null };
         const route = await readRoute(tx);
         if (!route) throw new OpsError(OPS_ALERT_ROUTE_UNSET, 'No routing tree is saved. Nothing was sent.');
         const hit = resolveRoute(route, input.labels);
@@ -808,7 +863,7 @@ export function createPgNotify(sql: Sql): AlertNotifyStore {
           silenceId: silence?.silence_id ?? null,
           now: input.at,
         });
-        if (block.outcome === 'send') return { kind: 'send' as const, contactId: hit.primaryContact };
+        if (block.outcome === 'send') return { kind: 'send' as const, contactId: hit.primaryContact, integrationId: null as string | null };
         const actor = actorOf(input.actor);
         const reason = reasonOf(input.reason);
         if (block.outcome === 'refused') {
@@ -834,7 +889,8 @@ export function createPgNotify(sql: Sql): AlertNotifyStore {
       }
       const contact = await readContact(sql, decided.contactId);
       if (!contact || contact.retiredAt) throw new OpsError(OPS_CONTACT_POINT_NOT_FOUND, 'No such contact point.');
-      const integration = contact.integrations[0];
+      const integration =
+        decided.integrationId === null ? contact.integrations[0] : contact.integrations.find((item) => item.id === decided.integrationId);
       if (!integration) throw new OpsError(OPS_CONTACT_POINT_NOT_FOUND, 'The contact has no integration. Nothing was sent.');
       const result = await pgSend(
         sql,
@@ -886,6 +942,9 @@ async function pgSend(sql: Sql, input: SendInput, action: 'channel.tested' | 'gr
     const rows = await tx<{ notification_id: string; attempt: number; fingerprint: string; code: string | null }[]>`
       SELECT notification_id, attempt, fingerprint, code FROM ops.alert_channel_attempts WHERE idempotency_key = ${input.key} ORDER BY attempt`;
     if (rows.some((row) => row.fingerprint !== fingerprint)) conflict('channel test');
+    const [held] = await tx<{ action: string; fingerprint: string }[]>`
+      SELECT action, fingerprint FROM ops.alert_notify_audit WHERE idempotency_key = ${input.key}`;
+    if (held && (held.action !== action || held.fingerprint !== fingerprint)) conflict(held.action);
     const done = rows.find((row) => row.code === null || VENDORS.has(row.code ?? ''));
     if (done) return { kind: 'done' as const, notificationId: done.notification_id, code: done.code };
     const [contact] = await tx<
@@ -939,12 +998,8 @@ async function pgSend(sql: Sql, input: SendInput, action: 'channel.tested' | 'gr
         integrationId: input.integrationId,
         at: input.at,
       });
-      try {
-        await deliver(prepare.integration, body);
-        code = null;
-      } catch {
-        code = OPS_CHANNEL_DELIVERY_FAILED;
-      }
+      const delivery = deliveryFor(prepare.integration, body);
+      code = (await post(delivery, body)) ? null : OPS_CHANNEL_DELIVERY_FAILED;
     }
     await tx`INSERT INTO ops.alert_channel_attempts (notification_id, attempt, idempotency_key, fingerprint, code, actor, reason, at)
       VALUES (${prepare.id}, ${prepare.attempt}, ${input.key}, ${fingerprint}, ${code}, ${actor}, ${reason}, ${input.at})`;

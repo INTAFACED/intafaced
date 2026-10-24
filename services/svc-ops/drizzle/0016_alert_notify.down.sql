@@ -19,6 +19,8 @@ DROP TRIGGER IF EXISTS alert_route_versions_append_only ON ops.alert_route_versi
 DROP FUNCTION IF EXISTS ops.alert_route_versions_append_only();
 DROP TABLE IF EXISTS ops.alert_route_versions;
 DROP TABLE IF EXISTS ops.alert_route_policy;
+-- The policy events belong to the routing tree dropped above; the old check cannot hold them.
+DELETE FROM ops.alert_outbox WHERE event = 'coreOpsAlertPolicyUpdated';
 ALTER TABLE ops.alert_outbox DROP CONSTRAINT IF EXISTS alert_outbox_event_check;
 ALTER TABLE ops.alert_outbox ADD CONSTRAINT alert_outbox_event_check
   CHECK (event IN ('coreOpsAlertRuleUpdated','coreOpsAlertOpened','coreOpsAlertResolved'));
