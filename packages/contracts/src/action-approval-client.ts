@@ -32,7 +32,7 @@ export function refusalDetail(text: string): string {
     const envelope = first as { error?: { message?: unknown; json?: { message?: unknown } }; message?: unknown } | null;
     message = envelope?.error?.message ?? envelope?.error?.json?.message ?? envelope?.message;
   } catch {
-    message = /^\s*[[{]/.test(text) ? undefined : text;
+    message = text;
   }
   const detail = typeof message === 'string' ? message.split('\n')[0]!.trim() : '';
   return detail.length > REFUSAL_DETAIL_MAX ? `${detail.slice(0, REFUSAL_DETAIL_MAX)}…` : detail;

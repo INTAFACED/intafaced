@@ -91,6 +91,7 @@ describe('createIdentityApprovalClient', () => {
     expect(err.message).toBe('identity refused consume (404) approval not found [action_approval.not_found]');
     expect(err.message).not.toContain('at toTrpc');
     expect(refusalDetail('upstream unavailable')).toBe('upstream unavailable');
+    expect(refusalDetail('[action_approval.expired] approval expired\nmore')).toBe('[action_approval.expired] approval expired');
     expect(refusalDetail('{"weird":true}')).toBe('');
     expect(refusalDetail('x'.repeat(400))).toHaveLength(301);
   });
