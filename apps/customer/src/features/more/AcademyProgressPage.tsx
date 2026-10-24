@@ -24,6 +24,59 @@ type Failure = Extract<ApiResult<never>, { ok: false }>;
 /** A decimal-string percentage with one decimal place, in the reader's number format (33,3 in French). */
 export const localPercent = (value: string, language: string) =>
   new Intl.NumberFormat(language, { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(Number(value));
+/** The same percentage with no trailing ".0": 80 rather than 80.0. */
+const shortPercent = (value: string, language: string) =>
+  new Intl.NumberFormat(language, { maximumFractionDigits: 1 }).format(Number(value));
+
+/**
+ * The grades table of each authored course (AC-progress-02): one row per assignment in outline order. A grade reads
+ * "8 / 10"; one never handed in reads "Not attempted", never a zero, and counts toward no average. Pure.
+ */
+export function CourseGradesView({ courses }: { courses: AcademyProgressPage['courseGrades'] }) {
+  const { t } = copy.useCopy();
+  const { language } = usePreferences();
+  if (courses.length === 0) return <EmptyState title={t('cgEmpty')} />;
+  return (
+    <div className="academy-lms-stack">
+      {courses.map((course) => (
+        <div key={course.slug} className="academy-lms-card" data-course-grades={course.slug}>
+          <table>
+            <caption lang="und">{course.title}</caption>
+            <thead>
+              <tr>
+                <th scope="col">{t('cgItem')}</th>
+                <th scope="col">{t('cgGrade')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {course.rows.map((row) => (
+                <tr key={row.itemId} data-grade-state={row.state}>
+                  <td lang="und">{row.title}</td>
+                  <td>
+                    {row.state === 'graded'
+                      ? t('cgScore', { score: row.score, possible: row.possible })
+                      : row.state === 'handed_in'
+                        ? t('cgHandedIn')
+                        : t('cgNotAttempted')}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {course.averages.length === 0 ? (
+            <p className="muted">{t('cgNoAverage')}</p>
+          ) : (
+            course.averages.map((average) => (
+              <p key={average.type} data-testid={`type-average-${average.type}`}>
+                {t('cgAverage', { percent: shortPercent(average.percent, language), count: average.count })}
+              </p>
+            ))
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 /**
  * The key that names one to-do add: the planner revision it was typed against and a hash of its text. Two devices on the
@@ -107,6 +160,9 @@ export function ProgressPageView({ page }: { page: AcademyProgressPage }) {
             ))}
           </ul>
         )}
+      </Panel>
+      <Panel title={t('cgTitle')}>
+        <CourseGradesView courses={page.courseGrades} />
       </Panel>
       <Panel title={t('gradesTitle')}>
         {page.grades.rows.length === 0 ? (

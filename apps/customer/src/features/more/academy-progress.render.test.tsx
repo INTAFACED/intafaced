@@ -9,7 +9,7 @@ vi.mock('../../shared/preferences', async (original) => {
 
 import type { AcademyPlanner, AcademyProgressPage } from '@intafaced/contracts/academy-catalogue';
 import { SessionProvider } from '../session/session';
-import { PlannerView, ProgressPageView, localPercent, todoKey, type PlannerViewProps } from './AcademyProgressPage';
+import { CourseGradesView, PlannerView, ProgressPageView, localPercent, todoKey, type PlannerViewProps } from './AcademyProgressPage';
 import { TimedQuizView } from './AcademyAssessment';
 
 const html = (node: React.ReactNode) => renderToStaticMarkup(<SessionProvider>{node}</SessionProvider>);
@@ -46,6 +46,7 @@ const page: AcademyProgressPage = {
     ],
     averages: [{ type: 'quiz', percent: '75.0', count: 1 }],
   },
+  courseGrades: [],
 };
 
 describe('progress page', () => {
@@ -73,7 +74,7 @@ describe('progress page', () => {
   });
 
   it('has empty states, never a zero chart: no course and no attempt', () => {
-    const out = html(<ProgressPageView page={{ courses: [], grades: { rows: [], averages: [] } }} />);
+    const out = html(<ProgressPageView page={{ courses: [], grades: { rows: [], averages: [] }, courseGrades: [] }} />);
     expect(out).toContain('You are not enrolled in a course.');
     expect(out).toContain('No quiz attempts on your account.');
     expect(out).not.toContain('data-grade-chart');
@@ -202,5 +203,51 @@ describe('planner keys and number format', () => {
     expect(localPercent('33.3', 'en')).toBe('33.3');
     expect(localPercent('33.3', 'fr')).toBe('33,3');
     expect(localPercent('100.0', 'es')).toBe('100,0');
+  });
+});
+
+describe('course grades (AC-progress-02)', () => {
+  const ID = (n: number) => `0f8fad5b-d9cb-469f-a165-7086772895${String(n).padStart(2, '0')}`;
+  it('shows a grade as score / possible with the type average, and "Not attempted", never zero, where nothing was tried', () => {
+    const out = html(
+      <CourseGradesView
+        courses={[
+          {
+            slug: 'risk-basics',
+            title: 'TEST Risk basics',
+            rows: [
+              { state: 'graded', itemId: ID(1), title: 'TEST Write-up', type: 'assignment', score: '8', possible: '10' },
+              { state: 'handed_in', itemId: ID(2), title: 'TEST Plan', type: 'assignment', possible: '10' },
+              { state: 'not_attempted', itemId: ID(3), title: 'TEST Journal', type: 'assignment', possible: '10' },
+            ],
+            averages: [{ type: 'assignment', percent: '80.0', count: 1 }],
+          },
+        ]}
+      />,
+    );
+    expect(out).toContain('data-course-grades="risk-basics"');
+    expect(out).toContain('8 / 10');
+    expect(out).toContain('Handed in, waiting for a grade');
+    expect(out).toContain('Not attempted');
+    expect(out).not.toMatch(/\b0 \/ 10\b/);
+    expect(out).toContain('data-testid="type-average-assignment"');
+    expect(out).toContain('Assignment average: 80% from 1 graded');
+  });
+  it('says when no course has an assignment, and when a course has no graded one, with no average drawn', () => {
+    expect(html(<CourseGradesView courses={[]} />)).toContain('None of your courses has an assignment to grade.');
+    const none = html(
+      <CourseGradesView
+        courses={[
+          {
+            slug: 'risk-basics',
+            title: 'TEST Risk basics',
+            rows: [{ state: 'not_attempted', itemId: ID(3), title: 'TEST Journal', type: 'assignment', possible: '10' }],
+            averages: [],
+          },
+        ]}
+      />,
+    );
+    expect(none).toContain('No assignment graded in this course');
+    expect(none).not.toContain('type-average');
   });
 });

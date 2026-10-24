@@ -1870,7 +1870,11 @@ export class AcademyService {
    * quiz, pending while staff hide results, with per-type averages over released results only.
    */
   async progressPage(userId: string, now: Date = new Date()): Promise<AcademyProgressPage> {
-    const [enrolments, grades] = await Promise.all([this.publishedEnrolments(userId), this.assessments.grades(userId, now)]);
+    const [enrolments, grades, courseGrades] = await Promise.all([
+      this.publishedEnrolments(userId),
+      this.assessments.grades(userId, now),
+      this.grading.courseGrades(userId),
+    ]);
     const paths = enrolments.map((row) => row.pathSlug as CurriculumPath);
     const times = await this.completionTimes(
       userId,
@@ -1929,7 +1933,7 @@ export class AcademyService {
               ),
             },
           ];
-    return { courses, grades: { rows, averages } };
+    return { courses, grades: { rows, averages }, courseGrades };
   }
 
   planner(userId: string) {

@@ -393,7 +393,44 @@ export const academyGradesSchema = z.object({
 });
 export type AcademyGrades = z.infer<typeof academyGradesSchema>;
 
-export const academyProgressPageSchema = z.object({ courses: z.array(academyCourseProgressSchema), grades: academyGradesSchema });
+/**
+ * AC-progress-02 for authored courses: per enrolled published course, one row per assignment with a brief, in outline
+ * order. `graded` carries the newest grade as decimal strings; `handed_in` has no score yet; `not_attempted` is never a
+ * zero. Averages per type are sum of score over sum of possible across graded rows only; no graded row, no average.
+ */
+export const ACADEMY_COURSE_GRADE_TYPES = ['assignment'] as const;
+const decimal = z.string().regex(/^\d+(?:\.\d{1,2})?$/);
+export const academyCourseGradesSchema = z.object({
+  slug: z.string().min(1),
+  title: z.string().min(1),
+  rows: z.array(
+    z.discriminatedUnion('state', [
+      z.object({
+        state: z.literal('graded'),
+        itemId: z.string().guid(),
+        title: z.string().min(1),
+        type: z.enum(ACADEMY_COURSE_GRADE_TYPES),
+        score: decimal,
+        possible: decimal,
+      }),
+      z.object({
+        state: z.enum(['handed_in', 'not_attempted']),
+        itemId: z.string().guid(),
+        title: z.string().min(1),
+        type: z.enum(ACADEMY_COURSE_GRADE_TYPES),
+        possible: decimal,
+      }),
+    ]),
+  ),
+  averages: z.array(z.object({ type: z.enum(ACADEMY_COURSE_GRADE_TYPES), percent, count: z.number().int().positive() })),
+});
+export type AcademyCourseGrades = z.infer<typeof academyCourseGradesSchema>;
+
+export const academyProgressPageSchema = z.object({
+  courses: z.array(academyCourseProgressSchema),
+  grades: academyGradesSchema,
+  courseGrades: z.array(academyCourseGradesSchema),
+});
 export type AcademyProgressPage = z.infer<typeof academyProgressPageSchema>;
 
 /**

@@ -94,7 +94,7 @@ const week = (from: Date) => new Date(from.getTime() + 7 * 24 * 60 * 60 * 1000);
 describe('progress page (AC-progress-02)', () => {
   it('shows percent complete over the course’s items with each completion, and an empty grades list with no average', async () => {
     const academy = service();
-    expect(await academy.progressPage(USER)).toEqual({ courses: [], grades: { rows: [], averages: [] } });
+    expect(await academy.progressPage(USER)).toEqual({ courses: [], grades: { rows: [], averages: [] }, courseGrades: [] });
     await academy.enrolCourse({ userId: USER, slug: 'markets', track: 'audit' });
     const items = listCurriculum({ path: 'markets' });
     await academy.markCurriculumComplete({ userId: USER, itemSlug: items[0]!.slug });
