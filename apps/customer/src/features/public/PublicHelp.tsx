@@ -8,6 +8,7 @@ import { useSession } from '../session/session';
 import { helpCopy as copy } from './help-copy';
 import { exactHelpArticle, helpHref, helpSelection, helpVersion, helpWindow, missingHelpVersion, type HelpArticle } from './help-guards';
 import { ContactSupport } from './ContactSupport';
+import { HelpFeedback } from './HelpFeedback';
 import { ActionRequired, RequestEntry } from './HelpFrontDoor';
 import { helpCentreSwitchedOff, useHelpCentre } from './help-centre';
 import { HelpLibraryNav } from './HelpLibrary';
@@ -427,6 +428,9 @@ export function PublicHelp() {
                   </a>
                   <p className="help__caption muted">{t('latestBoundary')}</p>
                 </div>
+              )}
+              {selection.version === undefined && helpVersion(article) !== undefined && (
+                <HelpFeedback key={`${article.id}:${helpVersion(article)}`} articleId={article.id} version={helpVersion(article)!} />
               )}
               {support(true)}
             </>
