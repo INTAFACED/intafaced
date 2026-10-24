@@ -385,6 +385,21 @@ export const p2pLevelLimitsSchema = z.object({
   orderMax: amount,
 });
 export type P2PLevelLimits = z.infer<typeof p2pLevelLimitsSchema>;
+/** P-ads-merchant-12: the posting checklist for one fiat, every check with the person's value and the target. */
+export const p2pPostingEligibilitySchema = z.object({
+  fiatCurrency: z.string(),
+  policy: z.enum(['thresholds', 'none', 'unset', 'invalid']),
+  checks: z.array(
+    z.object({
+      id: z.enum(['kyc_tier', 'completed_orders', 'completion_rate']),
+      state: z.enum(['met', 'not_met', 'unknown']),
+      current: z.string().nullable(),
+      required: z.string().nullable(),
+      reason: z.string(),
+    }),
+  ),
+});
+export type P2PPostingEligibility = z.infer<typeof p2pPostingEligibilitySchema>;
 /** P-ads-merchant-01: what the post-an-ad form sends to `offers.create`, besides its key and the terms version. */
 export type PostOfferInput = {
   side: 'buy' | 'sell';

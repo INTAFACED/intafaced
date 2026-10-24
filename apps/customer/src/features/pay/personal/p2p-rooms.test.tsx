@@ -230,6 +230,7 @@ const stubPay = {
   offer: pending,
   advertiserTerms: pending,
   levelLimits: pending,
+  postingEligibility: pending,
 } as unknown as PersonalPayApi;
 
 it('shows the whole create form, with review off until it is complete', () => {

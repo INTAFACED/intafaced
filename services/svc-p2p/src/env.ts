@@ -137,6 +137,13 @@ const schema = serviceEnvSchema
       P2P_AD_CONTENT_RULES: z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), z.string().optional()),
 
       /**
+       * P-ads-merchant-12. Compliance's posting thresholds per fiat, JSON (`posting-eligibility.ts`): a fiat maps to
+       * { minKycTier?, minCompletedOrders?, minCompletionRatePct? } as strings, or "none". Blank or a fiat not listed
+       * refuses posting in it `p2p.config_unset`; a value that is not a whole list refuses every post.
+       */
+      P2P_POSTING_THRESHOLDS: z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), z.string().optional()),
+
+      /**
        * Largest `maxAmt` an offer may advertise — the merchant badge's first
        * real entitlement (`merchant-limits.ts` argues why the numbers are not
        * invented in code).
