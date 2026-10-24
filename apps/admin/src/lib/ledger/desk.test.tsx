@@ -71,6 +71,11 @@ describe('the desk queries', () => {
     expect(deskQuery('transactions', { from: '2026-10-25T00:00:00.000Z', to: '2026-10-24T00:00:00.000Z' })).toBeNull();
     expect(deskQuery('transactions', { from: 'yesterday' })).toBeNull();
     expect(deskQuery('transactions', { before: '0' })).toBeNull();
+    expect(deskQuery('transactions', { before: '9223372036854775808' })).toBeNull();
+    // A filter time is an instant with its offset, as svc-ledger takes it.
+    expect(deskQuery('transactions', { from: '2026-10-24' })).toBeNull();
+    expect(deskQuery('transactions', { from: '2026-10-24T12:00:00' })).toBeNull();
+    expect(deskQuery('transactions', { from: '2026-10-24T12:00:00+02:00' })).toEqual({ from: '2026-10-24T12:00:00+02:00' });
     expect(deskQuery('transactions', { txId: TX })).toBeNull();
     expect(deskQuery('accounts', { prefix: 'house:fees' })).toEqual({ prefix: 'house:fees' });
     for (const prefix of ['', 'house', 'house:', 'fees:trade', 'admin:x']) expect(deskQuery('accounts', { prefix }), prefix).toBeNull();
@@ -95,6 +100,10 @@ describe('parseDeskAnswer', () => {
     expect(parseDeskAnswer('transactions', {}, { ...page, total: 51 })).toBeNull();
     expect(parseDeskAnswer('transactions', {}, { ...page, rows: [{ ...page.rows[0], postings: 2 }] })).toBeNull();
     expect(parseDeskAnswer('transactions', {}, { ...page, nextCursor: 'abc' })).toBeNull();
+    // The ledger counts on the first page only: a later page answers null, and a first page without a count is refused.
+    expect(parseDeskAnswer('transactions', { before: '60' }, { ...page, total: null })).toMatchObject({ page: { total: null } });
+    expect(parseDeskAnswer('transactions', { before: '60' }, page)).toBeNull();
+    expect(parseDeskAnswer('transactions', {}, { ...page, total: null })).toBeNull();
     expect(parseDeskAnswer('accounts', { prefix: 'house:other' }, accounts)).toBeNull();
     expect(parseDeskAnswer('accounts', { prefix: 'house:fees' }, { ...accounts, prefix: 'house:other' })).toBeNull();
     expect(
@@ -128,10 +137,10 @@ describe('GET /api/ledger-desk/[read]', () => {
   });
 
   it("reads through edge's named route with the founder's own token, and answers what it read", async () => {
-    fetchMock.mockResolvedValue(Response.json(page));
+    fetchMock.mockResolvedValue(Response.json({ ...page, total: null }));
     const res = await get('transactions', 'assetId=USDT&before=60');
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ read: 'transactions', page });
+    expect(await res.json()).toEqual({ read: 'transactions', page: { ...page, total: null } });
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe('http://edge:4000/admin/ledger/transactions?assetId=USDT&before=60');
     expect((init.headers as Record<string, string>).authorization).toBe('Bearer founder-access-token');

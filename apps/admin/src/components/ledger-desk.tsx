@@ -90,6 +90,8 @@ function TransactionList() {
   const [to, setTo] = useState('');
   const [view, setView] = useState<Reading<DeskTransactionPage>>({ kind: 'idle' });
   const [pages, setPages] = useState<string[]>([]);
+  // The ledger counts on the first page; later pages keep that total.
+  const [total, setTotal] = useState<string | null>(null);
   const filters = { assetId: assetId.trim().toUpperCase(), from: localToIso(from), to: localToIso(to) };
   const query = deskQuery('transactions', filters);
   const badTime = (from.trim() !== '' && filters.from === '') || (to.trim() !== '' && filters.to === '');
@@ -98,6 +100,7 @@ function TransactionList() {
     setView({ kind: 'reading' });
     const outcome = await readDesk('transactions', before ? { ...applied, before } : applied);
     if (outcome.kind === 'answer' && outcome.value.read === 'transactions') {
+      if (outcome.value.page.total !== null) setTotal(outcome.value.page.total);
       setView({ kind: 'answer', value: outcome.value.page, readAt: outcome.readAt });
     } else if (outcome.kind === 'refused') {
       setView(outcome);
@@ -112,6 +115,7 @@ function TransactionList() {
     if (!query) return;
     setApplied(query);
     setPages([]);
+    setTotal(null);
     void load(null, query);
   };
 
@@ -151,8 +155,8 @@ function TransactionList() {
       {view.kind === 'answer' && (
         <>
           <p data-testid="ledger-desk-total">
-            <strong>{view.value.total}</strong> {view.value.total === '1' ? 'transaction matches' : 'transactions match'}, counted by the
-            ledger. Page {pages.length + 1}, newest first.
+            <strong>{total ?? '—'}</strong> {total === '1' ? 'transaction matches' : 'transactions match'}, counted by the ledger. Page{' '}
+            {pages.length + 1}, newest first.
           </p>
           {view.value.rows.length === 0 ? (
             <p data-testid="ledger-desk-transactions-empty">No booked transaction matches these filters.</p>

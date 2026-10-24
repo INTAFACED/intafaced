@@ -27,7 +27,8 @@ export interface LedgerPosting {
 
 /**
  * Where a transaction sits in the ledger's log and what the ledger recorded when it booked it: the log sequence, the
- * database time the booking committed under, the reference the request carried, and the `tx.posted` event record.
+ * database time of the booking (when its database transaction began), the reference the request carried, and the
+ * `tx.posted` event record.
  */
 export interface LedgerBooking {
   readonly seq: string;

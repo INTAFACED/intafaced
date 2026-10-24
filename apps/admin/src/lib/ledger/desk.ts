@@ -21,6 +21,8 @@ export const DESK_KEYS: Record<LedgerDeskRead, readonly string[]> = {
 const DECIMAL = /^-?\d+(\.\d{1,18})?$/;
 const COUNT = /^\d+$/;
 const SEQ_CURSOR = /^[1-9]\d{0,18}$/;
+/** The largest log sequence the ledger can hold (Postgres `bigint`). */
+const INT8_MAX = 9223372036854775807n;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const OWNER_TYPES = ['user', 'subaccount', 'module', 'house', 'treasury'] as const;
 /** `<owner type>:<first 1 to 128 characters of the owner id>`, as svc-ledger checks it. */
@@ -38,7 +40,8 @@ export interface DeskTransactionRow {
 }
 
 export interface DeskTransactionPage {
-  readonly total: string;
+  /** The ledger's count of every match, on the first page only; a later page answers null and the first page's total stands. */
+  readonly total: string | null;
   readonly rows: readonly DeskTransactionRow[];
   readonly nextCursor: string | null;
 }
@@ -80,6 +83,8 @@ export type LedgerDeskAnswer =
 
 const str = (value: unknown): value is string => typeof value === 'string';
 const time = (value: unknown): value is string => str(value) && !Number.isNaN(Date.parse(value));
+/** An ISO 8601 instant with its offset, as svc-ledger takes a filter time. */
+const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/;
 const obj = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 
@@ -151,11 +156,14 @@ export function parseDeskAnswer(read: LedgerDeskRead, query: Readonly<Record<str
   const r = obj(raw);
   if (!r) return null;
   if (read === 'transactions') {
-    if (!str(r.total) || !COUNT.test(r.total) || !Array.isArray(r.rows)) return null;
+    // The ledger counts on the first page only.
+    const first = query.before === undefined;
+    if (first ? !str(r.total) || !COUNT.test(r.total) : r.total !== null) return null;
+    if (!Array.isArray(r.rows)) return null;
     if (r.nextCursor !== null && (!str(r.nextCursor) || !SEQ_CURSOR.test(r.nextCursor))) return null;
     const rows = r.rows.map(parseTxRow);
     if (rows.some((row) => row === null)) return null;
-    return { read, page: { total: r.total, rows: rows as DeskTransactionRow[], nextCursor: r.nextCursor } };
+    return { read, page: { total: r.total as string | null, rows: rows as DeskTransactionRow[], nextCursor: r.nextCursor } };
   }
   const prefix = query.prefix ?? '';
   if (!str(r.prefix) || r.prefix !== prefix || !Array.isArray(r.accounts)) return null;
@@ -178,9 +186,10 @@ export function deskQuery(read: LedgerDeskRead, given: Readonly<Record<string, s
   }
   if (read === 'transactions') {
     if (query.assetId !== undefined && query.assetId.length > 32) return null;
-    for (const key of ['from', 'to'] as const) if (query[key] !== undefined && !time(query[key])) return null;
+    for (const key of ['from', 'to'] as const)
+      if (query[key] !== undefined && (!ISO_INSTANT.test(query[key]) || !time(query[key]))) return null;
     if (query.from && query.to && Date.parse(query.from) >= Date.parse(query.to)) return null;
-    if (query.before !== undefined && !SEQ_CURSOR.test(query.before)) return null;
+    if (query.before !== undefined && (!SEQ_CURSOR.test(query.before) || BigInt(query.before) > INT8_MAX)) return null;
   }
   if (read === 'accounts') {
     if (query.prefix === undefined || !ADDRESS_PREFIX.test(query.prefix)) return null;

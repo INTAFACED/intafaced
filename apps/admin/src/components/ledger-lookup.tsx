@@ -176,7 +176,7 @@ export function TransactionView({
           {transaction.booking.bookedAt ? (
             <>
               {formatWhen(transaction.booking.bookedAt)}{' '}
-              <span className="adm-subtle">(the database’s clock when the booking committed)</span>
+              <span className="adm-subtle">(the database’s clock when the booking’s database transaction began)</span>
             </>
           ) : (
             'Not recorded: this transaction has no event record'
