@@ -3,6 +3,7 @@ import { requireFounderPage } from '@/lib/founder-page';
 import { requireModulePage } from '@/lib/module-page-guard';
 import { LedgerOps } from '@/components/ledger-ops';
 import { LedgerLookup } from '@/components/ledger-lookup';
+import { LedgerDesk } from '@/components/ledger-desk';
 import { ReconciliationControls } from '@/components/reconciliation-controls';
 import { PayHaltsDesk } from '@/components/pay-halts-desk';
 import { readConsoleStatus } from '@/lib/console-status';
@@ -12,7 +13,8 @@ import { treasuryParked } from '@/lib/ledger/reconciliation-server';
 import { ledgerQueryFromParams } from '@/lib/search/cross-search';
 
 /**
- * Ledger operations (§4.2 / §14.6): the posting freeze, the transaction lookup (J-ops-console-03), the reconciliation
+ * Ledger operations (§4.2 / §14.6): the posting freeze, the ledger desk's list, address search and counts and the
+ * transaction lookup (J-ops-console-03), the reconciliation
  * controls (J-ops-console-07), and the payments halts that stop one operation. `?txId=` or `?businessKey=` (the cross-desk
  * search's link back) opens the lookup on that query.
  *
@@ -39,6 +41,7 @@ export default async function LedgerOpsPage({ searchParams }: { searchParams: Pr
   return (
     <div className="adm-stack">
       <LedgerOps treasury={status.treasury} initialFreeze={initialFreeze} initialReadAt={initialReadAt} userId={founder.session.userId} />
+      <LedgerDesk />
       <LedgerLookup key={initial ? JSON.stringify(initial) : ''} initial={initial} />
       <ReconciliationControls treasuryParked={treasuryParked()} userId={founder.session.userId} />
       <PayHaltsDesk initial={halts} userId={founder.session.userId} />
