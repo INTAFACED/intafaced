@@ -1,11 +1,19 @@
 import type { Sql } from 'postgres';
 import { parseKycDocKey } from './document-crypto.js';
 import { KycDocumentError, KycDocumentStore, type KycDocumentVault } from './document-store.js';
-import { bindProviderRefToDocument, type BindProviderRefInput, type BindProviderRefResult } from './provider-ref-bind.js';
+import {
+  bindProviderRefToDocument,
+  documentReviews,
+  type BindProviderRefInput,
+  type BindProviderRefResult,
+  type DocumentReview,
+} from './provider-ref-bind.js';
 
 export type KycVaultBoot = {
   kycDocs: KycDocumentVault;
   bindKycProviderRef: (input: BindProviderRefInput) => Promise<BindProviderRefResult>;
+  /** The KYC record each listed document is attached to, read from identity's own records. */
+  kycDocumentReviews: (userId: string, documentIds: readonly string[]) => Promise<Map<string, DocumentReview>>;
 };
 
 /** Residual id when IDENTITY_KYC_DOC_KEY is unset — procedures refuse closed, never invent a store. */
@@ -20,7 +28,7 @@ function keyMaterialPresent(keyMaterial: string | undefined): boolean {
  *
  * - unset / blank → null (router named-refuses `[kyc_doc.unwired]`; never invent a key)
  * - set but not 32-byte base64/hex → named `kyc_doc.key_missing` (not a silent missing store)
- * - valid 32-byte key → vault + bind
+ * - valid 32-byte key → vault + bind + the review each document is attached to
  *
  * Production index.ts:
  *   const vault = bootKycVault(sql, env.IDENTITY_KYC_DOC_KEY);
@@ -36,6 +44,7 @@ export function bootKycVault(sql: Sql, keyMaterial: string | undefined): KycVaul
   return {
     kycDocs,
     bindKycProviderRef: (input) => bindProviderRefToDocument(sql, kycDocs, input),
+    kycDocumentReviews: (userId, documentIds) => documentReviews(sql, userId, documentIds),
   };
 }
 
@@ -49,5 +58,6 @@ export function kycRouterBootOptions(sql: Sql, keyMaterial: string | undefined):
   return {
     kycDocs: vault.kycDocs,
     bindKycProviderRef: vault.bindKycProviderRef,
+    kycDocumentReviews: vault.kycDocumentReviews,
   };
 }

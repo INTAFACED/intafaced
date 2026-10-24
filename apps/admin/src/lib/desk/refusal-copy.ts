@@ -408,6 +408,32 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'svc-edge refused it before doing anything.',
     next: 'Start from the request step.',
   },
+  'kyc_doc.unwired': {
+    title: 'Identity’s document vault is switched off',
+    body: 'Its encryption key (IDENTITY_KYC_DOC_KEY) is not set on this deployment, so no document can be stored, listed or opened. Nothing was read.',
+    next: 'The key is an owner setting. Ask engineering to set it.',
+  },
+  'kyc_doc.not_found': {
+    title: 'Identity holds no such document',
+    body: 'The document is not in identity’s vault (it may have been deleted), so nothing was shown. Identity spent the approval on the attempt.',
+    next: 'Read the account’s document list again; opening another document needs a new request.',
+  },
+  'kyc_doc.reviews_unwired': {
+    title: 'Identity cannot say which verification each document belongs to',
+    body: 'Its document vault is on, but the lookup of each document’s verification is not wired on this deployment, so identity refuses the list rather than show every document as not attached.',
+    next: 'Tell engineering: identity’s boot is missing the document review lookup.',
+  },
+  'kyc_doc.reader_not_requester': {
+    title: 'Only the founder who asked can open this document',
+    body: 'Identity opens a document only for the person who made the request, never for the approver or anyone else holding the packet. Nothing was shown.',
+    next: 'The founder who asked runs it on their own console.',
+  },
+  'kyc_doc.decrypt_failed': {
+    title: 'Identity could not decrypt the document',
+    body: 'Its stored contents do not open with the vault’s key, so nothing is shown. The approval may have been spent.',
+    next: 'Tell engineering: the vault key or the stored document is damaged.',
+    changed: 'unknown',
+  },
   'action_approval.consume_failed': {
     title: 'Identity refused to release the approval',
     body: 'Most often the second founder has not approved yet, or the approval expired. The command was not run.',

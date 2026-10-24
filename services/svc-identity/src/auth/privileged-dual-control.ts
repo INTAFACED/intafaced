@@ -37,7 +37,10 @@ export function identityActionPayloadHash(targetId: string, fields: Record<strin
     .digest('hex')}`;
 }
 
-export function stubActionApprovals(approverId = '22222222-2222-4222-8222-222222222222'): Pick<ActionApprovalService, 'consume'> {
+export function stubActionApprovals(
+  approverId = '22222222-2222-4222-8222-222222222222',
+  requesterId = 'requester',
+): Pick<ActionApprovalService, 'consume'> {
   return {
     async consume(_service: string, input) {
       return actionApprovalSchema.parse({
@@ -47,7 +50,7 @@ export function stubActionApprovals(approverId = '22222222-2222-4222-8222-222222
         targetId: input.targetId,
         expectedVersion: input.expectedVersion,
         payloadHash: input.payloadHash,
-        requesterId: 'requester',
+        requesterId,
         approverId,
         policyVersion: 'v1',
         createdAt: '2026-09-09T12:00:00.000Z',

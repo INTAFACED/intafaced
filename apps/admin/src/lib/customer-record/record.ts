@@ -153,7 +153,7 @@ export function tabPlan(tab: CustomerTab, userId: string): CustomerTabPlan {
           {
             id: 'identity.documents',
             title: 'Identity documents',
-            note: 'Every document identity’s vault holds for this account, newest first: what it is and when it was stored. Only the description is read here; opening a document’s contents needs a second founder.',
+            note: 'Every document identity’s vault holds for this account, newest first: what it is, when it was stored, and the status of the verification it is attached to. Only the description is read here; open a row to ask a second founder to approve opening its contents.',
             module: 'identity',
             plainName: 'identity’s document vault',
             procedure: 'kyc.listDocuments',
@@ -164,29 +164,30 @@ export function tabPlan(tab: CustomerTab, userId: string): CustomerTabPlan {
             columns: [
               col('createdAt', 'Stored', 'time'),
               col('contentType', 'Type', 'text'),
+              col('reviewStatus', 'Status', 'text'),
               col('byteLength', 'Size (bytes)', 'int'),
               col('storedBy', 'Stored by', 'text', { nullable: true }),
+              col('reviewTier', 'Verification level', 'text', { nullable: true, detail: true }),
+              col('reviewRecordId', 'Verification id', 'text', { nullable: true, detail: true }),
               col('id', 'Document id', 'text', { detail: true }),
             ],
+            rowAction: 'identity.kyc_document.open',
             emptyText: 'Identity’s vault holds no document for this account: none has been uploaded or stored for it.',
             forbiddenText:
               'Identity did not accept your founder session for this read (the document list is for an enabled founder with the compliance permission and a second factor).',
             refusals: {
               'kyc_doc.unwired':
                 'Identity’s document vault is switched off on this deployment: its encryption key (IDENTITY_KYC_DOC_KEY) is not set, so no document can be stored or listed for anyone.',
+              'kyc_doc.reviews_unwired':
+                'Identity’s document vault is on, but its lookup of the verification each document is attached to is not wired, so it refuses the list rather than show every document as not attached.',
             },
           },
         ],
         unwired: [
           un(
-            'documents.viewer',
-            'Open a document',
-            'Identity serves a document’s contents (kyc.getDocument) only through its two-founder door, and this console has no document viewer to request and show it (OPS-cases-07). The list above names each document; its contents stay in the vault.',
-          ),
-          un(
             'documents.decisions',
             'Document decisions and requests',
-            'Identity keeps no accept, reject or request-again decision per document, and no request to the customer for a new one (OPS-cases-07). Review decisions are on the Identity desk’s case queue.',
+            'Identity keeps no accept, reject or request-again decision per document, and no request to the customer for a new one (OPS-cases-07). A document’s status above is the review of the verification it is attached to; review decisions are on the Identity desk’s case queue.',
           ),
         ],
       };

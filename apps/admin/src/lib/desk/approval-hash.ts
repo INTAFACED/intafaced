@@ -6,6 +6,8 @@ import type { DeskRequest } from './approval-packet';
 
 /** The verb svc-identity binds a waitlist wave release to (`waitlist.waves.release`). */
 export const WAVE_RELEASE_TARGET = 'waitlist.wave.release';
+/** The verb svc-identity binds a KYC document read to (`kyc.getDocument`). */
+export const KYC_DOCUMENT_GET = 'kyc.doc.get';
 
 /**
  * How a console request becomes an identity approval, and how the target service recomputes the same hash.
@@ -99,6 +101,9 @@ export function payloadHashFor(request: DeskRequest): string {
       return shaIdentity('identity.auth_key_rotate', { keyId: request.keyId });
     case 'identity.auth_key.remove_old':
       return shaIdentity('identity.auth_key_remove_old', { keyIds: request.keyIds });
+    // svc-identity `consumePrivileged(…, 'kyc.doc.get', { documentId })`: { targetId: 'kyc.doc.get', documentId }.
+    case 'identity.kyc_document.open':
+      return shaIdentity(KYC_DOCUMENT_GET, { documentId: request.documentId });
     // svc-identity `waitlist.waves.release`: { targetId: 'waitlist.wave.release', wave, size }, in this order.
     case 'campaigns.waitlist.wave_release':
       return shaIdentity(WAVE_RELEASE_TARGET, { wave: request.wave, size: request.size });
@@ -262,6 +267,16 @@ export function proposeInputFor(request: DeskRequest): ProposeInput {
       const verb = request.kind === 'identity.auth_key.rotate' ? 'identity.auth_key_rotate' : 'identity.auth_key_remove_old';
       return { actionType: verb, targetService: 'svc-identity', targetId: verb, expectedVersion: '1', payloadHash, policyVersion: 'v1' };
     }
+    // svc-identity consumes a document read against its own verb as the target id, at version 1. Operator-level at identity.
+    case 'identity.kyc_document.open':
+      return {
+        actionType: KYC_DOCUMENT_GET,
+        targetService: 'svc-identity',
+        targetId: KYC_DOCUMENT_GET,
+        expectedVersion: '1',
+        payloadHash,
+        policyVersion: 'v1',
+      };
     // svc-identity consumes a wave release against its own verb as the target id, at version 1.
     case 'campaigns.waitlist.wave_release':
       return {

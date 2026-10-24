@@ -1,6 +1,7 @@
 'use client';
 
 import { useId, useRef, useState } from 'react';
+import { KycDocumentViewer } from '@/components/kyc-document-viewer';
 import { formatWhen } from '@/lib/as-of';
 import { postStep, type ApprovalEndpoint } from '@/lib/desk/approval-browser';
 import {
@@ -30,16 +31,27 @@ const OK_TEXT: Record<Exclude<StepName, 'execute'>, string> = {
   revoke: 'Withdrawn. This request can no longer be used.',
 };
 
-export function StepReplyView({ reply }: { reply: StepReply }) {
+/** What a closed document leaves on the page: words only, its contents dropped from the reply. */
+export const DOCUMENT_CLOSED_REPLY: StepReply = {
+  ok: true,
+  step: 'execute',
+  detail: 'Document closed. Its contents are no longer on this page; opening it again needs a new approval.',
+};
+
+export function StepReplyView({ reply, onCloseDocument }: { reply: StepReply; onCloseDocument?: () => void }) {
   if (reply.ok) {
     if (reply.step === 'execute') {
       return (
         <div className="adm-callout" role="status" data-testid="step-reply" data-tone="ok">
           <strong>The service answered</strong>
           <p>{reply.detail}</p>
-          <p className="dk-muted">
-            This is what the service said. The state shown above is read again from the service, not taken from this message.
-          </p>
+          {reply.document ? (
+            <KycDocumentViewer document={reply.document} onClose={onCloseDocument} />
+          ) : (
+            <p className="dk-muted">
+              This is what the service said. The state shown above is read again from the service, not taken from this message.
+            </p>
+          )}
         </div>
       );
     }
@@ -92,6 +104,8 @@ export interface WorkbenchViewProps {
   readonly onPacketText: (value: string) => void;
   readonly onConfirm: (value: string) => void;
   readonly onStep: (step: Exclude<StepName, 'propose'>) => void;
+  /** Drops an opened document from the reply, so its contents leave the page. */
+  readonly onCloseDocument?: () => void;
 }
 
 const STEP_LABEL: Record<Exclude<StepName, 'propose'>, string> = {
@@ -202,7 +216,7 @@ export function ApprovalWorkbenchView(props: WorkbenchViewProps) {
             ))}
         </>
       )}
-      {reply && <StepReplyView reply={reply} />}
+      {reply && <StepReplyView reply={reply} onCloseDocument={props.onCloseDocument} />}
     </div>
   );
 }
@@ -266,6 +280,7 @@ export function ApprovalWorkbench({ endpoint, packetText, onPacketText, userId, 
       }}
       onConfirm={setConfirm}
       onStep={(step) => void onStep(step)}
+      onCloseDocument={() => setReply(DOCUMENT_CLOSED_REPLY)}
     />
   );
 }

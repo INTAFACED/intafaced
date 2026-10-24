@@ -78,7 +78,12 @@ import { accrueTreeUnderRateAuthority, accrualTreeAuthorityStatusLine } from './
 import { AccrualsLimitUnsetError, type AccrualStore } from './affiliates/accrual-store.js';
 import { KYC_VAULT_UNWIRED } from './kyc/boot-vault.js';
 import { KycDocumentError, KycDocumentsListLimitUnsetError, type KycDocumentVault, type StoredDocumentMeta } from './kyc/document-store.js';
-import { ProviderRefBindError, type BindProviderRefInput, type BindProviderRefResult } from './kyc/provider-ref-bind.js';
+import {
+  ProviderRefBindError,
+  type BindProviderRefInput,
+  type BindProviderRefResult,
+  type DocumentReview,
+} from './kyc/provider-ref-bind.js';
 import { FlagDisabledError } from '@intafaced/config';
 import { WaitlistError, type WaitlistService } from './waitlist/waitlist-service.js';
 import type { WaitlistWave } from './waitlist/waitlist-store.js';
@@ -551,6 +556,21 @@ const kycDocMetaOutput = z.object({
   createdAt: z.string(),
 });
 
+/**
+ * One row of a subject's document list: the meta, and the review of the KYC record attached to it. Identity keeps no
+ * decision per document yet (OPS-cases-07), so the status is the record's: `not_attached` when no record points at it.
+ */
+/** The vault is wired but the lookup of each document's review is not: a boot mis-wire, refused rather than listed as unattached. */
+const KYC_DOC_REVIEWS_UNWIRED = 'kyc_doc.reviews_unwired';
+/** A document read run by anyone but the operator who asked for it. */
+const KYC_DOC_READER_NOT_REQUESTER = 'kyc_doc.reader_not_requester';
+
+const kycDocListOutput = kycDocMetaOutput.extend({
+  reviewStatus: z.enum(['not_attached', 'pending', 'approved', 'rejected', 'expired']),
+  reviewRecordId: z.string().guid().nullable(),
+  reviewTier: z.enum(['none', 'basic', 'full', 'institutional']).nullable(),
+});
+
 const socialProviderName = z.string().regex(/^[a-z0-9-]{1,32}$/);
 
 /** No registry configured is the same as no provider registered. */
@@ -726,6 +746,11 @@ export function createIdentityRouter(
      */
     bindKycProviderRef?: (input: BindProviderRefInput) => Promise<BindProviderRefResult>;
     /**
+     * The KYC record each listed document is attached to (`kyc_records.provider_ref`). Booted with the vault; a vault
+     * without it lists nothing, since a document list without its review status would read as "not attached".
+     */
+    kycDocumentReviews?: (userId: string, documentIds: readonly string[]) => Promise<Map<string, DocumentReview>>;
+    /**
      * Action-bound approval issuer. Privileged mutates consume it.
      * Absent → those doors refuse (typed-in second name is not enough).
      */
@@ -802,6 +827,7 @@ export function createIdentityRouter(
   const ledger = options.ledger;
   const kycDocs = options.kycDocs;
   const bindKycProviderRef = options.bindKycProviderRef;
+  const kycDocumentReviews = options.kycDocumentReviews;
   const waitlist = options.waitlist;
   const handleLookupLimiter = options.handleLookupLimiter ?? new HandleLookupLimiter();
 
@@ -878,6 +904,13 @@ export function createIdentityRouter(
       });
     }
     return kycDocs;
+  }
+
+  function readerNotRequester(): TRPCError {
+    return new TRPCError({
+      code: 'FORBIDDEN',
+      message: `Only the operator who asked to open this document can open it [${KYC_DOC_READER_NOT_REQUESTER}]`,
+    });
   }
 
   function requireBindKyc(): (input: BindProviderRefInput) => Promise<BindProviderRefResult> {
@@ -2163,8 +2196,16 @@ export function createIdentityRouter(
         .mutation(async ({ ctx, input }) => {
           try {
             requireMfa(ctx.principal);
-            await consumePrivileged(ctx.principal.userId, input, 'kyc.doc.get', { documentId: input.documentId });
+            // A switched-off vault refuses before the approval is spent.
             const vault = requireKycDocs();
+            // Only the operator who asked may spend the approval on the read: the approver, or anyone else holding the ids,
+            // is refused before it is spent, and again after, so the approval is never a bearer pass to the contents.
+            const reader = ctx.principal.userId;
+            const approvalId = input.approvalId?.trim();
+            const parties = approvalId ? await options.actionApprovals?.partiesOf?.(approvalId) : null;
+            if (parties && parties.requesterId !== reader) throw readerNotRequester();
+            const consumed = await consumePrivileged(reader, input, 'kyc.doc.get', { documentId: input.documentId });
+            if (consumed.requesterId !== reader) throw readerNotRequester();
             const opened = await vault.getFor(input.documentId, {
               kind: 'compliance',
               operatorId: ctx.principal.userId,
@@ -2182,11 +2223,31 @@ export function createIdentityRouter(
        */
       listDocuments: scopedProcedure('admin:compliance')
         .input(z.object({ userId: z.string().guid(), limit: z.number().int().min(1).max(200) }))
-        .output(z.array(kycDocMetaOutput))
+        .output(z.array(kycDocListOutput))
         .query(async ({ input }) => {
           try {
             const vault = requireKycDocs();
-            return (await vault.listMetaForUser(input.userId, input.limit)).map(presentDocMeta);
+            if (!kycDocumentReviews) {
+              throw new TRPCError({
+                code: 'PRECONDITION_FAILED',
+                message: `KYC document review lookup is not configured [${KYC_DOC_REVIEWS_UNWIRED}]`,
+              });
+            }
+            const docs = await vault.listMetaForUser(input.userId, input.limit);
+            // Each document's status is the review of the newest KYC record attached to it, or `not_attached` when none is.
+            const reviews = await kycDocumentReviews(
+              input.userId,
+              docs.map((d) => d.id),
+            );
+            return docs.map((meta) => {
+              const review = reviews.get(meta.id);
+              return {
+                ...presentDocMeta(meta),
+                reviewStatus: review?.status ?? 'not_attached',
+                reviewRecordId: review?.recordId ?? null,
+                reviewTier: review?.tier ?? null,
+              };
+            });
           } catch (err) {
             throw toTrpcError(err);
           }

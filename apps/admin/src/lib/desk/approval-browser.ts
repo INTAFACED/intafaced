@@ -8,6 +8,7 @@ export type ApprovalEndpoint =
   | '/api/kill-switch'
   | '/api/accounts/restore'
   | '/api/accounts/closure'
+  | '/api/accounts/documents'
   | '/api/accounts/tier'
   | '/api/ledger-freeze'
   | '/api/ledger-reconciliation/run'
