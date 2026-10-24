@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import { Button, Failure, Field } from '../../shared/ui';
-import type { ApiResult } from '../../shared/api';
+import type { ApiResult, DeviceAuthorisation } from '../../shared/api';
 import { singleFlight } from '../../shared/password';
 import { sessionSchema, useSession } from '../session/session';
 import { navigate } from '../../app/location';
@@ -9,6 +9,7 @@ import { validAuthSession } from './public-auth-guards';
 import { secondsLeft } from './sign-up';
 import { codeSignInCode, loginCodeAcceptedSchema } from './code-sign-in';
 import { codeSignInCopy } from './code-sign-in-copy';
+import { DeviceApproval } from './DeviceApproval';
 import './public-pages.css';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
@@ -28,6 +29,7 @@ export function CodeSignIn() {
   const [refusal, setRefusal] = useState<Refusal | null>(null);
   const [needsTotp, setNeedsTotp] = useState(false);
   const [resent, setResent] = useState(false);
+  const [waitingDevice, setWaitingDevice] = useState<DeviceAuthorisation | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const flight = useRef(singleFlight()).current;
   const mounted = useRef(true);
@@ -96,6 +98,11 @@ export function CodeSignIn() {
         // The mailed code stays in the field while only the second step is missing; anything else clears both.
         if (answer.code === 'auth.mfa_required') setNeedsTotp(true);
         else form.querySelectorAll('input').forEach((input) => (input.value = ''));
+        // Every factor passed on a browser this account has not trusted yet: the approval step takes over.
+        if (answer.code === 'auth.device_authorisation_required' && answer.deviceAuthorisation) {
+          setWaitingDevice(answer.deviceAuthorisation);
+          return;
+        }
         setRefusal(answer);
         return;
       }
@@ -104,10 +111,14 @@ export function CodeSignIn() {
         return;
       }
       commit(answer.data);
-      // Signing in from an invitation goes back to it, as the password form does.
-      const context = publicAuthContext(location.pathname, location.search);
-      navigate(context.invite ? `/invite?token=${encodeURIComponent(context.invite)}` : context.destination, true);
+      afterSignIn();
     });
+  }
+
+  /** Signing in from an invitation goes back to it, as the password form does. */
+  function afterSignIn() {
+    const context = publicAuthContext(location.pathname, location.search);
+    navigate(context.invite ? `/invite?token=${encodeURIComponent(context.invite)}` : context.destination, true);
   }
 
   async function resend() {
@@ -143,6 +154,18 @@ export function CodeSignIn() {
               ? t(code)
               : null;
 
+  if (waitingDevice) {
+    return (
+      <DeviceApproval
+        waiting={waitingDevice}
+        onSignedIn={afterSignIn}
+        onCancel={() => {
+          setWaitingDevice(null);
+          setPending(null);
+        }}
+      />
+    );
+  }
   return (
     <section className="public-auth-code" aria-labelledby={`${problemId}-title`}>
       <h2 id={`${problemId}-title`}>{pending ? t('checkEmail') : t('title')}</h2>

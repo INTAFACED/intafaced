@@ -16,6 +16,7 @@ import { Devices } from './Devices';
 import { CloseAccount } from './CloseAccount';
 import { FreezeAccount } from './FreezeAccount';
 import { SecurityLock } from './SecurityLock';
+import { TrustedDevices } from './TrustedDevices';
 import { securityCopy as copy } from './security-copy';
 import { refusalCopy } from '../../data/refusals';
 import {
@@ -811,6 +812,7 @@ export function Security() {
             </p>
           </section>
           <Devices onChanged={() => setSeatVersion((value) => value + 1)} />
+          <TrustedDevices onChanged={() => setSeatVersion((value) => value + 1)} />
           <PasskeyNames revision={passkeyRevision} />
           <AntiPhishing />
           <Authenticator onChanged={methodsChanged} />

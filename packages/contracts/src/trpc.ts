@@ -129,6 +129,28 @@ export function accountStateOf(cause: unknown): 'frozen' | 'closed' | undefined 
   return state === 'frozen' || state === 'closed' ? state : undefined;
 }
 
+/**
+ * The waiting sign-in of an `auth.device_authorisation_required` refusal (I-signin-sessions-07): its flow id, the secret
+ * only the browser that signed in holds, when it expires, and whether a code was mailed. It goes only to the requester
+ * who just passed every factor, so it names nothing they did not already prove.
+ */
+export function deviceAuthorisationOf(cause: unknown): { flowId: string; secret: string; expiresAt: string; mailed: boolean } | undefined {
+  if (!cause || typeof cause !== 'object' || !('code' in cause) || cause.code !== 'auth.device_authorisation_required') return undefined;
+  const details = 'details' in cause ? cause.details : undefined;
+  if (!details || typeof details !== 'object' || !('deviceAuthorisation' in details)) return undefined;
+  const d = details.deviceAuthorisation as Record<string, unknown> | null;
+  if (
+    !d ||
+    typeof d.flowId !== 'string' ||
+    typeof d.secret !== 'string' ||
+    typeof d.expiresAt !== 'string' ||
+    typeof d.mailed !== 'boolean'
+  ) {
+    return undefined;
+  }
+  return { flowId: d.flowId, secret: d.secret, expiresAt: d.expiresAt, mailed: d.mailed };
+}
+
 const BLOCKER_CODE = /^[a-z][a-z0-9_.]*$/;
 
 const ALGO_MONEY_CODES = new Set(['trade.algo_insufficient_balance', 'trade.algo_balance_unreadable']);
@@ -332,6 +354,7 @@ const t = initTRPC.context<Context>().create({
     const preview = previewRefusalOf(cause);
     const spend = spendFiguresOf(cause);
     const accountState = accountStateOf(cause);
+    const deviceAuthorisation = deviceAuthorisationOf(cause);
     const p2pLimit = p2pLimitOf(cause);
     return {
       ...shape,
@@ -356,6 +379,8 @@ const t = initTRPC.context<Context>().create({
         ...(retryAfterSecondsOf(cause) !== undefined ? { retryAfterSeconds: retryAfterSecondsOf(cause) } : {}),
         // Only on sign-in's `auth.account_frozen`: `frozen` or `closed`.
         ...(accountState ? { accountState } : {}),
+        // Only on `auth.device_authorisation_required`: the waiting new-device sign-in.
+        ...(deviceAuthorisation ? { deviceAuthorisation } : {}),
         ...(blockers ? { blockers } : {}),
         ...(algo ? { algo } : {}),
         // Only on `pay.guard_withdrawal_limit_exceeded`.
