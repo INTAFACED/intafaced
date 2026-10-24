@@ -84,6 +84,7 @@ test(`${J} #1 opens the payoff quote and a 30-day projection: each row's interes
   await expect(quote).toHaveAttribute('data-total', served.data.total);
   await expect(quote).toContainText('To clear the loan now');
   await expect(quote).toContainText('Valid until');
+  await expect(quote).toHaveAttribute('data-expired', 'false');
   expect(Date.parse(served.data.validUntil)).toBeGreaterThan(Date.now());
 
   // Thirty days ahead, labelled a projection and never an obligation; each row is the bank's own figure.

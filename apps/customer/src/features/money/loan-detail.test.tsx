@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { loanRefusal } from './LoanDetail';
+import { loanRefusal, loanStatementMonth } from './LoanDetail';
 import { bankReads, loanStatementSchema } from './contracts';
 import { loanDetailCopy } from './loan-detail-copy';
 
@@ -50,7 +50,18 @@ describe('loan details', () => {
     expect(said('bank.loan_liquidating')).toContain('being sold');
     expect(said('bank.ledger_outcome_unknown')).toContain('still being confirmed');
     expect(said('bank.loan_not_found')).toContain('not one of yours');
-    expect(loanRefusal(t, { code: 'FORBIDDEN', message: 'raw', reason: 'forbidden' })).toBe(t('notYours'));
+    expect(said('bank.loan_fee_unsupported')).toContain('cannot be collected');
+    expect(said('bank.loan_terms_missing')).toContain('interest rate cannot be read');
+    expect(said('bank.statement_too_large')).toContain('too many lines');
+    // A refusal the page does not name keeps the service's own words: a missing scope is not "not yours".
+    expect(loanRefusal(t, { code: 'FORBIDDEN', message: 'Missing scope bank:read', reason: 'forbidden' })).toBe('Missing scope bank:read');
     expect(loanRefusal(t, { message: 'The bank could not be reached.', reason: 'unreachable' })).toBe('The bank could not be reached.');
+  });
+
+  it("asks for a statement month up to the next month's first instant, so the last day's interest is in it", () => {
+    expect(loanStatementMonth('2026-10')).toEqual({ from: '2026-10-01T00:00:00.000Z', to: '2026-11-01T00:00:00.000Z' });
+    expect(loanStatementMonth('2026-12')).toEqual({ from: '2026-12-01T00:00:00.000Z', to: '2027-01-01T00:00:00.000Z' });
+    expect(loanStatementMonth('2026-13')).toBeNull();
+    expect(loanStatementMonth('')).toBeNull();
   });
 });

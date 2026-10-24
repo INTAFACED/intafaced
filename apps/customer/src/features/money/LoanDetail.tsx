@@ -1,9 +1,9 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Download } from 'lucide-react';
 import { Button, Loading } from '../../shared/ui';
 import { useSession } from '../session/session';
 import type { ApiResult } from '../../shared/api';
-import { decodeBase64, monthRange, shortFingerprint } from '../../screens/money/statement-model';
+import { decodeBase64, saveFile, shortFingerprint } from '../../screens/money/statement-model';
 import { amount, bps, date, useBankRead } from './components';
 import { loanStatementSchema, type LoanProjection, type PayoffQuote } from './contracts';
 import { DepthPanel } from './DepthParts';
@@ -36,15 +36,23 @@ export function loanRefusal(t: Copy, failure: Pick<Failed, 'code' | 'message' | 
           ? t('closed')
           : code === 'bank.loan_liquidating'
             ? t('liquidating')
-            : code === 'bank.ledger_outcome_unknown'
-              ? t('outcomeUnknown')
-              : code === 'bank.accrual_backlog'
-                ? t('backlog')
-                : code === 'bank.loan_not_drawable'
-                  ? t('notDrawn')
-                  : code === 'bank.loan_not_found' || code === 'FORBIDDEN' || code === 'NOT_FOUND' || failure.reason === 'forbidden'
-                    ? t('notYours')
-                    : failure.message;
+            : code === 'bank.loan_fee_unsupported'
+              ? t('feeUnsupported')
+              : code === 'bank.loan_terms_missing'
+                ? t('termsMissing')
+                : code === 'bank.statement_too_large'
+                  ? t('stTooLarge')
+                  : code === 'bank.statement_range'
+                    ? t('stRange')
+                    : code === 'bank.ledger_outcome_unknown'
+                      ? t('outcomeUnknown')
+                      : code === 'bank.accrual_backlog'
+                        ? t('backlog')
+                        : code === 'bank.loan_not_drawable'
+                          ? t('notDrawn')
+                          : code === 'bank.loan_not_found'
+                            ? t('notYours')
+                            : failure.message;
   return code.includes('.') ? `${words} ${t('reference', { code })}` : words;
 }
 
@@ -63,25 +71,41 @@ function Refused({ failure, retry, label }: { failure: Failed; retry: () => void
 function QuotePanel({ loanId }: { loanId: string }) {
   const { t } = loanDetailCopy.useCopy();
   const quote = useBankRead('loans.payoffQuote', { loanId });
-  const [now, setNow] = useState(() => Date.now());
-  const reload = () => {
-    setNow(Date.now());
-    quote.reload();
-  };
+  const reload = quote.reload;
   return (
     <DepthPanel title={t('quoteTitle')} lead={t('quoteLead')}>
       {quote.resource.status === 'loading' && <Loading />}
       {quote.resource.status === 'failed' && <Refused failure={quote.resource.failure} retry={reload} label={t('quoteRefresh')} />}
-      {quote.resource.status === 'ready' && <QuoteFigures quote={quote.resource.data} now={now} reload={reload} />}
+      {quote.resource.status === 'ready' && <QuoteFigures quote={quote.resource.data} reload={reload} />}
     </DepthPanel>
   );
 }
 
-function QuoteFigures({ quote, now, reload }: { quote: PayoffQuote; now: number; reload: () => void }) {
+/** True once `until` has passed, turning by itself at that moment so a page left open stops offering an old price. */
+function usePassed(until: string): boolean {
+  const at = Date.parse(until);
+  const [passed, setPassed] = useState(() => !(at > Date.now()));
+  useEffect(() => {
+    if (!(at > Date.now())) return setPassed(true);
+    setPassed(false);
+    // A browser timer holds at most about 24.8 days; a quote holds minutes, never past the day's end.
+    const timer = window.setTimeout(() => setPassed(true), Math.min(at - Date.now(), 2_147_000_000));
+    return () => window.clearTimeout(timer);
+  }, [at]);
+  return passed;
+}
+
+function QuoteFigures({ quote, reload }: { quote: PayoffQuote; reload: () => void }) {
   const { t } = loanDetailCopy.useCopy();
-  const expired = Date.parse(quote.validUntil) <= now;
+  const expired = usePassed(quote.validUntil);
   return (
-    <div className="bd-stack" data-testid="loan-quote" data-total={quote.total} data-valid-until={quote.validUntil}>
+    <div
+      className="bd-stack"
+      data-testid="loan-quote"
+      data-total={quote.total}
+      data-valid-until={quote.validUntil}
+      data-expired={String(expired)}
+    >
       <dl className="detail-list">
         <div>
           <dt>{t('quotePrincipal')}</dt>
@@ -238,13 +262,26 @@ type StatementSaid =
 
 const thisMonth = (now: Date) => `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
 
+/**
+ * One UTC month as the bank's loan statement reads a period: from its first instant to the next month's first instant,
+ * the end not included. The bank charges interest by day and leaves out the day `to` falls on, so an end of 23:59:59.999
+ * on the last day would drop that day's interest from the month.
+ */
+export function loanStatementMonth(month: string): { from: string; to: string } | null {
+  const match = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(month);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const index = Number(match[2]) - 1;
+  return { from: new Date(Date.UTC(year, index, 1)).toISOString(), to: new Date(Date.UTC(year, index + 1, 1)).toISOString() };
+}
+
 function StatementPanel({ loanId, assetId }: { loanId: string; assetId: string }) {
   const { t } = loanDetailCopy.useCopy();
   const { api } = useSession();
   const [month, setMonth] = useState(() => thisMonth(new Date()));
   const [busy, setBusy] = useState(false);
   const [said, setSaid] = useState<StatementSaid>(null);
-  const range = monthRange(month);
+  const range = loanStatementMonth(month);
 
   async function download(event: FormEvent) {
     event.preventDefault();
@@ -260,14 +297,7 @@ function StatementPanel({ loanId, assetId }: { loanId: string; assetId: string }
     }
     const bytes = decodeBase64(result.data.bodyBase64);
     if (!bytes) return setSaid({ kind: 'error', words: t('stUnreadable') });
-    const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: result.data.contentType }));
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = result.data.filename;
-    document.body.append(link);
-    link.click();
-    link.remove();
-    window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    saveFile(bytes, result.data.contentType, result.data.filename);
     setSaid({
       kind: 'done',
       name: result.data.filename,
@@ -332,7 +362,7 @@ export function LoanDetail({ loanId }: { loanId: string | null }) {
     );
   }
   if (loans.resource.status === 'loading') return <Loading />;
-  if (loans.resource.status === 'failed') return <Refused failure={loans.resource.failure} retry={loans.reload} label={t('back')} />;
+  if (loans.resource.status === 'failed') return <Refused failure={loans.resource.failure} retry={loans.reload} label={t('retry')} />;
   const loan = loans.resource.data.find((one) => one.id === loanId);
   if (!loan) {
     return (
