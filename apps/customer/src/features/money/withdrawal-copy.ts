@@ -140,7 +140,7 @@ const en = {
   aTagHint: 'Only if the place you send to asks for one.',
   aTagBad: 'Use 1 to 64 characters for the memo or tag, with no spaces at either end.',
   aSaveNote:
-    'Saving asks you to confirm it is you. A new address then waits for your approval with a link sent by email, and can be used once its cooling-off period ends after that.',
+    'Saving asks you to confirm it is you. A new address then waits for your approval, from another device where you are signed in or with a link sent by email, and can be used once its cooling-off period ends after that.',
   aSaveWhy: 'Saving a withdrawal address needs a fresh confirmation.',
   aSaved: '{label} was saved to your address book. Approve it before it can be used.',
   aNoAssetsTitle: 'No asset is open for withdrawals',
@@ -192,7 +192,7 @@ const en = {
   aCoolingAfterApproval: 'Starts once approved',
   aApproveWhy: 'Approving a new withdrawal address needs a fresh confirmation.',
   aUseApproval:
-    '{label} is waiting for your approval, so nothing can be sent to it. Ask for an approval link by email and open it; its cooling-off starts when you approve it.',
+    '{label} is waiting for your approval, so nothing can be sent to it. Approve it on another device where you are signed in, or ask for an approval link by email and open it; its cooling-off starts when you approve it.',
   aUseApprovalOpen: 'An approval link was asked for, and it works until {time}.',
   aApprovalMail: 'Email me an approval link',
   aApprovalMailAgain: 'Ask for a new link',
@@ -200,10 +200,20 @@ const en = {
     'We asked for an approval link to be sent to the email address on your account. It works until {time}, and only the newest link works.',
   aApprovalMailFailed: 'The approval link could not be asked for. Try again.',
   aApprovalMailUnproved: 'Your account has no verified email address, so no approval link can be sent. Verify it on Account first.',
-  aApprovalMailOff: 'Approval links by email are switched off in this build, so a new address cannot be approved.',
+  aApprovalMailOff:
+    'Approval links by email are switched off in this build. Approve the address on another device where you are signed in.',
   aApprovalLinkUnset:
-    'Approval links are switched off: the bank has not published how long a link works, so a new address cannot be approved.',
+    'Approval links are switched off: the bank has not published how long a link works. Approve the address on another device where you are signed in.',
   aApprovalNotPending: 'This address is not waiting for approval any more. Reload the list.',
+  aApproveHere: 'Approve on this device',
+  aApproveHereSame:
+    'This address was saved on this device, so it cannot be approved here. Approve it on another device where you are signed in, or by the emailed link.',
+  aApproveHereUnknown:
+    'This device cannot be told apart from the one that saved the address, so it cannot approve it. Use the emailed link instead.',
+  aApproveHereFailed: 'The address could not be approved. Nothing changed. Try again.',
+  aApproveHereUntrusted:
+    'This device was not confirmed as yours by an emailed code, so it cannot approve the address. Use the emailed link instead.',
+  aApproveHereUnavailable: 'The bank could not check this device. Nothing changed. Try again, or use the emailed link.',
   apEyebrow: 'WITHDRAWAL ADDRESS',
   apTitle: 'Approve a new withdrawal address',
   apIntro:
@@ -371,7 +381,7 @@ const es = {
   aTagHint: 'Solo si el lugar al que envías lo pide.',
   aTagBad: 'Usa de 1 a 64 caracteres para el memo o la etiqueta, sin espacios al principio ni al final.',
   aSaveNote:
-    'Al guardar te pediremos que confirmes que eres tú. Después, una dirección nueva espera tu aprobación con un enlace enviado por correo, y se puede usar cuando termina su periodo de espera.',
+    'Al guardar te pediremos que confirmes que eres tú. Después, una dirección nueva espera tu aprobación, desde otro dispositivo donde hayas iniciado sesión o con un enlace enviado por correo, y se puede usar cuando termina su periodo de espera.',
   aSaveWhy: 'Guardar una dirección de retiro requiere una nueva confirmación.',
   aSaved: '{label} se guardó en tu libreta de direcciones. Apruébala antes de usarla.',
   aNoAssetsTitle: 'Ningún activo está abierto a retiros',
@@ -423,7 +433,7 @@ const es = {
   aCoolingAfterApproval: 'Empieza al aprobarla',
   aApproveWhy: 'Aprobar una dirección de retiro nueva requiere una nueva confirmación.',
   aUseApproval:
-    '{label} espera tu aprobación, así que no se le puede enviar nada. Pide un enlace de aprobación por correo y ábrelo; su periodo de espera empieza cuando se aprueba.',
+    '{label} espera tu aprobación, así que no se le puede enviar nada. Apruébala en otro dispositivo donde hayas iniciado sesión, o pide un enlace de aprobación por correo y ábrelo; su periodo de espera empieza cuando se aprueba.',
   aUseApprovalOpen: 'Se pidió un enlace de aprobación, y funciona hasta el {time}.',
   aApprovalMail: 'Envíame un enlace de aprobación',
   aApprovalMailAgain: 'Pedir un enlace nuevo',
@@ -433,10 +443,19 @@ const es = {
   aApprovalMailUnproved:
     'Tu cuenta no tiene un correo verificado, así que no se puede enviar ningún enlace de aprobación. Verifícalo antes en Cuenta.',
   aApprovalMailOff:
-    'Los enlaces de aprobación por correo están desactivados en esta versión, así que no se puede aprobar una dirección nueva.',
+    'Los enlaces de aprobación por correo están desactivados en esta versión. Aprueba la dirección en otro dispositivo donde hayas iniciado sesión.',
   aApprovalLinkUnset:
-    'Los enlaces de aprobación están desactivados: el banco no ha publicado cuánto dura un enlace, así que no se puede aprobar una dirección nueva.',
+    'Los enlaces de aprobación están desactivados: el banco no ha publicado cuánto dura un enlace. Aprueba la dirección en otro dispositivo donde hayas iniciado sesión.',
   aApprovalNotPending: 'Esta dirección ya no espera aprobación. Vuelve a cargar la lista.',
+  aApproveHere: 'Aprobar en este dispositivo',
+  aApproveHereSame:
+    'Esta dirección se guardó en este dispositivo, así que no se puede aprobar aquí. Apruébala en otro dispositivo donde hayas iniciado sesión, o con el enlace del correo.',
+  aApproveHereUnknown:
+    'No se puede distinguir este dispositivo del que guardó la dirección, así que no puede aprobarla. Usa el enlace del correo.',
+  aApproveHereFailed: 'No se pudo aprobar la dirección. No cambió nada. Inténtalo de nuevo.',
+  aApproveHereUntrusted:
+    'Este dispositivo no se confirmó como tuyo con un código enviado por correo, así que no puede aprobar la dirección. Usa el enlace del correo.',
+  aApproveHereUnavailable: 'El banco no pudo comprobar este dispositivo. No cambió nada. Inténtalo de nuevo o usa el enlace del correo.',
   apEyebrow: 'DIRECCIÓN DE RETIRO',
   apTitle: 'Aprobar una dirección de retiro nueva',
   apIntro:
@@ -606,7 +625,7 @@ const fr = {
   aTagHint: 'Seulement si l’endroit où tu envoies en demande un.',
   aTagBad: 'Utilise de 1 à 64 caractères pour le mémo ou le tag, sans espace au début ni à la fin.',
   aSaveNote:
-    'L’enregistrement te demande de confirmer que c’est bien toi. Une nouvelle adresse attend ensuite ton approbation avec un lien envoyé par e-mail, et peut servir à la fin de son délai de sécurité.',
+    'L’enregistrement te demande de confirmer que c’est bien toi. Une nouvelle adresse attend ensuite ton approbation, depuis un autre appareil où tu es connecté ou avec un lien envoyé par e-mail, et peut servir à la fin de son délai de sécurité.',
   aSaveWhy: 'Enregistrer une adresse de retrait demande une nouvelle confirmation.',
   aSaved: '{label} a été enregistrée dans ton carnet d’adresses. Approuve-la avant de l’utiliser.',
   aNoAssetsTitle: 'Aucun actif n’est ouvert aux retraits',
@@ -658,7 +677,7 @@ const fr = {
   aCoolingAfterApproval: 'Commence une fois approuvée',
   aApproveWhy: 'Approuver une nouvelle adresse de retrait demande une nouvelle confirmation.',
   aUseApproval:
-    '{label} attend ton approbation, donc rien ne peut y être envoyé. Demande un lien d’approbation par e-mail et ouvre-le ; son délai de sécurité commence une fois approuvée.',
+    '{label} attend ton approbation, donc rien ne peut y être envoyé. Approuve-la sur un autre appareil où tu es connecté, ou demande un lien d’approbation par e-mail et ouvre-le ; son délai de sécurité commence une fois approuvée.',
   aUseApprovalOpen: 'Un lien d’approbation a été demandé, et il fonctionne jusqu’au {time}.',
   aApprovalMail: 'M’envoyer un lien d’approbation',
   aApprovalMailAgain: 'Demander un nouveau lien',
@@ -668,10 +687,19 @@ const fr = {
   aApprovalMailUnproved:
     'Ton compte n’a pas d’adresse e-mail vérifiée, donc aucun lien d’approbation ne peut être envoyé. Vérifie-la d’abord dans Compte.',
   aApprovalMailOff:
-    'Les liens d’approbation par e-mail sont désactivés dans cette version, donc une nouvelle adresse ne peut pas être approuvée.',
+    'Les liens d’approbation par e-mail sont désactivés dans cette version. Approuve l’adresse sur un autre appareil où tu es connecté.',
   aApprovalLinkUnset:
-    'Les liens d’approbation sont désactivés : la banque n’a pas publié leur durée, donc une nouvelle adresse ne peut pas être approuvée.',
+    'Les liens d’approbation sont désactivés : la banque n’a pas publié leur durée. Approuve l’adresse sur un autre appareil où tu es connecté.',
   aApprovalNotPending: 'Cette adresse n’attend plus d’approbation. Recharge la liste.',
+  aApproveHere: 'Approuver sur cet appareil',
+  aApproveHereSame:
+    'Cette adresse a été enregistrée sur cet appareil, donc elle ne peut pas être approuvée ici. Approuve-la sur un autre appareil où tu es connecté, ou avec le lien reçu par e-mail.',
+  aApproveHereUnknown:
+    'Cet appareil ne peut pas être distingué de celui qui a enregistré l’adresse, donc il ne peut pas l’approuver. Utilise plutôt le lien reçu par e-mail.',
+  aApproveHereFailed: 'L’adresse n’a pas pu être approuvée. Rien n’a changé. Réessaie.',
+  aApproveHereUntrusted:
+    'Cet appareil n’a pas été confirmé comme le tien par un code reçu par e-mail, donc il ne peut pas approuver l’adresse. Utilise plutôt le lien reçu par e-mail.',
+  aApproveHereUnavailable: 'La banque n’a pas pu vérifier cet appareil. Rien n’a changé. Réessaie, ou utilise le lien reçu par e-mail.',
   apEyebrow: 'ADRESSE DE RETRAIT',
   apTitle: 'Approuver une nouvelle adresse de retrait',
   apIntro:

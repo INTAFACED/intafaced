@@ -56,6 +56,7 @@ import { assertCryptoRamp, assertFiatSocketWhenNone, refuseFiatRamp, type RampPr
 import {
   BANK_ADDRESS_APPROVAL_LINK_ENV,
   approveByLink,
+  approveOnDevice,
   requestApprovalMail,
   sqlApprovalLinks,
   unconfiguredApprovalMail,
@@ -63,11 +64,13 @@ import {
   type ApprovalLinkStore,
   type ApprovalMailPort,
 } from './address-approval.js';
+import { unconfiguredTrustedDevices, type TrustedDevicePort } from './trusted-devices.js';
 import {
   BANK_ADDRESS_BOOK_CAP_ENV,
   destKindForRamp,
   UserWithdrawDestinationStore,
   type SaveDestinationInput,
+  type SavedOn,
   type UserWithdrawDestinations,
   type WithdrawDestination,
 } from '../withdraw-destination.js';
@@ -271,6 +274,8 @@ export interface RampServiceOptions {
   approvalLinks?: ApprovalLinkStore;
   approvalMail?: ApprovalMailPort;
   addressApprovalLinkMinutes?: string;
+  /** Identity's trusted devices, for approval from another device (omitted, every such approval refuses unavailable). */
+  trustedDevices?: TrustedDevicePort;
 }
 
 export class RampService {
@@ -290,6 +295,7 @@ export class RampService {
   private readonly approvalLinks: ApprovalLinkStore;
   private readonly approvalMail: ApprovalMailPort;
   private readonly addressApprovalLinkMinutes: string | undefined;
+  private readonly trustedDevices: TrustedDevicePort;
 
   constructor(
     private readonly sql: Sql,
@@ -316,6 +322,7 @@ export class RampService {
     this.approvalLinks = options.approvalLinks ?? sqlApprovalLinks(sql);
     this.approvalMail = options.approvalMail ?? unconfiguredApprovalMail();
     this.addressApprovalLinkMinutes = options.addressApprovalLinkMinutes;
+    this.trustedDevices = options.trustedDevices ?? unconfiguredTrustedDevices();
   }
 
   private approvalDeps(): AddressApprovalDeps {
@@ -323,6 +330,7 @@ export class RampService {
       destinations: this.destinations,
       links: this.approvalLinks,
       mail: this.approvalMail,
+      devices: this.trustedDevices,
       securityLock: this.securityLock,
       linkMinutesRaw: () =>
         this.addressApprovalLinkMinutes !== undefined ? this.addressApprovalLinkMinutes : process.env[BANK_ADDRESS_APPROVAL_LINK_ENV],
@@ -443,6 +451,11 @@ export class RampService {
   /** Approve the new address an emailed link names, for the customer it was sent to. */
   async approveAddressByLink(input: { userId: string; token: string }): Promise<DestinationView> {
     return viewWithOwnership(this.customerDeps(), input.userId, await approveByLink(this.approvalDeps(), input));
+  }
+
+  /** Approve a new address from a signed-in device that did not save it (the router asks for the fresh confirmation). */
+  async approveAddressOnDevice(input: { userId: string; destinationId: string; approving: SavedOn }): Promise<DestinationView> {
+    return viewWithOwnership(this.customerDeps(), input.userId, await approveOnDevice(this.approvalDeps(), input));
   }
 
   /** Remove one saved destination. `idempotencyKey` replays the same removal. */

@@ -6,6 +6,8 @@ vi.mock('../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 import { ApproveAddress } from './ApproveAddress';
+import { ApproveHere } from './WithdrawalAddresses';
+import type { Destination } from './contracts';
 
 describe('the page the new-address approval email links to', () => {
   it('asks the person to press Approve, and spends nothing on opening; the token is never shown', () => {
@@ -21,5 +23,15 @@ describe('the page the new-address approval email links to', () => {
     expect(html).toContain('This link no longer works');
     expect(html).toContain('This page needs the link from the email.');
     expect(html).not.toContain('>Approve</button>');
+  });
+});
+
+describe('approving a waiting address on this device', () => {
+  it('offers Approve on this device, naming nothing about the device itself', () => {
+    const row = { destinationId: 'd1', ref: '0x1111111111111111111111111111111111111111', label: 'Cold wallet' } as Destination;
+    const html = renderToStaticMarkup(<ApproveHere row={row} />);
+    expect(html).toContain('data-testid="address-approve-here"');
+    expect(html).toContain('>Approve on this device</button>');
+    expect(html).not.toContain('role="alert"');
   });
 });

@@ -1045,6 +1045,9 @@ export const userWithdrawDestinations = bank.table(
     // A new entry waits for the customer's approval (W-withdraw-09, migration 20261024100000): when and how it was approved.
     approvedAt: tstz('approved_at'),
     approvedBy: text('approved_by'),
+    // The sign-in and trusted device that saved it, as the access token named them (migration 20261024130000).
+    savedFam: uuid('saved_fam'),
+    savedDev: uuid('saved_dev'),
   },
   (t) => [
     primaryKey({ name: 'user_withdraw_destinations_pkey', columns: [t.destinationId] }),

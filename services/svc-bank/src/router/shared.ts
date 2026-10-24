@@ -72,7 +72,7 @@ export const destinationViewOutput = z.object({
     })
     .strict(),
   approvedAt: z.string().nullable(),
-  approvedBy: z.enum(['link']).nullable(),
+  approvedBy: z.enum(['link', 'device']).nullable(),
   approvalLinkExpiresAt: z.string().nullable(),
 });
 

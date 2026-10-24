@@ -446,6 +446,14 @@ export type BankErrorCode =
   | 'bank.security_lock_unset'
   /** The address was approved already, so there is nothing to approve or mail. */
   | 'bank.address_approval_not_pending'
+  /** Approving from the device (or the sign-in, where no device is named) that saved the address: another one, or the link, must. */
+  | 'bank.address_approval_same_device'
+  /** The saving or the approving sign-in is not named on its access token, so a different device cannot be told; use the link. */
+  | 'bank.address_approval_device_unknown'
+  /** Identity says the approving device is removed, expired, trusted only by signing in, or the new-device check is off. */
+  | 'bank.address_approval_device_untrusted'
+  /** Identity could not say whether the approving device may approve (outage, no IDENTITY_URL). Nothing was approved. */
+  | 'bank.address_approval_device_unavailable'
   /** No owner-set `BANK_ADDRESS_APPROVAL_LINK_MINUTES`, so no approval link is mailed. */
   | 'bank.address_approval_link_unset'
   /** Not a link sent to this account (unknown, malformed, or spent on an address still waiting). */

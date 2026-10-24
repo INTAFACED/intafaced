@@ -262,6 +262,8 @@ export function createRampsRouter(c: BankRouterContext) {
               ...(input.tag !== undefined ? { tag: input.tag } : {}),
               label: input.label,
               ...(input.confirmLookalike !== undefined ? { confirmLookalike: input.confirmLookalike } : {}),
+              // The saving sign-in and device, so another device can approve it (W-withdraw-09); never from the request body.
+              savedOn: { fam: ctx.principal.fam ?? null, dev: ctx.principal.dev ?? null },
             }),
           ),
         ),
@@ -272,8 +274,9 @@ export function createRampsRouter(c: BankRouterContext) {
        * (`bank:write`: it only sends the customer's own mail; the answer says until when the link works, never that it
        * arrived). `confirmLink` approves the entry the link names, for the customer it was sent to, after a fresh
        * confirmation (`trade:withdraw`, the step-up scope), so approving takes the mailbox as well as the second factor.
-       * Both refuse while the security lock holds. Approval from another signed-in device waits for identity to name a
-       * session that stays the same across token refreshes.
+       * `onDevice` approves from a signed-in device that did not save the entry, also after a fresh confirmation; the
+       * sign-in and device are read from the verified access token (`fam`, `dev`), never from the request. All refuse
+       * while the security lock holds.
        */
       approval: router({
         requestMail: scopedProcedure('bank:write', { module: 'bank' })
@@ -287,6 +290,18 @@ export function createRampsRouter(c: BankRouterContext) {
           .output(destinationViewOutput)
           .mutation(async ({ ctx, input }) =>
             guard(async () => bank.ramps.approveAddressByLink({ userId: ctx.principal.userId, token: input.token })),
+          ),
+        onDevice: scopedProcedure('trade:withdraw', { module: 'bank' })
+          .input(z.object({ destinationId: z.string().guid() }).strict())
+          .output(destinationViewOutput)
+          .mutation(async ({ ctx, input }) =>
+            guard(async () =>
+              bank.ramps.approveAddressOnDevice({
+                userId: ctx.principal.userId,
+                destinationId: input.destinationId,
+                approving: { fam: ctx.principal.fam ?? null, dev: ctx.principal.dev ?? null },
+              }),
+            ),
           ),
       }),
 
