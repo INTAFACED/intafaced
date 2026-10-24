@@ -21,8 +21,9 @@ export function ConsoleSearch() {
         spellCheck={false}
         required
       />
+      {/* "Find", not "Search": the command palette's opener is the console's Search button. */}
       <button type="submit" className="adm-btn adm-btn--compact">
-        Search
+        Find
       </button>
     </form>
   );
