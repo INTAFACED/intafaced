@@ -27,6 +27,7 @@ import {
 } from './academy-lms';
 import { academyCodeOf, verifyCertificate, type VerifiedCertificate } from './academy-flows';
 import { useAcademyTracking } from './academy-tracking';
+import { ProgrammeCertificates } from './AcademyCourseProgrammes';
 import { AcademyRefusal, CertificateChip, GuardedButton, ProgressBar, StatusChip, pathLabel } from './AcademyLmsParts';
 
 const param = (name: string) => (typeof window === 'undefined' ? '' : (new URLSearchParams(window.location.search).get(name) ?? ''));
@@ -90,9 +91,7 @@ function Shelf({
         </section>
         <section className="academy-lms-stack" data-certificates="programmes" aria-labelledby="academy-programme-certificates">
           <h3 id="academy-programme-certificates">{t('programmeCertsTitle')}</h3>
-          <p className="muted">
-            <Copy k="programmesNone" />
-          </p>
+          <ProgrammeCertificates />
         </section>
       </Panel>
       {view && <CertificateSheet card={view} lessons={lessons} onCheckCode={onCheckCode} />}

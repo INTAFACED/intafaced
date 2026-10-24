@@ -296,7 +296,15 @@ export type AcademyErrorCode =
   /** AC-catalogue-03: no private link with that id. */
   | 'academy.private_link_not_found'
   /** AC-catalogue-03: an archived or deleted course takes no new private link. */
-  | 'academy.private_link_course_closed';
+  | 'academy.private_link_course_closed'
+  /** AC-programmes-01: the owner has not set how many courses a programme may hold. */
+  | 'academy.programme_limit_unset'
+  /** AC-programmes-01: more courses than the owner's limit. */
+  | 'academy.programme_too_large'
+  /** AC-programmes-01: no programme at that address. */
+  | 'academy.programme_not_found'
+  /** AC-programmes-01: a new programme at an address another programme has. */
+  | 'academy.programme_slug_taken';
 
 export class AcademyError extends Error {
   constructor(
@@ -464,6 +472,10 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.topics_list_limit_unset',
   'academy.private_link_not_found',
   'academy.private_link_course_closed',
+  'academy.programme_limit_unset',
+  'academy.programme_too_large',
+  'academy.programme_not_found',
+  'academy.programme_slug_taken',
 ] as const;
 
 /** L3 — catalog size. */

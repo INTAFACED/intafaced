@@ -171,7 +171,11 @@ test(`${J} #2 the Certificates tab lists my course and programme certificates, a
   }
   const programmes = page.locator('[data-certificates="programmes"]');
   await expect(programmes.getByRole('heading', { name: 'Programme certificates' })).toBeVisible();
-  await expect(programmes).toContainText('Academy has published no learning programmes, so there is no programme certificate to earn.');
+  // This learner started no course in a programme: the section says so (or that none is published), and shows no card.
+  await expect(programmes).toContainText(
+    /Academy has published no learning programmes, so there is no programme certificate to earn\.|You have started no course in a programme, so there is no programme certificate to show\. The Programmes tab lists them\./,
+  );
+  await expect(programmes.locator('[data-certificate]')).toHaveCount(0);
 });
 
 test(`${J} #3 the certificate sheet shows its serial number and offers only Copy link and Print, naming no partner`, async ({
