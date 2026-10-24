@@ -40,9 +40,15 @@ export function resolveDepositLink(link: DepositLink, catalogue: DepositCatalogu
   if (!link.asset || !catalogue) return { status: 'none' };
   const wanted = link.asset.toLowerCase();
   const row = catalogue.assets.find((entry) => entry.assetId.toLowerCase() === wanted);
-  if (!row) return { status: 'refused', code: 'bank.deposit_asset_unpublished', asset: link.asset, network: link.network };
-  if (!link.network) return { status: 'ok', asset: row.assetId, network: '' };
-  const network = row.networks.find((entry) => entry.id.toLowerCase() === link.network!.toLowerCase());
-  if (!network) return { status: 'refused', code: 'bank.deposit_network_unpublished', asset: row.assetId, network: link.network };
-  return { status: 'ok', asset: row.assetId, network: network.id };
+  // A pair the owner switched off is chosen like any other, so its banner says why it gives no address.
+  const off = (catalogue.halted ?? []).filter((entry) => entry.assetId.toLowerCase() === wanted);
+  const assetId = row?.assetId ?? off[0]?.assetId;
+  if (!assetId) return { status: 'refused', code: 'bank.deposit_asset_unpublished', asset: link.asset, network: link.network };
+  if (!link.network) return { status: 'ok', asset: assetId, network: '' };
+  const asked = link.network.toLowerCase();
+  const network =
+    row?.networks.find((entry) => entry.id.toLowerCase() === asked)?.id ??
+    off.find((entry) => entry.networkId.toLowerCase() === asked)?.networkId;
+  if (!network) return { status: 'refused', code: 'bank.deposit_network_unpublished', asset: assetId, network: link.network };
+  return { status: 'ok', asset: assetId, network };
 }

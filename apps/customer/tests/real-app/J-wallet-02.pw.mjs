@@ -8,8 +8,10 @@ import { signIn, signUp, verify } from './desk.mjs';
 // deposit-terms), its chain is in memory, and a TEST transfer reaches svc-pay's own chain webhook signed with the stack's
 // secret (local-test-stack.mjs chain-deposit), as the chain watcher would deliver it. Every credit is read back from the
 // ledger through the customer's own API.
-// Not here yet: #1 (custody unset, while this stack has it connected), #2 (unsupported-case lists, a switched-off network
-// and the unverified redirect), #4 (labelled extra addresses), #7 (the inbox row) and #8 (funding incident banners).
+// "part of #2" covers the switched-off network (the stack keeps TEST USDC on TEST Base off), the unverified person and an
+// unpublished asset; it counts as #2 once the unsupported-case lists are published too.
+// Not here yet: #1 (custody unset, while this stack has it connected), #2's unsupported-case lists, #4 (labelled extra
+// addresses), #7 (the inbox row) and #8 (funding incident banners).
 const J = 'J-wallet-02';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const ASSET = 'USDT';
@@ -153,4 +155,48 @@ test(`${J} #6 the chain event is delivered three times: one row, one credit, and
   const history = page.locator('section', { has: page.getByRole('heading', { name: 'Your deposits' }) });
   await expect(history.locator('tbody tr')).toHaveCount(1);
   await expect(history.locator('tbody tr')).toContainText(`100 ${ASSET}`);
+});
+
+test(`${J}, part of #2 a switched-off network shows the owner's banner and no address; an unverified person is sent to Verification; an unpublished asset says so`, async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const { account: who } = state();
+  await openDeposit(page, who);
+  await assetPicker(page).selectOption('USDC');
+  const network = page.getByRole('combobox', { name: 'Network', exact: true });
+  await network.selectOption({ label: 'TEST Base (switched off)' });
+  const banner = page.getByTestId('deposit-halted');
+  await expect(banner).toHaveAttribute('role', 'alert');
+  await expect(banner).toContainText('Deposits of USDC on TEST Base are switched off');
+  await expect(banner).toContainText('TEST: switched off on this test stack so the notice can be seen.');
+  await expect(page.getByRole('button', { name: 'Show my deposit address' })).toHaveCount(0);
+  await expect(page.getByTestId('deposit-address')).toHaveCount(0);
+  // Asked directly, the bank issues nothing for it either.
+  const client = await api(who);
+  const asked = await client.post('/api/bank/trpc/deposits.address', { assetId: 'USDC', networkId: 'base' });
+  expect(asked.status).toBe(412);
+  expect(asked.body?.error?.data?.cause?.code ?? asked.body?.error?.data?.intafacedCode).toBe('bank.deposit_network_halted');
+  // The other network of the same coin is untouched.
+  await network.selectOption({ label: 'TEST Ethereum' });
+  await expect(page.getByTestId('deposit-halted')).toHaveCount(0);
+  await expect(page.getByRole('checkbox', { name: 'I will send only USDC on TEST Ethereum.' })).toBeVisible();
+
+  // An asset custody does not publish, asked for by link: nothing is chosen and the page says why.
+  await page.goto('/uc/recharge?asset=BTC');
+  await expect(page.locator('[data-code="bank.deposit_asset_unpublished"]')).toContainText(
+    'BTC is not an asset custody publishes for deposits, so nothing was chosen.',
+  );
+
+  // A person who has not finished verification: the room is whole, and its address panel sends them to Verification.
+  await page.context().clearCookies();
+  await signUp(page, 'w2u');
+  await page.goto('/uc/recharge');
+  await page.mouse.move(0, 600);
+  const verify = page.getByTestId('deposit-verify');
+  await expect(verify).toContainText('Verify your identity first');
+  await expect(page.getByText('Crypto deposits open once your identity is verified.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Show my deposit address' })).toHaveCount(0);
+  await verify.getByRole('link', { name: 'Verify now' }).click();
+  await expect(page).toHaveURL(/\/verification$/);
 });

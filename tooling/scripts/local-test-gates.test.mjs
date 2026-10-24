@@ -25,6 +25,7 @@ import {
   TEST_ASSET_ROWS,
   TEST_DEPOSIT_NETWORKS,
   TEST_DEPOSIT_TERMS,
+  TEST_HALTED_DEPOSIT,
   networkRowMatches,
   payProposal,
   assetEditProposal,
@@ -277,7 +278,13 @@ for (const t of TEST_DEPOSIT_TERMS) {
   assert.ok(network?.assetCodes.includes(t.assetId), `${t.assetId} on ${t.networkId} is not on a TEST network`);
   assert.equal(t.label, network.displayName);
   assert.equal(typeof t.minimumDeposit, 'string');
+  // Exactly one TEST pair stays switched off, with a TEST note; every other pair is on with none.
+  const off = t.assetId === TEST_HALTED_DEPOSIT.assetId && t.networkId === TEST_HALTED_DEPOSIT.networkId;
+  assert.equal(t.enabled, !off);
+  if (off) assert.match(t.haltNote, /^TEST: /);
+  else assert.equal(t.haltNote, null);
 }
+assert.equal(TEST_DEPOSIT_TERMS.filter((t) => !t.enabled).length, 1);
 assert.deepEqual(payProposal('pay.registry_change', 'sha256:abc'), {
   actionType: 'pay.registry_change',
   targetService: 'svc-pay',

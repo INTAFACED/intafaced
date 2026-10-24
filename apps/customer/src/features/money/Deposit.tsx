@@ -47,7 +47,16 @@ export function Deposit() {
   const heldIds = held.resource.status === 'ready' ? held.resource.data.assets.map((asset) => asset.assetId) : [];
   const listed = markets.status === 'ready' ? markets.data.map((row) => row.base) : [];
   // Only what custody publishes can be paid in. While the list is unavailable the person still sees the coins they know.
-  const published = catalogue.resource.status === 'ready' ? catalogue.resource.data.assets.map((row) => row.assetId) : null;
+  // A coin whose every network is switched off stays listed, so the person can see why.
+  const published =
+    catalogue.resource.status === 'ready'
+      ? [
+          ...new Set([
+            ...catalogue.resource.data.assets.map((row) => row.assetId),
+            ...(catalogue.resource.data.halted ?? []).map((row) => row.assetId),
+          ]),
+        ]
+      : null;
   const assets = useMemo(() => published ?? depositAssets(heldIds, listed), [published?.join(','), heldIds.join(','), listed.join(',')]);
   const asset = picked || assets[0] || '';
   const items = activity.status === 'ready' ? activity.data.items : [];

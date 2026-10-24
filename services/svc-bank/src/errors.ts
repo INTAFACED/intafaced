@@ -345,6 +345,8 @@ export type BankErrorCode =
   | 'bank.deposit_catalogue_invalid'
   /** The asset or network is not in the published catalogue. */
   | 'bank.deposit_asset_unpublished'
+  /** The owner switched deposits of this asset on this network off: no address is issued. */
+  | 'bank.deposit_network_halted'
   /** Custody returned more incoming deposits than this door will publish. None are dropped. */
   | 'bank.deposit_pending_unbounded'
   | 'bank.ramp_invalid_amount'
