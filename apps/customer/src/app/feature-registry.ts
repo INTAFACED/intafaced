@@ -158,6 +158,16 @@ export const features: readonly Feature[] = [
     tab: 'money',
   },
   {
+    id: 'bank-calendar',
+    label: 'Money calendar',
+    paths: ['/bank/calendar'],
+    status: 'blocked',
+    reason:
+      'Loan products publish no repayment dates and no bill payment partner is connected, so those kinds show their reason instead of dates',
+    unlock: 'published loan repayment dates and a bill partner, then J-bank-06 #5 passing with every kind dated',
+    tab: 'money',
+  },
+  {
     id: 'bank-transfers',
     label: 'Bank transfers',
     paths: ['/bank/transfers'],

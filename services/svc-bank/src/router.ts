@@ -23,6 +23,7 @@ import { createCreditCardPreviewRouter } from './loans/credit-card-preview.route
 import { createBillsRouter, createGlobalRouter } from './personal-pay/router.js';
 import { createPersonalRequestRouter } from './transfers/personal-request.router.js';
 import { createDirectDebitsRouter } from './direct-debits/direct-debits.router.js';
+import { createCalendarRouter } from './calendar/calendar.router.js';
 import { amountString, type BankRouterOptions } from './router/shared.js';
 import { guard } from './router/errors.js';
 import { createRouterContext } from './router/context.js';
@@ -236,6 +237,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     personalRequest: createPersonalRequestRouter(bank, guard),
     /** BK-xfer-11: Direct Debit mandates, block and unblock, refund requests. `rail.bank` while no scheme is wired. */
     directDebits: createDirectDebitsRouter(bank, guard),
+    /** BK-acct-10: the money calendar. Read only. */
+    calendar: createCalendarRouter(bank, guard),
     limits: createLimitsRouter(limitRequests, guard),
     ops,
   });

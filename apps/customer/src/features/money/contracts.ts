@@ -422,6 +422,36 @@ export const directDebitWrites = {
   unblock: z.object({ mandate: directDebitMandateSchema }),
   requestRefund: z.object({ collection: directDebitCollectionSchema, created: z.boolean() }),
 };
+/** svc-bank `bank.calendar.window` (J-bank-06 #5, BK-acct-10): what is dated in a window, and how each source answered. */
+export const calendarSources = ['standing_orders', 'bills', 'direct_debits', 'loans', 'earn'] as const;
+export type CalendarSource = (typeof calendarSources)[number];
+export const calendarItemSchema = z.object({
+  source: z.enum(calendarSources),
+  refId: z.string(),
+  key: z.string(),
+  date: z.string(),
+  label: z.string().nullable(),
+  assetId: z.string(),
+  amount: money.nullable(),
+  status: z.enum(['upcoming', 'paused', 'done', 'failed', 'skipped', 'refused']),
+  reasonCode: z.string().nullable(),
+});
+export type CalendarItem = z.infer<typeof calendarItemSchema>;
+export const calendarViewSchema = z.object({
+  from: z.string(),
+  to: z.string(),
+  items: z.array(calendarItemSchema),
+  sources: z.array(
+    z.object({
+      source: z.enum(calendarSources),
+      state: z.enum(['ok', 'not_set', 'refused', 'unavailable']),
+      count: z.number().int(),
+      code: z.string().nullable(),
+      complete: z.boolean(),
+    }),
+  ),
+});
+export type CalendarView = z.infer<typeof calendarViewSchema>;
 /** svc-bank `bank.cashOut.*` (J-bank-03): cash out to a linked bank account, with what stands in the way. */
 export const cashOutQuoteSchema = z.object({
   assetId: z.string(),
@@ -545,6 +575,7 @@ export const bankReads = {
   'eligibility.get': eligibilitySchema,
   'linkedAccounts.list': z.object({ accounts: z.array(linkedAccountSchema) }),
   'directDebits.list': directDebitsViewSchema,
+  'calendar.window': calendarViewSchema,
   'cashOut.quote': cashOutQuoteSchema,
   // The same wire shape Pay reads (J-bank-04 #3): one definition of `bank.transfers.quote`.
   'transfers.quote': transferQuoteSchema,

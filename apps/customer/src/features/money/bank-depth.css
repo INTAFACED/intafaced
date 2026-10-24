@@ -484,3 +484,71 @@
 .bd-address[disabled] {
   opacity: 0.6;
 }
+/* The money calendar (J-bank-06 #5): a Monday-first month grid that becomes one column on a phone. */
+.bd-cal {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.bd-cal__row,
+.bd-cal__days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+}
+.bd-cal__head {
+  color: var(--color-muted);
+  font-size: var(--text-13);
+  font-weight: var(--font-weight-medium);
+  padding: 4px 6px;
+}
+.bd-cal__day {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 88px;
+  min-width: 0;
+  padding: 6px;
+  border: 1px solid var(--color-divider);
+  border-radius: 6px;
+  background: var(--color-surface);
+  font-size: var(--text-13);
+}
+.bd-cal__day--pad {
+  border-color: transparent;
+  background: transparent;
+}
+.bd-cal__date {
+  color: var(--color-muted);
+}
+.bd-cal__item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 6px;
+  border-left: 2px solid var(--color-accent);
+  overflow-wrap: anywhere;
+}
+.bd-cal__item[data-status='failed'],
+.bd-cal__item[data-status='refused'] {
+  border-left-color: var(--color-negative);
+}
+.bd-cal__item[data-status='skipped'],
+.bd-cal__item[data-status='paused'] {
+  border-left-color: var(--color-border);
+}
+@media (max-width: 720px) {
+  .bd-cal__row {
+    display: none;
+  }
+  .bd-cal__days {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .bd-cal__day {
+    min-height: 0;
+  }
+  .bd-cal__day:not(:has(.bd-cal__item)) {
+    display: none;
+  }
+}
