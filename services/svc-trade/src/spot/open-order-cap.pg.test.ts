@@ -265,6 +265,27 @@ describe('TRADE_MAX_OPEN_ORDERS (PG-hard)', () => {
     await expect(rest(alice, btc, 'br-after')).rejects.toMatchObject({ code: 'trade.limit_max_open_orders' });
   });
 
+  it('the close of a stored OTO intent is exempt the same way, and only under its own kind', async () => {
+    process.env.TRADE_MAX_OPEN_ORDERS = '1';
+    const entry = await rest(alice, btc, 'oto-entry');
+    const named = (clientOrderId: string) =>
+      trade.placeOrder(alice, {
+        marketId: btc.id,
+        side: 'sell',
+        type: 'limit',
+        qty: amt('1'),
+        price: amt('60'),
+        clientOrderId,
+      } as never);
+    await db.sql`
+      INSERT INTO trade.order_bracket_intent (order_id, user_id, kind, take_profit, stop_loss) VALUES (${entry.id}, ${ALICE}, 'oto', 60, NULL)`;
+    // A bracket name over an OTO intent, or a mixed name, is just a name: the cap applies.
+    await expect(named(`bracket:${entry.id}:exit`)).rejects.toMatchObject({ code: 'trade.limit_max_open_orders' });
+    await expect(named(`oto:${entry.id}:exit`)).rejects.toMatchObject({ code: 'trade.limit_max_open_orders' });
+    const placed = await named(`oto:${entry.id}:close`);
+    expect(placed.clientOrderId).toBe(`oto:${entry.id}:close`);
+  });
+
   it("the operator's open-order cap exempts a stored bracket exit the same way, but not a reduce-only order", async () => {
     // TEST FIXTURE: an operator cap of 1 on BTC, as an approved row (the owner cap stays unset).
     await db.sql`

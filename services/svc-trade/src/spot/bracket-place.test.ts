@@ -14,9 +14,11 @@ import {
   entryRefuse,
   installBracketPlace,
   readBracketFromBody,
+  otoCloseClientOrderId,
   stopLossRefuse,
   takeProfitRefuse,
   wantsBracket,
+  wantsOto,
 } from './bracket-place.js';
 import { READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor, PUBLISHED_TEST_FEE_SCHEDULE } from './testing.js';
 import { TradeError, type Market } from './types.js';
@@ -93,6 +95,40 @@ describe('bracket place helpers', () => {
     expect(bound.bracket).toBe(true);
     expect(bound.takeProfit).toEqual({ stopPrice: '0.1' });
     expect(bound.stopLoss).toEqual({ stopPrice: '90' });
+  });
+
+  it('reads an OTO: one limit close, never both kinds, never a stop close', () => {
+    expect(wantsOto({})).toBe(false);
+    expect(wantsOto({ oto: true })).toBe(true);
+    expect(readBracketFromBody({ oto: true, close: { price: '110' }, clientOrderId: 'oto-r1' })).toEqual({
+      kind: 'oto',
+      close: { stopPrice: '110', price: '110' },
+    });
+    expect(readBracketFromBody({ oto: true, clientOrderId: 'oto-r2' })).toEqual({ kind: 'oto', close: { stopPrice: '' } });
+    expect(
+      thrownTrade(() => readBracketFromBody({ oto: true, bracket: true, close: { price: '110' }, clientOrderId: 'oto-r3' })).code,
+    ).toBe('trade.order_type_unsupported');
+    expect(thrownTrade(() => readBracketFromBody({ oto: true, close: { stopPrice: '90' }, clientOrderId: 'oto-r4' })).code).toBe(
+      'trade.order_type_unsupported',
+    );
+    expect(thrownTrade(() => readBracketFromBody({ oto: true, close: { price: '110' } })).code).toBe('trade.client_order_id_required');
+    expect(thrownTrade(() => readBracketFromBody({ oto: true, close: { price: 110 }, clientOrderId: 'oto-r5' })).code).toBe(
+      'trade.ieee_money',
+    );
+  });
+
+  it('carries an OTO through the placement body and names its close by the entry', () => {
+    const bound = bindBracket(
+      carryPlacementBody({ clientOrderId: 'oto-str-01', side: 'buy', type: 'limit', qty: amt('1') } as PlaceOrderInput, {
+        oto: true,
+        close: { price: '110' },
+        clientOrderId: 'oto-str-01',
+      }),
+    );
+    expect(bound.oto).toBe(true);
+    expect(bound.close).toEqual({ stopPrice: '110', price: '110' });
+    expect(bound.bracket).toBeUndefined();
+    expect(otoCloseClientOrderId('9b2f')).toBe('oto:9b2f:close');
   });
 });
 

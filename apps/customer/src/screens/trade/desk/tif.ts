@@ -3,7 +3,8 @@
  *
  * The service accepts GTC, good-till-date (GTD, with an expiry the trader picks), post-only (PO), IOC and FOK on a limit order, and a market order is already immediate
  * (the engine sends it as IOC, or FOK when asked). Stop-limit and stop-market are accepted (GTC only). An OCO (GTC, either side) and a buy
- * bracket (market, IOC, FOK or a resting GTC limit entry) are accepted. Trailing stop is refused by the service
+ * bracket (market, IOC, FOK or a resting GTC limit entry) are accepted, and a buy OTO (a GTC, IOC or FOK limit entry with one
+ * close price). Trailing stop is refused by the service
  * (`trade.order_type_unsupported`), so the ticket shows it disabled (`UNSUPPORTED_TYPES`).
  */
 import type { Draft, Order } from '../../../features/trade/trade-api';
@@ -28,6 +29,9 @@ const OCO_TIFS: readonly Tif[] = ['GTC'];
  */
 const BRACKET_TIFS: readonly Tif[] = ['IOC', 'FOK', 'GTC'];
 
+/** An OTO buy rests until it fills (GTC, the default) or resolves inside the request (IOC, FOK); its close is placed when it ends. */
+const OTO_TIFS: readonly Tif[] = ['GTC', 'IOC', 'FOK'];
+
 export const tifsFor = (type: OrderType): readonly Tif[] =>
   type === 'limit'
     ? LIMIT_TIFS
@@ -37,7 +41,9 @@ export const tifsFor = (type: OrderType): readonly Tif[] =>
         ? OCO_TIFS
         : type === 'bracket'
           ? BRACKET_TIFS
-          : MARKET_TIFS;
+          : type === 'oto'
+            ? OTO_TIFS
+            : MARKET_TIFS;
 
 /** Keep the pick when the new order type still allows it, otherwise fall back to the standard one (a bracket's is IOC). */
 export const tifFor = (type: OrderType, tif: Tif): Tif => (tifsFor(type).includes(tif) ? tif : (tifsFor(type)[0] ?? 'GTC'));
@@ -67,7 +73,8 @@ export type TifHelpKey = `${TifLabelKey} help`;
 
 /** Copy key for the name of a pick. A market order's "standard" is the engine's immediate rule, not "good till cancelled". */
 export function tifLabelKey(type: OrderType, tif: Tif): TifLabelKey {
-  if (type === 'bracket' && tif === 'GTC') return 'Tif bracket resting';
+  // A resting bracket or OTO buy is cancelled for the trader before their login runs out, so it is not "till cancelled".
+  if ((type === 'bracket' || type === 'oto') && tif === 'GTC') return 'Tif bracket resting';
   if (type === 'market') return tif === 'FOK' ? 'Tif market FOK' : 'Tif market standard';
   return tif === 'GTD' ? 'Tif GTD' : tif === 'PO' ? 'Tif PO' : tif === 'IOC' ? 'Tif IOC' : tif === 'FOK' ? 'Tif FOK' : 'Tif GTC';
 }

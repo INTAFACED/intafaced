@@ -5,12 +5,14 @@ import { orderTag } from './tif';
 /**
  * Only a plain resting limit order can be changed here: GTC or post-only, still open, nothing waiting on a check.
  * An order with linked exit legs (an OCO, or the exit a bracket placed) is not plain: a price change replaces it with
- * a bare limit order and would silently drop the other leg.
+ * a bare limit order and would silently drop the other leg. Nor is an OTO buy: its close is placed when it fills, and a
+ * replacement would leave the close behind with the cancelled buy (the service refuses it).
  */
 export function canEdit(order: Order): boolean {
   const tag = orderTag(order);
   return (
     !order.exit &&
+    order.linked?.role !== 'entry' &&
     order.type === 'limit' &&
     order.status === 'open' &&
     !order.recoveryRequired &&
