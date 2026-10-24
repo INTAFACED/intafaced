@@ -59,6 +59,8 @@ const messages = {
   'Import result': '{summary}.',
   'Import refused row': 'Line {line}: {value} ({reason}).',
   'Import nothing': 'The file has no market rows to add.',
+  'Import waits for markets': 'Reading the market list. The file is checked against it as soon as it arrives.',
+  'Import markets unread': 'The market list could not be read, so nothing was imported. Try again.',
   'reason unknown symbol': 'unknown symbol',
   'reason not a symbol': 'not a symbol',
   'Cap unset symbols': 'The owner has not set the markets-per-list cap, so this list can’t take a market. Nothing was saved.',

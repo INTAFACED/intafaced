@@ -201,6 +201,7 @@ export function WatchlistPanel({ workbench }: WatchlistPanelProps) {
   const [newTitle, setNewTitle] = useState('');
   const [details, setDetails] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const [pendingImport, setPendingImport] = useState<string | null>(null);
 
   const list = store.value.find((item) => item.id === selectedId) ?? store.value[0] ?? null;
   const section = list ? (list.sections.find((item) => item.id === sectionId) ?? defaultSectionOf(list)) : null;
@@ -340,6 +341,21 @@ export function WatchlistPanel({ workbench }: WatchlistPanelProps) {
       return;
     }
     const text = await file.text();
+    // Rows are checked against the listing, so a file picked before the listing arrives waits for it rather than refusing
+    // every row as unknown.
+    if (markets.status === 'loading') {
+      setPendingImport(text);
+      setNotice({ tone: 'warn', text: t('Import waits for markets') });
+      return;
+    }
+    await runImport(text);
+  };
+
+  const runImport = async (text: string) => {
+    if (markets.status !== 'ready') {
+      setNotice({ tone: 'warn', text: t('Import markets unread') });
+      return;
+    }
     const result = readImportCsv(text, listing, onList);
     if (result.tooMany) {
       setNotice({ tone: 'warn', text: t('Import too many rows') });
@@ -369,6 +385,16 @@ export function WatchlistPanel({ workbench }: WatchlistPanelProps) {
       setNotice({ tone: 'ok', text: [t('Import result', { summary: importSummary(result) }), ...refusedLines].join(' ') });
     }
   };
+
+  // A file that waited for the listing is read once the listing settles: checked against it when it arrives, refused when it
+  // cannot be read.
+  useEffect(() => {
+    if (pendingImport === null || markets.status === 'loading') return;
+    setPendingImport(null);
+    void runImport(pendingImport);
+    // runImport reads the render it is called from; only the listing settling or a new file starts it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingImport, markets.status]);
 
   // The separator also takes the arrow keys: 8 pixels a press, kept on this device.
   const nudgeResize = (event: ReactKeyboardEvent<HTMLSpanElement>, column: WatchlistColumn) => {
