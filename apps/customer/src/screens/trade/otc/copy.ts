@@ -26,8 +26,8 @@ const messages = {
   'Routing on': 'Quotes can come from a named maker.',
   'Routing off': 'No outside maker is named, so the platform is your counterparty.',
   'Mid feed': 'Mid feed',
-  Wired: 'Wired',
-  'Not wired': 'Not wired',
+  Wired: 'On',
+  'Not wired': 'Off',
   'Mid feed on': 'The desk prices off a live mid price.',
   'Mid feed off': 'The mid price feed is switched off, so the desk has no mid price to quote from.',
 
@@ -84,7 +84,7 @@ const messages = {
   Settle: 'Settle',
   Expire: 'Expire',
   'Check status': 'Check status',
-  'Buttons note': 'Expire only works on an open quote and posts nothing to the ledger. Settle is available once the quote is accepted.',
+  'Buttons note': 'Expire works only on an open quote and moves no money. Settle is available once the quote is accepted.',
   'Phase open': 'This price is firm until the time runs out. Accept to lock it in; settle afterwards to complete.',
   'Phase open-late':
     'This quote’s time is up on this device’s clock. The desk may not have recorded that, so re-read it before doing anything.',
@@ -114,7 +114,7 @@ const messages = {
   'Confirm settle body': 'This completes the trade at the accepted price.',
   'Confirm settle button': 'Settle now',
   'Confirm expire title': 'Expire this quote?',
-  'Confirm expire body': 'The quote is closed. This posts nothing to the ledger.',
+  'Confirm expire body': 'The quote is closed. No money moves.',
   'Confirm expire button': 'Expire quote',
 
   // Status check
@@ -181,7 +181,7 @@ const messages = {
   'Rule whole': 'Whole size only',
   'Rule whole body': 'The whole size or nothing. Partial fills are not accepted.',
   'Rule expire': 'Expire',
-  'Rule expire body': 'Expiring an open quote posts nothing to the ledger.',
+  'Rule expire body': 'Expiring an open quote moves no money.',
 } as const;
 
 export const otcCopy = defineCopy('trade.otc', messages);

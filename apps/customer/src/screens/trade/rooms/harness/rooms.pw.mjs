@@ -293,7 +293,7 @@ test.describe('Execution', () => {
     await expect(dialog(page).getByText('Create this schedule?')).toBeVisible();
     await shot(page, 'exec-02-algo-confirm');
     await dialog(page).getByRole('button', { name: 'Create schedule' }).click();
-    await expect(page.getByText('Done. The list shows the state the service reports.')).toBeVisible();
+    await expect(page.getByText('Done. The list shows where it stands now.')).toBeVisible();
     const list = grid(page, 'Schedules');
     await expect(list.getByText('Active')).toBeVisible();
     await expect(list.getByText('4 / 12')).toBeVisible();
@@ -317,7 +317,7 @@ test.describe('Execution', () => {
     await shot(page, 'exec-05-algo-pause-confirm');
     const paused = Date.now();
     await dialog(page).getByRole('button', { name: 'Pause schedule' }).click();
-    await expect(page.getByText('Done. The list shows the state the service reports.')).toBeVisible();
+    await expect(page.getByText('Done. The list shows where it stands now.')).toBeVisible();
     // The room re-reads the parents right after a write, so the new state shows well before the 10 s poll.
     await expect(list.getByRole('button', { name: 'Resume TEST-algo-running' })).toBeVisible({ timeout: 4000 });
     console.log(`list showed the paused state ${Date.now() - paused} ms after the pause was confirmed`);
@@ -341,7 +341,7 @@ test.describe('Execution', () => {
     const mock = await start(page, 'execution', { at: EXEC_NOW, schedulerOn: false });
     await expect(page.getByText('Scheduler off: new schedules will not slice')).toBeVisible();
     await page.getByLabel('Total size (BTC)').fill('0.12');
-    await expect(page.getByText('The slice scheduler is off.', { exact: false }).first()).toBeVisible();
+    await expect(page.getByText('Scheduled orders are paused', { exact: false }).first()).toBeVisible();
     await expect(page.getByRole('button', { name: 'Review schedule' })).toBeDisabled();
     await shot(page, 'exec-09-scheduler-off');
     expect(mock.called('algo.createTwap')).toHaveLength(0);

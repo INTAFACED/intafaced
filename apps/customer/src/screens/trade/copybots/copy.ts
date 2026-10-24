@@ -321,18 +321,18 @@ const messages = {
   'The list of countries where copy trading is offered has not been approved':
     'The list of countries where copy trading is offered has not been approved',
   'The list of orders copied for you is not available from the service. Check Order history on the spot desk.':
-    'The list of orders copied for you is not available from the service. Check Order history on the spot desk.',
+    'Orders copied for you aren’t listed here. Check Order history on the spot desk.',
   'The same as trading alone': 'The same as trading alone',
   'The same trading fee as trading alone': 'The same trading fee as trading alone',
   'The scheduler that places slices is switched off in this environment. The bot can be created and watched, but no slice is placed until it runs.':
-    'The scheduler that places slices is switched off in this environment. The bot can be created and watched, but no slice is placed until it runs.',
+    'Scheduled orders are paused. You can create and watch the bot, but it places nothing until they resume.',
   'The scheduler that places slices is switched off in this environment. You can set up and watch bots, but no slice is placed until it runs.':
-    'The scheduler that places slices is switched off in this environment. You can set up and watch bots, but no slice is placed until it runs.',
+    'Scheduled orders are paused. You can set up and watch bots, but they place nothing until they resume.',
   'The service does not link a bot to its slice orders. Open the spot desk to see them in Order history.':
-    'The service does not link a bot to its slice orders. Open the spot desk to see them in Order history.',
-  'The service does not report it': 'The service does not report it',
+    'A bot’s orders aren’t listed here. Open the spot desk to see them in Order history.',
+  'The service does not report it': 'Not shown',
   'The service has no list of your bots, so this list is the bots you set up here. Open any bot by its ID below.':
-    'The service has no list of your bots, so this list is the bots you set up here. Open any bot by its ID below.',
+    'This list shows the bots you set up on this device. Open any other bot by its ID below.',
   'The share a leader earns from the trading fee has not been approved':
     'The share a leader earns from the trading fee has not been approved',
   'The slices that are not placed are cancelled and any open slice order is cancelled. Slices already filled stay filled. This cannot be undone.':

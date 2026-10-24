@@ -40,7 +40,7 @@ export const marginCopy = defineCopy('trade.margin', {
   'Table error': 'Couldn’t load your positions',
   'Try again': 'Try again',
   'Band note':
-    'Margin ratio is maintenance margin divided by margin plus unrealised PnL. The Healthy, Watch and Danger words are our reading of it (50%, 80%, 100%), not the platform’s liquidation trigger. A position shows — until the service publishes the inputs.',
+    'Margin ratio is maintenance margin divided by margin plus unrealised PnL. The Healthy, Watch and Danger words are our reading of it (50%, 80%, 100%), not the platform’s liquidation trigger. A position shows — until its figures are available.',
   'Margin call called': 'Margin call {n} delivered, health {health}',
 
   // Rules
@@ -57,7 +57,7 @@ export const marginCopy = defineCopy('trade.margin', {
   'Collateral cash': 'Cash only',
   'Collateral off': 'Yield-bearing, staked and lending balances are refused as margin.',
   'Switch mode': 'Switch margin mode',
-  'Switch mode reason': 'Margin mode is chosen when a position opens. The service does not switch it later, so this control stays off.',
+  'Switch mode reason': 'Margin mode is chosen when a position opens and can’t be changed afterwards.',
   'Rule offered': 'Offered',
   'Rule not offered': 'Not offered',
 
