@@ -29,6 +29,7 @@ export * from './ops-analytics-cube.js';
 export * from './ops-analytics-consume.js';
 export * from './ops-analytics-warehouse.js';
 export * from './ops-alert-rules.js';
+export * from './ops-alert-notify.js';
 export * from './ops-compliance-cases.js';
 export * from './ledger-fee-revenue.js';
 export * from './ops-venue-economics.js';
