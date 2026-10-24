@@ -34,6 +34,8 @@ function primarySpace(): SpaceRecord {
     name: 'Main',
     goalTarget: null,
     lockedUntil: null,
+    unlockRequestedAt: null,
+    unlocksAt: null,
     archivedAt: null,
   };
 }

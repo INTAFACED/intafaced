@@ -7,6 +7,7 @@ import { stamp } from '../../screens/money/time';
 import { Text } from './copy';
 import { usePreferences } from '../../shared/preferences';
 import { GoalProgress } from './GoalAndMovement';
+import { EarlyUnlock } from './SpaceLock';
 import { currentSpace, type SpaceContext } from './space-context';
 import { spaceCopy } from './space-copy';
 
@@ -111,6 +112,7 @@ export function SelectedSpace({
                 </dd>
               )}
             </div>
+            <EarlyUnlock space={space} />
           </dl>
           <div className="money-selected-actions">
             {actions(space)}

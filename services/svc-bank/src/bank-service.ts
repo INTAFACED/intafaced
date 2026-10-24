@@ -186,6 +186,8 @@ export interface BankServiceOptions {
   accountCurrencies?: string | undefined;
   /** Owner-published number of live named spaces per account (`BANK_SPACE_LIMIT`). No default: blank refuses a create. */
   spaceLimit?: string | undefined;
+  /** Owner-set hours an early pot unlock waits (`BANK_SPACE_UNLOCK_WAIT_HOURS`). No default: blank refuses the ask. */
+  spaceUnlockWaitHours?: string | undefined;
   /**
    * Auto-invest wiring: optional convert port for DCA.
    *
@@ -248,7 +250,10 @@ export interface BankServiceOptions {
 }
 
 export function createBankServices(sql: Sql, ledger: LedgerClient, history: LedgerHistory, options: BankServiceOptions = {}): BankServices {
-  const spaces = new SpaceService(sql, ledger, options.recipients, { spaceLimit: () => options.spaceLimit });
+  const spaces = new SpaceService(sql, ledger, options.recipients, {
+    spaceLimit: () => options.spaceLimit,
+    unlockWaitHours: () => options.spaceUnlockWaitHours,
+  });
   const transfers = new TransferService(sql, ledger, spaces, { editCutoffMinutes: options.scheduleEditCutoffMinutes });
   const personalPay = new PersonalPayService(sql, ledger, transfers, spaces, {
     handles: options.handles,

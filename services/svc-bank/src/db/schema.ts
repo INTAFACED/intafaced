@@ -111,6 +111,12 @@ export const spaces = bank.table(
      * property of the book.
      */
     lockedUntil: tstz('locked_until'),
+    /**
+     * An early unlock the owner confirmed (BK-pots-02): when they asked, and when the lock ends instead of `lockedUntil`
+     * (never later). Set together or both null (`spaces_early_unlock_ck`); a new lock date clears them.
+     */
+    unlockRequestedAt: tstz('unlock_requested_at'),
+    unlocksAt: tstz('unlocks_at'),
     archivedAt: tstz('archived_at'),
     /**
      * The customer removed this currency from their account (BK-acct-01). Primary spaces only, set only while the

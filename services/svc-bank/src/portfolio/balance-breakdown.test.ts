@@ -77,6 +77,8 @@ const named = (id: string, userId: string): SpaceRecord => ({
   name: 'Savings',
   goalTarget: null,
   lockedUntil: null,
+  unlockRequestedAt: null,
+  unlocksAt: null,
   archivedAt: null,
 });
 
