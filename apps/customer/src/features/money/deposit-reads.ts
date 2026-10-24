@@ -1,4 +1,4 @@
-// hand-declared-ok: svc-bank's `bank.deposits.assets` and `bank.deposits.address` outputs are declared inline in its router, not in a browser-safe @intafaced/contracts export; moving them there is a contracts follow-up.
+// hand-declared-ok: svc-bank's `bank.deposits.assets`, `bank.deposits.address` and `bank.deposits.addresses.*` outputs are declared inline in its router, not in a browser-safe @intafaced/contracts export; moving them there is a contracts follow-up.
 import { z } from 'zod';
 import { useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
@@ -52,6 +52,29 @@ export const depositAddressSchema = z.object({
 });
 export type DepositAddressView = z.infer<typeof depositAddressSchema>;
 
+/** One of the person's deposit addresses (W-deposit-02): the first (number 0, never expires) or an extra one. */
+export const depositAddressItemSchema = z.object({
+  assetId: z.string().min(1),
+  networkId: z.string().min(1),
+  addressIndex: z.number().int().nonnegative(),
+  address: z.string().min(1),
+  memo: z.string().nullable(),
+  qrPayload: z.string().nullable(),
+  label: z.string().min(1).nullable(),
+  createdAt: z.string(),
+  expiresAt: z.string().nullable(),
+  state: z.enum(['active', 'expired']),
+});
+export type DepositAddressItem = z.infer<typeof depositAddressItemSchema>;
+
+/** The address list, with the founders' cap and expiry window, null while they are not set. */
+export const depositAddressListSchema = z.object({
+  items: z.array(depositAddressItemSchema),
+  cap: z.number().int().positive().nullable(),
+  expiryDays: z.number().int().positive().nullable(),
+});
+export type DepositAddressList = z.infer<typeof depositAddressListSchema>;
+
 export function createDepositReads(api: ApiClient) {
   return {
     assets: (signal?: AbortSignal): Promise<ApiResult<DepositCatalogue>> =>
@@ -69,6 +92,17 @@ export function createDepositReads(api: ApiClient) {
           }
         : result;
     },
+    addresses: (assetId: string, networkId: string, signal?: AbortSignal): Promise<ApiResult<DepositAddressList>> =>
+      api.query('bank', 'deposits.addresses.list', { assetId, networkId }, depositAddressListSchema, { signal }),
+    createAddress: (assetId: string, networkId: string, label: string | null): Promise<ApiResult<DepositAddressItem>> =>
+      api.mutate('bank', 'deposits.addresses.create', { assetId, networkId, label }, depositAddressItemSchema),
+    labelAddress: (
+      assetId: string,
+      networkId: string,
+      addressIndex: number,
+      label: string | null,
+    ): Promise<ApiResult<DepositAddressItem>> =>
+      api.mutate('bank', 'deposits.addresses.label', { assetId, networkId, addressIndex, label }, depositAddressItemSchema),
   };
 }
 
@@ -84,6 +118,7 @@ export const DEPOSIT_STATUSES = [
   'credited',
   'below_minimum',
   'held_for_screening',
+  'held_for_release',
   'rejected',
   'reversed',
   'needs_review',
@@ -97,6 +132,7 @@ export const DEPOSIT_REASONS = [
   'confirmations_unset',
   'chain_reorg',
   'reversal_unfunded',
+  'address_expired',
 ] as const;
 
 export const depositPendingSchema = z.object({

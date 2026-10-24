@@ -132,6 +132,8 @@ const bank = createBankServices(sql, ledger, history, {
   // and the doors refuse `bank.deposit_custody_unset`; svc-bank derives no key.
   deposits: {
     custody: createPayCustodyDepositPort(createPayCustodyDepositClient({ payUrl: env.PAY_URL, secret: env.INTERNAL_SERVICE_SECRET })),
+    addressCap: () => env.BANK_DEPOSIT_ADDRESS_CAP,
+    addressExpiryDays: () => env.BANK_DEPOSIT_ADDRESS_EXPIRY_DAYS,
   },
   // svc-ledger's asset and network registry (W-balances-05), the one list: the customer's supported-asset list, the deposit
   // catalogue narrowed to it, and the address book's assets and networks.

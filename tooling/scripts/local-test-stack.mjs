@@ -27,6 +27,7 @@
  *   pnpm local:stack customer-dist --clear   go back to this checkout's own build
  *   node tooling/scripts/local-test-stack.mjs age-linked-accounts <email> <hours>   TEST fixture: past a cooling-off
  *   node tooling/scripts/local-test-stack.mjs expire-address-approvals <email>   TEST fixture: open approval links run out
+ *   node tooling/scripts/local-test-stack.mjs expire-deposit-addresses <email>   TEST fixture: open extra deposit addresses expire
  *
  * Rules this file keeps (AGENTS.md "Money"):
  *   - Value moves ONLY through the ledger (packages/ledger-client recipes -> svc-ledger).
@@ -1707,6 +1708,35 @@ function cmdAgeLinkedAccounts(args) {
 }
 
 /**
+ * `expire-deposit-addresses <email-or-userId>`: the TEST person's open extra deposit addresses (W-deposit-02) expire now, in
+ * custody (svc-pay, whose stored expiry decides a late deposit) and in the bank's list alike, so a journey can show, as
+ * J-wallet-02 #4 does, that a deposit to an expired address is held for release, without waiting the TEST window out. The
+ * first address never expires and is left alone. It credits nothing, releases nothing and moves no value.
+ */
+function cmdExpireDepositAddresses(args) {
+  const [who] = args;
+  if (!who) fail('usage: node tooling/scripts/local-test-stack.mjs expire-deposit-addresses <email-or-userId>', 2);
+  const { secrets, userId } = localFixturePerson(who);
+  const expire = (schema, role) =>
+    psql(
+      secrets,
+      `UPDATE ${schema}.${schema === 'pay' ? 'custody_deposit_addresses' : 'deposit_addresses'}
+          SET expires_at = now() - interval '1 minute'
+        WHERE user_id = :'uid' AND address_index > 0 AND expires_at > now() RETURNING address`,
+      { db: DB_NAME, user: role, password: secrets.pgService, vars: { uid: userId }, tuples: true },
+    )
+      .trim()
+      .split('\n')
+      // psql prints the UPDATE tag after the addresses; count the addresses alone.
+      .filter((line) => line && !/^UPDATE \d+$/.test(line));
+  const custody = expire('pay', 'svc_pay');
+  const listed = expire('bank', 'svc_bank');
+  say(
+    `  ${custody.length} extra deposit address(es) of ${who} now expired in custody, ${listed.length} in the bank list (LOCAL TEST fixture)`,
+  );
+}
+
+/**
  * `expire-address-approvals <email-or-userId>`: the TEST person's open withdrawal-address approval links (W-withdraw-09)
  * run out now, so a journey can show, as J-wallet-04 #5 does, that an expired link is refused and a new one is needed,
  * without waiting the TEST lifetime out. Both times move back by the same amount, so a link stays as long as it was
@@ -1964,6 +1994,7 @@ async function runCli() {
   else if (cmd === 'chain-deposit') await cmdChainDeposit(rest);
   else if (cmd === 'age-linked-accounts') cmdAgeLinkedAccounts(rest);
   else if (cmd === 'expire-address-approvals') cmdExpireAddressApprovals(rest);
+  else if (cmd === 'expire-deposit-addresses') cmdExpireDepositAddresses(rest);
   else if (cmd === 'customer-dist') cmdCustomerDist(rest);
   else if (cmd === 'status') {
     const ok = await healthTable({ gateMarket: true });
@@ -1972,7 +2003,7 @@ async function runCli() {
     process.exit(ok ? 0 : 1);
   } else
     fail(
-      `unknown command "${cmd}". Use: start | stop | status | fund | age-linked-accounts | expire-address-approvals | plan | restart | customer-dist`,
+      `unknown command "${cmd}". Use: start | stop | status | fund | age-linked-accounts | expire-address-approvals | expire-deposit-addresses | plan | restart | customer-dist`,
       2,
     );
 }
