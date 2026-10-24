@@ -98,7 +98,7 @@ describe('non-instant payment methods on screen (J-p2p-01 #7)', () => {
   it('tells the buyer the window only for the slow method they chose', () => {
     const slow = offer({ nonInstantMethods: [{ methodId: 'slow', windowSeconds: 7_200 }] });
     expect(render(<TakeSettlementNotice offer={slow} method="slow" />).textContent).toBe(
-      'This method is not instant. You have 2 hours to pay, and a dispute opens only after that.',
+      'This method is not instant: the money can take up to 2 hours to arrive. Your order shows its own payment deadline, and on a method that is not instant a dispute opens only after that deadline.',
     );
     act(() => root?.unmount());
     root = null;

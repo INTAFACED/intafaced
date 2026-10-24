@@ -134,7 +134,9 @@ function Fields({ pay, baseline, mode }: { pay: PersonalPayApi; baseline: OfferF
   const shown = (field: OfferFormField) => {
     const problem = problems[field];
     // "Required" is not shown while a field is still blank; everything else is shown at once.
-    return problem && problem !== 'required' ? t(PROBLEM_KEY[problem]) : undefined;
+    if (!problem || problem === 'required') return undefined;
+    // An edit keeps the consent the ad was posted with, so the way out is a new ad, not a tick.
+    return problem === 'nonInstantConsent' && mode === 'edit' ? t('problemNonInstantEdit') : t(PROBLEM_KEY[problem]);
   };
   const complete = Object.keys(problems).length === 0;
   const changed = mode === 'edit' ? offerChanges(baseline, values) : [];

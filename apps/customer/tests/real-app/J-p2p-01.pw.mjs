@@ -743,7 +743,7 @@ test('J-p2p-01 #7 a method that is not instant shows its settlement window on th
   const take = page.getByTestId('take-offer');
   await take.locator('select').selectOption(SLOW_METHOD);
   await expect(take.getByTestId('take-settlement')).toHaveText(
-    'This method is not instant. You have 2 days to pay, and a dispute opens only after that.',
+    'This method is not instant: the money can take up to 2 days to arrive. Your order shows its own payment deadline, and on a method that is not instant a dispute opens only after that deadline.',
   );
   await take.locator('select').selectOption(METHOD);
   await expect(take.getByTestId('take-settlement')).toHaveCount(0);

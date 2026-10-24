@@ -684,40 +684,16 @@ export class InstrumentService {
   }
 
   /**
-   * P-disputes-security-09: the methods among `methodIds` that are non-instant in a market where this owner holds an
-   * active destination (exact country beating the wildcard). A sell ad listing any of them needs the seller's consent.
-   */
-  async nonInstantMethodKeys(ownerId: string, fiatCurrency: string, methodIds: readonly string[]): Promise<ReadonlySet<string>> {
-    const keys = [...new Set(methodIds.map((id) => methodIdKey(id)))];
-    if (keys.length === 0) return new Set();
-    const rows = await this.sql<Array<{ method_id: string }>>`
-      SELECT DISTINCT i.method_id
-        FROM p2p.payment_instruments i
-        JOIN LATERAL (
-          SELECT s.instant FROM p2p.payment_method_schemas s
-           WHERE s.method_id = i.method_id AND s.enabled = true AND s.country IN (i.country, ${ANY_COUNTRY})
-           ORDER BY (s.country = ${ANY_COUNTRY}) ASC
-           LIMIT 1
-        ) s ON true
-       WHERE i.owner_id = ${ownerId}
-         AND i.fiat_currency = ${fiatCurrency.trim().toUpperCase()}
-         AND i.status = 'active'
-         AND i.method_id = ANY(${keys})
-         AND NOT s.instant
-    `;
-    return new Set(rows.map((r) => methodIdKey(r.method_id)));
-  }
-
-  /**
    * P-disputes-security-09: what the board says about each method before anyone takes. A method is non-instant when any
    * market's enabled row says so; its window is the longest of those (null when any of them is blank). The order itself
-   * carries the exact profile of the market it pays into.
+   * carries the exact profile of the market it pays into. The ad's consent check reads this too, so its answer never
+   * depends on where the seller is paid.
    */
-  async boardSettlements(methodIds: readonly string[]): Promise<ReadonlyMap<string, MethodSettlement>> {
+  async boardSettlements(methodIds: readonly string[], db: Sql = this.sql): Promise<ReadonlyMap<string, MethodSettlement>> {
     const keys = [...new Set(methodIds.map((id) => methodIdKey(id)))];
     const out = new Map<string, MethodSettlement>();
     if (keys.length === 0) return out;
-    const rows = await this.sql<Array<{ method_id: string; any_blank: boolean; longest: number | null }>>`
+    const rows = await db<Array<{ method_id: string; any_blank: boolean; longest: number | null }>>`
       SELECT method_id, bool_or(settlement_window_seconds IS NULL) AS any_blank, max(settlement_window_seconds) AS longest
         FROM p2p.payment_method_schemas
        WHERE enabled = true AND NOT instant AND method_id = ANY(${keys})

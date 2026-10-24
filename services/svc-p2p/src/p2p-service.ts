@@ -642,13 +642,10 @@ export interface TradeInstrumentAttacher {
   retiredMethod?(methodId: string): Promise<{ reason: DelistReason; delistedAt: Date } | null>;
 
   /**
-   * P-disputes-security-09: the listed methods that are non-instant where this seller is paid. Optional so a test stub
-   * without a catalogue still builds (every method then reads instant).
+   * P-disputes-security-09: each non-instant method's board profile (absent = instant). Optional so a test stub without
+   * a catalogue still builds (every method then reads instant).
    */
-  nonInstantMethodKeys?(ownerId: string, fiatCurrency: string, methodIds: readonly string[]): Promise<ReadonlySet<string>>;
-
-  /** P-disputes-security-09: each non-instant method's board profile (absent = instant). Optional like the above. */
-  boardSettlements?(methodIds: readonly string[]): Promise<ReadonlyMap<string, MethodSettlement>>;
+  boardSettlements?(methodIds: readonly string[], db?: Sql): Promise<ReadonlyMap<string, MethodSettlement>>;
 }
 
 export interface P2pServiceOptions {
@@ -1351,17 +1348,14 @@ export class P2pService {
 
   /**
    * P-disputes-security-09: a sell ad that lists a method whose money arrives within a settlement window needs the
-   * seller's consent at post (and on an edit that lists one), so no seller is surprised by a slow payment.
+   * seller's consent at post (and on an edit that lists one), so no seller is surprised by a slow payment. "Non-instant"
+   * is the catalogue's word (any market), never the seller's own market: the same rule refuses a take, and a refusal that
+   * depended on where the seller is paid would tell any taker that.
    */
-  private async assertNonInstantConsent(input: {
-    sellerId: string;
-    fiatCurrency: string;
-    methods: readonly unknown[];
-    consented: boolean;
-  }): Promise<void> {
-    if (input.consented || !this.instruments.nonInstantMethodKeys) return;
+  private async assertNonInstantConsent(input: { methods: readonly unknown[]; consented: boolean }): Promise<void> {
+    if (input.consented || !this.instruments.boardSettlements) return;
     const ids = input.methods.map(methodIdFromOfferEntry).filter((id): id is string => id !== null);
-    const slow = await this.instruments.nonInstantMethodKeys(input.sellerId, input.fiatCurrency, ids);
+    const slow = await this.instruments.boardSettlements(ids);
     if (slow.size === 0) return;
     throw new P2pError('The seller has not accepted non-instant payment methods on this ad', 'p2p.non_instant_not_accepted');
   }
@@ -1570,12 +1564,7 @@ export class P2pService {
       if (missing.length > 0) {
         throw new PricingError(resolveP2pCopy(P2P_COPY.offerMethodNoDestination), 'p2p.offer_method_no_destination');
       }
-      await this.assertNonInstantConsent({
-        sellerId: input.makerId,
-        fiatCurrency,
-        methods: input.methods,
-        consented: input.acceptsNonInstant === true,
-      });
+      await this.assertNonInstantConsent({ methods: input.methods, consented: input.acceptsNonInstant === true });
     }
 
     /**
@@ -1616,7 +1605,8 @@ export class P2pService {
       input.terms ?? '',
       clientOfferId ?? '',
       makerTier ?? '',
-      input.acceptsNonInstant === true ? 'non-instant' : '',
+      // Only a consenting create adds a part, so every other create keeps the hash it had before consent existed.
+      ...(input.acceptsNonInstant === true ? ['non-instant'] : []),
     ]);
 
     let replayId: string | null = null;
@@ -2112,6 +2102,17 @@ export class P2pService {
             //
             // The snapshot is taken now and never re-read, which is also what stops
             // a seller swapping the destination once the buyer has started paying.
+            // P-disputes-security-09: a sell ad without the seller's consent takes no method the catalogue calls
+            // non-instant. Decided before the seller's destination is read, from catalogue facts the board already
+            // shows, so the refusal says nothing about where the seller is paid.
+            if (offer.side === 'sell' && !offer.acceptsNonInstant && this.instruments.boardSettlements) {
+              // On the take's own connection: a second one from the pool could wait behind this transaction.
+              const slow = await this.instruments.boardSettlements([input.method], tx);
+              if (slow.size > 0) {
+                throw new P2pError('This ad does not accept payment methods that are not instant', 'p2p.non_instant_not_accepted');
+              }
+            }
+
             const attached = await this.instruments.attachToTrade(tx, {
               tradeId: input.tradeId,
               sellerId,
@@ -2121,13 +2122,13 @@ export class P2pService {
               sink,
             });
 
-            // P-disputes-security-09: a non-instant method needs the sell ad's consent (an operator may have changed the
-            // profile after the ad was posted). The order copies the profile: its payment deadline and earliest dispute
-            // come from it, whatever the operator changes later.
+            // The order copies the profile of the market it pays into: its payment deadline and earliest dispute come
+            // from it, whatever the operator changes later. The check above already refused a sell ad without consent
+            // (the destination's market is one of the catalogue's), so this one only holds if a stub disagrees.
             const settlement = attached.settlement ?? { instant: true };
             if (settlement.instant) return toTrade(inserted[0]);
             if (offer.side === 'sell' && !offer.acceptsNonInstant) {
-              throw new P2pError('The seller has not accepted non-instant payment methods on this ad', 'p2p.non_instant_not_accepted');
+              throw new P2pError('This ad does not accept payment methods that are not instant', 'p2p.non_instant_not_accepted');
             }
             const [profiled] = await tx<TradeRow[]>`
               UPDATE p2p.p2p_trades SET non_instant = true, settlement_window_seconds = ${settlement.windowSeconds}
@@ -2292,7 +2293,11 @@ export class P2pService {
           assertTransition(trade.status, 'fiat_sent');
 
           const now = await txNow(tx);
-          const deadlineAt = deadlineFor('fiat_sent', now, this.deadlines);
+          // P-disputes-security-09: on a non-instant order the release timeout (which opens a dispute) never comes
+          // before the payment window ends, so no dispute of any origin opens while the money may still be on its way.
+          const released = deadlineFor('fiat_sent', now, this.deadlines)!;
+          const settledBy = trade.settlement.instant || !trade.deadlines.paymentBy ? null : new Date(trade.deadlines.paymentBy);
+          const deadlineAt = settledBy && settledBy > released ? settledBy : released;
           const deadlines = withDeadline(trade.deadlines, 'fiat_sent', deadlineAt);
 
           const rows = await tx<TradeRow[]>`
@@ -3832,12 +3837,7 @@ export class P2pService {
         if (missingSellDestinations(input.methods, live).length > 0) {
           throw new PricingError(resolveP2pCopy(P2P_COPY.offerMethodNoDestination), 'p2p.offer_method_no_destination');
         }
-        await this.assertNonInstantConsent({
-          sellerId: preview.makerId,
-          fiatCurrency: preview.fiatCurrency,
-          methods: input.methods,
-          consented: preview.acceptsNonInstant,
-        });
+        await this.assertNonInstantConsent({ methods: input.methods, consented: preview.acceptsNonInstant });
       }
     }
 

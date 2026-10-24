@@ -185,6 +185,32 @@ describe('svc-p2p non-instant payment methods (P-disputes-security-09)', () => {
     expect(parseAmount(row!.remaining_amt)).toBe(parseAmount('500'));
   });
 
+  it('refuses the take whatever market the seller is paid in, so the refusal says nothing about it', async () => {
+    const offer = await sellOffer(['sepa']);
+    // Slow only in France; this seller is paid in Germany, where it is still instant.
+    await instruments.registerMethodSchema({
+      methodId: 'sepa',
+      country: 'FR',
+      label: 'Slow in FR',
+      fields: FIELDS,
+      settlement: { instant: false, windowSeconds: WINDOW },
+    });
+    const err = await refusal(take(offer.id, 'sepa'));
+    expect((err as P2pError).code).toBe('p2p.non_instant_not_accepted');
+    expect(err.message).not.toMatch(/seller|paid|DE|FR/);
+    expect(await sql`SELECT 1 FROM p2p.p2p_trades`).toHaveLength(0);
+  });
+
+  it('a buyer who marks paid early meets no release timeout before the window ends', async () => {
+    const offer = await sellOffer(['sepa', 'slow'], true);
+    const trade = await take(offer.id, 'slow');
+    const escrowed = await p2p.getTrade(trade.id);
+    const marked = await p2p.markFiatSent(trade.id, TAKER);
+    // The release timeout opens a dispute; on this order it comes no earlier than the end of the payment window.
+    expect(marked.deadlineAt!.getTime()).toBe(new Date(escrowed.deadlines.paymentBy!).getTime());
+    expect(marked.deadlineAt!.getTime()).toBeGreaterThan(Date.now() + 1800 * 1000);
+  });
+
   it('an instant method keeps the published payment deadline and an open dispute', async () => {
     const offer = await sellOffer(['sepa', 'slow'], true);
     const trade = await take(offer.id, 'sepa');

@@ -144,7 +144,7 @@ const en = {
   failMethodRetired:
     'This payment method has been retired and no longer takes orders. This has no end time: choose another method on this ad, or another ad. Nothing was placed.',
   failNonInstant:
-    'This payment method is not instant where the seller is paid, and this ad does not accept that. Choose another method on this ad, or another ad. Nothing was placed.',
+    'This ad does not accept payment methods that are not instant, and this one is not instant. Choose another method on this ad, or another ad. Nothing was placed.',
   failMethodRetiredRegulation:
     'This payment method has been retired because of a regulatory requirement. This has no end time: choose another method on this ad, or another ad. Nothing was placed.',
   failMethodRetiredProviderWithdrawn:
@@ -228,6 +228,7 @@ const en = {
   problemTotalTooLow: 'The total is below the maximum',
   problemTooLong: 'Too long',
   problemNonInstantConsent: 'A method you chose is not instant: accept that before you post.',
+  problemNonInstantEdit: 'This ad was posted without accepting methods that are not instant. Post a new ad to offer one.',
   formReview: 'Review offer',
   formSave: 'Save changes',
   formOffCreateTitle: 'Publishing from this form is off',
@@ -436,7 +437,7 @@ const es = {
   failMethodRetired:
     'Este método de pago se ha retirado y ya no admite pedidos. No tiene fecha de fin. Elige otro método de este anuncio u otro anuncio. No se hizo nada.',
   failNonInstant:
-    'Este método de pago no es instantáneo donde cobra el vendedor, y este anuncio no lo acepta. Elige otro método de este anuncio u otro anuncio. No se hizo nada.',
+    'Este anuncio no acepta métodos de pago que no sean instantáneos, y este no lo es. Elige otro método de este anuncio u otro anuncio. No se hizo nada.',
   failMethodRetiredRegulation:
     'Este método de pago se ha retirado por un requisito normativo. No tiene fecha de fin. Elige otro método de este anuncio u otro anuncio. No se hizo nada.',
   failMethodRetiredProviderWithdrawn:
@@ -521,6 +522,7 @@ const es = {
   problemTotalTooLow: 'El total es inferior al máximo',
   problemTooLong: 'Demasiado largo',
   problemNonInstantConsent: 'Un método que elegiste no es instantáneo: acéptalo antes de publicar.',
+  problemNonInstantEdit: 'Este anuncio se publicó sin aceptar métodos no instantáneos. Publica un anuncio nuevo para ofrecer uno.',
   formReview: 'Revisar oferta',
   formSave: 'Guardar cambios',
   formOffCreateTitle: 'Publicar desde este formulario está desactivado',
@@ -729,7 +731,7 @@ const fr = {
   failMethodRetired:
     'Ce mode de paiement a été retiré et n’accepte plus de commandes. Ce retrait n’a pas de fin. Choisissez un autre mode sur cette annonce, ou une autre annonce. Rien n’a été passé.',
   failNonInstant:
-    'Ce mode de paiement n’est pas instantané là où le vendeur est payé, et cette annonce ne l’accepte pas. Choisissez un autre mode sur cette annonce, ou une autre annonce. Rien n’a été passé.',
+    'Cette annonce n’accepte pas les modes de paiement non instantanés, et celui-ci ne l’est pas. Choisissez un autre mode sur cette annonce, ou une autre annonce. Rien n’a été passé.',
   failMethodRetiredRegulation:
     'Ce mode de paiement a été retiré en raison d’une exigence réglementaire. Ce retrait n’a pas de fin. Choisissez un autre mode sur cette annonce, ou une autre annonce. Rien n’a été passé.',
   failMethodRetiredProviderWithdrawn:
@@ -817,6 +819,8 @@ const fr = {
   problemTotalTooLow: 'Le total est inférieur au maximum',
   problemTooLong: 'Trop long',
   problemNonInstantConsent: 'Un moyen choisi n’est pas instantané : acceptez-le avant de publier.',
+  problemNonInstantEdit:
+    'Cette annonce a été publiée sans accepter les moyens non instantanés. Publiez une nouvelle annonce pour en proposer un.',
   formReview: 'Vérifier l’offre',
   formSave: 'Enregistrer les modifications',
   formOffCreateTitle: 'La publication depuis ce formulaire est désactivée',
