@@ -55,8 +55,10 @@ type CourseGradeRow = {
   item_id: string;
   title: string;
   points: string;
-  score: string | null;
+  withdrawn: boolean;
   handed_in: boolean;
+  score: string | null;
+  graded_points: string | null;
 };
 
 /** part / whole as a percentage with one decimal place, rounded half up. */
@@ -174,18 +176,21 @@ export class AssignmentGrading {
   async courseGrades(userId: string): Promise<AcademyCourseGrades[]> {
     const rows = await this.sql<CourseGradeRow[]>`
       SELECT c.id AS course_id, c.slug, c.title AS course_title, i.id AS item_id, i.title, a.points::text AS points,
-        g.score, EXISTS (SELECT 1 FROM academy.assignment_submissions s WHERE s.item_id = i.id AND s.user_id = ${userId}) AS handed_in
+        a.withdrawn_at IS NOT NULL AS withdrawn, l.id IS NOT NULL AS handed_in, g.score::text AS score, g.points::text AS graded_points
       FROM academy.course_enrolments e
       JOIN academy.courses c ON c.id = e.course_id AND c.state = 'published'
       JOIN academy.course_items i ON i.course_id = c.id AND i.kind = 'assignment'
       JOIN academy.course_sections sec ON sec.id = i.section_id
-      JOIN academy.course_assignments a ON a.item_id = i.id AND a.revision IS NOT NULL
+      JOIN academy.course_assignments a ON a.item_id = i.id
+      -- The newest hand-in staff can grade (as the queue shows it); a newer hand-in after a grade waits for its own.
       LEFT JOIN LATERAL (
-        SELECT g.score::text AS score FROM academy.assignment_submissions s
-        JOIN academy.assignment_grade_events g ON g.submission_id = s.id
+        SELECT s.id FROM academy.assignment_submissions s
         WHERE s.item_id = i.id AND s.user_id = ${userId}
-        ORDER BY s.version DESC, g.n DESC
+        ORDER BY s.version DESC
         LIMIT 1
+      ) l ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT g.score, g.points FROM academy.assignment_grade_events g WHERE g.submission_id = l.id ORDER BY g.n DESC LIMIT 1
       ) g ON TRUE
       WHERE e.user_id = ${userId} AND e.left_at IS NULL
       ORDER BY c.title, c.id, sec.position, i.position
@@ -194,17 +199,21 @@ export class AssignmentGrading {
     for (const r of rows) {
       let course = courses.get(r.course_id);
       if (!course) courses.set(r.course_id, (course = { slug: r.slug, title: r.course_title, rows: [], averages: [] }));
-      const possible = canonicalPrice(r.points)!;
+      const row = { itemId: r.item_id, title: r.title, type: 'assignment' as const };
       course.rows.push(
         r.score !== null
-          ? { state: 'graded', itemId: r.item_id, title: r.title, type: 'assignment', score: canonicalPrice(r.score)!, possible }
-          : { state: r.handed_in ? 'handed_in' : 'not_attempted', itemId: r.item_id, title: r.title, type: 'assignment', possible },
+          ? { ...row, state: 'graded', score: canonicalPrice(r.score)!, possible: canonicalPrice(r.graded_points!)! }
+          : {
+              ...row,
+              state: r.handed_in ? 'handed_in' : r.withdrawn ? 'withdrawn' : 'not_attempted',
+              possible: canonicalPrice(r.points)!,
+            },
       );
     }
     for (const course of courses.values()) {
       const graded = course.rows.filter((row) => row.state === 'graded');
       const possible = graded.reduce((sum, row) => sum + hundredths(row.possible), 0n);
-      if (graded.length > 0 && possible > 0n)
+      if (graded.length > 0)
         course.averages.push({
           type: 'assignment',
           count: graded.length,

@@ -270,6 +270,12 @@ describe('grading hand-ins (AC-assignments-02)', () => {
     const [waiting] = await grading().courseGrades(M);
     expect(waiting!.rows.map((r) => r.state)).toEqual(['handed_in', 'not_attempted']);
     expect(waiting!.averages).toEqual([]);
+    // A newer hand-in after the grade waits for its own; an assignment staff withdrew reads as withdrawn, not a zero.
+    await assignments().submit({ itemId: items[0]!.id, version: 2, text: 'L again', fileId: null, userId: L, now: later(5) });
+    await assignments().withdraw({ itemId: items[1]!.id, reason: 'TEST', operatorId: A, now: NOW });
+    const [again] = await grading().courseGrades(L);
+    expect(again!.rows.map((r) => r.state)).toEqual(['handed_in', 'withdrawn']);
+    expect(again!.averages).toEqual([]);
     expect(await grading().courseGrades(OUTSIDER)).toEqual([]);
   });
 });

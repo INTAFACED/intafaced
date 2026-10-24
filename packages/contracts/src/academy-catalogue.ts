@@ -395,8 +395,8 @@ export type AcademyGrades = z.infer<typeof academyGradesSchema>;
 
 /**
  * AC-progress-02 for authored courses: per enrolled published course, one row per assignment with a brief, in outline
- * order. `graded` carries the newest grade as decimal strings; `handed_in` has no score yet; `not_attempted` is never a
- * zero. Averages per type are sum of score over sum of possible across graded rows only; no graded row, no average.
+ * order. `graded` carries the newest hand-in's grade out of the points it was graded against; `handed_in` has no score
+ * yet; `not_attempted` is never a zero; `withdrawn` is an assignment staff closed before the learner handed in. Averages per type are sum of score over sum of possible across graded rows only; no graded row, no average.
  */
 export const ACADEMY_COURSE_GRADE_TYPES = ['assignment'] as const;
 const decimal = z.string().regex(/^\d+(?:\.\d{1,2})?$/);
@@ -414,7 +414,7 @@ export const academyCourseGradesSchema = z.object({
         possible: decimal,
       }),
       z.object({
-        state: z.enum(['handed_in', 'not_attempted']),
+        state: z.enum(['handed_in', 'not_attempted', 'withdrawn']),
         itemId: z.string().guid(),
         title: z.string().min(1),
         type: z.enum(ACADEMY_COURSE_GRADE_TYPES),

@@ -22,11 +22,8 @@ import { AcademyRefusal, GuardedButton, ProgressBar, pathLabel } from './Academy
 type Failure = Extract<ApiResult<never>, { ok: false }>;
 
 /** A decimal-string percentage with one decimal place, in the reader's number format (33,3 in French). */
-export const localPercent = (value: string, language: string) =>
-  new Intl.NumberFormat(language, { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(Number(value));
-/** The same percentage with no trailing ".0": 80 rather than 80.0. */
-const shortPercent = (value: string, language: string) =>
-  new Intl.NumberFormat(language, { maximumFractionDigits: 1 }).format(Number(value));
+export const localPercent = (value: string, language: string, fixed = true) =>
+  new Intl.NumberFormat(language, { minimumFractionDigits: fixed ? 1 : 0, maximumFractionDigits: fixed ? 1 : 2 }).format(Number(value));
 
 /**
  * The grades table of each authored course (AC-progress-02): one row per assignment in outline order. A grade reads
@@ -54,10 +51,15 @@ export function CourseGradesView({ courses }: { courses: AcademyProgressPage['co
                   <td lang="und">{row.title}</td>
                   <td>
                     {row.state === 'graded'
-                      ? t('cgScore', { score: row.score, possible: row.possible })
+                      ? t('cgScore', {
+                          score: localPercent(row.score, language, false),
+                          possible: localPercent(row.possible, language, false),
+                        })
                       : row.state === 'handed_in'
                         ? t('cgHandedIn')
-                        : t('cgNotAttempted')}
+                        : row.state === 'withdrawn'
+                          ? t('cgWithdrawn')
+                          : t('cgNotAttempted')}
                   </td>
                 </tr>
               ))}
@@ -68,7 +70,7 @@ export function CourseGradesView({ courses }: { courses: AcademyProgressPage['co
           ) : (
             course.averages.map((average) => (
               <p key={average.type} data-testid={`type-average-${average.type}`}>
-                {t('cgAverage', { percent: shortPercent(average.percent, language), count: average.count })}
+                {t('cgAverage', { percent: localPercent(average.percent, language, false), count: average.count })}
               </p>
             ))
           )}
