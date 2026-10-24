@@ -4,7 +4,7 @@ vi.mock('../../../../shared/preferences', async (original) => {
   const real = await original<typeof import('../../../../shared/preferences')>();
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
-import { LinksView, PaymentLinkForm, createLinkInputSchema, linkState } from './Links';
+import { LinksView, PaymentLinkForm, createLinkInputSchema, fullSnippet, linkState } from './Links';
 import type { BusinessPayApi } from '../../pay-api';
 import { parsePortalRoute } from '../routes';
 const pay = { access: () => ({ ok: false, reason: 'forbidden', message: 'TEST' }) } as unknown as BusinessPayApi;
@@ -133,4 +133,56 @@ it('a deactivated link says so in its history and offers no deactivate button', 
   expect(out).toContain('Deactivated');
   expect(out).toContain('Time not recorded');
   expect(out).not.toContain('Deactivate link');
+});
+
+it('takes an after-payment message or an https page only (M-adv-payments-core-19)', () => {
+  const input = { merchantId: link.id, label: 'TEST' };
+  const ok = (confirmation: unknown) => createLinkInputSchema.safeParse({ ...input, confirmation }).success;
+  expect(ok({ kind: 'message', message: 'TEST thanks' })).toBe(true);
+  expect(ok({ kind: 'message', message: '   ' })).toBe(false);
+  expect(ok({ kind: 'message', message: 'x'.repeat(501) })).toBe(false);
+  expect(ok({ kind: 'redirect', url: 'https://shop.example/thanks' })).toBe(true);
+  expect(ok({ kind: 'redirect', url: 'http://shop.example/thanks' })).toBe(false);
+  expect(ok({ kind: 'redirect', url: 'https://' })).toBe(false);
+  expect(ok({ kind: 'redirect', url: 'javascript:alert(1)' })).toBe(false);
+  // The same test as the service's URL parse: a host with a space does not pass here and fail there.
+  expect(ok({ kind: 'redirect', url: 'https://shop example.com/thanks' })).toBe(false);
+  expect(ok({ kind: 'redirect', url: 'HTTPS://shop.example/thanks' })).toBe(true);
+});
+it('completes the button code with this site’s address, and leaves a full address alone', () => {
+  const snippet = '<a href="/api/pay/checkout?token=pl_TEST" data-amount="25">TEST Tote bag</a>';
+  expect(fullSnippet(snippet, 'https://pay.example')).toBe(
+    '<a href="https://pay.example/api/pay/checkout?token=pl_TEST" data-amount="25">TEST Tote bag</a>',
+  );
+  const full = '<a href="https://pay.example/api/pay/checkout?token=pl_TEST" data-amount="25">TEST</a>';
+  expect(fullSnippet(full, 'https://other.example')).toBe(full);
+  const relative = '<a href="//pay.example/api/pay/checkout?token=pl_TEST">TEST</a>';
+  expect(fullSnippet(relative, 'https://other.example')).toBe(relative);
+});
+it('shows the button code, what follows payment, and the message of a link that was turned off', () => {
+  const shared = {
+    ...link,
+    uses: 0,
+    checkoutUrl: 'https://pay.example/api/pay/checkout?token=pl_TEST',
+    embedSnippet: '<a href="https://pay.example/api/pay/checkout?token=pl_TEST" data-amount="25">TEST</a>',
+    confirmationUrl: 'https://shop.example/thanks',
+  };
+  const out = renderToString(<LinksView {...props} linkId={link.id} resource={{ status: 'ready', data: [shared] }} />);
+  expect(out).toContain('Payment button for your website');
+  expect(out).toContain('data-amount=&quot;25&quot;');
+  expect(out).toContain('Your own web page: https://shop.example/thanks');
+  expect(out).toContain('Message for customers');
+  const off = renderToString(
+    <LinksView
+      {...props}
+      linkId={link.id}
+      resource={{ status: 'ready', data: [{ ...shared, active: false, inactiveMessage: 'TEST Sold out' }] }}
+    />,
+  );
+  expect(off).toContain('TEST Sold out');
+  expect(off).not.toContain('Payment button for your website');
+  const chosen = renderToString(
+    <LinksView {...props} linkId={link.id} resource={{ status: 'ready', data: [{ ...shared, amount: null, embedSnippet: null }] }} />,
+  );
+  expect(chosen).toContain('Only a link with a fixed amount has a payment button.');
 });

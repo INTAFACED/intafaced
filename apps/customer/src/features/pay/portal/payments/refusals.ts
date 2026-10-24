@@ -7,6 +7,8 @@ registerRefusals({
   'pay.subscription_mandate_open': () => paymentsCopy.t('sub_r_alreadyOpen'),
   'pay.idempotency_conflict': () => paymentsCopy.t('r_idempotencyConflict'),
   'pay.idempotency_required': () => paymentsCopy.t('r_idempotencyConflict'),
+  'pay.link_redirect_not_https': () => paymentsCopy.t('r_linkRedirectNotHttps'),
+  'pay.link_confirmation_unset': () => paymentsCopy.t('r_linkConfirmationUnset'),
   'pay.dispute_evidence_upload_off': () => paymentsCopy.t('ev_r_uploadOff'),
   'pay.dispute_evidence_scan_unconfigured': () => paymentsCopy.t('ev_r_uploadOff'),
   'pay.dispute_evidence_scan_failed': () => paymentsCopy.t('ev_r_scanFailed'),
