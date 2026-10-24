@@ -356,7 +356,10 @@ test(`${J} #2 turns "include transfers" off: the deposit and the withdrawal stop
     .locator('tr[data-sale]')
     .filter({ has: page.locator('th[data-kind="moved_out"]') });
   await expect(out.locator('th [data-label="not-counted"]')).toHaveText('Not counted');
-  await expect(page.locator('tr[data-asset="BTC"]')).toHaveCount(0);
+  // The deposited coins still held are listed, named as not counted, with no unrealised figure.
+  const held = page.locator('tr[data-asset="BTC"]');
+  await expect(held.locator('[data-col="unrealised"]')).toHaveText('Not counted');
+  await expect(held.locator('th [data-label="not-counted"]')).toHaveText('+ 0.002 BTC that arrived by deposit or transfer, not counted');
 
   // The choice is saved: a reload keeps it.
   await page.reload();

@@ -39,10 +39,11 @@ import { usePreferences } from '../../shared/preferences';
 
 type Copy = ReturnType<typeof moneyCopy.useCopy>;
 
-const REASON_COPY: Record<UnknownReason, 'Cost unknown' | 'No price now' | 'Cost not reconciled'> = {
+const REASON_COPY: Record<UnknownReason, 'Cost unknown' | 'No price now' | 'Cost not reconciled' | 'Not counted'> = {
   cost_unknown: 'Cost unknown',
   no_price: 'No price now',
   not_reconciled: 'Cost not reconciled',
+  not_counted: 'Not counted',
 };
 
 const METHOD_COPY: Record<LotMethod, 'Method FIFO' | 'Method LIFO' | 'Method HIFO' | 'Method AVERAGE'> = {
@@ -340,10 +341,10 @@ function AssetRows({ assets, hidden, copy }: { assets: readonly AssetPnl[]; hidd
                 <Amount value={fmtAmount(a.knownQty)} hidden={hidden} />
               </td>
               <td className="money-num" data-col="average">
-                <Amount value={usd(a.avgPriceUsd, copy)} hidden={hidden} />
+                {a.reason === 'not_counted' ? t('Not counted') : <Amount value={usd(a.avgPriceUsd, copy)} hidden={hidden} />}
               </td>
               <td className="money-num" data-col="cost">
-                <Amount value={usd(a.costUsd, copy)} hidden={hidden} />
+                {a.reason === 'not_counted' ? t('Not counted') : <Amount value={usd(a.costUsd, copy)} hidden={hidden} />}
               </td>
               <td className="money-num">
                 <Amount value={usd(a.valueUsd, copy)} hidden={hidden} />
@@ -931,7 +932,12 @@ export default function Pnl({ search = '' }: { search?: string }) {
         action={words.action}
       />
     );
-  } else if (book.status === 'empty' || !view || (book.data.assets.every((a) => a.openQty === '0') && book.data.sales.length === 0)) {
+  } else if (
+    book.status === 'empty' ||
+    !view ||
+    // Coins held only in lots left out still show, with the switch that puts them back.
+    (book.data.assets.every((a) => a.openQty === '0' && a.uncountedQty === '0') && book.data.sales.length === 0)
+  ) {
     body = (
       <StateBlock
         kind="empty"

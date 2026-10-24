@@ -311,7 +311,11 @@ export class TaxService {
     const extra = new Set<string>();
     const own = await this.ownMoves(spaces, filled.inflows, filled.outflows ?? [], extra);
     const inflows = await this.valueInflows([...own.mainInflows, ...own.spaceInflows], extra);
-    const withdrawals = await this.valueWithdrawals(outsideWithdrawals(filled.outflows ?? [], filled.withdrawalReturns ?? []), extra);
+    // Left out, a withdrawal reaches no figure, so a missing price for it is not a reason any figure is unknown.
+    const withdrawals = await this.valueWithdrawals(
+      outsideWithdrawals(filled.withdrawalHolds ?? []),
+      shared.includeTransfers ? extra : new Set<string>(),
+    );
     const book = buildLotBook({
       ...shared,
       fills: filled.fills,

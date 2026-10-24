@@ -430,4 +430,44 @@ describe('the five views (J-portfolio-05 #1)', () => {
     ]);
     expect(view.assets[0]).toMatchObject({ knownQty: '1', otherQty: '0.5', uncountedQty: '0.5', valueUsd: '250', unrealisedUsd: '50' });
   });
+  it('a coin held only in lots left out is listed as not counted, and stays out of every figure', () => {
+    const only = book({
+      assets: [{ assetId: 'ETH', openQty: '0', openCostUsd: '0', held: '2', uncountedQty: '2' }],
+      sales: [],
+      realizedUsd: null,
+    });
+    const view = pnlView(only, rows);
+    expect(view.assets).toMatchObject([
+      { asset: 'ETH', knownQty: '0', uncountedQty: '2', otherQty: '0', reason: 'not_counted', costUsd: null },
+    ]);
+    expect(view.assets[0]!.valueUsd).toBe('4000');
+    expect(view.unrealisedUsd).toBeNull();
+    expect(pnlFigures(only, rows, now).unrealised).toEqual({ kind: 'none', reason: 'no_open_lots' });
+  });
+
+  it('not reconciled is checked against every open lot, counted or not', () => {
+    const short = book({
+      assets: [{ assetId: 'BTC', openQty: '1', openCostUsd: null, held: '1.5', uncountedQty: '1' }],
+      residuals: ['tax.lot_book_unreconciled'],
+    });
+    expect(pnlView(short, rows).assets[0]).toMatchObject({ reason: 'not_reconciled' });
+  });
+
+  it('a buy whose coins all left is not the last trade: the newest sale is', () => {
+    const gone = { ...full, lots: full.lots.map((l) => (l.id === 'lot:b:BTC' ? { ...l, remaining: '0', remainingCostUsd: '0' } : l)) };
+    expect(pnlFigures(gone, rows, now).last.trade).toMatchObject({ kind: 'sale', at: '2026-10-10T10:00:00.000Z' });
+  });
+
+  it('24 hours is unknown when the book is incomplete or a coin does not reconcile, never a number from lots it cannot trust', () => {
+    expect(pnlFigures({ ...full, residuals: ['tax.lot_book_incomplete'] }, rows, now).day).toEqual({
+      kind: 'unknown',
+      reason: 'cost_unknown',
+    });
+    const short = {
+      ...full,
+      assets: [{ assetId: 'BTC', openQty: '1', openCostUsd: null, held: '0.5', uncountedQty: '0' }],
+      residuals: ['tax.lot_book_unreconciled'],
+    };
+    expect(pnlFigures(short, rows, now).day).toEqual({ kind: 'unknown', reason: 'cost_unknown' });
+  });
 });

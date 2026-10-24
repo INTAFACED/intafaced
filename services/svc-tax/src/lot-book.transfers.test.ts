@@ -1,8 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { parseAmount as amt } from '@intafaced/ledger-client';
-import { TAX_DATA_LAKE_UNAVAILABLE, TAX_INDEXER_UNAVAILABLE, TAX_LOT_BOOK_UNRECONCILED, TAX_PRICE_AT_TIME_UNAVAILABLE } from './codes.js';
+import {
+  TAX_COST_BASIS_UNAVAILABLE,
+  TAX_DATA_LAKE_UNAVAILABLE,
+  TAX_INDEXER_UNAVAILABLE,
+  TAX_LOT_BOOK_UNRECONCILED,
+  TAX_PRICE_AT_TIME_UNAVAILABLE,
+} from './codes.js';
 import { createMemoryChoiceStore } from './choices.js';
-import type { AccountLine, InflowLine, TaxLedgerReads } from './ledger-reads.js';
+import type { AccountLine, InflowLine, TaxLedgerReads, WithdrawalHold } from './ledger-reads.js';
 import type { Fill } from './lot-book.js';
 import type { PriceAtTime } from './prices.js';
 import { TaxService } from './tax-service.js';
@@ -39,6 +45,19 @@ const withdrawal: AccountLine = {
   direction: 'credit',
 };
 const orderHold: AccountLine = { ...withdrawal, txId: 'h1', reason: 'order.hold', amount: amt('0.5'), postedAt: at(8) };
+// The same withdrawal on its own hold account: in when held (a debit there), out when settled or put back (a credit).
+const line = (txId: string, day: number, amount: string, reason: string, direction: 'debit' | 'credit'): AccountLine => ({
+  txId,
+  postedAt: at(day),
+  assetId: 'BTC',
+  amount: amt(amount),
+  reason,
+  direction,
+});
+const heldOn = (txId: string, day: number, amount: string) => line(txId, day, amount, 'withdraw.held', 'debit');
+const settledOn = (txId: string, day: number, amount: string) => line(txId, day, amount, 'withdraw.settled', 'credit');
+const backOn = (txId: string, day: number, amount: string) => line(txId, day, amount, 'withdraw.reversed', 'credit');
+const settledW1: WithdrawalHold = { purpose: 'withdraw:w1', lines: [heldOn('w1', 9, '0.5'), settledOn('w1-s', 9, '0.5')] };
 
 const prices: PriceAtTime = {
   priceAt: async (assetId, when) =>
@@ -54,7 +73,7 @@ const prices: PriceAtTime = {
 
 type Row = { assetId: string; amount: string; kind?: 'available' | 'hold'; purpose?: string };
 
-function reads(opts: { held: Row[]; outflows?: AccountLine[]; returns?: AccountLine[]; inflows?: InflowLine[] }): TaxLedgerReads {
+function reads(opts: { held: Row[]; outflows?: AccountLine[]; holds?: WithdrawalHold[]; inflows?: InflowLine[] }): TaxLedgerReads {
   const inflows = opts.inflows ?? [deposit];
   return {
     balances: async () =>
@@ -76,18 +95,18 @@ function reads(opts: { held: Row[]; outflows?: AccountLine[]; returns?: AccountL
       outsideInflows: new Set(inflows.map((i) => i.assetId)),
       inflows,
       outflows: [orderHold, ...(opts.outflows ?? [withdrawal])],
-      withdrawalReturns: opts.returns ?? [],
+      withdrawalHolds: opts.holds ?? [settledW1],
     }),
   };
 }
 
-const service = (r: TaxLedgerReads, choices = createMemoryChoiceStore()) =>
+const service = (r: TaxLedgerReads, choices = createMemoryChoiceStore(), depositBasis: 'market' | 'customer' = 'market') =>
   new TaxService({
     mapRaw: '',
     reads: r,
     lake: { status: 'absent', code: TAX_DATA_LAKE_UNAVAILABLE },
     indexer: { status: 'absent', code: TAX_INDEXER_UNAVAILABLE },
-    depositBasis: 'market',
+    depositBasis,
     prices,
     choices,
     now: () => NOW,
@@ -131,8 +150,14 @@ describe('withdrawals and whether transfers count', () => {
       ['trade', true],
       ['deposit', false],
     ]);
-    // Nothing counted is open; the deposited coins are named apart.
-    expect(book.assets.find((a) => a.assetId === 'BTC')).toMatchObject({ openQty: '0', uncountedQty: '0.5', held: '0.5' });
+    // Kept apart, coins in and out net first: the withdrawal took the deposit's 0.5, so the bought half is what is open.
+    expect(book.sales[0]!.matches.map((m) => m.lotId)).toEqual(['lot:d1:BTC']);
+    expect(book.assets.find((a) => a.assetId === 'BTC')).toMatchObject({
+      openQty: '0.5',
+      openCostUsd: '50',
+      uncountedQty: '0',
+      held: '0.5',
+    });
     // A preview changes the method only, never this choice.
     expect((await tax.lotBook({ userId: USER, method: 'LIFO' })).includeTransfers).toBe(false);
     // Clearing it goes back to the default: they count.
@@ -140,15 +165,46 @@ describe('withdrawals and whether transfers count', () => {
     expect((await tax.lotBook({ userId: USER })).realizedUsd).toBe('175');
   });
 
-  it('left out, a sale that drew on a deposit lot counts only its bought part', async () => {
-    const tax = service(reads({ held: [{ assetId: 'BTC', amount: '1' }], outflows: [], inflows: [{ ...deposit, postedAt: at(0) }] }));
+  it('left out, a sale draws on bought lots first, even when a deposit is older; on, FIFO takes the deposit', async () => {
+    const r = reads({ held: [{ assetId: 'BTC', amount: '1' }], outflows: [], holds: [], inflows: [{ ...deposit, postedAt: at(0) }] });
+    const tax = service(r);
+    // On: FIFO, the day-0 deposit lot (0.5 at 300 = 150) is oldest, so the day-8 sale draws all of it: 150 - 150 = 0.
+    expect((await tax.lotBook({ userId: USER })).sales).toMatchObject([{ kind: 'sale', counted: 'all', realizedUsd: '0' }]);
     await tax.setIncludeTransfers({ userId: USER, include: false });
-    // FIFO: the day-0 deposit lot is oldest, so the day-8 sale of 0.5 draws all of it: none of the sale counts.
+    // Off: the sale is a trade against trades: half the bought lot (cost 50), received 150: +100, all counted.
     const book = await tax.lotBook({ userId: USER });
-    expect(book.sales).toMatchObject([{ kind: 'sale', counted: 'none', realizedUsd: null }]);
-    expect(book.realizedUsd).toBeNull();
-    // The bought lot is still all open and counted.
-    expect(book.assets.find((a) => a.assetId === 'BTC')).toMatchObject({ openQty: '1', openCostUsd: '100', uncountedQty: '0' });
+    expect(book.sales).toMatchObject([{ kind: 'sale', counted: 'all', realizedUsd: '100', matches: [{ lotId: 'lot:b1:BTC' }] }]);
+    expect(book.realizedUsd).toBe('100');
+    expect(book.assets.find((a) => a.assetId === 'BTC')).toMatchObject({ openQty: '0.5', openCostUsd: '50', uncountedQty: '0.5' });
+  });
+
+  it('left out, a deposit with no cost does not reach a trade under AVERAGE or HIFO; on, it does', async () => {
+    const r = reads({ held: [{ assetId: 'BTC', amount: '1' }], outflows: [], holds: [], inflows: [{ ...deposit, postedAt: at(0) }] });
+    // The deposit's cost follows the customer policy: unknown until a price is entered.
+    const tax = service(r, createMemoryChoiceStore(), 'customer');
+    for (const method of ['AVERAGE', 'HIFO'] as const) {
+      await tax.setIncludeTransfers({ userId: USER, include: null });
+      const on = await tax.lotBook({ userId: USER, method });
+      expect(on.sales[0]).toMatchObject({ realizedUsd: null });
+      expect(on.residuals).toContain(TAX_COST_BASIS_UNAVAILABLE);
+      await tax.setIncludeTransfers({ userId: USER, include: false });
+      const off = await tax.lotBook({ userId: USER, method });
+      expect(off.sales[0]).toMatchObject({ counted: 'all', costUsd: '50', realizedUsd: '100' });
+      expect(off.assets.find((a) => a.assetId === 'BTC')).toMatchObject({ openQty: '0.5', openCostUsd: '50', uncountedQty: '0.5' });
+      expect(off.residuals).not.toContain(TAX_COST_BASIS_UNAVAILABLE);
+      expect(off.realizedUsd).toBe('100');
+    }
+  });
+
+  it('left out, a sale bigger than the bought lots counts only its bought part', async () => {
+    const big: Fill = { ...sell, received: { assetId: 'USDT', amount: amt('360') }, paid: { assetId: 'BTC', amount: amt('1.2') } };
+    const r = reads({ held: [{ assetId: 'BTC', amount: '0.3' }], outflows: [], holds: [], inflows: [deposit] });
+    const tax = service({ ...r, tradeFills: async () => ({ ...(await r.tradeFills!(USER)), fills: [buy, big] }) });
+    await tax.setIncludeTransfers({ userId: USER, include: false });
+    const book = await tax.lotBook({ userId: USER });
+    // 1 BTC from the bought lot (counted: 300 received for it less 100), 0.2 from the deposit (not counted).
+    expect(book.sales).toMatchObject([{ counted: 'part', costUsd: '100', proceedsUsd: '300', realizedUsd: '200' }]);
+    expect(book.realizedUsd).toBe('200');
   });
 
   it('a withdrawal held on its way out is gone from the book, and its hold is not counted as held', async () => {
@@ -166,8 +222,8 @@ describe('withdrawals and whether transfers count', () => {
   });
 
   it('a withdrawal the rail failed and put back did not happen: no disposal, and the coins are still in their lots', async () => {
-    const back: AccountLine = { ...withdrawal, txId: 'w1-back', reason: 'withdraw.reversed', direction: 'debit', postedAt: at(10) };
-    const book = await service(reads({ held: [{ assetId: 'BTC', amount: '1' }], returns: [back] })).lotBook({ userId: USER });
+    const failed: WithdrawalHold = { purpose: 'withdraw:w1', lines: [heldOn('w1', 9, '0.5'), backOn('w1-back', 10, '0.5')] };
+    const book = await service(reads({ held: [{ assetId: 'BTC', amount: '1' }], holds: [failed] })).lotBook({ userId: USER });
     expect(book.sales.map((s) => s.kind)).toEqual(['sale']);
     expect(book.realizedUsd).toBe('100');
     expect(book.assets.find((a) => a.assetId === 'BTC')).toMatchObject({ openQty: '1', openCostUsd: '150', held: '1' });
@@ -189,6 +245,11 @@ describe('withdrawals and whether transfers count', () => {
     expect(book.sales[0]).toMatchObject({ kind: 'moved_out', proceedsUsd: null, realizedUsd: null });
     expect(book.realizedUsd).toBeNull();
     expect(book.residuals).toContain(TAX_PRICE_AT_TIME_UNAVAILABLE);
+    // Left out, the withdrawal reaches no figure, so its missing price is not named as a reason.
+    await tax.setIncludeTransfers({ userId: USER, include: false });
+    const off = await tax.lotBook({ userId: USER });
+    expect(off.realizedUsd).toBe('100');
+    expect(off.residuals).not.toContain(TAX_PRICE_AT_TIME_UNAVAILABLE);
   });
 
   it("each sale's fee is on its own line and already inside the result; a buy's fee is valued at the fill's price", async () => {
@@ -216,7 +277,7 @@ describe('withdrawals and whether transfers count', () => {
           outsideInflows: new Set(),
           inflows: [],
           outflows: [],
-          withdrawalReturns: [],
+          withdrawalHolds: [],
         }),
       },
       lake: { status: 'absent', code: TAX_DATA_LAKE_UNAVAILABLE },
@@ -231,31 +292,32 @@ describe('withdrawals and whether transfers count', () => {
 });
 
 describe('outsideWithdrawals', () => {
-  const held = (txId: string, day: number, amount: string): AccountLine => ({
-    ...withdrawal,
-    txId,
-    postedAt: at(day),
-    amount: amt(amount),
-  });
-  const back = (txId: string, day: number, amount: string): AccountLine => ({
-    ...withdrawal,
-    txId,
-    postedAt: at(day),
-    amount: amt(amount),
-    reason: 'withdraw.reversed',
-    direction: 'debit',
+  const hold = (id: string, ...lines: AccountLine[]): WithdrawalHold => ({ purpose: `withdraw:${id}`, lines });
+
+  it('each withdrawal is what its own hold took in less what went back, at the moment it was held', () => {
+    const kept = outsideWithdrawals([
+      hold('a', heldOn('a', 2, '1'), settledOn('a-s', 3, '1')),
+      hold('b', heldOn('b', 4, '2'), backOn('b-r', 5, '2')),
+    ]);
+    expect(kept.map((l) => [l.txId, l.amount])).toEqual([['a', amt('1')]]);
   });
 
-  it('keeps only withdrawals, and a return cancels the latest earlier one of the same coin and amount', () => {
-    const kept = outsideWithdrawals([orderHold, held('w1', 2, '1'), held('w2', 3, '1'), held('w3', 4, '2')], [back('r2', 5, '1')]);
-    expect(kept.map((l) => l.txId)).toEqual(['w1', 'w3']);
+  it('two of the same coin and amount in flight at once: the one that failed is the one cancelled', () => {
+    // A is held first and fails later; B is held after A and settles. Pairing by amount and time would cancel B.
+    const kept = outsideWithdrawals([
+      hold('A', heldOn('A', 2, '1'), backOn('A-r', 6, '1')),
+      hold('B', heldOn('B', 3, '1'), settledOn('B-s', 4, '1')),
+    ]);
+    expect(kept.map((l) => [l.txId, l.postedAt])).toEqual([['B', at(3)]]);
   });
 
-  it('a return before any matching withdrawal, or of another amount, cancels nothing', () => {
-    expect(outsideWithdrawals([held('w1', 5, '1')], [back('r0', 4, '1'), back('r1', 6, '0.5')]).map((l) => l.txId)).toEqual(['w1']);
+  it('a partial capture: only what the rail took left; the rest came back', () => {
+    const kept = outsideWithdrawals([hold('c', heldOn('c', 2, '1'), settledOn('c-s', 3, '0.6'), backOn('c-r', 3, '0.4'))]);
+    expect(kept.map((l) => [l.txId, l.amount])).toEqual([['c', amt('0.6')]]);
   });
 
-  it('two returns cancel two withdrawals, never the same one twice', () => {
-    expect(outsideWithdrawals([held('w1', 1, '1'), held('w2', 2, '1')], [back('r1', 3, '1'), back('r2', 4, '1')])).toEqual([]);
+  it('a hold that is not a withdrawal, or lines of another reason, are not withdrawals', () => {
+    expect(outsideWithdrawals([{ purpose: 'order:x', lines: [heldOn('x', 2, '1')] }])).toEqual([]);
+    expect(outsideWithdrawals([hold('d', line('d', 2, '1', 'order.hold', 'debit'))])).toEqual([]);
   });
 });

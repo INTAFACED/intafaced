@@ -1,4 +1,5 @@
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
+import { LOT_TRANSFER_SOURCES } from '@intafaced/contracts/tax-lot-book';
 import { TAX_COST_BASIS_UNAVAILABLE, TAX_LOT_BOOK_INCOMPLETE, TAX_LOT_BOOK_UNRECONCILED, TAX_TERM_RULE_UNSET } from './codes.js';
 import {
   runLotEngine,
@@ -58,7 +59,7 @@ export interface Withdrawal {
 }
 
 /** Lots from these sources, and withdrawals, are left out of every figure while the customer leaves transfers out. */
-export const TRANSFER_SOURCES: ReadonlySet<LotSource> = new Set<LotSource>(['deposit', 'transfer_in']);
+export const TRANSFER_SOURCES: ReadonlySet<LotSource> = new Set<LotSource>(LOT_TRANSFER_SOURCES);
 
 /** A coin that reached the customer's balance other than by a fill, already valued by the caller. */
 export interface Inflow {
@@ -332,16 +333,18 @@ export function buildLotBook(input: {
       proceedsUsd: out.valueUsd,
     });
   }
-  // Each fill's fee, on the sale it made and the lot it bought, and the total in dollars.
+  // Each fill's fee, on the sale it made and the lot it bought; the dollar total is added up once the sales are known.
   const saleFees = new Map<string, BookFee>();
   const lotFees = new Map<string, BookFee>();
-  let feesUsd: Amount | null = 0n;
+  const feeParts: Array<{ saleKey: string | null; makesLot: boolean; usd: Amount | null }> = [];
   for (const fill of input.fills) {
     if (isPar(fill.received.assetId) && fill.paid !== null && isPar(fill.paid.assetId)) continue;
     const { fee, usd } = feeOf(fill);
-    feesUsd = feesUsd === null || usd === null ? null : feesUsd + usd;
-    if (!isPar(fill.received.assetId)) lotFees.set(`${fill.txId}|${fill.received.assetId}`, fee);
-    if (fill.paid !== null && !isPar(fill.paid.assetId)) saleFees.set(`${fill.txId}|${fill.paid.assetId}`, fee);
+    const makesLot = !isPar(fill.received.assetId);
+    const saleKey = fill.paid !== null && !isPar(fill.paid.assetId) ? `${fill.txId}|${fill.paid.assetId}` : null;
+    feeParts.push({ saleKey, makesLot, usd });
+    if (makesLot) lotFees.set(`${fill.txId}|${fill.received.assetId}`, fee);
+    if (saleKey !== null) saleFees.set(saleKey, fee);
   }
   for (const inflow of input.inflows ?? []) {
     if (PAR_ASSETS.has(inflow.assetId.toUpperCase())) continue; // a dollar coin is not a position
@@ -370,7 +373,8 @@ export function buildLotBook(input: {
       to: move.to,
     });
   }
-  const run = runLotEngine(movements, input.rules ?? input.method, input.overridePricePerUnit);
+  // Left out, the lots from transfers are a pool of their own, so their cost never reaches a trade's (KEPT APART).
+  const run = runLotEngine(movements, input.rules ?? input.method, input.overridePricePerUnit, include ? undefined : TRANSFER_SOURCES);
   // Lots from transfers, and withdrawals, are left out while the customer leaves transfers out: they stay listed.
   const lotCounted = new Map(run.lots.map((lot) => [lot.id, include || !TRANSFER_SOURCES.has(lot.source)]));
   for (const r of run.residuals) {
@@ -549,6 +553,20 @@ export function buildLotBook(input: {
       ? { fee: lotFees.get(`${lot.acquireTxId}|${lot.assetId}`)! }
       : {}),
   }));
+
+  // The fees inside the figures: a buy's is in its lot's cost (a bought lot always counts), a sale's in its result, so a
+  // sale left out entirely (transfers left out, drawn only on their lots) leaves its fee out too.
+  const saleByKey = new Map(sales.map((sale) => [`${sale.txId}|${sale.assetId}`, sale]));
+  let feesUsd: Amount | null = 0n;
+  for (const part of feeParts) {
+    const sale = part.saleKey === null ? undefined : saleByKey.get(part.saleKey);
+    if (!part.makesLot && sale?.counted === 'none') continue;
+    if (part.usd === null) {
+      feesUsd = null;
+      break;
+    }
+    feesUsd += part.usd;
+  }
 
   let realizedTotal: Amount | null = 0n;
   const countedSales = sales.filter((sale) => sale.counted !== 'none');

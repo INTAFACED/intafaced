@@ -24,6 +24,11 @@ import { TAX_COST_BASIS_UNAVAILABLE, TAX_LOT_PICK_UNUSABLE, TAX_LOT_UNDERFLOW } 
  *
  * MOVED OUT (LB-4). A withdrawal to outside is a disposal from the main account like a sale, matched by the method in force,
  * with the value when it left as its proceeds. It is not a sale: the lot book says whether it counts.
+ *
+ * KEPT APART. When the customer leaves deposits and withdrawals out of their figures, the lots that came in from outside are
+ * a pool of their own in the main account: a sale draws on the other lots first (ranked, averaged and picked among them
+ * alone) and reaches the lots kept apart only for quantity the others do not cover, and a withdrawal does the reverse. So a
+ * deposit's cost never reaches the cost of a trade, under any method, and coins in and out of the platform net first.
  */
 
 export const ENGINE_METHODS = ['FIFO', 'LIFO', 'HIFO', 'AVERAGE'] as const;
@@ -205,6 +210,8 @@ export function runLotEngine(
   rules: SaleRules,
   /** Price per unit, in dollars, for a lot whose own cost is null. Keyed by the lot id this function assigns. */
   overridePricePerUnit?: ReadonlyMap<string, Amount>,
+  /** Lot sources kept in a pool of their own (KEPT APART); absent: one pool. */
+  apart?: ReadonlySet<LotSource>,
 ): EngineRun {
   const ruleOf = typeof rules === 'string' ? (): SaleRule => ({ method: rules, source: 'default' }) : rules;
   const byAsset = new Map<string, EngineMovement[]>();
@@ -284,7 +291,7 @@ export function runLotEngine(
       }
       const rule = ruleOf(m);
       // A withdrawal draws by the method in force; a lot picked for a sale does not apply to it.
-      sales.push(dispose(m, openAt(null), m.kind === 'moved_out' ? { method: rule.method, source: rule.source } : rule, residuals));
+      sales.push(dispose(m, openAt(null), m.kind === 'moved_out' ? { method: rule.method, source: rule.source } : rule, residuals, apart));
     }
     for (const entry of all) {
       lots.push({
@@ -441,7 +448,7 @@ function restateAtAverage(open: readonly OpenLot[], pool: { qty: Amount; cost: A
   });
 }
 
-function dispose(m: EngineDispose, open: OpenLot[], rule: SaleRule, residuals: Set<string>): EngineSale {
+function dispose(m: EngineDispose, open: OpenLot[], rule: SaleRule, residuals: Set<string>, apart?: ReadonlySet<LotSource>): EngineSale {
   const { method } = rule;
   const matches: LotMatch[] = [];
   // A picked lot is used only if it is still open when the sale happens; otherwise the pick is named and the method decides.
@@ -453,62 +460,75 @@ function dispose(m: EngineDispose, open: OpenLot[], rule: SaleRule, residuals: S
   let remaining = m.qty;
   let proceedsLeft = m.proceedsUsd;
   let unknown = false;
-  let unranked = false;
 
-  // AVERAGE: one cost per coin for the whole open quantity, fixed for this sale.
-  const averagePool = method === 'AVERAGE' ? averagePoolOf(open) : null;
-  const poolEntered = averagePool?.entered ?? false;
+  // KEPT APART: a sale draws on the lots not kept apart first, a withdrawal on the lots kept apart first. One pool otherwise.
+  const keptApart = (lot: OpenLot) => apart !== undefined && apart.has(lot.lot.source);
+  const firstApart = m.kind === 'moved_out';
+  const pools =
+    apart === undefined
+      ? [open.slice()]
+      : [open.filter((l) => keptApart(l) === firstApart), open.filter((l) => keptApart(l) !== firstApart)];
 
-  while (remaining > 0n && open.length > 0) {
-    const pickedAt = picked === null ? -1 : open.indexOf(picked);
-    let idx = pickedAt >= 0 ? pickedAt : pick(open, method);
-    if (idx === null) {
-      // HIFO cannot rank a lot with no basis. The coins still left: draw the quantity oldest first so the open quantity stays
-      // right, but which lot really went is not known, so this sale's cost and the cost of every lot left are unknown.
-      unknown = true;
-      unranked = true;
-      residuals.add(TAX_COST_BASIS_UNAVAILABLE);
-      idx = 0;
+  for (const pool of pools) {
+    if (remaining === 0n) break;
+    let unranked = false;
+    // AVERAGE: one cost per coin for the whole open quantity of this pool, fixed for this sale.
+    const averagePool = method === 'AVERAGE' ? averagePoolOf(pool) : null;
+    const poolEntered = averagePool?.entered ?? false;
+    let drew = false;
+    let takenCost = 0n;
+
+    while (remaining > 0n && pool.length > 0) {
+      drew = true;
+      const pickedAt = picked === null ? -1 : pool.indexOf(picked);
+      let idx = pickedAt >= 0 ? pickedAt : pick(pool, method);
+      if (idx === null) {
+        // HIFO cannot rank a lot with no basis. The coins still left: draw the quantity oldest first so the open quantity stays
+        // right, but which lot really went is not known, so this sale's cost and the cost of every lot left are unknown.
+        unknown = true;
+        unranked = true;
+        residuals.add(TAX_COST_BASIS_UNAVAILABLE);
+        idx = 0;
+      }
+      const lot = pool[idx]!;
+      const take = remaining < lot.remaining ? remaining : lot.remaining;
+      let cost: Amount | null;
+      if (unranked) {
+        cost = null;
+      } else if (averagePool !== null) {
+        cost = averagePool.cost === null ? null : share(averagePool.cost, averagePool.qty, take);
+      } else {
+        cost = lot.remainingCost === null ? null : share(lot.remainingCost, lot.remaining, take);
+      }
+      const proceeds = proceedsLeft === null ? null : share(proceedsLeft, remaining, take);
+      if (cost === null) {
+        unknown = true;
+        residuals.add(TAX_COST_BASIS_UNAVAILABLE);
+      }
+      const fromCustomer = cost !== null && (lot.customerEntered || poolEntered);
+      matches.push({
+        lotId: lot.lot.id,
+        qty: take,
+        costUsd: cost,
+        proceedsUsd: proceeds,
+        realizedUsd: cost === null || proceeds === null ? null : proceeds - cost,
+        ...(fromCustomer ? { customerEntered: true as const } : {}),
+      });
+      remaining -= take;
+      takenCost += cost ?? 0n;
+      if (proceedsLeft !== null && proceeds !== null) proceedsLeft -= proceeds;
+      // Under AVERAGE the lots left are restated at the pool's cost per coin after the loop.
+      if (averagePool === null) lot.remainingCost = lot.remainingCost === null || cost === null ? null : lot.remainingCost - cost;
+      lot.remaining -= take;
+      if (lot.remaining === 0n) pool.splice(idx, 1);
     }
-    const lot = open[idx]!;
-    const take = remaining < lot.remaining ? remaining : lot.remaining;
-    let cost: Amount | null;
-    if (unranked) {
-      cost = null;
-    } else if (averagePool !== null) {
-      cost = averagePool.cost === null ? null : share(averagePool.cost, averagePool.qty, take);
-    } else {
-      cost = lot.remainingCost === null ? null : share(lot.remainingCost, lot.remaining, take);
+    if (drew && averagePool !== null) {
+      restateAtAverage(pool, averagePool, takenCost);
     }
-    const proceeds = proceedsLeft === null ? null : share(proceedsLeft, remaining, take);
-    if (cost === null) {
-      unknown = true;
-      residuals.add(TAX_COST_BASIS_UNAVAILABLE);
-    }
-    const fromCustomer = cost !== null && (lot.customerEntered || poolEntered);
-    matches.push({
-      lotId: lot.lot.id,
-      qty: take,
-      costUsd: cost,
-      proceedsUsd: proceeds,
-      realizedUsd: cost === null || proceeds === null ? null : proceeds - cost,
-      ...(fromCustomer ? { customerEntered: true as const } : {}),
-    });
-    remaining -= take;
-    if (proceedsLeft !== null && proceeds !== null) proceedsLeft -= proceeds;
-    // Under AVERAGE the lots left are restated at the pool's cost per coin after the loop.
-    if (averagePool === null) lot.remainingCost = lot.remainingCost === null || cost === null ? null : lot.remainingCost - cost;
-    lot.remaining -= take;
-    if (lot.remaining === 0n) open.splice(idx, 1);
+    if (unranked) for (const lot of pool) lot.remainingCost = null;
   }
-  if (averagePool !== null) {
-    restateAtAverage(
-      open,
-      averagePool,
-      matches.reduce((sum, x) => sum + (x.costUsd ?? 0n), 0n),
-    );
-  }
-  if (unranked) for (const lot of open) lot.remainingCost = null;
+  // What was used up leaves the account's open lots (the pools were copies of it).
+  for (let i = open.length - 1; i >= 0; i--) if (open[i]!.remaining === 0n) open.splice(i, 1);
   if (remaining > 0n && open.length === 0) residuals.add(TAX_LOT_UNDERFLOW);
 
   const covered = remaining === 0n && !unknown;

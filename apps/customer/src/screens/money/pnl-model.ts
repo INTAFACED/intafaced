@@ -37,7 +37,8 @@ export function methodFromQuery(search: string): LotMethod | 'saved' | { unknown
   return (LOT_METHODS as readonly string[]).includes(upper) ? (upper as LotMethod) : { unknown: raw };
 }
 
-export type UnknownReason = 'cost_unknown' | 'no_price' | 'not_reconciled';
+/** `not_counted`: the coin is held only in lots from transfers, which the customer leaves out of the figures. */
+export type UnknownReason = 'cost_unknown' | 'no_price' | 'not_reconciled' | 'not_counted';
 
 export interface AssetPnl {
   asset: string;
@@ -59,7 +60,7 @@ export interface AssetPnl {
 
 export interface PnlView {
   assets: AssetPnl[];
-  /** Sum over every asset; null when any asset's unrealised result is unknown. */
+  /** Sum over every counted asset; null when any of their unrealised results is unknown, or none counts. */
   unrealisedUsd: Decimal | null;
   realisedUsd: Decimal | null;
 }
@@ -70,31 +71,52 @@ function otherOf(held: Scaled | null, open: Scaled): Decimal {
   return decOrNull(left > 0n ? left : 0n) ?? '0';
 }
 
+/** What `qty` of a coin is worth now at the Money screen's valuation (never more than all of it); null with no price. */
+function valueOf(row: MoneyRow | undefined, qty: Scaled): Scaled | null {
+  const total = dec(row?.amount);
+  const worth = dec(row?.usdValue);
+  if (total === null || total <= 0n || worth === null) return null;
+  const share = ratio(qty, total);
+  return share === null ? null : times(worth, share > 10n ** 18n ? 10n ** 18n : share);
+}
+
 export function pnlView(book: LotBookAnswer, rows: readonly MoneyRow[] | null): PnlView {
   const byAsset = new Map((rows ?? []).map((row) => [row.asset, row]));
   const assets: AssetPnl[] = [];
   for (const line of book.assets) {
     const open = dec(line.openQty);
-    if (open === null || open <= 0n) continue;
-    const price = byAsset.get(line.assetId);
+    const uncounted = dec(line.uncountedQty) ?? 0n;
+    if (open === null) continue;
+    if (open <= 0n) {
+      // Held only in lots from transfers, which are left out: listed, named, and kept out of every figure.
+      if (uncounted > 0n)
+        assets.push({
+          asset: line.assetId,
+          knownQty: '0',
+          otherQty: otherOf(dec(line.held), uncounted),
+          uncountedQty: line.uncountedQty,
+          costUsd: null,
+          avgPriceUsd: null,
+          valueUsd: decOrNull(valueOf(byAsset.get(line.assetId), uncounted)),
+          unrealisedUsd: null,
+          unrealisedRatio: null,
+          reason: 'not_counted',
+        });
+      continue;
+    }
     const cost = dec(line.openCostUsd);
     let reason: UnknownReason | null = null;
-    let value: Scaled | null = null;
+    // The server checks every open lot against what is held, counted or not.
     if (cost === null)
-      reason = book.residuals.includes('tax.lot_book_unreconciled') && dec(line.held)! < open ? 'not_reconciled' : 'cost_unknown';
-    const total = dec(price?.amount);
-    const worth = dec(price?.usdValue);
-    if (total !== null && total > 0n && worth !== null) {
-      const share = ratio(open, total);
-      value = share === null ? null : times(worth, share > 10n ** 18n ? 10n ** 18n : share);
-    } else if (reason === null) {
-      reason = 'no_price';
-    }
+      reason =
+        book.residuals.includes('tax.lot_book_unreconciled') && dec(line.held)! < open + uncounted ? 'not_reconciled' : 'cost_unknown';
+    const value = valueOf(byAsset.get(line.assetId), open);
+    if (value === null && reason === null) reason = 'no_price';
     const unrealised = cost !== null && value !== null ? sub(value, cost) : null;
     assets.push({
       asset: line.assetId,
       knownQty: line.openQty,
-      otherQty: otherOf(dec(line.held), open + (dec(line.uncountedQty) ?? 0n)),
+      otherQty: otherOf(dec(line.held), open + uncounted),
       uncountedQty: line.uncountedQty,
       costUsd: line.openCostUsd,
       avgPriceUsd: cost === null ? null : decOrNull(ratio(cost, open)),
@@ -104,8 +126,8 @@ export function pnlView(book: LotBookAnswer, rows: readonly MoneyRow[] | null): 
       reason: unrealised === null ? (reason ?? 'cost_unknown') : null,
     });
   }
-  const known = assets.map((a) => dec(a.unrealisedUsd));
-  const unrealisedUsd = assets.length > 0 && known.every((v) => v !== null) ? decOrNull(sumOf(known as Scaled[])) : null;
+  const known = assets.filter((a) => a.reason !== 'not_counted').map((a) => dec(a.unrealisedUsd));
+  const unrealisedUsd = known.length > 0 && known.every((v) => v !== null) ? decOrNull(sumOf(known as Scaled[])) : null;
   return { assets, unrealisedUsd, realisedUsd: book.realizedUsd };
 }
 
@@ -227,15 +249,6 @@ export interface PnlFigures {
 const DAY_MS = 86_400_000;
 const known = (usd: Scaled): PnlFigure => ({ kind: 'value', usd: decOrNull(usd) ?? '0' });
 
-/** What `qty` of an asset is worth now, at the Money screen's own valuation; null with no price. */
-function worthOf(row: MoneyRow | undefined, qty: Scaled): Scaled | null {
-  const total = dec(row?.amount);
-  const worth = dec(row?.usdValue);
-  if (total === null || total <= 0n || worth === null) return null;
-  const share = ratio(qty, total);
-  return share === null ? null : times(worth, share);
-}
-
 /** How the value of `qty` of an asset moved over the last 24 hours, from the Money screen's 24-hour change. */
 function dayMoveOf(row: MoneyRow | undefined, qty: Scaled): Scaled | null {
   const total = dec(row?.amount);
@@ -255,11 +268,12 @@ export function pnlFigures(book: LotBookAnswer, rows: readonly MoneyRow[] | null
       : book.realizedUsd === null
         ? { kind: 'unknown', reason: 'cost_unknown' }
         : known(dec(book.realizedUsd)!);
+  const countedAssets = view.assets.filter((a) => a.reason !== 'not_counted');
   const unrealised: PnlFigure =
-    view.assets.length === 0
+    countedAssets.length === 0
       ? { kind: 'none', reason: 'no_open_lots' }
       : view.unrealisedUsd === null
-        ? { kind: 'unknown', reason: view.assets.some((a) => a.reason === 'no_price') ? 'no_price' : 'cost_unknown' }
+        ? { kind: 'unknown', reason: countedAssets.some((a) => a.reason === 'no_price') ? 'no_price' : 'cost_unknown' }
         : known(dec(view.unrealisedUsd)!);
   // All time: nothing sold counts as no realised part, nothing open as no unrealised part; an unknown part makes it unknown.
   const part = (f: PnlFigure): Scaled | PnlFigure => (f.kind === 'value' ? dec(f.usd)! : f.kind === 'none' ? 0n : f);
@@ -281,8 +295,12 @@ export function pnlFigures(book: LotBookAnswer, rows: readonly MoneyRow[] | null
   const lastSale = book.sales
     .filter((s) => s.kind === 'sale' && s.counted !== 'none')
     .sort((a, b) => b.disposedAt.localeCompare(a.disposedAt))[0];
+  // A buy is the last trade only while some of it is still open in the main account ("still open" on screen).
   const lastBuy = book.lots
-    .filter((lot) => lot.source === 'trade' && lot.carriedFrom === undefined && lot.counted)
+    .filter(
+      (lot) =>
+        lot.source === 'trade' && lot.carriedFrom === undefined && lot.counted && lot.spaceId === undefined && dec(lot.remaining)! > 0n,
+    )
     .sort((a, b) => b.acquiredAt.localeCompare(a.acquiredAt))[0];
   let trade: LastTrade | null = null;
   if (lastSale && (!lastBuy || lastSale.disposedAt >= lastBuy.acquiredAt)) {
@@ -295,7 +313,7 @@ export function pnlFigures(book: LotBookAnswer, rows: readonly MoneyRow[] | null
   } else if (lastBuy) {
     const remaining = dec(lastBuy.remaining)!;
     const cost = dec(lastBuy.remainingCostUsd);
-    const worth = remaining > 0n ? worthOf(byAsset.get(lastBuy.assetId), remaining) : 0n;
+    const worth = remaining > 0n ? valueOf(byAsset.get(lastBuy.assetId), remaining) : 0n;
     trade = {
       kind: 'buy',
       assetId: lastBuy.assetId,
@@ -309,10 +327,14 @@ export function pnlFigures(book: LotBookAnswer, rows: readonly MoneyRow[] | null
     };
   }
 
-  // 24 hours: a lot open since before the window moved with the price; one bought inside it counts from its cost.
+  // 24 hours: a lot open since before the window moved with the price; one bought inside it counts from its cost. A book
+  // the server says is incomplete, or a coin whose lots do not match what is held, has no lots to trust for it.
+  const untrusted = new Set(view.assets.filter((a) => a.reason === 'not_reconciled').map((a) => a.asset));
   let day: PnlFigure;
   if (open.length === 0) {
     day = { kind: 'none', reason: 'no_open_lots' };
+  } else if (book.residuals.includes('tax.lot_book_incomplete') || open.some((lot) => untrusted.has(lot.assetId))) {
+    day = { kind: 'unknown', reason: 'cost_unknown' };
   } else {
     let total: Scaled = 0n;
     day = known(0n);
@@ -329,7 +351,7 @@ export function pnlFigures(book: LotBookAnswer, rows: readonly MoneyRow[] | null
         total += move;
       } else {
         const cost = dec(lot.remainingCostUsd);
-        const worth = worthOf(row, remaining);
+        const worth = valueOf(row, remaining);
         if (cost === null || worth === null) {
           day = { kind: 'unknown', reason: cost === null ? 'cost_unknown' : 'no_price' };
           break;
