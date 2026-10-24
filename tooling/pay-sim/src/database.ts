@@ -3,6 +3,9 @@ import postgres, { type Sql } from 'postgres';
 import { assertTestDatabase } from '@intafaced/db';
 import { parseOptions } from './safety.js';
 
+/** How long dropping the owned database may take: inside the CLI's 10 s cleanup allowance (cli.ts). */
+const CLEANUP_MS = 9_000;
+
 /** Owns exactly one randomly named database. Never lists or sweeps other databases. */
 export class SimulationDatabase {
   readonly database = `pay_sim_${randomUUID().replaceAll('-', '')}_test`;
@@ -17,14 +20,14 @@ export class SimulationDatabase {
     this.admin = this.connect(adminUrl);
   }
 
-  private connect(url: string, work = false): Sql {
+  private connect(url: string, work = false, timeouts = { statement: 5000, lock: 1000 }): Sql {
     return postgres(url, {
       max: work ? 8 : 1,
       connect_timeout: 3,
       idle_timeout: 1,
       connection: {
-        statement_timeout: 5000,
-        lock_timeout: 1000,
+        statement_timeout: timeouts.statement,
+        lock_timeout: timeouts.lock,
         ...(work ? { search_path: 'pay,public', application_name: this.database } : {}),
       },
       onnotice: () => undefined,
@@ -66,7 +69,10 @@ export class SimulationDatabase {
     // Stop all setup/work clients before dropping. This also cancels active SQL.
     await Promise.allSettled([this.admin.end({ timeout: 0 }), this.client?.end({ timeout: 0 })]);
     if (!this.attemptedCreate) return;
-    const cleanup = this.connect(this.adminUrl);
+    // DROP DATABASE waits for a forced checkpoint, which on a busy shared test server (CI shards drop many databases
+    // at once) can pass the setup clients' 5 s statement and 1 s lock timeouts. The drop gets most of the CLI's 10 s
+    // cleanup allowance instead, so a slow server still confirms cleanup rather than reporting it unconfirmed.
+    const cleanup = this.connect(this.adminUrl, false, { statement: CLEANUP_MS - 500, lock: CLEANUP_MS - 1000 });
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       await Promise.race([
@@ -75,11 +81,12 @@ export class SimulationDatabase {
           timer = setTimeout(() => {
             void cleanup.end({ timeout: 0 });
             reject(new Error('pay-sim owned database cleanup deadline exceeded'));
-          }, 5000);
+          }, CLEANUP_MS);
         }),
       ]);
-    } catch {
-      throw new Error('pay-sim could not confirm cleanup of its owned TEST DATA database');
+    } catch (error) {
+      // The driver's error names a code and the database, never the URL or credentials.
+      throw new Error('pay-sim could not confirm cleanup of its owned TEST DATA database', { cause: error });
     } finally {
       if (timer) clearTimeout(timer);
       await cleanup.end({ timeout: 0 });
