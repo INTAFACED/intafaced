@@ -1,6 +1,7 @@
 import { isModuleId, type ModuleId } from '@intafaced/config';
 import { reconciliationDecimalSchema } from '@intafaced/contracts/ledger-reconciliation';
 import { COST_AMOUNT, COST_ASSET, PERIOD, isCategory, type CostCategory } from '@/lib/venue-economics/model';
+import { METADATA_KEY } from '@/lib/ledger/account-metadata';
 
 /**
  * The request a founder hands to the other founder.
@@ -44,6 +45,17 @@ export type DeskRequest =
       readonly asOf: string;
       readonly margin: string;
       readonly reason: string;
+    }
+  /**
+   * Delete one operator metadata key on a ledger account (svc-ledger, J-ops-console-03 #6). `version` is the key's revision
+   * read; svc-ledger binds the account, the key and the reason to the approval at that revision.
+   */
+  | {
+      readonly kind: 'ledger.account_metadata.delete';
+      readonly accountId: string;
+      readonly key: string;
+      readonly reason: string;
+      readonly version: string;
     }
   | { readonly kind: 'market.vendor.vet'; readonly vendorId: string; readonly decision: VendorDecision; readonly reason: string }
   | { readonly kind: 'academy.ambassador.freeze'; readonly userId: string; readonly reason: string }
@@ -194,6 +206,13 @@ export function readDeskRequest(raw: unknown): DeskRequest | null {
       margin: raw.margin,
       reason: raw.reason,
     };
+  }
+  if (raw.kind === 'ledger.account_metadata.delete') {
+    if (keys !== 'accountId,key,kind,reason,version') return null;
+    if (typeof raw.accountId !== 'string' || !UUID.test(raw.accountId) || !validReason(raw.reason)) return null;
+    if (typeof raw.key !== 'string' || !METADATA_KEY.test(raw.key)) return null;
+    if (typeof raw.version !== 'string' || !WHOLE.test(raw.version)) return null;
+    return { kind: 'ledger.account_metadata.delete', accountId: raw.accountId, key: raw.key, reason: raw.reason, version: raw.version };
   }
   if (raw.kind === 'market.vendor.vet') {
     if (keys !== 'decision,kind,reason,vendorId') return null;
@@ -429,6 +448,8 @@ export function confirmPhrase(request: DeskRequest): string {
       return 'UNFREEZE LEDGER';
     case 'ledger.reconciliation_control.run':
       return `RUN CONTROL ${request.controlId.slice(0, 8)}`;
+    case 'ledger.account_metadata.delete':
+      return `DELETE KEY ${request.key}`;
     case 'market.vendor.vet':
       return `${request.decision === 'approved' ? 'APPROVE' : request.decision === 'rejected' ? 'REJECT' : 'SUSPEND'} VENDOR ${request.vendorId.slice(0, 8)}`;
     case 'academy.ambassador.freeze':
@@ -491,6 +512,8 @@ export function describeRequest(request: DeskRequest): string {
       return request.asOf === 'now'
         ? `Run reconciliation control ${request.controlId} now ("${request.reason}"). svc-ledger stores a result row before it reads, then compares the book. Nothing posts and nothing freezes. It runs only if the control is still active at version ${request.version}.`
         : `Run reconciliation control ${request.controlId} as of ${request.asOf}, reading balances ${request.margin} seconds before that instant ("${request.reason}"). svc-ledger stores a result row before it reads, then compares the book. Nothing posts and nothing freezes. It runs only if the control is still active at version ${request.version}.`;
+    case 'ledger.account_metadata.delete':
+      return `Delete the metadata key "${request.key}" on ledger account ${request.accountId} ("${request.reason}"). svc-ledger records the value before and after with who asked and who approved. It is a label only: no posting, balance or transaction changes. It deletes only if the key is still at revision ${request.version}.`;
     case 'market.vendor.vet':
       return request.decision === 'approved'
         ? `Approve market vendor ${request.vendorId}: they may be listed and sell in the market.`

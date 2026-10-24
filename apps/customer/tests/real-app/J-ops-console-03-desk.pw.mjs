@@ -169,6 +169,7 @@ test('J-ops-console-03 #4 an account address prefix finds the account with its v
     '0',
     String(DEPOSITS),
     String(DEPOSITS),
+    'Metadata',
   ]);
 
   // A prefix that names no owner type is refused before anything is sent.
