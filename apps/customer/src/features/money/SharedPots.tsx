@@ -3,7 +3,8 @@ import type { z } from 'zod';
 import { Button } from '../../shared/ui';
 import type { Space } from './client';
 import { date, funds, NoRows, positiveMoney, ResourceView, Section, useBankRead, type ActionSpec } from './components';
-import type { sharedPotActivitySchema, sharedPotsSchema } from './contracts';
+import type { sharedPotActivitySchema, sharedPotCardSchema, sharedPotsSchema } from './contracts';
+import { maskedPan } from './card-controls';
 import { sharedPotsCopy } from './shared-pots-copy';
 
 type SharedPots = z.infer<typeof sharedPotsSchema>;
@@ -17,13 +18,15 @@ const HANDLE = /^@?[a-zA-Z0-9_]{3,32}$/;
 /**
  * Shared pots on the Spaces page (BK-acct-09, J-bank-07 #6): the bank's two values, a door to share one of the
  * person's pots by handle or email, invites to them with their lifetime, pots shared with them and pots they share,
- * each with its people and its log. Every name, amount and time is the bank's answer; the page only sends the asks.
+ * each with its people, its linked card and its log. Every name, amount and time is the bank's answer; the page only
+ * sends the asks.
  */
 export function SharedPots({ spaces, open }: { spaces: Space[]; open: (spec: ActionSpec) => void }) {
   const { t } = sharedPotsCopy.useCopy();
   const read = useBankRead('sharedPots.list', { limit: LIMIT });
   const pots = spaces.filter((space) => space.kind === 'named');
-  const name = (person: Person) => (person.handle ? `@${person.handle}` : t('someone'));
+  // `bank` is the log's word for a change the bank's own staff made, never a person.
+  const name = (person: Person) => (person.userId === 'bank' ? t('theBank') : person.handle ? `@${person.handle}` : t('someone'));
   const roleName = (role: Role) => (role === 'viewer' ? t('roleViewer') : t('roleContributor'));
 
   const share = () =>
@@ -92,6 +95,32 @@ export function SharedPots({ spaces, open }: { spaces: Space[]; open: (spec: Act
 }
 
 type Named = { name: (person: Person) => string; roleName: (role: Role) => string };
+type PotCard = z.infer<typeof sharedPotCardSchema>;
+
+/** The card linked to a pot as its people see it: its last four digits and whether it pays. */
+function CardLine({ card }: { card: PotCard }) {
+  const { t } = sharedPotsCopy.useCopy();
+  const state = card.status === 'frozen' ? t('cardFrozen') : card.status === 'closed' ? t('cardClosed') : t('cardActive');
+  return (
+    <p data-testid="shared-pot-card" data-status={card.status} data-tail={card.panTail}>
+      {t('cardLine', { card: maskedPan(card.panTail), state })}
+    </p>
+  );
+}
+
+const freezeSpec = (
+  t: ReturnType<typeof sharedPotsCopy.useCopy>['t'],
+  pot: { id: string; name: string },
+  card: PotCard,
+  note: string,
+): ActionSpec => ({
+  title: t('freezeTitle', { card: maskedPan(card.panTail) }),
+  procedure: 'sharedPots.freezeCard',
+  facts: [[t('pot'), pot.name]],
+  notes: [note],
+  input: () => ({ spaceId: pot.id }),
+  submit: t('freezeCard'),
+});
 
 function Terms({ terms }: { terms: SharedPots['terms'] }) {
   const { t } = sharedPotsCopy.useCopy();
@@ -218,6 +247,29 @@ function SharedWithMe({
               </strong>
             </header>
             <People members={row.members} name={name} roleName={roleName} />
+            <div data-testid="shared-pot-card-area">
+              {row.card ? (
+                <>
+                  <CardLine card={row.card} />
+                  {row.card.status === 'frozen' ? (
+                    <p className="money-caption">
+                      {row.card.frozenBy === 'operator' ? t('frozenByBank') : t('frozenNote', { owner: name(row.owner) })}
+                    </p>
+                  ) : (
+                    row.card.status === 'active' && (
+                      <Button
+                        variant="secondary"
+                        onClick={() => open(freezeSpec(t, row.pot, row.card!, t('freezeNote', { owner: name(row.owner) })))}
+                      >
+                        {t('freezeCard')}
+                      </Button>
+                    )
+                  )}
+                </>
+              ) : (
+                <p className="money-caption">{t('noCardShared')}</p>
+              )}
+            </div>
             {!account && <p className="money-caption">{t('noAccount', { asset: row.pot.assetId })}</p>}
             <div className="actions">
               <Button variant="secondary" onClick={add} disabled={!account}>
@@ -249,7 +301,10 @@ function SharedWithMe({
 
 function IShare({ rows, open, name, roleName }: { rows: SharedPots['owned']; open: (spec: ActionSpec) => void } & Named) {
   const { t } = sharedPotsCopy.useCopy();
+  // The person's own cards, read only when they share a pot, to offer one to link.
+  const cards = useBankRead('cards.list', { limit: LIMIT }, rows.length > 0);
   if (!rows.length) return null;
+  const linkable = cards.resource.status === 'ready' ? cards.resource.data.filter((card) => card.status !== 'closed') : [];
   return (
     <section aria-label={t('ownedTitle')}>
       <h3>{t('ownedTitle')}</h3>
@@ -303,6 +358,81 @@ function IShare({ rows, open, name, roleName }: { rows: SharedPots['owned']; ope
               </li>
             ))}
           </ul>
+          <div data-testid="shared-pot-card-area">
+            {row.card ? (
+              <>
+                <CardLine card={row.card} />
+                <div className="actions">
+                  {row.card.status === 'active' && (
+                    <Button variant="secondary" onClick={() => open(freezeSpec(t, row.pot, row.card!, t('freezeOwnNote')))}>
+                      {t('freezeCard')}
+                    </Button>
+                  )}
+                  {row.card.status === 'frozen' && row.card.frozenBy === 'operator' && <p className="money-caption">{t('frozenByBank')}</p>}
+                  {row.card.status === 'frozen' && row.card.frozenBy !== 'operator' && (
+                    <Button
+                      variant="secondary"
+                      onClick={() =>
+                        open({
+                          title: t('unfreezeTitle', { card: maskedPan(row.card!.panTail) }),
+                          procedure: 'cards.setStatus',
+                          facts: [[t('pot'), row.pot.name]],
+                          notes: [t('unfreezeNote')],
+                          input: () => ({ cardId: row.card!.cardId, status: 'active' }),
+                          submit: t('unfreezeCard'),
+                        })
+                      }
+                    >
+                      {t('unfreezeCard')}
+                    </Button>
+                  )}
+                  <Button
+                    variant="ghost"
+                    onClick={() =>
+                      open({
+                        title: t('unlinkTitle', { pot: row.pot.name }),
+                        procedure: 'sharedPots.unlinkCard',
+                        facts: [[t('cardTitle'), maskedPan(row.card!.panTail)]],
+                        notes: [t('unlinkNote')],
+                        input: () => ({ spaceId: row.pot.id }),
+                        submit: t('unlinkCard'),
+                      })
+                    }
+                  >
+                    {t('unlinkCard')}
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="money-caption">{t('noCard')}</p>
+                {cards.resource.status === 'ready' && linkable.length === 0 && <p className="money-caption">{t('noCards')}</p>}
+                <Button
+                  variant="secondary"
+                  disabled={linkable.length === 0}
+                  onClick={() =>
+                    open({
+                      title: t('linkTitle', { pot: row.pot.name }),
+                      procedure: 'sharedPots.linkCard',
+                      fields: [
+                        {
+                          name: 'cardId',
+                          label: t('cardTitle'),
+                          options: linkable.map((card) => ({ value: card.id, label: `${maskedPan(card.panTail)} (${card.assetId})` })),
+                        },
+                      ],
+                      initial: { cardId: linkable[0]?.id ?? '' },
+                      notes: [t('linkNote')],
+                      input: (values) => ({ spaceId: row.pot.id, cardId: values.cardId }),
+                      submit: t('linkCard'),
+                    })
+                  }
+                >
+                  {t('linkCard')}
+                </Button>
+              </>
+            )}
+          </div>
           <Log spaceId={row.pot.id} name={name} roleName={roleName} />
         </article>
       ))}
@@ -341,6 +471,7 @@ function LogEntries({ spaceId, name, roleName }: { spaceId: string } & Named) {
       actor: name(entry.actor),
       subject: entry.subject ? name(entry.subject) : t('someone'),
       role: entry.role ? roleName(entry.role) : '',
+      card: entry.card ? maskedPan(entry.card.panTail) : '',
     };
     return t('at', { line: t(entry.kind, words), time: date(entry.at) });
   };

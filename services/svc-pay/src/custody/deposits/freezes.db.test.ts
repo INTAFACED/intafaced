@@ -175,7 +175,8 @@ describe('deposit address freezes (real Postgres)', () => {
     approver = SECOND;
     consumed = [];
     logs.length = 0;
-    await db.sql`TRUNCATE pay.custody_deposits, pay.custody_deposit_settings, pay.custody_deposit_addresses, pay.custody_deposit_reorgs, pay.custody_deposit_address_freezes`;
+    await db.sql`TRUNCATE pay.custody_deposit_travel_rule_events, pay.custody_deposit_travel_rule, pay.travel_rule_inbound_rule_events, pay.custody_deposits, pay.custody_deposit_settings, pay.custody_deposit_addresses, pay.custody_deposit_reorgs, pay.custody_deposit_address_freezes`;
+    await db.sql`INSERT INTO pay.travel_rule_inbound_rule_events (asset_id, applies, threshold, fields, reason, set_by) VALUES ('USDT', false, NULL, '[]', 'TEST rule off', 'test-profile')`;
     await db.sql`INSERT INTO pay.custody_deposit_addresses (user_id, asset_id, network_id, address) VALUES (${ALICE}, 'USDT', 'ethereum', ${ADDRESS})`;
     await db.sql`
       INSERT INTO pay.custody_deposit_settings (asset_id, network_id, label, minimum_deposit, estimated_arrival_minutes, set_by)

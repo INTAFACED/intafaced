@@ -1,6 +1,7 @@
 /**
- * The bank's `bank.portfolio.allocation`: the priced holdings grouped by class (cash in dollars, dollar coins, other crypto)
- * and by where they sit (spendable or locked). Same prices as the total, so the groups add up to it. An older bank without
+ * The bank's `bank.portfolio.allocation`: the priced holdings grouped by class (cash, dollar coins, other crypto,
+ * commodities, earn, and unclassified for an asset the bank's catalogue does not list) and by where they sit (spendable or
+ * locked). Same prices as the total, so the groups add up to it. An older bank without
  * the call, or one that cannot answer, leaves only the by-coin view; the screen says so and never fills the groups itself.
  */
 import { useMemo } from 'react';
@@ -15,12 +16,14 @@ export const allocationSchema = z.object({
   totalValueUsd: z.string(),
   classes: z.array(
     z.object({
-      class: z.enum(['fiat', 'stablecoin', 'crypto']),
+      class: z.enum(['fiat', 'stablecoin', 'crypto', 'commodity', 'earn', 'unclassified']),
       valueUsd: z.string(),
       share: z.string(),
       assets: z.array(z.object({ asset: z.string(), valueUsd: z.string(), share: z.string() })),
     }),
   ),
+  /** Set when the bank could not work out the classes (its asset list could not be read); `classes` is then empty. */
+  classesRefused: z.string().nullable(),
   types: z.array(z.object({ type: z.enum(['available', 'locked']), valueUsd: z.string(), share: z.string() })),
   unpriced: z.array(z.object({ asset: z.string(), amount: z.string(), reason: z.string() })),
   asOf: z.number(),
@@ -32,13 +35,22 @@ export type AllocationGrouping = 'class' | 'type';
 
 export interface GroupSlice {
   key: string;
-  /** Key into the money copy ('Fiat cash', ...), not display text. */
-  labelKey: 'Dollars' | 'Dollar coins' | 'Other crypto' | 'Spendable' | 'Locked';
+  /** Key into the money copy ('Dollar coins', ...), not display text. */
+  labelKey: 'Cash' | 'Dollar coins' | 'Other crypto' | 'Commodities' | 'Earn' | 'Unclassified' | 'Spendable' | 'Locked';
   /** Ratio string ("0.5912"). */
   share: string;
+  /** The coins in a class, biggest first; empty for a type. */
+  assets: string[];
 }
 
-const CLASS_LABEL = { fiat: 'Dollars', stablecoin: 'Dollar coins', crypto: 'Other crypto' } as const;
+const CLASS_LABEL = {
+  fiat: 'Cash',
+  stablecoin: 'Dollar coins',
+  crypto: 'Other crypto',
+  commodity: 'Commodities',
+  earn: 'Earn',
+  unclassified: 'Unclassified',
+} as const;
 const TYPE_LABEL = { available: 'Spendable', locked: 'Locked' } as const;
 
 /**
@@ -48,8 +60,13 @@ const TYPE_LABEL = { available: 'Spendable', locked: 'Locked' } as const;
 export function groupSlices(answer: ServerAllocation, by: AllocationGrouping): GroupSlice[] | null {
   const rows =
     by === 'class'
-      ? answer.classes.map((row) => ({ key: row.class, labelKey: CLASS_LABEL[row.class], share: row.share }))
-      : answer.types.map((row) => ({ key: row.type, labelKey: TYPE_LABEL[row.type], share: row.share }));
+      ? answer.classes.map((row) => ({
+          key: row.class,
+          labelKey: CLASS_LABEL[row.class],
+          share: row.share,
+          assets: row.assets.map((member) => member.asset),
+        }))
+      : answer.types.map((row) => ({ key: row.type, labelKey: TYPE_LABEL[row.type], share: row.share, assets: [] as string[] }));
   if (rows.some((row) => dec(row.share) === null)) return null;
   return rows
     .filter((row) => dec(row.share)! > 0n)

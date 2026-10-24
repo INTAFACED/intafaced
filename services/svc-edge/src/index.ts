@@ -28,6 +28,7 @@ import { createQuotaStore, decideGateway, sandboxOf } from './gateway-plane.js';
 import { exchangePrincipal } from './principal-exchange.js';
 import { upstreamBody } from './proxy-body.js';
 import { forwardUpstreamResponseHeaders, prepareUpstreamRequestHeaders, refuseCookieCsrf } from './refresh-cookie-proxy.js';
+import { hostedCheckoutHeaders, hostedCheckoutLocation, isHostedCheckoutPath, upstreamRedirectMode } from './hosted-checkout-proxy.js';
 import { readyUpstreamHonesty } from './ready-honesty.js';
 import { edgeS2sFromEnv, signProxyHeaders } from './s2s.js';
 import { isS2sPath, resolve, resolveUpstreamBase, UPSTREAMS } from './routes.js';
@@ -515,7 +516,8 @@ await app.register(async (api) => {
           const request = {
             method: req.method,
             headers: upstreamHeaders,
-            redirect: 'error' as const,
+            // A redirect is an upstream failure, except the hosted checkout's 303 to its session page.
+            redirect: upstreamRedirectMode(url.pathname),
             cache: 'no-store',
             ...(body === undefined ? {} : { body }),
             signal: AbortSignal.timeout(env.UPSTREAM_TIMEOUT_MS),
@@ -529,7 +531,19 @@ await app.register(async (api) => {
         }
 
         const text = await response.text();
-        const forwarded = forwardUpstreamResponseHeaders(url.pathname, response.headers);
+        const forwarded: Record<string, string | string[]> = {
+          ...forwardUpstreamResponseHeaders(url.pathname, response.headers),
+          ...hostedCheckoutHeaders(url.pathname, response.headers),
+        };
+        // Only checkout paths fetch with `redirect: 'manual'`; anywhere else a 3xx that reached here passes as before.
+        if (isHostedCheckoutPath(url.pathname) && response.status >= 300 && response.status < 400) {
+          const location = hostedCheckoutLocation(response.status, response.headers);
+          if (!location) {
+            req.log.error({ upstream: target.upstream.prefix, status: response.status }, 'edge: upstream redirect refused');
+            return reply.code(502).send({ error: userCopy('edge.upstream_unavailable'), code: 'edge.upstream_unavailable' });
+          }
+          forwarded.location = location;
+        }
         let sent = reply.code(response.status);
         for (const [name, value] of Object.entries(forwarded)) {
           sent = sent.header(name, value);

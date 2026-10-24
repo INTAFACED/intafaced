@@ -87,7 +87,8 @@ describe('catalog — the key set is closed and complete', () => {
     // A blank hold age refuses (AG-spend-01) and adds one more refusal key.
     // The buyer-paid notice to the seller (P-trade-orders-23) adds a title and a body key.
     // Standing-order reminder and failure notices (BK-acct-10) add four title/body keys.
-    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(268);
+    // Sign-in factor change notices (I-signin-sessions-08) add five titles and one shared body.
+    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(274);
 
     for (const surface of ['common.', 'auth.', 'trade.', 'wallet.', 'p2p.', 'notify.', 'error.', 'support.', 'agents.', 'admin.']) {
       expect(

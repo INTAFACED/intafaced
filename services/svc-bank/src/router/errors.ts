@@ -394,6 +394,7 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.fx_rate_unset': 'PRECONDITION_FAILED',
   'bank.dest_user_missing': 'PRECONDITION_FAILED',
   'bank.recipient_cannot_receive': 'PRECONDITION_FAILED',
+  'bank.sender_cannot_send': 'PRECONDITION_FAILED',
   'bank.recipient_check_unset': 'PRECONDITION_FAILED',
   'bank.security_locked': 'PRECONDITION_FAILED',
   'bank.security_lock_unset': 'PRECONDITION_FAILED',

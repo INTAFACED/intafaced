@@ -2,13 +2,21 @@ import { z } from 'zod';
 import { router, scopedProcedure } from '@intafaced/contracts';
 import type { BankServices } from '../bank-service.js';
 import { formatAmount } from '@intafaced/ledger-client';
-import { SHARED_POT_ROLES, type SharedPotInvite, type SharedPotMember, type SharedPotPerson } from './shared-pots.js';
+import {
+  SHARED_POT_ACTIVITY_KINDS,
+  SHARED_POT_ROLES,
+  type SharedPotCard,
+  type SharedPotInvite,
+  type SharedPotMember,
+  type SharedPotPerson,
+} from './shared-pots.js';
 
 /**
  * `bank.sharedPots.*` (BK-acct-09, J-bank-07 #6): a named pot its owner shares with other people, each a viewer or a
  * contributor, by an invite that lasts the owner-set time. Reading is `bank:read`; inviting and answering are
  * `bank:write`. Membership moves no value: a contributor adds money with `transfers.create` into the pot, and a viewer
- * doing so refuses `bank.space_forbidden`. Blank owner values refuse `bank.joint_unset`.
+ * doing so refuses `bank.space_forbidden`. Blank owner values refuse `bank.joint_unset`. The owner may link one of their
+ * cards to a pot so its holders can freeze it; the pot's log names who froze it.
  */
 
 type Guard = <T>(fn: () => Promise<T>) => Promise<T>;
@@ -25,8 +33,15 @@ const invite = z.object({
   expired: z.boolean(),
 });
 const pot = z.object({ id: z.string(), name: z.string(), assetId: z.string() });
+const card = z.object({
+  cardId: z.string(),
+  panTail: z.string(),
+  status: z.enum(['active', 'frozen', 'closed']),
+  frozenBy: z.enum(['owner', 'holder', 'operator']).nullable(),
+});
 
 const personOut = (p: SharedPotPerson) => ({ userId: p.userId, handle: p.handle });
+const cardOut = (c: SharedPotCard | null) => (c ? { cardId: c.cardId, panTail: c.panTail, status: c.status, frozenBy: c.frozenBy } : null);
 const memberOut = (m: SharedPotMember) => ({ ...personOut(m), role: m.role, joinedAt: m.joinedAt.toISOString() });
 const inviteOut = (i: SharedPotInvite) => ({
   inviteId: i.inviteId,
@@ -48,10 +63,13 @@ export function createSharedPotsRouter(bank: BankServices, guard: Guard) {
       .output(
         z.object({
           terms: z.object({ inviteMinutes: z.number().int().nullable(), peopleCap: z.number().int().nullable() }),
-          owned: z.array(z.object({ pot, members: z.array(member), invites: z.array(invite.extend({ invitee: person })) })),
+          owned: z.array(
+            z.object({ pot, card: card.nullable(), members: z.array(member), invites: z.array(invite.extend({ invitee: person })) }),
+          ),
           shared: z.array(
             z.object({
               pot: pot.extend({ balance: z.string() }),
+              card: card.nullable(),
               owner: person,
               role,
               members: z.array(member),
@@ -72,6 +90,7 @@ export function createSharedPotsRouter(bank: BankServices, guard: Guard) {
                 // The ledger's answer for the owner's pot account, read now; never stored.
                 balance: formatAmount(await bank.spaces.balanceOf(row.space)),
               },
+              card: cardOut(row.card),
               owner: personOut(row.owner),
               role: row.role,
               members: row.members.map(memberOut),
@@ -81,6 +100,7 @@ export function createSharedPotsRouter(bank: BankServices, guard: Guard) {
             terms: view.terms,
             owned: view.owned.map((row) => ({
               pot: { id: row.space.id, name: row.space.name, assetId: row.space.assetId },
+              card: cardOut(row.card),
               members: row.members.map(memberOut),
               invites: row.invites.map((i) => ({ ...inviteOut(i), invitee: personOut(i.invitee) })),
             })),
@@ -139,6 +159,35 @@ export function createSharedPotsRouter(bank: BankServices, guard: Guard) {
       .output(z.object({ removed: z.literal(true) }))
       .mutation(async ({ ctx, input }) => guard(() => bank.sharedPots.remove(input.spaceId, ctx.principal.userId, input.userId))),
 
+    /** The owner links one of their own cards to one of their pots, so the pot's holders can freeze it. Moves no money. */
+    linkCard: scopedProcedure('bank:write', { module: 'bank' })
+      .input(z.object({ spaceId: z.string().guid(), cardId: z.string().guid() }))
+      .output(card)
+      .mutation(async ({ ctx, input }) => guard(() => bank.sharedPots.linkCard(input.spaceId, ctx.principal.userId, input.cardId))),
+
+    /** The owner unlinks the pot's card. The card itself is untouched. */
+    unlinkCard: scopedProcedure('bank:write', { module: 'bank' })
+      .input(z.object({ spaceId: z.string().guid() }))
+      .output(z.object({ unlinked: z.literal(true) }))
+      .mutation(async ({ ctx, input }) => guard(() => bank.sharedPots.unlinkCard(input.spaceId, ctx.principal.userId))),
+
+    /**
+     * A holder of the pot (its owner or a contributor) freezes its linked card, for example when it is lost. Freezing
+     * protects and never prompts; a viewer refuses `bank.space_forbidden`. The pot's log names who froze it, written
+     * with the card's row. Only the owner unfreezes, through `cards.setStatus` and its step-up.
+     */
+    freezeCard: scopedProcedure('bank:write', { module: 'bank' })
+      .input(z.object({ spaceId: z.string().guid() }))
+      .output(card)
+      .mutation(async ({ ctx, input }) =>
+        guard(async () => {
+          const cardId = await bank.sharedPots.cardToFreeze(input.spaceId, ctx.principal.userId);
+          // The pot's log names the caller, written with the card's row; the card records a holder's freeze as `holder`.
+          const frozen = await bank.cards.setStatus(cardId, 'frozen', ctx.principal.userId);
+          return { cardId: frozen.id, panTail: frozen.panTail, status: frozen.status, frozenBy: frozen.frozenBy };
+        }),
+      ),
+
     /** The pot's log, newest first, each entry naming who acted by handle: for the owner and the pot's members. */
     activity: scopedProcedure('bank:read', { module: 'bank' })
       .input(
@@ -156,10 +205,11 @@ export function createSharedPotsRouter(bank: BankServices, guard: Guard) {
         z.array(
           z.object({
             id: z.string(),
-            kind: z.enum(['invited', 'cancelled', 'joined', 'declined', 'left', 'removed']),
+            kind: z.enum(SHARED_POT_ACTIVITY_KINDS),
             actor: person,
             subject: person.nullable(),
             role: role.nullable(),
+            card: z.object({ cardId: z.string(), panTail: z.string() }).nullable(),
             at: z.string(),
           }),
         ),
@@ -172,6 +222,7 @@ export function createSharedPotsRouter(bank: BankServices, guard: Guard) {
             actor: personOut(entry.actor),
             subject: entry.subject ? personOut(entry.subject) : null,
             role: entry.role,
+            card: entry.card,
             at: entry.at.toISOString(),
           })),
         ),

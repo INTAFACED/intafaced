@@ -132,6 +132,44 @@ function depositFreezeHistory(userId: string): ReadSpec {
   };
 }
 
+const TRAVEL_RULE_LIMIT = 50;
+
+/** Deposits held for the inbound travel rule (W-deposit-07). Open a row to wait on the sending platform or to release it. */
+function depositTravelRule(userId: string): ReadSpec {
+  return {
+    id: 'money.deposit-travel-rule',
+    title: 'Deposits held for the travel rule',
+    note: 'Every deposit of this account at or above the owner’s inbound travel-rule threshold, newest first. It is not credited while held. The depositor declares where it came from (sealed in svc-pay, never shown here); a founder releases it, and svc-pay credits it once. A wait on the sending platform that runs out leaves it held.',
+    module: 'pay',
+    plainName: 'svc-pay’s travel-rule holds',
+    procedure: 'founderAdmin.depositTravelRule.list',
+    input: { userId, limit: TRAVEL_RULE_LIMIT },
+    shape: 'list',
+    idKey: 'depositId',
+    page: TRAVEL_RULE_LIMIT,
+    columns: [
+      col('openedAt', 'Held since', 'time'),
+      col('assetId', 'Coin', 'text'),
+      col('amount', 'Amount', 'amount'),
+      col('threshold', 'Threshold', 'amount'),
+      col('state', 'State', 'text'),
+      col('walletType', 'Sent from', 'text', { nullable: true }),
+      col('declaredAt', 'Declared at', 'time', { nullable: true }),
+      col('waitDeadline', 'Wait ends', 'time', { nullable: true }),
+      col('lastActor', 'Last step by', 'text'),
+      col('lastReason', 'Last reason', 'text', { nullable: true, detail: true }),
+      col('requiredFields', 'Fields asked', 'list', { detail: true }),
+      col('networkId', 'Network', 'text', { detail: true }),
+      col('txHash', 'Transaction', 'text', { detail: true }),
+      col('ruleVersion', 'Rule version', 'int', { detail: true }),
+      col('depositId', 'Deposit id', 'text', { detail: true }),
+    ],
+    rowAction: 'pay.deposit_travel_rule',
+    emptyText: 'No deposit of this account has been held for the travel rule.',
+    forbiddenText: 'svc-pay did not accept your founder session for this read (travel-rule holds are for enabled founders).',
+  };
+}
+
 export interface CustomerTabPlan {
   readonly reads: readonly ReadSpec[];
   /** What this tab cannot show for one account, and why. */
@@ -145,7 +183,12 @@ export function tabPlan(tab: CustomerTab, userId: string): CustomerTabPlan {
   switch (tab) {
     case 'money':
       return {
-        reads: [{ ...BANK_CUSTOMER_BALANCES, input: { userId } }, depositAddresses(userId), depositFreezeHistory(userId)],
+        reads: [
+          { ...BANK_CUSTOMER_BALANCES, input: { userId } },
+          depositAddresses(userId),
+          depositFreezeHistory(userId),
+          depositTravelRule(userId),
+        ],
         unwired: [
           un(
             'money.deposits',

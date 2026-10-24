@@ -123,6 +123,13 @@ export const linkRowSchema = linkSchema.extend({
   checkoutUrl: z.string().max(2048).nullish(),
   /** The catalogue price the link was made from (M-catalogue-03); null or absent when it was made without one. */
   priceId: z.string().nullish(),
+  /** The merchant's words for a customer who opens the link after it was turned off (M-adv-payments-core-19). */
+  inactiveMessage: z.string().max(500).nullish(),
+  /** After payment: a message, or an https page. At most one is set. */
+  confirmationMessage: z.string().max(500).nullish(),
+  confirmationUrl: z.string().max(2048).nullish(),
+  /** Button code for a fixed-amount link, with the checkout as a path; `fullSnippet` completes it. */
+  embedSnippet: z.string().max(4000).nullish(),
 });
 export type LinkRow = z.infer<typeof linkRowSchema>;
 

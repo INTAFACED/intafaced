@@ -1,9 +1,18 @@
 // hand-declared-ok: svc-bank's `bank.deposits.assets`, `bank.deposits.address` and `bank.deposits.addresses.*` outputs are declared inline in its router, not in a browser-safe @intafaced/contracts export; moving them there is a contracts follow-up.
 import { z } from 'zod';
+import {
+  PAY_CUSTODY_DEPOSIT_REASONS,
+  PAY_CUSTODY_DEPOSIT_STATUSES,
+  payDepositTravelRuleDeclareInputSchema,
+  payDepositTravelRuleGetInputSchema,
+  payDepositTravelRuleViewSchema,
+  type PayDepositTravelRuleView,
+} from '@intafaced/contracts/pay-custody-deposit';
 import { useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
 import { decimalSchema } from '../../shared/money';
 import type { ApiClient, ApiResult } from '../../shared/api';
+import { contractProcedure, readContract } from '../../shared/contract-call';
 
 /** What custody says can be paid in. Every number is the service's own decimal or count; nothing here is typed by hand. */
 export const depositNetworkSchema = z.object({
@@ -111,31 +120,29 @@ export function useDepositCatalogue() {
   return useResource<DepositCatalogue>(async (signal) => createDepositReads(api).assets(signal), `${userId}:deposit-catalogue`);
 }
 
-/** The states and reasons a deposit record can carry (W-deposit-05). Declared here for the same reason as the schemas above. */
-export const DEPOSIT_STATUSES = [
-  'detected',
-  'confirming',
-  'credited',
-  'below_minimum',
-  'held_for_screening',
-  'held_for_release',
-  'on_hold',
-  'rejected',
-  'reversed',
-  'needs_review',
-] as const;
+/** The states and reasons a deposit record can carry (W-deposit-05), svc-pay's own lists. */
+export const DEPOSIT_STATUSES = PAY_CUSTODY_DEPOSIT_STATUSES;
 export type DepositStatus = (typeof DEPOSIT_STATUSES)[number];
-export const DEPOSIT_REASONS = [
-  'below_minimum',
-  'amount_mismatch',
-  'unknown_asset',
-  'minimum_unset',
-  'confirmations_unset',
-  'chain_reorg',
-  'reversal_unfunded',
-  'address_expired',
-  'address_frozen',
-] as const;
+export const DEPOSIT_REASONS = PAY_CUSTODY_DEPOSIT_REASONS;
+
+/** A deposit held for the inbound travel rule (W-deposit-07): the depositor's own record and declaration, straight from svc-pay. */
+export const depositTravelRuleGet = contractProcedure('pay', 'custodyDeposit.travelRule.get', {
+  input: payDepositTravelRuleGetInputSchema,
+  output: payDepositTravelRuleViewSchema,
+});
+export const depositTravelRuleDeclare = contractProcedure('pay', 'custodyDeposit.travelRule.declare', {
+  input: payDepositTravelRuleDeclareInputSchema,
+  output: payDepositTravelRuleViewSchema,
+});
+export type DepositTravelRuleView = PayDepositTravelRuleView;
+
+export function useDepositTravelRule(depositId: string) {
+  const { api, userId } = useSession();
+  return useResource<DepositTravelRuleView>(
+    (signal) => readContract(api, depositTravelRuleGet, { depositId }, { signal }),
+    `${userId}:deposit-travel-rule:${depositId}`,
+  );
+}
 
 export const depositPendingSchema = z.object({
   items: z.array(

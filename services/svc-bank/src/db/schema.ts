@@ -1683,9 +1683,26 @@ export const sharedPotActivity = bank.table(
     subjectUserId: text('subject_user_id'),
     kind: text('kind').notNull(),
     role: text('role'),
+    /** The card a card_* entry is about; null on every people entry. */
+    cardId: uuid('card_id').references(() => cards.id),
     at: tstz('at').notNull().defaultNow(),
   },
   (t) => [index('shared_pot_activity_space_idx').on(t.spaceId, t.id)],
+);
+
+/** The owner's card linked to a shared pot, so its holders can freeze it. One card per pot and one pot per card. */
+export const sharedPotCards = bank.table(
+  'shared_pot_cards',
+  {
+    spaceId: uuid('space_id')
+      .primaryKey()
+      .references(() => spaces.id),
+    cardId: uuid('card_id')
+      .notNull()
+      .references(() => cards.id),
+    linkedAt: tstz('linked_at').notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('shared_pot_cards_card_uq').on(t.cardId)],
 );
 
 export const schema = {

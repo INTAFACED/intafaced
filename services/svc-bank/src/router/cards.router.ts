@@ -278,7 +278,7 @@ export function createCardsRouter(c: BankRouterContext) {
               false,
             );
           }
-          const updated = await bank.cards.setStatus(input.cardId, input.status);
+          const updated = await bank.cards.setStatus(input.cardId, input.status, ctx.principal.userId);
           return { id: updated.id, status: updated.status };
         }),
       ),

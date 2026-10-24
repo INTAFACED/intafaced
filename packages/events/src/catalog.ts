@@ -192,7 +192,7 @@ export const securityFactorChanged = defineEvent(
     /** The business key `factor-changed:<userId>:<n>`, n counted per account; a consumer dedupes on it. */
     noticeKey: z.string().min(1).max(128),
   }),
-  'A sign-in factor of an account changed. svc-notify writes the security inbox notice; svc-identity already mailed the proved address.',
+  'A sign-in factor of an account changed. svc-notify writes the security inbox notice (I-signin-sessions-08); svc-identity already mailed the proved address.',
 );
 
 // ── ledger (§4.2) ────────────────────────────────────────────────────────────
@@ -1678,13 +1678,6 @@ export const WIRING_SOCKETS = [
     class: 'A',
     reason:
       'No subscriber yet: svc-notify writes the information-request notice in its own PR. No publisher exists yet either, so no customer is promised a notice.',
-  },
-  {
-    event: 'securityFactorChanged',
-    missing: 'subscriber',
-    class: 'A',
-    reason:
-      'Declared with the svc-identity publisher (I-signin-sessions-08). svc-notify writes the security inbox notice in its own PR, next. Until then the factor-changed mail to the proved address is the notice, so no customer is promised an inbox row.',
   },
   {
     event: 'spreadFilled',

@@ -63,6 +63,7 @@ import { readMerchantDrilldown } from './merchant-drilldown.js';
 import { guarded } from './control-errors.js';
 import { createDepositSettingsRouter, type DepositSettingsMountDeps } from '../custody/deposits/settings.js';
 import { createDepositFreezesRouter, type DepositFreezesMountDeps } from '../custody/deposits/freezes.js';
+import { createDepositTravelRuleRouter, type DepositTravelRuleMountDeps } from '../custody/deposits/travel-rule.js';
 import { createRegistriesRouter, type RegistriesMountDeps } from '../registries/index.js';
 import { createCategoryPolicyRouter, type CategoryPolicyMountDeps } from '../onboarding-policy/category-router.js';
 import { createCustodyRouter, type CustodyMountDeps } from '../custody/router.js';
@@ -105,6 +106,8 @@ export interface FounderAdminMounts {
   /** W-deposit-04: the owner's customer deposit settings. Mounted only when supplied. */
   depositSettings?: DepositSettingsMountDeps;
   depositFreezes?: DepositFreezesMountDeps;
+  /** W-deposit-07: the inbound travel rule on large chain deposits (`founderAdmin.depositTravelRule.*`). Mounted only when supplied. */
+  depositTravelRule?: DepositTravelRuleMountDeps;
   /** W-withdraw-05: owner-set withdrawal limits (`founderAdmin.limits.*`). Mounted only when supplied. */
   limits?: WithdrawalLimitsMountDeps;
   /** W-custody-ops-01: the custody account model (`founderAdmin.custody.*`). Mounted only when supplied. */
@@ -180,6 +183,7 @@ export function createFounderAdminRouter(founderAuthority: FounderAuthority, mou
     categoryPolicy,
     depositSettings,
     depositFreezes,
+    depositTravelRule,
     limits,
     custody,
     purchaseHolds,
@@ -214,6 +218,8 @@ export function createFounderAdminRouter(founderAuthority: FounderAuthority, mou
       ...(depositSettings ? { depositSettings: createDepositSettingsRouter({ founderAuthority, ...depositSettings }) } : {}),
       // W-compliance-notices-03: compliance freezes on deposit addresses; an unfreeze takes a second founder (src/custody/deposits/freezes).
       ...(depositFreezes ? { depositFreezes: createDepositFreezesRouter({ founderAuthority, ...depositFreezes }) } : {}),
+      // W-deposit-07: inbound travel rule per asset; a large deposit is held until its declaration is reviewed (src/custody/deposits/travel-rule).
+      ...(depositTravelRule ? { depositTravelRule: createDepositTravelRuleRouter({ founderAuthority, ...depositTravelRule }) } : {}),
       // W-withdraw-05: owner-set withdrawal limits per KYC tier and asset (src/limits). Mounted only when its deps are supplied.
       ...(limits ? { limits: createWithdrawalLimitsRouter({ founderAuthority, ...limits }) } : {}),
       // W-custody-ops-01: custody entities, vaults and wallets (src/custody). Mounted only when its deps are supplied.
