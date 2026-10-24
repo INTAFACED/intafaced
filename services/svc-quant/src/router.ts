@@ -252,7 +252,7 @@ const strategyVersionRecord = z
 
 const strategyHead = strategyVersionRecord.extend({
   id: z.string(),
-  accountId: z.string().uuid(),
+  accountId: z.string().guid(),
   clientStrategyId: z.string(),
   deletedAt: z.string().nullable(),
 });
@@ -366,7 +366,7 @@ export interface QuantRouterDeps extends SandboxDeps {
 
 const strategyMetadata = z.object({
   id: z.string(),
-  accountId: z.string().uuid().nullable(),
+  accountId: z.string().guid().nullable(),
   name: z.string(),
   language: z.literal('javascript'),
   environment: z.enum(['paper', 'backtest', 'shadow']),
@@ -376,7 +376,7 @@ const strategyMetadata = z.object({
   simulated: z.literal(true),
 });
 
-const accountField = { accountId: z.string().uuid().optional() };
+const accountField = { accountId: z.string().guid().optional() };
 const writeKeyField = { idempotencyKey: z.string().optional().nullable() };
 const clientIdField = { clientStrategyId: z.string().optional().nullable() };
 
@@ -1447,7 +1447,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
               from: z.string().optional().nullable(),
               to: z.string().optional().nullable(),
               kind: z.enum(['backtest', 'sandbox']).optional().nullable(),
-              userId: z.string().uuid().optional().nullable(),
+              userId: z.string().guid().optional().nullable(),
               limit: z.number().int().optional(),
               cursor: z.string().optional().nullable(),
             })
@@ -1459,7 +1459,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
               z.object({
                 id: z.string(),
                 kind: z.enum(['backtest', 'sandbox']),
-                userId: z.string().uuid().nullable(),
+                userId: z.string().guid().nullable(),
                 started: z.string(),
                 duration: z.number().int().nullable(),
                 outcome: z.string().nullable(),

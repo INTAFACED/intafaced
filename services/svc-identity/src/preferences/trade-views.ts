@@ -20,7 +20,7 @@ const tradeViewSchema = z
     id: z.string().trim().min(1).max(64),
     name: z.string().trim().min(1).max(60),
     sort: z.string().trim().min(1).max(64),
-    filters: z.record(filterValue).superRefine((filters, ctx) => {
+    filters: z.record(z.string(), filterValue).superRefine((filters, ctx) => {
       const keys = Object.keys(filters);
       if (keys.length > 20) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'too many filters' });
       for (const key of keys) {

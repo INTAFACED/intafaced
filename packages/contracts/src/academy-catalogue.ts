@@ -196,7 +196,7 @@ export const academyCourseOutlineSchema = z.object({
 export type AcademyCourseOutline = z.infer<typeof academyCourseOutlineSchema>;
 
 /** `markCurriculumComplete`: the stored completion. A repeat answers with the first one; nothing is recorded twice. */
-export const academyItemCompletionSchema = z.object({ userId: z.string().uuid(), itemSlug: z.string().min(1), completedAt: isoInstant });
+export const academyItemCompletionSchema = z.object({ userId: z.string().guid(), itemSlug: z.string().min(1), completedAt: isoInstant });
 export type AcademyItemCompletion = z.infer<typeof academyItemCompletionSchema>;
 
 /**
@@ -208,7 +208,7 @@ export const academyUndoCompletionInputSchema = z
   .strict();
 /** `undoneAt` null: nothing was complete, so nothing changed. */
 export const academyUndoCompletionSchema = z.object({
-  userId: z.string().uuid(),
+  userId: z.string().guid(),
   itemSlug: z.string().min(1),
   undoneAt: isoInstant.nullable(),
 });
@@ -245,7 +245,7 @@ export type AcademyQuiz = z.infer<typeof academyQuizSchema>;
  * a refresh shows the same time left. `answers` are the saved choices by question id. `result` is null while open.
  */
 export const academyQuizAttemptSchema = z.object({
-  attemptId: z.string().uuid(),
+  attemptId: z.string().guid(),
   slug: z.string().min(1),
   number: z.number().int().positive(),
   startedAt: isoInstant,
@@ -273,7 +273,7 @@ export type AcademyQuizAttempt = z.infer<typeof academyQuizAttemptSchema>;
 
 /** A finished attempt's review: the learner's own choices against the key, or `questions: null` when the quiz shows the score only. */
 export const academyQuizReviewSchema = z.object({
-  attemptId: z.string().uuid(),
+  attemptId: z.string().guid(),
   slug: z.string().min(1),
   number: z.number().int().positive(),
   score: z.number().int().nonnegative(),
@@ -396,7 +396,7 @@ export type AcademyProgressPage = z.infer<typeof academyProgressPageSchema>;
  * while Academy has no mail sender.
  */
 export const academyPlannerTodoSchema = z.object({
-  id: z.string().uuid(),
+  id: z.string().guid(),
   text: z.string().min(1).max(200),
   createdAt: isoInstant,
   doneAt: isoInstant.nullable(),
@@ -420,8 +420,8 @@ export type AcademyPlanner = z.infer<typeof academyPlannerSchema>;
 export const academyAddTodoInputSchema = z
   .object({ clientKey: z.string().trim().min(1).max(120), text: z.string().trim().min(1).max(200) })
   .strict();
-export const academySetTodoDoneInputSchema = z.object({ todoId: z.string().uuid(), done: z.boolean() }).strict();
-export const academyRemoveTodoInputSchema = z.object({ todoId: z.string().uuid() }).strict();
+export const academySetTodoDoneInputSchema = z.object({ todoId: z.string().guid(), done: z.boolean() }).strict();
+export const academyRemoveTodoInputSchema = z.object({ todoId: z.string().guid() }).strict();
 export const academySetGoalInputSchema = z.object({ itemsPerWeek: z.number().int(), reminder: z.boolean() }).strict();
 /** Sending the goal reminder now: `sent` is false and `mail` names the missing dependency while Academy has no mail sender. */
 export const academyGoalReminderSchema = z.object({ sent: z.literal(false), mail: z.literal('vendor.email') });

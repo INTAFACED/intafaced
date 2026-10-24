@@ -60,7 +60,7 @@ export function ScheduleExecutions({ id, asset }: { id: string; asset: string })
 
 export function ExecutionHistory({ id, asset, refreshInstructions }: { id: string; asset: string; refreshInstructions?: () => void }) {
   const { Copy } = standingCopy.useCopy();
-  return z.string().uuid().safeParse(id).success ? (
+  return z.string().guid().safeParse(id).success ? (
     <ExecutionRead key={JSON.stringify([id, asset])} id={id} asset={asset} refreshInstructions={refreshInstructions} />
   ) : (
     <div role="status">

@@ -62,7 +62,7 @@ export function localTestTapeRetimeEnabled(env: Record<string, string | undefine
 
 export const localTestTapeRetimeSchema = z
   .object({
-    marketId: z.string().uuid(),
+    marketId: z.string().guid(),
     /** The first trade's new time, epoch ms. */
     startMs: z.number().int().positive(),
     /** Gap between consecutive trades, ms. One second to one day. */

@@ -6,7 +6,7 @@ import { useResource } from '../../shared/resource';
 import { Button, DataTable, Field, Panel } from '../../shared/ui';
 import { Details, Limit, Read, TextArea, type ActionControls } from './common';
 import { AcademyProgrammeOverview, type ProgrammeAction } from './AcademyProgrammeOverview';
-const uuid = z.string().uuid(),
+const uuid = z.string().guid(),
   residency = z.object({
     id: uuid,
     userId: uuid,

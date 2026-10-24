@@ -371,7 +371,7 @@ export const quantBacktestLogLineSchema = z.object({
   level: z.enum(QUANT_BACKTEST_LOG_LEVELS),
   code: z.string(),
   ts: z.string().nullable(),
-  values: z.record(z.string()),
+  values: z.record(z.string(), z.string()),
 });
 export type QuantBacktestLogLine = z.infer<typeof quantBacktestLogLineSchema>;
 

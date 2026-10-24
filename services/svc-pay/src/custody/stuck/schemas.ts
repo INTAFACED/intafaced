@@ -4,7 +4,7 @@ import { z } from 'zod';
  * Wire shapes for `founderAdmin.custody.queue.*` and `.stuck.*` (W-custody-ops-12). Every input object is `.strict()`.
  * A fee ceiling is a decimal string with its unit, never a number. A threshold is never defaulted: blank refuses.
  */
-const id = z.string().uuid();
+const id = z.string().guid();
 const walletId = id;
 const networkId = z.string().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/);
 const reason = z.string().trim().min(1).max(500);

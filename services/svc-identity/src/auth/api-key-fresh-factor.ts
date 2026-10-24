@@ -28,11 +28,11 @@ export const factorProofSchema = z.union([
           signature: z.string().min(1),
           userHandle: z.string().nullish(),
         }),
-        clientExtensionResults: z.record(z.unknown()).optional(),
+        clientExtensionResults: z.record(z.string(), z.unknown()).optional(),
       }),
     })
     .strict(),
-  z.object({ proofId: z.string().uuid() }).strict(),
+  z.object({ proofId: z.string().guid() }).strict(),
 ]);
 
 /** Optional on the wire so a missing proof is the typed refusal, not a parse error. */
