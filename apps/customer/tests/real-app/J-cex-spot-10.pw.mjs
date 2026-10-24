@@ -10,7 +10,7 @@ import { draftNotice, publishNotice } from './notices.mjs';
 // two-person door (`setFeeSchedule`), as TEST versions: the default pair group keeps the stack's own regular rates
 // (maker 0.08%, taker 0.10%), so every other journey on the stack trades at the rates it always did. TEST groups hold
 // markets no other journey trades: ETH/USDC at zero fee, and IFC/USDT, which #3 leaves blank for a moment. #5-#6 add a
-// TEST tier programme only for as long as they run. Steps 7-9 and 11 join this file with the slices that build them.
+// TEST tier programme only for as long as they run. Steps 7, 9 and 11 join this file with the slices that build them.
 const J = 'J-cex-spot-10';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
@@ -536,6 +536,53 @@ test(`${J} #6 crosses the threshold during the day: the tier changes at the next
   } finally {
     await publish(SCHEDULE, 'tier programme off');
   }
+});
+
+test(`${J} #8 looks at the fee currency row: disabled with its reason, and no request is sent`, async ({ page }) => {
+  const who = account();
+  // Every request the desk sends that names a fee currency: there must be none.
+  const named = [];
+  page.on('request', (req) => {
+    if (`${req.url()} ${req.postData() ?? ''}`.includes('feeCurrency')) named.push(`${req.method()} ${new URL(req.url()).pathname}`);
+  });
+  await openDesk(page, who);
+  await page.mouse.move(0, 600);
+  const row = buyForm(page).locator('[data-fee-currency]');
+  // The fee comes out of what the order receives: BTC on a buy, USDT on a sell.
+  await expect(row).toHaveAttribute('data-fee-currency', 'BTC');
+  await expect(row).toContainText('Fees in BTC');
+  const choice = row.getByRole('button', { name: 'Pay fees in another asset' });
+  await expect(choice).toBeDisabled();
+  await expect(choice).toHaveAccessibleDescription(
+    'Not offered on spot: there is no fee token to pay fees in. The fee comes out of the BTC this order receives.',
+  );
+  // It stays reachable from the keyboard, and pressing or clicking it does nothing.
+  await choice.focus();
+  await expect(choice).toBeFocused();
+  await page.keyboard.press('Enter');
+  await choice.click({ force: true });
+  await expect(page.locator('form.dk-form[data-side=sell] [data-fee-currency]')).toContainText('Fees in USDT');
+  // Long enough for a request the click started to have been sent.
+  await page.waitForTimeout(1_500);
+  expect(named).toEqual([]);
+
+  // The service says the same thing to a caller who sends one anyway, and holds nothing.
+  const client = await api(who);
+  const before = held(await client.balances(), 'USDT');
+  const clientOrderId = `js10-fee-currency-${Date.now().toString(36)}`;
+  const sent = await client.post('/api/v1/orders', {
+    symbol: 'BTC/USDT',
+    side: 'buy',
+    type: 'limit',
+    amount: '0.001',
+    price: await awayBid(95),
+    feeCurrency: 'IFC',
+    clientOrderId,
+  });
+  expect(sent.status).toBe(400);
+  expect(JSON.stringify(sent.body)).toContain('trade.fee_currency_unsupported');
+  expect(held(await client.balances(), 'USDT')).toBe(before);
+  expect((await openOrders(who, 'BTC/USDT')).filter((o) => o.clientOrderId === clientOrderId)).toEqual([]);
 });
 
 test(`${J} #10 a fee change is on the notice board before it takes effect, and an order placed before then keeps its fees`, async ({
