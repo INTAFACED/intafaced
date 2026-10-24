@@ -22,6 +22,10 @@ import {
   type ApprovalLinkStore,
   type ApprovalMailPort,
 } from './address-approval.js';
+import { deviceMayApprove, memoryTrustedDevices } from './trusted-devices.js';
+
+/** The device every approval test approves from, as identity answers a device approved by a mailed code. */
+const PROVED_DEVICE = 'bbbbbbbb-1111-4111-8111-000000000002';
 
 /**
  * W-withdraw-09 new-address approval (J-wallet-04 #5) on both stores: the in-memory ones tests use and
@@ -86,16 +90,18 @@ describe.each(stores)('new-address approval: %s', (_name, make) => {
     const { destinations, links } = make();
     const mail = mailbox();
     const lock = memorySecurityLock();
+    const devices = memoryTrustedDevices({ [PROVED_DEVICE]: { live: true, trustedBy: 'approval', newDeviceCheck: 'on' } });
     const clock = { now: new Date() };
     const deps: AddressApprovalDeps = {
       destinations,
       links,
       mail,
       securityLock: lock,
+      devices,
       linkMinutesRaw: () => minutes,
       now: () => clock.now,
     };
-    return { deps, destinations, links, mail, lock, clock };
+    return { deps, destinations, links, mail, lock, devices, clock };
   }
   async function saved(destinations: UserWithdrawDestinations, userId: string) {
     return destinations.save({ userId, assetId: 'USDT', network: 'erc20', ref: ADDRESS, label: 'Cold wallet' });
@@ -273,7 +279,7 @@ describe.each(stores)('new-address approval: %s', (_name, make) => {
     const SIGN_IN_A = 'aaaaaaaa-0000-4000-8000-000000000001';
     const SIGN_IN_B = 'bbbbbbbb-0000-4000-8000-000000000002';
     const DEVICE_A = 'aaaaaaaa-1111-4111-8111-000000000001';
-    const DEVICE_B = 'bbbbbbbb-1111-4111-8111-000000000002';
+    const DEVICE_B = PROVED_DEVICE;
     const savedFrom = (destinations: UserWithdrawDestinations, userId: string, fam: string | null, dev: string | null) =>
       destinations.save({
         userId,
@@ -378,6 +384,31 @@ describe.each(stores)('new-address approval: %s', (_name, make) => {
       });
     });
 
+    it('asks identity about the approving device: removed, trusted only by signing in, or with the check off, it refuses', async () => {
+      const { deps, destinations, devices } = setup();
+      const u = fresh();
+      const entry = await savedFrom(destinations, u, SIGN_IN_A, DEVICE_A);
+      const approve = () =>
+        approveOnDevice(deps, { userId: u, destinationId: entry.destinationId, approving: { fam: SIGN_IN_B, dev: DEVICE_B } });
+      for (const state of [
+        { live: false, trustedBy: 'approval', newDeviceCheck: 'on' },
+        { live: true, trustedBy: 'sign-in', newDeviceCheck: 'on' },
+        { live: true, trustedBy: 'approval', newDeviceCheck: 'off' },
+        { live: false, trustedBy: null, newDeviceCheck: 'on' },
+      ] as const) {
+        devices.set(DEVICE_B, state);
+        await expect(approve()).rejects.toMatchObject({ code: 'bank.address_approval_device_untrusted' });
+      }
+      devices.failWith(new BankError('identity down', 'bank.address_approval_device_unavailable'));
+      await expect(approve()).rejects.toMatchObject({ code: 'bank.address_approval_device_unavailable' });
+      const [still] = await destinations.list(u);
+      expect(still).toMatchObject({ state: 'pending', approvedBy: null });
+      // The device the account was made on is proved too.
+      devices.failWith(null);
+      devices.set(DEVICE_B, { live: true, trustedBy: 'sign-up', newDeviceCheck: 'on' });
+      await expect(approve()).resolves.toMatchObject({ state: 'cooling', approvedBy: 'device' });
+    });
+
     it('an entry approved by link answers as it is; the saving ids must be uuids', async () => {
       const { deps, destinations, mail } = setup();
       const u = fresh();
@@ -427,7 +458,14 @@ describe('postgres: the approval links table', () => {
     const mail = mailbox();
     const u = fresh();
     const entry = await destinations.save({ userId: u, assetId: 'USDT', network: 'erc20', ref: ADDRESS, label: 'Hash test' });
-    const deps: AddressApprovalDeps = { destinations, links, mail, securityLock: memorySecurityLock(), linkMinutesRaw: () => '30' };
+    const deps: AddressApprovalDeps = {
+      destinations,
+      links,
+      mail,
+      securityLock: memorySecurityLock(),
+      devices: memoryTrustedDevices(),
+      linkMinutesRaw: () => '30',
+    };
     await requestApprovalMail(deps, { userId: u, destinationId: entry.destinationId });
     const token = mail.sent[0]!.token;
     const rows = await db.sql<Array<Record<string, unknown>>>`SELECT * FROM bank.destination_approval_links WHERE user_id = ${u}`;
@@ -490,5 +528,16 @@ describe("identity's mail door", () => {
     ).rejects.toMatchObject({
       code: 'bank.address_approval_mail_unavailable',
     });
+  });
+});
+
+describe('which devices may approve', () => {
+  it('only a live, proved device while the new-device check is on', () => {
+    expect(deviceMayApprove({ live: true, trustedBy: 'approval', newDeviceCheck: 'on' })).toBe(true);
+    expect(deviceMayApprove({ live: true, trustedBy: 'sign-up', newDeviceCheck: 'on' })).toBe(true);
+    expect(deviceMayApprove({ live: true, trustedBy: 'sign-in', newDeviceCheck: 'on' })).toBe(false);
+    expect(deviceMayApprove({ live: true, trustedBy: 'approval', newDeviceCheck: 'off' })).toBe(false);
+    expect(deviceMayApprove({ live: false, trustedBy: 'approval', newDeviceCheck: 'on' })).toBe(false);
+    expect(deviceMayApprove({ live: true, trustedBy: null, newDeviceCheck: 'on' })).toBe(false);
   });
 });

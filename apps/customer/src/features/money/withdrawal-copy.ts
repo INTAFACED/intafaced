@@ -211,6 +211,9 @@ const en = {
   aApproveHereUnknown:
     'This device cannot be told apart from the one that saved the address, so it cannot approve it. Use the emailed link instead.',
   aApproveHereFailed: 'The address could not be approved. Nothing changed. Try again.',
+  aApproveHereUntrusted:
+    'This device was not confirmed as yours by an emailed code, so it cannot approve the address. Use the emailed link instead.',
+  aApproveHereUnavailable: 'The bank could not check this device. Nothing changed. Try again, or use the emailed link.',
   apEyebrow: 'WITHDRAWAL ADDRESS',
   apTitle: 'Approve a new withdrawal address',
   apIntro:
@@ -450,6 +453,9 @@ const es = {
   aApproveHereUnknown:
     'No se puede distinguir este dispositivo del que guardó la dirección, así que no puede aprobarla. Usa el enlace del correo.',
   aApproveHereFailed: 'No se pudo aprobar la dirección. No cambió nada. Inténtalo de nuevo.',
+  aApproveHereUntrusted:
+    'Este dispositivo no se confirmó como tuyo con un código enviado por correo, así que no puede aprobar la dirección. Usa el enlace del correo.',
+  aApproveHereUnavailable: 'El banco no pudo comprobar este dispositivo. No cambió nada. Inténtalo de nuevo o usa el enlace del correo.',
   apEyebrow: 'DIRECCIÓN DE RETIRO',
   apTitle: 'Aprobar una dirección de retiro nueva',
   apIntro:
@@ -691,6 +697,9 @@ const fr = {
   aApproveHereUnknown:
     'Cet appareil ne peut pas être distingué de celui qui a enregistré l’adresse, donc il ne peut pas l’approuver. Utilise plutôt le lien reçu par e-mail.',
   aApproveHereFailed: 'L’adresse n’a pas pu être approuvée. Rien n’a changé. Réessaie.',
+  aApproveHereUntrusted:
+    'Cet appareil n’a pas été confirmé comme le tien par un code reçu par e-mail, donc il ne peut pas approuver l’adresse. Utilise plutôt le lien reçu par e-mail.',
+  aApproveHereUnavailable: 'La banque n’a pas pu vérifier cet appareil. Rien n’a changé. Réessaie, ou utilise le lien reçu par e-mail.',
   apEyebrow: 'ADRESSE DE RETRAIT',
   apTitle: 'Approuver une nouvelle adresse de retrait',
   apIntro:

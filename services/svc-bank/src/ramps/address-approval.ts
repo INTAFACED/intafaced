@@ -12,6 +12,7 @@ import { transaction } from '@intafaced/db';
 import { BankError, type BankErrorCode } from '../errors.js';
 import { assertSecurityLockOpen, type SecurityLockPort } from '../security-lock.js';
 import type { SavedOn, UserWithdrawDestinations, WithdrawDestination } from '../withdraw-destination.js';
+import { deviceMayApprove, type TrustedDevicePort } from './trusted-devices.js';
 
 /**
  * NEW-ADDRESS APPROVAL (W-withdraw-09, J-wallet-04 #5). A withdrawal address the customer saves starts `pending`: no
@@ -29,7 +30,10 @@ import type { SavedOn, UserWithdrawDestinations, WithdrawDestination } from '../
  * - FROM ANOTHER DEVICE. `approveOnDevice` approves from a device that did not save the entry, after a fresh
  *   confirmation (the router asks for the step-up scope). The entry keeps the sign-in (`fam`) and trusted device (`dev`)
  *   its access token named; `deviceComparison` says whether the approving token's are a different device. The session id
- *   is not used: it changes on every refresh.
+ *   is not used: it changes on every refresh. Identity is then asked whether the approving device may be relied on
+ *   (`deviceMayApprove`): still trusted, proved by a mailed code or by being the sign-up device, and the owner's
+ *   new-device check on. Otherwise anyone holding the password and second factor could sign in on a second browser and
+ *   approve from it without the mailbox.
  *
  * Both refuse while the customer's security lock holds, like adding an address does. Approving twice changes nothing.
  */
@@ -280,6 +284,8 @@ export interface AddressApprovalDeps {
   links: ApprovalLinkStore;
   mail: ApprovalMailPort;
   securityLock: SecurityLockPort;
+  /** Identity's trusted devices: asked, each time, whether the approving device may approve. */
+  devices: TrustedDevicePort;
   linkMinutesRaw: () => string | undefined;
   now?: () => Date;
 }
@@ -419,6 +425,13 @@ export async function approveOnDevice(
     throw new BankError(
       'This device cannot be told apart from the one that saved the address. Use the emailed link instead',
       'bank.address_approval_device_unknown',
+    );
+  }
+  // `different` means both tokens name a device, so the approving one is named.
+  if (!deviceMayApprove(await deps.devices.read(input.userId, input.approving.dev!))) {
+    throw new BankError(
+      'This device was not confirmed by an emailed code, so it cannot approve the address. Use the emailed link instead',
+      'bank.address_approval_device_untrusted',
     );
   }
   return deps.destinations.approve({ userId: input.userId, destinationId: entry.destinationId, by: 'device' });

@@ -13,6 +13,11 @@ import { RampService } from './ramp-service.js';
 import { memoryWithdrawNetworks, type WithdrawNetworkSource } from './withdraw-networks.js';
 import { memoryWalletProofs, type WalletProofStore } from './wallet-ownership.js';
 import { memorySecurityLock } from '../security-lock.js';
+import { memoryTrustedDevices } from './trusted-devices.js';
+
+/** Identity's answer for the second device of the device-approval test: approved by a mailed code. */
+const PROVED_DEVICE = 'bbbbbbbb-1111-4111-8111-000000000002';
+const devices = memoryTrustedDevices({ [PROVED_DEVICE]: { live: true, trustedBy: 'approval', newDeviceCheck: 'on' } });
 
 /** W-withdraw-08 through the router: who may save, rename and remove, and what a list row shows. */
 
@@ -57,6 +62,7 @@ function callerWith(
   } as Principal);
   const ramps = new RampService({} as Sql, {} as LedgerClient, {
     securityLock: memorySecurityLock(),
+    trustedDevices: devices,
     destinations,
     addressBookCap: '2',
     withdrawNetworks: networks,
@@ -132,7 +138,7 @@ describe('bank.ramps.destinations: the address book', () => {
   it('approves from another trusted device, read from the access token: the saving one is refused, and a plain session may not (W-withdraw-09)', async () => {
     const destinations = memoryWithdrawDestinations({ addressBookCap: () => '5' });
     const SIGN_IN_A = { fam: 'aaaaaaaa-0000-4000-8000-000000000001', dev: 'aaaaaaaa-1111-4111-8111-000000000001' };
-    const SIGN_IN_B = { fam: 'bbbbbbbb-0000-4000-8000-000000000002', dev: 'bbbbbbbb-1111-4111-8111-000000000002' };
+    const SIGN_IN_B = { fam: 'bbbbbbbb-0000-4000-8000-000000000002', dev: PROVED_DEVICE };
     const stepped = (claims: { fam?: string; dev?: string }) =>
       callerWith(['bank:read', 'bank:write', 'trade:withdraw'], true, REGISTRY, destinations, sharedProofs, claims);
     const saved = await stepped(SIGN_IN_A).ramps.destinations.save({ ...entry, label: 'From A' });

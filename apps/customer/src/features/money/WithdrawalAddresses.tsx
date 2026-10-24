@@ -296,6 +296,10 @@ function approveHereWords(code: string | undefined, t: ReturnType<typeof withdra
       return t('aApproveHereSame');
     case 'bank.address_approval_device_unknown':
       return t('aApproveHereUnknown');
+    case 'bank.address_approval_device_untrusted':
+      return t('aApproveHereUntrusted');
+    case 'bank.address_approval_device_unavailable':
+      return t('aApproveHereUnavailable');
     case 'bank.address_approval_not_pending':
       return t('aApprovalNotPending');
     default:
@@ -354,7 +358,11 @@ export function ApproveHere({ row, onApproved }: { row: Destination; onApproved?
               answered.current = answer.data;
               return answer;
             }
-            if (answer.code === 'bank.address_approval_same_device' || answer.code === 'bank.address_approval_device_unknown') {
+            if (
+              answer.code === 'bank.address_approval_same_device' ||
+              answer.code === 'bank.address_approval_device_unknown' ||
+              answer.code === 'bank.address_approval_device_untrusted'
+            ) {
               // Nothing the person can fix in this dialog: it closes and the panel says where to approve instead.
               setRefused(approveHereWords(answer.code, t));
               setConfirming(false);

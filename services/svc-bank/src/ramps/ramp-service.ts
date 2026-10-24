@@ -64,6 +64,7 @@ import {
   type ApprovalLinkStore,
   type ApprovalMailPort,
 } from './address-approval.js';
+import { unconfiguredTrustedDevices, type TrustedDevicePort } from './trusted-devices.js';
 import {
   BANK_ADDRESS_BOOK_CAP_ENV,
   destKindForRamp,
@@ -273,6 +274,8 @@ export interface RampServiceOptions {
   approvalLinks?: ApprovalLinkStore;
   approvalMail?: ApprovalMailPort;
   addressApprovalLinkMinutes?: string;
+  /** Identity's trusted devices, for approval from another device (omitted, every such approval refuses unavailable). */
+  trustedDevices?: TrustedDevicePort;
 }
 
 export class RampService {
@@ -292,6 +295,7 @@ export class RampService {
   private readonly approvalLinks: ApprovalLinkStore;
   private readonly approvalMail: ApprovalMailPort;
   private readonly addressApprovalLinkMinutes: string | undefined;
+  private readonly trustedDevices: TrustedDevicePort;
 
   constructor(
     private readonly sql: Sql,
@@ -318,6 +322,7 @@ export class RampService {
     this.approvalLinks = options.approvalLinks ?? sqlApprovalLinks(sql);
     this.approvalMail = options.approvalMail ?? unconfiguredApprovalMail();
     this.addressApprovalLinkMinutes = options.addressApprovalLinkMinutes;
+    this.trustedDevices = options.trustedDevices ?? unconfiguredTrustedDevices();
   }
 
   private approvalDeps(): AddressApprovalDeps {
@@ -325,6 +330,7 @@ export class RampService {
       destinations: this.destinations,
       links: this.approvalLinks,
       mail: this.approvalMail,
+      devices: this.trustedDevices,
       securityLock: this.securityLock,
       linkMinutesRaw: () =>
         this.addressApprovalLinkMinutes !== undefined ? this.addressApprovalLinkMinutes : process.env[BANK_ADDRESS_APPROVAL_LINK_ENV],

@@ -380,6 +380,8 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.address_approval_not_pending': 'CONFLICT',
   'bank.address_approval_same_device': 'PRECONDITION_FAILED',
   'bank.address_approval_device_unknown': 'PRECONDITION_FAILED',
+  'bank.address_approval_device_untrusted': 'PRECONDITION_FAILED',
+  'bank.address_approval_device_unavailable': 'SERVICE_UNAVAILABLE',
   'bank.address_approval_link_unset': 'PRECONDITION_FAILED',
   'bank.address_approval_link_invalid': 'NOT_FOUND',
   'bank.address_approval_link_replaced': 'PRECONDITION_FAILED',
