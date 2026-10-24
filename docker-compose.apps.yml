@@ -1882,6 +1882,9 @@ services:
       # invent one.
       INDEXER_BATCH_SIZE: ${INDEXER_BATCH_SIZE:-}
       INDEXER_EXPLORER_LIST_LIMIT: ${INDEXER_EXPLORER_LIST_LIMIT:-}
+      # No :-seconds: unset must not invent a drop window. tx.get refuses
+      # indexer.tx_drop_window_unset when a previously seen hash disappears.
+      INDEXER_TX_DROP_WINDOW_SECONDS: ${INDEXER_TX_DROP_WINDOW_SECONDS:-}
       INDEXER_INGEST_ENABLED: ${INDEXER_INGEST_ENABLED:-true}
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4013']
