@@ -51,7 +51,8 @@ export interface MoneyView {
   source: 'server' | 'derived';
   asOf: number;
   /** The total in BTC when the bank was asked for it; null when it was not, or when it has no BTC price (`reason`). */
-  btc: { total: Decimal | null; reason: string | null } | null;
+  /** The BTC total and the BTC price the bank used for it; `priceUsd` also converts every other value on screen. */
+  btc: { total: Decimal | null; priceUsd: Decimal | null; reason: string | null } | null;
 }
 
 /** Which accounts a total covers: `combined` (default), `main`, or the id of one named account. */
@@ -152,7 +153,7 @@ export function fromServer(summary: ServerSummary): MoneyView {
     windowStart: summary.windowStart,
     source: 'server',
     asOf: summary.asOf,
-    btc: summary.btc ? { total: summary.btc.total, reason: summary.btc.reason } : null,
+    btc: summary.btc ? { total: summary.btc.total, priceUsd: summary.btc.priceUsd, reason: summary.btc.reason } : null,
   };
 }
 
@@ -221,6 +222,33 @@ function serverSource(env: DataEnv, scope: MoneyScope, unit: MoneyUnit): Source<
   return env.poller.source(`${SERVER_SUMMARY_KEY}:${env.userId}${variant}`, summaryFetcher(env, scope, unit), {
     intervalMs: SUMMARY_INTERVAL,
   });
+}
+
+/**
+ * A display currency the screen has no rate for (anything but USD and BTC) is asked of the bank, which owns the rule: it
+ * refuses by name (`bank.fx_rate_unset`) and the screen keeps USD and says why. Null while asking, for USD and BTC, or when the
+ * bank's answer was not a refusal (a rate this screen cannot show yet is still shown as USD, with the generic note).
+ */
+export function useDisplayCurrencyRefusal(code: string): { refused: string | null; pending: boolean } {
+  const env = useDataEnv();
+  const ask = code !== 'USD' && code !== 'BTC';
+  const snap = useSource(
+    useMemo(
+      () =>
+        ask && env.userId
+          ? env.poller.source(
+              `${SERVER_SUMMARY_KEY}:${env.userId}:unit:${code}`,
+              async (signal): Promise<Outcome<ServerSummary>> =>
+                env.api.query('bank', 'portfolio.summary', { displayCurrency: code }, summarySchema, { signal }),
+              { intervalMs: SUMMARY_INTERVAL * 10 },
+            )
+          : constantSource<ServerSummary>({ status: 'refused', code: 'auth.required' }),
+      [env, ask, code],
+    ),
+  );
+  if (!ask) return { refused: null, pending: false };
+  if (snap.status === 'loading') return { refused: null, pending: true };
+  return { refused: snap.status === 'refused' ? snap.code : null, pending: false };
 }
 
 function mapLoadable<A>(snap: Loadable<A>, map: (value: A) => MoneyView): Loadable<MoneyView> {

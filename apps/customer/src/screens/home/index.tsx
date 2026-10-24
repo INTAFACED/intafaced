@@ -233,7 +233,7 @@ function Balance({ portfolio, hidden }: { portfolio: Loadable<HomePortfolio>; hi
 function HomeSimple() {
   const { t } = homeCopy.useCopy();
   const { hideBalances, timeZone, displayCurrency } = usePreferences();
-  const portfolio = useHomePortfolio(displayCurrency);
+  const portfolio = useHomePortfolio(displayCurrency === 'BTC' ? 'BTC' : 'USD');
   const markets = useMarkets();
   const tickers = useTickers();
   const movers = useMovers(6);

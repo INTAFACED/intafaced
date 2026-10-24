@@ -585,7 +585,7 @@ function MarketsPanel() {
 export function HomePro() {
   const { t } = homeCopy.useCopy();
   const { hideBalances, displayCurrency } = usePreferences();
-  const portfolio = useHomePortfolio(displayCurrency);
+  const portfolio = useHomePortfolio(displayCurrency === 'BTC' ? 'BTC' : 'USD');
   const orders = useOpenOrders();
   const markets = useMarkets();
   const activity = useActivity();
