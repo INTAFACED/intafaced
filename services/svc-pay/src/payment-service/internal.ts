@@ -398,6 +398,14 @@ export function railPayload(result: RailResult): Record<string, unknown> {
     at: result.at.toISOString(),
     failureCode: result.failureCode ?? null,
     failureReason: result.failureReason ?? null,
+    // A payment paid in parts: what has arrived, what is still missing and what is on its way, as the rail counted it.
+    ...(typeof result.raw?.received === 'string' && typeof result.raw?.missing === 'string'
+      ? {
+          received: result.raw.received,
+          missing: result.raw.missing,
+          ...(typeof result.raw.confirming === 'string' ? { confirming: result.raw.confirming } : {}),
+        }
+      : {}),
   };
 }
 

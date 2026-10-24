@@ -405,7 +405,7 @@ A chain has no auth hold and nothing to complete. So:
 - **authorize** means "a transfer to this payment's acceptance address has reached `minConfirmations`". Below the threshold the answer is `pending`, not `authorized` — a shallow transaction can still be reorganised away, and a merchant who ships against one has shipped against nothing.
 - **capture** is an accounting act, and it re-reads the chain rather than trusting a decision made minutes ago. A reorg between the two is caught.
 
-It also handles what payers actually do: **underpayment** and **wrong token to the right address** both fail the payment while reporting the address, the transaction and the sender, so the funds are recoverable rather than merely lost. An **overpayment** is booked at what arrived, because booking less would strand the difference.
+It also handles what payers actually do. A **payment in parts** adds up: every final transfer in the payment's asset counts, an **underpayment** stays pending with what arrived, what is missing and who sent it (the hosted page shows "60 of 100 received, 40 missing"), and the payment authorizes and captures once when the parts reach the amount. **Wrong token to the right address** fails the payment while reporting the address, the transaction and the sender, so the funds are recoverable rather than merely lost; a later transfer in another token is listed, never added. An **overpayment** is booked at what arrived, because booking less would strand the difference. A refund of a payment paid from several addresses refuses (`refund.destination_ambiguous`) rather than sending one payer's money to another.
 
 ### Webhook verification
 

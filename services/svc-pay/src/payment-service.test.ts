@@ -4451,6 +4451,113 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       expect((await pay.resolvePaymentLink(link.token)).remainingUses).toBe(1);
     });
 
+    it('takes a payment in two transfers: part shown, nothing credited, then completed once (J-merchant-04 step 5)', async () => {
+      const { merchant: m, link } = await linked({ amount: '100', currency: 'USDT', maxUses: 3 });
+      const { sessionToken, session } = await pay.openCheckoutSession({ linkToken: link.token, ...geo });
+      const address = session.instruction!.reference;
+      const deliver = (id: string) =>
+        pay.handleWebhook(
+          'crypto-native',
+          signed('crypto-native', { id, type: 'captured', ref: address, occurredAt: new Date().toISOString() }),
+        );
+
+      chain.creditAnother({ address, assetId: 'USDT', amount: amt('60'), from: '0xbuyer', confirmations: 12, txHash: '0xpart1' });
+      const first = await deliver('evt-part-1');
+      expect(first).toMatchObject({ applied: false, duplicate: false });
+      const part = await pay.getCheckoutSession(sessionToken);
+      expect(part.status).toBe('open');
+      expect(part.progress).toEqual({ received: '60', missing: '40', confirming: '0' });
+      // No credit yet: the merchant is paid once, for the whole amount.
+      expect(await pay.clearingBalance(m.id, 'USDT')).toBe(0n);
+      const paid = await sql<Array<{ status: string }>>`
+        SELECT p.status FROM pay.payments p JOIN pay.checkout_sessions s ON s.payment_id = p.id WHERE s.id = ${session.id}
+      `;
+      expect(paid[0]!.status).toBe('created');
+
+      chain.creditAnother({ address, assetId: 'USDT', amount: amt('40'), from: '0xbuyer', confirmations: 12, txHash: '0xpart2' });
+      expect(await deliver('evt-part-2')).toMatchObject({ applied: true });
+      expect(await clearingOf(m.id)).toBe('100');
+      expect((await pay.getCheckoutSession(sessionToken)).status).toBe('completed');
+
+      // Either delivery again changes nothing: one capture, one use of the link.
+      await deliver('evt-part-1');
+      await deliver('evt-part-2');
+      expect(await clearingOf(m.id)).toBe('100');
+      const rows = await sql<Array<{ uses: number }>>`SELECT uses FROM pay.payment_links WHERE id = ${link.id}`;
+      expect(Number(rows[0]!.uses)).toBe(1);
+    });
+
+    it('books nothing when a part is reorganised away between authorize and capture, and books once when it is back', async () => {
+      const { merchant: m, link } = await linked({ amount: '100', currency: 'USDT' });
+      const { sessionToken, session } = await pay.openCheckoutSession({ linkToken: link.token, ...geo });
+      const address = session.instruction!.reference;
+      const [row] = await sql<Array<{ payment_id: string }>>`SELECT payment_id FROM pay.checkout_sessions WHERE id = ${session.id}`;
+      chain.creditAnother({ address, assetId: 'USDT', amount: amt('60'), from: '0xbuyer', confirmations: 12, txHash: '0xr1' });
+      chain.creditAnother({ address, assetId: 'USDT', amount: amt('40'), from: '0xbuyer', confirmations: 12, txHash: '0xr2' });
+      expect((await pay.authorize(row!.payment_id)).status).toBe('authorized');
+
+      chain.setConfirmations(address, 0, '0xr1');
+      await expect(pay.capture(row!.payment_id)).rejects.toMatchObject({ code: 'pay.rail_amount_mismatch' });
+      expect(await pay.clearingBalance(m.id, 'USDT')).toBe(0n);
+
+      chain.setConfirmations(address, 12, '0xr1');
+      await pay.capture(row!.payment_id);
+      expect(await clearingOf(m.id)).toBe('100');
+      expect((await pay.getCheckoutSession(sessionToken)).status).toBe('completed');
+    });
+
+    it('captures exactly the authorization when dust lands at the address after authorize, and stops asking for the rest', async () => {
+      const { merchant: m, link } = await linked({ amount: '100', currency: 'USDT' });
+      const { sessionToken, session } = await pay.openCheckoutSession({ linkToken: link.token, ...geo });
+      const address = session.instruction!.reference;
+      const [row] = await sql<Array<{ payment_id: string }>>`SELECT payment_id FROM pay.checkout_sessions WHERE id = ${session.id}`;
+      chain.creditAnother({ address, assetId: 'USDT', amount: amt('60'), from: '0xbuyer', confirmations: 12, txHash: '0xd1' });
+      await pay.authorize(row!.payment_id);
+      expect((await pay.getCheckoutSession(sessionToken)).progress).toEqual({ received: '60', missing: '40', confirming: '0' });
+
+      chain.creditAnother({ address, assetId: 'USDT', amount: amt('40'), from: '0xbuyer', confirmations: 12, txHash: '0xd2' });
+      expect((await pay.authorize(row!.payment_id)).status).toBe('authorized');
+      // Authorized: the page no longer asks for anything.
+      expect((await pay.getCheckoutSession(sessionToken)).progress).toBeNull();
+
+      chain.creditAnother({ address, assetId: 'USDT', amount: amt('0.000001'), from: '0xanyone', confirmations: 12, txHash: '0xdust' });
+      await pay.capture(row!.payment_id);
+      expect(await clearingOf(m.id)).toBe('100');
+    });
+
+    it('still shows a payer what arrived and where the rest goes after the window closes', async () => {
+      const { link } = await linked({ amount: '100', currency: 'USDT' });
+      const { sessionToken, session } = await pay.openCheckoutSession({ linkToken: link.token, ...geo });
+      const address = session.instruction!.reference;
+      chain.creditAnother({ address, assetId: 'USDT', amount: amt('60'), from: '0xbuyer', confirmations: 12, txHash: '0xe1' });
+      await pay.handleWebhook(
+        'crypto-native',
+        signed('crypto-native', { id: 'evt-closed-1', type: 'captured', ref: address, occurredAt: new Date().toISOString() }),
+      );
+
+      await sql`UPDATE pay.checkout_sessions SET expires_at = now() - interval '1 minute' WHERE id = ${session.id}`;
+      const closed = await pay.getCheckoutSession(sessionToken);
+      expect(closed.status).toBe('expired');
+      expect(closed.progress).toEqual({ received: '60', missing: '40', confirming: '0' });
+      expect(closed.instruction!.reference).toBe(address);
+    });
+
+    it('acts on a transfer delivered again once it is final, after a delivery that came too early', async () => {
+      const { merchant: m, link } = await linked({ amount: '20', currency: 'USDT' });
+      const { session } = await pay.openCheckoutSession({ linkToken: link.token, ...geo });
+      const address = session.instruction!.reference;
+      const delivery = signed('crypto-native', { id: 'evt-early-1', type: 'captured', ref: address, occurredAt: new Date().toISOString() });
+
+      chain.credit({ address, assetId: 'USDT', amount: amt('20'), from: '0xbuyer', confirmations: 1 });
+      expect(await pay.handleWebhook('crypto-native', delivery)).toMatchObject({ applied: false, duplicate: false });
+      expect(await pay.clearingBalance(m.id, 'USDT')).toBe(0n);
+
+      // The same delivery, now deep enough, is not a duplicate of the early one.
+      chain.setConfirmations(address, 12);
+      expect(await pay.handleWebhook('crypto-native', delivery)).toMatchObject({ applied: true, duplicate: false });
+      expect(await clearingOf(m.id)).toBe('20');
+    });
+
     /**
      * THE OTHER CRASH POINT: the process dies after the session and payment are
      * committed and before the rail was ever asked.
