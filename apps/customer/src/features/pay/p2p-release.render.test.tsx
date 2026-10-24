@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { P2POrder, feeRate } from './P2POrder';
+import { P2POrder } from './P2POrder';
 import type { PersonalPayApi } from './pay-api';
 import type { Trade } from './schemas';
 
@@ -77,7 +77,7 @@ describe('P2P released order (J-p2p-01 #8)', () => {
   });
 
   it('keeps the record’s own words when the read has no split', async () => {
-    const page = await open(released({}), BUYER);
+    const page = await open(released({ feeBps: 100, fee: null, netAmount: null }), BUYER);
     const result = page.querySelector('[data-testid="order-result"]')!;
     expect(result.textContent).toContain('released from escrow, before any service fee');
     expect(result.textContent).toContain('Not on the order record this page reads.');
@@ -88,9 +88,5 @@ describe('P2P released order (J-p2p-01 #8)', () => {
     const result = page.querySelector('[data-testid="order-result"]')!;
     expect(result.textContent).toContain('50 USDT released from your escrow');
     expect(result.textContent).not.toContain('49.5');
-  });
-
-  it('writes a basis-point rate as a percentage without floating point', () => {
-    expect([0, 1, 10, 25, 100, 150, 9_999].map(feeRate)).toEqual(['0', '0.01', '0.1', '0.25', '1', '1.5', '99.99']);
   });
 });

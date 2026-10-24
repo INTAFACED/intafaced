@@ -705,8 +705,10 @@ test('J-p2p-01 #8 the seller releases; the order says Completed with the coins a
   const order = page.getByRole('main');
   await expect(order.locator('.p2p-order-identity')).toContainText('Completed');
   const result = order.getByTestId('order-result');
-  await expect(result).toContainText(`${trade.netAmount} USDT, after the service fee`);
-  await expect(result).toContainText(`${trade.fee} USDT (`);
+  // The page groups thousands; these amounts are whole decimal strings from the order read.
+  const shown = (value) => value.replace(/^\d+/, (whole) => whole.replace(/\B(?=(\d{3})+(?!\d))/g, ','));
+  await expect(result).toContainText(`${shown(trade.netAmount)} USDT, after the service fee`);
+  await expect(result).toContainText(`${shown(trade.fee)} USDT (`);
 
   // The order list puts it under Completed, in the same words.
   await page.goto('/uc/order');

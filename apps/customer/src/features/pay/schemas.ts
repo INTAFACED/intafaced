@@ -110,10 +110,10 @@ export const tradeSchema = z.object({
   terms: z.string().nullable().optional(),
   /** `trades.get` only: the readable status the order list shows. */
   displayStatus: z.enum(displayStatuses).optional(),
-  /** `trades.get` only: the fee rate frozen at take, and the release split the ledger posts from it (fee off the escrowed amount). */
+  /** `trades.get` only: the fee rate frozen at take, and for a released order the split the ledger posted from it (null otherwise). */
   feeBps: z.number().int().min(0).max(9_999).optional(),
-  fee: amount.optional(),
-  netAmount: amount.optional(),
+  fee: amount.nullable().optional(),
+  netAmount: amount.nullable().optional(),
 });
 /** svc-p2p `trades.page`: one keyset page newest first, the server's tab and readable status per row, and exact per-tab counts. */
 export const orderTabs = ['in_progress', 'in_dispute', 'completed', 'cancelled'] as const;
