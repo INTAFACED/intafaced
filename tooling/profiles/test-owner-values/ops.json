@@ -10,6 +10,21 @@
       "service": "ops",
       "value": "http://archive.test.invalid/restore",
       "note": "TEST joint-restore archive URL. Nothing is behind it and the archive is not probed, so no backup is listed; it only lets restore steps run on the test stack."
+    },
+    "OPS_HOME_WORK_LIST_CAP": {
+      "service": "ops",
+      "value": "5",
+      "note": "TEST cap for Home's \"Needs you\" list, so the list loads on the test stack. Not the owners' cap."
+    },
+    "OPS_HOME_WORK_LIST_ORDER": {
+      "service": "ops",
+      "value": "verification,margin_health,loan_payment_due,card_frozen,payout_waiting",
+      "note": "TEST order of Home's work item kinds (the contract's own listing order). Not the owners' order."
+    },
+    "OPS_HOME_SEARCH_RESULT_CAP": {
+      "service": "ops",
+      "value": "5",
+      "note": "TEST number of help articles the header search lists. Not the owners' cap."
     }
   }
 }

@@ -1,6 +1,8 @@
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import {
+  homeConfigOutputSchema,
+  type HomeConfig,
   opsCostEntryInputSchema,
   opsCostEntrySchema,
   opsVenueEconomicsSchema,
@@ -38,6 +40,7 @@ import {
 } from './codes.js';
 import type { FeeRevenuePort, FeeRevenueRead } from './fee-revenue-client.js';
 import { assertOpsListLimit, OPS_LIST_LIMIT_CAP } from './list-limit.js';
+import { BLANK_HOME_CONFIG } from './home-config.js';
 import type { OpsService } from './ops-service.js';
 import type { OutreachCrm } from './outreach/crm.js';
 import type { FounderAuthority } from './outreach/authority.js';
@@ -223,6 +226,8 @@ export interface OperatorDeskConfig {
   readonly protocolListing?: ListingDesk;
   /** Durable compliance cases. Absent means every compliance call refuses `ops.compliance_storage_unconfigured`. */
   readonly compliance?: ComplianceStore;
+  /** Home's owner values (`home.config`). Absent answers every value blank, so the customer app refuses each by code. */
+  readonly home?: HomeConfig;
 }
 
 export function createOpsRouter(
@@ -250,6 +255,11 @@ export function createOpsRouter(
     health: publicProcedure
       .output(z.object({ ok: z.literal(true), service: z.literal('svc-ops') }))
       .query(() => ({ ok: true as const, service: 'svc-ops' as const })),
+
+    // Public: owner values only (a cap, an order of kinds, a cap), nothing about any person.
+    home: router({
+      config: publicProcedure.output(homeConfigOutputSchema).query(() => desks.home ?? BLANK_HOME_CONFIG),
+    }),
 
     contacts: scopedProcedure('ops:read', guards)
       .input(listLimitInput)

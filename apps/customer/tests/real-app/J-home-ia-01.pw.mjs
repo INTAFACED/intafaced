@@ -233,20 +233,31 @@ test(`${J}, part of #5: a failed activity read says so with Try again, and the r
   await expect(list.locator('.home-activity__row')).toHaveCount(3);
 });
 
-test(`${J}, part of #4: Needs you is on Home, and while Home's list settings cannot be read it says so with its code and Try again, never "nothing needs you"`, async ({
+test(`${J}, part of #4: Needs you is on Home and loads with Home's TEST list settings; with nothing to do it says nothing needs you`, async ({
   page,
 }) => {
   await signIn(page, who);
   await page.goto('/');
   const work = page.locator('section[aria-labelledby="home-work-title"]');
   await expect(work).toBeVisible();
-  // svc-ops runs on the local stack but has no `home.config` procedure yet (Home's owner values: the cap and order). Edge
-  // answers 404 and the app names it home.config_unwired. The list is refused and named; an empty list here would claim
-  // that nothing needs the person.
-  await expect(work.locator('[data-slot="state-block"]')).toContainText('Not served here');
-  await expect(work).toContainText('home.config_unwired');
+  // svc-ops answers home.config with the stack's labelled TEST cap and order (tooling/profiles/test-owner-values/ops.json);
+  // in production they are blank and the list refuses with home.work_list_cap_unset. This person is verified and owes
+  // nothing, and every owner answered, so the list says so in full.
+  await expect(work.locator('.home-work__none')).toHaveText('Nothing needs you right now.');
+  await expect(work.locator('.home-work__none')).toHaveAttribute('data-complete', 'true');
+  await expect(work).not.toContainText('home.config_unwired');
+  await expect(work).not.toContainText('Not served here');
+});
+
+test(`${J}, part of #4: an unverified person gets one item linking to Verification`, async ({ page }) => {
+  await signUp(page, 'hmw');
+  await page.goto('/');
+  const work = page.locator('section[aria-labelledby="home-work-title"]');
+  const rows = work.locator('.home-work__row[data-kind]');
+  await expect(rows).toHaveCount(1);
+  await expect(rows.first()).toHaveAttribute('data-kind', 'verification');
+  await expect(rows.first()).toHaveAttribute('href', '/verification');
   await expect(work).not.toContainText('Nothing needs you');
-  await expect(work.getByRole('button', { name: 'Try again' })).toBeVisible();
 });
 
 /** Each Get started step as the tile shows it: { step: status }, plus where each open step leads. */

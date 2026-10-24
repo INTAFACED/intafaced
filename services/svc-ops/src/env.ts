@@ -69,6 +69,14 @@ export const opsEnvSchema = baseEnvSchema
        * Blank → heartbeatStatus reports ops.heartbeat_window_unset and overdue stays null. Never invented.
        */
       OPS_ALERT_HEARTBEAT_MAX_AGE_SECONDS: blankAsAbsent(z.coerce.number().int().positive().optional()),
+      // Home's owner values (HM-dashboard-03, HM-navigation-04), answered by the public home.config read. A malformed
+      // value refuses at boot (src/home-config.ts).
+      /** How many items Home's "Needs you" list shows (1-50). NO DEFAULT: blank → Home refuses home.work_list_cap_unset. */
+      OPS_HOME_WORK_LIST_CAP: blankAsAbsent(z.string().optional()),
+      /** Work item kinds in Home's order, comma separated, each once. NO DEFAULT: blank → home.work_list_order_unset. */
+      OPS_HOME_WORK_LIST_ORDER: blankAsAbsent(z.string().optional()),
+      /** Help articles the header search lists (1-20). NO DEFAULT: blank → home.search_result_cap_unset. */
+      OPS_HOME_SEARCH_RESULT_CAP: blankAsAbsent(z.string().optional()),
       /**
        * Optional deployment reason codes for hiding a pool or delisting a market, comma separated, lower snake case.
        * Blank → the built-in default list applies; an admin edit overrides both. A misspelt code refuses at boot.

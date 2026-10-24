@@ -13,6 +13,7 @@ Module id: `core-ops`. Edge prefix: `/api/ops`. Port: `4022`.
 | Procedure                           | Scope                    | Notes                                                                                                                     |
 | ----------------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
 | `health`                            | public                   | `{ ok, service }` — liveness, not a custody claim                                                                         |
+| `home.config`                       | public                   | Home's owner values: work list cap and order, search help cap; blank is `null` (see "Home owner values")                  |
 | `contacts`                          | `ops:read`               | local + sourced; identity/support may be `ops.identity_unwired` / `ops.support_unwired`                                   |
 | `createContact`                     | `ops:write`              | local CRM row                                                                                                             |
 | `team`                              | `ops:read`               | directory; `payroll.forbidden` always                                                                                     |
@@ -24,6 +25,10 @@ Module id: `core-ops`. Edge prefix: `/api/ops`. Port: `4022`.
 | `custody.createApproval`            | `ops:write`              | pending movement record when freeze is `open`; blank/frozen refuse and do not queue                                       |
 | `custody.wrap`                      | `ops:write`              | blank wrap → `ops.custody_wrap_unset`; never invents keys                                                                 |
 | `custody.execute`                   | `ops:write`              | freeze unset/frozen named refuse; wrap unset → `ops.custody_wrap_unset`; else `ops.custody_chain_unwired`                 |
+
+## Home owner values
+
+`home.config` (public, HM-dashboard-03 and HM-navigation-04) answers `{ workListCap, workListOrder, searchResultCap, revision }` from `OPS_HOME_WORK_LIST_CAP` (1-50), `OPS_HOME_WORK_LIST_ORDER` (work item kinds, comma separated, each once) and `OPS_HOME_SEARCH_RESULT_CAP` (1-20). A blank value answers `null`, and the customer app refuses with that value's own code (`home.work_list_cap_unset`, `home.work_list_order_unset`, `home.search_result_cap_unset`). A malformed value stops the service at boot rather than reading as blank. `revision` is 0: the values change only with a restart. It holds owner values only, nothing about any person. The local test stack sets labelled TEST values (`tooling/profiles/test-owner-values/ops.json`).
 
 ## Venue unit economics
 

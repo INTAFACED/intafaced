@@ -37,6 +37,7 @@ import { createOpsApprovalClient } from './operator-desks.js';
 import { OpsService } from './ops-service.js';
 import { OPS_IDENTITY_UNWIRED, OPS_SUPPORT_UNWIRED } from './codes.js';
 import { opsReadyUrlHonesty } from './ready-honesty.js';
+import { homeConfigFrom } from './home-config.js';
 
 if (process.env.OPS_OUTREACH_RESTORE_QUARANTINED === '1') throw new Error('ops.crm.restore_quarantined');
 
@@ -157,6 +158,7 @@ const appRouter = createOpsRouter(
     alertDesk,
     alertHeartbeatMaxAgeSeconds: env.OPS_ALERT_HEARTBEAT_MAX_AGE_SECONDS ?? null,
     compliance: crmSql ? createPgComplianceStore(crmSql) : undefined,
+    home: homeConfigFrom(env),
     alertSourceUrl: env.OPS_ALERT_SOURCE_URL,
     approvals: approvalConsumer,
     protocolListing: crmSql
