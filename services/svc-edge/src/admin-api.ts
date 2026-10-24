@@ -287,7 +287,14 @@ export type LedgerControlPath =
   '/operator/reconciliation/controls' | '/operator/reconciliation/controls/update' | '/operator/reconciliation/controls/run';
 
 export type LedgerOperatorCall = (
-  path: '/operator/freeze' | '/operator/unfreeze' | '/operator/reconcile' | LedgerLookupPath | LedgerDeskPath | LedgerControlPath,
+  path:
+    | '/operator/freeze'
+    | '/operator/unfreeze'
+    | '/operator/reconcile'
+    | LedgerLookupPath
+    | LedgerDeskPath
+    | LedgerControlPath
+    | LedgerMetadataPath,
   method: 'GET' | 'POST',
   bearer: string,
   body?: unknown,
@@ -317,6 +324,27 @@ export const LEDGER_DESK_READS = {
 } as const satisfies Record<string, { path: string; keys: readonly string[] }>;
 export type LedgerDeskRead = keyof typeof LEDGER_DESK_READS;
 const DESK_QUERY_VALUE_MAX = 256;
+
+/**
+ * An account's operator metadata (J-ops-console-03 #6, #7): the read, and the two treasury writes. Built from a checked
+ * account UUID, never from a caller's raw path. svc-ledger checks every field; the edge forwards only the named ones.
+ */
+export type LedgerMetadataPath =
+  `/operator/accounts/${string}/metadata` | `/operator/accounts/${string}/metadata/set` | `/operator/accounts/${string}/metadata/delete`;
+const metadataField = z.string().max(DESK_QUERY_VALUE_MAX);
+const metadataRevision = z.number().int().min(0).max(2_147_483_646);
+const accountMetadataSetBody = z
+  .object({ key: metadataField, value: z.string().max(500), reason: z.string().max(500), revision: metadataRevision })
+  .strict();
+const accountMetadataDeleteBody = z
+  .object({
+    key: metadataField,
+    reason: z.string().max(500),
+    revision: metadataRevision,
+    approvalId: z.string().max(128),
+    operationId: z.string().max(128),
+  })
+  .strict();
 
 export interface AdminApi {
   /** Verify an Authorization header for module control, or throw `AuthError`. */
@@ -363,6 +391,15 @@ export interface AdminApi {
   traceBusinessKey(businessKey: unknown, header: string): Promise<{ status: number; body: unknown }>;
   /** One ledger desk read (list, address search or counts), read by svc-ledger as the operator. */
   readLedgerDesk(read: LedgerDeskRead, query: unknown, header: string): Promise<{ status: number; body: unknown }>;
+  /** An account's operator metadata, forwarded with the operator's own token (lookup authority). */
+  readAccountMetadata(accountId: unknown, header: string): Promise<{ status: number; body: unknown }>;
+  /** Set or delete one metadata key (treasury). Throws `InvalidControlBodyError` for a body it will not forward. */
+  writeAccountMetadata(
+    write: 'set' | 'delete',
+    accountId: unknown,
+    body: unknown,
+    header: string,
+  ): Promise<{ status: number; body: unknown }>;
   /**
    * Reconciliation control list. `admin:treasury` (with a second factor) or `admin:compliance`.
    * Same rule as svc-ledger's list door.
@@ -626,6 +663,22 @@ export function createAdminApi(state: KillSwitchState, deps: AdminApiDeps): Admi
       }
       const search = params.toString();
       return deps.ledger(search ? `${spec.path}?${search}` : spec.path, 'GET', header);
+    },
+
+    async readAccountMetadata(accountId, header) {
+      if (!deps.ledger) return unreachable;
+      const id = LOOKUP_TX_ID.safeParse(accountId);
+      if (!id.success) return invalidLookup('An account id is a UUID.');
+      return deps.ledger(`/operator/accounts/${id.data}/metadata`, 'GET', header);
+    },
+
+    async writeAccountMetadata(write, accountId, body, header) {
+      if (!deps.ledger) return unreachable;
+      const id = LOOKUP_TX_ID.safeParse(accountId);
+      if (!id.success) throw new InvalidControlBodyError('An account id is a UUID.');
+      const payload =
+        write === 'set' ? parsedControlBody(accountMetadataSetBody, body) : parsedControlBody(accountMetadataDeleteBody, body);
+      return deps.ledger(`/operator/accounts/${id.data}/metadata/${write}`, 'POST', header, payload);
     },
 
     async authenticateControlRead(header) {

@@ -15,6 +15,7 @@ import {
   type LedgerDeskRead,
 } from '@/lib/ledger/desk';
 import { lookupRefusal } from '@/lib/ledger/lookup';
+import { AccountMetadataPanel } from '@/components/ledger-account-metadata';
 
 type Reading<T> =
   | { readonly kind: 'idle' }
@@ -69,7 +70,7 @@ export function deskRefusal(code: string | null, status: number): string {
  * the balance derived from them, and the book's counts. Each read runs as the signed-in founder; svc-ledger records a
  * page of the list or the search under them before it reads. Reads only: nothing here can change a posting.
  */
-export function LedgerDesk() {
+export function LedgerDesk({ userId }: { userId: string }) {
   return (
     <section className="adm-control-card" data-testid="ledger-desk" aria-labelledby="ledger-desk-heading">
       <h2 id="ledger-desk-heading">Browse the ledger</h2>
@@ -78,7 +79,7 @@ export function LedgerDesk() {
         Nothing on this desk can change a posting.
       </p>
       <TransactionList />
-      <AccountSearch />
+      <AccountSearch userId={userId} />
       <BookCounts />
     </section>
   );
@@ -228,8 +229,9 @@ function TransactionList() {
   );
 }
 
-function AccountSearch() {
+function AccountSearch({ userId }: { userId: string }) {
   const [prefix, setPrefix] = useState('');
+  const [labelled, setLabelled] = useState<string | null>(null);
   const [view, setView] = useState<Reading<DeskAccountPage>>({ kind: 'idle' });
   const [pages, setPages] = useState<string[]>([]);
   const [applied, setApplied] = useState('');
@@ -296,6 +298,7 @@ function AccountSearch() {
                     <th>Credits</th>
                     <th>Balance</th>
                     <th>Postings</th>
+                    <th>Metadata</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -311,6 +314,11 @@ function AccountSearch() {
                       <td>{row.credits}</td>
                       <td>{row.balance}</td>
                       <td>{row.postings}</td>
+                      <td>
+                        <button type="button" onClick={() => setLabelled(row.accountId)} aria-pressed={labelled === row.accountId}>
+                          Metadata
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -348,6 +356,7 @@ function AccountSearch() {
             </p>
           </>
         ))}
+      {labelled && <AccountMetadataPanel key={labelled} accountId={labelled} userId={userId} onClose={() => setLabelled(null)} />}
     </div>
   );
 }

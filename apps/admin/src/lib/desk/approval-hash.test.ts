@@ -4,6 +4,11 @@ import { academyActionPayloadHash } from '../../../../../services/svc-academy/sr
 import { marketActionPayloadHash } from '../../../../../services/svc-market/src/action-approval-consume';
 import { bankActionPayloadHash } from '../../../../../services/svc-bank/src/action-approval-consume';
 import { ledgerActionPayloadHash } from '../../../../../services/svc-ledger/src/ledger/action-approval-consume';
+import {
+  ACCOUNT_METADATA_DELETE_ACTION,
+  ACCOUNT_METADATA_DELETE_TARGET,
+  accountMetadataDeleteFields,
+} from '../../../../../services/svc-ledger/src/ledger/operator-account-metadata';
 import { identityActionPayloadHash } from '../../../../../services/svc-identity/src/auth/privileged-dual-control';
 import { AUTH_KEY_REMOVE_OLD_TARGET, AUTH_KEY_ROTATE_TARGET } from '../../../../../services/svc-identity/src/auth/auth-key-ring';
 import {
@@ -51,6 +56,22 @@ describe('payload hash equals the owning service’s own function', () => {
       targetService: 'svc-ledger',
       targetId: 'posting_reconciliation_control.run',
       expectedVersion: '3',
+    });
+  });
+  it('ledger.account_metadata.delete binds the account, key and reason as svc-ledger does, at the key’s revision', () => {
+    const request = {
+      kind: 'ledger.account_metadata.delete',
+      accountId: '0b4f6c2e-1111-4222-8333-444455556666',
+      key: 'desk.label',
+      reason: 'LOCAL TEST remove the desk label',
+      version: '2',
+    } as const;
+    expect(payloadHashFor(request)).toBe(ledgerActionPayloadHash(ACCOUNT_METADATA_DELETE_ACTION, accountMetadataDeleteFields(request)));
+    expect(proposeInputFor(request)).toMatchObject({
+      actionType: ACCOUNT_METADATA_DELETE_ACTION,
+      targetService: 'svc-ledger',
+      targetId: ACCOUNT_METADATA_DELETE_TARGET,
+      expectedVersion: '2',
     });
   });
   it('market.vendor.vet and the academy ambassador verbs', () => {

@@ -193,7 +193,7 @@ describe('GET /api/ledger-desk/[read]', () => {
 
 describe('the desk on the page', () => {
   it('lays out the list, the address search and the counts, with no figure before a read', () => {
-    const html = renderToStaticMarkup(<LedgerDesk />);
+    const html = renderToStaticMarkup(<LedgerDesk userId="founder-a" />);
     for (const id of ['ledger-desk-transactions', 'ledger-desk-accounts', 'ledger-desk-stats'])
       expect(html).toContain(`data-testid="${id}"`);
     expect(html).toContain('Show transactions');

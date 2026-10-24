@@ -73,6 +73,9 @@ export function payloadHashFor(request: DeskRequest): string {
         margin: request.margin,
         reason: request.reason,
       });
+    // svc-ledger `ledgerActionPayloadHash('ledger.account_metadata.delete', { accountId, key, reason })`.
+    case 'ledger.account_metadata.delete':
+      return sha('ledger.account_metadata.delete', { accountId: request.accountId, key: request.key, reason: request.reason });
     case 'market.vendor.vet':
       return sha('market.vendor.vet', { vendorId: request.vendorId, decision: request.decision, reason: request.reason });
     case 'academy.ambassador.freeze':
@@ -183,6 +186,16 @@ export function proposeInputFor(request: DeskRequest): ProposeInput {
         actionType: 'ledger.reconciliation_control.run',
         targetService: 'svc-ledger',
         targetId: 'posting_reconciliation_control.run',
+        expectedVersion: request.version,
+        payloadHash,
+        policyVersion: 'v1',
+      };
+    // svc-ledger consumes a metadata delete at the key's revision it reads, against `posting_account_metadata.delete`.
+    case 'ledger.account_metadata.delete':
+      return {
+        actionType: 'ledger.account_metadata.delete',
+        targetService: 'svc-ledger',
+        targetId: 'posting_account_metadata.delete',
         expectedVersion: request.version,
         payloadHash,
         policyVersion: 'v1',

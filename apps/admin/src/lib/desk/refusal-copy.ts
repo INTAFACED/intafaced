@@ -499,6 +499,36 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'Tolerance, schedule and severity are needed (a threshold control also needs a threshold per asset), so it was not activated.',
     next: 'Fill in the blank values. Nothing was changed.',
   },
+  'ledger.frozen': {
+    title: 'The ledger is frozen',
+    body: 'The posting freeze is on, so svc-ledger takes no write, metadata included. Reads still work. Nothing was changed, and an approval was not used.',
+    next: 'Wait for the freeze to be lifted, then try again with the same approval.',
+  },
+  'ledger.account_metadata_stale': {
+    title: 'That key changed since you read it',
+    body: 'Someone else set or deleted this key after it was read, so svc-ledger changed nothing.',
+    next: 'Read the account again, and ask for a new approval if this was a delete.',
+  },
+  'ledger.account_metadata_approval_spent': {
+    title: 'The approval was used, but nothing was deleted',
+    body: 'The posting freeze or another change to this key landed in the moment svc-ledger was writing the delete, so it changed nothing. Identity had already spent the approval.',
+    next: 'Read the account again, then ask a second founder for a new approval.',
+  },
+  'ledger.account_metadata_key_absent': {
+    title: 'That key holds no value',
+    body: 'svc-ledger has no value under this key on the account, so there was nothing to delete.',
+    next: 'Read the account again.',
+  },
+  'ledger.account_not_found': {
+    title: 'No ledger account has that id',
+    body: 'svc-ledger has no account with that id, so nothing was read or changed.',
+    next: 'Search the account address again.',
+  },
+  'ledger.account_metadata_invalid': {
+    title: 'The key, value or reason was refused',
+    body: 'A key is lower case (a letter, then letters, digits, _ . : or -, 64 at most), a value is 1 to 500 characters and a reason 12 to 500. Nothing was changed.',
+    next: 'Correct it and try again.',
+  },
   'ledger.reconcile_asof_invalid': {
     title: 'That instant is in the future',
     body: 'A control reads only the past, so svc-ledger refused before it read anything or used the approval.',
