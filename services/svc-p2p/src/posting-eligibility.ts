@@ -23,6 +23,7 @@
  * shows and the refusal at post can never disagree.
  */
 import { KYC_TIERS, tierSatisfies, type KycTier } from '@intafaced/config';
+import { SCALE, parseAmount } from '@intafaced/ledger-client';
 
 export const POSTING_THRESHOLDS_SETTING = 'P2P_POSTING_THRESHOLDS';
 
@@ -65,8 +66,7 @@ const THRESHOLD_KEYS = new Set(['minKycTier', 'minCompletedOrders', 'minCompleti
 /** A percent string ("90", "95.24") in hundredths of a percent, or null when it is not one. */
 export function percentHundredths(value: string): number | null {
   if (!PERCENT.test(value)) return null;
-  const [whole, part = ''] = value.split('.');
-  const hundredths = Number(whole) * 100 + Number(part.padEnd(2, '0'));
+  const hundredths = Number(parseAmount(value) / (SCALE / 100n));
   return hundredths <= 10_000 ? hundredths : null;
 }
 
