@@ -9,7 +9,8 @@ import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { CourseRecords } from './courses.js';
 import { CoursePreview } from './course-preview.js';
 import { CourseLearners } from './course-learners.js';
-import { CourseAssignments, type PutObjectFn } from './assignments.js';
+import type { AcademyAnswerMode } from '@intafaced/contracts/academy-courses';
+import { CourseAssignments, type PutObjectFn, type SubmissionFileLimits } from './assignments.js';
 import { LessonRecords } from './lessons.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -56,10 +57,16 @@ const put: PutObjectFn = async (url, bytes, type) => {
 const courses = () => new CourseRecords(db.sql, { maxSections: 5, maxItems: 5 });
 const lessons = () => new LessonRecords(db.sql, courses());
 const learners = () => new CourseLearners(db.sql, new CoursePreview(db.sql));
-const assignments = (limits = { maxBytes: 1024, types: ['application/pdf', 'image/png'] as readonly string[] | null }) =>
+const assignments = (limits: SubmissionFileLimits = { maxBytes: 1024, types: ['application/pdf', 'image/png'] }) =>
   new CourseAssignments(db.sql, STORAGE, limits, put);
 
-const BRIEF = { instructions: 'Size one trade.', points: '10', dueAt: DUE, text: 'required', file: 'required' } as const;
+const BRIEF: { instructions: string; points: string; dueAt: string | null; text: AcademyAnswerMode; file: AcademyAnswerMode } = {
+  instructions: 'Size one trade.',
+  points: '10',
+  dueAt: DUE,
+  text: 'required',
+  file: 'required',
+};
 
 /** A free course with one assignment item, its brief saved, published, and learner L enrolled. */
 async function openAssignment(brief: Partial<typeof BRIEF> = {}) {
