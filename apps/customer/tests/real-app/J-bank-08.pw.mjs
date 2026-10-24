@@ -188,8 +188,8 @@ test(`${J} #2 opens a pool: rate band, yield source, commission and reward asset
   await expect(page.getByTestId('earn-pool-status')).toHaveAttribute('data-status', 'open');
   await expect(facts.locator('[data-fact="rate"] dd')).toHaveText('1.25%');
   // No owner has published balance bands, a commission or a capacity: each reads "not set", never zero.
-  await expect(facts.locator('[data-fact="bands"] dd')).toHaveText('Not set. Every balance earns the pool rate.');
-  await expect(facts.locator('[data-fact="commission"] dd')).toHaveText('Not set. The bank takes nothing from the interest.');
+  await expect(facts.locator('[data-fact="bands"] dd')).toHaveText('Not set. The pool pays one rate on every balance.');
+  await expect(facts.locator('[data-fact="commission"] dd')).toHaveText('Not set. No commission on interest is published for this pool.');
   await expect(facts.locator('[data-fact="capacity"] dd')).toHaveText('Not set. The bank publishes no cap for this pool.');
   // Where the interest comes from and what it is paid in are the bank's own facts.
   await expect(facts.locator('[data-fact="yield"] dd')).toContainText('reserve');

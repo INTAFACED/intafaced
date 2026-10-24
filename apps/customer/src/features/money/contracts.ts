@@ -34,6 +34,8 @@ export const positionSchema = z.object({
   principal: money,
   openedAt: z.string(),
   maturesAt: z.string().nullable(),
+  /** The pool's recorded rate when the position opened; null when it opened before the pool's first record. */
+  rateAtOpenBps: z.number().int().nullable(),
 });
 /**
  * What a pool publishes beyond its rate and term (svc-bank `earn.router.ts`, BK-earn-02 and BK-earn-05): how interest is

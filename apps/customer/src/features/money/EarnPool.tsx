@@ -5,13 +5,13 @@ import { bps, date, funds, NoRows, Section, useBankRead } from './components';
 import type { positionSchema, rateHistorySchema } from './contracts';
 import { earnPoolCopy } from './earn-pool-copy';
 import { poolFactRows } from './EarnCompare';
-import { rateAt, stepChart } from './earn-rate-history';
+import { stepChart } from './earn-rate-history';
 import './earn-pool.css';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 type History = z.infer<typeof rateHistorySchema>;
 type Position = z.infer<typeof positionSchema>;
-const HISTORY_ROWS = 50;
+const HISTORY_ROWS = 200;
 const POSITIONS = 50;
 const CHART_W = 600;
 const CHART_H = 160;
@@ -62,7 +62,7 @@ function PoolBody({ poolId }: { poolId: string }) {
   const { t } = earnPoolCopy.useCopy();
   const pool = useBankRead('earn.pool', { poolId });
   const history = useBankRead('earn.rateHistory', { poolId, limit: HISTORY_ROWS });
-  const positions = useBankRead('earn.positions', { limit: POSITIONS });
+  const positions = useBankRead('earn.positions', { limit: POSITIONS, poolId });
   if (pool.resource.status === 'loading') return <Loading />;
   if (pool.resource.status === 'failed') return <Refused failure={pool.resource.failure} retry={pool.reload} />;
   const data = pool.resource.data;
@@ -95,12 +95,7 @@ function PoolBody({ poolId }: { poolId: string }) {
       <Section title={t('yoursTitle')}>
         {positions.resource.status === 'loading' && <Loading />}
         {positions.resource.status === 'failed' && <Refused failure={positions.resource.failure} retry={positions.reload} />}
-        {positions.resource.status === 'ready' && (
-          <Yours
-            positions={positions.resource.data.filter((position) => position.poolId === data.id)}
-            history={history.resource.status === 'ready' ? history.resource.data : null}
-          />
-        )}
+        {positions.resource.status === 'ready' && <Yours positions={positions.resource.data} />}
       </Section>
     </div>
   );
@@ -168,23 +163,20 @@ function RateHistory({ history }: { history: History }) {
 }
 
 /** The person's savings in this pool, each with the rate the bank's record shows in force when it was opened. */
-function Yours({ positions, history }: { positions: Position[]; history: History | null }) {
+function Yours({ positions }: { positions: Position[] }) {
   const { t } = earnPoolCopy.useCopy();
   if (!positions.length) return <p className="money-caption">{t('yoursNone')}</p>;
   return (
     <>
       {positions.map((position) => {
-        const atOpen = history ? rateAt(history.changes, position.openedAt) : null;
         return (
           <article className="money-record" key={position.id} data-testid="earn-pool-position" data-position={position.id}>
             <header>
               <div>
                 <p className="money-caption">{t('opened', { date: date(position.openedAt) })}</p>
-                {history && (
-                  <p className="money-caption" data-testid="earn-pool-rate-at-open" data-bps={atOpen?.rateBps ?? ''}>
-                    {atOpen ? t('rateAtOpen', { rate: bps(atOpen.rateBps) }) : t('rateAtOpenUnknown')}
-                  </p>
-                )}
+                <p className="money-caption" data-testid="earn-pool-rate-at-open" data-bps={position.rateAtOpenBps ?? ''}>
+                  {position.rateAtOpenBps === null ? t('rateAtOpenUnknown') : t('rateAtOpen', { rate: bps(position.rateAtOpenBps) })}
+                </p>
               </div>
               <strong className="numeric">{funds(position.principal, position.assetId)}</strong>
             </header>

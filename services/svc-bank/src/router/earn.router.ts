@@ -112,6 +112,8 @@ export function createEarnRouter(c: BankRouterContext) {
           poolId: z.string().guid(),
           /** Page size. Optional so omit reaches `bank.earn_rate_history_limit_unset`; blank is not 50. */
           limit: z.number().int().min(1).max(200).optional(),
+          /** Older records only: the effective time of the oldest record of the page before (exclusive). */
+          before: z.string().datetime({ offset: true }).optional(),
         }),
       )
       .output(
@@ -124,7 +126,7 @@ export function createEarnRouter(c: BankRouterContext) {
       )
       .query(async ({ input }) =>
         guard(async () => {
-          const history = await bank.earn.rateHistory(input.poolId, input.limit);
+          const history = await bank.earn.rateHistory(input.poolId, input.limit, input.before ? new Date(input.before) : undefined);
           return {
             ...history,
             changes: history.changes.map((c) => ({ rateBps: c.rateBps, effectiveAt: c.effectiveAt.toISOString(), reason: c.reason })),
@@ -169,6 +171,8 @@ export function createEarnRouter(c: BankRouterContext) {
              * instead of a Zod "Required". Blank is not 50; pass 50 explicitly.
              */
             limit: z.number().int().min(1).max(200).optional(),
+            /** One pool's positions only (the pool page, BK-earn-05). */
+            poolId: z.string().guid().optional(),
           })
           .optional(),
       )
@@ -181,12 +185,17 @@ export function createEarnRouter(c: BankRouterContext) {
             principal: amountString,
             openedAt: z.string(),
             maturesAt: z.string().nullable(),
+            /** The pool's recorded rate when the position opened; null when it opened before the pool's first record. */
+            rateAtOpenBps: z.number().int().nullable(),
           }),
         ),
       )
       .query(async ({ ctx, input }) =>
         guard(async () => {
-          const positions = await bank.earn.positionsOf(ctx.principal.userId, input?.limit);
+          const positions = input?.poolId
+            ? await bank.earn.positionsInPool(ctx.principal.userId, input.poolId, input.limit)
+            : await bank.earn.positionsOf(ctx.principal.userId, input?.limit);
+          const atOpen = await bank.earn.ratesAtOpen(positions);
           return positions.map((p) => ({
             id: p.id,
             poolId: p.poolId,
@@ -194,6 +203,7 @@ export function createEarnRouter(c: BankRouterContext) {
             principal: formatAmount(p.principal),
             openedAt: p.openedAt.toISOString(),
             maturesAt: p.maturesAt?.toISOString() ?? null,
+            rateAtOpenBps: atOpen.get(p.id) ?? null,
           }));
         }),
       ),

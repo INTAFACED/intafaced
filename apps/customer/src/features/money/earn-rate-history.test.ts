@@ -1,21 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { COMPARE_MAX, rateAt, rowDiffers, stepChart, togglePick } from './earn-rate-history';
+import { COMPARE_MAX, rowDiffers, stepChart, togglePick } from './earn-rate-history';
 
 const changes = [
   { rateBps: 150, effectiveAt: '2026-10-01T00:00:00.000Z' },
   { rateBps: 175, effectiveAt: '2026-10-11T00:00:00.000Z' },
   { rateBps: 125, effectiveAt: '2026-10-21T00:00:00.000Z' },
 ];
-
-describe('rateAt', () => {
-  it('is the record in force at a moment, and nothing before the first record', () => {
-    expect(rateAt(changes, '2026-09-30T23:59:59.000Z')).toBeNull();
-    expect(rateAt(changes, '2026-10-01T00:00:00.000Z')?.rateBps).toBe(150);
-    expect(rateAt(changes, '2026-10-15T12:00:00.000Z')?.rateBps).toBe(175);
-    expect(rateAt(changes, '2026-10-24T12:00:00.000Z')?.rateBps).toBe(125);
-    expect(rateAt(changes, 'not a date')).toBeNull();
-  });
-});
 
 describe('stepChart', () => {
   it('draws one flat step per record from its date, then up or down, and nothing before the first', () => {

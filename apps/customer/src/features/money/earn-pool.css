@@ -2,7 +2,7 @@
 .money-earn-compare__picker {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 16px;
+  gap: 0 24px;
   margin: 0 0 12px;
   padding: 0;
   border: 0;

@@ -48,33 +48,63 @@ export async function recordRateChange(
   `;
 }
 
-export async function readRateHistory(sql: Sql, poolId: string, limit?: number): Promise<RateHistory> {
+/**
+ * One statement, so the pool's current rate and its records come from the same snapshot: a change committing between
+ * two reads could otherwise show "now 1.5%" above a newest record of 1.75%. `before` pages back: only records that
+ * took effect strictly earlier.
+ */
+export async function readRateHistory(sql: Sql, poolId: string, limit?: number, before?: Date): Promise<RateHistory> {
   const page = assertEarnRateHistoryListLimit(limit);
-  const pools = await sql<Array<{ apr_bps: string }>>`SELECT apr_bps FROM bank.earn_pools WHERE id = ${poolId}`;
-  const pool = pools[0];
-  if (!pool) throw new BankError(`Pool ${poolId} not found`, 'bank.pool_not_found');
   // One extra row says whether anything older exists, without counting the table.
-  const rows = await sql<ChangeRow[]>`
-    SELECT rate_bps, effective_at, reason FROM bank.earn_rate_changes
-     WHERE pool_id = ${poolId}
-     ORDER BY effective_at DESC
-     LIMIT ${page + 1}
+  const rows = await sql<Array<{ apr_bps: string; rate_bps: number | null; effective_at: Date | null; reason: string | null }>>`
+    SELECT p.apr_bps, c.rate_bps, c.effective_at, c.reason
+      FROM bank.earn_pools p
+      LEFT JOIN LATERAL (
+        SELECT rate_bps, effective_at, reason FROM bank.earn_rate_changes
+         WHERE pool_id = p.id ${before ? sql`AND effective_at < ${before}` : sql``}
+         ORDER BY effective_at DESC
+         LIMIT ${page + 1}
+      ) c ON true
+     WHERE p.id = ${poolId}
+     ORDER BY c.effective_at DESC
   `;
-  const earlier = rows.length > page;
+  const pool = rows[0];
+  if (!pool) throw new BankError(`Pool ${poolId} not found`, 'bank.pool_not_found');
+  const changes = rows.filter((row): row is ChangeRow & { apr_bps: string } => row.effective_at !== null);
   return {
     poolId,
     currentBps: Number(pool.apr_bps),
-    changes: rows
+    changes: changes
       .slice(0, page)
       .reverse()
       .map((row) => ({ rateBps: row.rate_bps, effectiveAt: row.effective_at, reason: row.reason })),
-    earlier,
+    earlier: changes.length > page,
   };
 }
 
 /**
- * An approved change of a flexible pool's rate, in force from `now`: the pool's `apr_bps` and the history record move
- * together, so the history and the rate the accrual job reads can never disagree.
+ * The rate one accrual day pays: the record in force when the day began (`boundary`, the day's UTC midnight). A change
+ * recorded during a day is paid from the next full day, so no day is paid at a rate that was not in force all of it.
+ * A pool with no record (opened before the table) pays its `apr_bps`; a day before the pool's first record (only a
+ * back-dated job asks for one) pays the first record's rate, never an invented one.
+ */
+export async function rateForDay(tx: Tx, poolId: string, boundary: Date, poolBps: number): Promise<number> {
+  const rows = await tx<Array<{ in_force: number | null; first: number | null }>>`
+    SELECT
+      (SELECT rate_bps FROM bank.earn_rate_changes WHERE pool_id = ${poolId} AND effective_at <= ${boundary}
+        ORDER BY effective_at DESC LIMIT 1) AS in_force,
+      (SELECT rate_bps FROM bank.earn_rate_changes WHERE pool_id = ${poolId}
+        ORDER BY effective_at ASC LIMIT 1) AS first
+  `;
+  const row = rows[0];
+  return row?.in_force ?? row?.first ?? poolBps;
+}
+
+/**
+ * An approved change of a flexible pool's rate: the pool's `apr_bps` (the rate it publishes) and the history record move
+ * together in one transaction. The record takes effect at the database's clock, strictly after the pool's last record,
+ * so the history is in order whatever the app's clock says. Interest pays it from the next full UTC day
+ * (`rateForDay`).
  *
  * One approval writes at most one record. A retry that brings the same approval back (the reply was lost after the
  * commit) gets the record it already wrote, not a second one; the approval itself is consumed only once upstream. A
@@ -88,7 +118,6 @@ export async function setPoolRate(
   if (!Number.isInteger(input.rateBps) || input.rateBps < 0) {
     throw new RangeError(`A rate is a non-negative whole number of basis points, got ${input.rateBps}`);
   }
-  const now = input.now ?? new Date();
   return transaction(
     sql,
     async (tx) => {
@@ -128,15 +157,24 @@ export async function setPoolRate(
       if (previousBps === input.rateBps) {
         throw new BankError(`The pool already pays ${input.rateBps} bps`, 'bank.pool_rate_unchanged');
       }
+      // The pool row is locked, so no other change of this pool can land between this read and the insert.
+      const [clock] = await tx<Array<{ at: Date }>>`
+        SELECT GREATEST(
+          COALESCE(${input.now ?? null}::timestamptz, now()),
+          COALESCE((SELECT max(effective_at) FROM bank.earn_rate_changes WHERE pool_id = ${input.poolId}), '-infinity'::timestamptz)
+            + interval '1 millisecond'
+        ) AS at
+      `;
+      const effectiveAt = clock!.at;
       await recordRateChange(tx, {
         poolId: input.poolId,
         rateBps: input.rateBps,
-        effectiveAt: now,
+        effectiveAt,
         reason: input.reason,
         approvalId: input.approvalId,
       });
       await tx`UPDATE bank.earn_pools SET apr_bps = ${input.rateBps}, updated_at = now() WHERE id = ${input.poolId}`;
-      return { poolId: input.poolId, rateBps: input.rateBps, effectiveAt: now, previousBps };
+      return { poolId: input.poolId, rateBps: input.rateBps, effectiveAt, previousBps };
     },
     { isolation: 'read committed', maxAttempts: 5 },
   );

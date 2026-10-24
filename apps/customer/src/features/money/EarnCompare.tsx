@@ -63,7 +63,7 @@ export function EarnCompare({ pools }: { pools: EarnPool[] }) {
           {pools.map((pool) => {
             const on = picked.includes(pool.id);
             return (
-              <label key={pool.id} className="money-earn-compare__pick">
+              <label key={pool.id} className="money-check money-earn-compare__pick">
                 <input
                   type="checkbox"
                   checked={on}

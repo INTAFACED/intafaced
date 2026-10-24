@@ -1,24 +1,12 @@
 /**
  * Pure helpers for the earn pool page and the side-by-side table (BK-earn-05). Nothing here makes a figure: the
- * rates and dates are the bank's records (`earn.rateHistory`), and these only place them on a chart, find which record
- * was in force at a moment, and say whether the pools in a row differ.
+ * rates and dates are the bank's records (`earn.rateHistory`), and these only place them on a chart and say whether the
+ * pools in a row differ.
  */
 
 export interface RecordedRate {
   rateBps: number;
   effectiveAt: string;
-}
-
-/** The record in force at `at`: the last one that took effect at or before it. Null before the first record. */
-export function rateAt(changes: readonly RecordedRate[], at: string): RecordedRate | null {
-  const when = Date.parse(at);
-  if (!Number.isFinite(when)) return null;
-  let found: RecordedRate | null = null;
-  for (const change of changes) {
-    const from = Date.parse(change.effectiveAt);
-    if (Number.isFinite(from) && from <= when) found = change;
-  }
-  return found;
 }
 
 export interface StepChart {

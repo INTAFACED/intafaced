@@ -186,7 +186,7 @@ describe('earn rate history (BK-earn-05)', () => {
     expect(listed).toMatchObject({ id: input.poolId, rateBands: null, commissionBps: null, capacity: null });
   });
 
-  it('an approved change moves the rate and appends one record; the accrual pays the new rate', async () => {
+  it('an approved change moves the rate and appends one record; interest pays it from the next full day', async () => {
     const bank = services();
     const approvals = deskApprovals();
     const input = flexible({ aprBps: 3650 });
@@ -204,7 +204,8 @@ describe('earn rate history (BK-earn-05)', () => {
     expect(Date.parse(history.changes[1]!.effectiveAt)).toBeGreaterThan(Date.parse(history.changes[0]!.effectiveAt));
     expect((await bank.earn.pool(input.poolId)).aprBps).toBe(7300);
 
-    // One day at the new rate: 1000 at 73% over 365 days is exactly 2 a day.
+    // 1000 saved since yesterday. Today began before the change, so today pays the old 36.5% (exactly 1); tomorrow is
+    // the first full day at 73% (exactly 2). Each day's record names the rate it paid.
     await ledger.post(recipes.deposit({ userId: CUSTOMER, assetId: 'USDT', amount: amt('1000'), rail: 'test', railRef: randomUUID() }));
     await ledger.post(recipes.deposit({ userId: PAYER, assetId: 'USDT', amount: amt('100'), rail: 'test', railRef: randomUUID() }));
     await ledger.post(
@@ -218,17 +219,58 @@ describe('earn rate history (BK-earn-05)', () => {
       }),
     );
     await bank.earn.fundPool({ poolId: input.poolId, fundingId: 'seed-1', amount: amt('100') });
+    const DAY = 24 * 60 * 60 * 1000;
     await bank.earn.deposit({
       poolId: input.poolId,
       userId: CUSTOMER,
       amount: amt('1000'),
       positionId: randomUUID(),
-      now: new Date('2026-03-01T09:00:00Z'),
+      now: new Date(Date.now() - DAY),
     });
-    const day = await bank.earn.accrue({ poolId: input.poolId, at: new Date('2026-03-02T12:00:00Z') });
-    expect(day.paid).toBe(amt('2'));
-    const [row] = await sql<Array<{ rate_bps: string }>>`SELECT rate_bps FROM bank.interest_accruals WHERE pool_id = ${input.poolId}`;
-    expect(Number(row!.rate_bps)).toBe(7300);
+    expect((await bank.earn.accrue({ poolId: input.poolId, at: new Date() })).paid).toBe(amt('1'));
+    expect((await bank.earn.accrue({ poolId: input.poolId, at: new Date(Date.now() + DAY) })).paid).toBe(amt('2'));
+    const rows = await sql<Array<{ rate_bps: string }>>`
+      SELECT rate_bps FROM bank.interest_accruals WHERE pool_id = ${input.poolId} ORDER BY accrual_date
+    `;
+    expect(rows.map((row) => Number(row.rate_bps))).toEqual([3650, 7300]);
+    expect(await bank.earn.interestPaid(input.poolId)).toBe(amt('3'));
+  });
+
+  it('a position shows the rate its pool had recorded when it opened, and one pool’s positions read alone', async () => {
+    const bank = services();
+    const approvals = deskApprovals();
+    const input = flexible({ aprBps: 3650, minDeposit: '0' });
+    await treasury(bank, approvals).ops.createEarnPool({ ...input, ...approvals.pool(input) });
+    const other = flexible({ aprBps: 100, minDeposit: '0' });
+    await treasury(bank, approvals).ops.createEarnPool({ ...other, ...approvals.pool(other) });
+    await ledger.post(recipes.deposit({ userId: CUSTOMER, assetId: 'USDT', amount: amt('100'), rail: 'test', railRef: randomUUID() }));
+    const first = randomUUID();
+    await bank.earn.deposit({ poolId: input.poolId, userId: CUSTOMER, amount: amt('10'), positionId: first });
+    const change = { poolId: input.poolId, rateBps: 7300, reason: 'TEST rate rise' };
+    await treasury(bank, approvals).ops.setEarnPoolRate({ ...change, ...approvals.rate(change) });
+    const second = randomUUID();
+    await bank.earn.deposit({ poolId: input.poolId, userId: CUSTOMER, amount: amt('10'), positionId: second });
+    // Opened before the pool's first record: the bank has no record of the rate then, and says so.
+    const early = randomUUID();
+    await bank.earn.deposit({
+      poolId: other.poolId,
+      userId: CUSTOMER,
+      amount: amt('10'),
+      positionId: early,
+      now: new Date(Date.now() - 60_000),
+    });
+
+    const mine = await customer(bank).earn.positions({ limit: 10, poolId: input.poolId });
+    expect(mine.map((p) => [p.id, p.rateAtOpenBps]).sort()).toEqual(
+      [
+        [first, 3650],
+        [second, 7300],
+      ].sort(),
+    );
+    const all = await customer(bank).earn.positions({ limit: 10 });
+    expect(all.find((p) => p.id === early)?.rateAtOpenBps).toBeNull();
+    // Someone else's pool filter shows them nothing of this person's.
+    expect(await caller(bank, PAYER, ['bank:read']).earn.positions({ limit: 10, poolId: input.poolId })).toEqual([]);
   });
 
   it('refuses a fixed pool’s change, the rate already in force, an unknown pool, and spends no approval doing it', async () => {
