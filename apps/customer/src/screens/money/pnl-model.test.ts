@@ -23,6 +23,7 @@ const row = (asset: string, amount: string, usdValue: string | null): MoneyRow =
   changeRatio: null,
   share: null,
   priceSymbol: null,
+  priceUsd: null,
 });
 
 describe('pnlView', () => {

@@ -39,6 +39,7 @@ import { InfoTip } from './InfoTip';
 import { buyHref } from './links';
 import { clockTime } from './time';
 import {
+  SUMMARY_INTERVAL,
   useAssetBalances,
   useLockSplits,
   useMoneyPortfolio,
@@ -48,6 +49,8 @@ import {
   type NamedAccount,
 } from './portfolio-source';
 import { DerivedTotalNote } from './total-note';
+import { Movers } from './Movers';
+import { ValuationNote } from './ValuationNote';
 import { savePreferences, usePreferences } from '../../shared/preferences';
 
 type Copy = ReturnType<typeof moneyCopy.useCopy>;
@@ -147,6 +150,17 @@ function Headline({ view, hidden, copy, pro }: { view: MoneyView; hidden: boolea
         </p>
       ) : null}
       {btcMissing ? <p className="money-note">{t('BTC price missing')}</p> : null}
+      {view.cashUsd !== null && view.cryptoUsd !== null ? (
+        <p className="money-split" data-testid="total-split">
+          <span data-part="cash">
+            {t('Cash')} <Money value={fmtUsd(view.cashUsd)} hidden={hidden} />
+          </span>
+          {' · '}
+          <span data-part="crypto">
+            {t('Crypto')} <Money value={fmtUsd(view.cryptoUsd)} hidden={hidden} />
+          </span>
+        </p>
+      ) : null}
       {view.change24hUsd !== null && hasCrypto ? (
         <p className="money-change">
           <ChangeText value={fmtChangeLine(view.change24hUsd, view.change24hPct)} hidden={hidden} suffix={changeLabel} />
@@ -179,6 +193,7 @@ function Colgroup({ pro }: { pro: boolean }) {
     <colgroup>
       <col className="money-col--coin" />
       <col className="money-col--amount" />
+      <col className="money-col--price money-cell--value" />
       <col className="money-col--value money-cell--value" />
       <col className="money-col--today money-cell--today" />
       {pro ? <col className="money-col--free money-cell--pro" /> : null}
@@ -280,7 +295,11 @@ function CoinRow({
           <span className="money-coin__text">
             <span className="money-coin__top">
               <span className="money-coin__ticker">{row.asset}</span>
-              {row.share !== null ? <span className="money-coin__share">· {fmtPct(row.share, { signed: false, places: 1 })}</span> : null}
+              {row.share !== null ? (
+                <span className="money-coin__share" data-col="share">
+                  · {fmtPct(row.share, { signed: false, places: 1 })}
+                </span>
+              ) : null}
             </span>
             {name ? <span className="money-coin__name">{name}</span> : null}
           </span>
@@ -305,8 +324,11 @@ function CoinRow({
           <Money value={row.usdValue === null ? null : fmtUsd(row.usdValue)} hidden={hidden} />
         </span>
       </td>
-      {/* A coin with no published price shows a dash that says so, never a zero value. */}
-      <td className="money-num money-cell--value" title={row.usdValue === null ? copy.t('No price published') : undefined}>
+      {/* The price the total used; a coin with no published price shows a dash that says so, never a zero. */}
+      <td className="money-num money-cell--value" data-col="price" title={row.priceUsd === null ? copy.t('No price published') : undefined}>
+        {row.priceUsd === null ? '—' : fmtUsd(row.priceUsd)}
+      </td>
+      <td className="money-num money-cell--value" data-col="value" title={row.usdValue === null ? copy.t('No price published') : undefined}>
         <Money value={row.usdValue === null ? null : fmtUsd(row.usdValue)} hidden={hidden} />
       </td>
       <td className="money-num money-cell--today">
@@ -349,6 +371,9 @@ function CoinTable({
             <th scope="col" className="money-num">
               {t('Amount')}
               <span className="money-num__value"> · {t('Value')}</span>
+            </th>
+            <th scope="col" className="money-num money-cell--value">
+              {t('Price')}
             </th>
             <th scope="col" className="money-num money-cell--value">
               {t('Value')}
@@ -505,7 +530,7 @@ function Accounts({ accounts, hidden, copy }: { accounts: NamedAccount[]; hidden
 export default function Portfolio() {
   const copy = moneyCopy.useCopy();
   const { t } = copy;
-  const { hideBalances, layoutMode, displayCurrency } = usePreferences();
+  const { hideBalances, layoutMode, displayCurrency, timeZone } = usePreferences();
   const layout: Mode = layoutMode === 'pro' ? 'pro' : 'simple';
   const [scope, setScope] = useState('combined');
   // Only this screen shows BTC; Home and P&L ask for USD, so a missing BTC price never takes their dollar total away.
@@ -634,6 +659,13 @@ export default function Portfolio() {
             note={noteFirst === 'crypto' ? note : null}
           />
         ) : null}
+        <Movers
+          view={view}
+          hidden={hideBalances}
+          copy={copy}
+          sinceLabel={view.windowStart !== null ? t('Since {time}', { time: clockTime(view.windowStart, timeZone) }) : t('Today')}
+        />
+        <ValuationNote view={view} copy={copy} refreshMs={SUMMARY_INTERVAL} />
         {!scoped && accounts.status === 'ready' && accounts.data.some((account) => (dec(account.balance) ?? 0n) > 0n) ? (
           <Accounts accounts={accounts.data} hidden={hideBalances} copy={copy} />
         ) : null}

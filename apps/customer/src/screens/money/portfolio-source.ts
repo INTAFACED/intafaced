@@ -30,6 +30,8 @@ export interface MoneyRow {
   share: Decimal | null;
   /** The market that priced it ("BTC-USDT"); null for dollar coins and coins with no price. */
   priceSymbol: string | null;
+  /** The USD price the bank valued it at ("1" for dollar coins); null with no price, or when the screen derived the value itself. */
+  priceUsd: Decimal | null;
 }
 
 export interface MoneyView {
@@ -42,6 +44,8 @@ export interface MoneyView {
   rows: MoneyRow[];
   /** Coins held but left out of the total (no USD price). */
   unpriced: string[];
+  /** Why each coin in `unpriced` was left out, when the bank said: no market to price it, or a market with no price yet. */
+  unpricedReasons: Record<string, 'no_market' | 'no_price_yet'>;
   /** Epoch ms when today's change only covers part of a day; null for a full day. */
   windowStart: number | null;
   source: 'server' | 'derived';
@@ -110,6 +114,7 @@ export function fromServer(summary: ServerSummary): MoneyView {
       changeRatio: changeRatioOf(value, dec(row.change24hUsd)),
       share: value !== null && counted > 0n ? decOrNull(ratio(value, counted)) : null,
       priceSymbol: row.pair ? row.pair.replace('/', '-') : null,
+      priceUsd: row.priceUsd,
     };
   });
   for (const row of summary.unpriced)
@@ -122,6 +127,7 @@ export function fromServer(summary: ServerSummary): MoneyView {
       changeRatio: null,
       share: null,
       priceSymbol: null,
+      priceUsd: null,
     });
   rows.sort(byValue);
 
@@ -140,6 +146,9 @@ export function fromServer(summary: ServerSummary): MoneyView {
     cryptoUsd: summary.cryptoUsd,
     rows,
     unpriced: summary.unpriced.map((row) => row.asset),
+    unpricedReasons: Object.fromEntries(
+      summary.unpriced.flatMap((row) => (row.reason === 'no_market' || row.reason === 'no_price_yet' ? [[row.asset, row.reason]] : [])),
+    ),
     windowStart: summary.windowStart,
     source: 'server',
     asOf: summary.asOf,
@@ -157,6 +166,7 @@ export function fromDerived(summary: PortfolioSummary): MoneyView {
     changeRatio: changeRatioOf(dec(holding.usdValue), dec(holding.usdChange24h)),
     share: holding.share,
     priceSymbol: holding.priceSymbol,
+    priceUsd: null,
   }));
   rows.sort(byValue);
   return {
@@ -167,6 +177,7 @@ export function fromDerived(summary: PortfolioSummary): MoneyView {
     cryptoUsd: summary.cryptoUsd,
     rows,
     unpriced: summary.unpriced,
+    unpricedReasons: {},
     windowStart: summary.windowStart ?? null,
     source: 'derived',
     asOf: summary.asOf,
@@ -180,7 +191,8 @@ export function fromDerived(summary: PortfolioSummary): MoneyView {
 export const SERVER_SUMMARY_MISSING = 'money.server_summary_missing';
 const PRICES_DOWN = 'bank.prices_unavailable';
 export const SERVER_SUMMARY_KEY = 'bank-portfolio-summary';
-const SUMMARY_INTERVAL = 30_000;
+/** How often the screen asks the bank for a new valuation; the valuation note names it. */
+export const SUMMARY_INTERVAL = 30_000;
 
 /** What to ask the bank: nothing for the default view (combined, USD), so that view shares one request with Home. */
 function summaryInput(scope: MoneyScope, unit: MoneyUnit): { scope?: string; displayCurrency?: string } | undefined {
