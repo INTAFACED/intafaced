@@ -115,14 +115,6 @@ export function DepositAddressActions({ row, userId, onChanged }: { row: Row; us
       <StepReplyView reply={reply} />
     </div>
   );
-  if (freezeId !== null) {
-    return (
-      <div className="dk-stack">
-        {freezeReply}
-        {desk}
-      </div>
-    );
-  }
   const trimmed = reason.trim();
   const ready = validReason(trimmed) && !busy;
   async function submit() {
@@ -142,44 +134,48 @@ export function DepositAddressActions({ row, userId, onChanged }: { row: Row; us
       setBusy(false);
     }
   }
+  // The lift desk keeps its place in the tree whether or not the freeze still stands, so reading the list again after the lift
+  // does not remount it and lose its reply.
   return (
     <div className="dk-stack">
       {desk}
-      <form
-        className="dk-stack"
-        data-testid="deposit-address-freeze"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void submit();
-        }}
-      >
-        <h4>Freeze this deposit address</h4>
-        <p className="dk-muted">
-          Every deposit to {address} that is not credited yet goes on hold and is not credited while the freeze stands; the customer sees it
-          on hold. Nothing is posted. A deposit already credited, or whose credit already started, stays as it is: to stop money already in
-          the account, freeze the account under Account controls. Lifting the freeze needs a second founder.
-        </p>
-        <div className="adm-field">
-          <label htmlFor={`deposit-freeze-reason-${row.id}`}>
-            Why (kept with the freeze, {REASON_MIN} to {REASON_MAX} characters)
-          </label>
-          <textarea
-            id={`deposit-freeze-reason-${row.id}`}
-            className="adm-textarea"
-            rows={3}
-            value={reason}
-            maxLength={REASON_MAX}
-            disabled={busy}
-            onChange={(e) => setReason(e.target.value)}
-          />
-        </div>
-        <div className="dk-row">
-          <button type="submit" className="adm-btn" data-tone="primary" disabled={!ready}>
-            {busy ? 'Sending…' : 'Freeze this address'}
-          </button>
-          {!ready && !busy && <span className="dk-why">Give a reason of at least {REASON_MIN} characters first.</span>}
-        </div>
-      </form>
+      {freezeId === null && (
+        <form
+          className="dk-stack"
+          data-testid="deposit-address-freeze"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void submit();
+          }}
+        >
+          <h4>Freeze this deposit address</h4>
+          <p className="dk-muted">
+            Every deposit to {address} that is not credited yet goes on hold and is not credited while the freeze stands; the customer sees
+            it on hold. Nothing is posted. A deposit already credited, or whose credit already started, stays as it is: to stop money
+            already in the account, freeze the account under Account controls. Lifting the freeze needs a second founder.
+          </p>
+          <div className="adm-field">
+            <label htmlFor={`deposit-freeze-reason-${row.id}`}>
+              Why (kept with the freeze, {REASON_MIN} to {REASON_MAX} characters)
+            </label>
+            <textarea
+              id={`deposit-freeze-reason-${row.id}`}
+              className="adm-textarea"
+              rows={3}
+              value={reason}
+              maxLength={REASON_MAX}
+              disabled={busy}
+              onChange={(e) => setReason(e.target.value)}
+            />
+          </div>
+          <div className="dk-row">
+            <button type="submit" className="adm-btn" data-tone="primary" disabled={!ready}>
+              {busy ? 'Sending…' : 'Freeze this address'}
+            </button>
+            {!ready && !busy && <span className="dk-why">Give a reason of at least {REASON_MIN} characters first.</span>}
+          </div>
+        </form>
+      )}
       {freezeReply}
     </div>
   );

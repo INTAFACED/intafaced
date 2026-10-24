@@ -15,6 +15,7 @@ import {
 import { CustomerBalances } from '@/components/customer-balances';
 import { DeskSectionSet } from '@/components/desk-section-set';
 import { DepositAddressActions } from '@/components/deposit-address-actions';
+import { DepositTravelRuleActions } from '@/components/deposit-travel-rule-actions';
 import { KycDocumentOpen } from '@/components/kyc-document-open';
 import { TransferLookup, TransferRecord } from '@/components/pay-transfer';
 import { ProtocolBlockers } from '@/components/protocol-blockers';
@@ -109,6 +110,7 @@ function DetailPanel({ spec, row, ctx }: { spec: ReadSpec; row: Row; ctx: RowAct
       {spec.rowAction === 'pay.transfer.detail' && <TransferRecord key={row.id} id={row.id} />}
       {spec.rowAction === 'identity.kyc_document.open' && <KycDocumentOpen row={row} userId={ctx.userId} onChanged={ctx.onChanged} />}
       {spec.rowAction === 'pay.deposit_address' && <DepositAddressActions row={row} userId={ctx.userId} onChanged={ctx.onChanged} />}
+      {spec.rowAction === 'pay.deposit_travel_rule' && <DepositTravelRuleActions row={row} onChanged={ctx.onChanged} />}
     </div>
   );
 }

@@ -100,9 +100,11 @@ describe('custody deposit record (real Postgres)', () => {
     ledger = new MemoryLedger();
     failPost = false;
     logs.length = 0;
-    await db.sql`TRUNCATE pay.custody_deposits, pay.custody_deposit_settings, pay.custody_deposit_addresses, pay.custody_deposit_reorgs`;
+    await db.sql`TRUNCATE pay.custody_deposit_travel_rule_events, pay.custody_deposit_travel_rule, pay.travel_rule_inbound_rule_events, pay.custody_deposits, pay.custody_deposit_settings, pay.custody_deposit_addresses, pay.custody_deposit_reorgs`;
     await db.sql`INSERT INTO pay.custody_deposit_addresses (user_id, asset_id, network_id, address) VALUES (${ALICE}, 'USDT', 'ethereum', ${ADDRESS})`;
     await setting();
+    // The inbound travel rule is set and does not apply here: its holds are travel-rule.db.test.ts.
+    await db.sql`INSERT INTO pay.travel_rule_inbound_rule_events (asset_id, applies, threshold, fields, reason, set_by) VALUES ('USDT', false, NULL, '[]', 'TEST rule off', 'test-profile')`;
   }, 30_000);
 
   it('answers unmatched for an address no customer holds, and writes no row', async () => {

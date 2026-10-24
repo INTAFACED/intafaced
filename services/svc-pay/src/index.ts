@@ -37,6 +37,7 @@ import { createAllowlistRouter } from './withdrawals/allowlist/router.js';
 import { WithdrawalQuoteService } from './withdrawals/quotes/service.js';
 import { loadMessageCipher } from './travel-rule/cipher.js';
 import { createTravelRuleCustomerRouter } from './travel-rule/customer-router.js';
+import { createDepositTravelRuleCustomerRouter } from './custody/deposits/travel-rule.js';
 import { TravelRuleService } from './travel-rule/service.js';
 import { purchaseHoldSource } from './withdrawals/purchase-holds/source.js';
 import { createWithdrawalHistory } from './withdrawals/history.js';
@@ -631,6 +632,8 @@ export const appRouter = mergeRouters(
   createAllowlistRouter(allowlist),
   // W-compliance-notices-04: the customer's own travel-rule status on a withdrawal.
   createTravelRuleCustomerRouter(new TravelRuleService({ sql, cipher: travelRuleCipher })),
+  // W-deposit-07: the customer's declaration on a large deposit held under the inbound travel rule.
+  createDepositTravelRuleCustomerRouter({ sql, book: custodyDepositBook, cipher: travelRuleCipher }),
   // W-compliance-notices-02: the compliance desk over screened sends. No supplier is connected, so a rescreen answers unavailable.
   createScreeningRouter(
     new ScreeningDeskService({ sql, approvals: actionApprovals, releaseTtlSeconds: loadScreeningReleaseTtl(process.env) }),
@@ -678,6 +681,7 @@ export const appRouter = mergeRouters(
     receiptPlaces: createReceiptAssetPlaces(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, s2sKey),
     depositSettings: { sql, approvals: actionApprovals },
     depositFreezes: { sql, approvals: actionApprovals, book: custodyDepositBook },
+    depositTravelRule: { sql, book: custodyDepositBook, cipher: travelRuleCipher },
     categoryPolicy: { sql, approvals: actionApprovals },
     catalog: { sql, imageRule: readProductImageRule(process.env) },
     checkoutBranding: { sql, logoRule: readCheckoutLogoRule(process.env) },
@@ -1201,6 +1205,18 @@ const announceOwedCredits = () =>
 void announceOwedCredits();
 const creditAnnouncements = setInterval(() => void announceOwedCredits(), 60_000);
 creditAnnouncements.unref();
+// W-deposit-07: a counterparty wait on a deposit held for the travel rule that ran out is recorded, with or without the chain
+// watcher. The deposit stays held: a timer never releases it.
+const travelRuleWaits = setInterval(
+  () =>
+    void custodyDepositBook
+      .expireTravelRuleWaits()
+      .catch((err: unknown) =>
+        app.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'deposit travel-rule waits not checked'),
+      ),
+  30_000,
+);
+travelRuleWaits.unref();
 
 /**
  * The posture goes in the log on every start. In dev, where `assertRailPosture`
@@ -1239,6 +1255,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       clearInterval(lateFillSweep);
       clearInterval(holdSweep);
       clearInterval(creditAnnouncements);
+      clearInterval(travelRuleWaits);
       payoutReconciler?.stop();
       // No new metrics pass may start against a pool that is closing; an in-flight one rolls back and its marks stay.
       metricsRefresher.stop();

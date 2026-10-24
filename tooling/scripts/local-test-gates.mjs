@@ -1067,6 +1067,18 @@ export const TEST_DEPOSIT_TERMS = TEST_DEPOSIT_NETWORKS.flatMap((n) =>
   }),
 );
 
+/**
+ * LOCAL TEST inbound travel rule for every TEST deposit coin (W-deposit-07), not an owner value: a deposit of 1000 or more is
+ * held for the depositor's declaration of the sender's name and address. Every other journey deposits far less, so it credits
+ * as before. svc-pay credits nothing for a coin with no rule, so the stack must publish one.
+ */
+export const TEST_DEPOSIT_TRAVEL_RULE = Object.freeze({ threshold: '1000', fields: ['originator_name', 'originator_address'] });
+/**
+ * LOCAL TEST travel-rule wait limits (svc-pay `founderAdmin.travelRule.waitLimits`), not owner values: a wait on the sending
+ * platform runs out after 60 seconds, so J-wallet-03 #3 can see it run out and the deposit stay held.
+ */
+export const TEST_TRAVEL_RULE_WAITS = Object.freeze({ pendingSeconds: 60, repairSeconds: 600 });
+
 /** The svc-pay approval a founder change needs: the target is the action type itself, at version 1 (consumePayApproval). */
 export function payProposal(actionType, payloadHash) {
   return {
@@ -1173,6 +1185,37 @@ export async function publishDepositTerms(ctx) {
     ctx.log(
       `${what}: minimum ${want.minimumDeposit}, about ${want.estimatedArrivalMinutes} min, ${want.enabled ? 'switched on' : 'kept switched off'} (${MARKERS.label})`,
     );
+  }
+  // The inbound travel rule per coin and the travel-rule wait limits: one founder each, kept on svc-pay's history.
+  const rules = await ctx.edge.query('pay', 'founderAdmin.depositTravelRule.rules.list', {}, token);
+  if (!Array.isArray(data(rules))) throw new Error(`pay depositTravelRule.rules.list refused (${rules.status}): ${refusalText(rules)}`);
+  for (const assetId of [...new Set(TEST_DEPOSIT_TERMS.map((t) => t.assetId))].sort()) {
+    const what = `deposit travel rule ${assetId}`;
+    const row = data(rules).find((r) => r.assetId === assetId);
+    const want = TEST_DEPOSIT_TRAVEL_RULE;
+    if (row && row.applies && row.threshold === want.threshold && JSON.stringify(row.fields) === JSON.stringify(want.fields)) {
+      out.push({ what, status: 'already published' });
+      continue;
+    }
+    const set = await ctx.edge.mutate(
+      'pay',
+      'founderAdmin.depositTravelRule.rules.set',
+      { assetId, applies: true, threshold: want.threshold, fields: [...want.fields], reason: `${MARKERS.label}: TEST inbound travel rule` },
+      token,
+    );
+    if (!data(set)) throw new Error(`pay depositTravelRule.rules.set ${assetId} refused (${set.status}): ${refusalText(set)}`);
+    out.push({ what, status: 'published' });
+    ctx.log(`${what}: held at ${want.threshold} or more for ${want.fields.join(', ')} (${MARKERS.label})`);
+  }
+  const waits = await ctx.edge.query('pay', 'founderAdmin.travelRule.waitLimits.get', {}, token);
+  const w = data(waits);
+  if (!w) throw new Error(`pay travelRule.waitLimits.get refused (${waits.status}): ${refusalText(waits)}`);
+  if (w.pendingSeconds === TEST_TRAVEL_RULE_WAITS.pendingSeconds && w.repairSeconds === TEST_TRAVEL_RULE_WAITS.repairSeconds) {
+    out.push({ what: 'travel-rule wait limits', status: 'already published' });
+  } else {
+    const set = await ctx.edge.mutate('pay', 'founderAdmin.travelRule.waitLimits.set', { ...TEST_TRAVEL_RULE_WAITS }, token);
+    if (!data(set)) throw new Error(`pay travelRule.waitLimits.set refused (${set.status}): ${refusalText(set)}`);
+    out.push({ what: 'travel-rule wait limits', status: 'published' });
   }
   return out;
 }
