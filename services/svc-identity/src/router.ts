@@ -60,6 +60,7 @@ import { ShareError } from './affiliates/share-service.js';
 import type { ShareService } from './affiliates/share-service.js';
 import type { ReferralCodeService } from './affiliates/referral-code.js';
 import type { RebindRequest, ReferralRebindService } from './affiliates/referral-rebind.js';
+import type { ReferralLapse, ReferralLapseService } from './affiliates/referral-lapse.js';
 import { attachWindowStatus } from './affiliates/attach-window.js';
 import { FreezeError } from './affiliates/freeze-store.js';
 import { AffiliateFreezesLimitUnsetError, type FreezeService } from './affiliates/freeze-service.js';
@@ -174,6 +175,7 @@ function toTrpcError(err: unknown): TRPCError {
         return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
       case 'referral.attach_window_unset':
       case 'referral.code_length_unset':
+      case 'referral.lapse_period_unset':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
       case 'referral.code_exhausted':
       case 'referral.rebind_open':
@@ -557,6 +559,23 @@ const rebindForCustomer = z.object({
   appliedAt: z.string().nullable(),
 });
 const rebindForOperator = rebindForCustomer.extend({ userId: z.string().uuid(), decidedBy: z.string().uuid().nullable() });
+/** An ended referral relationship (CM-referral-01 RF-4): who it was with, from when, the last activity and the end. */
+const lapseOutput = z.object({
+  userId: z.string().uuid(),
+  referrerId: z.string().uuid(),
+  attributedAt: z.string(),
+  lastActivityAt: z.string(),
+  periodSeconds: z.number().int(),
+  lapsedAt: z.string(),
+});
+const lapseView = (l: ReferralLapse): z.infer<typeof lapseOutput> => ({
+  userId: l.userId,
+  referrerId: l.referrerId,
+  attributedAt: l.attributedAt.toISOString(),
+  lastActivityAt: l.lastActivityAt.toISOString(),
+  periodSeconds: l.periodSeconds,
+  lapsedAt: l.lapsedAt.toISOString(),
+});
 function customerRebind(r: RebindRequest): z.infer<typeof rebindForCustomer> {
   return {
     requestId: r.id,
@@ -613,6 +632,8 @@ export function createIdentityRouter(
     referralCodes?: ReferralCodeService;
     /** Reviewed referrer change (CM-referral-01 RF-3). Absent → the rebind doors refuse closed. */
     referralRebind?: ReferralRebindService;
+    /** Referral lapse after the owner's inactivity period (CM-referral-01 RF-4). Absent → the lapse doors refuse closed. */
+    referralLapse?: ReferralLapseService;
     /**
      * Owner setting `IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS`: how long after sign-up a person may attach a referrer
      * through a link. Undefined (blank) refuses every link attach with `referral.attach_window_unset`.
@@ -746,6 +767,13 @@ export function createIdentityRouter(
       throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Referrer change review is not configured' });
     }
     return options.referralRebind;
+  }
+
+  function requireReferralLapse(): ReferralLapseService {
+    if (!options.referralLapse) {
+      throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Referral lapse is not configured' });
+    }
+    return options.referralLapse;
   }
 
   function requireReferralCodes(): ReferralCodeService {
@@ -2571,16 +2599,19 @@ export function createIdentityRouter(
             accountCreatedAt: z.string(),
             windowSeconds: z.number().int().nullable(),
             closesAt: z.string().nullable(),
+            /** Set when an earlier relationship lapsed: the window runs again from then (RF-4). */
+            reopenedAt: z.string().nullable(),
           }),
         )
         .query(async ({ ctx }) => {
           try {
             const age = await requireReferral().accountAge(ctx.principal.userId);
             if (!age) throw new TRPCError({ code: 'NOT_FOUND', message: 'Account not found' });
-            const status = attachWindowStatus(age.createdAt, options.referralAttachWindowSeconds, age.now);
+            const status = attachWindowStatus(age.reopenedAt ?? age.createdAt, options.referralAttachWindowSeconds, age.now);
             return {
               state: status.state,
-              accountCreatedAt: status.accountCreatedAt.toISOString(),
+              accountCreatedAt: age.createdAt.toISOString(),
+              reopenedAt: age.reopenedAt?.toISOString() ?? null,
               windowSeconds: status.state === 'unset' ? null : status.windowSeconds,
               closesAt: status.state === 'unset' ? null : status.closesAt.toISOString(),
             };
@@ -2658,6 +2689,50 @@ export function createIdentityRouter(
             return operatorRebind(
               await requireReferralRebind().decide(ctx.principal.userId, input.requestId, input.decision, input.reason),
             );
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /**
+       * Where this person's referral relationship stands against the owner's inactivity period (J-campaigns-05 #7): the
+       * date it ends without a fee event, and their latest ended relationship. A blank period reads `unset`; no end date
+       * is invented.
+       */
+      myLapse: scopedProcedure('identity:read')
+        .output(
+          z.object({
+            state: z.enum(['unset', 'none', 'active']),
+            periodSeconds: z.number().int().nullable(),
+            lastActivityAt: z.string().nullable(),
+            endsAt: z.string().nullable(),
+            ended: lapseOutput.nullable(),
+          }),
+        )
+        .query(async ({ ctx }) => {
+          try {
+            const lapse = requireReferralLapse();
+            const [standing, ended] = await Promise.all([lapse.standingOf(ctx.principal.userId), lapse.latestOf(ctx.principal.userId)]);
+            return {
+              state: standing.state,
+              periodSeconds: standing.state === 'active' ? standing.periodSeconds : null,
+              lastActivityAt: standing.state === 'active' ? standing.lastActivityAt.toISOString() : null,
+              endsAt: standing.state === 'active' ? standing.endsAt.toISOString() : null,
+              ended: ended ? lapseView(ended) : null,
+            };
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /** The lapse log for founder-ops, newest first. Operator session with a second factor. */
+      lapseLog: scopedProcedure('admin:compliance')
+        .input(z.object({ limit: z.number().int().min(1).max(100) }))
+        .output(z.array(lapseOutput))
+        .query(async ({ ctx, input }) => {
+          try {
+            requireMfa(ctx.principal);
+            return (await requireReferralLapse().log(input.limit)).map(lapseView);
           } catch (err) {
             throw toTrpcError(err);
           }

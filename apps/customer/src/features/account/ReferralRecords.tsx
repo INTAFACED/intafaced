@@ -28,9 +28,39 @@ const accrual = z.object({
   accruedAt: date,
   sourceModule: z.string().regex(/^[a-z][a-z0-9_-]{0,31}$/),
 });
+const ended = z.object({
+  userId: z.string().uuid(),
+  referrerId: z.string().uuid(),
+  attributedAt: date,
+  lastActivityAt: date,
+  periodSeconds: z.number().int().positive(),
+  lapsedAt: date,
+});
+const lapseSchema = z.object({
+  state: z.enum(['unset', 'none', 'active']),
+  periodSeconds: z.number().int().positive().nullable(),
+  lastActivityAt: date.nullable(),
+  endsAt: date.nullable(),
+  ended: ended.nullable(),
+});
 type Selection = { feeEventId: string; hop: number };
 const recordKey = (row: Selection) => JSON.stringify([row.feeEventId, row.hop]);
-type DetailKey = 'event' | 'hop' | 'commission' | 'fee' | 'rate' | 'payer' | 'beneficiary' | 'asset' | 'accrued' | 'source';
+type DetailKey =
+  | 'event'
+  | 'hop'
+  | 'commission'
+  | 'fee'
+  | 'rate'
+  | 'payer'
+  | 'beneficiary'
+  | 'asset'
+  | 'accrued'
+  | 'source'
+  | 'referrer'
+  | 'attributed'
+  | 'lastActivity'
+  | 'endsAt'
+  | 'endedAt';
 
 function Read<T>({ resource, retry, children }: { resource: Resource<T>; retry: () => void; children: (data: T) => ReactNode }) {
   return resource.status === 'loading' ? (
@@ -69,6 +99,17 @@ function OwnerRecords({ userId }: { userId: string }) {
         { signal },
       ),
     `referral-edge:${userId}:${cycle}`,
+  );
+  const lapse = useResource(
+    (signal) =>
+      api.query(
+        'identity',
+        'affiliates.myLapse',
+        undefined,
+        lapseSchema.refine((row) => !row.ended || row.ended.userId === userId, 'Referral lapse ownership is invalid'),
+        { signal },
+      ),
+    `referral-lapse:${userId}:${cycle}`,
   );
   const chain = useResource(
     (signal) =>
@@ -111,6 +152,23 @@ function OwnerRecords({ userId }: { userId: string }) {
     }).format(new Date(value));
   }
   const timeZoneLabel = timeZone === 'device' ? Intl.DateTimeFormat().resolvedOptions().timeZone : timeZone;
+  /** A period in the largest whole unit it fills: 3600 reads "1 hour", 90 reads "90 seconds". */
+  function period(seconds: number) {
+    const units = [
+      ['day', 86_400],
+      ['hour', 3_600],
+      ['minute', 60],
+    ] as const;
+    const [unit, size] = units.find(([, size]) => seconds % size === 0) ?? ['second', 1];
+    return new Intl.NumberFormat(requestedLocale, { style: 'unit', unit, unitDisplay: 'long' }).format(seconds / size);
+  }
+  function instant(value: string) {
+    return (
+      <time dateTime={value}>
+        {timestamp(value)} · {timeZoneLabel}
+      </time>
+    );
+  }
   function quantity(value: string) {
     return hideBalances ? <span aria-label={t('amountHidden')}>••••</span> : displayAmount(value);
   }
@@ -164,6 +222,52 @@ function OwnerRecords({ userId }: { userId: string }) {
               </EmptyState>
             )
           }
+        </Read>
+      </section>
+      <section className="referral-block" aria-label={t('term')}>
+        <h3>
+          <Copy k="term" />
+        </h3>
+        <Read resource={lapse.resource} retry={lapse.reload}>
+          {(row) => (
+            <>
+              {row.state === 'unset' && (
+                <p className="referral-caption">
+                  <Copy k="termUnset" />
+                </p>
+              )}
+              {row.state === 'active' && row.periodSeconds && row.lastActivityAt && row.endsAt && (
+                <>
+                  <dl className="referral-details">
+                    {detail('lastActivity', instant(row.lastActivityAt))}
+                    {detail('endsAt', instant(row.endsAt))}
+                  </dl>
+                  <p className="referral-caption">
+                    <Copy k="termRule" params={{ period: period(row.periodSeconds) }} />
+                  </p>
+                </>
+              )}
+              {row.ended && (
+                <section className="referral-block" aria-label={t('ended')}>
+                  <h4>
+                    <Copy k="ended" />
+                  </h4>
+                  <dl className="referral-details">
+                    {detail(
+                      'referrer',
+                      <span title={row.ended.referrerId}>{t('member', { ref: shortReference(row.ended.referrerId) })}</span>,
+                    )}
+                    {detail('attributed', instant(row.ended.attributedAt))}
+                    {detail('lastActivity', instant(row.ended.lastActivityAt))}
+                    {detail('endedAt', instant(row.ended.lapsedAt))}
+                  </dl>
+                  <p className="referral-caption">
+                    <Copy k="endedMeaning" params={{ period: period(row.ended.periodSeconds) }} />
+                  </p>
+                </section>
+              )}
+            </>
+          )}
         </Read>
       </section>
       <section className="referral-block" aria-label={t('chain')}>

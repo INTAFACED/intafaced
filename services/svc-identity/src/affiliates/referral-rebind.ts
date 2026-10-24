@@ -19,6 +19,7 @@ import { transaction } from '@intafaced/db';
 import { ActionApprovalError, type ActionApprovalService } from '../auth/action-approval-service.js';
 import { identityActionPayloadHash } from '../auth/privileged-dual-control.js';
 import { attachWindowStatus } from './attach-window.js';
+import { attachWindowStart } from './referral-lapse.js';
 import { REFERRAL_GRAPH_LOCK_CLASS, REFERRAL_GRAPH_LOCK_OBJ } from './referral-service.js';
 import { DEFAULT_MAX_REFERRAL_DEPTH, ReferralError, chainDepth, chainHasCycle, wouldCreateCycle } from './referral-tree.js';
 
@@ -205,10 +206,8 @@ export class ReferralRebindService {
       this.sql,
       async (tx) => {
         await tx`SELECT pg_advisory_xact_lock(${REFERRAL_GRAPH_LOCK_CLASS}, ${REFERRAL_GRAPH_LOCK_OBJ})`;
-        const users = await tx<Array<{ id: string; created_at: Date; now: Date }>>`
-          SELECT id, created_at, now() AS now FROM users WHERE id IN (${userId}, ${toReferrerId})
-        `;
-        const me = users.find((u) => u.id === userId);
+        const users = await tx<Array<{ id: string }>>`SELECT id FROM users WHERE id IN (${userId}, ${toReferrerId})`;
+        const me = await attachWindowStart(tx, userId);
         if (!me || !users.some((u) => u.id === toReferrerId)) {
           throw new ReferralError('Referrer is not a known user', 'referral.unknown_referrer');
         }
@@ -223,7 +222,7 @@ export class ReferralRebindService {
         const parent = await this.parentMap(tx);
         const current = parent.get(userId) ?? null;
         if (current === toReferrerId) throw new ReferralError('Referral already set for this user', 'referral.already_set');
-        if (current === null && attachWindowStatus(me.created_at, this.options.attachWindowSeconds, me.now).state === 'open') {
+        if (current === null && attachWindowStatus(me.start, this.options.attachWindowSeconds, me.now).state === 'open') {
           throw new ReferralError(
             'The attach window is still open; attach through the invitation link instead',
             'referral.rebind_not_needed',

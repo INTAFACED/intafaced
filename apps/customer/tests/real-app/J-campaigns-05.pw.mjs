@@ -11,7 +11,9 @@ import { signIn, signUp, verify } from './desk.mjs';
 // a second factor, as the founder-ops desk would. #5 moves one TEST account's sign-up time back (`local-test-gates.mjs
 // age`) instead of waiting out the window; the blank-window refusal is proved in svc-identity's referral-attach test,
 // since the stack runs one owner value.
-// Not here yet: #2 (a signed, tracked share tag per surface) and #7 (the relationship lapse); their slices come next.
+// #7 runs on the stack's TEST inactivity period (IDENTITY_REFERRAL_LAPSE_PERIOD_SECONDS, one hour) and sweep cadence (five
+// seconds); `age` moves the friend's relationship back past the period instead of waiting an hour.
+// Not here yet: #2 (a signed, tracked share tag per surface); its slice comes next.
 const J = 'J-campaigns-05';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
@@ -252,6 +254,10 @@ test(`${J} #6 a second person approves; the new parent applies from then; approv
   const own = result(await ctx.edge.query('identity', 'affiliates.myRebind', undefined, opA.token));
   if (own.data && ['submitted', 'under_review'].includes(own.data.state))
     await ctx.edge.mutate('identity', 'affiliates.withdrawRebind', { requestId: own.data.requestId }, opA.token);
+  // On a fresh stack the operator's own account is minutes old and could still attach by link, which needs no review:
+  // time passes for it too.
+  if (result(await ctx.edge.query('identity', 'affiliates.attachWindow', undefined, opA.token)).data?.state === 'open')
+    expect(tool('local-test-gates.mjs', 'age', opA.op.handle, '3600')).toContain('LOCAL TEST');
   const asked = result(
     await ctx.edge.mutate('identity', 'affiliates.requestRebind', { token, reason: 'TEST: operator asks for their own change' }, opA.token),
   );
@@ -313,4 +319,54 @@ test(`${J} #6 a second person approves; the new parent applies from then; approv
   const change = page.getByRole('region', { name: 'Referrer change review' });
   await expect(change.locator('[data-rebind="approved"]')).toContainText('The new referrer applies from');
   await expect(change.getByText('TEST: link reached them after sign-up')).toBeVisible();
+});
+
+test(`${J} #7 my relationship screen shows the referrer and the date; with no fee for the period it ends and stops earning`, async ({
+  page,
+}) => {
+  const { referrer, friend } = state('referrer', 'friend');
+  const referrerId = (await identity(referrer, 'affiliates.createShare')).data.referrerId;
+  const edge = (await (await api(friend)).get('/api/identity/trpc/affiliates.myReferrer')).body.result.data;
+  expect(edge.referrerId).toBe(referrerId);
+
+  // The relationship screen: the referrer, the date, and when it ends without a fee.
+  await signIn(page, friend);
+  await page.goto('/uc/promotion/mypromotion');
+  const mine = page.getByRole('region', { name: 'Your recorded referrer' });
+  await expect(mine.locator('p[title]')).toHaveAttribute('title', referrerId);
+  await expect(mine.locator('time')).toHaveAttribute('datetime', edge.attributedAt);
+  const term = page.getByRole('region', { name: 'How long this relationship lasts' });
+  await expect(term.getByText('If you pay no fee for 1 hour, this relationship ends')).toBeVisible();
+  const standing = (await (await api(friend)).get('/api/identity/trpc/affiliates.myLapse')).body.result.data;
+  expect(standing).toMatchObject({ state: 'active', periodSeconds: 3600, lastActivityAt: edge.attributedAt });
+  expect(Date.parse(standing.endsAt) - Date.parse(edge.attributedAt)).toBe(3_600_000);
+  await expect(term.locator('time').nth(1)).toHaveAttribute('datetime', standing.endsAt);
+
+  // An hour passes for the friend with no fee: the sweep ends the relationship once.
+  expect(tool('local-test-gates.mjs', 'age', friend.handle, '3700')).toContain('LOCAL TEST');
+  let lapse;
+  await expect
+    .poll(async () => (lapse = (await (await api(friend)).get('/api/identity/trpc/affiliates.myLapse')).body.result.data).ended, {
+      timeout: 30_000,
+    })
+    .not.toBeNull();
+  expect(lapse).toMatchObject({ state: 'none', ended: { referrerId, periodSeconds: 3600 } });
+  expect((await (await api(friend)).get('/api/identity/trpc/affiliates.myReferrer')).body.result.data).toBeNull();
+  // Commission stops: nobody is above the friend any more, so no fee of theirs can accrue to the referrer.
+  expect((await (await api(friend)).get('/api/identity/trpc/affiliates.myAncestors')).body.result.data).toEqual([]);
+
+  await page.reload();
+  await expect(page.getByRole('region', { name: 'Your recorded referrer' }).getByText('No referrer on record')).toBeVisible();
+  const ended = page.getByRole('region', { name: 'Ended relationship' });
+  await expect(ended.locator('[title]').first()).toHaveAttribute('title', referrerId);
+  await expect(ended.locator('time').last()).toHaveAttribute('datetime', lapse.ended.lapsedAt);
+  await expect(ended.getByText('It ended after 1 hour with no fee from you.')).toBeVisible();
+
+  // The window runs again from the lapse, so the friend can be attached through a link again.
+  const window = (await (await api(friend)).get('/api/identity/trpc/affiliates.attachWindow')).body.result.data;
+  expect(window).toMatchObject({ state: 'open', reopenedAt: lapse.ended.lapsedAt });
+  const { token } = state('token');
+  const outcome = await accept(page, token);
+  await expect(outcome.getByRole('heading', { name: /Referral status\s*recorded\./ })).toBeVisible();
+  expect((await (await api(friend)).get('/api/identity/trpc/affiliates.myReferrer')).body.result.data.referrerId).toBe(referrerId);
 });
