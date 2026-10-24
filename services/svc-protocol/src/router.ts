@@ -991,7 +991,7 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
         .input(
           z
             .object({
-              accountId: z.string().uuid(),
+              accountId: z.string().guid(),
               evidence: z.discriminatedUnion('kind', [
                 z.object({ kind: z.literal('minted'), txHash: hexSchema }).strict(),
                 z.object({ kind: z.literal('not_minted'), attestedBy: z.string().max(128), checkedAt: z.string().datetime() }).strict(),
@@ -1121,7 +1121,11 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
             amountIn: z.string().regex(/^\d+$/),
             reserveIn: z.string().regex(/^\d+$/),
             reserveOut: z.string().regex(/^\d+$/),
-            feeBps: z.number({ required_error: 'feeBps is unset — will not invent 30 bps' }).int().min(0).max(1000),
+            feeBps: z
+              .number({ error: (issue) => (issue.input === undefined ? 'feeBps is unset — will not invent 30 bps' : undefined) })
+              .int()
+              .min(0)
+              .max(1000),
           }),
         )
         .output(
@@ -1251,7 +1255,11 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
           z.object({
             tokenA: addressSchema,
             tokenB: addressSchema,
-            feeBps: z.number({ required_error: 'feeBps is unset — will not invent 30 bps' }).int().min(0).max(1000),
+            feeBps: z
+              .number({ error: (issue) => (issue.input === undefined ? 'feeBps is unset — will not invent 30 bps' : undefined) })
+              .int()
+              .min(0)
+              .max(1000),
           }),
         )
         .output(unsignedCallOutput)

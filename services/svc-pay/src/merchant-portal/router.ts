@@ -6,6 +6,7 @@ import {
   merchantAnalyticsFeesSchema,
   merchantAnalyticsInputSchema,
   merchantAnalyticsVolumeSchema,
+  merchantRoomAccessSchema,
   merchantBusinessProfileConfirmInputSchema,
   merchantBusinessProfileDecideResultSchema,
   merchantBusinessProfileReviewInputSchema,
@@ -38,6 +39,7 @@ import { listMyAccess } from './access.js';
 import { MerchantAnalyticsService } from './analytics.js';
 import { PortalError, wrapPortal } from './errors.js';
 import { readOnboardingProgress } from './onboarding.js';
+import { readRoomAccess } from './room-access.js';
 import { MerchantProfileService, type ProfileWriter } from './profile.js';
 import { acceptTerms, readTermsState, type MerchantTermsConfig } from './terms.js';
 import { ownMerchantRead } from '../own-merchant-read.js';
@@ -195,6 +197,22 @@ export function merchantPortalExtensions(deps: {
               { userId: interactive(ctx.principal), scope: hasScope(ctx.principal.scopes, 'pay:write') ? 'pay:write' : 'pay:onboard' },
               input,
             ),
+          ),
+        ),
+    }),
+    rooms: router({
+      access: read
+        .input(merchantPortalMerchantInputSchema)
+        .output(merchantRoomAccessSchema)
+        .query(({ ctx, input }) =>
+          wrapPortal(async () =>
+            readRoomAccess({
+              pay: deps.pay,
+              team: deps.team,
+              userId: ctx.principal?.userId,
+              interactive: ctx.principal ? isInteractivePrincipal(ctx.principal) : false,
+              merchantId: input.merchantId,
+            }),
           ),
         ),
     }),

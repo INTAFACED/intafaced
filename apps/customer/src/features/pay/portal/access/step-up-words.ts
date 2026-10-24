@@ -7,6 +7,7 @@ registerRefusals({
   'auth.step_up_required': () => stepUpCopy.t('suRequired'),
   'auth.step_up_expired': () => stepUpCopy.t('suExpired'),
   'pay.role_not_allowed': () => stepUpCopy.t('suRoleAny'),
+  'pay.destination_step_up_required': () => stepUpCopy.t('suRequired'),
 });
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
@@ -32,6 +33,7 @@ export function stepUpRefusalText(result: Failed): string {
     case 'auth.mfa_not_enrolled':
       return t('suNoAuthenticator');
     case 'auth.webauthn_not_enrolled':
+    case 'stepUp.no_passkey':
       return t('suNoPasskey');
     case 'auth.webauthn_invalid':
       return t('suPasskeyBad');

@@ -21,6 +21,7 @@ import {
   type AdlEvent,
   type Collateral,
   type ConditionalOrder,
+  type EntryProtection,
   type FundingRate,
   type FuturesApi,
   type FuturesListing,
@@ -273,6 +274,25 @@ export function useFuturesOrders(scope: 'open' | 'all', enabled: boolean): Loada
 }
 
 /** The trader's take-profit, stop-loss and stop orders, armed and recent, with what each did when it fired. */
+/** The take profits and stop losses attached to opening orders, read as often as the conditional orders. */
+export function useEntryProtections(enabled: boolean): Loadable<EntryProtection[]> {
+  const env = useDataEnv();
+  const api = useFuturesApi();
+  return useSource(
+    useMemo(
+      () =>
+        privateSource<EntryProtection[]>(
+          env,
+          'futures-entry-protection',
+          (signal) => api.entryProtections(signal),
+          FUTURES_INTERVALS.conditional,
+          enabled,
+        ),
+      [env, api, enabled],
+    ),
+  );
+}
+
 export function useConditionalOrders(enabled: boolean): Loadable<ConditionalOrder[]> {
   const env = useDataEnv();
   const api = useFuturesApi();
@@ -337,6 +357,7 @@ export function useFuturesRefresh(): () => void {
         'futures-orders-open',
         'futures-orders-all',
         'futures-conditional',
+        'futures-entry-protection',
         'futures-gated',
         'futures-agreements',
         'futures-eligibility',

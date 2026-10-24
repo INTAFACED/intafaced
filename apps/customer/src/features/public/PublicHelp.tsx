@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { Button, Field, Failure, Loading } from '../../shared/ui';
 import { useLocation } from '../../app/location';
+import { safeReturnTo } from '../../app/navigation';
 import { useResource } from '../../shared/resource';
 import { useSession } from '../session/session';
 import { helpCopy as copy } from './help-copy';
@@ -463,7 +464,10 @@ export function PublicHelp() {
                 <section className="help__card help__measure" role="status" data-testid="help-sign-in">
                   <h2>{t('signInTitle')}</h2>
                   <p className="muted">{t('signInBody')}</p>
-                  <a className="button button--primary" href={`/login?redirect=${encodeURIComponent(location.pathname + location.search)}`}>
+                  <a
+                    className="button button--primary"
+                    href={`/login?redirect=${encodeURIComponent(safeReturnTo(location.pathname + location.search))}`}
+                  >
                     {t('signInAction')}
                   </a>
                 </section>

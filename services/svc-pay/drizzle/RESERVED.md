@@ -1,6 +1,6 @@
 # svc-pay migration numbers
 
-Parallel workstreams must not pick the same number. Take your range from the table, never from "next free".
+**Closed 2026-10-23.** A new migration is named for the UTC time it was written, `YYYYMMDDHHMMSS_<what>.sql` with its `.down.sql` (`tooling/ci/migration-check.mjs`), so two PRs can no longer claim the same number and nothing needs reserving. Add no rows. The table below is the history of the four-digit numbers.
 
 | Range     | Owner                                                 | State                                           |
 | --------- | ----------------------------------------------------- | ----------------------------------------------- |
@@ -65,8 +65,7 @@ Parallel workstreams must not pick the same number. Take your range from the tab
 | 0129      | wallet lane (custody transaction policy)              | used                                            |
 | 0130      | notification preference history (M-plat-org-11)       | used                                            |
 | 0131      | customer email settings (M-plat-org-10)               | used                                            |
-| 0134      | merchant terms acceptance (M-plat-org-13)             | used                                            |
-| 0135+     | unassigned                                            | `tooling/ci/migration-check.mjs` requires a new migration to be numbered above main's highest, so take the next number when you open the PR and add a row |
+| 0132+     | closed                                                | new migrations are named for the UTC time they were written, not numbered |
 
 ## Why gaps are safe
 
@@ -74,7 +73,6 @@ Parallel workstreams must not pick the same number. Take your range from the tab
 
 ## Rules
 
-- Every migration ships with `NNNN_name.down.sql`.
-- Use numbers inside your range in order. If you run out, ask W0; do not take a neighbour's number.
-- A migration may only depend on lower-numbered ones that are on main, or on your own earlier numbers.
+- Every migration ships with its `.down.sql`.
+- A migration may only depend on ones that sort before it: four-digit ones, earlier stamps on main, or your own earlier stamps.
 - Unused reserved numbers are simply left empty.

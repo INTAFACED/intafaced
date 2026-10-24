@@ -10,7 +10,7 @@ import {
   outreachContactCaptureSchema,
 } from './outreach-crm.js';
 
-const id = z.string().uuid();
+const id = z.string().guid();
 const timestamp = z.string().datetime({ offset: true });
 const revision = z.number().int().positive().safe();
 const count = z.number().int().nonnegative().safe();
@@ -399,7 +399,7 @@ export const crmWorkflowAuditSchema = z
     ]),
     reason,
     occurredAt: timestamp,
-    facts: z.record(z.unknown()),
+    facts: z.record(z.string(), z.unknown()),
   })
   .strict();
 export const crmWorkflowAuditListInputSchema = z

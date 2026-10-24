@@ -1,4 +1,4 @@
--- intafaced:destructive — reversal of 0134_pay_merchant_terms_acceptances.sql
+-- intafaced:destructive — reversal of 20261024045607_pay_merchant_terms_acceptances.sql
 --
 -- Drops the record of which terms versions each business accepted.
 

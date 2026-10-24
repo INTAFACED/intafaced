@@ -140,9 +140,9 @@ const amountSchema = z.string().regex(/^\d+(\.\d{1,18})?$/, 'amounts are unsigne
 const assetIdSchema = z.string().min(1).max(16);
 
 const paymentView = z.object({
-  id: z.string().uuid(),
-  merchantId: z.string().uuid(),
-  profileId: z.string().uuid().nullable(),
+  id: z.string().guid(),
+  merchantId: z.string().guid(),
+  profileId: z.string().guid().nullable(),
   amount: amountSchema,
   assetId: assetIdSchema,
   method: z.string(),
@@ -159,8 +159,8 @@ const paymentView = z.object({
 });
 
 const settlementView = z.object({
-  id: z.string().uuid(),
-  merchantId: z.string().uuid(),
+  id: z.string().guid(),
+  merchantId: z.string().guid(),
   window: z.string(),
   assetId: assetIdSchema,
   gross: amountSchema,
@@ -189,7 +189,7 @@ const settlementDetailView = settlementView.extend({
  * enumerate a merchant or correlate two links.
  */
 const checkoutSessionView = z.object({
-  id: z.string().uuid(),
+  id: z.string().guid(),
   status: z.enum(['open', 'completed', 'expired', 'cancelled']),
   label: z.string(),
   amount: amountSchema,
@@ -200,8 +200,8 @@ const checkoutSessionView = z.object({
 });
 
 const depositView = z.object({
-  id: z.string().uuid(),
-  userId: z.string().uuid(),
+  id: z.string().guid(),
+  userId: z.string().guid(),
   assetId: assetIdSchema,
   amount: amountSchema,
   rail: z.string(),
@@ -211,8 +211,8 @@ const depositView = z.object({
 });
 
 const withdrawalView = z.object({
-  id: z.string().uuid(),
-  userId: z.string().uuid(),
+  id: z.string().guid(),
+  userId: z.string().guid(),
   assetId: assetIdSchema,
   amount: amountSchema,
   rail: z.string(),
@@ -418,15 +418,15 @@ export function createPayRouter(
       .input(z.object({ token: z.string().min(8).max(200) }))
       .output(
         z.object({
-          id: z.string().uuid(),
-          merchantId: z.string().uuid(),
-          profileId: z.string().uuid().nullable(),
+          id: z.string().guid(),
+          merchantId: z.string().guid(),
+          profileId: z.string().guid().nullable(),
           label: z.string(),
           amount: amountSchema.nullable(),
           currency: z.string().nullable(),
           expiresAt: z.string().nullable(),
           remainingUses: z.number().int().nullable(),
-          checkoutConfig: z.record(z.unknown()),
+          checkoutConfig: z.record(z.string(), z.unknown()),
         }),
       )
       .query(({ input }) => wrap(() => pay.resolvePaymentLink(input.token))),
@@ -568,13 +568,13 @@ export function createPayRouter(
           z.object({
             mode: z.enum(['gateway', 'psp', 'payfac']).default('gateway'),
             pricing: z.object({ feeBps: z.number().int().min(0).max(MAX_FEE_BPS) }),
-            settlementPrefs: z.record(z.unknown()).optional(),
+            settlementPrefs: z.record(z.string(), z.unknown()).optional(),
             /** Optional names (0071). Stored once, for the signed-in principal's own merchant only. */
             displayName: merchantNameInputSchema.optional(),
             legalName: merchantNameInputSchema.optional(),
           }),
         )
-        .output(z.object({ id: z.string().uuid(), userId: z.string().uuid(), mode: z.string(), feeBps: z.number().nullable() }))
+        .output(z.object({ id: z.string().guid(), userId: z.string().guid(), mode: z.string(), feeBps: z.number().nullable() }))
         .mutation(({ ctx, input }) =>
           wrap(async () => {
             const userId = ctx.principal?.userId;
@@ -605,7 +605,7 @@ export function createPayRouter(
       setPayoutDestination: scopedProcedure('pay:write', { module: 'pay' })
         .input(
           z.object({
-            merchantId: z.string().uuid(),
+            merchantId: z.string().guid(),
             railId: z.string().min(1),
             kind: z.string().min(1),
             ref: z.string().min(1),
@@ -628,8 +628,8 @@ export function createPayRouter(
         .output(
           z
             .object({
-              id: z.string().uuid(),
-              userId: z.string().uuid(),
+              id: z.string().guid(),
+              userId: z.string().guid(),
               mode: z.enum(['gateway', 'psp', 'payfac']),
               status: z.enum(['pending', 'active', 'suspended', 'closed']),
               kybStatus: z.enum(['none', 'pending', 'approved', 'rejected']),
@@ -673,10 +673,10 @@ export function createPayRouter(
        * Digital KYB vendors are `pay.psp`.
        */
       submitKyb: scopedProcedure('pay:onboard', { module: 'pay' })
-        .input(z.object({ merchantId: z.string().uuid(), kybRef: z.string().min(1).max(128) }))
+        .input(z.object({ merchantId: z.string().guid(), kybRef: z.string().min(1).max(128) }))
         .output(
           z.object({
-            id: z.string().uuid(),
+            id: z.string().guid(),
             kybStatus: z.enum(['none', 'pending', 'approved', 'rejected']),
             kybRef: z.string().nullable(),
           }),
@@ -707,7 +707,7 @@ export function createPayRouter(
       decideKyb: scopedProcedure('admin:compliance', { module: 'pay' })
         .input(
           z.object({
-            merchantId: z.string().uuid(),
+            merchantId: z.string().guid(),
             decision: z.enum(['approved', 'rejected']),
             confirmOperatorId: z.string().max(128).nullish(),
             approvalId: z.string().max(128).nullish(),
@@ -716,7 +716,7 @@ export function createPayRouter(
         )
         .output(
           z.object({
-            id: z.string().uuid(),
+            id: z.string().guid(),
             kybStatus: z.enum(['none', 'pending', 'approved', 'rejected']),
             kybRef: z.string().nullable(),
             confirmOperatorId: z.string(),
@@ -759,10 +759,10 @@ export function createPayRouter(
        * Under live-only → `pay.kyb_operator_required` (use `merchant.decideKyb`).
        */
       decideKybStub: scopedProcedure('pay:write', { module: 'pay' })
-        .input(z.object({ merchantId: z.string().uuid(), decision: z.enum(['approved', 'rejected']) }))
+        .input(z.object({ merchantId: z.string().guid(), decision: z.enum(['approved', 'rejected']) }))
         .output(
           z.object({
-            id: z.string().uuid(),
+            id: z.string().guid(),
             kybStatus: z.enum(['none', 'pending', 'approved', 'rejected']),
             kybRef: z.string().nullable(),
           }),
@@ -778,13 +778,13 @@ export function createPayRouter(
       profile: scopedProcedure('pay:write', { module: 'pay' })
         .input(
           z.object({
-            merchantId: z.string().uuid(),
-            checkoutConfig: z.record(z.unknown()).optional(),
-            feeRouting: z.record(z.unknown()).optional(),
+            merchantId: z.string().guid(),
+            checkoutConfig: z.record(z.string(), z.unknown()).optional(),
+            feeRouting: z.record(z.string(), z.unknown()).optional(),
             domains: z.array(z.string()).optional(),
           }),
         )
-        .output(z.object({ id: z.string().uuid(), merchantId: z.string().uuid() }))
+        .output(z.object({ id: z.string().guid(), merchantId: z.string().guid() }))
         .mutation(({ ctx, input }) =>
           wrap(async () => {
             await assertAccess(ctx.principal?.userId, input.merchantId, 'trpc.merchant.profile');
@@ -878,7 +878,7 @@ export function createPayRouter(
         ),
 
       deactivateLink: scopedProcedure('pay:write', { module: 'pay' })
-        .input(z.object({ merchantId: z.string().uuid(), linkId: z.string().uuid() }))
+        .input(z.object({ merchantId: z.string().guid(), linkId: z.string().guid() }))
         .output(z.object({ deactivated: z.boolean() }))
         .mutation(({ ctx, input }) =>
           wrap(async () => {
@@ -895,7 +895,7 @@ export function createPayRouter(
        * meaningful (Doctrine §0.6).
        */
       balances: ownMerchantRead()
-        .input(z.object({ merchantId: z.string().uuid(), assetId: assetIdSchema }))
+        .input(z.object({ merchantId: z.string().guid(), assetId: assetIdSchema }))
         .output(z.object({ clearing: amountSchema, available: amountSchema }))
         .query(({ ctx, input }) =>
           wrap(async () => {
@@ -922,7 +922,7 @@ export function createPayRouter(
         change: scopedProcedure('pay:write', { module: 'pay' })
           .input(
             z.object({
-              merchantId: z.string().uuid(),
+              merchantId: z.string().guid(),
               railId: z.string().min(1),
               kind: z.string().min(1),
               ref: z.string().min(1),
@@ -949,7 +949,7 @@ export function createPayRouter(
             }),
           ),
         setDefault: scopedProcedure('pay:write', { module: 'pay' })
-          .input(z.object({ merchantId: z.string().uuid(), destinationId: z.string().uuid() }))
+          .input(z.object({ merchantId: z.string().guid(), destinationId: z.string().guid() }))
           .output(payPayoutDestinationItemSchema)
           .mutation(({ ctx, input }) =>
             wrap(async () => {
@@ -958,7 +958,7 @@ export function createPayRouter(
             }),
           ),
         remove: scopedProcedure('pay:write', { module: 'pay' })
-          .input(z.object({ merchantId: z.string().uuid(), destinationId: z.string().uuid() }))
+          .input(z.object({ merchantId: z.string().guid(), destinationId: z.string().guid() }))
           .output(z.object({ removed: z.literal(true) }))
           .mutation(({ ctx, input }) =>
             wrap(async () => {
@@ -992,16 +992,16 @@ export function createPayRouter(
       create: scopedProcedure('pay:write', { module: 'pay' })
         .input(
           z.object({
-            requestId: z.string().uuid().optional(),
-            merchantId: z.string().uuid(),
-            profileId: z.string().uuid().nullish(),
+            requestId: z.string().guid().optional(),
+            merchantId: z.string().guid(),
+            profileId: z.string().guid().nullish(),
             amount: amountSchema,
             assetId: assetIdSchema,
             method: z.string().min(1),
             railAdapter: z.string().min(1),
             instrument: z.object({ kind: z.string(), token: z.string().optional(), address: z.string().optional() }).optional(),
             customerRef: z.string().optional(),
-            metadata: z.record(z.string()).optional(),
+            metadata: z.record(z.string(), z.string()).optional(),
           }),
         )
         .output(paymentView)
@@ -1023,7 +1023,7 @@ export function createPayRouter(
         ),
 
       authorize: scopedProcedure('pay:write', { module: 'pay' })
-        .input(z.object({ paymentId: z.string().uuid() }))
+        .input(z.object({ paymentId: z.string().guid() }))
         .output(paymentView)
         .mutation(({ ctx, input }) =>
           wrap(async () => {
@@ -1038,7 +1038,7 @@ export function createPayRouter(
         ),
 
       capture: scopedProcedure('pay:write', { module: 'pay' })
-        .input(z.object({ paymentId: z.string().uuid(), amount: amountSchema.optional() }))
+        .input(z.object({ paymentId: z.string().guid(), amount: amountSchema.optional() }))
         .output(paymentView)
         .mutation(({ ctx, input }) =>
           wrap(async () => {
@@ -1063,7 +1063,7 @@ export function createPayRouter(
         // already succeeded booked a second refund. A retry must carry the same id.
         .input(
           z.object({
-            paymentId: z.string().uuid(),
+            paymentId: z.string().guid(),
             amount: amountSchema,
             refundId: z
               .string()
@@ -1089,7 +1089,7 @@ export function createPayRouter(
         ),
 
       get: ownMerchantRead()
-        .input(z.object({ paymentId: z.string().uuid() }))
+        .input(z.object({ paymentId: z.string().guid() }))
         .output(paymentView.extend({ attempts: z.array(payPaymentAttemptSchema) }))
         .query(({ ctx, input }) =>
           wrap(async () => {
@@ -1129,7 +1129,7 @@ export function createPayRouter(
       history: ownMerchantRead()
         .input(
           z.object({
-            paymentId: z.string().uuid(),
+            paymentId: z.string().guid(),
             /**
              * Page size. Optional so omit reaches `pay.payment_history_limit_unset`
              * instead of a Zod "Required". Blank is not 50; pass 50 explicitly.
@@ -1141,15 +1141,15 @@ export function createPayRouter(
           z.array(
             z.union([
               z.object({
-                id: z.string().uuid(),
+                id: z.string().guid(),
                 event: z.string(),
-                payload: z.record(z.unknown()),
+                payload: z.record(z.string(), z.unknown()),
                 railEventId: z.string().nullable(),
                 ts: z.string().datetime({ offset: true }),
               }),
               z
                 .object({
-                  id: z.string().uuid(),
+                  id: z.string().guid(),
                   event: z.string(),
                   ts: z.string().datetime({ offset: true }),
                   amount: amountSchema.nullable(),
@@ -1213,7 +1213,7 @@ export function createPayRouter(
 
     settlement: router({
       run: scopedProcedure('pay:write', { module: 'pay' })
-        .input(z.object({ merchantId: z.string().uuid(), window: z.string().min(1), assetId: assetIdSchema }))
+        .input(z.object({ merchantId: z.string().guid(), window: z.string().min(1), assetId: assetIdSchema }))
         .output(settlementView)
         .mutation(({ ctx, input }) =>
           wrap(async () => {
@@ -1226,7 +1226,7 @@ export function createPayRouter(
       payout: scopedProcedure('pay:payout', { module: 'pay' })
         .input(
           z.object({
-            settlementId: z.string().uuid(),
+            settlementId: z.string().guid(),
             railId: z.string().min(1),
             destination: z.object({ kind: z.string().min(1), ref: z.string().min(1) }).optional(),
           }),
@@ -1251,7 +1251,7 @@ export function createPayRouter(
         ),
 
       get: ownMerchantRead()
-        .input(z.object({ settlementId: z.string().uuid() }))
+        .input(z.object({ settlementId: z.string().guid() }))
         .output(settlementDetailView)
         .query(({ ctx, input }) =>
           wrap(async () => {
@@ -1306,7 +1306,7 @@ export function createPayRouter(
        * Moves no ledger value. Requires write (ops / merchant owner).
        */
       release: scopedProcedure('pay:write', { module: 'pay' })
-        .input(z.object({ settlementId: z.string().uuid(), reason: z.string().min(1) }))
+        .input(z.object({ settlementId: z.string().guid(), reason: z.string().min(1) }))
         .output(settlementView)
         .mutation(({ ctx, input }) =>
           wrap(async () => {
@@ -1415,7 +1415,7 @@ export function createPayRouter(
                 reason: z.string().optional(),
               }),
             ),
-            decision: z.record(z.unknown()),
+            decision: z.record(z.string(), z.unknown()),
           }),
         )
         .query(({ input }) => {
@@ -1548,7 +1548,7 @@ export function createPayRouter(
             merchantId: z.string().min(1),
             amount: amountSchema,
             assetId: assetIdSchema,
-            paymentId: z.string().uuid().nullable().optional(),
+            paymentId: z.string().guid().nullable().optional(),
             // Re-evaluate from the same inputs so the queue never accepts a forged review.
             recentPaymentCount: z.number().int().min(0).optional(),
             recentVolume: amountSchema.optional(),
@@ -1767,8 +1767,8 @@ export function createPayRouter(
         .input(
           z.object({
             disputeId: z.string().min(1),
-            paymentId: z.string().uuid(),
-            merchantId: z.string().uuid(),
+            paymentId: z.string().guid(),
+            merchantId: z.string().guid(),
             amount: amountSchema,
             assetId: assetIdSchema,
             reasonCode: z.string().max(64).nullable().optional(),
@@ -2033,7 +2033,7 @@ export function createPayRouter(
       credit: scopedProcedure('admin:treasury')
         .input(
           z.object({
-            userId: z.string().uuid(),
+            userId: z.string().guid(),
             assetId: assetIdSchema,
             amount: amountSchema,
             railId: z.string().min(1),
@@ -2163,7 +2163,7 @@ export function createPayRouter(
        * id reads as `pay.withdrawal_not_found`.
        */
       cancel: scopedProcedure('trade:write', { module: 'ledger' })
-        .input(z.object({ withdrawalId: z.string().uuid() }).strict())
+        .input(z.object({ withdrawalId: z.string().guid() }).strict())
         .output(withdrawalView.extend({ customerStatus: z.literal('canceled') }))
         .mutation(({ ctx, input }) =>
           wrap(async () => ({
@@ -2178,7 +2178,7 @@ export function createPayRouter(
        * after their five-minute elevation has expired.
        */
       get: scopedProcedure('trade:read')
-        .input(z.object({ withdrawalId: z.string().uuid() }))
+        .input(z.object({ withdrawalId: z.string().guid() }))
         .output(withdrawalView)
         .query(({ ctx, input }) =>
           wrap(async () => {
@@ -2230,7 +2230,7 @@ export function createPayRouter(
        * from the request, so a withdrawal id alone reads nothing of another account.
        */
       supportRead: scopedProcedure('support:read')
-        .input(z.object({ withdrawalId: z.string().uuid() }))
+        .input(z.object({ withdrawalId: z.string().guid() }))
         .output(
           z.object({
             withdrawalId: z.string(),
@@ -2275,7 +2275,7 @@ export function createPayRouter(
             .object({
               assetId: assetIdSchema.optional(),
               status: z.enum(WITHDRAWAL_STATUSES).optional(),
-              id: z.string().uuid().optional(),
+              id: z.string().guid().optional(),
               since: z.string().datetime({ offset: true }).optional(),
               until: z.string().datetime({ offset: true }).optional(),
               limit: z.number().int().min(1).max(200).optional(),
@@ -2287,7 +2287,7 @@ export function createPayRouter(
           z.object({
             items: z.array(
               z.object({
-                id: z.string().uuid(),
+                id: z.string().guid(),
                 assetId: assetIdSchema,
                 amount: amountSchema,
                 rail: z.string(),

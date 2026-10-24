@@ -135,3 +135,11 @@
     }
   }
 }
+
+@layer components {
+  /* The ad's terms as placed: the maker's own line breaks, and long words wrap inside the details list. */
+  .p2p-order-terms {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+}

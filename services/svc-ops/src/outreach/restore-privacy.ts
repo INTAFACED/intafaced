@@ -6,7 +6,7 @@ import { transaction } from '@intafaced/db';
 import { guestNotificationEraseReceiptSchema } from '@intafaced/contracts';
 import { z } from 'zod';
 
-const id = z.string().uuid();
+const id = z.string().guid();
 const timestamp = z.string().datetime({ offset: true });
 const ids = (max: number, min = 0) =>
   z

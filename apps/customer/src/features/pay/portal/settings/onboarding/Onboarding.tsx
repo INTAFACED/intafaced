@@ -10,6 +10,9 @@ import type { PortalApi } from '../../api';
 import type { OnboardingStep } from '../../routes';
 import type { KybEvent, MerchantRecord, StarterFee, kybCurrentSchema } from '../../schemas';
 import { PortalReview } from '../../ui/PortalReview';
+import { DestinationConfirm } from '../../access/DestinationConfirm';
+import type { DestinationProof } from '../../access/destination-step-up';
+import { normaliseReference } from '../../money/Destinations';
 import { useUnsavedForm } from '../../useUnsavedForm';
 import { reason as notLive } from '../../chrome/copy';
 import { accountCopy } from '../account/copy';
@@ -577,7 +580,8 @@ function StepGoLive(props: OnboardingViewProps) {
   const { t: m } = mc.useCopy();
   const [railId, setRailId] = useState('');
   const [ref, setRef] = useState('');
-  useUnsavedForm(Boolean(ref) && ref.trim() !== saved?.ref, a('acUnsaved'));
+  const [proof, setProof] = useState<DestinationProof>({ code: '' });
+  useUnsavedForm(Boolean(ref) && normaliseReference(ref) !== saved?.ref, a('acUnsaved'));
   if (!merchant) return <EmptyState title={t('needStep1Title')}>{t('needStep1Body')}</EmptyState>;
   const steps = stepStates(props);
   const onFile = steps.progress?.destination.destinations ?? [];
@@ -632,16 +636,25 @@ function StepGoLive(props: OnboardingViewProps) {
                   variant="primary"
                   description={t('saveDestinationBody')}
                   review={
-                    <PayDetails
-                      values={[
-                        [t('fRail'), railWords(m, chosen.id)],
-                        [t('fKind'), t(kind === 'crypto' ? 'kindCrypto' : 'kindBank')],
-                        [t('factDestination'), <span className="pp-mono">{ref.trim()}</span>],
-                      ]}
-                    />
+                    <>
+                      <PayDetails
+                        values={[
+                          [t('fRail'), railWords(m, chosen.id)],
+                          [t('fKind'), t(kind === 'crypto' ? 'kindCrypto' : 'kindBank')],
+                          [t('factDestination'), <span className="pp-mono">{normaliseReference(ref)}</span>],
+                        ]}
+                      />
+                      <DestinationConfirm proof={proof} onChange={setProof} />
+                    </>
                   }
-                  perform={() => portal.setPayoutDestination(merchant.id, chosen.id, kind, ref.trim())}
-                  onConfirmed={(data) => onDestinationSaved({ railId: data.railId, kind: data.kind, ref: data.ref })}
+                  perform={() => {
+                    // A code is good once: the next try asks for a new one, whatever this one's answer.
+                    if ('code' in proof) setProof({ code: '' });
+                    return portal.setPayoutDestination(merchant.id, chosen.id, kind, normaliseReference(ref), proof);
+                  }}
+                  onConfirmed={(data) => {
+                    onDestinationSaved({ railId: data.railId, kind: data.kind, ref: data.ref });
+                  }}
                   disabled={ref.trim() === '' || !shapeOk}
                   disabledReason={t(kind === 'crypto' ? 'hAddress' : 'hBankRef')}
                 />

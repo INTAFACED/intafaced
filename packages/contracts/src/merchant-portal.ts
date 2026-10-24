@@ -158,7 +158,7 @@ export const merchantBusinessProfileSubmitInputSchema = z
 
 export const merchantBusinessProfileSubmitResultSchema = z
   .object({
-    requestId: z.string().uuid(),
+    requestId: z.string().guid(),
     outcome: z.enum(['applied', 'pending_review', 'pending_second_approval']),
     version: z.string().regex(/^\d{1,18}$/),
     /** Hash of the sensitive proposal. Compliance review must send this exact value. Null when nothing is waiting. */
@@ -169,7 +169,7 @@ export const merchantBusinessProfileSubmitResultSchema = z
 
 export const merchantBusinessProfileDecideResultSchema = z
   .object({
-    requestId: z.string().uuid(),
+    requestId: z.string().guid(),
     outcome: z.enum(['applied', 'rejected', 'pending_review']),
     version: z.string().regex(/^\d{1,18}$/),
     profile: merchantBusinessProfileSchema,
@@ -179,7 +179,7 @@ export const merchantBusinessProfileDecideResultSchema = z
 export const merchantBusinessProfileConfirmInputSchema = z
   .object({
     merchantId: payMerchantIdSchema,
-    requestId: z.string().uuid(),
+    requestId: z.string().guid(),
     decision: z.enum(['confirm', 'reject', 'withdraw']),
     expectedChangeHash: z.string().min(8).max(200),
     reason: z.string().trim().min(3).max(500),
@@ -213,7 +213,7 @@ export const merchantProfileSecondApprovalResultSchema = z
 export const merchantBusinessProfileReviewInputSchema = z
   .object({
     merchantId: payMerchantIdSchema,
-    requestId: z.string().uuid(),
+    requestId: z.string().guid(),
     decision: z.enum(['approved', 'rejected']),
     reason: z.string().trim().min(3).max(500),
     expectedChangeHash: z.string().min(8).max(200),
@@ -225,7 +225,7 @@ export const merchantBusinessProfileReviewInputSchema = z
 
 export const merchantBusinessProfileReviewResultSchema = z
   .object({
-    requestId: z.string().uuid(),
+    requestId: z.string().guid(),
     outcome: z.enum(['applied', 'rejected']),
     version: z.string().regex(/^\d{1,18}$/),
     profile: merchantBusinessProfileSchema,
@@ -235,7 +235,7 @@ export const merchantBusinessProfileReviewResultSchema = z
 
 export const merchantProfileChangeSchema = z
   .object({
-    requestId: z.string().uuid(),
+    requestId: z.string().guid(),
     /** bigserial ordering key. A string, never a number. */
     seq: z.string().regex(/^\d+$/),
     /**
