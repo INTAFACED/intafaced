@@ -289,7 +289,7 @@ function assertRange(from: string, to: string): { fromMs: number; toMs: number }
 }
 
 export async function buildLoanStatement(
-  sql: Sql,
+  pool: Sql,
   loan: {
     id: string;
     debtAssetId: string;
@@ -308,18 +308,22 @@ export async function buildLoanStatement(
   const from = new Date(fromMs);
   const to = new Date(toMs);
   const now = input.now ?? new Date();
-  // opened_at is the pending insert. The draw can fail and land later; drawn_at
-  // is written in the same update as draw_ledger_tx_id.
-  const drawnRows = await sql<Array<{ drawn_at: Date | null }>>`
+  // Every read sees one snapshot, so a repayment that settles while the file is built
+  // cannot make the lines disagree with the opening and closing debt.
+  const read = await pool.begin('isolation level repeatable read read only', async (tx) => {
+    const sql = tx as unknown as Sql;
+    // opened_at is the pending insert. The draw can fail and land later; drawn_at
+    // is written in the same update as draw_ledger_tx_id.
+    const drawnRows = await sql<Array<{ drawn_at: Date | null }>>`
     SELECT drawn_at FROM bank.loans WHERE id = ${loan.id}
   `;
-  const drawnAt = drawnRows[0]?.drawn_at ?? null;
-  // One more than the cap is read from each kind, so a range over the cap is refused, never cut.
-  const cap = MAX_STATEMENT_LINES + 1;
-  const [opening, closing, accruals, repayments, collateral, liquidations] = await Promise.all([
-    debtBefore(sql, loan.id, from, loan.principal, drawnAt),
-    debtBefore(sql, loan.id, to, loan.principal, drawnAt),
-    sql<Array<{ accrual_date: string; interest_amount: string }>>`
+    const drawnAt = drawnRows[0]?.drawn_at ?? null;
+    // One more than the cap is read from each kind, so a range over the cap is refused, never cut.
+    const cap = MAX_STATEMENT_LINES + 1;
+    const [opening, closing, accruals, repayments, collateral, liquidations] = await Promise.all([
+      debtBefore(sql, loan.id, from, loan.principal, drawnAt),
+      debtBefore(sql, loan.id, to, loan.principal, drawnAt),
+      sql<Array<{ accrual_date: string; interest_amount: string }>>`
       SELECT accrual_date::text AS accrual_date, interest_amount::text AS interest_amount
         FROM bank.loan_interest_accruals
        WHERE loan_id = ${loan.id}
@@ -328,7 +332,7 @@ export async function buildLoanStatement(
        ORDER BY accrual_date ASC
        LIMIT ${cap}
     `,
-    sql<Array<{ settled_at: Date; interest_amount: string; principal_amount: string; ledger_tx_id: string | null }>>`
+      sql<Array<{ settled_at: Date; interest_amount: string; principal_amount: string; ledger_tx_id: string | null }>>`
       SELECT COALESCE(settled_at, created_at) AS settled_at, interest_amount::text AS interest_amount,
              principal_amount::text AS principal_amount, ledger_tx_id
         FROM bank.loan_repayments
@@ -338,7 +342,7 @@ export async function buildLoanStatement(
        ORDER BY settled_at ASC, sequence ASC
        LIMIT ${cap}
     `,
-    sql<Array<{ settled_at: Date; direction: string; sequence: number; amount: string; ledger_tx_id: string | null }>>`
+      sql<Array<{ settled_at: Date; direction: string; sequence: number; amount: string; ledger_tx_id: string | null }>>`
       SELECT COALESCE(settled_at, created_at) AS settled_at, direction, sequence, amount::text AS amount, ledger_tx_id
         FROM bank.loan_collateral_events
        WHERE loan_id = ${loan.id} AND status = 'settled'
@@ -347,16 +351,16 @@ export async function buildLoanStatement(
        ORDER BY settled_at ASC, sequence ASC
        LIMIT ${cap}
     `,
-    sql<
-      Array<{
-        settled_at: Date;
-        interest_repaid: string;
-        principal_repaid: string;
-        shortfall: string;
-        ledger_tx_id: string | null;
-        bad_debt_ledger_tx_id: string | null;
-      }>
-    >`
+      sql<
+        Array<{
+          settled_at: Date;
+          interest_repaid: string;
+          principal_repaid: string;
+          shortfall: string;
+          ledger_tx_id: string | null;
+          bad_debt_ledger_tx_id: string | null;
+        }>
+      >`
       SELECT COALESCE(settled_at, created_at) AS settled_at, interest_repaid::text AS interest_repaid,
              principal_repaid::text AS principal_repaid, shortfall::text AS shortfall,
              ledger_tx_id, bad_debt_ledger_tx_id
@@ -367,7 +371,10 @@ export async function buildLoanStatement(
        ORDER BY settled_at ASC, tranche ASC
        LIMIT ${cap}
     `,
-  ]);
+    ]);
+    return { drawnAt, opening, closing, accruals, repayments, collateral, liquidations };
+  });
+  const { drawnAt, opening, closing, accruals, repayments, collateral, liquidations } = read;
   const lines: StatementLine[] = [];
   if (drawnAt && drawnAt.getTime() >= fromMs && drawnAt.getTime() < toMs) {
     lines.push({
