@@ -398,3 +398,78 @@ test(`${J} #4 the payer opens the link: the fixed amount and asset before confir
   const print = page.getByRole('row').filter({ hasText: 'TEST Single print' });
   await expect(print).toContainText('1 of 1');
 });
+
+test(`${J} #7 the payer is offered only the methods for the country and currency in the set order; bank debit with no rail shows rail.bank; a crypto payment completes`, async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(300_000);
+  const state = journey();
+  await signInOwner(page, state, '/pay/checkout');
+  const refused = refusedPayCalls(page);
+  const methods = page.getByRole('list', { name: 'Payment methods' });
+  const method = (id) => methods.locator(`li[data-method="${id}"]`);
+
+  // What the platform can take: crypto is available; card, bank debit and pay later each name the piece they need.
+  await expect(method('crypto').getByText('Available')).toBeVisible();
+  await expect(method('bank_debit').locator('[data-not-connected="rail.bank"]')).toContainText('Bank debit needs a banking partner.');
+  await expect(method('card').locator('[data-not-connected="rail.card"]')).toBeVisible();
+  await expect(method('pay_later').locator('[data-not-connected="rail.card"]')).toBeVisible();
+
+  // The owner puts bank debit first and turns it on, and keeps crypto on.
+  await page.getByRole('button', { name: 'Move Bank debit up' }).click();
+  await page.getByRole('button', { name: 'Move Bank debit up' }).click();
+  await page.getByRole('checkbox', { name: 'Offer Bank debit' }).check();
+  await expect(page.getByRole('checkbox', { name: 'Offer Crypto' })).toBeChecked();
+  await page.getByRole('button', { name: 'Save methods' }).click();
+  await expect(page.getByText('Saved. Your checkout now offers these methods in this order.')).toBeVisible();
+  await page.reload();
+  await expect(page.getByTestId('checkout-methods-state')).toContainText('Last saved:');
+  expect(await methods.locator(':scope > li').evaluateAll((items) => items.map((li) => li.dataset.method))).toEqual([
+    'bank_debit',
+    'crypto',
+    'card',
+    'pay_later',
+  ]);
+
+  // A customer in Germany paying in EUR is offered bank debit, which names rail.bank, and not crypto.
+  const preview = async (country, currency) => {
+    await page.getByLabel('Country').fill(country);
+    await page.getByLabel('Currency').fill(currency);
+    await page.getByRole('button', { name: 'Check', exact: true }).click();
+    const offer = page.getByTestId('checkout-methods-offer');
+    await expect(offer).toBeVisible();
+    return offer;
+  };
+  const eur = await preview('DE', 'EUR');
+  const eurOffered = eur.locator('ol > li');
+  expect(await eurOffered.evaluateAll((items) => items.map((li) => li.dataset.method))).toEqual(['bank_debit']);
+  await expect(eurOffered.first().locator('[data-not-connected="rail.bank"]')).toBeVisible();
+  await expect(eur.locator('li[data-method="crypto"]')).toHaveText('Crypto: Not for this currency');
+  await expect(eur.locator('li[data-method="card"]')).toHaveText('Card: Switched off');
+  // Paying in USDT, the same customer is offered crypto alone.
+  const usdt = await preview('DE', 'USDT');
+  expect(await usdt.locator('ol > li').evaluateAll((items) => items.map((li) => li.dataset.method))).toEqual(['crypto']);
+  await expect(usdt.locator('ol > li').first()).toContainText('Available');
+  await expect(usdt.locator('li[data-method="bank_debit"]')).toHaveText('Bank debit: Not for this currency');
+
+  // A TEST 7 USDT link: the payer is taken straight to the crypto reference, and a transfer completes the payment.
+  const address = await makeLink(page, `TEST Poster ${Date.now().toString(36)}`, '7', 'USDT');
+  expect(refused).toEqual([]);
+  const payer = await browser.newContext();
+  try {
+    const payerPage = await payer.newPage();
+    await payerPage.goto(address);
+    await expect(payerPage.locator('.amount')).toHaveText('7.00 USDT');
+    const reference = await payerContinues(payerPage);
+    expect(reference).toMatch(/^addr_usdt_/);
+    const sessionUrl = payerPage.url();
+    tool('local-test-stack.mjs', 'chain-deposit', reference, 'USDT', '7', '12', '--tx', `j-merchant-04-methods-${Date.now()}`);
+    await expect(async () => {
+      await payerPage.goto(sessionUrl);
+      await expect(payerPage.getByText('Payment received')).toBeVisible({ timeout: 2_000 });
+    }).toPass({ timeout: 60_000 });
+  } finally {
+    await payer.close();
+  }
+});

@@ -84,6 +84,8 @@ describe('no founder or operator door in the merchant portal (G9)', () => {
       'merchantStores',
       // The look of the business's own hosted checkout (svc-pay checkout-branding/router.ts): resolves the caller's business.
       'merchantCheckout',
+      // The payment methods of the business's own hosted checkout (svc-pay checkout-methods/router.ts): resolves the caller's business.
+      'merchantCheckoutMethods',
       'merchantMetrics',
       'merchantAnalytics',
       'submerchant',
