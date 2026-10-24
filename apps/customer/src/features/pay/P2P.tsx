@@ -373,7 +373,7 @@ export function OrderActions({
                     [payCopy.t('paymentMethod'), <span lang="zxx">{trade.method}</span>],
                   ]}
                 />
-                <fieldset className="p2p-check-list" data-testid="order-paid-checklist">
+                <fieldset className="p2p-paid-checklist" data-testid="order-paid-checklist">
                   <legend>{t('paidChecklist')}</legend>
                   {(
                     [
@@ -386,7 +386,11 @@ export function OrderActions({
                       <input
                         type="checkbox"
                         checked={paidChecks[key]}
-                        onChange={(event) => setPaidChecks((current) => ({ ...current, [key]: event.target.checked }))}
+                        onChange={(event) => {
+                          // Read it now: React puts a controlled box back before a functional update runs.
+                          const checked = event.target.checked;
+                          setPaidChecks((current) => ({ ...current, [key]: checked }));
+                        }}
                       />
                       <span>{label}</span>
                     </label>
