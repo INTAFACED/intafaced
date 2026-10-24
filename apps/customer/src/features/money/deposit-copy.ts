@@ -53,6 +53,8 @@ const en = {
   networkOffOption: '{network} (switched off)',
   haltedTitle: 'Deposits of {asset} on {network} are switched off',
   haltedBody: 'No address is shown for it. Choose another network, or come back when it is switched on.',
+  haltedKept:
+    'Anything sent to an address you already had for it is not lost: it waits, and is credited after deposits are switched back on.',
   networkRetry: 'Try again',
   pickFirst: 'Choose an asset and a network, then confirm below to see your address.',
   ackLabel: 'I will send only {asset} on {network}. I understand anything else can be lost for good.',
@@ -141,6 +143,8 @@ const es = {
   networkOffOption: '{network} (desactivada)',
   haltedTitle: 'Los depósitos de {asset} en {network} están desactivados',
   haltedBody: 'No se muestra ninguna dirección para ella. Elige otra red o vuelve cuando esté activada.',
+  haltedKept:
+    'Lo que envíes a una dirección que ya tenías para ella no se pierde: queda en espera y se abona cuando se vuelvan a activar los depósitos.',
   networkRetry: 'Reintentar',
   pickFirst: 'Elige un activo y una red y confirma abajo para ver tu dirección.',
   ackLabel: 'Enviaré solo {asset} por la red {network}. Entiendo que cualquier otra cosa puede perderse para siempre.',
@@ -231,6 +235,8 @@ const fr = {
   networkOffOption: '{network} (désactivé)',
   haltedTitle: 'Les dépôts de {asset} sur {network} sont désactivés',
   haltedBody: 'Aucune adresse n’est affichée pour ce réseau. Choisissez-en un autre, ou revenez quand il sera réactivé.',
+  haltedKept:
+    'Ce qui est envoyé à une adresse que vous aviez déjà pour ce réseau n’est pas perdu : il attend, et il est crédité quand les dépôts sont réactivés.',
   networkRetry: 'Réessayer',
   pickFirst: 'Choisissez un actif et un réseau, puis confirmez ci-dessous pour voir votre adresse.',
   ackLabel: 'J’enverrai uniquement {asset} sur le réseau {network}. Je comprends que tout autre envoi peut être perdu définitivement.',
