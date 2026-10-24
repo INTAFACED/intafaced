@@ -270,7 +270,9 @@ function AmountCheck({ portal, prices }: { portal: PortalApi; prices: readonly M
     setAnswer(null);
     try {
       const result = await portal.quotePrice({ priceId: current.id, amount: amount.trim() });
-      setAnswer(result.ok ? { ok: true, amount: result.data.amount, assetId: result.data.assetId } : { ok: false, text: refusalText(result) });
+      setAnswer(
+        result.ok ? { ok: true, amount: result.data.amount, assetId: result.data.assetId } : { ok: false, text: refusalText(result) },
+      );
     } finally {
       setBusy(false);
     }

@@ -29,7 +29,6 @@ export function Products({ portal, route }: { portal: PortalApi; route: { room: 
   return <ProductList portal={portal} />;
 }
 
-
 const addButton = (label: string) => (
   <Button variant="primary" nativeButton={false} role="link" render={<a href="/pay/products/new" />}>
     {label}
