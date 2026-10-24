@@ -55,19 +55,33 @@ export function LevelLimits({ pay, side }: { pay: PersonalPayApi; side: 'buy' | 
           <small className="muted">{t(side === 'buy' ? 'levelBuyHint' : 'levelSellHint')}</small>
         </>
       ) : resource.status === 'failed' ? (
-        <p className="muted">
-          {t(
-            resource.failure.code === 'p2p.verification_limits_unset'
-              ? 'levelUnset'
-              : resource.failure.code === 'p2p.verification_level_unwired'
-                ? 'levelUnwired'
-                : 'levelFailed',
-          )}
-        </p>
+        <LevelLimitsFailure code={resource.failure.code} retry={limits.reload} />
       ) : (
         <p className="muted">{t('levelLoading')}</p>
       )}
     </div>
+  );
+}
+
+/** The operator's state of the table is said as it is; only a read that failed for another reason offers a retry. */
+function LevelLimitsFailure({ code, retry }: { code: string | undefined; retry: () => void }) {
+  const { t } = postCopy.useCopy();
+  const settled =
+    code === 'p2p.verification_limits_unset'
+      ? 'levelUnset'
+      : code === 'p2p.verification_limits_invalid'
+        ? 'levelInvalid'
+        : code === 'p2p.verification_level_unwired'
+          ? 'levelUnwired'
+          : null;
+  if (settled) return <p className="muted">{t(settled)}</p>;
+  return (
+    <p className="muted">
+      {t('levelFailed')}{' '}
+      <Button variant="ghost" onClick={retry}>
+        {t('levelRetry')}
+      </Button>
+    </p>
   );
 }
 

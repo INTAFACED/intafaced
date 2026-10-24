@@ -53,6 +53,9 @@ async function adsMarked(state, marker) {
 }
 
 /** Fills the post-an-ad form for a sell ad of USDT for EUR, paid by the stack's TEST bank transfer. */
+/** A decimal string as the customer app shows amounts: the whole part grouped by thousands (1000 is 1,000). */
+const grouped = (decimal) => decimal.replace(/^\d+/, (whole) => whole.replace(/\B(?=(\d{3})+$)/g, ','));
+
 async function fillAd(page, terms) {
   const form = page.getByTestId('offer-form');
   await expect(form).toBeVisible();
@@ -187,7 +190,7 @@ test('J-p2p-03 #4 the per-order limits for my level are shown, and a buy ad whos
   // The form shows the same band before anything is posted.
   await signIn(page, state.seller);
   await page.goto('/uc/ad/create');
-  await expect(page.getByTestId('offer-level-limits')).toContainText(`): ${orderMin} to ${orderMax} ${currency}.`);
+  await expect(page.getByTestId('offer-level-limits')).toContainText(`): ${grouped(orderMin)} to ${grouped(orderMax)} ${currency}.`);
 });
 
 test('J-p2p-03 #5 a flagged phrase in the terms refuses with the rule class, and nothing is posted', async () => {

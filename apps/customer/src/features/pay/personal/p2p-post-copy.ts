@@ -13,6 +13,8 @@ const en = {
   levelLoading: 'Reading the limits for your level…',
   levelFailed: 'The limits for your level could not be read just now.',
   levelUnset: 'The operator has not published per-order limits by level.',
+  levelInvalid: 'The operator’s per-order limits by level are not a complete table, so no buy ad can be checked against them.',
+  levelRetry: 'Try again',
   levelUnwired: 'Your verification level could not be read, so the limits for it cannot be shown.',
   levelNone: 'not verified',
   levelBasic: 'basic',
@@ -92,6 +94,9 @@ const es = {
   levelLoading: 'Leyendo los límites de tu nivel…',
   levelFailed: 'No se pudieron leer los límites de tu nivel en este momento.',
   levelUnset: 'El operador no ha publicado límites por orden según el nivel.',
+  levelInvalid:
+    'Los límites por orden según el nivel del operador no forman una tabla completa, así que ningún anuncio de compra se puede comprobar con ellos.',
+  levelRetry: 'Reintentar',
   levelUnwired: 'No se pudo leer tu nivel de verificación, así que no se pueden mostrar sus límites.',
   levelNone: 'sin verificar',
   levelBasic: 'básico',
@@ -173,6 +178,9 @@ const fr = {
   levelLoading: 'Lecture des limites de votre niveau…',
   levelFailed: 'Les limites de votre niveau n’ont pas pu être lues pour le moment.',
   levelUnset: 'L’opérateur n’a pas publié de limites par ordre selon le niveau.',
+  levelInvalid:
+    'Les limites par ordre selon le niveau publiées par l’opérateur ne forment pas une table complète : aucune annonce d’achat ne peut être vérifiée.',
+  levelRetry: 'Réessayer',
   levelUnwired: 'Votre niveau de vérification n’a pas pu être lu, ses limites ne peuvent donc pas être affichées.',
   levelNone: 'non vérifié',
   levelBasic: 'basique',

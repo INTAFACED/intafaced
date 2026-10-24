@@ -103,16 +103,38 @@ describe('svc-p2p per-order limits by level and the balance on edit (P-ads-merch
     expect(await offers()).toHaveLength(0);
   });
 
-  it('refuses a buy ad whose per-order minimum is under the level, rounding toward the refusal', async () => {
-    // 0.53 x 0.93 = 0.4929 EUR, under 0.5.
+  it('prices the smallest and largest order as a take does, to the cent, so it refuses exactly what a take would', async () => {
+    // 0.53 x 0.93 = 0.4929, a take of 0.49 EUR: under 0.5.
     await expect(service().createOffer(ad({ minAmt: parseAmount('0.53') }))).rejects.toMatchObject({
       code: 'p2p.verification_order_min',
       limit: { min: '0.5', max: '500', currency: 'EUR' },
     });
-    // 537.634408602150537635 x 0.93 rounds up past 500: the maximum leans to refusing.
-    await expect(service().createOffer(ad({ maxAmt: parseAmount('537.634408602150537635') }))).rejects.toMatchObject({
+    // 537.635 x 0.93 = 500.00055, a take of 500.00 EUR: inside, so the ad posts.
+    await expect(service().createOffer(ad({ maxAmt: parseAmount('537.635') }))).resolves.toBeTruthy();
+    // 537.64 x 0.93 = 500.0052, a take of 500.01 EUR: past it.
+    await expect(service().createOffer(ad({ maxAmt: parseAmount('537.64') }))).rejects.toMatchObject({
       code: 'p2p.verification_order_max',
     });
+  });
+
+  it('answers a retry of a buy ad posted before the table, rather than refusing it', async () => {
+    const posted = await service({ status: 'absent' }).createOffer(ad({ maxAmt: parseAmount('900'), idempotencyKey: 'before-table' }));
+    await expect(service().createOffer(ad({ maxAmt: parseAmount('900'), idempotencyKey: 'before-table' }))).resolves.toMatchObject({
+      id: posted.id,
+    });
+  });
+
+  it('lets a buy ad listed past the level be brought down step by step, and refuses only an edit that widens it', async () => {
+    const legacy = await service({ status: 'absent' }).createOffer(ad({ maxAmt: parseAmount('1000'), makerTier: undefined }));
+    const p2p = service();
+    // 600 x 0.93 = 558 EUR, still past 500, but narrower than 930: allowed, even with no level stored on the row.
+    await expect(
+      p2p.updateOffer({ offerId: legacy.id, makerId: MAKER, idempotencyKey: 'down-1', maxAmt: parseAmount('600') }),
+    ).resolves.toMatchObject({ maxAmt: parseAmount('600') });
+    // Widening it again is checked, and the row has no level to check it on.
+    await expect(
+      p2p.updateOffer({ offerId: legacy.id, makerId: MAKER, idempotencyKey: 'up-1', maxAmt: parseAmount('700') }),
+    ).rejects.toMatchObject({ code: 'p2p.verification_level_unwired' });
   });
 
   it('names a buy ad in another currency, an unwired level and a broken table, as a take would', async () => {

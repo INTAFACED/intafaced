@@ -11,6 +11,7 @@ import {
   parseAmount,
   recipes,
   div,
+  mul,
   mulBps,
   sub,
   tradeEscrowAccount,
@@ -388,6 +389,16 @@ function shortBalance(err: InsufficientFundsError, asset: string): P2pError {
 }
 
 /** `p2p.insufficient_balance` with the free amount and the shortfall, the figures the room shows. */
+/** What a buy ad's per-order range is checked on against its maker's verification level (P-ads-merchant-02). */
+interface BuyAdRange {
+  tier: string | undefined;
+  fiatCurrency: string;
+  priceType: PriceType;
+  price: Amount;
+  minAmt: Amount;
+  maxAmt: Amount;
+}
+
 function shortOf(free: Amount, requested: Amount, asset: string, what: string): P2pError {
   const available = formatAmount(free);
   const shortBy = formatAmount(sub(requested, free));
@@ -1640,9 +1651,10 @@ export class P2pService {
     totalAmt: Amount,
     retry: { idempotencyKey: string | undefined; offerId: string | undefined },
     shownTermsVersion: string | undefined,
+    buyRange?: BuyAdRange,
   ): Promise<void> {
     const checkBalance = this.sellBalanceAtPost && side === 'sell';
-    if (!this.advertiserTerms && !checkBalance) return;
+    if (!this.advertiserTerms && !checkBalance && !buyRange) return;
     if (retry.idempotencyKey) {
       const published = await this.sql<{ subject_id: string | null }[]>`
         SELECT subject_id FROM p2p.write_keys
@@ -1653,6 +1665,7 @@ export class P2pService {
         SELECT id FROM p2p.offers WHERE id = ${retry.offerId} AND maker_id = ${makerId}`;
       if (published[0]) return;
     }
+    if (buyRange) this.assertBuyAdRange(buyRange);
     const [, free] = await Promise.all([
       this.advertiserTerms?.assertAccepted(makerId, shownTermsVersion),
       checkBalance ? this.sellBalance(makerId, asset) : null,
@@ -1664,14 +1677,7 @@ export class P2pService {
    * P-ads-merchant-02. A buy ad's per-order range must fit the maker's verification level, the cap every take of it
    * meets (`buyAdRangeRefusal`). The refusal carries the level's per-order band, so the form can say what fits.
    */
-  private assertBuyAdRange(input: {
-    tier: string | undefined;
-    fiatCurrency: string;
-    priceType: PriceType;
-    price: Amount;
-    minAmt: Amount;
-    maxAmt: Amount;
-  }): void {
+  private assertBuyAdRange(input: BuyAdRange): void {
     const refusal = buyAdRangeRefusal(this.verificationLimits, input);
     if (!refusal) return;
     const { code, caps, currency } = refusal;
@@ -1794,16 +1800,6 @@ export class P2pService {
     const standing = this.merchantStatusOf ? await this.merchantStatusOf(input.makerId) : null;
     const verdict = checkOfferLimit({ status: standing, maxAmt: input.maxAmt, asset: input.asset, policy: this.offerLimits });
     if (!verdict.withinLimit) throw new P2pError(verdict.reason, 'p2p.offer_limit_exceeded');
-    if (input.side === 'buy') {
-      this.assertBuyAdRange({
-        tier: input.makerTier,
-        fiatCurrency,
-        priceType: input.priceType,
-        price: input.price,
-        minAmt: input.minAmt,
-        maxAmt: input.maxAmt,
-      });
-    }
 
     const totalAmt = input.totalAmt ?? input.maxAmt;
     const clientOfferId = input.offerId;
@@ -1816,6 +1812,16 @@ export class P2pService {
       totalAmt,
       { idempotencyKey, offerId: clientOfferId },
       input.advertiserTermsVersion,
+      input.side === 'buy'
+        ? {
+            tier: input.makerTier,
+            fiatCurrency,
+            priceType: input.priceType,
+            price: input.price,
+            minAmt: input.minAmt,
+            maxAmt: input.maxAmt,
+          }
+        : undefined,
     );
     const createHashValue = requestHash([
       input.makerId,
@@ -4380,6 +4386,14 @@ export class P2pService {
       }
     }
 
+    const freeBeforeLock =
+      this.sellBalanceAtPost &&
+      previewForLock.side === 'sell' &&
+      input.totalAmt !== undefined &&
+      compare(input.totalAmt, previewForLock.totalAmt) > 0
+        ? await this.sellBalance(previewForLock.makerId, previewForLock.asset)
+        : null;
+
     try {
       const written = await transaction(this.sql, async (tx) => {
         const claim = await claimWriteKey(tx, {
@@ -4413,8 +4427,13 @@ export class P2pService {
           throw new P2pError('p2p.offer_update_empty', 'p2p.offer_update_empty');
         }
         const remainingAmt = sub(totalAmt, filled);
-        // P-ads-merchant-02: an edited buy ad still fits the level its takes are capped by (the tier stored at create).
-        if (offer.side === 'buy' && (input.price !== undefined || input.minAmt !== undefined || input.maxAmt !== undefined)) {
+        // P-ads-merchant-02: an edit that widens a buy ad's per-order range must leave it inside the level its takes are
+        // capped by (the tier stored at create). Narrowing is always allowed, so an ad listed before the table was
+        // published or tightened can be brought down step by step.
+        const widens =
+          compare(mul(maxAmt, price, 'half-up'), mul(offer.maxAmt, offer.price, 'half-up')) > 0 ||
+          compare(mul(minAmt, price, 'half-up'), mul(offer.minAmt, offer.price, 'half-up')) < 0;
+        if (offer.side === 'buy' && widens) {
           this.assertBuyAdRange({
             tier: offer.makerTier ?? undefined,
             fiatCurrency: offer.fiatCurrency,
@@ -4424,9 +4443,10 @@ export class P2pService {
             maxAmt,
           });
         }
-        // A sell ad that now offers more than before is checked against the free balance, as a new one is at post.
+        // A sell ad that now offers more than before is checked against the free balance, as a new one is at post. The
+        // balance is read before the row lock when the edit raises the total; only a concurrent edit reads it here.
         if (this.sellBalanceAtPost && offer.side === 'sell' && compare(remainingAmt, offer.remainingAmt) > 0) {
-          const free = await this.sellBalance(offer.makerId, offer.asset);
+          const free = freeBeforeLock ?? (await this.sellBalance(offer.makerId, offer.asset));
           if (compare(remainingAmt, free) > 0)
             throw shortOf(free, remainingAmt, offer.asset, "this ad's remaining amount; nothing was changed");
         }
