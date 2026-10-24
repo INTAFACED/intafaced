@@ -13,6 +13,7 @@ import { memoryLedgerHistory } from '../analytics/ledger-history.js';
 import { stubApprovalConsumer } from '../action-approval-consume.js';
 import { createBankRouter } from '../router.js';
 import { CRYPTO_LEDGER_PROGRAMME, NO_RAMP_PROGRAMME, RAMP_SETTINGS, rampProgrammeFor } from './rails.js';
+import { memorySecurityLock } from '../security-lock.js';
 
 /**
  * CAN ANYBODY ACTUALLY CALL RAMPS? (D-S-09 / D-S-15 posture)
@@ -158,7 +159,7 @@ describe('svc-bank ramps reachable (PG-hard)', () => {
 
     it('operator credits on-ramp; user off-ramps; simulated never flips', async () => {
       const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-        ramps: { programme: CRYPTO_LEDGER_PROGRAMME },
+        ramps: { securityLock: memorySecurityLock(), programme: CRYPTO_LEDGER_PROGRAMME },
       });
       const ops = createBankRouter(bank, { approvals: stubApprovalConsumer(CONFIRM) }).createCaller(
         signed(principal({ userId: OPERATOR, sub: OPERATOR, scopes: ['admin:treasury'], mfa: true })),
@@ -216,7 +217,7 @@ describe('svc-bank ramps reachable (PG-hard)', () => {
 
     it('offramp without programme refuses precondition', async () => {
       const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-        ramps: { programme: NO_RAMP_PROGRAMME },
+        ramps: { securityLock: memorySecurityLock(), programme: NO_RAMP_PROGRAMME },
       });
       const user = createBankRouter(bank, { approvals: stubApprovalConsumer(CONFIRM) }).createCaller(signed(principal()));
       await expect(
@@ -239,7 +240,7 @@ describe('svc-bank ramps reachable (PG-hard)', () => {
      */
     it('refuses ops.creditOnramp for a user session without admin:treasury', async () => {
       const bank = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
-        ramps: { programme: CRYPTO_LEDGER_PROGRAMME },
+        ramps: { securityLock: memorySecurityLock(), programme: CRYPTO_LEDGER_PROGRAMME },
       });
       const user = createBankRouter(bank, { approvals: stubApprovalConsumer(CONFIRM) }).createCaller(signed(principal()));
       await expect(
