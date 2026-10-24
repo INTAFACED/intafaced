@@ -87,6 +87,7 @@ export * from './kyb-documents.js';
 export * from './kyb-information-requests.js';
 export * from './business-category.js';
 export * from './merchant-catalog.js';
+export * from './merchant-checkout-branding.js';
 export * from './merchant-stores.js';
 export * from './quant-disclosure.js';
 export * from './quant-algo.js';

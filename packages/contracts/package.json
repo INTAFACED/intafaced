@@ -218,6 +218,10 @@
       "types": "./dist/merchant-stores.d.ts",
       "default": "./dist/merchant-stores.js"
     },
+    "./merchant-checkout-branding": {
+      "types": "./dist/merchant-checkout-branding.d.ts",
+      "default": "./dist/merchant-checkout-branding.js"
+    },
     "./campaigns-drops": {
       "types": "./dist/campaigns-drops.d.ts",
       "default": "./dist/campaigns-drops.js"

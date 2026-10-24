@@ -11,6 +11,7 @@ import type { MetricsRuntime } from '../metrics/index.js';
 import type { RegistriesMountDeps } from '../registries/index.js';
 import type { CategoryPolicyMountDeps } from '../onboarding-policy/category-router.js';
 import { createMerchantCatalogRouter, type CatalogMountDeps } from '../catalog/router.js';
+import { createCheckoutBrandingRouter, type CheckoutBrandingMountDeps } from '../checkout-branding/router.js';
 import type { DepositSettingsMountDeps } from '../custody/deposits/settings.js';
 import type { DepositFreezesMountDeps } from '../custody/deposits/freezes.js';
 import type { CustodyMountDeps } from '../custody/router.js';
@@ -65,6 +66,7 @@ export function createPayNamespaces(deps: {
   categoryPolicy?: CategoryPolicyMountDeps;
   /** The product catalogue (M-catalogue-01). Absent: every merchantCatalog procedure refuses. */
   catalog?: CatalogMountDeps;
+  checkoutBranding?: CheckoutBrandingMountDeps;
   depositSettings?: DepositSettingsMountDeps;
   depositFreezes?: DepositFreezesMountDeps;
   limits?: WithdrawalLimitsMountDeps;
@@ -144,6 +146,7 @@ export function createPayNamespaces(deps: {
     createPayHaltsRouter(deps.founderAuthority, deps.payHalts),
     createMerchantOpsRouter(opsDeps), // W15: merchantOps.*  (founderAdmin.ops.* is mounted via createFounderAdminRouter above)
     createMerchantCatalogRouter(deps.catalog), // M-catalogue-01: merchantCatalog.*
+    createCheckoutBrandingRouter(deps.checkoutBranding), // M-payments-core-08: merchantCheckout.branding.*
     // W10: b2bRamp.* refuses while pay.b2b_ramp is off, including a direct caller.
     createB2bRampRouter({ founderAuthority: deps.founderAuthority, sql: deps.sql }),
     // M-plat-org-10: receipt preview and send. Email switches mount on the portal `merchant` router.

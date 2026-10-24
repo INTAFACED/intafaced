@@ -1,1 +1,64 @@
 /* Styles only the payments pages use. Shared portal styles stay in ../portal.css. */
+
+/* How the hosted checkout looks (/pay/checkout): the form beside a preview of the payer's page. */
+.pp-look {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 18rem);
+  gap: 1.5rem;
+  align-items: start;
+}
+@media (max-width: 720px) {
+  .pp-look {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.pp-look-picker input[type='color'] {
+  width: 3rem;
+  height: 2.5rem;
+  padding: 0;
+  border: 1px solid var(--if-line);
+  border-radius: var(--if-r-sm);
+  background: none;
+}
+.pp-look-preview {
+  margin: 0;
+}
+.pp-look-card {
+  padding: 1.25rem;
+  border: 1px solid var(--if-line);
+  border-radius: var(--if-r-md);
+  background: var(--if-panel);
+}
+.pp-look-logo {
+  display: block;
+  max-width: 10rem;
+  max-height: 3rem;
+  margin: 0 0 0.75rem;
+  object-fit: contain;
+}
+.pp-look-eyebrow {
+  margin: 0 0 0.35rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--if-fg-3);
+}
+.pp-look-item {
+  margin: 0 0 0.5rem;
+  font-size: 1.15rem;
+  font-weight: 650;
+}
+.pp-look-amount {
+  margin: 0 0 1rem;
+  font-size: 1.4rem;
+  font-weight: 650;
+}
+.pp-look-button {
+  display: block;
+  padding: 0.7rem 1rem;
+  border-radius: var(--if-r-sm);
+  text-align: center;
+  font-weight: 650;
+  background: var(--look-accent);
+  color: var(--look-on-accent);
+}

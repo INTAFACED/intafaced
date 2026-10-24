@@ -31,5 +31,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     PAY_KYB_MALWARE_SCANNER: 'local-test-eicar',
     // LOCAL-TEST value (tooling/profiles/test-owner-values/pay.json): the largest product image, 500 KB.
     PAY_PRODUCT_IMAGE_MAX_BYTES: '500000',
+    // LOCAL-TEST value (tooling/profiles/test-owner-values/pay.json): the largest hosted checkout logo, 100 KB.
+    PAY_CHECKOUT_LOGO_MAX_BYTES: '100000',
   }),
 });

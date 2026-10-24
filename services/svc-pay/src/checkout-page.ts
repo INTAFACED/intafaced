@@ -32,6 +32,7 @@
  */
 
 import type { FastifyInstance, FastifyReply } from 'fastify';
+import { checkoutButtonTextColor } from '@intafaced/contracts';
 import { parseAmount } from '@intafaced/ledger-client';
 import { PAYER_COPY_KEYS, payerTranslator, resolvePayerCopy } from './payer-copy.js';
 
@@ -78,6 +79,12 @@ export type CheckoutPay = {
     method?: string;
   }): Promise<{ sessionToken: string; session: CheckoutSessionPageView }>;
   getCheckoutSession(sessionToken: string): Promise<CheckoutSessionPageView>;
+  /**
+   * The business's saved look (M-payments-core-08) for the link or session this token opens: a brand colour and an
+   * optional logo, or null for the page's own colours. Optional, and a failure shows the page's own colours: the look
+   * never stands between a payer and a checkout.
+   */
+  checkoutLook?(ref: { linkToken: string } | { sessionToken: string }): Promise<CheckoutPageLook | null>;
 };
 
 /**
@@ -89,6 +96,9 @@ export type CheckoutPay = {
  * the prefix back, or a form rendered at `/api/pay/checkout` posts to the edge's
  * root and 404s. Empty in unit tests, where the routes are mounted bare.
  */
+/** A business's look as the page receives it. The colour is checked again here before it reaches the style. */
+export type CheckoutPageLook = { brandColor: string; logo: { contentType: string; dataBase64: string } | null };
+
 export type CheckoutPaths = { readonly basePath: string };
 
 const NO_PREFIX: CheckoutPaths = { basePath: '' };
@@ -146,14 +156,18 @@ export function parsePayerAmount(raw: unknown): bigint | null | undefined {
   }
 }
 
-export function renderCheckoutPage(state: CheckoutPageState, paths: CheckoutPaths = NO_PREFIX): { status: number; html: string } {
+export function renderCheckoutPage(
+  state: CheckoutPageState,
+  paths: CheckoutPaths = NO_PREFIX,
+  look: CheckoutPageLook | null = null,
+): { status: number; html: string } {
   switch (state.kind) {
     case 'ok':
-      return { status: 200, html: pageShell(linkBody(state.link, paths), state.link.label) };
+      return { status: 200, html: pageShell(linkBody(state.link, paths), state.link.label, undefined, look) };
     case 'session':
       return {
         status: 200,
-        html: pageShell(sessionBody(state.session), state.session.label, state.session.status === 'open' ? 10 : undefined),
+        html: pageShell(sessionBody(state.session), state.session.label, state.session.status === 'open' ? 10 : undefined, look),
       };
     case 'missing_token':
       return {
@@ -214,7 +228,7 @@ export function renderCheckoutPage(state: CheckoutPageState, paths: CheckoutPath
         ),
       };
     case 'amount_required':
-      return { status: 400, html: pageShell(linkBody(state.link, paths, state.message), state.link.label) };
+      return { status: 400, html: pageShell(linkBody(state.link, paths, state.message), state.link.label, undefined, look) };
     case 'error':
       return {
         status: 500,
@@ -290,6 +304,25 @@ function linkBody(link: CheckoutLinkView, paths: CheckoutPaths, problem?: string
       <p class="hint">Nothing is charged until you send the payment yourself. This page never asks for card details.</p>
     </section>
   `;
+}
+
+const BRAND_COLOR = /^#[0-9a-f]{6}$/;
+const LOGO_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
+const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
+
+/**
+ * The business's look as markup: its colour as the page's accent (with dark or light button text, whichever reads on
+ * it) and its logo above the title. Anything that is not a checked colour, an allowed image type or plain base64 is left
+ * out, so nothing unchecked reaches an attribute. No look is the page's own colours and no logo.
+ */
+export function brandLook(look: CheckoutPageLook | null): { style: string; logo: string } {
+  if (!look || !BRAND_COLOR.test(look.brandColor)) return { style: '', logo: '' };
+  const style = ` style="--accent: ${look.brandColor}; --on-accent: ${checkoutButtonTextColor(look.brandColor)}"`;
+  const logo =
+    look.logo && LOGO_TYPES.has(look.logo.contentType) && BASE64.test(look.logo.dataBase64)
+      ? `<img class="logo" src="data:${look.logo.contentType};base64,${look.logo.dataBase64}" alt="Merchant logo" />`
+      : '';
+  return { style, logo };
 }
 
 function sessionBody(session: CheckoutSessionPageView): string {
@@ -388,7 +421,8 @@ function readSafeString(config: Record<string, unknown>, key: string): string | 
   return t;
 }
 
-function pageShell(body: string, title: string, refreshSeconds?: number): string {
+function pageShell(body: string, title: string, refreshSeconds?: number, look: CheckoutPageLook | null = null): string {
+  const brand = brandLook(look);
   const refresh = refreshSeconds ? `\n  <meta http-equiv="refresh" content="${refreshSeconds}" />` : '';
   return `<!DOCTYPE html>
 <html lang="${escapeHtml(payerTranslator().renderedLocale)}">
@@ -422,12 +456,13 @@ function pageShell(body: string, title: string, refreshSeconds?: number): string
     .field { display: block; margin: 0 0 .8rem; }
     .field span { display: block; margin-bottom: .3rem; font-size: .85rem; color: var(--muted); }
     .field input { width: 100%; padding: .65rem .75rem; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); font: inherit; }
-    button { width: 100%; padding: .85rem 1rem; border: 0; border-radius: 8px; background: var(--accent); color: #fff; font: inherit; font-weight: 650; cursor: pointer; }
+    button { width: 100%; padding: .85rem 1rem; border: 0; border-radius: 8px; background: var(--accent); color: var(--on-accent, #fff); font: inherit; font-weight: 650; cursor: pointer; }
+    .logo { display: block; max-width: 10rem; max-height: 3rem; margin: 0 0 .75rem; object-fit: contain; }
   </style>
 </head>
 <body>
-  <main>
-    ${body}
+  <main${brand.style}>
+    ${brand.logo}${body}
   </main>
 </body>
 </html>`;
@@ -583,17 +618,27 @@ export async function registerCheckoutRoutes(app: FastifyInstance, pay: Checkout
   });
 }
 
+/** The business's look for this token, or the page's own colours when there is none or it cannot be read. */
+async function lookOf(pay: CheckoutPay, ref: { linkToken: string } | { sessionToken: string }): Promise<CheckoutPageLook | null> {
+  try {
+    return (await pay.checkoutLook?.(ref)) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 async function registerRoutes(app: FastifyInstance, pay: CheckoutPay, paths: CheckoutPaths): Promise<void> {
   const showLink = async (token: string | null, reply: FastifyReply, problem?: string) => {
     if (!token) return send(reply, renderCheckoutPage({ kind: 'missing_token' }, paths));
     try {
       const link = await pay.resolvePaymentLink(token);
       const withToken = { ...link, token };
+      const look = await lookOf(pay, { linkToken: token });
       return send(
         reply,
         problem
-          ? renderCheckoutPage({ kind: 'amount_required', link: withToken, message: problem }, paths)
-          : renderCheckoutPage({ kind: 'ok', link: withToken }, paths),
+          ? renderCheckoutPage({ kind: 'amount_required', link: withToken, message: problem }, paths, look)
+          : renderCheckoutPage({ kind: 'ok', link: withToken }, paths, look),
       );
     } catch (err) {
       return send(reply, renderCheckoutPage(stateForError(err), paths));
@@ -657,7 +702,7 @@ async function registerRoutes(app: FastifyInstance, pay: CheckoutPay, paths: Che
     if (!token) return send(reply, renderCheckoutPage({ kind: 'missing_token' }, paths));
     try {
       const session = await pay.getCheckoutSession(token);
-      return send(reply, renderCheckoutPage({ kind: 'session', session }, paths));
+      return send(reply, renderCheckoutPage({ kind: 'session', session }, paths, await lookOf(pay, { sessionToken: token })));
     } catch (err) {
       return send(reply, renderCheckoutPage(stateForError(err), paths));
     }
