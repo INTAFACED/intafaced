@@ -330,7 +330,7 @@ function CampaignBody({
         ) : left ? (
           <div data-testid="campaign-eligibility-panel">
             <p data-testid="campaign-eligibility" data-code={left.code}>
-              <strong>{t('eligibilityTitle')}</strong>: {t(left.code)}
+              <strong>{t('eligibilityTitle')}</strong>: {t(`eligibility.${left.state}`)}
             </p>
             {left.review ? (
               <p role="status" data-testid="campaign-review">
@@ -343,7 +343,11 @@ function CampaignBody({
                 </Button>
                 <p className="muted">{t('reviewNote')}</p>
               </>
-            ) : null}
+            ) : (
+              <Button onClick={() => settle(null)} disabled={busy}>
+                {t('checkAgain')}
+              </Button>
+            )}
           </div>
         ) : (
           <Button onClick={() => void join()} disabled={busy} aria-label={t('join', { name: c.name })}>

@@ -24,6 +24,9 @@ describe('participant client', () => {
     const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe(`http://identity.test/internal/campaign-participant/${USER}`);
     expect(Object.keys(init.headers as Record<string, string>).length).toBeGreaterThan(1);
+    // Identity answers in lowercase; a principal id in another case is still the same account.
+    answer(200, body);
+    expect(await createParticipantClient('http://identity.test', SECRET).read(USER.toUpperCase())).toEqual(body);
   });
 
   it('a refusal, a body off the contract, another account or a dead line is null', async () => {

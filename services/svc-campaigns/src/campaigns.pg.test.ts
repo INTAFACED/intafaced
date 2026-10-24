@@ -177,7 +177,7 @@ if (!db) {
           participation: {
             exclusions: ['institution', 'business', 'business'],
             regionScope: 'listed',
-            restrictedRegions: ['us', 'FR', 'US'],
+            restrictedRegions: ['US', 'FR', 'US'],
           },
         }),
         actor: A,
@@ -221,6 +221,17 @@ if (!db) {
       expect((await s.get({ id: c.id, accountId: ME })).eligibility).toEqual({ state: 'eligible', review: null });
       expect(await code(s.requestReview({ campaignId: c.id, accountId: ME }))).toBe('campaigns.review_not_needed');
       expect((await s.join({ campaignId: c.id, accountId: ME })).created).toBe(true);
+      // Once joined, the page does not ask identity again.
+      identityReads = 0;
+      expect((await s.get({ id: c.id, accountId: ME })).eligibility).toBeNull();
+      expect((await s.join({ campaignId: c.id, accountId: ME })).created).toBe(false);
+      expect(identityReads).toBe(0);
+      // Once the campaign has ended there is nothing to review, and identity is not asked.
+      await s.transition({ id: c.id, action: 'end', revision: 1, actor: A });
+      people.set('account-firm-2', who({ accountType: 'business' }));
+      expect((await s.get({ id: c.id, accountId: 'account-firm-2' })).eligibility).toBeNull();
+      expect(await code(s.requestReview({ campaignId: c.id, accountId: 'account-firm-2' }))).toBe('campaign.not_active');
+      expect(identityReads).toBe(0);
       // Institutions, and frozen accounts, are left out too.
       const noInst = await live({
         name: 'TEST no institutions',

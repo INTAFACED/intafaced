@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { baseEnvSchema, edgeEnvSchema, httpEnvSchema, loadEnv, otelEnvSchema, postgresEnvSchema } from '@intafaced/config';
+import { baseEnvSchema, edgeEnvSchema, httpEnvSchema, loadEnv, otelEnvSchema, postgresEnvSchema, s2sEnvSchema } from '@intafaced/config';
 
 /**
  * svc-campaigns: seasons, limited drops and the TGE claim. Its rows live in its own `campaigns` schema and move no
@@ -14,7 +14,8 @@ import { baseEnvSchema, edgeEnvSchema, httpEnvSchema, loadEnv, otelEnvSchema, po
  *
  * IDENTITY_URL and INTERNAL_SERVICE_SECRET reach svc-identity's participant read. Without them a campaign with
  * exclusions or a region list cannot check anyone: its page reads `unread` and a join refuses
- * `campaigns.participant_unread`. A campaign open to every signed-in account needs neither.
+ * `campaigns.participant_unread`, and the service logs a warning at boot. A campaign open to every signed-in account
+ * needs neither. With S2S_AUTH_MODE dual or keypair the read is signed with svc-campaigns' own key.
  */
 const blankAsAbsent = <T extends z.ZodTypeAny>(inner: T) =>
   z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), inner);
@@ -24,6 +25,7 @@ const schema = baseEnvSchema
   .merge(httpEnvSchema)
   .merge(edgeEnvSchema)
   .merge(postgresEnvSchema)
+  .merge(s2sEnvSchema)
   .merge(
     z.object({
       SERVICE_NAME: z.string().default('svc-campaigns'),

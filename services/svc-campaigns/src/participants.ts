@@ -1,4 +1,10 @@
-import { campaignParticipantSchema, serviceCallSigner, type CampaignParticipant } from '@intafaced/contracts';
+import {
+  campaignParticipantSchema,
+  serviceCallSigner,
+  type CampaignParticipant,
+  type ServiceAuthMode,
+  type ServiceSigner,
+} from '@intafaced/contracts';
 
 /**
  * Who an account is, read per check from svc-identity's `GET /internal/campaign-participant/:userId` (service
@@ -11,9 +17,14 @@ export interface ParticipantSource {
   read(userId: string): Promise<CampaignParticipant | null>;
 }
 
-export function createParticipantClient(baseUrl: string, internalSecret: string): ParticipantSource {
+export function createParticipantClient(
+  baseUrl: string,
+  internalSecret: string,
+  /** svc-campaigns' own key. With it the call is key-signed; `dual` also sends the shared-secret form. */
+  s2s?: { signer: ServiceSigner; mode: ServiceAuthMode },
+): ParticipantSource {
   const url = baseUrl.replace(/\/$/, '');
-  const sign = serviceCallSigner({ service: 'svc-campaigns', audience: 'svc-identity', legacySecret: internalSecret });
+  const sign = serviceCallSigner({ service: 'svc-campaigns', audience: 'svc-identity', legacySecret: internalSecret, s2s });
   return {
     async read(userId: string): Promise<CampaignParticipant | null> {
       const target = `${url}/internal/campaign-participant/${encodeURIComponent(userId)}`;
@@ -38,7 +49,8 @@ export function createParticipantClient(baseUrl: string, internalSecret: string)
         return null;
       }
       const parsed = campaignParticipantSchema.safeParse(body);
-      if (!parsed.success || parsed.data.userId !== userId) return null;
+      // Postgres returns uuids lowercase; the principal's id may carry another case.
+      if (!parsed.success || parsed.data.userId.toLowerCase() !== userId.toLowerCase()) return null;
       return parsed.data;
     },
   };

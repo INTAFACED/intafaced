@@ -46,9 +46,10 @@ import type { ParticipantSource } from './participants.js';
  *   saga (CM-payouts-ledger-02), so all of a budget is left. Joining
  *   writes one participation under `campaign:join:<campaign>:<account>` and moves nothing.
  * - Who can take part (CM-eligibility-rules-01): every signed-in account, less the excluded account kinds and, for a
- *   `listed` campaign, the restricted regions. Identity is read per check (`ParticipantSource`) and never copied. An
- *   account that is not active, of an excluded kind, or from a restricted region (or with no region recorded) is refused
- *   with one generic reason per rule; identity not answering is `unread`, never eligible. Market makers and staff have
+ *   `listed` campaign, the restricted regions. Identity is read per check (`ParticipantSource`), only for a campaign
+ *   that has rules, and never copied. Under rules, an account that is not active, of an excluded kind, or from a
+ *   restricted region (or with no region recorded) is refused with one generic reason per rule; identity not answering
+ *   is `unread`, never eligible. A campaign without rules leaves account freezes to svc-identity and the edge. Market makers and staff have
  *   no mark in identity, so excluding them refuses `campaigns.eligibility_unwired`. A refused customer may ask for one
  *   review per campaign (`campaign:review:<campaign>:<account>`); the operator queue that answers it is J-campaigns-16.
  * - Every operator move and every join writes an audit row.
@@ -244,6 +245,9 @@ function toView(
   };
 }
 
+/** A campaign a customer can still join or ask about: running, paused or about to start. */
+const isOpen = (state: CampaignState) => state === 'active' || state === 'paused' || state === 'scheduled';
+
 /** Whether a campaign's rules need identity's answer at all. A campaign open to every signed-in account does not. */
 export const needsParticipant = (rules: ParticipationRules) => rules.exclusions.length > 0 || rules.regionScope === 'listed';
 
@@ -350,7 +354,7 @@ function parseParticipation(input: ParticipationRules): ParticipationRules {
       `Identity holds no ${unwired.join(' or ')} mark yet, so a campaign cannot exclude them`,
     );
   }
-  const regions = [...new Set((input.restrictedRegions ?? []).map((r) => r.toUpperCase()))].sort();
+  const regions = [...new Set(input.restrictedRegions ?? [])].sort();
   return {
     exclusions: [...new Set(input.exclusions)].sort(),
     regionScope: input.regionScope,
@@ -596,15 +600,22 @@ export class CampaignService {
     ]);
     const now = this.now();
     if (!row || !toView(row, timeZone, now, null)) throw new CampaignsError('campaign.unknown', 'No such campaign');
-    const state = await this.eligibility(row.participation!, input.accountId);
-    const eligibility = { state, review: review ? { requestedAt: iso(review.created_at) } : null };
+    // Identity is asked only while the answer matters: the caller has not joined and the campaign can still be joined.
+    const eligibility =
+      mine || !isOpen(effectiveState(row, now))
+        ? null
+        : {
+            state: await this.eligibility(row.participation!, input.accountId),
+            review: review ? { requestedAt: iso(review.created_at) } : null,
+          };
     return toView(row, timeZone, now, mine ? toParticipation(mine) : null, eligibility)!;
   }
 
   /**
    * One review request per campaign and account (`campaign:review:<campaign>:<account>`), for a customer the rules
-   * refuse. Asking again returns the first request. An eligible account has nothing to review
-   * (`campaigns.review_not_needed`); an account identity did not answer for is `campaigns.participant_unread`.
+   * refuse, while the campaign can still be joined (`campaign.not_active` once it has ended). Asking again returns the
+   * first request. An eligible account has nothing to review (`campaigns.review_not_needed`); an account identity did not
+   * answer for is `campaigns.participant_unread`.
    */
   async requestReview(input: { campaignId: string; accountId: string }): Promise<CampaignReviewResult> {
     const key = reviewKeyOf(input.campaignId, input.accountId);
@@ -612,7 +623,10 @@ export class CampaignService {
     const [existing] = await this.sql<ReviewRow[]>`SELECT * FROM campaigns.eligibility_reviews WHERE review_key = ${key}`;
     if (existing) return { review: { campaignId: existing.campaign_id, requestedAt: iso(existing.created_at) }, created: false };
     const [row] = await this.sql<CampaignRow[]>`SELECT * FROM campaigns.campaigns WHERE id = ${input.campaignId}`;
-    if (!row || !toView(row, timeZone, this.now(), null)) throw new CampaignsError('campaign.unknown', 'No such campaign');
+    const now = this.now();
+    if (!row || !toView(row, timeZone, now, null)) throw new CampaignsError('campaign.unknown', 'No such campaign');
+    const current = effectiveState(row, now);
+    if (!isOpen(current)) throw new CampaignsError('campaign.not_active', `This campaign is ${current}; there is nothing to review`);
     const state = await this.eligibility(row.participation!, input.accountId);
     if (state === 'eligible') throw new CampaignsError('campaigns.review_not_needed', 'Your account can already take part');
     if (state === 'unread') throw new CampaignsError(...ELIGIBILITY_REFUSAL.unread);
@@ -644,10 +658,16 @@ export class CampaignService {
   async join(input: { campaignId: string; accountId: string }): Promise<CampaignJoinResult> {
     const key = participationKeyOf(input.campaignId, input.accountId);
     const timeZone = this.customerZone();
-    // Rules do not change past draft, so identity is read once, before the transaction, never while it holds a lock.
-    const [ruled] = await this.sql<Pick<CampaignRow, 'participation'>[]>`
-      SELECT participation FROM campaigns.campaigns WHERE id = ${input.campaignId}`;
-    const answer = ruled?.participation ? await this.eligibility(ruled.participation, input.accountId) : 'eligible';
+    // Identity is read before the transaction, never while it holds a lock, and only for a first join of an active
+    // campaign with rules. The transaction checks the rules it locked are the rules that were read.
+    const [[ahead], [joined]] = await Promise.all([
+      this.sql<Pick<CampaignRow, 'participation' | 'state' | 'starts_at' | 'ends_at'>[]>`
+        SELECT participation, state, starts_at, ends_at FROM campaigns.campaigns WHERE id = ${input.campaignId}`,
+      this.sql<ParticipationRow[]>`SELECT * FROM campaigns.participations WHERE participation_key = ${key}`,
+    ]);
+    if (joined) return { participation: toParticipation(joined), created: false };
+    const readRules = ahead?.participation ?? null;
+    const answer = readRules && effectiveState(ahead!, this.now()) === 'active' ? await this.eligibility(readRules, input.accountId) : null;
     return transaction(this.sql, async (tx) => {
       const [row] = await tx<CampaignRow[]>`SELECT * FROM campaigns.campaigns WHERE id = ${input.campaignId} FOR SHARE`;
       const now = this.now();
@@ -657,6 +677,9 @@ export class CampaignService {
       if (!row || !toView(row, timeZone, now, null)) throw new CampaignsError('campaign.unknown', 'No such campaign');
       const state = effectiveState(row, now);
       if (state !== 'active') throw new CampaignsError('campaign.not_active', `This campaign is ${state}, not active`);
+      if (JSON.stringify(row.participation) !== JSON.stringify(readRules) || answer === null) {
+        throw new CampaignsError('campaign.revision_conflict', 'The campaign changed while it was read; try again');
+      }
       if (answer !== 'eligible') {
         const [code, message] = ELIGIBILITY_REFUSAL[answer];
         throw new CampaignsError(code, message);
