@@ -148,16 +148,20 @@ describe('withdrawal.destination', () => {
     );
     await expect(caller.withdrawal.destination({ destination: { kind: 'crypto', ref: ADDRESS } })).resolves.toEqual({ kind: 'internal' });
     expect(asked).toEqual([[USER, { kind: 'crypto', ref: ADDRESS }]]);
-    await expect(caller.withdrawal.destination({ destination: { kind: 'crypto', ref: ADDRESS }, userId: 'x' } as never)).rejects.toBeDefined();
+    await expect(
+      caller.withdrawal.destination({ destination: { kind: 'crypto', ref: ADDRESS }, userId: 'x' } as never),
+    ).rejects.toBeDefined();
   });
 
   it('passes an unavailable reason through, and needs trade:read', async () => {
-    const money = { platformDestination: async () => ({ kind: 'unavailable' as const, reason: 'frozen' as const }) };
+    const money = { platformDestination: async () => ({ kind: 'unavailable' as const, reason: 'unavailable' as const }) };
     await expect(api(money, ['trade:read']).withdrawal.destination({ destination: { kind: 'crypto', ref: ADDRESS } })).resolves.toEqual({
       kind: 'unavailable',
-      reason: 'frozen',
+      reason: 'unavailable',
     });
-    await expect(api(money, ['trade:write']).withdrawal.destination({ destination: { kind: 'crypto', ref: ADDRESS } })).rejects.toMatchObject({
+    await expect(
+      api(money, ['trade:write']).withdrawal.destination({ destination: { kind: 'crypto', ref: ADDRESS } }),
+    ).rejects.toMatchObject({
       code: 'FORBIDDEN',
     });
   });

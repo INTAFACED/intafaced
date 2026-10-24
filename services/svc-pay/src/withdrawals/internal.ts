@@ -7,14 +7,26 @@ import type { Sql } from 'postgres';
  */
 export const INTERNAL_RAIL = 'internal' as const;
 
+/** What the caller is told about an address that cannot take a transfer: `frozen` and `ambiguous` read as plain `unavailable`, so a
+ * compliance freeze is never disclosed to whoever types the address. */
+export type PublicUnavailableReason = 'expired' | 'unavailable';
+export const publicUnavailableReason = (reason: 'frozen' | 'expired' | 'ambiguous'): PublicUnavailableReason =>
+  reason === 'expired' ? 'expired' : 'unavailable';
+
+/** An EVM address: its letters' case is only a checksum, so it matches whatever case the deposit table stored. */
+const HEX_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+
 /**
  * Who an address belongs to, read only from svc-pay's own deposit address tables (no other service's table):
  *
  * - `external`: no account on the platform holds it, or it is not a wallet address (`crypto`) at all;
  * - `self`: it is one of the sender's own deposit addresses;
  * - `internal`: exactly one other account holds it, and it can take a deposit now;
- * - `unavailable`: it is frozen, past its expiry, or more than one account holds it. A chain deposit there would be held
- *   or refused, so an internal send there is refused before anything is claimed.
+ * - `unavailable`: it is frozen, past its expiry on every row that holds it, or more than one account holds it. A chain
+ *   deposit there would be held or refused, so an internal send there is refused before anything is claimed.
+ *
+ * The match is exact, as the address was stored, except that an EVM address (`0x` and 40 hex digits) matches in any case.
+ * Other chains' addresses (base58, bech32 and the like) are case-sensitive, so a differently cased address is someone else's.
  */
 export type PlatformDestination =
   | { readonly kind: 'external' }
@@ -29,18 +41,18 @@ export async function resolvePlatformDestination(
   destination: { kind: string; ref: string },
 ): Promise<PlatformDestination> {
   const ref = destination.ref.trim();
-  // An exact match on the address as the deposit table stores it (any chain's format), so no shape is assumed here; the
-  // table refuses blanks, spaces and anything over 256 characters, so such a ref can match nothing.
+  // The table refuses blanks, spaces and anything over 256 characters, so such a ref can match nothing.
   if (destination.kind !== 'crypto' || ref === '' || ref.length > 256 || /\s/.test(ref)) return { kind: 'external' };
+  const anyCase = HEX_ADDRESS.test(ref);
   const owners = await q<Array<{ user_id: string; expired: boolean; frozen: boolean }>>`
     SELECT a.user_id,
-           bool_or(a.expires_at IS NOT NULL AND a.expires_at <= now()) AS expired,
+           bool_and(a.expires_at IS NOT NULL AND a.expires_at <= now()) AS expired,
            bool_or(EXISTS (
              SELECT 1 FROM pay.custody_deposit_address_freezes f
               WHERE f.network_id = a.network_id AND f.address = lower(a.address) AND f.unfrozen_at IS NULL
            )) AS frozen
       FROM pay.custody_deposit_addresses a
-     WHERE lower(a.address) = ${ref.toLowerCase()}
+     WHERE lower(a.address) = ${ref.toLowerCase()} AND (${anyCase}::boolean OR a.address = ${ref})
      GROUP BY a.user_id
      LIMIT 2`;
   if (owners.length === 0) return { kind: 'external' };

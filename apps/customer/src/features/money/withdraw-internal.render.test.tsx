@@ -71,6 +71,7 @@ beforeEach(() => {
   document.body.append(host);
   query.mockReset();
   mutate.mockReset();
+  sessionStorage.clear();
 });
 afterEach(() => {
   act(() => root?.unmount());
@@ -142,6 +143,45 @@ describe('Withdraw to another INTAFACED account', () => {
     expect(mutate).toHaveBeenCalledTimes(2);
     expect(mutate.mock.calls[1]![2].clientRef).toBe(mutate.mock.calls[0]![2].clientRef);
     expect(document.querySelector('[data-testid="withdraw-outcome"]')).not.toBeNull();
+  });
+
+  it('keeps a lost send across a reload with its fields locked, and finishes it under the same reference and terms', async () => {
+    query.mockResolvedValue({ ok: true, data: { kind: 'internal' } });
+    mutate.mockResolvedValueOnce({ ok: false, reason: 'unreachable', message: 'network' }).mockResolvedValueOnce(sent);
+    await fill(FRIEND, '10');
+    await click('Send inside INTAFACED');
+    await click('Confirm');
+    expect(input('Amount').readOnly).toBe(true);
+    expect(input('Or enter a new address').readOnly).toBe(true);
+
+    // The page reloads: the form comes back on the same send, offering only to finish it.
+    act(() => root?.unmount());
+    root = createRoot(host);
+    const again = root;
+    query.mockResolvedValue({ ok: true, data: { kind: 'unavailable', reason: 'unavailable' } });
+    await act(async () => again.render(<WithdrawForm />));
+    expect(input('Amount').value).toBe('10');
+    expect(input('Or enter a new address').value).toBe(FRIEND);
+    await click('Confirm again to finish');
+    await click('Confirm');
+    expect(mutate).toHaveBeenCalledTimes(2);
+    expect(mutate.mock.calls[1]![2]).toEqual(mutate.mock.calls[0]![2]);
+    expect(document.querySelector('[data-testid="withdraw-outcome"]')).not.toBeNull();
+    expect(sessionStorage.length).toBe(0);
+  });
+
+  it('closes a lost send when svc-bank answers the retry with a refusal, since nothing moved', async () => {
+    query.mockResolvedValue({ ok: true, data: { kind: 'internal' } });
+    mutate
+      .mockResolvedValueOnce({ ok: false, reason: 'unreachable', message: 'network' })
+      .mockResolvedValueOnce({ ok: false, reason: 'error', message: 'refused', code: 'pay.internal_settlement_refused' });
+    await fill(FRIEND, '10');
+    await click('Send inside INTAFACED');
+    await click('Confirm');
+    await click('Confirm');
+    expect(document.querySelector('[data-testid="withdraw-refusal"]')!.textContent).toContain('nothing moved');
+    expect(input('Amount').readOnly).toBe(false);
+    expect(sessionStorage.length).toBe(0);
   });
 
   it('refuses your own address on the form, with the send button off', async () => {

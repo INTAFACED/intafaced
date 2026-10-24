@@ -2181,15 +2181,16 @@ export function createPayRouter(
       /**
        * Where an address leads before anything is sent (W-withdraw-14): `internal` (another account on the platform: the
        * send settles inside, at once, with no network fee), `self` (one of the caller's own deposit addresses: refused as a
-       * send to yourself), `unavailable` (a platform address that cannot take a transfer now: frozen, past its expiry, or
-       * held by more than one account) or `external`. It never names the other account.
+       * send to yourself), `unavailable` (a platform address that cannot take a transfer now: `expired`, or plain `unavailable`
+       * for a frozen address or one held by more than one account, so a freeze is never disclosed) or `external`. It never
+       * names the other account.
        */
       destination: scopedProcedure('trade:read')
         .input(z.object({ destination: z.object({ kind: z.string().min(1).max(32), ref: z.string().min(1).max(256) }).strict() }).strict())
         .output(
           z.discriminatedUnion('kind', [
             z.object({ kind: z.enum(['internal', 'self', 'external']) }),
-            z.object({ kind: z.literal('unavailable'), reason: z.enum(['frozen', 'expired', 'ambiguous']) }),
+            z.object({ kind: z.literal('unavailable'), reason: z.enum(['expired', 'unavailable']) }),
           ]),
         )
         .query(({ ctx, input }) => wrap(async () => userMoney.platformDestination(ctx.principal.userId, input.destination))),

@@ -381,6 +381,8 @@ export type PayErrorCode =
   | 'pay.internal_settlement_unwired'
   /** W-withdraw-14: svc-bank proved nothing was posted and refused the send (`failureCode` names its reason). */
   | 'pay.internal_settlement_refused'
+  | 'pay.internal_asset_unsupported'
+  | 'pay.withdrawal_platform_address'
   | 'pay.wallet_withdraw_unavailable'
   | 'pay.wallet_withdraw_disabled'
   | 'pay.wallet_typed_address'

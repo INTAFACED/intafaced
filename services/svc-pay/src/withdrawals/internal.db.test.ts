@@ -58,7 +58,10 @@ function fakeBank() {
     async settle(input) {
       calls.push(input);
       const step = script.shift() ?? 'post';
-      if (step === 'refuse') return posted.has(input.transferId) ? { state: 'posted', transferId: input.transferId, ledgerTxId: posted.get(input.transferId)! } : { state: 'refused', code: 'ledger.insufficient_funds' };
+      if (step === 'refuse')
+        return posted.has(input.transferId)
+          ? { state: 'posted', transferId: input.transferId, ledgerTxId: posted.get(input.transferId)! }
+          : { state: 'refused', code: 'ledger.insufficient_funds' };
       if (step === 'lose') return UNKNOWN;
       if (!posted.has(input.transferId)) posted.set(input.transferId, `bank-tx-${posted.size + 1}`);
       if (step === 'post-then-lose') return UNKNOWN;
@@ -163,11 +166,12 @@ describe('internal withdrawal settlement (real Postgres)', () => {
     expect(bank.calls).toEqual([]);
   });
 
-  it('refuses a frozen, an expired and an ambiguous platform address before anything is claimed', async () => {
+  it('refuses a frozen, an expired and an ambiguous platform address before anything is claimed, never disclosing a freeze', async () => {
     await db.sql`
       INSERT INTO pay.custody_deposit_address_freezes (user_id, network_id, address, reason, frozen_by)
       VALUES (${FRIEND}, 'ethereum', ${FRIEND_ADDRESS}, 'TEST freeze', 'founder-a')`;
-    await expect(send()).rejects.toMatchObject({ code: 'pay.internal_destination_unavailable', detail: { reason: 'frozen' } });
+    await expect(send()).rejects.toMatchObject({ code: 'pay.internal_destination_unavailable', detail: { reason: 'unavailable' } });
+    expect(await money.platformDestination(USER, to(FRIEND_ADDRESS))).toEqual({ kind: 'unavailable', reason: 'unavailable' });
 
     const expired = '0xdddddddddddddddddddddddddddddddddddddddd';
     await address(FRIEND, expired, { expiresAt: new Date(Date.now() - 60_000) });
@@ -176,11 +180,60 @@ describe('internal withdrawal settlement (real Postgres)', () => {
     const shared = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
     await address(FRIEND, shared, { network: 'polygon' });
     await address(STRANGER, shared, { network: 'base' });
-    await expect(send({ ref: shared })).rejects.toMatchObject({ detail: { reason: 'ambiguous' } });
-    expect(await money.platformDestination(USER, to(shared))).toEqual({ kind: 'unavailable', reason: 'ambiguous' });
+    await expect(send({ ref: shared })).rejects.toMatchObject({ detail: { reason: 'unavailable' } });
+    expect(await money.platformDestination(USER, to(shared))).toEqual({ kind: 'unavailable', reason: 'unavailable' });
 
     expect(await rows()).toEqual([]);
     expect(bank.calls).toEqual([]);
+  });
+
+  it('matches an EVM address in any case and every other address exactly, and an address is expired only when every row is', async () => {
+    const base58 = '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU';
+    await address(FRIEND, base58, { network: 'solana' });
+    expect(await money.platformDestination(USER, to(base58))).toEqual({ kind: 'internal' });
+    // A differently cased base58 address is a different address, so it is someone outside.
+    expect(await money.platformDestination(USER, to(base58.toLowerCase()))).toEqual({ kind: 'external' });
+    expect(await money.platformDestination(USER, to(FRIEND_ADDRESS.toUpperCase().replace('0X', '0x')))).toEqual({ kind: 'internal' });
+
+    // One EVM address on two networks: past its expiry on one, still live on the other, so it can take a transfer.
+    const rotated = '0x1111111111111111111111111111111111111111';
+    await address(FRIEND, rotated, { expiresAt: new Date(Date.now() - 60_000) });
+    await address(FRIEND, rotated, { network: 'polygon' });
+    expect(await money.platformDestination(USER, to(rotated))).toEqual({ kind: 'internal' });
+  });
+
+  it('a claim that crashed before its journal asked nothing, so a freeze since then refuses it like a new send', async () => {
+    await db.sql`
+      INSERT INTO pay.withdrawals (user_id, asset_id, amount, rail, destination, client_ref, status)
+      VALUES (${USER}, 'USDT', 25, ${INTERNAL_RAIL}, ${db.sql.json(to(FRIEND_ADDRESS))}, 'w-internal-1', 'pending')`;
+    await db.sql`
+      INSERT INTO pay.custody_deposit_address_freezes (user_id, network_id, address, reason, frozen_by)
+      VALUES (${FRIEND}, 'ethereum', ${FRIEND_ADDRESS}, 'TEST freeze', 'founder-a')`;
+    await expect(send()).rejects.toMatchObject({ code: 'pay.internal_destination_unavailable' });
+    expect(bank.calls).toEqual([]);
+  });
+
+  it('names an asset svc-bank would never take, before anything is claimed', async () => {
+    await expect(
+      money.withdrawInternal({ userId: USER, assetId: 'USD-T', amount: amt('25'), destination: to(FRIEND_ADDRESS), clientRef: 'w-asset' }),
+    ).rejects.toMatchObject({ code: 'pay.internal_asset_unsupported' });
+    expect(await rows()).toEqual([]);
+  });
+
+  it('the chain door refuses an address on the platform, so an approval request never sends it out to come back', async () => {
+    const ask = (ref: string) =>
+      money.preflightWithdrawal({
+        userId: USER,
+        assetId: 'USDT',
+        amount: amt('25'),
+        rail: 'card-sandbox',
+        destination: to(ref),
+        clientRef: 'w-chain',
+      });
+    for (const ref of [FRIEND_ADDRESS, OWN_ADDRESS]) {
+      await expect(ask(ref)).rejects.toMatchObject({ code: 'pay.withdrawal_platform_address' });
+    }
+    await expect(ask(OUTSIDE_ADDRESS)).rejects.not.toMatchObject({ code: 'pay.withdrawal_platform_address' });
   });
 
   it('refuses before a claim when svc-bank is not connected, and when a guard refuses', async () => {

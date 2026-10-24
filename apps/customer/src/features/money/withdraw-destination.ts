@@ -8,15 +8,11 @@ export const INTERNAL_RAIL = 'internal';
 /** svc-pay `withdrawal.destination`: where an address leads. It never names the other account. */
 export const withdrawDestinationSchema = z.union([
   z.object({ kind: z.enum(['internal', 'self', 'external']) }),
-  z.object({ kind: z.literal('unavailable'), reason: z.enum(['frozen', 'expired', 'ambiguous']) }),
+  z.object({ kind: z.literal('unavailable'), reason: z.enum(['expired', 'unavailable']) }),
 ]);
 export type WithdrawDestination = z.infer<typeof withdrawDestinationSchema>;
 
-export type DestinationRead =
-  | { state: 'idle' }
-  | { state: 'checking' }
-  | { state: 'failed' }
-  | ({ state: 'known' } & WithdrawDestination);
+export type DestinationRead = { state: 'idle' } | { state: 'checking' } | { state: 'failed' } | ({ state: 'known' } & WithdrawDestination);
 
 /** Something an address could be: a run of 8 to 256 characters with no space. Shorter text is still being typed. */
 const ADDRESS_LIKE = /^\S{8,256}$/;

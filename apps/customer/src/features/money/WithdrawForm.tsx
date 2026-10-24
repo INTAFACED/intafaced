@@ -16,6 +16,40 @@ const AMOUNT_ERROR = { invalid: 'fAmountInvalid', zero: 'fAmountZero', tooMuch: 
 
 type Copy = ReturnType<typeof withdrawalCopy.useCopy>['t'];
 
+/** A send inside INTAFACED being confirmed: the terms asked under its client reference, and whether an ask went unanswered. */
+interface OpenSend {
+  assetId: string;
+  amount: string;
+  ref: string;
+  clientRef: string;
+  unanswered: boolean;
+}
+
+const openKey = (userId: string) => `intafaced:withdraw-inside:${userId}`;
+
+/** A send whose answer was lost, kept in this tab so a reload finishes it under the same reference instead of starting another. */
+function storedOpen(userId: string | null): OpenSend | null {
+  if (!userId) return null;
+  try {
+    const raw = sessionStorage.getItem(openKey(userId));
+    const kept = raw ? (JSON.parse(raw) as Partial<OpenSend>) : null;
+    if (!kept || [kept.assetId, kept.amount, kept.ref, kept.clientRef].some((v) => typeof v !== 'string' || v === '')) return null;
+    return { assetId: kept.assetId!, amount: kept.amount!, ref: kept.ref!, clientRef: kept.clientRef!, unanswered: true };
+  } catch {
+    return null;
+  }
+}
+
+function keepOpen(userId: string | null, open: OpenSend | null) {
+  if (!userId) return;
+  try {
+    if (open?.unanswered) sessionStorage.setItem(openKey(userId), JSON.stringify(open));
+    else sessionStorage.removeItem(openKey(userId));
+  } catch {
+    // Storage blocked: the reference still lives in this page until it closes.
+  }
+}
+
 /** What the form says about where the typed address leads, or nothing for an address outside INTAFACED. */
 function DestinationNote({ place, t }: { place: DestinationRead; t: Copy }) {
   if (place.state === 'idle' || (place.state === 'known' && place.kind === 'external')) return null;
@@ -30,7 +64,7 @@ function DestinationNote({ place, t }: { place: DestinationRead; t: Copy }) {
           : place.kind === 'self'
             ? t('dSelf')
             : place.kind === 'unavailable'
-              ? t(place.reason === 'frozen' ? 'dFrozen' : place.reason === 'expired' ? 'dExpired' : 'dAmbiguous')
+              ? t(place.reason === 'expired' ? 'dExpired' : 'dUnavailable')
               : null;
   const refused = place.state === 'known' && (place.kind === 'self' || place.kind === 'unavailable');
   return (
@@ -51,19 +85,27 @@ function DestinationNote({ place, t }: { place: DestinationRead; t: Copy }) {
  * available balance, the fee line, and a review. Sending to a wallet, card or bank outside INTAFACED is not connected, so
  * for those the review button is off and says so beside it. An address that belongs to another INTAFACED account
  * (W-withdraw-14) is the one send that works: the form says it settles inside at once with no fee, and after a fresh
- * confirmation svc-pay settles it as one transfer. Its client reference is kept while the answer is unknown, so confirming
- * again finishes the same withdrawal and never sends twice. The choices are real (the customer's own balances); no network,
+ * confirmation svc-pay settles it as one transfer. Its client reference and terms are kept while the answer is unknown, in this
+ * tab too, so a reload or confirming again finishes the same withdrawal and never sends twice; the fields stay locked until
+ * svc-pay answers. The choices are real (the customer's own balances); no network,
  * saved address or fee is invented.
  */
 export function WithdrawForm() {
   const { t } = withdrawalCopy.useCopy();
   const { hideBalances } = usePreferences();
-  const { api } = useSession();
+  const { api, userId } = useSession();
   const held = useHoldings();
   const assets = held.resource.status === 'ready' ? held.resource.data.assets : [];
-  const [picked, setPicked] = useState('');
-  const [amount, setAmount] = useState('');
-  const [address, setAddress] = useState('');
+  // The withdrawal being sent: its terms and its client reference. Kept until svc-pay gives a final answer, so a send whose
+  // answer was lost is finished by confirming again with the same reference and the same terms.
+  const [open, setOpenState] = useState<OpenSend | null>(() => storedOpen(userId));
+  const setOpen = (next: OpenSend | null) => {
+    setOpenState(next);
+    keepOpen(userId, next);
+  };
+  const [picked, setPicked] = useState(() => open?.assetId ?? '');
+  const [amount, setAmount] = useState(() => open?.amount ?? '');
+  const [address, setAddress] = useState(() => open?.ref ?? '');
   const asset = assets.some((entry) => entry.assetId === picked) ? picked : (assets[0]?.assetId ?? '');
   const available = assets.find((entry) => entry.assetId === asset)?.available ?? null;
   const check = checkAmount(amount, available);
@@ -76,29 +118,39 @@ export function WithdrawForm() {
   const notChosen = t('rNotChosen');
   const place = useWithdrawDestination(address);
   const inside = place.state === 'known' && place.kind === 'internal';
-  // The withdrawal being sent: its terms and its client reference. Kept until svc-pay gives a final answer, so a send whose
-  // answer was lost is finished by confirming again with the same reference.
-  const terms = JSON.stringify([asset, amount.trim(), address.trim()]);
-  const [open, setOpen] = useState<{ terms: string; clientRef: string; unanswered: boolean } | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [sent, setSent] = useState<WithdrawalRecord | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
-  const resuming = open !== null && open.terms === terms && open.unanswered;
-  const canSend = inside && check === 'ok' && Boolean(asset);
+  // An unanswered send locks the form on its own terms: only finishing it is offered, whatever the address reads as now.
+  const resuming = open?.unanswered === true;
+  const canSend = resuming || (inside && check === 'ok' && Boolean(asset));
 
   function startSend() {
     if (!canSend) return;
     setRefusal(null);
     setSent(null);
-    if (!open || open.terms !== terms) setOpen({ terms, clientRef: `internal-${crypto.randomUUID()}`, unanswered: false });
+    if (!resuming)
+      setOpen({
+        assetId: asset,
+        amount: amount.trim(),
+        ref: address.trim(),
+        clientRef: `internal-${crypto.randomUUID()}`,
+        unanswered: false,
+      });
     setConfirming(true);
   }
 
-  async function sendInside(token: string, clientRef: string, unanswered: boolean) {
+  async function sendInside(token: string, send: OpenSend) {
     const answer = await api.mutate(
       'pay',
       'withdrawal.create',
-      { assetId: asset, amount: amount.trim(), railId: INTERNAL_RAIL, destination: { kind: 'crypto', ref: address.trim() }, clientRef },
+      {
+        assetId: send.assetId,
+        amount: send.amount,
+        railId: INTERNAL_RAIL,
+        destination: { kind: 'crypto', ref: send.ref },
+        clientRef: send.clientRef,
+      },
       withdrawalSchema,
       { bearer: token },
     );
@@ -119,14 +171,16 @@ export function WithdrawForm() {
             ? `${t('sRefused')} ${t('sReference', { code: payCode })}`
             : null;
     // A named refusal of a first ask is final: nothing was claimed, the dialog closes and the form says why. A new send is a
-    // new one. After an ask whose answer was lost, the earlier send may still have landed, so the reference is kept.
-    if (words && payCode !== 'pay.rail_outcome_unknown' && !unanswered) {
+    // new one. After an ask whose answer was lost, the earlier send may still have landed, so the reference is kept, unless
+    // svc-bank itself answered that the transfer was refused (it checks its book first, so nothing moved).
+    const final = words && payCode !== 'pay.rail_outcome_unknown' && (!send.unanswered || payCode === 'pay.internal_settlement_refused');
+    if (final) {
       setRefusal(words);
       setOpen(null);
       return { ok: true as const, data: null };
     }
     // No answer, or svc-pay does not know yet: the send may have happened. Keep the reference so confirming again finishes it.
-    setOpen((now) => (now && now.clientRef === clientRef ? { ...now, unanswered: true } : now));
+    setOpen({ ...send, unanswered: true });
     return { ...answer, message: words && payCode !== 'pay.rail_outcome_unknown' ? `${words} ${t('sUnknown')}` : t('sUnknown') };
   }
   return (
@@ -144,7 +198,7 @@ export function WithdrawForm() {
           ) : (
             <label className="field">
               <span>{t('fAsset')}</span>
-              <select value={asset} onChange={(event) => setPicked(event.target.value)} disabled={assets.length === 0}>
+              <select value={asset} onChange={(event) => setPicked(event.target.value)} disabled={assets.length === 0 || resuming}>
                 {assets.length === 0 && <option value="">—</option>}
                 {assets.map((entry) => (
                   <option key={entry.assetId} value={entry.assetId}>
@@ -184,6 +238,7 @@ export function WithdrawForm() {
                   setAddress(event.target.value);
                   setRefusal(null);
                 }}
+                readOnly={resuming}
                 autoComplete="off"
                 autoCapitalize="off"
                 spellCheck={false}
@@ -199,6 +254,7 @@ export function WithdrawForm() {
               inputMode="decimal"
               value={amount}
               onChange={(event) => setAmount(event.target.value)}
+              readOnly={resuming}
               autoComplete="off"
               aria-invalid={Boolean(problem)}
               aria-describedby="withdraw-amount-help"
@@ -207,7 +263,7 @@ export function WithdrawForm() {
               {problem ?? (available !== null && asset ? t('fAvailable', { amount: shown(available), asset }) : undefined)}
             </small>
           </label>
-          {available !== null && !hideBalances && (
+          {available !== null && !hideBalances && !resuming && (
             <div>
               <button type="button" className="bd-link" onClick={() => setAmount(available)}>
                 {t('fMax')}
@@ -215,7 +271,7 @@ export function WithdrawForm() {
             </div>
           )}
           <dl className="bd-facts">
-            <Fact label={t('fFee')}>{inside ? t('rNoFee') : t('fFeeValue')}</Fact>
+            <Fact label={t('fFee')}>{inside || resuming ? t('rNoFee') : t('fFeeValue')}</Fact>
           </dl>
         </form>
       </DepthPanel>
@@ -230,7 +286,7 @@ export function WithdrawForm() {
               notChosen
             )}
           </Fact>
-          <Fact label={t('rNetwork')}>{inside ? t('rInside') : notChosen}</Fact>
+          <Fact label={t('rNetwork')}>{inside || resuming ? t('rInside') : notChosen}</Fact>
           <Fact label={t('rTo')}>
             {address.trim() ? (
               <span lang="und" data-withdrawal-private>
@@ -240,7 +296,7 @@ export function WithdrawForm() {
               notChosen
             )}
           </Fact>
-          <Fact label={t('rFee')}>{inside ? t('rNoFee') : t('fFeeValue')}</Fact>
+          <Fact label={t('rFee')}>{inside || resuming ? t('rNoFee') : t('fFeeValue')}</Fact>
         </dl>
         {canSend ? (
           <div className="bd-stack">
@@ -275,8 +331,8 @@ export function WithdrawForm() {
       </DepthPanel>
       {confirming && open && (
         <WithdrawStepUp
-          why={t('sWhy', { amount: shown(amount.trim()), asset })}
-          run={(token) => sendInside(token, open.clientRef, open.unanswered)}
+          why={t('sWhy', { amount: shown(open.amount), asset: open.assetId })}
+          run={(token) => sendInside(token, open)}
           onDone={() => setConfirming(false)}
           onCancel={() => setConfirming(false)}
         />
