@@ -92,14 +92,6 @@ export const MONEY_SKIP_REGISTER = [
 
   // ── svc-pay ────────────────────────
   {
-    file: 'services/svc-pay/src/merchant-portal/room-access.db.test.ts',
-    kind: 'infra-journalled',
-    why:
-      'Room access keeps the owner profile open before KYB and refuses other writes. Gated by postgresAvailable, which journals and THROWS under CI / REQUIRE_POSTGRES=1; ' +
-      'svc-pay runs in Tests (full), which sets both with a live Postgres, so this runs on every PR that changes it and skips only on a laptop without the DB. ' +
-      'LIFTS WHEN: converted to the PG-hard pattern (TEST_DATABASE_URL, no skipIf on postgresAvailable), as the svc-ledger H8a suites are.',
-  },
-  {
     file: 'services/svc-pay/src/rails/evm-chain.live.test.ts',
     kind: 'infra-journalled',
     why:

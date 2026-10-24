@@ -7,7 +7,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Principal } from '@intafaced/auth';
-import { createTestDatabase, postgresAvailable, type TestDatabase } from '@intafaced/db/testing';
+import { createTestDatabase, type TestDatabase } from '@intafaced/db/testing';
 import type { Context } from '@intafaced/contracts';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Sql } from 'postgres';
@@ -24,7 +24,6 @@ const migrations = readdirSync(drizzleDir)
   .map((name) => readFileSync(join(drizzleDir, name), 'utf8'));
 
 const URL = process.env.TEST_DATABASE_URL ?? 'postgres://test:test@127.0.0.1:55432/intafaced_test';
-const available = await postgresAvailable(URL);
 
 const id = () => randomUUID();
 const principalOf = (userId: string): Principal => ({
@@ -75,7 +74,7 @@ function payLookup(sql: Sql): Pick<PayService, 'getMerchant' | 'getMerchantByUse
   };
 }
 
-describe.skipIf(!available)('merchant.rooms.access', () => {
+describe('merchant.rooms.access', () => {
   let db: TestDatabase;
   const owner = id();
   const finance = id();
