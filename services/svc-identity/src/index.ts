@@ -92,6 +92,7 @@ import { createTotpLifecycleRouter } from './totp-lifecycle-router.js';
 import { createSelfFreezeLiftRouter } from './self-freeze-lift-router.js';
 import { createSecurityLockRouter } from './security-lock-router.js';
 import { createMfaResetRouter } from './mfa-reset-router.js';
+import { createSupportRecoveryRouter } from './support-recovery-router.js';
 import { createTrustedDevicesRouter } from './trusted-devices-router.js';
 import { SecurityLock } from './auth/security-lock.js';
 import { SelfFreezeLift } from './auth/self-freeze-lift.js';
@@ -407,6 +408,7 @@ auth.useLoginCodePolicy({
 });
 // The locked-out second-factor reset waits the owner's time; blank refuses and the sign-in page points to Support.
 auth.useMfaResetWait(env.IDENTITY_MFA_RESET_WAIT_SECONDS);
+auth.useSupportRecoveryLinkTtl(env.IDENTITY_SUPPORT_RECOVERY_LINK_TTL_SECONDS);
 auth.useNewDevicePolicy({
   check: env.IDENTITY_NEW_DEVICE_CHECK === 'on',
   flowTtlSeconds: env.IDENTITY_NEW_DEVICE_TTL_SECONDS,
@@ -680,6 +682,7 @@ export const appRouter = mergeRouters(
   createSelfFreezeLiftRouter(selfFreezeLift, securityStepUp),
   createSecurityLockRouter(securityLock, securityStepUp),
   createMfaResetRouter(auth),
+  createSupportRecoveryRouter(() => auth.supportRecoveryDeps()),
   createTrustedDevicesRouter(auth, securityStepUp),
   createActionApprovalRouter(actionApprovals, {
     privilegedUserIds: founderPair ?? [],

@@ -368,6 +368,26 @@ const schema = serviceEnvSchema
           }
         }),
       /**
+       * I-signin-sessions-24. Owner-set lifetime, in seconds, of the one-time recovery link a Support case mails (1 to
+       * 86400). NO DEFAULT: blank / unset → sending the link refuses (`identity.support_recovery_unconfigured`) before the
+       * case's approval is spent. A change applies to links sent later, never to one already sent.
+       */
+      IDENTITY_SUPPORT_RECOVERY_LINK_TTL_SECONDS: z
+        .string()
+        .optional()
+        .transform((v, ctx) => {
+          if (v === undefined || v.trim() === '') return undefined;
+          const n = /^\d+$/.test(v.trim()) ? Number(v.trim()) : NaN;
+          if (!Number.isInteger(n) || n < 1 || n > 86_400) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: 'IDENTITY_SUPPORT_RECOVERY_LINK_TTL_SECONDS must be whole seconds from 1 to 86400',
+            });
+            return z.NEVER;
+          }
+          return n;
+        }),
+      /**
        * W-withdraw-09. Owner-set wait, in seconds, from an unlock request to when the customer security lock ends. NO
        * DEFAULT: blank / unset → the unlock request refuses (`identity.security_lock_unlock_wait_unset`); locking still
        * works. Zero is a published "no wait". A change applies to later requests, never to one already made.

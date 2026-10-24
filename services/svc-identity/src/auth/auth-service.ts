@@ -74,6 +74,7 @@ import {
   type MfaResetDeps,
   type MfaResetView,
 } from './mfa-reset.js';
+import type { SupportRecoveryDeps } from './support-recovery.js';
 import {
   approveFromSession,
   approveWithCode,
@@ -804,6 +805,25 @@ export class AuthService {
       subjectKey: this.flowSubjectKey,
       now: this.passwordResetNow,
       log: this.log,
+      afterCommit: this.mailRelayTrigger,
+    };
+  }
+
+  /** The owner's lifetime of a Support recovery link (support-recovery.ts). Unset refuses every send. */
+  useSupportRecoveryLinkTtl(seconds: number | undefined): void {
+    this.supportRecoveryLinkTtlSeconds = seconds;
+  }
+
+  private supportRecoveryLinkTtlSeconds: number | undefined;
+
+  /** Support-assisted recovery (support-recovery.ts): the link uses the flow key and rides the recovery mail relay. */
+  supportRecoveryDeps(): SupportRecoveryDeps {
+    return {
+      sql: this.sql,
+      mail: this.passwordResetMail,
+      linkTtlSeconds: this.supportRecoveryLinkTtlSeconds,
+      subjectKey: this.flowSubjectKey,
+      now: this.passwordResetNow,
       afterCommit: this.mailRelayTrigger,
     };
   }

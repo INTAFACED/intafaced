@@ -62,7 +62,11 @@ function localMailBody(message: LocalMailMessage): string {
     const change = (message.detail ?? '').replace(/[^a-z_]/g, '');
     return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} notice=factor-changed change=${change}\n`;
   }
-  if (purpose === 'mfa-reset-cancelled' || purpose === 'mfa-reset-completed') {
+  if (purpose === 'support-recovery') {
+    // The one-time link Support's case sends (I-signin-sessions-24). Only the person's own mailbox ever holds it.
+    return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} link=recover-account?token=${encodeURIComponent(message.code)}\n`;
+  }
+  if (purpose === 'mfa-reset-cancelled' || purpose === 'mfa-reset-completed' || purpose === 'support-recovery-used') {
     return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} notice=${purpose}\n`;
   }
   if (purpose === 'email-change-notice') {
