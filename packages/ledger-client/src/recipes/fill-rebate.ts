@@ -13,8 +13,8 @@ import type { TradeFillInput } from './index.js';
  * the asset the maker paid, which is the asset the taker's fee was taken in on that same fill, and it must be below
  * that fee. The maker fee must be 0. It rounds down (the taker fee rounds up), so the house never pays out more than
  * the fill brought in. svc-ledger's door checks the same against the posted `trade.fill:<fillId>` before it books
- * one (`maker-rebate-binding.ts`). The caller posts it right after the fill, with the rate stored on the fill, and
- * re-posts both on a retry; each key posts once.
+ * one (`maker-rebate-binding.ts`). The ledger does not know the owner's rate: the caller posts it right after the fill
+ * with the rate it stored on its own fill row, and re-posts both on a retry with that same rate; each key posts once.
  *
  * Readers that list fill reasons do not know `trade.fill.rebate` yet: it is its own line with no order id on the
  * ledger history, and svc-tax counts it as an inflow from outside the lot book until it learns the reason.
