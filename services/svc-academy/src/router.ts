@@ -21,6 +21,11 @@ import {
   academyQuizSchema,
   academySetQuizInputSchema,
   academySetCertIssueRuleInputSchema,
+  academySaveProgrammeInputSchema,
+  academyProgrammeRecordSchema,
+  academyProgrammeSchema,
+  academyProgrammeInputSchema,
+  academyProgrammesInputSchema,
   academyCertIssueRuleSchema,
   academyCertIssueSchema,
   academyCertIdSchema,
@@ -921,6 +926,7 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.revision_stale':
     case 'academy.item_kind_locked':
     case 'academy.topic_slug_taken':
+    case 'academy.programme_slug_taken':
     case 'academy.assignment_closed':
     case 'academy.submission_version_stale':
     case 'academy.assignment_has_submissions':
@@ -944,9 +950,14 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.upload_incomplete':
     case 'academy.file_unavailable':
     case 'academy.grader_lease_unset':
+    case 'academy.programme_limit_unset':
       return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
 
+    case 'academy.programme_not_found':
+      return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
+
     case 'academy.outline_too_large':
+    case 'academy.programme_too_large':
     case 'academy.item_has_no_lesson':
     case 'academy.import_too_large':
     case 'academy.lesson_blocks_invalid':
@@ -2721,6 +2732,20 @@ export function createAcademyRouter(
         };
       }),
 
+    /** AC-programmes-01: the learning programmes newest first, each with the caller's course counts and certificate. */
+    programmes: scopedProcedure('academy:read', { module: 'academy' })
+      .input(academyProgrammesInputSchema)
+      .output(z.array(academyProgrammeSchema))
+      .query(({ input, ctx }) =>
+        guard(() => academy.programmes({ userId: ctx.principal!.userId, limit: input.limit, mine: input.mine ?? false })),
+      ),
+
+    /** AC-programmes-01: one programme: its courses in order with the caller's state on each, the counts and the certificate. */
+    programme: scopedProcedure('academy:read', { module: 'academy' })
+      .input(academyProgrammeInputSchema)
+      .output(academyProgrammeSchema)
+      .query(({ input, ctx }) => guard(() => academy.programme({ userId: ctx.principal!.userId, slug: input.slug }))),
+
     myCerts: scopedProcedure('academy:read', { module: 'academy' })
       .input(z.object({ limit: z.number().optional() }).optional())
       .output(z.array(certGrantOut))
@@ -3254,6 +3279,18 @@ export function createAcademyRouter(
         .input(academySetQuizInputSchema)
         .output(z.object({ slug: z.string(), published: z.boolean() }))
         .mutation(({ input, ctx }) => guard(() => academy.setQuiz({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-programmes-01: create a learning programme, or replace its details and ordered courses over the revision read. */
+      saveProgramme: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academySaveProgrammeInputSchema)
+        .output(academyProgrammeRecordSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.saveProgramme({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-programmes-01: the programmes staff made, newest first. */
+      programmes: scopedProcedure('admin:read', { module: 'academy' })
+        .input(academyProgrammesInputSchema.omit({ mine: true }))
+        .output(z.array(academyProgrammeRecordSchema))
+        .query(({ input }) => guard(() => academy.adminProgrammes(input.limit))),
 
       /** AC-certificates-02: how one published certificate is issued (manual, automatic, or after the owner's delay), with a reason. */
       setCertIssueRule: scopedProcedure('admin:write', { module: 'academy' })

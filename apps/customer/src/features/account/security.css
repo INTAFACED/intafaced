@@ -105,6 +105,23 @@
 .security__row--editing > form {
   flex-basis: 100%;
 }
+.security__row--method {
+  flex-wrap: wrap;
+}
+.security__row--method > form {
+  flex-basis: 100%;
+}
+.security__wallets {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.security__wallets button {
+  min-height: 44px;
+}
 .security__row time {
   font-size: 16px;
   line-height: 24px;

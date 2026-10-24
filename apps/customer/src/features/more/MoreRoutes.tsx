@@ -6,6 +6,8 @@ import { academyRoute } from './academy-lms';
 import { Agents } from './Agents';
 import { Blueprint } from './Blueprint';
 import { Campaigns } from './Campaigns';
+import { CampaignDetail } from './campaign-catalogue';
+import { campaignCatalogueCopy } from './campaign-catalogue-copy';
 import { DropRoom } from './DropRoom';
 import { Launch, Mining } from './AvailabilityRooms';
 import type { LaunchTab } from './LaunchAvailability';
@@ -78,6 +80,13 @@ function MoreRooms({ path }: { path: string }) {
     title = copyText('moreroutes.campaigns');
     description = copyText('moreroutes.your.campaign.participation');
     content = <Campaigns />;
+  } else if (p === '/campaigns/mine') {
+    title = <campaignCatalogueCopy.Copy k="myCampaigns" />;
+    description = <campaignCatalogueCopy.Copy k="mineTitle" />;
+    content = <Campaigns initial="Mine" />;
+  } else if (/^\/campaigns\/cmp_[A-Za-z0-9-]+$/.test(p)) {
+    title = <campaignCatalogueCopy.Copy k="detailTitle" />;
+    content = <CampaignDetail key={p} campaignId={decodeURIComponent(p.slice('/campaigns/'.length))} />;
   } else if (p === '/campaigns/drops') {
     title = copyText('moreroutes.drop.room');
     description = copyText('moreroutes.drop.room.description');

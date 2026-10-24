@@ -181,7 +181,8 @@ if (!(await postgresAvailable(URL))) {
     it('refuses to unlink the last sign-in method and allows it once another remains', async () => {
       const providers = social({ fake: fake(), second: fake() });
       const socialOnly = await signUp('socialonly');
-      await db.sql`UPDATE users SET password_set = false WHERE id = ${socialOnly}`;
+      // No password and no mailed code: the provider accounts are the only ways in.
+      await db.sql`UPDATE users SET password_set = false, email_code_signin = false WHERE id = ${socialOnly}`;
       await providers.link(socialOnly, 'fake', { subject: 'only-one' });
       await expect(providers.unlink(socialOnly, 'fake')).rejects.toMatchObject({ code: 'identity.last_signin_method' });
       await providers.link(socialOnly, 'second', { subject: 'only-two' });

@@ -610,7 +610,7 @@ export class CryptoNativeAdapter implements RailAdapter {
     const railRef = typeof b.ref === 'string' ? b.ref : null;
     const type = typeof b.type === 'string' ? b.type : null;
     if (!eventId || !railRef || !type) return null;
-    if (!['authorized', 'captured', 'refunded', 'failed', 'payout.completed'].includes(type)) return null;
+    if (!['authorized', 'captured', 'refunded', 'failed', 'payout.completed', 'chain.reorged'].includes(type)) return null;
 
     let amount: Amount | undefined;
     if (typeof b.amount === 'string') {
@@ -628,6 +628,18 @@ export class CryptoNativeAdapter implements RailAdapter {
     const occurredAt = typeof b.occurredAt === 'string' ? new Date(b.occurredAt) : new Date();
     if (Number.isNaN(occurredAt.getTime())) return null;
 
+    const chain =
+      typeof b.txHash === 'string' &&
+      b.txHash &&
+      Number.isInteger(b.logIndex) &&
+      (b.logIndex as number) >= 0 &&
+      Number.isInteger(b.confirmations) &&
+      (b.confirmations as number) >= 0
+        ? { txHash: b.txHash, logIndex: b.logIndex as number, confirmations: b.confirmations as number }
+        : undefined;
+    // A reorg names the transfer it takes back by its chain position; without one there is nothing it could be about.
+    if (type === 'chain.reorged' && !chain) return null;
+
     return {
       railId: this.id,
       eventId,
@@ -637,15 +649,7 @@ export class CryptoNativeAdapter implements RailAdapter {
       assetId: typeof b.assetId === 'string' ? b.assetId : undefined,
       occurredAt,
       failureCode: typeof b.failureCode === 'string' ? b.failureCode : undefined,
-      chain:
-        typeof b.txHash === 'string' &&
-        b.txHash &&
-        Number.isInteger(b.logIndex) &&
-        (b.logIndex as number) >= 0 &&
-        Number.isInteger(b.confirmations) &&
-        (b.confirmations as number) >= 0
-          ? { txHash: b.txHash, logIndex: b.logIndex as number, confirmations: b.confirmations as number }
-          : undefined,
+      chain,
     };
   }
 

@@ -276,8 +276,11 @@ test.describe('passkeys', () => {
     const other = await fresh.newPage();
     await other.goto('/login');
     await fillSignIn(other, who.email, who.password);
-    // The right password alone asks for the second step, on this page.
-    await expect(other.getByRole('alert')).toContainText('Enter it again with the six-digit code from your authenticator app');
+    // The right password alone asks for the second step, on this page: the account's passkey, or the authenticator code
+    // with the password again (I-signin-sessions-10).
+    await expect(other.getByRole('alert')).toContainText(
+      'Confirm with one of your passkeys, or enter your password again with the six-digit code from your authenticator app',
+    );
     await expect(other).toHaveURL(/\/login/);
     let used;
     ({ code: used, step } = await nextCode(totp, secret, step));

@@ -16,7 +16,8 @@ import { assertWriter, isUnique, lockCatalog, requestHash, type ProductRow } fro
  * source (`copied_from`, one copy per source and catalogue), and a product that is itself a copy of one in the target is
  * skipped as `copied_before` too. A copy keeps the source's id, name, type, unit, descriptor, event
  * and image, and its prices keep their default mark. Prices added to the source later are not carried over: a copy is
- * made once. The source products are read under a share lock, so none is archived or deleted while it is copied. A copy
+ * made once. Where a source is not sold (a store and channel turned off), its copy is not sold either. The source
+ * products are read under a share lock, so none is archived or deleted while it is copied. A copy
  * deleted later can be made again: its create key counts the earlier copies deleted, so each deletion's record stands.
  * Nothing here moves money; a price is a record.
  */
@@ -162,6 +163,13 @@ export class CatalogCopier {
           });
           await tx`INSERT INTO pay.catalog_prices ${tx(rows)}`;
         }
+        // Where a source is not sold, its copy is not sold either: the stores are the business's, in both catalogues.
+        await tx`
+          INSERT INTO pay.catalog_product_unavailable (product_id, store_id, channel, set_by)
+          SELECT m.copy_id, u.store_id, u.channel, ${caller.userId}
+            FROM pay.catalog_product_unavailable u
+            JOIN unnest(${tx.array(made.map((row) => row.copied_from))}::uuid[], ${tx.array(made.map((row) => row.id))}::uuid[])
+                   AS m(source_id, copy_id) ON m.source_id = u.product_id`;
         const priceCount = new Map<string, number>();
         for (const price of prices) priceCount.set(price.product_id, (priceCount.get(price.product_id) ?? 0) + 1);
         for (const source of fresh)

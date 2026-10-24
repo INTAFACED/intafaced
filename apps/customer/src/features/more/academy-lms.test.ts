@@ -310,6 +310,9 @@ describe('tab addresses (AC-order-01)', () => {
       expect(academyTabHref(name)).toBe(`/academy/${slug}`);
     }
     expect(academyRoute('/academy/progress')).toEqual({ kind: 'progress' });
+    // AC-programmes-01: a programme's page sits under the Programmes tab; the bare tab address stays the tab.
+    expect(academyRoute('/academy/programmes/trader-path')).toEqual({ kind: 'programme', slug: 'trader-path' });
+    expect(academyRoute('/academy/programmes/')).toEqual({ kind: 'tab', tab: 'Programmes' });
     expect(academyRoute('/academy/foundations-risk-first')).toEqual({ kind: 'reader', slug: 'foundations-risk-first' });
     expect(academyRoute('/academy/%E0%A4%A')).toEqual({ kind: 'reader', slug: undefined });
     expect(academyRoute('/academy/learning/course/markets')).toEqual({ kind: 'course', slug: 'markets' });

@@ -44,6 +44,7 @@ export interface SettingsEnv {
   readonly ACADEMY_TOPICS_LIST_LIMIT?: number | undefined;
   readonly ACADEMY_GRADER_LEASE_SECONDS?: number | undefined;
   readonly ACADEMY_CERT_ISSUE_SWEEP_SECONDS?: number | undefined;
+  readonly ACADEMY_PROGRAMME_MAX_COURSES?: number | undefined;
   readonly ACADEMY_UPLOAD_VIDEO_TYPES?: readonly string[] | undefined;
   readonly ACADEMY_UPLOAD_HANDOUT_TYPES?: readonly string[] | undefined;
   readonly ACADEMY_PAPER_MARKETS_LIMIT?: number | undefined;
@@ -220,6 +221,14 @@ export function settingsRegister(env: SettingsEnv): readonly SettingRow[] {
       store: 'env',
       readOnly: false,
       refusalCode: 'academy.cert_sweep_unset',
+    },
+    {
+      // Blank: a programme takes no course, so a save with courses refuses.
+      key: 'programme_max_courses',
+      state: state(positiveInt(env.ACADEMY_PROGRAMME_MAX_COURSES)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.programme_limit_unset',
     },
     {
       key: 'upload_size_limit',

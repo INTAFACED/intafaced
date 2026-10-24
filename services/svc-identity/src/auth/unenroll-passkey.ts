@@ -4,6 +4,7 @@
  */
 import { transaction } from '@intafaced/db';
 import type { Sql } from 'postgres';
+import { assertLeavesAWayIn, lockedSigninMethods } from './signin-methods.js';
 
 export class UnenrollPasskeyError extends Error {
   constructor(
@@ -48,6 +49,8 @@ export async function unenrollPasskey(
       throw new UnenrollPasskeyError('No enrolled passkey', 'auth.passkey_missing');
     }
 
+    // The last way in stays (I-account-lifecycle-07): a passkey is removed only while another method remains.
+    assertLeavesAWayIn(await lockedSigninMethods(tx, userId));
     const remaining = existing.filter((c) => c.credentialId !== id);
     await tx`
       UPDATE users

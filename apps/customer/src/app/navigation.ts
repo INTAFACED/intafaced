@@ -565,6 +565,7 @@ export const rooms: readonly Room[] = [
       ['products', 'Products', 'What you sell, kept in one catalogue'],
       ['products/new', 'Add a product', 'Name what you sell and how it shows'],
       ['products/import', 'Import products', 'Add many products from one file'],
+      ['settings/stores', 'Stores', 'Where you sell, and what each store sells'],
       ['developer/sandbox', 'Sandbox', 'Try payments with test money'],
       ['developer/docs', 'Developer docs', 'How to connect your systems'],
     ] as const
@@ -757,6 +758,14 @@ export const rooms: readonly Room[] = [
     hidden: true,
   },
   {
+    path: '/academy/programmes/:slug',
+    title: 'Academy programme',
+    description: 'Rooms, learning and certifications',
+    door: 'More',
+    area: 'more',
+    hidden: true,
+  },
+  {
     path: '/academy/certificates/verify/:code',
     title: 'Certificate check',
     description: 'Check a certificate by its link',
@@ -764,6 +773,7 @@ export const rooms: readonly Room[] = [
     area: 'more',
     hidden: true,
   },
+  { path: '/campaigns/:campaignId', title: 'Campaign', description: 'One published campaign', door: 'More', area: 'more', hidden: true },
   { path: '/academy/:slug', title: 'Academy reader', description: 'Read a learning path', door: 'More', area: 'more', hidden: true },
   {
     path: '/market/strategy',
@@ -791,6 +801,7 @@ export const rooms: readonly Room[] = [
       ['support', 'Support', 'Tickets and published answers'],
       ['campaigns', 'Activities', 'Signed-in campaigns'],
       ['campaigns/drops', 'Drop room', 'Your waitlist place, season and limited drops'],
+      ['campaigns/mine', 'My campaigns', 'The campaigns you joined'],
     ] as const
   ).map(([slug, title, description]) => ({
     path: `/${slug}`,

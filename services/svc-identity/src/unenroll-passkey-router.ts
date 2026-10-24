@@ -4,6 +4,7 @@ import type { Sql } from 'postgres';
 import { UnenrollPasskeyError } from './auth/unenroll-passkey.js';
 import { assertMayRemoveFactor, factorActor, factorGateTrpcError } from './auth/factor-gate.js';
 import { unenrollOneOfTwo } from './auth/unenroll-one-of-two.js';
+import { signinMethodTrpc } from './signin-methods-router.js';
 
 /**
  * Top-level unenroll (not nested under webauthn) so mergeRouters cannot replace
@@ -36,7 +37,7 @@ export function createUnenrollPasskeyRouter(sql: Sql) {
             }
             throw new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
           }
-          throw err;
+          throw signinMethodTrpc(err) ?? err;
         }
       }),
   });

@@ -27,7 +27,20 @@ import type { RegistryReader } from '../../registries/read-api.js';
  *   and count the row was judged by, before the ledger is asked; a retry after a crash skips the judgment and posts under the
  *   same key, so the record and the ledger cannot disagree because an owner setting moved in between.
  * - A finalized amount that differs from the one first seen is `needs_review`, never credited; an asset the address was not
- *   issued for is `rejected` and logged as an alert. `held_for_screening` and `reversed` are W-deposit-06.
+ *   issued for is `rejected` and logged as an alert. `held_for_screening` is W-deposit-06's hold, still to come.
+ * - A TRANSFER THE CHAIN TAKES BACK (W-deposit-06, `reverse`): the block it was in was rewritten and it is not in the new one.
+ *   A row that was never credited is closed `reversed` (reason `chain_reorg`) and posts nothing. A credited row posts one
+ *   `depositReverse`, keyed `deposit.reverse:crypto-native:<network>:<tx_hash>:<output_index>`: `reversal_started_at` is
+ *   written before the ledger is asked and the flip to `reversed` stores the reversal's transaction id, so a crash in
+ *   between is retried under the same key and the ledger answers with the first reversal. A credit cut short by a crash is
+ *   finished first, under its own key, so the reversal always has a credit to reverse. A balance that can no longer cover
+ *   the amount (the funds were spent) posts nothing and is `needs_review` (reason `reversal_unfunded`) with an alert: never
+ *   a negative balance and never a partial take-back; a later reorg delivery tries again. While a reversal runs the row is
+ *   `needs_review` (reason `chain_reorg`), so no sweep or announcement treats it as credited, and `settleOpen` finishes one a
+ *   crash or a ledger error cut short. A reversed transfer seen again is never credited on its own (a re-inclusion and a late
+ *   delivery from before the reorg look the same): a never-credited one goes to review, a reversed credit stays reversed,
+ *   each with an alert. Every reorg is kept by position (`custody_deposit_reorgs`), so a sighting that arrives after its
+ *   reorg goes to review too. A rejected row (a token the address was not issued for) keeps its rejection.
  * - A transfer first seen at an extra address after its expiry (W-deposit-02) is `held_for_release` with reason
  *   `address_expired`: recorded, never credited on its own and never dropped, left for a support or compliance release. One
  *   first seen before the expiry is judged and credited as any other, however long it takes to confirm.
@@ -48,6 +61,19 @@ export interface ChainDeposit {
   readonly confirmations: number;
 }
 
+/** A transfer the chain took back, named by where it was. */
+export interface ChainReorg {
+  readonly address: string;
+  readonly txHash: string;
+  readonly outputIndex: number;
+}
+
+/** `unknown`: a customer address with no record of that transfer, so there is nothing to take back. */
+export type ChainReorgOutcome =
+  | { readonly state: 'unmatched' }
+  | { readonly state: 'unknown' }
+  | { readonly state: 'recorded'; readonly status: PayCustodyDepositStatus; readonly reason: PayCustodyDepositReason | null };
+
 export type ChainDepositOutcome =
   | { readonly state: 'unmatched' }
   | { readonly state: 'recorded'; readonly status: PayCustodyDepositStatus; readonly reason: PayCustodyDepositReason | null };
@@ -63,6 +89,19 @@ export interface CustodyDepositBookDeps {
     txHash: string;
     outputIndex: number;
   }) => Promise<{ id: string }>;
+  /**
+   * The reversal engine (`UserMoneyService.reverseCustodyDeposit`): posts the ledger `depositReverse` under the business key,
+   * or answers `unfunded` and posts nothing. Omitted, a reorg of a credited row refuses (`pay.deposit_reverse_unwired`) and
+   * the row stays credited until it is wired; a never-credited row still closes.
+   */
+  readonly reverseDeposit?: (input: {
+    userId: string;
+    assetId: string;
+    amount: Amount;
+    networkId: string;
+    txHash: string;
+    outputIndex: number;
+  }) => Promise<{ state: 'reversed'; id: string } | { state: 'unfunded' }>;
   readonly registries: Pick<RegistryReader, 'listRoutableNetworks'>;
   /**
    * Publishes one credited deposit for the inbox (`payDepositCreditPosted`, key `pay:deposit-credit:posted:<id>`); throws when
@@ -96,6 +135,7 @@ interface Row {
   detected_at: Date;
   credited_at: Date | null;
   credit_started_at: Date | null;
+  reversal_started_at: Date | null;
 }
 
 /** The customer an address was issued to, and whether it had expired when this transfer was first seen. */
@@ -108,13 +148,16 @@ interface AddressOwner {
 }
 
 const COLUMNS =
-  'id, user_id, asset_id, network_id, address, tx_hash, output_index, amount, confirmations, confirmations_required, minimum_deposit, status, reason, detected_at, credited_at, credit_started_at';
+  'id, user_id, asset_id, network_id, address, tx_hash, output_index, amount, confirmations, confirmations_required, minimum_deposit, status, reason, detected_at, credited_at, credit_started_at, reversal_started_at';
 const ASSET_RE = /^[A-Za-z0-9]{1,16}$/;
 const OPEN = new Set<PayCustodyDepositStatus>(PAY_CUSTODY_DEPOSIT_PENDING_STATUSES);
 
 export class CustodyDepositBook {
-  /** Keys of rows that can no longer change by a chain observation, so a poll does not read them again. */
-  private readonly settled = new Map<string, ChainDepositOutcome>();
+  /**
+   * Rows a chain observation can no longer change, so a poll does not judge them again. A reorg can still change one (in
+   * this process or another), so a hit is checked against the row's stored status with one read by id, never trusted alone.
+   */
+  private readonly settled = new Map<string, { readonly id: string; readonly outcome: ChainDepositOutcome & { state: 'recorded' } }>();
 
   /** The announcing pass running now, if any; a call while it runs asks for one more pass after it. */
   private announcing: Promise<number> | null = null;
@@ -127,7 +170,12 @@ export class CustodyDepositBook {
     const txHash = input.txHash.toLowerCase();
     const memoKey = `${input.address.toLowerCase()}:${txHash}:${input.outputIndex}:${input.assetId}:${input.amount}`;
     const known = this.settled.get(memoKey);
-    if (known) return known;
+    if (known) {
+      const [now] = await this.deps.sql<Array<{ status: PayCustodyDepositStatus; reason: PayCustodyDepositReason | null }>>`
+        SELECT status, reason FROM pay.custody_deposits WHERE id = ${known.id}`;
+      if (now && now.status === known.outcome.status && now.reason === known.outcome.reason) return known.outcome;
+      this.settled.delete(memoKey);
+    }
 
     const owner = await this.addressOwner(input.address);
     if (!owner) return { state: 'unmatched' };
@@ -149,16 +197,124 @@ export class CustodyDepositBook {
       this.deps.log?.('custody deposit held for release: the address had expired', { alert: true, depositId: row.id });
     }
     const judged = await this.settle(row);
-    const outcome: ChainDepositOutcome = { state: 'recorded', status: judged.status, reason: judged.reason };
-    if (!OPEN.has(judged.status)) this.settled.set(memoKey, outcome);
+    const outcome = { state: 'recorded' as const, status: judged.status, reason: judged.reason };
+    if (!OPEN.has(judged.status) && !judged.reversal_started_at) this.settled.set(memoKey, { id: judged.id, outcome });
     return outcome;
   }
 
   /**
+   * The chain took a transfer back. Close it if it never credited; reverse its credit once if it did; send it to review if
+   * the balance can no longer cover the reversal. Repeats change nothing. A reorg of a transfer not recorded yet is kept,
+   * so a sighting that arrives after it (a late delivery from before the reorg) is put in review instead of credited.
+   */
+  async reverse(input: ChainReorg): Promise<ChainReorgOutcome> {
+    const owner = await this.addressOwner(input.address);
+    if (!owner) return { state: 'unmatched' };
+    const txHash = input.txHash.toLowerCase();
+    const { sql } = this.deps;
+    await sql`
+      INSERT INTO pay.custody_deposit_reorgs (network_id, address, tx_hash, output_index)
+      VALUES (${owner.network_id}, ${owner.address.toLowerCase()}, ${txHash}, ${input.outputIndex})
+      ON CONFLICT DO NOTHING`;
+    const rows = await sql<Row[]>`
+      SELECT ${sql.unsafe(COLUMNS)} FROM pay.custody_deposits
+       WHERE network_id = ${owner.network_id} AND tx_hash = ${txHash} AND output_index = ${input.outputIndex}
+         AND lower(address) = ${input.address.toLowerCase()}
+       ORDER BY detected_at, id`;
+    if (rows.length === 0) return { state: 'unknown' };
+    // Every row at the position is handled even if one fails; the first failure is raised after, for the watcher to retry.
+    const done: Row[] = [];
+    let failure: unknown = null;
+    for (const row of rows) {
+      try {
+        done.push(await this.reverseRow(row));
+      } catch (err) {
+        failure ??= err;
+      }
+    }
+    if (failure !== null) throw failure;
+    // The answer names the row that carried a credit, if one did: that is the one whose money moved.
+    const named = done.find((row) => row.credited_at !== null) ?? done[done.length - 1]!;
+    return { state: 'recorded', status: named.status, reason: named.reason };
+  }
+
+  private async reverseRow(row: Row): Promise<Row> {
+    const { sql } = this.deps;
+    // Reversed already, or a token the address was never issued for: a reorg changes neither, and the rejection keeps its evidence.
+    if (row.status === 'reversed' || row.status === 'rejected') return row;
+    // Anything the ledger may have credited is reversed there; anything it never did is closed here and posts nothing.
+    if (!row.credit_started_at) {
+      const closed = await sql<Row[]>`
+        UPDATE pay.custody_deposits SET status = 'reversed', reason = 'chain_reorg', updated_at = now()
+         WHERE id = ${row.id} AND credit_started_at IS NULL AND status NOT IN ('reversed', 'rejected')
+         RETURNING ${sql.unsafe(COLUMNS)}`;
+      return closed[0] ?? this.reverseRow(await this.reload(row.id));
+    }
+    const reverseDeposit = this.deps.reverseDeposit;
+    if (!reverseDeposit) throw new Error('pay.deposit_reverse_unwired');
+    let current = row;
+    if (!current.credited_at) {
+      // A credit a crash cut short: finish it under its own key first, so there is one credit for the one reversal. It is not
+      // announced: the reversal follows at once.
+      current = await this.credit(current, current.confirmations_required ?? 0, current.minimum_deposit ?? '', false);
+      if (!current.credited_at) return current;
+    }
+    if (!current.reversal_started_at) {
+      // From here the row is no longer `credited`: no sweep and no announcement treats it as money that stays, even if the
+      // reversal is cut short. `settleOpen` finishes a started one.
+      const started = await sql<Row[]>`
+        UPDATE pay.custody_deposits SET reversal_started_at = now(), status = 'needs_review', reason = 'chain_reorg', updated_at = now()
+         WHERE id = ${current.id} AND credited_at IS NOT NULL AND status <> 'reversed' AND reversal_started_at IS NULL
+         RETURNING ${sql.unsafe(COLUMNS)}`;
+      if (!started[0]) {
+        const now = await this.reload(current.id);
+        return now.status === 'reversed' || !now.reversal_started_at ? now : this.reverseRow(now);
+      }
+      current = started[0];
+    }
+    const outcome = await reverseDeposit({
+      userId: current.user_id,
+      assetId: current.asset_id,
+      amount: parseAmount(current.amount),
+      networkId: current.network_id,
+      txHash: current.tx_hash,
+      outputIndex: current.output_index,
+    });
+    if (outcome.state === 'unfunded') {
+      const parked = await sql<Row[]>`
+        UPDATE pay.custody_deposits
+           SET status = 'needs_review', reason = 'reversal_unfunded', reversal_started_at = NULL, updated_at = now()
+         WHERE id = ${current.id} AND status <> 'reversed' RETURNING ${sql.unsafe(COLUMNS)}`;
+      // For the support desk: the chain took the deposit back after the funds were spent; nothing was posted.
+      this.deps.log?.('custody deposit reversal unfunded: the credited funds were already spent', { alert: true, depositId: current.id });
+      return parked[0] ?? this.reload(current.id);
+    }
+    const reversed = await sql<Row[]>`
+      UPDATE pay.custody_deposits
+         SET status = 'reversed', reason = 'chain_reorg', reversal_ledger_tx_id = ${outcome.id}, reversed_at = now(), updated_at = now()
+       WHERE id = ${current.id} AND status <> 'reversed' RETURNING ${sql.unsafe(COLUMNS)}`;
+    return reversed[0] ?? this.reload(current.id);
+  }
+
+  /**
    * Judge every open row again: the owner may have set a minimum, or the registry a confirmation count, since the transfer
-   * was seen. Boot runs this once and the watcher tick runs it each poll. Returns how many rows credited.
+   * was seen. Boot runs this once and the watcher tick runs it each poll. Returns how many rows credited. It also finishes
+   * every reversal a crash or a ledger error cut short, under its own key.
    */
   async settleOpen(): Promise<number> {
+    const started = await this.deps.sql<Row[]>`
+      SELECT ${this.deps.sql.unsafe(COLUMNS)} FROM pay.custody_deposits
+       WHERE reversal_started_at IS NOT NULL AND status <> 'reversed' ORDER BY reversal_started_at, id LIMIT 500`;
+    for (const row of started) {
+      try {
+        await this.reverseRow(row);
+      } catch (err) {
+        this.deps.log?.('custody deposit reversal left started', {
+          depositId: row.id,
+          err: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
     const rows = await this.deps.sql<Row[]>`
       SELECT ${this.deps.sql.unsafe(COLUMNS)} FROM pay.custody_deposits
        WHERE status IN ('detected', 'confirming') ORDER BY detected_at, id LIMIT 500`;
@@ -285,22 +441,60 @@ export class CustodyDepositBook {
     const amount = formatAmount(input.amount);
     const conf = Math.max(0, Math.trunc(input.confirmations));
     // Only a NEW row is judged against the expiry: a transfer already recorded before the address expired keeps its course.
-    const first = unknownAsset ? 'rejected' : owner.expired ? 'held_for_release' : conf > 0 ? 'confirming' : 'detected';
-    const firstReason = unknownAsset ? 'unknown_asset' : owner.expired ? 'address_expired' : null;
     return sql.begin(async (tx) => {
+      // A reorg already reported for this position (it arrived before this sighting): never credited on its own.
+      const reorged =
+        (
+          await tx`
+            SELECT 1 FROM pay.custody_deposit_reorgs
+             WHERE network_id = ${owner.network_id} AND address = ${owner.address.toLowerCase()} AND tx_hash = ${input.txHash}
+               AND output_index = ${input.outputIndex}`
+        ).length > 0;
+      const first = unknownAsset
+        ? 'rejected'
+        : reorged
+          ? 'needs_review'
+          : owner.expired
+            ? 'held_for_release'
+            : conf > 0
+              ? 'confirming'
+              : 'detected';
+      const firstReason = unknownAsset ? 'unknown_asset' : reorged ? 'chain_reorg' : owner.expired ? 'address_expired' : null;
       const inserted = await tx<Row[]>`
         INSERT INTO pay.custody_deposits (user_id, asset_id, network_id, address, tx_hash, output_index, amount, confirmations, status, reason)
         VALUES (${owner.user_id}, ${input.assetId}, ${owner.network_id}, ${owner.address}, ${input.txHash}, ${input.outputIndex},
                 ${amount}, ${conf}, ${first}, ${firstReason})
         ON CONFLICT (asset_id, network_id, tx_hash, output_index) DO NOTHING
         RETURNING ${sql.unsafe(COLUMNS)}`;
-      if (inserted[0]) return inserted[0];
+      if (inserted[0]) {
+        if (reorged && !unknownAsset) {
+          this.deps.log?.('custody deposit first seen after a reorg took it out', { alert: true, depositId: inserted[0].id });
+        }
+        return inserted[0];
+      }
       const existing = (
         await tx<Row[]>`
           SELECT ${sql.unsafe(COLUMNS)} FROM pay.custody_deposits
            WHERE asset_id = ${input.assetId} AND network_id = ${owner.network_id} AND tx_hash = ${input.txHash}
              AND output_index = ${input.outputIndex} FOR UPDATE`
       )[0]!;
+      if (existing.status === 'reversed' && !existing.credit_started_at) {
+        // Seen again after a reorg took it out. A re-inclusion and a late delivery from before the reorg look the same here,
+        // so it is not credited on its own: a person checks the chain.
+        const flagged = await tx<Row[]>`
+          UPDATE pay.custody_deposits SET status = 'needs_review', reason = 'chain_reorg', updated_at = now()
+           WHERE id = ${existing.id} RETURNING ${sql.unsafe(COLUMNS)}`;
+        this.deps.log?.('custody deposit seen again after a reorg took it out', { alert: true, depositId: existing.id });
+        return flagged[0]!;
+      }
+      if (existing.status === 'reversed' || (existing.status === 'needs_review' && existing.credited_at)) {
+        // A reversed credit, or one in review, seen again: its credit key is spent, so only a person decides what it is worth.
+        this.deps.log?.('custody deposit seen again after its credit was reversed or sent to review', {
+          alert: true,
+          depositId: existing.id,
+        });
+        return existing;
+      }
       if (!OPEN.has(existing.status) || existing.credit_started_at) return existing;
       if (parseAmount(existing.amount) !== input.amount) {
         const flagged = await tx<Row[]>`
@@ -348,7 +542,7 @@ export class CustodyDepositBook {
   }
 
   /** Mark the credit started (with the judging figures), post under the business key, then flip. Retried as it is after a crash. */
-  private async credit(row: Row, required: number, minimum: string): Promise<Row> {
+  private async credit(row: Row, required: number, minimum: string, announce = true): Promise<Row> {
     const { sql } = this.deps;
     const amount = parseAmount(row.amount);
     if (!row.credit_started_at) {
@@ -373,7 +567,7 @@ export class CustodyDepositBook {
        WHERE id = ${row.id} AND status IN ('detected', 'confirming') RETURNING ${sql.unsafe(COLUMNS)}`;
     if (credited[0]) {
       // Announced in the background: the credit never waits for the bus, and one not announced now is on a later pass.
-      if (this.deps.announceCredit) {
+      if (announce && this.deps.announceCredit) {
         this.announceOwed().catch((err: unknown) =>
           this.deps.log?.('custody deposit credits not announced', { err: err instanceof Error ? err.message : String(err) }),
         );

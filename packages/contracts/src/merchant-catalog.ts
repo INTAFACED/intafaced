@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { saleChannelSchema } from './merchant-stores.js';
 
 /**
  * The merchant's product catalogue (M-catalogue-01, J-merchant-03 steps 1 and 2): `merchantCatalog.*` on svc-pay.
@@ -231,8 +232,18 @@ export const priceQuoteInputSchema = z
     priceId: z.string().guid(),
     /** The amount a customer entered, for a customer-chosen price. A fixed price takes none. */
     amount: priceAmountSchema.optional(),
+    /**
+     * Where the sale is, as a store and channel together: a product its business does not sell there is refused
+     * (`pay.product_not_sold_here`). Left out: the price as it stands, anywhere.
+     */
+    storeId: z.string().guid().optional(),
+    channel: saleChannelSchema.optional(),
   })
-  .strict();
+  .strict()
+  .refine((v) => (v.storeId === undefined) === (v.channel === undefined), {
+    message: 'a store and a channel go together',
+    path: ['channel'],
+  });
 
 export const priceQuoteSchema = z
   .object({

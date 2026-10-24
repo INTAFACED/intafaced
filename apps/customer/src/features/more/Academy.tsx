@@ -24,6 +24,7 @@ import {
 import { academyLearningCopy } from './academy-learning-copy';
 import { AcademyCoursePage, AcademyHub } from './AcademyHub';
 import { AcademyAssignment } from './AcademyAssignment';
+import { AcademyProgrammePage } from './AcademyCourseProgrammes';
 import { AcademyAccessGrants, AcademyMyLearning } from './AcademyMyLearning';
 import { AcademyCourseProgress, AcademyPlanner } from './AcademyProgressPage';
 import { AcademyCourseOutline } from './AcademyCourseOutline';
@@ -64,7 +65,13 @@ function Academy({ route, slug, initialPath }: { route: AcademyRoute; slug?: str
   const [progressMade, setProgressMade] = useState(0);
   // Each tab is its own address: a click pushes history, so the back button returns to the previous tab.
   const tab =
-    route.kind === 'tab' ? route.tab : route.kind === 'reader' || route.kind === 'course' || route.kind === 'assignment' ? 'Learning' : '';
+    route.kind === 'tab'
+      ? route.tab
+      : route.kind === 'reader' || route.kind === 'course' || route.kind === 'assignment'
+        ? 'Learning'
+        : route.kind === 'programme'
+          ? 'Programmes'
+          : '';
   const [selection, setSelection] = useState({ owner: userId, id: selectedCertificate(userId) });
   const selected = selection.owner === userId ? selection.id : selectedCertificate(userId);
   useEffect(() => {
@@ -100,6 +107,8 @@ function Academy({ route, slug, initialPath }: { route: AcademyRoute; slug?: str
         <AcademyCoursePage slug={route.slug} signedIn />
       ) : route.kind === 'assignment' ? (
         <AcademyAssignment key={route.itemId} slug={route.slug ?? ''} itemId={route.itemId ?? ''} />
+      ) : route.kind === 'programme' ? (
+        <AcademyProgrammePage key={route.slug} slug={route.slug} />
       ) : route.kind === 'progress' ? (
         <AcademyProgress action={action} />
       ) : tab === 'Learning' ? (

@@ -26,3 +26,21 @@ describe('crypto-native webhook chain position (W-deposit-05)', () => {
     }
   });
 });
+
+describe('crypto-native webhook chain reorg (W-deposit-06)', () => {
+  it('a reorg names the transfer it takes back by chain position', () => {
+    const a = adapter();
+    const event = a.verifyWebhook(
+      a.signWebhook({ id: 'reorg:0xabc:0xaddr:3', type: 'chain.reorged', ref: '0xaddr', txHash: '0xabc', logIndex: 3, confirmations: 0 }),
+    );
+    expect(event?.type).toBe('chain.reorged');
+    expect(event?.chain).toEqual({ txHash: '0xabc', logIndex: 3, confirmations: 0 });
+  });
+
+  it('a reorg without a chain position is not an event at all', () => {
+    const a = adapter();
+    for (const extra of [{}, { txHash: '0xabc', logIndex: 3 }, { txHash: '', logIndex: 3, confirmations: 0 }]) {
+      expect(a.verifyWebhook(a.signWebhook({ id: 'reorg:x', type: 'chain.reorged', ref: '0xaddr', ...extra }))).toBeNull();
+    }
+  });
+});

@@ -4,6 +4,7 @@ import { withPayoutLock, payoutTransaction } from './payout-admission.js';
 import { transaction } from '@intafaced/db';
 import {
   formatAmount,
+  LedgerError,
   parseAmount,
   recipes,
   userAvailable,
@@ -381,6 +382,50 @@ export class UserMoneyService {
       );
       return { id: tx.id };
     });
+  }
+
+  /**
+   * Post the reversal of a customer crypto deposit the chain took back (W-deposit-06): `depositReverse`, the inverse of the
+   * credit `postCustodyDeposit` posted, keyed `deposit.reverse:crypto-native:<network>:<tx>:<index>` so a repeat returns the
+   * first transaction. The deposit record decides WHEN (`custody/deposits/book.ts`); this posts nothing else. A balance that
+   * can no longer cover it (the funds were spent) answers `unfunded` and posts nothing: never a negative balance, never a
+   * partial take-back.
+   */
+  async reverseCustodyDeposit(input: {
+    userId: string;
+    assetId: string;
+    amount: Amount;
+    networkId: string;
+    txHash: string;
+    outputIndex: number;
+  }): Promise<{ state: 'reversed'; id: string } | { state: 'unfunded' }> {
+    if (input.amount <= 0n) throw new PayError('Deposit amount must be positive', 'pay.invalid_amount');
+    const rail = 'crypto-native';
+    if (!this.rails.has(rail)) throw new PayError(`No rail adapter "${rail}"`, 'pay.rail_unknown');
+    const railRef = `${input.networkId}:${input.txHash}:${input.outputIndex}`;
+    return withMoneySpan(
+      'pay.deposit_reverse',
+      { operation: 'deposit_reverse', rail, railRef, amount: formatAmount(input.amount) },
+      async () => {
+        try {
+          const tx = await postPayLedger(
+            this.ledger,
+            recipes.depositReverse({
+              userId: input.userId,
+              assetId: input.assetId,
+              amount: input.amount,
+              rail,
+              railRef,
+              depositId: `${rail}:${railRef}`,
+            }),
+          );
+          return { state: 'reversed' as const, id: tx.id };
+        } catch (err) {
+          if (err instanceof LedgerError && err.code === 'ledger.insufficient_funds') return { state: 'unfunded' as const };
+          throw err;
+        }
+      },
+    );
   }
 
   /**

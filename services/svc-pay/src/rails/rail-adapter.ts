@@ -382,7 +382,13 @@ export type RailEventType =
   | 'dispute.closed'
   | 'refund.reversed'
   | 'mandate.created'
-  | 'mandate.revoked';
+  | 'mandate.revoked'
+  /**
+   * A chain watcher saw a transfer it reported leave the chain: the block it was in was rewritten and the transfer is not in
+   * the new one (W-deposit-06). Carries `chain`. Only the customer deposit record acts on it; on a payment it is recorded and
+   * not acted on, like any type without a `case`.
+   */
+  | 'chain.reorged';
 
 /** §6.1: `verifyWebhook(req): RailEvent | null`. */
 export interface RailEvent {
@@ -418,7 +424,7 @@ export interface RailEvent {
   /** The mandate this delivery is about, on `mandate.*`. */
   readonly mandateRef?: string;
 
-  /** Where the chain saw the transfer, on a `captured` delivery from a chain watcher. Absent from every other rail. */
+  /** Where the chain saw the transfer, on a `captured` or `chain.reorged` delivery from a chain watcher. Absent from every other rail. */
   readonly chain?: { readonly txHash: string; readonly logIndex: number; readonly confirmations: number };
 }
 

@@ -135,13 +135,16 @@ const looksLikePhone = (value: string) => /^\+?[\d\s().-]{7,}$/.test(value) && /
 
 type Account = { id: string; email: string };
 
-/** The active account this name signs in, or undefined. A frozen or closed account gets no code (FLW-4). */
+/**
+ * The active account this name signs in, or undefined. A frozen or closed account gets no code (FLW-4), and neither does
+ * one whose owner turned sign-in by mailed code off (I-account-lifecycle-07); the answer reads the same.
+ */
 async function activeAccount(sql: Sql, identifier: string): Promise<Account | undefined> {
-  const rows = await sql<Array<{ id: string; email: string; status: string }>>`
-    SELECT id, email, status FROM users WHERE handle = ${identifier} OR email = ${identifier}
+  const rows = await sql<Array<{ id: string; email: string; status: string; email_code_signin: boolean }>>`
+    SELECT id, email, status, email_code_signin FROM users WHERE handle = ${identifier} OR email = ${identifier}
   `;
   const user = rows[0];
-  return user && user.status === 'active' ? { id: user.id, email: user.email } : undefined;
+  return user && user.status === 'active' && user.email_code_signin ? { id: user.id, email: user.email } : undefined;
 }
 
 /**
@@ -284,7 +287,11 @@ export async function resendLoginCode(deps: LoginCodeDeps, input: { flowId: stri
       const recent = await recentSends(tx, flow.subject_hash, flow.user_id, since);
       if (recent.n >= budget.requestMax) throw overCap(budget, recent.oldest, now);
       const account = flow.user_id
-        ? (await tx<Array<{ id: string; email: string }>>`SELECT id, email FROM users WHERE id = ${flow.user_id} AND status = 'active'`)[0]
+        ? (
+            await tx<
+              Array<{ id: string; email: string }>
+            >`SELECT id, email FROM users WHERE id = ${flow.user_id} AND status = 'active' AND email_code_signin`
+          )[0]
         : undefined;
       // A resend never keeps a flow alive past one day from its start.
       const expiresAt = new Date(
@@ -348,6 +355,9 @@ export async function checkLoginCode(
         await tx`UPDATE auth_flows SET attempts = ${attempts}, status = ${lock ? 'locked' : flow.status} WHERE id = ${flow.id}`;
         return lock ? tooMany(flow, now) : new LoginCodeError(INVALID, 'auth.code_invalid');
       }
+      // The owner may have turned mailed codes off after this one was sent (I-account-lifecycle-07): it no longer signs in.
+      const on = await tx<Array<{ id: string }>>`SELECT id FROM users WHERE id = ${flow.user_id} AND email_code_signin`;
+      if (!on[0]) return new LoginCodeError(INVALID, 'auth.code_invalid');
       return { userId: flow.user_id!, codeHash: flow.code_hash };
     },
     { isolation: 'read committed' },
@@ -365,6 +375,7 @@ export async function consumeLoginCode(deps: LoginCodeDeps, input: { flowId: str
     UPDATE auth_flows SET status = 'consumed', consumed_at = ${deps.now()}
     WHERE id = ${input.flowId} AND kind = 'login_code' AND status = 'code_sent' AND code_hash = ${input.codeHash}
       AND consumed_at IS NULL AND expires_at > ${deps.now()}
+      AND EXISTS (SELECT 1 FROM users WHERE users.id = auth_flows.user_id AND users.email_code_signin)
     RETURNING id
   `;
   if (!spent[0]) throw new LoginCodeError(INVALID, 'auth.code_invalid');

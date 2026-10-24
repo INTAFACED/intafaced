@@ -200,15 +200,14 @@ export class CourseAssignments {
   async submit(input: AcademySubmitAssignmentInput & { userId: string; now: Date }): Promise<AcademyAssignmentView> {
     return this.sql.begin(async (tx) => {
       const row = await this.learnerRow(tx, input.itemId, input.userId, true);
-      const [stored] = await tx<Array<{ version: number }>>`
-        SELECT version FROM academy.assignment_submissions
-        WHERE item_id = ${row.item_id} AND user_id = ${input.userId} AND version = ${input.version}
-      `;
-      if (stored) return this.viewOf(tx, row, input.userId);
-      const [counted] = await tx<Array<{ next: number }>>`
-        SELECT coalesce(max(version), 0)::int + 1 AS next FROM academy.assignment_submissions
+      // One statement, one snapshot: a racing send that commits between two reads would otherwise read as stale.
+      const [counted] = await tx<Array<{ stored: boolean; next: number }>>`
+        SELECT coalesce(bool_or(version = ${input.version}), false) AS stored,
+          coalesce(max(version), 0)::int + 1 AS next
+        FROM academy.assignment_submissions
         WHERE item_id = ${row.item_id} AND user_id = ${input.userId}
       `;
+      if (counted!.stored) return this.viewOf(tx, row, input.userId);
       const next = counted!.next;
       if (input.version !== next)
         throw new AcademyError(

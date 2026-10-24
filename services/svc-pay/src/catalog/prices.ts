@@ -1,11 +1,12 @@
 import { createHash } from 'node:crypto';
 import type { Sql, TransactionSql } from 'postgres';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
-import type { MerchantPrice, PriceCreateInput, PricedProduct, PriceQuote, PriceReplaceInput } from '@intafaced/contracts';
+import type { MerchantPrice, PriceCreateInput, PricedProduct, PriceQuote, PriceReplaceInput, SaleChannel } from '@intafaced/contracts';
 import { MerchantOpsError } from '../merchant-ops/errors.js';
 import { iso, money } from '../merchant-ops/money.js';
 import { decodeCursor, encodeCursor, requireLimit, toPage } from '../merchant-ops/pagination.js';
 import { assertPermission, type MerchantCaller } from '../merchant-ops/roles.js';
+import { storeNotFound } from '../stores/stores.js';
 import { assertWriter, isUnique, productNotFound, UUID } from './products.js';
 
 /**
@@ -315,11 +316,14 @@ export class ProductPrices {
   }
 
   /**
-   * What an active price of an active product charges, in either catalogue (the amount check on a product's page). A
-   * fixed price takes no amount. A customer-chosen price takes the amount the customer entered and refuses one below its
+   * What an active price of an active product charges, in either catalogue (the amount check on a product's page), and,
+   * given a store and channel, whether the product is sold there at all. A fixed price takes no amount. A customer-chosen price takes the amount the customer entered and refuses one below its
    * minimum or above its maximum.
    */
-  async quote(caller: MerchantCaller, input: { priceId: string; amount?: string | undefined }): Promise<PriceQuote> {
+  async quote(
+    caller: MerchantCaller,
+    input: { priceId: string; amount?: string | undefined; storeId?: string | undefined; channel?: SaleChannel | undefined },
+  ): Promise<PriceQuote> {
     assertPermission(caller, 'products.read');
     const sql = this.sql;
     const [row] = await sql<Array<PriceRow & { product_status: 'active' | 'archived' }>>`
@@ -328,6 +332,7 @@ export class ProductPrices {
     if (!row || !row.product_status) throw priceNotFound();
     if (row.product_status !== 'active') throw new MerchantOpsError('pay.product_archived', 'precondition');
     if (row.status !== 'active') throw new MerchantOpsError('pay.price_archived', 'precondition');
+    if (input.storeId && input.channel) await this.soldAt(caller, row.product_id, input.storeId, input.channel);
     const answer = (amount: string): PriceQuote => ({ priceId: row.id, assetId: row.asset_id, amount, billing: row.billing });
     if (row.kind === 'fixed') {
       if (input.amount !== undefined) throw new MerchantOpsError('pay.price_amount_not_chosen', 'bad_request');
@@ -338,6 +343,18 @@ export class ProductPrices {
     if (chosen < parseAmount(row.min_amount!)) throw new MerchantOpsError('pay.price_amount_below_minimum', 'bad_request');
     if (chosen > parseAmount(row.max_amount!)) throw new MerchantOpsError('pay.price_amount_above_maximum', 'bad_request');
     return answer(formatAmount(chosen));
+  }
+
+  /** Refuses a sale in a store that is not the business's, is archived, or does not sell the product in that channel. */
+  private async soldAt(caller: MerchantCaller, productId: string, storeId: string, channel: SaleChannel): Promise<void> {
+    const [store] = await this.sql<Array<{ status: 'active' | 'archived'; off: boolean }>>`
+      SELECT status, EXISTS (
+               SELECT 1 FROM pay.catalog_product_unavailable
+                WHERE product_id = ${productId}::uuid AND store_id = s.id AND channel = ${channel}) AS off
+        FROM pay.stores s WHERE id = ${storeId}::uuid AND merchant_id = ${caller.merchantId}`;
+    if (!store) throw storeNotFound();
+    if (store.status !== 'active') throw new MerchantOpsError('pay.store_archived', 'precondition');
+    if (store.off) throw new MerchantOpsError('pay.product_not_sold_here', 'precondition');
   }
 
   private async insert(
