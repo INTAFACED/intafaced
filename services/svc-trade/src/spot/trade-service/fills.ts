@@ -5,7 +5,7 @@
  * function here, which passes itself as `svc`.
  */
 import type { EventBus } from '@intafaced/events';
-import { formatAmount, mul, mulBps, parseAmount, recipes, type Amount } from '@intafaced/ledger-client';
+import { formatAmount, makerRebateFor, mul, mulBps, parseAmount, recipes, type Amount } from '@intafaced/ledger-client';
 import { fillIdFor, fillLegIdFor } from '../ids.js';
 import { ocoLegParent, settlementOrderId } from '../oco-legs.js';
 import { type FillRow } from '../rows.js';
@@ -20,6 +20,7 @@ import {
   houseMmAttribution,
   requireAuthAttribution,
   withFillLedgerAttribution,
+  withLedgerAttribution,
   type AuthAttribution,
 } from '../auth-attribution.js';
 import { TradeError, type Market } from '../types.js';
@@ -287,10 +288,13 @@ export async function insertFillLeg(
     feeAsset: string;
     feeAmount: bigint;
     feeBps: number;
+    /** A maker leg's rebate, or null. */
+    rebate?: { readonly bps: number; readonly amount: bigint; readonly asset: string } | null;
     sequence: number;
     attribution: AuthAttribution;
   },
 ): Promise<void> {
+  const rebate = leg.rebate ?? null;
   const attribution = requireAuthAttribution(leg.attribution);
   let inserted: Array<{ id: string }>;
   try {
@@ -298,13 +302,14 @@ export async function insertFillLeg(
       INSERT INTO trade.fills (
         id, order_id, counter_order_id, market_id, user_id, side, liquidity,
         price, qty, quote_amount, fee_asset, fee_amount, fee_bps, sequence,
-        session_id, api_key_id
+        session_id, api_key_id, rebate_bps, rebate_amount, rebate_asset
       ) VALUES (
         ${leg.id}, ${leg.orderId}, ${leg.counterOrderId},
         ${leg.marketId}, ${leg.userId}, ${leg.side}, ${leg.role},
         ${formatAmount(leg.price)}::numeric, ${formatAmount(leg.qty)}::numeric, ${formatAmount(leg.quoteAmount)}::numeric,
         ${leg.feeAsset}, ${formatAmount(leg.feeAmount)}::numeric, ${leg.feeBps}, ${leg.sequence},
-        ${attribution.sessionId}, ${attribution.apiKeyId}
+        ${attribution.sessionId}, ${attribution.apiKeyId},
+        ${rebate?.bps ?? null}, ${rebate ? formatAmount(rebate.amount) : null}::numeric, ${rebate?.asset ?? null}
       )
       ON CONFLICT (id) DO NOTHING
       RETURNING id
@@ -365,6 +370,9 @@ export async function insertFillLeg(
     parseAmount(existing.quote_amount) === leg.quoteAmount &&
     parseAmount(existing.fee_amount) === leg.feeAmount &&
     existing.fee_asset === leg.feeAsset &&
+    (existing.rebate_bps === null || existing.rebate_bps === undefined ? null : Number(existing.rebate_bps)) === (rebate?.bps ?? null) &&
+    (existing.rebate_amount ? parseAmount(existing.rebate_amount) : null) === (rebate?.amount ?? null) &&
+    (existing.rebate_asset ?? null) === (rebate?.asset ?? null) &&
     (existing.session_id ?? null) === attribution.sessionId &&
     (existing.api_key_id ?? null) === attribution.apiKeyId;
 
@@ -642,6 +650,32 @@ export async function settleFill(svc: PublishingService, market: Market, fill: E
   const takerFee = mulBps(takerBuys ? qty : quoteAmount, rates.takerFeeBps);
   const makerFee = mulBps(takerBuys ? quoteAmount : qty, rates.makerFeeBps);
 
+  // The one input both ledger posts take, so the rebate cannot drift from the fill it rebates.
+  const fillInput = {
+    fillId: fillIdFor(market.id, fill.sequence),
+    makerId: maker.userId,
+    takerId: taker.userId,
+    // P0-3: name whose reservation each side is spending. These come from
+    // the order store — this service's source of truth for a fill (see the
+    // P0-2 ADR) — not from the engine event, which carries neither.
+    makerOrderId: maker.id,
+    takerOrderId: taker.id,
+    baseAsset: market.baseAsset,
+    quoteAsset: market.quoteAsset,
+    qty,
+    quoteAmount,
+    takerSide: fill.takerSide,
+    makerFeeBps: rates.makerFeeBps,
+    takerFeeBps: rates.takerFeeBps,
+  };
+  // A maker rebate (SP-fees-vip-01) is paid in what the maker paid, out of this fill's taker fee, and never as a
+  // negative fee. Deterministic from the two placement versions, so a redelivery computes the same one.
+  const rebate =
+    rates.makerRebateBps > 0
+      ? { bps: rates.makerRebateBps, ...makerRebateFor({ ...fillInput, makerRebateBps: rates.makerRebateBps }) }
+      : null;
+  const paidRebate = rebate && rebate.amount > 0n ? { bps: rebate.bps, amount: rebate.amount, asset: rebate.assetId } : null;
+
   const legs = [
     {
       role: 'maker' as const,
@@ -651,6 +685,7 @@ export async function settleFill(svc: PublishingService, market: Market, fill: E
       feeAsset: takerBuys ? market.quoteAsset : market.baseAsset,
       feeAmount: makerFee,
       feeBps: rates.makerFeeBps,
+      rebate: paidRebate,
     },
     {
       role: 'taker' as const,
@@ -660,6 +695,7 @@ export async function settleFill(svc: PublishingService, market: Market, fill: E
       feeAsset: takerBuys ? market.baseAsset : market.quoteAsset,
       feeAmount: takerFee,
       feeBps: rates.takerFeeBps,
+      rebate: null,
     },
   ];
 
@@ -683,6 +719,7 @@ export async function settleFill(svc: PublishingService, market: Market, fill: E
       feeAsset: leg.feeAsset,
       feeAmount: leg.feeAmount,
       feeBps: leg.feeBps,
+      rebate: leg.rebate,
       sequence: fill.sequence,
       attribution: leg.role === 'maker' ? makerAttribution : takerAttribution,
     });
@@ -701,29 +738,18 @@ export async function settleFill(svc: PublishingService, market: Market, fill: E
   // The six-entry atomic fill. Both sides' holds are drawn down and both
   // sides' fees land in `houseFees('trade', …)` in one transaction, so there
   // is no interleaving in which one side has paid and the other has not.
-  await svc.ledger.post(
-    withFillLedgerAttribution(
-      recipes.tradeFill({
-        fillId: fillIdFor(market.id, fill.sequence),
-        makerId: maker.userId,
-        takerId: taker.userId,
-        // P0-3: name whose reservation each side is spending. These come from
-        // the order store — this service's source of truth for a fill (see the
-        // P0-2 ADR) — not from the engine event, which carries neither.
-        makerOrderId: maker.id,
-        takerOrderId: taker.id,
-        baseAsset: market.baseAsset,
-        quoteAsset: market.quoteAsset,
-        qty,
-        quoteAmount,
-        takerSide: fill.takerSide,
-        makerFeeBps: rates.makerFeeBps,
-        takerFeeBps: rates.takerFeeBps,
-      }),
-      makerAttribution,
-      takerAttribution,
-    ),
-  );
+  await svc.ledger.post(withFillLedgerAttribution(recipes.tradeFill(fillInput), makerAttribution, takerAttribution));
+
+  // ── 5b · THE MAKER REBATE ───────────────────────────────────────────────
+  //
+  // Its own post, right after the fill whose taker fee pays it; the ledger checks it against that posted fill. A crash
+  // between the two leaves the rebate unpaid and nothing held: a redelivery re-runs this method, the fill key returns
+  // the first post and this key pays the rebate once.
+  if (paidRebate) {
+    await svc.ledger.post(
+      withLedgerAttribution(recipes.tradeFillMakerRebate({ ...fillInput, makerRebateBps: paidRebate.bps }), makerAttribution),
+    );
+  }
 
   await svc.notifyAffiliateAccrue({
     fillId: fillIdFor(market.id, fill.sequence),

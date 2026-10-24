@@ -308,6 +308,7 @@ const messages = {
 
   // Fees, per order and as listed
   'Fee maker': 'Fee {rate} · maker',
+  'Rebate maker': 'Rebate up to {rate} · maker',
   'Fee taker': 'Fee {rate} · taker',
   'Fee listed': 'Listed: maker {maker} · taker {taker}',
   'Fee listed title': 'The market’s listed maker and taker rates, before any rank discount. The rate on the left is what this order pays.',
@@ -574,6 +575,8 @@ const messages = {
   Status: 'Status',
   Action: 'Action',
   Fee: 'Fee',
+  'Zero fee': 'Zero fee',
+  'Rebate {amount} {asset}': 'Rebate {amount} {asset}',
   Role: 'Role',
   Maker: 'Maker',
   Taker: 'Taker',

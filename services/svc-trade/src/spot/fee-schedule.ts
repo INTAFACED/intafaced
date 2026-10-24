@@ -37,7 +37,10 @@ export interface FeeScheduleRow {
   /** Zero when `zeroFee`. */
   readonly makerBps: number;
   readonly takerBps: number;
-  /** Null = no rebate published. A positive rebate needs a signed-fee ledger recipe, which does not exist: it refuses at use. */
+  /**
+   * Null or 0 = no rebate. A positive rebate is paid to the maker by the ledger's `tradeFillMakerRebate`, out of the same
+   * fill's taker fee: the row's maker fee must be 0 and the rebate below every taker rate in its pair group.
+   */
   readonly makerRebateBps: number | null;
   /** Null = "no minimum by owner decision". A decimal-string minimum needs an amount-level fee recipe: it refuses at use. */
   readonly minFee: string | null;
@@ -238,6 +241,16 @@ function parseRowsBlock(obj: Record<string, unknown>): {
       effectiveAt: typeof row.effectiveAt === 'string' ? row.effectiveAt : null,
     };
   });
+  for (const row of rows) {
+    if (row.makerRebateBps === null || row.makerRebateBps === 0) continue;
+    const at = `rows ${row.pairGroup}/${row.tierId}`;
+    if (row.zeroFee || row.makerBps !== 0) throw blank(`${at}: a maker rebate needs makerBps "0" on a row that is not zeroFee`);
+    // The rebate comes out of the taker's fee on the same fill, and the taker may sit on any tier of the group.
+    const lowestTaker = Math.min(...rows.filter((other) => other.pairGroup === row.pairGroup).map((other) => other.takerBps));
+    if (row.makerRebateBps >= lowestTaker) {
+      throw blank(`${at}: a maker rebate must be below every taker rate in its pair group (lowest ${lowestTaker})`);
+    }
+  }
   return { rows, pairGroups, defaultPairGroup };
 }
 
@@ -279,8 +292,8 @@ export interface FeeSelector {
  *
  * A symbol not named in `pairGroups` sits in the owner's default pair group. A missing `(group, tier)` row refuses
  * `trade.fee_schedule_blank`: a VIP tier with no row never falls back to the regular rate, and regular never to a VIP one.
- * A positive rebate or a decimal minimum fee refuses too, because no granted ledger recipe carries a signed fee or an
- * amount-level floor; refusing keeps the rebate from showing as paid and the floor from being silently skipped.
+ * A decimal minimum fee refuses too, because no ledger recipe takes an amount-level floor; refusing keeps the floor from
+ * being silently skipped. A maker rebate is not a refusal: it is paid by its own ledger post after the fill.
  */
 export function resolveFeeRow(schedule: Extract<OwnerFeeSchedule, { published: true }>, selector: FeeSelector): FeeScheduleRow | null {
   if (!schedule.rows) return null;
@@ -292,14 +305,6 @@ export function resolveFeeRow(schedule: Extract<OwnerFeeSchedule, { published: t
     throw new FeeScheduleError(
       `${TRADE_FEE_SCHEDULE_ENV} has no row for pair group '${pairGroup}' tier '${tierId}'`,
       'trade.fee_schedule_blank',
-    );
-  }
-  if (row.makerRebateBps !== null && row.makerRebateBps > 0) {
-    logRefusalSpec('trade.rebate_recipe_unavailable');
-    throw new FeeScheduleError(
-      'A maker rebate needs a ledger recipe that carries a signed fee; none exists yet',
-      'trade.rebate_recipe_unavailable',
-      'Maker rebates are not available yet: the ledger has no recipe that pays one.',
     );
   }
   if (row.minFee !== null) {
@@ -321,6 +326,24 @@ export function previewFeeBps(schedule: OwnerFeeSchedule, role: 'maker' | 'taker
 }
 
 export type FeeProduct = 'spot' | 'perpetual';
+
+/**
+ * The maker rebate a spot fill's maker earns on its row, in bps of what the maker paid; 0 when the row publishes none.
+ * Only a rows schedule pays one: the flat schedule's `makerRebateBps` was never paid and the public schedule marks it.
+ */
+export function makerRebateBpsFor(schedule: OwnerFeeSchedule, selector: FeeSelector): number {
+  if (schedule.published !== true || !schedule.rows) return 0;
+  return resolveFeeRow(schedule, selector)?.makerRebateBps ?? 0;
+}
+
+/**
+ * The rebate one fill pays: the maker's published rate, held below the taker rate this fill actually charges (a rank
+ * discount can bring a taker under the rebate), because the ledger pays it out of that same taker fee. 0 = none.
+ */
+export function fundedMakerRebateBps(makerRebateBps: number, makerFeeBps: number, takerFeeBps: number): number {
+  if (makerRebateBps <= 0 || makerFeeBps !== 0 || takerFeeBps <= 1) return 0;
+  return Math.min(makerRebateBps, takerFeeBps - 1);
+}
 
 /** Spot uses the top-level rates. Perpetual uses its own block, or refuses. */
 export function publishedProductBps(
@@ -371,15 +394,15 @@ export interface PublicFeeRow {
   /** Absent on the flat schedule, which publishes no minimum either way. */
   readonly minFee?: string | null;
   /**
-   * Set when an order on this row is refused although the row is published: a rebate or a minimum fee that no granted
-   * ledger recipe can post (`resolveFeeRow`). A page shows the row as not available, never as a rate anyone pays.
+   * Set when an order on this row is refused although the row is published: a minimum fee that no ledger recipe can
+   * post (`resolveFeeRow`), or the flat schedule's rebate, which is never paid. A page shows the row as not available,
+   * never as a rate anyone pays.
    */
   readonly refusal?: 'trade.rebate_recipe_unavailable' | 'trade.min_fee_recipe_unavailable';
 }
 
 /** The code `resolveFeeRow` refuses a published row with, or undefined when the row can be charged. */
 function rowRefusal(row: FeeScheduleRow): PublicFeeRow['refusal'] {
-  if (row.makerRebateBps !== null && row.makerRebateBps > 0) return 'trade.rebate_recipe_unavailable';
   if (row.minFee !== null) return 'trade.min_fee_recipe_unavailable';
   return undefined;
 }
@@ -421,6 +444,7 @@ export function publicFeeSchedule(
               makerBps: schedule.makerBps,
               takerBps: schedule.takerBps,
               makerRebateBps: schedule.makerRebateBps,
+              ...(schedule.makerRebateBps !== null && schedule.makerRebateBps > 0 ? { refusal: 'trade.rebate_recipe_unavailable' as const } : {}),
             },
           ],
         },

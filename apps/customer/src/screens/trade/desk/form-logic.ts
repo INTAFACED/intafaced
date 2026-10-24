@@ -66,6 +66,12 @@ export function feeRate(preview: Pick<Preview, 'feeBps'> | null): string | null 
   return preview && preview.feeBps !== null ? bpsToRatio(preview.feeBps) : null;
 }
 
+/** The maker rebate rate (a ratio) a resting order earns, from the preview; null when it earns none or it is not known. */
+export function rebateRate(preview: Pick<Preview, 'feeRole' | 'makerRebateBps'> | null): string | null {
+  if (!preview || preview.feeRole !== 'maker' || !preview.makerRebateBps) return null;
+  return bpsToRatio(preview.makerRebateBps);
+}
+
 /** The fee line of each exit leg the service priced (take-profit as maker, stop-loss as taker); empty for a plain order. */
 export function exitFeeLines(
   preview: Pick<Preview, 'exitFees'>,

@@ -1277,6 +1277,7 @@ export class TradeService {
     feeAsset: string;
     feeAmount: bigint;
     feeBps: number;
+    rebate?: { readonly bps: number; readonly amount: bigint; readonly asset: string } | null;
     sequence: number;
     attribution: AuthAttribution;
   }): Promise<void> {
@@ -1352,7 +1353,7 @@ export class TradeService {
     kind: 'spot' | 'futures' | 'options' = 'spot',
     symbol?: string,
     placedAt: { readonly maker: Date; readonly taker: Date } = { maker: this.now(), taker: this.now() },
-  ): Promise<{ makerFeeBps: number; takerFeeBps: number }> {
+  ): Promise<{ makerFeeBps: number; takerFeeBps: number; makerRebateBps: number }> {
     return holds.ratesForFill(this.internal, makerDiscountBps, takerDiscountBps, kind, symbol, placedAt);
   }
 

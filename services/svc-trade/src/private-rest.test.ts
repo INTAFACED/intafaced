@@ -217,6 +217,18 @@ describe('toCcxtOrderStatus / presentCcxtOrder / presentCcxtMyTrade / fees', () 
     expect(typeof wire.cost).toBe('string');
   });
 
+  it('presents a maker rebate as its own rebate field, never as a negative fee, and none when the leg earned none', () => {
+    const fill = {
+      ...fakeFill({ liquidity: 'maker', feeAmount: 0n, feeBps: 0 }),
+      rebate: { bps: 5, amount: parseAmount('0.001'), asset: 'BTC' },
+    };
+    const wire = presentCcxtMyTrade(fill, 'BTC/USDT');
+    expect(tradeSchema.safeParse(wire).success).toBe(true);
+    expect(wire.fee).toEqual({ cost: '0', currency: fill.feeAsset, rate: '0' });
+    expect(wire).toMatchObject({ rebate: { cost: '0.001', currency: 'BTC', rate: '0.0005' } });
+    expect(presentCcxtMyTrade({ ...fakeFill({}), rebate: null }, 'BTC/USDT')).not.toHaveProperty('rebate');
+  });
+
   it('presents TradingFee from market maker/taker bps (decimal rates, percentage true)', () => {
     const m = fakeMarket({ symbol: 'BTC/USDT', makerBps: 10, takerBps: 20 });
     const wire = presentCcxtTradingFee(m);

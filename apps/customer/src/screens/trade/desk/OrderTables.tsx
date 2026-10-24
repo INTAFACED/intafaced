@@ -8,7 +8,7 @@ import { deskCopy } from './copy';
 import { useDeskApi } from './data';
 import { Button, fmtAmount, fmtPct, fmtPrice, refusalCopy, Skeleton, StateBlock, StatusTag, type Loadable } from './deps';
 import type { DeskMarket } from './market';
-import { fillFeeRate, fillRole } from './fill-detail';
+import { fillFeeRate, fillRebate, fillRole, fillZeroFee } from './fill-detail';
 import { groupFillsByOrder } from './fill-groups';
 import { parseAmount } from '../../../shared/money';
 import { dayTime } from './time';
@@ -453,9 +453,21 @@ export function FillsTable({
           {fmtAmount(fill.cost, { places: quotePlaces(quote), fixed: true })} <span className="dk-unit">{quote}</span>
         </td>
         {activity ? null : <td>{roleWord(fillRole(fill), t)}</td>}
-        <td className="dk-num if-num">
-          {fill.fee ? `${fmtAmount(fill.fee.cost, { places: 8 })} ${fill.fee.currency}` : '—'}
-          {!activity && fillFeeRate(fill) ? <span className="dk-unit"> {fmtPct(fillFeeRate(fill)!, { signed: false })}</span> : null}
+        <td className="dk-num if-num" data-fee={fillZeroFee(fill) ? 'zero' : undefined}>
+          {fillZeroFee(fill) ? t('Zero fee') : fill.fee ? `${fmtAmount(fill.fee.cost, { places: 8 })} ${fill.fee.currency}` : '—'}
+          {!activity && !fillZeroFee(fill) && fillFeeRate(fill) ? (
+            <span className="dk-unit"> {fmtPct(fillFeeRate(fill)!, { signed: false })}</span>
+          ) : null}
+          {fillRebate(fill) ? (
+            <span className="dk-rebate" data-rebate={fillRebate(fill)!.cost}>
+              {' '}
+              {t('Rebate {amount} {asset}', {
+                amount: fmtAmount(fillRebate(fill)!.cost, { places: 8 }),
+                asset: fillRebate(fill)!.currency,
+              })}
+              {activity ? null : <span className="dk-unit"> {fmtPct(fillRebate(fill)!.rate, { signed: false })}</span>}
+            </span>
+          ) : null}
         </td>
       </tr>
     );
@@ -513,7 +525,18 @@ export function FillsTable({
                   <td className="dk-num if-num">
                     {fmtAmount(group.cost, { places: quotePlaces(quote), fixed: true })} <span className="dk-unit">{quote}</span>
                   </td>
-                  <td className="dk-num if-num">{group.fee ? `${fmtAmount(group.fee.cost, { places: 8 })} ${group.fee.currency}` : '—'}</td>
+                  <td className="dk-num if-num">
+                    {group.fee ? `${fmtAmount(group.fee.cost, { places: 8 })} ${group.fee.currency}` : '—'}
+                    {group.rebate ? (
+                      <span className="dk-rebate">
+                        {' '}
+                        {t('Rebate {amount} {asset}', {
+                          amount: fmtAmount(group.rebate.cost, { places: 8 }),
+                          asset: group.rebate.currency,
+                        })}
+                      </span>
+                    ) : null}
+                  </td>
                 </tr>
               );
               return [head, ...group.fills.map((fill) => fillRow(fill, group.order, null))];
