@@ -14,6 +14,10 @@
       "types": "./dist/identity.d.ts",
       "default": "./dist/identity.js"
     },
+    "./pay-custody-deposit": {
+      "types": "./dist/pay-custody-deposit.d.ts",
+      "default": "./dist/pay-custody-deposit.js"
+    },
     "./account-controls": {
       "types": "./dist/account-controls.d.ts",
       "default": "./dist/account-controls.js"
@@ -45,6 +49,10 @@
     "./ops-console-mode": {
       "types": "./dist/ops-console-mode.d.ts",
       "default": "./dist/ops-console-mode.js"
+    },
+    "./identity-recovery": {
+      "types": "./dist/identity-recovery.d.ts",
+      "default": "./dist/identity-recovery.js"
     },
     "./ops-staff-holds": {
       "types": "./dist/ops-staff-holds.d.ts",

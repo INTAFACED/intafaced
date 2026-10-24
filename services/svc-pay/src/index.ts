@@ -37,6 +37,7 @@ import { createAllowlistRouter } from './withdrawals/allowlist/router.js';
 import { WithdrawalQuoteService } from './withdrawals/quotes/service.js';
 import { loadMessageCipher } from './travel-rule/cipher.js';
 import { createTravelRuleCustomerRouter } from './travel-rule/customer-router.js';
+import { createDepositTravelRuleCustomerRouter } from './custody/deposits/travel-rule.js';
 import { TravelRuleService } from './travel-rule/service.js';
 import { purchaseHoldSource } from './withdrawals/purchase-holds/source.js';
 import { createWithdrawalHistory } from './withdrawals/history.js';
@@ -136,6 +137,9 @@ import { readProductImageRule } from './catalog/image-rules.js';
 import { readCheckoutLogoRule } from './checkout-branding/logo-rules.js';
 import { registerMerchantEmailInviteRoutes } from './merchant-ops/team-email-claim-routes.js';
 import { claimEmailTeamInvites } from './merchant-ops/team-email-claim.js';
+import { REFERENCE_RAIL_ROUTING_PROFILES } from './routing/decide.js';
+import { parseCheckoutSuccessRates, withSuccessRates } from './routing/success-rates-env.js';
+import { feedSandboxChain } from './rails/sandbox-chain-feed.js';
 
 // §9 — register the TracerProvider before the first span is created.
 // `@opentelemetry/api` alone is a no-op: without this call every span in
@@ -273,6 +277,16 @@ for (const { railId } of env.PAY_CHECKOUT_RAILS) {
   }
 }
 
+/** The checkout rails' eligibility with the owner's declared success fractions (blank: none, checkout refuses). */
+const checkoutSuccessRates = parseCheckoutSuccessRates(env.PAY_CHECKOUT_SUCCESS_RATES, REFERENCE_RAIL_ROUTING_PROFILES);
+// Rates that name no checkout rail are a typo, not the owner's choice to keep checkout off (that is a blank value).
+if (Object.keys(checkoutSuccessRates).length > 0 && !env.PAY_CHECKOUT_RAILS.some(({ railId }) => railId in checkoutSuccessRates)) {
+  throw new Error(
+    `PAY_CHECKOUT_SUCCESS_RATES names ${Object.keys(checkoutSuccessRates).join(', ')}, none of which is in PAY_CHECKOUT_RAILS (${env.PAY_CHECKOUT_RAILS.map((r) => r.railId).join(', ')})`,
+  );
+}
+const checkoutRoutingProfiles = withSuccessRates(REFERENCE_RAIL_ROUTING_PROFILES, checkoutSuccessRates);
+
 /**
  * Outbound merchant webhooks (pay.public-api step 3 / ADR §2.4).
  * Durable journal — Memory alone is not multi-replica safe.
@@ -396,6 +410,7 @@ const pay = new PayService(sql, ledger, rails, {
   publicCheckoutMovement: railPosture.publicCheckoutPolicy,
   checkoutRails: env.PAY_CHECKOUT_RAILS,
   checkoutRiskBand: env.PAY_CHECKOUT_RISK_BAND,
+  routingProfiles: checkoutRoutingProfiles,
   checkoutSessionTtlSeconds: env.PAY_CHECKOUT_SESSION_TTL_SECONDS,
   linkDefaultTtlDays: env.PAY_LINK_DEFAULT_TTL_DAYS,
   linkMaxTtlDays: env.PAY_LINK_MAX_TTL_DAYS,
@@ -631,6 +646,8 @@ export const appRouter = mergeRouters(
   createAllowlistRouter(allowlist),
   // W-compliance-notices-04: the customer's own travel-rule status on a withdrawal.
   createTravelRuleCustomerRouter(new TravelRuleService({ sql, cipher: travelRuleCipher })),
+  // W-deposit-07: the customer's declaration on a large deposit held under the inbound travel rule.
+  createDepositTravelRuleCustomerRouter({ sql, book: custodyDepositBook, cipher: travelRuleCipher }),
   // W-compliance-notices-02: the compliance desk over screened sends. No supplier is connected, so a rescreen answers unavailable.
   createScreeningRouter(
     new ScreeningDeskService({ sql, approvals: actionApprovals, releaseTtlSeconds: loadScreeningReleaseTtl(process.env) }),
@@ -678,6 +695,7 @@ export const appRouter = mergeRouters(
     receiptPlaces: createReceiptAssetPlaces(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, s2sKey),
     depositSettings: { sql, approvals: actionApprovals },
     depositFreezes: { sql, approvals: actionApprovals, book: custodyDepositBook },
+    depositTravelRule: { sql, book: custodyDepositBook, cipher: travelRuleCipher },
     categoryPolicy: { sql, approvals: actionApprovals },
     catalog: { sql, imageRule: readProductImageRule(process.env) },
     checkoutBranding: { sql, logoRule: readCheckoutLogoRule(process.env) },
@@ -1076,10 +1094,10 @@ await app.register(async (webhookScope) => {
     }
 
     try {
-      const outcome = await pay.handleWebhook(request.params.railId, {
-        headers,
-        body: typeof request.body === 'string' ? request.body : '',
-      });
+      const delivery = { headers, body: typeof request.body === 'string' ? request.body : '' };
+      // Dev/test in-memory chain only: a verified transfer is recorded on it before the delivery is applied.
+      if (request.params.railId === cryptoRail.id) await feedSandboxChain(chain, cryptoRail.verifyWebhook(delivery));
+      const outcome = await pay.handleWebhook(request.params.railId, delivery);
       // A duplicate is a 200. A rail that gets anything else will keep retrying
       // a delivery we have already handled, forever.
       return reply.code(200).send({ received: true, duplicate: outcome.duplicate });
@@ -1201,6 +1219,18 @@ const announceOwedCredits = () =>
 void announceOwedCredits();
 const creditAnnouncements = setInterval(() => void announceOwedCredits(), 60_000);
 creditAnnouncements.unref();
+// W-deposit-07: a counterparty wait on a deposit held for the travel rule that ran out is recorded, with or without the chain
+// watcher. The deposit stays held: a timer never releases it.
+const travelRuleWaits = setInterval(
+  () =>
+    void custodyDepositBook
+      .expireTravelRuleWaits()
+      .catch((err: unknown) =>
+        app.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'deposit travel-rule waits not checked'),
+      ),
+  30_000,
+);
+travelRuleWaits.unref();
 
 /**
  * The posture goes in the log on every start. In dev, where `assertRailPosture`
@@ -1239,6 +1269,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       clearInterval(lateFillSweep);
       clearInterval(holdSweep);
       clearInterval(creditAnnouncements);
+      clearInterval(travelRuleWaits);
       payoutReconciler?.stop();
       // No new metrics pass may start against a pool that is closing; an in-flight one rolls back and its marks stay.
       metricsRefresher.stop();

@@ -51,7 +51,8 @@ export interface MoneyView {
   source: 'server' | 'derived';
   asOf: number;
   /** The total in BTC when the bank was asked for it; null when it was not, or when it has no BTC price (`reason`). */
-  btc: { total: Decimal | null; reason: string | null } | null;
+  /** The BTC total and the BTC price the bank used for it; `priceUsd` also converts every other value on screen. */
+  btc: { total: Decimal | null; priceUsd: Decimal | null; reason: string | null } | null;
 }
 
 /** Which accounts a total covers: `combined` (default), `main`, or the id of one named account. */
@@ -152,7 +153,7 @@ export function fromServer(summary: ServerSummary): MoneyView {
     windowStart: summary.windowStart,
     source: 'server',
     asOf: summary.asOf,
-    btc: summary.btc ? { total: summary.btc.total, reason: summary.btc.reason } : null,
+    btc: summary.btc ? { total: summary.btc.total, priceUsd: summary.btc.priceUsd, reason: summary.btc.reason } : null,
   };
 }
 
@@ -221,6 +222,46 @@ function serverSource(env: DataEnv, scope: MoneyScope, unit: MoneyUnit): Source<
   return env.poller.source(`${SERVER_SUMMARY_KEY}:${env.userId}${variant}`, summaryFetcher(env, scope, unit), {
     intervalMs: SUMMARY_INTERVAL,
   });
+}
+
+/** The unit the bank is asked for: BTC when chosen, else USD (a currency with no rate is shown in USD). */
+export function moneyUnitOf(displayCurrency: string): MoneyUnit {
+  return displayCurrency === 'BTC' ? 'BTC' : 'USD';
+}
+
+/** Long enough that the probe is read about once per visit: the answer is an owner setting, not a moving figure. */
+const RATE_PROBE_INTERVAL = 3_600_000;
+
+/**
+ * A display currency the screen has no rate for (anything but USD and BTC) is asked of the bank, which owns the rule.
+ * `no_rate`: the bank refused it by name (`bank.fx_rate_unset`); `unchecked`: the bank could not be asked or answered
+ * something else, so the screen cannot say which; either way every value stays in USD and the screen says so.
+ */
+export type DisplayRate = { state: 'usd_or_btc' } | { state: 'pending' } | { state: 'no_rate'; code: string } | { state: 'unchecked' };
+
+export const FX_RATE_UNSET = 'bank.fx_rate_unset';
+
+export function useDisplayRate(code: string): DisplayRate {
+  const env = useDataEnv();
+  const ask = code !== 'USD' && code !== 'BTC';
+  const snap = useSource(
+    useMemo(
+      () =>
+        ask && env.userId
+          ? env.poller.source(
+              `${SERVER_SUMMARY_KEY}:${env.userId}:unit:${code}`,
+              async (signal): Promise<Outcome<ServerSummary>> =>
+                env.api.query('bank', 'portfolio.summary', { displayCurrency: code }, summarySchema, { signal }),
+              { intervalMs: RATE_PROBE_INTERVAL },
+            )
+          : constantSource<ServerSummary>({ status: 'refused', code: 'auth.required' }),
+      [env, ask, code],
+    ),
+  );
+  if (!ask) return { state: 'usd_or_btc' };
+  if (snap.status === 'loading') return { state: 'pending' };
+  if (snap.status === 'refused' && snap.code === FX_RATE_UNSET) return { state: 'no_rate', code: snap.code };
+  return { state: 'unchecked' };
 }
 
 function mapLoadable<A>(snap: Loadable<A>, map: (value: A) => MoneyView): Loadable<MoneyView> {

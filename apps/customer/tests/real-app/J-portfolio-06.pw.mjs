@@ -32,6 +32,11 @@ async function bank(who) {
   const token = login?.result?.data?.accessToken;
   if (!token) throw new Error(`sign-in for ${who.email} refused`);
   return {
+    /** The raw answer, refusals included. */
+    raw: (procedure, input) =>
+      fetch(`${EDGE}/api/bank/trpc/${procedure}${input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`}`, {
+        headers: { origin: ORIGIN, authorization: `Bearer ${token}` },
+      }).then(async (res) => ({ status: res.status, body: await res.json().catch(() => null) })),
     query: async (procedure, input) => {
       const res = await fetch(
         `${EDGE}/api/bank/trpc/${procedure}${input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`}`,
@@ -174,4 +179,182 @@ test(`${J} #2 holds a coin with no class: it shows as unclassified, named, and s
         : `${names} have no class in our asset list yet. They still count in your total.`,
     ),
   ).toBeVisible();
+});
+
+test(`${J} #3 reads holdings change over a period: each coin then and now, what rose and fell, valued at both ends`, async ({ page }) => {
+  const who = account();
+  const me = await bank(who);
+  // What is held now across the main account and the space, from the ledger: the end of any range that runs to now.
+  const main = await (await api(who)).balances();
+  const now = { BTC: toUnits(main.BTC?.total ?? '0'), USDT: toUnits(main.USDT.total) + toUnits(MOVED) };
+
+  await signIn(page, who);
+  await page.goto('/money');
+  const card = page.getByRole('region', { name: 'What you hold, then and now' });
+  await card.getByRole('group', { name: 'Compare with' }).getByRole('button', { name: '7 days ago', exact: true }).click();
+  await expect(card.getByRole('button', { name: '7 days ago', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  for (const asset of ['BTC', 'USDT']) {
+    const row = card.locator(`tr[data-change-asset="${asset}"]`);
+    // The account did not exist 7 days ago: nothing held then, so everything held now is what rose.
+    await expect(row).toHaveAttribute('data-start', '0');
+    expect(toUnits(await row.getAttribute('data-end'))).toBe(now[asset]);
+    expect(toUnits(await row.getAttribute('data-change'))).toBe(now[asset]);
+    await expect(row.locator('td').nth(0)).toHaveText('No holding yet');
+    await expect(row.locator('td').nth(2)).toHaveText(new RegExp(`^\\+[\\d,.]+ ${asset}$`));
+  }
+
+  // The bank's own answer for the same range adds up row by row, and values each end at its price there.
+  const answer = await me.query('portfolio.holdingsChange', { from: new Date(Date.now() - 7 * 86_400_000).toISOString() });
+  for (const row of answer.rows) {
+    expect(toUnits(row.endAmount) - toUnits(row.startAmount)).toBe(toUnits(row.change));
+    if (row.endPriceUsd === null) continue;
+    // amount x price, rounded once at 18 places.
+    const exact = toUnits(row.endAmount) * toUnits(row.endPriceUsd);
+    const diff = toUnits(row.endValueUsd) * 10n ** 18n - exact;
+    expect(diff >= -(10n ** 18n) && diff <= 10n ** 18n).toBe(true);
+  }
+  expect(answer.rows.find((r) => r.assetId === 'USDT')).toMatchObject({ endPriceUsd: '1', endValueUsd: fromUnits(now.USDT) });
+});
+
+/** Picks the display currency on the View settings page, as the person would. */
+async function displayIn(page, code) {
+  await page.goto('/view');
+  await page.getByLabel('Display currency').selectOption(code);
+  await expect(page.getByLabel('Display currency')).toHaveValue(code);
+}
+
+/** The bank's summary each time the Money screen reads it, newest last. */
+function watchSummaries(page) {
+  const seen = [];
+  page.on('response', async (res) => {
+    if (!res.url().includes('/api/bank/trpc/portfolio.summary') || res.status() !== 200) return;
+    const body = await res.json().catch(() => null);
+    const input = new URL(res.url()).searchParams.get('input');
+    if (body?.result?.data) seen.push({ input: input ? JSON.parse(input) : {}, data: body.result.data });
+  });
+  return seen;
+}
+
+/** Whole satoshis as "₿0.00000000". */
+const sat8 = (sats) => `₿${sats / 10n ** 8n}.${(sats % 10n ** 8n).toString().padStart(8, '0')}`;
+
+/** A USD value in BTC at the bank's BTC price: one half-up rounding to 8 places (the bank's own rule). */
+function btcOf(usd, price) {
+  const p = toUnits(price);
+  return sat8((toUnits(usd) * 10n ** 8n * 2n + p) / (p * 2n));
+}
+
+test(`${J} #4 sets the display currency to BTC: every value is the USD value over the BTC price, in BTC; a currency with no rate is refused by name and keeps USD`, async ({
+  page,
+}) => {
+  const who = account();
+  await signIn(page, who);
+  await displayIn(page, 'BTC');
+  const seen = watchSummaries(page);
+  await page.goto('/money');
+  await expect(page.locator('.if-money')).toHaveAttribute('data-unit', 'BTC');
+
+  // What the screen shows, against the bank's own answer it was drawn from (the newest BTC summary it read).
+  await expect
+    .poll(
+      async () => {
+        const answer = [...seen].reverse().find((s) => s.input.displayCurrency === 'BTC')?.data;
+        if (!answer?.btc?.total || !answer.btc.priceUsd) return 'no BTC summary read yet';
+        const shown = await page.locator('.if-money').evaluate((root) => ({
+          total: root.querySelector('.money-total [role="img"]')?.getAttribute('aria-label') ?? null,
+          cash: root.querySelector('#cash .money-card__total')?.textContent?.trim() ?? null,
+          crypto: root.querySelector('#crypto .money-card__total')?.textContent?.trim() ?? null,
+          rows: Object.fromEntries(
+            [...root.querySelectorAll('tr.money-row')].map((tr) => [
+              tr.getAttribute('data-asset'),
+              tr.querySelector('[data-col="value"]')?.textContent?.trim() ?? null,
+            ]),
+          ),
+        }));
+        const price = answer.btc.priceUsd;
+        const want = {
+          total: sat8(toUnits(answer.btc.total) / 10n ** 10n),
+          cash: btcOf(answer.cashUsd, price),
+          crypto: btcOf(answer.cryptoUsd, price),
+          rows: Object.fromEntries(answer.priced.map((row) => [row.asset, btcOf(row.valueUsd, price)])),
+        };
+        return JSON.stringify(shown) === JSON.stringify(want) ? 'match' : JSON.stringify({ shown, want });
+      },
+      { timeout: 45_000 },
+    )
+    .toBe('match');
+
+  // EUR has no rate: the bank refuses it by name, the screen says so and every value stays in USD.
+  await displayIn(page, 'EUR');
+  await page.goto('/money');
+  const note = page.locator('[data-refusal="bank.fx_rate_unset"]');
+  await expect(note).toHaveText(/No exchange rate is set for EUR, so your values are shown in USD\./);
+  await expect(page.locator('.if-money')).toHaveAttribute('data-unit', 'USD');
+  await expect(page.locator('#cash .money-card__total')).toHaveText(/^\$/);
+  const refusal = await (await bank(who)).raw('portfolio.summary', { displayCurrency: 'EUR' });
+  expect(refusal.status).toBe(412);
+  expect(JSON.stringify(refusal.body)).toContain('bank.fx_rate_unset');
+
+  await displayIn(page, 'USD');
+});
+
+test(`${J} #5 chooses one account or all combined: the totals follow, and named accounts are listed only when one holds something`, async ({
+  page,
+}) => {
+  const who = account();
+  const { spaceId } = run.read();
+  const me = await bank(who);
+  // The bank's totals for main, the space and all combined add up, read until one price book serves all three.
+  await expect
+    .poll(
+      async () => {
+        const [all, main, space] = await Promise.all([
+          me.query('portfolio.summary'),
+          me.query('portfolio.summary', { scope: 'main' }),
+          me.query('portfolio.summary', { scope: spaceId }),
+        ]);
+        return toUnits(main.totalUsd) + toUnits(space.totalUsd) === toUnits(all.totalUsd) && fromUnits(toUnits(space.totalUsd));
+      },
+      { timeout: 30_000 },
+    )
+    .toBe(MOVED);
+
+  await signIn(page, who);
+  await page.goto('/money');
+  // All accounts: the named account that holds something is listed.
+  await expect(page.locator('#accounts').getByText(SPACE)).toBeVisible();
+  const scope = page.getByLabel('Accounts shown');
+  await scope.selectOption(spaceId);
+  await expect(page.locator('.money-total [role="img"]')).toHaveAttribute('aria-label', '$100.00');
+  await expect(page.locator('tr.money-row[data-asset="BTC"]')).toHaveCount(0);
+  await scope.selectOption('main');
+  await expect(page.locator('tr.money-row[data-asset="BTC"]')).toHaveCount(1);
+  await scope.selectOption('combined');
+  await expect(page.locator('tr.money-row[data-asset="USDT"]')).toHaveCount(1);
+});
+
+test(`${J} #6 reads cash by currency and presses Convert: each currency's balance, and Convert opens the convert page with that currency`, async ({
+  page,
+}) => {
+  const who = account();
+  const me = await bank(who);
+  const summary = await me.query('portfolio.summary');
+  const cash = summary.priced.filter((row) => ['USDT', 'USDC', 'USD'].includes(row.asset));
+  expect(cash.map((row) => row.asset)).toContain('USDT');
+
+  await signIn(page, who);
+  await page.goto('/money');
+  const card = page.locator('#cash');
+  // Each currency's balance as shown: the bank's amount, rounded down to the places on screen.
+  for (const row of cash) {
+    const text = await card.locator(`tr.money-row[data-asset="${row.asset}"] .money-num__entries`).innerText();
+    const shown = new RegExp(`([\\d,]+(?:\\.\\d+)?) ${row.asset}`).exec(text);
+    expect(shown, `${row.asset} amount on screen: ${text}`).toBeTruthy();
+    const places = shown[1].split('.')[1]?.length ?? 0;
+    const step = 10n ** BigInt(18 - places);
+    expect(toUnits(shown[1].replaceAll(',', ''))).toBe((toUnits(row.amount) / step) * step);
+  }
+  await card.locator('tr.money-row[data-asset="USDT"]').getByRole('button', { name: 'Convert USDT' }).click();
+  await expect(page).toHaveURL(/\/trade\/convert\?from=USDT/);
+  await expect(page.getByTestId('from-field').getByRole('button', { name: 'Change the From asset' })).toContainText('USDT');
 });

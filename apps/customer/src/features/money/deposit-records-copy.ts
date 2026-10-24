@@ -46,6 +46,46 @@ const en = {
     'Sent to one of your deposit addresses after it expired. The funds are safe and wait for support to release them to you.',
   reason_address_frozen:
     'This deposit address is on hold for a compliance review, so the deposit is held and not credited. It stays recorded here; when the review ends, it is checked again like any deposit, and never credited twice.',
+  status_held_travel_rule: 'Held: travel rule',
+  reason_travel_rule_unset:
+    'Waiting: the travel-rule check for this coin has no settings, so the deposit is not credited. It is checked again regularly and credited when the check is set.',
+  reason_travel_rule_declaration:
+    'Deposits this large need a short declaration about where they came from before they are credited. Fill it in below.',
+  reason_travel_rule_review: 'We have your declaration and compliance is reviewing it. The deposit is credited once when the review ends.',
+  reason_travel_rule_counterparty:
+    'Compliance is waiting for the sending platform to confirm the transfer. The deposit stays held until a person reviews it.',
+  reason_travel_rule_expired:
+    'The sending platform did not answer in time. The deposit stays held: it is never released by a timer, and compliance reviews it.',
+  trTitle: 'Travel-rule declaration',
+  trLead: 'This deposit of {amount} {asset} is at or above the {threshold} {asset} limit, so the rules ask where it came from.',
+  trLoading: 'Loading the declaration…',
+  trLoadFailed: 'We could not load the declaration for this deposit.',
+  trWalletType: 'Sent from',
+  trWallet_exchange: 'An exchange or other crypto platform',
+  trWallet_self_hosted: 'My own wallet (I hold its keys)',
+  trSubmit: 'Send declaration',
+  trSending: 'Sending…',
+  trDeclared: 'Declared. Compliance is reviewing it; the deposit is credited once when the review ends.',
+  trWaiting: 'Compliance is waiting for the sending platform until',
+  trWaitingNote: 'Nothing is released when that time passes.',
+  trExpired: 'The wait for the sending platform has ended. The deposit stays held until compliance reviews it.',
+  trReleased: 'Released by compliance. The deposit is credited once.',
+  trMissing: 'Fill in every field before sending.',
+  trRefused_fields_missing: 'Some of the asked details are missing.',
+  trRefused_cipher_unwired: 'Declarations cannot be stored right now because the secure store isn’t connected. Nothing was saved.',
+  trRefused_deposit_state_refused: 'This deposit no longer takes a declaration.',
+  trRefused_other: 'We could not send the declaration: {message}',
+  field_originator_name: 'Sender’s full name',
+  field_originator_address: 'Sender’s address',
+  field_originator_date_of_birth: 'Sender’s date of birth',
+  field_originator_national_identifier: 'Sender’s national ID number',
+  field_beneficiary_name: 'Receiver’s full name',
+  field_beneficiary_address: 'Receiver’s address',
+  field_beneficiary_account: 'Receiver’s account or wallet',
+  field_beneficiary_institution: 'Receiver’s institution',
+  field_beneficiary_wallet_type: 'Receiving wallet type',
+  field_transfer_purpose: 'Purpose of the transfer',
+  field_self_or_third_party: 'Your own funds, or someone else’s?',
 } as const;
 
 const es = {
@@ -93,6 +133,47 @@ const es = {
     'Se envió a una de tus direcciones de depósito después de que caducara. Los fondos están a salvo y esperan a que soporte te los libere.',
   reason_address_frozen:
     'Esta dirección de depósito está en espera por una revisión de cumplimiento, así que el depósito queda retenido y no se acredita. Queda registrado aquí; al terminar la revisión se comprueba de nuevo como cualquier depósito, y nunca se acredita dos veces.',
+  status_held_travel_rule: 'Retenido: regla de viaje',
+  reason_travel_rule_unset:
+    'En espera: la comprobación de la regla de viaje para esta moneda no tiene ajustes, así que el depósito no se acredita. Se comprueba de nuevo con regularidad y se acredita cuando la comprobación esté fijada.',
+  reason_travel_rule_declaration:
+    'Los depósitos de este tamaño necesitan una breve declaración sobre su origen antes de acreditarse. Rellénala abajo.',
+  reason_travel_rule_review:
+    'Tenemos tu declaración y cumplimiento la está revisando. El depósito se acredita una vez al terminar la revisión.',
+  reason_travel_rule_counterparty:
+    'Cumplimiento espera que la plataforma de origen confirme la transferencia. El depósito sigue retenido hasta que una persona lo revise.',
+  reason_travel_rule_expired:
+    'La plataforma de origen no respondió a tiempo. El depósito sigue retenido: nunca se libera por un temporizador y cumplimiento lo revisa.',
+  trTitle: 'Declaración de la regla de viaje',
+  trLead: 'Este depósito de {amount} {asset} alcanza o supera el límite de {threshold} {asset}, así que las normas piden su origen.',
+  trLoading: 'Cargando la declaración…',
+  trLoadFailed: 'No pudimos cargar la declaración de este depósito.',
+  trWalletType: 'Enviado desde',
+  trWallet_exchange: 'Un exchange u otra plataforma cripto',
+  trWallet_self_hosted: 'Mi propio monedero (tengo sus claves)',
+  trSubmit: 'Enviar declaración',
+  trSending: 'Enviando…',
+  trDeclared: 'Declarado. Cumplimiento lo está revisando; el depósito se acredita una vez al terminar la revisión.',
+  trWaiting: 'Cumplimiento espera a la plataforma de origen hasta el',
+  trWaitingNote: 'Nada se libera cuando pasa ese plazo.',
+  trExpired: 'La espera a la plataforma de origen terminó. El depósito sigue retenido hasta que cumplimiento lo revise.',
+  trReleased: 'Liberado por cumplimiento. El depósito se acredita una vez.',
+  trMissing: 'Rellena todos los campos antes de enviar.',
+  trRefused_fields_missing: 'Faltan algunos de los datos pedidos.',
+  trRefused_cipher_unwired: 'Ahora no se pueden guardar declaraciones porque el almacén seguro no está conectado. No se guardó nada.',
+  trRefused_deposit_state_refused: 'Este depósito ya no admite una declaración.',
+  trRefused_other: 'No pudimos enviar la declaración: {message}',
+  field_originator_name: 'Nombre completo del remitente',
+  field_originator_address: 'Dirección del remitente',
+  field_originator_date_of_birth: 'Fecha de nacimiento del remitente',
+  field_originator_national_identifier: 'Número de identidad del remitente',
+  field_beneficiary_name: 'Nombre completo del destinatario',
+  field_beneficiary_address: 'Dirección del destinatario',
+  field_beneficiary_account: 'Cuenta o monedero del destinatario',
+  field_beneficiary_institution: 'Institución del destinatario',
+  field_beneficiary_wallet_type: 'Tipo de monedero de destino',
+  field_transfer_purpose: 'Motivo de la transferencia',
+  field_self_or_third_party: '¿Fondos propios o de otra persona?',
 } satisfies Record<keyof typeof en, string>;
 
 const fr = {
@@ -141,6 +222,47 @@ const fr = {
     'Envoyé à l’une de vos adresses de dépôt après son expiration. Les fonds sont en sécurité et attendent que le support vous les libère.',
   reason_address_frozen:
     'Cette adresse de dépôt est en attente d’un contrôle de conformité, le dépôt est donc retenu et non crédité. Il reste enregistré ici ; à la fin du contrôle, il est vérifié à nouveau comme tout dépôt, et jamais crédité deux fois.',
+  status_held_travel_rule: 'Retenu : règle de voyage',
+  reason_travel_rule_unset:
+    'En attente : le contrôle de la règle de voyage pour cette crypto n’a pas de réglages, le dépôt n’est donc pas crédité. Il est vérifié à nouveau régulièrement et crédité quand le contrôle est fixé.',
+  reason_travel_rule_declaration:
+    'Les dépôts de ce montant demandent une courte déclaration sur leur origine avant d’être crédités. Remplissez-la ci-dessous.',
+  reason_travel_rule_review: 'Nous avons votre déclaration et la conformité l’examine. Le dépôt est crédité une fois à la fin de l’examen.',
+  reason_travel_rule_counterparty:
+    'La conformité attend que la plateforme d’origine confirme le transfert. Le dépôt reste retenu jusqu’à l’examen par une personne.',
+  reason_travel_rule_expired:
+    'La plateforme d’origine n’a pas répondu à temps. Le dépôt reste retenu : il n’est jamais libéré par une minuterie, la conformité l’examine.',
+  trTitle: 'Déclaration de la règle de voyage',
+  trLead: 'Ce dépôt de {amount} {asset} atteint ou dépasse la limite de {threshold} {asset}, les règles demandent donc son origine.',
+  trLoading: 'Chargement de la déclaration…',
+  trLoadFailed: 'Nous n’avons pas pu charger la déclaration de ce dépôt.',
+  trWalletType: 'Envoyé depuis',
+  trWallet_exchange: 'Une plateforme d’échange ou autre plateforme crypto',
+  trWallet_self_hosted: 'Mon propre portefeuille (j’en détiens les clés)',
+  trSubmit: 'Envoyer la déclaration',
+  trSending: 'Envoi…',
+  trDeclared: 'Déclaré. La conformité l’examine ; le dépôt est crédité une fois à la fin de l’examen.',
+  trWaiting: 'La conformité attend la plateforme d’origine jusqu’au',
+  trWaitingNote: 'Rien n’est libéré à l’échéance.',
+  trExpired: 'L’attente de la plateforme d’origine est terminée. Le dépôt reste retenu jusqu’à l’examen de la conformité.',
+  trReleased: 'Libéré par la conformité. Le dépôt est crédité une fois.',
+  trMissing: 'Remplissez tous les champs avant d’envoyer.',
+  trRefused_fields_missing: 'Certaines informations demandées manquent.',
+  trRefused_cipher_unwired:
+    'Les déclarations ne peuvent pas être enregistrées pour l’instant car le stockage sécurisé n’est pas connecté. Rien n’a été enregistré.',
+  trRefused_deposit_state_refused: 'Ce dépôt n’accepte plus de déclaration.',
+  trRefused_other: 'Nous n’avons pas pu envoyer la déclaration : {message}',
+  field_originator_name: 'Nom complet de l’expéditeur',
+  field_originator_address: 'Adresse de l’expéditeur',
+  field_originator_date_of_birth: 'Date de naissance de l’expéditeur',
+  field_originator_national_identifier: 'Numéro d’identité de l’expéditeur',
+  field_beneficiary_name: 'Nom complet du destinataire',
+  field_beneficiary_address: 'Adresse du destinataire',
+  field_beneficiary_account: 'Compte ou portefeuille du destinataire',
+  field_beneficiary_institution: 'Établissement du destinataire',
+  field_beneficiary_wallet_type: 'Type de portefeuille de réception',
+  field_transfer_purpose: 'Motif du transfert',
+  field_self_or_third_party: 'Vos fonds, ou ceux de quelqu’un d’autre ?',
 } satisfies Record<keyof typeof en, string>;
 
 export const depositRecordsCopy = defineCopy('customer.bank.deposit.records', en, { es, fr });

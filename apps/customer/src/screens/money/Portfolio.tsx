@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useContext, useEffect, useMemo, useState } from 'react';
 import { ChevronDown, Eye, EyeOff } from 'lucide-react';
 import { AllocationBar } from './allocation-chart';
 import { assetName, moneyCopy } from './copy';
@@ -42,6 +42,9 @@ import {
   SUMMARY_INTERVAL,
   useAssetBalances,
   useLockSplits,
+  moneyUnitOf,
+  useDisplayRate,
+  type DisplayRate,
   useMoneyPortfolio,
   useNamedAccounts,
   type MoneyRow,
@@ -49,12 +52,27 @@ import {
   type NamedAccount,
 } from './portfolio-source';
 import { DerivedTotalNote } from './total-note';
+import { USD_UNIT, UnitContext, changeText, useValueText, type ValueUnit } from './display-unit';
 import { Movers } from './Movers';
 import { fmtCoinPrice } from './price-text';
 import { ValuationNote } from './ValuationNote';
+import { HoldingsChange } from './HoldingsChange';
 import { savePreferences, usePreferences } from '../../shared/preferences';
 
 type Copy = ReturnType<typeof moneyCopy.useCopy>;
+
+/** A change line (amount and percent) in the chosen unit. */
+function useChangeText(): (usd: string | null, pct: string | null) => string {
+  const unit = useContext(UnitContext);
+  return (usd, pct) =>
+    changeText(
+      unit,
+      usd,
+      pct,
+      (u, p) => fmtChangeLine(u, p),
+      (p) => fmtPct(p),
+    );
+}
 
 // ── where the buttons go ─────────────────────────────────────────────────────
 
@@ -122,8 +140,8 @@ function satoshis(value: string | null): string | null {
 function Headline({ view, hidden, copy, pro }: { view: MoneyView; hidden: boolean; copy: Copy; pro: boolean }) {
   const { t } = copy;
   const { timeZone, displayCurrency } = usePreferences();
-  // The bank sends the BTC total when asked for it; with no BTC price it says why and the dollar total stays on screen.
-  const inBtc = displayCurrency === 'BTC' && view.btc !== null && view.btc.total !== null;
+  // The bank sends the BTC total and its price when asked; with no BTC price it says why and the dollar total stays on screen.
+  const inBtc = useContext(UnitContext).code === 'BTC';
   const btcMissing = displayCurrency === 'BTC' && view.source === 'server' && !inBtc;
   const since = view.windowStart;
   const changeLabel =
@@ -133,6 +151,8 @@ function Headline({ view, hidden, copy, pro }: { view: MoneyView; hidden: boolea
         ? t('Today, from price moves')
         : t('Today');
   const unpriced = view.unpriced.length;
+  const value = useValueText();
+  const change = useChangeText();
   // A cash-only account has no price moves: "$0.00 (0.00%) Today" would say nothing.
   const hasCrypto = (dec(view.cryptoUsd) ?? 0n) > 0n;
   return (
@@ -154,17 +174,17 @@ function Headline({ view, hidden, copy, pro }: { view: MoneyView; hidden: boolea
       {view.cashUsd !== null && view.cryptoUsd !== null ? (
         <p className="money-split" data-testid="total-split">
           <span data-part="cash">
-            {t('Cash')} <Money value={fmtUsd(view.cashUsd)} hidden={hidden} />
+            {t('Cash')} <Money value={value(view.cashUsd)} hidden={hidden} />
           </span>
           {' · '}
           <span data-part="crypto">
-            {t('Crypto')} <Money value={fmtUsd(view.cryptoUsd)} hidden={hidden} />
+            {t('Crypto')} <Money value={value(view.cryptoUsd)} hidden={hidden} />
           </span>
         </p>
       ) : null}
       {view.change24hUsd !== null && hasCrypto ? (
         <p className="money-change">
-          <ChangeText value={fmtChangeLine(view.change24hUsd, view.change24hPct)} hidden={hidden} suffix={changeLabel} />
+          <ChangeText value={change(view.change24hUsd, view.change24hPct)} hidden={hidden} suffix={changeLabel} />
           <InfoTip text={t('Today change rule')} label={t('Today change rule label')} />
         </p>
       ) : null}
@@ -286,7 +306,9 @@ function CoinRow({
 }) {
   const name = assetName(row.asset, copy);
   const cash = row.class === 'cash';
-  const today = row.usdChange24h === null || cash ? null : fmtChangeLine(row.usdChange24h, row.changeRatio);
+  const value = useValueText();
+  const change = useChangeText();
+  const today = row.usdChange24h === null || cash ? null : change(row.usdChange24h, row.changeRatio);
   return (
     <tr className="money-row" data-asset={row.asset}>
       <td>
@@ -322,7 +344,7 @@ function CoinRow({
         </a>
         {/* On a phone the Value column folds under the Amount so the two never run into each other. */}
         <span className="money-num__value" title={row.usdValue === null ? copy.t('No price published') : undefined}>
-          <Money value={row.usdValue === null ? null : fmtUsd(row.usdValue)} hidden={hidden} />
+          <Money value={value(row.usdValue)} hidden={hidden} />
         </span>
       </td>
       {/* The price the total used; a coin with no published price shows a dash that says so, never a zero. */}
@@ -330,7 +352,7 @@ function CoinRow({
         {row.priceUsd === null ? '—' : fmtCoinPrice(row.priceUsd)}
       </td>
       <td className="money-num money-cell--value" data-col="value" title={row.usdValue === null ? copy.t('No price published') : undefined}>
-        <Money value={row.usdValue === null ? null : fmtUsd(row.usdValue)} hidden={hidden} />
+        <Money value={value(row.usdValue)} hidden={hidden} />
       </td>
       <td className="money-num money-cell--today">
         <ChangeText value={today} hidden={hidden} className="money-today" />
@@ -452,11 +474,12 @@ function HoldingsCard({
   const small = collapseSmall ? rows.filter(isSmall) : [];
   const main = small.length > 0 && small.length < rows.length ? rows.filter((row) => !isSmall(row)) : rows;
   const folded = main === rows ? [] : small;
+  const value = useValueText();
   return (
     <section id={id} className="money-card" aria-labelledby={`money-${id}-title`}>
       <header className="money-card__head">
         <h2 id={`money-${id}-title`}>{title}</h2>
-        <Money value={total === null ? null : fmtUsd(total)} hidden={hidden} className="money-card__total" />
+        <Money value={value(total)} hidden={hidden} className="money-card__total" />
       </header>
       <CoinTable rows={main} hidden={hidden} markets={markets} copy={copy} head layout={layout} helds={helds} />
       {folded.length > 0 ? (
@@ -535,7 +558,7 @@ export default function Portfolio() {
   const layout: Mode = layoutMode === 'pro' ? 'pro' : 'simple';
   const [scope, setScope] = useState('combined');
   // Only this screen shows BTC; Home and P&L ask for USD, so a missing BTC price never takes their dollar total away.
-  const portfolio = useMoneyPortfolio(scope, displayCurrency === 'BTC' ? 'BTC' : 'USD');
+  const portfolio = useMoneyPortfolio(scope, moneyUnitOf(displayCurrency));
   const scoped = scope !== 'combined';
   const balances = useAssetBalances(layout === 'pro');
   const lockSplit = useLockSplits(layout === 'pro');
@@ -543,6 +566,10 @@ export default function Portfolio() {
   const accounts = useNamedAccounts();
 
   const view = portfolio.status === 'ready' ? portfolio.data : null;
+  // BTC only when the bank gave both its BTC total and the price behind it; otherwise every value stays in USD.
+  const btc = displayCurrency === 'BTC' ? view?.btc : null;
+  const unit: ValueUnit = btc?.total != null && btc.priceUsd != null ? { code: 'BTC', priceUsd: btc.priceUsd } : USD_UNIT;
+  const rate = useDisplayRate(displayCurrency);
   const cashRows = useMemo(() => view?.rows.filter((row) => row.class === 'cash') ?? [], [view]);
   const cryptoRows = useMemo(() => view?.rows.filter((row) => row.class === 'crypto') ?? [], [view]);
 
@@ -619,13 +646,17 @@ export default function Portfolio() {
     );
   } else if (portfolio.status === 'empty' || !view) {
     body = (
-      <StateBlock
-        kind="empty"
-        className="money-state"
-        title={t('Nothing held')}
-        body={t('Nothing held body')}
-        action={buyTarget ? { label: t('Buy crypto'), href: buyTarget } : undefined}
-      />
+      <>
+        <StateBlock
+          kind="empty"
+          className="money-state"
+          title={t('Nothing held')}
+          body={t('Nothing held body')}
+          action={buyTarget ? { label: t('Buy crypto'), href: buyTarget } : undefined}
+        />
+        {/* Nothing held now can still have been held at the start of the range. */}
+        {!scoped && portfolio.status === 'empty' ? <HoldingsChange hidden={hideBalances} /> : null}
+      </>
     );
   } else {
     body = (
@@ -673,6 +704,8 @@ export default function Portfolio() {
           }
         />
         <ValuationNote view={view} copy={copy} refreshMs={SUMMARY_INTERVAL} timeZone={timeZone} />
+        {/* Main account and spaces together, so it is shown for all accounts only. */}
+        {!scoped ? <HoldingsChange hidden={hideBalances} /> : null}
         {!scoped && accounts.status === 'ready' && accounts.data.some((account) => (dec(account.balance) ?? 0n) > 0n) ? (
           <Accounts accounts={accounts.data} hidden={hideBalances} copy={copy} />
         ) : null}
@@ -687,60 +720,91 @@ export default function Portfolio() {
   }
 
   return (
-    <div className="if-money" data-source={view?.source ?? undefined} data-density={layout === 'pro' ? 'pro' : undefined}>
-      <h1 className="if-sr">{t('Money')}</h1>
-      <div className="money-head">
-        <div className="money-head__main">
-          <div className="money-label">
-            <span>{t('Est. total value')}</span>
-            <button
-              type="button"
-              className="money-eye"
-              onClick={() => savePreferences({ hideBalances: !hideBalances })}
-              aria-label={hideBalances ? t('Show balances') : t('Hide balances')}
-            >
-              {hideBalances ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
-            </button>
-            <InfoTip text={t('Total value rule')} label={t('How the total is worked out')} side="right" />
-          </div>
-          {portfolio.status === 'loading' ? (
-            <div aria-busy="true" aria-label={t('Est. total value')}>
+    <UnitContext.Provider value={unit}>
+      <div
+        className="if-money"
+        data-source={view?.source ?? undefined}
+        data-density={layout === 'pro' ? 'pro' : undefined}
+        data-unit={unit.code}
+      >
+        <h1 className="if-sr">{t('Money')}</h1>
+        <div className="money-head">
+          <div className="money-head__main">
+            <div className="money-label">
+              <span>{t('Est. total value')}</span>
+              <button
+                type="button"
+                className="money-eye"
+                onClick={() => savePreferences({ hideBalances: !hideBalances })}
+                aria-label={hideBalances ? t('Show balances') : t('Hide balances')}
+              >
+                {hideBalances ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
+              </button>
+              <InfoTip text={t('Total value rule')} label={t('How the total is worked out')} side="right" />
+            </div>
+            {portfolio.status === 'loading' ? (
+              <div aria-busy="true" aria-label={t('Est. total value')}>
+                <div className="money-total">
+                  <Skeleton width={240} height={56} />
+                </div>
+                <div className="money-change">
+                  <Skeleton width={180} height={20} />
+                </div>
+              </div>
+            ) : view ? (
+              <Headline view={view} hidden={hideBalances} copy={copy} pro={layout === 'pro'} />
+            ) : portfolio.status === 'empty' ? (
               <div className="money-total">
-                <Skeleton width={240} height={56} />
+                {/* The balance call answered with no assets, so zero is correct here and only here. */}
+                <HeroNumber value="0.00" decimals={2} prefix="$" size={layout === 'pro' ? 'hero-pro' : 'hero'} hidden={hideBalances} />
               </div>
-              <div className="money-change">
-                <Skeleton width={180} height={20} />
-              </div>
-            </div>
-          ) : view ? (
-            <Headline view={view} hidden={hideBalances} copy={copy} pro={layout === 'pro'} />
-          ) : portfolio.status === 'empty' ? (
-            <div className="money-total">
-              {/* The balance call answered with no assets, so zero is correct here and only here. */}
-              <HeroNumber value="0.00" decimals={2} prefix="$" size={layout === 'pro' ? 'hero-pro' : 'hero'} hidden={hideBalances} />
-            </div>
-          ) : null}
-        </div>
-        <ActionPills loading={portfolio.status === 'loading'} mode={mode} layout={layout} />
-      </div>
-      {scoped || (accounts.status === 'ready' && accounts.data.length > 0) ? (
-        <label className="money-scope">
-          <span>{t('Accounts shown')}</span>
-          <select value={scope} onChange={(event) => setScope(event.target.value)} aria-label={t('Accounts shown')}>
-            <option value="combined">{t('All accounts')}</option>
-            <option value="main">{t('Main account')}</option>
-            {scope !== 'combined' && scope !== 'main' && !(accounts.status === 'ready' && accounts.data.some((a) => a.id === scope)) ? (
-              <option value={scope}>{t('This account')}</option>
             ) : null}
-            {(accounts.status === 'ready' ? accounts.data : []).map((account) => (
-              <option key={account.id} value={account.id}>
-                {account.name}
-              </option>
-            ))}
-          </select>
-        </label>
-      ) : null}
-      {body}
-    </div>
+          </div>
+          <ActionPills loading={portfolio.status === 'loading'} mode={mode} layout={layout} />
+        </div>
+        {scoped || (accounts.status === 'ready' && accounts.data.length > 0) ? (
+          <label className="money-scope">
+            <span>{t('Accounts shown')}</span>
+            <select value={scope} onChange={(event) => setScope(event.target.value)} aria-label={t('Accounts shown')}>
+              <option value="combined">{t('All accounts')}</option>
+              <option value="main">{t('Main account')}</option>
+              {scope !== 'combined' && scope !== 'main' && !(accounts.status === 'ready' && accounts.data.some((a) => a.id === scope)) ? (
+                <option value={scope}>{t('This account')}</option>
+              ) : null}
+              {(accounts.status === 'ready' ? accounts.data : []).map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+        <NoRateNote currency={displayCurrency} rate={rate} copy={copy} />
+        {body}
+      </div>
+    </UnitContext.Provider>
   );
+}
+
+/**
+ * The chosen display currency is not USD or BTC: every value stays in USD and this says why. The bank refused it by name
+ * (no rate), or it could not be asked, which is said as that and never as a missing rate.
+ */
+function NoRateNote({ currency, rate, copy }: { currency: string; rate: DisplayRate; copy: Copy }) {
+  if (rate.state === 'no_rate') {
+    const words = refusalCopy(rate.code);
+    return (
+      <p className="money-note" role="status" data-refusal={rate.code}>
+        {copy.t('No rate for display currency', { currency })}
+        {words.reference ? <span className="money-note__ref"> {words.reference}</span> : null}
+      </p>
+    );
+  }
+  if (rate.state === 'unchecked')
+    return (
+      <p className="money-note" role="status">
+        {copy.t('Display currency not checked', { currency })}
+      </p>
+    );
+  return null;
 }

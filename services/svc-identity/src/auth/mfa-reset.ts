@@ -141,7 +141,8 @@ async function lockUser(tx: Sql, userId: string): Promise<UserRow | undefined> {
   return user;
 }
 
-async function queueMail(
+/** One outbox row on the caller's transaction; the dedupe key makes a repeat a no-op. */
+export async function queueMail(
   tx: Sql,
   input: { userId: string; key: string; purpose: string; recipient: string; code: string | null; expiresAt: Date; now: Date },
 ): Promise<void> {

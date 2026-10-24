@@ -34,6 +34,7 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { checkoutButtonTextColor } from '@intafaced/contracts';
 import { parseAmount } from '@intafaced/ledger-client';
+import { formatMoney } from '@intafaced/i18n';
 import { PAYER_COPY_KEYS, payerTranslator, resolvePayerCopy } from './payer-copy.js';
 
 export type CheckoutLinkView = {
@@ -156,6 +157,23 @@ export function parsePayerAmount(raw: unknown): bigint | null | undefined {
   }
 }
 
+/**
+ * An amount as a payer reads it, in the page's locale: the service's 18-place decimal without its trailing zeros, at
+ * least two places (`25.000000000000000000` → `25.00`, `0.123400` → `0.1234`). Exact: up to 18 places are kept, so
+ * nothing is rounded. Same formatter as receipts (`@intafaced/i18n`). Anything that is not a decimal is shown as it came.
+ */
+export function displayAmount(amount: string): string {
+  try {
+    return formatMoney(amount.trim(), 'XXX', payerTranslator().renderedLocale, {
+      display: 'none',
+      minFractionDigits: 2,
+      maxFractionDigits: 18,
+    });
+  } catch {
+    return amount;
+  }
+}
+
 export function renderCheckoutPage(
   state: CheckoutPageState,
   paths: CheckoutPaths = NO_PREFIX,
@@ -244,7 +262,7 @@ function linkBody(link: CheckoutLinkView, paths: CheckoutPaths, problem?: string
   const fixedAmount = link.amount !== null;
 
   const amountLine = fixedAmount
-    ? `<p class="amount"><span class="num">${escapeHtml(link.amount!)}</span>${
+    ? `<p class="amount"><span class="num">${escapeHtml(displayAmount(link.amount!))}</span>${
         link.currency ? ` <span class="ccy">${escapeHtml(link.currency)}</span>` : ''
       }</p>`
     : `<p class="amount muted">Choose an amount</p>`;
@@ -326,7 +344,7 @@ export function brandLook(look: CheckoutPageLook | null): { style: string; logo:
 }
 
 function sessionBody(session: CheckoutSessionPageView): string {
-  const amountLine = `<p class="amount"><span class="num">${escapeHtml(session.amount)}</span> <span class="ccy">${escapeHtml(
+  const amountLine = `<p class="amount"><span class="num">${escapeHtml(displayAmount(session.amount))}</span> <span class="ccy">${escapeHtml(
     session.currency,
   )}</span></p>`;
 
@@ -486,6 +504,13 @@ function errorMessage(err: unknown): string {
   return '';
 }
 
+/** The routing dimensions a `pay.routing_input_missing` names; none when it names none. */
+function missingDims(err: unknown): readonly string[] {
+  const detail = err && typeof err === 'object' && 'detail' in err ? (err as { detail?: { missing?: unknown } }).detail : undefined;
+  const missing = detail?.missing;
+  return Array.isArray(missing) ? missing.filter((m): m is string => typeof m === 'string') : [];
+}
+
 function errorCode(err: unknown): string | undefined {
   if (err && typeof err === 'object' && 'code' in err && typeof (err as { code: unknown }).code === 'string') {
     return (err as { code: string }).code;
@@ -532,6 +557,8 @@ export function stateForError(err: unknown): CheckoutPageState {
     case 'pay.merchant_pricing_invalid':
     case 'pay.fee_bps_unset':
     case 'pay.routing_no_rail':
+    // The owner has not declared a success fraction for any rail that could take this.
+    case 'pay.routing_approval_rate_unset':
     case 'pay.rail_unknown':
     case 'pay.rail_capability':
     case 'pay.kyb_required':
@@ -689,8 +716,14 @@ async function registerRoutes(app: FastifyInstance, pay: CheckoutPay, paths: Che
       if (errorCode(err) === 'pay.checkout_amount_required') {
         return showLink(token, reply, resolvePayerCopy(PAYER_COPY_KEYS.invalidAmount));
       }
+      // Only the country is the payer's to give. A blank risk band or an
+      // ambiguous method is the operator's gap: the payer cannot fix it.
       if (errorCode(err) === 'pay.routing_input_missing') {
-        return showLink(token, reply, resolvePayerCopy(PAYER_COPY_KEYS.required));
+        const missing = missingDims(err);
+        if (missing.length > 0 && missing.every((dim) => dim === 'geo')) {
+          return showLink(token, reply, resolvePayerCopy(PAYER_COPY_KEYS.required));
+        }
+        return send(reply, renderCheckoutPage({ kind: 'unavailable' }, paths));
       }
       return send(reply, renderCheckoutPage(stateForError(err), paths));
     }

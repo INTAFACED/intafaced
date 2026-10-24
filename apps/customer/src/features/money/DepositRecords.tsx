@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { Button, EmptyState } from '../../shared/ui';
 import { displayAmount } from '../../shared/money';
 import type { Resource } from '../../shared/resource';
 import { ReportedTime } from './bank-context';
 import { DepthPanel } from './DepthParts';
+import { DepositTravelRulePanel } from './DepositTravelRule';
 import { depositRecordsCopy } from './deposit-records-copy';
 import {
   DEPOSIT_RECORDS_PAGE,
@@ -185,39 +186,48 @@ export function DepositRecordsView({
             </thead>
             <tbody>
               {resource.data.items.map((row) => (
-                <tr key={row.id}>
-                  <td>
-                    <ReportedTime value={row.detectedAt} />
-                  </td>
-                  <td className="bd-num numeric">
-                    {displayAmount(row.amount)} {row.assetId}
-                  </td>
-                  <td className="numeric" style={{ overflowWrap: 'anywhere' }}>
-                    {row.txHash}
-                  </td>
-                  <td>
-                    <span className="bd-chip" data-status={row.status}>
-                      {t(`status_${row.status}`)}
-                    </span>
-                    {row.reason && (
-                      <small role="note">
-                        {' '}
-                        {t(`reason_${row.reason}`, { minimum: displayAmount(row.minimumDeposit ?? '0'), asset: row.assetId })}
-                      </small>
-                    )}
-                    {!row.reason && (row.status === 'detected' || row.status === 'confirming') && (
-                      <small>
-                        {' '}
-                        {row.confirmationsRequired === null
-                          ? t('progressNoTarget', { done: row.confirmations })
-                          : t('progress', {
-                              done: Math.min(row.confirmations, row.confirmationsRequired),
-                              need: row.confirmationsRequired,
-                            })}
-                      </small>
-                    )}
-                  </td>
-                </tr>
+                <Fragment key={row.id}>
+                  <tr>
+                    <td>
+                      <ReportedTime value={row.detectedAt} />
+                    </td>
+                    <td className="bd-num numeric">
+                      {displayAmount(row.amount)} {row.assetId}
+                    </td>
+                    <td className="numeric" style={{ overflowWrap: 'anywhere' }}>
+                      {row.txHash}
+                    </td>
+                    <td>
+                      <span className="bd-chip" data-status={row.status}>
+                        {t(`status_${row.status}`)}
+                      </span>
+                      {row.reason && (
+                        <small role="note">
+                          {' '}
+                          {t(`reason_${row.reason}`, { minimum: displayAmount(row.minimumDeposit ?? '0'), asset: row.assetId })}
+                        </small>
+                      )}
+                      {!row.reason && (row.status === 'detected' || row.status === 'confirming') && (
+                        <small>
+                          {' '}
+                          {row.confirmationsRequired === null
+                            ? t('progressNoTarget', { done: row.confirmations })
+                            : t('progress', {
+                                done: Math.min(row.confirmations, row.confirmationsRequired),
+                                need: row.confirmationsRequired,
+                              })}
+                        </small>
+                      )}
+                    </td>
+                  </tr>
+                  {row.status === 'held_travel_rule' && (
+                    <tr>
+                      <td colSpan={4}>
+                        <DepositTravelRulePanel depositId={row.id} onChanged={reload} />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               ))}
             </tbody>
           </table>

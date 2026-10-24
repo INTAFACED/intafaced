@@ -7,6 +7,7 @@ import {
   integer,
   jsonb,
   pgSchema,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -656,8 +657,49 @@ export const customerDetailEvents = identity.table('customer_detail_events', {
   createdAt: tstz('created_at').notNull().defaultNow(),
 });
 
+/**
+ * A customer's temporary override of one rail's limit figures for one asset (J-ops-console-04 #12), one row per rail and
+ * asset, replaced on each set. The base limits stay with the service that enforces them; the migration owns the CHECKs.
+ */
+export const accountLimitOverrides = identity.table(
+  'account_limit_overrides',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    rail: text('rail').notNull(),
+    assetId: text('asset_id').notNull(),
+    version: bigint('version', { mode: 'bigint' }).notNull(),
+    perTx: text('per_tx'),
+    rolling24h: text('rolling_24h'),
+    expiresAt: tstz('expires_at').notNull(),
+    setBy: uuid('set_by').notNull(),
+    approvedBy: uuid('approved_by'),
+    approvalId: text('approval_id'),
+    setAt: tstz('set_at').notNull(),
+    reason: text('reason').notNull(),
+    clearedBy: uuid('cleared_by'),
+    clearedAt: tstz('cleared_at'),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.rail, t.assetId] })],
+);
+
+/** Append-only: every set or clear attempt on a customer's limit overrides. */
+export const accountLimitEvents = identity.table('account_limit_events', {
+  auditId: uuid('audit_id').primaryKey(),
+  requestId: uuid('request_id').notNull(),
+  actorId: uuid('actor_id'),
+  userId: uuid('user_id').notNull(),
+  fingerprint: text('fingerprint').notNull(),
+  result: jsonb('result').notNull(),
+  stored: boolean('stored').notNull(),
+  createdAt: tstz('created_at').notNull().defaultNow(),
+});
+
 export const schema = {
   users,
+  accountLimitOverrides,
+  accountLimitEvents,
   accountClosures,
   customerDetails,
   customerDetailReviews,

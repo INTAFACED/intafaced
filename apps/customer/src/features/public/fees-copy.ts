@@ -30,4 +30,5 @@ export const feesCopy = defineCopy('public-fees', {
   networkBody:
     'Sending a coin out of your account costs a fee set for each network, separate from any trading fee. It is shown on the withdrawal before you send.',
   tradeLink: 'Go to the spot desk',
+  myTierLink: 'See your own tier and the volume counted toward the next one',
 });

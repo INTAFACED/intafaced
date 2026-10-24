@@ -3,7 +3,9 @@ import { useSession } from '../session/session';
 import { Page, EmptyState } from '../../shared/ui';
 import { AuthForm } from './AuthForm';
 import { SignUp } from './SignUp';
+import { CannotSignIn } from './CannotSignIn';
 import { ConfirmEmail } from './ConfirmEmail';
+import { RecoverAccount } from './RecoverAccount';
 import { Invitation } from './Invitation';
 import { DevelopersRoutes } from '../developers/DevelopersRoutes';
 import { PublicHelp as Help } from './PublicHelp';
@@ -17,6 +19,7 @@ import { PasswordRecovery } from './PasswordRecovery';
 import { AboutPage, AppPage, NoticePage, PartnerPage, RoomDirectory } from './PublicPages';
 import { LabPage } from './LabPage';
 import { FeesPage } from './FeesPage';
+import { MyTierPage } from './MyTierPage';
 import { pagesCopy } from './public-pages-copy';
 import { StatusPage } from './StatusPage';
 import { StatusSubscriptionPage } from './StatusSubscription';
@@ -72,6 +75,10 @@ export function PublicRoutes({ path }: { path: string }) {
           <SignUp />
         ) : path === '/confirm-email' ? (
           <ConfirmEmail />
+        ) : path === '/cannot-sign-in' ? (
+          <CannotSignIn />
+        ) : path === '/recover-account' ? (
+          <RecoverAccount />
         ) : auth ? (
           <AuthForm register={false} />
         ) : path === '/invite' ? (
@@ -98,6 +105,8 @@ export function PublicRoutes({ path }: { path: string }) {
           <NoticePage detail id={path.split('/')[2] ?? null} />
         ) : path === '/fees' ? (
           <FeesPage />
+        ) : path === '/fees/my-tier' ? (
+          <MyTierPage />
         ) : path === '/app' ? (
           <AppPage />
         ) : path === '/lab' ? (

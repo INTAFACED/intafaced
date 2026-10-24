@@ -13,6 +13,7 @@ import { formatAsOf } from '@/lib/as-of';
 import { ControlDesk } from '@/components/control-desk';
 import { AccountClosure } from '@/components/account-closure';
 import { AccountTierPanel } from '@/components/account-tier';
+import { AccountLimits } from '@/components/account-limits';
 import { AccountHolds } from '@/components/account-holds';
 import { AccountArchive } from '@/components/account-archive';
 import { AccountDetails } from '@/components/account-details';
@@ -314,6 +315,9 @@ export function AccountControls({ csrf, founderId }: { csrf: string; founderId: 
             void inspect().catch(() => setError('The account could not be read again. Inspect the account again.'));
           }}
         />
+      )}
+      {state && area === 'identity' && (
+        <AccountLimits key={`limits:${id.toLowerCase()}`} userId={id} founderId={founderId} readOnly={readOnly} />
       )}
       {result && (
         <p role={result.outcome === 'refused' || result.outcome === 'conflict' ? 'alert' : 'status'}>

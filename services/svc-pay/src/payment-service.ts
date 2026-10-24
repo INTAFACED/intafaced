@@ -30,6 +30,7 @@ import { PublicCheckoutUnavailable, type ValueMovementPolicy } from './rails/pos
 import {
   REFERENCE_RAIL_ROUTING_PROFILES,
   selectSmartCheckoutRail,
+  SmartRoutingApprovalRateUnsetError,
   SmartRoutingNoRailError,
   toRoutingDecisionRecord,
   type RailRoutingProfile,
@@ -226,6 +227,8 @@ export type PayErrorCode =
   | 'pay.routing_input_missing'
   /** Smart routing ran; no configured rail honestly accepts these dims. */
   | 'pay.routing_no_rail'
+  /** Smart routing ran; no rail that could take it has an owner-declared success fraction (PAY_CHECKOUT_SUCCESS_RATES). */
+  | 'pay.routing_approval_rate_unset'
   | 'pay.invalid_amount'
   | 'pay.identity_admission_unavailable'
   | 'pay.identity_admission_denied'
@@ -1351,6 +1354,9 @@ export class PayService {
     } catch (e) {
       if (e instanceof RoutingInputError) {
         throw new PayError(e.message, 'pay.routing_input_missing', { missing: e.missing });
+      }
+      if (e instanceof SmartRoutingApprovalRateUnsetError) {
+        throw new PayError(e.message, 'pay.routing_approval_rate_unset', { considered: e.considered });
       }
       if (e instanceof SmartRoutingNoRailError) {
         const posture = e.considered.filter((c) => c.reason === 'sandbox' || c.reason === 'absent' || c.reason === 'unhealthy');

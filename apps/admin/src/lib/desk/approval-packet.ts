@@ -3,6 +3,12 @@ import { reconciliationDecimalSchema } from '@intafaced/contracts/ledger-reconci
 import { COST_AMOUNT, COST_ASSET, PERIOD, isCategory, type CostCategory } from '@/lib/venue-economics/model';
 import { METADATA_KEY } from '@/lib/ledger/account-metadata';
 import { STAFF_HOLD_AMOUNT_PATTERN, STAFF_HOLD_ASSET_PATTERN } from '@intafaced/contracts/ops-staff-holds';
+import {
+  accountLimitAmountSchema,
+  accountLimitAssetIdSchema,
+  ACCOUNT_LIMIT_RAILS,
+  type AccountLimitRail,
+} from '@intafaced/contracts/account-controls';
 
 /**
  * The request a founder hands to the other founder.
@@ -105,6 +111,21 @@ export type DeskRequest =
       readonly kind: 'identity.account.tier_move';
       readonly userId: string;
       readonly tierId: string;
+      readonly reason: string;
+      readonly version: string;
+    }
+  /**
+   * A customer limit override above the owner ceiling (J-ops-console-04 #12): the figures (null keeps the base figure), the
+   * stored end time and the override version read. Under the ceiling one founder sets it directly, with no packet.
+   */
+  | {
+      readonly kind: 'identity.account.limit_override';
+      readonly userId: string;
+      readonly rail: AccountLimitRail;
+      readonly assetId: string;
+      readonly perTx: string | null;
+      readonly rolling24h: string | null;
+      readonly expiresAt: string;
       readonly reason: string;
       readonly version: string;
     }
@@ -341,6 +362,33 @@ export function readDeskRequest(raw: unknown): DeskRequest | null {
     if (typeof raw.version !== 'string' || !/^(?:0|[1-9]\d{0,39})$/.test(raw.version)) return null;
     return { kind: 'identity.account.tier_move', userId: raw.userId, tierId: raw.tierId, reason: raw.reason, version: raw.version };
   }
+  if (raw.kind === 'identity.account.limit_override') {
+    if (keys !== 'assetId,expiresAt,kind,perTx,rail,reason,rolling24h,userId,version') return null;
+    if (typeof raw.userId !== 'string' || !UUID.test(raw.userId) || !validClosureReason(raw.reason)) return null;
+    if (typeof raw.rail !== 'string' || !(ACCOUNT_LIMIT_RAILS as readonly string[]).includes(raw.rail)) return null;
+    if (!accountLimitAssetIdSchema.safeParse(raw.assetId).success) return null;
+    const figure = (value: unknown) => value === null || accountLimitAmountSchema.safeParse(value).success;
+    if (!figure(raw.perTx) || !figure(raw.rolling24h) || (raw.perTx === null && raw.rolling24h === null)) return null;
+    // The end time is bound into the approval hash as this exact instant, so only the canonical ISO form is read.
+    if (
+      typeof raw.expiresAt !== 'string' ||
+      Number.isNaN(Date.parse(raw.expiresAt)) ||
+      new Date(raw.expiresAt).toISOString() !== raw.expiresAt
+    )
+      return null;
+    if (typeof raw.version !== 'string' || !/^(?:0|[1-9]\d{0,39})$/.test(raw.version)) return null;
+    return {
+      kind: 'identity.account.limit_override',
+      userId: raw.userId,
+      rail: raw.rail as AccountLimitRail,
+      assetId: raw.assetId as string,
+      perTx: raw.perTx as string | null,
+      rolling24h: raw.rolling24h as string | null,
+      expiresAt: raw.expiresAt,
+      reason: raw.reason,
+      version: raw.version,
+    };
+  }
   if (raw.kind === 'academy.ambassador.appoint') {
     if (keys !== 'kind,userId') return null;
     if (typeof raw.userId !== 'string' || !UUID.test(raw.userId)) return null;
@@ -574,6 +622,8 @@ export function confirmPhrase(request: DeskRequest): string {
       return `ARCHIVE CUSTOMER ${request.userId.slice(0, 8)}`;
     case 'identity.account.tier_move':
       return `MOVE TIER ${request.userId.slice(0, 8)}`;
+    case 'identity.account.limit_override':
+      return `RAISE LIMIT ${request.userId.slice(0, 8)}`;
     case 'ops.venue_cost.record':
       return `RECORD COST ${request.category} ${request.period}`;
     case 'ops.hold.release':
@@ -652,6 +702,8 @@ export function describeRequest(request: DeskRequest): string {
       return `Reopen account ${request.userId} ("${request.reason}"): its owner can sign in again with a new sign-in. Revoked sessions, API keys and sub-accounts stay revoked. Identity reopens only an account the customer closed, at control version ${request.version}.`;
     case 'identity.account.archive':
       return `Archive customer ${request.userId} for good (reason code ${request.reasonCode.replace(/_/g, ' ')}: "${request.reason}"). The record becomes read-only: it cannot be frozen, unfrozen or reopened again. Only a founder can approve it. Identity archives only a closed account, at control version ${request.version}.`;
+    case 'identity.account.limit_override':
+      return `Override the ${request.rail} limit of account ${request.userId} for ${request.assetId} until ${request.expiresAt} ("${request.reason}"): per transaction ${request.perTx ?? 'the base figure'}, over 24 hours ${request.rolling24h ?? 'the base figure'}. This goes above the owner’s ceiling, so both people must be founders. After the end time the base limit applies again. Identity sets it only if the override is still at version ${request.version}. No money moves.`;
     case 'identity.account.tier_move':
       return `Move account ${request.userId} onto tier "${request.tierId}" ("${request.reason}"). The account takes that tier's terms as identity holds them. Identity refuses a tier with any blank term, and applies it only if the account is still at tier version ${request.version}. Both people must be founders.`;
     case 'ops.hold.release':

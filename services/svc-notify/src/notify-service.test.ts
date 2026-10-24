@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach } from 'vitest';
+import { describe, expect, it, beforeEach, vi } from 'vitest';
 import {
   MemoryEventBus,
   fillSettled,
@@ -8,11 +8,14 @@ import {
   p2pEscrowReleased,
   p2pTradeDisputed,
   rankUpdated,
+  SECURITY_FACTOR_CHANGES,
   stakeCreated,
 } from '@intafaced/events';
 import { MemoryNotifyStore } from './store.js';
 import { NotifyService } from './notify-service.js';
 import { subscribeNotificationEvents } from './events.js';
+import { isMessageKey } from '@intafaced/i18n';
+import { categoryFromKind } from './preferences/categories.js';
 
 const USER = '11111111-1111-4111-8111-111111111111';
 const OTHER = '22222222-2222-4222-8222-222222222222';
@@ -111,6 +114,37 @@ describe('NotifyService — dedupe + self-only mark', () => {
 });
 
 describe('event fan-out', () => {
+  it('writes a security inbox row for each sign-in factor change, pointing to Security, once per change, inbox only', async () => {
+    const store = new MemoryNotifyStore();
+    const notify = new NotifyService(store, { fanoutEnabled: true });
+    const created = vi.spyOn(notify, 'create');
+    const bus = new MemoryEventBus('svc-identity');
+    await subscribeNotificationEvents(bus, notify);
+
+    const change = (kind: (typeof SECURITY_FACTOR_CHANGES)[number], n: number) =>
+      bus.publish(
+        'securityFactorChanged',
+        { userId: USER, change: kind, changedAt: new Date().toISOString(), noticeKey: `factor-changed:${USER}:${n}` },
+        { idempotencyKey: `factor-changed:${USER}:${n}` },
+      );
+    for (const [i, kind] of SECURITY_FACTOR_CHANGES.entries()) await change(kind, i + 1);
+    // A relay that publishes the same row again writes no second row.
+    await change('totp_added', 1);
+
+    const rows = (await notify.list({ userId: USER, limit: 10, unreadOnly: false })).items;
+    expect(rows.map((r) => r.kind).sort()).toEqual(SECURITY_FACTOR_CHANGES.map((c) => `identity.security.${c}`).sort());
+    for (const kind of SECURITY_FACTOR_CHANGES) {
+      const row = rows.find((r) => r.kind === `identity.security.${kind}`)!;
+      expect(row.titleKey).toBe(`notify.identity.security.${kind}.title`);
+      expect(row.bodyKey).toBe('notify.identity.security.factor_changed.body');
+      expect(row.href).toBe('/uc/safe');
+      expect(isMessageKey(row.titleKey) && isMessageKey(row.bodyKey)).toBe(true);
+      expect(categoryFromKind(row.kind)).toBe('security');
+    }
+    // svc-identity mails the proved address itself, so the notice never goes out of app a second time.
+    expect(created.mock.calls.every(([input]) => input.outOfApp === false)).toBe(true);
+  });
+
   it('writes inbox rows from fillSettled / p2pEscrowLocked / kycApproved and dedupes redelivery', async () => {
     const store = new MemoryNotifyStore();
     const notify = new NotifyService(store, { fanoutEnabled: true });

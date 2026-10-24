@@ -50,6 +50,14 @@ import type { RegistryReader } from '../../registries/read-api.js';
  *   already be in the ledger. `release` lifts the freeze (after a second founder's unfreeze) and puts its held rows back to be
  *   judged in one transaction, so each is credited once under its usual key; `settleOpen` releases any held row whose
  *   address has no open freeze.
+ * - THE INBOUND TRAVEL RULE (W-deposit-07, `custody_deposit_travel_rule`): a deposit that is otherwise due (confirmed, at or
+ *   above the minimum) is judged against the owner's latest inbound rule for its asset. With no rule it is not credited: it
+ *   stays `confirming` with reason `travel_rule_unset` and is judged again on the next pass. At or above a rule's threshold it
+ *   is `held_travel_rule` (reason `travel_rule_declaration`) and a record is opened in the same transaction; it is never
+ *   credited while held. `releaseTravelRule` (a founder's release of a declared deposit) puts it back to be judged in one
+ *   transaction with the release event, and the record's `released` state lets it through, so it is credited once under its
+ *   usual key. A counterparty wait past its limit is recorded `blocking_time_expired` by
+ *   `expireTravelRuleWaits` (its own timer in index.ts, with or without the chain watcher) and stays held.
  * - A transfer first seen at an extra address after its expiry (W-deposit-02) is `held_for_release` with reason
  *   `address_expired`: recorded, never credited on its own and never dropped, left for a support or compliance release. One
  *   first seen before the expiry is judged and credited as any other, however long it takes to confirm.
@@ -163,6 +171,15 @@ const COLUMNS =
   'id, user_id, asset_id, network_id, address, tx_hash, output_index, amount, confirmations, confirmations_required, minimum_deposit, status, reason, detected_at, credited_at, credit_started_at, reversal_started_at';
 const ASSET_RE = /^[A-Za-z0-9]{1,16}$/;
 const OPEN = new Set<PayCustodyDepositStatus>(PAY_CUSTODY_DEPOSIT_PENDING_STATUSES);
+/** Held rows that still follow their confirmations, so each is judged on its real depth once released. */
+const HELD = new Set<PayCustodyDepositStatus>(['on_hold', 'held_travel_rule']);
+/** A held deposit's reason for each travel-rule record state that keeps it held. */
+const TRAVEL_RULE_REASON: Record<string, PayCustodyDepositReason> = {
+  awaiting_declaration: 'travel_rule_declaration',
+  under_review: 'travel_rule_review',
+  counterparty_pending: 'travel_rule_counterparty',
+  blocking_time_expired: 'travel_rule_expired',
+};
 /** A reversal still `unsure` this long after it started (three in-flight bounds, so three rounds at least) raises an alert. */
 export const REVERSAL_UNSURE_ALERT_SECONDS = 3 * POST_IN_FLIGHT_BOUND_SECONDS;
 
@@ -212,7 +229,7 @@ export class CustodyDepositBook {
     }
     const judged = await this.settle(row);
     const outcome = { state: 'recorded' as const, status: judged.status, reason: judged.reason };
-    if (!OPEN.has(judged.status) && judged.status !== 'on_hold' && !judged.reversal_started_at) {
+    if (!OPEN.has(judged.status) && !HELD.has(judged.status) && !judged.reversal_started_at) {
       this.settled.set(memoKey, { id: judged.id, outcome });
     }
     return outcome;
@@ -553,7 +570,7 @@ export class CustodyDepositBook {
         return existing;
       }
       // A held row keeps following its confirmations, so it is judged on its real depth once released.
-      if ((!OPEN.has(existing.status) && existing.status !== 'on_hold') || existing.credit_started_at) return existing;
+      if ((!OPEN.has(existing.status) && !HELD.has(existing.status)) || existing.credit_started_at) return existing;
       if (parseAmount(existing.amount) !== input.amount) {
         const flagged = await tx<Row[]>`
           UPDATE pay.custody_deposits SET status = 'needs_review', reason = 'amount_mismatch', updated_at = now()
@@ -564,7 +581,8 @@ export class CustodyDepositBook {
       if (conf <= existing.confirmations) return existing;
       const moved = await tx<Row[]>`
         UPDATE pay.custody_deposits
-           SET confirmations = ${conf}, status = CASE WHEN status = 'on_hold' THEN 'on_hold' ELSE 'confirming' END, updated_at = now()
+           SET confirmations = ${conf}, status = CASE WHEN status IN ('on_hold', 'held_travel_rule') THEN status ELSE 'confirming' END,
+               updated_at = now()
          WHERE id = ${existing.id} RETURNING ${sql.unsafe(COLUMNS)}`;
       return moved[0]!;
     });
@@ -598,7 +616,122 @@ export class CustodyDepositBook {
       return waiting[0] ?? (await this.reload(row.id));
     }
 
+    const travel = await this.travelRuleGate(row, required, minimum);
+    if (travel !== 'clear') return travel;
     return this.credit(row, required, minimum);
+  }
+
+  /**
+   * The inbound travel rule for a deposit that is otherwise due (W-deposit-07): `clear` to credit, or the row as it now stands
+   * (parked with `travel_rule_unset`, or held with a record opened). A released record lets the deposit through; a record in
+   * any other state keeps it held.
+   */
+  private async travelRuleGate(row: Row, required: number, minimum: string): Promise<'clear' | Row> {
+    const { sql } = this.deps;
+    const [record] = await sql<Array<{ state: string }>>`
+      SELECT e.state FROM pay.custody_deposit_travel_rule t
+        JOIN LATERAL (SELECT state FROM pay.custody_deposit_travel_rule_events WHERE deposit_id = t.deposit_id ORDER BY seq DESC LIMIT 1) e
+          ON true
+       WHERE t.deposit_id = ${row.id}`;
+    if (record) return record.state === 'released' ? 'clear' : this.holdForTravelRule(row, record.state);
+    const [rule] = await sql<Array<{ seq: string; applies: boolean; threshold: string | null; fields: unknown }>>`
+      SELECT seq::text, applies, threshold::text, fields FROM pay.travel_rule_inbound_rule_events
+       WHERE asset_id = ${row.asset_id} ORDER BY seq DESC LIMIT 1`;
+    if (!rule) return this.park(row, required, minimum, 'travel_rule_unset');
+    if (!rule.applies || rule.threshold === null || parseAmount(row.amount) < parseAmount(rule.threshold)) return 'clear';
+    const held = await sql.begin(async (tx) => {
+      const rows = await tx<Row[]>`
+        UPDATE pay.custody_deposits
+           SET status = 'held_travel_rule', reason = 'travel_rule_declaration', confirmations_required = ${required},
+               minimum_deposit = ${minimum}, updated_at = now()
+         WHERE id = ${row.id} AND status IN ('detected', 'confirming') AND credit_started_at IS NULL
+         RETURNING ${tx.unsafe(COLUMNS)}`;
+      if (!rows[0]) return null;
+      await tx`
+        INSERT INTO pay.custody_deposit_travel_rule (deposit_id, user_id, rule_seq, threshold, required_fields)
+        VALUES (${row.id}, ${row.user_id}, ${rule.seq}::bigint, ${rule.threshold}::numeric, ${tx.json(rule.fields as never)})`;
+      await tx`
+        INSERT INTO pay.custody_deposit_travel_rule_events (deposit_id, state, source, actor, reason)
+        VALUES (${row.id}, 'awaiting_declaration', 'system', 'svc-pay', 'at or above the owner travel-rule threshold')`;
+      return rows[0];
+    });
+    return held ?? (await this.reload(row.id));
+  }
+
+  /** A row whose record is not released yet: held, with the reason its record's state names. */
+  private async holdForTravelRule(row: Row, state: string): Promise<Row> {
+    const { sql } = this.deps;
+    const reason = TRAVEL_RULE_REASON[state] ?? 'travel_rule_declaration';
+    const held = await sql<Row[]>`
+      UPDATE pay.custody_deposits SET status = 'held_travel_rule', reason = ${reason}, updated_at = now()
+       WHERE id = ${row.id} AND status IN ('detected', 'confirming') AND credit_started_at IS NULL RETURNING ${sql.unsafe(COLUMNS)}`;
+    return held[0] ?? (await this.reload(row.id));
+  }
+
+  /**
+   * A founder released a held deposit (`record` writes the release event and returns what it wrote). In one transaction the
+   * release is recorded and the deposit goes back to be judged; then it is credited once under its usual key if it is due. A
+   * credit the ledger did not answer stays started and `settleOpen` finishes it.
+   */
+  async releaseTravelRule<T>(depositId: string, record: (tx: Sql) => Promise<T>): Promise<{ recorded: T; credited: boolean }> {
+    const { recorded, row } = await this.deps.sql.begin(async (tx) => {
+      const recorded = await record(tx as unknown as Sql);
+      const rows = await (tx as unknown as Sql)<Row[]>`
+        UPDATE pay.custody_deposits
+           SET status = CASE WHEN confirmations > 0 THEN 'confirming' ELSE 'detected' END, reason = NULL, updated_at = now()
+         WHERE id = ${depositId} AND status = 'held_travel_rule' RETURNING ${(tx as unknown as Sql).unsafe(COLUMNS)}`;
+      // The release checked the deposit under its lock; a row no longer held here rolls the release back, so a record never
+      // says released for a deposit that was not.
+      if (!rows[0]) throw new Error('pay.deposit_travel_rule_not_held');
+      return { recorded, row: rows[0] };
+    });
+    try {
+      return { recorded, credited: (await this.settle(row)).status === 'credited' };
+    } catch (err) {
+      this.deps.log?.('custody deposit released from the travel rule but not credited yet', {
+        depositId,
+        err: err instanceof Error ? err.message : String(err),
+      });
+      return { recorded, credited: false };
+    }
+  }
+
+  /** The record's state as the deposit's reason. Used when a record moves while the deposit stays held. */
+  async markTravelRuleReason(tx: Sql, depositId: string, state: string): Promise<void> {
+    const reason = TRAVEL_RULE_REASON[state];
+    if (!reason) return;
+    await tx`UPDATE pay.custody_deposits SET reason = ${reason}, updated_at = now() WHERE id = ${depositId} AND status = 'held_travel_rule'`;
+  }
+
+  /**
+   * Counterparty waits that ran out are recorded `blocking_time_expired`, and the deposit stays held: a timer never releases
+   * (ENGINE T-3). Returns how many were recorded.
+   */
+  async expireTravelRuleWaits(): Promise<number> {
+    const { sql } = this.deps;
+    return sql.begin(async (tx) => {
+      const due = await tx<Array<{ deposit_id: string }>>`
+        SELECT t.deposit_id FROM pay.custody_deposit_travel_rule t
+          JOIN LATERAL (SELECT state, wait_deadline FROM pay.custody_deposit_travel_rule_events
+                         WHERE deposit_id = t.deposit_id ORDER BY seq DESC LIMIT 1) e ON true
+         WHERE e.state = 'counterparty_pending' AND e.wait_deadline < now()
+         ORDER BY t.deposit_id LIMIT 500
+         FOR UPDATE OF t SKIP LOCKED`;
+      let expired = 0;
+      for (const { deposit_id } of due) {
+        // Read the latest event again under the lock: another pass may have recorded the expiry, or compliance a new wait.
+        const [now] = await tx<Array<{ state: string; due: boolean }>>`
+          SELECT state, wait_deadline < now() AS due FROM pay.custody_deposit_travel_rule_events
+           WHERE deposit_id = ${deposit_id} ORDER BY seq DESC LIMIT 1`;
+        if (now?.state !== 'counterparty_pending' || !now.due) continue;
+        await tx`
+          INSERT INTO pay.custody_deposit_travel_rule_events (deposit_id, state, source, actor, reason)
+          VALUES (${deposit_id}, 'blocking_time_expired', 'system', 'svc-pay', 'the counterparty wait ran out; still held')`;
+        await this.markTravelRuleReason(tx as unknown as Sql, deposit_id, 'blocking_time_expired');
+        expired += 1;
+      }
+      return expired;
+    });
   }
 
   /** Mark the credit started (with the judging figures), post under the business key, then flip. Retried as it is after a crash. */

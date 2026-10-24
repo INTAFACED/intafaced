@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import {
+  bankHoldingsChangeSchema,
   bankValueOverTimeSchema,
   createEdgeContext,
   encodePrincipal,
@@ -15,7 +16,7 @@ import type { BankServices } from '../bank-service.js';
 import type { SpaceRecord } from '../spaces/space-service.js';
 import type { CloseSeries, CloseSeriesSource } from './candles.js';
 import { PortfolioService } from './portfolio-service.js';
-import { bucketOf, chooseInterval, gridOf, valueOverTime } from './value-history.js';
+import { bucketOf, chooseInterval, gridOf, holdingsChange, valueOverTime } from './value-history.js';
 
 // J-portfolio-05 #6 and #7. Every figure is hand-computed TEST data, not a real balance.
 const DAY = 86_400_000;
@@ -105,6 +106,61 @@ describe('valueOverTime: what the holdings were worth at each moment', () => {
     });
     // Mid day 5: the same holdings, at the open day-5 candle's close of 500.
     expect(out.points.at(-1)).toMatchObject({ at: day(5, 12).toISOString(), valueUsd: '900' });
+  });
+});
+
+describe('holdingsChange: what rose and fell in amount over a range (J-portfolio-06 #3)', () => {
+  it('gives each coin its amount at both ends, the change between them and its price and value there', () => {
+    const out = holdingsChange({ histories: [MAIN, SAVINGS], interval: '1d', samples, live: false, closes: new Map([['BTC', daily(0)]]) });
+    expect(bankHoldingsChangeSchema.parse(out)).toEqual(out);
+    // From day 1 (nothing held yet; BTC at the day-0 close of 0) to day 5: 1 BTC across both accounts at the day-4 close of
+    // 400, and 400 USDT at 1.
+    expect(out.rows).toEqual([
+      {
+        assetId: 'BTC',
+        startAmount: '0',
+        endAmount: '1',
+        change: '1',
+        startPriceUsd: '0',
+        endPriceUsd: '400',
+        startValueUsd: '0',
+        endValueUsd: '400',
+      },
+      {
+        assetId: 'USDT',
+        startAmount: '0',
+        endAmount: '400',
+        change: '400',
+        startPriceUsd: '1',
+        endPriceUsd: '1',
+        startValueUsd: '0',
+        endValueUsd: '400',
+      },
+    ]);
+  });
+
+  it('counts what fell, leaves out a coin held at neither end, and never prices a coin with no market', () => {
+    const withSol = history({ BTC: '0.5', USDT: '400', SOL: '3' }, [
+      ...MAIN.movements,
+      move(3, 'SOL', 'ledger', 'deposit.credited', '3', '0'),
+    ]);
+    const out = holdingsChange({
+      histories: [withSol, SAVINGS],
+      interval: '1d',
+      samples: [day(4), day(5)],
+      live: false,
+      closes: new Map<string, CloseSeries | null>([
+        ['BTC', daily(0)],
+        ['SOL', null],
+      ]),
+    });
+    // Day 4 to day 5: the 100 USDT withdrawn on day 4 is the fall; BTC moved between own accounts, so it did not change.
+    expect(out.rows.map((r) => [r.assetId, r.startAmount, r.endAmount, r.change])).toEqual([
+      ['BTC', '1', '1', '0'],
+      ['SOL', '3', '3', '0'],
+      ['USDT', '500', '400', '-100'],
+    ]);
+    expect(out.rows.find((r) => r.assetId === 'SOL')).toMatchObject({ startPriceUsd: null, endPriceUsd: null, endValueUsd: null });
   });
 });
 
@@ -313,5 +369,40 @@ describe('PortfolioService.valueOverTime', () => {
     await expect(unwired.valueOverTime(ALICE, { from: day(1).toISOString() })).rejects.toMatchObject({
       code: 'bank.value_history_unavailable',
     });
+  });
+});
+
+describe('PortfolioService.holdingsChange', () => {
+  it('gives the two ends through the router for the caller only, with the same range refusals as the value over time', async () => {
+    const { portfolio } = service();
+    const out = await callerFor(portfolio, ALICE).portfolio.holdingsChange({ from: day(1, 7).toISOString(), to: day(5).toISOString() });
+    expect(out.rows.map((r) => [r.assetId, r.startAmount, r.endAmount, r.change])).toEqual([
+      ['BTC', '0', '1', '1'],
+      ['USDT', '0', '400', '400'],
+    ]);
+    await expect(
+      callerFor(portfolio, ALICE).portfolio.holdingsChange({ from: day(1).toISOString(), userId: BOB } as never),
+    ).rejects.toThrow();
+    await expect(portfolio.holdingsChange(ALICE, { from: day(6).toISOString() })).rejects.toMatchObject({
+      code: 'bank.value_range_invalid',
+    });
+    const tooBig = service({ fail: new LedgerError('too many rows', 'ledger.holdings_history_too_large') });
+    await expect(tooBig.portfolio.holdingsChange(ALICE, { from: day(1).toISOString() })).rejects.toMatchObject({
+      code: 'bank.value_history_too_large',
+    });
+    const down = service({ fail: new Error('connection reset') });
+    await expect(down.portfolio.holdingsChange(ALICE, { from: day(1).toISOString() })).rejects.toMatchObject({
+      code: 'bank.value_history_unavailable',
+    });
+  });
+
+  it('still answers the amounts when the prices cannot be read: those coins are not priced, never zero', async () => {
+    for (const closes of [null, { closes: async () => Promise.reject(new Error('timeout')) }]) {
+      const { portfolio } = service({ closes });
+      const out = await portfolio.holdingsChange(ALICE, { from: day(1, 7).toISOString(), to: day(5).toISOString() });
+      expect(out.rows.find((r) => r.assetId === 'BTC')).toMatchObject({ endAmount: '1', endPriceUsd: null, endValueUsd: null });
+      // Dollar coins need no price.
+      expect(out.rows.find((r) => r.assetId === 'USDT')).toMatchObject({ endPriceUsd: '1', endValueUsd: '400' });
+    }
   });
 });

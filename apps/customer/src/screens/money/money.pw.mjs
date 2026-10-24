@@ -66,6 +66,23 @@ const exchange = {
 };
 const bankDefaults = {
   'portfolio.summary': () => summary(),
+  // TEST: what the fixture person held a week ago and now (J-portfolio-06 #3).
+  'portfolio.holdingsChange': (input) => ({
+    from: input.from,
+    to: '2026-10-20T12:00:00.000Z',
+    rows: [
+      {
+        assetId: 'BTC',
+        startAmount: '0.05',
+        endAmount: '0.1',
+        change: '0.05',
+        startPriceUsd: '65000',
+        endPriceUsd: '67812.4',
+        startValueUsd: '3250',
+        endValueUsd: '6781.24',
+      },
+    ],
+  }),
   'spaces.list': () => spaces(),
   'activity.list': (input) => (input?.cursor ? activityPage2() : activityPage1()),
   // The session asks for the person's business accounts on every page (HM-navigation-01); this person has none.
@@ -183,8 +200,8 @@ test('portfolio from the bank at 1440x900: numbers, layout, words, keyboard path
   await expect(page.locator('.money-change')).not.toContainText('from price moves'); // the bank's own figure, not a derivation
 
   // Unpriced coins: "Excludes 1 coin" with the list in a tooltip.
-  await expect(page.locator('.money-note')).toContainText('Excludes 1 coin (no USD price)');
-  await expect(page.locator('.money-note')).toContainText('Not counted: ZED');
+  await expect(page.locator('.money-head .money-note')).toContainText('Excludes 1 coin (no USD price)');
+  await expect(page.locator('.money-head .money-note')).toContainText('Not counted: ZED');
 
   // Actions: only live ones, Buy is the one primary. Simple Buy and Sell open the Buy card (critic H1).
   expect(await texts(page.locator('.money-actions > *'))).toEqual(['Buy', 'Sell', 'Convert', 'Send', 'Receive']);

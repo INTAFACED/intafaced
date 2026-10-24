@@ -24,7 +24,7 @@ import { usePreferences } from '../../shared/preferences';
 type Copy = ReturnType<typeof moneyCopy.useCopy>;
 
 /** The bank's own refusals for this read, in plain words; any other code takes the shared refusal words. */
-const VALUE_REFUSAL: Record<
+export const VALUE_REFUSAL: Record<
   string,
   'Pnl range refused' | 'Pnl range too long' | 'Pnl prices unavailable' | 'Value history too large' | 'Value history unavailable'
 > = {

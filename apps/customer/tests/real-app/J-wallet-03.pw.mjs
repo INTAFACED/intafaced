@@ -8,8 +8,10 @@ import { signIn, signUp, verify } from './desk.mjs';
 // with the stack's secret (local-test-stack.mjs chain-deposit), and the TEST chain takes it back the same way, as a watcher
 // reports a reorg (local-test-stack.mjs chain-reorg). Every balance is read back from the ledger through the person's own
 // API. Compliance freezes and lifts a deposit address on the founder console, with the stack's two TEST founders (#4).
-// Not here yet: #1-#3 (the travel-rule declaration and its review need the owner's threshold and the counterparty
-// exchange).
+// #1-#3 use the stack's TEST inbound travel rule (local-test-gates.mjs TEST_DEPOSIT_TRAVEL_RULE: 1000 or more is held for the
+// sender's name and address) and its TEST 60-second wait on the sending platform. The stack publishes a rule for every TEST
+// coin, so the blank-rule refusal of #1 (no rule: not credited, reason travel_rule_unset) is proven in svc-pay's
+// travel-rule.db.test.ts, not here: unsetting a coin's rule would stop every other journey's deposits on a shared stack.
 const J = 'J-wallet-03';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const ASSET = 'USDT';
@@ -79,6 +81,152 @@ async function openAddressRow(page, userId, address) {
   await list.locator('tbody > tr', { hasText: address }).getByRole('button', { name: 'Open' }).click();
   return list.getByTestId('row-detail');
 }
+
+const LARGE = '2500';
+const travelRule = (page, tx) =>
+  records(page)
+    .locator('tbody tr', { has: page.getByTestId('deposit-travel-rule') })
+    .filter({
+      has: page.locator(`xpath=preceding-sibling::tr[1][contains(., "${tx}")]`),
+    });
+
+/** A new verified person with a TEST 2500 USDT deposit at full depth, held for the travel rule. */
+async function heldDeposit(page, prefix, testInfo) {
+  const who = await signUp(page, prefix);
+  await verify(page, who);
+  await signIn(page, who);
+  const address = await showAddress(page);
+  const mine = await clients(who);
+  const { userId } = await api(who);
+  const label = `${prefix}-${who.handle}-${LARGE}-r${testInfo.retry}`;
+  const tx = chainDeposit(address, LARGE, 6, label);
+  await page.reload();
+  await expect(recordRow(page, tx).locator('[data-status]')).toHaveAttribute('data-status', 'held_travel_rule');
+  return { who, address, mine, userId, label, tx };
+}
+
+/** The person declares where the deposit came from: an exchange, with the sender's name and address. */
+async function declare(page, tx) {
+  const panel = travelRule(page, tx).getByTestId('deposit-travel-rule');
+  const form = panel.getByTestId('deposit-travel-rule-form');
+  await form.getByRole('radio', { name: 'An exchange or other crypto platform' }).check();
+  await form.getByLabel('Sender’s full name').fill('TEST Sender Person');
+  await form.getByLabel('Sender’s address').fill('1 TEST Street, Testville');
+  await form.getByRole('button', { name: 'Send declaration' }).click();
+  await expect(panel).toHaveAttribute('data-state', 'under_review', { timeout: 30_000 });
+  return panel;
+}
+
+/** A founder's console on the customer's Money tab, with their one travel-rule hold open. Returns that row's detail. */
+async function openTravelRuleRow(page, userId) {
+  await page.goto(`${ADMIN}/accounts/${userId}?tab=money`, { waitUntil: 'load' });
+  const list = page.getByTestId('read-money.deposit-travel-rule');
+  await expect(list.getByRole('table')).toBeVisible({ timeout: 60_000 });
+  await list.locator('tbody > tr', { hasText: ASSET }).first().getByRole('button', { name: 'Open' }).click();
+  return list.getByTestId('row-detail');
+}
+
+test(`${J} #1 a large inbound deposit is held for the travel rule with the declaration form, and is not credited`, async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(180_000);
+  const { mine, tx, address, label } = await heldDeposit(page, 'w3t', testInfo);
+  const row = recordRow(page, tx);
+  await expect(row).toContainText('Held: travel rule');
+  await expect(row).toContainText('Deposits this large need a short declaration about where they came from');
+  const panel = travelRule(page, tx).getByTestId('deposit-travel-rule');
+  await expect(panel).toHaveAttribute('data-state', 'awaiting_declaration');
+  await expect(panel).toContainText('This deposit of 2,500 USDT is at or above the 1,000 USDT limit');
+  const form = panel.getByTestId('deposit-travel-rule-form');
+  await expect(form.getByLabel('Sender’s full name')).toBeVisible();
+  await expect(form.getByLabel('Sender’s address')).toBeVisible();
+  // A half-filled declaration is not sent.
+  await form.getByLabel('Sender’s full name').fill('TEST Sender Person');
+  await form.getByRole('button', { name: 'Send declaration' }).click();
+  await expect(form.getByRole('alert')).toContainText('Fill in every field before sending.');
+  await expect(panel).toHaveAttribute('data-state', 'awaiting_declaration');
+  // Deeper on the chain, it is still held and nothing is credited.
+  chainDeposit(address, LARGE, 12, label);
+  await page.reload();
+  await expect(recordRow(page, tx).locator('[data-status]')).toHaveAttribute('data-status', 'held_travel_rule');
+  expect(await mine.usdt()).toBe(0n);
+});
+
+test(`${J} #2 the person declares it, it is under review; after compliance releases it, one credit and the balance moves once`, async ({
+  page,
+  browser,
+}, testInfo) => {
+  test.setTimeout(300_000);
+  const { mine, tx, address, label, userId, who } = await heldDeposit(page, 'w3r', testInfo);
+  await declare(page, tx);
+  await expect(travelRule(page, tx)).toContainText('Declared. Compliance is reviewing it');
+  await page.reload();
+  await expect(recordRow(page, tx)).toContainText('We have your declaration and compliance is reviewing it');
+  expect(await mine.usdt()).toBe(0n);
+
+  const a = await (await browser.newContext()).newPage();
+  try {
+    await founderSignIn(a, 'a');
+    const detail = await openTravelRuleRow(a, userId);
+    await expect(detail).toContainText('under_review');
+    // The declared values are sealed in svc-pay: the console never shows them.
+    await expect(detail).not.toContainText('TEST Sender Person');
+    const review = detail.getByTestId('deposit-travel-rule-review');
+    await review.getByLabel(/^Why/).fill(`LOCAL TEST declaration checked for ${who.handle}`);
+    await review.getByRole('button', { name: 'Release and credit once' }).click();
+    await expect(detail.getByTestId('deposit-travel-rule-reply')).toContainText('credited it once', { timeout: 60_000 });
+  } finally {
+    await a.context().close();
+  }
+  expect(await mine.usdt()).toBe(toUnits(LARGE));
+  await page.reload();
+  await expect(recordRow(page, tx).locator('[data-status]')).toHaveAttribute('data-status', 'credited');
+  // Seen again deeper on the chain, nothing more moves.
+  chainDeposit(address, LARGE, 12, label);
+  expect(await mine.usdt()).toBe(toUnits(LARGE));
+});
+
+test(`${J} #3 a wait on the sending platform runs past its deadline: still held, never released on its own`, async ({
+  page,
+  browser,
+}, testInfo) => {
+  test.setTimeout(300_000);
+  const { mine, tx, address, label, userId, who } = await heldDeposit(page, 'w3c', testInfo);
+  await declare(page, tx);
+  const a = await (await browser.newContext()).newPage();
+  try {
+    await founderSignIn(a, 'a');
+    const detail = await openTravelRuleRow(a, userId);
+    const review = detail.getByTestId('deposit-travel-rule-review');
+    await review.getByLabel(/^Why/).fill(`LOCAL TEST asked the sending platform about ${who.handle}`);
+    await review.getByRole('button', { name: 'Wait on the sending platform' }).click();
+    await expect(detail.getByTestId('deposit-travel-rule-reply')).toContainText('waiting on the sending platform until', {
+      timeout: 60_000,
+    });
+  } finally {
+    await a.context().close();
+  }
+  await page.reload();
+  const panel = travelRule(page, tx).getByTestId('deposit-travel-rule');
+  await expect(panel).toHaveAttribute('data-state', 'counterparty_pending');
+  await expect(panel).toContainText('Compliance is waiting for the sending platform until');
+  await expect(recordRow(page, tx)).toContainText('Compliance is waiting for the sending platform to confirm the transfer');
+
+  // The TEST wait is 60 seconds; svc-pay records it ran out within half a minute after. The deposit stays held.
+  await expect(async () => {
+    await page.reload();
+    await expect(travelRule(page, tx).getByTestId('deposit-travel-rule')).toHaveAttribute('data-state', 'blocking_time_expired', {
+      timeout: 5_000,
+    });
+  }).toPass({ timeout: 180_000, intervals: [10_000] });
+  await expect(recordRow(page, tx).locator('[data-status]')).toHaveAttribute('data-status', 'held_travel_rule');
+  await expect(recordRow(page, tx)).toContainText('The sending platform did not answer in time. The deposit stays held');
+  await expect(travelRule(page, tx)).toContainText('The wait for the sending platform has ended');
+  chainDeposit(address, LARGE, 12, label);
+  await page.reload();
+  await expect(recordRow(page, tx).locator('[data-status]')).toHaveAttribute('data-status', 'held_travel_rule');
+  expect(await mine.usdt()).toBe(0n);
+});
 
 test(`${J} #4 compliance freezes the deposit address: the confirming deposit shows on hold and is not credited; after a second person unfreezes it, one credit`, async ({
   page,

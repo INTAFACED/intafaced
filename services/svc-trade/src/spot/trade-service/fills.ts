@@ -15,6 +15,7 @@ import { dropCopySourceForBookOrder, fireDropCopyFill, type DropCopyFillWire, ty
 import { type EngineCancellation, type EngineFill, type EngineSubmitResult, type MatchingClient } from '../matching-client.js';
 import { isHouseMmAccount } from '../../mm/seed-market.js';
 import { HOUSE_MM_USER_UUID } from '../ids.js';
+import { REGULAR_FEE_TIER } from '../fee-schedule.js';
 import {
   attributionFromOrder,
   houseMmAttribution,
@@ -471,10 +472,15 @@ export async function settleFill(svc: PublishingService, market: Market, fill: E
   // (MM pot holds), never user tradeFill against HOUSE_MM_USER_UUID.
   const makerIsHouseMmRow = maker != null && maker.userId === HOUSE_MM_USER_UUID;
   if (makerIsHouseMm || makerIsHouseMmRow) {
-    const rates = await svc.ratesForFill(0, taker.feeDiscountBps, market.kind, market.symbol, {
-      maker: taker.createdAt,
-      taker: taker.createdAt,
-    });
+    // The house maker has no tier of its own: it is charged the regular row; the taker its own placement tier.
+    const rates = await svc.ratesForFill(
+      0,
+      taker.feeDiscountBps,
+      market.kind,
+      market.symbol,
+      { maker: taker.createdAt, taker: taker.createdAt },
+      { maker: REGULAR_FEE_TIER, taker: taker.feeTier },
+    );
     const takerBuys = fill.takerSide === 'buy';
     // BEFORE any fill row: fee-equal-to-receivable is permanently unpostable
     // (recipe throws; re-run throws). Inserting first left remainingHold
@@ -647,10 +653,14 @@ export async function settleFill(svc: PublishingService, market: Market, fill: E
   // Both rates in one place: `tradeFill` posts them in one six-entry
   // transaction, and resolving them apart would let one side's rounding drift
   // from the other's without anything failing.
-  const rates = await svc.ratesForFill(maker.feeDiscountBps, taker.feeDiscountBps, market.kind, market.symbol, {
-    maker: maker.createdAt,
-    taker: taker.createdAt,
-  });
+  const rates = await svc.ratesForFill(
+    maker.feeDiscountBps,
+    taker.feeDiscountBps,
+    market.kind,
+    market.symbol,
+    { maker: maker.createdAt, taker: taker.createdAt },
+    { maker: maker.feeTier, taker: taker.feeTier },
+  );
 
   const takerBuys = fill.takerSide === 'buy';
   // BEFORE fill rows: same fee-exhaust guard as the MM path above. Recipe

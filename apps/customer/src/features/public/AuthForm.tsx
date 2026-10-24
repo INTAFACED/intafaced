@@ -6,6 +6,7 @@ import { RecoveryCodeUsed, signInAnswerSchema, type SignInAnswer } from './Recov
 import { recoveryCodeCopy } from './recovery-code-copy';
 import { MfaReset } from './MfaReset';
 import { mfaResetCopy } from './mfa-reset-copy';
+import { supportRecoveryCopy } from './support-recovery-copy';
 import { Button, Field, Failure } from '../../shared/ui';
 import { authoredRefusal, type ApiClient, type ApiResult, type SecondStep } from '../../shared/api';
 import { uiCopy } from '../../shared/ui-copy';
@@ -53,6 +54,7 @@ export function AuthForm({ register }: { register: boolean }) {
   const { Copy: SharedCopy } = uiCopy.useCopy();
   const { t: r, languageFor: recoveryLanguageFor } = recoveryCodeCopy.useCopy();
   const { t: m, languageFor: resetLanguageFor } = mfaResetCopy.useCopy();
+  const recovery = supportRecoveryCopy.useCopy();
   const { api, commit, userId, restoring } = useSession();
   const accountStatus = useAccountViewStatus();
   const context = useLocation();
@@ -779,6 +781,11 @@ export function AuthForm({ register }: { register: boolean }) {
               {!register && (
                 <a className="text-link public-auth-help" href={publicAuthHref(authContext, '/findPwd')}>
                   {p('Recover account access')}
+                </a>
+              )}
+              {!register && (
+                <a className="text-link public-auth-help" href="/cannot-sign-in">
+                  {recovery.t('link')}
                 </a>
               )}
             </form>

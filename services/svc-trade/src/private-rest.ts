@@ -3462,6 +3462,7 @@ export function fakeOrder(partial: {
     holdAmount: 100_000_000_000_000_000_000n,
     amendReleased: 0n,
     feeDiscountBps: 0,
+    feeTier: 'regular',
     tag: null,
     protectionPrice: partial.protectionPrice === undefined ? null : partial.protectionPrice,
     engineSequence: 1,

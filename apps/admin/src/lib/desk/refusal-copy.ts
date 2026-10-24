@@ -367,6 +367,61 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'An approval runs once. Nothing was changed by this attempt.',
     next: 'Read the account again: if an earlier run went through and its answer was lost, the move is already there. If it still needs doing, make a new request.',
   },
+  'identity.limit_ceiling_unset': {
+    title: 'No limit override policy is set',
+    body: 'The owner has not set the limit override policy (IDENTITY_LIMIT_OVERRIDE_POLICY) for this rail and asset: the longest an override may last and the ceiling above which it needs the other founder. Identity sets no override without it. Nothing was changed.',
+    next: 'The owner sets the policy; nothing here fills it in.',
+  },
+  'identity.limit_expiry_past': {
+    title: 'That end time has already passed',
+    body: 'An override must end after now. Nothing was changed.',
+    next: 'Choose a later end time.',
+  },
+  'identity.limit_lifetime_exceeded': {
+    title: 'That override would last too long',
+    body: 'The owner’s policy caps how long an override may last, and this one ends after that. Nothing was changed.',
+    next: 'Choose an end time within the longest lifetime shown.',
+  },
+  'identity.limit_unchanged': {
+    title: 'That override is already in force',
+    body: 'The same figures and end time are already set. Nothing was changed.',
+    next: 'Read the account again.',
+  },
+  'identity.limit_self_forbidden': {
+    title: 'You cannot change your own limits',
+    body: 'A founder does not override the limits of their own account. Nothing was changed.',
+    next: 'The other founder can make the change.',
+  },
+  'identity.limit_account_closed': {
+    title: 'The account is closed',
+    body: 'Identity sets no limit override on a closed account. Nothing was changed.',
+    next: 'Reopen the account first if that is allowed.',
+  },
+  'identity.limit_requires_approver': {
+    title: 'Above the ceiling, a second founder must approve',
+    body: 'This override goes above the owner’s ceiling for its rail and asset, so identity sets it only with the other founder’s approval. Nothing was changed.',
+    next: 'Ask the other founder to approve the request, then run it.',
+  },
+  'identity.limit_approval_mismatch': {
+    title: 'That approval is not for this override',
+    body: 'The approval does not match this account, rail, asset, figures, end time, reason or override version, was not approved by a different founder who is still a founder, or has expired. Nothing was changed.',
+    next: 'Read the account again and make a new request if it still needs doing.',
+  },
+  'identity.limit_approval_consumed': {
+    title: 'That approval was already used',
+    body: 'An approval runs once. Nothing was changed by this attempt.',
+    next: 'Read the account again: if an earlier run went through and its answer was lost, the override is already there. If it still needs doing, make a new request.',
+  },
+  'identity.limit_override_not_found': {
+    title: 'No override is in force',
+    body: 'There is no override of this rail and asset to end. The base limit applies. Nothing was changed.',
+    next: 'Read the account again.',
+  },
+  'identity.limit_override_expired': {
+    title: 'That override has already ended',
+    body: 'Its stored end time has passed, so the base limit applies again. Nothing was changed.',
+    next: 'Read the account again.',
+  },
   'action_approval.same_person': {
     title: 'A different founder has to do this',
     body: 'The person who made the request cannot approve it or reject it. Identity enforces this.',

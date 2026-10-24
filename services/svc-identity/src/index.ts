@@ -63,6 +63,7 @@ import { createDisableUserRouter } from './disable-user-router.js';
 import { FounderControls, parseFounderPair } from './controls/founder-controls.js';
 import { createFounderControlsRouter } from './controls/founder-controls-router.js';
 import { CustomerDetailsDesk } from './controls/customer-details.js';
+import { AccountLimitsDesk, parseLimitPolicy } from './controls/account-limits.js';
 import { parseAccountTiers } from './controls/account-tiers.js';
 import { parseDormancyDays } from './controls/account-archive.js';
 import { createOperatorOpsRouter } from './ops/ops-router.js';
@@ -92,6 +93,9 @@ import { createTotpLifecycleRouter } from './totp-lifecycle-router.js';
 import { createSelfFreezeLiftRouter } from './self-freeze-lift-router.js';
 import { createSecurityLockRouter } from './security-lock-router.js';
 import { createMfaResetRouter } from './mfa-reset-router.js';
+import { createSupportRecoveryRouter } from './support-recovery-router.js';
+import { createRecoveryKeysRouter } from './recovery-keys-router.js';
+import { RecoveryKeys } from './auth/recovery-keys.js';
 import { createTrustedDevicesRouter } from './trusted-devices-router.js';
 import { SecurityLock } from './auth/security-lock.js';
 import { SelfFreezeLift } from './auth/self-freeze-lift.js';
@@ -408,6 +412,7 @@ auth.useLoginCodePolicy({
 });
 // The locked-out second-factor reset waits the owner's time; blank refuses and the sign-in page points to Support.
 auth.useMfaResetWait(env.IDENTITY_MFA_RESET_WAIT_SECONDS);
+auth.useSupportRecoveryLinkTtl(env.IDENTITY_SUPPORT_RECOVERY_LINK_TTL_SECONDS);
 auth.useNewDevicePolicy({
   check: env.IDENTITY_NEW_DEVICE_CHECK === 'on',
   flowTtlSeconds: env.IDENTITY_NEW_DEVICE_TTL_SECONDS,
@@ -453,6 +458,8 @@ const ledger = env.LEDGER_URL ? createLedgerClient(env.LEDGER_URL, env.INTERNAL_
 const vault = bootKycVault(sql, env.IDENTITY_KYC_DOC_KEY);
 // Staff-edited customer details (J-ops-console-04 #9) are encrypted under the same key; unset, every details door refuses.
 const customerDetails = new CustomerDetailsDesk(sql, founderControls, parseKycDocKey(env.IDENTITY_KYC_DOC_KEY));
+// Customer limit overrides (J-ops-console-04 #12) under the owner's IDENTITY_LIMIT_OVERRIDE_POLICY; unset, every set refuses.
+const accountLimits = new AccountLimitsDesk(sql, founderControls, parseLimitPolicy(env.IDENTITY_LIMIT_OVERRIDE_POLICY));
 
 const waitlist = new WaitlistService(
   new SqlWaitlistStore(sql),
@@ -634,7 +641,7 @@ export const appRouter = mergeRouters(
   createApiKeyProductRouter(sql, auth, auth),
   createApiKeyAttributionRouter(auth),
   createDisableUserRouter(founderControls),
-  createFounderControlsRouter(founderControls, customerDetails),
+  createFounderControlsRouter(founderControls, customerDetails, accountLimits),
   createOperatorOpsRouter(sql),
   createPreferencesRouter(sql, {
     displayCurrencies: env.IDENTITY_DISPLAY_CURRENCIES,
@@ -681,7 +688,9 @@ export const appRouter = mergeRouters(
   createSelfFreezeLiftRouter(selfFreezeLift, securityStepUp),
   createSecurityLockRouter(securityLock, securityStepUp),
   createMfaResetRouter(auth),
+  createSupportRecoveryRouter(() => auth.supportRecoveryDeps()),
   createTrustedDevicesRouter(auth, securityStepUp),
+  createRecoveryKeysRouter(new RecoveryKeys(sql, securityStepUp, founderPair ?? [])),
   createActionApprovalRouter(actionApprovals, {
     privilegedUserIds: founderPair ?? [],
     // Fresh factor for money-out step-up: the same verification as `auth.stepUp`, token discarded.
@@ -981,6 +990,29 @@ app.get<{ Params: { userId: string } }>('/internal/security-lock/:userId', async
   }
   return view;
 });
+
+/**
+ * The limit override in force now for one customer, rail and asset (J-ops-console-04 #12), `accountLimitOverrideReadSchema`.
+ * The service that enforces the limit reads it per request and keeps no copy; `override: null` means the base limit
+ * applies. Service credentials only. A rail or asset identity does not recognise → 400 `identity.limit_query_invalid`; an
+ * unknown user → 404. The caller refuses on either, never reads it as "none".
+ */
+app.get<{ Params: { userId: string }; Querystring: { rail?: string; assetId?: string } }>(
+  '/internal/limit-override/:userId',
+  async (req, reply) => {
+    if (serviceOfRequest(req, env.INTERNAL_SERVICE_SECRET, env.INTERNAL_SERVICE_BODY_BIND, doorS2s).service === null) {
+      return reply.code(401).send({ error: 'service credentials required', code: 'identity.unauthenticated' });
+    }
+    const read = await accountLimits.overrideInForce(req.params.userId, req.query.rail ?? '', req.query.assetId ?? '');
+    if (read === 'bad_query') {
+      return reply.code(400).send({ error: 'rail or asset not recognised', code: 'identity.limit_query_invalid' });
+    }
+    if (read === 'not_found') {
+      return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
+    }
+    return read;
+  },
+);
 
 /**
  * Public handle for a user id. svc-bank snapshots it onto a personal-send receipt.

@@ -23,6 +23,7 @@ const LIVE_ROOMS = [
   '/p2p/orders/:id',
   '/verification',
   '/uc/account',
+  '/uc/safe',
   '/token',
   '/trade/futures',
   '/money/activity?tab=transfers',

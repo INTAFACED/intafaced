@@ -172,6 +172,13 @@ export const en = {
   'notify.p2p.trade.fiat_sent.body': 'Check that the payment for trade {tradeId} arrived in your account before you release.',
   'notify.identity.kyc.approved.title': 'Verification approved',
   'notify.identity.kyc.approved.body': 'You are verified at the {tier} tier.',
+  'notify.identity.security.totp_added.title': 'Authenticator app turned on',
+  'notify.identity.security.totp_removed.title': 'Authenticator app turned off',
+  'notify.identity.security.totp_replaced.title': 'Authenticator app replaced',
+  'notify.identity.security.passkey_added.title': 'Passkey added',
+  'notify.identity.security.passkey_removed.title': 'Passkey removed',
+  'notify.identity.security.factor_changed.body':
+    'A way to sign in to your account changed. If this was not you, open Security, sign out everywhere and contact Support.',
   'notify.identity.rank.updated.title': 'Rank updated',
   'notify.identity.rank.updated.body': 'You moved from rank {previousRank} to rank {rank}.',
   'notify.token.stake.created.title': 'Stake locked',

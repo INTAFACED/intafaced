@@ -553,6 +553,226 @@ export const accountTierResultSchema = z
   });
 export type AccountTierResult = z.infer<typeof accountTierResultSchema>;
 
+/**
+ * Account limit overrides (J-ops-console-04 #12, OPS-accounts-desk-03). The base limits stay with the service that
+ * enforces them (svc-pay's withdrawal limits by KYC tier, D-148). Identity keeps a temporary per-customer override of one
+ * rail's figures for one asset, which ends at a stored time; after it the base limit is back. A null figure keeps the base
+ * figure. Figures are decimal strings in the asset's own units, never numbers, and never zero (a freeze stops an account).
+ *
+ * The owner policy (`IDENTITY_LIMIT_OVERRIDE_POLICY`) ships blank: the longest an override may last and, per rail and
+ * asset, the ceiling above which an override needs the other founder. Blank, invalid, or no ceiling for the asset refuses
+ * `identity.limit_ceiling_unset`; nothing is assumed.
+ */
+export const ACCOUNT_LIMIT_RAILS = ['withdrawal'] as const;
+export const accountLimitRailSchema = z.enum(ACCOUNT_LIMIT_RAILS);
+export type AccountLimitRail = z.infer<typeof accountLimitRailSchema>;
+export const accountLimitAssetIdSchema = z
+  .string()
+  .min(1)
+  .max(16)
+  .regex(/^[A-Z0-9]+$/);
+/** A positive decimal string: no sign, no exponent, at most 20 whole digits and 18 decimals (the ledger's column), never zero. */
+export const accountLimitAmountSchema = z
+  .string()
+  .max(40)
+  .regex(/^(?:0|[1-9]\d{0,19})(?:\.\d{1,18})?$/)
+  .refine((value) => !/^0(?:\.0+)?$/.test(value), 'A limit figure is above zero');
+const limitReason = z.string().trim().min(12).max(255);
+
+export const accountLimitOverrideSchema = z
+  .object({
+    userId: id,
+    rail: accountLimitRailSchema,
+    assetId: accountLimitAssetIdSchema,
+    /** Of this rail and asset for this customer; each set or clear adds one. */
+    version,
+    perTx: accountLimitAmountSchema.nullable(),
+    rolling24h: accountLimitAmountSchema.nullable(),
+    expiresAt: timestamp,
+    /** `expired` once the stored expiry has passed; `cleared` when a founder ended it early. */
+    status: z.enum(['active', 'expired', 'cleared']),
+    setBy: id,
+    /** The other founder, when the override is above the ceiling. */
+    approvedBy: id.nullable(),
+    setAt: timestamp,
+    reason: limitReason,
+    clearedBy: id.nullable(),
+    clearedAt: timestamp.nullable(),
+  })
+  .strict();
+export type AccountLimitOverride = z.infer<typeof accountLimitOverrideSchema>;
+
+export const accountLimitCeilingSchema = z
+  .object({ rail: accountLimitRailSchema, assetId: accountLimitAssetIdSchema, ceiling: accountLimitAmountSchema })
+  .strict();
+export type AccountLimitCeiling = z.infer<typeof accountLimitCeilingSchema>;
+export const accountLimitPolicySchema = z.discriminatedUnion('configured', [
+  z
+    .object({
+      configured: z.literal(true),
+      /** Whole hours, 1 to 8784 (a leap year). */
+      maxLifetimeHours: z.string().regex(/^[1-9]\d{0,3}$/),
+      ceilings: z.array(accountLimitCeilingSchema).min(1).max(100),
+    })
+    .strict(),
+  z.object({ configured: z.literal(false), code: z.literal('identity.limit_ceiling_unset') }).strict(),
+]);
+export type AccountLimitPolicy = z.infer<typeof accountLimitPolicySchema>;
+
+/** The customer's overrides as they stand, one per rail and asset ever set, with the owner policy. */
+export const accountLimitsStateSchema = z
+  .object({
+    userId: id,
+    overrides: z.array(accountLimitOverrideSchema).max(100),
+    policy: accountLimitPolicySchema,
+    closed: z.boolean(),
+    archived: z.boolean(),
+  })
+  .strict()
+  .refine((state) => state.overrides.every((row) => row.userId === state.userId), 'An override belongs to another account');
+export type AccountLimitsState = z.infer<typeof accountLimitsStateSchema>;
+
+export const accountLimitOverrideSetInputSchema = z
+  .object({
+    requestId: id,
+    userId: id,
+    rail: accountLimitRailSchema,
+    assetId: accountLimitAssetIdSchema,
+    perTx: accountLimitAmountSchema.nullable(),
+    rolling24h: accountLimitAmountSchema.nullable(),
+    expiresAt: timestamp,
+    reason: limitReason,
+    expectedVersion: version,
+    /** A stored `identity.change_limit` approval from the other founder; needed only above the ceiling. */
+    approvalId: z.string().trim().min(1).max(128).optional(),
+  })
+  .strict()
+  .refine((input) => input.perTx !== null || input.rolling24h !== null, 'An override sets at least one figure');
+export type AccountLimitOverrideSetInput = z.infer<typeof accountLimitOverrideSetInputSchema>;
+export const accountLimitOverrideClearInputSchema = z
+  .object({
+    requestId: id,
+    userId: id,
+    rail: accountLimitRailSchema,
+    assetId: accountLimitAssetIdSchema,
+    reason: limitReason,
+    expectedVersion: version,
+  })
+  .strict();
+export type AccountLimitOverrideClearInput = z.infer<typeof accountLimitOverrideClearInputSchema>;
+export const accountLimitsLookupInputSchema = z.object({ userId: id }).strict();
+export const accountLimitsHistoryInputSchema = z.object({ userId: id, limit: z.number().int().min(1).max(200) }).strict();
+
+const limitAuditFields = {
+  auditId: id,
+  requestId: id,
+  userId: id,
+  action: z.enum(['set', 'clear']),
+  rail: accountLimitRailSchema,
+  assetId: accountLimitAssetIdSchema,
+  reason: limitReason,
+  occurredAt: timestamp,
+};
+
+export const accountLimitResultSchema = z
+  .discriminatedUnion('outcome', [
+    z
+      .object({
+        ...limitAuditFields,
+        outcome: z.literal('changed'),
+        changed: z.literal(true),
+        actorUserId: id,
+        approverUserId: id.nullable(),
+        before: accountLimitOverrideSchema.nullable(),
+        after: accountLimitOverrideSchema,
+      })
+      .strict(),
+    z
+      .object({
+        ...limitAuditFields,
+        outcome: z.literal('refused'),
+        changed: z.literal(false),
+        actorUserId: id.nullable(),
+        code: z.enum([
+          'operator.denied',
+          'mfa.required',
+          'target.not_found',
+          'request.conflict',
+          'identity.limit_ceiling_unset',
+          'identity.limit_expiry_past',
+          'identity.limit_lifetime_exceeded',
+          'identity.limit_unchanged',
+          'identity.limit_self_forbidden',
+          'identity.limit_account_closed',
+          'identity.account_archived',
+          'identity.limit_requires_approver',
+          'identity.limit_approval_mismatch',
+          'identity.limit_approval_consumed',
+          'identity.limit_override_not_found',
+          'identity.limit_override_expired',
+        ]),
+        current: accountLimitOverrideSchema.nullable(),
+        /** With `identity.limit_requires_approver`: the owner ceiling the override goes above. */
+        ceiling: accountLimitAmountSchema.optional(),
+      })
+      .strict(),
+    z
+      .object({
+        ...limitAuditFields,
+        outcome: z.literal('conflict'),
+        changed: z.literal(false),
+        actorUserId: id,
+        code: z.literal('restriction.version_conflict'),
+        current: accountLimitOverrideSchema.nullable(),
+      })
+      .strict(),
+  ])
+  .superRefine((result, ctx) => {
+    if (result.outcome === 'refused' && (result.code === 'operator.denied' || result.code === 'mfa.required') && result.current !== null) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['current'], message: 'Unauthorized attempts cannot disclose target state' });
+    }
+    const states = 'after' in result ? [result.before, result.after] : [result.current];
+    if (
+      states.some((row) => row !== null && (row.userId !== result.userId || row.rail !== result.rail || row.assetId !== result.assetId))
+    ) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['userId'], message: 'Override belongs to another account, rail or asset' });
+    }
+    if (result.outcome === 'refused' && (result.code === 'identity.limit_requires_approver') !== (result.ceiling !== undefined)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['ceiling'], message: 'The ceiling comes with limit_requires_approver only' });
+    }
+    if (result.outcome === 'changed') {
+      const coherent =
+        BigInt(result.after.version) === BigInt(result.before?.version ?? '0') + 1n &&
+        (result.action === 'set' ? result.after.status === 'active' : result.after.status === 'cleared') &&
+        result.approverUserId !== result.actorUserId;
+      if (!coherent) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['after'], message: 'Outcome, action and versions disagree' });
+    }
+  });
+export type AccountLimitResult = z.infer<typeof accountLimitResultSchema>;
+
+/**
+ * svc-identity's `GET /internal/limit-override/:userId?rail=&assetId=`: the override in force now for one rail and asset,
+ * read by the service that enforces the limit. `override` null: none in force (never set, expired or cleared), so the
+ * base limit applies.
+ */
+export const accountLimitOverrideReadSchema = z
+  .object({
+    userId: id,
+    rail: accountLimitRailSchema,
+    assetId: accountLimitAssetIdSchema,
+    override: z
+      .object({
+        version,
+        perTx: accountLimitAmountSchema.nullable(),
+        rolling24h: accountLimitAmountSchema.nullable(),
+        expiresAt: timestamp,
+      })
+      .strict()
+      .nullable(),
+  })
+  .strict();
+export type AccountLimitOverrideRead = z.infer<typeof accountLimitOverrideReadSchema>;
+
 export const accountCredentialReferenceSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('session'), sessionId: id }).strict(),
   z.object({ kind: z.literal('api_key'), apiKeyId: id }).strict(),

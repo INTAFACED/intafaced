@@ -17,6 +17,7 @@ import {
   SECURITY_LOCK_UNLOCK_STEP_UP_PURPOSE,
   SECURITY_LOCK_UNLOCK_STEP_UP_SCOPE,
 } from './identity.js';
+import { RECOVERY_KEY_STEP_UP_PURPOSE, RECOVERY_KEY_STEP_UP_SCOPE } from './identity-recovery.js';
 
 /** How long the user has to answer the passkey or authenticator after begin. */
 export const CUSTOMER_STEP_UP_CHALLENGE_TTL_SECONDS = 120;
@@ -522,6 +523,17 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
     purpose: 'account.signinMethod.unlink',
     clientFields: ['method', 'clientRequestId'],
     targetField: 'method',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
+    scope: RECOVERY_KEY_STEP_UP_SCOPE,
+    purpose: RECOVERY_KEY_STEP_UP_PURPOSE,
+    // `change` is add, revoke or plan; `target` is the key's fingerprint, the key id, or `plan:<heir handle>:<threshold>`.
+    clientFields: ['change', 'target', 'clientRequestId'],
+    targetField: 'target',
     targetRequired: true,
     emptyOk: [],
     decimalFields: [],

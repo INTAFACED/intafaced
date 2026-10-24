@@ -260,6 +260,14 @@ const schema = serviceEnvSchema
       PAY_CHECKOUT_RISK_BAND: z.string().optional().default(''),
 
       /**
+       * Owner-declared success fraction per checkout rail for smart routing, as
+       * `railId:fraction` pairs (`crypto-native:0.97`). Blank declares none and the
+       * hosted checkout refuses every rail — never invent a rate. Parsed and
+       * checked at boot by `parseCheckoutSuccessRates` (routing/success-rates-env.ts).
+       */
+      PAY_CHECKOUT_SUCCESS_RATES: z.string().optional().default(''),
+
+      /**
        * svc-identity base for D26-P1-O2 affiliate accrue after merchantSettlement.
        * Blank → noop port (settlement still posts). Never invent rates.
        */
