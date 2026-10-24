@@ -138,6 +138,7 @@ export {
   ADMIN_OPEN_ORDERS_LIMIT_MAX,
   AdminOpenOrdersLimitUnsetError,
   TRADE_ADMIN_OPEN_ORDERS_LIMIT_UNSET,
+  replacementClientOrderId,
 } from './trade-service/internal.js';
 
 export interface TradeServiceOptions {
@@ -1590,7 +1591,7 @@ export class TradeService {
       untilMs?: number;
       side?: 'buy' | 'sell';
       status?: 'filled' | 'cancelled' | 'rejected' | 'expired';
-      type?: 'market' | 'limit' | 'stop_limit';
+      type?: 'market' | 'limit' | 'stop_limit' | 'stop';
       before?: string;
     },
   ): Promise<OrderRecord[]> {

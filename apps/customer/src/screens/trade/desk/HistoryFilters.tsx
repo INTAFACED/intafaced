@@ -6,7 +6,7 @@ type Key = keyof HistoryFilter;
 
 const OPTIONS: { readonly key: Key; readonly values: readonly string[] }[] = [
   { key: 'side', values: ['all', 'buy', 'sell'] },
-  { key: 'type', values: ['all', 'market', 'limit', 'stop_limit'] },
+  { key: 'type', values: ['all', 'market', 'limit', 'stop_limit', 'stop'] },
   { key: 'status', values: ['all', 'closed', 'canceled', 'rejected', 'expired'] },
 ];
 
@@ -21,7 +21,9 @@ export function HistoryFilters({ filter, onFilter }: { filter: HistoryFilter; on
         ? t('History filter type market')
         : value === 'limit'
           ? t('History filter type limit')
-          : t('History filter type stop_limit');
+          : value === 'stop'
+            ? t('History filter type stop')
+            : t('History filter type stop_limit');
     return value === 'closed'
       ? t('History filter status closed')
       : value === 'canceled'

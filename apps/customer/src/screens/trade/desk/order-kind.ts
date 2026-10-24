@@ -1,4 +1,5 @@
 import type { Order } from '../../../features/trade/trade-api';
+import { scaled } from './order-math';
 import { orderTag } from './tif';
 
 /**
@@ -21,3 +22,21 @@ export function canEdit(order: Order): boolean {
 /** Copy key for the kind an order with linked exit legs shows in the orders tables. */
 export const exitKindKey = (kind: 'oco' | 'bracket_exit'): 'Order type oco' | 'Order type bracket exit' =>
   kind === 'oco' ? 'Order type oco' : 'Order type bracket exit';
+
+/**
+ * A stop that has not fired can have its trigger changed (J-cex-spot-08 #3): a stop-limit or a stop-market, still open,
+ * nothing filled, no linked legs, the trigger stated and known not to have fired. The change is a replacement: the
+ * service cancels the stop and places a new one, so an order whose trigger state is unknown is never offered it.
+ */
+export function canEditStop(order: Order): boolean {
+  return (
+    !order.exit &&
+    (order.type === 'stop_limit' || order.type === 'stop') &&
+    order.status === 'open' &&
+    !order.recoveryRequired &&
+    order.triggered === null &&
+    !!order.stopPrice &&
+    order.price !== null &&
+    scaled(order.filled) === 0n
+  );
+}

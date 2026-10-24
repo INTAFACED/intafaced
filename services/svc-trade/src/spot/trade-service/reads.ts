@@ -173,7 +173,7 @@ export async function orderHistory(
     untilMs?: number;
     side?: 'buy' | 'sell';
     status?: 'filled' | 'cancelled' | 'rejected' | 'expired';
-    type?: 'market' | 'limit' | 'stop_limit';
+    type?: 'market' | 'limit' | 'stop_limit' | 'stop';
     before?: string;
   },
 ): Promise<OrderRecord[]> {
@@ -204,8 +204,10 @@ export async function orderHistory(
            : input.type === 'limit'
              ? svc.sql`AND type = 'limit' AND NOT EXISTS (SELECT 1 FROM trade.order_stop_trigger t WHERE t.order_id = trade.orders.id)`
              : input.type === 'stop_limit'
-               ? svc.sql`AND type = 'limit' AND EXISTS (SELECT 1 FROM trade.order_stop_trigger t WHERE t.order_id = trade.orders.id)`
-               : svc.sql``
+               ? svc.sql`AND type = 'limit' AND EXISTS (SELECT 1 FROM trade.order_stop_trigger t WHERE t.order_id = trade.orders.id AND t.kind = 'stop_limit')`
+               : input.type === 'stop'
+                 ? svc.sql`AND type = 'limit' AND EXISTS (SELECT 1 FROM trade.order_stop_trigger t WHERE t.order_id = trade.orders.id AND t.kind = 'stop')`
+                 : svc.sql``
        }
        ${sinceDate ? svc.sql`AND created_at >= ${sinceDate}` : svc.sql``}
        ${

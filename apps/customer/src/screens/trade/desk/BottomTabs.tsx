@@ -1,4 +1,4 @@
-import { memo, useState } from 'react';
+import { memo, useCallback, useState } from 'react';
 import type { Trade } from '@intafaced/exchange-contract/schemas';
 import type { BalanceEntry } from '../../../data/derive';
 import { useSession } from '../../../features/session/session';
@@ -15,6 +15,7 @@ import { CancelMany } from './CancelMany';
 import { DeadMan } from './DeadMan';
 import { LedgerTab } from './LedgerTab';
 import { EditOrder } from './EditOrder';
+import { StopEdit } from './StopEdit';
 import { FillsTable, LoadState, OrdersTable, precisionOf } from './OrderTables';
 
 type Tab = 'open' | 'history' | 'trades' | 'assets' | 'ledger' | 'positions';
@@ -30,17 +31,30 @@ interface Props {
   onTab: (tab: Tab) => void;
   /** Flatten a held coin: hand the order form a market sell of everything free in it, to review. */
   onFlatten: (amount: string) => void;
+  /** The current pair's last trade price, from the ticker; null while not known. */
+  lastPrice: string | null;
 }
 export type { Tab as BottomTab };
 
 /** Bottom strip (UI-SPEC 5.7): Open orders, Order history, Trade history, Assets, Ledger (signed in) and Positions (not applicable on cash spot), Pro density (40 px rows). */
-export const BottomTabs = memo(function BottomTabs({ market, markets, openOrders, fills, balances, tab, onTab, onFlatten }: Props) {
+export const BottomTabs = memo(function BottomTabs({
+  market,
+  markets,
+  openOrders,
+  fills,
+  balances,
+  tab,
+  onTab,
+  onFlatten,
+  lastPrice,
+}: Props) {
   const { t } = deskCopy.useCopy();
   const { userId } = useSession();
   const refresh = useRefreshPrivate();
   const closed = useClosedOrders(tab === 'history');
   const [historyFilter, setHistoryFilter] = useState<HistoryFilter>(NO_HISTORY_FILTER);
   const precision = precisionOf(markets, market);
+  const lastPriceOf = useCallback((symbol: string) => (symbol === market.symbol ? lastPrice : null), [market.symbol, lastPrice]);
   const showAll = !isHiddenPath('/money/activity');
   // The edit dialog is hosted here, above the lists: a replacement removes the old row (and may empty the list), and the
   // answer must stay on screen either way.
@@ -66,6 +80,7 @@ export const BottomTabs = memo(function BottomTabs({ market, markets, openOrders
       onChanged={refresh}
       desk
       onEdit={setEditing}
+      lastPriceOf={lastPriceOf}
       {...(withAction ? { selected, onSelect } : {})}
     />
   );
@@ -191,7 +206,11 @@ export const BottomTabs = memo(function BottomTabs({ market, markets, openOrders
         <StateBlock kind="empty" title={t('Positions not applicable')} body={t('Positions not applicable note')} />
       </TabsPanel>
       {editing && editingMarket ? (
-        <EditOrder order={editing} market={editingMarket} onDone={refresh} onClose={() => setEditing(null)} />
+        editing.type === 'stop_limit' || editing.type === 'stop' ? (
+          <StopEdit order={editing} market={editingMarket} onDone={refresh} onClose={() => setEditing(null)} />
+        ) : (
+          <EditOrder order={editing} market={editingMarket} onDone={refresh} onClose={() => setEditing(null)} />
+        )
       ) : null}
     </Tabs>
   );

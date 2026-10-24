@@ -3,7 +3,7 @@ import type { Order } from '../../../features/trade/trade-api';
 /** The three picks on the Order history tab. `all` is no filter. */
 export interface HistoryFilter {
   readonly side: 'all' | Order['side'];
-  readonly type: 'all' | 'market' | 'limit' | 'stop_limit';
+  readonly type: 'all' | 'market' | 'limit' | 'stop_limit' | 'stop';
   readonly status: 'all' | 'closed' | 'canceled' | 'rejected' | 'expired';
 }
 

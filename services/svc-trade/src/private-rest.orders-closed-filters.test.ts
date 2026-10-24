@@ -75,12 +75,12 @@ describe('GET /api/v1/orders/closed filters', () => {
   });
 
   it('passes a type filter through and refuses an unknown one', async () => {
-    for (const type of ['market', 'limit', 'stop_limit']) {
+    for (const type of ['market', 'limit', 'stop_limit', 'stop']) {
       const { res, seen } = await get(`?limit=10&type=${type}`);
       expect(res.statusCode, type).toBe(200);
       expect(seen[0]?.type, type).toBe(type);
     }
-    for (const type of ['stop', 'trailing', 'toString']) {
+    for (const type of ['stop_market', 'trailing', 'toString']) {
       const { res, seen } = await get(`?limit=10&type=${type}`);
       expect(res.statusCode, type).toBe(400);
       expect(seen, type).toEqual([]);
