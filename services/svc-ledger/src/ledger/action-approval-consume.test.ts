@@ -231,9 +231,11 @@ describe('founder attestation at ledger consume', () => {
 
   it('replays a consume under the caller request id when founder flags are not repeated', async () => {
     let seen: string | undefined;
+    let consumer: string | undefined;
     const consumed = await consumeLedgerApproval(
       echoingApproval('ledger.reconciliation_control.run', (row) => {
         seen = typeof row.requestId === 'string' ? row.requestId : undefined;
+        consumer = typeof row.consumerPrincipalId === 'string' ? row.consumerPrincipalId : undefined;
         delete row.approverIsFounder;
         delete row.requesterIsFounder;
         row.consumption = 'already_consumed_by_this_request';
@@ -244,9 +246,25 @@ describe('founder attestation at ledger consume', () => {
       '1',
       { controlId: 'control-1' },
       'op-1',
+      'operator-a',
     );
     expect(seen).toBe('op-1');
+    expect(consumer).toBe('operator-a');
     expect(consumed.consumption).toBe('already_consumed_by_this_request');
+  });
+
+  it('refuses a replay key without the consuming operator, so identity can bind the replay', async () => {
+    await expect(
+      consumeLedgerApproval(
+        echoingApproval('ledger.reconciliation_control.run'),
+        approvalCmd,
+        'ledger.reconciliation_control.run',
+        'posting_reconciliation_control.run',
+        '1',
+        { controlId: 'control-1' },
+        'op-1',
+      ),
+    ).rejects.toMatchObject({ code: 'action_approval.missing' });
   });
 
   it('leaves ledger.freeze working without an attestation', async () => {

@@ -85,6 +85,8 @@ if (!available) {
   }
 
   it('refuses activation with a blank tolerance and leaves the control draft', async () => {
+    const before = (await listReconciliationControls(db.sql)).length;
+    // Define with activate stores nothing when the policy is incomplete: no orphan draft on a retry.
     await expect(
       defineReconciliationControl(db.sql, actor, {
         template: 'threshold',
@@ -93,11 +95,20 @@ if (!available) {
         activate: true,
       }),
     ).rejects.toMatchObject({ code: OPS_CONTROL_POLICY_UNSET });
-    const listed = await listReconciliationControls(db.sql);
-    const draft = listed.find((control) => !control.builtin && control.state === 'draft');
+    expect(await listReconciliationControls(db.sql)).toHaveLength(before);
+    const defined = await defineReconciliationControl(db.sql, actor, {
+      template: 'threshold',
+      accountSet: { mode: 'query', assetId: 'USDT' },
+      reason: REASON,
+    });
+    await expect(
+      updateReconciliationControl(db.sql, actor, { controlId: defined.id, reason: REASON, activate: true }),
+    ).rejects.toMatchObject({ code: OPS_CONTROL_POLICY_UNSET });
+    const draft = (await listReconciliationControls(db.sql)).find((control) => control.id === defined.id);
+    expect(draft?.state).toBe('draft');
     expect(draft?.tolerance).toEqual({ status: 'unset' });
     const audit = await db.sql<Array<{ actor_id: string; reason: string; action: string }>>`
-      SELECT actor_id, reason, action FROM reconciliation_control_audit WHERE control_id = ${draft!.id}
+      SELECT actor_id, reason, action FROM reconciliation_control_audit WHERE control_id = ${defined.id}
     `;
     expect(audit).toEqual([expect.objectContaining({ actor_id: ACTOR, reason: REASON, action: 'define' })]);
   });
@@ -385,11 +396,14 @@ if (!available) {
       activate: true,
     });
     await runDueReconciliationControls(db.sql);
-    const opened = await db.sql<Array<{ id: string; status: string; finished_at: Date }>>`
-      SELECT id, status, finished_at FROM reconciliation_control_runs WHERE control_id = ${defined.id}
+    // The current hour and the hour before it (caught up, so a due instant no tick landed after still runs).
+    const opened = await db.sql<Array<{ id: string; status: string; finished_at: Date; period_start: Date }>>`
+      SELECT id, status, finished_at, period_start FROM reconciliation_control_runs
+       WHERE control_id = ${defined.id} ORDER BY period_start DESC
     `;
-    expect(opened).toHaveLength(1);
-    expect(opened[0]!.status).not.toBe('started');
+    expect(opened).toHaveLength(2);
+    expect(opened[0]!.period_start.getTime() - opened[1]!.period_start.getTime()).toBe(3_600_000);
+    expect(opened.every((run) => run.status !== 'started')).toBe(true);
     const finishedAt = opened[0]!.finished_at.toISOString();
     await runDueReconciliationControls(db.sql);
     const skipped = await db.sql<Array<{ status: string; finished_at: Date }>>`
@@ -412,6 +426,109 @@ if (!available) {
       SELECT status, phase, error_code FROM reconciliation_control_runs WHERE id = ${opened[0]!.id}
     `;
     expect(resumed[0]).toEqual({ status: 'ERROR', phase: 'accounts', error_code: LEDGER_RECONCILE_SOURCE_UNAVAILABLE });
+  });
+
+  it('catches a cached balance the entries do not explain, on a run now', async () => {
+    const drifted = await insertAccount('abcdeaaa-2222-4222-8222-000000000001');
+    await db.sql`UPDATE accounts SET balance = 5 WHERE id = ${drifted}`;
+    try {
+      const run = await runReconciliationControl(db.sql, approvals, actor, {
+        controlId: '11111111-1111-4111-8111-111111111111',
+        reason: REASON,
+        approvalId: 'appr-drift',
+        operationId: nextOp(),
+      });
+      expect(run.status).toBe('FAIL');
+      expect(run.assets).toEqual([expect.objectContaining({ assetId: 'USDT', observed: expect.stringMatching(/^5/) })]);
+    } finally {
+      await db.sql`UPDATE accounts SET balance = 0 WHERE id = ${drifted}`;
+    }
+  });
+
+  it('runs an operator ledger invariant as replay only, and passes a healthy subset', async () => {
+    const holder = await insertAccount('abcdeaaa-3333-4333-8333-000000000001');
+    const defined = await defineReconciliationControl(db.sql, actor, {
+      template: 'ledger_invariant',
+      accountSet: { mode: 'explicit', accountIds: [holder] },
+      schedule: { cadence: 'daily', hour: 0, minute: 0 },
+      severity: 'info',
+      tolerance: { default: '0' },
+      reason: REASON,
+      activate: true,
+    });
+    expect(defined.checkKind).toEqual({ status: 'set', value: 'replay' });
+    const run = await runReconciliationControl(db.sql, approvals, actor, {
+      controlId: defined.id,
+      reason: REASON,
+      approvalId: 'appr-subset',
+      operationId: nextOp(),
+    });
+    expect(run.status).toBe('PASS');
+  });
+
+  it('refuses an operator run in the scheduled operation-id space', async () => {
+    await expect(
+      runReconciliationControl(db.sql, approvals, actor, {
+        controlId: '11111111-1111-4111-8111-111111111111',
+        reason: REASON,
+        approvalId: 'appr-reserved',
+        operationId: 'schedule:11111111-1111-4111-8111-111111111111:2026-10-24T00:00:00.000Z',
+      }),
+    ).rejects.toMatchObject({ code: 'ledger.idempotency_conflict' });
+  });
+
+  it('keeps an outside snapshot with no as-of unset rather than the ledger time', async () => {
+    const defined = await defineReconciliationControl(db.sql, actor, {
+      template: 'outside_balance',
+      accountSet: { mode: 'query', assetId: 'USDT' },
+      schedule: { cadence: 'daily', hour: 0, minute: 0 },
+      severity: 'info',
+      tolerance: { default: '0' },
+      reason: REASON,
+      activate: true,
+    });
+    const sources: ReconciliationSources = {
+      outsideBalance: async () => ({ kind: 'snapshot', balances: [{ assetId: 'USDT', amount: '0' }] }),
+      parity: async () => ({ kind: 'unset' }),
+    };
+    const run = await runReconciliationControl(
+      db.sql,
+      approvals,
+      actor,
+      { controlId: defined.id, reason: REASON, approvalId: 'appr-noasof', operationId: nextOp() },
+      sources,
+    );
+    expect(run.sources.outside).toEqual({ asOf: 'unset' });
+  });
+
+  it('keeps running later controls when one scheduled control throws', async () => {
+    const broken = await defineReconciliationControl(db.sql, actor, {
+      template: 'threshold',
+      accountSet: { mode: 'query', assetId: 'USDT' },
+      schedule: { cadence: 'hourly', minute: 0 },
+      severity: 'info',
+      tolerance: { default: '0' },
+      threshold: { bound: 'max', byAsset: { USDT: '1000' } },
+      margin: '99999999',
+      reason: REASON,
+      activate: true,
+    });
+    const healthy = await defineReconciliationControl(db.sql, actor, {
+      template: 'threshold',
+      accountSet: { mode: 'query', assetId: 'USDT' },
+      schedule: { cadence: 'hourly', minute: 0 },
+      severity: 'info',
+      tolerance: { default: '0' },
+      threshold: { bound: 'max', byAsset: { USDT: '1000' } },
+      margin: '0',
+      reason: REASON,
+      activate: true,
+    });
+    await runDueReconciliationControls(db.sql);
+    const runs = await db.sql<Array<{ control_id: string }>>`
+      SELECT control_id FROM reconciliation_control_runs WHERE control_id IN (${broken.id}, ${healthy.id})
+    `;
+    expect(runs.filter((run) => run.control_id === healthy.id).length).toBeGreaterThan(0);
   });
 
   it('reaches define and run on the operator port', async () => {

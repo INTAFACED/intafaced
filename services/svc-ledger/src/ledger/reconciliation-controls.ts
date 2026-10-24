@@ -217,9 +217,16 @@ async function loadControl(sql: Db, id: string, lock: boolean): Promise<ControlR
   return row;
 }
 
+/**
+ * An operator account set is never the whole book, and netting to zero only holds over the whole book, so an
+ * operator ledger invariant is a replay check. The built-in netting control nets the whole book.
+ */
 function checkKindFor(template: ControlRow['template']): ControlRow['check_kind'] {
-  return template === 'ledger_invariant' ? 'replay_and_netting' : null;
+  return template === 'ledger_invariant' ? 'replay' : null;
 }
+
+/** Scheduled runs own this operation-id prefix; an operator run may not use it. */
+const SCHEDULE_OPERATION_PREFIX = 'schedule:';
 
 export async function defineReconciliationControl(
   sql: Sql,
@@ -240,7 +247,8 @@ export async function defineReconciliationControl(
     tolerance,
     threshold: parsed.threshold ?? null,
   });
-  let refused = false;
+  // Refused before anything is stored: define has no idempotency key, so a refused activate must not leave a draft.
+  if (activate && !ready) throw new ReconciliationControlError(OPS_CONTROL_POLICY_UNSET);
   const view = await sql.begin(async (tx) => {
     const inserted = await tx<ControlRow[]>`
       INSERT INTO reconciliation_controls (
@@ -269,10 +277,6 @@ export async function defineReconciliationControl(
     if (!row) throw new ReconciliationControlError(LEDGER_RECONCILE_SOURCE_UNAVAILABLE);
     await audit(tx, row.id, who, reason, 'define', actor.requestId, { template: parsed.template, activate });
     if (!activate) return toView(row);
-    if (!ready) {
-      refused = true;
-      return toView(row);
-    }
     const activated = await tx<ControlRow[]>`
       UPDATE reconciliation_controls
          SET state = 'active', version = version + 1, updated_at = clock_timestamp()
@@ -284,7 +288,6 @@ export async function defineReconciliationControl(
     await audit(tx, row.id, who, reason, 'update', actor.requestId, { state: 'active' });
     return toView(next);
   });
-  if (refused) throw new ReconciliationControlError(OPS_CONTROL_POLICY_UNSET);
   return view;
 }
 
@@ -387,6 +390,43 @@ async function balancesAt(sql: Db, ids: string[], readAt: Date): Promise<Map<str
   `;
   for (const row of rows) out.set(row.account_id, parseAmount(row.balance_after));
   return out;
+}
+
+/** The cached balance column, read for a run at the current instant only (it has no history). */
+async function cachedBalances(sql: Db, ids: string[]): Promise<Map<string, Amount>> {
+  const out = new Map<string, Amount>();
+  for (const id of ids) out.set(id, 0n);
+  if (ids.length === 0) return out;
+  const rows = await sql<Array<{ id: string; balance: string }>>`
+    SELECT id, balance::text AS balance FROM accounts WHERE id = ANY(${ids}::uuid[])
+  `;
+  for (const row of rows) out.set(row.id, parseAmount(row.balance));
+  return out;
+}
+
+/**
+ * Ledger side and replay side from one snapshot, so a post committing mid-run cannot show as drift. A run at the
+ * current instant compares the cached balance with the replayed entries (the drift a replay exists to catch); a
+ * past run has no cached history and uses each account's last balance_after.
+ */
+async function ledgerAndReplay(
+  sql: Db,
+  ids: string[],
+  readAt: Date,
+  past: boolean,
+): Promise<{ balances: Map<string, Amount>; replayed: Map<string, Amount> }> {
+  const read = async (db: Db) => {
+    const balances = past ? await balancesAt(db, ids, readAt) : await cachedBalances(db, ids);
+    const replayed = await replayedAt(db, ids, readAt);
+    return { balances, replayed };
+  };
+  if ('begin' in sql && typeof sql.begin === 'function') {
+    return (sql as Sql).begin('isolation level repeatable read read only', (tx) => read(tx)) as Promise<{
+      balances: Map<string, Amount>;
+      replayed: Map<string, Amount>;
+    }>;
+  }
+  return read(sql);
 }
 
 async function replayedAt(sql: Db, ids: string[], readAt: Date): Promise<Map<string, Amount>> {
@@ -576,7 +616,7 @@ async function evaluate(
   let ledgerTotals: Map<string, Amount>;
   let replayTotals: Map<string, Amount>;
   try {
-    const [balances, replayed] = await Promise.all([balancesAt(sql, ids, readAt), replayedAt(sql, ids, readAt)]);
+    const { balances, replayed } = await ledgerAndReplay(sql, ids, readAt, past);
     ledgerTotals = sumByAsset(accounts, balances);
     replayTotals = sumByAsset(accounts, replayed);
   } catch {
@@ -593,7 +633,7 @@ async function evaluate(
   if (row.template === 'ledger_invariant' && (row.check_kind === 'replay' || row.check_kind === 'replay_and_netting')) {
     const replayRows = equalAssets(ledgerTotals, replayTotals, row.tolerance, true);
     let assets = replayRows;
-    if (row.check_kind === 'replay_and_netting') {
+    if (row.check_kind === 'replay_and_netting' && accountSet.mode === 'all') {
       const zeros = new Map<string, Amount>();
       for (const assetId of ledgerTotals.keys()) zeros.set(assetId, 0n);
       const netRows = equalAssets(ledgerTotals, zeros, row.tolerance, true);
@@ -702,7 +742,8 @@ async function evaluate(
   for (const balance of read.balances ?? []) expected.set(balance.assetId, parseAmount(balance.amount));
   const nextSources: ReconciliationControlRunView['sources'] = {
     ...emptySources,
-    [side]: read.asOf ? { asOf: read.asOf } : { asOf: ledgerAsOf },
+    // A snapshot that names no as-of stays unset: its age is unknown, and the ledger's time is not its time.
+    [side]: { asOf: read.asOf ?? 'unset' },
   };
   const assets = equalAssets(ledgerTotals, expected, row.tolerance, !outsideTemplate);
   const unsetSource = outsideTemplate && assets.some((asset) => asset.expected === 'unset');
@@ -896,6 +937,7 @@ export async function runReconciliationControl(
   now?: Date,
 ): Promise<ReconciliationControlRunView> {
   const parsed = runReconciliationControlInputSchema.parse(input);
+  if (parsed.operationId.startsWith(SCHEDULE_OPERATION_PREFIX)) throw new ReconciliationControlError('ledger.idempotency_conflict');
   const who = actorOf(actor.actorId);
   const reason = reasonOf(parsed.reason);
   const row = await loadControl(sql, parsed.controlId, false);
@@ -942,6 +984,7 @@ export async function runReconciliationControl(
       reason,
     },
     parsed.operationId,
+    who,
   );
   return openOrResumeRun(
     sql,
@@ -1003,74 +1046,101 @@ export async function runDueControls(sql: Sql, sources: ReconciliationSources = 
      WHERE builtin = false AND state = 'active' AND schedule IS NOT NULL
   `;
   for (const row of rows) {
-    const schedule = reconciliationScheduleSchema.parse(row.schedule);
-    const periodName = row.period ?? periodForSchedule(schedule);
-    const bounds = periodBounds(periodName, at);
-    const due = dueInstant(schedule, bounds.start);
-    if (!due || at.getTime() < due.getTime()) continue;
-    const operationId = `schedule:${row.id}:${bounds.start.toISOString()}`;
-    const existing = await existingRun(sql, operationId);
-    // A terminal row for this period is done. A started row is a crash between open and finish: resume it.
-    if (existing && existing.status !== 'started') continue;
-    if (existing) {
-      await resumeScheduled(sql, row, existing, sources);
-      continue;
-    }
-    const margin = row.margin;
-    if (margin === null || margin.trim() === '') {
-      await openRun(
-        sql,
-        row,
-        { actorId: 'reconciliation', requestId: null },
-        'scheduled reconciliation control',
-        operationId,
-        fingerprint({ controlId: row.id, asOf: due.toISOString(), margin: 'unset', reason: 'scheduled reconciliation control' }),
-        due,
-        due,
-        'unset',
-        bounds,
-      ).then((opened) =>
-        finishRun(
-          sql,
-          opened.id,
-          {
-            status: 'ERROR',
-            phase: 'margin',
-            errorCode: OPS_CONTROL_MARGIN_UNSET,
-            assets: [],
-            outsideSide: 'not_applicable',
-            sources: {
-              ledger: { asOf: due.toISOString() },
-              outside: { asOf: 'unset' },
-              parity: { asOf: 'unset' },
-            },
-          },
-          [],
-        ),
+    // One control that throws must not stop the others: its period stays unrun and the next tick retries it.
+    try {
+      const schedule = reconciliationScheduleSchema.parse(row.schedule);
+      const periodName = row.period ?? periodForSchedule(schedule);
+      const current = periodBounds(periodName, at);
+      // The period before this one too, so a due instant no tick landed after (a short window late in a period)
+      // is caught up on the next tick instead of being skipped.
+      const previous = periodBounds(periodName, new Date(current.start.getTime() - 1));
+      for (const bounds of [previous, current]) await runScheduledPeriod(sql, row, schedule, bounds, at, sources);
+    } catch (err) {
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          service: 'svc-ledger',
+          event: 'ledger.reconciliation_control.schedule_failed',
+          controlId: row.id,
+          message: err instanceof Error ? err.message : String(err),
+        }),
       );
-      continue;
     }
-    const readAt = readInstant(due, margin);
-    const fp = fingerprint({
-      controlId: row.id,
-      asOf: due.toISOString(),
-      margin,
-      reason: 'scheduled reconciliation control',
-    });
+  }
+}
+
+async function runScheduledPeriod(
+  sql: Sql,
+  row: ControlRow,
+  schedule: ReturnType<typeof reconciliationScheduleSchema.parse>,
+  bounds: ReturnType<typeof periodBounds>,
+  at: Date,
+  sources: ReconciliationSources,
+): Promise<void> {
+  const due = dueInstant(schedule, bounds.start);
+  if (!due || at.getTime() < due.getTime()) return;
+  const operationId = `${SCHEDULE_OPERATION_PREFIX}${row.id}:${bounds.start.toISOString()}`;
+  const existing = await existingRun(sql, operationId);
+  // A terminal row for this period is done. A started row is a crash between open and finish: resume it.
+  if (existing && existing.status !== 'started') return;
+  if (existing) {
+    await resumeScheduled(sql, row, existing, sources);
+    return;
+  }
+  const margin = row.margin;
+  if (margin === null || margin.trim() === '') {
     const opened = await openRun(
       sql,
       row,
       { actorId: 'reconciliation', requestId: null },
       'scheduled reconciliation control',
       operationId,
-      fp,
+      fingerprint({ controlId: row.id, asOf: due.toISOString(), margin: 'unset', reason: 'scheduled reconciliation control' }),
       due,
-      readAt,
-      margin,
-      periodBounds(periodName, readAt),
+      due,
+      'unset',
+      bounds,
     );
-    await resumeRun(sql, row, opened, sources, true);
+    await finishRun(
+      sql,
+      opened.id,
+      {
+        status: 'ERROR',
+        phase: 'margin',
+        errorCode: OPS_CONTROL_MARGIN_UNSET,
+        assets: [],
+        outsideSide: 'not_applicable',
+        sources: {
+          ledger: { asOf: due.toISOString() },
+          outside: { asOf: 'unset' },
+          parity: { asOf: 'unset' },
+        },
+      },
+      [],
+    );
+    return;
   }
+  const readAt = readInstant(due, margin);
+  const fp = fingerprint({
+    controlId: row.id,
+    asOf: due.toISOString(),
+    margin,
+    reason: 'scheduled reconciliation control',
+  });
+  // The run belongs to the period it is due in, even when the margin reads from just before that period.
+  const opened = await openRun(
+    sql,
+    row,
+    { actorId: 'reconciliation', requestId: null },
+    'scheduled reconciliation control',
+    operationId,
+    fp,
+    due,
+    readAt,
+    margin,
+    bounds,
+  );
+  await resumeRun(sql, row, opened, sources, true);
 }
 
 async function resumeScheduled(sql: Sql, row: ControlRow, existing: RunRow, sources: ReconciliationSources): Promise<void> {
