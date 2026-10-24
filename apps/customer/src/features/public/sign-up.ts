@@ -8,7 +8,7 @@ import { sessionSchema } from '../session/session';
 export const signUpAcceptedSchema = z.object({
   accepted: z.literal(true),
   next: z.literal('confirm_email'),
-  flowId: z.string().uuid(),
+  flowId: z.string().guid(),
   resendAfterSeconds: z.number().int().positive(),
 });
 export type SignUpAccepted = z.infer<typeof signUpAcceptedSchema>;

@@ -46,8 +46,8 @@ export function createTradeIdentityAuthRouter(
   return router({
     subAccountFrozen: router({
       set: scopedProcedure('identity:write')
-        .input(z.object({ subAccountId: z.string().uuid(), frozen: z.union([z.literal(0), z.literal(1)]) }))
-        .output(z.object({ id: z.string().uuid(), frozen: z.union([z.literal(0), z.literal(1)]), changed: z.boolean() }))
+        .input(z.object({ subAccountId: z.string().guid(), frozen: z.union([z.literal(0), z.literal(1)]) }))
+        .output(z.object({ id: z.string().guid(), frozen: z.union([z.literal(0), z.literal(1)]), changed: z.boolean() }))
         .mutation(async ({ ctx, input }) => {
           try {
             if (ctx.principal.sub_account) {
@@ -91,10 +91,10 @@ export function createTradeIdentityAuthRouter(
     }),
     frozenRead: router({
       open: scopedProcedure('trade:read')
-        .input(z.object({ revokedSessionId: z.string().uuid() }))
+        .input(z.object({ revokedSessionId: z.string().guid() }))
         .output(
           z.object({
-            sessionId: z.string().uuid(),
+            sessionId: z.string().guid(),
             accessToken: z.string(),
             expiresAt: z.string(),
             scopes: z.array(z.string()),
@@ -123,8 +123,8 @@ export function createTradeIdentityAuthRouter(
           }
         }),
       fillsForOrder: scopedProcedure('trade:read')
-        .input(z.object({ orderId: z.string().uuid() }))
-        .output(z.object({ id: z.string(), orderId: z.string().uuid(), userId: z.string().uuid(), qty: z.string() }))
+        .input(z.object({ orderId: z.string().guid() }))
+        .output(z.object({ id: z.string(), orderId: z.string().guid(), userId: z.string().guid(), qty: z.string() }))
         .query(async ({ ctx, input }) => {
           try {
             const user = await store.getUser(ctx.principal.userId);

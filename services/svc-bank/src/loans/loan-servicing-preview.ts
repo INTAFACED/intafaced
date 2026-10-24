@@ -33,7 +33,7 @@ export function throwPreviewRefusal(engine: string, action: string): never {
   });
 }
 
-const loanIdInput = z.object({ loanId: z.string().uuid() }).strict();
+const loanIdInput = z.object({ loanId: z.string().guid() }).strict();
 
 const policyOutput = z.union([
   z.object({ status: z.literal('not_set') }).strict(),

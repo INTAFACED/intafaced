@@ -14,7 +14,7 @@ const amountString = z.string().regex(/^\d+(\.\d{1,18})?$/);
 const requestStatus = z.enum(['open', 'paid', 'declined', 'cancelled', 'expired']);
 
 const requestView = z.object({
-  requestId: z.string().uuid(),
+  requestId: z.string().guid(),
   payeeUserId: z.string(),
   payerUserId: z.string(),
   payeeHandle: z.string().nullable(),
@@ -34,7 +34,7 @@ export function createPersonalRequestRouter(bank: Pick<BankServices, 'personalPa
     create: scopedProcedure('bank:write', { module: 'bank' })
       .input(
         z.object({
-          payerUserId: z.string().uuid(),
+          payerUserId: z.string().guid(),
           assetId: z.string().min(1).max(16),
           amount: amountString,
           note: z.string().max(140).optional(),
@@ -78,22 +78,22 @@ export function createPersonalRequestRouter(bank: Pick<BankServices, 'personalPa
       ),
 
     get: scopedProcedure('bank:read', { module: 'bank' })
-      .input(z.object({ requestId: z.string().uuid() }))
+      .input(z.object({ requestId: z.string().guid() }))
       .output(requestView)
       .query(({ ctx, input }) => guard(() => bank.personalPay.getRequest(ctx.principal.userId, input.requestId))),
 
     cancel: scopedProcedure('bank:write', { module: 'bank' })
-      .input(z.object({ requestId: z.string().uuid() }))
+      .input(z.object({ requestId: z.string().guid() }))
       .output(requestView)
       .mutation(({ ctx, input }) => guard(() => bank.personalPay.cancelRequest(ctx.principal.userId, input.requestId))),
 
     decline: scopedProcedure('bank:write', { module: 'bank' })
-      .input(z.object({ requestId: z.string().uuid() }))
+      .input(z.object({ requestId: z.string().guid() }))
       .output(requestView)
       .mutation(({ ctx, input }) => guard(() => bank.personalPay.declineRequest(ctx.principal.userId, input.requestId))),
 
     remind: scopedProcedure('bank:write', { module: 'bank' })
-      .input(z.object({ requestId: z.string().uuid(), idempotencyKey: z.string().min(8).max(64) }))
+      .input(z.object({ requestId: z.string().guid(), idempotencyKey: z.string().min(8).max(64) }))
       .output(requestView)
       .mutation(({ ctx, input }) =>
         guard(() => bank.personalPay.remindRequest(ctx.principal.userId, input.requestId, input.idempotencyKey)),

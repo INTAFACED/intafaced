@@ -248,7 +248,7 @@ export function Account() {
                 'identity',
                 'subAccounts.create',
                 { label: intent.label, ...(intent.purpose ? { purpose: intent.purpose } : {}) },
-                z.object({ id: z.string().uuid() }),
+                z.object({ id: z.string().guid() }),
                 { signal: controller.signal },
               )
             : await intent.client.mutate(

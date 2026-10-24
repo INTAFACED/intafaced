@@ -15,7 +15,7 @@ import { z } from 'zod';
 
 export const envelopeSchema = z.object({
   /** Unique per publish attempt. */
-  id: z.string().uuid(),
+  id: z.string().guid(),
   subject: z.string(),
   version: z.number().int().min(1),
   /** When the fact happened — not when it was published. */

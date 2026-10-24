@@ -7,7 +7,7 @@ export const closureCheck = z.object({ blockers: z.array(closureBlocker), balanc
 export type ClosureCheck = z.infer<typeof closureCheck>;
 
 export const closureView = z.object({
-  id: z.string().uuid(),
+  id: z.string().guid(),
   status: z.enum(['requested', 'cancelled', 'blocked', 'closed']),
   requestedAt: z.string(),
   effectiveAt: z.string(),

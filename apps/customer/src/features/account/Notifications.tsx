@@ -11,8 +11,8 @@ import './notifications.css';
 
 const date = z.string().datetime({ offset: true });
 const notification = z.object({
-  id: z.string().uuid(),
-  userId: z.string().uuid(),
+  id: z.string().guid(),
+  userId: z.string().guid(),
   titleKey: z.string(),
   bodyKey: z.string(),
   title: z.string(),
@@ -102,7 +102,7 @@ function NotificationRoom({ userId }: { userId: string }) {
         'notify.list',
         { limit: 50, ...(cursor ? { cursor } : {}), unreadOnly: unread },
         z
-          .object({ items: z.array(notification).max(50), nextCursor: z.string().uuid().nullable() })
+          .object({ items: z.array(notification).max(50), nextCursor: z.string().guid().nullable() })
           .refine(
             (data) =>
               data.items.every((row) => row.userId === userId) &&

@@ -62,8 +62,8 @@ export const sweepDueViewSchema = z.object({
 });
 export type SweepDueView = z.infer<typeof sweepDueViewSchema>;
 
-export const sweepCreateInputSchema = z.object({ depositId: z.string().uuid() }).strict();
-export const sweepExecuteInputSchema = z.object({ sweepId: z.string().uuid() }).strict();
+export const sweepCreateInputSchema = z.object({ depositId: z.string().guid() }).strict();
+export const sweepExecuteInputSchema = z.object({ sweepId: z.string().guid() }).strict();
 export const sweepListInputSchema = z
   .object({ networkId: id.optional(), assetId: id.optional(), limit: z.number().int().min(1).max(200).default(50) })
   .strict();

@@ -98,7 +98,7 @@ const signedDecimal = z.string().regex(/^-?\d+(\.\d{1,18})?$/, 'offsets are sign
 const engineOrderTypeSchema = z.enum(['market', 'limit', 'stop', 'stop_limit']);
 
 const submitBodySchema = z.object({
-  orderId: z.string().uuid(),
+  orderId: z.string().guid(),
   /** §5.1: account ids only. This service never learns whose account it is. */
   accountId: z.string().min(1).max(128),
   type: engineOrderTypeSchema,
@@ -110,7 +110,7 @@ const submitBodySchema = z.object({
   stopPx: decimal.nullish(),
   tif: timeInForceSchema,
   /** Linked TP+SL sibling. First fill cancels the other; refuse if that sibling is already terminal. */
-  ocoSiblingId: z.string().uuid().optional(),
+  ocoSiblingId: z.string().guid().optional(),
   /** One-cancels-other exit pair: take-profit (limit) and stop-loss (stop). Missing a leg refuses; the engine does not invent one. */
   oco: z.boolean().optional(),
   takeProfit: decimal.nullish(),
@@ -179,7 +179,7 @@ const submitBodySchema = z.object({
 });
 
 const closePositionBodySchema = z.object({
-  orderId: z.string().uuid(),
+  orderId: z.string().guid(),
   accountId: z.string().min(1).max(128),
   /** Same PLACE / market-lifecycle proof as a market submit. */
   lifecycleProof: marketLifecycleAdmissionProofSchema,
@@ -216,7 +216,7 @@ const mmpFieldsSchema = z.object({
 
 const quoteSideSchema = z
   .object({
-    orderId: z.string().uuid(),
+    orderId: z.string().guid(),
     type: engineOrderTypeSchema,
     qty: decimal,
     price: decimal.nullish(),
@@ -308,7 +308,7 @@ const spreadListBodySchema = z.object({
 
 /** A spread order. GTC limit at a signed spread price; the engine stamps the listing itself. */
 const spreadOrderBodySchema = z.object({
-  orderId: z.string().uuid(),
+  orderId: z.string().guid(),
   accountId: z.string().min(1).max(128),
   side: orderSideSchema,
   qty: decimal,
