@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef, useState, type ReactNode } from 'react';
 import { ACADEMY_LESSON_BLOCK_TYPES, ACADEMY_LESSON_FORMAT, type AcademyLessonBlockType } from '@intafaced/contracts/academy-courses';
 import { Chip } from '@/components/chip';
 import './desk.css';
@@ -210,7 +210,124 @@ function BlocksEditor({ lesson, busy, onSave }: { lesson: AcademyLesson; busy: b
   );
 }
 
-const SOURCE_WORDS = { saved: 'saved', reverted: 'reverted', duplicated: 'duplicated', imported: 'imported' } as const;
+const SOURCE_WORDS = {
+  saved: 'saved',
+  reverted: 'reverted',
+  duplicated: 'duplicated',
+  imported: 'imported',
+  assisted: 'accepted from an assistant draft',
+} as const;
+
+/**
+ * The authoring assistant: a template draft from the course's own structure, or the model path, which waits for the
+ * owner to choose a provider. A draft is shown beside nothing live; only Accept writes a revision, and learners still
+ * see the published one until the next publish.
+ */
+function AssistantPanel({ lesson, busy, send }: { lesson: AcademyLesson; busy: boolean; send: (body: Record<string, unknown>) => void }) {
+  const revision = lesson.revisions[0]?.revision ?? 0;
+  const draft = lesson.draft;
+  return (
+    <section className="dk-stack" aria-labelledby="h-lesson-assistant">
+      <h2 id="h-lesson-assistant">Draft with the assistant</h2>
+      <p className="dk-muted">
+        The template drafts headings from this course’s own structure for you to fill in. Drafting with a model waits for an owner decision
+        on which provider to use. A draft never reaches learners: accepting it makes a new revision, and learners keep the published one
+        until you publish again.
+      </p>
+      <div className="dk-row">
+        <button type="button" className="adm-btn" disabled={busy} onClick={() => send({ op: 'draft', revision, path: 'template' })}>
+          Draft from the template
+        </button>
+        <button type="button" className="adm-btn" disabled={busy} onClick={() => send({ op: 'draft', revision, path: 'model' })}>
+          Draft with a model
+        </button>
+      </div>
+      {draft ? (
+        <div className="dk-stack" data-testid="lesson-draft">
+          <p>
+            <Chip tone="info">Draft, not live</Chip> From the template, based on revision {draft.basedOnRevision},{' '}
+            {formatWhen(draft.createdAt)}.
+          </p>
+          <Blocks blocks={draft.blocks} testId="lesson-draft-blocks" />
+          <div className="dk-row">
+            <button
+              type="button"
+              className="adm-btn"
+              disabled={busy}
+              onClick={() => send({ op: 'decide', basedOnRevision: draft.basedOnRevision, kind: draft.kind, decision: 'accept' })}
+            >
+              Accept draft
+            </button>
+            <button
+              type="button"
+              className="adm-btn"
+              disabled={busy}
+              onClick={() => send({ op: 'decide', basedOnRevision: draft.basedOnRevision, kind: draft.kind, decision: 'discard' })}
+            >
+              Discard draft
+            </button>
+          </div>
+        </div>
+      ) : (
+        <p className="dk-muted" data-testid="lesson-draft">
+          No draft is waiting.
+        </p>
+      )}
+    </section>
+  );
+}
+
+/**
+ * The Learn hub (AC-articles-01): a lesson learners can read may be the hub's featured article. Withdrawing it from
+ * learners takes it off the hub in the same step.
+ */
+function LearnHubPanel({ lesson, busy, send }: { lesson: AcademyLesson; busy: boolean; send: (body: Record<string, unknown>) => void }) {
+  const [featureWhy, setFeatureWhy] = useState('');
+  const [withdrawWhy, setWithdrawWhy] = useState('');
+  const live = lesson.item.liveRevision !== null;
+  return (
+    <section className="dk-stack" aria-labelledby="h-lesson-hub">
+      <h2 id="h-lesson-hub">Learn hub</h2>
+      <p className="dk-muted" data-testid="lesson-featured">
+        {lesson.featured
+          ? 'This lesson is the Learn hub’s featured article.'
+          : live
+            ? 'Not featured. Learners can read it, so it can be featured.'
+            : 'Not featured. Only a lesson learners can read is featured.'}
+      </p>
+      <form
+        className="dk-row"
+        onSubmit={(e) => {
+          e.preventDefault();
+          send({ op: 'feature', reason: featureWhy });
+        }}
+      >
+        <div className="adm-field">
+          <label htmlFor="lesson-feature-reason">Why feature it</label>
+          <input id="lesson-feature-reason" value={featureWhy} maxLength={500} onChange={(e) => setFeatureWhy(e.target.value)} />
+        </div>
+        <button type="submit" className="adm-btn" disabled={busy || lesson.featured}>
+          Feature on the Learn hub
+        </button>
+      </form>
+      <form
+        className="dk-row"
+        onSubmit={(e) => {
+          e.preventDefault();
+          send({ op: 'withdraw', courseRevision: lesson.courseRevision, reason: withdrawWhy });
+        }}
+      >
+        <div className="adm-field">
+          <label htmlFor="lesson-withdraw-reason">Why withdraw it</label>
+          <input id="lesson-withdraw-reason" value={withdrawWhy} maxLength={500} onChange={(e) => setWithdrawWhy(e.target.value)} />
+        </div>
+        <button type="submit" className="adm-btn" disabled={busy || !live}>
+          Withdraw from learners
+        </button>
+      </form>
+    </section>
+  );
+}
 
 /** The import's report: every block svc-academy did not accept, by its place in the file. */
 function ImportReport({ reply }: { reply: LessonDeskReply | null }) {
@@ -270,7 +387,18 @@ function ImportForm({
   );
 }
 
-export function AcademyLessonEditor({ courseId, itemId, initial }: { courseId: string; itemId: string; initial: LessonView | null }) {
+export function AcademyLessonEditor({
+  courseId,
+  itemId,
+  initial,
+  files,
+}: {
+  courseId: string;
+  itemId: string;
+  initial: LessonView | null;
+  /** The item's video, captions and handouts (AC-videos-02), shown after the import. */
+  files?: ReactNode;
+}) {
   const router = useRouter();
   const [view, setView] = useState(initial);
   const [busy, setBusy] = useState(false);
@@ -339,6 +467,7 @@ export function AcademyLessonEditor({ courseId, itemId, initial }: { courseId: s
             busy={busy}
             onSave={(blocks) => void send({ op: 'save', revision: newest?.revision ?? 0, blocks })}
           />
+          <AssistantPanel lesson={lesson} busy={busy} send={(body) => void send(body)} />
           <ImportForm
             lesson={lesson}
             busy={busy}
@@ -346,6 +475,7 @@ export function AcademyLessonEditor({ courseId, itemId, initial }: { courseId: s
             onRefused={setReply}
           />
           <ImportReport reply={reply} />
+          {files}
           <section className="dk-stack" aria-labelledby="h-lesson-live">
             <h2 id="h-lesson-live">What learners see</h2>
             {live ? (
@@ -373,6 +503,7 @@ export function AcademyLessonEditor({ courseId, itemId, initial }: { courseId: s
               </form>
             )}
           </section>
+          <LearnHubPanel lesson={lesson} busy={busy} send={(body) => void send(body)} />
           <section className="dk-stack" aria-labelledby="h-lesson-revisions">
             <h2 id="h-lesson-revisions">Revisions</h2>
             {lesson.revisions.length === 0 ? (

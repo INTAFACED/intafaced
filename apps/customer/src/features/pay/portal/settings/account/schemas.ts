@@ -83,7 +83,12 @@ export const progressSchema = z.object({
   merchantId: z.string(),
   business: z.object({ done: z.boolean(), missing: z.array(z.string()) }),
   documents: z.object({ state: z.string() }),
-  terms: z.object({ state: z.string() }),
+  /** `merchant.terms.accept` takes the version shown here. Nothing to accept while the owner has published none. */
+  terms: z.discriminatedUnion('state', [
+    z.object({ state: z.literal('not_configured') }),
+    z.object({ state: z.literal('not_accepted'), version: z.string(), url: z.string().url() }),
+    z.object({ state: z.literal('accepted'), version: z.string(), url: z.string().url(), acceptedAt: z.string() }),
+  ]),
   destination: z.object({
     present: z.boolean(),
     destinations: z.array(z.object({ railId: z.string(), kind: z.string(), destinationMasked: z.string() })),
@@ -93,6 +98,8 @@ export const progressSchema = z.object({
   blocking: z.array(z.string()),
 });
 export type Progress = z.infer<typeof progressSchema>;
+export type TermsState = Progress['terms'];
+export const termsAcceptedSchema = z.object({ merchantId: z.string(), version: z.string(), acceptedAt: z.string() });
 
 // ---- activity ----------------------------------------------------------------------------------------------
 export const ACTIVITY_TYPES = ['payment', 'team', 'kyb', 'dispute', 'export', 'approval', 'webhook'] as const;

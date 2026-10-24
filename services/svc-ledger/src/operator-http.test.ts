@@ -86,6 +86,42 @@ async function buildApp(ledger: LedgerService): Promise<FastifyInstance> {
   return app;
 }
 
+describe('operator HTTP — reconciliation controls are a named door', () => {
+  it('refuses an anonymous run and does not mount the bookkeeping router', async () => {
+    const app = await buildApp(stubService());
+    const missing = await app.inject({ method: 'POST', url: '/operator/reconciliation/controls/run' });
+    expect(missing.statusCode).toBe(401);
+    const post = await app.inject({ method: 'POST', url: '/trpc/post', payload: {} });
+    expect(post.statusCode).toBe(404);
+    await app.close();
+  });
+
+  it('refuses treasury without MFA, and a wired token with no book answers source unavailable', async () => {
+    const app = await buildApp(stubService());
+    const noMfa = await app.inject({
+      method: 'POST',
+      url: '/operator/reconciliation/controls',
+      headers: { authorization: await bearer(['admin:treasury'], false) },
+      payload: {},
+    });
+    expect(noMfa.statusCode).toBe(401);
+    const unwired = await app.inject({
+      method: 'POST',
+      url: '/operator/reconciliation/controls/run',
+      headers: { authorization: await bearer(['admin:treasury'], true) },
+      payload: {
+        controlId: '11111111-1111-4111-8111-111111111111',
+        reason: 'run the reconciliation control',
+        approvalId: 'appr-1',
+        operationId: 'op-1',
+      },
+    });
+    expect(unwired.statusCode).toBe(503);
+    expect(unwired.json()).toMatchObject({ code: 'ledger.reconcile_source_unavailable' });
+    await app.close();
+  });
+});
+
 describe('operator HTTP — reconcile is reachable (not half-green)', () => {
   it('refuses with no credential, and never runs the book', async () => {
     let ran = false;

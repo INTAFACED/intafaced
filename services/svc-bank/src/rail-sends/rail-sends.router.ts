@@ -13,7 +13,7 @@ const rail = z.enum(BANK_RAILS);
 
 const recipient = z.record(z.string().max(64), z.string().max(254)).refine((value) => Object.keys(value).length <= 8);
 const from = {
-  fromSpaceId: z.string().uuid(),
+  fromSpaceId: z.string().guid(),
   amount: z
     .string()
     .trim()
@@ -21,9 +21,9 @@ const from = {
 };
 /** Details typed for this send, or a saved recipient. */
 const typed = { ...from, rail, recipient };
-const saved = { ...from, payeeId: z.string().uuid() };
+const saved = { ...from, payeeId: z.string().guid() };
 const ask = z.union([z.object(typed).strict(), z.object(saved).strict()]);
-const requestId = z.string().uuid();
+const requestId = z.string().guid();
 
 const payeeAsk = z.object({ nickname: z.string().max(120), country: z.string().max(8), rail, recipient }).strict();
 
@@ -115,7 +115,7 @@ export function createRailSendsRouter(
 
     /** Remove a saved recipient, waiting or not. */
     removePayee: scopedProcedure('bank:write', { module: 'bank' })
-      .input(z.object({ payeeId: z.string().uuid() }).strict())
+      .input(z.object({ payeeId: z.string().guid() }).strict())
       .output(z.object({ payeeId: z.string(), removed: z.literal(true) }).strict())
       .mutation(({ ctx, input }) => guard(async () => bank.railPayees.remove(ctx.principal.userId, input.payeeId))),
 

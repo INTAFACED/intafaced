@@ -45,8 +45,12 @@ export function estimatedResult(position: Position, price: string, quantity?: st
 /** Which side of the mark each leg must sit on, for the field hint. Null when the side is unknown. */
 export function sideOfMark(position: Position, leg: Leg): 'above' | 'below' | null {
   if (position.side !== 'long' && position.side !== 'short') return null;
-  const up = (position.side === 'long') === (leg === 'take_profit');
-  return up ? 'above' : 'below';
+  return legSide(position.side, leg);
+}
+
+/** A long's take profit and a short's stop loss sit above the mark; the other two below. */
+export function legSide(side: 'long' | 'short', leg: Leg): 'above' | 'below' {
+  return (side === 'long') === (leg === 'take_profit') ? 'above' : 'below';
 }
 
 /** A part leg's size: empty is the whole position; otherwise above zero and at most the position. */
@@ -75,4 +79,48 @@ export function priceProblem(value: string): 'invalid' | null {
   if (value.trim() === '') return null;
   const parsed = dec(value.trim());
   return parsed === null || parsed <= 0n ? 'invalid' : null;
+}
+
+/**
+ * A take profit or stop loss typed on the ticket, for the position the order opens or adds to: empty is none; otherwise
+ * a positive price on its side of the mark (above it for a long's take profit, below it for its stop loss). The
+ * service checks the same against its own mark; with no mark known only the number is checked here.
+ */
+export function entryLegProblem(side: 'long' | 'short', leg: Leg, value: string, mark: string | null): 'invalid' | 'wrongSide' | null {
+  if (value.trim() === '') return null;
+  const price = dec(value.trim());
+  if (price === null || price <= 0n) return 'invalid';
+  const at = mark === null ? null : dec(mark);
+  if (at === null) return null;
+  return (legSide(side, leg) === 'above' ? price > at : price < at) ? null : 'wrongSide';
+}
+
+/**
+ * What a failed take profit, stop loss or stop left behind (J-derivatives-03 step 7): how much its finished attempts
+ * closed (null when none), whether its last close order reached the book (that order's own fills are listed with the
+ * orders, so nothing is claimed about them here), and the position it was on as it stands now. `unknown` while the
+ * positions cannot be read, so the line never guesses.
+ */
+export function failedOutcome(
+  order: ConditionalOrder,
+  positions: readonly Position[] | null,
+): {
+  closed: string | null;
+  closeOrder: string | null;
+  position: { state: 'open' | 'closing'; contracts: string; side: Position['side'] } | { state: 'gone' } | 'unknown';
+} {
+  const closedRaw = order.closedQuantity ?? null;
+  const closedAt = closedRaw === null ? null : dec(closedRaw);
+  const closed = closedAt !== null && closedAt > 0n ? closedRaw : null;
+  const closeOrder = order.closeOrderId ?? null;
+  if (positions === null) return { closed, closeOrder, position: 'unknown' };
+  const now =
+    order.positionId === null
+      ? undefined
+      : positions.find((p) => p.id === order.positionId && (p.status ?? 'open') !== 'closed' && p.status !== 'liquidated');
+  return {
+    closed,
+    closeOrder,
+    position: now ? { state: now.status === 'closing' ? 'closing' : 'open', contracts: now.contracts, side: now.side } : { state: 'gone' },
+  };
 }

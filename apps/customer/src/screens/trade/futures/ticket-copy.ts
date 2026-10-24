@@ -90,10 +90,43 @@ export const ticketCopy = defineCopy('trade.futures.ticket', {
   'Leverage presets': 'Leverage presets',
   'Reduce only': 'Reduce-only',
   'Reduce only off':
-    'To reduce or close a position, use Close in the positions table: it sends a reduce-only order for the size you choose.',
+    'Off: the order opens or adds. Turn it on for an order that can only lower a position; Close in the positions table does the same for a size you choose.',
+  'Reduce only on':
+    'On: a buy only lowers an open short and a sell only lowers an open long. It never opens or adds, keeps the position’s own leverage, and is refused when nothing is open on the other side.',
+  'Reduce only yes': 'Yes: it never opens or adds',
+  'Percent reduce': 'In reduce-only, type the size to lower. Close in the positions table sizes by a share of the position.',
+  'Leverage reduce hint': 'A reduce-only order keeps the position’s own leverage.',
+  'Entry protection reduce': 'A take profit or stop loss attaches to an order that opens or adds, not to a reduce-only order.',
+  'Off reduce review': 'A reduce-only order commits no new margin, so there is no cost to review: the confirm step shows what it sends.',
+  'Reduce buy': 'Buy, reduce only',
+  'Reduce sell': 'Sell, reduce only',
+  'Reduce direction buy': 'Buy (lowers a short)',
+  'Reduce direction sell': 'Sell (lowers a long)',
+  'Confirm reduce buy': 'Reduce-only buy on {symbol}',
+  'Confirm reduce sell': 'Reduce-only sell on {symbol}',
+  'Confirm reduce body buy':
+    'It can only lower your open short, by at most this size. With no short open, it is refused and nothing is placed.',
+  'Confirm reduce body sell':
+    'It can only lower your open long, by at most this size. With no long open, it is refused and nothing is placed.',
+  'Confirm reduce buy button': 'Confirm reduce-only buy',
+  'Confirm reduce sell button': 'Confirm reduce-only sell',
   'Take profit stop loss': 'Take profit / Stop loss',
-  'Take profit off':
-    'Set them on the position once it is open: Positions, Manage, Take profit / stop loss. Each closes the whole position through the book when the mark price crosses it.',
+  'Entry protection hint':
+    'Optional. They arm on the position for what this order fills, and close that much through the book when the mark price crosses them. To protect the whole position, use Positions, Manage, Take profit / stop loss.',
+  'Entry take profit': 'Take profit ({quote})',
+  'Entry stop loss': 'Stop loss ({quote})',
+  'Entry side above': 'Above the mark price for this direction.',
+  'Entry side below': 'Below the mark price for this direction.',
+  'Entry problem invalid': 'Enter a price above zero.',
+  'Entry problem wrongSide': 'This price is on the wrong side of the mark for this direction, so it would fire at once.',
+  'Take profit row': 'Take profit',
+  'Stop loss row': 'Stop loss',
+  'Entry protection placed':
+    'Take profit {takeProfit} and stop loss {stopLoss} arm on what this order fills. Follow them on the Orders tab, under take-profit, stop-loss and stop orders.',
+  'Entry protection none': 'none',
+  'Off protection problem': 'Fix the take profit or stop loss first.',
+  'Off protection split':
+    'A take profit or stop loss attaches to one order. To split, clear them here and set them on the position once it is open.',
   Review: 'Review',
   Reviewing: 'Reviewing…',
   'Review to see cost': 'Review to see the all-in cost before you open.',
@@ -205,6 +238,7 @@ export const ticketCopy = defineCopy('trade.futures.ticket', {
   'Opened no id': 'The position is {status}.',
   'Status unknown': 'unconfirmed',
   'Open another': 'Open another',
+  'Place another': 'Place another order',
   'Unknown title': 'Outcome unknown',
   'Unknown body':
     'The request was sent but no answer came back. Nothing else can be sent from this device until it is checked. Checking looks for the position first and sends nothing.',

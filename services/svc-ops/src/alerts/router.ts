@@ -16,9 +16,19 @@ import {
   OPS_ALERT_RULE_NOT_FOUND,
   OPS_ALERT_RULE_VERSION_STALE,
   OPS_ALERT_STORAGE_UNCONFIGURED,
+  OPS_CONTACT_POINT_NOT_FOUND,
   OPS_IDEMPOTENCY_CONFLICT,
+  OPS_SILENCE_NOT_FOUND,
   OpsError,
 } from '../codes.js';
+import {
+  opsAlertContactSaveSchema,
+  opsAlertContactSchema,
+  opsAlertResolveSchema,
+  opsAlertRouteSaveSchema,
+  opsAlertRouteTreeSchema,
+  opsAlertSilenceSchema,
+} from '@intafaced/contracts';
 import { assertIdempotencyKey } from '../operator-desks.js';
 import { assertOpsListLimit } from '../list-limit.js';
 import type { Actor, AlertRules, RuleCursor } from './rules.js';
@@ -59,7 +69,7 @@ const stateSchema = z.object({
 
 const historyRowSchema = z.object({
   id: z.number().int(),
-  ruleId: z.string().uuid(),
+  ruleId: z.string().guid(),
   instance: z.string(),
   epoch: z.number().int(),
   at: z.string(),
@@ -84,7 +94,7 @@ function alertError(err: unknown): never {
     const code =
       err.code === OPS_ALERT_FORBIDDEN
         ? 'FORBIDDEN'
-        : err.code === OPS_ALERT_RULE_NOT_FOUND
+        : err.code === OPS_ALERT_RULE_NOT_FOUND || err.code === OPS_CONTACT_POINT_NOT_FOUND || err.code === OPS_SILENCE_NOT_FOUND
           ? 'NOT_FOUND'
           : err.code === OPS_IDEMPOTENCY_CONFLICT || err.code === OPS_ALERT_RULE_VERSION_STALE
             ? 'CONFLICT'
@@ -223,7 +233,7 @@ export function createAlertRulesRouter(rules: AlertRules | undefined, stateStore
       .input(
         z.object({
           limit: z.number().int().min(1).max(200).optional(),
-          ruleId: z.string().uuid().optional(),
+          ruleId: z.string().guid().optional(),
           state: z.enum(OPS_ALERT_STATES).optional(),
           since: z.string().datetime({ offset: true }).optional(),
           until: z.string().datetime({ offset: true }).optional(),
@@ -262,7 +272,7 @@ export function createAlertRulesRouter(rules: AlertRules | undefined, stateStore
       ),
 
     get: scopedProcedure('admin:read', guards)
-      .input(z.object({ id: z.string().uuid() }))
+      .input(z.object({ id: z.string().guid() }))
       .output(rule)
       .query(({ input }) =>
         guarded(async () => {
@@ -273,7 +283,7 @@ export function createAlertRulesRouter(rules: AlertRules | undefined, stateStore
       ),
 
     versions: scopedProcedure('admin:read', guards)
-      .input(z.object({ id: z.string().uuid(), limit: z.number().int().min(1).max(200).optional() }))
+      .input(z.object({ id: z.string().guid(), limit: z.number().int().min(1).max(200).optional() }))
       .output(z.object({ versions: z.array(versionSchema) }))
       .query(({ input }) =>
         guarded(async () => ({
@@ -292,7 +302,7 @@ export function createAlertRulesRouter(rules: AlertRules | undefined, stateStore
       ),
 
     update: writer
-      .input(opsAlertRuleDraftSchema.extend({ id: z.string().uuid(), expectedVersion: versionField, idempotencyKey: keyField }))
+      .input(opsAlertRuleDraftSchema.extend({ id: z.string().guid(), expectedVersion: versionField, idempotencyKey: keyField }))
       .output(rule)
       .mutation(({ ctx, input }) =>
         guarded(async () => {
@@ -304,7 +314,7 @@ export function createAlertRulesRouter(rules: AlertRules | undefined, stateStore
     setPaused: writer
       .input(
         z.object({
-          id: z.string().uuid(),
+          id: z.string().guid(),
           expectedVersion: versionField,
           paused: z.boolean(),
           reason: reasonField,
@@ -317,13 +327,13 @@ export function createAlertRulesRouter(rules: AlertRules | undefined, stateStore
       ),
 
     retire: writer
-      .input(z.object({ id: z.string().uuid(), expectedVersion: versionField, reason: reasonField, idempotencyKey: keyField }))
+      .input(z.object({ id: z.string().guid(), expectedVersion: versionField, reason: reasonField, idempotencyKey: keyField }))
       .output(rule)
       .mutation(({ ctx, input }) => guarded(async () => need().retire(input.id, input.expectedVersion, staff(ctx, input)))),
 
     /** Only an admin restores a retired rule: the treasury-grade scope, which also needs a second factor. */
     restore: writer
-      .input(z.object({ id: z.string().uuid(), expectedVersion: versionField, reason: reasonField, idempotencyKey: keyField }))
+      .input(z.object({ id: z.string().guid(), expectedVersion: versionField, reason: reasonField, idempotencyKey: keyField }))
       .output(rule)
       .mutation(({ ctx, input }) =>
         guarded(async () => {
@@ -333,5 +343,160 @@ export function createAlertRulesRouter(rules: AlertRules | undefined, stateStore
           return need().restore(input.id, input.expectedVersion, staff(ctx, input));
         }),
       ),
+
+    routePolicy: router({
+      get: scopedProcedure('admin:read', guards)
+        .output(opsAlertRouteTreeSchema.nullable())
+        .query(() => guarded(() => need().getRoute())),
+      save: writer
+        .input(opsAlertRouteSaveSchema)
+        .output(opsAlertRouteTreeSchema)
+        .mutation(({ ctx, input }) =>
+          guarded(() => {
+            const { idempotencyKey, reason: _reason, ...draft } = input;
+            return need().saveRoute({ ...draft, key: idempotencyKey }, staff(ctx, input));
+          }),
+        ),
+      resolve: scopedProcedure('admin:read', guards)
+        .input(z.object({ labels: z.record(z.string(), z.string()) }))
+        .output(opsAlertResolveSchema)
+        .query(({ input }) => guarded(() => need().resolve(input.labels))),
+    }),
+
+    silences: router({
+      create: writer
+        .input(
+          z.object({
+            id: z.string().optional(),
+            matchers: z.array(z.object({ label: z.string(), op: z.enum(['eq', 'neq', 'match', 'nmatch']), value: z.string() })).optional(),
+            endsAt: z.string().optional(),
+            reason: reasonField,
+            idempotencyKey: keyField,
+          }),
+        )
+        .output(opsAlertSilenceSchema)
+        .mutation(({ ctx, input }) =>
+          guarded(() =>
+            need().createSilence(
+              { id: input.id, matchers: input.matchers, endsAt: input.endsAt, key: input.idempotencyKey },
+              staff(ctx, input),
+            ),
+          ),
+        ),
+      preview: scopedProcedure('admin:read', guards)
+        .input(z.object({ id: z.string(), limit: z.number().int().min(1).max(200).optional() }))
+        .output(
+          z.object({
+            endsAt: z.string(),
+            active: z.boolean(),
+            alerts: z.array(
+              z.object({
+                ruleId: z.string(),
+                name: z.string(),
+                instance: z.string(),
+                labels: z.record(z.string(), z.string()),
+                state: z.string(),
+              }),
+            ),
+            truncated: z.boolean(),
+          }),
+        )
+        .query(({ input }) =>
+          guarded(async () => {
+            const rules = need();
+            if (!stateStore) {
+              throw new OpsError(
+                OPS_ALERT_STORAGE_UNCONFIGURED,
+                'No durable storage is configured for alert state. No firing alert is listed.',
+              );
+            }
+            const limit = assertOpsListLimit(input.limit, OPS_ALERT_LIST_LIMIT_UNSET);
+            const read = async (offset: number, size: number) => {
+              const rows = await stateStore.active(['firing'], size, offset);
+              const page = [];
+              for (const row of rows) {
+                const rule = await rules.get(row.ruleId);
+                page.push({
+                  ruleId: row.ruleId,
+                  name: rule?.name ?? '',
+                  instance: row.instance,
+                  labels: rule?.labels ?? {},
+                  state: row.state,
+                });
+              }
+              return page;
+            };
+            return rules.previewSilence(input.id, limit, read);
+          }),
+        ),
+    }),
+
+    contacts: router({
+      save: writer
+        .input(opsAlertContactSaveSchema)
+        .output(opsAlertContactSchema)
+        .mutation(({ ctx, input }) =>
+          guarded(() =>
+            need().saveContact(
+              {
+                id: input.id,
+                name: input.name,
+                expectedVersion: input.expectedVersion,
+                key: input.idempotencyKey,
+                integrations: input.integrations,
+              },
+              staff(ctx, input),
+            ),
+          ),
+        ),
+      get: scopedProcedure('admin:read', guards)
+        .input(z.object({ id: z.string() }))
+        .output(opsAlertContactSchema.nullable())
+        .query(({ input }) => guarded(() => need().getContact(input.id))),
+      list: scopedProcedure('admin:read', guards)
+        .input(z.object({ limit: z.number().int().min(1).max(200).optional() }))
+        .output(z.object({ contacts: z.array(opsAlertContactSchema) }))
+        .query(({ input }) =>
+          guarded(async () => ({
+            contacts: [...(await need().listContacts(assertOpsListLimit(input.limit, OPS_ALERT_LIST_LIMIT_UNSET)))],
+          })),
+        ),
+      retire: writer
+        .input(z.object({ id: z.string(), reason: reasonField, idempotencyKey: keyField }))
+        .output(opsAlertContactSchema)
+        .mutation(({ ctx, input }) => guarded(() => need().retireContact(input.id, staff(ctx, input)))),
+      test: writer
+        .input(z.object({ contactId: z.string(), integrationId: z.string(), reason: reasonField, idempotencyKey: keyField }))
+        .mutation(({ ctx, input }) =>
+          guarded(async () => {
+            const result = await need().testChannel(
+              { contactId: input.contactId, integrationId: input.integrationId, key: input.idempotencyKey },
+              staff(ctx, input),
+            );
+            if (result.code) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: result.code });
+            return { notificationId: result.notificationId, code: null as null, stored: true as const };
+          }),
+        ),
+      attempts: scopedProcedure('admin:read', guards)
+        .input(z.object({ contactId: z.string(), limit: z.number().int().min(1).max(200).optional() }))
+        .query(({ input }) => guarded(() => need().attempts(input.contactId, assertOpsListLimit(input.limit, OPS_ALERT_LIST_LIMIT_UNSET)))),
+    }),
+
+    grouping: router({
+      send: writer
+        .input(z.object({ ruleId: z.string().guid(), reason: reasonField, idempotencyKey: keyField }))
+        .mutation(({ ctx, input }) =>
+          guarded(async () => {
+            const rule = await need().get(input.ruleId);
+            if (!rule) throw new OpsError(OPS_ALERT_RULE_NOT_FOUND, 'No such alert rule.');
+            const result = await need().groupingSend(
+              { ruleId: rule.id, labels: rule.labels, key: input.idempotencyKey },
+              staff(ctx, input),
+            );
+            if (result.code) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: result.code });
+            return result;
+          }),
+        ),
+    }),
   });
 }

@@ -630,7 +630,7 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
   },
   'academy.slug_reserved': {
     title: 'That address is an Academy tab',
-    body: 'learning, certificates, rooms, videos, programmes and progress are the Academy’s own tabs, so no course can use one.',
+    body: 'learning, certificates, rooms, videos, programmes and progress are the Academy’s own tabs, so no course or topic can use one.',
     next: 'Choose another address. Nothing was saved.',
   },
   'academy.course_slug_taken': {
@@ -707,6 +707,86 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     title: 'The file is over the size limit',
     body: 'This lesson file is larger than the owner allows, so it was refused before it was read.',
     next: 'Split the lesson or shorten it. Nothing was created.',
+  },
+  'academy.draft_not_found': {
+    title: 'No such draft',
+    body: 'This lesson has no open assistant draft by that name, or it was already decided the other way.',
+    next: 'Read the lesson again. Nothing was changed.',
+  },
+  'academy.lesson_blocks_invalid': {
+    title: 'Lesson does not fit',
+    body: 'A block of this lesson is over the lesson format’s limits, so it was refused before it was stored.',
+    next: 'Shorten the lesson or split the section, then try again. Nothing was changed.',
+  },
+  'academy.upload_limits_unset': {
+    title: 'The upload limits are not set',
+    body: 'The owner has not set the largest file the desk uploads, or the video or handout types it accepts, so no file is uploaded.',
+    next: 'The owner sets the limits for this deployment. Nothing was sent.',
+  },
+  'academy.upload_too_large': {
+    title: 'The file is over the size limit',
+    body: 'This file is larger than the owner allows, so no upload address was issued.',
+    next: 'Choose a smaller file. Nothing was sent.',
+  },
+  'academy.upload_type_refused': {
+    title: 'This file type is not accepted',
+    body: 'The owner does not accept this type for this kind of file, or its content cannot be checked.',
+    next: 'Choose a file of an accepted type. Nothing was sent.',
+  },
+  'academy.file_type_mismatch': {
+    title: 'The file is not what it says it is',
+    body: 'svc-academy read the stored file back and its content is not the type it was declared as, so it was refused.',
+    next: 'Upload the file as the type it really is. Learners never see a refused file.',
+  },
+  'academy.upload_incomplete': {
+    title: 'The file has not fully arrived',
+    body: 'Storage does not hold the whole file yet, so it was not checked.',
+    next: 'Send the file again. Nothing was published.',
+  },
+  'academy.media_not_found': {
+    title: 'No such upload',
+    body: 'svc-academy has no upload with this id.',
+    next: 'Read the item again. Nothing was changed.',
+  },
+  'academy.video_storage_unconfigured': {
+    title: 'File storage is not set up',
+    body: 'This deployment has no object store for course files, so nothing can be uploaded.',
+    next: 'The owner sets up storage for this deployment. Nothing was sent.',
+  },
+  'academy.item_video_missing': {
+    title: 'Upload the video first',
+    body: 'Captions belong to a video, and this item has no checked video yet.',
+    next: 'Upload and check the video, then add its captions. Nothing was saved.',
+  },
+  'academy.featured_not_live': {
+    title: 'Learners cannot read this lesson',
+    body: 'Only a lesson with a revision published to learners is featured on the Learn hub.',
+    next: 'Publish a revision to learners first. Nothing was featured.',
+  },
+  'academy.lesson_not_live': {
+    title: 'Learners see nothing here already',
+    body: 'No revision of this lesson is published to learners, so there is nothing to withdraw.',
+    next: 'Read the lesson again. Nothing was changed.',
+  },
+  'academy.topic_not_found': {
+    title: 'No such topic',
+    body: 'One of the chosen topics is not on the Learn hub’s topic list.',
+    next: 'Read the course again and pick from the list. Nothing was saved.',
+  },
+  'academy.topic_slug_taken': {
+    title: 'That address is taken',
+    body: 'Another topic already has this address under a different name.',
+    next: 'Choose another address. Nothing was added.',
+  },
+  'academy.topics_list_limit_unset': {
+    title: 'The topic list limit is not set',
+    body: 'The owner has not set how many topics a list shows, so the list is not read.',
+    next: 'The owner sets the limit for this deployment.',
+  },
+  'owner.decision': {
+    title: 'Waiting for an owner decision',
+    body: 'This path needs a choice the owner has not made yet, so it is off. Nothing was sent anywhere.',
+    next: 'Use the path that works now, or ask the owner to decide. Nothing was changed.',
   },
   'academy.course_not_found': {
     title: 'No such course',

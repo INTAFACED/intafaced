@@ -200,7 +200,7 @@ const convertAcceptInput = z.object({
   maxAvgPrice: decimal.optional(),
 });
 
-const standingCaller = z.object({ userId: z.string().uuid(), instructionId: z.string().uuid() });
+const standingCaller = z.object({ userId: z.string().guid(), instructionId: z.string().guid() });
 
 /** Only svc-bank may act for a standing instruction; the user id is the signed body's. */
 function requireBankCaller(service: string | null): void {
@@ -285,7 +285,7 @@ const algoResultOutputSchema = z.object({
 });
 
 const marketOutput = z.object({
-  id: z.string().uuid(),
+  id: z.string().guid(),
   symbol: z.string(),
   base: z.string(),
   quote: z.string(),
@@ -312,9 +312,9 @@ const marketOutput = z.object({
 });
 
 const orderOutput = z.object({
-  id: z.string().uuid(),
+  id: z.string().guid(),
   clientOrderId: z.string().nullable(),
-  marketId: z.string().uuid(),
+  marketId: z.string().guid(),
   side: orderSideSchema,
   type: z.enum(['market', 'limit']),
   price: decimal.nullable(),
@@ -339,13 +339,13 @@ const placeAttemptOutput = z.object({
   clientOrderId: z.string().min(1).max(64),
   outcome: z.enum(['refused', 'unknown', 'accepted']),
   reason: z.string().nullable(),
-  orderId: z.string().uuid().nullable(),
+  orderId: z.string().guid().nullable(),
 });
 
 const fillOutput = z.object({
-  id: z.string().uuid(),
-  orderId: z.string().uuid(),
-  marketId: z.string().uuid(),
+  id: z.string().guid(),
+  orderId: z.string().guid(),
+  marketId: z.string().guid(),
   side: orderSideSchema,
   takerOrMaker: z.enum(['maker', 'taker']),
   price: decimal,
@@ -843,7 +843,7 @@ export function createTradeRouter(
                * order id — the money-path equivalent of double-spend on a timeout.
                */
               clientOrderId: z.string().min(1).max(64),
-              subAccountId: z.string().uuid().optional(),
+              subAccountId: z.string().guid().optional(),
             })
             .superRefine((order, ctx) => {
               // Rejected at the boundary rather than guessed at: a limit order
@@ -874,22 +874,22 @@ export function createTradeRouter(
        * control.
        */
       cancel: scopedProcedure('trade:write', { module: 'trade' })
-        .input(z.object({ orderId: z.string().uuid() }))
+        .input(z.object({ orderId: z.string().guid() }))
         .output(orderOutput)
         .mutation(({ ctx, input }) => guard(async () => presentOrder(await trade.cancelOrder(ctx.principal, input.orderId)))),
 
       cancelAll: scopedProcedure('trade:write', { module: 'trade' })
-        .input(z.object({ marketId: z.string().uuid().optional() }).optional())
+        .input(z.object({ marketId: z.string().guid().optional() }).optional())
         .output(z.array(orderOutput))
         .mutation(({ ctx, input }) => guard(async () => (await trade.cancelAllOrders(ctx.principal, input?.marketId)).map(presentOrder))),
 
       massCancel: scopedProcedure('trade:write', { module: 'trade' })
-        .input(z.object({ marketId: z.string().uuid() }))
+        .input(z.object({ marketId: z.string().guid() }))
         .output(z.array(orderOutput))
         .mutation(({ ctx, input }) => guard(async () => (await trade.massCancelOrders(ctx.principal, input.marketId)).map(presentOrder))),
 
       get: scopedProcedure('trade:read')
-        .input(z.object({ orderId: z.string().uuid() }))
+        .input(z.object({ orderId: z.string().guid() }))
         .output(orderOutput)
         .query(({ ctx, input }) => guard(async () => presentOrder(await trade.getOrder(ctx.principal, input.orderId)))),
 
@@ -897,7 +897,7 @@ export function createTradeRouter(
         .input(
           z
             .object({
-              marketId: z.string().uuid().optional(),
+              marketId: z.string().guid().optional(),
               limit: z.number().int().min(1).max(500).optional(),
             })
             .optional(),
@@ -912,7 +912,7 @@ export function createTradeRouter(
       history: scopedProcedure('trade:read')
         .input(
           z.object({
-            marketId: z.string().uuid().optional(),
+            marketId: z.string().guid().optional(),
             limit: z.number().int().min(1).max(500),
           }),
         )
@@ -931,7 +931,7 @@ export function createTradeRouter(
       forOrder: scopedProcedure('trade:read')
         .input(
           z.object({
-            orderId: z.string().uuid(),
+            orderId: z.string().guid(),
             limit: z.number().int().min(1).max(500).optional(),
           }),
         )
@@ -1142,7 +1142,7 @@ export function createTradeRouter(
            */
           z
             .object({
-              quoteId: z.string().uuid(),
+              quoteId: z.string().guid(),
               assertedPrice: decimal.optional(),
             })
             .strict(),
@@ -1158,7 +1158,7 @@ export function createTradeRouter(
         ),
 
       settle: scopedProcedure('trade:write', { module: 'trade' })
-        .input(z.object({ quoteId: z.string().uuid() }).strict())
+        .input(z.object({ quoteId: z.string().guid() }).strict())
         .mutation(({ ctx, input }) =>
           guard(async () => {
             if (!otc) throw new OtcError('OTC desk not mounted', 'trade.otc_desk_law_blank');
@@ -1224,7 +1224,7 @@ export function createTradeRouter(
         ),
 
       accept: scopedProcedure('trade:write', { module: 'trade' })
-        .input(z.object({ quoteId: z.string().uuid(), assertedPrice: decimal.optional() }).strict())
+        .input(z.object({ quoteId: z.string().guid(), assertedPrice: decimal.optional() }).strict())
         .mutation(({ ctx, input }) =>
           guard(async () => {
             if (!otc) throw new OtcError('OTC desk not mounted', 'trade.otc_desk_law_blank');
@@ -1236,7 +1236,7 @@ export function createTradeRouter(
         ),
 
       expire: scopedProcedure('trade:write', { module: 'trade' })
-        .input(z.object({ quoteId: z.string().uuid() }).strict())
+        .input(z.object({ quoteId: z.string().guid() }).strict())
         .mutation(({ ctx, input }) =>
           guard(async () => {
             if (!otc) throw new OtcError('OTC desk not mounted', 'trade.otc_desk_law_blank');
@@ -1245,7 +1245,7 @@ export function createTradeRouter(
         ),
 
       get: scopedProcedure('trade:read', { module: 'trade' })
-        .input(z.object({ quoteId: z.string().uuid() }).strict())
+        .input(z.object({ quoteId: z.string().guid() }).strict())
         .query(({ ctx, input }) =>
           guard(async () => {
             if (!otc) throw new OtcError('OTC desk not mounted', 'trade.otc_desk_law_blank');
@@ -1254,7 +1254,7 @@ export function createTradeRouter(
         ),
 
       allocate: scopedProcedure('trade:write', { module: 'trade' })
-        .input(z.object({ quoteId: z.string().uuid(), allocations: z.array(z.unknown()).min(1) }).strict())
+        .input(z.object({ quoteId: z.string().guid(), allocations: z.array(z.unknown()).min(1) }).strict())
         .mutation(({ ctx, input }) =>
           guard(async () => {
             if (!otc) throw new OtcError('OTC desk not mounted', 'trade.otc_desk_law_blank');
@@ -1266,7 +1266,7 @@ export function createTradeRouter(
         .input(
           z
             .object({
-              quoteId: z.string().uuid(),
+              quoteId: z.string().guid(),
               carryingAccount: z.string().min(1).max(120).optional(),
             })
             .strict(),
@@ -1297,7 +1297,7 @@ export function createTradeRouter(
             sliceIntervalMs: z.number().int().min(1_000).max(86_400_000),
             limitPrice: decimal.optional(),
             clientAlgoId: z.string().trim().min(1).max(48),
-            subAccountId: z.string().uuid().optional(),
+            subAccountId: z.string().guid().optional(),
             kind: z.enum(['twap', 'vwap', 'pov']).optional(),
             participationBps: z.number().int().min(1).max(10_000).optional(),
           }),
@@ -1646,6 +1646,11 @@ export function createTradeRouter(
               profit: z.string().max(64).optional(),
               copiers: z.string().max(64).optional(),
               rank: z.string().max(64).optional(),
+              // A ranked category or the trending row: accepted only so it can be refused by name (CB-copy-23).
+              category: z.string().max(64).optional(),
+              trending: z.boolean().optional(),
+              marketMode: z.string().max(16).optional(),
+              q: z.string().max(200).optional(),
             })
             .optional(),
         )
@@ -1656,6 +1661,32 @@ export function createTradeRouter(
             publishedCopyPageLimit(query.limit, 'trade.copy_leaders_limit_unset', 'listLeaders');
             if (!copy) return { leaders: [], nextCursor: null };
             return copy.listLeaders(ctx.principal, query);
+          }),
+        ),
+
+      /** One listed leader's page: listing facts and the metrics the owner defined. Not listed → NOT_FOUND. */
+      leaderProfile: scopedProcedure('trade:read', { module: 'trade' })
+        .input(z.object({ leaderRef: z.string().min(1).max(80) }))
+        .query(({ ctx, input }) =>
+          guard(async () => {
+            if (!copy) throw new CopyError('Leader not found', 'trade.copy_leader_not_found');
+            return copy.leaderProfile(ctx.principal, input);
+          }),
+        ),
+
+      /** One listed leader's own spot trades, newest first. Limit is required. */
+      leaderTrades: scopedProcedure('trade:read', { module: 'trade' })
+        .input(
+          z.object({
+            leaderRef: z.string().min(1).max(80),
+            limit: z.number().optional(),
+            cursor: z.string().max(64).optional(),
+          }),
+        )
+        .query(({ ctx, input }) =>
+          guard(async () => {
+            if (!copy) throw new CopyError('Leader not found', 'trade.copy_leader_not_found');
+            return copy.leaderTrades(ctx.principal, input);
           }),
         ),
 
@@ -1683,6 +1714,7 @@ export function createTradeRouter(
               clientRequestId: z.string().min(1).max(200),
               leaderUserId: z.string().min(1).max(120),
               displayName: z.string().min(1).max(200),
+              marketMode: z.enum(['spot', 'futures', 'bot', 'signal']).optional(),
               recordKind: z.enum(['verified_live', 'paper', 'backtest', 'imported', 'self_reported']),
               state: z.enum(['unlisted', 'listed', 'suspended', 'delisted']).optional(),
               tenureStart: z.string().max(40).nullable().optional(),

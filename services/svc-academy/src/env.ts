@@ -21,6 +21,18 @@ import { edgeEnvSchema, internalServiceEnvSchema, loadEnv, s2sEnvSchema, service
  * `custodial: false` and this process holds no credential that could reach
  * anything which moves value.
  */
+const MIME_TYPE = /^[a-z]+\/[a-z0-9.+-]+$/;
+/** A comma-separated list; blank is unset. */
+const mimeList = (v: unknown) =>
+  v === undefined || (typeof v === 'string' && v.trim() === '')
+    ? undefined
+    : typeof v === 'string'
+      ? v
+          .split(',')
+          .map((t) => t.trim().toLowerCase())
+          .filter(Boolean)
+      : v;
+
 const schema = serviceEnvSchema
   .merge(edgeEnvSchema)
   .merge(internalServiceEnvSchema)
@@ -105,6 +117,37 @@ const schema = serviceEnvSchema
         (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
         z.union([z.undefined(), z.coerce.number().int().min(1).max(1_048_576)]),
       ),
+
+      /**
+       * AC-articles-01: how many topics the founder console's topic list shows. Blank / unset is unpublished: the list
+       * refuses `academy.topics_list_limit_unset`.
+       */
+      ACADEMY_TOPICS_LIST_LIMIT: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1).max(1000)]),
+      ),
+
+      /**
+       * AC-videos-02: the largest video or handout, in bytes, the Academy desk uploads. Blank / unset is unpublished:
+       * an upload refuses `academy.upload_limits_unset`, and a larger file refuses `academy.upload_too_large` before an
+       * upload address is issued.
+       */
+      ACADEMY_UPLOAD_MAX_BYTES: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1).max(5_368_709_120)]),
+      ),
+
+      /**
+       * AC-videos-02: the video types the Academy desk accepts, comma-separated (for example `video/mp4,video/webm`).
+       * Blank / unset is unpublished: a video upload refuses `academy.upload_limits_unset`.
+       */
+      ACADEMY_UPLOAD_VIDEO_TYPES: z.preprocess(mimeList, z.union([z.undefined(), z.array(z.string().regex(MIME_TYPE)).min(1)])),
+
+      /**
+       * AC-videos-02: the handout types the Academy desk accepts, comma-separated (for example `application/pdf`).
+       * Blank / unset is unpublished: a handout upload refuses `academy.upload_limits_unset`.
+       */
+      ACADEMY_UPLOAD_HANDOUT_TYPES: z.preprocess(mimeList, z.union([z.undefined(), z.array(z.string().regex(MIME_TYPE)).min(1)])),
 
       /**
        * Stage-1 tournament ladder kill-switch (mirrors flag `academy.tournament`).

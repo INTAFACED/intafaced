@@ -33,7 +33,8 @@ export const DISAGREE_WORDS: Readonly<Record<string, string>> = {
 /** What each typed refusal means to an operator. No raw code is shown without a sentence. */
 export const REFUSAL_WORDS: Readonly<Record<string, string>> = {
   'ops.restore_archive_unconfigured': 'No joint-restore archive is configured, so nothing can be started or recorded.',
-  'ops.restore_archive_unprobed': 'An archive is configured but this service does not probe it yet, so no backup is listed.',
+  'ops.restore_archive_unprobed':
+    'An archive is configured but it could not be read, or did not answer with a backup list, so no backup is listed.',
   'ops.restore_storage_unconfigured':
     'svc-ops has no durable storage for restore runs on this deployment, so nothing can be read or saved.',
   'ops.restore_target_unset': 'The owner has not set a restore storage target. Starting and finalizing stay off until they do.',

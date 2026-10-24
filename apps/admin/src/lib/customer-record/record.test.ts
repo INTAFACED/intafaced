@@ -47,16 +47,15 @@ describe('what each tab reads', () => {
     expect(docs.reads[0]!.refusals?.['kyc_doc.unwired']).toContain('IDENTITY_KYC_DOC_KEY');
   });
   it('names procedures the owning services serve today', () => {
-    const bank = service('svc-bank/src/router.ts');
-    expect(bank).toContain('customerBalances:');
+    expect(service('svc-bank/src/router/ops.router.ts')).toContain('customerBalances:');
     // The cards blocker: svc-bank's card list is the owner's own, read by the signed-in principal.
-    expect(bank).toContain('bank.cards.cardsOf(ctx.principal.userId');
+    expect(service('svc-bank/src/router/cards.router.ts')).toContain('bank.cards.cardsOf(ctx.principal.userId');
     // The tickets blocker: svc-support's account read goes by ticket, strictly.
-    expect(service('svc-support/src/router.ts')).toContain('.input(z.object({ ticketId: z.string().uuid() }).strict())');
+    expect(service('svc-support/src/router.ts')).toContain('.input(z.object({ ticketId: z.string().guid() }).strict())');
     expect(service('svc-trade/src/controls/router.ts')).toMatch(/history: protectedProcedure/);
     // Documents: identity's meta-only list for one subject, compliance scope, limit required, no bytes.
     expect(service('svc-identity/src/router.ts')).toMatch(
-      /listDocuments: scopedProcedure\('admin:compliance'\)\s+\.input\(z\.object\(\{ userId: z\.string\(\)\.uuid\(\), limit: z\.number\(\)\.int\(\)\.min\(1\)\.max\(200\) \}\)\)/,
+      /listDocuments: scopedProcedure\('admin:compliance'\)\s+\.input\(z\.object\(\{ userId: z\.string\(\)\.guid\(\), limit: z\.number\(\)\.int\(\)\.min\(1\)\.max\(200\) \}\)\)/,
     );
     const allowlist = service('svc-pay/src/withdrawals/allowlist/router.ts');
     expect(allowlist).toMatch(/\bmode: founder/);

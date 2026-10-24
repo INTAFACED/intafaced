@@ -17,8 +17,6 @@ import {
   AlertDialogTitle,
   Button,
   Checkbox,
-  Collapsible,
-  CollapsibleTrigger,
   EmptyState,
   Field,
   Input,
@@ -47,8 +45,9 @@ import type { BalanceEntry } from '../../../data/derive';
 import type { Loadable } from '../../../data/types';
 import type { AdlDisclosure, FuturesListing, FuturesOrder, OrderTypeEntry, PositionPreview, TickerStrip } from './api';
 import { STALE_AFTER_MS, useFuturesApi, useFuturesRefresh, useOrderTypes } from './data';
+import { entryLegProblem, legSide } from './protection-logic';
 import { newNonce, useFuturesWriter, type Writer } from './hooks';
-import { allInCost, isStale, leveragePresets, openId, stateOf } from './model';
+import { allInCost, isStale, leveragePresets, openId, reduceId, stateOf } from './model';
 import { futuresRefusal, isPlaneOff, type FuturesRefusal } from './refusals';
 import { ticketCopy } from './ticket-copy';
 import {
@@ -140,6 +139,10 @@ export function Ticket(props: TicketProps) {
   const [unit, setUnit] = useState<SizeUnit>('base');
   const [sizeRaw, setSizeRaw] = useState('');
   const [leverage, setLeverage] = useState('');
+  const [takeProfit, setTakeProfit] = useState('');
+  const [stopLoss, setStopLoss] = useState('');
+  // What the last open asked to be protected with, shown once it is placed.
+  const [protectedOpen, setProtectedOpen] = useState<{ takeProfit: string | null; stopLoss: string | null } | null>(null);
   const [nonce, setNonce] = useState(newNonce);
   const [review, setReview] = useState<Review>({ status: 'idle' });
   const [modeAsked, setModeAsked] = useState<string | null>(null);
@@ -148,6 +151,9 @@ export function Ticket(props: TicketProps) {
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [offSeen, setOffSeen] = useState(false);
   const [acking, setAcking] = useState<'idle' | 'busy' | 'failed'>('idle');
+  // Reduce-only: the order can only lower a position on the other side, so it is sent without a cost review.
+  const [reduceOnly, setReduceOnly] = useState(false);
+  const [reduceConfirm, setReduceConfirm] = useState(false);
 
   const size = sizeInBase(sizeRaw, unit, market);
   const lev = dec(leverage) === null ? '' : str(dec(leverage)!);
@@ -183,6 +189,7 @@ export function Ticket(props: TicketProps) {
     setNonce(newNonce());
     setReview({ status: 'idle' });
     setConfirm(null);
+    setReduceConfirm(false);
     if (writer.outcome && writer.outcome.kind !== 'uncertain') writer.dismiss();
   };
   const first = useRef(true);
@@ -193,6 +200,9 @@ export function Ticket(props: TicketProps) {
     }
     touch();
     setSizeRaw('');
+    setTakeProfit('');
+    setStopLoss('');
+    setProtectedOpen(null);
     setCap(null);
     setOffSeen(false);
     // Only a different contract resets the form; `touch` reads fresh state each call.
@@ -227,13 +237,23 @@ export function Ticket(props: TicketProps) {
       free,
     });
   const typeOff = !offered.includes(orderType) ? 'typeUnavailable' : orderType === 'limit' && limitPrice === null ? 'noLimitPrice' : null;
-  const openOff = gate(shown) ?? typeOff;
+  // A take profit or stop loss on the order: checked against the mark here, and again by the service.
+  const legProblems = {
+    take_profit: entryLegProblem(side, 'take_profit', takeProfit, markNow),
+    stop_loss: entryLegProblem(side, 'stop_loss', stopLoss, markNow),
+  };
+  const protecting = takeProfit.trim() !== '' || stopLoss.trim() !== '';
+  const protectOff = legProblems.take_profit !== null || legProblems.stop_loss !== null ? ('protectionProblem' as const) : null;
+  const openOff = gate(shown) ?? typeOff ?? protectOff;
   // Above the max-order the review names a split: it may be placed as those children when nothing else refuses.
   const splitShown = splitPreview(shown);
-  const splitOff = splitShown ? (gate(splitShown) ?? typeOff) : null;
-  const reviewOff =
-    reviewBlock({ planeOff, signedOut, markKnown: markNow !== null, markStale, size, leverage: lev }) ??
-    (orderType === 'limit' && limitPrice === null ? 'noLimitPrice' : null);
+  const splitOff = splitShown ? (gate(splitShown) ?? typeOff ?? (protecting ? ('protectionSplit' as const) : null)) : null;
+  const reviewOff = reduceOnly
+    ? ('reduceOnly' as const)
+    : (reviewBlock({ planeOff, signedOut, markKnown: markNow !== null, markStale, size, leverage: lev }) ??
+      (orderType === 'limit' && limitPrice === null ? 'noLimitPrice' : null));
+  // A reduce-only order needs a size and its type's price; the service checks the position it lowers.
+  const reduceOff = writer.note.state !== 'none' ? ('locked' as const) : size === null || !isPositive(size) ? ('noSize' as const) : typeOff;
 
   if (planeOff)
     return (
@@ -319,10 +339,32 @@ export function Ticket(props: TicketProps) {
           ...(askedPrice !== undefined ? { price: askedPrice } : {}),
           ...(confirm.split ? { split: true as const } : {}),
           ...(tier !== null ? { confirmTier: tier } : {}),
+          ...(!confirm.split && takeProfit.trim() !== '' ? { takeProfit: takeProfit.trim() } : {}),
+          ...(!confirm.split && stopLoss.trim() !== '' ? { stopLoss: stopLoss.trim() } : {}),
           clientOpenId: openId(nonce),
         },
       }),
     );
+  }
+
+  async function confirmReduce() {
+    if (reduceOff !== null || size === null) return;
+    setReduceConfirm(false);
+    const outcome = await writer.run({
+      op: 'reduce',
+      input: {
+        symbol: market.symbol,
+        side: side === 'long' ? 'buy' : 'sell',
+        size,
+        type: orderType,
+        ...(limitPrice !== null ? { price: limitPrice } : {}),
+        ...(orderType === 'limit' && adjust ? { priceCorrection: 'adjust' as const } : {}),
+        clientOrderId: reduceId(nonce),
+      },
+    });
+    // A refused reduce is final: the next press is a new request, not a replay of the refused one.
+    if (outcome.kind === 'refused') setNonce(newNonce());
+    finish(outcome);
   }
 
   function finish(outcome: WriteOutcome) {
@@ -332,6 +374,12 @@ export function Ticket(props: TicketProps) {
       setNonce(newNonce());
       setReview({ status: 'idle' });
       setConfirm(null);
+      const asked = outcome.order?.protection;
+      setProtectedOpen(asked ? { takeProfit: asked.takeProfit, stopLoss: asked.stopLoss } : null);
+      if (asked) {
+        setTakeProfit('');
+        setStopLoss('');
+      }
       onOpened(outcome.order ?? null);
     } else if (outcome.kind === 'refused' && isPlaneOff(outcome.refusal.code)) setOffSeen(true);
   }
@@ -450,7 +498,13 @@ export function Ticket(props: TicketProps) {
     return items;
   };
 
-  const offWords: Record<Exclude<OpenBlock | ReviewBlock | typeof typeOff, null>, string> = {
+  const offWords: Record<
+    Exclude<OpenBlock | ReviewBlock | typeof typeOff | 'protectionProblem' | 'protectionSplit' | 'reduceOnly', null>,
+    string
+  > = {
+    reduceOnly: t('Off reduce review'),
+    protectionProblem: t('Off protection problem'),
+    protectionSplit: t('Off protection split'),
     typeUnavailable: catalogue.status === 'ready' ? t('Off type unavailable') : t('Off types loading'),
     noLimitPrice: t('Off no limit price'),
     planeOff: t('Off plane'),
@@ -472,6 +526,7 @@ export function Ticket(props: TicketProps) {
   };
   // Before a review the most useful reason is what is missing from the form, not "review first".
   const openWhy = openOff === 'notReviewed' && reviewOff ? offWords[reviewOff] : openOff ? offWords[openOff] : null;
+  const actionWhy = reduceOnly ? (reduceOff === null ? null : offWords[reduceOff]) : openWhy;
 
   const percentOff = leverage === '' || lev === '' ? t('Percent needs leverage') : null;
   const percentTo = (pct: number) => percentSize({ free, leverage: lev, mark: markNow, pct, unit, places: sizePlaces(market) }, market);
@@ -490,9 +545,10 @@ export function Ticket(props: TicketProps) {
           setSide(v as Side);
           touch();
         }}
+        // Reduce-only names what the order does, since a buy lowers a short and a sell lowers a long.
         items={[
-          { value: 'long', label: t('Long'), tone: 'up' },
-          { value: 'short', label: t('Short'), tone: 'down' },
+          { value: 'long', label: reduceOnly ? t('Reduce direction buy') : t('Long'), tone: 'up' },
+          { value: 'short', label: reduceOnly ? t('Reduce direction sell') : t('Short'), tone: 'down' },
         ]}
       />
 
@@ -538,7 +594,7 @@ export function Ticket(props: TicketProps) {
             setCollateral(v as CollateralChoice);
             touch();
           }}
-          items={COLLATERAL_CHOICES.map((c) => ({ value: c, label: t(`Margin from ${c}`) }))}
+          items={COLLATERAL_CHOICES.map((c) => ({ value: c, label: t(`Margin from ${c}`), disabled: reduceOnly }))}
         />
       </div>
 
@@ -673,7 +729,7 @@ export function Ticket(props: TicketProps) {
             key={pct}
             variant="secondary"
             size={28}
-            disabled={percentTo(pct) === null}
+            disabled={reduceOnly || percentTo(pct) === null}
             onClick={() => {
               setSizeRaw(percentTo(pct) ?? '');
               touch();
@@ -683,12 +739,17 @@ export function Ticket(props: TicketProps) {
           </Button>
         ))}
       </div>
-      <p className={note}>{percentOff ?? (markNow === null || free === null ? t('Percent needs mark') : t('Percent is estimate'))}</p>
+      <p className={note}>
+        {reduceOnly
+          ? t('Percent reduce')
+          : (percentOff ?? (markNow === null || free === null ? t('Percent needs mark') : t('Percent is estimate')))}
+      </p>
 
-      <Field label={t('Leverage')} hint={t('Leverage hint')}>
+      <Field label={t('Leverage')} hint={reduceOnly ? t('Leverage reduce hint') : t('Leverage hint')}>
         <Input
           kind="decimal"
           value={leverage}
+          disabled={reduceOnly}
           precision={2}
           onValueChange={(v) => {
             setLeverage(v);
@@ -704,6 +765,7 @@ export function Ticket(props: TicketProps) {
               key={x}
               variant="secondary"
               size={28}
+              disabled={reduceOnly}
               onClick={() => {
                 setLeverage(x);
                 touch();
@@ -720,20 +782,59 @@ export function Ticket(props: TicketProps) {
           <span id="ticket-reduce" className="text-sm text-fg-2">
             {t('Reduce only')}
           </span>
-          <Switch disabled aria-labelledby="ticket-reduce" aria-describedby="ticket-reduce-why" />
+          <Switch
+            checked={reduceOnly}
+            onCheckedChange={(on) => {
+              setReduceOnly(on);
+              // A take profit or stop loss attaches only to an order that opens or adds.
+              if (on) {
+                setTakeProfit('');
+                setStopLoss('');
+              }
+              touch();
+            }}
+            aria-labelledby="ticket-reduce"
+            aria-describedby="ticket-reduce-why"
+          />
         </div>
         <p id="ticket-reduce-why" className={note}>
-          {t('Reduce only off')}
+          {reduceOnly ? t('Reduce only on') : t('Reduce only off')}
         </p>
       </div>
-      <Collapsible disabled>
-        <CollapsibleTrigger aria-describedby="ticket-tpsl-why" className="w-full text-left text-sm text-fg-2">
+      <section aria-labelledby="ticket-tpsl" className="flex flex-col gap-2">
+        <h3 id="ticket-tpsl" className="text-sm text-fg-2">
           {t('Take profit stop loss')}
-        </CollapsibleTrigger>
-        <p id="ticket-tpsl-why" className={note}>
-          {t('Take profit off')}
-        </p>
-      </Collapsible>
+        </h3>
+        <p className={note}>{reduceOnly ? t('Entry protection reduce') : t('Entry protection hint')}</p>
+        {(['take_profit', 'stop_loss'] as const).map((leg) => {
+          const value = leg === 'take_profit' ? takeProfit : stopLoss;
+          const set = leg === 'take_profit' ? setTakeProfit : setStopLoss;
+          const problem = legProblems[leg];
+          return (
+            <Field
+              key={leg}
+              label={t(leg === 'take_profit' ? 'Entry take profit' : 'Entry stop loss', { quote: asset })}
+              hint={t(legSide(side, leg) === 'above' ? 'Entry side above' : 'Entry side below')}
+              error={problem ? t(`Entry problem ${problem}`) : undefined}
+            >
+              <Input
+                kind="decimal"
+                value={value}
+                disabled={reduceOnly}
+                precision={fractionDigits(market.precision.price) ?? 2}
+                trailing={asset}
+                onValueChange={(v) => {
+                  set(v);
+                  // Part of the order's request, so a changed one is sent under a new id. The review stays: it does
+                  // not price the protection, and a review still loading must land.
+                  setNonce(newNonce());
+                  if (writer.outcome && writer.outcome.kind !== 'uncertain') writer.dismiss();
+                }}
+              />
+            </Field>
+          );
+        })}
+      </section>
 
       <Button
         variant="secondary"
@@ -791,7 +892,7 @@ export function Ticket(props: TicketProps) {
             </section>
           ) : null}
         </>
-      ) : review.status === 'idle' || (review.status === 'ready' && !shown) ? (
+      ) : !reduceOnly && (review.status === 'idle' || (review.status === 'ready' && !shown)) ? (
         <p className={note}>{t('Review to see cost')}</p>
       ) : null}
 
@@ -809,14 +910,26 @@ export function Ticket(props: TicketProps) {
       <Button
         variant={side === 'long' ? 'buy' : 'sell'}
         fullWidth
-        disabled={openOff !== null}
+        disabled={reduceOnly ? reduceOff !== null || writer.busy : openOff !== null}
         loading={writer.busy}
-        onClick={() => shown && setConfirm({ data: shown, changed: false, checking: false, split: false, tierAccepted: false })}
+        onClick={() =>
+          reduceOnly
+            ? setReduceConfirm(true)
+            : shown && setConfirm({ data: shown, changed: false, checking: false, split: false, tierAccepted: false })
+        }
       >
-        {side === 'long' ? t('Open long') : t('Open short')}
+        {reduceOnly ? (side === 'long' ? t('Reduce buy') : t('Reduce sell')) : side === 'long' ? t('Open long') : t('Open short')}
       </Button>
-      {openWhy !== null ? <p className={note}>{openWhy}</p> : null}
+      {actionWhy !== null ? <p className={note}>{actionWhy}</p> : null}
 
+      {protectedOpen ? (
+        <p role="status" className={note}>
+          {t('Entry protection placed', {
+            takeProfit: price(protectedOpen.takeProfit) ?? t('Entry protection none'),
+            stopLoss: price(protectedOpen.stopLoss) ?? t('Entry protection none'),
+          })}
+        </p>
+      ) : null}
       <Outcome
         writer={writer}
         onCheck={(p, resend) => void writer.check(p, { resend }).then(finish)}
@@ -825,6 +938,43 @@ export function Ticket(props: TicketProps) {
           touch();
         }}
       />
+
+      <AlertDialog open={reduceConfirm} onOpenChange={(open) => !open && setReduceConfirm(false)}>
+        {reduceConfirm ? (
+          <AlertDialogContent className="max-h-[calc(100dvh-32px)] overflow-y-auto">
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {side === 'long' ? t('Confirm reduce buy', { symbol: market.symbol }) : t('Confirm reduce sell', { symbol: market.symbol })}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {side === 'long' ? t('Confirm reduce body buy') : t('Confirm reduce body sell')}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <KeyValue
+              density="dense"
+              unknownLabel={t('Unknown figure')}
+              items={[
+                { label: t('Direction'), value: side === 'long' ? t('Reduce direction buy') : t('Reduce direction sell') },
+                { label: t('Size row'), value: size === null ? null : `${fmtAmount(size)} ${market.base}` },
+                {
+                  label: t('Order type'),
+                  value: orderType === 'market' ? t('Type market') : t('Limit at', { price: price(limitPrice) ?? '—' }),
+                },
+                { label: t('Reduce only'), value: t('Reduce only yes') },
+                { label: t('Mark price'), value: price(markNow) },
+              ]}
+            />
+            <AlertDialogFooter>
+              <Button variant="secondary" onClick={() => setReduceConfirm(false)}>
+                {t('Cancel')}
+              </Button>
+              <Button variant={side === 'long' ? 'buy' : 'sell'} disabled={reduceOff !== null} onClick={() => void confirmReduce()}>
+                {side === 'long' ? t('Confirm reduce buy button') : t('Confirm reduce sell button')}
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        ) : null}
+      </AlertDialog>
 
       <AlertDialog open={confirm !== null} onOpenChange={(open) => !open && !confirm?.checking && setConfirm(null)}>
         {confirm ? (
@@ -866,6 +1016,12 @@ export function Ticket(props: TicketProps) {
                   label: t('Order type'),
                   value: orderType === 'market' ? t('Type market') : t('Limit at', { price: price(limitPrice) ?? '—' }),
                 },
+                ...(!confirm.split && protecting
+                  ? [
+                      { label: t('Take profit row'), value: price(takeProfit.trim() || null) ?? t('Entry protection none') },
+                      { label: t('Stop loss row'), value: price(stopLoss.trim() || null) ?? t('Entry protection none') },
+                    ]
+                  : []),
                 ...costItems(confirm.data, null),
               ]}
             />
@@ -1015,7 +1171,7 @@ function Outcome({ writer, onCheck, onAgain }: { writer: Writer; onCheck(pending
               : t('Opened no id', { status: word })}
         </p>
         <Button variant="secondary" size={32} onClick={onAgain}>
-          {t('Open another')}
+          {order?.reduceOnly ? t('Place another') : t('Open another')}
         </Button>
       </div>
     );

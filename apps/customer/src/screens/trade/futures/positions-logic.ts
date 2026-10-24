@@ -10,7 +10,7 @@ import { healthOf, isLive, liquidationDistancePct, stateOf, type Health, type Po
 import type { BlockReason } from '../buy/write-lock';
 import type { WriteOutcome } from './write';
 
-export type ActionKey = 'add' | 'reduce' | 'leverage' | 'protect' | 'close';
+export type ActionKey = 'add' | 'reduce' | 'leverage' | 'protect' | 'stop' | 'close';
 export type GateReason = 'planeOff' | 'noId' | 'notLive' | 'writerLocked' | 'liquidating' | 'stale';
 
 export interface RowModel {
@@ -114,6 +114,8 @@ export function gateActions(input: GateInput): Record<ActionKey, GateReason | nu
     leverage: needsMark,
     // A take-profit or stop-loss is checked against the mark, so it needs a fresh one too.
     protect: needsMark,
+    // A stop is judged on a live price too; one armed on an old read could fire at once.
+    stop: needsMark,
     // Retry close on a closing position is the same key; staleness does not make it unsafe.
     close: base ?? (liquidating ? 'liquidating' : stale && !closing ? 'stale' : null),
   };

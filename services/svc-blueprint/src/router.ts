@@ -5,12 +5,16 @@ import {
   blueprintSchema,
   cardInput,
   cardOfInput,
+  cardOpenerSchema,
   cardRenderSchema,
+  cardShareSchema,
+  createShareInput,
   eraseReceiptSchema,
   mentorMatchSchema,
   onboardInput,
   onboardOutput,
   setVisibilityInput,
+  shareIdInput,
 } from '@intafaced/contracts';
 import { AttestationSurfaceError } from './attestations/zero-pii.js';
 import { BlueprintError, type BlueprintService } from './blueprint-service.js';
@@ -60,7 +64,13 @@ function toTrpcError(err: unknown): TRPCError {
     case 'blueprint.crew_capacity_unset':
     case 'blueprint.mentor_shortlist_unset':
     case 'blueprint.season_unset':
+    case 'blueprint.share_limit_unset':
+    case 'blueprint.opens_list_limit_unset':
       return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
+    case 'blueprint.share_limit_reached':
+      return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
+    case 'blueprint.open_log_unavailable':
+      return new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: err.message, cause: err });
   }
 }
 
@@ -126,7 +136,8 @@ export function createBlueprintRouter(blueprint: BlueprintService) {
         try {
           return await blueprint.cardFor({
             viewerId: ctx.principal.userId,
-            subjectUserId: input.userId,
+            ...(input.userId ? { subjectUserId: input.userId } : {}),
+            ...(input.shareId ? { shareId: input.shareId } : {}),
             size: input.size,
           });
         } catch (err) {
@@ -135,9 +146,55 @@ export function createBlueprintRouter(blueprint: BlueprintService) {
       }),
 
     /**
-     * Change the caller's own visibility. Write-once at onboard would leave
-     * the column decorative for anyone who accepted the default (`private`).
+     * Shares of the caller's own cards (MC-blueprint-01). The account is the
+     * signed principal. A share id from the body is only the row to revoke or
+     * to list; it never chooses whose shares are created.
      */
+    shares: router({
+      create: scopedProcedure('blueprint:write', { module: 'blueprint' })
+        .input(createShareInput)
+        .output(cardShareSchema)
+        .mutation(async ({ ctx, input }) => {
+          try {
+            return await blueprint.createShare({ userId: ctx.principal.userId, size: input.size });
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      list: scopedProcedure('blueprint:read', { module: 'blueprint' })
+        .output(z.array(cardShareSchema))
+        .query(async ({ ctx }) => {
+          try {
+            return await blueprint.listShares({ userId: ctx.principal.userId });
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      revoke: scopedProcedure('blueprint:write', { module: 'blueprint' })
+        .input(shareIdInput)
+        .output(cardShareSchema)
+        .mutation(async ({ ctx, input }) => {
+          try {
+            return await blueprint.revokeShare({ userId: ctx.principal.userId, shareId: input.shareId });
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      openers: scopedProcedure('blueprint:read', { module: 'blueprint' })
+        .input(shareIdInput)
+        .output(z.array(cardOpenerSchema))
+        .query(async ({ ctx, input }) => {
+          try {
+            return await blueprint.shareOpeners({ userId: ctx.principal.userId, shareId: input.shareId });
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+    }),
+
     setVisibility: scopedProcedure('blueprint:write', { module: 'blueprint' })
       .input(setVisibilityInput.omit({ userId: true }))
       .output(blueprintSchema)

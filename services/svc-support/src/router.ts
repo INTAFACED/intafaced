@@ -29,6 +29,11 @@ import {
   supportTicketPropertiesSchema,
   supportTicketSchema,
   supportTicketStatusSchema,
+  supportViewCountsSchema,
+  supportViewDeleteInputSchema,
+  supportViewListSchema,
+  supportViewSaveInputSchema,
+  supportViewSchema,
 } from '@intafaced/contracts';
 import { MemoryContactBook, type ContactBook } from './contact-channels.js';
 import { contactProcedures } from './contact-router.js';
@@ -51,8 +56,8 @@ import { ticketOrderReadSchema } from './ticket-order.js';
 import { userCopy } from './user-copy.js';
 
 const queueEntrySchema = z.object({
-  ticketId: z.string().uuid(),
-  userId: z.string().uuid(),
+  ticketId: z.string().guid(),
+  userId: z.string().guid(),
   category: z.string().min(1),
   status: supportTicketStatusSchema,
   subject: z.string().min(1),
@@ -113,6 +118,10 @@ function mapError(err: unknown): never {
       err.code === 'support.assign.not_queueable' ||
       err.code === 'support.attachments_unconfigured' ||
       err.code === 'support.bulk_cap_unset' ||
+      err.code === 'support.view_cap_unset' ||
+      err.code === 'support.view_cap_reached' ||
+      err.code === 'support.filter_invalid' ||
+      err.code === 'support.sort_invalid' ||
       err.code === 'support.merge_not_allowed' ||
       err.code === 'support.merge_same_ticket' ||
       err.code === 'support.rate_status_refused' ||
@@ -132,11 +141,17 @@ function mapError(err: unknown): never {
     if (err.code === 'support.feedback_rate_exceeded') {
       throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message });
     }
-    if (err.code === 'support.not_lead' || err.code === 'support.not_staff' || err.code === 'support.release.not_assignee') {
+    if (
+      err.code === 'support.not_lead' ||
+      err.code === 'support.not_staff' ||
+      err.code === 'support.release.not_assignee' ||
+      err.code === 'support.view_not_owner'
+    ) {
       throw new TRPCError({ code: 'FORBIDDEN', message });
     }
     if (
       err.code === 'support.idempotency_conflict' ||
+      err.code === 'support.view_revision_stale' ||
       err.code === 'support.group_member_duplicate' ||
       err.code === 'support.group_name_taken'
     ) {
@@ -241,7 +256,7 @@ export function createSupportRouter(
 
     /** Ids of the caller's own tickets that carry a rating. */
     ratedMine: scopedProcedure('support:read')
-      .output(z.array(z.string().uuid()))
+      .output(z.array(z.string().guid()))
       .query(async ({ ctx }) => {
         try {
           return await support.ratedTicketIds(ctx.principal!.userId);
@@ -262,6 +277,11 @@ export function createSupportRouter(
              * explicitly when that is the page you want.
              */
             limit: z.number().int().positive().max(500).optional(),
+            /** Loose on purpose: a bad field is `support.filter_invalid`, not a schema error. */
+            filter: z.unknown().optional(),
+            sort: z.unknown().nullable().optional(),
+            /** Subject, body or requester id. Blank is not a search. */
+            q: z.string().max(200).optional(),
           })
           .optional(),
       )
@@ -269,17 +289,25 @@ export function createSupportRouter(
       .query(async ({ ctx, input }) => {
         try {
           requireSupportOps(ctx.principal!);
-          if (scope && (await scope.deskIsRestricted())) {
-            return await scope.listAllTicketsInScope({ limit: input?.limit, viewerId: ctx.principal!.userId });
+          const asked = input?.filter !== undefined || (input?.sort !== undefined && input.sort !== null) || Boolean(input?.q?.trim());
+          if (!asked) {
+            if (scope && (await scope.deskIsRestricted())) {
+              return await scope.listAllTicketsInScope({ limit: input?.limit, viewerId: ctx.principal!.userId });
+            }
+            return await support.listAllTickets({ limit: input?.limit });
           }
-          return await support.listAllTickets({ limit: input?.limit });
+          const query = { limit: input?.limit, filter: input?.filter, sort: input?.sort, q: input?.q };
+          if (scope && (await scope.deskIsRestricted())) {
+            return await scope.listAllTicketsInScope({ ...query, viewerId: ctx.principal!.userId });
+          }
+          return await support.listAllTickets(query);
         } catch (err) {
           mapError(err);
         }
       }),
 
     get: scopedProcedure('support:read')
-      .input(z.object({ ticketId: z.string().uuid() }))
+      .input(z.object({ ticketId: z.string().guid() }))
       .output(supportTicketSchema)
       .query(async ({ ctx, input }) => {
         try {
@@ -297,7 +325,7 @@ export function createSupportRouter(
     comment: scopedProcedure('support:write')
       .input(
         z.object({
-          ticketId: z.string().uuid(),
+          ticketId: z.string().guid(),
           body: z.string().min(1).max(10_000),
           /** The caller's key: sent again after a lost reply it answers the first comment and writes no second one. */
           clientRequestId: z.string().min(1).max(200).optional(),
@@ -322,7 +350,7 @@ export function createSupportRouter(
     listComments: scopedProcedure('support:read')
       .input(
         z.object({
-          ticketId: z.string().uuid(),
+          ticketId: z.string().guid(),
           /**
            * Page size. Optional here so omit reaches the service named
            * refuse (`support.list_comments_limit_unset`) instead of a Zod
@@ -350,7 +378,7 @@ export function createSupportRouter(
     setStatus: scopedProcedure('support:ops')
       .input(
         z.object({
-          ticketId: z.string().uuid(),
+          ticketId: z.string().guid(),
           status: supportTicketStatusSchema,
           /** Optional short reason, recorded on the trail row. Not required, so
            *  no existing caller breaks; recorded when supplied. */
@@ -380,7 +408,7 @@ export function createSupportRouter(
     events: scopedProcedure('support:read')
       .input(
         z.object({
-          ticketId: z.string().uuid(),
+          ticketId: z.string().guid(),
           /**
            * Page size. Optional here so omit reaches the service named
            * refuse (`support.list_events_limit_unset`) instead of a Zod
@@ -410,7 +438,7 @@ export function createSupportRouter(
      * cancel. No ledger post.
      */
     ticketOrder: scopedProcedure('support:ops')
-      .input(z.object({ ticketId: z.string().uuid(), orderId: z.string().uuid() }).strict())
+      .input(z.object({ ticketId: z.string().guid(), orderId: z.string().guid() }).strict())
       .output(ticketOrderReadSchema)
       .query(async ({ ctx, input }) => {
         try {
@@ -441,7 +469,7 @@ export function createSupportRouter(
       // told so. Refusing says it out loud, and keeps "there is no way to ask
       // this service about an arbitrary account" a property rather than an
       // accident of zod's defaults.
-      .input(z.object({ ticketId: z.string().uuid() }).strict())
+      .input(z.object({ ticketId: z.string().guid() }).strict())
       .output(supportAccountGroundingSchema)
       .query(async ({ ctx, input }) => {
         try {
@@ -470,7 +498,7 @@ export function createSupportRouter(
 
     /** The case file an escalation was made against. null = never escalated. */
     caseFile: scopedProcedure('support:ops')
-      .input(z.object({ ticketId: z.string().uuid() }))
+      .input(z.object({ ticketId: z.string().guid() }))
       .output(supportCaseFileSchema.nullable())
       .query(async ({ ctx, input }) => {
         try {
@@ -622,6 +650,9 @@ export function createSupportRouter(
             limit: z.number().int().positive().max(500).optional(),
             /** Only tickets carrying this label. */
             label: z.string().max(200).optional(),
+            filter: z.unknown().optional(),
+            sort: z.unknown().nullable().optional(),
+            q: z.string().max(200).optional(),
           })
           .optional(),
       )
@@ -629,15 +660,25 @@ export function createSupportRouter(
       .query(async ({ ctx, input }) => {
         try {
           requireSupportOps(ctx.principal!);
-          const q = input?.label
+          const asked = input?.filter !== undefined || (input?.sort !== undefined && input.sort !== null) || Boolean(input?.q?.trim());
+          const q = asked
             ? await support.listOperatorQueue({
-                limit: input.limit,
-                label: input.label,
-                viewerId: scope && (await scope.deskIsRestricted()) ? ctx.principal!.userId : undefined,
+                limit: input?.limit,
+                ...(input?.label !== undefined ? { label: input.label } : {}),
+                filter: input?.filter,
+                sort: input?.sort,
+                q: input?.q,
+                ...(scope && (await scope.deskIsRestricted()) ? { viewerId: ctx.principal!.userId } : {}),
               })
-            : scope && (await scope.deskIsRestricted())
-              ? await support.listOperatorQueue({ limit: input?.limit, viewerId: ctx.principal!.userId })
-              : await support.listOperatorQueue({ limit: input?.limit });
+            : input?.label
+              ? await support.listOperatorQueue({
+                  limit: input.limit,
+                  label: input.label,
+                  viewerId: scope && (await scope.deskIsRestricted()) ? ctx.principal!.userId : undefined,
+                })
+              : scope && (await scope.deskIsRestricted())
+                ? await support.listOperatorQueue({ limit: input?.limit, viewerId: ctx.principal!.userId })
+                : await support.listOperatorQueue({ limit: input?.limit });
           if (q.status === 'empty') return q;
           return { status: 'ok' as const, entries: [...q.entries] };
         } catch (err) {
@@ -661,7 +702,7 @@ export function createSupportRouter(
       .input(
         z.object({
           act: z.enum(['complete_withdrawal', 'unfreeze_account', 'move_money']),
-          ticketId: z.string().uuid().optional(),
+          ticketId: z.string().guid().optional(),
         }),
       )
       .mutation(async ({ ctx, input }) => {
@@ -679,7 +720,7 @@ export function createSupportRouter(
 
     /** Owner close. Lifecycle table only. Replay returns the first ticket. */
     close: scopedProcedure('support:write')
-      .input(z.object({ ticketId: z.string().uuid(), clientRequestId: z.string().min(1).max(200) }))
+      .input(z.object({ ticketId: z.string().guid(), clientRequestId: z.string().min(1).max(200) }))
       .output(supportTicketSchema)
       .mutation(async ({ ctx, input }) => {
         try {
@@ -693,7 +734,7 @@ export function createSupportRouter(
     rate: scopedProcedure('support:write')
       .input(
         z.object({
-          ticketId: z.string().uuid(),
+          ticketId: z.string().guid(),
           score: z.number().int(),
           note: z.string().max(500).optional(),
           clientRequestId: z.string().min(1).max(200),
@@ -701,8 +742,8 @@ export function createSupportRouter(
       )
       .output(
         z.object({
-          ticketId: z.string().uuid(),
-          userId: z.string().uuid(),
+          ticketId: z.string().guid(),
+          userId: z.string().guid(),
           score: z.number().int(),
           note: z.string().nullable(),
           createdAt: z.string().datetime(),
@@ -718,12 +759,12 @@ export function createSupportRouter(
 
     /** The caller's own rating, or null when they have not rated. */
     rating: scopedProcedure('support:read')
-      .input(z.object({ ticketId: z.string().uuid() }))
+      .input(z.object({ ticketId: z.string().guid() }))
       .output(
         z
           .object({
-            ticketId: z.string().uuid(),
-            userId: z.string().uuid(),
+            ticketId: z.string().guid(),
+            userId: z.string().guid(),
             score: z.number().int(),
             note: z.string().nullable(),
             createdAt: z.string().datetime(),
@@ -740,12 +781,12 @@ export function createSupportRouter(
 
     /** Operator read of a rating. Requires support:ops. */
     ratingOps: scopedProcedure('support:ops')
-      .input(z.object({ ticketId: z.string().uuid() }))
+      .input(z.object({ ticketId: z.string().guid() }))
       .output(
         z
           .object({
-            ticketId: z.string().uuid(),
-            userId: z.string().uuid(),
+            ticketId: z.string().guid(),
+            userId: z.string().guid(),
             score: z.number().int(),
             note: z.string().nullable(),
             createdAt: z.string().datetime(),
@@ -797,7 +838,7 @@ export function createSupportRouter(
     attach: scopedProcedure('support:write')
       .input(
         z.object({
-          ticketId: z.string().uuid(),
+          ticketId: z.string().guid(),
           clientRequestId: z.string().min(1).max(200),
           contentType: z.string().min(1).max(200),
           bodyBase64: z.string(),
@@ -819,7 +860,7 @@ export function createSupportRouter(
     attachOps: scopedProcedure('support:ops')
       .input(
         z.object({
-          ticketId: z.string().uuid(),
+          ticketId: z.string().guid(),
           clientRequestId: z.string().min(1).max(200),
           contentType: z.string().min(1).max(200),
           bodyBase64: z.string(),
@@ -869,7 +910,7 @@ export function createSupportRouter(
      * Page size is required: blank refuses `support.list_attachments_limit_unset`, never a default.
      */
     ticketAttachments: scopedProcedure('support:read')
-      .input(z.object({ ticketId: z.string().uuid(), limit: z.number().int().positive().max(500).optional() }))
+      .input(z.object({ ticketId: z.string().guid(), limit: z.number().int().positive().max(500).optional() }))
       .output(z.array(supportAttachmentSchema))
       .query(async ({ ctx, input }) => {
         try {
@@ -936,10 +977,12 @@ export function createSupportRouter(
         z.object({
           articleId: z.string(),
           version: z.number().int().positive(),
-          userId: z.string().uuid(),
+          userId: z.string().guid(),
           helpful: z.boolean(),
           /** Present only when this vote opened a request. */
-          ticketId: z.string().uuid().optional(),
+          ticketId: z.string().guid().optional(),
+          /** True when this account had already voted on this version; the first vote stands. */
+          earlier: z.literal(true).optional(),
         }),
       )
       .mutation(async ({ ctx, input }) => {
@@ -966,7 +1009,7 @@ export function createSupportRouter(
 
     /** Stage-2 — exclusive claim; refuse steal. No money. */
     claim: scopedProcedure('support:ops')
-      .input(z.object({ ticketId: z.string().uuid() }))
+      .input(z.object({ ticketId: z.string().guid() }))
       .output(supportTicketSchema)
       .mutation(async ({ ctx, input }) => {
         try {
@@ -1033,7 +1076,7 @@ export function createSupportRouter(
     staffSetAvailability: scopedProcedure('support:ops')
       .input(
         z.object({
-          userId: z.string().uuid().optional(),
+          userId: z.string().guid().optional(),
           availability: z.string().max(20),
           reason: z.string().max(500).optional(),
         }),
@@ -1066,7 +1109,7 @@ export function createSupportRouter(
     staffAppoint: scopedProcedure('support:ops')
       .input(
         z.object({
-          userId: z.string().uuid(),
+          userId: z.string().guid(),
           role: z.enum(['agent', 'lead']),
           idempotencyKey: z.string().min(8).max(200),
         }),
@@ -1082,7 +1125,7 @@ export function createSupportRouter(
 
     /** Who the ticket waits on, when the first public reply went out, and the request it follows. */
     ticketLifecycle: scopedProcedure('support:ops')
-      .input(z.object({ ticketId: z.string().uuid() }))
+      .input(z.object({ ticketId: z.string().guid() }))
       .output(supportTicketLifecycleSchema)
       .query(async ({ ctx, input }) => {
         try {
@@ -1095,7 +1138,7 @@ export function createSupportRouter(
 
     /** Priority, type and labels an agent set on a ticket. Null and no labels until set. */
     ticketProperties: scopedProcedure('support:ops')
-      .input(z.object({ ticketId: z.string().uuid() }))
+      .input(z.object({ ticketId: z.string().guid() }))
       .output(supportTicketPropertiesSchema)
       .query(async ({ ctx, input }) => {
         try {
@@ -1114,7 +1157,7 @@ export function createSupportRouter(
     setProperties: scopedProcedure('support:ops')
       .input(
         z.object({
-          ticketId: z.string().uuid(),
+          ticketId: z.string().guid(),
           priority: z.string().max(40).nullable().optional(),
           ticketType: z.string().max(40).nullable().optional(),
           labels: z.array(z.string().max(200)).max(200).optional(),
@@ -1157,7 +1200,7 @@ export function createSupportRouter(
     groupsSave: scopedProcedure('support:ops')
       .input(
         z.object({
-          groupId: z.string().uuid().optional(),
+          groupId: z.string().guid().optional(),
           name: z.string().trim().min(1).max(80),
           idempotencyKey: z.string().min(8).max(200),
         }),
@@ -1173,7 +1216,7 @@ export function createSupportRouter(
       }),
 
     groupsAddMember: scopedProcedure('support:ops')
-      .input(z.object({ groupId: z.string().uuid(), userId: z.string().uuid() }))
+      .input(z.object({ groupId: z.string().guid(), userId: z.string().guid() }))
       .output(deskGroupSchema)
       .mutation(async ({ ctx, input }) => {
         try {
@@ -1185,7 +1228,7 @@ export function createSupportRouter(
       }),
 
     groupsRemoveMember: scopedProcedure('support:ops')
-      .input(z.object({ groupId: z.string().uuid(), userId: z.string().uuid() }))
+      .input(z.object({ groupId: z.string().guid(), userId: z.string().guid() }))
       .output(deskGroupSchema)
       .mutation(async ({ ctx, input }) => {
         try {
@@ -1198,7 +1241,7 @@ export function createSupportRouter(
 
     /** A lead places a ticket in a group, or takes it out with groupId null. */
     ticketSetGroup: scopedProcedure('support:ops')
-      .input(z.object({ ticketId: z.string().uuid(), groupId: z.string().uuid().nullable() }))
+      .input(z.object({ ticketId: z.string().guid(), groupId: z.string().guid().nullable() }))
       .output(z.object({ ticketId: z.string(), groupId: z.string().nullable() }))
       .mutation(async ({ ctx, input }) => {
         try {
@@ -1211,7 +1254,7 @@ export function createSupportRouter(
 
     /** The current assignee returns the ticket to the queue. */
     unclaim: scopedProcedure('support:ops')
-      .input(z.object({ ticketId: z.string().uuid(), idempotencyKey: z.string().min(8).max(200) }))
+      .input(z.object({ ticketId: z.string().guid(), idempotencyKey: z.string().min(8).max(200) }))
       .output(supportTicketSchema)
       .mutation(async ({ ctx, input }) => {
         try {
@@ -1272,12 +1315,61 @@ export function createSupportRouter(
         }
       }),
 
+    /** Saved filters this operator may open, and whether the owner has set a cap. */
+    viewsList: scopedProcedure('support:ops')
+      .output(supportViewListSchema)
+      .query(async ({ ctx }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.listDeskViews(ctx.principal!.userId);
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** Create or replace one view. Keyed by the caller's id, the name and the revision they read. */
+    viewsSave: scopedProcedure('support:ops')
+      .input(supportViewSaveInputSchema)
+      .output(supportViewSchema)
+      .mutation(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.saveDeskView({ actorId: ctx.principal!.userId, ...input });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    viewsDelete: scopedProcedure('support:ops')
+      .input(supportViewDeleteInputSchema)
+      .output(supportViewSchema)
+      .mutation(async ({ ctx, input }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return await support.deleteDeskView({ actorId: ctx.principal!.userId, ...input });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** One count per visible view. It counts every match the caller may see, not the page. */
+    viewsCounts: scopedProcedure('support:ops')
+      .output(supportViewCountsSchema)
+      .query(async ({ ctx }) => {
+        try {
+          requireSupportOps(ctx.principal!);
+          return { counts: await support.deskViewCounts(ctx.principal!.userId) };
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
     /** A lead assigns or reassigns a ticket to another staff member. */
     assign: scopedProcedure('support:ops')
       .input(
         z.object({
-          ticketId: z.string().uuid(),
-          assigneeId: z.string().uuid(),
+          ticketId: z.string().guid(),
+          assigneeId: z.string().guid(),
           idempotencyKey: z.string().min(8).max(200),
         }),
       )

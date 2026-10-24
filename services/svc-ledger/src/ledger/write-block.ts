@@ -17,7 +17,10 @@ import { LedgerError } from '@intafaced/ledger-client';
 
 export const WRITES_BLOCKED_STORE_DISK_FULL = 'ledger.writes_blocked_store_disk_full' as const;
 export const WRITES_BLOCKED_STORE_UNAVAILABLE = 'ledger.writes_blocked_store_unavailable' as const;
-export type WriteBlockCode = typeof WRITES_BLOCKED_STORE_DISK_FULL | typeof WRITES_BLOCKED_STORE_UNAVAILABLE;
+/** App clock and database clock differ by more than the owner-set bound. Not a SQLSTATE. */
+export const WRITES_BLOCKED_CLOCK_SKEW = 'ledger.writes_blocked_clock_skew' as const;
+export type WriteBlockCode =
+  typeof WRITES_BLOCKED_STORE_DISK_FULL | typeof WRITES_BLOCKED_STORE_UNAVAILABLE | typeof WRITES_BLOCKED_CLOCK_SKEW;
 
 const UNAVAILABLE_SQLSTATES = new Set(['57P01', '57P02', '57P03', '25006']);
 const UNAVAILABLE_SOCKET_CODES = new Set([
@@ -55,5 +58,5 @@ export function toWriteBlockError(err: unknown): unknown {
 }
 
 export function isWriteBlockCode(code: string): code is WriteBlockCode {
-  return code === WRITES_BLOCKED_STORE_DISK_FULL || code === WRITES_BLOCKED_STORE_UNAVAILABLE;
+  return code === WRITES_BLOCKED_STORE_DISK_FULL || code === WRITES_BLOCKED_STORE_UNAVAILABLE || code === WRITES_BLOCKED_CLOCK_SKEW;
 }

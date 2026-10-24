@@ -22,26 +22,26 @@ export type SupportTicketCategory = z.infer<typeof supportTicketCategorySchema>;
 export const SUPPORT_MESSAGE_HEADERS_MAX = 10_000;
 
 export const supportTicketSchema = z.object({
-  id: z.string().uuid(),
-  userId: z.string().uuid(),
+  id: z.string().guid(),
+  userId: z.string().guid(),
   category: supportTicketCategorySchema,
   subject: z.string().min(1).max(200),
   body: z.string().min(1).max(10_000),
   /** Pasted headers of a reported message. Null or absent on any other ticket. */
   messageHeaders: z.string().min(1).max(SUPPORT_MESSAGE_HEADERS_MAX).nullable().optional(),
   status: supportTicketStatusSchema,
-  assigneeId: z.string().uuid().nullable(),
+  assigneeId: z.string().guid().nullable(),
   /** Set when this request was merged into another (SP-tickets-07); the request stays closed and readable. */
-  mergedInto: z.string().uuid().nullable().optional(),
+  mergedInto: z.string().guid().nullable().optional(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
 export type SupportTicket = z.infer<typeof supportTicketSchema>;
 
 export const supportCommentSchema = z.object({
-  id: z.string().uuid(),
-  ticketId: z.string().uuid(),
-  authorId: z.string().uuid(),
+  id: z.string().guid(),
+  ticketId: z.string().guid(),
+  authorId: z.string().guid(),
   /** operator | user — operators use support:ops scope */
   authorRole: z.enum(['user', 'operator']),
   body: z.string().min(1).max(10_000),
@@ -57,7 +57,7 @@ export const createTicketInputSchema = z.object({
    * A new request that follows a closed one of the same account (closed stays terminal, so a follow-up is a new,
    * linked request). Any other ticket, or one that is not the caller's and closed, is refused by the service.
    */
-  followsTicketId: z.string().uuid().optional(),
+  followsTicketId: z.string().guid().optional(),
   /** Only for a `phishing` ticket; any other category refuses it. */
   messageHeaders: z.string().min(1).max(SUPPORT_MESSAGE_HEADERS_MAX).optional(),
   /**
@@ -215,12 +215,12 @@ export type SupportTicketEventKind = z.infer<typeof supportTicketEventKindSchema
  * than merely absent — the same reason `agents.agent_actions` carries one.
  */
 export const supportTicketEventSchema = z.object({
-  id: z.string().uuid(),
-  ticketId: z.string().uuid(),
+  id: z.string().guid(),
+  ticketId: z.string().guid(),
   /** 1-based, dense per ticket. A gap means a lost row, not a quiet reorder. */
   sequence: z.number().int().positive(),
   kind: supportTicketEventKindSchema,
-  actorId: z.string().uuid(),
+  actorId: z.string().guid(),
   actorRole: z.enum(['user', 'operator']),
   /** Set only on `status_changed` — otherwise null, never a guessed value. */
   fromStatus: supportTicketStatusSchema.nullable(),
@@ -315,8 +315,8 @@ export type SupportEscalationReason = z.infer<typeof supportEscalationReasonSche
  * that refusal is the entire point of the type.
  */
 export const supportCaseFileSchema = z.object({
-  ticketId: z.string().uuid(),
-  escalatedBy: z.string().uuid(),
+  ticketId: z.string().guid(),
+  escalatedBy: z.string().guid(),
   reason: supportEscalationReasonSchema,
   /** At least one. An ungrounded escalation is refused, not stored empty. */
   citations: z.array(supportCitationSchema).min(1),
@@ -328,7 +328,7 @@ export const supportCaseFileSchema = z.object({
 export type SupportCaseFile = z.infer<typeof supportCaseFileSchema>;
 
 export const escalateTicketInputSchema = z.object({
-  ticketId: z.string().uuid(),
+  ticketId: z.string().guid(),
   reason: supportEscalationReasonSchema,
   summary: z.string().min(1).max(2_000),
   /** KB articles the operator relied on. Ids only — content is never posted back. */
@@ -353,13 +353,13 @@ export type SupportWaitingOn = z.infer<typeof supportWaitingOnSchema>;
  * (`supportTicketSchema`) never carries `waitingOn`: it is a desk fact, not a promise to the customer.
  */
 export const supportTicketLifecycleSchema = z.object({
-  ticketId: z.string().uuid(),
+  ticketId: z.string().guid(),
   waitingOn: supportWaitingOnSchema.nullable(),
   waitingSince: z.string().datetime().nullable(),
   /** The first public operator reply. Set once; an internal note never sets it. */
   firstPublicReplyAt: z.string().datetime().nullable(),
   /** The closed request this one follows, or null. */
-  followsTicketId: z.string().uuid().nullable(),
+  followsTicketId: z.string().guid().nullable(),
 });
 export type SupportTicketLifecycle = z.infer<typeof supportTicketLifecycleSchema>;
 
@@ -381,7 +381,7 @@ export const supportLabelSchema = z
   .regex(/^[A-Za-z0-9_-]+$/);
 
 export const supportTicketPropertiesSchema = z.object({
-  ticketId: z.string().uuid(),
+  ticketId: z.string().guid(),
   /** Null until an agent sets one. Never guessed. */
   priority: supportTicketPrioritySchema.nullable(),
   ticketType: supportTicketTypeSchema.nullable(),
@@ -397,7 +397,7 @@ export type SupportTicketProperties = z.infer<typeof supportTicketPropertiesSche
  */
 export const setTicketPropertiesInputSchema = z
   .object({
-    ticketId: z.string().uuid(),
+    ticketId: z.string().guid(),
     priority: supportTicketPrioritySchema.nullable().optional(),
     ticketType: supportTicketTypeSchema.nullable().optional(),
     labels: z.array(supportLabelSchema).max(SUPPORT_LABELS_MAX).optional(),
@@ -409,6 +409,107 @@ export const setTicketPropertiesInputSchema = z
     message: 'set at least one of priority, ticketType or labels',
   });
 export type SetTicketPropertiesInput = z.infer<typeof setTicketPropertiesInputSchema>;
+
+/**
+ * Saved desk views (SP-desk-01). A view stores a filter, a sort and a layout name.
+ * How many personal views one person may keep, and how many shared views the desk may keep, are owner
+ * values. Blank stays null and a save refuses `support.view_cap_unset`. Nothing here picks 10 or 100.
+ */
+export const SUPPORT_VIEW_ERROR_CODES = [
+  'support.view_cap_unset',
+  'support.view_cap_reached',
+  'support.filter_invalid',
+  'support.sort_invalid',
+  'support.view_not_owner',
+  'support.view_revision_stale',
+] as const;
+export type SupportViewErrorCode = (typeof SUPPORT_VIEW_ERROR_CODES)[number];
+
+export const SUPPORT_VIEW_PERSONAL_CAP_KEY = 'support.view_personal_cap' as const;
+export const SUPPORT_VIEW_SHARED_CAP_KEY = 'support.view_shared_cap' as const;
+
+export const SUPPORT_VIEW_SORT_KEYS = ['created', 'updated', 'subject', 'status', 'priority', 'score'] as const;
+export const supportViewSortSchema = z
+  .object({
+    key: z.enum(SUPPORT_VIEW_SORT_KEYS),
+    dir: z.enum(['asc', 'desc']),
+  })
+  .strict();
+export type SupportViewSort = z.infer<typeof supportViewSortSchema>;
+
+export const supportViewCapSchema = z
+  .object({
+    cap: z.number().int().min(0).nullable(),
+    missing: z.enum([SUPPORT_VIEW_PERSONAL_CAP_KEY, SUPPORT_VIEW_SHARED_CAP_KEY]).nullable(),
+  })
+  .strict()
+  .refine((v) => (v.cap === null) !== (v.missing === null), {
+    message: 'a cap is a number or a missing setting, not both and not neither',
+  });
+export type SupportViewCap = z.infer<typeof supportViewCapSchema>;
+
+export const supportViewSchema = z
+  .object({
+    id: z.string().guid(),
+    name: z.string().min(1).max(80),
+    ownerId: z.string().guid(),
+    shared: z.boolean(),
+    filter: z.unknown(),
+    sort: supportViewSortSchema.nullable(),
+    layout: z.string().min(1).max(40).nullable(),
+    favourite: z.boolean(),
+    revision: z.number().int().positive(),
+    updatedAt: z.string().datetime(),
+  })
+  .strict();
+export type SupportView = z.infer<typeof supportViewSchema>;
+
+export const supportViewListSchema = z
+  .object({
+    personalCap: supportViewCapSchema,
+    sharedCap: supportViewCapSchema,
+    views: z.array(supportViewSchema),
+  })
+  .strict();
+export type SupportViewList = z.infer<typeof supportViewListSchema>;
+
+export const supportViewCountsSchema = z
+  .object({
+    counts: z.array(
+      z
+        .object({
+          viewId: z.string().guid(),
+          count: z.number().int().min(0),
+        })
+        .strict(),
+    ),
+  })
+  .strict();
+export type SupportViewCounts = z.infer<typeof supportViewCountsSchema>;
+
+/** The whole view, so a lost reply replays this payload. `filter` and `sort` stay loose: the service names a bad field. */
+export const supportViewSaveInputSchema = z
+  .object({
+    viewId: z.string().guid().optional(),
+    name: z.string().trim().min(1).max(80),
+    expectedRevision: z.number().int().min(0),
+    shared: z.boolean(),
+    filter: z.unknown(),
+    sort: z.unknown().nullable().optional(),
+    layout: z.unknown().nullable().optional(),
+    favourite: z.boolean().optional(),
+    reason: z.string().trim().min(1).max(500),
+  })
+  .strict();
+export type SupportViewSaveInput = z.infer<typeof supportViewSaveInputSchema>;
+
+export const supportViewDeleteInputSchema = z
+  .object({
+    viewId: z.string().guid(),
+    reason: z.string().trim().min(1).max(500),
+  })
+  .strict();
+export type SupportViewDeleteInput = z.infer<typeof supportViewDeleteInputSchema>;
 
 export interface SupportContract {
   createTicket(input: { userId: string } & CreateTicketInput): Promise<SupportTicket>;

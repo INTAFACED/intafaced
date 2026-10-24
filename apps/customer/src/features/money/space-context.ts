@@ -7,7 +7,7 @@ export type SpaceContext = { status: 'none' } | { status: 'invalid' } | { status
 export function spaceContext(search: string, key: 'space' | 'from'): SpaceContext {
   const values = new URLSearchParams(search).getAll(key);
   if (!values.length) return { status: 'none' };
-  if (values.length !== 1 || !z.string().uuid().safeParse(values[0]).success) return { status: 'invalid' };
+  if (values.length !== 1 || !z.string().guid().safeParse(values[0]).success) return { status: 'invalid' };
   return { status: 'valid', id: values[0]! };
 }
 

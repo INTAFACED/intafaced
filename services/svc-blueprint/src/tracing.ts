@@ -24,7 +24,7 @@ import { trace, SpanStatusCode, type Span } from '@opentelemetry/api';
  */
 const tracer = trace.getTracer('svc-blueprint');
 
-export type OnboardingStage = 'session' | 'engine' | 'persist' | 'match' | 'mentors' | 'card' | 'visibility' | 'export' | 'erase';
+export type OnboardingStage = 'session' | 'engine' | 'persist' | 'match' | 'mentors' | 'card' | 'visibility' | 'export' | 'erase' | 'share';
 
 /**
  * The ONLY attributes this service puts on a span.

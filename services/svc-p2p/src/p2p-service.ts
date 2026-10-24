@@ -133,7 +133,7 @@ import {
 import { InstrumentError, methodIdKey, methodsWithLiveDestination, missingSellDestinations, sellOfferBoardable } from './instruments.js';
 import { P2P_COPY, resolveP2pCopy } from './user-copy.js';
 import type { DelistReason, DenialSink } from './instrument-service.js';
-import { withMoneySpan, withSpan } from './tracing.js';
+import { recordSwallowed, withMoneySpan, withSpan } from './tracing.js';
 import { affiliateLegAfterP2pRelease, fireAffiliateAccrue, NoopAffiliateAccrue, type AffiliateAccruePort } from './affiliate-accrue.js';
 import { fireAffiliatePayout, NoopAffiliatePayout, type AffiliatePayoutPort } from './affiliate-payout.js';
 
@@ -773,6 +773,8 @@ export interface TradeRecord {
   fiatSentAt: Date | null;
   resolvedAt: Date | null;
   settledAt: Date | null;
+  /** The ad's terms text copied at take; later ad edits never change it. Null on orders placed before 0015. */
+  termsSnapshot: string | null;
 }
 
 export interface DisputeRecord {
@@ -833,6 +835,7 @@ interface TradeRow {
   fiat_sent_at: Date | null;
   resolved_at: Date | null;
   settled_at: Date | null;
+  terms_snapshot: string | null;
 }
 
 interface OfferRow {
@@ -2207,7 +2210,7 @@ export class P2pService {
   // ── Buyer marks the fiat sent ──────────────────────────────────────────────
 
   async markFiatSent(tradeId: string, actorId: string): Promise<TradeRecord> {
-    return withSpan('p2p.markFiatSent', async () =>
+    const marked = await withSpan('p2p.markFiatSent', async () =>
       transaction(
         this.sql,
         async (tx) => {
@@ -2229,11 +2232,85 @@ export class P2pService {
              WHERE id = ${tradeId} AND status = ${trade.status}
             RETURNING *
           `;
+          // The outbox row: the seller's notice is owed from this commit, whatever happens to the process next.
+          await tx`
+            INSERT INTO p2p.fiat_sent_notices (trade_id, buyer_id, seller_id, marked_at)
+            VALUES (${tradeId}, ${trade.buyerId}, ${trade.sellerId}, ${now})
+            ON CONFLICT (trade_id) DO NOTHING
+          `;
           return toTrade(rows[0]!);
         },
         { isolation: 'read committed', maxAttempts: 5 },
       ),
     );
+    // The notice is owed from the commit above (its outbox row has no `handed_at` yet). Handing it to the bus here is
+    // the fast path; if this process dies first, or the bus is down, the sweep hands it over on its next tick.
+    try {
+      await this.handOverFiatSentNotice({
+        tradeId: marked.id,
+        buyerId: marked.buyerId,
+        sellerId: marked.sellerId,
+        markedAt: marked.fiatSentAt!,
+      });
+    } catch (err) {
+      recordSwallowed('p2p.trade_fiat_sent.publish', err);
+    }
+    return marked;
+  }
+
+  /**
+   * P-trade-orders-23: tell the seller the buyer marked the order paid. The bus dedupes on the trade id (a trade is
+   * marked paid once), then the stamp says the notice left. A crash between the two only means one more hand-over,
+   * which the bus and svc-notify both drop.
+   */
+  private async handOverFiatSentNotice(notice: { tradeId: string; buyerId: string; sellerId: string; markedAt: Date }): Promise<void> {
+    await this.bus.publish(
+      'p2pTradeFiatSent',
+      { tradeId: notice.tradeId, buyerId: notice.buyerId, sellerId: notice.sellerId, markedAt: notice.markedAt.toISOString() },
+      { idempotencyKey: `p2p.trade_fiat.sent:${notice.tradeId}` },
+    );
+    await this.sql`
+      UPDATE p2p.fiat_sent_notices SET handed_at = now()
+       WHERE trade_id = ${notice.tradeId} AND handed_at IS NULL AND dropped_at IS NULL
+    `;
+  }
+
+  /**
+   * Hand over every buyer-paid notice still owed: a trade in `fiat_sent` whose notice never reached the bus. Oldest
+   * first. A trade that has moved on (released, disputed) is no longer owed one: "check the payment before you
+   * release" would be wrong by then.
+   */
+  async sweepFiatSentNotices(limit?: number): Promise<{ sent: number; failures: SweepFailure[] }> {
+    const lim = assertSweepSettlementsLimit(limit);
+    // Close what is no longer owed first, so the owed index only ever holds live notices.
+    await this.sql`
+      UPDATE p2p.fiat_sent_notices n SET dropped_at = now()
+        FROM p2p.p2p_trades t
+       WHERE t.id = n.trade_id AND n.handed_at IS NULL AND n.dropped_at IS NULL AND t.status <> 'fiat_sent'
+    `;
+    const owed = await this.sql<Array<{ trade_id: string; buyer_id: string; seller_id: string; marked_at: Date }>>`
+      SELECT n.trade_id, n.buyer_id, n.seller_id, n.marked_at
+        FROM p2p.fiat_sent_notices n
+       WHERE n.handed_at IS NULL AND n.dropped_at IS NULL
+       ORDER BY n.marked_at ASC
+       LIMIT ${lim}
+    `;
+    let sent = 0;
+    const failures: SweepFailure[] = [];
+    for (const row of owed) {
+      try {
+        await this.handOverFiatSentNotice({
+          tradeId: row.trade_id,
+          buyerId: row.buyer_id,
+          sellerId: row.seller_id,
+          markedAt: row.marked_at,
+        });
+        sent++;
+      } catch (err) {
+        failures.push(describeFailure(row.trade_id, 'fiat_sent', err));
+      }
+    }
+    return { sent, failures };
   }
 
   // ── Release · refund · dispute ─────────────────────────────────────────────
@@ -4490,6 +4567,7 @@ function toTrade(row: TradeRow): TradeRecord {
     fiatSentAt: row.fiat_sent_at,
     resolvedAt: row.resolved_at,
     settledAt: row.settled_at,
+    termsSnapshot: row.terms_snapshot,
   };
 }
 

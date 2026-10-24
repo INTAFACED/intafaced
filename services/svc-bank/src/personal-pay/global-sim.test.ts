@@ -106,10 +106,37 @@ describe('the global-send stand-in (TEST only)', () => {
     expect(review.waits({ assetId: 'usdt', amount: '500' })).toBe(true);
   });
 
+  it('a corridor marked payout false is listed without the flag, and its payout covers nothing', async () => {
+    const ports = globalSimPorts({
+      ...catalogue,
+      corridors: [
+        ...catalogue.corridors,
+        { country: 'NL', currency: 'EUR', deliveryMethods: ['sepa'], minAmount: null, maxAmount: null, cutOffTime: null, payout: false },
+      ],
+    });
+    const listed = await ports.corridors.list();
+    expect(listed).toHaveLength(2);
+    expect(listed.every((row) => !('payout' in row))).toBe(true);
+    expect(ports.payout.covers!({ country: 'DE', currency: 'EUR', deliveryMethod: 'sepa' })).toBe(true);
+    expect(ports.payout.covers!({ country: 'NL', currency: 'EUR', deliveryMethod: 'sepa' })).toBe(false);
+    expect(ports.payout.covers!({ country: 'DE', currency: 'EUR', deliveryMethod: 'swift' })).toBe(false);
+    expect(parseGlobalSim(json({ corridors: [{ ...catalogue.corridors[0], payout: 'no' }] }))).toBeNull();
+  });
+
   it('pays nobody: the payout is acknowledged with a TEST reference keyed by the send, on its own rail boundary', async () => {
     const ports = globalSimPorts(catalogue);
     expect(ports.payout.railId()).toBe(GLOBAL_SIM_RAIL);
-    const input = { sendId: 's-1', idempotencyKey: 'k-12345678', amount: '1', assetId: 'USDT', toCurrency: 'EUR', recipientId: 'r-1' };
+    const input = {
+      sendId: 's-1',
+      idempotencyKey: 'k-12345678',
+      amount: '1',
+      assetId: 'USDT',
+      toCurrency: 'EUR',
+      recipientId: 'r-1',
+      quoteId: 'q-1',
+      rate: '2',
+      receiveAmount: '2',
+    };
     expect(await ports.payout.submit(input)).toEqual({ ok: true, providerRef: 'TEST-s-1', status: 'sent' });
     expect(await ports.payout.submit(input)).toEqual({ ok: true, providerRef: 'TEST-s-1', status: 'sent' });
   });

@@ -25,8 +25,8 @@ const OPERATOR = '11111111-1111-4111-8111-111111111111';
 const SESSION = '22222222-2222-4222-8222-222222222222';
 const APPROVER = '44444444-4444-4444-8444-444444444444';
 
-async function bearer(scopes: string[]): Promise<string> {
-  const { token } = await issueAccessToken({ userId: OPERATOR, sessionId: SESSION, scopes, tier: 'institutional', mfa: true }, tokens);
+async function bearer(scopes: string[], mfa = true): Promise<string> {
+  const { token } = await issueAccessToken({ userId: OPERATOR, sessionId: SESSION, scopes, tier: 'institutional', mfa }, tokens);
   return `Bearer ${token}`;
 }
 
@@ -153,6 +153,106 @@ describe('admin ops back end on the edge', () => {
     expect(refused.json()).toMatchObject({ code: 'action_approval.missing' });
     const queue = await app.inject({ method: 'GET', url: '/admin/compliance/queue', headers });
     expect(queue.json().items).toHaveLength(1);
+    await app.close();
+  });
+
+  it('forwards reconciliation control list, define and run, and refuses a run with no approval', async () => {
+    const seen: Array<{ path: string; method: string; bearer: string; body?: unknown }> = [];
+    const ledger: LedgerOperatorCall = async (path, method, bearerHeader, body) => {
+      seen.push({ path, method, bearer: bearerHeader, body });
+      return { status: 200, body: { ok: true, path } };
+    };
+    const app = Fastify({ logger: false });
+    const admin = createAdminApi(new KillSwitchState(), { tokens, ledger, approvals: stubApprovalConsumer(APPROVER) });
+    registerAdminRoutes(app, admin);
+    await app.ready();
+    const treasury = { authorization: await bearer(['admin:treasury']) };
+    const compliance = { authorization: await bearer(['admin:compliance']) };
+    const listed = await app.inject({ method: 'GET', url: '/admin/ledger/reconciliation/controls', headers: compliance });
+    expect(listed.statusCode).toBe(200);
+    const defined = await app.inject({
+      method: 'POST',
+      url: '/admin/ledger/reconciliation/controls',
+      headers: treasury,
+      payload: {
+        template: 'threshold',
+        accountSet: { mode: 'query', assetId: 'USDT' },
+        reason: 'set the reconciliation control',
+      },
+    });
+    expect(defined.statusCode).toBe(200);
+    const ran = await app.inject({
+      method: 'POST',
+      url: '/admin/ledger/reconciliation/controls/run',
+      headers: treasury,
+      payload: {
+        controlId: '11111111-1111-4111-8111-111111111111',
+        reason: 'run the reconciliation control',
+        approvalId: 'appr-1',
+        operationId: 'op-1',
+      },
+    });
+    expect(ran.statusCode).toBe(200);
+    expect(seen.map((call) => `${call.method} ${call.path}`)).toEqual([
+      'GET /operator/reconciliation/controls',
+      'POST /operator/reconciliation/controls',
+      'POST /operator/reconciliation/controls/run',
+    ]);
+    expect(seen[2]?.bearer).toBe(treasury.authorization);
+    expect(seen[2]?.body).toMatchObject({ approvalId: 'appr-1', operationId: 'op-1' });
+    const before = seen.length;
+    const refused = await app.inject({
+      method: 'POST',
+      url: '/admin/ledger/reconciliation/controls/run',
+      headers: treasury,
+      payload: { controlId: '11111111-1111-4111-8111-111111111111', reason: 'run the reconciliation control' },
+    });
+    expect(refused.statusCode).toBe(400);
+    expect(refused.json()).toMatchObject({ code: 'edge.invalid_reconciliation_control' });
+    expect(seen).toHaveLength(before);
+    const anonymous = await app.inject({ method: 'POST', url: '/admin/ledger/reconciliation/controls/run', payload: {} });
+    expect(anonymous.statusCode).toBe(401);
+    await app.close();
+  });
+  it('forwards a control update, and refuses compliance and a treasury token without a second factor before calling the ledger', async () => {
+    const seen: string[] = [];
+    const ledger: LedgerOperatorCall = async (path, method) => {
+      seen.push(`${method} ${path}`);
+      return { status: 200, body: { ok: true } };
+    };
+    const app = Fastify({ logger: false });
+    const admin = createAdminApi(new KillSwitchState(), { tokens, ledger, approvals: stubApprovalConsumer(APPROVER) });
+    registerAdminRoutes(app, admin);
+    await app.ready();
+    const controlId = '11111111-1111-4111-8111-111111111111';
+    const update = { controlId, explanation: 'set the explanation', reason: 'update the reconciliation control' };
+    const run = { controlId, reason: 'run the reconciliation control', approvalId: 'appr-1', operationId: 'op-1' };
+    const define = { template: 'threshold', accountSet: { mode: 'query', assetId: 'USDT' }, reason: 'set the reconciliation control' };
+    const treasury = { authorization: await bearer(['admin:treasury']) };
+    const updated = await app.inject({
+      method: 'POST',
+      url: '/admin/ledger/reconciliation/controls/update',
+      headers: treasury,
+      payload: update,
+    });
+    expect(updated.statusCode).toBe(200);
+    expect(seen).toEqual(['POST /operator/reconciliation/controls/update']);
+    const compliance = { authorization: await bearer(['admin:compliance']) };
+    const noMfa = { authorization: await bearer(['admin:treasury'], false) };
+    for (const [url, payload] of [
+      ['/admin/ledger/reconciliation/controls', define],
+      ['/admin/ledger/reconciliation/controls/update', update],
+      ['/admin/ledger/reconciliation/controls/run', run],
+    ] as const) {
+      const byCompliance = await app.inject({ method: 'POST', url, headers: compliance, payload });
+      expect(byCompliance.statusCode).toBe(403);
+      const withoutMfa = await app.inject({ method: 'POST', url, headers: noMfa, payload });
+      expect(withoutMfa.statusCode).toBe(401);
+      expect(withoutMfa.json()).toMatchObject({ code: 'mfa.required' });
+    }
+    const listedWithoutMfa = await app.inject({ method: 'GET', url: '/admin/ledger/reconciliation/controls', headers: noMfa });
+    expect(listedWithoutMfa.statusCode).toBe(401);
+    expect(seen).toHaveLength(1);
     await app.close();
   });
 });

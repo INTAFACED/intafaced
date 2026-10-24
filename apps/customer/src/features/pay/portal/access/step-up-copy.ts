@@ -5,6 +5,8 @@ const en = {
   suTitle: "Confirm it's you",
   suWhyRefund: "A refund sends money back to your customer, so we check it's you first.",
   suWhyPayout: "A payout sends money out of your account, so we check it's you first.",
+  suWhyDestination: "Payouts will go here, so we check it's you first.",
+  suDestinationPasskey: 'Your browser will ask for your passkey when you save.',
   suExpired: 'That confirmation expired. Confirm again.',
   suRequired: "Confirm it's you with a passkey or authenticator code.",
   suPasskey: 'Use a passkey',

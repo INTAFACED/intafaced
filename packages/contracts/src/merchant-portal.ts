@@ -158,7 +158,7 @@ export const merchantBusinessProfileSubmitInputSchema = z
 
 export const merchantBusinessProfileSubmitResultSchema = z
   .object({
-    requestId: z.string().uuid(),
+    requestId: z.string().guid(),
     outcome: z.enum(['applied', 'pending_review', 'pending_second_approval']),
     version: z.string().regex(/^\d{1,18}$/),
     /** Hash of the sensitive proposal. Compliance review must send this exact value. Null when nothing is waiting. */
@@ -169,7 +169,7 @@ export const merchantBusinessProfileSubmitResultSchema = z
 
 export const merchantBusinessProfileDecideResultSchema = z
   .object({
-    requestId: z.string().uuid(),
+    requestId: z.string().guid(),
     outcome: z.enum(['applied', 'rejected', 'pending_review']),
     version: z.string().regex(/^\d{1,18}$/),
     profile: merchantBusinessProfileSchema,
@@ -179,7 +179,7 @@ export const merchantBusinessProfileDecideResultSchema = z
 export const merchantBusinessProfileConfirmInputSchema = z
   .object({
     merchantId: payMerchantIdSchema,
-    requestId: z.string().uuid(),
+    requestId: z.string().guid(),
     decision: z.enum(['confirm', 'reject', 'withdraw']),
     expectedChangeHash: z.string().min(8).max(200),
     reason: z.string().trim().min(3).max(500),
@@ -213,7 +213,7 @@ export const merchantProfileSecondApprovalResultSchema = z
 export const merchantBusinessProfileReviewInputSchema = z
   .object({
     merchantId: payMerchantIdSchema,
-    requestId: z.string().uuid(),
+    requestId: z.string().guid(),
     decision: z.enum(['approved', 'rejected']),
     reason: z.string().trim().min(3).max(500),
     expectedChangeHash: z.string().min(8).max(200),
@@ -225,7 +225,7 @@ export const merchantBusinessProfileReviewInputSchema = z
 
 export const merchantBusinessProfileReviewResultSchema = z
   .object({
-    requestId: z.string().uuid(),
+    requestId: z.string().guid(),
     outcome: z.enum(['applied', 'rejected']),
     version: z.string().regex(/^\d{1,18}$/),
     profile: merchantBusinessProfileSchema,
@@ -235,7 +235,7 @@ export const merchantBusinessProfileReviewResultSchema = z
 
 export const merchantProfileChangeSchema = z
   .object({
-    requestId: z.string().uuid(),
+    requestId: z.string().guid(),
     /** bigserial ordering key. A string, never a number. */
     seq: z.string().regex(/^\d+$/),
     /**
@@ -278,11 +278,37 @@ export const merchantProfileHistorySchema = z
 
 export const merchantPortalMerchantInputSchema = z.object({ merchantId: payMerchantIdSchema }).strict();
 
+/**
+ * The merchant terms of service (J-merchant-02, going live). The owner publishes a version and where to read it
+ * (`PAY_MERCHANT_TERMS_VERSION`, `PAY_MERCHANT_TERMS_URL`). While either is blank there is nothing to accept and the
+ * state is `not_configured`. Each acceptance is kept for good, per business and version: a new version needs a new one.
+ */
+export const merchantTermsStateSchema = z.discriminatedUnion('state', [
+  z.object({ state: z.literal('not_configured') }).strict(),
+  z.object({ state: z.literal('not_accepted'), version: z.string().min(1), url: z.string().url() }).strict(),
+  z
+    .object({
+      state: z.literal('accepted'),
+      version: z.string().min(1),
+      url: z.string().url(),
+      acceptedAt: z.string().datetime({ offset: true }),
+    })
+    .strict(),
+]);
+export type MerchantTermsState = z.infer<typeof merchantTermsStateSchema>;
+
+/** The owner accepts the version they were shown. A version that is no longer the published one is refused. */
+export const merchantTermsAcceptInputSchema = z.object({ merchantId: payMerchantIdSchema, version: z.string().min(1).max(64) }).strict();
+export const merchantTermsAcceptResultSchema = z
+  .object({ merchantId: payMerchantIdSchema, version: z.string(), acceptedAt: z.string().datetime({ offset: true }) })
+  .strict();
+
 export const ONBOARDING_BLOCKERS = [
   'business_incomplete',
   'documents_pending_vendor',
   'destination_missing',
   'terms_not_configured',
+  'terms_not_accepted',
   'kyb_not_approved',
   'merchant_not_active',
 ] as const;
@@ -298,8 +324,7 @@ export const merchantOnboardingProgressSchema = z
       .strict(),
     /** No document vendor is wired. This state does not become "done". */
     documents: z.object({ state: z.literal('pending_vendor') }).strict(),
-    /** No terms version is configured. Accepting terms is refused until one is set. */
-    terms: z.object({ state: z.literal('not_configured') }).strict(),
+    terms: merchantTermsStateSchema,
     destination: z
       .object({
         present: z.boolean(),

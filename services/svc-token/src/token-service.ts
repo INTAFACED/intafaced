@@ -14,7 +14,6 @@ import {
   type LedgerClient,
 } from '@intafaced/ledger-client';
 import {
-  ACCESS_TIERS,
   STAKE_TIERS,
   accessTierFor,
   feeDiscountBps,
@@ -30,6 +29,18 @@ import { cumulativeEmission, epochReward, type EmissionParams } from './economic
 import { withMoneySpan } from './tracing.js';
 import { GOVERNANCE_EXECUTE_UNWIRED, GOVERNANCE_QUORUM_UNSET, decideProposalOutcome, executeUnwiredFor } from './governance-close.js';
 import { reportLastBuyback, reportTreasury, type LastBuybackRow, type TokenTreasuryView, type TreasurySums } from './treasury-view.js';
+import {
+  assessProposalAccess,
+  editGovernanceDraft,
+  insertGovernanceProposal,
+  listGovernanceProposals,
+  loadProposalRow,
+  openDueDrafts,
+  proposalCard,
+  readGovernanceSpace,
+  setGovernanceFollow,
+  type ProposalAccess,
+} from './governance-home.js';
 
 /**
  * svc-token — THE NATIVE ECONOMY (§4.3).
@@ -193,7 +204,19 @@ export class TokenError extends Error {
        * A treasury total was blank, negative, or paired with a count that
        * does not match. Not replaced with zero.
        */
-      | 'token.treasury_figure_unreadable',
+      | 'token.treasury_figure_unreadable'
+      /** Stored proposer rule is blank. Never fall back to a compiled stake tier. */
+      | 'token.proposer_rule_unset'
+      /** Per-period proposal cap or its period is blank. Never invent a window. */
+      | 'token.proposal_limit_unset'
+      /** The author is already at the published cap for this period. */
+      | 'token.proposal_limit_reached'
+      /** An open (or later) proposal is not edited. Only a draft is. */
+      | 'token.proposal_not_editable'
+      /** Title was sent and it is empty. Omitting the title is the legacy create. */
+      | 'token.proposal_title_invalid'
+      /** Stored request handle missing or not usable. The proposal id is not a client uuid. */
+      | 'token.proposal_handle_invalid',
     /** Set on `token.epoch_too_early`: how long until a new epoch may start, from the database clock. */
     readonly retryAfterMs?: number,
     /** Set on `token.params_unset`: the blank `token_params` column. Not a value. */
@@ -392,13 +415,12 @@ export type ProposalKind = 'listing' | 'fee_param' | 'curriculum' | 'grant';
 export type ProposalStatus = 'draft' | 'open' | 'passed' | 'rejected' | 'executed' | 'cancelled';
 export type VoteChoice = 'for' | 'against' | 'abstain';
 
-/**
- * Minimum access-tier stake required to open a proposal without admin.
- *
- * Initiate is the first non-zero rung on ACCESS_TIERS — a "staked tier" in
- * §4.3's language, not drive-by governance spam from a zero-stake account.
- */
-export const PROPOSAL_MIN_STAKE = ACCESS_TIERS.find((t) => t.name === 'Initiate')!.minStake;
+export interface ProposalCounts {
+  votes: number;
+  for: number;
+  against: number;
+  abstain: number;
+}
 
 export interface ProposalRecord {
   id: string;
@@ -408,6 +430,14 @@ export interface ProposalRecord {
   opensAt: Date;
   closesAt: Date;
   createdAt: Date;
+  title: string | null;
+  bodyMd: string | null;
+  discussionLink: string | null;
+  /** `gov:proposal:<space>:<author>:<n>`. Null on rows from before this column. */
+  businessKey: string | null;
+  authorId: string | null;
+  revision: number;
+  counts: ProposalCounts;
 }
 
 export interface VoteRecord {
@@ -939,6 +969,35 @@ export class TokenService {
   private async stakeOfOn(sql: Sql, userId: string): Promise<Amount> {
     const rows = await sql<Array<{ id: string; amount: string }>>`
       SELECT id, amount FROM token.stakes WHERE user_id = ${userId} AND status = 'active' ORDER BY id
+    `;
+    let total: Amount = 0n;
+    for (const row of rows) {
+      const recorded = parseAmount(row.amount);
+      const book = (await this.ledger.balance(tokenStakeAccount(userId, this.assetId, row.id))).amount;
+      if (book !== recorded) {
+        throw new TokenError(
+          `Stake ${row.id} table amount ${formatAmount(recorded)} disagrees with ledger ${formatAmount(book)}`,
+          'token.stake_ledger_mismatch',
+        );
+      }
+      total += book;
+    }
+    return total;
+  }
+
+  /**
+   * Author's active stake inside the proposal insert. `FOR UPDATE` is the
+   * lock `unstake` already takes on `token.stakes`, so a commit that marks
+   * the row `unstaking` cannot land between this read and the insert.
+   */
+  private async lockedActiveStake(sql: Sql, userId: string): Promise<Amount> {
+    const rows = await sql<Array<{ id: string; amount: string }>>`
+      SELECT id, amount
+        FROM token.stakes
+       WHERE user_id = ${userId}
+         AND status = 'active'
+       ORDER BY id
+       FOR UPDATE
     `;
     let total: Amount = 0n;
     for (const row of rows) {
@@ -2522,87 +2581,97 @@ export class TokenService {
   // stay unwired.
 
   /**
-   * Open a proposal for IFC-weighted voting.
+   * Open a proposal. Who may propose and how many per period are owner
+   * settings: blank refuses, and admin does not bypass a blank or the cap.
+   * `asAdmin` skips only the membership check. No ledger recipe.
    *
-   * Eligibility: operator (`asAdmin`) or a staked-tier holder (Initiate+).
-   * Voting weight is never computed here — that is snapshotted per ballot at
-   * cast time so later stake changes cannot rewrite a closed election.
+   * A future `opensAt` stays `draft` until `openDueProposals`. A window that
+   * already contains `now` is inserted `open`.
    *
-   * No ledger recipe: a proposal is rules metadata, not a value movement.
+   * The stored id is `gov:proposal:<space>:<author>:<ordinal>`. The client
+   * sends one request handle. Stake for the rule is read in that insert,
+   * after the author lock, not from a total taken before it.
    */
   async createProposal(input: {
     kind: ProposalKind;
     body?: Record<string, unknown>;
     createdBy: string;
-    /** Operator path — bypasses the staked-tier gate. */
+    /** Operator path — skips the membership check, not a blank rule or the cap. */
     asAdmin?: boolean;
     opensAt?: Date;
     closesAt?: Date;
-    proposalId?: string;
+    /** Stored retry handle. Required. A missing handle is `token.proposal_handle_invalid`. */
+    handle?: string;
+    title?: string;
+    bodyMd?: string;
+    discussionLink?: string;
     now?: Date;
   }): Promise<ProposalRecord> {
     const now = input.now ?? new Date();
     const opensAt = input.opensAt ?? now;
-    // Default window: seven days. Fixed ms so a proposal's length does not
-    // depend on calendar months or DST (same rule as stake locks).
+    // Caller-omitted close still uses the existing fixed length. The owner
+    // period for that default is MC-token-02 (`token.proposal_window_unset`).
     const closesAt = input.closesAt ?? new Date(opensAt.getTime() + 7 * 86_400_000);
     if (!(closesAt.getTime() > opensAt.getTime())) {
       throw new TokenError('Proposal window must close after it opens', 'token.proposal_window');
     }
 
-    if (!input.asAdmin) {
-      const staked = await this.stakeOf(input.createdBy);
-      if (staked < PROPOSAL_MIN_STAKE) {
-        throw new TokenError(
-          `Creating a proposal requires at least ${formatAmount(PROPOSAL_MIN_STAKE)} IFC staked (or admin)`,
-          'token.proposal_not_allowed',
-        );
-      }
+    const asAdmin = input.asAdmin === true;
+    const peeked = await assessProposalAccess(this.sql, { userId: input.createdBy, asAdmin, staked: 0n, now });
+    if (peeked.code === 'token.proposer_rule_unset' || peeked.code === 'token.proposal_limit_unset') {
+      throw new TokenError(
+        peeked.code === 'token.proposer_rule_unset' ? 'Who may open a proposal is not set' : 'The proposal limit is not set',
+        peeked.code,
+      );
     }
 
-    const id = input.proposalId ?? crypto.randomUUID();
-    const body = input.body ?? {};
-    /**
-     * Open immediately when the window already includes `now`; otherwise draft.
-     *
-     * Insert is one status write; `closeProposal` is the other (`passed` /
-     * `rejected`). There is no open job, so `draft` is still terminal: a
-     * proposal created with a future `opensAt` can never be voted on, because
-     * `castVote` requires status='open'. Callers who want a votable proposal
-     * must leave `opensAt` unset or set it at or before now.
-     * Grant / listing close does not execute.
-     */
-    const status: ProposalStatus = opensAt.getTime() <= now.getTime() && closesAt.getTime() > now.getTime() ? 'open' : 'draft';
+    return insertGovernanceProposal(this.sql, {
+      kind: input.kind,
+      body: input.body ?? {},
+      authorId: input.createdBy,
+      asAdmin,
+      opensAt,
+      closesAt,
+      now,
+      handle: input.handle,
+      title: input.title,
+      bodyMd: input.bodyMd,
+      discussionLink: input.discussionLink,
+      lockedStake: (tx) => this.lockedActiveStake(tx, input.createdBy),
+    });
+  }
 
-    const rows = await this.sql<
-      Array<{
-        id: string;
-        kind: ProposalKind;
-        body: Record<string, unknown>;
-        status: ProposalStatus;
-        opens_at: Date;
-        closes_at: Date;
-        created_at: Date;
-      }>
-    >`
-      INSERT INTO token.proposals (id, kind, body, status, opens_at, closes_at)
-      VALUES (
-        ${id}, ${input.kind}, ${this.sql.json(body as never)}, ${status},
-        ${opensAt}, ${closesAt}
-      )
-      RETURNING id, kind, body, status, opens_at, closes_at, created_at
-    `;
+  async editProposal(input: {
+    proposalId: string;
+    authorId: string;
+    title?: string;
+    bodyMd?: string;
+    discussionLink?: string;
+    body?: Record<string, unknown>;
+    opensAt?: Date;
+    closesAt?: Date;
+  }): Promise<ProposalRecord> {
+    return editGovernanceDraft(this.sql, input);
+  }
 
-    const row = rows[0]!;
-    return {
-      id: row.id,
-      kind: row.kind,
-      body: (row.body ?? {}) as Record<string, unknown>,
-      status: row.status,
-      opensAt: row.opens_at,
-      closesAt: row.closes_at,
-      createdAt: row.created_at,
-    };
+  async followSpace(userId: string, following: boolean): Promise<{ spaceId: string; following: boolean }> {
+    return setGovernanceFollow(this.sql, userId, following);
+  }
+
+  async governanceHome(userId: string, asAdmin: boolean): Promise<{ spaceId: string; following: boolean; proposal: ProposalAccess }> {
+    const space = await readGovernanceSpace(this.sql, userId);
+    const now = new Date();
+    const peeked = await assessProposalAccess(this.sql, { userId, asAdmin, staked: 0n, now });
+    if (peeked.code === 'token.proposer_rule_unset' || peeked.code === 'token.proposal_limit_unset' || peeked.minStake == null) {
+      return { ...space, proposal: peeked };
+    }
+    const staked = asAdmin ? 0n : await this.stakeOf(userId);
+    return { ...space, proposal: await assessProposalAccess(this.sql, { userId, asAdmin, staked, now }) };
+  }
+
+  /** Move due drafts to `open`. A second run changes nothing. Does not open a future window. */
+  async openDueProposals(now?: Date): Promise<{ opened: number }> {
+    return { opened: await openDueDrafts(this.sql, now ?? new Date()) };
   }
 
   /**
@@ -2701,39 +2770,18 @@ export class TokenService {
     input: {
       status?: ProposalStatus;
       kind?: ProposalKind;
+      /** Text search over title and markdown. Blank is no filter, not an error. */
+      q?: string;
       limit?: number;
     } = {},
   ): Promise<ProposalRecord[]> {
     const limit = assertProposalListLimit(input.limit);
-
-    const rows = await this.sql<
-      Array<{
-        id: string;
-        kind: ProposalKind;
-        body: Record<string, unknown>;
-        status: ProposalStatus;
-        opens_at: Date;
-        closes_at: Date;
-        created_at: Date;
-      }>
-    >`
-      SELECT id, kind, body, status, opens_at, closes_at, created_at
-        FROM token.proposals
-       WHERE (${input.status ?? null}::text IS NULL OR status = ${input.status ?? null})
-         AND (${input.kind ?? null}::text IS NULL OR kind = ${input.kind ?? null})
-       ORDER BY created_at DESC
-       LIMIT ${limit}
-    `;
-
-    return rows.map((row) => ({
-      id: row.id,
-      kind: row.kind,
-      body: (row.body ?? {}) as Record<string, unknown>,
-      status: row.status,
-      opensAt: row.opens_at,
-      closesAt: row.closes_at,
-      createdAt: row.created_at,
-    }));
+    return listGovernanceProposals(this.sql, {
+      status: input.status,
+      kind: input.kind,
+      q: input.q,
+      limit,
+    });
   }
 
   /**
@@ -2743,23 +2791,7 @@ export class TokenService {
    * writes `passed` | `rejected`; this read does not.
    */
   async getProposal(proposalId: string): Promise<ProposalDetail> {
-    const rows = await this.sql<
-      Array<{
-        id: string;
-        kind: ProposalKind;
-        body: Record<string, unknown>;
-        status: ProposalStatus;
-        opens_at: Date;
-        closes_at: Date;
-        created_at: Date;
-      }>
-    >`
-      SELECT id, kind, body, status, opens_at, closes_at, created_at
-        FROM token.proposals
-       WHERE id = ${proposalId}
-    `;
-
-    const row = rows[0];
+    const row = await loadProposalRow(this.sql, proposalId);
     if (!row) throw new TokenError(`Proposal ${proposalId} not found`, 'token.proposal_not_found');
 
     const tallies = await this.sql<Array<{ choice: VoteChoice; weight: string; n: string }>>`
@@ -2769,22 +2801,22 @@ export class TokenService {
        GROUP BY choice
     `;
 
-    const { forWeight, againstWeight, abstainWeight, voterCount } = foldTally(tallies);
+    const folded = foldTally(tallies);
 
     return {
-      id: row.id,
-      kind: row.kind,
-      body: (row.body ?? {}) as Record<string, unknown>,
-      status: row.status,
-      opensAt: row.opens_at,
-      closesAt: row.closes_at,
-      createdAt: row.created_at,
+      ...row,
+      counts: {
+        votes: folded.voterCount,
+        for: folded.forCount,
+        against: folded.againstCount,
+        abstain: folded.abstainCount,
+      },
       tally: {
-        forWeight,
-        againstWeight,
-        abstainWeight,
-        totalWeight: forWeight + againstWeight + abstainWeight,
-        voterCount,
+        forWeight: folded.forWeight,
+        againstWeight: folded.againstWeight,
+        abstainWeight: folded.abstainWeight,
+        totalWeight: folded.forWeight + folded.againstWeight + folded.abstainWeight,
+        voterCount: folded.voterCount,
       },
     };
   }
@@ -2830,9 +2862,16 @@ export class TokenService {
             opens_at: Date;
             closes_at: Date;
             created_at: Date;
+            title: string | null;
+            body_md: string | null;
+            discussion_link: string | null;
+            business_key: string | null;
+            author_id: string | null;
+            revision: number | null;
           }>
         >`
-          SELECT id, kind, body, status, opens_at, closes_at, created_at
+          SELECT id, kind, body, status, opens_at, closes_at, created_at,
+                 title, body_md, discussion_link, business_key, author_id, revision
             FROM token.proposals
            WHERE id = ${input.proposalId}
            FOR UPDATE
@@ -2854,6 +2893,7 @@ export class TokenService {
            GROUP BY choice
         `;
         const folded = foldTally(tallies);
+        const card = proposalCard(row);
 
         const stakeRows = await tx<Array<{ id: string; user_id: string; amount: string }>>`
           SELECT id, user_id, amount
@@ -2908,13 +2948,14 @@ export class TokenService {
         `;
 
         return {
-          id: row.id,
-          kind: row.kind,
-          body: (row.body ?? {}) as Record<string, unknown>,
+          ...card,
           status,
-          opensAt: row.opens_at,
-          closesAt: row.closes_at,
-          createdAt: row.created_at,
+          counts: {
+            votes: folded.voterCount,
+            for: folded.forCount,
+            against: folded.againstCount,
+            abstain: folded.abstainCount,
+          },
           tally: {
             forWeight: folded.forWeight,
             againstWeight: folded.againstWeight,
@@ -2951,21 +2992,35 @@ export function foldTally(rows: Array<{ choice: VoteChoice; weight: string; n: s
   againstWeight: Amount;
   abstainWeight: Amount;
   voterCount: number;
+  forCount: number;
+  againstCount: number;
+  abstainCount: number;
 } {
   let forWeight = 0n;
   let againstWeight = 0n;
   let abstainWeight = 0n;
   let voterCount = 0;
+  let forCount = 0;
+  let againstCount = 0;
+  let abstainCount = 0;
 
   for (const t of rows) {
     const w = parseAmount(t.weight);
-    voterCount += Number(t.n);
-    if (t.choice === 'for') forWeight += w;
-    else if (t.choice === 'against') againstWeight += w;
-    else abstainWeight += w;
+    const ballots = Number(t.n);
+    voterCount += ballots;
+    if (t.choice === 'for') {
+      forWeight += w;
+      forCount += ballots;
+    } else if (t.choice === 'against') {
+      againstWeight += w;
+      againstCount += ballots;
+    } else {
+      abstainWeight += w;
+      abstainCount += ballots;
+    }
   }
 
-  return { forWeight, againstWeight, abstainWeight, voterCount };
+  return { forWeight, againstWeight, abstainWeight, voterCount, forCount, againstCount, abstainCount };
 }
 
 function asTokenError(err: unknown): TokenError | undefined {
@@ -3033,7 +3088,7 @@ const ASSET_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
  *
  * This column is the audit record of what a run was sized against — the only
  * written answer to "which revenue did we burn against". It was previously
- * `z.record(z.string())` on the wire and written through untouched, so
+ * `z.record(z.string(), z.string())` on the wire and written through untouched, so
  * `{"IFC":"not-a-number","USDT":"-999","BTC":"1e400"}` stored cleanly. That is
  * not a cosmetic defect: an unparseable audit figure cannot be reconciled
  * against the ledger later, which is the one thing it is for.

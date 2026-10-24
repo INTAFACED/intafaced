@@ -21,7 +21,7 @@ export const payCreateLinkInputSchema = z
   .object({
     merchantId: payMerchantIdSchema,
     label: z.string().min(1).max(120),
-    profileId: z.string().uuid().nullish(),
+    profileId: z.string().guid().nullish(),
     amount: payAmountStringSchema.optional(),
     currency: payAssetCodeSchema.optional(),
     /** Omit for the service default. A link with no expiry cannot be created. */
@@ -29,13 +29,23 @@ export const payCreateLinkInputSchema = z
     /** Completed payments this link may take. Omit for unbounded. */
     maxUses: z.number().int().min(1).max(1_000_000).optional(),
     idempotencyKey: z.string().optional(),
+    /**
+     * After payment: a message, or an https redirect. Omit to leave it unset.
+     * A blank message and a non-https redirect are refused in the service.
+     */
+    confirmation: z
+      .union([
+        z.object({ kind: z.literal('message'), message: z.string().max(500) }).strict(),
+        z.object({ kind: z.literal('redirect'), url: z.string().max(2048) }).strict(),
+      ])
+      .optional(),
   })
   .strict();
 export type PayCreateLinkInput = z.infer<typeof payCreateLinkInputSchema>;
 
 export const payCreateLinkOutputSchema = z
   .object({
-    id: z.string().uuid(),
+    id: z.string().guid(),
     token: z.string().min(8).max(200),
     prefix: z.string().min(1).max(64),
     label: z.string(),
@@ -66,7 +76,7 @@ export const payLinkListInputSchema = z
 
 export const payLinkListItemSchema = z
   .object({
-    id: z.string().uuid(),
+    id: z.string().guid(),
     prefix: z.string().min(1).max(64),
     label: z.string(),
     amount: payAmountStringSchema.nullable(),
@@ -80,6 +90,14 @@ export const payLinkListItemSchema = z
     token: z.string().min(8).max(200).nullable(),
     /** Null when `token` is null. A path, not an invented host. */
     checkoutUrl: z.string().min(1).max(2048).nullable(),
+    /** Merchant words for a payer who opens a deactivated link. Null when none was stored. */
+    inactiveMessage: z.string().max(500).nullable().optional(),
+    /** After-payment message. Null when unset or when a redirect was stored. */
+    confirmationMessage: z.string().max(500).nullable().optional(),
+    /** After-payment https address. Null when unset or when a message was stored. */
+    confirmationUrl: z.string().max(2048).nullable().optional(),
+    /** Button for a fixed amount. Null when the amount or the checkout path is absent. */
+    embedSnippet: z.string().max(4000).nullable().optional(),
   })
   .strict();
 export type PayLinkListItem = z.infer<typeof payLinkListItemSchema>;
@@ -89,7 +107,7 @@ export const payLinkListPageSchema = payPageSchema(payLinkListItemSchema);
 export const payGetLinkInputSchema = z
   .object({
     merchantId: payMerchantIdSchema,
-    linkId: z.string().uuid(),
+    linkId: z.string().guid(),
   })
   .strict();
 export type PayGetLinkInput = z.infer<typeof payGetLinkInputSchema>;

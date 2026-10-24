@@ -86,3 +86,15 @@ export async function unpublish(id, baseRevision) {
   const { ctx } = await founders();
   return data(await ctx.edge.mutate('support', 'unpublishKb', { id, baseRevision }, await leadToken()), 'unpublishKb');
 }
+
+/** Vote counts per article version, as the support desk reads them (no reader id). */
+export async function feedbackSummary() {
+  const { ctx } = await founders();
+  return data(await ctx.edge.query('support', 'kbFeedbackSummary', { limit: 500 }, await leadToken()), 'kbFeedbackSummary');
+}
+
+/** Narrow or widen who may read an article (public, signed_in, staff) as the support lead. */
+export async function setAudience(id, baseRevision, audience) {
+  const { ctx } = await founders();
+  return data(await ctx.edge.mutate('support', 'setKbAudience', { id, baseRevision, audience }, await leadToken()), 'setKbAudience');
+}

@@ -2,11 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { Button, Field, Failure, Loading } from '../../shared/ui';
 import { useLocation } from '../../app/location';
+import { safeReturnTo } from '../../app/navigation';
 import { useResource } from '../../shared/resource';
 import { useSession } from '../session/session';
 import { helpCopy as copy } from './help-copy';
 import { exactHelpArticle, helpHref, helpSelection, helpVersion, helpWindow, missingHelpVersion, type HelpArticle } from './help-guards';
 import { ContactSupport } from './ContactSupport';
+import { HelpFeedback } from './HelpFeedback';
 import { ActionRequired, RequestEntry } from './HelpFrontDoor';
 import { helpCentreSwitchedOff, useHelpCentre } from './help-centre';
 import { HelpLibraryNav } from './HelpLibrary';
@@ -427,6 +429,9 @@ export function PublicHelp() {
                   <p className="help__caption muted">{t('latestBoundary')}</p>
                 </div>
               )}
+              {selection.version === undefined && helpVersion(article) !== undefined && (
+                <HelpFeedback key={`${article.id}:${helpVersion(article)}`} articleId={article.id} version={helpVersion(article)!} />
+              )}
               {support(true)}
             </>
           )}
@@ -463,7 +468,10 @@ export function PublicHelp() {
                 <section className="help__card help__measure" role="status" data-testid="help-sign-in">
                   <h2>{t('signInTitle')}</h2>
                   <p className="muted">{t('signInBody')}</p>
-                  <a className="button button--primary" href={`/login?redirect=${encodeURIComponent(location.pathname + location.search)}`}>
+                  <a
+                    className="button button--primary"
+                    href={`/login?redirect=${encodeURIComponent(safeReturnTo(location.pathname + location.search))}`}
+                  >
                     {t('signInAction')}
                   </a>
                 </section>

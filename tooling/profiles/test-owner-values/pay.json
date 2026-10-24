@@ -35,6 +35,16 @@
       "service": "pay",
       "value": "crypto-native",
       "note": ""
+    },
+    "PAY_MERCHANT_TERMS_VERSION": {
+      "service": "pay",
+      "value": "TEST-merchant-terms-1",
+      "note": "Labelled TEST version of the merchant terms a business accepts before going live."
+    },
+    "PAY_MERCHANT_TERMS_URL": {
+      "service": "pay",
+      "value": "https://terms.example/TEST-merchant-terms-1",
+      "note": "Placeholder address for the TEST terms. Not a real document."
     }
   }
 }

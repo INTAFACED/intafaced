@@ -65,6 +65,46 @@ export function parseVtt(vtt: string): VideoCue[] {
   return cues.sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs);
 }
 
+const SRT_TIMESTAMP = /^(\d{2,}):([0-5]\d):([0-5]\d),(\d{3})$/;
+
+function srtMillis(stamp: string, line: number): number {
+  const m = SRT_TIMESTAMP.exec(stamp);
+  if (!m) return invalid(`line ${line}: "${stamp.slice(0, 40)}" is not an SRT timestamp`);
+  return ((Number(m[1]) * 60 + Number(m[2])) * 60 + Number(m[3])) * 1000 + Number(m[4]);
+}
+
+/**
+ * AC-videos-02: the cues of one SubRip (SRT) file. Each block is a number, a `00:00:01,000 --> 00:00:04,000` timing
+ * line and its text; the first line that breaks this is named with its number.
+ */
+export function parseSrt(srt: string): VideoCue[] {
+  const lines = srt.replace(/^\uFEFF/, '').split(/\r\n|\r|\n/);
+  const cues: VideoCue[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    while (i < lines.length && lines[i]!.trim() === '') i++;
+    if (i >= lines.length) break;
+    if (!/^\d+$/.test(lines[i]!.trim())) invalid(`line ${i + 1}: "${lines[i]!.slice(0, 40)}" is not a cue number`);
+    const timing = lines[i + 1];
+    if (timing === undefined || !timing.includes('-->')) invalid(`line ${i + 2}: a cue has no timing line`);
+    const [from, to] = timing!.split('-->').map((part) => part.trim());
+    const startMs = srtMillis(from!, i + 2);
+    const endMs = srtMillis(to!.split(/[ \t]+/)[0]!, i + 2);
+    if (endMs <= startMs) invalid(`line ${i + 2}: a cue ends before it starts`);
+    let j = i + 2;
+    const text: string[] = [];
+    while (j < lines.length && lines[j]!.trim() !== '') text.push(lines[j++]!);
+    const joined = text.join('\n').trim();
+    if (!joined) invalid(`line ${i + 2}: a cue has no text`);
+    if (joined.length > MAX_CUE_TEXT) invalid(`line ${i + 2}: a cue is longer than ${MAX_CUE_TEXT} characters`);
+    cues.push({ startMs, endMs, text: joined });
+    if (cues.length > MAX_CUES) invalid(`more than ${MAX_CUES} cues`);
+    i = j;
+  }
+  if (cues.length === 0) invalid('the file has no cues');
+  return cues.sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs);
+}
+
 export class VideoTracks {
   constructor(private readonly sql: Sql) {}
 

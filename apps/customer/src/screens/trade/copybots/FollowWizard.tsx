@@ -15,7 +15,7 @@ import {
 import type { Listing } from '../../../features/trade/trade-api';
 import { dec } from '../../../data/decimal';
 import { displayAmount } from '../../../shared/money';
-import type { CopyDesk, RoomApi } from './api';
+import type { CopyDesk, LeaderRow, RoomApi } from './api';
 import { bpsText, deskState } from './desk';
 import { roomCopy } from './copy';
 import type { WriteGuard } from './guard';
@@ -38,6 +38,7 @@ export function FollowWizard({
   desk,
   markets,
   initialLeader,
+  listed = null,
   onFollowed,
 }: {
   open: boolean;
@@ -47,6 +48,8 @@ export function FollowWizard({
   desk: CopyDesk | null;
   markets: Listing[];
   initialLeader: string;
+  /** A listed leader picked in the directory or on their page: followed by its public ref, not a typed ID. */
+  listed?: LeaderRow | null;
   onFollowed: () => void;
 }) {
   const { t } = roomCopy.useCopy();
@@ -70,7 +73,7 @@ export function FollowWizard({
   }, [markets, picked]);
 
   const problems = {
-    leader: leader.trim() ? '' : t('Enter the leader’s ID'),
+    leader: listed || leader.trim() ? '' : t('Enter the leader’s ID'),
     region: /^[A-Za-z]{2}$/.test(region.trim()) ? '' : t('Enter your country as two letters, for example ID'),
     markets: picked.length ? '' : t('Choose at least one market'),
     perOrder: (dec(perOrder) ?? 0n) > 0n ? '' : t('Enter an amount above zero'),
@@ -105,10 +108,10 @@ export function FollowWizard({
     const expiresAt = instantOf(expiry);
     if (!expiresAt || guard.busy || guard.locked) return;
     void guard.run(
-      { kind: 'copy', id: `follow:${leader.trim()}:${Date.now()}`, symbol: picked.join(',') },
+      { kind: 'copy', id: `follow:${listed ? listed.leaderRef : leader.trim()}:${Date.now()}`, symbol: picked.join(',') },
       () =>
         api.follow({
-          leaderId: leader.trim(),
+          ...(listed ? { leaderRef: listed.leaderRef } : { leaderId: leader.trim() }),
           region: region.trim().toUpperCase(),
           permittedMarkets: picked,
           maxNotionalPerOrder: perOrder,
@@ -150,9 +153,13 @@ export function FollowWizard({
 
         {step === 1 ? (
           <div className="cb-form">
-            <Field label={t('Leader ID')} hint={t('The ID the leader shares with you')} error={show(problems.leader)} required>
-              <Input kind="text" value={leader} onValueChange={setLeader} maxLength={120} autoComplete="off" />
-            </Field>
+            {listed ? (
+              <KeyValue items={[{ label: t('Leader'), value: listed.displayName }]} />
+            ) : (
+              <Field label={t('Leader ID')} hint={t('The ID the leader shares with you')} error={show(problems.leader)} required>
+                <Input kind="text" value={leader} onValueChange={setLeader} maxLength={120} autoComplete="off" />
+              </Field>
+            )}
             <Field
               label={t('Your country')}
               hint={t('Two letters. Copy trading is only offered in some countries.')}
@@ -234,7 +241,7 @@ export function FollowWizard({
             {guard.failure ? <RefusalNote failure={guard.failure} /> : null}
             <KeyValue
               items={[
-                { label: t('Leader'), value: leader.trim(), mono: true },
+                listed ? { label: t('Leader'), value: listed.displayName } : { label: t('Leader'), value: leader.trim(), mono: true },
                 { label: t('Country'), value: region.trim().toUpperCase() },
                 { label: t('Markets'), value: picked.join(', ') },
                 { label: t('Most per order'), value: `${displayAmount(perOrder)} ${asset}` },

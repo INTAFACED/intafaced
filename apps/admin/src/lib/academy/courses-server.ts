@@ -7,7 +7,10 @@ import {
   academySaveOutlineInputSchema,
   academySetCourseStateInputSchema,
   academyUpdateCourseInputSchema,
+  academySetCourseTopicsInputSchema,
+  academyTopicListSchema,
   type AcademySaveOutlineInput,
+  type AcademySetCourseTopicsInput,
 } from '@intafaced/contracts/academy-courses';
 import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
 import { partFrom, type PartLabels } from '@/lib/desk/part';
@@ -36,11 +39,31 @@ export async function loadCourseList(ctx: FounderCallContext): Promise<CourseLis
 }
 
 export async function loadCourseDetail(ctx: FounderCallContext, courseId: string): Promise<CourseDetailView> {
-  const detail = await founderCall(ctx, 'academy', 'admin.course', 'GET', { courseId }, readDetail);
-  return { detail: partFrom(detail, (d) => d, ACADEMY), asOf: new Date().toISOString() };
+  const [detail, topics] = await Promise.all([
+    founderCall(ctx, 'academy', 'admin.course', 'GET', { courseId }, readDetail),
+    founderCall(ctx, 'academy', 'admin.topics', 'GET', undefined, readTopics),
+  ]);
+  return {
+    detail: partFrom(detail, (d) => d, ACADEMY),
+    topicChoices: partFrom(topics, (d) => d, ACADEMY),
+    asOf: new Date().toISOString(),
+  };
 }
 
 const readCourseOfDetail = (raw: unknown) => readDetail(raw)?.course ?? null;
+const readTopics = parseWith(academyTopicListSchema);
+
+/** AC-articles-01: the topics the course is filed under, as a whole. */
+export function checkTopics(input: unknown): CheckedInput<AcademySetCourseTopicsInput> {
+  const parsed = academySetCourseTopicsInputSchema.safeParse(input);
+  return parsed.success
+    ? { ok: true, input: parsed.data }
+    : { ok: false, why: 'Which course, read at which revision, under which topics (up to 20)?' };
+}
+
+export async function saveTopics(ctx: FounderCallContext, input: AcademySetCourseTopicsInput) {
+  return reply(await founderCall(ctx, 'academy', 'admin.setCourseTopics', 'POST', input, readCourseOfDetail), 'topics saved');
+}
 
 function reply(result: FounderCallResult<ReturnType<typeof readCourse>>, what: string): { status: number; reply: CourseDeskReply } {
   const refused = (code: string | null, status: number, uncertain = false) => ({

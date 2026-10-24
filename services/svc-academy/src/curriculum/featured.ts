@@ -1,6 +1,7 @@
 /**
  * AC-articles-01 — the hub's featured slot. Staff choose the item with a reason; no row means nothing is featured and
- * the hub says so. Nothing is promoted automatically, and an item that leaves the spine leaves the slot with it.
+ * the hub says so. Nothing is promoted automatically, and an item that leaves the spine leaves the slot with it. The
+ * slot may instead hold a course lesson (learn-hub.ts); the hub's curriculum card reads that as nothing chosen.
  */
 import type { Sql } from 'postgres';
 import { getCurriculumItem, type CurriculumItemSummary } from './catalog.js';
@@ -27,7 +28,9 @@ export class FeaturedSlot {
   constructor(private readonly sql: Sql) {}
 
   async featured(): Promise<CurriculumItemSummary | null> {
-    const rows = await this.sql<{ item_slug: string }[]>`SELECT item_slug FROM academy.featured_items WHERE slot = 'hub'`;
+    const rows = await this.sql<
+      { item_slug: string }[]
+    >`SELECT item_slug FROM academy.featured_items WHERE slot = 'hub' AND item_slug IS NOT NULL`;
     return rows[0] ? summaryOf(rows[0].item_slug) : null;
   }
 
@@ -45,6 +48,7 @@ export class FeaturedSlot {
       VALUES ('hub', ${itemSlug}, ${reason}, ${input.operatorId}, ${chosenAt})
       ON CONFLICT (slot) DO UPDATE SET
         item_slug = EXCLUDED.item_slug,
+        course_item_id = NULL,
         reason = EXCLUDED.reason,
         chosen_by = EXCLUDED.chosen_by,
         chosen_at = EXCLUDED.chosen_at

@@ -25,6 +25,7 @@ export const accountApi = ({ query, mutate, list }: PortalTools) => ({
     expectedChangeHash: string;
     reason: string;
   }) => mutate('merchant.businessProfile.confirm', input, s.profileDecideResultSchema),
+  termsAccept: (merchantId: string, version: string) => mutate('merchant.terms.accept', { merchantId, version }, s.termsAcceptedSchema),
   profileSecondApproval: (merchantId: string, enabled: boolean) =>
     mutate('merchant.businessProfile.setSecondApproval', { merchantId, enabled }, s.secondApprovalResultSchema),
   onboardingProgress: (merchantId: string, signal?: AbortSignal) =>

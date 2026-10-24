@@ -25,6 +25,9 @@ import { DEFAULT_RECONCILE_STATEMENT_TIMEOUT_MS, validReconcileStatementTimeoutM
  *     the tip names a different hash.
  *   · `totalsByAsset` — every asset must net to zero across all accounts.
  *     Catches value being created or destroyed by any means at all.
+ *
+ * Operator-defined controls sit beside these three (reconciliation-controls.ts).
+ * They do not post and they do not freeze the book.
  */
 
 /**
@@ -108,7 +111,7 @@ interface ChainEntryRow {
   balance_after: string;
 }
 
-export async function verifyChain(sql: ReconciliationDb, batchSize = 1000): Promise<ChainResult> {
+export async function verifyChain(sql: ReconciliationDb, batchSize = 1000, asOf?: Date): Promise<ChainResult> {
   let previous: string | null = null;
   let lastId: string | null = null;
   let afterSeq = '0';
@@ -136,6 +139,7 @@ export async function verifyChain(sql: ReconciliationDb, batchSize = 1000): Prom
         FROM ledger_tx t
         LEFT JOIN ledger_posted_keys k ON k.tx_id = t.id
        WHERE t.seq > ${afterSeq}
+         AND (${asOf ?? null}::timestamptz IS NULL OR t.posted_at <= ${asOf ?? null}::timestamptz)
        ORDER BY t.seq ASC
        LIMIT ${batchSize}
     `;
@@ -200,6 +204,20 @@ export async function verifyChain(sql: ReconciliationDb, batchSize = 1000): Prom
       lastId = tx.id;
       afterSeq = tx.seq;
       length++;
+    }
+  }
+
+  // A past instant proves the prefix committed by then. Later rows must still link to it.
+  // The live tip is only required when nothing was posted after that instant.
+  if (asOf) {
+    const later = await sql<Array<{ previous_hash: string | null }>>`
+      SELECT previous_hash FROM ledger_tx WHERE posted_at > ${asOf} ORDER BY seq ASC LIMIT 1
+    `;
+    if (later.length > 0) {
+      if ((later[0]?.previous_hash ?? null) !== previous) {
+        return { ok: false, brokenAt: lastId ?? 'chain_tip', length };
+      }
+      return { ok: true, length };
     }
   }
 

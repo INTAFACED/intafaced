@@ -47,7 +47,7 @@ export type AcademyCreateCourseInput = z.infer<typeof academyCreateCourseInputSc
 
 /** `admin.updateCourse`: the details as a whole, over the revision the editor read. The slug never changes. */
 export const academyUpdateCourseInputSchema = z
-  .object({ courseId: z.string().uuid(), revision: z.number().int().positive(), ...details })
+  .object({ courseId: z.string().guid(), revision: z.number().int().positive(), ...details })
   .strict()
   .refine(pricingHolds, PRICING_RULE);
 export type AcademyUpdateCourseInput = z.infer<typeof academyUpdateCourseInputSchema>;
@@ -55,7 +55,7 @@ export type AcademyUpdateCourseInput = z.infer<typeof academyUpdateCourseInputSc
 /** `admin.setCourseState`: one lifecycle move over the revision the editor read, with the reason staff give. */
 export const academySetCourseStateInputSchema = z
   .object({
-    courseId: z.string().uuid(),
+    courseId: z.string().guid(),
     to: z.enum(ACADEMY_COURSE_MOVES),
     revision: z.number().int().positive(),
     reason: z.string().trim().min(1).max(500),
@@ -66,7 +66,7 @@ export type AcademySetCourseStateInput = z.infer<typeof academySetCourseStateInp
 const isoInstant = z.string().datetime({ offset: true });
 
 export const academyCourseSchema = z.object({
-  id: z.string().uuid(),
+  id: z.string().guid(),
   slug: z.string().min(1),
   title: z.string().min(1),
   summary: z.string().nullable(),
@@ -78,19 +78,19 @@ export const academyCourseSchema = z.object({
   revision: z.number().int().positive(),
   /** Items in the course's outline a learner can open (subheaders are labels and are not counted). */
   items: z.number().int().nonnegative(),
-  createdBy: z.string().uuid(),
+  createdBy: z.string().guid(),
   createdAt: isoInstant,
   updatedAt: isoInstant,
 });
 export type AcademyCourse = z.infer<typeof academyCourseSchema>;
 
-export const ACADEMY_COURSE_EVENT_KINDS = ['created', 'updated', 'state', 'outline', 'lesson'] as const;
+export const ACADEMY_COURSE_EVENT_KINDS = ['created', 'updated', 'state', 'outline', 'lesson', 'topics', 'withdrawn'] as const;
 export const academyCourseEventSchema = z.object({
   kind: z.enum(ACADEMY_COURSE_EVENT_KINDS),
   revision: z.number().int().positive(),
   fromState: z.enum(ACADEMY_COURSE_STATES).nullable(),
   toState: z.enum(ACADEMY_COURSE_STATES),
-  actor: z.string().uuid(),
+  actor: z.string().guid(),
   reason: z.string().nullable(),
   at: isoInstant,
 });
@@ -107,7 +107,7 @@ export type AcademyOutlineItemKind = (typeof ACADEMY_OUTLINE_ITEM_KINDS)[number]
 const outlineItemInput = z
   .object({
     /** A stored item keeps its id (and with it its lesson revisions); a new one has none. */
-    id: z.string().uuid().optional(),
+    id: z.string().guid().optional(),
     kind: z.enum(ACADEMY_OUTLINE_ITEM_KINDS),
     title: z.string().trim().min(1).max(120),
     indent: z.number().int().min(0).max(2),
@@ -122,13 +122,13 @@ const outlineItemInput = z
  */
 export const academySaveOutlineInputSchema = z
   .object({
-    courseId: z.string().uuid(),
+    courseId: z.string().guid(),
     revision: z.number().int().positive(),
     sections: z
       .array(
         z
           .object({
-            id: z.string().uuid().optional(),
+            id: z.string().guid().optional(),
             title: z.string().trim().min(1).max(120),
             items: z.array(outlineItemInput).max(1000),
           })
@@ -140,7 +140,7 @@ export const academySaveOutlineInputSchema = z
 export type AcademySaveOutlineInput = z.infer<typeof academySaveOutlineInputSchema>;
 
 export const academyOutlineItemSchema = z.object({
-  id: z.string().uuid(),
+  id: z.string().guid(),
   kind: z.enum(ACADEMY_OUTLINE_ITEM_KINDS),
   title: z.string().min(1),
   indent: z.number().int().min(0).max(2),
@@ -151,7 +151,7 @@ export const academyOutlineItemSchema = z.object({
   liveRevision: z.number().int().positive().nullable(),
 });
 export const academyOutlineSectionSchema = z.object({
-  id: z.string().uuid(),
+  id: z.string().guid(),
   title: z.string().min(1),
   items: z.array(academyOutlineItemSchema),
 });
@@ -166,6 +166,8 @@ export const academyOutlineLimitsSchema = z.object({
 /** `admin.course`: one course with its outline, the owner's outline limits and its history, newest first. */
 export const academyCourseDetailSchema = z.object({
   course: academyCourseSchema,
+  /** AC-articles-01: the topics the course is filed under, by name. */
+  topics: z.array(z.lazy(() => academyTopicSchema)),
   outline: z.array(academyOutlineSectionSchema),
   limits: academyOutlineLimitsSchema,
   events: z.array(academyCourseEventSchema),
@@ -214,20 +216,20 @@ export const academyLessonBlocksSchema = z.array(academyLessonBlockSchema).min(1
 
 /** `admin.saveLesson`: the blocks as a whole over the lesson revision the editor read (0 when nothing is written yet). */
 export const academySaveLessonInputSchema = z
-  .object({ itemId: z.string().uuid(), revision: z.number().int().nonnegative(), blocks: academyLessonBlocksSchema })
+  .object({ itemId: z.string().guid(), revision: z.number().int().nonnegative(), blocks: academyLessonBlocksSchema })
   .strict();
 export type AcademySaveLessonInput = z.infer<typeof academySaveLessonInputSchema>;
 
 /** `admin.revertLesson`: a new revision with an older one's blocks, over the newest revision the editor read. */
 export const academyRevertLessonInputSchema = z
-  .object({ itemId: z.string().uuid(), revision: z.number().int().positive(), toRevision: z.number().int().positive() })
+  .object({ itemId: z.string().guid(), revision: z.number().int().positive(), toRevision: z.number().int().positive() })
   .strict();
 export type AcademyRevertLessonInput = z.infer<typeof academyRevertLessonInputSchema>;
 
 /** `admin.publishLesson`: learners see this lesson revision from now on, with the reason staff give. */
 export const academyPublishLessonInputSchema = z
   .object({
-    itemId: z.string().uuid(),
+    itemId: z.string().guid(),
     lessonRevision: z.number().int().positive(),
     courseRevision: z.number().int().positive(),
     reason: z.string().trim().min(1).max(500),
@@ -235,29 +237,38 @@ export const academyPublishLessonInputSchema = z
   .strict();
 export type AcademyPublishLessonInput = z.infer<typeof academyPublishLessonInputSchema>;
 
+/**
+ * `admin.withdrawLesson`: learners stop seeing the lesson (no revision is live) over the course revision read, with a
+ * reason. A featured lesson leaves the Learn hub's featured slot in the same step.
+ */
+export const academyWithdrawLessonInputSchema = z
+  .object({ itemId: z.string().guid(), courseRevision: z.number().int().positive(), reason: z.string().trim().min(1).max(500) })
+  .strict();
+export type AcademyWithdrawLessonInput = z.infer<typeof academyWithdrawLessonInputSchema>;
+
 /** `admin.duplicateItem`: a copy of a draft course's item right after it, with its newest lesson as revision 1. */
 export const academyDuplicateItemInputSchema = z
-  .object({ itemId: z.string().uuid(), courseRevision: z.number().int().positive() })
+  .object({ itemId: z.string().guid(), courseRevision: z.number().int().positive() })
   .strict();
 export type AcademyDuplicateItemInput = z.infer<typeof academyDuplicateItemInputSchema>;
 
-export const ACADEMY_LESSON_SOURCES = ['saved', 'reverted', 'duplicated', 'imported'] as const;
+export const ACADEMY_LESSON_SOURCES = ['saved', 'reverted', 'duplicated', 'imported', 'assisted'] as const;
 export const academyLessonRevisionSchema = z.object({
   revision: z.number().int().positive(),
   source: z.enum(ACADEMY_LESSON_SOURCES),
   /** The revision a revert copied, or null. */
   fromRevision: z.number().int().positive().nullable(),
   /** The item a duplicate was copied from, or null. */
-  fromItemId: z.string().uuid().nullable(),
+  fromItemId: z.string().guid().nullable(),
   blocks: academyLessonBlocksSchema,
-  actor: z.string().uuid(),
+  actor: z.string().guid(),
   at: isoInstant,
 });
 export type AcademyLessonRevision = z.infer<typeof academyLessonRevisionSchema>;
 
 /** `admin.lesson`: one item with every lesson revision, newest first, and which one learners see. */
 export const academyLessonSchema = z.object({
-  courseId: z.string().uuid(),
+  courseId: z.string().guid(),
   courseTitle: z.string().min(1),
   courseState: z.enum(ACADEMY_COURSE_STATES),
   courseRevision: z.number().int().positive(),
@@ -265,6 +276,18 @@ export const academyLessonSchema = z.object({
   revisions: z.array(academyLessonRevisionSchema),
   /** The owner's lesson import size limit in bytes (`ACADEMY_LESSON_IMPORT_MAX_BYTES`), or null when it is not set. */
   importMaxBytes: z.number().int().positive().nullable(),
+  /** The assistant draft waiting for a person to accept or discard it, or null. It is never what learners see. */
+  draft: z
+    .object({
+      basedOnRevision: z.number().int().nonnegative(),
+      kind: z.literal('template'),
+      blocks: academyLessonBlocksSchema,
+      createdBy: z.string().guid(),
+      createdAt: isoInstant,
+    })
+    .nullable(),
+  /** AC-articles-01: whether this lesson is the Learn hub's featured article. */
+  featured: z.boolean(),
 });
 export type AcademyLesson = z.infer<typeof academyLessonSchema>;
 
@@ -276,7 +299,7 @@ export type AcademyLesson = z.infer<typeof academyLessonSchema>;
  */
 export const ACADEMY_LESSON_FORMAT = 'intafaced.lesson.v1';
 export const academyImportLessonInputSchema = z
-  .object({ itemId: z.string().uuid(), revision: z.number().int().nonnegative(), document: z.string().max(1_048_576) })
+  .object({ itemId: z.string().guid(), revision: z.number().int().nonnegative(), document: z.string().max(1_048_576) })
   .strict();
 export type AcademyImportLessonInput = z.infer<typeof academyImportLessonInputSchema>;
 export const academyImportProblemSchema = z.object({
@@ -289,3 +312,187 @@ export const academyImportLessonResultSchema = z.discriminatedUnion('outcome', [
   z.object({ outcome: z.literal('invalid'), problems: z.array(academyImportProblemSchema).min(1), lesson: academyLessonSchema }),
 ]);
 export type AcademyImportLessonResult = z.infer<typeof academyImportLessonResultSchema>;
+
+/**
+ * AC-course-structure-04: the authoring assistant. `template` drafts a lesson from the course's own structure (its
+ * title, section and neighbours) with headings to fill in, and needs no provider. `model` is the model-backed path: it
+ * refuses `owner.decision` while the owner has not chosen a provider, and copy never names one. A draft is keyed
+ * `draft:<item>:<revision>:<kind>` and goes nowhere until a person accepts it, which writes a new lesson revision.
+ */
+export const ACADEMY_ASSISTANT_PATHS = ['template', 'model'] as const;
+export const academyAssistantDraftInputSchema = z
+  .object({ itemId: z.string().guid(), revision: z.number().int().nonnegative(), path: z.enum(ACADEMY_ASSISTANT_PATHS) })
+  .strict();
+export type AcademyAssistantDraftInput = z.infer<typeof academyAssistantDraftInputSchema>;
+
+/** `admin.decideDraft`: a person accepts (a new lesson revision, with them as the actor) or discards the open draft. */
+export const academyDecideDraftInputSchema = z
+  .object({
+    itemId: z.string().guid(),
+    basedOnRevision: z.number().int().nonnegative(),
+    kind: z.literal('template'),
+    decision: z.enum(['accept', 'discard']),
+  })
+  .strict();
+export type AcademyDecideDraftInput = z.infer<typeof academyDecideDraftInputSchema>;
+
+/**
+ * AC-videos-02: a course item's video, caption files and handouts. Every file goes to our own object store through a
+ * signed upload: an intent first (keyed `media:<item>:<kind>:<sha256>`, so the same file resumes the same row), then the
+ * bytes, then a confirm in which svc-academy reads the stored object back and checks its size and leading bytes against
+ * what was declared (`academy.file_type_mismatch`). The owner's limits (size, video types, handout types) are blank until
+ * set, and a blank one refuses `academy.upload_limits_unset`. Captions are SRT or WebVTT per video and language, checked
+ * line by line.
+ */
+export const ACADEMY_MEDIA_KINDS = ['video', 'handout'] as const;
+export type AcademyMediaKind = (typeof ACADEMY_MEDIA_KINDS)[number];
+const mimeType = z.string().regex(/^[a-z]+\/[a-z0-9.+-]+$/);
+
+export const academyUploadLimitsSchema = z.object({
+  maxBytes: z.number().int().positive().nullable(),
+  videoTypes: z.array(mimeType).nullable(),
+  handoutTypes: z.array(mimeType).nullable(),
+});
+export type AcademyUploadLimits = z.infer<typeof academyUploadLimitsSchema>;
+
+export const academyMediaSchema = z.object({
+  id: z.string().guid(),
+  kind: z.enum(ACADEMY_MEDIA_KINDS),
+  fileName: z.string().min(1),
+  contentType: mimeType,
+  bytes: z.number().int().positive(),
+  state: z.enum(['pending', 'ready', 'refused']),
+  /** Why a confirm refused the stored object, or null. */
+  refusal: z.string().nullable(),
+  createdAt: isoInstant,
+  /** A short-lived signed address to view a ready file, or null. */
+  url: z.string().url().nullable(),
+});
+export type AcademyMedia = z.infer<typeof academyMediaSchema>;
+
+export const academyItemCaptionSchema = z.object({
+  language: z.string().min(2),
+  label: z.string().min(1),
+  format: z.enum(['srt', 'vtt']),
+  cues: z.number().int().positive(),
+  firstCue: z.string(),
+});
+
+/**
+ * `admin.itemMedia`: one item's uploads (newest first), the owner's upload limits, the item's current video (the newest
+ * checked one, or null) and that video's caption languages. Captions belong to one video, so a re-cut starts with none.
+ */
+export const academyItemMediaSchema = z.object({
+  itemId: z.string().guid(),
+  videoId: z.string().guid().nullable(),
+  limits: academyUploadLimitsSchema,
+  media: z.array(academyMediaSchema),
+  captions: z.array(academyItemCaptionSchema),
+});
+export type AcademyItemMedia = z.infer<typeof academyItemMediaSchema>;
+
+/** `admin.mediaUploadIntent`: what the browser declares before sending a byte. */
+export const academyMediaIntentInputSchema = z
+  .object({
+    itemId: z.string().guid(),
+    kind: z.enum(ACADEMY_MEDIA_KINDS),
+    fileName: z.string().trim().min(1).max(200),
+    contentType: mimeType,
+    bytes: z.number().int().positive(),
+    sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  })
+  .strict();
+export type AcademyMediaIntentInput = z.infer<typeof academyMediaIntentInputSchema>;
+export const academyMediaIntentSchema = z.object({
+  media: academyMediaSchema,
+  /** The signed address to PUT the bytes to, or null when this file is already stored and confirmed. */
+  uploadUrl: z.string().url().nullable(),
+});
+export type AcademyMediaIntent = z.infer<typeof academyMediaIntentSchema>;
+
+export const academyConfirmMediaInputSchema = z.object({ mediaId: z.string().guid() }).strict();
+
+/** `admin.setItemCaptions`: one language's SRT or WebVTT file for the item's current video. */
+export const academySetItemCaptionsInputSchema = z
+  .object({
+    itemId: z.string().guid(),
+    language: z.string().regex(/^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})?$/),
+    label: z.string().trim().min(1).max(60),
+    format: z.enum(['srt', 'vtt']),
+    text: z.string().max(524_288),
+  })
+  .strict();
+export type AcademySetItemCaptionsInput = z.infer<typeof academySetItemCaptionsInputSchema>;
+export const academySetItemCaptionsResultSchema = z.discriminatedUnion('outcome', [
+  z.object({ outcome: z.literal('saved'), media: academyItemMediaSchema }),
+  /** The first line that is not a caption, with its number, and nothing stored. */
+  z.object({ outcome: z.literal('invalid'), problem: z.string().min(1), media: academyItemMediaSchema }),
+]);
+
+/**
+ * AC-articles-01: the Learn hub. Staff choose its featured article, a lesson learners can read (one with a revision
+ * published to learners; otherwise `academy.featured_not_live`); it leaves the slot when the lesson is withdrawn. Topics
+ * are staff-owned names with an address that is never an Academy tab (`academy.slug_reserved`); a course is filed under
+ * some of them. The topic list is read up to the owner's limit (`ACADEMY_TOPICS_LIST_LIMIT`; blank refuses
+ * `academy.topics_list_limit_unset`).
+ */
+export const academyTopicSchema = z.object({
+  id: z.string().guid(),
+  slug: z.string().min(1),
+  name: z.string().min(1),
+  createdAt: isoInstant,
+});
+export type AcademyTopic = z.infer<typeof academyTopicSchema>;
+
+/**
+ * The hub's one featured slot holds a course lesson or a curriculum item (`admin.setFeatured`), never both; choosing
+ * either replaces the other. A lesson shows here while it is live in a draft or published course.
+ */
+export const academyFeaturedSlotSchema = z.object({
+  /** The curriculum item in the slot, or null. */
+  curriculum: z.object({ slug: z.string().min(1), title: z.string().min(1) }).nullable(),
+  /** The featured lesson, or null. */
+  lesson: z
+    .object({
+      itemId: z.string().guid(),
+      title: z.string().min(1),
+      courseId: z.string().guid(),
+      courseTitle: z.string().min(1),
+      courseState: z.enum(ACADEMY_COURSE_STATES),
+      liveRevision: z.number().int().positive(),
+    })
+    .nullable(),
+  reason: z.string().nullable(),
+  chosenBy: z.string().guid().nullable(),
+  chosenAt: isoInstant.nullable(),
+});
+export type AcademyFeaturedSlot = z.infer<typeof academyFeaturedSlotSchema>;
+
+/** `admin.topics`: the topics, newest first, up to the owner's list limit (shown with them). */
+export const academyTopicListSchema = z.object({
+  topics: z.array(academyTopicSchema),
+  limit: z.number().int().positive(),
+});
+export type AcademyTopicList = z.infer<typeof academyTopicListSchema>;
+
+/** `admin.featureLesson`: this lesson fills the featured slot, with the reason staff give. */
+export const academyFeatureLessonInputSchema = z.object({ itemId: z.string().guid(), reason: z.string().trim().min(1).max(500) }).strict();
+export type AcademyFeatureLessonInput = z.infer<typeof academyFeatureLessonInputSchema>;
+
+/** `admin.clearFeatured`: nothing is featured, with the reason. */
+export const academyClearFeaturedInputSchema = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
+
+/** `admin.createTopic`: a topic keyed by its address; a repeat with the same name answers with the stored topic. */
+export const academyCreateTopicInputSchema = z.object({ slug: academyCourseSlugSchema, name: z.string().trim().min(1).max(60) }).strict();
+export type AcademyCreateTopicInput = z.infer<typeof academyCreateTopicInputSchema>;
+
+/** `admin.setCourseTopics`: the course's topics as a whole, over the revision read. */
+export const academySetCourseTopicsInputSchema = z
+  .object({
+    courseId: z.string().guid(),
+    revision: z.number().int().positive(),
+    topicIds: z.array(z.string().guid()).max(20),
+  })
+  .strict()
+  .refine((t) => new Set(t.topicIds).size === t.topicIds.length, { message: 'a topic is named once' });
+export type AcademySetCourseTopicsInput = z.infer<typeof academySetCourseTopicsInputSchema>;

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { SupportError, SupportService } from './support-service.js';
+import { MemorySupportStore } from './store.js';
 import {
   SUPPORT_ASSISTANT_MODEL_UNSET,
   SUPPORT_FEEDBACK_RATE_EXCEEDED,
@@ -60,7 +61,7 @@ async function publish(support: SupportService, id: string, tags?: string[]) {
 
 describe('article feedback and search logs (SP-kb-03)', () => {
   it('opens one request from an unhelpful vote and a replay does not open another', async () => {
-    const { support } = clocked({});
+    const { support } = clocked({ feedbackRateLimit: 10, feedbackRateWindowSeconds: 3600 });
     await publish(support, 'kb-fb-withdraw', ['withdrawal']);
     const vote = await support.kbFeedback({
       userId: USER,
@@ -93,13 +94,13 @@ describe('article feedback and search logs (SP-kb-03)', () => {
       openRequest: true,
       clientRequestId: 'fb-req-2',
     });
-    expect(second.ticketId).toBe(vote.ticketId);
+    expect(second).toEqual({ ...vote, earlier: true });
     expect(await support.listMyTickets({ userId: USER, limit: 10 })).toHaveLength(1);
     expect(await support.kbFeedbackSummary({ limit: 10 })).toEqual([{ articleId: 'kb-fb-withdraw', version: 1, helpful: 0, unhelpful: 1 }]);
   });
 
   it('refuses a request that is not an unhelpful vote with a comment, and stores nothing', async () => {
-    const { support } = clocked({});
+    const { support } = clocked({ feedbackRateLimit: 10, feedbackRateWindowSeconds: 3600 });
     await publish(support, 'kb-fb-plain');
     await expect(
       support.kbFeedback({ userId: USER, id: 'kb-fb-plain', helpful: true, comment: 'nice', openRequest: true, clientRequestId: 'bad-1' }),
@@ -109,6 +110,67 @@ describe('article feedback and search logs (SP-kb-03)', () => {
     ).rejects.toMatchObject({ code: SUPPORT_FEEDBACK_REQUEST_INVALID });
     expect(await support.listMyTickets({ userId: USER, limit: 10 })).toEqual([]);
     expect(await support.kbFeedbackSummary({ limit: 10 })).toEqual([]);
+  });
+
+  it("refuses an account's vote while the rate is blank, and over the rate, and stores nothing either time", async () => {
+    const blank = clocked({});
+    await publish(blank.support, 'kb-fb-account');
+    await expect(
+      blank.support.kbFeedback({
+        userId: USER,
+        id: 'kb-fb-account',
+        helpful: false,
+        comment: 'no',
+        openRequest: true,
+        clientRequestId: 'acc-0',
+      }),
+    ).rejects.toMatchObject({ code: SUPPORT_FEEDBACK_RATE_LIMIT_UNSET });
+    expect(await blank.support.listMyTickets({ userId: USER, limit: 10 })).toEqual([]);
+    expect(await blank.support.kbFeedbackSummary({ limit: 10 })).toEqual([]);
+    // A vote kept while the rate was set is not answered once the rate is blank: rating is switched off.
+    const store = new MemorySupportStore();
+    const rated = new SupportService(
+      store,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      null,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      null,
+      { feedbackRateLimit: 5, feedbackRateWindowSeconds: 60 },
+    );
+    const off = new SupportService(store);
+    await publish(rated, 'kb-fb-kept');
+    await rated.kbFeedback({ userId: USER, id: 'kb-fb-kept', helpful: true, clientRequestId: 'kept-1' });
+    await expect(off.kbFeedback({ userId: USER, id: 'kb-fb-kept', helpful: true, clientRequestId: 'kept-1' })).rejects.toMatchObject({
+      code: SUPPORT_FEEDBACK_RATE_LIMIT_UNSET,
+    });
+
+    const { support, advance } = clocked({ feedbackRateLimit: 1, feedbackRateWindowSeconds: 60 });
+    await publish(support, 'kb-fb-a');
+    await publish(support, 'kb-fb-b');
+    const first = await support.kbFeedback({ userId: USER, id: 'kb-fb-a', helpful: true, clientRequestId: 'acc-a' });
+    expect(first.earlier).toBeUndefined();
+    await expect(
+      support.kbFeedback({ userId: USER, id: 'kb-fb-b', helpful: false, comment: 'no', openRequest: true, clientRequestId: 'acc-b' }),
+    ).rejects.toMatchObject({ code: SUPPORT_FEEDBACK_RATE_EXCEEDED });
+    expect(await support.listMyTickets({ userId: USER, limit: 10 })).toEqual([]);
+    expect(await support.kbFeedbackSummary({ limit: 10 })).toEqual([{ articleId: 'kb-fb-a', version: 1, helpful: 1, unhelpful: 0 }]);
+    // A vote that meets the first one for the same version is not counted against the rate: the first vote stands.
+    expect(await support.kbFeedback({ userId: USER, id: 'kb-fb-a', helpful: false, clientRequestId: 'acc-a2' })).toEqual({
+      ...first,
+      earlier: true,
+    });
+    advance(61_000);
+    const later = await support.kbFeedback({ userId: USER, id: 'kb-fb-b', helpful: false, clientRequestId: 'acc-b2' });
+    expect(later).toMatchObject({ articleId: 'kb-fb-b', helpful: false });
   });
 
   it('refuses a public vote while the rate is blank, and stores nothing', async () => {

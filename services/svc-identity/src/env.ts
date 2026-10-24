@@ -237,6 +237,14 @@ const schema = serviceEnvSchema
        * NO DEFAULT. Blank refuses making a code (`referral.code_length_unset`); the share link still works.
        */
       IDENTITY_REFERRAL_CODE_LENGTH: z.string().optional(),
+      /**
+       * Owner setting: how long a referral relationship lasts without a fee event (any, whether or not it earns commission) by the referred
+       * person, in whole seconds (CM-referral-01 RF-4, J-campaigns-05 #7). NO DEFAULT. Blank: the lapse sweep refuses
+       * (`referral.lapse_period_unset`) and does not run. Parsed at start by `parseLapsePeriodSeconds`.
+       */
+      IDENTITY_REFERRAL_LAPSE_PERIOD_SECONDS: z.string().optional(),
+      /** Owner setting: how often the lapse sweep runs, in whole seconds. NO DEFAULT. Blank leaves the sweep timer off. */
+      IDENTITY_REFERRAL_LAPSE_SWEEP_SECONDS: z.string().optional(),
       IDENTITY_MAX_SUB_ACCOUNTS: z.preprocess((v) => {
         if (v === undefined || v === null) return undefined;
         if (typeof v === 'string' && v.trim() === '') return undefined;

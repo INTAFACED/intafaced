@@ -1,4 +1,4 @@
-import type { AcademyCourse, AcademyCourseDetail, AcademyCourseList } from '@intafaced/contracts/academy-courses';
+import type { AcademyCourse, AcademyCourseDetail, AcademyCourseList, AcademyTopicList } from '@intafaced/contracts/academy-courses';
 import type { Part } from '@/lib/desk/part';
 
 /**
@@ -16,6 +16,8 @@ export interface CourseListView {
 
 export interface CourseDetailView {
   readonly detail: Part<AcademyCourseDetail>;
+  /** AC-articles-01: the topics a course can be filed under. Absent from an older read. */
+  readonly topicChoices?: Part<AcademyTopicList>;
   readonly asOf: string;
 }
 

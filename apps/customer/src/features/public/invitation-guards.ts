@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
 
-const uuid = z.string().uuid();
+const uuid = z.string().guid();
 export const invitationInstant = z
   .string()
   .datetime({ offset: true })
@@ -40,6 +40,8 @@ export const attachWindowSchema = z.object({
   accountCreatedAt: invitationInstant,
   windowSeconds: z.number().int().positive().nullable(),
   closesAt: invitationInstant.nullable(),
+  /** Set when an earlier relationship lapsed: the window runs from then, not from sign-up. */
+  reopenedAt: invitationInstant.nullable().optional(),
 });
 export type AttachWindow = z.infer<typeof attachWindowSchema>;
 

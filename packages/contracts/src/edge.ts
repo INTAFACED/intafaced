@@ -54,7 +54,7 @@ export const EDGE_SIGNATURE_HEADER = 'x-intafaced-principal-sig';
  * `principal.scopes` was typed against a value nothing had ever inspected.
  */
 export const principalHeaderSchema = accessClaimsSchema.extend({
-  userId: z.string().uuid(),
+  userId: z.string().guid(),
   expiresAt: z.string().datetime(),
   /** Issue time, whole seconds. Present on every Ed25519-signed principal. */
   iat: z.number().int().positive().optional(),

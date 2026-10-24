@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import postgres from 'postgres';
 import { JetStreamEventBus } from '@intafaced/events';
 import { s2sFromEnv } from '@intafaced/contracts';
-import { env, idempotencyConflictMode } from './env.js';
+import { clockSkewBoundMs, env, idempotencyConflictMode } from './env.js';
 import { ledgerPostgresOptions } from './db/connection-options.js';
 import { LedgerService } from './service.js';
 import { createLedgerRouter } from './router.js';
@@ -53,6 +53,7 @@ const ledger = new LedgerService(sql, bus, {
   postingEnabled: env.LEDGER_POSTING_ENABLED,
   idempotencyConflict: idempotencyConflictMode,
   reconcileStatementTimeoutMs: env.LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS,
+  clockSkewBoundMs,
 });
 
 // Before the first request, never after: a frozen database stays frozen, and
@@ -94,12 +95,14 @@ registerS2sHttp(app, ledger, env.INTERNAL_SERVICE_SECRET, {
 });
 
 /**
- * §14.6 — the operator surface: freeze, unfreeze, and on-demand reconcile.
+ * §14.6 — the operator surface: freeze, unfreeze, on-demand reconcile, and
+ * reconciliation controls (list, define, update, run).
  *
- * `appRouter` above is exported for its TYPE and served on no port, so the
- * tRPC procedures alone were callable by nothing. `registerOperatorHttp`
- * mounts GET/POST `/operator/freeze`, POST `/operator/unfreeze`, and
- * POST `/operator/reconcile` behind `admin:treasury` + MFA + distinct confirm.
+ * `appRouter` above is exported for its TYPE and served on no port. It includes
+ * `post`, so it is not mounted. `registerOperatorHttp` is the served door:
+ * GET/POST `/operator/freeze`, POST `/operator/unfreeze`, POST `/operator/reconcile`,
+ * and `/operator/reconciliation/controls` (list, define, update, run) behind
+ * `admin:treasury` + MFA. Run also takes a reason and an approval. Compliance may list.
  * See `operator-http.ts`.
  */
 registerOperatorHttp(

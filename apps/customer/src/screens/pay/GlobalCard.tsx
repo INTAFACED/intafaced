@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react';
-import { AmountInput, Button, confirmWithStepUp, refusalCopy, useSession } from './deps';
+import { AccountDetailsByCurrency, AmountInput, Button, confirmWithStepUp, refusalCopy, useSession } from './deps';
 import type { ApiResult } from './deps';
 import { payCopy } from './copy';
 import { personalCopy } from './personal-copy';
@@ -12,6 +12,8 @@ import {
   canRecall,
   destinationsFrom,
   hasLeft,
+  lockDeadline,
+  lockLeft,
   progressOf,
   recipientKey,
   type ComplianceField,
@@ -31,6 +33,15 @@ const settle = <T,>(result: ApiResult<T>): Load<T> =>
   result.ok ? { state: 'ready', data: result.data } : { state: 'failed', code: result.code, message: result.message };
 
 type Say = { title: string; body: string };
+
+/** Refusals that mean the shown lock can no longer pay this send. */
+const QUOTE_REFUSALS = new Set([
+  'bank.global_quote_expired',
+  'bank.global_quote_required',
+  'bank.global_quote_not_found',
+  'bank.global_quote_mismatch',
+  'bank.global_quote_used',
+]);
 const sayFor = (code: string | undefined, message: string): Say => {
   if (!code) return { title: message, body: '' };
   const words = refusalCopy(code);
@@ -370,10 +381,28 @@ export function GlobalCard() {
   const [recipientBusy, setRecipientBusy] = useState(false);
 
   // Quote, kept only for the figures it was asked for
-  const [quote, setQuote] = useState<{ for: string; data: GlobalQuote } | { for: string; failed: Say } | 'busy' | null>(null);
+  const [quote, setQuote] = useState<{ for: string; data: GlobalQuote; deadline: number } | { for: string; failed: Say } | 'busy' | null>(
+    null,
+  );
   const quoteKey = `${source?.id ?? ''}|${destination?.currency ?? ''}|${amount}`;
   const liveQuote = quote && quote !== 'busy' && quote.for === quoteKey && 'data' in quote ? quote.data : null;
+  // When the lock ends on this device's clock (`lockDeadline`); NaN reads as run out.
+  const deadline = quote && quote !== 'busy' && quote.for === quoteKey && 'data' in quote ? quote.deadline : Number.NaN;
   const quoteFailed = quote && quote !== 'busy' && quote.for === quoteKey && 'failed' in quote ? quote.failed : null;
+  // The lock counts down each second while a quote is shown; once it runs out, only a new quote can be sent on.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    setNow(Date.now());
+    if (!liveQuote || !(deadline > Date.now())) return;
+    // It stops on the tick that reaches the end: nothing re-renders for a lock that has run out.
+    const timer = window.setInterval(() => {
+      const tick = Date.now();
+      setNow(tick);
+      if (tick >= deadline) window.clearInterval(timer);
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [liveQuote, deadline]);
+  const lockText = liveQuote ? lockLeft(deadline, now) : null;
 
   const [asked, setAsked] = useState<readonly ComplianceField[]>([]);
   const [fields, setFields] = useState<Record<string, string>>({});
@@ -415,9 +444,14 @@ export function GlobalCard() {
     if (need || !source || !destination) return;
     const asked = quoteKey;
     setQuote('busy');
+    const askedAt = Date.now();
     const result = await global.quote({ asset: source.asset, amount, toCurrency: destination.currency });
     if (!alive.current) return;
-    setQuote(result.ok ? { for: asked, data: result.data } : { for: asked, failed: sayFor(result.code, result.message) });
+    setQuote(
+      result.ok
+        ? { for: asked, data: result.data, deadline: lockDeadline(result.data, askedAt) }
+        : { for: asked, failed: sayFor(result.code, result.message) },
+    );
   }
 
   async function checkAndSaveRecipient(event: FormEvent) {
@@ -470,7 +504,7 @@ export function GlobalCard() {
     event.preventDefault();
     if (need || !source || !destination || !recipient) return;
     if (!liveQuote) return setFailure({ title: g('needQuote'), body: '' });
-    if (Date.parse(liveQuote.validUntil) <= Date.now()) return setFailure({ title: g('quoteExpired'), body: '' });
+    if (!(deadline > Date.now())) return setFailure({ title: g('quoteExpired'), body: '' });
     setFailure(null);
     setProblem(null);
     setReview({
@@ -484,13 +518,14 @@ export function GlobalCard() {
       country: destination.country.toUpperCase(),
       deliveryMethod: destination.method.trim(),
       compliance: fields,
+      quoteId: liveQuote.quoteId,
     });
   }
 
   async function confirm(how: 'code' | 'passkey') {
     if (!review || busy) return;
     if (how === 'code' && !/^\d{6}$/.test(code.trim())) return setProblem(g('codeShort'));
-    if (!unsettled && (!liveQuote || Date.parse(liveQuote.validUntil) <= Date.now())) {
+    if (!unsettled && (!liveQuote || !(deadline > Date.now()))) {
       setReview(null);
       setProblem(null);
       return setFailure({ title: g('quoteExpired'), body: '' });
@@ -542,6 +577,10 @@ export function GlobalCard() {
     }
     setFailure(sayFor(result.code, result.message));
     if (!field) setReview(null);
+    // A refusal may have kept the send's intent row, failed: the history is read again to show it.
+    void loadHistory();
+    // A lock the service will not pay on (ran out, used, or not for this send) is dropped: only a new quote goes on.
+    if (result.code && QUOTE_REFUSALS.has(result.code)) setQuote(null);
   }
 
   const askedLabel: Record<ComplianceField, string> = {
@@ -607,6 +646,11 @@ export function GlobalCard() {
                 </option>
               ))}
             </select>
+            {destination && !destination.paysOut ? (
+              <p className="pay-hint" role="note" data-testid="global-no-payout">
+                {g('destinationNoPayout')}
+              </p>
+            ) : null}
             {limits ? (
               <p className="pay-hint" data-testid="global-limits">
                 {[
@@ -757,7 +801,18 @@ export function GlobalCard() {
             </div>
           </dl>
           {liveQuote ? (
-            <p className="pay-hint">{g('quoteValidUntil', { time: liveQuote.validUntil })}</p>
+            <>
+              <p className="pay-hint">{g('quoteValidUntil', { time: liveQuote.validUntil })}</p>
+              {lockText ? (
+                <p className="pay-hint" role="timer" data-testid="global-lock">
+                  {g('lockLeft', { time: lockText })}
+                </p>
+              ) : (
+                <p className="pay-problem" role="alert" data-testid="global-lock-over">
+                  {g('lockOver')}
+                </p>
+              )}
+            </>
           ) : (
             <p className="pay-hint">{t('quoteNone')}</p>
           )}
@@ -853,6 +908,11 @@ export function GlobalCard() {
               </>
             ) : null}
           </dl>
+          {liveQuote && lockText ? (
+            <p className="pay-hint" role="timer" data-testid="global-confirm-lock">
+              {g('lockLeft', { time: lockText })}
+            </p>
+          ) : null}
           <p className="pay-hint">{g('confirmWhy')}</p>
           <Button type="button" variant="primary" disabled={busy !== null} onClick={() => void confirm('passkey')}>
             {busy === 'send' ? g('sending') : busy === 'passkey' ? g('confirming') : g('confirmPasskey')}
@@ -895,6 +955,11 @@ export function GlobalCard() {
           </Button>
         </div>
       ) : null}
+      <div className="pay-block" data-testid="global-receive">
+        <h3 className="pay-section-title">{g('receiveTitle')}</h3>
+        <p className="pay-hint">{g('receiveLead')}</p>
+        <AccountDetailsByCurrency />
+      </div>
       <div className="pay-block">
         <h3 className="pay-section-title">{t('globalStepTrack')}</h3>
         <Steps items={trackSteps} />

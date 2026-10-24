@@ -77,6 +77,42 @@
     gap: 16px;
     margin-bottom: 12px;
   }
+  .cb-rankings {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .cb-metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+    margin: 0 0 12px;
+  }
+  .cb-metric {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px;
+    border: 1px solid var(--if-line);
+    border-radius: 8px;
+  }
+  .cb-metric dt {
+    color: var(--if-fg-muted);
+    font-size: 13px;
+  }
+  .cb-metric dd {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 0;
+    color: var(--if-fg);
+    font-size: 14px;
+  }
+  .cb-metric-def {
+    color: var(--if-fg-muted);
+    font-size: 12px;
+  }
   .cb-switch,
   .cb-check {
     display: inline-flex;

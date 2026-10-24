@@ -13,7 +13,7 @@ describe('allowlist wiring in the service entry', () => {
 
   it('is asked by the direct withdrawal door before the approvals', () => {
     expect(index).toMatch(/await allowlist\.assertDirectAllowed\(input\);\s*await withdrawalApprovals\.assertDirectAllowed\(input\);/);
-    expect(index).toMatch(/withdrawalQuotes, withdrawalDoor\)/);
+    expect(index).toMatch(/withdrawalQuotes, withdrawalDoor, merchantTerms\)/);
   });
 
   it('mounts the customer and founder routers', () => {

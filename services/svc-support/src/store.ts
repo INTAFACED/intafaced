@@ -368,6 +368,8 @@ export type KbFeedbackVote = {
   helpful: boolean;
   /** Set only when this vote opened a request. Absent otherwise, never null. */
   ticketId?: string;
+  /** True when this account had already voted on this version: the first vote stands and nothing was written. */
+  earlier?: true;
 };
 
 export type KbFeedbackRate = { readonly limit: number; readonly windowSeconds: number };
@@ -1529,7 +1531,7 @@ export class MemorySupportStore implements SupportStore {
     const version = kbVersionOf(article);
     const key = `${input.userId}\0${input.articleId}\0${version}`;
     const existing = this.feedback.get(key);
-    if (existing) return { status: 'ok', vote: kbFeedbackWire(existing) };
+    if (existing) return { status: 'ok', vote: { ...kbFeedbackWire(existing), earlier: true } };
 
     const comment = input.comment?.trim() ?? '';
     if (input.openRequest === true && (input.helpful || comment.length === 0 || input.userId.startsWith(READER_ACTOR_PREFIX))) {
@@ -2712,13 +2714,16 @@ export class PostgresSupportStore implements SupportStore {
       if (existing[0]) {
         return {
           status: 'ok',
-          vote: kbFeedbackWire({
-            articleId: input.articleId,
-            version,
-            userId: input.userId,
-            helpful: existing[0].helpful,
-            ticketId: existing[0].ticket_id,
-          }),
+          vote: {
+            ...kbFeedbackWire({
+              articleId: input.articleId,
+              version,
+              userId: input.userId,
+              helpful: existing[0].helpful,
+              ticketId: existing[0].ticket_id,
+            }),
+            earlier: true,
+          },
         };
       }
 

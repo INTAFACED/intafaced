@@ -225,7 +225,35 @@ export type AcademyErrorCode =
   /** The owner has not set the lesson import size limit. */
   | 'academy.import_limit_unset'
   /** The lesson file is over the owner's size limit; it was not parsed. */
-  | 'academy.import_too_large';
+  | 'academy.import_too_large'
+  /** AC-course-structure-04: no such assistant draft, or it was already decided the other way. */
+  | 'academy.draft_not_found'
+  /** Lesson blocks built by the service do not fit the lesson format (a block over its limit); nothing was written. */
+  | 'academy.lesson_blocks_invalid'
+  /** AC-videos-02: the owner has not set the upload size limit or the accepted video or handout types. */
+  | 'academy.upload_limits_unset'
+  /** The file is over the owner's upload size limit; no upload address was issued. */
+  | 'academy.upload_too_large'
+  /** The file's declared type is not one the owner accepts for that kind. */
+  | 'academy.upload_type_refused'
+  /** The stored file's leading bytes are not the declared type; the upload is refused. */
+  | 'academy.file_type_mismatch'
+  /** No upload with that id. */
+  | 'academy.media_not_found'
+  /** The stored object is missing or its size is not the declared size. */
+  | 'academy.upload_incomplete'
+  /** Captions need a stored video on the item first. */
+  | 'academy.item_video_missing'
+  /** AC-articles-01: only a lesson learners can read is featured. */
+  | 'academy.featured_not_live'
+  /** Withdrawing a lesson learners see no revision of. */
+  | 'academy.lesson_not_live'
+  /** No topic with that id. */
+  | 'academy.topic_not_found'
+  /** A topic already has that address under another name. */
+  | 'academy.topic_slug_taken'
+  /** The owner has not set how many topics a list shows. */
+  | 'academy.topics_list_limit_unset';
 
 export class AcademyError extends Error {
   constructor(
@@ -357,6 +385,20 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.item_kind_locked',
   'academy.import_limit_unset',
   'academy.import_too_large',
+  'academy.draft_not_found',
+  'academy.lesson_blocks_invalid',
+  'academy.upload_limits_unset',
+  'academy.upload_too_large',
+  'academy.upload_type_refused',
+  'academy.file_type_mismatch',
+  'academy.media_not_found',
+  'academy.upload_incomplete',
+  'academy.item_video_missing',
+  'academy.featured_not_live',
+  'academy.lesson_not_live',
+  'academy.topic_not_found',
+  'academy.topic_slug_taken',
+  'academy.topics_list_limit_unset',
 ] as const;
 
 /** L3 — catalog size. */

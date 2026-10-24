@@ -2205,6 +2205,49 @@ describe('affiliates createShare / revokeShare / shareHits', () => {
     });
   });
 
+  it('attachWindow runs again from a lapsed relationship (reopenedAt), measured from the lapse, not sign-up', async () => {
+    const reopened = new Date(Date.now() - 60_000);
+    const referral = {
+      accountAge: async () => ({ createdAt: new Date(Date.now() - 86_400_000), reopenedAt: reopened, now: new Date() }),
+    } as unknown as import('./affiliates/referral-service.js').ReferralService;
+    const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, referral, referralAttachWindowSeconds: 600 });
+    expect(await api.createCaller(await ctx(['identity:read'])).affiliates.attachWindow()).toMatchObject({
+      state: 'open',
+      reopenedAt: reopened.toISOString(),
+      closesAt: new Date(reopened.getTime() + 600_000).toISOString(),
+    });
+  });
+
+  it('myLapse reads the caller only and invents no end date while the period is blank; the lapse log needs an operator with a second factor', async () => {
+    const at = new Date('2026-10-24T03:00:00Z');
+    const ended = { userId: USER, referrerId: VISITOR, attributedAt: at, lastActivityAt: at, periodSeconds: 600, lapsedAt: at };
+    const asked: string[] = [];
+    const referralLapse = {
+      standingOf: async (userId: string) => {
+        asked.push(userId);
+        return { state: 'unset' as const };
+      },
+      latestOf: async () => ended,
+      log: async () => [ended],
+    } as unknown as import('./affiliates/referral-lapse.js').ReferralLapseService;
+    const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, referralLapse });
+    const mine = await api.createCaller(await ctx(['identity:read'])).affiliates.myLapse();
+    expect(mine).toEqual({
+      state: 'unset',
+      periodSeconds: null,
+      lastActivityAt: null,
+      endsAt: null,
+      ended: { ...ended, attributedAt: at.toISOString(), lastActivityAt: at.toISOString(), lapsedAt: at.toISOString() },
+    });
+    expect(asked).toEqual([USER]);
+    const customer = api.createCaller(await ctx(['identity:read']));
+    expect(codeOf(await customer.affiliates.lapseLog({ limit: 10 }).catch((e: unknown) => e))).toBe('FORBIDDEN');
+    const noFactor = api.createCaller(await ctx(['admin:compliance'], { userId: OPERATOR, mfa: false }));
+    expect(codeOf(await noFactor.affiliates.lapseLog({ limit: 10 }).catch((e: unknown) => e))).toBe('UNAUTHORIZED');
+    const operator = api.createCaller(await ctx(['admin:compliance'], { userId: OPERATOR }));
+    expect(await operator.affiliates.lapseLog({ limit: 10 })).toHaveLength(1);
+  });
+
   it('createCode refuses with referral.code_length_unset while the owner length is blank', async () => {
     const referralCodes = new (await import('./affiliates/referral-code.js')).ReferralCodeService(
       { unsafe: () => undefined } as never,
@@ -2218,6 +2261,64 @@ describe('affiliates createShare / revokeShare / shareHits', () => {
       .catch((e: unknown) => e);
     expect(codeOf(err)).toBe('PRECONDITION_FAILED');
     expect((err as { message?: string }).message).toContain('referral.code_length_unset');
+  });
+
+  it('requestRebind names the referrer from a live link only; deciding needs an operator with a second factor', async () => {
+    const { store } = shareRouter();
+    const live = store.createShare(USER);
+    store.rememberUser(VISITOR);
+    const revoked = store.createShare(VISITOR);
+    store.revokeShare(VISITOR);
+    const asked: Array<[string, string, string]> = [];
+    const decided: Array<[string, string, string]> = [];
+    const at = new Date('2026-10-23T10:00:00Z');
+    const request = (userId: string, toReferrerId: string) => ({
+      id: '99999999-9999-4999-8999-999999999999',
+      userId,
+      fromReferrerId: null,
+      toReferrerId,
+      reason: 'TEST reason',
+      state: 'under_review' as const,
+      approvalId: 'appr-1',
+      approvalExpiresAt: at,
+      decidedBy: null,
+      decisionReason: null,
+      createdAt: at,
+      decidedAt: null,
+      appliedAt: null,
+    });
+    const referralRebind = {
+      request: async (userId: string, to: string, reason: string) => {
+        asked.push([userId, to, reason]);
+        return request(userId, to);
+      },
+      decide: async (operatorId: string, id: string, decision: string) => {
+        decided.push([operatorId, id, decision]);
+        return { ...request(VISITOR, USER), state: 'approved' as const, decidedBy: operatorId };
+      },
+    } as unknown as import('./affiliates/referral-rebind.js').ReferralRebindService;
+    const share = {
+      referrerOf: async (token: string) => store.referrerOf(token),
+    } as unknown as import('./affiliates/share-service.js').ShareService;
+    const api = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, share, referralRebind });
+    const visitor = api.createCaller(await ctx(['identity:write'], { userId: VISITOR }));
+
+    const mine = await visitor.affiliates.requestRebind({ token: live.token, reason: 'TEST reason' });
+    expect(mine).toMatchObject({ state: 'under_review', toReferrerId: USER, reviewEndsAt: at.toISOString() });
+    expect(mine).not.toHaveProperty('decidedBy');
+    expect(asked).toEqual([[VISITOR, USER, 'TEST reason']]);
+    const err = await visitor.affiliates.requestRebind({ token: revoked.token, reason: 'TEST reason' }).catch((e: unknown) => e);
+    expect(codeOf(err)).toBe('FORBIDDEN');
+    expect((err as { message?: string }).message).toContain('share.revoked');
+    expect(asked).toHaveLength(1);
+
+    const input = { requestId: mine.requestId, decision: 'approve' as const, reason: 'TEST checked' };
+    expect(codeOf(await visitor.affiliates.decideRebind(input).catch((e: unknown) => e))).toBe('FORBIDDEN');
+    const noFactor = api.createCaller(await ctx(['admin:compliance'], { userId: OPERATOR, mfa: false }));
+    expect(codeOf(await noFactor.affiliates.decideRebind(input).catch((e: unknown) => e))).toBe('UNAUTHORIZED');
+    const operator = api.createCaller(await ctx(['admin:compliance'], { userId: OPERATOR }));
+    expect(await operator.affiliates.decideRebind(input)).toMatchObject({ state: 'approved', decidedBy: OPERATOR });
+    expect(decided).toEqual([[OPERATOR, mine.requestId, 'approve']]);
   });
 
   it('signUpStart from an invitation link names its referrer for the account; a revoked link names no one', async () => {

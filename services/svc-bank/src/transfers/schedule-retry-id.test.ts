@@ -25,6 +25,7 @@ import { MemoryLedger, formatAmount, parseAmount as amt, recipes, subAccountAvai
 import { memoryLedgerHistory } from '../analytics/ledger-history.js';
 import { createBankServices } from '../bank-service.js';
 import { createBankRouter, type BankRouter } from '../router.js';
+import { bankRouterSource } from '../router/router-source.js';
 
 const SECRET = 'bank-standing-schedule-retry-id-secret';
 const USER = '11111111-1111-4111-8111-111111111111';
@@ -58,13 +59,13 @@ describe('schedule pins a required caller scheduleId on INSERT', () => {
   });
 
   it('public doors require scheduleId so omit is not a second order', () => {
-    const src = readFileSync(join(here, '..', 'router.ts'), 'utf8');
+    const src = bankRouterSource();
     const doorAt = src.indexOf("schedule: scopedProcedure('bank:write'");
     const listAt = src.indexOf("listSchedules: scopedProcedure('bank:read'", doorAt);
     const body = src.slice(doorAt, listAt);
     expect(doorAt).toBeGreaterThan(-1);
-    expect(body).toMatch(/scheduleId:\s*z\.string\(\)\.uuid\(\)/);
-    expect(body).not.toMatch(/scheduleId:\s*z\.string\(\)\.uuid\(\)\.optional\(\)/);
+    expect(body).toMatch(/scheduleId:\s*z\.string\(\)\.guid\(\)/);
+    expect(body).not.toMatch(/scheduleId:\s*z\.string\(\)\.guid\(\)\.optional\(\)/);
   });
 });
 

@@ -28,6 +28,7 @@ import { MemoryLedger, parseAmount as amt, recipes } from '@intafaced/ledger-cli
 import { memoryLedgerHistory } from '../analytics/ledger-history.js';
 import { createBankServices } from '../bank-service.js';
 import { createBankRouter, type BankRouter } from '../router.js';
+import { bankRouterSource } from '../router/router-source.js';
 
 const SECRET = 'bank-earn-deposit-retry-id-secret-32!!';
 const USER = '11111111-1111-4111-8111-111111111111';
@@ -59,13 +60,13 @@ describe('earn.deposit pins a required caller positionId', () => {
   });
 
   it('public door requires positionId so omit is not a second stake', () => {
-    const src = readFileSync(join(here, '..', 'router.ts'), 'utf8');
+    const src = bankRouterSource();
     const doorAt = src.indexOf("deposit: scopedProcedure('bank:write'");
     const wdAt = src.indexOf("withdraw: scopedProcedure('bank:write'", doorAt);
     const body = src.slice(doorAt, wdAt);
     expect(doorAt).toBeGreaterThan(-1);
-    expect(body).toMatch(/positionId:\s*z\.string\(\)\.uuid\(\)/);
-    expect(body).not.toMatch(/positionId:\s*z\.string\(\)\.uuid\(\)\.optional\(\)/);
+    expect(body).toMatch(/positionId:\s*z\.string\(\)\.guid\(\)/);
+    expect(body).not.toMatch(/positionId:\s*z\.string\(\)\.guid\(\)\.optional\(\)/);
   });
 });
 

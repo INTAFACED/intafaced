@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { formatAmount } from '@intafaced/ledger-client/money';
 import { publicJurisdictionProcedure, publicProcedure, router, TRPCError } from '@intafaced/contracts';
 import { ChainDataError } from './chain/source.js';
+import { ChainUnavailableError } from './chain/evm/availability.js';
 import { finalizedHeightOf, type FillRecord, type PositionRecord, type ProjectionStore } from './projection/store.js';
 import type { Indexer } from './indexer.js';
 import { clobFixtureRefusesLiveClaim, clobHonesty, clobHonestySchema, INDEXER_CLOB_FIXTURE_NOT_LIVE } from './clob-honesty.js';
@@ -23,6 +24,7 @@ import {
   toRow,
   type ExplorerBlocksSource,
 } from './explorer/blocks.js';
+import { classifyExplorerTx, type ExplorerTxSource } from './explorer/tx.js';
 import { assessProjectionStream, INDEXER_STREAM_UNWIRED, type StreamBook, type StreamLevel } from './stream.js';
 import {
   INDEXER_BOOK_DEPTH_UNSET,
@@ -186,6 +188,8 @@ export interface IndexerRouterDeps {
   readonly claimLiveClob?: boolean;
   /** D-explorer-01 block facts + owner list limit. Absent => `indexer.explorer_unwired`. */
   readonly explorer?: ExplorerBlocksSource;
+  /** D-explorer-02 transaction read. Absent => `indexer.explorer_unwired`. */
+  readonly txs?: ExplorerTxSource;
 }
 
 /**
@@ -227,6 +231,42 @@ function assertServing(indexer: Indexer, chainSource: string, venue?: string | n
     });
   }
 }
+
+const explorerTxSchema = z.object({
+  chainId: z.number().int(),
+  hash: z.string(),
+  status: z.enum(['success', 'failed', 'pending', 'dropped', 'replaced']),
+  replacingHash: z.string().nullable(),
+  transaction: z
+    .object({
+      index: z.number().int().nullable(),
+      from: z.string(),
+      to: z.string().nullable(),
+      value: z.string(),
+      nonce: z.number().int(),
+      gasLimit: z.string(),
+      gasPrice: z.string().nullable(),
+      input: z.string(),
+    })
+    .nullable(),
+  receipt: z
+    .object({
+      status: z.enum(['success', 'failed']),
+      gasConsumed: z.string().nullable(),
+      revertReason: z.string().nullable(),
+      createdContract: z.string().nullable(),
+    })
+    .nullable(),
+  logs: z.array(
+    z.object({
+      logIndex: z.number().int(),
+      address: z.string(),
+      topics: z.array(z.string()),
+      data: z.string(),
+    }),
+  ),
+  orphaned: z.object({ reason: z.string() }).nullable(),
+});
 
 const explorerBlockRowSchema = z.object({
   chainId: z.number().int(),
@@ -302,6 +342,64 @@ export function createIndexerRouter(deps: IndexerRouterDeps) {
                   : await explorer.block('hash' in input ? { hash: input.hash.toLowerCase() } : { height: input.height });
               if (!match) throw new TRPCError({ code: 'NOT_FOUND', message: userCopy(PROTOCOL_NOT_FOUND) });
               return toRow(match);
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+      }),
+      tx: router({
+        /** By hash. Unknown => NOT_FOUND. A blank drop window refuses rather than guessing dropped. */
+        get: publicJurisdictionProcedure('indexer', 'protocol')
+          .input(z.object({ chainId: z.number().int(), hash: z.string().regex(/^0x[0-9a-fA-F]{64}$/) }))
+          .output(explorerTxSchema)
+          .query(async ({ input }) => {
+            try {
+              assertServing(deps.indexer, deps.chainSource, deps.venue, deps.claimLiveClob);
+              if (!deps.txs) {
+                throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: userCopy(INDEXER_EXPLORER_UNWIRED) });
+              }
+              if (input.chainId !== deps.chainId) {
+                throw new TRPCError({ code: 'NOT_FOUND', message: userCopy(PROTOCOL_NOT_FOUND) });
+              }
+              const hash = input.hash.toLowerCase();
+              const indexed = await deps.txs.indexed(hash);
+              let live = null;
+              if (!indexed) {
+                try {
+                  live = await deps.txs.lookup(hash);
+                } catch (err) {
+                  if (err instanceof ChainUnavailableError) {
+                    throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: userCopy(err.code), cause: err });
+                  }
+                  throw err;
+                }
+              }
+              const now = new Date();
+              const pendingSince = !indexed && !live ? await deps.txs.pendingSince(hash) : null;
+              const decision = classifyExplorerTx({
+                indexed,
+                live,
+                pendingSince,
+                now,
+                dropWindow: deps.txs.dropWindow,
+              });
+              if (decision.kind === 'refuse') {
+                throw new TRPCError({ code: 'PRECONDITION_FAILED', message: userCopy(decision.code) });
+              }
+              if (decision.kind === 'missing') {
+                throw new TRPCError({ code: 'NOT_FOUND', message: userCopy(PROTOCOL_NOT_FOUND) });
+              }
+              if (decision.answer.recordPending) await deps.txs.notePending(hash, now);
+              return {
+                chainId: deps.chainId,
+                hash,
+                status: decision.answer.status,
+                replacingHash: decision.answer.replacingHash,
+                transaction: decision.answer.transaction,
+                receipt: decision.answer.receipt,
+                logs: decision.answer.logs,
+                orphaned: decision.answer.orphaned,
+              };
             } catch (err) {
               throw toTrpcError(err);
             }

@@ -94,6 +94,11 @@ export type PayoutAnswer = { readonly ok: true; readonly providerRef: string; re
 
 export interface PayoutRailPort {
   status(): PortStatus;
+  /**
+   * Whether this partner pays out to one corridor of the catalogue. Absent, it pays out to every corridor. A corridor it
+   * does not cover is refused `bank.global_payout_uncovered` before anything is posted, and the send's intent row is kept.
+   */
+  covers?(corridor: { readonly country: string; readonly currency: string; readonly deliveryMethod: string }): boolean;
   railId(): string;
   submit(input: {
     readonly sendId: string;
@@ -102,6 +107,10 @@ export interface PayoutRailPort {
     readonly assetId: string;
     readonly toCurrency: string;
     readonly recipientId: string;
+    /** The rate lock the customer confirmed, and its figures: the partner pays exactly this or refuses. */
+    readonly quoteId: string;
+    readonly rate: string;
+    readonly receiveAmount: string;
   }): Promise<PayoutAnswer>;
 }
 

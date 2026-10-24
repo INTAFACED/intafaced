@@ -207,6 +207,11 @@ export function openId(nonce: string): string {
   return `open:${nonce}`.slice(0, 64);
 }
 
+/** A reduce-only order's own key: it can never open, so it is not keyed as an open. */
+export function reduceId(nonce: string): string {
+  return `reduce:${nonce}`.slice(0, 64);
+}
+
 /** The most at-risk live position: highest band, then highest margin ratio. Unknown when no live position has a known band. */
 export function worstHealth(positions: readonly Position[]): Health & { positionId: string | null } {
   let worst: (Health & { positionId: string | null }) | null = null;

@@ -1480,6 +1480,8 @@ describe('svc-p2p payment instruments', () => {
       // copying an account number out of.
       await expect(callerFor(BUYER).trades.paymentInstrument({ tradeId: trade.id })).resolves.toMatchObject({
         details: { account_reference: CANARY, holder_name: 'A Seller' },
+        // P-trade-orders-08: the buyer is told the seller no longer keeps this destination.
+        payeeChange: { kind: 'removed' },
       });
 
       // And it is gone for everything that has not started yet.
@@ -1494,6 +1496,16 @@ describe('svc-p2p payment instruments', () => {
     it('does not let the seller redirect a payment already in flight', async () => {
       const created = await sellerInstrument();
       const { trade } = await liveTrade();
+      // The labels the buyer reads, in the schema's order, and no change to report yet.
+      const placed = await callerFor(BUYER).trades.paymentInstrument({ tradeId: trade.id });
+      expect(placed.fields).toEqual([
+        { key: 'account_reference', label: 'Account reference' },
+        { key: 'holder_name', label: 'Account holder' },
+      ]);
+      expect(placed.payeeChange).toBeNull();
+      // Renaming the destination is not a change of payee.
+      await callerFor(SELLER).instruments.update({ instrumentId: created.id, label: 'Renamed' });
+      expect((await callerFor(BUYER).trades.paymentInstrument({ tradeId: trade.id })).payeeChange).toBeNull();
 
       await callerFor(SELLER).instruments.update({
         instrumentId: created.id,
@@ -1506,11 +1518,34 @@ describe('svc-p2p payment instruments', () => {
       // work; the frozen row is what makes it evidence.
       const view = await callerFor(BUYER).trades.paymentInstrument({ tradeId: trade.id });
       expect(view.details).toEqual({ account_reference: CANARY, holder_name: 'A Seller' });
+      // P-trade-orders-08: and the buyer is told the seller's details changed since the order was placed.
+      expect(view.payeeChange).toEqual({ kind: 'changed' });
 
       // The owner's own copy did change — the edit was legitimate, it just does
       // not reach backwards.
       const own = await callerFor(SELLER).instruments.reveal({ instrumentId: created.id });
       expect(own.details).toEqual({ account_reference: 'SWITCHED-ACCOUNT', holder_name: 'A Seller' });
+    });
+  });
+
+  describe('the labels on an in-flight trade', () => {
+    it('are display only: a stored schema that cannot be read still shows the details, under their keys', async () => {
+      await sellerInstrument();
+      const { trade } = await liveTrade();
+      // A shape the database accepts but a pattern the service will not run, so reading the schema throws.
+      await sql`UPDATE p2p.payment_method_schemas SET fields = ${sql.json([
+        { key: 'account_reference', label: 'Account reference', pattern: '(?=[0-9]{4})[0-9]+' },
+        { key: 'holder_name', label: 'Account holder' },
+      ] as never)}`;
+      const view = await callerFor(BUYER).trades.paymentInstrument({ tradeId: trade.id });
+      expect(view.details).toEqual({ account_reference: CANARY, holder_name: 'A Seller' });
+      expect(view.fields).toHaveLength(2);
+      expect(view.fields).toEqual(
+        expect.arrayContaining([
+          { key: 'account_reference', label: 'account_reference' },
+          { key: 'holder_name', label: 'holder_name' },
+        ]),
+      );
     });
   });
 

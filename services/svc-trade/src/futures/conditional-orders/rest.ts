@@ -16,12 +16,16 @@ import type { EdgeTrust } from '../../edge-trust.js';
 export const CONDITIONAL_ORDERS_PATH = '/api/v1/futures/conditional-orders';
 export const PROTECTION_PATH = '/api/v1/positions/:id/protection';
 export const RESTING_ORDERS_PATH = '/api/v1/futures/orders';
+export const ENTRY_PROTECTION_PATH = '/api/v1/futures/entry-protection';
 
 export interface ConditionalOrdersRestDeps {
   readonly edgeSecret: string;
   readonly edgeTrust?: EdgeTrust;
   readonly serviceName: string;
-  readonly orders: Pick<ConditionalOrderService, 'create' | 'list' | 'get' | 'cancel' | 'replaceProtection' | 'placeResting'>;
+  readonly orders: Pick<
+    ConditionalOrderService,
+    'create' | 'list' | 'get' | 'cancel' | 'replaceProtection' | 'placeResting' | 'listEntryProtection'
+  >;
   /**
    * Mount the resting-order refusal at RESTING_ORDERS_PATH. Default true. False while futures orders go through the
    * matching book, whose own routes then answer that path.
@@ -63,6 +67,7 @@ export function registerConditionalOrdersRest(app: FastifyInstance, deps: Condit
         trailingDistance: body.trailingDistance,
         reduceOnly: body.reduceOnly,
         clientOrderId: body.clientOrderId,
+        triggerSource: body.triggerSource,
       });
       return reply.code(created.replay ? 200 : 201).send(created.order);
     } catch (err) {
@@ -115,6 +120,18 @@ export function registerConditionalOrdersRest(app: FastifyInstance, deps: Condit
         clientRequestId: body.clientRequestId,
       });
       return reply.code(200).send(replaced);
+    } catch (err) {
+      return fail(err, reply);
+    }
+  });
+
+  // What each opening order asked to be protected with, and how far its legs have armed.
+  app.get(ENTRY_PROTECTION_PATH, async (req, reply) => {
+    const principal = principalOf(req);
+    if (!principal) return sendError(reply, 401, 'trade.unauthenticated', 'signed principal required');
+    try {
+      requireScope(principal, 'trade:read');
+      return reply.code(200).send({ protections: await deps.orders.listEntryProtection(principal.userId) });
     } catch (err) {
       return fail(err, reply);
     }

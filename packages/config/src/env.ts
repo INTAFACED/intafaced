@@ -206,7 +206,7 @@ export function loadEnv<T extends z.ZodTypeAny>(schema: T, source: Record<string
 }
 
 /** Compose several env slices into one schema. */
-export function composeEnv<A extends z.AnyZodObject, B extends z.AnyZodObject>(a: A, b: B) {
+export function composeEnv<A extends z.ZodObject, B extends z.ZodObject>(a: A, b: B) {
   return a.merge(b);
 }
 

@@ -320,6 +320,12 @@ async function sweep(): Promise<void> {
   try {
     const settled = await p2p.sweepSettlements(100);
     const swept = await p2p.sweepDeadlines(undefined, 100);
+    // Buyer-paid notices the fast path did not hand over (a crash after commit, the bus down). Its own catch: a
+    // notice that cannot be read must not cost the settlement and timeout lines below their log, or the purge its run.
+    const notices = await p2p.sweepFiatSentNotices(100).catch((err: unknown) => {
+      app.log.error({ err, sweep: 'fiat_sent_notice' }, 'p2p buyer-paid notice sweep failed — sellers may not be told yet');
+      return { sent: 0, failures: [] };
+    });
 
     // Data retention, on the same tick. It runs last on purpose: it only ever
     // touches trades that are already terminal, so it can never take work away
@@ -336,6 +342,12 @@ async function sweep(): Promise<void> {
     // its own. Those need different people out of bed.
     for (const f of settled.failures) {
       app.log.error({ ...f, sweep: 'settlement' }, 'p2p settlement failed — a decision is committed and the value is late');
+    }
+    for (const f of notices.failures) {
+      app.log.error(
+        { ...f, sweep: 'fiat_sent_notice' },
+        'p2p buyer-paid notice could not be handed to the bus — the seller is not told yet',
+      );
     }
     for (const f of swept.failures) {
       app.log.error({ ...f, sweep: 'timeout' }, 'p2p timeout sweep could not act on a trade');

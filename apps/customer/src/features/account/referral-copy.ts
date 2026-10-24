@@ -41,6 +41,16 @@ const messages = {
   source: 'Source module',
   hidden: 'Amounts hidden by your device view preference.',
   amountHidden: 'Amount hidden',
+  term: 'How long this relationship lasts',
+  termUnset: 'No inactivity period is set, so this relationship has no end date on record.',
+  termNone: 'You have no referral relationship on record, so there is nothing to end.',
+  termRule: 'If you pay no fee for {period}, this relationship ends and your referrer stops earning from your fees.',
+  lastActivity: 'Last activity',
+  endsAt: 'Ends if no fee before',
+  ended: 'Ended relationship',
+  endedAt: 'Ended at',
+  endedMeaning:
+    'It ended after {period} with no fee from you. Past commission records stay as they were, and an invitation link can attach you again.',
 } as const;
 const es = {
   title: 'Registros de referidos',
@@ -83,6 +93,16 @@ const es = {
   source: 'Módulo de origen',
   hidden: 'Importes ocultos por tu preferencia de visualización del dispositivo.',
   amountHidden: 'Importe oculto',
+  term: 'Cuánto dura esta relación',
+  termUnset: 'No hay un periodo de inactividad fijado, así que esta relación no tiene fecha de fin registrada.',
+  termNone: 'No tienes ninguna relación de referido registrada, así que no hay nada que termine.',
+  termRule: 'Si no pagas ninguna comisión durante {period}, esta relación termina y tu referente deja de ganar con tus comisiones.',
+  lastActivity: 'Última actividad',
+  endsAt: 'Termina si no hay comisión antes del',
+  ended: 'Relación terminada',
+  endedAt: 'Terminó el',
+  endedMeaning:
+    'Terminó tras {period} sin ninguna comisión tuya. Los registros de comisión anteriores no cambian, y un enlace de invitación puede volver a vincularte.',
 } satisfies Record<keyof typeof messages, string>;
 
 const fr = {
@@ -126,6 +146,16 @@ const fr = {
   source: 'Module source',
   hidden: 'Montants masqués par votre préférence d’affichage sur l’appareil.',
   amountHidden: 'Montant masqué',
+  term: 'Durée de cette relation',
+  termUnset: 'Aucune période d’inactivité n’est fixée : cette relation n’a pas de date de fin enregistrée.',
+  termNone: 'Aucune relation de parrainage n’est enregistrée : rien ne peut prendre fin.',
+  termRule: 'Si tu ne paies aucuns frais pendant {period}, cette relation prend fin et ton parrain cesse de gagner sur tes frais.',
+  lastActivity: 'Dernière activité',
+  endsAt: 'Prend fin sans frais avant le',
+  ended: 'Relation terminée',
+  endedAt: 'Terminée le',
+  endedMeaning:
+    'Elle a pris fin après {period} sans frais de ta part. Les commissions déjà enregistrées restent telles quelles, et un lien d’invitation peut te rattacher de nouveau.',
 } satisfies Record<keyof typeof messages, string>;
 
 export const referralCopy = defineCopy('account.referrals', messages, { es, fr });

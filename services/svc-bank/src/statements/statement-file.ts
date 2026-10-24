@@ -10,7 +10,8 @@ import type { ActivityItem } from '../activity/activity-service.js';
 
 const RISKY = /^[=+\-@\t\r]/;
 
-function cell(value: string, text: boolean): string {
+/** One CSV cell. A free-text cell (`text`) that a spreadsheet would run as a formula is prefixed with `'`. */
+export function csvCell(value: string, text: boolean): string {
   const safe = text && RISKY.test(value) ? `'${value}` : value;
   return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }
@@ -35,23 +36,23 @@ export function signedAmount(item: Pick<ActivityItem, 'direction' | 'amount'>): 
 }
 
 export function statementCsv(items: readonly ActivityItem[]): string {
-  const lines = [STATEMENT_CSV_HEADER.map((name) => cell(name, false)).join(',')];
+  const lines = [STATEMENT_CSV_HEADER.map((name) => csvCell(name, false)).join(',')];
   for (const item of items) {
     const when = Number.isFinite(Date.parse(item.postedAt)) ? new Date(item.postedAt).toISOString() : '';
     lines.push(
       [
-        cell(when, false),
-        cell(item.kind, true),
-        cell(item.direction, false),
-        cell(item.asset, true),
-        cell(signedAmount(item), false),
-        cell(item.counterparty ? `@${item.counterparty.handle}` : '', true),
-        cell(item.spaceName ?? '', true),
-        cell(item.txId, true),
-        cell(item.id, true),
-        cell(item.note ?? '', true),
-        cell(item.reference ?? '', true),
-        cell(item.reportDescription ?? '', true),
+        csvCell(when, false),
+        csvCell(item.kind, true),
+        csvCell(item.direction, false),
+        csvCell(item.asset, true),
+        csvCell(signedAmount(item), false),
+        csvCell(item.counterparty ? `@${item.counterparty.handle}` : '', true),
+        csvCell(item.spaceName ?? '', true),
+        csvCell(item.txId, true),
+        csvCell(item.id, true),
+        csvCell(item.note ?? '', true),
+        csvCell(item.reference ?? '', true),
+        csvCell(item.reportDescription ?? '', true),
       ].join(','),
     );
   }

@@ -22,11 +22,10 @@ export const AUTO_INVEST_HONEST_GAPS = ['gap.convert_port_trade_wire', 'gap.sess
 
 export function autoInvestDoorsInRouterSource(): readonly (typeof AUTO_INVEST_MOUNTED_DOORS)[number][] {
   const here = dirname(fileURLToPath(import.meta.url));
-  const src = readFileSync(join(here, '..', 'router.ts'), 'utf8');
-  const start = src.search(/^\s{2}const autoInvest = router\(\{/m);
+  const src = readFileSync(join(here, '..', 'router', 'auto-invest.router.ts'), 'utf8');
+  const start = src.search(/^export function createAutoInvestRouter\(/m);
   if (start === -1) return [];
-  const next = src.slice(start + 1).search(/^\s{2}const \w+ = router\(\{/m);
-  const block = next === -1 ? src.slice(start) : src.slice(start, start + 1 + next);
+  const block = src.slice(start);
   return AUTO_INVEST_MOUNTED_DOORS.filter((door) => new RegExp(`\\b${door}\\s*:`).test(block));
 }
 
@@ -38,7 +37,7 @@ export function autoInvestPolicyHonestInSource(): boolean {
 
 export function autoInvestRunDueMountedInOps(): boolean {
   const here = dirname(fileURLToPath(import.meta.url));
-  const src = readFileSync(join(here, '..', 'router.ts'), 'utf8');
+  const src = readFileSync(join(here, '..', 'router', 'ops.router.ts'), 'utf8');
   return /\brunAutoInvest\s*:/.test(src) && /autoInvest\.runDue/.test(src);
 }
 

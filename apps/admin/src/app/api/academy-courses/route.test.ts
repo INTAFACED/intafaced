@@ -105,7 +105,8 @@ describe('academy course desk BFF', () => {
     configure();
     const c = upstream({
       'admin.courses': () => ok({ courses: [COURSE], counts: COUNTS }),
-      'admin.course': () => ok({ course: COURSE, outline: [], limits: { maxSections: null, maxItems: null }, events: [] }),
+      'admin.course': () => ok({ course: COURSE, topics: [], outline: [], limits: { maxSections: null, maxItems: null }, events: [] }),
+      'admin.topics': () => ok({ topics: [], limit: 100 }),
     });
     const body = await (await GET(get())).json();
     expect(body.list).toEqual({ kind: 'ok', data: { courses: [COURSE], counts: COUNTS } });
@@ -113,8 +114,9 @@ describe('academy course desk BFF', () => {
     const one = await (await GET(new Request(`${URL_}?courseId=${COURSE_ID}`, { headers: { cookie: session().cookie } }))).json();
     expect(one.detail).toEqual({
       kind: 'ok',
-      data: { course: COURSE, outline: [], limits: { maxSections: null, maxItems: null }, events: [] },
+      data: { course: COURSE, topics: [], outline: [], limits: { maxSections: null, maxItems: null }, events: [] },
     });
+    expect(one.topicChoices).toEqual({ kind: 'ok', data: { topics: [], limit: 100 } });
     expect((await GET(new Request(`${URL_}?courseId=nope`, { headers: { cookie: session().cookie } }))).status).toBe(400);
   });
 
@@ -215,5 +217,18 @@ describe('academy course desk BFF', () => {
     expect(res.status).toBe(412);
     expect(await res.json()).toMatchObject({ ok: false, code: 'academy.outline_limits_unset', title: 'The outline limits are not set' });
     expect(sent(c, 'admin.saveOutline')).toEqual({ courseId: COURSE_ID, revision: 1, sections });
+  });
+
+  it('the topics a course is filed under are saved as a whole over the revision read', async () => {
+    configure();
+    const TOPIC_ID = '55555555-5555-4555-8555-555555555555';
+    const c = upstream({
+      'admin.setCourseTopics': () =>
+        ok({ course: COURSE, topics: [], outline: [], limits: { maxSections: null, maxItems: null }, events: [] }),
+    });
+    const body = await (await POST(post({ op: 'topics', courseId: COURSE_ID, revision: 1, topicIds: [TOPIC_ID] }))).json();
+    expect(body).toMatchObject({ ok: true, what: 'topics saved' });
+    expect(sent(c, 'admin.setCourseTopics')).toEqual({ courseId: COURSE_ID, revision: 1, topicIds: [TOPIC_ID] });
+    expect((await POST(post({ op: 'topics', courseId: COURSE_ID, revision: 1, topicIds: [TOPIC_ID, TOPIC_ID] }))).status).toBe(400);
   });
 });

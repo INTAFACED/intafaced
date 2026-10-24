@@ -183,7 +183,16 @@ describe('svc-indexer · §16.10 — the custody boundary, from inside', () => {
    * Every table this service touches is declared in its own migration.
    */
   it('writes to no schema but its own', () => {
-    const own = new Set(['blocks', 'book_levels', 'explorer_block_facts', 'fills', 'positions']);
+    const own = new Set([
+      'blocks',
+      'book_levels',
+      'explorer_block_facts',
+      'explorer_tx_logs',
+      'explorer_tx_seen',
+      'explorer_txs',
+      'fills',
+      'positions',
+    ]);
     const store = readFileSync(join(serviceRoot, 'src', 'projection', 'postgres-store.ts'), 'utf8');
     // `UPDATE x SET` rather than bare `UPDATE`, so `ON CONFLICT … DO UPDATE SET`
     // is not read as a write to a table called "set".

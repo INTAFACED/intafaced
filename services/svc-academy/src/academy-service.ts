@@ -43,6 +43,9 @@ import { ReleaseAccess } from './release/access.js';
 import { FeaturedSlot } from './curriculum/featured.js';
 import { CourseRecords } from './curriculum/courses.js';
 import { LessonRecords } from './curriculum/lessons.js';
+import { CourseMedia, type ReadBackFn } from './curriculum/media.js';
+import { LearnHub } from './curriculum/learn-hub.js';
+import type { VideoStorageConfig } from './video/storage.js';
 import { CourseStarts } from './curriculum/course-start.js';
 import { publicCourse } from './curriculum/public-catalogue.js';
 import { accessGrantView, assertTrackOpen, courseEnrolmentView, myCourseView, publishedCourse } from './curriculum/course-enrolment.js';
@@ -68,6 +71,13 @@ import type {
   AcademyPublishLessonInput,
   AcademyDuplicateItemInput,
   AcademyImportLessonInput,
+  AcademyAssistantDraftInput,
+  AcademyDecideDraftInput,
+  AcademyMediaIntentInput,
+  AcademyWithdrawLessonInput,
+  AcademyCreateTopicInput,
+  AcademySetCourseTopicsInput,
+  AcademySetItemCaptionsInput,
   AcademyUpdateCourseInput,
 } from '@intafaced/contracts';
 import { normaliseHolderName } from './certs/holder-name.js';
@@ -260,6 +270,14 @@ export interface AcademyServiceOptions {
   outlineMaxItems?: number;
   /** AC-course-structure-03: the owner's lesson import size limit in bytes. Unset, an import refuses `academy.import_limit_unset`. */
   lessonImportMaxBytes?: number;
+  /** AC-videos-02: our own object store for course files, and the owner's upload limits. Unset limits refuse `academy.upload_limits_unset`. */
+  mediaStorage?: VideoStorageConfig | null;
+  uploadMaxBytes?: number;
+  uploadVideoTypes?: readonly string[];
+  uploadHandoutTypes?: readonly string[];
+  mediaReadBack?: ReadBackFn;
+  /** AC-articles-01: how many topics a list shows (`ACADEMY_TOPICS_LIST_LIMIT`). Unset, the list refuses. */
+  topicsListLimit?: number;
   /** Stage-1 tournament ladder kill-switch (`ACADEMY_TOURNAMENT_ENABLED`). */
   tournamentEnabled?: boolean;
   /** Stage-3 paper-trading ops kill-switch (`ACADEMY_PAPER_TRADING_ENABLED`). */
@@ -291,6 +309,8 @@ export class AcademyService {
   private readonly featured: FeaturedSlot;
   private readonly courseRecords: CourseRecords;
   private readonly lessonRecords: LessonRecords;
+  private readonly courseMedia: CourseMedia;
+  private readonly learnHub: LearnHub;
   private readonly courseStarts: CourseStarts;
   private readonly plannerStore: PlannerStore;
   private readonly videoTracks: VideoTracks;
@@ -316,6 +336,17 @@ export class AcademyService {
       maxItems: this.options.outlineMaxItems ?? null,
     });
     this.lessonRecords = new LessonRecords(sql, this.courseRecords, this.options.lessonImportMaxBytes ?? null);
+    this.learnHub = new LearnHub(sql, this.options.topicsListLimit ?? null);
+    this.courseMedia = new CourseMedia(
+      sql,
+      this.options.mediaStorage ?? null,
+      {
+        maxBytes: this.options.uploadMaxBytes ?? null,
+        videoTypes: this.options.uploadVideoTypes ?? null,
+        handoutTypes: this.options.uploadHandoutTypes ?? null,
+      },
+      this.options.mediaReadBack,
+    );
     this.courseStarts = new CourseStarts(sql);
     this.plannerStore = new PlannerStore(sql, this.options.plannerTodoLimit ?? null);
     this.videoTracks = new VideoTracks(sql);
@@ -2201,6 +2232,65 @@ export class AcademyService {
 
   importLesson(input: AcademyImportLessonInput & { operatorId: string; now?: Date }) {
     return this.lessonRecords.import({ ...input, now: input.now ?? new Date() });
+  }
+
+  /** AC-course-structure-04: the authoring assistant's draft, and a person's accept or discard. */
+  assistantDraft(input: AcademyAssistantDraftInput & { operatorId: string; now?: Date }) {
+    return this.lessonRecords.assistantDraft({ ...input, now: input.now ?? new Date() });
+  }
+
+  decideDraft(input: AcademyDecideDraftInput & { operatorId: string; now?: Date }) {
+    return this.lessonRecords.decideDraft({ ...input, now: input.now ?? new Date() });
+  }
+
+  /** AC-articles-01: learners stop seeing the lesson; a featured lesson leaves the Learn hub's slot. */
+  withdrawLesson(input: AcademyWithdrawLessonInput & { operatorId: string; now?: Date }) {
+    return this.lessonRecords.withdraw({ ...input, now: input.now ?? new Date() });
+  }
+
+  /** AC-articles-01: the Learn hub's featured slot and topics on the founder console. */
+  featuredSlot() {
+    return this.learnHub.featuredSlot();
+  }
+
+  featureLesson(input: { itemId: string; reason: string; operatorId: string; now?: Date }) {
+    return this.learnHub.featureLesson({ ...input, now: input.now ?? new Date() });
+  }
+
+  clearFeatured(input: { reason: string; operatorId: string; now?: Date }) {
+    return this.learnHub.clearFeatured({ ...input, now: input.now ?? new Date() });
+  }
+
+  topics() {
+    return this.learnHub.topics();
+  }
+
+  createTopic(input: AcademyCreateTopicInput & { operatorId: string; now?: Date }) {
+    return this.learnHub.createTopic({ ...input, now: input.now ?? new Date() });
+  }
+
+  setCourseTopics(input: AcademySetCourseTopicsInput & { operatorId: string; now?: Date }) {
+    return this.courseRecords.setTopics({ ...input, now: input.now ?? new Date() });
+  }
+
+  /** AC-videos-02: an item's uploads, captions and the owner's upload limits. */
+  itemMedia(itemId: string, now: Date = new Date()) {
+    return this.courseMedia.itemMedia(itemId, now);
+  }
+
+  /** AC-videos-02: a declared file checked against the limits, and a signed upload address for its bytes. */
+  mediaUploadIntent(input: AcademyMediaIntentInput & { operatorId: string; now?: Date }) {
+    return this.courseMedia.intent({ ...input, now: input.now ?? new Date() });
+  }
+
+  /** AC-videos-02: the stored file read back and checked against what was declared. */
+  confirmMedia(input: { mediaId: string; operatorId: string; now?: Date }) {
+    return this.courseMedia.confirm({ ...input, now: input.now ?? new Date() });
+  }
+
+  /** AC-videos-02: one language's SRT or WebVTT captions for the item's video. */
+  setItemCaptions(input: AcademySetItemCaptionsInput & { operatorId: string; now?: Date }) {
+    return this.courseMedia.setCaptions({ ...input, now: input.now ?? new Date() });
   }
 
   setFeatured(input: { itemSlug: string | null; reason: string; operatorId: string; now?: Date }) {

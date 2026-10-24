@@ -14,6 +14,8 @@ import {
   type CourseDetailView,
   type CourseListView,
 } from '@/lib/academy/courses-model';
+import type { AcademyCourseDetail, AcademyTopicList } from '@intafaced/contracts/academy-courses';
+import type { Part } from '@/lib/desk/part';
 import { ACADEMY_PAGES } from '@/lib/ops-desk/catalog';
 import { OutlineEditor } from '@/components/academy-outline-editor';
 
@@ -260,6 +262,60 @@ export function AcademyCoursesDesk({ initial }: { initial: CourseListView | null
   );
 }
 
+/** AC-articles-01: the topics this course is filed under, picked from the Learn hub's topic list and saved as a whole. */
+function TopicsPicker({
+  detail,
+  choices,
+  busy,
+  onSave,
+}: {
+  detail: AcademyCourseDetail;
+  choices: Part<AcademyTopicList> | null;
+  busy: boolean;
+  onSave: (topicIds: string[]) => void;
+}) {
+  const [picked, setPicked] = useState<string[]>(detail.topics.map((t) => t.id));
+  return (
+    <section className="dk-stack" aria-labelledby="h-course-topics">
+      <h2 id="h-course-topics">Topics</h2>
+      <p className="dk-muted" data-testid="course-topics">
+        {detail.topics.length === 0 ? 'Filed under no topic.' : `Filed under: ${detail.topics.map((t) => t.name).join(', ')}.`}
+      </p>
+      {choices?.kind === 'failed' && <Failed title="Could not read the topics" message={choices.message} code={choices.code} />}
+      {choices?.kind === 'ok' &&
+        (choices.data.topics.length === 0 ? (
+          <p className="dk-muted">
+            No topics exist. Add them on the <Link href="/academy-ops/catalogue/featured">Learn hub</Link> desk.
+          </p>
+        ) : (
+          <form
+            className="dk-stack"
+            onSubmit={(e) => {
+              e.preventDefault();
+              onSave(picked);
+            }}
+          >
+            <div className="dk-row">
+              {choices.data.topics.map((t) => (
+                <label key={t.id}>
+                  <input
+                    type="checkbox"
+                    checked={picked.includes(t.id)}
+                    onChange={(e) => setPicked(e.target.checked ? [...picked, t.id] : picked.filter((id) => id !== t.id))}
+                  />{' '}
+                  {t.name}
+                </label>
+              ))}
+            </div>
+            <button type="submit" className="adm-btn" disabled={busy}>
+              Save topics
+            </button>
+          </form>
+        ))}
+    </section>
+  );
+}
+
 export function AcademyCourseDesk({ courseId, initial }: { courseId: string; initial: CourseDetailView | null }) {
   const [view, setView] = useState(initial);
   const [busy, setBusy] = useState(false);
@@ -338,6 +394,13 @@ export function AcademyCourseDesk({ courseId, initial }: { courseId: string; ini
               </dd>
             </dl>
           </section>
+          <TopicsPicker
+            key={`${detail.data.course.revision}`}
+            detail={detail.data}
+            choices={view?.topicChoices ?? null}
+            busy={busy}
+            onSave={(topicIds) => void send({ op: 'topics', courseId, revision: detail.data.course.revision, topicIds })}
+          />
           {/* Remounts when a stored section or item is added or removed, so new items take their ids; a details save keeps unsaved outline edits. */}
           <OutlineEditor
             key={detail.data.outline.flatMap((s) => [s.id, ...s.items.map((i) => i.id)]).join() || 'empty'}
@@ -397,7 +460,11 @@ export function AcademyCourseDesk({ courseId, initial }: { courseId: string; ini
                         ? 'outline saved'
                         : e.kind === 'lesson'
                           ? 'a lesson published to learners'
-                          : `moved to ${e.toState}`}{' '}
+                          : e.kind === 'withdrawn'
+                            ? 'a lesson withdrawn from learners'
+                            : e.kind === 'topics'
+                              ? 'filed under topics'
+                              : `moved to ${e.toState}`}{' '}
                   (revision {e.revision}) by <code>{e.actor}</code>
                   {e.reason ? `: ${e.reason}` : ''}
                 </li>

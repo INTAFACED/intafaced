@@ -78,12 +78,15 @@ export type RefusalKind =
   | 'algoSchedulerOff'
   | 'globalOff'
   | 'globalNoRate'
+  | 'globalNoPayout'
   | 'globalPurpose'
   | 'globalSource'
   | 'globalReference'
   | 'globalRecipientInvalid'
   | 'globalPayoutRefused'
   | 'globalCorridorUnknown'
+  | 'globalQuoteNeeded'
+  | 'globalQuoteOther'
   | 'globalAmountOutside'
   | 'globalDetailsMissing'
   | 'globalNoSend'
@@ -241,6 +244,7 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'bank.global_corridors_unset': 'globalOff',
   'bank.global_corridors_unusable': 'globalOff',
   'bank.global_payout_unset': 'globalOff',
+  'bank.global_payout_uncovered': 'globalNoPayout',
   'bank.global_payout_unusable': 'globalOff',
   'bank.global_fx_unusable': 'globalOff',
   'bank.global_travel_rule_undecided': 'globalOff',
@@ -248,6 +252,10 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'bank.reference_rules_unset': 'globalOff',
   'bank.global_fx_unset': 'globalNoRate',
   'bank.global_quote_expired': 'quoteExpired',
+  'bank.global_quote_required': 'globalQuoteNeeded',
+  'bank.global_quote_not_found': 'globalQuoteOther',
+  'bank.global_quote_mismatch': 'globalQuoteOther',
+  'bank.global_quote_used': 'globalQuoteOther',
   'bank.send_purpose_required': 'globalPurpose',
   'bank.source_of_funds_required': 'globalSource',
   'bank.reference_too_long': 'globalReference',

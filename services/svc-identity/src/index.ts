@@ -20,6 +20,13 @@ import { assertProdTotpKey, assertSigningEncKey, parseTotpSecretKey } from './au
 import { RankService } from './rank/rank-service.js';
 import { ReferralService } from './affiliates/referral-service.js';
 import { ShareService } from './affiliates/share-service.js';
+import { ReferralRebindService } from './affiliates/referral-rebind.js';
+import {
+  ReferralLapseService,
+  lapseSweepStatusLine,
+  parseLapsePeriodSeconds,
+  parseLapseSweepSeconds,
+} from './affiliates/referral-lapse.js';
 import { ReferralCodeService, parseReferralCodeLength } from './affiliates/referral-code.js';
 import { parseAttachWindowSeconds } from './affiliates/attach-window.js';
 import { FreezeService } from './affiliates/freeze-service.js';
@@ -386,6 +393,9 @@ const referral = new ReferralService(sql);
 const share = new ShareService(sql);
 const referralCodes = new ReferralCodeService(sql, parseReferralCodeLength(env.IDENTITY_REFERRAL_CODE_LENGTH));
 const referralAttachWindowSeconds = parseAttachWindowSeconds(env.IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS);
+const referralLapsePeriodSeconds = parseLapsePeriodSeconds(env.IDENTITY_REFERRAL_LAPSE_PERIOD_SECONDS);
+const referralLapseSweepSeconds = parseLapseSweepSeconds(env.IDENTITY_REFERRAL_LAPSE_SWEEP_SECONDS);
+const referralLapse = new ReferralLapseService(sql, { periodSeconds: referralLapsePeriodSeconds });
 const freeze = new FreezeService(sql);
 const accruals = new SqlAccrualStore(sql);
 /** Fail boot on malformed owner rates — never invent commission percentages. */
@@ -536,6 +546,8 @@ export const appRouter = mergeRouters(
     share,
     referralCodes,
     referralAttachWindowSeconds,
+    referralRebind: new ReferralRebindService(sql, actionApprovals, { attachWindowSeconds: referralAttachWindowSeconds }),
+    referralLapse,
     freeze,
     accruals,
     accrualTierLaw,
@@ -721,6 +733,7 @@ registerAffiliateProducerAccrue(app, {
   freeze,
   accruals,
   accrualTierLaw,
+  activity: referralLapse,
 });
 
 registerBusinessDirectoryRoutes(app, {
@@ -930,10 +943,31 @@ app.log.info(
   'svc-identity ready',
 );
 
+// Referral lapse sweep (CM-referral-01 RF-4). Off, with a status line saying why, while either owner value is blank.
+app.log.info(lapseSweepStatusLine(referralLapsePeriodSeconds, referralLapseSweepSeconds));
+let lapseSweep: Promise<unknown> | null = null;
+let lapseTimer: NodeJS.Timeout | undefined;
+if (referralLapsePeriodSeconds !== undefined && referralLapseSweepSeconds !== undefined) {
+  lapseTimer = setInterval(() => {
+    if (lapseSweep) return;
+    lapseSweep = referralLapse
+      .sweep()
+      .then((ended) => {
+        if (ended.length) app.log.info({ ended: ended.length }, 'referral.lapse_swept');
+      })
+      .catch((err) => app.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'referral.lapse_sweep_failed'))
+      .finally(() => {
+        lapseSweep = null;
+      });
+  }, referralLapseSweepSeconds * 1000).unref();
+}
+
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     void (async () => {
+      clearInterval(lapseTimer);
       await app.close();
+      await lapseSweep;
       await Promise.all([...blueprintSubs, xpSub].map((s) => s.unsubscribe()));
       await bus.close();
       await sql.end({ timeout: 5 });

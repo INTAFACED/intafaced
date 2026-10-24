@@ -5,6 +5,7 @@
 import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
 import type { RuleFields } from './rules.js';
+import { createMemoryNotify, createPgNotify, type AlertNotifyStore } from './notify-store.js';
 import {
   OPS_ALERT_ACTOR_UNSET,
   OPS_ALERT_LABEL_REQUIRED,
@@ -72,7 +73,7 @@ export interface QualityPolicy {
   readonly updatedAt: string;
 }
 
-export interface AlertDeskStore {
+export interface AlertDeskStore extends AlertNotifyStore {
   /** Pipeline beat only. `heartbeatStatus` reads these rows and nothing else. */
   recordHeartbeat(input: {
     readonly key: string;
@@ -308,7 +309,9 @@ export function createMemoryAlertDesk(): AlertDeskStore {
   let policy: QualityPolicy | null = null;
   const policyKeys: { key: string; fingerprint: string; row: QualityPolicy }[] = [];
 
+  const notify = createMemoryNotify();
   return {
+    ...notify,
     async recordHeartbeat(input) {
       return appendBeat(beats, input);
     },
@@ -429,6 +432,7 @@ function templateFrom(row: {
 }
 
 export function createPgAlertDesk(sql: Sql): AlertDeskStore {
+  const notify = createPgNotify(sql);
   const writeBeat = async (table: 'ops.alert_heartbeats' | 'ops.alert_test_beats', input: BeatInput): Promise<HeartbeatRow> => {
     const actor = assertActor(input.actor);
     return sql.begin(async (tx) => {
@@ -458,6 +462,7 @@ export function createPgAlertDesk(sql: Sql): AlertDeskStore {
   };
 
   return {
+    ...notify,
     recordHeartbeat(input) {
       return writeBeat('ops.alert_heartbeats', input);
     },

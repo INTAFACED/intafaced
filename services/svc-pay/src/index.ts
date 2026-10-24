@@ -68,7 +68,7 @@ import { PayError, PayService } from './payment-service.js';
 import { startPayoutReconciler } from './payout-reconciler.js';
 import { UserMoneyService, openWithdrawalHolds } from './user-money-service.js';
 import { WalletPay, failClosedWalletPublish } from './wallet/wallet-pay.js';
-import { createLedgerClient } from './ledger-client.js';
+import { createLedgerClient, createReceiptAssetPlaces } from './ledger-client.js';
 import { BankPayoutAbsentAdapter } from './rails/bank-payout.js';
 import { CardSandboxAdapter } from './rails/card-sandbox.js';
 import { CryptoNativeAdapter } from './rails/crypto-native.js';
@@ -89,6 +89,7 @@ import {
   shouldRegisterCardSandbox,
 } from './rails/posture.js';
 import { createPayRouter } from './router.js';
+import { readMerchantTerms } from './merchant-portal/terms.js';
 import { createIdentityApprovalClient, unwiredApprovalConsumer } from './action-approval-consume.js';
 import { payChainReadyHonesty } from './ready-honesty.js';
 import { MerchantPayoutDestinationStore } from './merchant-payout-destination.js';
@@ -248,6 +249,7 @@ const rails = new RailRegistry([
 assertConversionBoot(process.env);
 /** Local-test starter fee. Unset stays null. Set outside dev/test refuses boot. */
 const merchantStarterFee = readMerchantStarterFee(process.env);
+const merchantTerms = readMerchantTerms(process.env);
 const conversionConfig = readConversionConfig(process.env);
 const conversionVenue = openConversionVenue(process.env);
 const railPosture = assertRailPosture(rails, { ...process.env, PAY_ALLOW_SANDBOX_RAILS: env.PAY_ALLOW_SANDBOX_RAILS });
@@ -574,7 +576,7 @@ export const appRouter = mergeRouters(
   // trees fence: gateway money paths check PayFac areas (merchant-ownership).
   // One line: isolation composition pin matches this call as a single substring.
   // prettier-ignore
-  createPayRouter(pay, rails, userMoney, subMerchants, payoutDestinations, actionApprovals, teamReadFromSql(sql), disputeCases, sql, merchantStarterFee, withdrawalQuotes, withdrawalDoor),
+  createPayRouter(pay, rails, userMoney, subMerchants, payoutDestinations, actionApprovals, teamReadFromSql(sql), disputeCases, sql, merchantStarterFee, withdrawalQuotes, withdrawalDoor, merchantTerms),
   createWithdrawalApprovalRouter(withdrawalApprovals),
   // HM-dashboard-03: Home's work list, pay's part (a payout waiting on the caller's own business).
   createWorkItemsRouter(payoutWaitingFromSql(sql)),
@@ -617,6 +619,8 @@ export const appRouter = mergeRouters(
     metrics,
     registries: { sql, approvals: actionApprovals },
     sql,
+    // Places come from the published ledger asset registry. Null or blank stays unset.
+    receiptPlaces: createReceiptAssetPlaces(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, s2sKey),
     depositSettings: { sql, approvals: actionApprovals },
     limits: { sql, approvals: actionApprovals },
     custody: {

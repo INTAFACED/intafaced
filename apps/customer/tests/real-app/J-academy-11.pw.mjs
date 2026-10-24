@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { ADMIN, founderSignIn } from './admin.mjs';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { tool } from './stack.mjs';
 
 // J-academy-11, in the running app (docs/roadmap/journeys.json): a founder creates a course on the founder console's
@@ -9,6 +11,7 @@ const J = 'J-academy-11';
 const RUN = Date.now().toString(36);
 const SLUG = `test-j11-${RUN}`;
 const TITLE = `TEST J-academy-11 course ${RUN}`;
+const VIDEO_FIXTURE = fileURLToPath(new URL('../../../../tooling/scripts/local-stack-fixtures/academy-test-video.webm', import.meta.url));
 /** The course #2 creates, for the steps after it (serial, one worker). */
 let courseUrl = null;
 
@@ -321,5 +324,207 @@ test(`${J} #5 a lesson file over the size limit is refused before it is read; an
   await expect(outcome).toContainText('Done: imported');
   await expect(page.getByTestId(`lesson-revision-${before + 1}`)).toContainText(`Revision ${before + 1}: imported`);
   await expect(page.getByTestId('lesson-live-revision')).toHaveText('Revision 2');
+  await page.context().close();
+});
+
+test(`${J} #6 Draft with no model provider gives the template draft and an owner-decision notice; nothing goes live until accepted`, async ({
+  browser,
+}) => {
+  if (!courseUrl) throw new Error(`${J}: #2 left no course, so this step has nothing to draft`);
+  const page = await console_(browser);
+  await page.goto(courseUrl);
+  await page.getByRole('link', { name: 'Write Section 1 item 2', exact: true }).click();
+  await page.waitForURL(/\/items\/[0-9a-f-]{36}$/);
+  const outcome = page.getByTestId('course-desk-outcome');
+  const revisions = page.getByTestId('lesson-revisions').locator('li');
+  const before = await revisions.count();
+  const liveRevision = page.getByTestId('lesson-live-revision');
+  const liveBefore = await liveRevision.innerText();
+
+  // The model path: no provider is chosen, so it waits for the owner, by name, and nothing is drafted.
+  await page.getByRole('button', { name: 'Draft with a model' }).click();
+  await expect(outcome).toHaveAttribute('data-code', 'owner.decision');
+  await expect(outcome).toContainText('Waiting for an owner decision');
+  await expect(page.getByTestId('lesson-draft')).toHaveText('No draft is waiting.');
+
+  // The template path: headings from the course's own structure, shown as a draft that is not live.
+  await page.getByRole('button', { name: 'Draft from the template' }).click();
+  await expect(outcome).toContainText('Done: draft ready to review');
+  const draft = page.getByTestId('lesson-draft');
+  await expect(draft).toContainText('Draft, not live');
+  await expect(draft).toContainText('# TEST Position size');
+  await expect(draft).toContainText(`in “${TITLE}”`);
+  await expect(revisions).toHaveCount(before);
+  await expect(liveRevision).toHaveText(liveBefore);
+
+  // Accepting is the person's step: a new revision by them; learners still see the published one.
+  await page.getByRole('button', { name: 'Accept draft' }).click();
+  await expect(outcome).toContainText('Done: draft decided');
+  await expect(page.getByTestId(`lesson-revision-${before + 1}`)).toContainText(`Revision ${before + 1}: accepted from an assistant draft`);
+  await expect(page.getByTestId('lesson-draft')).toHaveText('No draft is waiting.');
+  await expect(liveRevision).toHaveText(liveBefore);
+  await page.context().close();
+});
+
+/** Academy restarted with the owner's upload limits blank, or back on the stack's TEST limits. */
+function academyUploadLimits(on) {
+  const before = process.env.LOCAL_STACK_ACADEMY_UPLOAD_LIMITS;
+  if (on) delete process.env.LOCAL_STACK_ACADEMY_UPLOAD_LIMITS;
+  else process.env.LOCAL_STACK_ACADEMY_UPLOAD_LIMITS = 'off';
+  try {
+    tool('local-test-stack.mjs', 'restart', 'academy');
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_ACADEMY_UPLOAD_LIMITS;
+    else process.env.LOCAL_STACK_ACADEMY_UPLOAD_LIMITS = before;
+  }
+}
+
+test(`${J} #7 a video, an SRT file and a handout upload; blank limits refuse; too large is refused unsent; a bad subtitle line is shown; a handout that is not its type is refused`, async ({
+  browser,
+}) => {
+  test.setTimeout(240_000);
+  if (!courseUrl) throw new Error(`${J}: #2 left no course, so this step has nothing to upload to`);
+  const page = await console_(browser);
+  await page.goto(courseUrl);
+  await page.getByRole('link', { name: 'Write Section 1 item 2', exact: true }).click();
+  await page.waitForURL(/\/items\/[0-9a-f-]{36}$/);
+  const limits = page.getByTestId('media-limits');
+  const outcome = page.getByTestId('media-outcome');
+  const uploads = [];
+  page.on('request', (r) => {
+    if (r.method() === 'POST' && r.url().includes('/api/academy-media/upload')) uploads.push(r.url());
+  });
+  const video = { name: 'TEST-sizing.webm', mimeType: 'video/webm', buffer: readFileSync(VIDEO_FIXTURE) };
+  const uploadVideo = async (file) => {
+    await page.getByLabel('Video file', { exact: true }).setInputFiles(file);
+    await page.getByRole('button', { name: 'Upload video' }).click();
+  };
+
+  // With the owner's upload limits blank, nothing is uploaded, and the page says why before sending anything.
+  academyUploadLimits(false);
+  try {
+    await page.reload();
+    await expect(limits).toContainText('Not set by the owner: nothing is uploaded');
+    await uploadVideo(video);
+    await expect(outcome).toContainText('The upload limits are not set');
+    expect(uploads).toEqual([]);
+  } finally {
+    academyUploadLimits(true);
+  }
+  await page.reload();
+  await expect(limits).toContainText('1048576 bytes');
+  await expect(limits).toContainText('video/webm');
+
+  // 2 MiB against the stack's TEST limit of 1 MiB: refused here, and no byte is sent.
+  await uploadVideo({ name: 'TEST-big.webm', mimeType: 'video/webm', buffer: Buffer.alloc(2 * 1024 * 1024, 1) });
+  await expect(outcome).toContainText('The file is over the size limit');
+  expect(uploads).toEqual([]);
+
+  // The TEST video goes to the stack's own store and svc-academy reads it back before it counts.
+  await uploadVideo(video);
+  await expect(outcome).toContainText('Done: checked and stored');
+  await expect(page.getByTestId('media-file-video')).toHaveAttribute('data-state', 'ready');
+  await expect(page.getByTestId('media-file-video')).toContainText('TEST-sizing.webm');
+
+  // Subtitles: a malformed line is named and nothing is stored; a good SRT file is stored with its cues.
+  const srt = (stamp) =>
+    Buffer.from(`1\n00:00:01,000 --> 00:00:03,000\nTEST Size the position first.\n\n2\n${stamp} --> 00:00:06,000\nTEST Then the stop.\n`);
+  const addCaptions = async (buffer) => {
+    await page.getByLabel('Caption file', { exact: true }).setInputFiles({ name: 'TEST-en.srt', mimeType: 'application/x-subrip', buffer });
+    await page.getByRole('button', { name: 'Add captions' }).click();
+  };
+  await addCaptions(srt('00:00:04.000'));
+  await expect(outcome).toHaveAttribute('data-code', 'academy.captions_invalid');
+  await expect(outcome).toContainText('line 6: "00:00:04.000" is not an SRT timestamp');
+  await expect(page.getByTestId('media-captions')).toContainText('No captions yet');
+  await addCaptions(srt('00:00:04,000'));
+  await expect(outcome).toContainText('Done: captions saved');
+  await expect(page.getByTestId('media-captions')).toContainText('English (en, SRT): 2 cues, first “TEST Size the position first.”');
+
+  // A handout declared PDF whose bytes are a PNG image: stored, read back, refused by name, and never offered.
+  const handout = async (file) => {
+    await page.getByLabel('Handout file', { exact: true }).setInputFiles(file);
+    await page.getByRole('button', { name: 'Upload handout' }).click();
+  };
+  const png = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489', 'hex');
+  await handout({ name: 'TEST-sheet.pdf', mimeType: 'application/pdf', buffer: png });
+  await expect(outcome).toHaveAttribute('data-code', 'academy.file_type_mismatch');
+  await expect(outcome).toContainText('The file is not what it says it is');
+  const refused = page.getByTestId('media-file-handout').filter({ hasText: 'TEST-sheet.pdf' });
+  await expect(refused).toHaveAttribute('data-state', 'refused');
+  await expect(refused).toContainText('declared application/pdf but its content is image/png');
+  await expect(refused.getByRole('link')).toHaveCount(0);
+
+  // A real PDF handout is checked and stored.
+  await handout({ name: 'TEST-handout.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\n% TEST handout\n%%EOF\n') });
+  await expect(outcome).toContainText('Done: checked and stored');
+  await expect(page.getByTestId('media-file-handout').filter({ hasText: 'TEST-handout.pdf' })).toHaveAttribute('data-state', 'ready');
+  await page.context().close();
+});
+
+test(`${J} #8 a lesson featured on the Learn hub fills the slot and leaves it when withdrawn; a topic named like a tab is refused`, async ({
+  browser,
+}) => {
+  test.setTimeout(180_000);
+  if (!courseUrl) throw new Error(`${J}: #2 left no course, so this step has nothing to feature`);
+  const page = await console_(browser);
+  const outcome = page.getByTestId('course-desk-outcome');
+  await page.goto(courseUrl);
+  await page.getByRole('link', { name: 'Write Section 1 item 2', exact: true }).click();
+  await page.waitForURL(/\/items\/[0-9a-f-]{36}$/);
+  const lessonUrl = page.url();
+  const featuredNote = page.getByTestId('lesson-featured');
+  await expect(featuredNote).toContainText('Learners can read it, so it can be featured');
+
+  // Featured from the lesson's page: the hub desk's slot shows it, with who and why.
+  await page.getByLabel('Why feature it', { exact: true }).fill('TEST first article for new learners');
+  await page.getByRole('button', { name: 'Feature on the Learn hub' }).click();
+  await expect(outcome).toContainText('Done: featured on the Learn hub');
+  await expect(featuredNote).toContainText('This lesson is the Learn hub’s featured article.');
+  await page.goto('/academy-ops/catalogue/featured');
+  const slot = page.getByTestId('hub-featured');
+  await expect(slot).toContainText('TEST Position size');
+  await expect(slot).toContainText(TITLE);
+  await expect(slot).toContainText('TEST first article for new learners');
+
+  // Withdrawn from learners: it leaves the slot in the same step.
+  await page.goto(lessonUrl);
+  await page.getByLabel('Why withdraw it', { exact: true }).fill('TEST rewriting the opening');
+  await page.getByRole('button', { name: 'Withdraw from learners' }).click();
+  await expect(outcome).toContainText('Done: withdrawn from learners');
+  await expect(page.getByTestId('lesson-live-revision')).toHaveText('Nothing: no revision is published');
+  await expect(featuredNote).toContainText('Not featured. Only a lesson learners can read is featured.');
+  await page.goto('/academy-ops/catalogue/featured');
+  await expect(slot).toHaveText('Nothing is featured. Feature a lesson learners can read from that lesson’s page.');
+
+  // The lesson goes back to learners for the steps after this one.
+  await page.goto(lessonUrl);
+  await page.getByLabel('Reason', { exact: true }).fill('TEST back for learners');
+  await page.getByRole('button', { name: /^Publish revision \d+ to learners$/ }).click();
+  await expect(outcome).toContainText('Done: published to learners');
+
+  // Topics: a tab's address is refused by name; a topic of its own is added and the course is filed under it.
+  await page.goto('/academy-ops/catalogue/featured');
+  const addTopic = async (name, address) => {
+    await page.getByLabel('Topic name', { exact: true }).fill(name);
+    await page.getByLabel('Topic address', { exact: true }).fill(address);
+    await page.getByRole('button', { name: 'Add topic' }).click();
+  };
+  await addTopic('Learning', 'learning');
+  await expect(outcome).toHaveAttribute('data-code', 'academy.slug_reserved');
+  await expect(outcome).toContainText('That address is an Academy tab');
+  const topic = `TEST Risk ${RUN}`;
+  await addTopic(topic, `test-risk-${RUN}`);
+  await expect(outcome).toContainText('Done: topic added');
+  await expect(page.getByTestId('hub-topics')).toContainText(topic);
+
+  await page.goto(courseUrl);
+  await expect(page.getByTestId('course-topics')).toHaveText('Filed under no topic.');
+  await page.getByRole('checkbox', { name: topic, exact: true }).check();
+  await page.getByRole('button', { name: 'Save topics' }).click();
+  await expect(outcome).toContainText('Done: topics saved');
+  await expect(page.getByTestId('course-topics')).toHaveText(`Filed under: ${topic}.`);
+  await expect(page.getByTestId('course-history')).toContainText('filed under topics');
+  await expect(page.getByTestId('course-history')).toContainText('a lesson withdrawn from learners');
   await page.context().close();
 });

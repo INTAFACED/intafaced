@@ -134,6 +134,27 @@ export interface CalculatorInput {
 }
 
 /** One futures order through the book (`POST /futures/orders`): an open, or a reduce-only close. */
+/**
+ * A take profit and stop loss attached to an opening order. The service arms them on the position once the order
+ * fills, sized to what has filled, and grows them as more fills: waiting, armed (the order may fill more), done,
+ * not_filled (it ended with no fill), no_position (nothing open on its side to protect) or not_placed (no order came).
+ */
+export const entryProtectionSchema = z.object({
+  id: z.string(),
+  symbol: z.string(),
+  clientOrderId: z.string(),
+  side: z.enum(['buy', 'sell']),
+  takeProfit: decimalSchema.nullable(),
+  stopLoss: decimalSchema.nullable(),
+  status: z.enum(['waiting', 'armed', 'done', 'not_filled', 'no_position', 'not_placed']),
+  armedQuantity: decimalSchema,
+  takeProfitClientOrderId: z.string().nullable(),
+  stopLossClientOrderId: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type EntryProtection = z.infer<typeof entryProtectionSchema>;
+
 export const futuresOrderSchema = z.object({
   orderId: z.string(),
   clientOrderId: z.string().optional(),
@@ -158,6 +179,8 @@ export const futuresOrderSchema = z.object({
   bankruptcyPrice: decimalSchema.nullable(),
   symbol: z.string().optional(),
   createdAt: z.string().optional(),
+  /** Present when the order asked for a take profit or stop loss. */
+  protection: entryProtectionSchema.optional(),
 });
 export type FuturesOrder = z.infer<typeof futuresOrderSchema>;
 
@@ -174,6 +197,10 @@ export const conditionalOrderSchema = z.object({
   quantity: decimalSchema,
   triggerPrice: decimalSchema.nullable(),
   limitPrice: decimalSchema.nullable(),
+  /** A trailing stop's distance behind the best price its source reached (`trailExtreme`). */
+  trailingDistance: decimalSchema.nullable().optional(),
+  trailExtreme: decimalSchema.nullable().optional(),
+  clientOrderId: z.string().optional(),
   positionId: z.string().nullable(),
   attachment: z.enum(['take_profit', 'stop_loss']).nullable(),
   /** A take profit or stop loss that closes the position as it is when it fires. Older answers carry none: whole. */
@@ -189,6 +216,20 @@ export const conditionalOrderSchema = z.object({
   createdAt: z.string(),
 });
 export type ConditionalOrder = z.infer<typeof conditionalOrderSchema>;
+
+/** A stop that closes some or all of a position: its kind, the price it is judged on, and only the fields that kind takes. */
+export interface StopInput {
+  symbol: string;
+  kind: 'stop_market' | 'stop_limit' | 'trailing_stop';
+  /** The closing side: sell for a long, buy for a short. The service refuses one that would open or enlarge. */
+  side: 'buy' | 'sell';
+  quantity: string;
+  triggerPrice?: string;
+  limitPrice?: string;
+  trailingDistance?: string;
+  triggerSource: 'mark' | 'last' | 'index';
+  clientOrderId: string;
+}
 
 export const protectionSchema = z.object({
   positionId: z.string(),
@@ -299,9 +340,23 @@ export interface OpenInput {
   priceCorrection?: 'adjust';
   /** Above the max-order: placed as children of at most the cap (`POST /futures/orders/split`), keyed `<clientOpenId>:1..N`. */
   split?: true;
+  /** A take profit and a stop loss attached to the order: they arm on what it fills (never with a split). */
+  takeProfit?: string;
+  stopLoss?: string;
   /** The margin tier the trader accepted in the confirm step; the service refuses a crossing into a tier not named. */
   confirmTier?: number;
   clientOpenId: string;
+}
+
+/** A reduce-only order from the ticket. A sell lowers a long and a buy lowers a short; with none open it is refused. */
+export interface ReduceInput {
+  symbol: string;
+  side: 'buy' | 'sell';
+  size: string;
+  type: 'market' | 'limit';
+  price?: string;
+  priceCorrection?: 'adjust';
+  clientOrderId: string;
 }
 
 export interface PlaceOrderInput {
@@ -316,6 +371,8 @@ export interface PlaceOrderInput {
   collateralClass?: string;
   priceCorrection?: 'adjust';
   confirmTier?: number;
+  takeProfit?: string;
+  stopLoss?: string;
 }
 
 /** What the review asks: the form as it would be sent, so the band, the slippage cap and the split are this order's own. */
@@ -387,8 +444,30 @@ export function createFuturesApi(api: ApiClient) {
       const read = await api.rest('/futures/conditional-orders', z.object({ orders: z.array(conditionalOrderSchema) }), { signal });
       return read.ok ? { ...read, data: read.data.orders } : read;
     },
+    /** Every take profit and stop loss attached to an opening order: waiting, armed, and the newest finished. */
+    entryProtections: async (signal?: AbortSignal): Promise<ApiResult<EntryProtection[]>> => {
+      const read = await api.rest('/futures/entry-protection', z.object({ protections: z.array(entryProtectionSchema) }), { signal });
+      return read.ok ? { ...read, data: read.data.protections } : read;
+    },
     conditionalOrder: (id: string, signal?: AbortSignal) =>
       api.rest(`/futures/conditional-orders/${encodeURIComponent(id)}`, conditionalOrderSchema, { signal }),
+    /** Arm one stop. The same client id replays the order already armed under it. */
+    createConditional: (input: StopInput) =>
+      api.rest('/futures/conditional-orders', conditionalOrderSchema, {
+        method: 'POST',
+        body: {
+          market: input.symbol,
+          kind: input.kind,
+          side: input.side,
+          quantity: input.quantity,
+          ...(input.triggerPrice !== undefined ? { triggerPrice: input.triggerPrice } : {}),
+          ...(input.limitPrice !== undefined ? { limitPrice: input.limitPrice } : {}),
+          ...(input.trailingDistance !== undefined ? { trailingDistance: input.trailingDistance } : {}),
+          reduceOnly: true,
+          triggerSource: input.triggerSource,
+          clientOrderId: input.clientOrderId,
+        },
+      }),
     /** Cancel one armed order. One that already fired or ended answers with the service's refusal. */
     cancelConditional: (id: string) =>
       api.rest(`/futures/conditional-orders/${encodeURIComponent(id)}`, conditionalOrderSchema, { method: 'DELETE' }),
