@@ -11,6 +11,8 @@ import {
   certificateDocument,
   certificateLessons,
   formatDay,
+  formatMoment,
+  issueWait,
   lessonHrefFor,
   parseVerifyCode,
   type CertificateCard,
@@ -95,7 +97,7 @@ function CertificateCardView({ card, lessons, onView }: { card: CertificateCard;
   const missing = card.progress?.missingItemSlugs[0];
   const missingLesson = lessons.find((l) => l.slug === missing);
   return (
-    <article className="academy-lms-card">
+    <article className="academy-lms-card" data-certificate={card.definition.id} data-state={card.state}>
       <h3 lang="und">{card.definition.title}</h3>
       <div className="academy-lms-meta">
         <CertificateChip state={card.state} />
@@ -109,6 +111,7 @@ function CertificateCardView({ card, lessons, onView }: { card: CertificateCard;
           <Copy k="issuedOn" params={{ date: formatDay(card.grant.grantedAt, language) }} />
         </p>
       )}
+      {!card.grant && <IssueLine progress={card.progress} />}
       <div className="academy-learning-actions">
         {card.state === 'earned' && (
           <Button variant="secondary" onClick={onView}>
@@ -128,6 +131,33 @@ function CertificateCardView({ card, lessons, onView }: { card: CertificateCard;
       </div>
     </article>
   );
+}
+
+/** How a certificate not yet held is issued: after the owner's wait (with the time), or the moment the course is complete. */
+function IssueLine({ progress }: { progress: CertificateCard['progress'] }) {
+  const { t } = copy.useCopy();
+  const { language } = usePreferences();
+  const issue = progress?.issue;
+  if (!issue || progress.granted) return null;
+  if (issue.mode === 'delayed' && issue.delayMinutes !== null) {
+    const wait = issueWait(issue.delayMinutes);
+    const words = t(wait.unit, { n: wait.n });
+    return (
+      <p data-testid="certificate-issue">
+        {issue.issuesAt
+          ? t('issueDelayed', { date: formatMoment(issue.issuesAt.toISOString(), language), wait: words })
+          : t('issueAfterWait', { wait: words })}
+      </p>
+    );
+  }
+  if (issue.mode === 'automatic') {
+    return (
+      <p className="muted" data-testid="certificate-issue">
+        {t('issueAutomatic')}
+      </p>
+    );
+  }
+  return null;
 }
 
 function CertificateSheet({

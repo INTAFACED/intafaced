@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { academyCertIssueSchema } from '@intafaced/contracts/academy-certificates';
 
 /**
  * Academy learning-management logic. Pure functions only: everything here is derived from what
@@ -43,6 +44,8 @@ export const certProgressRow = z.object({
   complete: z.boolean(),
   granted: z.boolean(),
   grantIdempotencyKey: ref.nullable(),
+  /** How the certificate is issued (AC-certificates-02); absent from an older service, read as the learner claiming it. */
+  issue: academyCertIssueSchema.optional(),
 });
 export type CertProgressRow = z.infer<typeof certProgressRow>;
 /** The code anyone can paste into the public check: 32 lowercase hex characters, the same rule the service applies. */
@@ -230,11 +233,12 @@ export function rememberLastLesson(owner: string | null | undefined, slug: strin
   }
 }
 
-export type CertificateState = 'earned' | 'ready' | 'in-progress' | 'not-started';
+export type CertificateState = 'earned' | 'ready' | 'issuing' | 'in-progress' | 'not-started';
 
 export function certificateState(progress: CertProgressRow | undefined, grant: CertGrant | undefined): CertificateState {
   if (grant || progress?.granted) return 'earned';
   if (!progress) return 'not-started';
+  if (progress.complete && progress.issue?.issuesAt) return 'issuing';
   if (progress.complete) return 'ready';
   return progress.completedCount > 0 ? 'in-progress' : 'not-started';
 }
@@ -305,6 +309,13 @@ export function parseVerifyCode(raw: string): { kind: 'code'; code: string } | {
 export function parseVerifyReference(raw: string): { ok: true; certId: string } | { ok: false } {
   const match = /^cert:([0-9a-f-]{36}):([a-z0-9][a-z0-9-]{0,63})$/i.exec(raw.trim());
   return match ? { ok: true, certId: match[2]! } : { ok: false };
+}
+
+/** The wait of a delayed issue rule in its largest whole unit: days, hours, or minutes. */
+export function issueWait(delayMinutes: number): { unit: 'waitDays' | 'waitHours' | 'waitMinutes'; n: number } {
+  if (delayMinutes % 1440 === 0) return { unit: 'waitDays', n: delayMinutes / 1440 };
+  if (delayMinutes % 60 === 0) return { unit: 'waitHours', n: delayMinutes / 60 };
+  return { unit: 'waitMinutes', n: delayMinutes };
 }
 
 export function formatDay(iso: string, locale: string): string {

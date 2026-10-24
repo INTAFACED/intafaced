@@ -20,6 +20,10 @@ import {
   academyQuizReviewSchema,
   academyQuizSchema,
   academySetQuizInputSchema,
+  academySetCertIssueRuleInputSchema,
+  academyCertIssueRuleSchema,
+  academyCertIssueSchema,
+  academyCertIdSchema,
   academyItemVideoSchema,
   academySetItemVideoInputSchema,
   academySetVideoTracksInputSchema,
@@ -662,6 +666,7 @@ const certProgressOut = z.object({
   complete: z.boolean(),
   granted: z.boolean(),
   grantIdempotencyKey: z.string().nullable(),
+  issue: academyCertIssueSchema,
 });
 
 const seatFor = (seats: readonly CallerSeat[], id: string, kind: 'room' | 'session'): { role: AttendeeRole } | null => {
@@ -766,6 +771,7 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.residency_not_pending':
     case 'academy.cert_already_granted':
     case 'academy.cert_incomplete':
+    case 'academy.cert_not_due':
       return new TRPCError({ code: 'CONFLICT', message, cause: err });
 
     case 'academy.cert_not_found':
@@ -862,6 +868,8 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.enrolment_closed':
     case 'academy.verify_rate_unset':
     case 'academy.verify_address_unset':
+    case 'academy.cert_delay_unset':
+    case 'academy.cert_sweep_unset':
     case 'academy.video_captions_unpublished':
     case 'academy.video_transcript_unpublished':
     case 'academy.watch_threshold_unset':
@@ -2691,6 +2699,7 @@ export function createAcademyRouter(
             complete: p.complete,
             granted: p.granted,
             grantIdempotencyKey: p.grantIdempotencyKey,
+            issue: p.issue,
           };
         }),
       ),
@@ -3201,6 +3210,18 @@ export function createAcademyRouter(
         .input(academySetQuizInputSchema)
         .output(z.object({ slug: z.string(), published: z.boolean() }))
         .mutation(({ input, ctx }) => guard(() => academy.setQuiz({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-certificates-02: how one published certificate is issued (manual, automatic, or after the owner's delay), with a reason. */
+      setCertIssueRule: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academySetCertIssueRuleInputSchema)
+        .output(academyCertIssueRuleSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.setCertIssueRule({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-certificates-02: one certificate's stored issue rule, or null when staff have set none (the learner claims it). */
+      certIssueRule: scopedProcedure('admin:read', { module: 'academy' })
+        .input(z.object({ certId: academyCertIdSchema }))
+        .output(academyCertIssueRuleSchema.nullable())
+        .query(({ input }) => guard(() => academy.certIssueRule(input.certId))),
 
       /** AC-videos-01: attach a spine video to one curriculum item (it then completes by `watch`), or take it off with null. */
       setItemVideo: scopedProcedure('admin:write', { module: 'academy' })

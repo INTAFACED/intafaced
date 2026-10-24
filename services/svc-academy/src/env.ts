@@ -119,6 +119,15 @@ const schema = serviceEnvSchema
       ),
 
       /**
+       * AC-certificates-02: seconds between issue sweeps, which issue delayed certificates once due. Blank / unset is
+       * unpublished: no sweep runs and a delayed issue rule refuses `academy.cert_sweep_unset`.
+       */
+      ACADEMY_CERT_ISSUE_SWEEP_SECONDS: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1).max(86_400)]),
+      ),
+
+      /**
        * AC-assignments-02: how many seconds a grader holds a hand-in while grading it. Blank / unset is unpublished:
        * grading refuses `academy.grader_lease_unset`.
        */

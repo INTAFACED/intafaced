@@ -43,6 +43,7 @@ export interface SettingsEnv {
   readonly ACADEMY_UPLOAD_MAX_BYTES?: number | undefined;
   readonly ACADEMY_TOPICS_LIST_LIMIT?: number | undefined;
   readonly ACADEMY_GRADER_LEASE_SECONDS?: number | undefined;
+  readonly ACADEMY_CERT_ISSUE_SWEEP_SECONDS?: number | undefined;
   readonly ACADEMY_UPLOAD_VIDEO_TYPES?: readonly string[] | undefined;
   readonly ACADEMY_UPLOAD_HANDOUT_TYPES?: readonly string[] | undefined;
   readonly ACADEMY_PAPER_MARKETS_LIMIT?: number | undefined;
@@ -211,6 +212,14 @@ export function settingsRegister(env: SettingsEnv): readonly SettingRow[] {
       store: 'env',
       readOnly: false,
       refusalCode: 'academy.grader_lease_unset',
+    },
+    {
+      // Blank runs no sweep, so a delayed certificate would wait for its learner to come back: delayed rules refuse.
+      key: 'cert_issue_sweep',
+      state: state(positiveInt(env.ACADEMY_CERT_ISSUE_SWEEP_SECONDS)),
+      store: 'env',
+      readOnly: false,
+      refusalCode: 'academy.cert_sweep_unset',
     },
     {
       key: 'upload_size_limit',

@@ -46,6 +46,10 @@ const topicsLimit = () => (process.env.LOCAL_STACK_ACADEMY_TOPICS_LIMIT === 'off
 // LOCAL TEST grader lease (a TEST owner value): 15 minutes (J-academy-04 #6).
 const graderLease = () => (process.env.LOCAL_STACK_ACADEMY_GRADER_LEASE === 'off' ? {} : { ACADEMY_GRADER_LEASE_SECONDS: '900' });
 
+// LOCAL TEST certificate issue sweep (a TEST owner value): every 5 seconds, so a one-minute delayed certificate is issued
+// within the journey (J-academy-05 #1). `LOCAL_STACK_ACADEMY_CERT_SWEEP=off` leaves it blank.
+const certSweep = () => (process.env.LOCAL_STACK_ACADEMY_CERT_SWEEP === 'off' ? {} : { ACADEMY_CERT_ISSUE_SWEEP_SECONDS: '5' });
+
 export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
   name: 'academy',
   env: () => ({
@@ -62,5 +66,6 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     ...uploadLimits(),
     ...topicsLimit(),
     ...graderLease(),
+    ...certSweep(),
   }),
 });

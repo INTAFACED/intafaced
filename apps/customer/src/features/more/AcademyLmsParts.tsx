@@ -53,6 +53,7 @@ export function StatusChip({ status }: { status: LessonStatus }) {
 const stateKeys = {
   earned: 'stateEarned',
   ready: 'stateReady',
+  issuing: 'stateIssuing',
   'in-progress': 'stateInProgress',
   'not-started': 'stateNotStarted',
 } as const;

@@ -157,16 +157,20 @@ is never invented.
 
 ### Certifications → XP (`academy.certs`)
 
-| Procedure                  | Scope           | Purpose                                                                                       |
-| -------------------------- | --------------- | --------------------------------------------------------------------------------------------- |
-| `certDefinitions`          | `academy:read`  | Code-seeded certs and the curriculum slugs each requires                                      |
-| `enrollCertPath`           | `academy:write` | Enrol the caller on a path                                                                    |
-| `markCurriculumComplete`   | `academy:write` | Mark one curriculum item complete (idempotent)                                                |
-| `grantCert`                | `academy:write` | Grant the caller's cert when complete, **publish XP**, then **real identity perks or refuse** |
-| `myCerts` / `certProgress` | `academy:read`  | What the caller has earned, and what is missing                                               |
-| `certXpPlane`              | `academy:read`  | Is this process publishing awards, under which module/action, at what value                   |
-| `certPerkPlane`            | `academy:read`  | Perks via identity rank only; invent perk money refuse-closed (D26-P1-C1)                     |
-| `certPerkIntent`           | `admin:write`   | Attempt invent cert→perk money — always refuse, never amounts                                 |
+| Procedure                  | Scope           | Purpose                                                                                             |
+| -------------------------- | --------------- | --------------------------------------------------------------------------------------------------- |
+| `certDefinitions`          | `academy:read`  | Code-seeded certs and the curriculum slugs each requires                                            |
+| `enrollCertPath`           | `academy:write` | Enrol the caller on a path                                                                          |
+| `markCurriculumComplete`   | `academy:write` | Mark one curriculum item complete (idempotent)                                                      |
+| `grantCert`                | `academy:write` | Grant the caller's cert when complete, **publish XP**, then **real identity perks or refuse**       |
+| `myCerts` / `certProgress` | `academy:read`  | What the caller has earned, and what is missing                                                     |
+| `certXpPlane`              | `academy:read`  | Is this process publishing awards, under which module/action, at what value                         |
+| `certPerkPlane`            | `academy:read`  | Perks via identity rank only; invent perk money refuse-closed (D26-P1-C1)                           |
+| `certPerkIntent`           | `admin:write`   | Attempt invent cert→perk money — always refuse, never amounts                                       |
+| `admin.setCertIssueRule`   | `admin:write`   | How one certificate is issued: `manual`, `automatic` or `delayed` (with the delay), reason required |
+| `admin.certIssueRule`      | `admin:read`    | One certificate's stored issue rule, or null when staff have set none                               |
+
+**Issue rules (AC-certificates-02, J-academy-05 #1).** A certificate with no rule, or a `manual` one, is claimed by the learner with `grantCert` once complete, as before. `automatic` issues it when the last required item is recorded (the completion stays recorded whatever the issue does). `delayed` writes one pending row (`cert_issue_pending`) when the learner first stands complete, due the delay after the later of their last completion and the rule's revision (a requirement that is an assessment pass counts from when it is settled); the issue sweep (`ACADEMY_CERT_ISSUE_SWEEP_SECONDS`, blank = no sweep, and a delayed rule then refuses `academy.cert_sweep_unset`) issues it once due, and so does the learner's own `certProgress` read, which is also the recovery path when a process stopped between a completion and its issue. A claim before the wait ends refuses `academy.cert_not_due`; an Undo drops the wait at once and a rule switched back to `manual` drops every wait. A delayed rule with no delay refuses `academy.cert_delay_unset`. `certProgress` answers `issue: { mode, delayMinutes, issuesAt }`. Each rule change is a revision with a history row (`cert_issue_rule_events`: actor, reason). Issuing publishes the same XP award as a claim and never posts to the ledger.
 
 `grantCert` is safe to call twice. The grant is idempotent on `(user, cert)` and the award carries the same business key, so a repeat is dropped by identity rather than paid twice — that is also how an award missed during a bus outage is recovered. XP amounts are a v0 policy in `src/certs/xp-policy.ts` with a conservative default; product may retune them, and a cert with no policy publishes **nothing** (no XP, no perk-grant shape) rather than an invented amount. After XP, `perks` is either a **real** `rank_thresholds.perks` readout from svc-identity or a **refuse** (unpriced / identity unreadable / invent path) — academy never invents perk money or a cert→perk map (`src/certs/perk-plane.ts`, D26-P1-C1).
 
