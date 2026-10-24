@@ -8,7 +8,8 @@
  * callers hold, so a retried transaction queues nothing twice and two changes never share a key. An
  * account with no proved address gets no notice. The notice goes to the address that was proved when the change
  * happened, even if the address changes or the account is frozen before it leaves: that is when its owner most needs
- * it. It carries no secret, so a send that may have failed is tried again rather than given up (see the relay).
+ * it. It carries no secret, so a send that may have failed is tried again, on a doubling wait for about two hours, before
+ * it is given up (see the relay).
  */
 import { createHash } from 'node:crypto';
 import type { Sql, TransactionSql } from 'postgres';
