@@ -1097,6 +1097,12 @@ importers:
       '@intafaced/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@intafaced/events':
+        specifier: workspace:*
+        version: link:../../packages/events
+      '@intafaced/ledger-client':
+        specifier: workspace:*
+        version: link:../../packages/ledger-client
       '@intafaced/telemetry':
         specifier: workspace:*
         version: link:../../packages/telemetry

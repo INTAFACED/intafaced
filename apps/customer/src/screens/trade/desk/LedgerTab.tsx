@@ -36,6 +36,7 @@ type KindKey =
   | 'Ledger kind release'
   | 'Ledger kind deposit'
   | 'Ledger kind withdrawal'
+  | 'Ledger kind reward'
   | 'Ledger kind other';
 
 /** The words for a ledger line's kind; anything else reads "Other" rather than a service code. */
@@ -46,6 +47,7 @@ const KINDS: Record<string, KindKey> = {
   'order.hold': 'Ledger kind hold',
   'order.hold.amend': 'Ledger kind amend',
   'order.hold.released': 'Ledger kind release',
+  'campaigns.task.reward': 'Ledger kind reward',
 };
 function kindKey(e: LedgerEntry): KindKey {
   const known = KINDS[e.type];

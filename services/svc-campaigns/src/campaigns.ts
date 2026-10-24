@@ -15,6 +15,7 @@ import {
   type CampaignJoinResult,
   type CampaignReviewResult,
   type CampaignState,
+  type CampaignTasks,
   type CampaignType,
   type CampaignView,
   type MyCampaigns,
@@ -22,6 +23,7 @@ import {
   type ParticipationRules,
 } from '@intafaced/contracts/campaigns-catalogue';
 import type { CampaignParticipant } from '@intafaced/contracts';
+import { formatAmount, parseAmount as parseAmount18 } from '@intafaced/ledger-client';
 import { CampaignsError } from './codes.js';
 import { parseWindowTime } from './drops.js';
 import type { ParticipantSource } from './participants.js';
@@ -42,9 +44,11 @@ import type { ParticipantSource } from './participants.js';
  *   approve it either. In this version only a draft is edited, and each edit is a new revision, so a stale edit or move
  *   refuses `campaign.revision_conflict`; edits after launch come with the campaign builder (J-campaigns-16).
  * - Customer reads show times in the platform time zone: while it is blank they refuse `campaigns.timezone_unset`.
- * - A budget is a limit, never a balance. Nothing here reserves or spends; the reservation counters come with the reward
- *   saga (CM-payouts-ledger-02), so all of a budget is left. Joining
- *   writes one participation under `campaign:join:<campaign>:<account>` and moves nothing.
+ * - A budget is a limit, never a balance. What is left is the limit less the reward intents that reserve or spent it
+ *   (`campaigns.campaign_rows`, every intent not failed, forfeited or withheld; CM-payouts-ledger-02). Joining writes one
+ *   participation under `campaign:join:<campaign>:<account>` and moves nothing.
+ * - A task campaign (CM-tasks-quests-01) carries its steps, claim window and verification gate; its progress, claims and
+ *   rewards are `tasks.ts` and `payouts.ts`. A task campaign with steps and a blank claim window cannot go live.
  * - Who can take part (CM-eligibility-rules-01): every signed-in account, less the excluded account kinds and, for a
  *   `listed` campaign, the restricted regions. Identity is read per check (`ParticipantSource`), only for a campaign
  *   that has rules, and never copied. Under rules, an account that is not active, of an excluded kind, or from a
@@ -74,6 +78,9 @@ type CampaignRow = {
   budget_limit: string | null;
   reward_asset: string | null;
   reward_amount: string | null;
+  tasks: CampaignTasks | null;
+  /** What the campaign's reward intents reserve or spent, from `campaigns.campaign_rows`; absent on a RETURNING row. */
+  budget_drawn?: string;
   created_by: string;
   submitted_by: string | null;
   approved_by: string | null;
@@ -161,6 +168,9 @@ export function gateOf(row: CampaignRow, timeZone: string | null): CampaignGate[
   if (!row.starts_at || !row.ends_at) missing.push({ code: 'campaigns.time_frame_unset', field: 'timeFrame' });
   if (!timeZone) missing.push({ code: 'campaigns.timezone_unset', field: 'timeZone' });
   if (!row.reward_asset || row.reward_amount === null) missing.push({ code: 'campaigns.reward_unset', field: 'reward' });
+  if (row.tasks && row.tasks.claimWindowSeconds === null) {
+    missing.push({ code: 'campaigns.claim_window_unset', field: 'claimWindow' });
+  }
   return missing;
 }
 
@@ -177,11 +187,13 @@ function refuseGate(missing: CampaignGate['missing']): void {
 
 const iso = (d: Date) => d.toISOString();
 
-/** The budget limit. Nothing in this version reserves or spends against it (the reward saga does), so all of it is left. */
+/** The budget limit and what is left of it once the campaign's reward intents are counted. Never below zero. */
 function budgetOf(r: CampaignRow): Campaign['budget'] {
   if (!r.budget_asset || r.budget_limit === null) return null;
   const limit = decimalOf(r.budget_limit);
-  return { asset: r.budget_asset, limit, left: limit };
+  const drawn = r.budget_drawn ? parseAmount18(r.budget_drawn) : 0n;
+  const rest = parseAmount18(r.budget_limit) - drawn;
+  return { asset: r.budget_asset, limit, left: formatAmount(rest > 0n ? rest : 0n) };
 }
 
 function toCampaign(r: CampaignRow, timeZone: string | null, now: Date): Campaign {
@@ -202,6 +214,7 @@ function toCampaign(r: CampaignRow, timeZone: string | null, now: Date): Campaig
     participation: r.participation,
     budget: budgetOf(r),
     reward: r.reward_asset && r.reward_amount !== null ? { asset: r.reward_asset, amount: decimalOf(r.reward_amount) } : null,
+    tasks: r.tasks,
     createdBy: r.created_by,
     submittedBy: r.submitted_by,
     approvedBy: r.approved_by,
@@ -240,6 +253,7 @@ function toView(
     participation: c.participation,
     budget: c.budget,
     reward: c.reward,
+    tasks: c.tasks,
     mine,
     eligibility,
   };
@@ -303,6 +317,7 @@ type Definition = {
   budgetLimit: string | null;
   rewardAsset: string | null;
   rewardAmount: string | null;
+  tasks: CampaignTasks | null;
 };
 
 /** An operator definition, read field by field. Blanks stay blank for the gate to name; a malformed value refuses now. */
@@ -324,6 +339,7 @@ export function parseDefinition(input: CampaignDefinitionInput): Definition {
   const budgetLimit = input.budget ? parseAmount(input.budget.limit, 'campaigns.budget_unset', 'The budget limit') : null;
   const rewardAsset = input.reward ? parseAsset(input.reward.asset, 'campaigns.reward_unset', 'The reward') : null;
   const rewardAmount = input.reward ? parseAmount(input.reward.amount, 'campaigns.reward_unset', 'The reward amount') : null;
+  const tasks = input.tasks ? parseTasks(type as CampaignType, input.tasks) : null;
   return {
     name: input.name.trim(),
     type: type as CampaignType,
@@ -338,6 +354,17 @@ export function parseDefinition(input: CampaignDefinitionInput): Definition {
     budgetLimit: budgetAsset && budgetLimit ? budgetLimit : null,
     rewardAsset: rewardAsset && rewardAmount ? rewardAsset : null,
     rewardAmount: rewardAsset && rewardAmount ? rewardAmount : null,
+    tasks,
+  };
+}
+
+/** Steps belong to a `task` campaign only, and each step's market is stored as listed (`BTC/USDT`). */
+function parseTasks(type: CampaignType, input: CampaignTasks): CampaignTasks {
+  if (type !== 'task') throw new CampaignsError('campaigns.tasks_invalid', 'Only a task campaign has steps');
+  return {
+    steps: input.steps.map((s) => ({ title: s.title.trim(), event: s.event, market: s.market ?? null, side: s.side ?? null, count: s.count })),
+    claimWindowSeconds: input.claimWindowSeconds,
+    kycGate: input.kycGate,
   };
 }
 
@@ -379,7 +406,8 @@ function sameDefinition(r: CampaignRow, d: Definition): boolean {
     r.budget_asset === d.budgetAsset &&
     amount(r.budget_limit) === amount(d.budgetLimit) &&
     r.reward_asset === d.rewardAsset &&
-    amount(r.reward_amount) === amount(d.rewardAmount)
+    amount(r.reward_amount) === amount(d.rewardAmount) &&
+    JSON.stringify(r.tasks) === JSON.stringify(d.tasks)
   );
 }
 
@@ -420,10 +448,10 @@ export class CampaignService {
       return await transaction(this.sql, async (tx) => {
         const [row] = await tx<CampaignRow[]>`
           INSERT INTO campaigns.campaigns (id, name, type, rules, starts_at, ends_at, weekdays, hours_from, hours_to,
-            participation, budget_asset, budget_limit, reward_asset, reward_amount, created_by)
+            participation, budget_asset, budget_limit, reward_asset, reward_amount, tasks, created_by)
           VALUES (${id}, ${d.name}, ${d.type}, ${d.rules}, ${d.startsAt}, ${d.endsAt}, ${d.weekdays}, ${d.hoursFrom},
             ${d.hoursTo}, ${d.participation ? tx.json(d.participation) : null}, ${d.budgetAsset}, ${d.budgetLimit},
-            ${d.rewardAsset}, ${d.rewardAmount}, ${input.actor})
+            ${d.rewardAsset}, ${d.rewardAmount}, ${d.tasks ? tx.json(d.tasks as unknown as postgres.JSONValue) : null}, ${input.actor})
           RETURNING *`;
         await audit(tx, input.actor, 'campaign.create', id, { name: d.name, type: d.type });
         return toCampaign(row!, this.timeZone(), this.now());
@@ -431,7 +459,7 @@ export class CampaignService {
     } catch (err) {
       if (!isUniqueViolation(err)) throw err;
       const [same] = await this.sql<CampaignRow[]>`
-        SELECT * FROM campaigns.campaigns WHERE lower(name) = lower(${d.name}) AND state <> 'archived'`;
+        SELECT * FROM campaigns.campaign_rows WHERE lower(name) = lower(${d.name}) AND state <> 'archived'`;
       if (same && same.created_by === input.actor && same.state === 'draft' && sameDefinition(same, d)) {
         return toCampaign(same, this.timeZone(), this.now());
       }
@@ -453,6 +481,7 @@ export class CampaignService {
             ends_at = ${d.endsAt}, weekdays = ${d.weekdays}, hours_from = ${d.hoursFrom}, hours_to = ${d.hoursTo},
             participation = ${d.participation ? tx.json(d.participation) : null}, budget_asset = ${d.budgetAsset},
             budget_limit = ${d.budgetLimit}, reward_asset = ${d.rewardAsset}, reward_amount = ${d.rewardAmount},
+            tasks = ${d.tasks ? tx.json(d.tasks as unknown as postgres.JSONValue) : null},
             revision = revision + 1, updated_at = now()
           WHERE id = ${input.id} RETURNING *`;
         await audit(tx, input.actor, 'campaign.update', input.id, { name: d.name, type: d.type });
@@ -466,7 +495,7 @@ export class CampaignService {
 
   /** The gate's answer for one campaign, every blank by name. Stores nothing. */
   async validate(input: { id: string }): Promise<CampaignGate> {
-    const [row] = await this.sql<CampaignRow[]>`SELECT * FROM campaigns.campaigns WHERE id = ${input.id}`;
+    const [row] = await this.sql<CampaignRow[]>`SELECT * FROM campaigns.campaign_rows WHERE id = ${input.id}`;
     if (!row) throw new CampaignsError('campaign.unknown', 'No such campaign');
     return { missing: gateOf(row, this.timeZone()) };
   }
@@ -533,7 +562,7 @@ export class CampaignService {
   }
 
   async listForOps(): Promise<Campaign[]> {
-    const rows = await this.sql<CampaignRow[]>`SELECT * FROM campaigns.campaigns ORDER BY created_at DESC LIMIT 200`;
+    const rows = await this.sql<CampaignRow[]>`SELECT * FROM campaigns.campaign_rows ORDER BY created_at DESC LIMIT 200`;
     const now = this.now();
     return rows.map((r) => toCampaign(r, this.timeZone(), now));
   }
@@ -541,7 +570,7 @@ export class CampaignService {
   /** The calendar (LC-6): every campaign with a time frame, by start, in the platform time zone. No state of its own. */
   async calendar(): Promise<CampaignCalendar> {
     const rows = await this.sql<CampaignRow[]>`
-      SELECT * FROM campaigns.campaigns
+      SELECT * FROM campaigns.campaign_rows
       WHERE state <> 'archived' AND starts_at IS NOT NULL AND ends_at IS NOT NULL
       ORDER BY starts_at ASC, id ASC LIMIT 500`;
     const now = this.now();
@@ -573,7 +602,7 @@ export class CampaignService {
     const timeZone = this.customerZone();
     const [rows, mine] = await Promise.all([
       this.sql<CampaignRow[]>`
-        SELECT * FROM campaigns.campaigns
+        SELECT * FROM campaigns.campaign_rows
         WHERE state IN ('scheduled', 'active', 'paused') AND (ends_at IS NULL OR ends_at > ${now})
         ORDER BY starts_at ASC, id ASC LIMIT 200`,
       this.mine(accountId),
@@ -592,7 +621,7 @@ export class CampaignService {
   async get(input: { id: string; accountId: string }): Promise<CampaignView> {
     const timeZone = this.customerZone();
     const [[row], [mine], [review]] = await Promise.all([
-      this.sql<CampaignRow[]>`SELECT * FROM campaigns.campaigns WHERE id = ${input.id}`,
+      this.sql<CampaignRow[]>`SELECT * FROM campaigns.campaign_rows WHERE id = ${input.id}`,
       this.sql<ParticipationRow[]>`
         SELECT * FROM campaigns.participations WHERE participation_key = ${participationKeyOf(input.id, input.accountId)}`,
       this.sql<ReviewRow[]>`
@@ -622,7 +651,7 @@ export class CampaignService {
     const timeZone = this.customerZone();
     const [existing] = await this.sql<ReviewRow[]>`SELECT * FROM campaigns.eligibility_reviews WHERE review_key = ${key}`;
     if (existing) return { review: { campaignId: existing.campaign_id, requestedAt: iso(existing.created_at) }, created: false };
-    const [row] = await this.sql<CampaignRow[]>`SELECT * FROM campaigns.campaigns WHERE id = ${input.campaignId}`;
+    const [row] = await this.sql<CampaignRow[]>`SELECT * FROM campaigns.campaign_rows WHERE id = ${input.campaignId}`;
     const now = this.now();
     if (!row || !toView(row, timeZone, now, null)) throw new CampaignsError('campaign.unknown', 'No such campaign');
     const current = effectiveState(row, now);
@@ -710,7 +739,7 @@ export class CampaignService {
   async myCampaigns(accountId: string): Promise<MyCampaigns> {
     const rows = await this.sql<(CampaignRow & { p_key: string; p_revision: number; p_created_at: Date })[]>`
       SELECT c.*, p.participation_key AS p_key, p.revision AS p_revision, p.created_at AS p_created_at
-      FROM campaigns.participations p JOIN campaigns.campaigns c ON c.id = p.campaign_id
+      FROM campaigns.participations p JOIN campaigns.campaign_rows c ON c.id = p.campaign_id
       WHERE p.account_id = ${accountId}
       ORDER BY p.created_at DESC LIMIT 200`;
     const now = this.now();

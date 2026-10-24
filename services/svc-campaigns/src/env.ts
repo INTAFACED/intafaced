@@ -1,5 +1,14 @@
 import { z } from 'zod';
-import { baseEnvSchema, edgeEnvSchema, httpEnvSchema, loadEnv, otelEnvSchema, postgresEnvSchema, s2sEnvSchema } from '@intafaced/config';
+import {
+  baseEnvSchema,
+  edgeEnvSchema,
+  httpEnvSchema,
+  loadEnv,
+  natsEnvSchema,
+  otelEnvSchema,
+  postgresEnvSchema,
+  s2sEnvSchema,
+} from '@intafaced/config';
 
 /**
  * svc-campaigns: seasons, limited drops and the TGE claim. Its rows live in its own `campaigns` schema and move no
@@ -16,6 +25,20 @@ import { baseEnvSchema, edgeEnvSchema, httpEnvSchema, loadEnv, otelEnvSchema, po
  * exclusions or a region list cannot check anyone: its page reads `unread` and a join refuses
  * `campaigns.participant_unread`, and the service logs a warning at boot. A campaign open to every signed-in account
  * needs neither. With S2S_AUTH_MODE dual or keypair the read is signed with svc-campaigns' own key.
+ *
+ * LEDGER_URL reaches svc-ledger for the reward saga (`rewardPay`, `sweepFeesToRewards`, and reading back its own keys).
+ * Unset: every claim and every pot funding approval refuses `campaigns.reward_saga_unwired` and writes nothing.
+ *
+ * TRADE_URL reaches svc-trade's public market list, to name the market a fill's id points at. Unset: a step that names
+ * a market counts no fill (logged); a step for any market still counts.
+ *
+ * NATS_URL is the bus task progress is read from (`trade.fill.settled`). Unreachable at boot: the service runs and logs
+ * that no progress is counted; JetStream keeps the events for the durable consumer once it attaches.
+ *
+ * CAMPAIGNS_RECONCILE_AFTER_SECONDS (owner value) is how long after an attempt the reconciler posts an open reward or
+ * funding again under the same key. Blank: no reconciler runs, open intents wait, and /ready says
+ * `campaigns.reconcile_unset`. CAMPAIGNS_ROLLBACK_WINDOW_SECONDS (owner value) is the rollback window every reward record
+ * shows; blank reads "not set". A value-moving rollback needs a reversing recipe that does not exist, so none is offered.
  */
 const blankAsAbsent = <T extends z.ZodTypeAny>(inner: T) =>
   z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), inner);
@@ -25,6 +48,7 @@ const schema = baseEnvSchema
   .merge(httpEnvSchema)
   .merge(edgeEnvSchema)
   .merge(postgresEnvSchema)
+  .merge(natsEnvSchema)
   .merge(s2sEnvSchema)
   .merge(
     z.object({
@@ -35,6 +59,10 @@ const schema = baseEnvSchema
       /** svc-identity, for the participant read (exclusions, region). Read only. Unset: every rule check reads unread. */
       IDENTITY_URL: blankAsAbsent(z.string().url().optional()),
       INTERNAL_SERVICE_SECRET: blankAsAbsent(z.string().min(32).optional()),
+      LEDGER_URL: blankAsAbsent(z.string().url().optional()),
+      TRADE_URL: blankAsAbsent(z.string().url().optional()),
+      CAMPAIGNS_RECONCILE_AFTER_SECONDS: blankAsAbsent(z.coerce.number().int().min(1).max(86_400).optional()),
+      CAMPAIGNS_ROLLBACK_WINDOW_SECONDS: blankAsAbsent(z.coerce.number().int().min(1).max(31_536_000).optional()),
     }),
   );
 

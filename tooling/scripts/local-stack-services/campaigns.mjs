@@ -14,5 +14,14 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     // The participant read for exclusions and region lists (CM-eligibility-rules-01, J-campaigns-01 #4-#5), signed with
     // the stack's shared service secret from c().
     IDENTITY_URL: urlOf('identity'),
+    // The reward saga (J-campaigns-02): task rewards (rewardPay) and pot sweeps of earned fees (sweepFeesToRewards), signed
+    // with the stack's shared service secret. Task progress reads trade.fill.settled from the stack's NATS (from c()).
+    LEDGER_URL: urlOf('ledger'),
+    // svc-trade's public market list names the market a fill's id points at, for a step on one market.
+    TRADE_URL: urlOf('trade'),
+    // LOCAL TEST only, labelled in tooling/profiles/test-owner-values/campaigns.json: the reconciler interval and the
+    // rollback window a reward record shows. Production stays blank: no reconciler runs, and the window reads "not set".
+    CAMPAIGNS_RECONCILE_AFTER_SECONDS: '5',
+    CAMPAIGNS_ROLLBACK_WINDOW_SECONDS: '86400',
   }),
 });

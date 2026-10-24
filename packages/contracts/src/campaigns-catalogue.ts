@@ -5,9 +5,12 @@ import { z } from 'zod';
  * hour windows and the budget limit of CM-eligibility-rules-03; J-campaigns-01 #1-#3, #6, #7). Shared by the service and
  * the customer app. Browser-safe: zod only.
  *
- * Amounts are decimal strings, never numbers. A campaign holds no balance: its budget is a limit, and nothing in this
- * version reserves or spends against it (the reward saga and its counters are CM-payouts-ledger-02). Joining moves
- * nothing.
+ * Amounts are decimal strings, never numbers. A campaign holds no balance: its budget is a limit, and what its reward
+ * intents reserve or spend is counted from those intents (CM-payouts-ledger-02). Joining moves nothing.
+ *
+ * Task campaigns (CM-tasks-quests-01, J-campaigns-02): steps that complete from verified events on the bus, a claim
+ * window that opens when the last step completes, an optional verification gate, and one reward intent per claim
+ * (`task:<campaign>:<account>:<period>`), paid once through the reward saga.
  */
 
 /** Every refusal the campaign doors name. The code leads the tRPC message in brackets, `... [campaign.not_active]`. */
@@ -35,6 +38,17 @@ export const CAMPAIGN_REFUSAL_CODES = [
   'campaigns.region_blocked',
   'campaigns.participant_unread',
   'campaigns.review_not_needed',
+  'campaigns.tasks_invalid',
+  'campaigns.claim_window_unset',
+  'campaigns.no_tasks',
+  'campaigns.not_joined',
+  'campaigns.tasks_incomplete',
+  'campaigns.kyc_required',
+  'campaigns.claim_expired',
+  'campaigns.budget_exhausted',
+  'campaigns.reward_saga_unwired',
+  'campaigns.funding_unknown',
+  'campaigns.funding_reference_taken',
   'owner.decision',
 ] as const;
 export type CampaignRefusalCode = (typeof CAMPAIGN_REFUSAL_CODES)[number];
@@ -116,7 +130,7 @@ export const campaignBudgetSchema = z.object({
   asset,
   /** The most the campaign may ask the reward pot for. A limit, not a balance. */
   limit: campaignDecimal,
-  /** What is not yet reserved or spent. Nothing reserves in this version (the reward saga does), so it equals the limit. */
+  /** The limit less what its reward intents reserve or spent (every intent that is not failed, forfeited or withheld). */
   left: campaignDecimal,
 });
 
@@ -128,6 +142,43 @@ export const campaignWindowsSchema = z.object({
   /** Null: all day. `to` after `from`, both in the platform time zone; a window does not cross midnight. */
   hours: z.object({ from: hhmm, to: hhmmEnd }).nullable(),
 });
+
+/** Bus events a task step can complete from. `trade.fill`: a spot fill svc-trade settled for the account. */
+export const TASK_EVENTS = ['trade.fill'] as const;
+export type TaskEvent = (typeof TASK_EVENTS)[number];
+
+/** The verification a claim needs, read from svc-identity per claim and never stored here. */
+export const KYC_GATES = ['none', 'basic', 'full'] as const;
+export type KycGate = (typeof KYC_GATES)[number];
+
+/** One step: `count` matching events, each counted once by its event id. A blank market or side matches any. */
+export const taskStepSchema = z
+  .object({
+    title: z.string().trim().min(1).max(120),
+    event: z.enum(TASK_EVENTS),
+    market: z
+      .string()
+      .regex(/^[A-Z0-9]{2,12}\/[A-Z0-9]{2,12}$/)
+      .nullable()
+      .default(null),
+    side: z.enum(['buy', 'sell']).nullable().default(null),
+    count: z.number().int().min(1).max(1000),
+  })
+  .strict();
+export type TaskStep = z.infer<typeof taskStepSchema>;
+
+/**
+ * A task campaign's steps, claim window and verification gate. The claim window (seconds after the last step completes)
+ * is an operator value per campaign: blank refuses activation `campaigns.claim_window_unset`, never a default.
+ */
+export const campaignTasksSchema = z
+  .object({
+    steps: z.array(taskStepSchema).min(1).max(10),
+    claimWindowSeconds: z.number().int().min(1).max(31_536_000).nullable(),
+    kycGate: z.enum(KYC_GATES),
+  })
+  .strict();
+export type CampaignTasks = z.infer<typeof campaignTasksSchema>;
 
 /** The full stored definition, as operators see it. */
 export const campaignSchema = z.object({
@@ -145,6 +196,8 @@ export const campaignSchema = z.object({
   participation: participationRulesSchema.nullable(),
   budget: campaignBudgetSchema.nullable(),
   reward: campaignRewardSchema.nullable(),
+  /** Steps, claim window and gate of a task campaign; null for any other campaign, or a task campaign with no steps. */
+  tasks: campaignTasksSchema.nullable(),
   createdBy: z.string(),
   submittedBy: z.string().nullable(),
   approvedBy: z.string().nullable(),
@@ -196,6 +249,7 @@ export const campaignViewSchema = z.object({
   budget: campaignBudgetSchema,
   /** Null reads "not set". */
   reward: campaignRewardSchema.nullable(),
+  tasks: campaignTasksSchema.nullable(),
   mine: participationSchema.nullable(),
   /** Read on a campaign's own page only; the catalogue and My campaigns leave it null. */
   eligibility: campaignEligibilitySchema.nullable(),
@@ -245,6 +299,8 @@ export const campaignDefinitionInputSchema = z
     participation: participationRulesSchema.nullish(),
     budget: z.object({ asset: z.string().max(16), limit: z.unknown() }).nullish(),
     reward: z.object({ asset: z.string().max(16), amount: z.unknown() }).nullish(),
+    /** Only for a `task` campaign: anything else refuses `campaigns.tasks_invalid`. */
+    tasks: campaignTasksSchema.nullish(),
   })
   .strict();
 export type CampaignDefinitionInput = z.infer<typeof campaignDefinitionInputSchema>;
@@ -272,3 +328,122 @@ export const campaignCalendarSchema = z.object({
   ),
 });
 export type CampaignCalendar = z.infer<typeof campaignCalendarSchema>;
+
+// ── Task progress, claims and the reward saga (CM-tasks-quests-01, CM-payouts-ledger-02) ─────────────────────────────
+
+/**
+ * A reward intent's state (ENGINE RW-1 to RW-11). `qualified`: written, not yet posted. `posting`: a post is in flight.
+ * `posted`: the ledger booked it (with its transaction). `pending_funding`: the reward pot could not cover it, the same
+ * key posts again later. `pending_retry`: the platform posting freeze refused it, the same key posts again after it lifts.
+ * `unknown`: the answer was lost; only the same key is ever posted again. `withheld`: the account is frozen, nothing is
+ * posted. `failed`: a definite refusal proved nothing was booked. `forfeited`: claimed after the claim window closed.
+ */
+export const REWARD_STATES = [
+  'qualified',
+  'posting',
+  'posted',
+  'pending_funding',
+  'pending_retry',
+  'unknown',
+  'withheld',
+  'failed',
+  'forfeited',
+] as const;
+export type RewardState = (typeof REWARD_STATES)[number];
+
+/** One line of the redemption log: every attempt, with its outcome and typed reason. */
+export const redemptionAttemptSchema = z.object({
+  at: iso,
+  outcome: z.enum(['qualified', 'posted', 'refused', 'unknown', 'withheld', 'forfeited']),
+  reason: z.string().nullable(),
+});
+export type RedemptionAttempt = z.infer<typeof redemptionAttemptSchema>;
+
+export const rewardRecordSchema = z.object({
+  /** The business key, `task:<campaign>:<account>:<period>`; the ledger key is `reward:` and this. */
+  rewardKey: z.string(),
+  campaignId: id,
+  asset,
+  amount: campaignDecimal,
+  state: z.enum(REWARD_STATES),
+  /** The typed reason of the last refusal or of a forfeit; null once posted. */
+  reason: z.string().nullable(),
+  /** The ledger transaction once posted. */
+  ledgerTxId: z.string().nullable(),
+  createdAt: iso,
+  postedAt: iso.nullable(),
+  /**
+   * The rollback window (an owner value; null reads "not set") and when it closes for this reward. A value-moving
+   * rollback needs a reversing recipe that does not exist yet, so it is never available here.
+   */
+  rollback: z.object({
+    windowSeconds: z.number().int().positive().nullable(),
+    closesAt: iso.nullable(),
+    blocker: z.literal('campaigns.reclaim_unavailable'),
+  }),
+  attempts: z.array(redemptionAttemptSchema),
+});
+export type RewardRecord = z.infer<typeof rewardRecordSchema>;
+
+/** The caller's own progress on one task campaign. Counts are of distinct events, so a redelivered event changes nothing. */
+export const taskProgressSchema = z.object({
+  campaignId: id,
+  joined: z.boolean(),
+  steps: z.array(
+    z.object({
+      index: z.number().int().min(0),
+      title: z.string(),
+      done: z.number().int().min(0),
+      target: z.number().int().positive(),
+      complete: z.boolean(),
+    }),
+  ),
+  completed: z.number().int().min(0),
+  total: z.number().int().min(0),
+  /** When the last step completed; the claim window opens then. */
+  completedAt: iso.nullable(),
+  claimClosesAt: iso.nullable(),
+  kycGate: z.enum(KYC_GATES),
+  reward: rewardRecordSchema.nullable(),
+});
+export type TaskProgress = z.infer<typeof taskProgressSchema>;
+
+export const taskProgressInputSchema = z.object({ campaignId: id }).strict();
+export const taskClaimInputSchema = z.object({ campaignId: id }).strict();
+export const taskClaimResultSchema = z.object({
+  reward: rewardRecordSchema,
+  /** False when the account had claimed before: the first claim's reward is returned. */
+  created: z.boolean(),
+});
+export type TaskClaimResult = z.infer<typeof taskClaimResultSchema>;
+
+/** Operator reward records (founder-ops and finance): every intent with its account, newest first. */
+export const payoutRecordSchema = rewardRecordSchema.extend({ accountId: z.string() });
+export const payoutRecordListSchema = z.object({ records: z.array(payoutRecordSchema) });
+export type PayoutRecordList = z.infer<typeof payoutRecordListSchema>;
+
+/**
+ * Funding the one reward pot from fee revenue the platform earned (`sweepFeesToRewards`): one operator asks, a different
+ * one approves, and the approval posts under `token.fee.sweep:campaigns:<reference>:<module>:<asset>`. A refusal (the fee
+ * account cannot cover it) is final for that reference.
+ */
+export const POT_SOURCE_MODULES = ['trade'] as const;
+const reference = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9-]{2,63}$/);
+export const potFundingSchema = z.object({
+  reference,
+  sourceModule: z.enum(POT_SOURCE_MODULES),
+  asset,
+  amount: campaignDecimal,
+  state: z.enum(['requested', 'posting', 'posted', 'refused', 'unknown']),
+  reason: z.string().nullable(),
+  requestedBy: z.string(),
+  approvedBy: z.string().nullable(),
+  ledgerTxId: z.string().nullable(),
+  createdAt: iso,
+  updatedAt: iso,
+});
+export type PotFunding = z.infer<typeof potFundingSchema>;
+export const potFundingRequestInputSchema = z
+  .object({ reference, sourceModule: z.enum(POT_SOURCE_MODULES), asset: z.string().max(16), amount: z.unknown() })
+  .strict();
+export const potFundingApproveInputSchema = z.object({ reference }).strict();
