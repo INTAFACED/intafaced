@@ -32,6 +32,7 @@ import { TakeStepUpError, unwiredTakeStepUp, type TakeStepUp, type TakeStepUpCal
 import { unwiredReleaseStepUp, type ReleaseStepUp } from './release-step-up.js';
 import type { PublicProfileLookup } from './public-profile.js';
 import type { ReminderState } from './seller-reminders.js';
+import { MISMATCH_CLASSIFICATIONS, MISMATCH_KINDS, type MismatchReport } from './amount-mismatch.js';
 import { moderationHonestySchema, moderationOnPublicDoor } from './moderation-honesty.js';
 import {
   ceilingOnWire,
@@ -234,6 +235,20 @@ const reminderOutput = z.object({
 });
 
 /**
+ * P-trade-orders-20: the seller's report of what arrived in their bank, and how the owner's band classified it:
+ * `within_tolerance` (the order goes on), `outside_tolerance` (the seller is not to release; the dispute path is the way
+ * on) or `reported` (the band is blank, so a person decides through a dispute). `toleranceBps` is the band used.
+ */
+const mismatchOutput = z.object({
+  kind: z.enum(MISMATCH_KINDS),
+  amountReceived: amountString,
+  expected: amountString,
+  classification: z.enum(MISMATCH_CLASSIFICATIONS),
+  toleranceBps: z.number().int().nonnegative().nullable(),
+  reportedAt: z.string().datetime(),
+});
+
+/**
  * One order as its page reads it: the ad's terms as they were when it was placed (null before terms were copied), the
  * readable status the order list shows, the fee rate frozen at take, and, for a released order only, the split the
  * ledger's escrow release posts from that rate (`mulBps`, fee off the escrowed amount). A refund or a void takes no fee,
@@ -260,6 +275,8 @@ const tradeDetailOutput = tradeOutput.extend({
   escrowHeld: amountString.nullable(),
   /** P-trade-orders-15: the buyer's reminders to the seller on this order. */
   reminders: reminderOutput,
+  /** P-trade-orders-20: the seller's amount report on this order, or null. */
+  mismatch: mismatchOutput.nullable(),
 });
 
 const blockQuoteOutput = z.object({
@@ -618,6 +635,8 @@ function toTrpcError(err: unknown): TRPCError {
       // A reminder before the wait has passed (the error data says when it may go), or past the owner's count.
       case 'p2p.remind_too_early':
       case 'p2p.remind_rate_limited':
+      // One amount report per order: more goes to the dispute.
+      case 'p2p.mismatch_report_exists':
       // Selling into a buy ad from a balance that falls short: nothing was held; the error data says by how much.
       case 'p2p.insufficient_balance':
       // A sell ad whose maker holds less than it offers: the order was voided and nothing is held.
@@ -1510,6 +1529,26 @@ export function createP2pRouter(
         .output(reminderOutput)
         .mutation(async ({ ctx, input }) => guard(async () => toReminderOut(await p2p.remindSeller(input.tradeId, ctx.principal.userId)))),
 
+      /**
+       * P-trade-orders-20 / J-p2p-02 #3: the seller of a paid order reports an under-, over- or part payment found in
+       * their own bank. Answers the classification; the order stays paid either way and nothing moves. Refuses
+       * `p2p.invalid_amount` when the amount contradicts the kind, and `p2p.mismatch_report_exists` for a second,
+       * different report.
+       */
+      reportMismatch: merchantApiProcedure('p2p:write')
+        .input(z.object({ tradeId: z.string().guid(), kind: z.enum(MISMATCH_KINDS), amountReceived: amountString }))
+        .output(mismatchOutput)
+        .mutation(async ({ ctx, input }) =>
+          guard(async () =>
+            toMismatchOut(
+              await p2p.reportMismatch(input.tradeId, ctx.principal.userId, {
+                kind: input.kind,
+                amountReceived: parseAmount(input.amountReceived),
+              }),
+            ),
+          ),
+        ),
+
       /** Cancel → `escrowRefund`, in full, to the seller. */
       cancel: merchantApiProcedure('p2p:write')
         .input(z.object({ tradeId: z.string().guid(), reason: z.string().max(200).optional() }))
@@ -1538,6 +1577,7 @@ export function createP2pRouter(
               releasePreview: releasePreview(trade),
               escrowHeld: escrowHeld(trade),
               reminders: toReminderOut(await p2p.reminderState(trade)),
+              mismatch: await p2p.mismatchReport(trade.id).then((report) => (report ? toMismatchOut(report) : null)),
             };
           }),
         ),
@@ -3521,6 +3561,17 @@ function escrowHeld(trade: { status: string; resolution: string | null; settledA
   if (trade.status === 'created') return null;
   if (trade.resolution === null || trade.settledAt === null) return formatAmount(trade.amount);
   return '0';
+}
+
+function toMismatchOut(report: MismatchReport): z.infer<typeof mismatchOutput> {
+  return {
+    kind: report.kind,
+    amountReceived: formatAmount(report.amountReceived),
+    expected: formatAmount(report.expected),
+    classification: report.classification,
+    toleranceBps: report.toleranceBps,
+    reportedAt: report.reportedAt.toISOString(),
+  };
 }
 
 function toReminderOut(state: ReminderState): z.infer<typeof reminderOutput> {

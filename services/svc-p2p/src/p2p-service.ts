@@ -146,6 +146,13 @@ import { recordSwallowed, withMoneySpan, withSpan } from './tracing.js';
 import { affiliateLegAfterP2pRelease, fireAffiliateAccrue, NoopAffiliateAccrue, type AffiliateAccruePort } from './affiliate-accrue.js';
 import { fireAffiliatePayout, NoopAffiliatePayout, type AffiliatePayoutPort } from './affiliate-payout.js';
 import { nextReminderAt, type ReminderPolicy, type ReminderState } from './seller-reminders.js';
+import {
+  assertMismatchAmount,
+  classifyMismatch,
+  type MismatchClassification,
+  type MismatchKind,
+  type MismatchReport,
+} from './amount-mismatch.js';
 
 /**
  * svc-p2p — PEER-TO-PEER TRADING WITH ESCROW (§6.2).
@@ -198,6 +205,7 @@ export type P2pErrorCode =
   | 'p2p.offer_unfunded'
   | 'p2p.remind_too_early'
   | 'p2p.remind_rate_limited'
+  | 'p2p.mismatch_report_exists'
   | 'p2p.pair_limit_exceeded'
   | 'p2p.method_delisted'
   | 'p2p.offer_not_found'
@@ -737,6 +745,11 @@ export interface P2pServiceOptions {
    * always passes the owner's values, where blank refuses every reminder `p2p.config_unset`; omitted is unset too.
    */
   reminders?: ReminderPolicy;
+  /**
+   * P-trade-orders-20. The owner's amount-mismatch band, in basis points of the order's fiat amount. Blank (null or
+   * omitted) classifies nothing: every report goes to a person.
+   */
+  mismatchToleranceBps?: number | null;
 }
 
 /**
@@ -1113,6 +1126,28 @@ function assertQuoteTerms(row: QuoteRow, now: { offerPrice: Amount; price: Amoun
  * microseconds down to JS millisecond precision, so a value read here and bound
  * back into a column is always <= the true transaction timestamp, never past it.
  */
+type MismatchRow = {
+  trade_id: string;
+  kind: MismatchKind;
+  amount_received: string;
+  expected: string;
+  classification: MismatchClassification;
+  tolerance_bps: number | null;
+  reported_at: Date;
+};
+
+function toMismatch(row: MismatchRow): MismatchReport {
+  return {
+    tradeId: row.trade_id,
+    kind: row.kind,
+    amountReceived: parseAmount(row.amount_received),
+    expected: parseAmount(row.expected),
+    classification: row.classification,
+    toleranceBps: row.tolerance_bps,
+    reportedAt: new Date(row.reported_at),
+  };
+}
+
 async function txNow(tx: Sql): Promise<Date> {
   const rows = await tx<Array<{ now: Date }>>`SELECT now() AS now`;
   return rows[0]!.now;
@@ -1135,6 +1170,7 @@ export class P2pService {
   private readonly reviewEditWindowSeconds: number | undefined;
   private readonly takeLimits: TakeLimits | undefined;
   private readonly reminders: ReminderPolicy;
+  private readonly mismatchToleranceBps: number | null;
   private tradingEnabled: boolean;
 
   /**
@@ -1172,6 +1208,7 @@ export class P2pService {
     this.reviewEditWindowSeconds = options.reviewEditWindowSeconds;
     this.takeLimits = options.takeLimits;
     this.reminders = options.reminders ?? { waitSeconds: null, max: null };
+    this.mismatchToleranceBps = options.mismatchToleranceBps ?? null;
   }
 
   /**
@@ -2566,6 +2603,75 @@ export class P2pService {
       }
     }
     return { sent, failures };
+  }
+
+  // ── Amount mismatch (P-trade-orders-20) ──────────────────────────────────────
+
+  /**
+   * J-p2p-02 #3: the seller of a paid order reports that the money in their own bank is not the order's amount. One
+   * report per order, written under the order's lock and classified by the owner's band then. The same report again
+   * (a lost reply) returns the first; a different one refuses `p2p.mismatch_report_exists`. Nothing moves and the order
+   * stays paid: a report never releases, and outside the band the dispute path is the way on.
+   */
+  async reportMismatch(tradeId: string, actorId: string, input: { kind: MismatchKind; amountReceived: Amount }): Promise<MismatchReport> {
+    return withSpan('p2p.reportMismatch', async () =>
+      transaction(
+        this.sql,
+        async (tx) => {
+          const trade = await this.lockTrade(tx, tradeId);
+          if (trade.buyerId !== actorId && trade.sellerId !== actorId) throw unknownTrade(tradeId);
+          if (trade.sellerId !== actorId) {
+            throw new P2pError('Only the seller, who receives the payment, can report what arrived', 'p2p.not_the_seller');
+          }
+          const [existing] = await tx<MismatchRow[]>`
+            SELECT trade_id, kind, amount_received::text, expected::text, classification, tolerance_bps, reported_at
+              FROM p2p.trade_mismatches WHERE trade_id = ${tradeId}
+          `;
+          if (existing) {
+            const report = toMismatch(existing);
+            if (report.kind === input.kind && report.amountReceived === input.amountReceived) return report;
+            throw new P2pError('This order already has an amount report; open a dispute to add to it', 'p2p.mismatch_report_exists');
+          }
+          if (trade.status !== 'fiat_sent') {
+            throw new TradeStateError(
+              `Trade ${tradeId} is ${trade.status}: an amount report is for a paid order waiting on release`,
+              isTerminal(trade.status) ? 'p2p.trade_terminal' : 'p2p.invalid_transition',
+              trade.status,
+              'fiat_sent',
+            );
+          }
+          assertMismatchAmount(input.kind, input.amountReceived, trade.fiatAmount, trade.fiatCurrency);
+          const toleranceBps = this.mismatchToleranceBps;
+          const classification = classifyMismatch(input.amountReceived, trade.fiatAmount, toleranceBps);
+          const now = await txNow(tx);
+          await tx`
+            INSERT INTO p2p.trade_mismatches
+              (trade_id, seller_id, kind, amount_received, expected, classification, tolerance_bps, reported_at)
+            VALUES (${tradeId}, ${actorId}, ${input.kind}, ${formatAmount(input.amountReceived)}::numeric,
+                    ${formatAmount(trade.fiatAmount)}::numeric, ${classification}, ${toleranceBps}, ${now})
+          `;
+          return {
+            tradeId,
+            kind: input.kind,
+            amountReceived: input.amountReceived,
+            expected: trade.fiatAmount,
+            classification,
+            toleranceBps,
+            reportedAt: now,
+          };
+        },
+        { isolation: 'read committed', maxAttempts: 5 },
+      ),
+    );
+  }
+
+  /** An order's amount report, or null. Reads only; callers filter parties first. */
+  async mismatchReport(tradeId: string): Promise<MismatchReport | null> {
+    const [row] = await this.sql<MismatchRow[]>`
+      SELECT trade_id, kind, amount_received::text, expected::text, classification, tolerance_bps, reported_at
+        FROM p2p.trade_mismatches WHERE trade_id = ${tradeId}
+    `;
+    return row ? toMismatch(row) : null;
   }
 
   // ── Release · refund · dispute ─────────────────────────────────────────────

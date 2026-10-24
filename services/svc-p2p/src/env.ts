@@ -95,6 +95,13 @@ const schema = serviceEnvSchema
       P2P_REMIND_MAX: ownerInt,
 
       /**
+       * P-trade-orders-20. Basis points of an order's fiat amount within which a reported under-, over- or part payment
+       * lets the order go on (0 is the exact amount only, at most 10000). Empty is unset: no report is classified and
+       * every one goes to a person through a dispute.
+       */
+      P2P_MISMATCH_TOLERANCE_BPS: ownerInt,
+
+      /**
        * P-trade-orders-03. Per-order fiat bounds by pair, as JSON decimal strings: `{"USDT/EUR":{"min":"10","max":"5000"}}`.
        * Empty is unset and a pair missing from the table is unset for that pair: those takes refuse `p2p.config_unset`.
        */
