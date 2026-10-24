@@ -523,7 +523,7 @@ function StepGoLive(props: OnboardingViewProps) {
   const [railId, setRailId] = useState('');
   const [ref, setRef] = useState('');
   const [proof, setProof] = useState<DestinationProof>({ code: '' });
-  useUnsavedForm(Boolean(ref) && ref.trim() !== saved?.ref, a('acUnsaved'));
+  useUnsavedForm(Boolean(ref) && normaliseReference(ref) !== saved?.ref, a('acUnsaved'));
   if (!merchant) return <EmptyState title={t('needStep1Title')}>{t('needStep1Body')}</EmptyState>;
   const steps = stepStates(props);
   const onFile = steps.progress?.destination.destinations ?? [];
