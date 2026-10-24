@@ -454,6 +454,7 @@ export type BankErrorCode =
    * it matches identity's uniform `{ found: false }`. Refused before any posting.
    */
   | 'bank.recipient_cannot_receive'
+  | 'bank.sender_cannot_send'
   /** Identity could not answer the recipient check (outage, timeout, bad reply). Nothing posted; retry with the same id. */
   | 'bank.recipient_check_unavailable'
   /** No IDENTITY_URL: this deployment cannot check recipients, so it refuses to credit another user. A deployment gap, not an outage. */

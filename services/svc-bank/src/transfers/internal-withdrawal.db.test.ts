@@ -113,6 +113,50 @@ describe('internal withdrawal settlement (Postgres)', () => {
     expect(await available(ADA)).toBe('100');
   });
 
+  it('refuses a frozen sender before anything is reserved or posted', async () => {
+    recipients.set(ADA, 'frozen');
+    expect(await settle(W1, '20')).toEqual({ state: 'refused', code: 'bank.sender_cannot_send' });
+    expect(sends()).toHaveLength(0);
+    expect(await sql`SELECT 1 FROM bank.personal_transfers`).toHaveLength(0);
+    expect(await sql`SELECT 1 FROM bank.spaces WHERE user_id = ${ADA}`).toHaveLength(0);
+  });
+
+  it('a refusal while an earlier ask under the key may still post is not a refusal: it throws, and after the bound it is', async () => {
+    const at = new Date('2026-10-24T12:00:00.000Z');
+    await bank.spaces.ensurePrimary(ADA, 'USDT');
+    const from = await bank.spaces.findPrimary(ADA, 'USDT');
+    // An earlier ask reserved the send and its post never answered.
+    await sql`
+      INSERT INTO bank.personal_transfers (transfer_id, from_user_id, from_space_id, to_user_id, asset_id, amount, status, created_at)
+      VALUES (${`withdraw:${W1}`}, ${ADA}, ${from!.id}, ${BOB}, 'USDT', 20, 'reserved', ${at})
+    `;
+    recipients.set(BOB, 'frozen');
+    const ask = (minutes: number) =>
+      bank.personalPay.settleWithdrawal({
+        transferId: internalWithdrawalTransferId(W1),
+        fromUserId: ADA,
+        toUserId: BOB,
+        assetId: 'USDT',
+        amount: parseAmount('20'),
+        now: new Date(at.getTime() + minutes * 60_000),
+      });
+    await expect(ask(1)).rejects.toMatchObject({ code: 'bank.recipient_cannot_receive' });
+    expect(sends()).toHaveLength(0);
+    // The send's refusal path dropped the reservation, so recreate it as the earlier ask left it, past the bound.
+    await sql`
+      INSERT INTO bank.personal_transfers (transfer_id, from_user_id, from_space_id, to_user_id, asset_id, amount, status, created_at)
+      VALUES (${`withdraw:${W1}`}, ${ADA}, ${from!.id}, ${BOB}, 'USDT', 20, 'reserved', ${at})
+      ON CONFLICT DO NOTHING
+    `;
+    expect(await ask(8)).toEqual({ state: 'refused', code: 'bank.recipient_cannot_receive' });
+  });
+
+  it('a key already filed for a different send is never a refusal', async () => {
+    await settle(W1, '20');
+    await expect(settle(W1, '25')).rejects.toMatchObject({ code: 'bank.personal_transfer_conflict' });
+    expect(sends()).toHaveLength(1);
+  });
+
   it('keeps the person-to-person limits: above the per-transfer limit is refused and nothing posts', async () => {
     expect(await settle(W1, '60')).toEqual({ state: 'refused', code: 'bank.personal_transfer_limit_exceeded' });
     expect(sends()).toHaveLength(0);

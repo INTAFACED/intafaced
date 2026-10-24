@@ -12,8 +12,13 @@ import type { ServiceName } from './service-keys.js';
  * and the withdrawal row is unique per person and client reference), so a retry after a lost answer is the same send and posts
  * once. svc-bank keeps its own reservation row for it, so the receiver's transfer history names the sender.
  *
+ * NO HOLD FIRST. The send debits the sender's available balance, so svc-pay places no `withdrawHold` on this branch (a hold
+ * would take the same money twice, or make the send refuse). Nothing is held while the call runs: the send itself checks the
+ * balance under svc-bank's lock and the ledger's.
+ *
  * THREE ANSWERS, AND ONLY ONE IS A REFUSAL. `posted` carries the ledger transaction. `refused` means svc-bank proved nothing
- * was posted under the key (a named refusal before or by the ledger), so svc-pay may close the withdrawal as failed. Anything
+ * was posted under the key (a named refusal before or by the ledger, with no earlier ask under the key still inside the
+ * ledger's in-flight bound), so svc-pay may close the withdrawal as failed. Anything
  * else, a timeout, a 5xx, a reply that does not parse, is `unknown`: the send may still land, and svc-pay keeps the withdrawal
  * open and asks again with the same key.
  */

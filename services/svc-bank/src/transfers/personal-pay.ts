@@ -13,6 +13,7 @@ import type { Sql, TransactionSql } from 'postgres';
 import {
   bankTransferKey,
   formatAmount,
+  POST_IN_FLIGHT_BOUND_SECONDS,
   provesPostNotCommitted,
   parseAmount,
   type Amount,
@@ -225,7 +226,7 @@ export class PersonalPayService {
     private readonly sql: Sql,
     private readonly ledger: Pick<LedgerClient, 'getTx' | 'getTxByKey' | 'balance'>,
     private readonly transfers: Pick<TransferService, 'transferToUser'>,
-    private readonly spaces: Pick<SpaceService, 'get' | 'findPrimary' | 'ensurePrimary'>,
+    private readonly spaces: Pick<SpaceService, 'get' | 'findPrimary' | 'ensurePrimary' | 'assertCanReceive'>,
     private readonly options: {
       handles?: PartyHandlePort;
       notices?: PersonalRequestNotices;
@@ -386,8 +387,22 @@ export class PersonalPayService {
     toUserId: string;
     assetId: string;
     amount: Amount;
+    now?: Date;
   }): Promise<{ state: 'posted'; transferId: string; ledgerTxId: string } | { state: 'refused'; code: string }> {
+    const now = this.now(input.now);
+    // An earlier ask under this key that is still inside the ledger's in-flight bound may yet post, so no refusal from this
+    // ask can prove the key empty: such a refusal throws ("unknown") and svc-pay asks again later.
+    const [earlier] = await this.sql<Array<{ created_at: Date }>>`
+      SELECT created_at FROM bank.personal_transfers WHERE transfer_id = ${input.transferId} AND status = 'reserved'
+    `;
+    const earlierInFlight = earlier !== undefined && now.getTime() - earlier.created_at.getTime() < POST_IN_FLIGHT_BOUND_SECONDS * 1000;
     try {
+      // No edge stands in front of this door, so the sender's own account state is asked here, as it is for a receiver.
+      await this.spaces.assertCanReceive(input.fromUserId).catch((err: unknown) => {
+        if (err instanceof BankError && err.code === 'bank.recipient_cannot_receive')
+          throw new BankError('The sending account cannot send money right now; nothing was sent.', 'bank.sender_cannot_send');
+        throw err;
+      });
       const from =
         (await this.spaces.findPrimary(input.fromUserId, input.assetId)) ??
         (await this.spaces.ensurePrimary(input.fromUserId, input.assetId));
@@ -397,6 +412,7 @@ export class PersonalPayService {
         fromSpaceId: from.id,
         toUserId: input.toUserId,
         amount: input.amount,
+        now,
       });
       return { state: 'posted', transferId: sent.transferId, ledgerTxId: sent.ledgerTxId };
     } catch (err) {
@@ -410,6 +426,8 @@ export class PersonalPayService {
           return { state: 'posted', transferId: input.transferId, ledgerTxId: booked.id };
         throw err;
       }
+      // A conflict means something is already filed under this key: never a licence to close.
+      if (earlierInFlight || (err instanceof BankError && err.code === 'bank.personal_transfer_conflict')) throw err;
       const code = (err as { code?: unknown }).code;
       return { state: 'refused', code: typeof code === 'string' && code ? code : 'bank.internal_withdrawal_refused' };
     }

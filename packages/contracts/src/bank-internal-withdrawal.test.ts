@@ -1,3 +1,4 @@
+import { generateKeyPairSync } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import {
   BANK_INTERNAL_WITHDRAWAL_CALLERS,
@@ -8,7 +9,9 @@ import {
   internalWithdrawalTransferId,
   verifyServiceHeaders,
 } from './index.js';
-import { SERVICE_NAMES } from './service-keys.js';
+import { SERVICE_NAMES, createServiceSigner, createServiceVerifier, type Keyring } from './service-keys.js';
+import { verifyServiceRequest } from './service-auth-http.js';
+import { SERVICE_HEADER, SERVICE_SIGNATURE_HEADER } from './service-auth.js';
 
 const WITHDRAWAL = '11111111-1111-4111-8111-111111111111';
 const SECRET = 'internal-withdrawal-secret-long-enough';
@@ -76,6 +79,31 @@ describe('bank internal withdrawal client', () => {
       verifyServiceHeaders(headers, SECRET, { rawBody: { retained: true, bytes: Buffer.from(String(init.body)) }, mode: 'require' })
         .service,
     ).toBe('svc-pay');
+  });
+
+  it('with the svc-pay key in keypair mode it sends the key signature only, and the svc-bank verifier accepts it', async () => {
+    const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+    const pkcs8 = privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64url');
+    const x = publicKey.export({ format: 'der', type: 'spki' }).subarray(-32).toString('base64url');
+    const keyring: Keyring = [{ kid: 'svc-pay.a', svc: 'svc-pay', use: 's2s', x }];
+    const signer = createServiceSigner({ service: 'svc-pay', kid: 'svc-pay.a', privateKey: pkcs8, keyring });
+    const fetcher = vi.fn(async () => reply({ state: 'posted', transferId: input.transferId, ledgerTxId: 'tx-1' }));
+    const client = createBankInternalWithdrawalClient({
+      bankUrl: 'http://bank.internal:4010',
+      secret: SECRET,
+      s2s: { signer, mode: 'keypair' },
+      fetcher,
+    });
+    await expect(client.settle(input)).resolves.toMatchObject({ state: 'posted' });
+    const [url, init] = fetcher.mock.calls[0] as unknown as [string, RequestInit];
+    const headers = init.headers as Record<string, string>;
+    expect(headers[SERVICE_HEADER]).toBeUndefined();
+    expect(headers[SERVICE_SIGNATURE_HEADER]).toBeUndefined();
+    const verdict = verifyServiceRequest(
+      { method: 'POST', url: new URL(url).pathname, headers, body: String(init.body) },
+      { verifier: createServiceVerifier({ self: 'svc-bank', keyring, bootSecond: 0 }), legacySecret: SECRET, mode: 'keypair' },
+    );
+    expect(verdict).toMatchObject({ service: 'svc-pay', scheme: 'keypair' });
   });
 
   it('passes a refusal through as a refusal', async () => {
