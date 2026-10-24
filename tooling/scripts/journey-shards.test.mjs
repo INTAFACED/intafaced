@@ -1,7 +1,10 @@
 // Proves the journey shard split without a run. Run: node --test tooling/scripts/journey-shards.test.mjs
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { fileDurations, planShards } from './journey-shards.mjs';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { fileDurations, journeyFiles, longestDurations, planShards } from './journey-shards.mjs';
 
 const report = {
   suites: [
@@ -14,12 +17,12 @@ const report = {
   ],
 };
 
-test('sums every result of every test per file, by base name', () => {
+test('sums every result of every test per file, by its path in the report', () => {
   assert.deepEqual(
     [...fileDurations(report)],
     [
       ['J-bank-04.pw.mjs', 1750],
-      ['J-p2p-01.pw.mjs', 400],
+      ['nested/J-p2p-01.pw.mjs', 400],
     ],
   );
 });
@@ -27,6 +30,35 @@ test('sums every result of every test per file, by base name', () => {
 test('a report with no suites gives no durations', () => {
   assert.equal(fileDurations({}).size, 0);
   assert.equal(fileDurations(undefined).size, 0);
+});
+
+test('each file counts its longest time across runs', () => {
+  const cut = new Map([['a', 5]]);
+  const full = new Map([
+    ['a', 50],
+    ['b', 7],
+  ]);
+  assert.deepEqual(
+    [...longestDurations([cut, full, new Map()])],
+    [
+      ['a', 50],
+      ['b', 7],
+    ],
+  );
+});
+
+test('finds journey files in nested folders, never in node_modules', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'journey-shards-'));
+  for (const f of ['J-a.pw.mjs', 'bank/J-b.pw.mjs', 'helper.mjs', 'node_modules/x/J-c.pw.mjs']) {
+    fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true });
+    fs.writeFileSync(path.join(dir, f), '');
+  }
+  assert.deepEqual(journeyFiles(dir), ['J-a.pw.mjs', 'bank/J-b.pw.mjs']);
+  fs.rmSync(dir, { recursive: true });
+});
+
+test('refuses a file name that would match other files as a glob', () => {
+  assert.throws(() => planShards(['J-x-[a].pw.mjs', 'b'], new Map(), 1), /as a glob/);
 });
 
 test('the long file gets a shard to itself and the rest balance around it', () => {
