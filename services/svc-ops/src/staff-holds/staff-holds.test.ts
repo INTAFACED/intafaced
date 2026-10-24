@@ -113,6 +113,10 @@ class TestLedger implements StaffHoldLedger {
   loseReplies = 0;
   /** Fail before sending this many times (the reply proves nothing either way). */
   timeouts = 0;
+  /** Refuse the next post with this engine code. */
+  refuseNext: string | null = null;
+  /** Reads by key that fail, by key. */
+  readFails = new Set<string>();
   posts = 0;
 
   async post(request: PostRequest): Promise<LedgerTx> {
@@ -122,6 +126,11 @@ class TestLedger implements StaffHoldLedger {
       throw new Error('svc-ledger timed out');
     }
     if (this.frozen) throw new LedgerError('ledger is frozen', 'ledger.frozen');
+    if (this.refuseNext) {
+      const code = this.refuseNext;
+      this.refuseNext = null;
+      throw new LedgerError('refused', code);
+    }
     const tx = await this.book.post(request);
     if (this.loseReplies > 0) {
       this.loseReplies -= 1;
@@ -130,7 +139,8 @@ class TestLedger implements StaffHoldLedger {
     return tx;
   }
 
-  getTxByKey(key: string) {
+  async getTxByKey(key: string) {
+    if (this.readFails.has(key)) throw new Error('svc-ledger read timed out');
     return this.book.getTxByKey(key);
   }
 
@@ -150,18 +160,21 @@ async function build(options: { settings?: StaffHoldSettings; store?: StaffHoldS
     );
   }
   let clock = START;
+  const errors: string[] = [];
   const desk = new StaffHoldDesk({
     store: options.store === null ? undefined : (options.store ?? new MemoryStaffHoldStore()),
     ledger: ledger ?? undefined,
     approvals: ids,
     settings: options.settings ?? SETTINGS,
     now: () => new Date(clock),
+    onWorkerError: (holdNo) => errors.push(holdNo),
   });
   const router = createOpsRouter(new OpsService(), undefined, { approvals: ids, staffHolds: desk });
   return {
     ids,
     ledger: ledger!,
     desk,
+    errors,
     advance: (ms: number) => {
       clock += ms;
     },
@@ -357,6 +370,71 @@ describe('staff holds on funds (OPS-accounts-desk-01)', () => {
     const [hold] = (await c.staffHolds.list({ userId: CUSTOMER })).holds;
     expect(hold).toMatchObject({ state: 'refused', movements: [{ status: 'refused', code: 'ledger.post_lost' }] });
     expect(await ledger.balance(available())).toBe('100');
+  });
+
+  it('a post in doubt is never sent again: resolving every 5 seconds reads its key and settles it lost at the bound', async () => {
+    const { caller, ledger, desk, advance } = await build();
+    ledger.timeouts = 1;
+    const c = await caller();
+    expect(await c.staffHolds.place(place())).toMatchObject({ outcome: 'settling' });
+    for (let s = 5; s < 420; s += 5) {
+      advance(5_000);
+      await desk.resolve();
+    }
+    expect((await c.staffHolds.list({ userId: CUSTOMER })).holds[0]).toMatchObject({ state: 'placing' });
+    advance(5_000);
+    await desk.resolve();
+    expect((await c.staffHolds.list({ userId: CUSTOMER })).holds[0]).toMatchObject({
+      state: 'refused',
+      movements: [{ status: 'refused', code: 'ledger.post_lost' }],
+    });
+    expect(ledger.posts).toBe(1);
+  });
+
+  it('an expiry release the ledger refuses is not tried again, and the other expired holds still release', async () => {
+    const { caller, ledger, desk, advance } = await build();
+    const c = await caller();
+    await c.staffHolds.place(place('40', { expiresInHours: 1 }));
+    await c.staffHolds.place(place('10', { expiresInHours: 1, idempotencyKey: 'console:place:0002' }));
+    advance(60 * 60_000);
+    ledger.refuseNext = 'ledger.invalid_entry';
+    expect(await desk.expireDue()).toBe(2);
+    expect(await desk.expireDue()).toBe(0);
+    const holds = (await c.staffHolds.list({ userId: CUSTOMER })).holds;
+    expect(holds.find((h) => h.holdNo === '1')).toMatchObject({ state: 'active', remaining: '40' });
+    expect(holds.find((h) => h.holdNo === '1')!.movements[1]).toMatchObject({
+      cause: 'expiry',
+      status: 'refused',
+      code: 'ledger.invalid_entry',
+    });
+    expect(holds.find((h) => h.holdNo === '2')).toMatchObject({ state: 'expired', remaining: '0' });
+    expect(ledger.posts).toBe(4);
+  });
+
+  it('a ledger read that fails on one hold does not stop the others from settling', async () => {
+    const { caller, ledger, desk, errors, advance } = await build();
+    const c = await caller();
+    ledger.timeouts = 2;
+    await c.staffHolds.place(place('40'));
+    await c.staffHolds.place(place('10', { idempotencyKey: 'console:place:0002' }));
+    ledger.readFails.add('ops:hold:1');
+    advance(421_000);
+    await desk.resolve();
+    expect(errors).toEqual(['1']);
+    const holds = (await c.staffHolds.list({ userId: CUSTOMER })).holds;
+    expect(holds.find((h) => h.holdNo === '1')).toMatchObject({ state: 'placing' });
+    expect(holds.find((h) => h.holdNo === '2')).toMatchObject({ state: 'refused' });
+  });
+
+  it('a retried place answers from the stored hold after the owner changes the expiry setting; a different expiry is a conflict', async () => {
+    const settings = { confirmAccount: 'held-funds', expiryMaxHours: 24 as number | null };
+    const { caller, ledger } = await build({ settings });
+    const c = await caller();
+    await c.staffHolds.place(place('40', { expiresInHours: 2 }));
+    settings.expiryMaxHours = null;
+    expect(await c.staffHolds.place(place('40', { expiresInHours: 2 }))).toMatchObject({ outcome: 'replayed' });
+    await expect(c.staffHolds.place(place('40', { expiresInHours: null }))).rejects.toMatchObject({ code: 'CONFLICT' });
+    expect(ledger.posts).toBe(1);
   });
 
   it('place, release and confirm need admin:treasury; the list needs admin:read', async () => {

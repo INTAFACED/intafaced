@@ -1,5 +1,5 @@
 import type { Sql, TransactionSql } from 'postgres';
-import type { StaffHoldState } from '@intafaced/contracts';
+import { normaliseStaffHoldAmount, type StaffHoldState } from '@intafaced/contracts';
 
 /**
  * Staff hold rows and the ledger posts made for them (OPS-accounts-desk-01). The balance itself lives in the ledger
@@ -95,7 +95,7 @@ export interface LockedHold {
   addMovement(movement: NewMovement): Promise<MovementRow>;
   /** Record one post's answer for a movement, and the hold's new remaining amount and state. */
   settle(requestKey: string, outcome: AttemptOutcome, hold: { remaining: string; state: StaffHoldState }): Promise<void>;
-  /** Count one more post sent under the movement's key. */
+  /** Count one more post sent under the movement's key. The movement is `settling` from here until its answer is recorded. */
   attempt(requestKey: string, at: string): Promise<void>;
 }
 
@@ -106,7 +106,10 @@ export interface StaffHoldStore {
   /** Create a hold at `placing` with its place movement at `settling` (key `ops:hold:<holdNo>`), or return the one stored under the key. */
   placeIntent(hold: NewHold): Promise<{ hold: HoldRow; movement: MovementRow; created: boolean }>;
   lock<T>(holdNo: string, fn: (locked: LockedHold) => Promise<T>): Promise<T | null>;
-  /** Holds whose expiry has passed and that still hold something (`active` or `partially_released`). */
+  /**
+   * Holds whose expiry has passed and that still hold something (`active` or `partially_released`), with no movement
+   * open and no expiry release the ledger refused.
+   */
   expired(nowIso: string, limit: number): Promise<string[]>;
   /** Holds with a movement that is `settling` or `pending_retry`. */
   unsettled(limit: number): Promise<string[]>;
@@ -208,7 +211,7 @@ export class MemoryStaffHoldStore implements StaffHoldStore {
         },
         attempt: async (requestKey, at) => {
           const m = this.movements.find((r) => r.requestKey === requestKey)!;
-          update(requestKey, { attempts: m.attempts + 1, lastAttemptAt: at });
+          update(requestKey, { status: 'settling', attempts: m.attempts + 1, lastAttemptAt: at });
         },
       });
     });
@@ -222,6 +225,14 @@ export class MemoryStaffHoldStore implements StaffHoldStore {
   async expired(nowIso: string, limit: number) {
     return [...this.holds.values()]
       .filter((h) => h.expiresAt !== null && h.expiresAt <= nowIso && (h.state === 'active' || h.state === 'partially_released'))
+      .filter(
+        (h) =>
+          !this.movements.some(
+            (m) =>
+              m.holdNo === h.holdNo &&
+              (m.status === 'settling' || m.status === 'pending_retry' || (m.cause === 'expiry' && m.status === 'refused')),
+          ),
+      )
       .slice(0, limit)
       .map((h) => h.holdNo);
   }
@@ -276,11 +287,7 @@ const isoOf = (v: Date | string) => new Date(v).toISOString();
 const isoOrNull = (v: Date | string | null) => (v === null ? null : isoOf(v));
 
 /** numeric(38,18) comes back padded ("40.000000000000000000"); the wire carries the plain decimal. */
-export function plainDecimal(value: string): string {
-  if (!value.includes('.')) return value;
-  const trimmed = value.replace(/0+$/, '').replace(/\.$/, '');
-  return trimmed === '' ? '0' : trimmed;
-}
+const plainDecimal = normaliseStaffHoldAmount;
 
 const holdOf = (r: HoldDb): HoldRow => ({
   holdNo: String(r.hold_no),
@@ -409,7 +416,9 @@ export class SqlStaffHoldStore implements StaffHoldStore {
         },
         attempt: async (requestKey, at) => {
           await tx`
-            UPDATE ops.staff_hold_movements SET attempts = attempts + 1, last_attempt_at = ${at} WHERE request_key = ${requestKey}
+            UPDATE ops.staff_hold_movements
+               SET status = 'settling', attempts = attempts + 1, last_attempt_at = ${at}
+             WHERE request_key = ${requestKey}
           `;
         },
       });
@@ -420,6 +429,11 @@ export class SqlStaffHoldStore implements StaffHoldStore {
     const rows = await this.sql<{ hold_no: string }[]>`
       SELECT hold_no FROM ops.staff_holds
        WHERE expires_at IS NOT NULL AND expires_at <= ${nowIso} AND state IN ('active', 'partially_released')
+         AND NOT EXISTS (
+           SELECT 1 FROM ops.staff_hold_movements m
+            WHERE m.hold_no = staff_holds.hold_no
+              AND (m.status IN ('settling', 'pending_retry') OR (m.cause = 'expiry' AND m.status = 'refused'))
+         )
        ORDER BY expires_at LIMIT ${limit}
     `;
     return rows.map((r) => String(r.hold_no));

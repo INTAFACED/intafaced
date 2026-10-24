@@ -130,6 +130,11 @@ const staffHolds = new StaffHoldDesk({
     expiryMaxHours: env.OPS_STAFF_HOLD_EXPIRY_MAX_HOURS ?? null,
   },
   now: () => new Date(),
+  // Runs only from the hold timer below, after the server exists.
+  onWorkerError: (holdNo, error) => {
+    const code = error instanceof OpsError ? error.code : 'ops.hold_worker_unavailable';
+    app.log.warn({ code, holdNo }, 'Staff hold worker skipped one hold; it retries on the next tick');
+  },
 });
 const protocolReasonCodes = env.OPS_PROTOCOL_REASON_CODES
   ? env.OPS_PROTOCOL_REASON_CODES.split(',')
@@ -295,21 +300,21 @@ const retentionTimer = setInterval(() => {
 retentionTimer.unref();
 
 // Staff holds (LC-9): release what is left of each hold whose stored expiry has passed, then settle any post whose answer
-// was lost or that the posting freeze turned back. Both only ever re-send a stored request under its stored key.
+// was lost or that the posting freeze turned back. Neither ever sends anything but a stored request under its stored key.
+// Each runs on its own, so a failing expiry pass never stops settlement.
+const holdWarn = (step: string) => (error: unknown) => {
+  const code = error instanceof OpsError ? error.code : 'ops.hold_worker_unavailable';
+  app.log.warn({ code, step }, 'Staff hold worker will retry on the next tick');
+};
 let holdRun: Promise<void> | null = null;
 const holdTimer = setInterval(() => {
-  if (!crmSql || holdRun) return;
+  if (!staffHolds.active || holdRun) return;
   holdRun = (async () => {
-    await staffHolds.expireDue();
-    await staffHolds.resolve();
-  })()
-    .catch((error: unknown) => {
-      const code = error instanceof OpsError ? error.code : 'ops.hold_worker_unavailable';
-      app.log.warn({ code }, 'Staff hold expiry and settlement will retry on the next tick');
-    })
-    .finally(() => {
-      holdRun = null;
-    });
+    await staffHolds.expireDue().catch(holdWarn('expiry'));
+    await staffHolds.resolve().catch(holdWarn('settle'));
+  })().finally(() => {
+    holdRun = null;
+  });
 }, 5000);
 holdTimer.unref();
 

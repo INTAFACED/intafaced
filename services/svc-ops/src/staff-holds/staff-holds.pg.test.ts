@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import postgres from 'postgres';
 import { createTestDatabase } from '@intafaced/db';
 import {
+  LedgerError,
   MemoryLedger,
   formatAmount,
   parseAmount,
@@ -13,7 +14,7 @@ import {
 import { staffHoldConfirmFields, staffHoldReleaseFields, staffHoldTargetId, type ActionApproval } from '@intafaced/contracts';
 import { migrateOutreach } from '../db/migrate.js';
 import { approvalPayloadHash } from '../operator-desks.js';
-import { StaffHoldDesk } from './desk.js';
+import { StaffHoldDesk, type StaffHoldLedger } from './desk.js';
 import { SqlStaffHoldStore } from './store.js';
 
 /**
@@ -133,6 +134,56 @@ describe('staff holds on real PostgreSQL', () => {
       await expect(sql`UPDATE ops.staff_hold_movements SET status = 'settling' WHERE kind = 'place'`).rejects.toThrow(/never changes/);
       await expect(sql`DELETE FROM ops.staff_hold_movements`).rejects.toThrow(/never deleted/);
       await expect(sql`UPDATE ops.staff_holds SET remaining = 41 WHERE hold_no = ${holdNo}`).rejects.toThrow(/check/i);
+      await migrateOutreach(sql, 'down');
+    } finally {
+      await sql.end();
+      await database.drop();
+    }
+  });
+  it('expires due holds from SQL, never retries a refused expiry release, and passes over an open movement', async () => {
+    const database = await createTestDatabase({ service: 'ops' });
+    const sql = postgres(database.url, { max: 6, onnotice: () => undefined });
+    try {
+      await migrateOutreach(sql);
+      const book = new MemoryLedger();
+      await book.post(
+        recipes.deposit({ userId: CUSTOMER, assetId: 'USD', amount: parseAmount('100'), rail: 'bank-sandbox', railRef: 'dep-pg-2' }),
+      );
+      let refuse = false;
+      const ledger: StaffHoldLedger = {
+        post: async (request) => {
+          if (refuse) {
+            refuse = false;
+            throw new LedgerError('refused', 'ledger.invalid_entry');
+          }
+          return book.post(request);
+        },
+        getTxByKey: (key) => book.getTxByKey(key),
+      };
+      let clock = Date.parse('2026-10-24T08:00:00.000Z');
+      const store = new SqlStaffHoldStore(sql);
+      const desk = new StaffHoldDesk({
+        store,
+        ledger,
+        approvals: approvals(),
+        settings: { confirmAccount: 'held-funds', expiryMaxHours: 24 },
+        now: () => new Date(clock),
+      });
+      const hold = (amount: string, key: string) =>
+        desk.place(FOUNDER, { userId: CUSTOMER, assetId: 'USD', amount, reason: 'review', expiresInHours: 1, idempotencyKey: key });
+      const first = (await hold('40', 'console:place:pg-e1')).hold.holdNo;
+      const second = (await hold('10', 'console:place:pg-e2')).hold.holdNo;
+      expect(await store.expired(new Date(clock).toISOString(), 10)).toEqual([]);
+      clock += 3_600_000;
+      expect(await store.expired(new Date(clock).toISOString(), 10)).toEqual([first, second]);
+      refuse = true;
+      expect(await desk.expireDue()).toBe(2);
+      expect(await store.expired(new Date(clock).toISOString(), 10)).toEqual([]);
+      expect(await desk.expireDue()).toBe(0);
+      const holds = (await desk.list(CUSTOMER)).holds;
+      expect(holds.find((h) => h.holdNo === first)).toMatchObject({ state: 'active', remaining: '40' });
+      expect(holds.find((h) => h.holdNo === second)).toMatchObject({ state: 'expired', remaining: '0' });
+      expect(formatAmount((await book.balance(userAvailable(CUSTOMER, 'USD'))).amount)).toBe('60');
       await migrateOutreach(sql, 'down');
     } finally {
       await sql.end();

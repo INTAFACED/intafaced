@@ -9,14 +9,15 @@ import {
   staffHoldReleaseInputSchema,
   staffHoldResultSchema,
 } from '@intafaced/contracts';
-import { OpsError, STAFF_HOLD_NOT_FOUND } from '../codes.js';
+import { OPS_IDEMPOTENCY_CONFLICT, OpsError, STAFF_HOLD_NOT_FOUND } from '../codes.js';
 import type { StaffHoldDesk } from './desk.js';
 
 const guards = { module: 'core-ops' as const, plane: 'fiat' as const };
 
 function deskError(err: unknown): never {
   if (err instanceof OpsError) {
-    const code = err.code === STAFF_HOLD_NOT_FOUND ? 'NOT_FOUND' : 'PRECONDITION_FAILED';
+    const code =
+      err.code === STAFF_HOLD_NOT_FOUND ? 'NOT_FOUND' : err.code === OPS_IDEMPOTENCY_CONFLICT ? 'CONFLICT' : 'PRECONDITION_FAILED';
     throw new TRPCError({ code, message: `${err.code} — ${err.message}`, cause: err });
   }
   throw err;
