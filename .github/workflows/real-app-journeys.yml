@@ -63,14 +63,15 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 20
-      # Up to three, so a run that lost a shard or failed a journey early does not make those files look fast.
+      # Up to three, so a run that lost a shard or failed a journey early does not make those files look fast. Most runs
+      # are queued runs a newer push replaced (cancelled), so the list reaches back 100 runs to find three that finished.
       - name: Last finished runs' reports
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           got=0
-          for id in $(gh run list --repo "$GITHUB_REPOSITORY" --workflow real-app-journeys.yml --branch main --status completed --limit 20 --json databaseId,conclusion --jq '.[] | select(.conclusion != "cancelled") | .databaseId'); do
+          for id in $(gh run list --repo "$GITHUB_REPOSITORY" --workflow real-app-journeys.yml --branch main --status completed --limit 100 --json databaseId,conclusion --jq '.[] | select(.conclusion != "cancelled") | .databaseId'); do
             gh run download "$id" --repo "$GITHUB_REPOSITORY" --name real-app-journeys --dir "$RUNNER_TEMP/last/$id" 2>/dev/null || continue
             echo "timings from run $id"
             got=$((got + 1))
