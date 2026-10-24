@@ -110,7 +110,10 @@ if (!db) {
       zone = null;
       const c = await s.create({ definition: full({ name: 'TEST no zone' }), actor: A });
       expect(await code(s.transition({ id: c.id, action: 'submit', revision: 1, actor: A }))).toBe('campaigns.timezone_unset');
-      expect((await s.catalogue(ME)).campaigns).toEqual([]);
+      // With the zone blank a customer read refuses by name instead of listing nothing.
+      expect(await code(s.catalogue(ME))).toBe('campaigns.timezone_unset');
+      expect(await code(s.myCampaigns(ME))).toBe('campaigns.timezone_unset');
+      expect(await code(s.join({ campaignId: c.id, accountId: ME }))).toBe('campaigns.timezone_unset');
       const gate = await s.validate({ id: (await s.create({ definition: { name: 'TEST empty', type: 'task' }, actor: A })).id });
       expect(gate.missing.map((m) => m.code)).toEqual([
         'campaigns.budget_unset',
@@ -142,6 +145,10 @@ if (!db) {
       const s = service();
       const first = await s.create({ definition: full(), actor: A });
       expect((await s.create({ definition: full(), actor: A })).id).toBe(first.id);
+      // The same name with a different definition is not a lost reply.
+      expect(await code(s.create({ definition: full({ budget: { asset: 'USDT', limit: '5000' } }), actor: A }))).toBe(
+        'campaign.name_taken',
+      );
       expect(await code(s.create({ definition: full({ name: 'test CAMPAIGN' }), actor: B }))).toBe('campaign.name_taken');
       await s.transition({ id: first.id, action: 'archive', revision: 1, actor: A });
       expect((await s.create({ definition: full(), actor: B })).id).not.toBe(first.id);
@@ -164,8 +171,33 @@ if (!db) {
       // The same move again returns the stored campaign.
       expect((await s.transition({ id: c.id, action: 'approve', revision: 1, actor: B })).state).toBe('approved');
       expect(await code(s.transition({ id: c.id, action: 'approve', revision: 2, actor: B }))).toBe('campaign.revision_conflict');
+      // The same approval sent again by anyone else still refuses.
+      expect(await code(s.transition({ id: c.id, action: 'approve', revision: 1, actor: A }))).toBe('campaigns.second_person_required');
       expect((await s.transition({ id: c.id, action: 'activate', revision: 1, actor: A })).state).toBe('active');
       expect(await code(s.update({ id: c.id, revision: 1, definition: full({ rules: 'changed' }), actor: A }))).toBe('campaign.not_draft');
+    });
+
+    it('whoever wrote the draft cannot approve it, even when someone else asked', async () => {
+      const s = service();
+      const c = await s.create({ definition: full(), actor: A });
+      await s.transition({ id: c.id, action: 'submit', revision: 1, actor: B });
+      expect(await code(s.transition({ id: c.id, action: 'approve', revision: 1, actor: A }))).toBe('campaigns.second_person_required');
+      await expect(
+        db!.sql`UPDATE campaigns.campaigns SET approved_by = created_by, approved_revision = 1 WHERE id = ${c.id}`,
+      ).rejects.toThrow(/campaigns_second_person_ck/);
+      expect((await s.transition({ id: c.id, action: 'approve', revision: 1, actor: 'operator-c' })).approvedBy).toBe('operator-c');
+    });
+
+    it('each draft edit is a new revision, so a stale edit or move refuses', async () => {
+      const s = service();
+      const c = await s.create({ definition: full(), actor: A });
+      const edited = await s.update({ id: c.id, revision: 1, definition: full({ rules: 'TEST edited' }), actor: A });
+      expect(edited).toMatchObject({ revision: 2, rules: 'TEST edited' });
+      expect(await code(s.update({ id: c.id, revision: 1, definition: full({ rules: 'TEST stale' }), actor: B }))).toBe(
+        'campaign.revision_conflict',
+      );
+      expect(await code(s.transition({ id: c.id, action: 'submit', revision: 1, actor: A }))).toBe('campaign.revision_conflict');
+      expect((await s.transition({ id: c.id, action: 'submit', revision: 2, actor: A })).state).toBe('pending_approval');
     });
 
     it('moves out of order refuse; an active campaign cannot be archived', async () => {
@@ -201,7 +233,7 @@ if (!db) {
       expect(out.campaigns[0]).toMatchObject({
         state: 'active',
         timeZone: 'UTC',
-        budget: { asset: 'USDT', limit: '1000', reserved: '0', spent: '0', left: '1000' },
+        budget: { asset: 'USDT', limit: '1000', left: '1000' },
         reward: { asset: 'USDT', amount: '10' },
         mine: null,
       });
@@ -235,6 +267,8 @@ if (!db) {
       expect(await code(s.join({ campaignId: weekdays.id, accountId: ME }))).toBe('campaign.outside_window');
       const hours = await live({ name: 'TEST hours', hours: { from: '13:00', to: '14:00' } });
       expect(await code(s.join({ campaignId: hours.id, accountId: ME }))).toBe('campaign.outside_window');
+      const midnight = await live({ name: 'TEST to midnight', hours: { from: '11:00', to: '24:00' } });
+      expect((await s.join({ campaignId: midnight.id, accountId: ME })).created).toBe(true);
       const inside = await live({ name: 'TEST inside', weekdays: [6], hours: { from: '12:00', to: '12:30' } });
       expect((await s.join({ campaignId: inside.id, accountId: ME })).created).toBe(true);
       // The same instant is Saturday 21:00 in Tokyo: outside the hour window there.

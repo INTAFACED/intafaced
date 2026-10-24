@@ -34,9 +34,12 @@ import { parseWindowTime } from './drops.js';
  * - The activation gate is one function (`gateOf`) called by the moves, never by a screen: a blank budget, rule set, time
  *   frame, platform time zone or reward each refuses by its own code, and a parked type `owner.decision`.
  * - One person submits, a different person approves that revision (`campaigns.second_person_required`, and a CHECK in
- *   the database), and activation needs the approval (`campaigns.approval_required`). In this version only a draft is
- *   edited; edits after launch, as revisions, come with the campaign builder (J-campaigns-16).
- * - A budget is a limit row with reserved and spent counters, never a balance; nothing here reserves or spends. Joining
+ *   the database), and activation needs the approval (`campaigns.approval_required`). Whoever wrote the draft does not
+ *   approve it either. In this version only a draft is edited, and each edit is a new revision, so a stale edit or move
+ *   refuses `campaign.revision_conflict`; edits after launch come with the campaign builder (J-campaigns-16).
+ * - Customer reads show times in the platform time zone: while it is blank they refuse `campaigns.timezone_unset`.
+ * - A budget is a limit, never a balance. Nothing here reserves or spends; the reservation counters come with the reward
+ *   saga (CM-payouts-ledger-02), so all of a budget is left. Joining
  *   writes one participation under `campaign:join:<campaign>:<account>` and moves nothing.
  * - Who can take part: in this version every signed-in account. Exclusions and region lists are CM-eligibility-rules-01
  *   and refuse `campaigns.eligibility_unwired` until it lands.
@@ -60,8 +63,6 @@ type CampaignRow = {
   participation: ParticipationRules | null;
   budget_asset: string | null;
   budget_limit: string | null;
-  budget_reserved: string;
-  budget_spent: string;
   reward_asset: string | null;
   reward_amount: string | null;
   created_by: string;
@@ -74,25 +75,11 @@ type CampaignRow = {
 
 type ParticipationRow = { participation_key: string; campaign_id: string; revision: number; created_at: Date };
 
-const SCALE = 10n ** 18n;
 const DECIMAL = /^(0|[1-9]\d{0,19})(\.\d{1,18})?$/;
 const ASSET = /^[A-Z0-9]{2,12}$/;
 
-/** A decimal string to 18-place scaled units. */
-function toUnits(value: string): bigint {
-  const [whole, frac = ''] = value.split('.');
-  return BigInt(whole!) * SCALE + BigInt(frac.padEnd(18, '0'));
-}
-
-/** Scaled units back to the shortest decimal string. */
-function fromUnits(units: bigint): string {
-  const whole = units / SCALE;
-  const frac = (units % SCALE).toString().padStart(18, '0').replace(/0+$/, '');
-  return frac ? `${whole}.${frac}` : whole.toString();
-}
-
 /** A numeric column as Postgres returns it, normalised (`1000.000000000000000000` reads `1000`). */
-const decimalOf = (raw: string) => fromUnits(toUnits(raw));
+const decimalOf = (raw: string) => (raw.includes('.') ? raw.replace(/0+$/, '').replace(/\.$/, '') : raw);
 
 /** An operator amount: a number refuses `campaigns.number_on_wire`; blank is absent; anything else must be a positive decimal. */
 function parseAmount(raw: unknown, unset: 'campaigns.budget_unset' | 'campaigns.reward_unset', what: string): string | null {
@@ -101,7 +88,7 @@ function parseAmount(raw: unknown, unset: 'campaigns.budget_unset' | 'campaigns.
   }
   if (raw === undefined || raw === null || (typeof raw === 'string' && raw.trim() === '')) return null;
   const value = typeof raw === 'string' ? raw.trim() : '';
-  if (!DECIMAL.test(value) || toUnits(value) === 0n) throw new CampaignsError(unset, `${what} must be a positive decimal`);
+  if (!DECIMAL.test(value) || !/[1-9]/.test(value)) throw new CampaignsError(unset, `${what} must be a positive decimal`);
   return value;
 }
 
@@ -177,18 +164,11 @@ function refuseGate(missing: CampaignGate['missing']): void {
 
 const iso = (d: Date) => d.toISOString();
 
+/** The budget limit. Nothing in this version reserves or spends against it (the reward saga does), so all of it is left. */
 function budgetOf(r: CampaignRow): Campaign['budget'] {
   if (!r.budget_asset || r.budget_limit === null) return null;
-  const limit = toUnits(decimalOf(r.budget_limit));
-  const reserved = toUnits(decimalOf(r.budget_reserved));
-  const spent = toUnits(decimalOf(r.budget_spent));
-  return {
-    asset: r.budget_asset,
-    limit: fromUnits(limit),
-    reserved: fromUnits(reserved),
-    spent: fromUnits(spent),
-    left: fromUnits(limit - reserved - spent),
-  };
+  const limit = decimalOf(r.budget_limit);
+  return { asset: r.budget_asset, limit, left: limit };
 }
 
 function toCampaign(r: CampaignRow, timeZone: string | null, now: Date): Campaign {
@@ -224,10 +204,10 @@ function toParticipation(r: ParticipationRow): Participation {
 const CUSTOMER_STATES = CUSTOMER_CAMPAIGN_STATES as readonly CampaignState[];
 
 /** A row a customer may see, or null. Only rows that went through approval and activation, with the gate's fields set. */
-function toView(r: CampaignRow, timeZone: string | null, now: Date, mine: Participation | null): CampaignView | null {
+function toView(r: CampaignRow, timeZone: string, now: Date, mine: Participation | null): CampaignView | null {
   const c = toCampaign(r, timeZone, now);
   if (!(CUSTOMER_STATES as readonly string[]).includes(c.state)) return null;
-  if (!c.startsAt || !c.endsAt || !c.budget || !c.participation || !timeZone) return null;
+  if (!c.startsAt || !c.endsAt || !c.budget || !c.participation) return null;
   return {
     id: c.id,
     name: c.name,
@@ -317,6 +297,27 @@ export function parseDefinition(input: CampaignDefinitionInput): Definition {
   };
 }
 
+/** Whether a stored draft holds exactly this definition (a create sent again after a lost reply). */
+function sameDefinition(r: CampaignRow, d: Definition): boolean {
+  const at = (x: Date | null) => (x ? x.getTime() : null);
+  const amount = (x: string | null) => (x === null ? null : decimalOf(x));
+  return (
+    r.name === d.name &&
+    r.type === d.type &&
+    r.rules === d.rules &&
+    at(r.starts_at) === at(d.startsAt) &&
+    at(r.ends_at) === at(d.endsAt) &&
+    JSON.stringify(r.weekdays) === JSON.stringify(d.weekdays) &&
+    r.hours_from === d.hoursFrom &&
+    r.hours_to === d.hoursTo &&
+    JSON.stringify(r.participation) === JSON.stringify(d.participation) &&
+    r.budget_asset === d.budgetAsset &&
+    amount(r.budget_limit) === amount(d.budgetLimit) &&
+    r.reward_asset === d.rewardAsset &&
+    amount(r.reward_amount) === amount(d.rewardAmount)
+  );
+}
+
 const isUniqueViolation = (err: unknown) => (err as { code?: string } | null)?.code === '23505';
 
 export interface CampaignServiceOptions {
@@ -362,7 +363,9 @@ export class CampaignService {
       if (!isUniqueViolation(err)) throw err;
       const [same] = await this.sql<CampaignRow[]>`
         SELECT * FROM campaigns.campaigns WHERE lower(name) = lower(${d.name}) AND state <> 'archived'`;
-      if (same && same.created_by === input.actor && same.state === 'draft') return toCampaign(same, this.timeZone(), this.now());
+      if (same && same.created_by === input.actor && same.state === 'draft' && sameDefinition(same, d)) {
+        return toCampaign(same, this.timeZone(), this.now());
+      }
       throw new CampaignsError('campaign.name_taken', 'Another campaign already uses this name');
     }
   }
@@ -381,7 +384,7 @@ export class CampaignService {
             ends_at = ${d.endsAt}, weekdays = ${d.weekdays}, hours_from = ${d.hoursFrom}, hours_to = ${d.hoursTo},
             participation = ${d.participation ? tx.json(d.participation) : null}, budget_asset = ${d.budgetAsset},
             budget_limit = ${d.budgetLimit}, reward_asset = ${d.rewardAsset}, reward_amount = ${d.rewardAmount},
-            updated_at = now()
+            revision = revision + 1, updated_at = now()
           WHERE id = ${input.id} RETURNING *`;
         await audit(tx, input.actor, 'campaign.update', input.id, { name: d.name, type: d.type });
         return toCampaign(out!, this.timeZone(), this.now());
@@ -411,7 +414,13 @@ export class CampaignService {
       const current = effectiveState(row, now);
       const timeZone = this.timeZone();
       const landed = input.action === 'activate' ? current === 'active' || current === 'scheduled' : current === move.to;
-      if (landed && !move.from.includes(current)) return toCampaign(row, timeZone, now);
+      if (landed && !move.from.includes(current)) {
+        // The same approval again is still only the approver's to repeat.
+        if (input.action === 'approve' && input.actor !== row.approved_by) {
+          throw new CampaignsError('campaigns.second_person_required', 'This revision was approved by someone else');
+        }
+        return toCampaign(row, timeZone, now);
+      }
       if (input.action === 'archive' && current === 'active') {
         throw new CampaignsError('campaign.archive_active', 'An active campaign cannot be archived; pause or end it first');
       }
@@ -432,8 +441,11 @@ export class CampaignService {
       }
       if (input.action === 'submit') set.submitted_by = input.actor;
       if (input.action === 'approve') {
-        if (row.submitted_by === input.actor) {
-          throw new CampaignsError('campaigns.second_person_required', 'A second person approves; the one who asked cannot');
+        if (row.submitted_by === input.actor || row.created_by === input.actor) {
+          throw new CampaignsError(
+            'campaigns.second_person_required',
+            'A second person approves; the one who wrote or asked for it cannot',
+          );
         }
         set.approved_by = input.actor;
         set.approved_revision = row.revision;
@@ -479,9 +491,17 @@ export class CampaignService {
 
   // ── Customer (own account only; the account comes from the principal) ─────
 
+  /** Customer reads and joins show times in the platform time zone: blank refuses by name, never an empty list. */
+  private customerZone(): string {
+    const timeZone = this.timeZone();
+    if (!timeZone) throw new CampaignsError('campaigns.timezone_unset', 'The platform time zone is not set');
+    return timeZone;
+  }
+
   /** The type list, parked types with their blocker, and every scheduled, active or paused campaign. */
   async catalogue(accountId: string): Promise<CampaignCatalogue> {
     const now = this.now();
+    const timeZone = this.customerZone();
     const [rows, mine] = await Promise.all([
       this.sql<CampaignRow[]>`
         SELECT * FROM campaigns.campaigns
@@ -490,7 +510,6 @@ export class CampaignService {
       this.mine(accountId),
     ]);
     const joined = new Map(mine.map((p) => [p.campaignId, p]));
-    const timeZone = this.timeZone();
     return {
       types: CAMPAIGN_TYPES.map((type) => ({ type, blocker: isParked(type) ? ('owner.decision' as const) : null })),
       campaigns: rows.flatMap((r) => toView(r, timeZone, now, joined.get(r.id) ?? null) ?? []),
@@ -499,12 +518,13 @@ export class CampaignService {
 
   /** One campaign a customer may see, with their own participation. Anything else reads `campaign.unknown`. */
   async get(input: { id: string; accountId: string }): Promise<CampaignView> {
+    const timeZone = this.customerZone();
     const [[row], [mine]] = await Promise.all([
       this.sql<CampaignRow[]>`SELECT * FROM campaigns.campaigns WHERE id = ${input.id}`,
       this.sql<ParticipationRow[]>`
         SELECT * FROM campaigns.participations WHERE participation_key = ${participationKeyOf(input.id, input.accountId)}`,
     ]);
-    const view = row ? toView(row, this.timeZone(), this.now(), mine ? toParticipation(mine) : null) : null;
+    const view = row ? toView(row, timeZone, this.now(), mine ? toParticipation(mine) : null) : null;
     if (!view) throw new CampaignsError('campaign.unknown', 'No such campaign');
     return view;
   }
@@ -516,20 +536,20 @@ export class CampaignService {
    */
   async join(input: { campaignId: string; accountId: string }): Promise<CampaignJoinResult> {
     const key = participationKeyOf(input.campaignId, input.accountId);
+    const timeZone = this.customerZone();
     return transaction(this.sql, async (tx) => {
       const [row] = await tx<CampaignRow[]>`SELECT * FROM campaigns.campaigns WHERE id = ${input.campaignId} FOR SHARE`;
       const now = this.now();
-      const timeZone = this.timeZone();
       if (!row || !toView(row, timeZone, now, null)) throw new CampaignsError('campaign.unknown', 'No such campaign');
       const [existing] = await tx<ParticipationRow[]>`SELECT * FROM campaigns.participations WHERE participation_key = ${key}`;
       if (existing) return { participation: toParticipation(existing), created: false };
       const state = effectiveState(row, now);
       if (state !== 'active') throw new CampaignsError('campaign.not_active', `This campaign is ${state}, not active`);
-      if (!timeZone) throw new CampaignsError('campaigns.timezone_unset', 'The platform time zone is not set');
       const clock = zonedClock(now, timeZone);
       if (row.weekdays && !row.weekdays.includes(clock.weekday)) {
         throw new CampaignsError('campaign.outside_window', 'This campaign does not run today');
       }
+      // `to` is exclusive; 24:00 runs to midnight. A window does not cross midnight.
       if (row.hours_from && row.hours_to && (clock.hhmm < row.hours_from || clock.hhmm >= row.hours_to)) {
         throw new CampaignsError('campaign.outside_window', 'This campaign does not run at this hour');
       }
@@ -555,7 +575,7 @@ export class CampaignService {
       WHERE p.account_id = ${accountId}
       ORDER BY p.created_at DESC LIMIT 200`;
     const now = this.now();
-    const timeZone = this.timeZone();
+    const timeZone = this.customerZone();
     return {
       campaigns: rows.flatMap((r) => {
         const participation = toParticipation({

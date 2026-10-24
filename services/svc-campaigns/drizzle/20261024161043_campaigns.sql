@@ -1,8 +1,8 @@
 -- The campaign object, its lifecycle and participations (CM-campaign-types-01, CM-eligibility-rules-03 time frame and
 -- budget limit). Reversal: the matching .down.sql.
 --
--- Nothing here is a balance. A budget is a limit with reserved and spent counters, numeric(38,18) like every amount;
--- nothing in this version reserves or spends (the reward saga is CM-payouts-ledger-02). Joining moves nothing.
+-- Nothing here is a balance. A budget is a limit, numeric(38,18) like every amount; nothing in this version reserves
+-- or spends against it (the reward saga and its counters are CM-payouts-ledger-02). Joining moves nothing.
 
 CREATE TABLE IF NOT EXISTS campaigns.campaigns (
   id text PRIMARY KEY,
@@ -19,8 +19,6 @@ CREATE TABLE IF NOT EXISTS campaigns.campaigns (
   participation jsonb,
   budget_asset text,
   budget_limit numeric(38, 18),
-  budget_reserved numeric(38, 18) NOT NULL DEFAULT 0,
-  budget_spent numeric(38, 18) NOT NULL DEFAULT 0,
   reward_asset text,
   reward_amount numeric(38, 18),
   created_by text NOT NULL,
@@ -34,14 +32,14 @@ CREATE TABLE IF NOT EXISTS campaigns.campaigns (
   CONSTRAINT campaigns_state_ck CHECK (state IN ('draft', 'pending_approval', 'approved', 'scheduled', 'active', 'paused',
     'ended', 'closed', 'archived')),
   CONSTRAINT campaigns_window_ck CHECK (starts_at IS NULL OR ends_at IS NULL OR ends_at > starts_at),
+  -- HH:MM in the platform time zone; `to` is exclusive and may be 24:00.
   CONSTRAINT campaigns_hours_ck CHECK ((hours_from IS NULL) = (hours_to IS NULL) AND (hours_from IS NULL OR hours_to > hours_from)),
-  CONSTRAINT campaigns_budget_ck CHECK (
-    budget_reserved >= 0 AND budget_spent >= 0
-    AND (budget_limit IS NULL OR (budget_limit > 0 AND budget_reserved + budget_spent <= budget_limit))
-  ),
+  CONSTRAINT campaigns_budget_ck CHECK (budget_limit IS NULL OR budget_limit > 0),
   CONSTRAINT campaigns_reward_ck CHECK (reward_amount IS NULL OR reward_amount > 0),
-  -- The person who asked for approval never gives it.
-  CONSTRAINT campaigns_second_person_ck CHECK (approved_by IS NULL OR (submitted_by IS NOT NULL AND approved_by <> submitted_by)),
+  -- The person who wrote it, and the person who asked for approval, never give it.
+  CONSTRAINT campaigns_second_person_ck CHECK (
+    approved_by IS NULL OR (submitted_by IS NOT NULL AND approved_by <> submitted_by AND approved_by <> created_by)
+  ),
   -- Past approval, the revision approved is the revision live.
   CONSTRAINT campaigns_approved_ck CHECK (
     state IN ('draft', 'pending_approval', 'archived') OR (approved_by IS NOT NULL AND approved_revision = revision)

@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   CAMPAIGN_TYPES,
-  CUSTOMER_CAMPAIGN_STATES,
+  CATALOGUE_CAMPAIGN_STATES,
   campaignCatalogueSchema,
   campaignJoinResultSchema,
   campaignViewSchema,
@@ -34,22 +34,26 @@ const joinCode = (code: string | undefined): JoinCode | null =>
 /** A time in the reader's own zone, with the zone named. */
 function useWhen() {
   const { renderedLocale } = campaignCatalogueCopy.useCopy();
-  const format = new Intl.DateTimeFormat(renderedLocale, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    timeZoneName: 'short',
-  });
-  return (isoTime: string) => format.format(new Date(isoTime));
+  return useMemo(() => {
+    const format = new Intl.DateTimeFormat(renderedLocale, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZoneName: 'short',
+    });
+    return (isoTime: string) => format.format(new Date(isoTime));
+  }, [renderedLocale]);
 }
 
 function useWeekdays() {
   const { renderedLocale } = campaignCatalogueCopy.useCopy();
-  const format = new Intl.DateTimeFormat(renderedLocale, { weekday: 'long', timeZone: 'UTC' });
-  // 2026-10-19 is a Monday.
-  return (days: readonly number[]) => days.map((d) => format.format(new Date(Date.UTC(2026, 9, 18 + d)))).join(', ');
+  return useMemo(() => {
+    const format = new Intl.DateTimeFormat(renderedLocale, { weekday: 'long', timeZone: 'UTC' });
+    // 2026-10-19 is a Monday.
+    return (days: readonly number[]) => days.map((d) => format.format(new Date(Date.UTC(2026, 9, 18 + d)))).join(', ');
+  }, [renderedLocale]);
 }
 
 const campaignHref = (id: string) => `/campaigns/${encodeURIComponent(id)}`;
@@ -79,7 +83,7 @@ export function CampaignCatalogue() {
             label={t('colState')}
             value={status}
             onChange={setStatus}
-            options={[any, ...CUSTOMER_CAMPAIGN_STATES.map((value) => ({ value, label: t(`state_${value}`) }))]}
+            options={[any, ...CATALOGUE_CAMPAIGN_STATES.map((value) => ({ value, label: t(`state_${value}`) }))]}
           />
         </div>
         <div data-testid="campaign-catalogue">

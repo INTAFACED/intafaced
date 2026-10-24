@@ -5,9 +5,9 @@ import { z } from 'zod';
  * hour windows and the budget limit of CM-eligibility-rules-03; J-campaigns-01 #1-#3, #6, #7). Shared by the service and
  * the customer app. Browser-safe: zod only.
  *
- * Amounts are decimal strings, never numbers. A campaign holds no balance: its budget is a limit row with `reserved` and
- * `spent` counters, and nothing in this version reserves or spends (the reward saga is CM-payouts-ledger-02). Joining
- * moves nothing.
+ * Amounts are decimal strings, never numbers. A campaign holds no balance: its budget is a limit, and nothing in this
+ * version reserves or spends against it (the reward saga and its counters are CM-payouts-ledger-02). Joining moves
+ * nothing.
  */
 
 /** Every refusal the campaign doors name. The code leads the tRPC message in brackets, `... [campaign.not_active]`. */
@@ -68,8 +68,10 @@ export const CAMPAIGN_STATES = [
 ] as const;
 export type CampaignState = (typeof CAMPAIGN_STATES)[number];
 
-/** States a customer can see. Drafts, approvals and archived rows are operator-only. */
+/** States a customer can see on a campaign's page and in My campaigns. Drafts, approvals and archived rows are operator-only. */
 export const CUSTOMER_CAMPAIGN_STATES = ['scheduled', 'active', 'paused', 'ended', 'closed'] as const satisfies readonly CampaignState[];
+/** States the catalogue lists: campaigns still to come or still running. */
+export const CATALOGUE_CAMPAIGN_STATES = ['scheduled', 'active', 'paused'] as const satisfies readonly CampaignState[];
 
 /** Operator moves. `submit`: draft to pending_approval; `approve`: a second person; `activate`: scheduled or active. */
 export const CAMPAIGN_ACTIONS = ['submit', 'approve', 'activate', 'pause', 'resume', 'end', 'close', 'archive'] as const;
@@ -84,6 +86,8 @@ const asset = z.string().regex(/^[A-Z0-9]{2,12}$/);
 /** ISO weekday numbers, Monday 1 to Sunday 7, in the platform time zone. */
 const weekday = z.number().int().min(1).max(7);
 const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
+/** The end of an hour window is exclusive; 24:00 runs to midnight. */
+const hhmmEnd = z.string().regex(/^(([01]\d|2[0-3]):[0-5]\d|24:00)$/);
 
 /** Who can take part. In this version every signed-in account; exclusions and region lists are CM-eligibility-rules-01. */
 export const participationRulesSchema = z.object({
@@ -96,9 +100,7 @@ export const campaignBudgetSchema = z.object({
   asset,
   /** The most the campaign may ask the reward pot for. A limit, not a balance. */
   limit: campaignDecimal,
-  reserved: campaignDecimal,
-  spent: campaignDecimal,
-  /** limit - reserved - spent, read from the counters. */
+  /** What is not yet reserved or spent. Nothing reserves in this version (the reward saga does), so it equals the limit. */
   left: campaignDecimal,
 });
 
@@ -107,8 +109,8 @@ export const campaignRewardSchema = z.object({ asset, amount: campaignDecimal })
 export const campaignWindowsSchema = z.object({
   /** Null: every day. */
   weekdays: z.array(weekday).min(1).max(7).nullable(),
-  /** Null: all day. `to` after `from`, both in the platform time zone. */
-  hours: z.object({ from: hhmm, to: hhmm }).nullable(),
+  /** Null: all day. `to` after `from`, both in the platform time zone; a window does not cross midnight. */
+  hours: z.object({ from: hhmm, to: hhmmEnd }).nullable(),
 });
 
 /** The full stored definition, as operators see it. */
@@ -201,7 +203,7 @@ export const campaignDefinitionInputSchema = z
     startsAt: z.string().max(64).nullish(),
     endsAt: z.string().max(64).nullish(),
     weekdays: z.array(weekday).min(1).max(7).nullish(),
-    hours: z.object({ from: hhmm, to: hhmm }).nullish(),
+    hours: z.object({ from: hhmm, to: hhmmEnd }).nullish(),
     participation: participationRulesSchema.nullish(),
     budget: z.object({ asset: z.string().max(16), limit: z.unknown() }).nullish(),
     reward: z.object({ asset: z.string().max(16), amount: z.unknown() }).nullish(),
