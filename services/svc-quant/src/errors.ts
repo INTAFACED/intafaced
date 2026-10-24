@@ -51,6 +51,14 @@ export const QUANT_BACKTEST_RULES_REQUIRED = 'quant.backtest_rules_required' as 
 export const QUANT_HOLDOUT_DATE_UNSET = 'quant.holdout_date_unset' as const;
 export const QUANT_HOLDOUT_OVERLAP = 'quant.holdout_overlap' as const;
 export const QUANT_ACCOUNT_RULE_UNSET = 'quant.account_rule_unset' as const;
+export const QUANT_SHARE_RATE_UNSET = 'quant.share_rate_unset' as const;
+export const QUANT_SHARE_WINDOW_UNSET = 'quant.share_window_unset' as const;
+export const QUANT_SHARE_RATE_LIMITED = 'quant.share_rate_limited' as const;
+export const QUANT_EMBED_ORIGINS_UNSET = 'quant.embed_origins_unset' as const;
+export const QUANT_SHARE_NOT_FOUND = 'quant.share_not_found' as const;
+export const QUANT_SHARE_SEQ_UNSET = 'quant.share_seq_unset' as const;
+export const QUANT_SHARE_SEQ_STALE = 'quant.share_seq_stale' as const;
+export const QUANT_SHARE_TOKEN_UNSET = 'quant.share_token_unset' as const;
 
 export type QuantCode =
   | typeof QUANT_SANDBOX_UNWIRED
@@ -106,6 +114,14 @@ export type QuantCode =
   | typeof QUANT_HOLDOUT_DATE_UNSET
   | typeof QUANT_HOLDOUT_OVERLAP
   | typeof QUANT_ACCOUNT_RULE_UNSET
+  | typeof QUANT_SHARE_RATE_UNSET
+  | typeof QUANT_SHARE_WINDOW_UNSET
+  | typeof QUANT_SHARE_RATE_LIMITED
+  | typeof QUANT_EMBED_ORIGINS_UNSET
+  | typeof QUANT_SHARE_NOT_FOUND
+  | typeof QUANT_SHARE_SEQ_UNSET
+  | typeof QUANT_SHARE_SEQ_STALE
+  | typeof QUANT_SHARE_TOKEN_UNSET
   | 'quant.params_invalid';
 
 export class QuantError extends Error {

@@ -19,7 +19,7 @@ const statementOutput = z.object({
   rowCount: z.number().int().nonnegative(),
   generatedAt: z.string().datetime(),
   proof: z.object({
-    holderUserId: z.string().uuid(),
+    holderUserId: z.string().guid(),
     from: z.string(),
     to: z.string(),
     assetId: z.string().nullable(),

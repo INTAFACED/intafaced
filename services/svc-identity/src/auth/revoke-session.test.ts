@@ -186,8 +186,8 @@ describe('revokeNamedSession', () => {
     expect(src).not.toMatch(/UPDATE api_keys/);
     expect(src).not.toMatch(/INSERT /);
     expect(routerSrc).toMatch(/scopedProcedure\('identity:write'\)/);
-    expect(routerSrc).toMatch(/userId: z\.string\(\)\.uuid\(\)/);
-    expect(routerSrc).toMatch(/sessionId: z\.string\(\)\.uuid\(\)/);
+    expect(routerSrc).toMatch(/userId: z\.string\(\)\.guid\(\)/);
+    expect(routerSrc).toMatch(/sessionId: z\.string\(\)\.guid\(\)/);
     expect(routerSrc).toMatch(/revokeSession:/);
   });
 });

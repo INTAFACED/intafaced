@@ -24,8 +24,8 @@ const name = z
   .refine((v) => !looksLikeSecret(v), 'custody.secret_like_value: credentials are never stored as a name');
 const clientRef = z.string().regex(/^[A-Za-z0-9:_.-]{1,128}$/, "a client reference is the caller's own business key");
 const customerRef = z.string().trim().min(1).max(128);
-const vaultId = z.string().uuid();
-const walletId = z.string().uuid();
+const vaultId = z.string().guid();
+const walletId = z.string().guid();
 const networkId = z.string().min(1).max(64);
 const address = z.string().trim().min(1).max(256);
 /** A list has no default page size: the caller says how many. */

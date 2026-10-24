@@ -407,7 +407,7 @@ function toTrpcError(err: unknown): TRPCError {
 const signUpAccepted = z.object({
   accepted: z.literal(true),
   next: z.literal('confirm_email'),
-  flowId: z.string().uuid(),
+  flowId: z.string().guid(),
   resendAfterSeconds: z.number().int().positive(),
 });
 
@@ -446,15 +446,15 @@ const sessionOutput = z.object({
    */
   refreshToken: z.string().optional(),
   expiresAt: z.string(),
-  userId: z.string().uuid(),
+  userId: z.string().guid(),
 });
 
 /** The tiers a user can ask for. `none` is the absence of a record, not a request. */
 const submittableTier = z.enum(['basic', 'full', 'institutional']);
 
 const kycRecordOutput = z.object({
-  id: z.string().uuid(),
-  userId: z.string().uuid(),
+  id: z.string().guid(),
+  userId: z.string().guid(),
   tier: z.enum(['none', 'basic', 'full', 'institutional']),
   jurisdiction: z.string(),
   status: z.enum(['pending', 'approved', 'rejected', 'expired']),
@@ -497,8 +497,8 @@ function presentDocMeta(meta: StoredDocumentMeta) {
 }
 
 const kycDocMetaOutput = z.object({
-  id: z.string().uuid(),
-  userId: z.string().uuid(),
+  id: z.string().guid(),
+  userId: z.string().guid(),
   contentType: z.string(),
   byteLength: z.number().int().positive(),
   storedBy: z.string().nullable(),
@@ -807,7 +807,7 @@ export function createIdentityRouter(
      * user id comes from the session, there is no input.
      */
     me: protectedProcedure
-      .output(z.object({ userId: z.string().uuid(), handle: z.string(), emailVerified: z.boolean() }))
+      .output(z.object({ userId: z.string().guid(), handle: z.string(), emailVerified: z.boolean() }))
       .query(async ({ ctx }) => {
         const view = await auth.selfView(ctx.principal.userId);
         if (view === null) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Authentication required' });
@@ -837,7 +837,7 @@ export function createIdentityRouter(
         .output(
           z.discriminatedUnion('found', [
             z.object({ found: z.literal(false) }),
-            z.object({ found: z.literal(true), userId: z.string().uuid(), handle: z.string(), self: z.boolean() }),
+            z.object({ found: z.literal(true), userId: z.string().guid(), handle: z.string(), self: z.boolean() }),
           ]),
         )
         .query(async ({ ctx, input }) => {
@@ -876,7 +876,7 @@ export function createIdentityRouter(
         .output(
           z.discriminatedUnion('found', [
             z.object({ found: z.literal(false) }),
-            z.object({ found: z.literal(true), userId: z.string().uuid(), handle: z.string(), self: z.boolean() }),
+            z.object({ found: z.literal(true), userId: z.string().guid(), handle: z.string(), self: z.boolean() }),
           ]),
         )
         .query(async ({ ctx, input }) => {
@@ -955,7 +955,7 @@ export function createIdentityRouter(
              * Account is created first; a failed attribute still leaves the user
              * (they can fix referrer via attribute later if product allows once).
              */
-            referrerId: z.string().uuid().optional(),
+            referrerId: z.string().guid().optional(),
           }),
         )
         .output(sessionOutput)
@@ -998,13 +998,13 @@ export function createIdentityRouter(
             nationality: z.string().trim().length(2).optional(),
             dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date of birth must be YYYY-MM-DD'),
             accountType: z.enum(ACCOUNT_TYPES),
-            referrerId: z.string().uuid().optional(),
+            referrerId: z.string().guid().optional(),
             /**
              * The invitation link the person signed up from (CM-referral-01, ENGINE RF-1): its referrer is attached when
              * the account is made, outside the late-attach window. An unknown or revoked link names no one; it never
              * blocks the sign-up.
              */
-            inviteToken: z.string().uuid().optional(),
+            inviteToken: z.string().guid().optional(),
           }),
         )
         .output(signUpAccepted)
@@ -1028,7 +1028,7 @@ export function createIdentityRouter(
 
       /** Sign-up, step 1b: another code once the resend interval has passed. Same answer for either kind of address. */
       signUpResend: publicProcedure
-        .input(z.object({ flowId: z.string().uuid() }))
+        .input(z.object({ flowId: z.string().guid() }))
         .output(signUpAccepted)
         .mutation(async ({ input }) => {
           assertRegistrationOpen();
@@ -1045,7 +1045,7 @@ export function createIdentityRouter(
        * whether to open business verification next.
        */
       signUpConfirm: publicProcedure
-        .input(z.object({ flowId: z.string().uuid(), code: z.string().trim().min(1).max(12) }))
+        .input(z.object({ flowId: z.string().guid(), code: z.string().trim().min(1).max(12) }))
         .output(sessionOutput.and(z.object({ accountType: z.enum(ACCOUNT_TYPES) })))
         .mutation(async ({ input, ctx }) => {
           assertRegistrationOpen();
@@ -1400,7 +1400,7 @@ export function createIdentityRouter(
                     signature: z.string().min(1),
                     userHandle: z.string().nullish(),
                   }),
-                  clientExtensionResults: z.record(z.unknown()).optional(),
+                  clientExtensionResults: z.record(z.string(), z.unknown()).optional(),
                 })
                 .optional(),
             })
@@ -1440,7 +1440,7 @@ export function createIdentityRouter(
       stepUpPay: protectedProcedure
         .input(
           z.object({
-            merchantId: z.string().uuid(),
+            merchantId: z.string().guid(),
             scopes: z
               .array(z.enum(['pay:refund', 'pay:payout']))
               .min(1)
@@ -1459,11 +1459,11 @@ export function createIdentityRouter(
                       signature: z.string().min(1),
                       userHandle: z.string().nullish(),
                     }),
-                    clientExtensionResults: z.record(z.unknown()).optional(),
+                    clientExtensionResults: z.record(z.string(), z.unknown()).optional(),
                   }),
                 })
                 .strict(),
-              z.object({ proofId: z.string().uuid() }).strict(),
+              z.object({ proofId: z.string().guid() }).strict(),
             ]),
           }),
         )
@@ -1546,7 +1546,7 @@ export function createIdentityRouter(
               attestationObject: z.string().min(1),
               transports: z.array(z.string()).optional(),
             }),
-            clientExtensionResults: z.record(z.unknown()).optional(),
+            clientExtensionResults: z.record(z.string(), z.unknown()).optional(),
           }),
         )
         .output(z.object({ credentialId: z.string() }))
@@ -1582,7 +1582,7 @@ export function createIdentityRouter(
                 signature: z.string().min(1),
                 userHandle: z.string().nullish(),
               }),
-              clientExtensionResults: z.record(z.unknown()).optional(),
+              clientExtensionResults: z.record(z.string(), z.unknown()).optional(),
             }),
           }),
         )
@@ -1733,7 +1733,7 @@ export function createIdentityRouter(
       approve: scopedProcedure('admin:compliance')
         .input(
           z.object({
-            recordId: z.string().uuid(),
+            recordId: z.string().guid(),
             /** When the verification lapses. Null means it does not. */
             expiresAt: z.string().datetime({ offset: true }).nullish(),
             confirmOperatorId: z.string().max(128).nullish(),
@@ -1770,7 +1770,7 @@ export function createIdentityRouter(
       reject: scopedProcedure('admin:compliance')
         .input(
           z.object({
-            recordId: z.string().uuid(),
+            recordId: z.string().guid(),
             confirmOperatorId: z.string().max(128).nullish(),
             approvalId: z.string().max(128).nullish(),
             operationId: z.string().max(128).nullish(),
@@ -1824,7 +1824,7 @@ export function createIdentityRouter(
       storeDocument: scopedProcedure('admin:compliance')
         .input(
           z.object({
-            userId: z.string().uuid(),
+            userId: z.string().guid(),
             contentType: z.string().min(1).max(128),
             /** Base64 document bytes (max 10 MiB decoded). */
             bytesBase64: z.string().min(1).max(14_000_000),
@@ -1882,7 +1882,7 @@ export function createIdentityRouter(
       getDocument: scopedProcedure('admin:compliance')
         .input(
           z.object({
-            documentId: z.string().uuid(),
+            documentId: z.string().guid(),
             /**
              * Distinct confirming operator. Enforced after parse so
              * missing/blank/same refuse `dual_control_missing`, not a schema dump.
@@ -1914,7 +1914,7 @@ export function createIdentityRouter(
        * Limit required — omit never dumps KYC meta.
        */
       listDocuments: scopedProcedure('admin:compliance')
-        .input(z.object({ userId: z.string().uuid(), limit: z.number().int().min(1).max(200) }))
+        .input(z.object({ userId: z.string().guid(), limit: z.number().int().min(1).max(200) }))
         .output(z.array(kycDocMetaOutput))
         .query(async ({ input }) => {
           try {
@@ -1935,8 +1935,8 @@ export function createIdentityRouter(
       bindDocument: scopedProcedure('admin:compliance')
         .input(
           z.object({
-            recordId: z.string().uuid(),
-            documentId: z.string().uuid(),
+            recordId: z.string().guid(),
+            documentId: z.string().guid(),
             /**
              * Distinct confirming operator. Enforced after parse so
              * missing/blank/same refuse `dual_control_missing`, not a schema dump.
@@ -1948,9 +1948,9 @@ export function createIdentityRouter(
         )
         .output(
           z.object({
-            recordId: z.string().uuid(),
-            userId: z.string().uuid(),
-            providerRef: z.string().uuid(),
+            recordId: z.string().guid(),
+            userId: z.string().guid(),
+            providerRef: z.string().guid(),
             document: kycDocMetaOutput,
           }),
         )
@@ -2025,12 +2025,12 @@ export function createIdentityRouter(
       awardXp: serviceProcedure
         .input(
           z.object({
-            userId: z.string().uuid(),
+            userId: z.string().guid(),
             sourceModule: z.string().min(1),
             action: z.string().min(1),
             xpDelta: z.number().int(),
             idempotencyKey: z.string().min(8),
-            meta: z.record(z.unknown()).optional(),
+            meta: z.record(z.string(), z.unknown()).optional(),
           }),
         )
         .output(z.object({ rank: z.number(), xp: z.string(), applied: z.boolean(), rankChanged: z.boolean() }))
@@ -2056,8 +2056,8 @@ export function createIdentityRouter(
           z.object({
             accessToken: z.string(),
             expiresAt: z.string(),
-            userId: z.string().uuid(),
-            keyId: z.string().uuid(),
+            userId: z.string().guid(),
+            keyId: z.string().guid(),
             scopes: z.array(z.string()),
             mode: z.enum(['live', 'sandbox']),
             requireSignature: z.boolean().optional(),
@@ -2190,7 +2190,7 @@ export function createIdentityRouter(
         }),
 
       revoke: scopedProcedure('identity:write')
-        .input(z.object({ keyId: z.string().uuid() }))
+        .input(z.object({ keyId: z.string().guid() }))
         .output(z.object({ revoked: z.boolean() }))
         .mutation(async ({ ctx, input }) => ({ revoked: await auth.revokeApiKey(ctx.principal.userId, input.keyId) })),
     }),
@@ -2236,7 +2236,7 @@ export function createIdentityRouter(
             nickname: z.string().max(64).optional(),
           }),
         )
-        .output(z.object({ id: z.string().uuid() }))
+        .output(z.object({ id: z.string().guid() }))
         .mutation(async ({ ctx, input }) => {
           try {
             return await auth.createSubAccount(ctx.principal.userId, input.label, input.purpose, {
@@ -2254,7 +2254,7 @@ export function createIdentityRouter(
         .output(
           z.array(
             z.object({
-              id: z.string().uuid(),
+              id: z.string().guid(),
               label: z.string(),
               purpose: z.string().nullable(),
               revoked: z.boolean(),
@@ -2288,7 +2288,7 @@ export function createIdentityRouter(
        * No ledger posts — balances under this id are untouched.
        */
       revoke: scopedProcedure('identity:write')
-        .input(z.object({ subAccountId: z.string().uuid() }))
+        .input(z.object({ subAccountId: z.string().guid() }))
         .output(z.object({ revoked: z.boolean() }))
         .mutation(async ({ ctx, input }) => {
           // Revoke is the same act as delete, so it carries the same assets and open-orders check, and fails closed.
@@ -2311,10 +2311,10 @@ export function createIdentityRouter(
       assertOwned: scopedProcedure('identity:write')
         .input(
           z.object({
-            subAccountId: z.string().uuid().optional().nullable(),
+            subAccountId: z.string().guid().optional().nullable(),
           }),
         )
-        .output(z.object({ id: z.string().uuid(), parentUserId: z.string().uuid() }))
+        .output(z.object({ id: z.string().guid(), parentUserId: z.string().guid() }))
         .mutation(async ({ ctx, input }) => {
           try {
             return await auth.assertSubAccountOwned(ctx.principal.userId, input.subAccountId);
@@ -2333,11 +2333,11 @@ export function createIdentityRouter(
       assertTransferDoor: scopedProcedure('identity:write')
         .input(
           z.object({
-            fromSubAccountId: z.string().uuid().optional().nullable(),
-            toSubAccountId: z.string().uuid().optional().nullable(),
+            fromSubAccountId: z.string().guid().optional().nullable(),
+            toSubAccountId: z.string().guid().optional().nullable(),
           }),
         )
-        .output(z.object({ fromId: z.string().uuid(), toId: z.string().uuid() }))
+        .output(z.object({ fromId: z.string().guid(), toId: z.string().guid() }))
         .mutation(async ({ ctx, input }) => {
           try {
             return await auth.assertSubAccountTransferDoor(ctx.principal.userId, input.fromSubAccountId, input.toSubAccountId);
@@ -2355,11 +2355,11 @@ export function createIdentityRouter(
       policy: publicProcedure.query(() => describeAffiliatesPolicy()),
 
       attribute: scopedProcedure('identity:write')
-        .input(z.object({ referrerId: z.string().uuid() }))
+        .input(z.object({ referrerId: z.string().guid() }))
         .output(
           z.object({
-            userId: z.string().uuid(),
-            referrerId: z.string().uuid(),
+            userId: z.string().guid(),
+            referrerId: z.string().guid(),
             attributedAt: z.string(),
           }),
         )
@@ -2389,8 +2389,8 @@ export function createIdentityRouter(
       createShare: scopedProcedure('identity:write')
         .output(
           z.object({
-            token: z.string().uuid(),
-            referrerId: z.string().uuid(),
+            token: z.string().guid(),
+            referrerId: z.string().guid(),
             hits: z.number().int(),
           }),
         )
@@ -2406,8 +2406,8 @@ export function createIdentityRouter(
       revokeShare: scopedProcedure('identity:write')
         .output(
           z.object({
-            token: z.string().uuid(),
-            referrerId: z.string().uuid(),
+            token: z.string().guid(),
+            referrerId: z.string().guid(),
             hits: z.number().int(),
             revokedAt: z.string(),
           }),
@@ -2432,7 +2432,7 @@ export function createIdentityRouter(
        * Revoked / gone profile: named refuse, no later attribute.
        */
       shareHits: publicProcedure
-        .input(z.object({ token: z.string().uuid() }))
+        .input(z.object({ token: z.string().guid() }))
         .output(z.object({ hits: z.number().int(), attributed: z.boolean() }))
         .mutation(async ({ ctx, input }) => {
           try {
@@ -2465,8 +2465,8 @@ export function createIdentityRouter(
         .output(
           z
             .object({
-              userId: z.string().uuid(),
-              referrerId: z.string().uuid(),
+              userId: z.string().guid(),
+              referrerId: z.string().guid(),
               attributedAt: z.string(),
             })
             .nullable(),
@@ -2539,7 +2539,7 @@ export function createIdentityRouter(
         }),
 
       myAncestors: scopedProcedure('identity:read')
-        .output(z.array(z.string().uuid()))
+        .output(z.array(z.string().guid()))
         .query(async ({ ctx }) => {
           try {
             return await requireReferral().ancestorsOf(ctx.principal.userId);
@@ -2562,8 +2562,8 @@ export function createIdentityRouter(
             rows: z.array(
               z.object({
                 feeEventId: z.string(),
-                beneficiaryId: z.string().uuid(),
-                payerId: z.string().uuid(),
+                beneficiaryId: z.string().guid(),
+                payerId: z.string().guid(),
                 hop: z.number().int(),
                 rate: z.string(),
                 feeAmount: z.string(),
@@ -2608,7 +2608,7 @@ export function createIdentityRouter(
       freeze: scopedProcedure('admin:write')
         .input(
           z.object({
-            beneficiaryId: z.string().uuid(),
+            beneficiaryId: z.string().guid(),
             reason: z.string().min(3).max(500),
             /**
              * Distinct confirming operator. Enforced after parse so
@@ -2621,8 +2621,8 @@ export function createIdentityRouter(
         )
         .output(
           z.object({
-            beneficiaryId: z.string().uuid(),
-            frozenBy: z.string().uuid(),
+            beneficiaryId: z.string().guid(),
+            frozenBy: z.string().guid(),
             reason: z.string(),
             frozenAt: z.string(),
             honestyLine: z.string(),
@@ -2664,7 +2664,7 @@ export function createIdentityRouter(
       unfreeze: scopedProcedure('admin:write')
         .input(
           z.object({
-            beneficiaryId: z.string().uuid(),
+            beneficiaryId: z.string().guid(),
             confirmOperatorId: z.string().max(128).nullish(),
             approvalId: z.string().max(128).nullish(),
             operationId: z.string().max(128).nullish(),
@@ -2672,8 +2672,8 @@ export function createIdentityRouter(
         )
         .output(
           z.object({
-            beneficiaryId: z.string().uuid(),
-            frozenBy: z.string().uuid(),
+            beneficiaryId: z.string().guid(),
+            frozenBy: z.string().guid(),
             reason: z.string(),
             frozenAt: z.string(),
             honestyLine: z.string(),
@@ -2715,8 +2715,8 @@ export function createIdentityRouter(
         .output(
           z.array(
             z.object({
-              beneficiaryId: z.string().uuid(),
-              frozenBy: z.string().uuid(),
+              beneficiaryId: z.string().guid(),
+              frozenBy: z.string().guid(),
               reason: z.string(),
               frozenAt: z.string(),
             }),
@@ -2775,14 +2775,14 @@ export function createIdentityRouter(
        * Structure + freeze flag only.
        */
       node: scopedProcedure('admin:read')
-        .input(z.object({ userId: z.string().uuid() }))
+        .input(z.object({ userId: z.string().guid() }))
         .output(
           z.object({
-            userId: z.string().uuid(),
-            referrerId: z.string().uuid().nullable(),
+            userId: z.string().guid(),
+            referrerId: z.string().guid().nullable(),
             depth: z.number().int().nonnegative(),
-            ancestors: z.array(z.string().uuid()),
-            directDownline: z.array(z.string().uuid()),
+            ancestors: z.array(z.string().guid()),
+            directDownline: z.array(z.string().guid()),
             directDownlineCount: z.number().int().nonnegative(),
             frozen: z.boolean(),
             attributedAt: z.string().nullable(),
@@ -2815,7 +2815,7 @@ export function createIdentityRouter(
       members: scopedProcedure('admin:read')
         .input(
           z.object({
-            rootId: z.string().uuid().optional(),
+            rootId: z.string().guid().optional(),
             limit: z.number().int().min(1).max(500),
           }),
         )
@@ -2823,8 +2823,8 @@ export function createIdentityRouter(
           z.object({
             members: z.array(
               z.object({
-                userId: z.string().uuid(),
-                referrerId: z.string().uuid(),
+                userId: z.string().guid(),
+                referrerId: z.string().guid(),
                 depth: z.number().int().nonnegative(),
                 frozen: z.boolean(),
                 attributedAt: z.string().nullable(),
@@ -2833,7 +2833,7 @@ export function createIdentityRouter(
             total: z.number().int().nonnegative(),
             frozenInList: z.number().int().nonnegative(),
             maxDepthInList: z.number().int().nonnegative(),
-            rootId: z.string().uuid().nullable(),
+            rootId: z.string().guid().nullable(),
             statusLine: z.string(),
           }),
         )
@@ -2884,7 +2884,7 @@ export function createIdentityRouter(
         .input(
           z.object({
             feeEventId: z.string().min(1).max(120).optional(),
-            beneficiaryId: z.string().uuid().optional(),
+            beneficiaryId: z.string().guid().optional(),
             dryRun: z.boolean().optional(),
             /**
              * Distinct confirming operator. Enforced after parse so
@@ -2982,7 +2982,7 @@ export function createIdentityRouter(
         .input(
           z.object({
             feeEventId: z.string().min(1).max(120),
-            userId: z.string().uuid(),
+            userId: z.string().guid(),
             feeAmount: z.string().regex(/^(0|[1-9]\d*)(\.\d{1,18})?$/),
             asset: z.string().min(1).max(32),
             /** Module fee pool that holds this fee (trade / pay / …). Default identity for legacy. */
@@ -3008,8 +3008,8 @@ export function createIdentityRouter(
             rows: z.array(
               z.object({
                 feeEventId: z.string(),
-                beneficiaryId: z.string().uuid(),
-                payerId: z.string().uuid(),
+                beneficiaryId: z.string().guid(),
+                payerId: z.string().guid(),
                 hop: z.number().int(),
                 rate: z.string(),
                 feeAmount: z.string(),
@@ -3073,7 +3073,7 @@ export function createIdentityRouter(
         .input(
           z.object({
             feeEventId: z.string().min(1).max(120),
-            userId: z.string().uuid(),
+            userId: z.string().guid(),
             feeAmount: z.string().regex(/^(0|[1-9]\d*)(\.\d{1,18})?$/),
             asset: z.string().min(1).max(32),
             /** Module fee pool that holds this fee (trade / pay / …). Default identity for legacy. */
@@ -3103,8 +3103,8 @@ export function createIdentityRouter(
             rows: z.array(
               z.object({
                 feeEventId: z.string(),
-                beneficiaryId: z.string().uuid(),
-                payerId: z.string().uuid(),
+                beneficiaryId: z.string().guid(),
+                payerId: z.string().guid(),
                 hop: z.number().int(),
                 rate: z.string(),
                 feeAmount: z.string(),
@@ -3179,7 +3179,7 @@ export function createIdentityRouter(
         )
         .output(
           z.object({
-            id: z.string().uuid(),
+            id: z.string().guid(),
             email: z.string(),
             position: z.number().int().positive(),
             referralCode: z.string(),
@@ -3235,7 +3235,7 @@ export function createIdentityRouter(
             total: z.number().int().min(0),
             entries: z.array(
               z.object({
-                id: z.string().uuid(),
+                id: z.string().guid(),
                 email: z.string(),
                 position: z.number().int().positive(),
                 referralCode: z.string(),

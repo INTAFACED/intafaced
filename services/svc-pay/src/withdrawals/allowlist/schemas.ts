@@ -9,7 +9,7 @@ const amount = z
   .regex(/^\d+(\.\d{1,18})?$/, 'amounts are unsigned decimal strings with at most 18 decimal places')
   .refine((v) => /[1-9]/.test(v), 'an amount is positive');
 const assetId = z.string().min(1).max(32);
-const id = z.string().uuid();
+const id = z.string().guid();
 const limit = z.number().int().min(1).max(200);
 const clientRef = z.string().min(1).max(64);
 

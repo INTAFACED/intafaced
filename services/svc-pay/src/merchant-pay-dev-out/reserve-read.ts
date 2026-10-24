@@ -20,7 +20,7 @@ export const RESERVE_HOLDING = 'recorded_not_withheld' as const;
 
 export const merchantReserveViewSchema = z
   .object({
-    merchantId: z.string().uuid(),
+    merchantId: z.string().guid(),
     rule: z.object({ rollingReserveBps: z.number().int(), holdDays: z.number().int() }).strict().nullable(),
     holding: z.literal(RESERVE_HOLDING),
     payoutsRefused: z.boolean(),

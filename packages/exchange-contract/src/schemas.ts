@@ -430,7 +430,7 @@ export const createOrderRequestSchema = z
      */
     clientOrderId: z.string().min(1).max(64),
     /** Sub-account to trade from (§4.1 sub_accounts). */
-    subAccountId: z.string().uuid().optional(),
+    subAccountId: z.string().guid().optional(),
     /** Caller expire instant for GTD/GTT. Never invented here. */
     expireAt: isoDatetime.optional(),
     /** Self-trade handling. A mode the engine does not support is refused by the service, never silently ignored. */

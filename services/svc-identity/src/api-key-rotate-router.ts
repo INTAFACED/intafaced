@@ -14,7 +14,7 @@ import { rotateApiKeyAfterPasskey } from './auth/rotate-api-key-passkey.js';
 export function createApiKeyRotateRouter(sql: Sql, minter: ApiKeyMinter, gate: ApiKeyFactorGate, encKey: Buffer | null = null) {
   return router({
     rotateApiKey: scopedProcedure('identity:write')
-      .input(z.object({ keyId: z.string().uuid(), factorProof: optionalFactorProof }))
+      .input(z.object({ keyId: z.string().guid(), factorProof: optionalFactorProof }))
       .output(
         z.object({
           id: z.string(),

@@ -13,10 +13,10 @@ import { RevokeAllSessionsError } from './auth/revoke-all-sessions.js';
 export function createPanicRevokeRouter(sql: Sql) {
   return router({
     panicRevoke: scopedProcedure('identity:write')
-      .input(z.object({ userId: z.string().uuid() }))
+      .input(z.object({ userId: z.string().guid() }))
       .output(
         z.object({
-          userId: z.string().uuid(),
+          userId: z.string().guid(),
           keysRevoked: z.number().int(),
           sessionsRevoked: z.number().int(),
         }),

@@ -38,7 +38,7 @@ describe('contract-typed calls', () => {
 
   it('types a mutation input from the contract and sends it', async () => {
     const award = contractProcedure('identity', 'rank.award', {
-      input: z.object({ userId: z.string().uuid(), xpDelta: z.number().int() }),
+      input: z.object({ userId: z.string().guid(), xpDelta: z.number().int() }),
       output: rankPerksSchema.pick({ feeDiscountBps: true }),
     });
     let body: unknown;
