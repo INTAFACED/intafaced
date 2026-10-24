@@ -43,6 +43,8 @@ function v4Private(ip: string): boolean {
 function v6Private(ip: string): boolean {
   const text = ip.toLowerCase().replace(/%.*$/, '');
   if (text === '::' || text === '::1') return true;
+  // IPv4-compatible (::/96, deprecated) is never a public endpoint; WHATWG writes ::a.b.c.d as ::xxxx:yyyy.
+  if (/^::[0-9a-f]{1,4}:[0-9a-f]{1,4}$/.test(text)) return true;
   // IPv4-mapped or -compatible: judge the IPv4 address it carries.
   const tail = /^::(?:ffff:)?(\d+\.\d+\.\d+\.\d+)$/.exec(text);
   if (tail) return v4Private(tail[1]!);
@@ -93,9 +95,13 @@ export function assertChannelTarget(url: URL, allowLocal: boolean = localTargets
   }
 }
 
+/** The most of a receiver's reply svc-ops reads before it stops; only the status matters. */
+export const CHANNEL_REPLY_CAP_BYTES = 64 * 1024;
+
 /**
  * POST with the address pinned. Resolves once, refuses if any answer is not public, connects to a checked address.
- * Resolves `ok` from the status; rejects on a refused target, a network error or the timeout.
+ * `timeoutMs` bounds the whole call, connect to last byte, so a receiver that trickles its reply cannot hold the send.
+ * Resolves `ok` from the status; rejects on a refused target, a network error or the deadline.
  */
 export function pinnedChannelPost(
   raw: string,
@@ -108,6 +114,14 @@ export function pinnedChannelPost(
   return new Promise((settle, fail) => {
     const url = new URL(raw);
     assertChannelTarget(url, allowLocal);
+    let finished = false;
+    const finish = (outcome: { ok: boolean; status: number } | Error): void => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(deadline);
+      if (outcome instanceof Error) fail(outcome);
+      else settle(outcome);
+    };
     const request = url.protocol === 'https:' ? httpsRequest : httpRequest;
     const req = request(
       url,
@@ -135,15 +149,27 @@ export function pinnedChannelPost(
         },
       },
       (res) => {
-        res.resume();
-        res.on('end', () => {
-          const status = res.statusCode ?? 0;
-          settle({ ok: status >= 200 && status < 300, status });
+        const status = res.statusCode ?? 0;
+        const outcome = { ok: status >= 200 && status < 300, status };
+        let read = 0;
+        res.on('data', (chunk: Buffer) => {
+          read += chunk.length;
+          if (read > CHANNEL_REPLY_CAP_BYTES) {
+            finish(outcome);
+            req.destroy();
+          }
         });
+        res.on('end', () => finish(outcome));
+        res.on('error', (err) => finish(err));
       },
     );
+    const deadline = setTimeout(() => {
+      const err = new Error('channel timeout');
+      finish(err);
+      req.destroy(err);
+    }, timeoutMs);
     req.on('timeout', () => req.destroy(new Error('channel timeout')));
-    req.on('error', fail);
+    req.on('error', (err) => finish(err));
     req.end(body);
   });
 }

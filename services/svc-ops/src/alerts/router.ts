@@ -484,7 +484,7 @@ export function createAlertRulesRouter(rules: AlertRules | undefined, stateStore
 
     grouping: router({
       send: writer
-        .input(z.object({ ruleId: z.string().uuid(), reason: reasonField, idempotencyKey: keyField }))
+        .input(z.object({ ruleId: z.string().guid(), reason: reasonField, idempotencyKey: keyField }))
         .mutation(({ ctx, input }) =>
           guarded(async () => {
             const rule = await need().get(input.ruleId);

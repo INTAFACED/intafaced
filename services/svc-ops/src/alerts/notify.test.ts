@@ -13,10 +13,21 @@ import {
   OPS_CHANNEL_TARGET_UNSET,
   OPS_IDEMPOTENCY_CONFLICT,
 } from '../codes.js';
-import { assertChannelTarget, refusedAddress } from './channel-target.js';
+import { CHANNEL_REPLY_CAP_BYTES, assertChannelTarget, pinnedChannelPost, refusedAddress } from './channel-target.js';
 import { VENDOR_EMAIL } from '@intafaced/contracts';
 import { createMemoryNotify } from './notify-store.js';
-import { groupDecision, matchersHold, parseRoute, resolveRoute, timingOf, timingReady, windowCovers } from './notify.js';
+import {
+  groupDecision,
+  maskIntegration,
+  matchersHold,
+  openSecret,
+  parseIntegrations,
+  parseRoute,
+  resolveRoute,
+  timingOf,
+  timingReady,
+  windowCovers,
+} from './notify.js';
 import { OpsError } from '../codes.js';
 
 const labels = { team: 'ops', env: 'test' };
@@ -187,6 +198,7 @@ describe('alert channel target', () => {
     for (const ip of ['127.0.0.1', '10.0.0.5', '169.254.169.254', '192.168.1.1', '::1', 'fd00::1', '::ffff:10.0.0.1']) {
       expect(refusedAddress(ip, false)).toBe(true);
     }
+    expect(refusedAddress('::7f00:1', false)).toBe(true);
     expect(refusedAddress('93.184.216.34', false)).toBe(false);
     expect(refusedAddress('127.0.0.1', true)).toBe(false);
     expect(refusedAddress('10.0.0.5', true)).toBe(true);
@@ -200,6 +212,43 @@ describe('alert channel target', () => {
       expect.objectContaining({ code: OPS_CHANNEL_TARGET_UNSET }),
     );
     expect(() => assertChannelTarget(new URL('https://hooks.example.com/x'), false)).not.toThrow();
+  });
+
+  it('ends a send at its deadline when the receiver trickles its reply', async () => {
+    const server = createServer((_req, res) => {
+      res.writeHead(200);
+      const drip = setInterval(() => res.write('x'), 50);
+      res.on('close', () => clearInterval(drip));
+    });
+    await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
+    const port = (server.address() as AddressInfo).port;
+    const started = Date.now();
+    try {
+      await expect(pinnedChannelPost(`http://127.0.0.1:${port}/hook`, '{}', {}, 300, undefined, true)).rejects.toThrow('channel timeout');
+      expect(Date.now() - started).toBeLessThan(1_500);
+    } finally {
+      server.closeAllConnections();
+      await new Promise((done) => server.close(done));
+    }
+  });
+
+  it('stops reading a reply past the cap and keeps its status', async () => {
+    const server = createServer((_req, res) => {
+      res.writeHead(202);
+      const chunk = Buffer.alloc(16 * 1024, 120);
+      const pour = setInterval(() => res.write(chunk), 1);
+      res.on('close', () => clearInterval(pour));
+    });
+    await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
+    const port = (server.address() as AddressInfo).port;
+    try {
+      const sent = await pinnedChannelPost(`http://127.0.0.1:${port}/hook`, '{}', {}, 5_000, undefined, true);
+      expect(sent).toEqual({ ok: true, status: 202 });
+      expect(CHANNEL_REPLY_CAP_BYTES).toBe(64 * 1024);
+    } finally {
+      server.closeAllConnections();
+      await new Promise((done) => server.close(done));
+    }
   });
 });
 
@@ -321,6 +370,27 @@ describe('alert channel secrets (security review)', () => {
           ...who,
         }),
       ).rejects.toMatchObject({ code: OPS_CHANNEL_SECRET_UNSET });
+    } finally {
+      if (previous === undefined) delete process.env.OPS_ALERT_CHANNEL_KEY;
+      else process.env.OPS_ALERT_CHANNEL_KEY = previous;
+    }
+  });
+  it('keeps the stored secrets when a read is saved back with its masks, and drops them on a new host', () => {
+    const previous = process.env.OPS_ALERT_CHANNEL_KEY;
+    process.env.OPS_ALERT_CHANNEL_KEY = 'notify-test-key';
+    try {
+      const [stored] = parseIntegrations(
+        [{ id: 'hook', kind: 'webhook', url: 'https://hooks.example.com/a', secret: 'real-secret', bearer: 'real-token' }],
+        [],
+      );
+      const read = maskIntegration(stored!);
+      expect(read.secret).toBe('********');
+      const [kept] = parseIntegrations([read], [stored!]);
+      expect(openSecret(kept!.secret!)).toBe('real-secret');
+      expect(openSecret(kept!.bearer!)).toBe('real-token');
+      expect(() => parseIntegrations([{ ...read, url: 'https://attacker.example.net/x' }], [stored!])).toThrow(
+        expect.objectContaining({ code: OPS_CHANNEL_SECRET_UNSET }),
+      );
     } finally {
       if (previous === undefined) delete process.env.OPS_ALERT_CHANNEL_KEY;
       else process.env.OPS_ALERT_CHANNEL_KEY = previous;

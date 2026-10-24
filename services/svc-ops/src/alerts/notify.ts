@@ -501,6 +501,15 @@ function textOrNull(value: unknown): string | null {
   return trimmed.length === 0 ? null : trimmed;
 }
 
+/** What a read shows in place of a stored secret. */
+const SECRET_MASK = '********';
+
+/** A secret field from a save. The mask a read returned means "keep the stored one", the same as a blank. */
+function secretOrNull(value: unknown): string | null {
+  const text = textOrNull(value);
+  return text === SECRET_MASK ? null : text;
+}
+
 export function parseIntegrations(raw: unknown, previous: readonly StoredIntegration[]): StoredIntegration[] {
   if (!Array.isArray(raw) || raw.length === 0 || raw.length > 8) {
     throw new OpsError(OPS_CHANNEL_TARGET_UNSET, 'A contact point needs one to eight integrations. Nothing was saved.');
@@ -531,9 +540,9 @@ export function parseIntegrations(raw: unknown, previous: readonly StoredIntegra
     // or a masked credential could be re-aimed at any server.
     const prior = found && sameOrigin(found.url, url) ? found : undefined;
     const basicUser = textOrNull(row.basicUser);
-    const basicPasswordIn = textOrNull(row.basicPassword);
-    const bearerIn = textOrNull(row.bearer);
-    const secretIn = textOrNull(row.secret);
+    const basicPasswordIn = secretOrNull(row.basicPassword);
+    const bearerIn = secretOrNull(row.bearer);
+    const secretIn = secretOrNull(row.secret);
     if (basicPasswordIn && bearerIn) {
       throw new OpsError(OPS_CHANNEL_AUTH_CONFLICT, 'Basic auth and a bearer header are both set. Nothing was saved.');
     }
@@ -572,10 +581,10 @@ export function maskIntegration(row: StoredIntegration): OpsAlertContact['integr
     kind: row.kind,
     address: row.address,
     url: row.url,
-    secret: row.secret ? '********' : null,
+    secret: row.secret ? SECRET_MASK : null,
     basicUser: row.basicUser,
-    basicPassword: row.basicPassword ? '********' : null,
-    bearer: row.bearer ? '********' : null,
+    basicPassword: row.basicPassword ? SECRET_MASK : null,
+    bearer: row.bearer ? SECRET_MASK : null,
   };
 }
 
