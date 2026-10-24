@@ -59,7 +59,7 @@ async function openMarkPaid(manageTrade: PersonalPayApi['manageTrade']) {
 
 describe('Mark payment sent checklist (J-p2p-01 #7)', () => {
   it('keeps the confirm off until all three lines are ticked, then marks the order paid once', async () => {
-    const manageTrade = vi.fn(async () => ({ ok: true as const, data: { ...trade, status: 'fiat_sent' as const } }));
+    const manageTrade = vi.fn(async (..._args: unknown[]) => ({ ok: true as const, data: { ...trade, status: 'fiat_sent' as const } }));
     const checklist = await openMarkPaid(manageTrade as unknown as PersonalPayApi['manageTrade']);
     expect(checklist.textContent).toContain('I paid 9.2 EUR, the exact amount of this order');
     expect(checklist.textContent).toContain('I paid from an account in my own name');
