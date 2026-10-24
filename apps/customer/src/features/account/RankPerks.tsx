@@ -26,7 +26,7 @@ function useAccountRead<P extends ContractProcedure<ZodTypeAny, undefined>>(
   useEffect(() => {
     const controller = new AbortController();
     if (isCurrent(context)) {
-      void readContract(context.api, procedure, undefined, { signal: controller.signal }).then(
+      void readContract(context.api, procedure as ContractProcedure<P['output'], undefined>, undefined, { signal: controller.signal }).then(
         (result) => {
           if (!controller.signal.aborted && isCurrent(context))
             setAnswer({

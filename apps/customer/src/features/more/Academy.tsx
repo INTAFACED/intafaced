@@ -123,7 +123,7 @@ function Academy({ route, slug, initialPath }: { route: AcademyRoute; slug?: str
     </div>
   );
 }
-const uuid = z.string().uuid();
+const uuid = z.string().guid();
 const grantReceipt = z
   .object({
     grant: z.object({

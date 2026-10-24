@@ -39,7 +39,7 @@ export function useBankRead<K extends BankRead>(procedure: K, input: unknown, en
     async (signal) => {
       if (!enabled) return { ok: false, reason: 'not_supported', message: copyText('components.select.a.record.to.load.its.details') };
       if (!userId) return { ok: false, reason: 'unauthorized', message: copyText('components.sign.in.to.read.your.bank.information') };
-      return api.query('bank', procedure, input, bankReads[procedure] as ZodType<z.infer<(typeof bankReads)[K]>>, { signal });
+      return api.query('bank', procedure, input, bankReads[procedure] as unknown as ZodType<z.infer<(typeof bankReads)[K]>>, { signal });
     },
     `${userId}:${procedure}:${JSON.stringify(input)}:${enabled}`,
   );
@@ -169,7 +169,7 @@ export const positiveMoney = (asset: string | undefined, name = 'amount', label 
 export const uuidField = (name: string, label: string): ActionField => ({
   name,
   label,
-  validate: (value) => (z.string().uuid().safeParse(value).success ? null : copyText('components.enter.a.valid.id')),
+  validate: (value) => (z.string().guid().safeParse(value).success ? null : copyText('components.enter.a.valid.id')),
 });
 export const startsField: ActionField = {
   name: 'startsAt',

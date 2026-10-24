@@ -7,7 +7,7 @@ import { z } from 'zod';
  */
 const amount = z.string().regex(/^\d+(\.\d{1,18})?$/, 'amounts are unsigned decimal strings with at most 18 decimal places');
 const assetId = z.string().min(1).max(32);
-const id = z.string().uuid();
+const id = z.string().guid();
 const limit = z.number().int().min(1).max(200);
 
 export const APPROVAL_STATUSES = ['pending', 'approved', 'executed', 'rejected', 'expired', 'canceled', 'failed'] as const;

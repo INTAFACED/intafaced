@@ -77,8 +77,8 @@ async function currentList(sql: Sql, userId: string, keyId: string): Promise<str
 export function createApiKeyProductRouter(sql: Sql, minter: ProductExchanger, gate: ApiKeyFactorGate) {
   return router({
     bindApiKeyProductScope: scopedProcedure('identity:write')
-      .input(z.object({ keyId: z.string().uuid(), products: z.array(z.string()), factorProof: optionalFactorProof }))
-      .output(z.object({ id: z.string().uuid(), productScopes: z.array(z.string()) }))
+      .input(z.object({ keyId: z.string().guid(), products: z.array(z.string()), factorProof: optionalFactorProof }))
+      .output(z.object({ id: z.string().guid(), productScopes: z.array(z.string()) }))
       .mutation(async ({ ctx, input }) => {
         try {
           assertDelegateCannotGrant(ctx.principal.kid);
@@ -98,8 +98,8 @@ export function createApiKeyProductRouter(sql: Sql, minter: ProductExchanger, ga
         }
       }),
     unbindApiKeyProductScope: scopedProcedure('identity:write')
-      .input(z.object({ keyId: z.string().uuid(), product: z.string(), factorProof: optionalFactorProof }))
-      .output(z.object({ id: z.string().uuid(), productScopes: z.array(z.string()) }))
+      .input(z.object({ keyId: z.string().guid(), product: z.string(), factorProof: optionalFactorProof }))
+      .output(z.object({ id: z.string().guid(), productScopes: z.array(z.string()) }))
       .mutation(async ({ ctx, input }) => {
         try {
           assertDelegateCannotGrant(ctx.principal.kid);
@@ -173,8 +173,8 @@ export function createApiKeyProductRouter(sql: Sql, minter: ProductExchanger, ga
         z.object({
           accessToken: z.string(),
           expiresAt: z.string(),
-          userId: z.string().uuid(),
-          keyId: z.string().uuid(),
+          userId: z.string().guid(),
+          keyId: z.string().guid(),
           scopes: z.array(z.string()),
           mode: z.enum(['live', 'sandbox']),
           product: z.string(),

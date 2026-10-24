@@ -12,11 +12,11 @@ export const KYB_DOCUMENT_STATES = ['missing', 'provided', 'accepted', 'rejected
 export const kybDocumentStateSchema = z.enum(KYB_DOCUMENT_STATES);
 export type KybDocumentState = z.infer<typeof kybDocumentStateSchema>;
 
-const applicationIdSchema = z.string().uuid();
+const applicationIdSchema = z.string().guid();
 
 export const kybDocumentSchema = z
   .object({
-    id: z.string().uuid(),
+    id: z.string().guid(),
     contentType: z.string().min(1).max(128),
     byteLength: z.number().int().min(1),
     /** Lower-case hex SHA-256 of the bytes as stored. */

@@ -10,8 +10,8 @@ import { revokeAllSessions, RevokeAllSessionsError } from './auth/revoke-all-ses
 export function createSessionRevokeAllRouter(sql: Sql) {
   return router({
     revokeAllSessions: scopedProcedure('identity:write')
-      .input(z.object({ userId: z.string().uuid() }))
-      .output(z.object({ userId: z.string().uuid(), revoked: z.number().int() }))
+      .input(z.object({ userId: z.string().guid() }))
+      .output(z.object({ userId: z.string().guid(), revoked: z.number().int() }))
       .mutation(async ({ ctx, input }) => {
         try {
           return await revokeAllSessions(sql, ctx.principal.userId, input.userId);

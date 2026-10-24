@@ -5,7 +5,7 @@ import { z } from 'zod';
  * decimal strings, never numbers. A blank reference or reason is a parse error, never a default.
  */
 const amount = z.string().regex(/^\d+(\.\d{1,18})?$/, 'amounts are unsigned decimal strings with at most 18 decimal places');
-const withdrawalId = z.string().uuid();
+const withdrawalId = z.string().guid();
 const returnRef = z.string().regex(/^[A-Za-z0-9:_.-]{1,128}$/, "a return reference is the caller's own business key");
 const reason = z.string().trim().min(1).max(500);
 const limit = z.number().int().min(1).max(200);
@@ -26,7 +26,7 @@ export const recreditInputSchema = z.object({ withdrawalId, reason }).strict();
 export const returnViewSchema = z.object({
   withdrawalId,
   returnRef: z.string(),
-  userId: z.string().uuid(),
+  userId: z.string().guid(),
   assetId: z.string(),
   amount: z.string(),
   reason: z.string(),

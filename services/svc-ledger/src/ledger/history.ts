@@ -231,9 +231,9 @@ export function parseHistoryDoorInput(body: unknown): HistoryInput {
 export const HISTORY_PAGE_DEFAULT_LIMIT = 50;
 export const HISTORY_PAGE_MAX_LIMIT = 200;
 
-export const historyPageInputSchema = accountRefSchema
-  .innerType()
-  .extend({
+export const historyPageInputSchema = z
+  .object({
+    ...accountRefSchema.shape,
     /** Optional here (required on a plain AccountRef): omitted = all of the owner's assets. */
     assetId: z.string().min(1).max(16).optional(),
     limit: z.number().int().min(1).max(HISTORY_PAGE_MAX_LIMIT).default(HISTORY_PAGE_DEFAULT_LIMIT),

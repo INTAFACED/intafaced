@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { Context } from './trpc.js';
 
-const id = z.string().uuid();
+const id = z.string().guid();
 const timestamp = z.string().datetime({ offset: true });
 const businessKey = z.string().regex(/^[A-Za-z0-9:_-]{1,160}$/);
 const staffMessage = (kind: 'information_request' | 'call_invitation' | 'follow_up') =>
