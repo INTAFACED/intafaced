@@ -10,7 +10,9 @@ import { memorySecurityLock } from '../security-lock.js';
 import { memoryWithdrawDestinations, UserWithdrawDestinationStore, type UserWithdrawDestinations } from '../withdraw-destination.js';
 import {
   approveByLink,
+  approveOnDevice,
   createIdentityApprovalMail,
+  deviceComparison,
   memoryApprovalLinks,
   openApprovalLinks,
   requestApprovalMail,
@@ -265,6 +267,140 @@ describe.each(stores)('new-address approval: %s', (_name, make) => {
     await expect(approveByLink(deps, { userId: u, token: mail.sent[0]!.token })).rejects.toMatchObject({
       code: 'bank.withdraw_destination_missing',
     });
+  });
+
+  describe('from another signed-in device', () => {
+    const SIGN_IN_A = 'aaaaaaaa-0000-4000-8000-000000000001';
+    const SIGN_IN_B = 'bbbbbbbb-0000-4000-8000-000000000002';
+    const DEVICE_A = 'aaaaaaaa-1111-4111-8111-000000000001';
+    const DEVICE_B = 'bbbbbbbb-1111-4111-8111-000000000002';
+    const savedFrom = (destinations: UserWithdrawDestinations, userId: string, fam: string | null, dev: string | null) =>
+      destinations.save({
+        userId,
+        assetId: 'USDT',
+        network: 'erc20',
+        ref: ADDRESS,
+        label: 'Cold wallet',
+        savedOn: { fam, dev },
+      });
+
+    it('approves from a different sign-in: the cooling-off starts then, by device, and again changes nothing', async () => {
+      const { deps, destinations, clock } = setup();
+      const u = fresh();
+      const entry = await savedFrom(destinations, u, SIGN_IN_A, null);
+      await expect(destinations.savedOn({ userId: u, destinationId: entry.destinationId })).resolves.toEqual({ fam: SIGN_IN_A, dev: null });
+      const approved = await approveOnDevice(deps, {
+        userId: u,
+        destinationId: entry.destinationId,
+        approving: { fam: SIGN_IN_B, dev: null },
+      });
+      expect(approved).toMatchObject({ state: 'cooling', approvedBy: 'device' });
+      expect(approved.approvedAt).toBeInstanceOf(Date);
+      expect(approved.updatedAt.getTime()).toBeGreaterThanOrEqual(entry.updatedAt.getTime());
+      clock.now = new Date(clock.now.getTime() + 60_000);
+      const again = await approveOnDevice(deps, { userId: u, destinationId: entry.destinationId, approving: { fam: SIGN_IN_B, dev: null } });
+      expect(again).toEqual(approved);
+    });
+
+    it('refuses the device that saved it, even after a refresh or a new sign-in there, and changes nothing', async () => {
+      const { deps, destinations } = setup();
+      const u = fresh();
+      const entry = await savedFrom(destinations, u, SIGN_IN_A, DEVICE_A);
+      // The same sign-in (a refreshed token keeps `fam`).
+      await expect(
+        approveOnDevice(deps, { userId: u, destinationId: entry.destinationId, approving: { fam: SIGN_IN_A, dev: DEVICE_A } }),
+      ).rejects.toMatchObject({ code: 'bank.address_approval_same_device' });
+      // A new sign-in on the same trusted device is still that device.
+      await expect(
+        approveOnDevice(deps, { userId: u, destinationId: entry.destinationId, approving: { fam: SIGN_IN_B, dev: DEVICE_A } }),
+      ).rejects.toMatchObject({ code: 'bank.address_approval_same_device' });
+      // With no device on the approving side, the sign-in decides: the same one refuses.
+      await expect(
+        approveOnDevice(deps, { userId: u, destinationId: entry.destinationId, approving: { fam: SIGN_IN_A, dev: null } }),
+      ).rejects.toMatchObject({ code: 'bank.address_approval_same_device' });
+      const [still] = await destinations.list(u);
+      expect(still).toMatchObject({ state: 'pending', approvedAt: null, approvedBy: null });
+      // Another trusted device approves.
+      await expect(
+        approveOnDevice(deps, { userId: u, destinationId: entry.destinationId, approving: { fam: SIGN_IN_B, dev: DEVICE_B } }),
+      ).resolves.toMatchObject({ state: 'cooling', approvedBy: 'device' });
+    });
+
+    it('refuses when either side names no sign-in: unknown is never a different device, and the emailed link still works', async () => {
+      const { deps, destinations, mail } = setup();
+      const u = fresh();
+      // Saved from a token that named neither (an older token, or an entry saved before this).
+      const entry = await savedFrom(destinations, u, null, null);
+      await expect(
+        approveOnDevice(deps, { userId: u, destinationId: entry.destinationId, approving: { fam: SIGN_IN_B, dev: DEVICE_B } }),
+      ).rejects.toMatchObject({ code: 'bank.address_approval_device_unknown' });
+      const v = fresh();
+      const other = await savedFrom(destinations, v, SIGN_IN_A, null);
+      await expect(
+        approveOnDevice(deps, { userId: v, destinationId: other.destinationId, approving: { fam: null, dev: null } }),
+      ).rejects.toMatchObject({ code: 'bank.address_approval_device_unknown' });
+      await requestApprovalMail(deps, { userId: u, destinationId: entry.destinationId });
+      await expect(approveByLink(deps, { userId: u, token: mail.sent[0]!.token })).resolves.toMatchObject({
+        state: 'cooling',
+        approvedBy: 'link',
+      });
+    });
+
+    it("refuses while the security lock holds, another customer's entry, and a removed or missing one", async () => {
+      const { deps, destinations, lock } = setup();
+      const u = fresh();
+      const entry = await savedFrom(destinations, u, SIGN_IN_A, null);
+      const approving = { fam: SIGN_IN_B, dev: null };
+      lock.set(u, { locked: true, unlocksAt: null });
+      await expect(approveOnDevice(deps, { userId: u, destinationId: entry.destinationId, approving })).rejects.toMatchObject({
+        code: 'bank.security_locked',
+      });
+      lock.set(u, { locked: false, unlocksAt: null });
+      const stranger = fresh();
+      await expect(approveOnDevice(deps, { userId: stranger, destinationId: entry.destinationId, approving })).rejects.toMatchObject({
+        code: 'bank.withdraw_destination_missing',
+      });
+      await expect(destinations.savedOn({ userId: stranger, destinationId: entry.destinationId })).resolves.toBeNull();
+      await destinations.remove({ userId: u, destinationId: entry.destinationId, idempotencyKey: `remove:${entry.destinationId}` });
+      await expect(approveOnDevice(deps, { userId: u, destinationId: entry.destinationId, approving })).rejects.toMatchObject({
+        code: 'bank.withdraw_destination_missing',
+      });
+    });
+
+    it('an entry approved by link answers as it is; the saving ids must be uuids', async () => {
+      const { deps, destinations, mail } = setup();
+      const u = fresh();
+      const entry = await savedFrom(destinations, u, SIGN_IN_A, null);
+      await requestApprovalMail(deps, { userId: u, destinationId: entry.destinationId });
+      const byLink = await approveByLink(deps, { userId: u, token: mail.sent[0]!.token });
+      // Even the saving device gets the approved entry back: there is nothing left to approve.
+      await expect(
+        approveOnDevice(deps, { userId: u, destinationId: entry.destinationId, approving: { fam: SIGN_IN_A, dev: null } }),
+      ).resolves.toEqual(byLink);
+      await expect(savedFrom(destinations, fresh(), 'not-a-uuid', null)).rejects.toMatchObject({ code: 'bank.ramp_invalid_destination' });
+    });
+  });
+});
+
+describe('telling a different device', () => {
+  const [F1, F2, D1, D2] = [
+    '11111111-0000-4000-8000-000000000001',
+    '22222222-0000-4000-8000-000000000002',
+    '33333333-0000-4000-8000-000000000003',
+    '44444444-0000-4000-8000-000000000004',
+  ];
+  it.each([
+    ['both devices named and different', { fam: F1, dev: D1 }, { fam: F1, dev: D2 }, 'different'],
+    ['both devices named and the same, new sign-in', { fam: F1, dev: D1 }, { fam: F2, dev: D1 }, 'same'],
+    ['one device missing, different sign-ins', { fam: F1, dev: D1 }, { fam: F2, dev: null }, 'different'],
+    ['one device missing, the same sign-in', { fam: F1, dev: null }, { fam: F1, dev: D2 }, 'same'],
+    ['no sign-in on the saving side', { fam: null, dev: D1 }, { fam: F2, dev: null }, 'unknown'],
+    ['no sign-in on the approving side', { fam: F1, dev: null }, { fam: null, dev: null }, 'unknown'],
+    ['nothing named on either side', { fam: null, dev: null }, { fam: null, dev: null }, 'unknown'],
+    ['different devices, but the approving token names no sign-in', { fam: F1, dev: D1 }, { fam: null, dev: D2 }, 'unknown'],
+    ['case does not make a different device', { fam: F1, dev: D1 }, { fam: F2, dev: D1.toUpperCase() }, 'same'],
+  ] as const)('%s', (_name, saved, approving, expected) => {
+    expect(deviceComparison(saved, approving)).toBe(expected);
   });
 });
 

@@ -43,11 +43,13 @@ function callerWith(
   networks: WithdrawNetworkSource | null = REGISTRY,
   destinations: UserWithdrawDestinations = shared,
   walletProofs: WalletProofStore = sharedProofs,
+  claims: { fam?: string; dev?: string } = {},
 ) {
   const raw = encodePrincipal({
     sub: USER,
     userId: USER,
     sid: '22222222-2222-4222-8222-222222222222',
+    ...claims,
     scopes,
     tier: 'full',
     mfa,
@@ -125,6 +127,39 @@ describe('bank.ramps.destinations: the address book', () => {
         destinationId: saved.destinationId,
       }),
     ).rejects.toMatchObject({ cause: { code: 'bank.address_approval_link_unset' } });
+  });
+
+  it('approves from another sign-in, read from the access token: the saving one is refused, and a plain session may not (W-withdraw-09)', async () => {
+    const destinations = memoryWithdrawDestinations({ addressBookCap: () => '5' });
+    const SIGN_IN_A = { fam: 'aaaaaaaa-0000-4000-8000-000000000001' };
+    const SIGN_IN_B = { fam: 'bbbbbbbb-0000-4000-8000-000000000002' };
+    const stepped = (claims: { fam?: string; dev?: string }) =>
+      callerWith(['bank:read', 'bank:write', 'trade:withdraw'], true, REGISTRY, destinations, sharedProofs, claims);
+    const saved = await stepped(SIGN_IN_A).ramps.destinations.save({ ...entry, label: 'From A' });
+    await expect(destinations.savedOn({ userId: USER, destinationId: saved.destinationId })).resolves.toEqual({
+      fam: SIGN_IN_A.fam,
+      dev: null,
+    });
+    await expect(stepped(SIGN_IN_A).ramps.destinations.approval.onDevice({ destinationId: saved.destinationId })).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      cause: { code: 'bank.address_approval_same_device' },
+    });
+    // A token that names no sign-in cannot be told apart, so it refuses rather than approving.
+    await expect(stepped({}).ramps.destinations.approval.onDevice({ destinationId: saved.destinationId })).rejects.toMatchObject({
+      cause: { code: 'bank.address_approval_device_unknown' },
+    });
+    await expect(
+      callerWith(['bank:read', 'bank:write'], true, REGISTRY, destinations, sharedProofs, SIGN_IN_B).ramps.destinations.approval.onDevice({
+        destinationId: saved.destinationId,
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    // The device is never taken from the request.
+    await expect(
+      stepped(SIGN_IN_A).ramps.destinations.approval.onDevice({ destinationId: saved.destinationId, fam: SIGN_IN_B.fam } as never),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    const approved = await stepped(SIGN_IN_B).ramps.destinations.approval.onDevice({ destinationId: saved.destinationId });
+    expect(approved).toMatchObject({ destinationId: saved.destinationId, state: 'cooling', approvedBy: 'device' });
+    expect(approved.approvedAt).not.toBeNull();
   });
 
   it('names the typed refusals for a taken label and a full book', async () => {

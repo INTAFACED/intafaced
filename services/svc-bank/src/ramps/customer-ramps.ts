@@ -159,7 +159,7 @@ export interface DestinationView {
   ownership: Ownership;
   /** When and how the customer approved this new address (W-withdraw-09); null until then and on older entries. */
   approvedAt: string | null;
-  approvedBy: 'link' | null;
+  approvedBy: 'link' | 'device' | null;
   /** While it waits: until when the newest emailed approval link works, or null when none is out. */
   approvalLinkExpiresAt: string | null;
 }

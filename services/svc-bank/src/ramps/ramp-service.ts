@@ -56,6 +56,7 @@ import { assertCryptoRamp, assertFiatSocketWhenNone, refuseFiatRamp, type RampPr
 import {
   BANK_ADDRESS_APPROVAL_LINK_ENV,
   approveByLink,
+  approveOnDevice,
   requestApprovalMail,
   sqlApprovalLinks,
   unconfiguredApprovalMail,
@@ -68,6 +69,7 @@ import {
   destKindForRamp,
   UserWithdrawDestinationStore,
   type SaveDestinationInput,
+  type SavedOn,
   type UserWithdrawDestinations,
   type WithdrawDestination,
 } from '../withdraw-destination.js';
@@ -443,6 +445,11 @@ export class RampService {
   /** Approve the new address an emailed link names, for the customer it was sent to. */
   async approveAddressByLink(input: { userId: string; token: string }): Promise<DestinationView> {
     return viewWithOwnership(this.customerDeps(), input.userId, await approveByLink(this.approvalDeps(), input));
+  }
+
+  /** Approve a new address from a signed-in device that did not save it (the router asks for the fresh confirmation). */
+  async approveAddressOnDevice(input: { userId: string; destinationId: string; approving: SavedOn }): Promise<DestinationView> {
+    return viewWithOwnership(this.customerDeps(), input.userId, await approveOnDevice(this.approvalDeps(), input));
   }
 
   /** Remove one saved destination. `idempotencyKey` replays the same removal. */

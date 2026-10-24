@@ -11,13 +11,13 @@ import {
 import { transaction } from '@intafaced/db';
 import { BankError, type BankErrorCode } from '../errors.js';
 import { assertSecurityLockOpen, type SecurityLockPort } from '../security-lock.js';
-import type { UserWithdrawDestinations, WithdrawDestination } from '../withdraw-destination.js';
+import type { SavedOn, UserWithdrawDestinations, WithdrawDestination } from '../withdraw-destination.js';
 
 /**
  * NEW-ADDRESS APPROVAL (W-withdraw-09, J-wallet-04 #5). A withdrawal address the customer saves starts `pending`: no
- * money goes to it, and its cooling-off has not started. The customer approves it by email, and only then does the
- * cooling-off start. A thief holding one signed-in session therefore also needs the customer's mailbox before an address
- * of theirs can ever be paid.
+ * money goes to it, and its cooling-off has not started. The customer approves it by email or from another signed-in
+ * device, and only then does the cooling-off start. A thief holding one signed-in session therefore also needs the
+ * customer's mailbox or a second sign-in before an address of theirs can ever be paid.
  *
  * - BY EMAIL. `requestMail` makes a single-use link and asks identity to mail it to the address on the customer's account
  *   (`POST /internal/mail`, purpose `withdraw-address-approval`; identity holds the address, the bank never sees it). The
@@ -26,8 +26,10 @@ import type { UserWithdrawDestinations, WithdrawDestination } from '../withdraw-
  *   nothing and says which. The bank keeps only the token's sha256; identity's acceptance means the mail was queued, not
  *   delivered, and the customer is told no more than that. Opening the link approves after a fresh confirmation (the
  *   router asks for the step-up scope).
- * - FROM ANOTHER DEVICE: not yet. The access token's session id changes on every refresh, so "not the session that saved
- *   it" cannot be told apart from "the same browser, refreshed" until identity names a session that stays the same.
+ * - FROM ANOTHER DEVICE. `approveOnDevice` approves from a device that did not save the entry, after a fresh
+ *   confirmation (the router asks for the step-up scope). The entry keeps the sign-in (`fam`) and trusted device (`dev`)
+ *   its access token named; `deviceComparison` says whether the approving token's are a different device. The session id
+ *   is not used: it changes on every refresh.
  *
  * Both refuse while the customer's security lock holds, like adding an address does. Approving twice changes nothing.
  */
@@ -365,6 +367,54 @@ export async function approveByLink(deps: AddressApprovalDeps, input: { userId: 
   const approved = await deps.destinations.approve({ userId: input.userId, destinationId: link.destinationId, by: 'link' });
   await deps.links.markUsed(link.id);
   return approved;
+}
+
+/**
+ * Whether an approving sign-in is on a different device from the one that saved the entry. Both must name a sign-in
+ * (`fam`; a token without one, such as an API key, an older token or a frozen account's read-only session, is never an
+ * interactive sign-in to approve from), else the answer is `unknown`, never a match. Then, both name a trusted device:
+ * different devices are different. Otherwise different sign-ins are different (a passkey sign-in names no device).
+ */
+export function deviceComparison(saved: SavedOn, approving: SavedOn): 'different' | 'same' | 'unknown' {
+  const lower = (id: string | null) => (id === null ? null : id.toLowerCase());
+  const [savedFam, approvingFam] = [lower(saved.fam), lower(approving.fam)];
+  if (savedFam === null || approvingFam === null) return 'unknown';
+  const [savedDev, approvingDev] = [lower(saved.dev), lower(approving.dev)];
+  if (savedDev !== null && approvingDev !== null) return savedDev === approvingDev ? 'same' : 'different';
+  return savedFam === approvingFam ? 'same' : 'different';
+}
+
+/**
+ * Approve a waiting entry from a signed-in device that did not save it. An entry approved already is answered as it is;
+ * one removed or blocked refuses. The same device refuses `bank.address_approval_same_device`; a sign-in or device not
+ * named on either token refuses `bank.address_approval_device_unknown` (the emailed link still works).
+ */
+export async function approveOnDevice(
+  deps: AddressApprovalDeps,
+  input: { userId: string; destinationId: string; approving: SavedOn },
+): Promise<WithdrawDestination> {
+  const entry = (await deps.destinations.list(input.userId)).find((row) => row.destinationId === input.destinationId);
+  if (!entry) throw new BankError(`User ${input.userId} has no saved address ${input.destinationId}`, 'bank.withdraw_destination_missing');
+  if (entry.state === 'blocked' || entry.state === 'archived') {
+    throw new BankError('This address can no longer be approved: it was removed or blocked', 'bank.address_approval_not_pending');
+  }
+  if (entry.state !== 'pending') return entry;
+  const saved = await deps.destinations.savedOn({ userId: input.userId, destinationId: entry.destinationId });
+  const compared = saved === null ? 'unknown' : deviceComparison(saved, input.approving);
+  if (compared === 'same') {
+    throw new BankError(
+      'This address was saved on this device, so it cannot be approved here. Approve it on another device where you are signed in, or by the emailed link',
+      'bank.address_approval_same_device',
+    );
+  }
+  if (compared === 'unknown') {
+    throw new BankError(
+      'This device cannot be told apart from the one that saved the address. Approve it by the emailed link',
+      'bank.address_approval_device_unknown',
+    );
+  }
+  await assertSecurityLockOpen(deps.securityLock, input.userId, 'approving a withdrawal address');
+  return deps.destinations.approve({ userId: input.userId, destinationId: entry.destinationId, by: 'device' });
 }
 
 /** The newest mailed link per entry that still works now, for the book and the readiness answer. */

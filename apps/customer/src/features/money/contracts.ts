@@ -238,9 +238,9 @@ export const destinationSchema = z.object({
       offerExpiresAt: z.string().nullable(),
     })
     .optional(),
-  // A new address waits (`pending`) until approved by an emailed link (W-withdraw-09).
+  // A new address waits (`pending`) until approved by an emailed link or from another signed-in device (W-withdraw-09).
   approvedAt: z.string().nullable().optional(),
-  approvedBy: z.enum(['link']).nullable().optional(),
+  approvedBy: z.enum(['link', 'device']).nullable().optional(),
   // Until when the newest emailed approval link works, while one is open.
   approvalLinkExpiresAt: z.string().nullable().optional(),
 });

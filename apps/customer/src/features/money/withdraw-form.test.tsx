@@ -172,7 +172,7 @@ describe('Withdrawal addresses: the bank address book, and saving to it with a c
     );
     expect(words.locked).toBe(false);
     expect(words.text).toContain('Test wallet is waiting for your approval, so nothing can be sent to it.');
-    expect(words.text).toContain('Ask for an approval link by email and open it');
+    expect(words.text).toContain('Approve it on another device where you are signed in, or ask for an approval link by email and open it');
   });
   it('shortens an address in its row (first six, last four) and keeps the full one under Details', () => {
     const html = renderToStaticMarkup(<AddressTable rows={[row()]} now={NOW} />);
