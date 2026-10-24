@@ -37,6 +37,8 @@ import {
 } from './history.js';
 import { assertScaledBigintAmounts, parseStoredAmount } from './live-money.js';
 import type { FeeRevenueRow } from './fee-revenue.js';
+import { LEDGER_HOLDINGS_HISTORY_MAX_ROWS, LEDGER_HOLDINGS_HISTORY_TOO_LARGE } from '@intafaced/contracts';
+import type { HoldingsHistory, HoldingsHistoryInput } from './holdings-history.js';
 
 export interface PostgresLedgerOptions extends IdempotencyConflictOptions {
   /**
@@ -457,6 +459,89 @@ export class PostgresLedger implements LedgerClient {
       collected: parseStoredAmount(r.collected, 'ledger_entries.amount'),
       returned: parseStoredAmount(r.returned, 'ledger_entries.amount'),
     }));
+  }
+
+  /**
+   * What one owner holds now and how it moved since `input.from`, per asset, ledger reason and time bucket (see
+   * `holdings-history.ts`). A READ in one repeatable-read snapshot: the holdings are what the movements lead up to.
+   *
+   * Every account of the owner counts: available and every lock kind, so a move between two of them (an order hold,
+   * a withdrawal put on hold) nets to zero inside its bucket and is left out by the HAVING. The fee lookup runs only
+   * for the owner's own receiving fill line, as in `historyPage`. Past LEDGER_HOLDINGS_HISTORY_MAX_ROWS rows the read
+   * refuses instead of answering short: a replay that silently missed movements would draw the wrong past.
+   */
+  async holdingsHistory(input: HoldingsHistoryInput): Promise<HoldingsHistory> {
+    const bucket = input.bucketSeconds;
+    return transaction(
+      this.sql,
+      async (tx) => {
+        const [clock] = await tx<Array<{ now: Date }>>`SELECT now() AS now`;
+        const holdings = await tx<Array<{ asset_id: string; amount: string }>>`
+          SELECT asset_id, SUM(balance)::text AS amount
+            FROM accounts
+           WHERE owner_type = ${input.ownerType}::owner_type AND owner_id = ${input.ownerId}
+           GROUP BY asset_id
+          HAVING SUM(balance) <> 0
+           ORDER BY asset_id
+        `;
+        const rows = await tx<Array<{ asset_id: string; module: string; reason: string; bucket: string; net: string; fee: string }>>`
+          SELECT m.asset_id, m.module, m.reason, m.bucket::text AS bucket, m.net::text AS net, m.fee::text AS fee
+            FROM (
+              SELECT a.asset_id, t.module, t.reason,
+                     (floor(extract(epoch FROM t.posted_at) / ${bucket}) * ${bucket})::bigint AS bucket,
+                     SUM(CASE WHEN e.direction = 'debit' THEN e.amount ELSE -e.amount END) AS net,
+                     COALESCE(SUM(f.fee), 0) AS fee
+                FROM accounts a
+                JOIN ledger_entries e ON e.account_id = a.id
+                JOIN ledger_tx t      ON t.id = e.tx_id
+                LEFT JOIN LATERAL (
+                  SELECT SUM(fe.amount) AS fee
+                    FROM ledger_entries fe
+                    JOIN accounts fa ON fa.id = fe.account_id
+                   WHERE t.module = 'trade'
+                     AND t.reason IN ('trade.fill', 'trade.fill.mm_maker')
+                     AND a.owner_type = 'user'
+                     AND a.kind = 'available'
+                     AND e.direction = 'debit'
+                     AND fe.tx_id = t.id
+                     AND fe.direction = 'debit'
+                     AND fa.owner_type = 'house'
+                     AND fa.owner_id = 'fees:trade'
+                     AND fa.kind = 'available'
+                     AND fa.purpose = ''
+                     AND fa.asset_id = a.asset_id
+                ) f ON true
+               WHERE a.owner_type = ${input.ownerType}::owner_type
+                 AND a.owner_id   = ${input.ownerId}
+                 AND t.posted_at >= ${input.from}
+               GROUP BY a.asset_id, t.module, t.reason, 4
+              HAVING SUM(CASE WHEN e.direction = 'debit' THEN e.amount ELSE -e.amount END) <> 0
+                  OR COALESCE(SUM(f.fee), 0) <> 0
+            ) m
+           ORDER BY m.bucket, m.asset_id, m.module, m.reason
+           LIMIT ${LEDGER_HOLDINGS_HISTORY_MAX_ROWS + 1}
+        `;
+        if (rows.length > LEDGER_HOLDINGS_HISTORY_MAX_ROWS) {
+          throw new LedgerError(
+            `More than ${LEDGER_HOLDINGS_HISTORY_MAX_ROWS} movement rows since ${input.from.toISOString()}: ask for a later start or a larger bucket`,
+            LEDGER_HOLDINGS_HISTORY_TOO_LARGE,
+          );
+        }
+        return {
+          asOf: clock!.now,
+          holdings: holdings.map((h) => ({ assetId: h.asset_id, amount: parseStoredAmount(h.amount, 'accounts.balance') })),
+          movements: rows.map((r) => ({
+            assetId: r.asset_id,
+            module: r.module,
+            reason: r.reason,
+            bucketStart: Number(r.bucket),
+            net: parseStoredAmount(r.net, 'ledger_entries.amount'),
+            fee: parseStoredAmount(r.fee, 'ledger_entries.amount'),
+          })),
+        };
+      },
+      { isolation: 'repeatable read' },
+    );
   }
 
   /**

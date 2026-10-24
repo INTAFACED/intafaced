@@ -34,6 +34,7 @@ export * from './ops-alert-rules.js';
 export * from './ops-alert-notify.js';
 export * from './ops-compliance-cases.js';
 export * from './ledger-fee-revenue.js';
+export * from './ledger-holdings-history.js';
 export * from './ops-venue-economics.js';
 export * from './ops-console-mode.js';
 export * from './ops-console-announcements.js';

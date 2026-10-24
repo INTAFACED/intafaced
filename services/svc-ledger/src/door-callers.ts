@@ -23,6 +23,8 @@ export const LEDGER_DOOR_CALLERS = {
   txById: READERS,
   history: READERS,
   historyPage: READERS,
+  /** What one owner holds now and how it moved since a point in time: svc-bank's value-over-time read (J-portfolio-05). */
+  holdingsHistory: ['svc-bank'],
   /** The asset and network registry (W-balances-05): read by every service that reads balances. */
   assetsList: READERS,
   assetsGet: READERS,

@@ -40,6 +40,7 @@ import {
 import type { RestoreWatermarkRead } from '@intafaced/contracts';
 import type { FeeRevenueRow } from './ledger/fee-revenue.js';
 import type { HistoryEntry, HistoryPage, HistoryPageInput, HistoryRange } from './ledger/history.js';
+import type { HoldingsHistory, HoldingsHistoryInput } from './ledger/holdings-history.js';
 import {
   readLastVerified,
   countConsecutiveIncompleteRuns,
@@ -219,6 +220,11 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
   /** One founder edit, approved through identity, applied once per operation id. Moves no value. */
   applyAssetEdit(approvals: ActionApprovalConsumer, operatorId: string, input: unknown): Promise<RegistryAsset> {
     return applyAssetEdit(this.sql, approvals, operatorId, input);
+  }
+
+  /** What one owner holds now and how it moved since a point in time (J-portfolio-05). A read; same no-span reasoning. */
+  holdingsHistory(input: HoldingsHistoryInput): Promise<HoldingsHistory> {
+    return this.engine.holdingsHistory(input);
   }
 
   /** Paged sibling of `history`. A read; same no-span reasoning. */
