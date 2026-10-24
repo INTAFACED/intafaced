@@ -233,6 +233,51 @@ if (!available) {
       expect(await codeOf(who.api.linkProviderStart({ provider: 'social' }))).toBe('idp.social');
     });
 
+    it('links a provider account only after the step-up, from a state this account started, and removes it again', async () => {
+      const providers = new SocialSignin(db.sql, {
+        providers: new Map([
+          [
+            'fake',
+            {
+              status: 'ready' as const,
+              port: {
+                authorizationUrl: ({ state }: { state: string }) => `https://provider.test/authorize?state=${state}`,
+                exchange: async ({ code }: { code: string }) => ({ subject: code }),
+              },
+            },
+          ],
+        ]),
+        flowTtlSeconds: 600,
+      });
+      const linking = createSigninMethodsRouter(db.sql, stepUp, { wallet: walletConfig, social: providers });
+      const as = (userId: string) =>
+        linking.createCaller({
+          principal: { userId, sid: 'sid-1', scopes: ['identity:read', 'identity:write'], mfa: false },
+          service: null,
+          region: 'DE',
+          requestId: 'req-social',
+        } as unknown as Context);
+      const who = await person();
+      const other = await person();
+      const started = await as(who.userId).linkProviderStart({ provider: 'fake' });
+      const state = new globalThis.URL(started.authorizationUrl).searchParams.get('state')!;
+      const back = { provider: 'fake', state, code: 'subject-1', clientRequestId: 'p-1' };
+      // No confirmation yet: refused, and the state stays usable.
+      expect(await codeOf(as(who.userId).linkProviderComplete(back))).toBe('identity.step_up_required');
+      // Another account cannot finish this account's link.
+      const restarted = await as(who.userId).linkProviderStart({ provider: 'fake' });
+      const another = new globalThis.URL(restarted.authorizationUrl).searchParams.get('state')!;
+      expect(await codeOf(as(other.userId).linkProviderComplete({ ...back, state: another, stepUpApprovalId: 'ok' }))).toBe(
+        'identity.social_flow_invalid',
+      );
+      stepUps.length = 0;
+      const linked = await as(who.userId).linkProviderComplete({ ...back, stepUpApprovalId: 'ok' });
+      expect(linked.providers).toEqual(['fake']);
+      expect(stepUps).toEqual([{ scope: 'identity.step_up.link_method', fields: { method: 'social:fake', clientRequestId: 'p-1' } }]);
+      const after = await as(who.userId).unlinkSigninMethod({ method: 'social:fake', clientRequestId: 'p-2', stepUpApprovalId: 'ok' });
+      expect(after.providers).toEqual([]);
+    });
+
     it('refuses the mailed code for an address that was never proved', async () => {
       const who = await person();
       await db.sql`UPDATE users SET email_verified_at = NULL, email_code_signin = false WHERE id = ${who.userId}`;
@@ -243,6 +288,15 @@ if (!available) {
   });
 
   describe('removing a way in', () => {
+    it('does not count a mailed code to an address never proved, so the password stays the last way in', async () => {
+      const who = await person();
+      await db.sql`UPDATE users SET email_verified_at = NULL WHERE id = ${who.userId}`;
+      expect(await who.api.signinMethods()).toMatchObject({ password: true, emailCode: { on: true, proved: false } });
+      expect(await codeOf(who.api.unlinkSigninMethod({ method: 'password', clientRequestId: 'u-p', stepUpApprovalId: 'ok' }))).toBe(
+        'identity.last_signin_method',
+      );
+    });
+
     it('removes the mailed code and the password, then refuses the last way in before any step-up', async () => {
       const who = await person();
       const { method } = await linkWallet(who);

@@ -13,7 +13,6 @@
  * its purpose, its wallet and (for a link) its account. Texted codes need the outside `vendor.sms`, which is not
  * connected, so a phone number is refused with that code and nothing is stored.
  */
-import { createHash } from 'node:crypto';
 import { transaction } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { getAddress, recoverMessageAddress, type Hex } from 'viem';
@@ -24,6 +23,7 @@ import {
   assertPasswordShape,
   generateToken,
   hashPassword,
+  hashToken,
   WeakPasswordError,
 } from './passwords.js';
 import { assertNotSecurityLocked } from './security-lock.js';
@@ -58,9 +58,12 @@ export class SigninMethodError extends Error {
   }
 }
 
-/** A method named on the wire: `password`, `email_code`, `sms_code` or `wallet_siwe:<lower-case address>`. */
-export type SigninMethod = 'password' | 'email_code' | 'sms_code' | `wallet_siwe:0x${string}`;
-const METHOD = /^(password|email_code|sms_code|wallet_siwe:0x[0-9a-f]{40})$/;
+/**
+ * A method named on the wire: `password`, `email_code`, `sms_code`, `wallet_siwe:<lower-case address>` or
+ * `social:<provider>` (a linked provider account).
+ */
+export type SigninMethod = 'password' | 'email_code' | 'sms_code' | `wallet_siwe:0x${string}` | `social:${string}`;
+const METHOD = /^(password|email_code|sms_code|wallet_siwe:0x[0-9a-f]{40}|social:[a-z0-9-]{1,32})$/;
 
 export function parseSigninMethod(raw: string): SigninMethod {
   if (!METHOD.test(raw)) throw new SigninMethodError('identity.method_invalid');
@@ -121,9 +124,10 @@ async function methodsOf(sql: Sql, userId: string, user: UserRow): Promise<Signi
   };
 }
 
-/** How many ways in the account has. */
+/** How many ways in the account has. A mailed code counts only to an address the owner proved. */
 export function signinMethodCount(methods: SigninMethods): number {
-  return (methods.password ? 1 : 0) + (methods.emailCode.on ? 1 : 0) + methods.passkeys + methods.wallets.length + methods.providers.length;
+  const emailCode = methods.emailCode.on && methods.emailCode.proved;
+  return (methods.password ? 1 : 0) + (emailCode ? 1 : 0) + methods.passkeys + methods.wallets.length + methods.providers.length;
 }
 
 /** The caller's own ways to sign in. */
@@ -150,17 +154,24 @@ function holds(methods: SigninMethods, method: SigninMethod): boolean {
   if (method === 'password') return methods.password;
   if (method === 'email_code') return methods.emailCode.on;
   if (method === 'sms_code') return false;
+  if (method.startsWith('social:')) return methods.providers.includes(method.slice('social:'.length));
   const address = method.slice('wallet_siwe:'.length);
   return methods.wallets.some((w) => w.address === address);
+}
+
+/** How many ways in removing `method` takes away: a mailed code to an address never proved was not counted. */
+function counted(methods: SigninMethods, method: SigninMethod): number {
+  return method === 'email_code' && !methods.emailCode.proved ? 0 : 1;
 }
 
 /** The refusals a removal would meet, without writing: run before the step-up so a refused change spends no confirmation. */
 export async function checkUnlink(sql: Sql, userId: string, method: SigninMethod): Promise<void> {
   const user = await readUser(sql, userId, false);
   if (user.status !== 'active') throw new SigninMethodError('auth.account_frozen', `Account is ${user.status}`);
+  await assertNotSecurityLocked(sql, userId);
   const methods = await methodsOf(sql, userId, user);
   if (!holds(methods, method)) throw new SigninMethodError('identity.method_not_linked');
-  assertLeavesAWayIn(methods);
+  assertLeavesAWayIn(methods, counted(methods, method));
 }
 
 /**
@@ -176,7 +187,7 @@ export async function unlinkSigninMethod(sql: Sql, userId: string, method: Signi
     await assertNotSecurityLocked(tx, userId);
     const methods = await methodsOf(tx, userId, user);
     if (!holds(methods, method)) throw new SigninMethodError('identity.method_not_linked');
-    assertLeavesAWayIn(methods);
+    assertLeavesAWayIn(methods, counted(methods, method));
     if (method === 'password') {
       await tx`UPDATE users SET password_hash = ${unusable!}, password_set = false, updated_at = now() WHERE id = ${userId}`;
     } else if (method === 'email_code') {
@@ -184,6 +195,8 @@ export async function unlinkSigninMethod(sql: Sql, userId: string, method: Signi
       await tx`
         UPDATE auth_flows SET status = 'consumed', consumed_at = now()
         WHERE user_id = ${userId} AND kind = 'login_code' AND consumed_at IS NULL`;
+    } else if (method.startsWith('social:')) {
+      await tx`DELETE FROM social_identities WHERE user_id = ${userId} AND provider = ${method.slice('social:'.length)}`;
     } else {
       await tx`DELETE FROM wallet_identities WHERE user_id = ${userId} AND address = ${method.slice('wallet_siwe:'.length)}`;
     }
@@ -195,6 +208,7 @@ export async function unlinkSigninMethod(sql: Sql, userId: string, method: Signi
 export async function checkLinkPassword(sql: Sql, userId: string, password: string): Promise<void> {
   const user = await readUser(sql, userId, false);
   if (user.status !== 'active') throw new SigninMethodError('auth.account_frozen', `Account is ${user.status}`);
+  await assertNotSecurityLocked(sql, userId);
   if (user.password_set) throw new SigninMethodError('identity.method_already_linked');
   try {
     assertPasswordShape(password);
@@ -224,6 +238,7 @@ export async function linkPassword(sql: Sql, userId: string, password: string): 
 export async function checkLinkEmailCode(sql: Sql, userId: string): Promise<void> {
   const user = await readUser(sql, userId, false);
   if (user.status !== 'active') throw new SigninMethodError('auth.account_frozen', `Account is ${user.status}`);
+  await assertNotSecurityLocked(sql, userId);
   if (user.email === null || user.email_verified_at === null) throw new SigninMethodError('identity.method_unverified');
   if (user.email_code_signin) throw new SigninMethodError('identity.method_already_linked');
 }
@@ -248,7 +263,6 @@ export type WalletConfig = {
   readonly now?: () => Date;
 };
 
-const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
 const flowKind = (purpose: WalletPurpose) => (purpose === 'link' ? 'wallet_link' : 'wallet_signin');
 
 function originFor(config: WalletConfig, asked: string | undefined): URL {
@@ -287,7 +301,7 @@ export async function startWalletChallenge(
   });
   const [flow] = await sql<Array<{ id: string }>>`
     INSERT INTO auth_flows (kind, subject_hash, user_id, code_hash, status, expires_at)
-    VALUES (${flowKind(input.purpose)}, ${sha256(address)}, ${input.userId ?? null}, ${sha256(nonce)}, 'code_sent', ${expiresAt})
+    VALUES (${flowKind(input.purpose)}, ${hashToken(address)}, ${input.userId ?? null}, ${hashToken(nonce)}, 'code_sent', ${expiresAt})
     RETURNING id`;
   return { flowId: flow!.id, message, expiresAt: expiresAt.toISOString() };
 }
@@ -332,7 +346,7 @@ async function answerWallet(
   }
   const ours = config.origins.some((o) => parsed.domain === new URL(o).host && parsed.uri === new URL(o).origin);
   const address = parsed.address?.toLowerCase();
-  if (!ours || !parsed.nonce || sha256(parsed.nonce) !== flow.code_hash || !address || sha256(address) !== flow.subject_hash) {
+  if (!ours || !parsed.nonce || hashToken(parsed.nonce) !== flow.code_hash || !address || hashToken(address) !== flow.subject_hash) {
     return refuse(invalid);
   }
   // A plain signature is 65 bytes. Anything else (an ERC-1271 or ERC-6492 wrapped one) needs a chain call to check.
@@ -357,6 +371,7 @@ function answered(result: Answered): `0x${string}` {
 export async function checkLinkWallet(sql: Sql, config: WalletConfig, userId: string, answer: WalletAnswer): Promise<`0x${string}`> {
   const user = await readUser(sql, userId, false);
   if (user.status !== 'active') throw new SigninMethodError('auth.account_frozen', `Account is ${user.status}`);
+  await assertNotSecurityLocked(sql, userId);
   const address = answered(await transaction(sql, (tx) => answerWallet(tx, config, 'link', answer, { userId, spendOnPass: false })));
   const [owner] = await sql<Array<{ user_id: string }>>`SELECT user_id FROM wallet_identities WHERE address = ${address}`;
   if (owner && owner.user_id !== userId) throw new SigninMethodError('identity.method_taken');

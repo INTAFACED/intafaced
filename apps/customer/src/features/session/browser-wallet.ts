@@ -23,15 +23,21 @@ const REJECTED = new Set([4001, 'ACTION_REJECTED']);
 /** The first wallet this browser announces (EIP-6963), or null when none answers in a moment. */
 export async function findBrowserWallet(target: Window = window, waitMs = 200): Promise<Eip1193Provider | null> {
   return new Promise((resolve) => {
-    let stop = () => undefined as void;
-    const timer = setTimeout(() => (stop(), resolve(null)), waitMs);
-    stop = discoverWallets(target, (wallets) => {
-      const first = wallets[0];
-      if (!first) return;
+    let first: Eip1193Provider | null = null;
+    let stop: (() => void) | null = null;
+    const finish = () => {
       clearTimeout(timer);
-      stop();
-      resolve(first.provider);
+      stop?.();
+      resolve(first);
+    };
+    const timer = setTimeout(finish, waitMs);
+    stop = discoverWallets(target, (wallets) => {
+      if (first || !wallets[0]) return;
+      first = wallets[0].provider;
+      // A wallet may announce inside the request itself, before `stop` exists: that case finishes just below.
+      if (stop) finish();
     });
+    if (first) finish();
   });
 }
 
@@ -41,13 +47,13 @@ function utf8Hex(text: string): string {
 
 /**
  * Ask the wallet for its account and network, ask the service for the message to sign, and have the wallet sign it.
- * The key stays in the wallet; the service checks the signature.
+ * The key stays in the wallet; the service checks the signature. `found` is a wallet the caller already discovered.
  */
 export async function signWithBrowserWallet(
   challenge: (address: string, chainId: number) => Promise<ApiResult<WalletChallenge>>,
-  target: Window = window,
+  found?: Eip1193Provider | null,
 ): Promise<WalletSigned> {
-  const provider = await findBrowserWallet(target);
+  const provider = found ?? (await findBrowserWallet());
   if (!provider) return { status: 'none' };
   try {
     const address = firstAddress(await provider.request({ method: 'eth_requestAccounts' }));

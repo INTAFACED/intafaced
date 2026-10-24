@@ -11,12 +11,13 @@ export const signinMethods = z.object({
 export type SigninMethods = z.infer<typeof signinMethods>;
 
 /** A method as the service names it, and as the step-up binds it. */
-export type MethodName = 'password' | 'email_code' | 'sms_code' | `wallet_siwe:${string}`;
+export type MethodName = 'password' | 'email_code' | 'sms_code' | `wallet_siwe:${string}` | `social:${string}`;
 export const walletMethod = (address: string): MethodName => `wallet_siwe:${address.toLowerCase()}`;
 
-/** How many ways in the account has; the last one cannot be removed. */
+/** How many ways in the account has, as the service counts them; the last one cannot be removed. */
 export function waysIn(methods: SigninMethods): number {
-  return (methods.password ? 1 : 0) + (methods.emailCode.on ? 1 : 0) + methods.passkeys + methods.wallets.length + methods.providers.length;
+  const emailCode = methods.emailCode.on && methods.emailCode.proved;
+  return (methods.password ? 1 : 0) + (emailCode ? 1 : 0) + methods.passkeys + methods.wallets.length + methods.providers.length;
 }
 
 /** The body of `stepUp.begin` for adding or removing one way in: the method is the target the service re-hashes. */

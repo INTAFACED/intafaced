@@ -355,6 +355,9 @@ export async function checkLoginCode(
         await tx`UPDATE auth_flows SET attempts = ${attempts}, status = ${lock ? 'locked' : flow.status} WHERE id = ${flow.id}`;
         return lock ? tooMany(flow, now) : new LoginCodeError(INVALID, 'auth.code_invalid');
       }
+      // The owner may have turned mailed codes off after this one was sent (I-account-lifecycle-07): it no longer signs in.
+      const on = await tx<Array<{ id: string }>>`SELECT id FROM users WHERE id = ${flow.user_id} AND email_code_signin`;
+      if (!on[0]) return new LoginCodeError(INVALID, 'auth.code_invalid');
       return { userId: flow.user_id!, codeHash: flow.code_hash };
     },
     { isolation: 'read committed' },
@@ -372,6 +375,7 @@ export async function consumeLoginCode(deps: LoginCodeDeps, input: { flowId: str
     UPDATE auth_flows SET status = 'consumed', consumed_at = ${deps.now()}
     WHERE id = ${input.flowId} AND kind = 'login_code' AND status = 'code_sent' AND code_hash = ${input.codeHash}
       AND consumed_at IS NULL AND expires_at > ${deps.now()}
+      AND EXISTS (SELECT 1 FROM users WHERE users.id = auth_flows.user_id AND users.email_code_signin)
     RETURNING id
   `;
   if (!spent[0]) throw new LoginCodeError(INVALID, 'auth.code_invalid');

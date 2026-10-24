@@ -277,6 +277,15 @@ if (!available) {
       expect(await refusal(anon().auth.loginWithCode({ flowId, code: code! }))).toMatchObject({ trpc: 'UNAUTHORIZED' });
     });
 
+    it('a code mailed while the owner turns mailed codes off does not sign in, though its flow is still open', async () => {
+      const who = await account();
+      const { flowId } = await anon().auth.loginCodeRequest({ identifier: who.email });
+      const [code] = codesTo(who.email);
+      // The request read the setting before the owner's change committed, so its flow was not among those ended.
+      await db.sql`UPDATE users SET email_code_signin = false WHERE id = ${who.userId}`;
+      expect(await refusal(anon().auth.loginWithCode({ flowId, code: code! }))).toMatchObject({ trpc: 'UNAUTHORIZED' });
+    });
+
     it('refuses every name the same way while a setting is blank, and a phone number names the switched-off provider', async () => {
       const who = await account();
       expect(await refusal(anon().auth.loginCodeRequest({ identifier: '+44 7700 900123' }))).toMatchObject({

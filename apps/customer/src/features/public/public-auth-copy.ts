@@ -59,6 +59,9 @@ export const publicAuthCopy = defineCopy(
     walletNeedCodeOrPasskey:
       'Your wallet is right. Confirm with one of your passkeys, or enter the code from your authenticator app and continue with your wallet again.',
     walletCodeMismatch: 'That code did not work. Every code works only once. Enter a new code, then continue with your wallet again.',
+    walletPasskeyMismatch:
+      'That passkey is not one this account signs in with. Continue with your wallet again, then use one of your own passkeys.',
+    walletPasskeyStepStopped: 'The passkey did not answer. Try again, or continue with your wallet again.',
     walletSecondStepExpired: 'This sign-in step timed out. Continue with your wallet again.',
     walletNone: 'No wallet answered in this browser. Nothing was signed in.',
     walletRejected: 'You declined in your wallet. Nothing was signed in.',

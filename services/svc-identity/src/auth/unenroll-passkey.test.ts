@@ -18,6 +18,20 @@ function trackingSql(selectRows: unknown[]) {
   const sql = Object.assign(
     async (strings: TemplateStringsArray, ...values: unknown[]) => {
       const text = strings.join('?');
+      // The last-way-in check (I-account-lifecycle-07) reads the account's methods: this account also holds a password.
+      if (text.includes('password_set'))
+        return [
+          {
+            status: 'active',
+            password_set: true,
+            email: null,
+            email_verified_at: null,
+            email_code_signin: false,
+            handle: 'h',
+            passkeys: 1,
+          },
+        ];
+      if (text.includes('FROM wallet_identities') || text.includes('FROM social_identities')) return [];
       if (text.includes('SELECT')) return selectRows;
       written.push(values);
       return [];

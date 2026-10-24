@@ -91,7 +91,7 @@ import { ACTION_APPROVAL_MISSING, PrivilegedDualControlError, requirePrivilegedD
 import { ActionApprovalError } from './auth/action-approval-service.js';
 import { optionalFactorProof, guardedApiKeyAction } from './auth/api-key-fresh-factor.js';
 import { SocialError, SocialSignin } from './social/social-signin.js';
-import { signinMethodTrpc } from './signin-methods-router.js';
+import { signinMethodTrpc, walletAnswerFields, walletChallengeInput, walletChallengeOutput } from './signin-methods-router.js';
 import { userCopy } from './user-copy.js';
 import { TradeIdentityAuthError } from './auth/trade-identity-auth.js';
 import type { FounderEnrolmentConfig } from './auth/founder-enrolment.js';
@@ -1487,20 +1487,8 @@ export function createIdentityRouter(
        * for every wallet, linked or not.
        */
       walletChallenge: publicProcedure
-        .input(
-          z
-            .object({
-              address: z.string().min(1).max(64),
-              chainId: z
-                .number()
-                .int()
-                .positive()
-                .max(2 ** 53 - 1),
-              origin: z.string().max(256).optional(),
-            })
-            .strict(),
-        )
-        .output(z.object({ flowId: z.string(), message: z.string(), expiresAt: z.string() }))
+        .input(walletChallengeInput)
+        .output(walletChallengeOutput)
         .mutation(async ({ input }) => {
           try {
             return await auth.walletSigninChallenge({
@@ -1521,9 +1509,7 @@ export function createIdentityRouter(
         .input(
           z
             .object({
-              flowId: z.string().guid(),
-              message: z.string().min(1).max(2000),
-              signature: z.string().min(1).max(4000),
+              ...walletAnswerFields,
               totpCode: z.string().trim().min(1).max(64).optional(),
               deviceKey: z.string().min(16).max(128).optional(),
             })

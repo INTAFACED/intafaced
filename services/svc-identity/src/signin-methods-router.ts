@@ -32,9 +32,26 @@ const methodsOutput = z.object({
   providers: z.array(z.string()),
 });
 
-const walletAnswer = z
-  .object({ flowId: z.string().guid(), message: z.string().min(1).max(2000), signature: z.string().min(1).max(4000) })
+/** A wallet's signed answer, for linking it here and for signing in with it (`auth.walletSignIn`): one shape for both. */
+export const walletAnswerFields = {
+  flowId: z.string().guid(),
+  message: z.string().min(1).max(2000),
+  signature: z.string().min(1).max(4000),
+};
+const walletAnswer = z.object(walletAnswerFields).strict();
+/** The wallet asking for a message to sign, to link it or to sign in with it. */
+export const walletChallengeInput = z
+  .object({
+    address: z.string().min(1).max(64),
+    chainId: z
+      .number()
+      .int()
+      .positive()
+      .max(2 ** 53 - 1),
+    origin: z.string().max(256).optional(),
+  })
   .strict();
+export const walletChallengeOutput = z.object({ flowId: z.string(), message: z.string(), expiresAt: z.string() });
 const clientRequestId = z.string().min(1).max(128);
 const stepUpApprovalId = z.string().min(1).max(128).nullish();
 const phone = z.string().regex(/^\+[1-9][0-9]{6,14}$/);
@@ -62,7 +79,13 @@ function signinMethodTrpcError(err: unknown): never {
     throw new TRPCError({ code: 'PRECONDITION_FAILED', message: userCopy(err.code), cause: { code: err.code } });
   }
   if (err instanceof SocialError) {
-    throw new TRPCError({ code: 'PRECONDITION_FAILED', message: `${err.message} [${err.code}]`, cause: err });
+    const code =
+      err.code === 'identity.provider_taken'
+        ? 'CONFLICT'
+        : err.code === 'identity.social_flow_invalid' || err.code === 'identity.social_exchange_failed'
+          ? 'BAD_REQUEST'
+          : 'PRECONDITION_FAILED';
+    throw new TRPCError({ code, message: `${err.message} [${err.code}]`, cause: err });
   }
   return toSecurityStepUpTrpc(err);
 }
@@ -94,20 +117,8 @@ export function createSigninMethodsRouter(
 
     /** The message a wallet signs to be linked: single use, for this account and this wallet only. */
     walletLinkChallenge: scopedProcedure('identity:write')
-      .input(
-        z
-          .object({
-            address: z.string().min(1).max(64),
-            chainId: z
-              .number()
-              .int()
-              .positive()
-              .max(2 ** 53 - 1),
-            origin: z.string().max(256).optional(),
-          })
-          .strict(),
-      )
-      .output(z.object({ flowId: z.string(), message: z.string(), expiresAt: z.string() }))
+      .input(walletChallengeInput)
+      .output(walletChallengeOutput)
       .mutation(async ({ ctx, input }) => {
         try {
           return await startWalletChallenge(sql, options.wallet, {
@@ -156,7 +167,8 @@ export function createSigninMethodsRouter(
             await requireLink(ctx.principal, method, input.clientRequestId, input.stepUpApprovalId);
             return await linkEmailCode(sql, userId);
           }
-          if (!input.wallet) throw new SigninMethodError('identity.method_invalid');
+          // A provider account links only through `linkProviderComplete`, after the provider's own sign-in.
+          if (method.startsWith('social:') || !input.wallet) throw new SigninMethodError('identity.method_invalid');
           const address = await checkLinkWallet(sql, options.wallet, userId, input.wallet);
           if (method !== `wallet_siwe:${address}`) throw new SigninMethodError('identity.wallet_challenge_invalid');
           await requireLink(ctx.principal, method, input.clientRequestId, input.stepUpApprovalId);
@@ -201,6 +213,42 @@ export function createSigninMethodsRouter(
           }
           const started = await options.social.start({ provider: input.provider, purpose: 'link', userId: ctx.principal.userId });
           return { provider: started.provider, authorizationUrl: started.authorizationUrl, expiresAt: started.expiresAt.toISOString() };
+        } catch (err) {
+          return signinMethodTrpcError(err);
+        }
+      }),
+
+    /**
+     * Link a provider account, back from the provider: the security step-up first (it binds `social:<provider>`), so a
+     * missing confirmation leaves the state unspent; then the state, which must be one this account started for linking.
+     */
+    linkProviderComplete: scopedProcedure('identity:write')
+      .input(
+        z
+          .object({
+            provider: z.string().regex(/^[a-z0-9-]{1,32}$/),
+            state: z.string().min(1).max(200),
+            code: z.string().min(1).max(2000),
+            clientRequestId,
+            stepUpApprovalId,
+          })
+          .strict(),
+      )
+      .output(methodsOutput)
+      .mutation(async ({ ctx, input }): Promise<SigninMethods> => {
+        try {
+          if (!options.social) {
+            throw new SocialError(
+              'Sign-in with another account provider needs an outside provider. It is switched off in this build.',
+              'idp.social',
+            );
+          }
+          const userId = ctx.principal.userId;
+          await requireLink(ctx.principal, `social:${input.provider}`, input.clientRequestId, input.stepUpApprovalId);
+          const done = await options.social.complete({ provider: input.provider, purpose: 'link', state: input.state, code: input.code });
+          if (done.userId !== userId) throw new SocialError('That sign-in link is not valid', 'identity.social_flow_invalid');
+          await options.social.link(userId, input.provider, done.profile);
+          return await listSigninMethods(sql, userId);
         } catch (err) {
           return signinMethodTrpcError(err);
         }

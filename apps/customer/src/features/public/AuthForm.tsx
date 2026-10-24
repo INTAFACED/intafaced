@@ -12,6 +12,7 @@ import { passwordIssue } from '../../shared/password';
 import { useSession, sessionSchema, type Session } from '../session/session';
 import { signAssertion, signInWithPasskey } from '../session/webauthn';
 import { findBrowserWallet, signWithBrowserWallet, walletChallengeSchema } from '../session/browser-wallet';
+import type { Eip1193Provider } from '../protocol/wallet/eip1193';
 import { useLocation, navigate } from '../../app/location';
 import { findRoom, roomTitle } from '../../app/navigation';
 import { publicAuthContext, publicAuthHref } from './auth-context';
@@ -175,7 +176,11 @@ export function AuthForm({ register }: { register: boolean }) {
    * `secondStep` is the passkey after the password (I-signin-sessions-10): the service answered the password with a
    * single-use challenge for this account's sign-in passkeys, the browser signs it, and the answer opens the session.
    */
-  async function run(kind: 'register' | 'password' | 'options' | 'secondStep' | 'wallet', secondStepOptions?: SecondStepOptions) {
+  async function run(
+    kind: 'register' | 'password' | 'options' | 'secondStep' | 'wallet',
+    secondStepOptions?: SecondStepOptions,
+    wallet?: Eip1193Provider,
+  ) {
     // Until the boot refresh answers, a cookie sign-in may still land and change the account under this form.
     if (!sameRender() || (running.current && same(running.current)) || pending || restoring) return;
     let identifierForRequest = identifier.trim();
@@ -287,10 +292,18 @@ export function AuthForm({ register }: { register: boolean }) {
           });
         } else if (kind === 'wallet') {
           // The wallet signs the service's message first; a declined or failed signature sends nothing that signs in.
-          const signed = await signWithBrowserWallet((address, chainId) =>
-            original.api.mutate('identity', 'auth.walletChallenge', { address, chainId, origin: location.origin }, walletChallengeSchema, {
-              signal: controller.signal,
-            }),
+          const signed = await signWithBrowserWallet(
+            (address, chainId) =>
+              original.api.mutate(
+                'identity',
+                'auth.walletChallenge',
+                { address, chainId, origin: location.origin },
+                walletChallengeSchema,
+                {
+                  signal: controller.signal,
+                },
+              ),
+            wallet,
           );
           if (!same(original)) return;
           if (signed.status !== 'signed') {
@@ -361,8 +374,9 @@ export function AuthForm({ register }: { register: boolean }) {
   }
   /** A wallet in this browser signs in by its signature; with none, the button keeps its provider notice. */
   async function walletSignIn(): Promise<boolean> {
-    if (!(await findBrowserWallet())) return false;
-    void run('wallet');
+    const wallet = await findBrowserWallet();
+    if (!wallet) return false;
+    void run('wallet', undefined, wallet);
     return true;
   }
   function submit(event: FormEvent) {
@@ -400,11 +414,12 @@ export function AuthForm({ register }: { register: boolean }) {
     needPasskey: 'walletNeedPasskey',
     needCodeOrPasskey: 'walletNeedCodeOrPasskey',
     codeMismatch: 'walletCodeMismatch',
-    passkeyMismatch: 'passkeyMismatch',
+    passkeyMismatch: 'walletPasskeyMismatch',
     secondStepExpired: 'walletSecondStepExpired',
   } as const;
   const walletWordsStopped = { none: 'walletNone', rejected: 'walletRejected', failed: 'walletFailed' } as const;
   const secondStep = passwordStep && firstFactor === 'wallet' ? walletWords[passwordStep] : passwordStep;
+  const stoppedWords = firstFactor === 'wallet' ? 'walletPasskeyStepStopped' : 'passkeyStepStopped';
   return (
     <section className="auth-layout" lang={publicLanguageFor('SIGN IN')}>
       <div className="auth-story">
@@ -655,7 +670,7 @@ export function AuthForm({ register }: { register: boolean }) {
                           {t('usePasskeyStep')}
                         </Button>
                       )}
-                      {passkeyOptions && passkeyStopped && <p lang={languageFor('passkeyStepStopped')}>{t('passkeyStepStopped')}</p>}
+                      {passkeyOptions && passkeyStopped && <p lang={languageFor(stoppedWords)}>{t(stoppedWords)}</p>}
                     </div>
                   ) : result.code === 'auth.account_frozen' && result.reason !== 'uncertain' && result.accountState ? (
                     // Sent only after the password verified: name the state and the one way forward.

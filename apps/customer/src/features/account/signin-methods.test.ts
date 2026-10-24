@@ -14,6 +14,9 @@ describe('ways to sign in (I-account-lifecycle-07)', () => {
     });
     expect(waysIn(methods)).toBe(4);
     expect(waysIn({ ...methods, password: false, passkeys: 0 })).toBe(1);
+    // A mailed code to an address never proved is not counted, as the service does not count it.
+    expect(waysIn({ ...methods, emailCode: { on: true, address: 'a@example.test', proved: false } })).toBe(4);
+    expect(waysIn({ ...methods, emailCode: { on: true, address: 'a@example.test', proved: true } })).toBe(5);
   });
 
   it('refuses a wallet address the service would not send', () => {

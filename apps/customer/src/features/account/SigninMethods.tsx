@@ -264,7 +264,7 @@ export function SigninMethods({ revision = 0, onChanged }: { revision?: number; 
             <strong>{t('emailCode')}</strong>{' '}
             <span className="muted">
               {methods.emailCode.on
-                ? t('emailCodeOn', { address: methods.emailCode.address ?? '' })
+                ? t(methods.emailCode.proved ? 'emailCodeOn' : 'emailCodeOnUnproved', { address: methods.emailCode.address ?? '' })
                 : methods.emailCode.proved
                   ? t('emailCodeOff')
                   : t('emailCodeUnproved')}
@@ -348,8 +348,27 @@ export function SigninMethods({ revision = 0, onChanged }: { revision?: number; 
         </li>
         <li className="security__row security__row--method" aria-label={t('social')}>
           <div>
-            <strong>{t('social')}</strong>{' '}
-            <span className="muted">{methods.providers.length > 0 ? methods.providers.join(', ') : t('noSocial')}</span>
+            <strong>{t('social')}</strong>
+            {methods.providers.length === 0 && <span className="muted"> {t('noSocial')}</span>}
+            {methods.providers.length > 0 && (
+              <ul className="security__wallets">
+                {methods.providers.map((provider) => (
+                  <li key={provider}>
+                    <span lang="zxx" className="security__ref">
+                      {provider}
+                    </span>{' '}
+                    <Button
+                      variant="secondary"
+                      disabled={busy}
+                      aria-label={t('removeSocial', { provider })}
+                      onClick={() => void attempt(change('unlink', `social:${provider}`))}
+                    >
+                      {t('remove')}
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
           <Button variant="secondary" disabled={busy} onClick={() => void linkSocial()}>
             {t('linkSocial')}
