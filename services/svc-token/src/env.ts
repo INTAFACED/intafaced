@@ -124,6 +124,20 @@ const schema = serviceEnvSchema
       TOKEN_GOVERNANCE_THRESHOLD_BPS: z.string().optional(),
 
       /**
+       * Who may open a proposal. NO DEFAULT. Blank is `token.proposer_rule_unset`.
+       * `stake:<decimal>`, `authors:<account>,<account>`, or `listed:<account>,<account>`.
+       * Used only when the stored proposer row is still blank. A stored row wins.
+       */
+      TOKEN_PROPOSER_RULE: z.string().optional(),
+
+      /**
+       * How many proposals one author may open per period. NO DEFAULT.
+       * Blank is `token.proposal_limit_unset`. Shape `count:period_ms`.
+       * `0` is a deliberate zero. Used only when the stored row is still blank.
+       */
+      TOKEN_PROPOSAL_LIMIT: z.string().optional(),
+
+      /**
        * Identity issuer for operator treasury consume (distributeRevenue /
        * recordBuyback). Blank / unset → those doors refuse
        * (`action_approval.identity_unwired`). HMAC jobs do not call identity.
