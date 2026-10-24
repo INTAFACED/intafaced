@@ -545,8 +545,15 @@ export class RampService {
     // While the owner's security lock holds, no new send starts (W-withdraw-09): asked before the claim, so a locked
     // account writes no row and posts no hold. A send already claimed under this id before the lock was set is a replay
     // or a resume, not a new send: it carries on, so a settled one answers as before and a held one is not left held.
-    if (!(await this.offrampClaimed(input.offrampId, input.userId))) {
-      await assertSecurityLockOpen(this.securityLock, input.userId, 'a withdrawal');
+    // Only with the address it was claimed with: an offered address is stored before the claim's terms are checked, so a
+    // replay naming another one would change the withdrawal address, and that waits for the lock like any change does.
+    // Identity unreachable refuses every send, replays included: it cannot say whether the lock holds.
+    if ((await this.securityLock.read(input.userId)).locked) {
+      const claimedTo = await this.offrampClaimedTo(input.offrampId, input.userId);
+      const offered = input.destinationRef?.trim();
+      if (claimedTo === null || (offered && offered !== claimedTo)) {
+        await assertSecurityLockOpen(this.securityLock, input.userId, 'a withdrawal');
+      }
     }
     const coolingHours = requireOfframpCoolingHours(this.ownerOfframpCoolingHoursRaw());
     const dest = await this.resolveWithdrawDestination(input.userId, input.kind, input.destinationRef);
@@ -705,12 +712,12 @@ export class RampService {
     });
   }
 
-  /** Whether this customer already has an off-ramp under this id (claimed before now, whatever its state). */
-  private async offrampClaimed(offrampId: string, userId: string): Promise<boolean> {
-    const rows = await this.sql<Array<{ id: string }>>`
-      SELECT id FROM bank.ramp_offramps WHERE id = ${offrampId}::uuid AND user_id = ${userId}
+  /** The address this customer's off-ramp under this id was claimed with (whatever its state), or null when there is none. */
+  private async offrampClaimedTo(offrampId: string, userId: string): Promise<string | null> {
+    const rows = await this.sql<Array<{ destination_ref: string }>>`
+      SELECT destination_ref FROM bank.ramp_offramps WHERE id = ${offrampId}::uuid AND user_id = ${userId}
     `;
-    return rows.length > 0;
+    return rows[0]?.destination_ref ?? null;
   }
 
   private async claimOfframp(input: {

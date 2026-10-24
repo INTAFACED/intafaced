@@ -349,6 +349,40 @@ describe('a crypto withdrawal while the security lock holds (money)', () => {
     expect(ledger.journal()).toHaveLength(posted);
   });
 
+  it('refuses a replay that names another address while locked, and the withdrawal address stays', async () => {
+    const id = randomUUID();
+    const first = await send(id);
+    lock.set(USER, LOCKED);
+    const attacker = '0x0000000000000000000000000000000000000001';
+    await expect(
+      ramps.offramp({
+        offrampId: id,
+        userId: USER,
+        assetId: 'USDT',
+        amount: amt('10'),
+        kind: 'crypto',
+        destinationRef: attacker,
+        clientRef: `lock-send-${id}`,
+      }),
+    ).rejects.toMatchObject({ code: 'bank.security_locked' });
+    const rows = await sql<Array<{ ref: string }>>`
+      SELECT ref FROM bank.user_withdraw_destinations WHERE user_id = ${USER} AND kind = 'crypto' AND origin = 'legacy'
+    `;
+    expect(rows.map((row) => row.ref)).toEqual([EVM]);
+    // The same replay with the address it was claimed with still answers as before.
+    await expect(
+      ramps.offramp({
+        offrampId: id,
+        userId: USER,
+        assetId: 'USDT',
+        amount: amt('10'),
+        kind: 'crypto',
+        destinationRef: first.destinationRef,
+        clientRef: `lock-send-${id}`,
+      }),
+    ).resolves.toMatchObject({ status: 'settled' });
+  });
+
   it('sends once the lock has ended: the same request id then goes through, hold and settle once', async () => {
     const id = randomUUID();
     lock.set(USER, LOCKED);
