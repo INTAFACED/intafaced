@@ -8,7 +8,7 @@ import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import { formatAmount, orderHoldAccount, parseAmount, recipes, type Amount } from '@intafaced/ledger-client';
 import { appendOrderEvent, parentIdFromClientOrder } from '../../orders/order-events.js';
-import { FeeScheduleError, type OwnerFeeSchedule } from '../fee-schedule.js';
+import { FeeScheduleError, fundedMakerRebateBps, makerRebateBpsFor, type OwnerFeeSchedule } from '../fee-schedule.js';
 import { fillPayAmounts, fillReceivablesSurviveFees, ratesForFill as feeRatesForFill } from '../fees.js';
 import { ocoLegParent, settlementOrderId } from '../oco-legs.js';
 import { readOcoIntent } from '../oco-intent.js';
@@ -70,13 +70,17 @@ export async function ratesForFill(
   kind: 'spot' | 'futures' | 'options',
   symbol: string | undefined,
   placedAt: { readonly maker: Date; readonly taker: Date },
-): Promise<{ makerFeeBps: number; takerFeeBps: number }> {
+): Promise<{ makerFeeBps: number; takerFeeBps: number; makerRebateBps: number }> {
   const makerSchedule = await svc.feeScheduleAt(placedAt.maker);
   const takerSchedule = placedAt.maker.getTime() === placedAt.taker.getTime() ? makerSchedule : await svc.feeScheduleAt(placedAt.taker);
-  return {
-    makerFeeBps: svc.ratesForSchedule(makerSchedule, makerDiscountBps, takerDiscountBps, kind, symbol).makerFeeBps,
-    takerFeeBps: svc.ratesForSchedule(takerSchedule, makerDiscountBps, takerDiscountBps, kind, symbol).takerFeeBps,
-  };
+  const makerFeeBps = svc.ratesForSchedule(makerSchedule, makerDiscountBps, takerDiscountBps, kind, symbol).makerFeeBps;
+  const takerFeeBps = svc.ratesForSchedule(takerSchedule, makerDiscountBps, takerDiscountBps, kind, symbol).takerFeeBps;
+  // The maker's rebate is its own placement version's row, funded by the taker rate this fill charges.
+  const makerRebateBps =
+    kind === 'spot' && symbol !== undefined
+      ? fundedMakerRebateBps(makerRebateBpsFor(makerSchedule, { symbol }), makerFeeBps, takerFeeBps)
+      : 0;
+  return { makerFeeBps, takerFeeBps, makerRebateBps };
 }
 
 export function ratesForSchedule(

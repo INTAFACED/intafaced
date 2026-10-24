@@ -4,6 +4,7 @@ import type { Context } from '@intafaced/contracts';
 import type { CampaignService } from './campaigns.js';
 import type { DropService } from './drops.js';
 import { createCampaignsRouter } from './router.js';
+import type { TaskService } from './tasks.js';
 import { parseTgeSchedule, tgeView } from './tge.js';
 
 /**
@@ -65,10 +66,35 @@ function setup(schedule: string | undefined = undefined) {
     listForOps: vi.fn(async () => []),
     transition: vi.fn(),
   };
+  const tasks = {
+    claim: vi.fn(async (input: { campaignId: string; accountId: string }) => ({
+      reward: {
+        rewardKey: `task:${input.campaignId}:${input.accountId}:once`,
+        campaignId: input.campaignId,
+        asset: 'USDT',
+        amount: '10',
+        state: 'posted',
+        reason: null,
+        ledgerTxId: 'tx_1',
+        createdAt: '2026-10-24T12:00:00.000Z',
+        postedAt: '2026-10-24T12:00:00.000Z',
+        rollback: { windowSeconds: null, closesAt: null, blocker: 'campaigns.reclaim_unavailable' },
+        attempts: [],
+      },
+      created: true,
+    })),
+    progress: vi.fn(),
+  };
   return {
     drops,
     campaigns,
-    api: (c: Context) => createCampaignsRouter(drops as unknown as DropService, campaigns as unknown as CampaignService).createCaller(c),
+    tasks,
+    api: (c: Context) =>
+      createCampaignsRouter(
+        drops as unknown as DropService,
+        campaigns as unknown as CampaignService,
+        tasks as unknown as TaskService,
+      ).createCaller(c),
   };
 }
 
@@ -97,6 +123,17 @@ describe('campaigns router', () => {
       code: 'FORBIDDEN',
     });
     await expect(api(await ctx([], { signedOut: true })).participation.mine()).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+  });
+
+  it('claims a task reward for the signed-in account only, behind campaigns:write', async () => {
+    const { tasks, api } = setup();
+    const out = await api(await ctx(['campaigns:write'])).tasks.claim({ campaignId: 'cmp_1' });
+    expect(tasks.claim).toHaveBeenCalledWith({ campaignId: 'cmp_1', accountId: ME });
+    expect(out.reward.rewardKey).toBe(`task:cmp_1:${ME}:once`);
+    await expect(
+      api(await ctx(['campaigns:write'])).tasks.claim({ campaignId: 'cmp_1', accountId: 'someone-else' } as never),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    await expect(api(await ctx(['campaigns:read'])).tasks.claim({ campaignId: 'cmp_1' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
 
   it('asks for an eligibility review for the signed-in account only, behind campaigns:write', async () => {

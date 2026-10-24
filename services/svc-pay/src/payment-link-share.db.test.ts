@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -135,5 +136,28 @@ describe('payment link share', () => {
   it('does not embed a snippet when the amount is not fixed', async () => {
     const { merchantId, created } = await link();
     expect((await pay.getPaymentLink(merchantId, created.id)).embedSnippet).toBeNull();
+  });
+
+  it('gives the hosted page the business look for a link and its session once one is saved, and the default look before (M-payments-core-08)', async () => {
+    const { merchantId, created } = await link('25');
+    expect(await pay.checkoutLook({ linkToken: created.token })).toBeNull();
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+    await sql`
+      INSERT INTO pay.checkout_branding (merchant_id, brand_color, logo_type, logo_bytes, logo_sha256, updated_by)
+      VALUES (${merchantId}, '#ff6600', 'image/png', ${png}, ${'a'.repeat(64)}, ${OWNER})`;
+    const look = { brandColor: '#ff6600', logo: { contentType: 'image/png', dataBase64: png.toString('base64') } };
+    expect(await pay.checkoutLook({ linkToken: created.token })).toEqual(look);
+    // The link read the portal and the public resolve use carries no logo bytes.
+    expect(await pay.resolvePaymentLink(created.token)).not.toHaveProperty('look');
+    // A session opened from the link shows the same look; a token that opens nothing shows the default.
+    // No rail here takes a payment, so the session row is written as the hosted page's open would write it.
+    const sessionToken = 'TEST-session-token-abc12345';
+    const sessionHash = createHash('sha256').update(sessionToken).digest('hex');
+    await sql`
+      INSERT INTO pay.checkout_sessions (link_id, merchant_id, token_hash, token_prefix, amount, currency, rail_adapter, expires_at)
+      VALUES (${created.id}, ${merchantId}, ${sessionHash}, 'TEST-ses', 25, 'USDT', 'crypto-native', now() + interval '15 minutes')`;
+    expect(await pay.checkoutLook({ sessionToken })).toEqual(look);
+    expect(await pay.checkoutLook({ linkToken: 'TEST-token-unknown' })).toBeNull();
+    expect(await pay.checkoutLook({ sessionToken: 'TEST-token-unknown' })).toBeNull();
   });
 });

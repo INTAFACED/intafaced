@@ -18,6 +18,7 @@ import { Button, DataTable, EmptyState, Failure, Loading, Panel } from '../../sh
 import { Select } from './common';
 import { StatRow } from './depth-kit';
 import { campaignCatalogueCopy } from './campaign-catalogue-copy';
+import { CampaignTasks } from './campaign-tasks';
 
 /**
  * The campaign rooms read from svc-campaigns (CM-campaign-types-01, J-campaigns-01): the catalogue at /campaigns, one
@@ -365,6 +366,7 @@ function CampaignBody({
         ) : null}
         <p className="muted">{t('joinNote')}</p>
       </Panel>
+      {c.tasks ? <CampaignTasks campaign={c} /> : null}
     </>
   );
 }

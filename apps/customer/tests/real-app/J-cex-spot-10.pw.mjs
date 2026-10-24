@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { approverSessions, makeContext, setFeeSchedule } from '../../../../tooling/scripts/local-test-gates.mjs';
-import { EDGE, api, journeyState } from './stack.mjs';
-import { awayBid, fundedTrader, held, openDesk, openOrders } from './desk.mjs';
+import { EDGE, api, bestPrices, fromUnits, fund, journeyState, otherTrader, times, toUnits } from './stack.mjs';
+import { awayBid, deskPath, fundedTrader, held, openDesk, openOrders } from './desk.mjs';
 
 // J-cex-spot-10, in the running app (docs/roadmap/journeys.json): a person sees what they pay, what tier they are in,
 // and how to get cheaper. One test per step, titled "J-cex-spot-10 #<n>", run in order on one TEST account funded with
@@ -29,6 +29,21 @@ const SCHEDULE = {
 };
 /** The same, with IFC/USDT in a pair group the owner named and gave no row: its rate is blank. */
 const BLANK_IFC = { ...SCHEDULE, pairGroups: { ...SCHEDULE.pairGroups, 'IFC/USDT': 'test-unpriced' } };
+/** The same, with IFC/USDT in a TEST group whose maker pays nothing and earns 0.05% back out of the taker's 0.10%. */
+const REBATE = {
+  pairGroup: 'test-rebate',
+  tierId: 'regular',
+  zeroFee: false,
+  makerBps: '0',
+  takerBps: '10',
+  makerRebateBps: '5',
+  minFee: null,
+};
+const REBATE_IFC = {
+  ...SCHEDULE,
+  pairGroups: { ...SCHEDULE.pairGroups, 'IFC/USDT': 'test-rebate' },
+  rows: [...SCHEDULE.rows, REBATE],
+};
 
 test.describe.configure({ mode: 'default' });
 
@@ -63,6 +78,23 @@ async function publish(schedule, reason) {
 
 /** `bps` as the desk and the fee page write a rate: 8 → "0.08%". */
 const pct = (bps) => `${Math.floor(bps / 100)}.${String(bps % 100).padStart(2, '0')}%`;
+
+/** The account's own fills of order `id`, once the service has settled at least one. */
+async function fillsOf(client, symbol, id) {
+  let fills = [];
+  await expect
+    .poll(
+      async () => {
+        const { status, body } = await client.get(`/api/v1/account/trades?symbol=${encodeURIComponent(symbol)}&limit=100`);
+        expect(status).toBe(200);
+        fills = (Array.isArray(body) ? body : (body.trades ?? [])).filter((f) => f.order === id);
+        return fills.length;
+      },
+      { timeout: 30_000 },
+    )
+    .toBeGreaterThan(0);
+  return fills;
+}
 
 const tab = (page, name) => page.locator('[role=tab]', { hasText: new RegExp(`^${name}$`) });
 const buyForm = (page) => page.locator('form.dk-form[data-side=buy]');
@@ -176,6 +208,127 @@ test(`${J} #3 orders on a market whose fee is blank: refused "Fee schedule not s
     expect(await openOrders(who, 'IFC/USDT')).toHaveLength(0);
   } finally {
     // IFC/USDT goes back to the default group, so nothing after this step finds it blank.
+    await publish(SCHEDULE, 'IFC/USDT back in the default pair group');
+  }
+});
+
+test(`${J} #4 fills on a zero-fee pair and a rebate pair: "Zero fee" on one, a maker rebate on the other, never a negative fee`, async ({
+  page,
+}) => {
+  // A schedule version (and its restore) on top of two fills and two desks.
+  test.setTimeout(240_000);
+  const who = account();
+  const client = await api(who);
+
+  // Zero fee: ETH/USDC is in the TEST zero-fee group. An IOC buy at the best ask takes from the house quote.
+  fund(who.email, 'USDC', '100');
+  const { ask } = await bestPrices('ETH/USDC');
+  const zero = await client.post('/api/v1/orders', {
+    symbol: 'ETH/USDC',
+    side: 'buy',
+    type: 'limit',
+    amount: '0.01',
+    price: ask,
+    timeInForce: 'IOC',
+    clientOrderId: `js10-zero-${Date.now().toString(36)}`,
+  });
+  expect(zero.status, JSON.stringify(zero.body).slice(0, 300)).toBeLessThan(300);
+  const [zeroFill] = await fillsOf(client, 'ETH/USDC', zero.body.id);
+  expect(zeroFill.takerOrMaker).toBe('taker');
+  expect(toUnits(zeroFill.fee.cost)).toBe(0n);
+  expect(zeroFill.rebate).toBeUndefined();
+  await openDesk(page, who, 'ETH/USDC');
+  await tab(page, 'Trade history').click();
+  await expect(page.locator(`tr[data-fill="${zeroFill.id}"] [data-fee=zero]`)).toHaveText('Zero fee');
+
+  await publish(REBATE_IFC, 'IFC/USDT in a TEST rebate group');
+  try {
+    // The ticket says what a resting order earns, from the order check: a rebate, not a fee and not a minus sign.
+    // Already signed in from the ETH/USDC desk, so the person opens the next market straight away.
+    await page.goto(deskPath('IFC/USDT'));
+    await expect(page.getByRole('button', { name: 'Buy IFC' })).toBeVisible();
+    await page.mouse.move(0, 600);
+    await tab(page, 'Limit').click();
+    await page.getByRole('combobox', { name: 'Time in force' }).click();
+    await page.getByRole('option', { name: 'Post only', exact: true }).click();
+    const { bid, ask: ifcAsk } = await bestPrices('IFC/USDT');
+    // Inside the spread, so it rests ahead of the house bids and a crossing sell reaches it first.
+    const price = fromUnits(toUnits(bid) + ((toUnits(ifcAsk) - toUnits(bid)) / 2n / 10n ** 14n) * 10n ** 14n);
+    const amount = '200';
+    await buyForm(page).getByRole('textbox', { name: 'Price' }).fill(price);
+    const check = await checkOf(page, () => buyForm(page).getByRole('textbox', { name: 'Amount' }).fill(amount));
+    expect(check).toMatchObject({ feeRole: 'maker', feeBps: 0, makerRebateBps: 5 });
+    await expect(feeLine(page)).toHaveText(`Rebate up to ${pct(5)} · maker`);
+
+    const before = await client.balances();
+    const placed = await client.post('/api/v1/orders', {
+      symbol: 'IFC/USDT',
+      side: 'buy',
+      type: 'limit',
+      amount,
+      price,
+      timeInForce: 'PO',
+      clientOrderId: `js10-rebate-${Date.now().toString(36)}`,
+    });
+    expect(placed.status, JSON.stringify(placed.body).slice(0, 300)).toBeLessThan(300);
+    const id = placed.body.id;
+
+    // The other TEST trader sells into it with an IOC, through any house bids at or above its price (its own level
+    // included, so a house bid that queued there first cannot leave it unfilled; the rest of the IOC cancels).
+    if ((await openOrders(who, 'IFC/USDT')).some((o) => o.id === id)) {
+      const { body } = await bestPrices('IFC/USDT');
+      const ahead = body.bids.filter(([p]) => toUnits(p) >= toUnits(price)).reduce((sum, [, size]) => sum + toUnits(size), 0n);
+      const size = fromUnits(ahead + toUnits(amount));
+      const seller = otherTrader();
+      fund(seller.email, 'IFC', size);
+      const sell = await (
+        await api(seller)
+      ).post('/api/v1/orders', {
+        symbol: 'IFC/USDT',
+        side: 'sell',
+        type: 'limit',
+        amount: size,
+        price,
+        timeInForce: 'IOC',
+        clientOrderId: `${J}-4-${id}`,
+      });
+      expect(sell.status, JSON.stringify(sell.body).slice(0, 300)).toBeLessThan(300);
+    }
+    await expect.poll(async () => (await openOrders(who, 'IFC/USDT')).length, { timeout: 30_000 }).toBe(0);
+
+    // Every fill of the order: a maker, no fee, and a rebate in the USDT the maker paid, at 0.05% rounded down.
+    const fills = await fillsOf(client, 'IFC/USDT', id);
+    let paid = 0n;
+    let back = 0n;
+    for (const fill of fills) {
+      expect(fill.takerOrMaker).toBe('maker');
+      expect(toUnits(fill.fee.cost)).toBe(0n);
+      expect(fill.rebate).toMatchObject({ currency: 'USDT', rate: '0.0005' });
+      const rebate = toUnits(fill.rebate.cost);
+      expect(rebate).toBeGreaterThan(0n);
+      expect(rebate).toBeLessThanOrEqual(times(fill.cost, '0.0005'));
+      expect(rebate).toBeGreaterThan(times(fill.cost, '0.0004'));
+      paid += toUnits(fill.cost);
+      back += rebate;
+    }
+    // The ledger agrees: the buyer paid price x amount, got the rebate back, and holds nothing.
+    await expect
+      .poll(async () => toUnits((await client.balances()).USDT.total) - toUnits(before.USDT.total), { timeout: 20_000 })
+      .toBe(back - paid);
+    const after = await client.balances();
+    expect(held(after, 'USDT')).toBe(0n);
+    expect(toUnits(after.IFC.total) - toUnits(before.IFC?.total ?? '0')).toBe(toUnits(amount));
+
+    // The trade history shows it as a rebate, never as a negative fee (a fresh desk reads the settled fills at once).
+    await page.reload();
+    await expect(page.getByRole('button', { name: 'Buy IFC' })).toBeVisible();
+    await tab(page, 'Trade history').click();
+    const row = page.locator(`tr[data-fill="${fills[0].id}"]`);
+    await expect(row.locator('[data-fee=zero]')).toContainText('Zero fee');
+    await expect(row.locator('.dk-rebate')).toContainText(/Rebate 0\.\d+ USDT/);
+    await expect(row.locator('.dk-rebate')).toContainText(pct(5));
+    await expect(row).not.toContainText(/-\s*0\.\d/);
+  } finally {
     await publish(SCHEDULE, 'IFC/USDT back in the default pair group');
   }
 });

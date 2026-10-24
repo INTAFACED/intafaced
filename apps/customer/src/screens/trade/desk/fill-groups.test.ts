@@ -18,6 +18,19 @@ const fill = (id: string, order: string | null, timestamp: number, amount: strin
   fee,
 });
 
+describe('groupFillsByOrder rebates', () => {
+  it('adds the rebates of one order in one coin, and has none when no fill earned one', () => {
+    const rebate = (cost: string) => ({ cost, currency: 'BTC', rate: '0.0005' });
+    const groups = groupFillsByOrder([
+      { ...fill('a', 'o1', 2, '1', '100'), rebate: rebate('0.0005') },
+      { ...fill('b', 'o1', 1, '1', '100'), rebate: rebate('0.0005') },
+      fill('c', 'o2', 0, '1', '100'),
+    ]);
+    expect(groups[0]!.rebate).toEqual({ cost: '0.001', currency: 'BTC' });
+    expect(groups[1]!.rebate).toBeNull();
+  });
+});
+
 describe('groupFillsByOrder', () => {
   it('puts the fills of one order together, newest group first, and adds them up exactly', () => {
     const groups = groupFillsByOrder([

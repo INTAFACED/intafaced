@@ -100,6 +100,17 @@ import {
 } from './pricing.js';
 import { brokenRuleClass, type AdContentRules } from './ad-content-rules.js';
 import {
+  asKycTier,
+  fiatPostingPolicy,
+  needsOrderHistory,
+  POSTING_THRESHOLDS_SETTING,
+  postingChecks,
+  type FiatPostingPolicy,
+  type FiatPostingThreshold,
+  type PostingCheck,
+  type PostingThresholds,
+} from './posting-eligibility.js';
+import {
   buyAdRangeRefusal,
   isVerificationTier,
   remaining,
@@ -208,6 +219,8 @@ export type P2pErrorCode =
   | 'p2p.non_instant_not_accepted'
   | 'p2p.content_rule_violation'
   | 'p2p.content_rules_invalid'
+  | 'p2p.posting_threshold_not_met'
+  | 'p2p.posting_thresholds_invalid'
   | 'p2p.dispute_before_settlement'
   | 'p2p.quote_not_found'
   | 'p2p.quote_mismatch'
@@ -400,6 +413,14 @@ interface BuyAdRange {
   price: Amount;
   minAmt: Amount;
   maxAmt: Amount;
+}
+
+/** P-ads-merchant-03: a floating ad with no reference for its pair cannot be priced, so it is not listed. */
+function noReference(asset: string, fiatCurrency: string, what: 'posted' | 'resumed'): PricingError {
+  return new PricingError(
+    `No ${fiatCurrency} / ${asset} reference price is published, so a floating ad cannot be priced or ${what}; a fixed price still posts`,
+    'p2p.reference_price_unavailable',
+  );
 }
 
 function shortOf(free: Amount, requested: Amount, asset: string, what: string): P2pError {
@@ -799,6 +820,12 @@ export interface P2pServiceOptions {
   sellBalanceAtPost?: boolean;
   /** P-ads-merchant-05. Compliance's content rules for an ad's terms. Absent: no list is published, the filter is off. */
   adContentRules?: AdContentRules;
+  /**
+   * P-ads-merchant-12. Compliance's posting thresholds per fiat (`posting-eligibility.ts`), or omitted for a service
+   * built without them (tests). `index.ts` always passes them, where a fiat with nothing published refuses every post
+   * in it `p2p.config_unset`.
+   */
+  postingThresholds?: PostingThresholds;
 }
 
 /**
@@ -1233,6 +1260,7 @@ export class P2pService {
   private readonly advertiserTerms: AdvertiserTerms | undefined;
   private readonly sellBalanceAtPost: boolean;
   private readonly adContentRules: AdContentRules;
+  private readonly postingThresholds: PostingThresholds | undefined;
   private tradingEnabled: boolean;
 
   /**
@@ -1275,6 +1303,61 @@ export class P2pService {
     this.advertiserTerms = options.advertiserTerms;
     this.sellBalanceAtPost = options.sellBalanceAtPost === true;
     this.adContentRules = options.adContentRules ?? { status: 'absent' };
+    this.postingThresholds = options.postingThresholds;
+  }
+
+  /**
+   * P-ads-merchant-12. The posting checklist for one fiat: what compliance published for it and every check, met or
+   * not, with the person's value and the target. Posting in the fiat refuses on the same checks (`postingRefusal`).
+   * The fiat is read in capitals, as `createOffer` stores it.
+   */
+  async postingEligibility(input: {
+    userId: string;
+    tier: string | undefined;
+    fiatCurrency: string;
+  }): Promise<{ policy: FiatPostingPolicy; checks: PostingCheck[] }> {
+    const fiatCurrency = input.fiatCurrency.toUpperCase();
+    const { policy, threshold } = fiatPostingPolicy(this.postingThresholds ?? { status: 'absent' }, fiatCurrency);
+    return { policy, checks: threshold ? postingChecks(threshold, await this.postingFacts(threshold, input.userId, input.tier)) : [] };
+  }
+
+  /** The level from the request, and the order history only when a threshold needs it. */
+  private async postingFacts(threshold: FiatPostingThreshold, userId: string, tier: string | undefined) {
+    const rates = needsOrderHistory(threshold) ? await completionRates(this.sql, userId) : null;
+    return {
+      tier: asKycTier(tier),
+      completedOrders: rates?.completedTotal ?? 0,
+      countedOrders: rates?.countedTotal ?? 0,
+      completionRatePct: rates?.completionRateTotal ?? null,
+    };
+  }
+
+  /**
+   * P-ads-merchant-12. A new ad in a fiat needs every posting threshold compliance published for it. A fiat with
+   * nothing published refuses `p2p.config_unset` naming it; "none" leaves posting to the jurisdiction gate. Returned,
+   * not thrown, so the caller refuses in a fixed order whichever read finishes first.
+   */
+  private async postingRefusal(
+    thresholds: PostingThresholds,
+    makerId: string,
+    fiatCurrency: string,
+    tier: string | undefined,
+  ): Promise<P2pError | null> {
+    const { policy, threshold } = fiatPostingPolicy(thresholds, fiatCurrency);
+    if (policy === 'invalid') {
+      return new P2pError(`${POSTING_THRESHOLDS_SETTING} is not a whole list, so no ad can be posted`, 'p2p.posting_thresholds_invalid');
+    }
+    if (policy === 'unset') {
+      return new P2pError(`No posting threshold is published for ${fiatCurrency} (${POSTING_THRESHOLDS_SETTING})`, 'p2p.config_unset');
+    }
+    if (!threshold) return null;
+    const missing = postingChecks(threshold, await this.postingFacts(threshold, makerId, tier)).find((check) => check.state !== 'met');
+    return missing
+      ? new P2pError(
+          `Posting an ad in ${fiatCurrency} needs ${missing.id.replaceAll('_', ' ')} ${missing.required}; nothing was posted`,
+          'p2p.posting_threshold_not_met',
+        )
+      : null;
   }
 
   /** P-ads-merchant-01: the advertiser terms version to accept and the caller's acceptance, or `p2p.config_unset`. */
@@ -1647,8 +1730,10 @@ export class P2pService {
   /**
    * P-ads-merchant-01. What a new ad needs from its maker that the offer itself cannot show: the published advertiser
    * terms accepted (and, from the form, the version it showed), and for a sell ad a free balance of the coin that
-   * covers the total. The balance check is advisory, at post only: nothing is reserved, the escrow locks per order at
-   * take. A retry of a create that already published (same key, or with no key the same offer id) skips both, so a
+   * covers the total, (P-ads-merchant-12) the posting thresholds for the ad's fiat, and (P-ads-merchant-03) for a
+   * floating ad a reference price to resolve against, or `p2p.reference_price_unavailable`. The balance check is advisory,
+   * at post only: nothing is reserved, the escrow locks per order at take. A retry of a create that already published
+   * (same key, or with no key the same offer id) skips every check, so a
    * lost reply always returns the ad; the transaction below then answers it as a replay.
    */
   private async assertPostable(
@@ -1658,11 +1743,20 @@ export class P2pService {
     totalAmt: Amount,
     retry: { idempotencyKey: string | undefined; offerId: string | undefined },
     shownTermsVersion: string | undefined,
-    content: { buyRange?: BuyAdRange; terms?: string },
+    content: {
+      buyRange?: BuyAdRange;
+      terms?: string;
+      posting?: { fiatCurrency: string; tier: string | undefined };
+      /** P-ads-merchant-03: a floating ad, whose pair (the posting fiat) needs a reference price to resolve against. */
+      floating?: boolean;
+    },
   ): Promise<void> {
     const checkBalance = this.sellBalanceAtPost && side === 'sell';
     const checkContent = this.adContentRules.status !== 'absent';
-    if (!this.advertiserTerms && !checkBalance && !content.buyRange && !checkContent) return;
+    const thresholds = this.postingThresholds;
+    const posting = thresholds ? content.posting : undefined;
+    const floatingFiat = content.floating ? content.posting?.fiatCurrency : undefined;
+    if (!this.advertiserTerms && !checkBalance && !content.buyRange && !checkContent && !posting && !floatingFiat) return;
     if (retry.idempotencyKey) {
       const published = await this.sql<{ subject_id: string | null }[]>`
         SELECT subject_id FROM p2p.write_keys
@@ -1675,10 +1769,14 @@ export class P2pService {
     }
     this.assertAdContent(content.terms);
     if (content.buyRange) this.assertBuyAdRange(content.buyRange);
-    const [, free] = await Promise.all([
+    const [, free, refusal, reference] = await Promise.all([
       this.advertiserTerms?.assertAccepted(makerId, shownTermsVersion),
       checkBalance ? this.sellBalance(makerId, asset) : null,
+      thresholds && posting ? this.postingRefusal(thresholds, makerId, posting.fiatCurrency, posting.tier) : null,
+      floatingFiat ? this.referenceOrNull(asset, floatingFiat) : null,
     ]);
+    if (refusal) throw refusal;
+    if (floatingFiat && reference === null) throw noReference(asset, floatingFiat, 'posted');
     if (free !== null && compare(totalAmt, free) > 0) throw shortOf(free, totalAmt, asset, "this ad's total; nothing was posted");
   }
 
@@ -1840,6 +1938,8 @@ export class P2pService {
       input.advertiserTermsVersion,
       {
         terms: input.terms,
+        posting: { fiatCurrency, tier: input.makerTier },
+        floating: input.priceType === 'float',
         buyRange:
           input.side === 'buy'
             ? {
@@ -2092,6 +2192,14 @@ export class P2pService {
     const preview = await this.loadOfferRaw(offerId);
     if (preview.makerId !== makerId) throw new P2pError('Only the maker can resume an offer', 'p2p.not_a_party');
     if (preview.side === 'sell') this.assertSellNotLocked(true);
+    // P-ads-merchant-03: a paused floating ad comes back on the board only while a reference prices its pair.
+    if (
+      preview.status === 'paused' &&
+      preview.priceType === 'float' &&
+      (await this.referenceOrNull(preview.asset, preview.fiatCurrency)) === null
+    ) {
+      throw noReference(preview.asset, preview.fiatCurrency, 'resumed');
+    }
     const rows = await this.sql<OfferRow[]>`
       UPDATE p2p.offers SET status = 'active', updated_at = now()
        WHERE id = ${offerId} AND maker_id = ${makerId} AND status = 'paused'
@@ -4704,6 +4812,11 @@ export class P2pService {
    */
   async referencePrice(asset: string, fiatCurrency: string): Promise<Amount | null> {
     return (await this.referencePrices?.price(asset, fiatCurrency)) ?? null;
+  }
+
+  /** The reference at post or resume: a feed that fails reads as no price, as on the board, so the refusal stays typed. */
+  private referenceOrNull(asset: string, fiatCurrency: string): Promise<Amount | null> {
+    return this.referencePrice(asset, fiatCurrency).catch(() => null);
   }
 
   async releasedTradeCounts(offerIds: readonly string[]): Promise<Map<string, number>> {

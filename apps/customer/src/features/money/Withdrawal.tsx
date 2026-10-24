@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { navigate } from '../../app/location';
-import type { ApiResult } from '../../shared/api';
+import { authoredRefusal, type ApiResult } from '../../shared/api';
 import { usePreferences } from '../../shared/preferences';
 import { useResource, type Resource } from '../../shared/resource';
 import { Button, EmptyState, Failure, Field, Loading, Page } from '../../shared/ui';
@@ -9,15 +9,20 @@ import { amount, date, Section } from './components';
 import { WithdrawForm } from './WithdrawForm';
 import { allowlistCopy } from './withdrawal-allowlist-copy';
 import { supportedAssetsCopy } from './supported-assets-copy';
+import { useSupportedAssets } from './supported-assets-reads';
 import { approvalCopy } from './withdrawal-approval-copy';
 import { withdrawalCopy } from './withdrawal-copy';
 import {
   createWithdrawalReads,
   requestedWithdrawal,
+  WITHDRAWAL_SHOWN,
   withdrawalFailureMessage,
   withdrawalIdSchema,
   type CanceledWithdrawal,
+  type WithdrawalHistoryFilter,
+  type WithdrawalHistoryItem,
   type WithdrawalRecord,
+  type WithdrawalShown,
 } from './withdrawal-reads';
 import './withdrawal.css';
 
@@ -27,6 +32,9 @@ const href = (id: string) => `/uc/withdraw?withdrawalId=${encodeURIComponent(id)
 const statusKey = (record: WithdrawalRecord) => (record.customerStatus ? (`s_${record.customerStatus}` as const) : record.status);
 /** Still in motion: a hold sits against it. */
 const inMotion = (record: WithdrawalRecord) => record.status === 'held' || record.status === 'pending';
+/** Finished: nothing sits against it any more. Every other status is still in motion, `needs_review` included. */
+const HISTORY_DONE: ReadonlySet<WithdrawalShown> = new Set<WithdrawalShown>(['settled', 'rejected', 'canceled', 'failed']);
+const historyInMotion = (item: WithdrawalHistoryItem) => !HISTORY_DONE.has(item.status);
 
 function useHandlerCurrent(current: () => boolean) {
   const rendering = {};
@@ -100,41 +108,113 @@ function Lookup({ current, invalid = false }: { current: () => boolean; invalid?
   );
 }
 
+/** Older pages the person asked for under one filter, appended below the first page. */
+type Older = { key: string; items: WithdrawalHistoryItem[]; next: string | null; loading: boolean; failure: ApiFailure | null };
+type ApiFailure = Extract<ApiResult<unknown>, { ok: false }>;
+
 function List({ current }: { current: () => boolean }) {
   const { api, userId } = useSession();
   const { hideBalances } = usePreferences();
   const { t } = withdrawalCopy.useCopy();
   const active = useHandlerCurrent(current);
-  const [limit, setLimit] = useState(50);
-  const { resource, reload } = useResource(
-    (signal) => createWithdrawalReads(api, userId, current).mine(limit, signal),
-    `${userId}:withdrawals:${limit}`,
-  );
+  const assets = useSupportedAssets();
+  const [filter, setFilter] = useState<WithdrawalHistoryFilter>({ assetId: null, status: null });
+  const key = `${userId}:withdrawal-history:${filter.assetId ?? '*'}:${filter.status ?? '*'}`;
+  const { resource, reload } = useResource((signal) => createWithdrawalReads(api, userId, current).history(filter, null, signal), key);
+  const [older, setOlder] = useState<Older | null>(null);
+  // The filter and first page the older pages belong to: a page that comes back after either changed is dropped.
+  const shown = useRef({ key, resource });
+  useLayoutEffect(() => {
+    shown.current = { key, resource };
+  });
+  const first = resource.status === 'ready' ? resource.data : null;
+  const extra = older && older.key === key && first ? older : null;
+  const items = first ? [...first.items, ...(extra?.items ?? [])] : [];
+  const next = extra ? extra.next : (first?.next ?? null);
+  const filtered = filter.assetId !== null || filter.status !== null;
+
+  function refresh() {
+    if (!active()) return;
+    setOlder(null);
+    reload();
+  }
+  async function loadOlder() {
+    if (!active() || !next || extra?.loading) return;
+    const asked = { key, resource };
+    const base = extra ?? { key, items: [], next, loading: false, failure: null };
+    setOlder({ ...base, loading: true, failure: null });
+    const result = await createWithdrawalReads(api, userId, current).history(filter, next, undefined);
+    // `current()`, not `active()`: this render is gone by now, and the page is still this person's.
+    if (!current() || shown.current.key !== asked.key || shown.current.resource !== asked.resource) return;
+    const seen = new Set(items.map((item) => item.id));
+    if (result.ok && result.data.items.some((item) => seen.has(item.id))) {
+      setOlder({ ...base, loading: false, failure: authoredRefusal('invalid_response', { key: 'loadFailed' }) });
+      return;
+    }
+    setOlder(
+      result.ok
+        ? { key, items: [...base.items, ...result.data.items], next: result.data.next, loading: false, failure: null }
+        : { ...base, loading: false, failure: result },
+    );
+  }
+  function choose(change: Partial<WithdrawalHistoryFilter>) {
+    if (!active()) return;
+    setOlder(null);
+    setFilter({ ...filter, ...change });
+  }
+  const coins = assets.resource.status === 'ready' ? assets.resource.data.assets.map((asset) => asset.assetId) : [];
   return (
     <>
       <Section
         title={t('yours')}
-        description={t('window', { limit })}
+        description={t('window')}
         actions={
-          <Button
-            variant="secondary"
-            onClick={() => {
-              if (active()) reload();
-            }}
-          >
+          <Button variant="secondary" onClick={refresh}>
             {t('refresh')}
           </Button>
         }
       >
-        <ReadResult
-          resource={resource}
-          retry={() => {
-            if (active()) reload();
-          }}
-        >
-          {(records) => (
+        <div className="withdrawal-filters" data-testid="withdrawal-filters">
+          <label className="field">
+            <span>{t('filterCoin')}</span>
+            <select
+              name="withdrawal-coin"
+              value={filter.assetId ?? ''}
+              onChange={(event) => choose({ assetId: event.target.value || null })}
+              aria-describedby={assets.resource.status === 'failed' ? 'withdrawal-coins-unread' : undefined}
+            >
+              <option value="">{t('allCoins')}</option>
+              {[...new Set([...coins, ...(filter.assetId ? [filter.assetId] : [])])].map((coin) => (
+                <option key={coin} value={coin} lang="und">
+                  {coin}
+                </option>
+              ))}
+            </select>
+            {assets.resource.status === 'failed' && <small id="withdrawal-coins-unread">{t('coinsUnread')}</small>}
+          </label>
+          <label className="field">
+            <span>{t('status')}</span>
+            <select
+              name="withdrawal-status"
+              value={filter.status ?? ''}
+              onChange={(event) => {
+                const value = WITHDRAWAL_SHOWN.find((status) => status === event.target.value) ?? null;
+                choose({ status: value });
+              }}
+            >
+              <option value="">{t('allStatuses')}</option>
+              {WITHDRAWAL_SHOWN.map((status) => (
+                <option key={status} value={status}>
+                  {t(`s_${status}`)}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <ReadResult resource={resource} retry={refresh}>
+          {() => (
             <>
-              {records.length ? (
+              {items.length ? (
                 <>
                   <div className="withdrawal-list-labels" aria-hidden="true">
                     <span>{t('amount')}</span>
@@ -143,28 +223,28 @@ function List({ current }: { current: () => boolean }) {
                     <span>{t('created')}</span>
                     <span />
                   </div>
-                  <ul className="withdrawal-list">
-                    {records.map((record) => (
-                      <li className="withdrawal-row" key={record.id}>
+                  <ul className="withdrawal-list" data-testid="withdrawal-history">
+                    {items.map((item) => (
+                      <li className="withdrawal-row" key={item.id} data-withdrawal-id={item.id}>
                         <div className="withdrawal-row-main">
                           <strong className="numeric" lang="und" data-withdrawal-amount>
-                            {hideBalances ? `•••• ${record.assetId}` : amount(record.amount, record.assetId)}
+                            {hideBalances ? `•••• ${item.assetId}` : amount(item.amount, item.assetId)}
                           </strong>
                           <span
-                            className={`withdrawal-status ${inMotion(record) ? 'accent' : ''}`}
-                            data-withdrawal-status={record.customerStatus}
+                            className={`withdrawal-status ${historyInMotion(item) ? 'accent' : ''}`}
+                            data-withdrawal-status={item.status}
                           >
-                            {t(statusKey(record))}
+                            {t(`s_${item.status}`)}
                           </span>
                           <span className="withdrawal-rail" lang="und">
-                            {record.rail}
+                            {item.rail}
                           </span>
-                          <time dateTime={record.createdAt}>{date(record.createdAt)}</time>
+                          <time dateTime={item.createdAt}>{date(item.createdAt)}</time>
                         </div>
                         <a
                           className="button button--secondary withdrawal-open"
-                          href={href(record.id)}
-                          aria-label={t('detailFor', { id: record.id })}
+                          href={href(item.id)}
+                          aria-label={t('detailFor', { id: item.id })}
                           onClick={(event) => {
                             if (!active()) event.preventDefault();
                           }}
@@ -175,21 +255,37 @@ function List({ current }: { current: () => boolean }) {
                     ))}
                   </ul>
                 </>
+              ) : filtered ? (
+                <EmptyState title={t('emptyMatch')}>{t('emptyMatchNote')}</EmptyState>
               ) : (
                 <EmptyState title={t('empty')}>{t('emptyNote')}</EmptyState>
               )}
-              <div className="withdrawal-window" role="status">
-                <p>
-                  {t('returned', { count: records.length, limit })} {t('bounded')} {records.length >= limit ? t('more') : ''}
-                </p>
-                {records.length >= limit && limit < 200 && (
-                  <Button
-                    variant="secondary"
-                    onClick={() => {
-                      if (active()) setLimit(Math.min(200, limit + 50));
-                    }}
-                  >
-                    {t('load', { limit: Math.min(200, limit + 50) })}
+              <div
+                className="withdrawal-window"
+                role="status"
+                data-testid="withdrawal-window"
+                data-count={items.length}
+                data-more={Boolean(next)}
+              >
+                {items.length > 0 && (
+                  <p>
+                    {t('returned', { count: items.length })} {next ? t('more') : t('allShown')}
+                  </p>
+                )}
+                {extra?.failure && (
+                  // A refused cursor or an overlapping page would refuse again: start over from the newest page instead.
+                  <Failure
+                    result={extra.failure}
+                    retry={
+                      extra.failure.reason === 'invalid_response' || extra.failure.code === 'pay.withdrawal_cursor_invalid'
+                        ? refresh
+                        : () => void loadOlder()
+                    }
+                  />
+                )}
+                {next && !extra?.failure && (
+                  <Button variant="secondary" disabled={extra?.loading} onClick={() => void loadOlder()}>
+                    {extra?.loading ? <Loading /> : t('load')}
                   </Button>
                 )}
               </div>

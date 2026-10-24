@@ -17,6 +17,15 @@ export interface FillGroup {
    * null when none paid a fee or they paid in different coins, never a sum across coins.
    */
   readonly fee: { readonly cost: string; readonly currency: string } | null;
+  /** The maker rebates together, the same way: null when none was paid or they were paid in different coins. */
+  readonly rebate: { readonly cost: string; readonly currency: string } | null;
+}
+
+/** One coin's total of these amounts, or null when there are none or they are in different coins. */
+function oneCoinTotal(amounts: readonly { cost: string; currency: string }[]): { cost: string; currency: string } | null {
+  const currency = amounts[0]?.currency;
+  if (currency === undefined || !amounts.every((one) => one.currency === currency)) return null;
+  return { cost: formatAmount(amounts.reduce((sum, one) => sum + parseAmount(one.cost), 0n)), currency };
 }
 
 /**
@@ -40,12 +49,8 @@ export function groupFillsByOrder(rows: readonly Trade[]): FillGroup[] {
   return groups.map((fills) => {
     const amount = fills.reduce((sum, fill) => sum + parseAmount(fill.amount), 0n);
     const cost = fills.reduce((sum, fill) => sum + parseAmount(fill.cost), 0n);
-    const paid = fills.flatMap((fill) => (fill.fee ? [fill.fee] : []));
-    const currency = paid[0]?.currency;
-    const fee =
-      currency !== undefined && paid.every((one) => one.currency === currency)
-        ? { cost: formatAmount(paid.reduce((sum, one) => sum + parseAmount(one.cost), 0n)), currency }
-        : null;
+    const fee = oneCoinTotal(fills.flatMap((fill) => (fill.fee ? [fill.fee] : [])));
+    const rebate = oneCoinTotal(fills.flatMap((fill) => (fill.rebate ? [fill.rebate] : [])));
     return {
       order: fills[0]!.order,
       fills,
@@ -53,6 +58,7 @@ export function groupFillsByOrder(rows: readonly Trade[]): FillGroup[] {
       cost: formatAmount(cost),
       average: amount > 0n ? formatAmount(div(cost, amount, 'half-up')) : null,
       fee,
+      rebate,
     };
   });
 }

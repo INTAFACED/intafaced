@@ -20,7 +20,7 @@ import {
 import { assertStopTrigger, TRADE_STOP_TRIGGER_INVALID } from './stop-trigger-door.js';
 import { STOP_MARKET, stopMarketLimit } from './stop-market.js';
 import { validateSlippageTolerance } from './slippage-tolerance.js';
-import { FEE_SCHEDULE_RESIDUAL, FeeScheduleError, previewFeeBps, type OwnerFeeSchedule } from './fee-schedule.js';
+import { FEE_SCHEDULE_RESIDUAL, FeeScheduleError, makerRebateBpsFor, previewFeeBps, type OwnerFeeSchedule } from './fee-schedule.js';
 import { TradeError, type Market, type OrderSide, type OrderType, type TimeInForce } from './types.js';
 import type { EdgeTrust } from '../edge-trust.js';
 
@@ -89,6 +89,11 @@ export interface SpotOrderPreviewWire {
   makerFeeBps: number | null;
   /** Discounted taker bps the fill would post if this order takes. */
   takerFeeBps: number | null;
+  /**
+   * The maker rebate this market's row publishes, in bps of what the maker pays, if this order rests: 0 = none, null
+   * = not known (no row). Up to: the ledger pays it from each fill's own taker fee, so it is held below that rate.
+   */
+  makerRebateBps: number | null;
   /** Fees of the linked exit legs when the request carries `exit`; null otherwise or when a leg cannot be figured. */
   exitFees: SpotOrderPreviewExitFees | null;
   orderable: boolean;
@@ -583,6 +588,8 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
     };
     const makerFeeBps = feeBpsFor('maker');
     const takerFeeBps = feeBpsFor('taker');
+    // Same row as the maker rate above, so it is known exactly when that rate is.
+    const makerRebateBps = makerFeeBps === null ? null : makerRebateBpsFor(scheduleNow, { symbol: market.symbol });
     const feeScheduleVersion = scheduleNow.published === true ? scheduleNow.version : null;
     const feeBps = feeRole === null ? null : feeRole === 'maker' ? makerFeeBps : takerFeeBps;
     let estimatedFee: Amount | null = null;
@@ -699,6 +706,7 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
       feeScheduleVersion,
       makerFeeBps,
       takerFeeBps,
+      makerRebateBps,
       exitFees,
       orderable: uniqueRefusals.length === 0,
       refusals: uniqueRefusals,

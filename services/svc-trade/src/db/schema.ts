@@ -391,6 +391,13 @@ export const fills = trade.table(
     feeAmount: amount('fee_amount').notNull(),
     /** Effective rate after the rank discount. Stored so a fee is explicable years later. */
     feeBps: bps('fee_bps').notNull(),
+    /**
+     * A maker leg's rebate: the rate it was paid at, the amount and the asset (what this maker paid). Never a negative
+     * fee. All three or none; the ledger pays it under `trade.fill.rebate:<fillId>`.
+     */
+    rebateBps: integer('rebate_bps'),
+    rebateAmount: amount('rebate_amount'),
+    rebateAsset: text('rebate_asset'),
     /** Engine sequence. One match, one sequence, forever. */
     sequence: integer('sequence').notNull(),
     ts: tstz('ts').notNull().defaultNow(),

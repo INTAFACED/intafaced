@@ -145,6 +145,22 @@ describe('fee schedule versions (PG-hard)', () => {
     expect(await feeScheduleHistory(db.sql)).toEqual([]);
   });
 
+  it('refuses a maker rebate no fill could pay (a maker fee on its row), and stores nothing', async () => {
+    const schedule = proposal([row({ makerRebateBps: '2' })]);
+    allow('fee-rebate', schedule);
+    await expect(
+      admin.feeScheduleSet(writer(), {
+        schedule,
+        effectiveAt: LATER,
+        expectedVersion: '0',
+        reason,
+        approvalId: 'fee-rebate',
+        operationId: 'op-fee-rebate',
+      }),
+    ).rejects.toMatchObject({ code: 'trade.fee_schedule_blank' });
+    expect(await feeScheduleHistory(db.sql)).toEqual([]);
+  });
+
   it('refuses an effective time in the past, a named version, a stale version and a missing approval', async () => {
     const schedule = proposal();
     allow('fee-past', schedule, '0', '2026-10-19T00:00:00.000Z');

@@ -85,15 +85,29 @@ test('J-p2p-03 #1 Post an ad shows the posting checklist for the coin and fiat, 
   run.reset({ seller, sellerId: me.body.result.data.userId, marker: randomUUID().slice(0, 8) });
 
   // The checklist for USDT/EUR: every requirement, met or not, with the current value and the target.
-  const checklist = await s.bare.query('merchants.postingEligibility', { asset: 'USDT', fiatCurrency: 'EUR' });
+  const checklist = await s.bare.query('merchants.postingEligibility', { fiatCurrency: 'EUR' });
   expect(checklist.status, 'svc-p2p has no posting checklist yet (P-ads-merchant-12)').toBe(200);
   const checks = checklist.body.result.data.checks;
   expect(checks.length).toBeGreaterThan(0);
   for (const check of checks)
     expect(check).toMatchObject({ id: expect.any(String), state: expect.stringMatching(/^(met|not_met|unknown)$/) });
+  // TEST thresholds for EUR (tooling/profiles/test-owner-values/p2p.json): a verified level and no finished orders, both
+  // with the person's value and the target. The thresholds are per fiat, the same for every coin.
+  expect(checklist.body.result.data.policy).toBe('thresholds');
+  const byId = Object.fromEntries(checks.map((check) => [check.id, check]));
+  expect(byId.kyc_tier).toMatchObject({ state: 'met', current: expect.any(String), required: 'basic' });
+  expect(byId.completed_orders).toMatchObject({ state: 'met', current: '0', required: '0' });
+
+  // In the app: the checklist asks for a fiat, then shows each requirement with both numbers.
   await signIn(page, seller);
   await page.goto('/uc/ad/create');
-  await expect(page.getByTestId('posting-checklist')).toBeVisible(UNBUILT);
+  const panel = page.getByTestId('posting-checklist');
+  await expect(panel).toBeVisible(UNBUILT);
+  await expect(panel).toContainText('Pick a fiat currency');
+  await page.getByTestId('offer-form').getByLabel('Fiat currency').selectOption('EUR');
+  await expect(panel).toContainText('What posting an ad in EUR needs');
+  await expect(panel.locator('[data-check="completed_orders"]')).toContainText('Met. You: 0. Needed: 0.');
+  await expect(panel.locator('[data-check="kyc_tier"]')).toContainText('Needed: basic.');
 });
 
 test('J-p2p-03 #2 posting before accepting the advertiser terms refuses and opens them with their version; accepting records it', async ({
@@ -133,7 +147,9 @@ test('J-p2p-03 #2 posting before accepting the advertiser terms refuses and open
   expect(await adsMarked(state, `${state.marker}-unaccepted`)).toHaveLength(0);
 });
 
-test('J-p2p-03 #3 a floating price resolves to an exact decimal from the reference, or refuses without one while a fixed price posts', async () => {
+test('J-p2p-03 #3 a floating price resolves to an exact decimal from the reference, or refuses without one while a fixed price posts', async ({
+  page,
+}) => {
   const state = journey();
   const s = await advertiser(state);
   const marker = `${state.marker}-float`;
@@ -142,8 +158,28 @@ test('J-p2p-03 #3 a floating price resolves to an exact decimal from the referen
     idempotencyKey: `${J}:float:${state.seller.handle}`,
   });
   if (floating.status !== 200) {
-    // No reference price for USDT/EUR on this stack: the floating ad refuses with that reason.
+    // No reference price for USDT/EUR on this stack: the floating ad refuses with that reason, and nothing is listed.
     expect(refusalCode(floating)).toBe('p2p.reference_price_unavailable');
+    expect(await adsMarked(state, marker)).toHaveLength(0);
+    // From the form: the summary says why and points to a fixed price.
+    await signIn(page, state.seller);
+    await page.goto('/uc/ad/create');
+    const form = await fillAd(page, `TEST terms ${marker}-form`);
+    await form.getByLabel('Follows a reference (multiplier)').check();
+    await form.getByLabel('Multiplier on the reference price').fill('1.02');
+    await page.getByTestId('offer-submit').click();
+    await page.getByTestId('offer-confirm').click();
+    await expect(page.getByTestId('offer-summary').getByRole('alert')).toContainText(
+      'No market price is published for this coin and currency, so a floating price cannot be worked out. Choose a fixed price instead.',
+    );
+    expect(await adsMarked(state, `${marker}-form`)).toHaveLength(0);
+    // The same ad at a fixed price posts.
+    const fixed = await s.mutate('offers.create', {
+      ...sellAd(state, { terms: `TEST terms ${marker}-fixed` }),
+      idempotencyKey: `${J}:float-fixed:${state.seller.handle}`,
+    });
+    expect(fixed.status).toBe('active');
+    await s.mutate('offers.close', { offerId: fixed.id });
     return;
   }
   // Posted: the board must show the reference it resolves against, never an unresolved price.

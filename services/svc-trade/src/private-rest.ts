@@ -815,7 +815,7 @@ export function presentAdminFees(markets: readonly Market[], schedule: Extract<O
 
 /**
  * CCXT private trade (my fill) — decimal strings; fee.rate from bps.
- * `order` is the caller's order id (not the counter).
+ * `order` is the caller's order id (not the counter). A maker rebate is its own `rebate` field, never a negative fee.
  */
 export function presentCcxtMyTrade(fill: FillRecord, symbol: string) {
   const ts = fill.ts.getTime();
@@ -836,6 +836,9 @@ export function presentCcxtMyTrade(fill: FillRecord, symbol: string) {
       currency: fill.feeAsset,
       rate: bpsToFeeRate(fill.feeBps),
     },
+    ...(fill.rebate
+      ? { rebate: { cost: formatAmount(fill.rebate.amount), currency: fill.rebate.asset, rate: bpsToFeeRate(fill.rebate.bps) } }
+      : {}),
   };
 }
 

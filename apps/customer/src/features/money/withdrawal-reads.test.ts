@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createApiClient } from '../../shared/api';
 import { parseAmount } from '../../shared/money';
-import { createWithdrawalReads, requestedWithdrawal } from './withdrawal-reads';
+import { createWithdrawalReads, HISTORY_PAGE, requestedWithdrawal, withdrawalFailureMessage } from './withdrawal-reads';
 
 const owner = '11111111-1111-4111-8111-111111111111';
 const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -29,33 +29,41 @@ describe('owned withdrawal network boundary', () => {
     for (const search of ['?withdrawalId=', '?withdrawalId=123', '?withdrawalId=' + id + '&withdrawalId=' + id, '?withdrawalId=%20' + id])
       expect(requestedWithdrawal(search)).toEqual({ ok: false });
   });
-  it('sends explicit bounded GETs and parses exact money through the actual ledger client without write admission', async () => {
+  const item = {
+    id,
+    userId: owner,
+    assetId: 'USDT',
+    amount: '0.000000000000000001',
+    rail: 'isolated',
+    destination: { kind: 'bank', ref: 'private-original' },
+    clientRef: 'original-client',
+    railRef: null,
+    attempts: 1,
+    status: 'held',
+    failure: null,
+    returned: false,
+    createdAt: '2026-10-10T09:20:00Z',
+  };
+  const page = (items: unknown[], next: string | null = null) => wire({ items, next });
+  it('sends one bounded GET per page with the filter and the cursor, and parses exact money through the ledger client', async () => {
     const requests: { url: string; method?: string }[] = [];
     const api = createApiClient({
       canWrite: () => false,
       fetch: async (url, opts) => {
         requests.push({ url: String(url), method: opts?.method });
-        return wire([original]);
+        return page([item], 'cursor-2');
       },
     });
     const reads = createWithdrawalReads(api, owner, () => true);
-    for (const limit of [50, 100, 150, 200]) {
-      const result = await reads.mine(limit);
-      expect(result.ok).toBe(true);
-      if (result.ok) expect(parseAmount(result.data[0]!.amount)).toBe(1n);
-    }
-    expect(requests.map((request) => JSON.parse(new URL(request.url, 'http://isolated').searchParams.get('input')!))).toEqual(
-      [50, 100, 150, 200].map((limit) => ({ limit })),
-    );
-    expect(requests.every((request) => request.method === 'GET')).toBe(true);
-  });
-  it.each([0, 201, 1.5, Number.NaN])('refuses invalid limit %s before dispatch', async (limit) => {
-    const fetcher = vi.fn();
-    expect(await createWithdrawalReads(createApiClient({ fetch: fetcher }), owner, () => true).mine(limit)).toMatchObject({
-      ok: false,
-      code: 'withdrawal.window_invalid',
-    });
-    expect(fetcher).not.toHaveBeenCalled();
+    const first = await reads.history({ assetId: null, status: null }, null);
+    expect(first.ok && parseAmount(first.data.items[0]!.amount)).toBe(1n);
+    expect(first.ok && first.data.next).toBe('cursor-2');
+    expect((await reads.history({ assetId: 'USDT', status: 'held' }, 'cursor-2')).ok).toBe(true);
+    expect(requests.map((request) => JSON.parse(new URL(request.url, 'http://isolated').searchParams.get('input')!))).toEqual([
+      { limit: HISTORY_PAGE },
+      { limit: HISTORY_PAGE, assetId: 'USDT', status: 'held', after: 'cursor-2' },
+    ]);
+    expect(requests.every((request) => request.method === 'GET' && request.url.includes('withdrawal.history'))).toBe(true);
   });
   it.each([
     { userId: other },
@@ -66,20 +74,37 @@ describe('owned withdrawal network boundary', () => {
     { destination: { kind: 'bank' } },
     { attempts: 0.5 },
     { createdAt: 'yesterday' },
-  ])('refuses owner or malformed list records', async (change) => {
-    const api = createApiClient({ fetch: async () => wire([{ ...original, ...change }]) });
-    expect(await createWithdrawalReads(api, owner, () => true).mine(50)).toMatchObject({ ok: false, reason: 'invalid_response' });
+  ])('refuses another account’s or malformed history rows', async (change) => {
+    const api = createApiClient({ fetch: async () => page([{ ...item, ...change }]) });
+    expect(await createWithdrawalReads(api, owner, () => true).history({ assetId: null, status: null }, null)).toMatchObject({
+      ok: false,
+      reason: 'invalid_response',
+    });
   });
-  it('refuses duplicate originals ignoring UUID case and over-returned windows', async () => {
-    const data = [original, { ...original, id: id.toUpperCase() }];
-    expect(await createWithdrawalReads(createApiClient({ fetch: async () => wire(data) }), owner, () => true).mine(50)).toMatchObject({
-      ok: false,
-      code: 'withdrawal.window_invalid',
+  it('refuses a row twice ignoring UUID case, an over-long page, and a row outside the filter', async () => {
+    const read = (items: unknown[], filter: Parameters<ReturnType<typeof createWithdrawalReads>['history']>[0]) =>
+      createWithdrawalReads(createApiClient({ fetch: async () => page(items) }), owner, () => true).history(filter, null);
+    const every = { assetId: null, status: null };
+    expect(await read([item, { ...item, id: id.toUpperCase() }], every)).toMatchObject({ ok: false, code: 'withdrawal.window_invalid' });
+    const many = Array.from({ length: HISTORY_PAGE + 1 }, (_, n) => ({
+      ...item,
+      id: `${n.toString(16).padStart(8, '0')}-aaaa-4aaa-8aaa-aaaaaaaaaaaa`,
+    }));
+    expect(await read(many, every)).toMatchObject({ ok: false, code: 'withdrawal.window_invalid' });
+    expect(await read([item], { assetId: 'BTC', status: null })).toMatchObject({ ok: false, code: 'withdrawal.window_invalid' });
+    expect(await read([item], { assetId: null, status: 'settled' })).toMatchObject({ ok: false, code: 'withdrawal.window_invalid' });
+    expect(await read([], { assetId: 'BTC', status: 'settled' })).toMatchObject({ ok: true, data: { items: [], next: null } });
+  });
+  it('reads a cursor svc-pay refuses in words', async () => {
+    const api = createApiClient({
+      fetch: async () =>
+        new Response(JSON.stringify({ error: { message: 'opaque', data: { intafacedCode: 'pay.withdrawal_cursor_invalid' } } }), {
+          status: 400,
+        }),
     });
-    expect(await createWithdrawalReads(createApiClient({ fetch: async () => wire(data) }), owner, () => true).mine(1)).toMatchObject({
-      ok: false,
-      code: 'withdrawal.window_invalid',
-    });
+    const result = await createWithdrawalReads(api, owner, () => true).history({ assetId: null, status: null }, 'forged');
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(withdrawalFailureMessage(result)).toBe('The withdrawal list didn’t load correctly, so it can’t be shown.');
   });
   it('reads only the validated original, refuses another original and retries the same ID', async () => {
     const ids: string[] = [];
@@ -115,7 +140,9 @@ describe('owned withdrawal network boundary', () => {
     const api = createApiClient({ fetch: fetcher });
     expect(await createWithdrawalReads(api, null, () => true).get(id)).toMatchObject({ ok: false, reason: 'unauthorized' });
     expect(await createWithdrawalReads(api, owner, () => false).get(id)).toMatchObject({ ok: false, reason: 'aborted' });
-    expect(await createWithdrawalReads(api, owner, () => true).mine(50, AbortSignal.abort())).toMatchObject({
+    expect(
+      await createWithdrawalReads(api, owner, () => true).history({ assetId: null, status: null }, null, AbortSignal.abort()),
+    ).toMatchObject({
       ok: false,
       reason: 'aborted',
     });

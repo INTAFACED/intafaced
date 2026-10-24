@@ -135,7 +135,7 @@ describe('checkout settings page', () => {
     expect(out).toContain('Add a checkout');
   });
   it('says plainly when nothing is set up', () => {
-    expect(view(ready({ status: 'not_configured' as const }))).toContain('No checkout set up');
+    expect(view(ready({ status: 'not_configured' as const }))).toContain('No website addresses set up');
   });
 });
 

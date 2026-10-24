@@ -36,6 +36,11 @@
       "value": "{\"messenger\":[\"telegram\",\"whatsapp\",\"wechat\",\"signal app\"],\"link\":[\"http://\",\"https://\",\"www.\"],\"contact\":[\"call me\",\"text me\",\"my number\"]}",
       "note": "TEST content rules for ad terms (rule class to phrases); J-p2p-03 #5 posts terms that name a messenger and sees the class refused."
     },
+    "P2P_POSTING_THRESHOLDS": {
+      "service": "p2p",
+      "value": "{\"EUR\":{\"minKycTier\":\"basic\",\"minCompletedOrders\":\"0\"},\"USD\":\"none\"}",
+      "note": "TEST posting thresholds per fiat: EUR needs a verified level and no finished orders, so every journey's advertiser posts; USD has none (the local test world posts USD). J-p2p-03 #1 reads the EUR checklist."
+    },
     "P2P_MISMATCH_TOLERANCE_BPS": {
       "service": "p2p",
       "value": "50",

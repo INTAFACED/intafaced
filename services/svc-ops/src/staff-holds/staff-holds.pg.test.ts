@@ -63,6 +63,12 @@ function approvals() {
   };
 }
 
+/** What svc-ledger's `txByKey` door answers for a key in this book. */
+async function keyOf(book: MemoryLedger, key: string) {
+  const tx = await book.getTxByKey(key);
+  return tx ? { txId: tx.id, module: tx.module, reason: tx.reason } : null;
+}
+
 describe('staff holds on real PostgreSQL', () => {
   it('holds 40.00, releases 15.00, races a release against a confirm for the rest, and keeps settled posts as answered', async () => {
     const database = await createTestDatabase({ service: 'ops' });
@@ -76,7 +82,7 @@ describe('staff holds on real PostgreSQL', () => {
       const ids = approvals();
       const desk = new StaffHoldDesk({
         store: new SqlStaffHoldStore(sql),
-        ledger,
+        ledger: { post: (request) => ledger.post(request), findByKey: (key) => keyOf(ledger, key) },
         approvals: ids,
         settings: { confirmAccount: 'held-funds', expiryMaxHours: 24 },
         now: () => new Date(),
@@ -158,7 +164,7 @@ describe('staff holds on real PostgreSQL', () => {
           }
           return book.post(request);
         },
-        getTxByKey: (key) => book.getTxByKey(key),
+        findByKey: (key) => keyOf(book, key),
       };
       let clock = Date.parse('2026-10-24T08:00:00.000Z');
       const store = new SqlStaffHoldStore(sql);
@@ -184,6 +190,112 @@ describe('staff holds on real PostgreSQL', () => {
       expect(holds.find((h) => h.holdNo === first)).toMatchObject({ state: 'active', remaining: '40' });
       expect(holds.find((h) => h.holdNo === second)).toMatchObject({ state: 'expired', remaining: '0' });
       expect(formatAmount((await book.balance(userAvailable(CUSTOMER, 'USD'))).amount)).toBe('60');
+      await migrateOutreach(sql, 'down');
+    } finally {
+      await sql.end();
+      await database.drop();
+    }
+  });
+  it('reads a lost place again from SQL, brings its hold back when the post is found, and lets a lost row change in no other way', async () => {
+    const database = await createTestDatabase({ service: 'ops' });
+    const sql = postgres(database.url, { max: 6, onnotice: () => undefined });
+    try {
+      await migrateOutreach(sql);
+      const book = new MemoryLedger();
+      await book.post(
+        recipes.deposit({ userId: CUSTOMER, assetId: 'USD', amount: parseAmount('100'), rail: 'bank-sandbox', railRef: 'dep-pg-3' }),
+      );
+      let timeouts = 2;
+      const reads: string[] = [];
+      const ledger: StaffHoldLedger = {
+        post: async (request) => {
+          if (timeouts > 0) {
+            timeouts -= 1;
+            throw new Error('svc-ledger timed out');
+          }
+          return book.post(request);
+        },
+        findByKey: async (key) => {
+          reads.push(key);
+          return keyOf(book, key);
+        },
+      };
+      let clock = Date.parse('2026-10-24T08:00:00.000Z');
+      const store = new SqlStaffHoldStore(sql);
+      const desk = new StaffHoldDesk({
+        store,
+        ledger,
+        approvals: approvals(),
+        settings: { confirmAccount: 'held-funds', expiryMaxHours: 24 },
+        now: () => new Date(clock),
+      });
+      const hold = (amount: string, key: string) =>
+        desk.place(FOUNDER, { userId: CUSTOMER, assetId: 'USD', amount, reason: 'review', idempotencyKey: key });
+      const first = (await hold('40', 'console:place:pg-l1')).hold.holdNo;
+      const second = (await hold('10', 'console:place:pg-l2')).hold.holdNo;
+      // One a tick: the one looked at longest ago goes first, so the second is read on the next tick.
+      clock += 5_000;
+      await desk.resolve(1);
+      clock += 5_000;
+      await desk.resolve(1);
+      expect(reads).toEqual([`ops:hold:${first}`, `ops:hold:${second}`]);
+      clock += 8 * 60_000;
+      await desk.resolve();
+      expect((await desk.list(CUSTOMER)).holds.map((h) => h.state)).toEqual(['refused', 'refused']);
+
+      await book.post(recipes.staffHoldPlace({ holdNo: first, userId: CUSTOMER, assetId: 'USD', amount: parseAmount('40') }));
+      expect(await store.lost(new Date(clock - 86_400_000).toISOString(), new Date(clock - 600_000).toISOString(), 10)).toEqual([]);
+      clock += 10 * 60_000;
+      expect(await desk.recheckLost()).toBe(1);
+      const holds = (await desk.list(CUSTOMER)).holds;
+      expect(holds.find((h) => h.holdNo === first)).toMatchObject({ state: 'active', remaining: '40', movements: [{ status: 'posted' }] });
+      expect(holds.find((h) => h.holdNo === second)).toMatchObject({
+        state: 'refused',
+        movements: [{ status: 'refused', code: 'ledger.post_lost' }],
+      });
+      // Read now, so not again for 10 minutes.
+      expect(await store.lost(new Date(clock - 86_400_000).toISOString(), new Date(clock - 600_000).toISOString(), 10)).toEqual([]);
+
+      await expect(sql`UPDATE ops.staff_hold_movements SET status = 'settling' WHERE hold_no = ${second}`).rejects.toThrow(
+        /only becomes posted/,
+      );
+      await expect(sql`UPDATE ops.staff_hold_movements SET attempts = 9 WHERE hold_no = ${second}`).rejects.toThrow(/keeps its request/);
+      await expect(
+        sql`UPDATE ops.staff_hold_movements SET status = 'refused', code = 'ledger.other' WHERE hold_no = ${second}`,
+      ).rejects.toThrow(/only becomes posted/);
+      await expect(sql`UPDATE ops.staff_hold_movements SET checked_at = now() WHERE hold_no = ${first}`).rejects.toThrow(/never changes/);
+      await expect(sql`UPDATE ops.staff_hold_movements SET status = 'posted', tx_id = 'tx-x' WHERE hold_no = ${second}`).rejects.toThrow(
+        /only becomes posted/,
+      );
+      await expect(sql`UPDATE ops.staff_hold_movements SET uncertain = false WHERE hold_no = ${second}`).rejects.toThrow(
+        /keeps its request/,
+      );
+
+      // A post turned back waits before it is sent again: unsettled() leaves it out until it is due.
+      timeouts = 0;
+      const frozen = new StaffHoldDesk({
+        store,
+        ledger: {
+          post: async () => {
+            throw new LedgerError('ledger is frozen', 'ledger.frozen');
+          },
+          findByKey: (key) => keyOf(book, key),
+        },
+        approvals: approvals(),
+        settings: { confirmAccount: 'held-funds', expiryMaxHours: 24 },
+        now: () => new Date(clock),
+      });
+      const third = (
+        await frozen.place(FOUNDER, {
+          userId: CUSTOMER,
+          assetId: 'USD',
+          amount: '5',
+          reason: 'review',
+          idempotencyKey: 'console:place:pg-l3',
+        })
+      ).hold.holdNo;
+      expect(await store.unsettled(new Date(clock + 4_999).toISOString(), 10)).toEqual([]);
+      expect(await store.unsettled(new Date(clock + 5_000).toISOString(), 10)).toEqual([third]);
       await migrateOutreach(sql, 'down');
     } finally {
       await sql.end();

@@ -2,6 +2,24 @@ import { defineCopy } from '../../../shared/i18n';
 
 // P-ads-merchant-01: posting an ad from the form: what is free to sell, the advertiser terms, the summary and the receipt.
 const en = {
+  refusedNoReference:
+    'No market price is published for this coin and currency, so a floating price cannot be worked out. Choose a fixed price instead.',
+  refusedThreshold: 'Your account does not meet what posting an ad in this currency needs. Go back to the form to see what is missing.',
+  checklistTitle: 'What posting an ad in {fiat} needs:',
+  checklistPickFiat: 'Pick a fiat currency to see what posting an ad in it needs.',
+  checklistLoading: 'Reading what posting an ad needs…',
+  checklistFailed: 'What posting an ad needs could not be read just now.',
+  checklistUnset: 'The operator has not published posting requirements for {fiat}, so ads in {fiat} are refused.',
+  checklistInvalid: 'The operator’s posting requirements are not a complete list, so no ad can be posted.',
+  checklistNone: 'There is no posting threshold for {fiat}. Only the rules for your region apply.',
+  checkKycTier: 'Verification level',
+  checkCompletedOrders: 'Finished orders',
+  checkCompletionRate: 'Completion rate',
+  checkMet: 'Met',
+  checkNotMet: 'Not met',
+  checkUnknown: 'Cannot be checked',
+  checkValues: 'You: {current}. Needed: {required}.',
+  checkNoValue: 'not available',
   available: 'Free to sell: {amount} {asset}',
   availableHint: 'Nothing is held when you post. Each order holds its coins in escrow when someone takes it.',
   availableLoading: 'Reading your free balance…',
@@ -86,6 +104,24 @@ const en = {
 } as const;
 
 const es = {
+  refusedNoReference:
+    'No hay un precio de mercado publicado para esta moneda y divisa, así que no se puede calcular un precio flotante. Elige un precio fijo.',
+  refusedThreshold: 'Tu cuenta no cumple lo que necesita publicar un anuncio en esta moneda. Vuelve al formulario para ver lo que falta.',
+  checklistTitle: 'Lo que necesita publicar un anuncio en {fiat}:',
+  checklistPickFiat: 'Elige una moneda fiat para ver lo que necesita publicar un anuncio en ella.',
+  checklistLoading: 'Leyendo lo que necesita publicar un anuncio…',
+  checklistFailed: 'No se pudo leer lo que necesita publicar un anuncio en este momento.',
+  checklistUnset: 'El operador no ha publicado requisitos de publicación para {fiat}, así que los anuncios en {fiat} se rechazan.',
+  checklistInvalid: 'Los requisitos de publicación del operador no son una lista completa, así que no se puede publicar ningún anuncio.',
+  checklistNone: 'No hay umbral de publicación para {fiat}. Solo se aplican las reglas de tu región.',
+  checkKycTier: 'Nivel de verificación',
+  checkCompletedOrders: 'Órdenes terminadas',
+  checkCompletionRate: 'Tasa de finalización',
+  checkMet: 'Cumplido',
+  checkNotMet: 'No cumplido',
+  checkUnknown: 'No se puede comprobar',
+  checkValues: 'Tú: {current}. Necesario: {required}.',
+  checkNoValue: 'no disponible',
   available: 'Disponible para vender: {amount} {asset}',
   availableHint: 'Al publicar no se retiene nada. Cada orden retiene sus monedas en custodia cuando alguien la toma.',
   availableLoading: 'Leyendo tu saldo disponible…',
@@ -173,6 +209,26 @@ const es = {
 } as const;
 
 const fr = {
+  refusedNoReference:
+    'Aucun prix de marché n’est publié pour cette crypto et cette monnaie, un prix flottant ne peut donc pas être calculé. Choisissez un prix fixe.',
+  refusedThreshold:
+    'Votre compte ne remplit pas ce qu’il faut pour publier une annonce dans cette monnaie. Revenez au formulaire pour voir ce qui manque.',
+  checklistTitle: 'Ce qu’il faut pour publier une annonce en {fiat} :',
+  checklistPickFiat: 'Choisissez une monnaie fiat pour voir ce qu’il faut pour y publier une annonce.',
+  checklistLoading: 'Lecture de ce qu’il faut pour publier une annonce…',
+  checklistFailed: 'Ce qu’il faut pour publier une annonce n’a pas pu être lu pour le moment.',
+  checklistUnset: 'L’opérateur n’a pas publié d’exigences de publication pour {fiat}, les annonces en {fiat} sont donc refusées.',
+  checklistInvalid:
+    'Les exigences de publication de l’opérateur ne forment pas une liste complète, aucune annonce ne peut donc être publiée.',
+  checklistNone: 'Il n’y a pas de seuil de publication pour {fiat}. Seules les règles de votre région s’appliquent.',
+  checkKycTier: 'Niveau de vérification',
+  checkCompletedOrders: 'Ordres terminés',
+  checkCompletionRate: 'Taux de finalisation',
+  checkMet: 'Rempli',
+  checkNotMet: 'Non rempli',
+  checkUnknown: 'Impossible à vérifier',
+  checkValues: 'Vous : {current}. Requis : {required}.',
+  checkNoValue: 'non disponible',
   available: 'Disponible à la vente : {amount} {asset}',
   availableHint: 'Rien n’est bloqué à la publication. Chaque commande bloque ses pièces en séquestre quand quelqu’un la prend.',
   availableLoading: 'Lecture de votre solde disponible…',

@@ -6,7 +6,7 @@ import { useResource } from '../../../shared/resource';
 import { uiCopy } from '../../../shared/ui-copy';
 import { PayDetails, PayFailure } from '../components';
 import type { PersonalPayApi } from '../pay-api';
-import type { Offer, PostOfferInput } from '../schemas';
+import type { Offer, P2PPostingEligibility, PostOfferInput } from '../schemas';
 import { postCopy } from './p2p-post-copy';
 import type { OfferFormValues } from './p2p-model';
 
@@ -86,6 +86,70 @@ function LevelLimitsFailure({ code, retry }: { code: string | undefined; retry: 
 }
 
 const LEVEL_LABEL = { none: 'levelNone', basic: 'levelBasic', full: 'levelFull', institutional: 'levelInstitutional' } as const;
+
+/**
+ * P-ads-merchant-12: what posting an ad in the chosen fiat needs, read from svc-p2p's checklist, which judges the same
+ * checks a post is refused on. Each check shows the person's value and the target.
+ */
+export function PostingChecklist({ pay, fiatCurrency }: { pay: PersonalPayApi; fiatCurrency: string }) {
+  const { t } = postCopy.useCopy();
+  return (
+    <div className="stack" data-testid="posting-checklist">
+      {fiatCurrency === '' ? <p className="muted">{t('checklistPickFiat')}</p> : <PostingChecks pay={pay} fiatCurrency={fiatCurrency} />}
+    </div>
+  );
+}
+
+function PostingChecks({ pay, fiatCurrency }: { pay: PersonalPayApi; fiatCurrency: string }) {
+  const { t } = postCopy.useCopy();
+  const eligibility = useResource((signal) => pay.postingEligibility(fiatCurrency, signal), `pay:p2p-posting:${fiatCurrency}`);
+  const resource = eligibility.resource;
+  if (resource.status === 'loading') return <p className="muted">{t('checklistLoading')}</p>;
+  if (resource.status === 'failed')
+    return (
+      <p className="muted">
+        {t('checklistFailed')}{' '}
+        <Button variant="ghost" onClick={eligibility.reload}>
+          {t('levelRetry')}
+        </Button>
+      </p>
+    );
+  const { policy, checks } = resource.data;
+  return (
+    <>
+      <p>{t('checklistTitle', { fiat: fiatCurrency })}</p>
+      {policy === 'unset' ? <p className="muted">{t('checklistUnset', { fiat: fiatCurrency })}</p> : null}
+      {policy === 'invalid' ? <p className="muted">{t('checklistInvalid')}</p> : null}
+      {policy === 'none' ? <p className="muted">{t('checklistNone', { fiat: fiatCurrency })}</p> : null}
+      {checks.length > 0 ? (
+        <ul className="p2p-risk-points">
+          {checks.map((check) => (
+            <li key={check.id} data-check={check.id} data-state={check.state}>
+              <strong>{t(CHECK_LABEL[check.id])}</strong> · {t(STATE_LABEL[check.state])}.{' '}
+              {t('checkValues', { current: checkValue(t, check, check.current), required: checkValue(t, check, check.required) })}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </>
+  );
+}
+
+type Check = P2PPostingEligibility['checks'][number];
+const CHECK_LABEL = {
+  kyc_tier: 'checkKycTier',
+  completed_orders: 'checkCompletedOrders',
+  completion_rate: 'checkCompletionRate',
+} as const;
+const STATE_LABEL = { met: 'checkMet', not_met: 'checkNotMet', unknown: 'checkUnknown' } as const;
+
+/** A check's value in words: the level by name, the rate as a percent. */
+function checkValue(t: ReturnType<typeof postCopy.useCopy>['t'], check: Check, value: string | null): string {
+  if (value === null) return t('checkNoValue');
+  if (check.id === 'kyc_tier' && value in LEVEL_LABEL) return t(LEVEL_LABEL[value as keyof typeof LEVEL_LABEL]);
+  if (check.id === 'completion_rate') return `${value}%`;
+  return value;
+}
 
 /** The advertiser terms, read in full and accepted for the exact version svc-p2p published. */
 export function AdvertiserTermsSheet({
@@ -176,7 +240,12 @@ function refusalKey(failure: Failure | null) {
       return 'keyOff' as const;
     case 'p2p.verification_limits_invalid':
     case 'p2p.content_rules_invalid':
+    case 'p2p.posting_thresholds_invalid':
       return 'refusedConfig' as const;
+    case 'p2p.posting_threshold_not_met':
+      return 'refusedThreshold' as const;
+    case 'p2p.reference_price_unavailable':
+      return 'refusedNoReference' as const;
     case 'p2p.content_rule_violation':
       return 'refusedContent' as const;
     case 'p2p.verification_limit_currency':

@@ -2282,8 +2282,8 @@ export function createPayRouter(
         .query(({ ctx, input }) => wrap(async () => userMoney.withdrawalAllowance(ctx.principal.userId, input.assetId))),
 
       /**
-       * The caller's own withdrawals in the customer status vocabulary (W-withdraw-06), filtered by asset, status, id
-       * and time and paged by a cursor. `limit` is required (blank refuses with `pay.withdrawal_list_limit_unset`):
+       * The caller's own withdrawals in the customer status vocabulary (W-withdraw-06; a held row split by its dispatch
+       * journal, as `withdrawal.get` shows it), filtered by asset, status, id and time and paged by a cursor. `limit` is required (blank refuses with `pay.withdrawal_list_limit_unset`):
        * there is no default page size. A status no stored value can mean yet returns an empty page, never a wrong row.
        */
       history: scopedProcedure('trade:read')
@@ -2305,6 +2305,7 @@ export function createPayRouter(
             items: z.array(
               z.object({
                 id: z.string().guid(),
+                userId: z.string().guid(),
                 assetId: assetIdSchema,
                 amount: amountSchema,
                 rail: z.string(),

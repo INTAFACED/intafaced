@@ -60,6 +60,10 @@ export const LEDGER_POST_ALLOWLIST = {
     withdrawReverse: g('ledger', 'services/svc-bank/src/cards/card-service.ts'),
     withdrawSettle: g('ledger', 'services/svc-bank/src/cards/card-service.ts'),
   },
+  'svc-campaigns': {
+    rewardPay: g('token', 'services/svc-campaigns/src/payouts.ts'),
+    sweepFeesToRewards: g('token', 'services/svc-campaigns/src/payouts.ts'),
+  },
   'svc-identity': {
     rewardPay: g('token', 'services/svc-identity/src/affiliates/payout-engine.ts'),
     sweepFeesToRewards: g('token', 'services/svc-identity/src/affiliates/payout-engine.ts'),
@@ -130,6 +134,7 @@ export const LEDGER_POST_ALLOWLIST = {
     rewardPay: g('token', 'services/svc-trade/src/copy/fee-share.ts'),
     sweepFeesToRewards: g('token', 'services/svc-trade/src/copy/fee-share.ts'),
     tradeFill: g('trade', 'services/svc-trade/src/spot/trade-service/fills.ts'),
+    tradeFillMakerRebate: g('trade', 'services/svc-trade/src/spot/trade-service/fills.ts'),
   },
 } as const satisfies Record<string, Grants>;
 

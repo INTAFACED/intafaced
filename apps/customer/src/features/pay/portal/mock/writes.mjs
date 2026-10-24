@@ -8,6 +8,8 @@ import { DAY, MERCHANT_ID, NOT_MINE, USER_ID, hex, iso, ok, refuse } from './sha
 import { fromU, toU } from './world.mjs';
 
 const uuid = (prefix, n) => hex(prefix, n);
+/** A TEST logo rule (100 KB), as the local stack publishes it; not an owner value. */
+const TEST_LOGO_RULES = { logoMaxBytes: 100_000, logoTypes: ['image/png', 'image/jpeg', 'image/webp'] };
 const decimalPlaces = (value) => (String(value).split('.')[1] ?? '').length;
 const OWNER_ONLY = new Set([
   'payment.refund',
@@ -139,6 +141,34 @@ export function createWritesMock(ctx) {
             domains: ['checkout.shop.example.test'],
             createdAt: iso(now - 80 * DAY),
           });
+        }
+        case 'merchantCheckout.branding.get':
+          return ok(route, { rules: TEST_LOGO_RULES, look: state.checkoutLook ?? { status: 'default' } });
+        case 'merchantCheckout.branding.save': {
+          if (ctx.role !== 'owner' && ctx.role !== 'admin') return refuse(route, 403, 'pay.team_role_forbidden');
+          const version = state.checkoutLook?.version ?? 0;
+          if (input.expectedVersion !== version) return refuse(route, 409, 'pay.checkout_branding_stale');
+          let logo = state.checkoutLook?.logo ?? null;
+          if (input.logo === null) logo = null;
+          else if (input.logo) {
+            const bytes = Buffer.from(input.logo.dataBase64, 'base64');
+            if (bytes.length > TEST_LOGO_RULES.logoMaxBytes) return refuse(route, 400, 'pay.checkout_logo_too_large');
+            if (!TEST_LOGO_RULES.logoTypes.includes(input.logo.contentType)) return refuse(route, 400, 'pay.checkout_logo_type_refused');
+            logo = {
+              contentType: input.logo.contentType,
+              byteSize: bytes.length,
+              sha256: '0'.repeat(64),
+              dataBase64: input.logo.dataBase64,
+            };
+          }
+          state.checkoutLook = {
+            status: 'saved',
+            brandColor: String(input.brandColor).toLowerCase(),
+            logo,
+            version: version + 1,
+            updatedAt: iso(now),
+          };
+          return ok(route, { branding: { rules: TEST_LOGO_RULES, look: state.checkoutLook }, replayed: false });
         }
         case 'merchant.profile': {
           // Saves the checkout domains (a new checkout profile). The read above keeps answering from its fixed record.

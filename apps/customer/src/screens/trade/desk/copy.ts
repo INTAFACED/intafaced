@@ -188,6 +188,7 @@ const messages = {
   'Amount up one step': 'Raise the amount one step',
   'Amount down one step': 'Lower the amount one step',
   'Fee up to': 'Fee up to {rate}',
+  'Fee up to rebate': 'Fee up to {rate} · rebate {rebate} on what rests',
   'Fee unknown': 'Fee —',
   'Short of funds hint': 'Not enough {asset}',
   'Send again': 'Send the same order again',
@@ -308,6 +309,7 @@ const messages = {
 
   // Fees, per order and as listed
   'Fee maker': 'Fee {rate} · maker',
+  'Rebate maker': 'Rebate up to {rate} · maker',
   'Fee taker': 'Fee {rate} · taker',
   'Fee listed': 'Listed: maker {maker} · taker {taker}',
   'Fee listed title': 'The market’s listed maker and taker rates, before any rank discount. The rate on the left is what this order pays.',
@@ -378,6 +380,7 @@ const messages = {
   'Ledger kind release': 'Given back from an order',
   'Ledger kind deposit': 'Deposit',
   'Ledger kind withdrawal': 'Withdrawal',
+  'Ledger kind reward': 'Campaign reward',
   'Ledger kind other': 'Other',
   'Ledger totals': 'Ledger totals',
   'Ledger lines add up to': 'These lines add up to (exact)',
@@ -574,6 +577,8 @@ const messages = {
   Status: 'Status',
   Action: 'Action',
   Fee: 'Fee',
+  'Zero fee': 'Zero fee',
+  'Rebate {amount} {asset}': 'Rebate {amount} {asset}',
   Role: 'Role',
   Maker: 'Maker',
   Taker: 'Taker',
