@@ -2,6 +2,7 @@ import type { z, ZodType } from 'zod';
 import type { ApiClient, ApiResult } from '../../../shared/api';
 import { portalRefusal, refusalText } from './refusal';
 import * as p from './schemas';
+import { confirmDestination, type DestinationProof } from './access/destination-step-up';
 
 export const PAGE_SIZE = 25;
 
@@ -23,6 +24,11 @@ export function portalTools(api: ApiClient, userId: string | null) {
   }
   const list = <T extends z.ZodTypeAny>(procedure: string, item: T, input: Record<string, unknown>, signal?: AbortSignal) =>
     query(procedure, { limit: PAGE_SIZE, ...input }, p.page(item), signal);
-  return { userId, query, mutate, list };
+  /** The fresh-code confirmation a payout destination needs is asked of the identity service, on the same session. */
+  const confirmDestinationStepUp = (
+    destination: { merchantId: string; railId: string; kind: string; ref: string },
+    proof: DestinationProof,
+  ) => signedIn() ?? confirmDestination(api, destination, proof);
+  return { userId, query, mutate, list, confirmDestinationStepUp };
 }
 export type PortalTools = ReturnType<typeof portalTools>;

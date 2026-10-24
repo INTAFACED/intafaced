@@ -17,6 +17,7 @@
  *   node tooling/scripts/local-test-gates.mjs chart-class <SYMBOL> <dataClass>   one market's data class (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs risk <SYMBOL> collar=0.1|unset throttle=20|unset   change one market's limits
  *   node tooling/scripts/local-test-gates.mjs p2p        register the TEST P2P payment method (two-person approval)
+ *   node tooling/scripts/local-test-gates.mjs age <handle> <seconds>   move one TEST account's sign-up time back
  *   node tooling/scripts/local-test-gates.mjs status     read-only: what is open, who is verified
  *
  * What this stands in for, and nothing else:
@@ -31,6 +32,8 @@
  *   8. the two operators who register what a P2P payment method needs in a market (svc-p2p ships its method registry
  *      empty and refuses every payment method, and so every P2P ad, while it is). It runs after 3, because svc-p2p
  *      refuses an operator who has no verified tier.
+ *   9. time passing for one TEST journey account (`age`): its sign-up time moves back, so a journey can show a window
+ *      measured from sign-up closed (J-campaigns-05 #5, the referral attach window) without waiting for it.
  * Every record it writes is labelled "LOCAL TEST — not a real approval" and carries one of the markers
  * below, so a production check can recognise and refuse them (see MARKERS).
  *
@@ -322,6 +325,20 @@ export function listAccountsAndTiers(secrets) {
     `SELECT id::text, user_id::text, tier::text FROM identity.kyc_records WHERE status = 'pending' ORDER BY created_at`,
   ).map(([id, userId, tier]) => ({ id, userId, tier }));
   return { users, approved, pending };
+}
+
+/** Moves one journey account's sign-up time `seconds` into the past. Only `@local-test.invalid` accounts. */
+export function ageAccount(secrets, handle, seconds) {
+  if (!/^[a-z0-9_]{3,32}$/i.test(handle ?? '') || !/^[1-9]\d{0,8}$/.test(String(seconds ?? '')))
+    throw new Error('usage: local-test-gates.mjs age <handle> <seconds>');
+  const rows = psqlRead(
+    secrets,
+    'svc_identity',
+    `UPDATE identity.users SET created_at = created_at - make_interval(secs => ${Number(seconds)})
+      WHERE handle = '${handle}' AND email LIKE '%@local-test.invalid' RETURNING created_at::text`,
+  ).filter(([line]) => !/^UPDATE \d+$/.test(line));
+  if (rows.length !== 1) throw new Error(`no LOCAL TEST journey account with handle ${handle}`);
+  return rows[0][0];
 }
 
 export function pendingKycCount(secrets) {
@@ -1575,11 +1592,14 @@ async function main() {
       }
       const r = await setPairRisk(ctx, symbol, changes);
       say(`  ${r.symbol} limits ${r.changed ? `now version ${r.version}` : 'unchanged'}: ${JSON.stringify(r.limits)}`);
+    } else if (cmd === 'age') {
+      const [handle, seconds] = process.argv.slice(3);
+      say(`  ${handle} signed up at ${ageAccount(ctx.secrets, handle, seconds)} (LOCAL TEST, moved back ${seconds}s)`);
     } else if (cmd === 'status') {
       say(JSON.stringify(await status(ctx), null, 2));
     } else {
       die(
-        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | p2p | verify | halt <SYMBOL> | resume <SYMBOL> | status',
+        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | p2p | verify | halt <SYMBOL> | resume <SYMBOL> | age <handle> <seconds> | status',
         2,
       );
     }

@@ -18,6 +18,8 @@ import { describeDestination, railWords } from './destination';
 import { defaultDestination, destinationKindOfRail } from './model';
 import { isDefaultDestination, type DestinationItem } from './schemas';
 import { useReadAt } from '../hooks';
+import { DestinationConfirm } from '../access/DestinationConfirm';
+import type { DestinationProof } from '../access/destination-step-up';
 
 const EVM = /^0x[0-9a-fA-F]{40}$/;
 const IBAN = /^[A-Za-z]{2}\d{2}[A-Za-z0-9]{11,30}$/;
@@ -289,6 +291,7 @@ function AddDestination({
   const rails = useResource((s) => portal.rails(s), `money:rails:${merchantId}`);
   const [railId, setRail] = useState('');
   const [ref, setRef] = useState('');
+  const [proof, setProof] = useState<DestinationProof>({ code: '' });
   const [tried, setTried] = useState(false);
   const [saved, setSaved] = useState<'added' | 'replaced' | false>(false);
   useUnsavedForm(ref.trim() !== '' && !saved, t('mnUnsaved'));
@@ -340,8 +343,19 @@ function AddDestination({
             description={replaces ? t('dstReplaceReviewBody') : t('dstReviewBody')}
             disabled={why !== null}
             disabledReason={why ?? undefined}
-            review={rail && kind ? <SaveReview railId={rail.id} kind={kind} sentRef={sentRef} replaces={replaces} /> : undefined}
-            perform={() => portal.setPayoutDestination(merchantId, rail!.id, kind!, sentRef)}
+            review={
+              rail && kind ? (
+                <>
+                  <SaveReview railId={rail.id} kind={kind} sentRef={sentRef} replaces={replaces} />
+                  <DestinationConfirm proof={proof} onChange={setProof} />
+                </>
+              ) : undefined
+            }
+            perform={() => {
+              // A code is good once: the next try asks for a new one, whatever this one's answer.
+              if ('code' in proof) setProof({ code: '' });
+              return portal.setPayoutDestination(merchantId, rail!.id, kind!, sentRef, proof);
+            }}
             onConfirmed={() => {
               setSaved(replaces ? 'replaced' : 'added');
               setRef('');
