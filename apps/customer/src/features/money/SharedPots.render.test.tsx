@@ -160,7 +160,18 @@ describe('SharedPots', () => {
     await mount();
     const mine = host.querySelector('[data-testid="shared-pot-owned"]')!;
     expect(mine.querySelector('[data-testid="shared-pot-member"]')!.textContent).toContain('@Pia_Partner, contributor');
-    expect(mine.querySelector('[data-testid="shared-pot-open-invite"]')!.textContent).toContain('@Vic_Viewer, viewer: invite ended at');
+    const open = mine.querySelector('[data-testid="shared-pot-open-invite"]')!;
+    expect(open.textContent).toContain('@Vic_Viewer, viewer: invite ended at');
+    act(() => button(open, 'Cancel invite').click());
+    expect(opened[0]).toMatchObject({ procedure: 'sharedPots.cancelInvite' });
+    expect(opened[0]!.input({}, 'req')).toEqual({ inviteId: 'i-old' });
+    // The log is read only once it is opened.
+    expect(mine.querySelector('[data-testid="shared-pot-log-entry"]')).toBeNull();
+    const details = mine.querySelector('details')!;
+    await act(async () => {
+      details.open = true;
+      details.dispatchEvent(new Event('toggle'));
+    });
     const log = [...mine.querySelectorAll('[data-testid="shared-pot-log-entry"]')].map((el) => el.textContent);
     expect(log[0]).toMatch(/^@Pia_Partner joined as a contributor, /);
     expect(log[1]).toMatch(/^@Olga_Owner invited someone no longer on the app as a viewer, /);

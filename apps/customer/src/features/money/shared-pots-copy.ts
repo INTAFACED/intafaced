@@ -57,6 +57,10 @@ const en = {
   declined: '{actor} declined the invite',
   left: '{actor} left',
   removed: '{actor} removed {subject}',
+  cancel: 'Cancel invite',
+  cancelTitle: 'Cancel the invite to {person}',
+  cancelNote: 'The invite stops working and frees its place. Nothing moves.',
+  cancelled: '{actor} cancelled the invite to {subject}',
   at: '{line}, {time}',
 } as const;
 
@@ -118,6 +122,10 @@ const es = {
   declined: '{actor} rechazó la invitación',
   left: '{actor} salió',
   removed: '{actor} quitó a {subject}',
+  cancel: 'Cancelar invitación',
+  cancelTitle: 'Cancelar la invitación a {person}',
+  cancelNote: 'La invitación deja de funcionar y libera su plaza. No se mueve nada.',
+  cancelled: '{actor} canceló la invitación a {subject}',
   at: '{line}, {time}',
 } satisfies Record<keyof typeof en, string>;
 
@@ -179,6 +187,10 @@ const fr = {
   declined: '{actor} a refusé l’invitation',
   left: '{actor} est parti',
   removed: '{actor} a retiré {subject}',
+  cancel: 'Annuler l’invitation',
+  cancelTitle: 'Annuler l’invitation de {person}',
+  cancelNote: 'L’invitation ne fonctionne plus et libère sa place. Rien ne bouge.',
+  cancelled: '{actor} a annulé l’invitation de {subject}',
   at: '{line}, {time}',
 } satisfies Record<keyof typeof en, string>;
 

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { z } from 'zod';
 import { Button } from '../../shared/ui';
 import type { Space } from './client';
@@ -283,7 +284,22 @@ function IShare({ rows, open, name, roleName }: { rows: SharedPots['owned']; ope
                   person: name(invite.invitee),
                   role: roleName(invite.role),
                   time: date(invite.expiresAt),
-                })}
+                })}{' '}
+                <Button
+                  variant="ghost"
+                  onClick={() =>
+                    open({
+                      title: t('cancelTitle', { person: name(invite.invitee) }),
+                      procedure: 'sharedPots.cancelInvite',
+                      facts: [[t('pot'), row.pot.name]],
+                      notes: [t('cancelNote')],
+                      input: () => ({ inviteId: invite.inviteId }),
+                      submit: t('cancel'),
+                    })
+                  }
+                >
+                  {t('cancel')}
+                </Button>
               </li>
             ))}
           </ul>
@@ -305,7 +321,19 @@ function People({ members, name, roleName }: { members: SharedPots['shared'][num
 
 type Entry = z.infer<typeof sharedPotActivitySchema>;
 
+/** The pot's log, read from the bank only once the person opens it. */
 function Log({ spaceId, name, roleName }: { spaceId: string } & Named) {
+  const { t } = sharedPotsCopy.useCopy();
+  const [opened, setOpened] = useState(false);
+  return (
+    <details data-testid="shared-pot-log" onToggle={(event) => setOpened(event.currentTarget.open)}>
+      <summary>{t('log')}</summary>
+      {opened && <LogEntries spaceId={spaceId} name={name} roleName={roleName} />}
+    </details>
+  );
+}
+
+function LogEntries({ spaceId, name, roleName }: { spaceId: string } & Named) {
   const { t } = sharedPotsCopy.useCopy();
   const log = useBankRead('sharedPots.activity', { spaceId, limit: LOG_SHOWN });
   const line = (entry: Entry) => {
@@ -317,23 +345,20 @@ function Log({ spaceId, name, roleName }: { spaceId: string } & Named) {
     return t('at', { line: t(entry.kind, words), time: date(entry.at) });
   };
   return (
-    <details data-testid="shared-pot-log">
-      <summary>{t('log')}</summary>
-      <ResourceView resource={log.resource} reload={log.reload}>
-        {(entries) =>
-          entries.length ? (
-            <ul className="money-list">
-              {entries.map((entry) => (
-                <li key={entry.id} data-testid="shared-pot-log-entry" data-kind={entry.kind}>
-                  {line(entry)}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <NoRows title={t('noLog')} />
-          )
-        }
-      </ResourceView>
-    </details>
+    <ResourceView resource={log.resource} reload={log.reload}>
+      {(entries) =>
+        entries.length ? (
+          <ul className="money-list">
+            {entries.map((entry) => (
+              <li key={entry.id} data-testid="shared-pot-log-entry" data-kind={entry.kind}>
+                {line(entry)}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <NoRows title={t('noLog')} />
+        )
+      }
+    </ResourceView>
   );
 }

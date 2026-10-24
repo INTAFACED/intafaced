@@ -251,6 +251,10 @@ describe('sharedPots', () => {
     await expect(
       caller(bank, PARTNER).sharedPots.invite({ inviteId: randomUUID(), spaceId: pot.id, handle: 'Tom_Third', role: 'viewer' }),
     ).rejects.toMatchObject(refused('bank.space_not_found', 'NOT_FOUND'));
+    // A pot that is not theirs answers the same whether the person exists or not: the directory is never asked.
+    await expect(
+      caller(bank, PARTNER).sharedPots.invite({ inviteId: randomUUID(), spaceId: pot.id, handle: 'nobody_here', role: 'viewer' }),
+    ).rejects.toMatchObject(refused('bank.space_not_found', 'NOT_FOUND'));
     await caller(bank, PARTNER).sharedPots.accept({ inviteId });
     await expect(
       owner.sharedPots.invite({ inviteId: randomUUID(), spaceId: pot.id, handle: 'Pia_Partner', role: 'viewer' }),
@@ -306,5 +310,50 @@ describe('sharedPots', () => {
       refused('bank.shared_pots_list_limit_unset', 'BAD_REQUEST'),
     );
     expect(await sql`SELECT 1 FROM bank.shared_pot_invites`).toHaveLength(0);
+  });
+
+  it('the owner cancels an open invite, which frees its place; a used invite opens nothing once its member has gone', async () => {
+    const bank = services();
+    const pot = await sharedPot(bank);
+    const owner = caller(bank, OWNER);
+    const wrong = await owner.sharedPots.invite({ inviteId: randomUUID(), spaceId: pot.id, handle: 'Tom_Third', role: 'viewer' });
+    const right = await owner.sharedPots.invite({ inviteId: randomUUID(), spaceId: pot.id, handle: 'Pia_Partner', role: 'contributor' });
+    await expect(
+      owner.sharedPots.invite({ inviteId: randomUUID(), spaceId: pot.id, handle: 'Vic_Viewer', role: 'viewer' }),
+    ).rejects.toMatchObject(refused('bank.shared_pot_full', 'CONFLICT'));
+    // Only the owner cancels; cancelling twice changes nothing; the cancelled invite opens nothing.
+    await expect(caller(bank, THIRD).sharedPots.cancelInvite({ inviteId: wrong.inviteId })).rejects.toMatchObject(
+      refused('bank.space_not_found', 'NOT_FOUND'),
+    );
+    expect(await owner.sharedPots.cancelInvite({ inviteId: wrong.inviteId })).toEqual({ cancelled: true });
+    expect(await owner.sharedPots.cancelInvite({ inviteId: wrong.inviteId })).toEqual({ cancelled: true });
+    await expect(caller(bank, THIRD).sharedPots.accept({ inviteId: wrong.inviteId })).rejects.toMatchObject(
+      refused('bank.invite_not_found', 'NOT_FOUND'),
+    );
+    expect((await caller(bank, THIRD).sharedPots.list({ limit: 50 })).invites).toEqual([]);
+    await owner.sharedPots.invite({ inviteId: randomUUID(), spaceId: pot.id, handle: 'Vic_Viewer', role: 'viewer' });
+
+    // An answered invite cannot be cancelled.
+    const partner = caller(bank, PARTNER);
+    await partner.sharedPots.accept({ inviteId: right.inviteId });
+    await expect(owner.sharedPots.cancelInvite({ inviteId: right.inviteId })).rejects.toMatchObject(
+      refused('bank.shared_pot_invalid', 'BAD_REQUEST'),
+    );
+    // Accepting again answers while the membership lasts; after leaving, the used invite opens nothing.
+    expect(await partner.sharedPots.accept({ inviteId: right.inviteId })).toEqual({ spaceId: pot.id, role: 'contributor' });
+    await partner.sharedPots.leave({ spaceId: pot.id });
+    await expect(partner.sharedPots.accept({ inviteId: right.inviteId })).rejects.toMatchObject(
+      refused('bank.invite_not_found', 'NOT_FOUND'),
+    );
+    expect((await partner.sharedPots.list({ limit: 50 })).shared).toEqual([]);
+    const log = await owner.sharedPots.activity({ spaceId: pot.id, limit: 50 });
+    expect(log.map((e) => [e.kind, e.actor.handle, e.subject?.handle ?? null])).toEqual([
+      ['left', 'Pia_Partner', null],
+      ['joined', 'Pia_Partner', null],
+      ['invited', 'Olga_Owner', 'Vic_Viewer'],
+      ['cancelled', 'Olga_Owner', 'Tom_Third'],
+      ['invited', 'Olga_Owner', 'Pia_Partner'],
+      ['invited', 'Olga_Owner', 'Tom_Third'],
+    ]);
   });
 });

@@ -222,7 +222,7 @@ export const sharedPotsSchema = z.object({
 });
 export const sharedPotActivitySchema = z.object({
   id: z.string(),
-  kind: z.enum(['invited', 'joined', 'declined', 'left', 'removed']),
+  kind: z.enum(['invited', 'cancelled', 'joined', 'declined', 'left', 'removed']),
   actor: sharedPotPersonSchema,
   subject: sharedPotPersonSchema.nullable(),
   role: sharedPotRoleSchema.nullable(),
@@ -921,6 +921,7 @@ export const bankWrites = {
   'sorter.create': sorterSchema,
   'sorter.cancel': sorterSchema,
   'sharedPots.invite': sharedPotInviteSchema.extend({ invitee: sharedPotPersonSchema }),
+  'sharedPots.cancelInvite': z.object({ cancelled: z.literal(true) }),
   'sharedPots.accept': z.object({ spaceId: z.string(), role: sharedPotRoleSchema }),
   'sharedPots.decline': z.object({ declined: z.literal(true) }),
   'sharedPots.leave': z.object({ left: z.literal(true) }),

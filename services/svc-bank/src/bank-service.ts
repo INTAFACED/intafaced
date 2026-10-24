@@ -29,7 +29,7 @@ import { IncomeSorterService } from './sorter/income-sorter.js';
 import { SharedPotService } from './spaces/shared-pots.js';
 import { BillsPotService } from './spaces/bills-pot.js';
 import { BusinessService } from './business/business-service.js';
-import { unconfiguredBusinessDirectory, type BusinessDirectoryPort, type BusinessLookupLimiter } from './business/business-directory.js';
+import { BusinessLookupLimiter, unconfiguredBusinessDirectory, type BusinessDirectoryPort } from './business/business-directory.js';
 import { PortfolioService, type PortfolioServiceOptions } from './portfolio/portfolio-service.js';
 import { ActivityService, type ActivityServiceOptions } from './activity/activity-service.js';
 import { ActivityRecordService } from './activity/activity-records.js';
@@ -276,10 +276,15 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
   const billsPots = new BillsPotService(sql, spaces);
   const transfers = new TransferService(sql, ledger, spaces, { editCutoffMinutes: options.scheduleEditCutoffMinutes }, billsPots);
   const sorter = new IncomeSorterService(sql, ledger, spaces, { minCredit: () => options.incomeSorterMinCredit });
-  const sharedPots = new SharedPotService(sql, spaces, options.directory ?? unconfiguredBusinessDirectory(), {
-    inviteMinutes: () => options.sharedPotInviteMinutes,
-    peopleCap: () => options.sharedPotPeopleCap,
-  });
+  // One lookup budget per caller for every door that asks the directory for a person: business and shared pots.
+  const directoryLookups = options.directoryLookups ?? new BusinessLookupLimiter();
+  const sharedPots = new SharedPotService(
+    sql,
+    spaces,
+    options.directory ?? unconfiguredBusinessDirectory(),
+    { inviteMinutes: () => options.sharedPotInviteMinutes, peopleCap: () => options.sharedPotPeopleCap },
+    directoryLookups,
+  );
   const personalPay = new PersonalPayService(sql, ledger, transfers, spaces, {
     handles: options.handles,
     notices: options.requestNotices,
@@ -359,7 +364,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     spaces,
     transfers,
     options.directory ?? unconfiguredBusinessDirectory(),
-    options.directoryLookups,
+    directoryLookups,
   );
 
   const bills = new BillPayService(sql, ledger, spaces, options.bills ?? emptyBillPorts());

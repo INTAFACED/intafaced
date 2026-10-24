@@ -63,9 +63,8 @@ export function createSharedPotsRouter(bank: BankServices, guard: Guard) {
       .query(async ({ ctx, input }) =>
         guard(async () => {
           const view = await bank.sharedPots.overview(ctx.principal.userId, input.limit);
-          const shared = [];
-          for (const row of view.shared) {
-            shared.push({
+          const shared = await Promise.all(
+            view.shared.map(async (row) => ({
               pot: {
                 id: row.space.id,
                 name: row.space.name,
@@ -76,8 +75,8 @@ export function createSharedPotsRouter(bank: BankServices, guard: Guard) {
               owner: personOut(row.owner),
               role: row.role,
               members: row.members.map(memberOut),
-            });
-          }
+            })),
+          );
           return {
             terms: view.terms,
             owned: view.owned.map((row) => ({
@@ -110,6 +109,12 @@ export function createSharedPotsRouter(bank: BankServices, guard: Guard) {
         }),
       ),
 
+    /** The owner withdraws an invite not yet answered, so it no longer holds a place. Moves no value. */
+    cancelInvite: scopedProcedure('bank:write', { module: 'bank' })
+      .input(z.object({ inviteId: z.string().guid() }))
+      .output(z.object({ cancelled: z.literal(true) }))
+      .mutation(async ({ ctx, input }) => guard(() => bank.sharedPots.cancelInvite(input.inviteId, ctx.principal.userId))),
+
     /** Accept an invite to the caller; past its lifetime refuses `bank.invite_expired`. Moves no value. */
     accept: scopedProcedure('bank:write', { module: 'bank' })
       .input(z.object({ inviteId: z.string().guid() }))
@@ -140,9 +145,10 @@ export function createSharedPotsRouter(bank: BankServices, guard: Guard) {
         z.object({
           spaceId: z.string().guid(),
           limit: z.number().int().min(1).max(200).optional(),
+          // At most 18 digits: always inside a bigint, so the cursor never fails in the database.
           before: z
             .string()
-            .regex(/^[1-9][0-9]{0,18}$/)
+            .regex(/^[1-9][0-9]{0,17}$/)
             .optional(),
         }),
       )
@@ -150,7 +156,7 @@ export function createSharedPotsRouter(bank: BankServices, guard: Guard) {
         z.array(
           z.object({
             id: z.string(),
-            kind: z.enum(['invited', 'joined', 'declined', 'left', 'removed']),
+            kind: z.enum(['invited', 'cancelled', 'joined', 'declined', 'left', 'removed']),
             actor: person,
             subject: person.nullable(),
             role: role.nullable(),

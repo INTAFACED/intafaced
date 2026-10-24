@@ -121,6 +121,7 @@ describe('reading a refusal that has come back', () => {
       'cards.setStatus',
       'ramps.destinations.rename',
       'sharedPots.accept',
+      'sharedPots.cancelInvite',
       'sharedPots.decline',
       'sharedPots.invite',
       'sharedPots.leave',

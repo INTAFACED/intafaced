@@ -147,6 +147,8 @@ export function createTransfersRouter(c: BankRouterContext) {
           // does. An unknown destination is treated as foreign, so this cannot tell a stranger which ids exist.
           if (stepUpEnforced) {
             const to = await bank.spaces.find(input.toSpaceId);
+            // A viewer of this shared pot is refused before any second factor is asked for or spent (BK-acct-09).
+            if (to !== null && to.userId !== ctx.principal.userId) await bank.sharedPots.assertMayAddTo(ctx.principal.userId, to.id);
             if (to === null || to.userId !== ctx.principal.userId) {
               await requireStepUp(
                 ctx.principal,
@@ -395,6 +397,8 @@ export function createTransfersRouter(c: BankRouterContext) {
           // A standing order to another person is approved at creation; an unknown destination counts as foreign.
           if (stepUpEnforced) {
             const to = await bank.spaces.find(input.toSpaceId);
+            // A viewer of this shared pot is refused before any second factor is asked for or spent (BK-acct-09).
+            if (to !== null && to.userId !== ctx.principal.userId) await bank.sharedPots.assertMayAddTo(ctx.principal.userId, to.id);
             if (to === null || to.userId !== ctx.principal.userId) {
               await requireStepUp(
                 ctx.principal,

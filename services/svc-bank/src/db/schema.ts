@@ -1648,6 +1648,7 @@ export const sharedPotInvites = bank.table(
     expiresAt: tstz('expires_at').notNull(),
     acceptedAt: tstz('accepted_at'),
     declinedAt: tstz('declined_at'),
+    cancelledAt: tstz('cancelled_at'),
   },
   (t) => [
     index('shared_pot_invites_invitee_idx').on(t.inviteeUserId, t.createdAt),

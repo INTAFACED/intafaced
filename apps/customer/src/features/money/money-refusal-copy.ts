@@ -425,6 +425,7 @@ export const REFUSAL_CHECKED_WRITES: ReadonlySet<string> = new Set([
   'transfers.updateSchedule',
   // Shared pots (BK-acct-09): each change is one transaction that a refusal rolls back, and none moves money.
   'sharedPots.invite',
+  'sharedPots.cancelInvite',
   'sharedPots.accept',
   'sharedPots.decline',
   'sharedPots.leave',

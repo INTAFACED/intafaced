@@ -14,10 +14,11 @@ CREATE TABLE IF NOT EXISTS "bank"."shared_pot_invites" (
   "role" text NOT NULL CONSTRAINT "shared_pot_invites_role_ck" CHECK ("role" IN ('contributor', 'viewer')),
   "created_at" timestamptz NOT NULL DEFAULT now(),
   "expires_at" timestamptz NOT NULL,
-  -- Set once, when the invitee accepts or declines. Neither, and past expires_at, is an expired invite.
+  -- Set once: the invitee accepts or declines, or the owner cancels. None, and past expires_at, is an expired invite.
   "accepted_at" timestamptz,
   "declined_at" timestamptz,
-  CONSTRAINT "shared_pot_invites_answer_ck" CHECK ("accepted_at" IS NULL OR "declined_at" IS NULL),
+  "cancelled_at" timestamptz,
+  CONSTRAINT "shared_pot_invites_answer_ck" CHECK (num_nonnulls("accepted_at", "declined_at", "cancelled_at") <= 1),
   CONSTRAINT "shared_pot_invites_expiry_ck" CHECK ("expires_at" > "created_at")
 );
 CREATE INDEX IF NOT EXISTS "shared_pot_invites_invitee_idx" ON "bank"."shared_pot_invites" ("invitee_user_id", "created_at");
@@ -39,7 +40,7 @@ CREATE TABLE IF NOT EXISTS "bank"."shared_pot_activity" (
   -- Who acted, and who it was about (the invitee, the person removed); never a balance.
   "actor_user_id" text NOT NULL,
   "subject_user_id" text,
-  "kind" text NOT NULL CONSTRAINT "shared_pot_activity_kind_ck" CHECK ("kind" IN ('invited', 'joined', 'declined', 'left', 'removed')),
+  "kind" text NOT NULL CONSTRAINT "shared_pot_activity_kind_ck" CHECK ("kind" IN ('invited', 'cancelled', 'joined', 'declined', 'left', 'removed')),
   "role" text,
   "at" timestamptz NOT NULL DEFAULT now()
 );

@@ -84,7 +84,7 @@ export interface SharedPotInvite {
 
 export interface SharedPotActivityEntry {
   id: string;
-  kind: 'invited' | 'joined' | 'declined' | 'left' | 'removed';
+  kind: 'invited' | 'cancelled' | 'joined' | 'declined' | 'left' | 'removed';
   actor: SharedPotPerson;
   subject: SharedPotPerson | null;
   role: SharedPotRole | null;
@@ -115,6 +115,7 @@ interface InviteRow {
   expires_at: Date;
   accepted_at: Date | null;
   declined_at: Date | null;
+  cancelled_at: Date | null;
   expired: boolean;
 }
 
@@ -184,6 +185,8 @@ export class SharedPotService {
     const replay = await this.inviteById(input.inviteId);
     if (replay) return this.replayInvite(replay, input);
 
+    // The caller's own live pot first: the directory is asked nothing for a pot that is not theirs to share.
+    await this.spaces.underRowLock((tx) => this.spaces.ownPotForUpdate(tx, input.spaceId, input.ownerUserId));
     const invitee = await this.findInvitee(input.ownerUserId, input.handle, input.email);
     if (invitee.userId === input.ownerUserId) {
       throw new BankError('You own this pot; invite someone else', 'bank.shared_pot_invalid');
@@ -197,18 +200,18 @@ export class SharedPotService {
                now() + make_interval(mins => ${inviteMinutes}::int)
         ON CONFLICT (id) DO NOTHING
         RETURNING id, space_id, inviter_user_id, invitee_user_id, role, created_at, expires_at, accepted_at, declined_at,
-                  false AS expired
+                  cancelled_at, false AS expired
       `;
       if (!inserted[0]) return null;
       const [taken] = await tx<Array<{ member: boolean; open_invite: boolean; people: number }>>`
         SELECT EXISTS (SELECT 1 FROM bank.shared_pot_members WHERE space_id = ${input.spaceId}::uuid AND user_id = ${invitee.userId}) AS member,
                EXISTS (SELECT 1 FROM bank.shared_pot_invites
                         WHERE space_id = ${input.spaceId}::uuid AND invitee_user_id = ${invitee.userId}
-                          AND id <> ${input.inviteId}::uuid AND accepted_at IS NULL AND declined_at IS NULL
+                          AND id <> ${input.inviteId}::uuid AND accepted_at IS NULL AND declined_at IS NULL AND cancelled_at IS NULL
                           AND expires_at > now()) AS open_invite,
                ((SELECT count(*) FROM bank.shared_pot_members WHERE space_id = ${input.spaceId}::uuid)
                 + (SELECT count(*) FROM bank.shared_pot_invites
-                    WHERE space_id = ${input.spaceId}::uuid AND accepted_at IS NULL AND declined_at IS NULL
+                    WHERE space_id = ${input.spaceId}::uuid AND accepted_at IS NULL AND declined_at IS NULL AND cancelled_at IS NULL
                       AND expires_at > now()))::int AS people
       `;
       // A refusal below rolls the insert back with it.
@@ -273,8 +276,17 @@ export class SharedPotService {
     const { peopleCap } = this.requireTerms();
     return this.spaces.underRowLock(async (tx) => {
       const invite = await this.ownInviteForUpdate(tx, inviteId, userId);
-      if (invite.accepted_at) return { spaceId: invite.space_id, role: invite.role };
+      if (invite.accepted_at) {
+        // Accepting again answers with the membership this invite made, while it lasts. Once the person has left or been
+        // removed, the used invite opens nothing: the owner sends a new one.
+        if ((await this.roleOf(invite.space_id, userId, tx)) !== null) return { spaceId: invite.space_id, role: invite.role };
+        throw new BankError(
+          'This invite was used, and you no longer share this pot. Ask the owner for a new invite',
+          'bank.invite_not_found',
+        );
+      }
       if (invite.declined_at) throw new BankError('You declined this invite', 'bank.invite_not_found');
+      if (invite.cancelled_at) throw new BankError('The owner cancelled this invite', 'bank.invite_not_found');
       // Same lock order as `invite`: the pot's row, then its rows here.
       await tx`SELECT id FROM bank.spaces WHERE id = ${invite.space_id}::uuid FOR UPDATE`;
       const pot = await this.spaces.get(invite.space_id, tx);
@@ -310,6 +322,7 @@ export class SharedPotService {
       const invite = await this.ownInviteForUpdate(tx, inviteId, userId);
       if (invite.declined_at) return { declined: true as const };
       if (invite.accepted_at) throw new BankError('You accepted this invite; leave the pot instead', 'bank.shared_pot_invalid');
+      if (invite.cancelled_at) throw new BankError('The owner cancelled this invite', 'bank.invite_not_found');
       await tx`UPDATE bank.shared_pot_invites SET declined_at = now() WHERE id = ${inviteId}::uuid`;
       await tx`
         INSERT INTO bank.shared_pot_activity (space_id, actor_user_id, kind, role)
@@ -322,13 +335,45 @@ export class SharedPotService {
   private async ownInviteForUpdate(tx: Sql, inviteId: string, userId: string): Promise<InviteRow> {
     const [row] = await tx<InviteRow[]>`
       SELECT id, space_id, inviter_user_id, invitee_user_id, role, created_at, expires_at, accepted_at, declined_at,
-             expires_at <= now() AS expired
+             cancelled_at, expires_at <= now() AS expired
         FROM bank.shared_pot_invites
        WHERE id = ${inviteId}::uuid AND invitee_user_id = ${userId}
        FOR UPDATE
     `;
     if (!row) throw new BankError('No invite of yours has this id', 'bank.invite_not_found');
     return row;
+  }
+
+  /**
+   * The owner withdraws an invite not yet answered, open or expired, so it no longer holds a place. Cancelling again
+   * changes nothing; an answered invite refuses `bank.shared_pot_invalid`.
+   */
+  async cancelInvite(inviteId: string, ownerUserId: string): Promise<{ cancelled: true }> {
+    return this.spaces.underRowLock(async (tx) => {
+      const [row] = await tx<InviteRow[]>`
+        SELECT id, space_id, inviter_user_id, invitee_user_id, role, created_at, expires_at, accepted_at, declined_at,
+               cancelled_at, expires_at <= now() AS expired
+          FROM bank.shared_pot_invites WHERE id = ${inviteId}::uuid
+      `;
+      if (!row) throw new BankError('No invite has this id', 'bank.invite_not_found');
+      // The pot's row lock, as for every change to who shares it; another owner's pot is not found.
+      await this.spaces.ownPotForUpdate(tx, row.space_id, ownerUserId);
+      const [invite] = await tx<InviteRow[]>`
+        SELECT id, space_id, inviter_user_id, invitee_user_id, role, created_at, expires_at, accepted_at, declined_at,
+               cancelled_at, expires_at <= now() AS expired
+          FROM bank.shared_pot_invites WHERE id = ${inviteId}::uuid FOR UPDATE
+      `;
+      if (invite!.cancelled_at) return { cancelled: true as const };
+      if (invite!.accepted_at || invite!.declined_at) {
+        throw new BankError('This invite was already answered', 'bank.shared_pot_invalid');
+      }
+      await tx`UPDATE bank.shared_pot_invites SET cancelled_at = now() WHERE id = ${inviteId}::uuid`;
+      await tx`
+        INSERT INTO bank.shared_pot_activity (space_id, actor_user_id, subject_user_id, kind, role)
+        VALUES (${row.space_id}::uuid, ${ownerUserId}, ${row.invitee_user_id}, 'cancelled', ${row.role})
+      `;
+      return { cancelled: true as const };
+    });
   }
 
   /** A member stops sharing the pot. Not a member changes nothing. */
@@ -395,7 +440,7 @@ export class SharedPotService {
        WHERE s.user_id = ${userId} AND s.kind = 'named' AND s.archived_at IS NULL
          AND (EXISTS (SELECT 1 FROM bank.shared_pot_members m WHERE m.space_id = s.id)
               OR EXISTS (SELECT 1 FROM bank.shared_pot_invites i
-                          WHERE i.space_id = s.id AND i.accepted_at IS NULL AND i.declined_at IS NULL))
+                          WHERE i.space_id = s.id AND i.accepted_at IS NULL AND i.declined_at IS NULL AND i.cancelled_at IS NULL))
        ORDER BY s.created_at, s.id
        LIMIT ${page}
     `;
@@ -408,9 +453,9 @@ export class SharedPotService {
     `;
     const inviteRows = await this.sql<InviteRow[]>`
       SELECT i.id, i.space_id, i.inviter_user_id, i.invitee_user_id, i.role, i.created_at, i.expires_at, i.accepted_at,
-             i.declined_at, i.expires_at <= now() AS expired
+             i.declined_at, i.cancelled_at, i.expires_at <= now() AS expired
         FROM bank.shared_pot_invites i JOIN bank.spaces s ON s.id = i.space_id
-       WHERE i.invitee_user_id = ${userId} AND i.accepted_at IS NULL AND i.declined_at IS NULL AND s.archived_at IS NULL
+       WHERE i.invitee_user_id = ${userId} AND i.accepted_at IS NULL AND i.declined_at IS NULL AND i.cancelled_at IS NULL AND s.archived_at IS NULL
        ORDER BY i.created_at DESC, i.id
        LIMIT ${page}
     `;
@@ -425,15 +470,18 @@ export class SharedPotService {
     const openOut = ownedIds.length
       ? await this.sql<InviteRow[]>`
           SELECT id, space_id, inviter_user_id, invitee_user_id, role, created_at, expires_at, accepted_at, declined_at,
-                 expires_at <= now() AS expired
-            FROM bank.shared_pot_invites
-           WHERE space_id = ANY(${ownedIds}::uuid[]) AND accepted_at IS NULL AND declined_at IS NULL
+                 cancelled_at, expired
+            FROM (SELECT *, expires_at <= now() AS expired,
+                         row_number() OVER (PARTITION BY space_id ORDER BY created_at DESC, id) AS n
+                    FROM bank.shared_pot_invites
+                   WHERE space_id = ANY(${ownedIds}::uuid[]) AND accepted_at IS NULL AND declined_at IS NULL AND cancelled_at IS NULL) open
+           -- One page per pot, newest first, so one busy pot never hides another's invites.
+           WHERE n <= ${page}
            ORDER BY created_at DESC, id
-           LIMIT ${page}
         `
       : [];
-    const pots = new Map<string, SpaceRecord>();
-    for (const id of new Set([...potIds, ...inviteRows.map((r) => r.space_id)])) pots.set(id, await this.spaces.get(id));
+    const ids = [...new Set([...potIds, ...inviteRows.map((r) => r.space_id)])];
+    const pots = new Map<string, SpaceRecord>((await Promise.all(ids.map((id) => this.spaces.get(id)))).map((pot) => [pot.id, pot]));
     const names = await this.names([
       ...members.map((m) => m.user_id),
       ...openOut.map((i) => i.invitee_user_id),
@@ -490,7 +538,7 @@ export class SharedPotService {
   private async inviteById(inviteId: string): Promise<InviteRow | null> {
     const [row] = await this.sql<InviteRow[]>`
       SELECT id, space_id, inviter_user_id, invitee_user_id, role, created_at, expires_at, accepted_at, declined_at,
-             expires_at <= now() AS expired
+             cancelled_at, expires_at <= now() AS expired
         FROM bank.shared_pot_invites WHERE id = ${inviteId}::uuid
     `;
     return row ?? null;
