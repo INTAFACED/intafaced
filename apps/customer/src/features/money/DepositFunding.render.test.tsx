@@ -11,7 +11,8 @@ const address = vi.fn();
 vi.mock('../session/session', () => ({ useSession: () => ({ userId: 'u1', api: {} }) }));
 vi.mock('./deposit-reads', async (original) => ({
   ...(await original<typeof import('./deposit-reads')>()),
-  createDepositReads: () => ({ address }),
+  // The address list under an issued address loads on its own; DepositAddresses.render.test.tsx covers it.
+  createDepositReads: () => ({ address, addresses: () => new Promise(() => undefined) }),
 }));
 import { DepositAddressPanel, DepositNetworkPicker } from './DepositFunding';
 import type { DepositCatalogue } from './deposit-reads';
@@ -100,6 +101,8 @@ describe('deposit address panel', () => {
     expect(host.textContent).toContain('Send only USDT on Ethereum to this address.');
     expect(button('Copy')).toBeDefined();
     expect(document.querySelector('[data-testid="pay-qr"]')).not.toBeNull();
+    // Under it, the person's other addresses for this pair (W-deposit-02).
+    expect(document.querySelector('[data-testid="deposit-addresses"]')).not.toBeNull();
     expect(host.textContent).not.toContain('Memo or tag');
   });
 

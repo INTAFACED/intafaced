@@ -1305,8 +1305,12 @@ export const depositAddresses = bank.table(
     memo: text('memo'),
     qrPayload: text('qr_payload'),
     createdAt: createdAt(),
+    /** 0 is the first address, which never expires; an extra one (W-deposit-02) carries the expiry custody stored. */
+    addressIndex: integer('address_index').notNull().default(0),
+    label: text('label'),
+    expiresAt: tstz('expires_at'),
   },
-  (t) => [primaryKey({ name: 'deposit_addresses_pkey', columns: [t.userId, t.assetId, t.networkId] })],
+  (t) => [primaryKey({ name: 'deposit_addresses_pkey', columns: [t.userId, t.assetId, t.networkId, t.addressIndex] })],
 );
 
 /**

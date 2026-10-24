@@ -50,6 +50,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     BANK_WALLET_PROOF_VALID_DAYS: '180',
     // LOCAL TEST value: how long an emailed link that approves a new withdrawal address works (J-wallet-04 #5).
     BANK_ADDRESS_APPROVAL_LINK_MINUTES: '30',
+    // LOCAL TEST values: how many deposit addresses one person may hold open per asset and network (small, so J-wallet-02 #4
+    // reaches it), and how long an extra one lasts. Unset, making another deposit address refuses by name.
+    BANK_DEPOSIT_ADDRESS_CAP: '3',
+    BANK_DEPOSIT_ADDRESS_EXPIRY_DAYS: '30',
     // LOCAL TEST values from the bank profile, not owner decisions (BK-xfer-07): one made-up blocked payee, one made-up
     // exchange account with a small allowance, and the proof files a held send may upload. Unset, every global send
     // refuses before its quote, so the sending journeys could not reach a hold or a refusal on this stack.

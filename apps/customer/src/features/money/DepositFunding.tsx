@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useId, useState, type ReactNode } from 'react';
 import { Button } from '../../shared/ui';
 import { classifyRefusal } from '../../data/refusal-codes';
 import { refusalCopy } from '../../data/refusals';
@@ -9,6 +9,7 @@ import { QrCode } from '../../screens/pay/QrCode';
 import type { Resource } from '../../shared/resource';
 import { depositCopy } from './deposit-copy';
 import { DepthPanel, Fact } from './DepthParts';
+import { DepositAddresses } from './DepositAddresses';
 import './deposit-methods.css';
 import {
   createDepositReads,
@@ -151,6 +152,7 @@ export function DepositAddressPanel({ asset, catalogue, networkId }: Omit<Props,
           asset={asset}
           network={network}
           issue={() => createDepositReads(api).address(asset, network.id)}
+          after={<DepositAddresses asset={asset} network={network} />}
         />
       )}
       <dl className="bd-facts">
@@ -211,10 +213,13 @@ export function IssuedAddress({
   asset,
   network,
   issue,
+  after,
 }: {
   asset: string;
   network: DepositNetworkView;
   issue: () => Promise<{ ok: true; data: DepositAddressView } | { ok: false }>;
+  /** Shown under the address once it is on screen: the person's other addresses for this pair. */
+  after?: ReactNode;
 }) {
   const { t } = depositCopy.useCopy();
   const [acknowledged, setAcknowledged] = useState(false);
@@ -232,24 +237,27 @@ export function IssuedAddress({
   if (state.kind === 'issued') {
     const { address, memo, qrPayload } = state.value;
     return (
-      <div className="bd-address" data-testid="deposit-address">
-        <p>{t('addressLead', { asset, network: network.label })}</p>
-        <p>
-          <strong className="numeric" style={{ overflowWrap: 'anywhere' }}>
-            {address}
-          </strong>
-        </p>
-        <CopyButton value={address} label={t('copyAddress')} />
-        {memo && (
-          <div role="note">
-            <strong>{t('memoTitle')}</strong>
-            <p>{t('memoNote')}</p>
-            <p className="numeric">{memo}</p>
-            <CopyButton value={memo} label={t('copyMemo')} />
-          </div>
-        )}
-        <QrCode value={qrPayload ?? address} />
-      </div>
+      <>
+        <div className="bd-address" data-testid="deposit-address">
+          <p>{t('addressLead', { asset, network: network.label })}</p>
+          <p>
+            <strong className="numeric" style={{ overflowWrap: 'anywhere' }}>
+              {address}
+            </strong>
+          </p>
+          <CopyButton value={address} label={t('copyAddress')} />
+          {memo && (
+            <div role="note">
+              <strong>{t('memoTitle')}</strong>
+              <p>{t('memoNote')}</p>
+              <p className="numeric">{memo}</p>
+              <CopyButton value={memo} label={t('copyMemo')} />
+            </div>
+          )}
+          <QrCode value={qrPayload ?? address} />
+        </div>
+        {after}
+      </>
     );
   }
   const hasNotes = [network.requirements, network.unsupported, network.warnings].some((list) => (list?.length ?? 0) > 0);
