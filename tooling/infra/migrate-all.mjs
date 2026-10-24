@@ -48,6 +48,8 @@
  * and compose gives it DATABASE_URL.
  * svc-tax is listed: it ships drizzle SQL for tax.basis_overrides,
  * and compose gives it DATABASE_URL.
+ * svc-campaigns is listed: it ships drizzle SQL for seasons, drops and their claims,
+ * and compose gives it DATABASE_URL.
  */
 import { spawnSync } from 'node:child_process';
 
@@ -72,6 +74,7 @@ const SERVICES = [
   ['svc-ops', 'ops'],
   ['svc-quant', 'quant'],
   ['svc-tax', 'tax'],
+  ['svc-campaigns', 'campaigns'],
 ];
 
 const host = process.env.POSTGRES_HOST ?? 'postgres';

@@ -6,6 +6,7 @@ import { academyRoute } from './academy-lms';
 import { Agents } from './Agents';
 import { Blueprint } from './Blueprint';
 import { Campaigns } from './Campaigns';
+import { DropRoom } from './DropRoom';
 import { Launch, Mining } from './AvailabilityRooms';
 import type { LaunchTab } from './LaunchAvailability';
 import type { MiningTab } from './MiningAvailability';
@@ -77,6 +78,10 @@ function MoreRooms({ path }: { path: string }) {
     title = copyText('moreroutes.campaigns');
     description = copyText('moreroutes.your.campaign.participation');
     content = <Campaigns />;
+  } else if (p === '/campaigns/drops') {
+    title = copyText('moreroutes.drop.room');
+    description = copyText('moreroutes.drop.room.description');
+    content = <DropRoom />;
   } else if (p === '/launch' || p === '/uc/innovation/myorders') {
     room = 'launch';
     title = p === '/launch' ? copyText('moreroutes.launch') : copyText('moreroutes.my.launch.orders');

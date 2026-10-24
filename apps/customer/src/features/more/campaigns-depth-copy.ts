@@ -31,6 +31,7 @@ const en = {
   step_reward_body: 'Rewards are credited to your account through the ledger once a campaign confirms them.',
   step_reward_reason: 'Blocked: no reward budget or payout method is published, so no reward is promised or shown.',
   mineTitle: 'Your campaign participation',
+  dropRoomLink: 'Open the drop room: your waitlist place, the season and limited drops',
   mineUnavailable:
     'Unavailable, not zero. Your joined campaigns, task progress and rewards cannot be loaded, which does not mean you have none.',
   mineJoined: 'Joined campaigns',
@@ -96,6 +97,7 @@ const es = {
   step_reward_reason:
     'Bloqueado: no hay presupuesto de recompensas ni método de pago publicados, así que no se promete ni se muestra ninguna recompensa.',
   mineTitle: 'Tu participación en campañas',
+  dropRoomLink: 'Abrir la sala de drops: tu lugar en la lista de espera, la temporada y los drops limitados',
   mineUnavailable:
     'No disponible, no es cero. No se pueden cargar tus campañas, progreso de tareas ni recompensas, lo que no significa que no tengas.',
   mineJoined: 'Campañas a las que te uniste',
@@ -163,6 +165,7 @@ const fr = {
   step_reward_reason:
     'Bloqué : aucun budget de récompenses ni mode de paiement n’est publié ; aucune récompense n’est donc promise ni affichée.',
   mineTitle: 'Ta participation aux campagnes',
+  dropRoomLink: 'Ouvrir la salle des drops : ta place sur la liste d’attente, la saison et les drops limités',
   mineUnavailable:
     'Indisponible, pas zéro. Tes campagnes, ta progression et tes récompenses ne peuvent pas être chargées, ce qui ne veut pas dire que tu n’en as pas.',
   mineJoined: 'Campagnes rejointes',

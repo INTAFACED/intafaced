@@ -303,6 +303,7 @@ services:
       TAX_URL: http://svc-tax:4020
       QUANT_URL: http://svc-quant:4021
       OPS_URL: http://svc-ops:4022
+      CAMPAIGNS_URL: http://svc-campaigns:4024
       # connect.data-lake TSDB + retention owner env — blank retention refuses persist.
       CONNECT_DATA_LAKE_TSDB_URL: postgres://svc_connect_lake:${SVC_CONNECT_LAKE_DB_PASSWORD:-svc_connect_lake}@postgres:5432/intafaced
       CONNECT_DATA_LAKE_RETENTION_DAYS: ${CONNECT_DATA_LAKE_RETENTION_DAYS:-}
@@ -1550,6 +1551,25 @@ services:
       <<: *needs-schema
       svc-ledger:
         condition: service_healthy
+
+  # Seasons, limited drops and the TGE claim (RC-campaigns-04/-05). Holds no balance, imports no ledger recipe.
+  # A blank TGE schedule refuses every TGE claim launch.schedule_unset; never a default date.
+  svc-campaigns:
+    <<: *app
+    container_name: intafaced-svc-campaigns
+    command: ['node', 'services/svc-campaigns/dist/index.js']
+    environment:
+      <<: [*service-env, *edge-secret]
+      SERVICE_NAME: svc-campaigns
+      HTTP_PORT: '4024'
+      CAMPAIGNS_TGE_SCHEDULE_JSON: ${CAMPAIGNS_TGE_SCHEDULE_JSON:-}
+      # Role svc_campaigns and schema campaigns come from postgres-init; migrate-all applies the drizzle files.
+      # Blank DATABASE_POOL_MAX (x-service-env) refuses boot. Never invent a pool size.
+      DATABASE_URL: postgres://svc_campaigns:${SVC_CAMPAIGNS_DB_PASSWORD:-svc_campaigns}@postgres:5432/intafaced
+    expose: ['4024']
+    healthcheck: *healthcheck
+    depends_on:
+      <<: *needs-schema
 
   # Strategy sandbox (§29). Paper book, no ledger. Port 4021: 4020 held for tax.
   svc-quant:
