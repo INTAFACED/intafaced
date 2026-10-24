@@ -10,6 +10,7 @@ import type { Resource } from '../../shared/resource';
 import { depositCopy } from './deposit-copy';
 import { DepthPanel, Fact } from './DepthParts';
 import { DepositAddresses } from './DepositAddresses';
+import { FundingNoticesBanner } from './FundingNotices';
 import './deposit-methods.css';
 import {
   createDepositReads,
@@ -109,6 +110,14 @@ export function DepositAddressPanel({ asset, catalogue, networkId }: Omit<Props,
   const off = catalogue.status === 'ready' ? haltedFor(catalogue.data, asset).find((row) => row.networkId === networkId) : undefined;
   return (
     <DepthPanel title={t('addressTitle')}>
+      {(network || off) && (
+        <FundingNoticesBanner
+          key={`notices:${asset}:${networkId}`}
+          asset={asset}
+          networkId={networkId}
+          networkLabel={network?.label ?? off!.label}
+        />
+      )}
       {off ? (
         <div className="bd-address" role="alert" data-testid="deposit-halted">
           <strong>{t('haltedTitle', { asset, network: off.label })}</strong>

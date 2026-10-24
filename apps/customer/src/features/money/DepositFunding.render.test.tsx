@@ -8,7 +8,13 @@ vi.mock('../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 const address = vi.fn();
+const readFundingNotices = vi.hoisted(() => vi.fn());
 vi.mock('../session/session', () => ({ useSession: () => ({ userId: 'u1', api: {} }) }));
+// The funding notice banner reads on its own; FundingNotices.render.test.tsx covers it.
+vi.mock('./funding-notices-reads', async (original) => ({
+  ...(await original<typeof import('./funding-notices-reads')>()),
+  readFundingNotices,
+}));
 vi.mock('./deposit-reads', async (original) => ({
   ...(await original<typeof import('./deposit-reads')>()),
   // The address list under an issued address loads on its own; DepositAddresses.render.test.tsx covers it.
@@ -24,6 +30,7 @@ beforeEach(() => {
   host = document.createElement('div');
   document.body.append(host);
   address.mockReset();
+  readFundingNotices.mockReset().mockReturnValue(new Promise(() => undefined));
 });
 afterEach(() => {
   act(() => root?.unmount());
@@ -193,6 +200,49 @@ describe('deposit network picker', () => {
     await act(async () => root!.render(<DepositAddressPanel asset="USDT" catalogue={off(null) as never} networkId="tron" />));
     expect(host.textContent).toContain('The supported asset list does not take deposits of USDT on Tron');
     expect(address).not.toHaveBeenCalled();
+  });
+
+  it('asks for funding notices on the chosen pair only, switched-off pairs included, under the pair’s own name', async () => {
+    const incident = {
+      id: '00000000-0000-4000-8000-000000000001',
+      kind: 'incident',
+      title: 'TEST slow deposits',
+      body: 'TEST looking into it',
+      status: 'published',
+      version: 1,
+      changelog: null,
+      publishedAt: '2026-10-24T10:00:00.000Z',
+      startsAt: null,
+      endsAt: null,
+      asset: 'USDT',
+      network: 'tron',
+      phase: 'investigating',
+    };
+    readFundingNotices.mockResolvedValue({
+      ok: true,
+      data: { asset: 'USDT', network: 'tron', incidents: [{ root: incident, latest: incident }], maintenance: [] },
+    });
+    await mount(<DepositAddressPanel asset="USDT" catalogue={ready} networkId="" />);
+    expect(readFundingNotices).not.toHaveBeenCalled();
+    expect(host.querySelector('[data-testid="funding-notices"]')).toBeNull();
+    const off = {
+      status: 'ready',
+      data: {
+        assets: [],
+        halted: [{ assetId: 'USDT', networkId: 'tron', label: 'Tron', haltNote: null, blockedBy: null, assetState: null }],
+      },
+    };
+    await act(async () => root!.render(<DepositAddressPanel asset="USDT" catalogue={off as never} networkId="tron" />));
+    expect(readFundingNotices).toHaveBeenCalledWith(expect.anything(), 'USDT', 'tron', expect.anything());
+    expect(host.querySelector(`[data-testid="funding-incident-${incident.id}"]`)!.textContent).toContain('Incident on USDT on Tron');
+    expect(host.querySelector('[data-testid="deposit-halted"]')).not.toBeNull();
+  });
+
+  it('a pair outside the registry’s spelling carries no notice, so none is asked for', async () => {
+    const odd = { status: 'ready', data: { assets: [{ assetId: 'usdt.e', networks: catalogue.assets[0]!.networks }] } };
+    await mount(<DepositAddressPanel asset="usdt.e" catalogue={odd as never} networkId="ethereum" />);
+    expect(readFundingNotices).not.toHaveBeenCalled();
+    expect(host.querySelector('[data-testid="funding-notices"]')!.getAttribute('data-state')).toBe('none');
   });
 
   it('an unreadable supported asset list is named in the picker, with a retry', async () => {
