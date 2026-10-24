@@ -5,6 +5,7 @@ import {
   PORTFOLIO_BASIS_OVERRIDE_NOT_ALLOWED,
   TAX_BASIS_LOT_UNKNOWN,
   TAX_BASIS_STORE_UNWIRED,
+  TAX_CHOICES_UNAVAILABLE,
   TAX_CLOSED_LOTS_UNINDEXED,
   TAX_COST_BASIS_UNAVAILABLE,
   TAX_CUSTOMER_BASIS_EXPORT_UNSET,
@@ -17,13 +18,23 @@ import {
   TAX_INDEXER_UNPROBED,
   TAX_LEDGER_UNWIRED,
   TAX_LOT_METHOD_REQUIRED,
+  TAX_LOT_PICK_INVALID,
   TAX_PRICE_AT_TIME_UNAVAILABLE,
   TaxError,
 } from './codes.js';
 import { parseJurisdictionMap, refuseExportCompleteness, requireMappedRegion, type JurisdictionMap } from './jurisdiction-map.js';
 import type { HistoryRange, InflowLine, SubAccountActivityLine, TaxLedgerReads } from './ledger-reads.js';
 import type { PriceAt, PriceAtTime } from './prices.js';
-import { buildLotBook, DEFAULT_LOT_BOOK_METHOD, PAR_ASSETS, type Inflow, type LotBook, type ManualPosition } from './lot-book.js';
+import {
+  buildLotBook,
+  DEFAULT_LOT_BOOK_METHOD,
+  PAR_ASSETS,
+  type BookChoices,
+  type Inflow,
+  type LotBook,
+  type ManualPosition,
+} from './lot-book.js';
+import { NO_CHOICES, saleRules, type ChoiceStore, type CostBasisChoices } from './choices.js';
 import { isLotMethod, runLots, type LotMethod, type LotMovement } from './lots.js';
 import { isEngineMethod, type EngineMethod, type ValuedAt } from './lot-engine.js';
 
@@ -101,6 +112,8 @@ export interface TaxServiceDeps {
   readonly prices?: PriceAtTime;
   /** Customer-entered basis. Absent: writes refuse `tax.basis_store_unwired` and the book ignores overrides. */
   readonly basis?: BasisStore;
+  /** The customer's saved cost-basis choices. Absent: saves refuse `tax.basis_store_unwired` and the product default applies. */
+  readonly choices?: ChoiceStore;
 }
 
 export const DEPOSIT_BASIS_POLICIES = ['market', 'customer'] as const;
@@ -195,6 +208,7 @@ export class TaxService {
   private readonly depositBasis: DepositBasisPolicy | undefined;
   private readonly prices: PriceAtTime | undefined;
   private readonly basis: BasisStore | undefined;
+  private readonly choices: ChoiceStore | undefined;
 
   constructor(deps: TaxServiceDeps) {
     this.map = parseJurisdictionMap(deps.mapRaw);
@@ -206,6 +220,7 @@ export class TaxService {
     this.depositBasis = deps.depositBasis;
     this.prices = deps.prices;
     this.basis = deps.basis;
+    this.choices = deps.choices;
   }
 
   async exportPreview(input: { userId: string; region: string; lotMethod: string; complete?: boolean }): Promise<TaxExportPreview> {
@@ -218,17 +233,40 @@ export class TaxService {
   }
 
   /**
-   * Profit and loss as an indicator, from the caller's own trade fills (lot-book.ts). Not tied to a jurisdiction map and not a
-   * tax pack. The method defaults to FIFO (a product default, changeable per call); an unknown name is refused, not guessed.
+   * Profit and loss as an indicator, from the caller's own ledger (lot-book.ts). Not tied to a jurisdiction map and not a
+   * tax pack. Without a method it applies the customer's saved choices (choices.ts), else the product default FIFO; with
+   * one it previews that method for every sale. An unknown name is refused, not guessed.
    */
   async lotBook(input: { userId: string; method?: string }): Promise<LotBook> {
-    const method = input.method === undefined ? DEFAULT_LOT_BOOK_METHOD : requireBookMethod(input.method);
+    const preview = input.method === undefined ? null : requireBookMethod(input.method);
+    // The indicator needs no settings to be worked out: if the saved choices cannot be read, it answers with the default
+    // and says so (`choices.status: 'unavailable'`), rather than failing every customer's page.
+    let saved: CostBasisChoices = NO_CHOICES;
+    let unreadable = false;
+    if (this.choices) {
+      try {
+        saved = await this.choices.read(input.userId);
+      } catch {
+        unreadable = true;
+      }
+    }
+    return this.bookWith(
+      input.userId,
+      preview,
+      saved,
+      unreadable ? { status: 'unavailable', code: TAX_CHOICES_UNAVAILABLE } : this.bookChoices(saved),
+    );
+  }
+
+  private async bookWith(userId: string, preview: EngineMethod | null, saved: CostBasisChoices, choices: BookChoices): Promise<LotBook> {
+    const method = preview ?? saved.accountMethod ?? DEFAULT_LOT_BOOK_METHOD;
+    const shared = { method, rules: saleRules(saved, DEFAULT_LOT_BOOK_METHOD, preview), preview: preview !== null, choices };
     const readFills = this.reads.tradeFills;
     if (!readFills) throw new TaxError(TAX_LEDGER_UNWIRED, 'the ledger fill reader is not attached — tax does not invent a book');
     const [balances, filled, active] = await Promise.all([
-      this.reads.balances('user', input.userId),
-      readFills.call(this.reads, input.userId),
-      this.activeBasis(input.userId),
+      this.reads.balances('user', userId),
+      readFills.call(this.reads, userId),
+      this.activeBasis(userId),
     ]);
     const held = new Map<string, Amount>();
     for (const row of balances) {
@@ -238,9 +276,9 @@ export class TaxService {
     if (filled.inflows === undefined) {
       return this.withManual(
         buildLotBook({
+          ...shared,
           fills: filled.fills,
           held,
-          method,
           truncated: filled.truncated,
           outsideInflows: filled.outsideInflows,
           ...(overridePricePerUnit ? { overridePricePerUnit } : {}),
@@ -251,15 +289,67 @@ export class TaxService {
     const extra = new Set<string>();
     const inflows = await this.valueInflows(filled.inflows, extra);
     const book = buildLotBook({
+      ...shared,
       fills: filled.fills,
       held,
-      method,
       truncated: filled.truncated,
       inflows,
       now: this.now(),
       ...(overridePricePerUnit ? { overridePricePerUnit } : {}),
     });
     return this.withManual({ ...book, residuals: [...new Set([...book.residuals, ...extra])].sort() }, active);
+  }
+
+  private bookChoices(saved: CostBasisChoices): BookChoices {
+    if (!this.choices) return { status: 'unwired', code: TAX_BASIS_STORE_UNWIRED };
+    return {
+      status: 'saved',
+      accountMethod: saved.accountMethod,
+      assetMethods: [...saved.assetMethods].sort(([a], [b]) => a.localeCompare(b)).map(([assetId, m]) => ({ assetId, method: m })),
+      days: saved.days.map((d) => ({ day: d.day, assetId: d.assetId, method: d.method })),
+      picks: saved.picks.map((p) => ({ saleTxId: p.saleTxId, assetId: p.assetId, lotId: p.lotId })),
+    };
+  }
+
+  /** The caller's method for the whole account (`assetId` null) or one coin; null clears it. Settings only. */
+  async setLotMethod(input: { userId: string; assetId: string | null; method: string | null }): Promise<void> {
+    const method = input.method === null ? null : requireBookMethod(input.method);
+    await this.choiceStoreOrRefuse().setMethod(input.userId, input.assetId, method);
+  }
+
+  /** The caller's method for one UTC day, for one coin or every coin; null clears it. Settings only. */
+  async setDayMethod(input: { userId: string; day: string; assetId: string | null; method: string | null }): Promise<void> {
+    const method = input.method === null ? null : requireBookMethod(input.method);
+    await this.choiceStoreOrRefuse().setDayMethod(input.userId, input.day, input.assetId, method);
+  }
+
+  /**
+   * The lot one of the caller's sales draws on first; null clears it. Worked out with the pick in place: the sale must be in
+   * the caller's own book, and the lot of that coin and still open at the sale (arrived by then, not used up by an earlier
+   * sale), so the sale really draws on it. Anything else is refused, not stored.
+   */
+  async pickSaleLot(input: { userId: string; saleTxId: string; assetId: string; lotId: string | null }): Promise<void> {
+    const store = this.choiceStoreOrRefuse();
+    if (input.lotId !== null) {
+      const saved = await store.read(input.userId);
+      const picks = [
+        ...saved.picks.filter((p) => !(p.saleTxId === input.saleTxId && p.assetId === input.assetId)),
+        { saleTxId: input.saleTxId, assetId: input.assetId, lotId: input.lotId },
+      ];
+      const book = await this.bookWith(input.userId, null, { ...saved, picks }, this.bookChoices(saved));
+      const sale = book.sales.find((s) => s.txId === input.saleTxId && s.assetId === input.assetId);
+      if (!sale || sale.pickedLotId !== input.lotId) {
+        throw new TaxError(TAX_LOT_PICK_INVALID, 'that lot is not one this sale could draw on: same coin, arrived by then, not used up');
+      }
+      // Under AVERAGE every coin costs the pool's average, so a picked lot would change no figure: refused, not stored.
+      if (sale.method === 'AVERAGE') throw new TaxError(TAX_LOT_PICK_INVALID, 'a sale matched at the average cost draws on no one lot');
+    }
+    await store.setPick(input.userId, input.saleTxId, input.assetId, input.lotId);
+  }
+
+  private choiceStoreOrRefuse(): ChoiceStore {
+    if (!this.choices) throw new TaxError(TAX_BASIS_STORE_UNWIRED, 'DATABASE_URL is unset — a cost-basis choice is not stored');
+    return this.choices;
   }
 
   /** Lots and disposals whose basis is still null. The effect column is "unknown share", never a computed gain. */

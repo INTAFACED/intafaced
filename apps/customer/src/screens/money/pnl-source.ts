@@ -1,11 +1,12 @@
-/** `tax.lotBook`: the caller's own open lots and sales, built from their trade fills. Read-only. */
-import { useMemo } from 'react';
+/** `tax.lotBook`: the caller's own lots and sales, built from their ledger, and their saved cost-basis choices. */
+import { useCallback, useMemo } from 'react';
 import { useDataEnv, useSource, type Loadable } from '../../data';
 import { constantSource } from '../../data/source';
 import {
   LOT_METHODS,
   basisWriteResultSchema,
   lotBookSchema,
+  lotChoiceSavedSchema,
   missingBasisSchema,
   type LotBook,
   type LotMethod,
@@ -14,11 +15,15 @@ import {
 
 const LOT_BOOK_INTERVAL = 60_000;
 
-const bookKey = (userId: string, method: LotMethod) => `tax-lot-book:${userId}:${method}`;
-const missingKey = (userId: string, method: LotMethod) => `tax-missing-basis:${userId}:${method}`;
+/** What the link asks for: the saved choices, a preview of one method, or `null` for a method the service does not offer. */
+export type LotBookAsk = LotMethod | 'saved' | null;
 
-/** `null` is a method the service does not offer: nothing is asked (the service refuses it too), and the screen says so. */
-export function useLotBook(method: LotMethod | null): Loadable<LotBook> {
+const bookKey = (userId: string, ask: LotMethod | 'saved') => `tax-lot-book:${userId}:${ask}`;
+const missingKey = (userId: string, ask: LotMethod | 'saved') => `tax-missing-basis:${userId}:${ask}`;
+const askInput = (ask: LotMethod | 'saved') => (ask === 'saved' ? {} : { method: ask });
+
+/** `null`: nothing is asked (the service refuses it too), and the screen says so. */
+export function useLotBook(method: LotBookAsk): Loadable<LotBook> {
   const env = useDataEnv();
   return useSource(
     useMemo(
@@ -28,7 +33,7 @@ export function useLotBook(method: LotMethod | null): Loadable<LotBook> {
           : env.userId
             ? env.poller.source<LotBook>(
                 bookKey(env.userId, method),
-                (signal) => env.api.query('tax', 'lotBook', { method }, lotBookSchema, { signal }),
+                (signal) => env.api.query('tax', 'lotBook', askInput(method), lotBookSchema, { signal }),
                 { intervalMs: LOT_BOOK_INTERVAL },
               )
             : constantSource<LotBook>({ status: 'refused', code: 'auth.required' }),
@@ -38,7 +43,7 @@ export function useLotBook(method: LotMethod | null): Loadable<LotBook> {
 }
 
 /** `tax.missingBasis`: the open lots and the parts of sales that have no cost, for the same method as the book. */
-export function useMissingBasis(method: LotMethod | null): Loadable<MissingBasis> {
+export function useMissingBasis(method: LotBookAsk): Loadable<MissingBasis> {
   const env = useDataEnv();
   return useSource(
     useMemo(
@@ -48,7 +53,7 @@ export function useMissingBasis(method: LotMethod | null): Loadable<MissingBasis
           : env.userId
             ? env.poller.source<MissingBasis>(
                 missingKey(env.userId, method),
-                (signal) => env.api.query('tax', 'missingBasis', { method }, missingBasisSchema, { signal }),
+                (signal) => env.api.query('tax', 'missingBasis', askInput(method), missingBasisSchema, { signal }),
                 { intervalMs: LOT_BOOK_INTERVAL },
               )
             : constantSource<MissingBasis>({ status: 'refused', code: 'auth.required' }),
@@ -73,7 +78,7 @@ export function useBasisOverride(): {
     // A price changes the book under every method, so every method's book and missing list is read again.
     const reread = () => {
       if (!env.userId) return;
-      for (const each of LOT_METHODS) {
+      for (const each of [...LOT_METHODS, 'saved' as const]) {
         env.poller.refresh(bookKey(env.userId, each));
         env.poller.refresh(missingKey(env.userId, each));
       }
@@ -92,4 +97,29 @@ export function useBasisOverride(): {
       remove: async (lotId) => done(await env.api.mutate('tax', 'basisOverride.remove', { lotId }, basisWriteResultSchema)),
     };
   }, [env]);
+}
+
+export type LotChoice =
+  | { procedure: 'setLotMethod'; input: { assetId: string | null; method: LotMethod | null } }
+  | { procedure: 'setDayMethod'; input: { day: string; assetId: string | null; method: LotMethod | null } }
+  | { procedure: 'pickSaleLot'; input: { saleTxId: string; assetId: string; lotId: string | null } };
+
+/**
+ * Saves one cost-basis choice, then reads the saved book and its missing list again. Settings only: nothing moves. An
+ * `uncertain` answer may have been stored, so the book is read again for it too.
+ */
+export function useSaveLotChoice(): (choice: LotChoice) => Promise<BasisOutcome> {
+  const env = useDataEnv();
+  return useCallback(
+    async (choice) => {
+      const result = await env.api.mutate('tax', choice.procedure, choice.input, lotChoiceSavedSchema);
+      const unsure = !result.ok && result.reason === 'uncertain';
+      if ((result.ok || unsure) && env.userId) {
+        env.poller.refresh(bookKey(env.userId, 'saved'));
+        env.poller.refresh(missingKey(env.userId, 'saved'));
+      }
+      return result.ok ? { ok: true } : { ok: false, code: result.code ?? result.reason, unsure };
+    },
+    [env],
+  );
 }

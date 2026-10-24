@@ -1,6 +1,14 @@
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { TAX_COST_BASIS_UNAVAILABLE, TAX_LOT_BOOK_INCOMPLETE, TAX_LOT_BOOK_UNRECONCILED, TAX_TERM_RULE_UNSET } from './codes.js';
-import { runLotEngine, type EngineMethod, type EngineMovement, type LotSource, type ValuedAt } from './lot-engine.js';
+import {
+  runLotEngine,
+  type EngineMethod,
+  type EngineMovement,
+  type LotSource,
+  type MethodSource,
+  type SaleRules,
+  type ValuedAt,
+} from './lot-engine.js';
 
 /**
  * LOT BOOK. Profit and loss as an indicator, built only from the customer's own trade fills. Not a tax form and not tied to
@@ -99,7 +107,14 @@ export interface BookMatch {
   readonly basisSource?: 'customer-entered';
 }
 
+export type BookMethodSource = MethodSource;
+
 export interface BookSale {
+  /** The method this sale was matched by, and where it came from. */
+  readonly method: EngineMethod;
+  readonly methodSource: BookMethodSource;
+  /** The lot the customer picked for this sale, when it was open and so drawn first. */
+  readonly pickedLotId: string | null;
   readonly assetId: string;
   readonly txId: string;
   readonly disposedAt: string;
@@ -115,8 +130,25 @@ export interface BookSale {
   readonly basisSource?: 'customer-entered';
 }
 
+/** The customer's saved choices as the book shows them, or why none can be saved. */
+export type BookChoices =
+  | {
+      readonly status: 'saved';
+      readonly accountMethod: EngineMethod | null;
+      readonly assetMethods: Array<{ assetId: string; method: EngineMethod }>;
+      readonly days: Array<{ day: string; assetId: string | null; method: EngineMethod }>;
+      readonly picks: Array<{ saleTxId: string; assetId: string; lotId: string }>;
+    }
+  | { readonly status: 'unwired'; readonly code: 'tax.basis_store_unwired' }
+  | { readonly status: 'unavailable'; readonly code: 'tax.choices_unavailable' };
+
+export const UNWIRED_CHOICES: BookChoices = { status: 'unwired', code: 'tax.basis_store_unwired' };
+
 export interface LotBook {
+  /** The account's method: the previewed one, else the saved one, else the product default. */
   readonly method: EngineMethod;
+  readonly preview: boolean;
+  readonly choices: BookChoices;
   readonly indicator: typeof INDICATOR_LABEL;
   readonly assets: BookAsset[];
   readonly sales: BookSale[];
@@ -188,6 +220,11 @@ export function buildLotBook(input: {
   fills: readonly Fill[];
   held: ReadonlyMap<string, Amount>;
   method: EngineMethod;
+  /** How each sale is matched; absent: every sale by `method`. */
+  rules?: SaleRules;
+  /** One method asked for every sale, not the customer's saved choices. */
+  preview?: boolean;
+  choices?: BookChoices;
   /** The read stopped before the start of history. */
   truncated: boolean;
   /** Assets that reached the customer in a way the book could not turn into a lot: a sale may have used those coins first. */
@@ -215,7 +252,7 @@ export function buildLotBook(input: {
       valuedAt: inflow.valuedAt,
     });
   }
-  const run = runLotEngine(movements, input.method, input.overridePricePerUnit);
+  const run = runLotEngine(movements, input.rules ?? input.method, input.overridePricePerUnit);
   for (const r of run.residuals) residuals.add(r);
 
   // Open quantity per asset. If more or less is open than the customer holds, coins arrived or left in a way the book
@@ -272,6 +309,9 @@ export function buildLotBook(input: {
       };
     });
     return {
+      method: sale.rule.method,
+      methodSource: sale.rule.source,
+      pickedLotId: sale.pickedLotId,
       assetId: sale.assetId,
       txId: sale.txId,
       disposedAt: sale.postedAt.toISOString(),
@@ -320,6 +360,8 @@ export function buildLotBook(input: {
 
   return {
     method: input.method,
+    preview: input.preview ?? false,
+    choices: input.choices ?? UNWIRED_CHOICES,
     indicator: INDICATOR_LABEL,
     assets,
     sales,

@@ -8,21 +8,26 @@ A year pack lists each sub-account's fills and converts with `fee` and `makerReb
 
 ## API
 
-| Procedure              | Scope       | Input                  | Output                                                                |
-| ---------------------- | ----------- | ---------------------- | --------------------------------------------------------------------- |
-| `health`               | public      | —                      | `{ ok, service }` — liveness, not a custody claim                     |
-| `exportPreview`        | `tax:read`  | `{ lotMethod }`        | preview; amounts as strings                                           |
-| `exportPack`           | `tax:read`  | `{ lotMethod }`        | JSON pack (`bodyBase64`), including `subAccounts`                     |
-| `lotBook`              | `tax:read`  | `{ method? }`          | profit and loss indicator from the caller's own fills (see below)     |
-| `missingBasis`         | `tax:read`  | `{ method? }`          | open lots and disposals with no basis; effect is `unknown share`      |
-| `basisOverride.set`    | `tax:write` | lot, price, date, note | customer-entered basis, or a manual position held apart from balances |
-| `basisOverride.remove` | `tax:write` | `{ lotId }`            | tombstone; the book shows the unknown again                           |
+| Procedure              | Scope       | Input                          | Output                                                                      |
+| ---------------------- | ----------- | ------------------------------ | --------------------------------------------------------------------------- |
+| `health`               | public      | —                              | `{ ok, service }` — liveness, not a custody claim                           |
+| `exportPreview`        | `tax:read`  | `{ lotMethod }`                | preview; amounts as strings                                                 |
+| `exportPack`           | `tax:read`  | `{ lotMethod }`                | JSON pack (`bodyBase64`), including `subAccounts`                           |
+| `lotBook`              | `tax:read`  | `{ method? }`                  | profit and loss indicator from the caller's own fills (see below)           |
+| `missingBasis`         | `tax:read`  | `{ method? }`                  | open lots and disposals with no basis; effect is `unknown share`            |
+| `basisOverride.set`    | `tax:write` | lot, price, date, note         | customer-entered basis, or a manual position held apart from balances       |
+| `basisOverride.remove` | `tax:write` | `{ lotId }`                    | tombstone; the book shows the unknown again                                 |
+| `setLotMethod`         | `tax:write` | `{ assetId, method }`          | the caller's method for the account (`assetId` null) or a coin; null clears |
+| `setDayMethod`         | `tax:write` | `{ day, assetId, method }`     | the caller's method for one UTC day, one coin or all (`assetId` null)       |
+| `pickSaleLot`          | `tax:write` | `{ saleTxId, assetId, lotId }` | the lot one of the caller's sales draws on first; `lotId` null clears       |
 
 `basisOverride.set` refuses `tax.basis_store_unwired` when `DATABASE_URL` is blank, `tax.basis_price_unset` when the price is blank, and `portfolio.basis_override_not_allowed` when the lot already has a cost from our fills or a market price. A set `DATABASE_URL` whose `DATABASE_POOL_MAX` is blank refuses at boot with `tax.database_pool_max_unset` and does not open a pool. The size is never filled in. The same payload twice stores one version. The key is `basisoverride:<userId>:<lotId>:<version>`. A manual position id is `manual:<userId>:<token>` and is not added to holdings. While any customer basis is active, the year pack carries `tax.customer_basis_export_unset`: whether those figures may appear in a regulator-facing export is not published. Figures that use an override are marked `customer-entered`. An override never posts to the ledger.
 
 ## Lot book (profit and loss indicator)
 
-`lotBook` is a self-only read of the caller's own ledger, labelled `indicator_not_tax_advice`. It is not the year pack and is not gated by the jurisdiction map. Input `{ method? }`: `FIFO`, `LIFO`, `HIFO` or `AVERAGE` (default FIFO, a product default changeable per call); anything else refuses.
+`lotBook` is a self-only read of the caller's own ledger, labelled `indicator_not_tax_advice`. It is not the year pack and is not gated by the jurisdiction map. Without a method it applies the caller's saved choices (below); `{ method }` (`FIFO`, `LIFO`, `HIFO` or `AVERAGE`) previews that one method for every sale (`preview: true`, no saved choice or pick applied). Anything else refuses. `missingBasis` takes the same input and reads the same book.
+
+**Saved choices.** The caller may save a method for the whole account, for one coin, and for one UTC day (one coin or all), and pick the lot one sale draws on first. A sale's method, most specific first: that coin on that day, every coin that day, the coin, the account, then the product default FIFO; each sale says which (`method`, `methodSource`). A picked lot is drawn first (as much as is still open); the rest goes by the method. A pick must name a sale in the caller's own book and a lot of that coin still open at the sale, or it is refused (`tax.lot_pick_invalid`); a saved pick whose lot is no longer open at the sale (another choice changed what earlier sales used) is named (`tax.lot_pick_unusable`) and the method decides. Choices are settings rows in schema `tax` (`drizzle/20261024110000_cost_basis_choices.sql`), keyed by the caller; they move no value and post nothing. `DATABASE_URL` unset: the book uses the default and says `choices: { status: 'unwired' }`, and a save refuses `tax.basis_store_unwired`. Choices that cannot be read just then: the book answers with the default and says `choices: { status: 'unavailable' }` (`tax.choices_unavailable`).
 
 **Lots.** Every arrival of a coin is a lot with an id (`lot:<txId>:<asset>`, then `:2`, `:3` when one transaction credits the same coin again), when it arrived, its source (`trade`, `deposit`, `reward`, `transfer_in`, `other_in`), quantity, what is left, its cost and the cost of what is left, and days held. A bought lot is joined from two ledger reads, the received leg (on `available`) and the paying leg (on that order's `hold` account), on the transaction; against USDT, USDC or USD it has a real dollar cost (the fee is already out of the received leg). Fills against a house quote (`trade.fill.mm_maker`) are read like any other fill. Dollar coins count as exactly 1 USD and are not lots. Released holds, reversed withdrawals, margin release, unstake, earn withdrawals and fee corrections are the customer's own coins coming back, not new lots.
 

@@ -53,6 +53,12 @@ export const TAX_BASIS_OVERRIDE_ABSENT = 'tax.basis_override_absent' as const;
 export const TAX_CUSTOMER_BASIS_EXPORT_UNSET = 'tax.customer_basis_export_unset' as const;
 /** A lot whose cost already comes from our fills or a market price is not overwritten. */
 export const PORTFOLIO_BASIS_OVERRIDE_NOT_ALLOWED = 'portfolio.basis_override_not_allowed' as const;
+/** A lot the customer picked for a sale was not open when the sale happened, so the sale's method decided instead. */
+export const TAX_LOT_PICK_UNUSABLE = 'tax.lot_pick_unusable' as const;
+/** A lot pick names a sale or a lot that is not in the caller's book, or a lot that was not open at the sale. */
+export const TAX_LOT_PICK_INVALID = 'tax.lot_pick_invalid' as const;
+/** The saved choices could not be read for this answer; the product default was used and the book says so. */
+export const TAX_CHOICES_UNAVAILABLE = 'tax.choices_unavailable' as const;
 /** The realised effect of a missing basis. A sentence, never a made-up number. */
 export const UNKNOWN_SHARE = 'unknown share' as const;
 
@@ -78,6 +84,9 @@ export type TaxRefuseCode =
   | typeof TAX_PRICE_AT_TIME_UNAVAILABLE
   | typeof TAX_BASIS_STORE_UNWIRED
   | typeof TAX_DATABASE_POOL_MAX_UNSET
+  | typeof TAX_LOT_PICK_UNUSABLE
+  | typeof TAX_LOT_PICK_INVALID
+  | typeof TAX_CHOICES_UNAVAILABLE
   | typeof TAX_BASIS_PRICE_UNSET
   | typeof TAX_BASIS_PRICE_INVALID
   | typeof TAX_BASIS_DATE_UNSET

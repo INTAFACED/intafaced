@@ -1,5 +1,5 @@
 import { mul, type Amount } from '@intafaced/ledger-client';
-import { TAX_COST_BASIS_UNAVAILABLE, TAX_LOT_UNDERFLOW } from './codes.js';
+import { TAX_COST_BASIS_UNAVAILABLE, TAX_LOT_PICK_UNUSABLE, TAX_LOT_UNDERFLOW } from './codes.js';
 
 /**
  * LOT ENGINE for the lot book (the profit and loss indicator). The year pack keeps its own matcher in `lots.ts`.
@@ -67,7 +67,26 @@ export interface LotMatch {
   readonly customerEntered?: true;
 }
 
+/**
+ * How one sale is matched: the method, and optionally one lot the customer picked for it. A picked lot is drawn first (as
+ * much of it as is still open); anything left of the sale goes by the method. `source` says where the method came from and
+ * is passed through untouched.
+ */
+export interface SaleRule {
+  readonly method: EngineMethod;
+  readonly lotId?: string | null;
+  readonly source: MethodSource;
+}
+
+/** Where a sale's method came from, most specific first. `preview`: one method asked for every sale. */
+export type MethodSource = 'preview' | 'day' | 'asset' | 'account' | 'default';
+
+export type SaleRules = EngineMethod | ((sale: EngineDispose) => SaleRule);
+
 export interface EngineSale {
+  readonly rule: SaleRule;
+  /** The picked lot, when it was open at the sale and so was used; null when there was no pick or it could not be used. */
+  readonly pickedLotId: string | null;
   readonly assetId: string;
   readonly txId: string;
   readonly postedAt: Date;
@@ -141,10 +160,11 @@ function pick(open: readonly OpenLot[], method: EngineMethod): number | null {
 
 export function runLotEngine(
   movements: readonly EngineMovement[],
-  method: EngineMethod,
+  rules: SaleRules,
   /** Price per unit, in dollars, for a lot whose own cost is null. Keyed by the lot id this function assigns. */
   overridePricePerUnit?: ReadonlyMap<string, Amount>,
 ): EngineRun {
+  const ruleOf = typeof rules === 'string' ? (): SaleRule => ({ method: rules, source: 'default' }) : rules;
   const byAsset = new Map<string, EngineMovement[]>();
   for (const m of movements) {
     if (m.qty <= 0n) continue;
@@ -192,7 +212,7 @@ export function runLotEngine(
         all.push(entry);
         continue;
       }
-      sales.push(dispose(m, open, method, residuals));
+      sales.push(dispose(m, open, ruleOf(m), residuals));
     }
     for (const entry of all) {
       lots.push({
@@ -209,8 +229,15 @@ export function runLotEngine(
   return { lots, sales, residuals: [...residuals].sort() };
 }
 
-function dispose(m: EngineDispose, open: OpenLot[], method: EngineMethod, residuals: Set<string>): EngineSale {
+function dispose(m: EngineDispose, open: OpenLot[], rule: SaleRule, residuals: Set<string>): EngineSale {
+  const { method } = rule;
   const matches: LotMatch[] = [];
+  // A picked lot is used only if it is still open when the sale happens; otherwise the pick is named and the method decides.
+  let picked: OpenLot | null = null;
+  if (rule.lotId) {
+    picked = open.find((lot) => lot.lot.id === rule.lotId) ?? null;
+    if (picked === null) residuals.add(TAX_LOT_PICK_UNUSABLE);
+  }
   let remaining = m.qty;
   let proceedsLeft = m.proceedsUsd;
   let unknown = false;
@@ -230,7 +257,8 @@ function dispose(m: EngineDispose, open: OpenLot[], method: EngineMethod, residu
   const poolEntered = averagePool !== null && averagePool.cost !== null && open.some((lot) => lot.customerEntered);
 
   while (remaining > 0n && open.length > 0) {
-    let idx = pick(open, method);
+    const pickedAt = picked === null ? -1 : open.indexOf(picked);
+    let idx = pickedAt >= 0 ? pickedAt : pick(open, method);
     if (idx === null) {
       // HIFO cannot rank a lot with no basis. The coins still left: draw the quantity oldest first so the open quantity stays
       // right, but which lot really went is not known, so this sale's cost and the cost of every lot left are unknown.
@@ -302,6 +330,8 @@ function dispose(m: EngineDispose, open: OpenLot[], method: EngineMethod, residu
   };
   const costUsd = covered ? sum((x) => x.costUsd) : null;
   return {
+    rule,
+    pickedLotId: picked === null ? null : picked.lot.id,
     assetId: m.assetId,
     txId: m.txId,
     postedAt: m.postedAt,

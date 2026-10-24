@@ -16,7 +16,51 @@ export const lotBookMethodSchema = z.enum(LOT_BOOK_METHODS);
 export const LOT_SOURCES = ['trade', 'deposit', 'reward', 'transfer_in', 'other_in'] as const;
 export type LotSourceKind = (typeof LOT_SOURCES)[number];
 
+/**
+ * `method` previews one method for every sale (the customer's saved choices and lot picks are not applied). Without it the
+ * book applies what the customer saved.
+ */
 export const lotBookInputSchema = z.object({ method: lotBookMethodSchema.optional() }).strict().optional();
+
+/** A coin as the ledger names it, e.g. `BTC`. */
+const lotAssetIdSchema = z.string().regex(/^[A-Za-z0-9]{1,20}$/);
+/** A UTC calendar day, `YYYY-MM-DD`, that exists. */
+const utcDaySchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine((day) => !Number.isNaN(Date.parse(`${day}T00:00:00Z`)) && new Date(`${day}T00:00:00Z`).toISOString().startsWith(day));
+
+/** `tax.setLotMethod`: the method for the whole account (`assetId` null) or one coin. `method` null clears it. */
+export const setLotMethodInputSchema = z.object({ assetId: lotAssetIdSchema.nullable(), method: lotBookMethodSchema.nullable() }).strict();
+
+/** `tax.setDayMethod`: the method for one UTC day, for one coin or every coin (`assetId` null). `method` null clears it. */
+export const setDayMethodInputSchema = z
+  .object({ day: utcDaySchema, assetId: lotAssetIdSchema.nullable(), method: lotBookMethodSchema.nullable() })
+  .strict();
+
+/** `tax.pickSaleLot`: the lot one sale draws on first. `lotId` null clears the pick. */
+export const pickSaleLotInputSchema = z
+  .object({ saleTxId: z.string().min(1).max(200), assetId: lotAssetIdSchema, lotId: z.string().min(1).max(300).nullable() })
+  .strict();
+
+export const lotChoiceSavedSchema = z.object({ saved: z.literal(true) });
+
+/** Where a sale's method came from, most specific first. `preview`: one method asked for every sale. */
+export const LOT_METHOD_SOURCES = ['preview', 'day', 'asset', 'account', 'default'] as const;
+
+export const lotBookChoicesSchema = z.discriminatedUnion('status', [
+  z.object({
+    status: z.literal('saved'),
+    accountMethod: lotBookMethodSchema.nullable(),
+    assetMethods: z.array(z.object({ assetId: z.string(), method: lotBookMethodSchema })),
+    days: z.array(z.object({ day: z.string(), assetId: z.string().nullable(), method: lotBookMethodSchema })),
+    picks: z.array(z.object({ saleTxId: z.string(), assetId: z.string(), lotId: z.string() })),
+  }),
+  /** No settings store: nothing can be saved and the product default applies. */
+  z.object({ status: z.literal('unwired'), code: z.literal('tax.basis_store_unwired') }),
+  /** The saved choices could not be read just now: the product default applies to this answer, and it says so. */
+  z.object({ status: z.literal('unavailable'), code: z.literal('tax.choices_unavailable') }),
+]);
 
 export const lotBookValuedAtSchema = z.object({
   /** Value in dollars when it arrived: quantity times `price`. */
@@ -60,6 +104,11 @@ export const lotBookMatchSchema = z.object({
 });
 
 export const lotBookSaleSchema = z.object({
+  /** The method this sale was matched by, and where that came from. */
+  method: lotBookMethodSchema,
+  methodSource: z.enum(LOT_METHOD_SOURCES),
+  /** The lot the customer picked for this sale, when it was open and so drawn first. */
+  pickedLotId: z.string().nullable(),
   assetId: z.string(),
   txId: z.string(),
   disposedAt: z.string(),
@@ -81,7 +130,10 @@ export const lotBookAssetSchema = z.object({
 });
 
 export const lotBookSchema = z.object({
+  /** The account's method: the previewed one, else the saved one, else the product default. */
   method: lotBookMethodSchema,
+  preview: z.boolean(),
+  choices: lotBookChoicesSchema,
   indicator: z.literal('indicator_not_tax_advice'),
   assets: z.array(lotBookAssetSchema),
   sales: z.array(lotBookSaleSchema),
@@ -151,3 +203,5 @@ export const basisWriteResultSchema = z.object({
 export type LotBookAnswer = z.infer<typeof lotBookSchema>;
 export type LotBookLot = z.infer<typeof lotBookLotSchema>;
 export type LotBookSale = z.infer<typeof lotBookSaleSchema>;
+export type LotBookChoices = z.infer<typeof lotBookChoicesSchema>;
+export type LotMethodSource = (typeof LOT_METHOD_SOURCES)[number];

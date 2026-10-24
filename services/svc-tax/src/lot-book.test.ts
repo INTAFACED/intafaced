@@ -26,6 +26,9 @@ describe('buildLotBook', () => {
     const book = buildLotBook({ fills, held: held({ BTC: '1', USDT: '300' }), method: 'FIFO', truncated: false });
     expect(book.sales).toEqual([
       {
+        method: 'FIFO',
+        methodSource: 'default',
+        pickedLotId: null,
         assetId: 'BTC',
         txId: 't3',
         disposedAt: at(3).toISOString(),
