@@ -4,6 +4,7 @@ import { requireScope, requireTier, AuthError, hasScope } from '@intafaced/auth'
 import type { AccessDecision, KycTier, ModuleId, Plane } from '@intafaced/config';
 import { checkAccess } from '@intafaced/config';
 import { P2P_DELIST_REASONS, type P2pDelistReason } from './p2p-delist.js';
+import { P2P_RULE_CLASS } from './p2p-rule-class.js';
 import { isPreviewRefusal, type PreviewRefusal } from './preview-refusal.js';
 import { requireServiceCaller } from './service-auth.js';
 
@@ -342,8 +343,6 @@ const P2P_LIMIT_CODES = new Set([
 const DELIST_REASONS: ReadonlySet<string> = new Set(P2P_DELIST_REASONS);
 const P2P_LIMIT_DECIMALS = ['cap', 'min', 'max', 'remaining', 'windowHours', 'available', 'shortBy'] as const;
 const P2P_LIMIT_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
-/** A compliance rule class (P-ads-merchant-05): a short lower-case slug, never the phrase that matched. */
-const P2P_RULE_CLASS = /^[a-z][a-z_]{0,31}$/;
 const P2P_LIMIT_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface P2pLimitDetails {

@@ -110,10 +110,28 @@ describe('svc-p2p ad content rules at post and edit (P-ads-merchant-05)', () => 
     ).rejects.toMatchObject({ code: 'p2p.content_rule_violation' });
     const [row] = await sql<{ terms: string }[]>`SELECT terms FROM p2p.offers WHERE id = ${posted.id}`;
     expect(row!.terms).toBe('see https://example.test');
-    // An edit of the price alone does not re-judge terms posted before the list.
+    // An edit of the price alone, or one that resends the same terms, does not re-judge terms posted before the list.
     await expect(
       p2p.updateOffer({ offerId: posted.id, makerId: MAKER, idempotencyKey: 'edit-price', price: parseAmount('0.94') }),
     ).resolves.toMatchObject({ price: parseAmount('0.94') });
+    await expect(
+      p2p.updateOffer({
+        offerId: posted.id,
+        makerId: MAKER,
+        idempotencyKey: 'edit-same-terms',
+        price: parseAmount('0.95'),
+        terms: 'see https://example.test',
+      }),
+    ).resolves.toMatchObject({ price: parseAmount('0.95') });
+    // A broken list still lets a maker clear the terms.
+    await expect(
+      service(parseAdContentRules('{"messenger":[]}')).updateOffer({
+        offerId: posted.id,
+        makerId: MAKER,
+        idempotencyKey: 'clear',
+        terms: '',
+      }),
+    ).resolves.toMatchObject({ terms: '' });
     await expect(
       p2p.updateOffer({ offerId: posted.id, makerId: MAKER, idempotencyKey: 'edit-clean', terms: 'own-name accounts only' }),
     ).resolves.toMatchObject({ terms: 'own-name accounts only' });

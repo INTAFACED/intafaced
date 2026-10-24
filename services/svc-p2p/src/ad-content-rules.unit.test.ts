@@ -14,6 +14,13 @@ describe('ad content rules', () => {
     expect(brokenRuleClass(rules, 'Call me on arrival')).toBe('contact');
   });
 
+  it('reads through doubled spaces, line breaks and invisible characters, and a digit glued to a word', () => {
+    expect(brokenRuleClass(rules, 'Call  me on arrival')).toBe('contact');
+    expect(brokenRuleClass(rules, 'call\nme on arrival')).toBe('contact');
+    expect(brokenRuleClass(rules, 'tele\u200Bgram')).toBe('messenger');
+    expect(brokenRuleClass(rules, 'telegram1 please')).toBe('messenger');
+  });
+
   it('matches a word phrase only as a whole word, and a sign phrase anywhere', () => {
     expect(brokenRuleClass(rules, 'no signalling, pay from your own account')).toBeNull();
     expect(brokenRuleClass(rules, 'pay from your own account.')).toBeNull();

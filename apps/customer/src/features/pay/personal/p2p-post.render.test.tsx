@@ -147,7 +147,7 @@ describe('OfferSummary', () => {
         onBack={() => {}}
       />,
     );
-    expect(classed.textContent).toContain('Your terms break the “outside link” rule');
+    expect(classed.textContent).toContain('Your terms break the content rule “outside link”.');
   });
 });
 

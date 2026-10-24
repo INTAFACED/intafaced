@@ -150,6 +150,10 @@
       "types": "./dist/p2p-delist.d.ts",
       "default": "./dist/p2p-delist.js"
     },
+    "./p2p-rule-class": {
+      "types": "./dist/p2p-rule-class.d.ts",
+      "default": "./dist/p2p-rule-class.js"
+    },
     "./home-tiles-preferences": {
       "types": "./dist/home-tiles-preferences.d.ts",
       "default": "./dist/home-tiles-preferences.js"

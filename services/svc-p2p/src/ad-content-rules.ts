@@ -3,18 +3,22 @@
  *
  * The list is compliance's data, published as `P2P_AD_CONTENT_RULES`: rule classes (for example `messenger`,
  * `contact`, `link`), each a list of phrases an ad may not carry. Text that carries one is refused with its rule class
- * and never the matched phrase, so a refusal cannot be used to read the list one guess at a time.
+ * and never the matched phrase, so terms that carry several listed words do not point at the one that hit. (A post of
+ * one word at a time still learns whether that word is listed: the list is a screen, not a secret.)
  *   · blank: no list is published, so the filter is off (the spec's own rule). Nothing is invented.
  *   · anything that is not a complete list: every post refuses `p2p.content_rules_invalid`, because a half-read list
  *     would let through the phrases it failed to read.
  *
- * Matching is case-insensitive on NFKC-folded text. A phrase that starts or ends with a letter or digit matches only
- * as a whole word there (`signal` does not refuse "signalling"); one that starts or ends with a sign (`https://`)
- * matches anywhere.
+ * Matching is on folded text: NFKC, lower case, invisible format characters (zero-width spaces and joiners) removed and
+ * every run of white space read as one space, for the phrases and the terms alike. A phrase that starts or ends with a
+ * letter matches only as a whole word there (`signal` does not refuse "signalling", `telegram` does refuse
+ * "telegram1"); one that starts or ends with a digit or a sign (`https://`) matches anywhere.
  */
 
-const CLASS = /^[a-z][a-z_]{0,31}$/;
-const WORD_EDGE = /[\p{L}\p{N}]/u;
+import { P2P_RULE_CLASS } from '@intafaced/contracts';
+
+const LEADING_LETTER = /^\p{L}/u;
+const TRAILING_LETTER = /\p{L}$/u;
 
 export interface AdContentRule {
   readonly ruleClass: string;
@@ -23,12 +27,17 @@ export interface AdContentRule {
 
 export type AdContentRules = { status: 'absent' } | { status: 'invalid' } | { status: 'active'; rules: readonly AdContentRule[] };
 
-const fold = (text: string) => text.normalize('NFKC').toLocaleLowerCase('en');
+const fold = (text: string) =>
+  text
+    .normalize('NFKC')
+    .toLocaleLowerCase('en')
+    .replace(/\p{Cf}/gu, '')
+    .replace(/\s+/gu, ' ');
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
 
 function phrasePattern(phrase: string): RegExp {
-  const lead = WORD_EDGE.test(phrase[0]!) ? '(?<![\\p{L}\\p{N}])' : '';
-  const tail = WORD_EDGE.test(phrase[phrase.length - 1]!) ? '(?![\\p{L}\\p{N}])' : '';
+  const lead = LEADING_LETTER.test(phrase) ? '(?<!\\p{L})' : '';
+  const tail = TRAILING_LETTER.test(phrase) ? '(?!\\p{L})' : '';
   return new RegExp(`${lead}${escape(phrase)}${tail}`, 'u');
 }
 
@@ -46,7 +55,7 @@ export function parseAdContentRules(raw: string | undefined): AdContentRules {
   const classes = Object.entries(parsed as Record<string, unknown>);
   if (classes.length === 0) return { status: 'invalid' };
   for (const [ruleClass, phrases] of classes) {
-    if (!CLASS.test(ruleClass) || !Array.isArray(phrases) || phrases.length === 0) return { status: 'invalid' };
+    if (!P2P_RULE_CLASS.test(ruleClass) || !Array.isArray(phrases) || phrases.length === 0) return { status: 'invalid' };
     for (const phrase of phrases) {
       if (typeof phrase !== 'string') return { status: 'invalid' };
       const folded = fold(phrase.trim());

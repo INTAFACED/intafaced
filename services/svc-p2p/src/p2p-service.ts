@@ -1684,7 +1684,7 @@ export class P2pService {
 
   /**
    * P-ads-merchant-05. An ad's terms are screened against compliance's content rules (`ad-content-rules.ts`). The
-   * refusal names the rule class and never the matched phrase, so it cannot be used to read the list.
+   * refusal names the rule class (in `limit.ruleClass`) and never the matched phrase.
    */
   private assertAdContent(terms: string | undefined): void {
     if (this.adContentRules.status === 'invalid') {
@@ -4487,8 +4487,9 @@ export class P2pService {
         }
         const methods = input.methods ?? offer.methods;
         const terms = input.terms ?? offer.terms;
-        // Edited terms are screened as new ones are; terms the edit leaves alone are not re-judged.
-        if (input.terms !== undefined) this.assertAdContent(input.terms);
+        // Changed terms are screened as new ones are. Terms the edit leaves as they were are not re-judged, and blank
+        // terms carry nothing to screen, so a maker can always clear them.
+        if (input.terms !== undefined && input.terms !== offer.terms && input.terms.trim() !== '') this.assertAdContent(input.terms);
         if (!Array.isArray(methods) || methods.length === 0) {
           throw new PricingError(resolveP2pCopy(P2P_COPY.offerMethodsRequired), 'p2p.offer_methods_required');
         }
