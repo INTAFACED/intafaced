@@ -2,28 +2,30 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { StateBlock } from '@/components/merchants/ui';
-import { openKybDocument, reviewKybDocument, type KybReply } from '@/lib/merchants/kyb-review-client';
+import { openKybDocument, openKybRequestFile, reviewKybDocument, type KybReply } from '@/lib/merchants/kyb-review-client';
 import { KYB_REASON_MAX, KYB_REASON_MIN, reasonLength } from '@/lib/merchants/kyb-review-model';
 
 type Problem = Extract<KybReply<unknown>, { ok: false }>;
 
 const INLINE_TYPES = new Set(['application/pdf', 'image/png', 'image/jpeg', 'image/gif', 'image/webp']);
 
+type FileReply = KybReply<{ contentType: string; sha256: string; bytesBase64: string }>;
+
 /**
- * Opens the file in a new tab from its bytes. Each open is recorded by svc-pay with the reviewer who opened it. The tab
+ * Opens a file in a new tab from its bytes. Each open is recorded by svc-pay with the reviewer who opened it. The tab
  * opens on the click itself, before the bytes arrive, so a popup blocker cannot swallow it after the wait; a blocked
  * or failed tab falls back to saving the file.
  */
-export function OpenDocument({
-  applicationId,
-  documentId,
-  name,
+function FileButton({
+  label,
   contentType,
+  stem,
+  load,
 }: {
-  applicationId: string;
-  documentId: string;
-  name: string;
+  label: string;
   contentType: string;
+  stem: string;
+  load: () => Promise<FileReply>;
 }) {
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<Problem | null>(null);
@@ -35,7 +37,7 @@ export function OpenDocument({
     if (tab) tab.opener = null;
     setBusy(true);
     setProblem(null);
-    const reply = await openKybDocument({ applicationId, documentId });
+    const reply = await load();
     setBusy(false);
     if (!reply.ok) {
       tab?.close();
@@ -50,14 +52,14 @@ export function OpenDocument({
       tab?.close();
       const link = document.createElement('a');
       link.href = url;
-      link.download = `${reply.data.key}-${reply.data.sha256.slice(0, 12)}`;
+      link.download = `${stem}-${reply.data.sha256.slice(0, 12)}`;
       link.click();
     }
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
   }
   return (
     <>
-      <button type="button" className="mp-btn" disabled={busy} onClick={() => void open()} aria-label={`Open the file for ${name}`}>
+      <button type="button" className="mp-btn" disabled={busy} onClick={() => void open()} aria-label={label}>
         {busy ? 'Opening…' : 'Open file'}
       </button>
       {problem ? (
@@ -67,6 +69,33 @@ export function OpenDocument({
       ) : null}
     </>
   );
+}
+
+/** One business document's file. */
+export function OpenDocument({
+  applicationId,
+  documentId,
+  name,
+  contentType,
+}: {
+  applicationId: string;
+  documentId: string;
+  name: string;
+  contentType: string;
+}) {
+  return (
+    <FileButton
+      label={`Open the file for ${name}`}
+      contentType={contentType}
+      stem={name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}
+      load={() => openKybDocument({ applicationId, documentId })}
+    />
+  );
+}
+
+/** The file a merchant sent in answer to an information request. */
+export function OpenRequestFile({ requestId, contentType, label }: { requestId: string; contentType: string; label: string }) {
+  return <FileButton label={label} contentType={contentType} stem="information-request" load={() => openKybRequestFile(requestId)} />;
 }
 
 /** One verdict on a waiting file. Invalid needs the reason the merchant will read. */

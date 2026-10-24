@@ -25,6 +25,7 @@
  *   pnpm local:stack restart edge         stop the named services, then start (idempotent)
  *   pnpm local:stack customer-dist <abs>  serve a Customer build from another folder (never rebuilt or overwritten)
  *   pnpm local:stack customer-dist --clear   go back to this checkout's own build
+ *   node tooling/scripts/local-test-stack.mjs age-linked-accounts <email> <hours>   TEST fixture: past a cooling-off
  *
  * Rules this file keeps (AGENTS.md "Money"):
  *   - Value moves ONLY through the ledger (packages/ledger-client recipes -> svc-ledger).
@@ -1646,6 +1647,47 @@ function serveCustomer(port = PORTS.customer, site = SITES.customer) {
 
 const AMOUNT_RE = /^\d+(\.\d+)?$/;
 
+/**
+ * `age-linked-accounts <email-or-userId> <hours>`: move this TEST person's linked bank accounts `hours` back in time, so
+ * a journey can start, as J-bank-03 #4 does, from "a saved bank destination past its cooling-off" without waiting the
+ * TEST window out. A local test fixture like `fund`: it refuses anything but this stack's own database, changes only when
+ * the accounts were linked (never their verification, which only the partner's signed call sets) and moves no value.
+ */
+function cmdAgeLinkedAccounts(args) {
+  const [who, hoursRaw] = args;
+  if (!who || !hoursRaw) fail('usage: node tooling/scripts/local-test-stack.mjs age-linked-accounts <email-or-userId> <hours>', 2);
+  if (!/^[1-9][0-9]{0,3}$/.test(hoursRaw)) fail(`hours must be a whole number from 1 to 9999 (got "${hoursRaw}")`, 2);
+  if (!fs.existsSync(P.marker)) fail(`refusing: marker ${P.marker} not found. Start the stack first (pnpm local:stack).`);
+  const marker = readJson(P.marker);
+  if (marker.kind !== 'intafaced-local-test-stack') fail('refusing: marker file is not a local test stack marker');
+  const secrets = readJson(P.secrets);
+  if (String(marker.ports?.postgres) !== String(PORTS.postgres)) fail('refusing: database is not on the local test stack port');
+  if (!pgRunning()) fail('refusing: the local stack Postgres is not running. Run: pnpm local:stack');
+  assertActiveLocalStack({ stateDir: STATE });
+  const found = psql(secrets, `SELECT id::text FROM identity.users WHERE email = :'who' OR id::text = :'who'`, {
+    db: DB_NAME,
+    user: 'svc_identity',
+    password: secrets.pgService,
+    vars: { who },
+    tuples: true,
+  })
+    .trim()
+    .split('\n')
+    .filter(Boolean);
+  if (found.length !== 1) fail(`no single user "${who}" in the local identity database`);
+  const moved = psql(
+    secrets,
+    `UPDATE bank.linked_bank_accounts SET created_at = created_at - make_interval(hours => :'hours'::int)
+      WHERE user_id = :'uid' AND removed_at IS NULL RETURNING id`,
+    { db: DB_NAME, user: 'svc_bank', password: secrets.pgService, vars: { uid: found[0], hours: hoursRaw }, tuples: true },
+  )
+    .trim()
+    .split('\n')
+    // psql prints the UPDATE tag after the ids; count the ids alone.
+    .filter((line) => /^[0-9a-f-]{36}$/.test(line));
+  say(`  ${moved.length} linked account(s) of ${who} now linked ${hoursRaw} hours earlier (LOCAL TEST fixture)`);
+}
+
 async function cmdFund(rawArgs) {
   // Optional --ref <id>: reuse it when retrying after a lost reply, so the ledger's
   // idempotency key turns the repeat into a no-op instead of a second credit.
@@ -1877,11 +1919,12 @@ async function runCli() {
   else if (cmd === 'restart') await cmdRestart(rest);
   else if (cmd === 'fund') await cmdFund(rest);
   else if (cmd === 'chain-deposit') await cmdChainDeposit(rest);
+  else if (cmd === 'age-linked-accounts') cmdAgeLinkedAccounts(rest);
   else if (cmd === 'customer-dist') cmdCustomerDist(rest);
   else if (cmd === 'status') {
     const ok = await healthTable({ gateMarket: true });
     say('');
     say(`  ${describeCustomerDist()}`);
     process.exit(ok ? 0 : 1);
-  } else fail(`unknown command "${cmd}". Use: start | stop | status | fund | plan | restart | customer-dist`, 2);
+  } else fail(`unknown command "${cmd}". Use: start | stop | status | fund | age-linked-accounts | plan | restart | customer-dist`, 2);
 }

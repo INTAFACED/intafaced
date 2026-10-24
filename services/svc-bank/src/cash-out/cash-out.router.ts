@@ -2,10 +2,12 @@ import { z } from 'zod';
 import { router, scopedProcedure } from '@intafaced/contracts';
 import type { BankServices } from '../bank-service.js';
 import { LINKED_ACCOUNT_BLOCKERS, LINKED_ACCOUNT_STATES } from '../linked-accounts/linked-accounts.js';
+import { CASH_OUT_STATUSES } from './cash-out.js';
 
 /**
  * `bank.cashOut.quote/start/requests` (BK-ord-01, J-bank-03): cash out to one of the customer's linked bank accounts
- * (`./cash-out.ts`). Asking takes `trade:withdraw`, the step-up scope, as every money-out door does. Nothing here posts.
+ * (`./cash-out.ts`). Asking takes `trade:withdraw`, the step-up scope, as every money-out door does. Only a request the
+ * banking partner can take is held; the partner's answers come through its signed job doors, never through this router.
  */
 
 const amount = z
@@ -37,15 +39,26 @@ const request = z
     amount: z.string(),
     linkedAccountId: z.string(),
     rail: z.literal('rail.bank'),
-    status: z.literal('refused'),
-    refusalCode: z.string(),
+    status: z.enum(CASH_OUT_STATUSES),
+    refusalCode: z.string().nullable(),
+    fee: z.string().nullable(),
+    receiveAmount: z.string().nullable(),
+    receiveCurrency: z.string().nullable(),
+    payoutRef: z.string().nullable(),
+    ledgerTxId: z.string().nullable(),
+    failureCode: z.string().nullable(),
+    returnedAmount: z.string().nullable(),
+    remainsPaidOut: z.string().nullable(),
     createdAt: z.string(),
+    completedAt: z.string().nullable(),
+    failedAt: z.string().nullable(),
+    returnedAt: z.string().nullable(),
   })
   .strict();
 
 export function createCashOutRouter(bank: Pick<BankServices, 'cashOut'>, guard: <T>(fn: () => Promise<T>) => Promise<T>) {
   return router({
-    /** The entry checks, the account and what stands in the way. No fee or receive amount is invented. */
+    /** The entry checks, the account and what stands in the way, or the partner's fee and what arrives. None is invented. */
     quote: scopedProcedure('bank:read', { module: 'bank' })
       .input(z.object(ask).strict())
       .output(
@@ -58,7 +71,9 @@ export function createCashOutRouter(bank: Pick<BankServices, 'cashOut'>, guard: 
             rail: z.literal('rail.bank'),
             fee: z.string().nullable(),
             receiveAmount: z.string().nullable(),
-            blocker: z.string(),
+            receiveCurrency: z.string().nullable(),
+            blocker: z.string().nullable(),
+            standIn: z.string().nullable(),
           })
           .strict(),
       )
@@ -75,5 +90,13 @@ export function createCashOutRouter(bank: Pick<BankServices, 'cashOut'>, guard: 
       .input(z.object({ limit: z.number().int().min(1).max(50) }).strict())
       .output(z.array(request))
       .query(({ ctx, input }) => guard(async () => bank.cashOut.list(ctx.principal.userId, input.limit))),
+
+    /** The signed receipt of a cash-out that was paid out: its text, SHA-256, signature and ledger transaction id. */
+    receipt: scopedProcedure('bank:read', { module: 'bank' })
+      .input(z.object({ requestId: z.string().guid() }).strict())
+      .output(
+        z.object({ fileName: z.string(), text: z.string(), ledgerTxId: z.string(), sha256: z.string(), signature: z.string() }).strict(),
+      )
+      .query(({ ctx, input }) => guard(async () => bank.cashOut.receipt(ctx.principal.userId, input.requestId))),
   });
 }

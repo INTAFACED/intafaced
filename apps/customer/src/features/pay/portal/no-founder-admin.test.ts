@@ -136,6 +136,8 @@ describe('no founder or operator door in the merchant portal (G9)', () => {
         'kyb.application.submit',
         'kyb.documents.checklist',
         'kyb.documents.upload',
+        'kyb.requests.list',
+        'kyb.requests.answer',
       ]),
     };
     // Procedures with no dot in their name, each allowed by name.

@@ -1,3 +1,4 @@
+import type { z } from 'zod';
 import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
@@ -23,6 +24,8 @@ import { createPayCustodyDepositPort } from './deposits/pay-custody-port.js';
 import { cardIssuerFor } from './cards/issuer.js';
 import { globalPortsFor } from './personal-pay/global-sim.js';
 import { onrampStandInFor } from './ramps/onramp-sim.js';
+import { cashOutPartnerFor } from './cash-out/payout-sim.js';
+import { payoutFailedBody, payoutPaidBody, payoutReturnedBody, payoutVerifyBody, redriveBody } from './cash-out/job-bodies.js';
 import { rampProgrammeFor } from './ramps/rails.js';
 import { eventMarginCallSink } from './loans/margin-call-publisher.js';
 import { createIdentityPartyHandles } from './transfers/party-handles.js';
@@ -47,7 +50,7 @@ import {
 } from './job-batch-limit.js';
 import { requireInternalJobHmac } from './internal-job-hmac.js';
 import { registerClosureCheck } from './closure/closure-check.js';
-import { startBankRecoveryJobs } from './recovery-jobs.js';
+import { recoveryCounts, startBankRecoveryJobs } from './recovery-jobs.js';
 import { withSpan } from './tracing.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 
@@ -234,6 +237,11 @@ const bank = createBankServices(sql, ledger, history, {
   },
   /** Who answers a global send: unset ports unless the TEST stand-in was chosen, which refuses to boot outside dev/test. */
   global: globalPortsFor(env.BANK_GLOBAL_PARTNER, env.BANK_GLOBAL_SIM_JSON, {
+    APP_ENV: process.env.APP_ENV,
+    NODE_ENV: process.env.NODE_ENV,
+  }),
+  /** Who pays cash-outs out: unset unless the TEST stand-in was chosen, which refuses to boot outside dev/test. */
+  cashOutPartner: cashOutPartnerFor(env.BANK_PAYOUT_PARTNER, env.BANK_PAYOUT_SIM_JSON, {
     APP_ENV: process.env.APP_ENV,
     NODE_ENV: process.env.NODE_ENV,
   }),
@@ -609,6 +617,32 @@ app.post('/internal/jobs/run-auto-invest', async (req, reply) => {
   }
 });
 
+/**
+ * The banking partner's side of a cash-out (BK-xfer-08, BK-xfer-09, J-bank-03 #4/#5): it verifies a linked account, and
+ * says a payout was paid, failed or came back. Signed job doors, never a customer or a staff session: with no partner
+ * wired, every one refuses `rail.bank` and no cash-out is ever processing. The re-drive door (also a recovery-timer job)
+ * picks up a cash-out left before its hold or the partner's acceptance.
+ */
+function payoutDoor<T>(path: string, body: z.ZodType<T>, run: (input: T) => Promise<unknown>) {
+  app.post(path, async (req, reply) => {
+    if (!requireService(req)) return reply.code(401).send({ error: 'service credentials required', code: 'bank.unauthenticated' });
+    const parsed = body.safeParse(req.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: 'body not in shape', code: 'bank.validation_failed' });
+    try {
+      return await withSpan(`bank.job.${path.split('/').pop()}`, async () => run(parsed.data));
+    } catch (err) {
+      return sendBankJobRefuse(reply, err);
+    }
+  });
+}
+payoutDoor('/internal/jobs/payout-sim/verify', payoutVerifyBody, (b) => bank.cashOut.verifyAccount(b.accountId));
+payoutDoor('/internal/jobs/payout-sim/paid', payoutPaidBody, (b) => bank.cashOut.complete(b.cashOutId));
+payoutDoor('/internal/jobs/payout-sim/failed', payoutFailedBody, (b) => bank.cashOut.fail(b.cashOutId, b.reason));
+payoutDoor('/internal/jobs/payout-sim/returned', payoutReturnedBody, (b) =>
+  bank.cashOut.returned(b.cashOutId, { amount: b.amount, assetId: b.assetId, reason: b.reason }),
+);
+payoutDoor('/internal/jobs/redrive-cash-outs', redriveBody, async (b) => recoveryCounts(await bank.cashOut.redrive(b.limit)));
+
 await app.register(fastifyTRPCPlugin, {
   prefix: '/trpc',
   trpcOptions: {
@@ -651,6 +685,7 @@ const recoveryJobs = startBankRecoveryJobs({
   loans: bank.loans,
   earn: bank.earn,
   transferNotices: { announceUnannounced: (limit) => bank.personalPay.announceUnannounced(limit) },
+  cashOuts: bank.cashOut,
   onWarn: (message) => app.log.warn(message),
   onError: (name, err) => app.log.error({ err, job: name }, 'bank recovery job tick failed'),
   onResult: (name, counts) =>

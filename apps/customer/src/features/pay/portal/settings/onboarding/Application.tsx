@@ -70,7 +70,7 @@ export function fileProblem(file: { size: number; type: string }, rules: NonNull
   }
   return null;
 }
-const kindsOf = (types: readonly string[]) => types.map((type) => (type.split('/')[1] ?? type).toUpperCase()).join(', ');
+export const kindsOf = (types: readonly string[]) => types.map((type) => (type.split('/')[1] ?? type).toUpperCase()).join(', ');
 
 /** What the summary lists as still needed: each unfinished part, and by name each document not sent or marked invalid. */
 export function stillNeeded(application: Application, checklist: Checklist | null, t: T): string[] {
@@ -698,7 +698,7 @@ function DocumentLine({ portal, application, row, rules, reloadDocuments }: Inne
   );
 }
 
-async function base64Of(file: Blob): Promise<string> {
+export async function base64Of(file: Blob): Promise<string> {
   const bytes = new Uint8Array(await file.arrayBuffer());
   let binary = '';
   for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));

@@ -5,6 +5,7 @@ import { parseRecoveryBatchLimit, parseRecoveryInterval } from './recovery-jobs.
 import { RAMP_SETTINGS } from './ramps/rails.js';
 import { GLOBAL_PARTNER_SETTINGS } from './personal-pay/global-sim.js';
 import { ONRAMP_RATE_SETTINGS } from './ramps/onramp-sim.js';
+import { PAYOUT_PARTNER_SETTINGS } from './cash-out/payout-sim.js';
 
 // This service self-mounts /trpc, so it must be able to authenticate the edge.
 // Every procedure here resolves `ctx.principal.userId` into somebody's spaces
@@ -235,6 +236,17 @@ const schema = serviceEnvSchema
       BANK_ONRAMP_RATES: z.enum(ONRAMP_RATE_SETTINGS).default('none'),
       /** The add-money stand-in's TEST catalogue (countries, ways to pay, rates, fees, quote validity). Read only with `ramp-sim`. */
       BANK_ONRAMP_SIM_JSON: z.string().optional(),
+      /**
+       * Who pays cash-outs out to bank accounts (J-bank-03). `none` | `payout-sim`.
+       *
+       * `none` keeps every cash-out refused `bank.fiat_ramp_socket` (`rail.bank`), with nothing held or posted. `payout-sim`
+       * is a TEST payout stand-in for the local stack and journey tests only (`cash-out/payout-sim.ts`): it prices the
+       * assets in `BANK_PAYOUT_SIM_JSON` and takes a payout, and its verify, paid, failed and returned answers are signed job
+       * calls. The service refuses to start with it outside dev or test.
+       */
+      BANK_PAYOUT_PARTNER: z.enum(PAYOUT_PARTNER_SETTINGS).default('none'),
+      /** The payout stand-in's TEST catalogue (assets, pay currency, rate, fee). Read only with `payout-sim`. */
+      BANK_PAYOUT_SIM_JSON: z.string().optional(),
 
       /**
        * MONEY-OUT STEP-UP (ADR 2026-10-14-money-out-step-up, phase 1). `off` | `required`.

@@ -64,6 +64,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     // posture): it quotes only the asks its TEST catalogue lists, so a price can be shown, run out and be refused here.
     BANK_ONRAMP_RATES: 'ramp-sim',
     BANK_ONRAMP_SIM_JSON: testValue('BANK_ONRAMP_SIM_JSON'),
+    // LOCAL TEST payout stand-in for cash out (J-bank-03 #4/#5; pays nobody, refused under live posture): it prices the
+    // assets its TEST catalogue lists and takes a payout; verifying an account and saying paid, failed or returned are the
+    // partner's signed job calls, which only a test makes here. Value moves to and from its own TEST rail boundary.
+    BANK_PAYOUT_PARTNER: 'payout-sim',
+    BANK_PAYOUT_SIM_JSON: testValue('BANK_PAYOUT_SIM_JSON'),
     // LOCAL TEST value from the bank profile, not an owner decision (BK-xfer-06): how long a new bank-rail recipient waits
     // before money may go to it. Unset, every send to a saved recipient refuses bank.payee_cooling_unset.
     BANK_PAYEE_COOLING_HOURS: testValue('BANK_PAYEE_COOLING_HOURS'),

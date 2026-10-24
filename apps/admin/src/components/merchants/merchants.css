@@ -1159,3 +1159,20 @@ textarea.mp-input {
     text-align: right;
   }
 }
+/* Information requests on the Verification tab (J-merchant-02 step 4). */
+.mp-requests {
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 12px;
+}
+.mp-requests__item {
+  border: 1px solid var(--if-border);
+  border-radius: 8px;
+  padding: 12px;
+}
+.mp-requests__title {
+  margin: 8px 0;
+  font-size: 14px;
+}
