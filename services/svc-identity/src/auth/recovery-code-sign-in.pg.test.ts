@@ -134,6 +134,32 @@ if (!available) {
       expect(await codesLeft(a.userId)).toBe(a.codes.length);
     });
 
+    it('on a browser that still needs approval, the refusal carries the count, since the code is already spent', async () => {
+      const a = await account();
+      auth.usePasswordResetPolicy({ subjectKey: 'test-only-flow-subject-key-0123456789abcdef' });
+      auth.useNewDevicePolicy({ check: true, flowTtlSeconds: 600, maxAttempts: 3 });
+      try {
+        const refused = await auth.login({ identifier: a.handle, password: PASSWORD, totpCode: a.codes[0]! }).then(
+          () => null,
+          (err: unknown) => err as { code?: string; details?: { deviceAuthorisation?: { recoveryCodesLeft?: number } } },
+        );
+        expect(refused?.code).toBe('auth.device_authorisation_required');
+        expect(refused?.details?.deviceAuthorisation?.recoveryCodesLeft).toBe(a.codes.length - 1);
+        expect(await codesLeft(a.userId)).toBe(a.codes.length - 1);
+        // An authenticator code on a new browser: the same refusal, with no count.
+        await db.sql`UPDATE users SET totp_last_step = NULL WHERE id = ${a.userId}`;
+        const byApp = await auth.login({ identifier: a.handle, password: PASSWORD, totpCode: totp(a.secret) }).then(
+          () => null,
+          (err: unknown) => err as { code?: string; details?: { deviceAuthorisation?: Record<string, unknown> } },
+        );
+        expect(byApp?.code).toBe('auth.device_authorisation_required');
+        expect(byApp?.details?.deviceAuthorisation).not.toHaveProperty('recoveryCodesLeft');
+      } finally {
+        auth.useNewDevicePolicy({ check: false });
+        auth.usePasswordResetPolicy({});
+      }
+    });
+
     it('step-up with a recovery code still spends it (one shared list)', async () => {
       const a = await account();
       const session = await auth.login({ identifier: a.handle, password: PASSWORD, totpCode: a.codes[0]! });

@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 're
 import { SocialSignIn } from './SocialSignIn';
 import { CodeSignIn } from './CodeSignIn';
 import { DeviceApproval } from './DeviceApproval';
-import { RecoveryCodeUsed, signInAnswerSchema } from './RecoveryCodeUsed';
+import { RecoveryCodeUsed, signInAnswerSchema, type SignInAnswer } from './RecoveryCodeUsed';
 import { recoveryCodeCopy } from './recovery-code-copy';
 import { Button, Field, Failure } from '../../shared/ui';
 import { authoredRefusal, type ApiClient, type ApiResult, type SecondStep } from '../../shared/api';
@@ -66,7 +66,8 @@ export function AuthForm({ register }: { register: boolean }) {
   const [passkeyStopped, setPasskeyStopped] = useState(false);
   // The second step's code field takes a recovery code (I-signin-sessions-12); after a sign-in that spent one, how many are left.
   const [recoveryCode, setRecoveryCode] = useState(false);
-  const [recoveryUsed, setRecoveryUsed] = useState<{ left: number; next: string } | null>(null);
+  // Kept with the address it was shown on, so moving to another address never carries it, or its destination, along.
+  const [recoveryUsed, setRecoveryUsed] = useState<{ left: number; next: string; url: string } | null>(null);
   const [problem, setProblem] = useState<Problem | null>(null),
     [journal, setJournal] = useState(readAuth);
   const [selectedRef, setSelectedRef] = useState<string | null>(journal.records.at(-1)?.localRef ?? null);
@@ -272,7 +273,7 @@ export function AuthForm({ register }: { register: boolean }) {
           return;
         }
         if (kind !== 'options' && kind !== 'secondStep' && !save(kind)) return;
-        let answer: ApiResult<Session>;
+        let answer: ApiResult<SignInAnswer>;
         if (kind === 'secondStep') {
           // The passkey answers first; a cancelled or unavailable passkey sends nothing and keeps the challenge usable.
           const assertion = await signAssertion(secondStepOptions!, controller.signal);
@@ -319,12 +320,19 @@ export function AuthForm({ register }: { register: boolean }) {
         setPassword('');
         setTotp('');
         if (answer.ok) {
-          const { recoveryCodesLeft, ...session } = answer.data as Session & { recoveryCodesLeft?: number };
+          const { recoveryCodesLeft, ...session } = answer.data;
           const next = original.invite ? `/invite?token=${encodeURIComponent(original.invite)}` : original.destination;
-          commit(session);
-          // A spent recovery code is said before the person moves on: the code is gone and this many are left.
-          if (recoveryCodesLeft !== undefined) setRecoveryUsed({ left: recoveryCodesLeft, next });
-          else navigate(next, true);
+          if (recoveryCodesLeft === undefined) {
+            commit(session);
+            navigate(next, true);
+          } else {
+            // A spent recovery code is said before the person moves on: the code is gone and this many are left. This
+            // attempt is over before the session lands, so the sign-in that follows it is not read as an interruption.
+            running.current = null;
+            abort.current = null;
+            commit(session);
+            setRecoveryUsed({ left: recoveryCodesLeft, next, url: original.url });
+          }
         } else {
           setResult(stage.record && !knownAuthRefusal(stage.record.kind, answer) ? { ...answer, reason: 'uncertain' } : answer);
           if (stage.record && !knownAuthRefusal(stage.record.kind, answer)) setProblem('cleared');
@@ -375,6 +383,7 @@ export function AuthForm({ register }: { register: boolean }) {
             ? ('secondStepExpired' as const)
             : null
     : null;
+  const spentCode = recoveryUsed && recoveryUsed.url === location.href ? recoveryUsed : null;
   // A second step a code answers: the authenticator app's, or one of the recovery codes saved with it.
   const codeStep = secondStep === 'needCode' || secondStep === 'needCodeOrPasskey' || secondStep === 'codeMismatch';
   return (
@@ -513,22 +522,31 @@ export function AuthForm({ register }: { register: boolean }) {
         <p role="status" aria-live="polite">
           {pending && activeRecord ? <Copy k="pending" /> : null}
         </p>
-        <p className="eyebrow">{register ? p('GET STARTED') : p('SIGN IN')}</p>
-        <h1>{register ? p('Create your account') : p('Sign in to your account')}</h1>
-        <div className="public-auth-context">
-          <Copy k="after" />
-          <span>{inviteToken ? t('invitation') : roomTitle(findRoom(destination.split(/[?#]/)[0] ?? '/money')!, requestedLocale)}</span>
-        </div>
-        {recoveryUsed ? (
+        {spentCode ? (
           <RecoveryCodeUsed
-            left={recoveryUsed.left}
-            onContinue={() => navigate(recoveryUsed.next, true)}
+            left={spentCode.left}
+            onContinue={() => navigate(spentCode.next, true)}
             onSecurity={() => navigate('/uc/safe', true)}
           />
-        ) : waitingDevice ? (
+        ) : (
+          <>
+            <p className="eyebrow">{register ? p('GET STARTED') : p('SIGN IN')}</p>
+            <h1>{register ? p('Create your account') : p('Sign in to your account')}</h1>
+            <div className="public-auth-context">
+              <Copy k="after" />
+              <span>{inviteToken ? t('invitation') : roomTitle(findRoom(destination.split(/[?#]/)[0] ?? '/money')!, requestedLocale)}</span>
+            </div>
+          </>
+        )}
+        {spentCode ? null : waitingDevice ? (
           <DeviceApproval
             waiting={waitingDevice}
-            onSignedIn={() => navigate(inviteToken ? `/invite?token=${encodeURIComponent(inviteToken)}` : destination, true)}
+            onSignedIn={() => {
+              const next = inviteToken ? `/invite?token=${encodeURIComponent(inviteToken)}` : destination;
+              // The second step spent a recovery code before this browser was approved: say so now.
+              if (waitingDevice.recoveryCodesLeft === undefined) navigate(next, true);
+              else setRecoveryUsed({ left: waitingDevice.recoveryCodesLeft, next, url: location.href });
+            }}
             onCancel={() => setResult(null)}
           />
         ) : (

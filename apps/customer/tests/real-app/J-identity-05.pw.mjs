@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
-import { ROOT, mailedLines, signUpInBrowser } from './stack.mjs';
+import { ROOT, mailedCodes, mailedLines, nextMailedCode, signUpInBrowser } from './stack.mjs';
 import { addAuthenticator } from './identity-factors.mjs';
 
 // J-identity-05, in the running app (docs/roadmap/journeys.json): I lost my phone and got back in. One test per step,
@@ -81,6 +81,33 @@ test(`${J} #1 a recovery code at the second step is accepted once and spent; the
   await expect(again.page.getByRole('alert')).toContainText('That code did not work. Every code works only once');
   await expect(again.page).toHaveURL(/\/login/);
   await again.context.close();
+});
+
+test(`${J} #1, on a phone never used before: once the device is approved with the mailed code, the count shows`, async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(120_000);
+  const { who, codes } = await withAuthenticator(page);
+  // No device cookie at all: the new phone has never signed in to this account.
+  const context = await browser.newContext();
+  await context.clearCookies();
+  const other = await context.newPage();
+  await other.goto('/login');
+  await fillSignIn(other, who);
+  await expect(other.getByRole('alert')).toContainText('Your password is right');
+  await other.getByRole('button', { name: 'Use a recovery code' }).click();
+  await other.getByLabel('Recovery code', { exact: true }).fill(codes[0]);
+  const seen = mailedCodes(who.email, 'new-device-code').length;
+  await fillSignIn(other, who);
+  await expect(other.getByRole('heading', { name: 'Authorise this device' })).toBeVisible({ timeout: 10_000 });
+  await other.getByLabel('Device code from the email').fill(await nextMailedCode(who.email, seen, 20_000, 'new-device-code'));
+  await other.getByRole('button', { name: 'Approve this device' }).click();
+  const told = other.getByRole('status').filter({ hasText: 'Signed in with a recovery code' });
+  await expect(told).toContainText(`Recovery codes left: ${codes.length - 1}`);
+  await told.getByRole('button', { name: 'Continue' }).click();
+  await expect(other).not.toHaveURL(/\/login/);
+  await context.close();
 });
 
 /** At the second step with no codes to hand: "I lost my authenticator" starts the locked-out reset (I-signin-sessions-12). */

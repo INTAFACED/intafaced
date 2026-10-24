@@ -71,6 +71,7 @@ import {
   removeDevice,
   trustDevice,
   trustedDeviceState,
+  TrustedDeviceError,
   type NewDevicePolicy,
   type TrustedDeviceDeps,
   type TrustedDeviceRow,
@@ -473,10 +474,6 @@ function uniqueConstraintName(err: unknown): string {
   return typeof name === 'string' ? name : '';
 }
 
-/**
- * Milliseconds of the lost-reply window. Undefined, 0, a non-integer, or a
- * value above the ceiling is off. Never invents 120.
- */
 /** A session as a sign-in answers it: plus a device key just trusted, and the recovery codes left when one was spent. */
 function withSecondStep(session: SessionTokens, deviceKey: string | undefined, recoveryCodesLeft: number | undefined): SessionTokens {
   return {
@@ -486,6 +483,10 @@ function withSecondStep(session: SessionTokens, deviceKey: string | undefined, r
   };
 }
 
+/**
+ * Milliseconds of the lost-reply window. Undefined, 0, a non-integer, or a
+ * value above the ceiling is off. Never invents 120.
+ */
 function recoveryWindowMs(seconds: number | undefined): number {
   if (typeof seconds !== 'number' || !Number.isSafeInteger(seconds)) return 0;
   if (seconds <= 0 || seconds > REFRESH_RECOVERY_SECONDS_CEILING) return 0;
@@ -800,6 +801,27 @@ export class AuthService {
   }
 
   /** After every factor passed: the live trusted device, or (check on) a new-device authorisation refusal. */
+  /**
+   * The device gate after a sign-in's second step. When that step spent a recovery code and this browser still needs
+   * approval, the refusal carries the count too: the code is already gone, so the person is told once the device is in.
+   */
+  private async gateDeviceAfterSecondStep(
+    userId: string,
+    step: { mfa: boolean; recoveryCodesLeft?: number },
+    deviceKey: string | null | undefined,
+  ): Promise<{ trustedDeviceId: string; deviceKey?: string }> {
+    try {
+      return await this.gateDevice(userId, step.mfa, deviceKey);
+    } catch (err) {
+      const waiting = err instanceof TrustedDeviceError ? err.details?.deviceAuthorisation : undefined;
+      if (!(err instanceof TrustedDeviceError) || !waiting || step.recoveryCodesLeft === undefined) throw err;
+      throw new TrustedDeviceError(err.message, err.code, {
+        ...err.details,
+        deviceAuthorisation: { ...waiting, recoveryCodesLeft: step.recoveryCodesLeft },
+      });
+    }
+  }
+
   private gateDevice(
     userId: string,
     mfa: boolean,
@@ -895,7 +917,7 @@ export class AuthService {
     // A passkey asked for after the password is asked for after a mailed code too; the code then stays unspent until it expires.
     const { mfa, recoveryCodesLeft } = await this.passSecondStep(user, input.totpCode);
     await consumeLoginCode(deps, { flowId: input.flowId, codeHash });
-    const device = await this.gateDevice(user.id, mfa, input.deviceKey);
+    const device = await this.gateDeviceAfterSecondStep(user.id, { mfa, recoveryCodesLeft }, input.deviceKey);
     const session = await this.issueSession(user.id, { device: input.device, ip: input.ip, mfa, trustedDeviceId: device.trustedDeviceId });
     return withSecondStep(session, device.deviceKey, recoveryCodesLeft);
   }
@@ -1261,7 +1283,7 @@ export class AuthService {
       await this.sql`UPDATE users SET password_hash = ${upgraded}, updated_at = now() WHERE id = ${user.id}`;
     }
     const { mfa, recoveryCodesLeft } = await this.passSecondStep(user, input.totpCode);
-    const device = await this.gateDevice(user.id, mfa, input.deviceKey);
+    const device = await this.gateDeviceAfterSecondStep(user.id, { mfa, recoveryCodesLeft }, input.deviceKey);
     const session = await this.issueSession(user.id, { device: input.device, ip: input.ip, mfa, trustedDeviceId: device.trustedDeviceId });
     return withSecondStep(session, device.deviceKey, recoveryCodesLeft);
   }
@@ -1292,7 +1314,7 @@ export class AuthService {
       await this.reserve(user.id, 'mfa');
       const recovery = await this.verifyMfaCode(user.id, user.totp_secret, totpCode!);
       await recordSuccess(this.sql, user.id, 'mfa');
-      return recovery ? { mfa: true, recoveryCodesLeft: recovery.recoveryCodesLeft } : { mfa: true };
+      return { mfa: true, ...recovery };
     }
     if (passkeyStep) {
       // A code sent to an account that asked for a passkey and has no authenticator is a wrong second step.
@@ -1362,7 +1384,7 @@ export class AuthService {
     // The provider proved the identity, so the state is named as on password sign-in.
     if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen', accountStateOf(user.status));
     const { mfa, recoveryCodesLeft } = await this.passSecondStep(user, input.totpCode);
-    const device = await this.gateDevice(user.id, mfa, input.deviceKey);
+    const device = await this.gateDeviceAfterSecondStep(user.id, { mfa, recoveryCodesLeft }, input.deviceKey);
     const session = await this.issueSession(user.id, { device: input.device, ip: input.ip, mfa, trustedDeviceId: device.trustedDeviceId });
     return withSecondStep(session, device.deviceKey, recoveryCodesLeft);
   }

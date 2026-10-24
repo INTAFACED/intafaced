@@ -115,6 +115,25 @@ describe('a recovery code at the second step', () => {
     expect(location.pathname).toBe('/money');
   });
 
+  it('shows no interruption notice beside it, and leaving the address drops it', async () => {
+    const expiresAt = new Date(Date.now() + 600_000).toISOString();
+    answerLogin(
+      () => new Response(JSON.stringify({ result: { data: { accessToken: 'token', expiresAt, userId: USER, recoveryCodesLeft: 3 } } })),
+    );
+    await signIn('ABCDE-12345');
+    await act(async () => {
+      await vi.waitFor(() => expect(host.querySelector('.public-auth-recovery-used')).not.toBeNull());
+    });
+    expect(host.querySelector('.public-auth-feedback')).toBeNull();
+    expect(host.querySelectorAll('h1')).toHaveLength(1);
+    expect(host.querySelector('h1')!.textContent).toBe('Signed in with a recovery code');
+    await act(async () => {
+      history.pushState(null, '', '/login?redirect=%2Ftrade');
+      dispatchEvent(new PopStateEvent('popstate'));
+    });
+    expect(host.querySelector('.public-auth-recovery-used')).toBeNull();
+  });
+
   it('with the last code spent, it says none are left and points to Security', async () => {
     const expiresAt = new Date(Date.now() + 600_000).toISOString();
     answerLogin(
