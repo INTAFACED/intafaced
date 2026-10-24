@@ -570,6 +570,35 @@ export const loanInterestAccruals = bank.table(
   ],
 );
 
+/**
+ * ONE APPROVED INTEREST CORRECTION (LOAN-05) — a new row, never an edit of a past day.
+ *
+ * `amount` is signed: below zero takes interest off, above zero adds interest the
+ * bank failed to charge. Like a day of accrual it moves no value; `outstanding()`
+ * adds it to the interest leg. Two different people proposed and approved it, and
+ * the identity approval it consumed is unique, so one approval writes one row.
+ * This table and `loan_interest_accruals` refuse UPDATE and DELETE (append-only
+ * trigger, migration 20261024143716).
+ */
+export const loanAdjustments = bank.table(
+  'loan_adjustments',
+  {
+    id: uuid('id').primaryKey(),
+    loanId: uuid('loan_id')
+      .notNull()
+      .references(() => loans.id),
+    kind: text('kind').notNull(),
+    /** A RECORD of one approved correction, signed; written once. */
+    amount: amount('amount').notNull(),
+    reason: text('reason').notNull(),
+    proposedBy: text('proposed_by').notNull(),
+    approvedBy: text('approved_by').notNull(),
+    approvalId: text('approval_id').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('loan_adjustments_approval_idx').on(t.approvalId), index('loan_adjustments_loan_idx').on(t.loanId, t.createdAt)],
+);
+
 /** REPAYMENTS. Partial repayment is normal, so the key is (loan, sequence). */
 export const loanRepayments = bank.table(
   'loan_repayments',
@@ -1485,6 +1514,7 @@ export const schema = {
   loans,
   loanCollateralEvents,
   loanInterestAccruals,
+  loanAdjustments,
   loanRepayments,
   loanMarginCalls,
   loanLiquidations,

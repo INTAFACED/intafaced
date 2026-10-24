@@ -626,6 +626,10 @@ async function signInPair(ctx, ops, saveSteps) {
       async approvalToken() {
         return mintOperatorToken(ctx, op);
       },
+      /** Same session with `admin:treasury`, the scope svc-bank's four-eyes treasury doors check (ops.adjustLoanInterest). */
+      async treasuryToken() {
+        return mintOperatorToken(ctx, op, ['admin:treasury']);
+      },
       /** Same session with the trade operator write scope svc-trade's admin doors check (admin.risk.set). */
       async tradeOpsToken() {
         return mintOperatorToken(ctx, op, ['admin:read', 'admin:write']);

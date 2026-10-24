@@ -13,7 +13,7 @@ import { signIn, signUp, verify } from './desk.mjs';
 // content seed (BTC collateral against USDT debt at a TEST 10% APR), its BTC mark from the TEST market maker, and the
 // payoff fee (TEST 0) and quote window (TEST 15 minutes) from the bank profile. One TEST account pledges TEST BTC and
 // borrows TEST 100 USDT through the bank's own API as the starting state; the page is then read as the person sees it.
-// Steps 2, 3, 5 and 6 (BK-loan-05, BK-loan-06, LOAN-01/07) carry on with that loan. It starts owing interest: a stack has
+// Steps 2, 3, 5 and 6 (BK-loan-05, BK-loan-06, LOAN-01/07) carry on with that loan; step 4 (LOAN-05) opens one of its own. It starts owing interest: a stack has
 // no past, so `local-test-seed.mjs age-loan` moves the TEST loan's start back 15 days, and the bank's own accrual job,
 // called through its signed job door as a scheduler would, charges those days. Every repayment, release and statement
 // after that is the person's own, on /bank/loans and the loan's details page.
@@ -292,6 +292,100 @@ test(`${J} #3 loses the reply and sends the same repayment again: the bank colle
   expect(await loanNow(api, loanId)).toEqual(after);
   expect(await free(who, 'USDT')).toBe(usdtBefore - toUnits('10'));
   run.write({ resent: first.ledgerTxId });
+});
+
+/** Founder A proposes `bank.adjust_loan_interest` over exactly these fields at identity, founder B approves it. */
+let staffDoor;
+async function founders() {
+  staffDoor ??= (async () => {
+    const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
+    const ctx = await gates.makeContext({ log: () => {} });
+    return { gates, ctx, sessions: await gates.approverSessions(ctx) };
+  })();
+  return staffDoor;
+}
+async function correctInterest(terms) {
+  const { gates, ctx, sessions } = await founders();
+  const approval = await gates.twoPerson(ctx, sessions, {
+    actionType: 'bank.adjust_loan_interest',
+    targetService: 'svc-bank',
+    targetId: 'bank.adjust_loan_interest',
+    expectedVersion: '1',
+    payloadHash: gates.bankPayloadHash('bank.adjust_loan_interest', terms),
+    policyVersion: gates.MARKERS.policyVersion,
+  });
+  const call = async () => ctx.edge.mutate('bank', 'ops.adjustLoanInterest', { ...terms, ...approval }, await sessions.a.treasuryToken());
+  return { call, approval };
+}
+
+test(`${J} #4 sees an interest correction: the interest rows are append-only, and the loan agrees with the ledger`, async ({ page }) => {
+  test.setTimeout(240_000);
+  // A loan of its own that has owed interest for ten days (step 2's loan has paid its interest off): opened through the
+  // bank's API, moved back ten days, and charged by the bank's own accrual job.
+  const who = await signUp(page, 'jb11c');
+  await verify(page, who);
+  expect(fund(who.email, 'BTC', '0.01').tx).toBeTruthy();
+  const api = await bank(who);
+  const products = await api.query('loans.products', { limit: 50 });
+  const product = products.data.find((p) => p.collateralAssetId === 'BTC' && p.debtAssetId === 'USDT');
+  const opened = await api.mutate('loans.open', {
+    loanId: randomUUID(),
+    productId: product.id,
+    collateralAmount: '0.01',
+    principal: '100',
+  });
+  if (!opened.ok) throw new Error(`loans.open refused: ${opened.status} ${opened.code}`);
+  const loanId = opened.data.loanId;
+  age(loanId, 10);
+  const accrued = await job('accrue-loan-interest', { limit: 1000 });
+  expect(accrued.status, JSON.stringify(accrued.body).slice(0, 300)).toBe(200);
+  expect(accrued.body.results.find((r) => r.loanId === loanId)?.days).toBe(10);
+  const before = await api.query('loans.interestRows', { loanId });
+  expect(before.ok).toBe(true);
+  expect(before.data.days).toHaveLength(10);
+  expect(toUnits(before.data.accrued)).toBeGreaterThan(toUnits('0.1'));
+
+  // The founders correct it: one proposes taking TEST 0.1 off with a reason, the other approves, and the bank writes it
+  // as a new row. Sent twice, it is written once.
+  const terms = { loanId, adjustmentId: randomUUID(), amount: '-0.1', reason: `TEST ${J}: one day was charged on the wrong basis` };
+  const { call } = await correctInterest(terms);
+  const written = await call();
+  expect(written.status, written.text.slice(0, 300)).toBe(200);
+  const row = written.json.result.data;
+  expect(row).toMatchObject({ adjustmentId: terms.adjustmentId, amount: '-0.1', reason: terms.reason, replay: false });
+  expect(row.proposedBy).not.toBe(row.approvedBy);
+  expect(row.interestOwed).toBe(fromUnits(toUnits(before.data.accrued) - toUnits('0.1')));
+  const again = await call();
+  expect(again.json?.result?.data).toMatchObject({ adjustmentId: terms.adjustmentId, replay: true });
+
+  // The person sees it on the loan's page: every day still as charged, the correction with its reason, and what is owed.
+  await signIn(page, who);
+  await page.goto(`/bank/loans/detail?loan=${loanId}`);
+  const interest = page.getByTestId('loan-interest');
+  await expect(interest).toBeVisible({ timeout: 30_000 });
+  await expect(interest).toHaveAttribute('data-accrued', before.data.accrued);
+  await expect(interest).toHaveAttribute('data-corrected', '-0.1');
+  await expect(interest).toHaveAttribute('data-owed', row.interestOwed);
+  const days = page.getByTestId('loan-interest-days').locator('tbody tr');
+  await expect(days).toHaveCount(10);
+  const shownDays = await days.evaluateAll((trs) => trs.map((tr) => ({ date: tr.dataset.date, interest: tr.dataset.interest })));
+  expect(shownDays).toEqual(before.data.days.map((d) => ({ date: d.date, interest: d.interest })));
+  const corrections = page.getByTestId('loan-corrections').locator('tbody tr');
+  await expect(corrections).toHaveCount(1);
+  await expect(corrections.first()).toHaveAttribute('data-amount', '-0.1');
+  await expect(corrections.first()).toContainText('−0.1 USDT');
+  await expect(corrections.first()).toContainText(terms.reason);
+  await expect(interest).toContainText('Interest owed now');
+
+  // The bank checks this loan against the ledger: the payout and the pledge match their transactions leg by leg, and the
+  // collateral held is what was pledged. A correction moves no money, so it adds no transaction to check.
+  const check = page.getByTestId('loan-ledger-check');
+  await expect(check).toHaveAttribute('data-status', 'agrees', { timeout: 30_000 });
+  await expect(check).toHaveAttribute('data-checked', '2');
+  await expect(check).toContainText('Agrees: 2 transactions match, and the collateral held is 0.01 BTC.');
+  const after = await api.query('loans.interestRows', { loanId });
+  expect(after.data.days).toEqual(before.data.days);
+  expect(after.data.corrections).toEqual([expect.objectContaining({ id: terms.adjustmentId, amount: '-0.1', reason: terms.reason })]);
 });
 
 test(`${J} #5 redeems excess collateral, then repays in full: the loan closes and the rest of the collateral comes back once`, async ({

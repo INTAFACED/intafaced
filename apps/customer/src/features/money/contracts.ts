@@ -97,6 +97,31 @@ export const loanStatementSchema = z.object({
   generatedAt: z.string(),
 });
 export type LoanStatement = z.infer<typeof loanStatementSchema>;
+/** `bank.loans.interestRows` (LOAN-05): each accrual day as written, each approved correction with its reason, and their totals. */
+export const loanInterestRowsSchema = z.object({
+  loanId: z.string(),
+  assetId: z.string(),
+  days: z.array(z.object({ date: z.string(), rateBps: z.number().int(), basis: money, interest: money })),
+  earlierDays: z.number().int().nonnegative(),
+  corrections: z.array(z.object({ id: z.string(), at: z.string(), amount: signedDecimalSchema, reason: z.string() })),
+  accrued: money,
+  corrected: signedDecimalSchema,
+  paid: money,
+  owed: money,
+});
+export type LoanInterestRows = z.infer<typeof loanInterestRowsSchema>;
+/** `bank.loans.ledgerCheck` (LOAN-05): this loan's settled rows against the ledger's own transactions, leg by leg. */
+export const loanLedgerCheckSchema = z.object({
+  loanId: z.string(),
+  status: z.enum(['agrees', 'differs', 'pending']),
+  checked: z.number().int().nonnegative(),
+  pending: z.number().int().nonnegative(),
+  collateralHeld: money,
+  collateralExpected: signedDecimalSchema,
+  mismatches: z.array(z.object({ kind: z.string(), ref: z.string(), problem: z.string() })),
+  checkedAt: z.string(),
+});
+export type LoanLedgerCheck = z.infer<typeof loanLedgerCheckSchema>;
 export const programmeSchema = z.object({ id: z.string(), simulated: z.boolean(), displayName: z.string() });
 export const shippingAddressSchema = z.object({
   name: z.string(),
@@ -672,6 +697,8 @@ export const bankReads = {
   'loans.list': z.array(loanSchema),
   'loans.projection': loanProjectionSchema,
   'loans.payoffQuote': payoffQuoteSchema,
+  'loans.interestRows': loanInterestRowsSchema,
+  'loans.ledgerCheck': loanLedgerCheckSchema,
   /** `bank.loans.releasable` (BK-loan-05): the most collateral `releaseExcess` would release now, under the product's max LTV. */
   'loans.releasable': z.object({
     loanId: z.string(),

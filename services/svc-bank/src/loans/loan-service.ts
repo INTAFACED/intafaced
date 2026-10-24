@@ -26,6 +26,18 @@ import {
   type LoanStatementFile,
   type PayoffQuote,
 } from './loan-reads.js';
+import {
+  adjustmentById,
+  assertSameCorrection,
+  checkCorrection,
+  checkLoanLedger,
+  readInterestRows,
+  writeCorrection,
+  type InterestAdjustment,
+  type InterestCorrectionTerms,
+  type InterestRows,
+  type LedgerCheck,
+} from './loan-adjustments.js';
 import { assertLoanProductsListLimit } from '../catalog-list-limit.js';
 import { assertLoansListLimit } from '../owner-list-limit.js';
 import { assertLoanAccrueBatchLimit, assertLoanResumePendingLimit, assertLoanRiskSweepLimit } from '../job-batch-limit.js';
@@ -560,6 +572,11 @@ export class LoanService {
         SELECT COALESCE(SUM(interest_amount), 0) AS v
           FROM bank.loan_interest_accruals WHERE loan_id = ${loanId}
       ),
+      -- Approved interest corrections (LOAN-05), signed. A new row, never an edit of a day above.
+      adjusted AS (
+        SELECT COALESCE(SUM(amount), 0) AS v
+          FROM bank.loan_adjustments WHERE loan_id = ${loanId} AND kind = 'interest_correction'
+      ),
       repaid AS (
         SELECT COALESCE(SUM(principal_amount), 0) AS p, COALESCE(SUM(interest_amount), 0) AS i
           FROM bank.loan_repayments WHERE loan_id = ${loanId} AND status = 'settled'
@@ -580,8 +597,8 @@ export class LoanService {
       )
       SELECT
         GREATEST((SELECT principal FROM drawn) - repaid.p - seized.p - seized.s, 0) AS principal,
-        GREATEST(accrued.v - repaid.i - seized.i, 0) AS interest
-        FROM accrued, repaid, seized
+        GREATEST(accrued.v + adjusted.v - repaid.i - seized.i, 0) AS interest
+        FROM accrued, adjusted, repaid, seized
     `;
 
     if (rows.length === 0) throw new BankError(`No loan ${loanId}`, 'bank.loan_not_found');
@@ -3081,6 +3098,42 @@ export class LoanService {
   async statement(input: { loanId: string; from: string; to: string; now?: Date }): Promise<LoanStatementFile> {
     const loan = await this.loan(input.loanId);
     return buildLoanStatement(this.sql, loan, this.options.statementSecret, input);
+  }
+
+  // ── Interest corrections and the ledger check (LOAN-05) ─────────────────
+
+  /** A correction already written under this id, or null. */
+  interestAdjustment(id: string): Promise<InterestAdjustment | null> {
+    return adjustmentById(this.sql, id);
+  }
+
+  /** The same terms as the correction already written under its id, or `bank.correction_conflict`. */
+  assertSameCorrection(prior: InterestAdjustment, terms: InterestCorrectionTerms): void {
+    assertSameCorrection(prior, terms);
+  }
+
+  /** Every refusal a correction would meet now, before its approval is spent. Writes nothing. */
+  checkCorrection(terms: InterestCorrectionTerms): Promise<void> {
+    return checkCorrection({ sql: this.sql, outstanding: (id, tx) => this.outstanding(id, tx) }, terms);
+  }
+
+  /** Write one approved interest correction under the loan row lock. Moves no value; `outstanding()` reads it. */
+  correctInterest(
+    terms: InterestCorrectionTerms,
+    people: { readonly proposedBy: string; readonly approvedBy: string; readonly approvalId: string },
+    now: Date = new Date(),
+  ): Promise<{ adjustment: InterestAdjustment; replay: boolean }> {
+    return writeCorrection({ sql: this.sql, outstanding: (id, tx) => this.outstanding(id, tx) }, terms, people, now);
+  }
+
+  /** The loan's accrual days and corrections, with the totals they add up to. Reads only. */
+  interestRows(loan: LoanRecord): Promise<InterestRows> {
+    return readInterestRows(this.sql, loan, async (tx) => (await this.outstanding(loan.id, tx)).interest);
+  }
+
+  /** The loan's settled rows against the ledger's own transactions, leg by leg. Reads only; never repairs. */
+  ledgerCheck(loan: LoanRecord, now: Date = new Date()): Promise<LedgerCheck> {
+    return checkLoanLedger(this.sql, this.ledger, loan, now);
   }
 
   private assertProjectable(loan: LoanRecord): void {

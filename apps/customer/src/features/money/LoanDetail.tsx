@@ -5,15 +5,16 @@ import { useSession } from '../session/session';
 import type { ApiResult } from '../../shared/api';
 import { decodeBase64, saveFile, shortFingerprint } from '../../screens/money/statement-model';
 import { amount, bps, date, useBankRead } from './components';
-import { loanStatementSchema, type LoanProjection, type PayoffQuote } from './contracts';
+import { loanStatementSchema, type LoanInterestRows, type LoanLedgerCheck, type LoanProjection, type PayoffQuote } from './contracts';
 import { DepthPanel } from './DepthParts';
 import { loanDetailCopy } from './loan-detail-copy';
 import './bank-depth.css';
 
 /**
- * `/bank/loans/detail?loan=<id>` (J-bank-11 #1 and #6, BK-loan-06): one loan's payoff quote, a projection of its
- * interest and its monthly statement. Every figure is the bank's own answer (`bank.loans.payoffQuote`,
- * `bank.loans.projection`, `bank.loans.statement`): the browser works nothing out. The projection is labelled as one,
+ * `/bank/loans/detail?loan=<id>` (J-bank-11 #1, #4 and #6, BK-loan-06, LOAN-05): one loan's payoff quote, a
+ * projection of its interest, its interest rows with any corrections, the bank's check of the loan against the ledger,
+ * and its monthly statement. Every figure is the bank's own answer (`bank.loans.payoffQuote`, `bank.loans.projection`,
+ * `bank.loans.interestRows`, `bank.loans.ledgerCheck`, `bank.loans.statement`): the browser works nothing out. The projection is labelled as one,
  * never as a schedule, and the quote is read again on request and never stored.
  */
 
@@ -255,6 +256,178 @@ function ProjectionTable({ projection, assetId }: { projection: LoanProjection; 
   );
 }
 
+/** A signed bank figure with its sign shown: a correction can take interest off or add it. */
+const signed = (value: string, assetId: string) =>
+  value.startsWith('-') ? `−${amount(value.slice(1), assetId)}` : `+${amount(value, assetId)}`;
+
+function InterestPanel({ loanId }: { loanId: string }) {
+  const { t } = loanDetailCopy.useCopy();
+  const rows = useBankRead('loans.interestRows', { loanId });
+  return (
+    <DepthPanel title={t('irTitle')} lead={t('irLead')}>
+      {rows.resource.status === 'loading' && <Loading />}
+      {rows.resource.status === 'failed' && <Refused failure={rows.resource.failure} retry={rows.reload} label={t('retry')} />}
+      {rows.resource.status === 'ready' && <InterestTables rows={rows.resource.data} />}
+    </DepthPanel>
+  );
+}
+
+function InterestTables({ rows }: { rows: LoanInterestRows }) {
+  const { t } = loanDetailCopy.useCopy();
+  const asset = rows.assetId;
+  return (
+    <div className="bd-stack" data-testid="loan-interest" data-owed={rows.owed} data-accrued={rows.accrued} data-corrected={rows.corrected}>
+      <dl className="detail-list">
+        <div>
+          <dt>{t('irAccrued')}</dt>
+          <dd>{amount(rows.accrued, asset)}</dd>
+        </div>
+        <div>
+          <dt>{t('irCorrected')}</dt>
+          <dd>{rows.corrections.length === 0 ? amount('0', asset) : signed(rows.corrected, asset)}</dd>
+        </div>
+        <div>
+          <dt>{t('irPaid')}</dt>
+          <dd>{amount(rows.paid, asset)}</dd>
+        </div>
+        <div>
+          <dt>
+            <strong>{t('irOwed')}</strong>
+          </dt>
+          <dd>
+            <strong>{amount(rows.owed, asset)}</strong>
+          </dd>
+        </div>
+      </dl>
+      {rows.corrections.length === 0 ? (
+        <p className="muted">{t('irNoCorrections')}</p>
+      ) : (
+        <div className="withdrawal-address-scroll">
+          <table className="bd-table" data-testid="loan-corrections">
+            <caption className="muted">{t('irCorrected')}</caption>
+            <thead>
+              <tr>
+                <th scope="col">{t('colWhen')}</th>
+                <th scope="col">{t('colCorrection')}</th>
+                <th scope="col">{t('colReason')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.corrections.map((c) => (
+                <tr key={c.id} data-id={c.id} data-amount={c.amount}>
+                  <td>{date(c.at)}</td>
+                  <td>{signed(c.amount, asset)}</td>
+                  <td>{c.reason}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {rows.days.length === 0 ? (
+        <p className="muted">{t('irNoDays')}</p>
+      ) : (
+        <div className="withdrawal-address-scroll">
+          <table className="bd-table" data-testid="loan-interest-days">
+            <caption className="muted">{t('irDays')}</caption>
+            <thead>
+              <tr>
+                <th scope="col">{t('colDate')}</th>
+                <th scope="col">{t('colBasis')}</th>
+                <th scope="col">{t('colRate')}</th>
+                <th scope="col">{t('colInterest')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.days.map((d) => (
+                <tr key={d.date} data-date={d.date} data-basis={d.basis} data-interest={d.interest}>
+                  <td>{d.date}</td>
+                  <td>{amount(d.basis, asset)}</td>
+                  <td>{bps(d.rateBps)}</td>
+                  <td>{amount(d.interest, asset)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {rows.earlierDays > 0 && <p className="muted">{t('irEarlier', { count: String(rows.earlierDays) })}</p>}
+    </div>
+  );
+}
+
+const CHECK_KINDS = [
+  'draw',
+  'repayment',
+  'collateral_lock',
+  'collateral_release',
+  'liquidation',
+  'bad_debt',
+  'collateral_balance',
+] as const;
+const CHECK_PROBLEMS = ['missing', 'key', 'entries', 'balance'] as const;
+
+/** One difference the bank found, in words: which move, and how the ledger differs. */
+export function ledgerMismatch(t: Copy, m: { kind: string; ref: string; problem: string }): string {
+  const what = (CHECK_KINDS as readonly string[]).includes(m.kind)
+    ? t(`ck_${m.kind as (typeof CHECK_KINDS)[number]}`, { ref: m.ref })
+    : t('ck_other', { ref: m.ref });
+  const how = (CHECK_PROBLEMS as readonly string[]).includes(m.problem)
+    ? t(`ckp_${m.problem as (typeof CHECK_PROBLEMS)[number]}`)
+    : t('ckp_other');
+  return `${what}: ${how}`;
+}
+
+function LedgerCheckPanel({ loanId, collateralAssetId }: { loanId: string; collateralAssetId: string }) {
+  const { t } = loanDetailCopy.useCopy();
+  const check = useBankRead('loans.ledgerCheck', { loanId });
+  return (
+    <DepthPanel title={t('ckTitle')} lead={t('ckLead')}>
+      {check.resource.status === 'loading' && <Loading />}
+      {check.resource.status === 'failed' && <Refused failure={check.resource.failure} retry={check.reload} label={t('ckRefresh')} />}
+      {check.resource.status === 'ready' && (
+        <LedgerCheckResult check={check.resource.data} collateralAssetId={collateralAssetId} reload={check.reload} />
+      )}
+    </DepthPanel>
+  );
+}
+
+function LedgerCheckResult({
+  check,
+  collateralAssetId,
+  reload,
+}: {
+  check: LoanLedgerCheck;
+  collateralAssetId: string;
+  reload: () => void;
+}) {
+  const { t } = loanDetailCopy.useCopy();
+  return (
+    <div className="bd-stack" data-testid="loan-ledger-check" data-status={check.status} data-checked={check.checked}>
+      <p role={check.status === 'differs' ? 'alert' : undefined} className={check.status === 'differs' ? 'error-text' : undefined}>
+        {check.status === 'agrees'
+          ? t('ckAgrees', { count: String(check.checked), held: amount(check.collateralHeld, collateralAssetId) })
+          : check.status === 'differs'
+            ? t('ckDiffers', { count: String(check.mismatches.length) })
+            : t('ckPending')}
+      </p>
+      {check.mismatches.length > 0 && (
+        <ul>
+          {check.mismatches.map((m) => (
+            <li key={`${m.kind}:${m.ref}:${m.problem}`}>{ledgerMismatch(t, m)}</li>
+          ))}
+        </ul>
+      )}
+      <p className="money-caption">{t('ckWhen', { time: date(check.checkedAt, true) })}</p>
+      <div className="actions">
+        <Button variant="secondary" onClick={reload}>
+          {t('ckRefresh')}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 type StatementSaid =
   | { kind: 'done'; name: string; count: number; fingerprint: string; totals: string; provisional: boolean }
   | { kind: 'error'; words: string }
@@ -381,6 +554,8 @@ export function LoanDetail({ loanId }: { loanId: string | null }) {
       </p>
       <QuotePanel loanId={loan.id} />
       <ProjectionPanel loanId={loan.id} assetId={loan.debtAssetId} />
+      <InterestPanel loanId={loan.id} />
+      <LedgerCheckPanel loanId={loan.id} collateralAssetId={loan.collateralAssetId} />
       <StatementPanel loanId={loan.id} assetId={loan.debtAssetId} />
       <p>
         <a className="text-link" href="/bank/loans">
