@@ -126,9 +126,7 @@ function PostingChecks({ pay, fiatCurrency }: { pay: PersonalPayApi; fiatCurrenc
           {checks.map((check) => (
             <li key={check.id} data-check={check.id} data-state={check.state}>
               <strong>{t(CHECK_LABEL[check.id])}</strong> · {t(STATE_LABEL[check.state])}.{' '}
-              {check.id === 'advertiser_terms' && check.required === null
-                ? t('checkTermsUnset')
-                : t('checkValues', { current: checkValue(t, check, check.current), required: checkValue(t, check, check.required) })}
+              {t('checkValues', { current: checkValue(t, check, check.current), required: checkValue(t, check, check.required) })}
             </li>
           ))}
         </ul>
@@ -139,16 +137,15 @@ function PostingChecks({ pay, fiatCurrency }: { pay: PersonalPayApi; fiatCurrenc
 
 type Check = P2PPostingEligibility['checks'][number];
 const CHECK_LABEL = {
-  advertiser_terms: 'checkTerms',
   kyc_tier: 'checkKycTier',
   completed_orders: 'checkCompletedOrders',
   completion_rate: 'checkCompletionRate',
 } as const;
 const STATE_LABEL = { met: 'checkMet', not_met: 'checkNotMet', unknown: 'checkUnknown' } as const;
 
-/** A check's value in words: the level by name, the rate as a percent, terms not accepted as such. */
+/** A check's value in words: the level by name, the rate as a percent. */
 function checkValue(t: ReturnType<typeof postCopy.useCopy>['t'], check: Check, value: string | null): string {
-  if (value === null) return t(check.id === 'advertiser_terms' ? 'checkNotAccepted' : 'checkNoValue');
+  if (value === null) return t('checkNoValue');
   if (check.id === 'kyc_tier' && value in LEVEL_LABEL) return t(LEVEL_LABEL[value as keyof typeof LEVEL_LABEL]);
   if (check.id === 'completion_rate') return `${value}%`;
   return value;

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { P2pError } from './p2p-service.js';
 import { asKycTier, fiatPostingPolicy, parsePostingThresholds, percentHundredths, postingChecks } from './posting-eligibility.js';
+import { toTrpcError } from './router.js';
 
 /** P-ads-merchant-12: reading compliance's posting thresholds, and judging one person against them. */
 
@@ -59,5 +61,10 @@ describe('posting thresholds (P-ads-merchant-12)', () => {
       'unknown',
       'unknown',
     ]);
+  });
+
+  it('reaches the caller as a request the person can fix, and a broken list as the operator’s', () => {
+    expect(toTrpcError(new P2pError('x', 'p2p.posting_threshold_not_met')).code).toBe('BAD_REQUEST');
+    expect(toTrpcError(new P2pError('x', 'p2p.posting_thresholds_invalid')).code).toBe('PRECONDITION_FAILED');
   });
 });

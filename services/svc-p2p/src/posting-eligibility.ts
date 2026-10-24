@@ -22,13 +22,14 @@
  * `postingChecks` is the one place a check is judged, so the checklist the form
  * shows and the refusal at post can never disagree.
  */
-import { KYC_TIERS, type KycTier } from '@intafaced/config';
+import { KYC_TIERS, tierSatisfies, type KycTier } from '@intafaced/config';
 
 export const POSTING_THRESHOLDS_SETTING = 'P2P_POSTING_THRESHOLDS';
 
-export const POSTING_CHECK_IDS = ['advertiser_terms', 'kyc_tier', 'completed_orders', 'completion_rate'] as const;
+export const POSTING_CHECK_IDS = ['kyc_tier', 'completed_orders', 'completion_rate'] as const;
 export type PostingCheckId = (typeof POSTING_CHECK_IDS)[number];
-export type PostingCheckState = 'met' | 'not_met' | 'unknown';
+export const POSTING_CHECK_STATES = ['met', 'not_met', 'unknown'] as const;
+export type PostingCheckState = (typeof POSTING_CHECK_STATES)[number];
 
 export interface PostingCheck {
   readonly id: PostingCheckId;
@@ -53,7 +54,8 @@ export type PostingThresholds =
   | { readonly status: 'active'; readonly byFiat: ReadonlyMap<string, FiatPostingThreshold | 'none'> };
 
 /** What the policy says for one fiat. */
-export type FiatPostingPolicy = 'thresholds' | 'none' | 'unset' | 'invalid';
+export const POSTING_POLICIES = ['thresholds', 'none', 'unset', 'invalid'] as const;
+export type FiatPostingPolicy = (typeof POSTING_POLICIES)[number];
 
 const FIAT = /^[A-Z]{3}$/;
 const COUNT = /^\d{1,9}$/;
@@ -113,6 +115,11 @@ export function fiatPostingPolicy(
   return entry === 'none' ? { policy: 'none', threshold: null } : { policy: 'thresholds', threshold: entry };
 }
 
+/** Whether judging this threshold needs the person's order history (a read of their trades). */
+export function needsOrderHistory(threshold: FiatPostingThreshold): boolean {
+  return threshold.minCompletedOrders !== undefined || threshold.minCompletionRatePct !== undefined;
+}
+
 /** The person's facts a threshold is judged on. */
 export interface PostingFacts {
   /** The signed-in verification level, or undefined when none came with the request. */
@@ -134,7 +141,7 @@ export function postingChecks(threshold: FiatPostingThreshold, facts: PostingFac
     checks.push(
       facts.tier === undefined
         ? { id: 'kyc_tier', state: 'unknown', current: null, required, reason: 'p2p.verification_level_unwired' }
-        : judge('kyc_tier', KYC_TIERS.indexOf(facts.tier) >= KYC_TIERS.indexOf(required), facts.tier, required),
+        : judge('kyc_tier', tierSatisfies(facts.tier, required), facts.tier, required),
     );
   }
   if (threshold.minCompletedOrders !== undefined) {

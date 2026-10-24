@@ -85,17 +85,16 @@ test('J-p2p-03 #1 Post an ad shows the posting checklist for the coin and fiat, 
   run.reset({ seller, sellerId: me.body.result.data.userId, marker: randomUUID().slice(0, 8) });
 
   // The checklist for USDT/EUR: every requirement, met or not, with the current value and the target.
-  const checklist = await s.bare.query('merchants.postingEligibility', { asset: 'USDT', fiatCurrency: 'EUR' });
+  const checklist = await s.bare.query('merchants.postingEligibility', { fiatCurrency: 'EUR' });
   expect(checklist.status, 'svc-p2p has no posting checklist yet (P-ads-merchant-12)').toBe(200);
   const checks = checklist.body.result.data.checks;
   expect(checks.length).toBeGreaterThan(0);
   for (const check of checks)
     expect(check).toMatchObject({ id: expect.any(String), state: expect.stringMatching(/^(met|not_met|unknown)$/) });
   // TEST thresholds for EUR (tooling/profiles/test-owner-values/p2p.json): a verified level and no finished orders, both
-  // with the person's value and the target. The advertiser terms are not accepted yet.
+  // with the person's value and the target. The thresholds are per fiat, the same for every coin.
   expect(checklist.body.result.data.policy).toBe('thresholds');
   const byId = Object.fromEntries(checks.map((check) => [check.id, check]));
-  expect(byId.advertiser_terms).toMatchObject({ state: 'not_met', current: null, required: expect.any(String) });
   expect(byId.kyc_tier).toMatchObject({ state: 'met', current: expect.any(String), required: 'basic' });
   expect(byId.completed_orders).toMatchObject({ state: 'met', current: '0', required: '0' });
 
@@ -109,7 +108,6 @@ test('J-p2p-03 #1 Post an ad shows the posting checklist for the coin and fiat, 
   await expect(panel).toContainText('What posting an ad in EUR needs');
   await expect(panel.locator('[data-check="completed_orders"]')).toContainText('Met. You: 0. Needed: 0.');
   await expect(panel.locator('[data-check="kyc_tier"]')).toContainText('Needed: basic.');
-  await expect(panel.locator('[data-check="advertiser_terms"]')).toContainText('Not met. You: not accepted.');
 });
 
 test('J-p2p-03 #2 posting before accepting the advertiser terms refuses and opens them with their version; accepting records it', async ({

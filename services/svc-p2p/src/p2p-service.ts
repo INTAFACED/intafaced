@@ -102,9 +102,11 @@ import { brokenRuleClass, type AdContentRules } from './ad-content-rules.js';
 import {
   asKycTier,
   fiatPostingPolicy,
+  needsOrderHistory,
   POSTING_THRESHOLDS_SETTING,
   postingChecks,
   type FiatPostingPolicy,
+  type FiatPostingThreshold,
   type PostingCheck,
   type PostingThresholds,
 } from './posting-eligibility.js';
@@ -1298,39 +1300,23 @@ export class P2pService {
 
   /**
    * P-ads-merchant-12. The posting checklist for one fiat: what compliance published for it and every check, met or
-   * not, with the person's value and the target. The advertiser terms come first when the service has them. Posting
-   * in the fiat refuses on the same checks (`assertPostingThresholds`).
+   * not, with the person's value and the target. Posting in the fiat refuses on the same checks (`postingRefusal`).
+   * The fiat is read in capitals, as `createOffer` stores it.
    */
   async postingEligibility(input: {
     userId: string;
     tier: string | undefined;
     fiatCurrency: string;
   }): Promise<{ policy: FiatPostingPolicy; checks: PostingCheck[] }> {
-    const { policy, threshold } = fiatPostingPolicy(this.postingThresholds ?? { status: 'absent' }, input.fiatCurrency);
-    const [terms, facts] = await Promise.all([
-      this.advertiserTermsCheck(input.userId),
-      threshold ? this.postingFacts(input.userId, input.tier) : null,
-    ]);
-    return { policy, checks: [...(terms ? [terms] : []), ...(threshold && facts ? postingChecks(threshold, facts) : [])] };
+    const fiatCurrency = input.fiatCurrency.toUpperCase();
+    const { policy, threshold } = fiatPostingPolicy(this.postingThresholds ?? { status: 'absent' }, fiatCurrency);
+    return { policy, checks: threshold ? postingChecks(threshold, await this.postingFacts(threshold, input.userId, input.tier)) : [] };
   }
 
-  private async advertiserTermsCheck(userId: string): Promise<PostingCheck | null> {
-    if (!this.advertiserTerms) return null;
-    try {
-      const { version, acceptedAt } = await this.advertiserTerms.state(userId);
-      return acceptedAt
-        ? { id: 'advertiser_terms', state: 'met', current: version, required: version, reason: 'posting.met' }
-        : { id: 'advertiser_terms', state: 'not_met', current: null, required: version, reason: 'p2p.terms_not_accepted' };
-    } catch (error) {
-      if (error instanceof AdvertiserTermsError && error.code === 'p2p.config_unset')
-        return { id: 'advertiser_terms', state: 'unknown', current: null, required: null, reason: 'p2p.config_unset' };
-      throw error;
-    }
-  }
-
-  private async postingFacts(userId: string, tier: string | undefined) {
-    const rates = await completionRates(this.sql, userId);
-    return { tier: asKycTier(tier), completedOrders: rates.completedTotal, completionRatePct: rates.completionRateTotal };
+  /** The level from the request, and the order history only when a threshold needs it. */
+  private async postingFacts(threshold: FiatPostingThreshold, userId: string, tier: string | undefined) {
+    const rates = needsOrderHistory(threshold) ? await completionRates(this.sql, userId) : null;
+    return { tier: asKycTier(tier), completedOrders: rates?.completedTotal ?? 0, completionRatePct: rates?.completionRateTotal ?? null };
   }
 
   /**
@@ -1352,7 +1338,7 @@ export class P2pService {
       return new P2pError(`No posting threshold is published for ${fiatCurrency} (${POSTING_THRESHOLDS_SETTING})`, 'p2p.config_unset');
     }
     if (!threshold) return null;
-    const missing = postingChecks(threshold, await this.postingFacts(makerId, tier)).find((check) => check.state !== 'met');
+    const missing = postingChecks(threshold, await this.postingFacts(threshold, makerId, tier)).find((check) => check.state !== 'met');
     return missing
       ? new P2pError(
           `Posting an ad in ${fiatCurrency} needs ${missing.id.replaceAll('_', ' ')} ${missing.required}; nothing was posted`,

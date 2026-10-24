@@ -200,17 +200,9 @@ describe('PostingChecklist', () => {
     const postingEligibility = vi.fn(async () => ({
       ok: true as const,
       data: {
-        asset: null,
         fiatCurrency: 'EUR',
         policy: 'thresholds' as const,
         checks: [
-          {
-            id: 'advertiser_terms' as const,
-            state: 'not_met' as const,
-            current: null,
-            required: 'TEST-1',
-            reason: 'p2p.terms_not_accepted',
-          },
           { id: 'kyc_tier' as const, state: 'met' as const, current: 'full', required: 'basic', reason: 'posting.met' },
           {
             id: 'completed_orders' as const,
@@ -233,7 +225,6 @@ describe('PostingChecklist', () => {
     expect(postingEligibility).toHaveBeenCalledWith('EUR', expect.anything());
     const list = page.querySelector('[data-testid="posting-checklist"]')!;
     expect(list.textContent).toContain('What posting an ad in EUR needs');
-    expect(list.querySelector('[data-check="advertiser_terms"]')!.textContent).toContain('Not met. You: not accepted. Needed: TEST-1.');
     expect(list.querySelector('[data-check="kyc_tier"]')!.textContent).toContain('Met. You: full. Needed: basic.');
     expect(list.querySelector('[data-check="completed_orders"]')!.textContent).toContain('You: 2. Needed: 5.');
     expect(list.querySelector('[data-check="completion_rate"]')!.textContent).toContain(
@@ -244,7 +235,7 @@ describe('PostingChecklist', () => {
   it('says a fiat with nothing published, and a fiat with no threshold, plainly', async () => {
     const answer = (policy: 'unset' | 'none') =>
       ({
-        postingEligibility: vi.fn(async () => ({ ok: true as const, data: { asset: null, fiatCurrency: 'GBP', policy, checks: [] } })),
+        postingEligibility: vi.fn(async () => ({ ok: true as const, data: { fiatCurrency: 'GBP', policy, checks: [] } })),
       }) as unknown as PersonalPayApi;
     expect((await render(<PostingChecklist pay={answer('unset')} fiatCurrency="GBP" />)).textContent).toContain(
       'has not published posting requirements for GBP, so ads in GBP are refused',
@@ -268,7 +259,7 @@ describe('PostingChecklist', () => {
         onBack={() => {}}
       />,
     );
-    expect(page.textContent).toContain('Your account does not meet what posting an ad in this currency needs');
+    expect(page.textContent).toContain('Your account does not meet what posting an ad in this currency needs. Go back to the form');
   });
 });
 

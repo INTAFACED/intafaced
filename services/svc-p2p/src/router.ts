@@ -26,7 +26,7 @@ import {
 import { InstrumentError, methodIdFromOfferEntry, parseFieldSpecs, type MethodSettlement } from './instruments.js';
 import { BOARD_SORTS, type BoardSort } from './customer-depth.js';
 import { ELIGIBILITY_CHECK_IDS, ELIGIBILITY_STATES, TakeGateError, unwiredTakeGate, type TakeGate } from './take-eligibility.js';
-import { POSTING_CHECK_IDS } from './posting-eligibility.js';
+import { POSTING_CHECK_IDS, POSTING_CHECK_STATES, POSTING_POLICIES } from './posting-eligibility.js';
 import { DELIST_REASONS, type InstrumentService } from './instrument-service.js';
 import { assertModerator, isModerationConfigured, isModerator } from './moderation-auth.js';
 import { TakeStepUpError, unwiredTakeStepUp, type TakeStepUp, type TakeStepUpCaller } from './take-step-up.js';
@@ -636,6 +636,8 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'p2p.quote_mismatch':
       // P-ads-merchant-05: the person changes the terms and posts again.
       case 'p2p.content_rule_violation':
+      // P-ads-merchant-12: the person meets the fiat's posting thresholds, which the checklist shows.
+      case 'p2p.posting_threshold_not_met':
         return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
       // State, not permission and not a typo: the row is real and the move is
       // wrong for where it currently stands.
@@ -3422,19 +3424,18 @@ export function createP2pRouter(
       /**
        * P-ads-merchant-12. The posting checklist for one fiat: what compliance published for it (`thresholds`, `none`,
        * `unset` or `invalid`) and every check, met, not met or unknown, with the caller's value and the target as strings.
-       * Posting in that fiat refuses on the same checks. `asset` is echoed: the thresholds are per fiat.
+       * Posting in that fiat refuses on the same checks. The thresholds are per fiat, the same for every coin.
        */
       postingEligibility: merchantApiProcedure('p2p:read')
-        .input(z.object({ asset: z.string().min(1).max(16).optional(), fiatCurrency: z.string().length(3) }))
+        .input(z.object({ fiatCurrency: z.string().length(3) }))
         .output(
           z.object({
-            asset: z.string().nullable(),
             fiatCurrency: z.string(),
-            policy: z.enum(['thresholds', 'none', 'unset', 'invalid']),
+            policy: z.enum(POSTING_POLICIES),
             checks: z.array(
               z.object({
                 id: z.enum(POSTING_CHECK_IDS),
-                state: z.enum(['met', 'not_met', 'unknown']),
+                state: z.enum(POSTING_CHECK_STATES),
                 current: z.string().nullable(),
                 required: z.string().nullable(),
                 reason: z.string(),
@@ -3449,7 +3450,7 @@ export function createP2pRouter(
               tier: ctx.principal.tier,
               fiatCurrency: input.fiatCurrency,
             });
-            return { asset: input.asset ?? null, fiatCurrency: input.fiatCurrency, ...eligibility };
+            return { fiatCurrency: input.fiatCurrency.toUpperCase(), ...eligibility };
           }),
         ),
 
