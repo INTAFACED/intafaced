@@ -788,6 +788,7 @@ export const rooms: readonly Room[] = [
       ['blueprint', 'Identity Blueprint', 'Your profile and connected intelligence'],
       ['support', 'Support', 'Tickets and published answers'],
       ['campaigns', 'Activities', 'Signed-in campaigns'],
+      ['campaigns/drops', 'Drop room', 'Your waitlist place, season and limited drops'],
     ] as const
   ).map(([slug, title, description]) => ({
     path: `/${slug}`,

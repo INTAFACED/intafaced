@@ -63,6 +63,7 @@ export * from './protocol-blockers.js';
 export * from './ui-view-preferences.js';
 export * from './home-tiles-preferences.js';
 export * from './tax-lot-book.js';
+export * from './campaigns-drops.js';
 export * from './oauth.js';
 export * from './protocol-networks.js';
 export * from './protocol-gas.js';

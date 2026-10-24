@@ -98,6 +98,9 @@ function Mine() {
         ]}
       />
       <EmptyState title={<Copy k="mineUnavailable" />} />
+      <a className="text-link" href="/campaigns/drops">
+        <Copy k="dropRoomLink" />
+      </a>
       <DataTable headers={[t('mineJoined'), t('mineProgress'), t('mineRewards')]} label={t('mineTitle')}>
         <tr>
           <td colSpan={3}>

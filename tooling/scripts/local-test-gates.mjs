@@ -634,6 +634,10 @@ async function signInPair(ctx, ops, saveSteps) {
       async crmToken() {
         return mintOperatorToken(ctx, op, ['ops:read', 'ops:write']);
       },
+      /** Same session with the campaign operator scope svc-campaigns checks (seasons and drops: one creates, the other publishes). */
+      async campaignsOpsToken() {
+        return mintOperatorToken(ctx, op, ['campaigns:ops']);
+      },
       /** Same session with the support desk staff scope svc-support checks (help-centre settings, article publishing). */
       async supportOpsToken() {
         return mintOperatorToken(ctx, op, ['support:read', 'support:write', 'support:ops']);

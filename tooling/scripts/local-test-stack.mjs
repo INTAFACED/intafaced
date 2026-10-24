@@ -14,7 +14,7 @@
  *   Postgres 16 (own data dir) · NATS JetStream · svc-ledger · svc-identity ·
  *   svc-matching · svc-trade · svc-pay · svc-bank · the services behind the Customer's
  *   More door, Notifications and P2P (svc-token, -p2p, -academy, -support, -market,
- *   -notify, -agents, -blueprint, -quant, -execution, -tax) · svc-ops (the outreach intake and CRM) ·
+ *   -notify, -agents, -blueprint, -quant, -execution, -tax, -campaigns) · svc-ops (the outreach intake and CRM) ·
  *   svc-protocol (the Web3 rooms' read side; no chain node) ·
  *   svc-edge · a small Customer static server + reverse proxy on http://127.0.0.1:3210 · the same
  *   for the public invitation site (apps/invitation) on http://127.0.0.1:3220 · the founder console
@@ -68,6 +68,7 @@ import protocol from './local-stack-services/protocol.mjs';
 import quant from './local-stack-services/quant.mjs';
 import support from './local-stack-services/support.mjs';
 import tax from './local-stack-services/tax.mjs';
+import campaigns from './local-stack-services/campaigns.mjs';
 import token from './local-stack-services/token.mjs';
 import trade from './local-stack-services/trade.mjs';
 import {
@@ -148,6 +149,8 @@ const PORTS = {
   protocol: 14520,
   // LOCAL TEST stand-in for the object store Academy signs video URLs for (local-video-store.mjs).
   'video-store': 14521,
+  // Seasons, limited drops and the TGE claim (the drop room).
+  campaigns: 14522,
   customer: 3210,
   invitation: 3220,
   admin: 3100,
@@ -182,6 +185,7 @@ const SCHEMAS = [
   'mining_pool',
   'ops',
   'protocol',
+  'campaigns',
 ];
 // A schema whose service is named differently (svc-mining-pool owns schema mining_pool).
 const SCHEMA_SERVICE = { mining_pool: 'mining-pool' };
@@ -576,6 +580,7 @@ const BACKEND_PKGS = [
   'svc-mining-pool',
   'svc-ops',
   'svc-protocol',
+  'svc-campaigns',
 ];
 
 function gitHead() {
@@ -860,6 +865,7 @@ const EDGE_UPSTREAMS = {
   MINING_POOL_URL: 'mining-pool',
   OPS_URL: 'ops',
   PROTOCOL_URL: 'protocol',
+  CAMPAIGNS_URL: 'campaigns',
 };
 
 /** Edge upstreams that are intentionally not started, each with the reason. The Customer app calls none of them except where noted. */
@@ -899,6 +905,7 @@ const SERVICES = [
   tax,
   miningPool,
   protocol,
+  campaigns,
   edge,
 ];
 
