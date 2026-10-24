@@ -60,22 +60,8 @@ export function TotalUnitNote({
 }) {
   const { t } = homeCopy.useCopy();
   const { inBtc, btcMissing } = totalUnit(data, displayCurrency);
-  const rate = useDisplayRate(displayCurrency);
-  if (rate.state === 'no_rate') {
-    const reference = refusalCopy(rate.code).reference;
-    return (
-      <p className={className} data-total-unit="USD" data-refusal={rate.code}>
-        {t('No rate for display currency', { currency: displayCurrency })}
-        {reference ? ` ${reference}` : null}
-      </p>
-    );
-  }
-  if (rate.state === 'unchecked')
-    return (
-      <p className={className} data-total-unit="USD">
-        {t('Display currency not checked', { currency: displayCurrency })}
-      </p>
-    );
+  // Only a currency other than USD or BTC asks the bank for a rate.
+  if (displayCurrency !== 'USD' && displayCurrency !== 'BTC') return <RateNote currency={displayCurrency} className={className} />;
   if (inBtc)
     return (
       <p className={className} data-total-unit="BTC">
@@ -87,6 +73,28 @@ export function TotalUnitNote({
     return (
       <p className={className} data-total-unit="USD">
         {t('BTC price missing')}
+      </p>
+    );
+  return null;
+}
+
+/** The total stays in USD for a currency the bank was asked about: no rate (refused by name), or it could not be asked. */
+function RateNote({ currency, className }: { currency: UiDisplayCurrency; className: string }) {
+  const { t } = homeCopy.useCopy();
+  const rate = useDisplayRate(currency);
+  if (rate.state === 'no_rate') {
+    const reference = refusalCopy(rate.code).reference;
+    return (
+      <p className={className} data-total-unit="USD" data-refusal={rate.code}>
+        {t('No rate for display currency', { currency })}
+        {reference ? ` ${reference}` : null}
+      </p>
+    );
+  }
+  if (rate.state === 'unchecked')
+    return (
+      <p className={className} data-total-unit="USD">
+        {t('Display currency not checked', { currency })}
       </p>
     );
   return null;
