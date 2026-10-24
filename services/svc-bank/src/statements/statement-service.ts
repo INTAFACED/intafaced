@@ -1,11 +1,13 @@
 import { BankError } from '../errors.js';
-import { ActivityService, ActivityUnavailableError, type ActivityItem } from '../activity/activity-service.js';
+import { ActivityAccountUnknownError, ActivityService, ActivityUnavailableError, type ActivityItem } from '../activity/activity-service.js';
+import type { SpaceService } from '../spaces/space-service.js';
 import { signStatement, statementCsv, statementLines, statementPdf } from './statement-file.js';
 
 /**
  * `bank.statements.export` — a signed file of the caller's own posted lines.
  * CSV for any range up to 366 days. PDF for a single UTC calendar month.
- * Neither file states a balance.
+ * With `spaceId`, only the lines of that one of the caller's own named spaces
+ * (BK-pots-02). Neither file states a balance.
  */
 
 const MAX_ROWS = 5_000;
@@ -25,6 +27,8 @@ export interface StatementFile {
     readonly from: string;
     readonly to: string;
     readonly assetId: string | null;
+    /** The one space the statement covers, or null for the whole account. */
+    readonly spaceId: string | null;
     readonly rowCount: number;
     readonly generatedAt: string;
     readonly sha256: string;
@@ -35,11 +39,12 @@ export class StatementService {
   constructor(
     private readonly activity: ActivityService,
     private readonly secret: string | undefined,
+    private readonly spaces?: Pick<SpaceService, 'find'>,
   ) {}
 
   async export(
     userId: string,
-    input: { from: string; to: string; assetId?: string; format: 'csv' | 'pdf'; now?: Date },
+    input: { from: string; to: string; assetId?: string; spaceId?: string; format: 'csv' | 'pdf'; now?: Date },
   ): Promise<StatementFile> {
     if (!this.secret) {
       throw new BankError('Statements are not available until the service secret is set', 'bank.statement_unavailable');
@@ -59,17 +64,38 @@ export class StatementService {
         throw new BankError('A PDF statement covers one UTC calendar month', 'bank.statement_pdf_one_month');
       }
     }
+    // One space: the caller's own named space, read here so another person's reads as not found. Its asset narrows the
+    // read; a different asset asked for alongside it is refused rather than quietly replaced.
+    let space: { id: string; name: string; assetId: string } | null = null;
+    if (input.spaceId !== undefined) {
+      if (!this.spaces) {
+        throw new BankError('Space statements are not available on this service', 'bank.statement_unavailable');
+      }
+      const found = await this.spaces.find(input.spaceId);
+      if (!found || found.userId !== userId || found.kind !== 'named') {
+        throw new BankError(`Space ${input.spaceId} not found`, 'bank.space_not_found');
+      }
+      if (input.assetId !== undefined && input.assetId !== found.assetId) {
+        throw new BankError(`Space "${found.name}" holds ${found.assetId}, not ${input.assetId}`, 'bank.asset_mismatch');
+      }
+      space = { id: found.id, name: found.name, assetId: found.assetId };
+    }
+    const assetId = space?.assetId ?? input.assetId;
     let items: ActivityItem[];
     try {
       items = await this.activity.collect(userId, {
         from: input.from,
         to: input.to,
-        assetId: input.assetId,
+        assetId,
+        ...(space ? { accountId: space.id } : {}),
         limit: MAX_ROWS + 1,
       });
     } catch (err) {
       if (err instanceof ActivityUnavailableError) {
         throw new BankError('Activity is not available, so a statement cannot be built', 'bank.statement_unavailable');
+      }
+      if (err instanceof ActivityAccountUnknownError) {
+        throw new BankError(`Space ${input.spaceId} not found`, 'bank.space_not_found');
       }
       throw err;
     }
@@ -80,10 +106,21 @@ export class StatementService {
     const bytes =
       input.format === 'csv'
         ? Buffer.from(statementCsv(items), 'utf8')
-        : statementPdf(statementLines({ holderUserId: userId, from: input.from, to: input.to, generatedAt, rows: items }));
+        : statementPdf(
+            statementLines({
+              holderUserId: userId,
+              from: input.from,
+              to: input.to,
+              generatedAt,
+              rows: items,
+              ...(space ? { space: { id: space.id, name: space.name } } : {}),
+            }),
+          );
     const signed = signStatement(this.secret, bytes);
     const day = generatedAt.slice(0, 10);
-    const filename = input.format === 'csv' ? `intafaced-activity-${day}.csv` : `intafaced-statement-${input.from.slice(0, 7)}.pdf`;
+    const scope = space ? `space-${space.id.slice(0, 8)}-` : '';
+    const filename =
+      input.format === 'csv' ? `intafaced-${scope || 'activity-'}${day}.csv` : `intafaced-${scope}statement-${input.from.slice(0, 7)}.pdf`;
     return {
       format: input.format,
       filename,
@@ -97,7 +134,8 @@ export class StatementService {
         holderUserId: userId,
         from: input.from,
         to: input.to,
-        assetId: input.assetId ?? null,
+        assetId: assetId ?? null,
+        spaceId: space?.id ?? null,
         rowCount: items.length,
         generatedAt,
         sha256: signed.sha256,

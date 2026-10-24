@@ -13,6 +13,10 @@ export const scheduleSchema = z.object({
   nextRunAt: z.string(),
   status: z.string(),
   revision: z.number().int().positive(),
+  /** The person's own space the order pays from. */
+  fromSpaceId: z.string().optional(),
+  /** The person's own space it pays into, or null when it pays another person. */
+  toSpaceId: z.string().nullable().optional(),
 });
 export const poolSchema = z.object({
   id: z.string(),
@@ -80,6 +84,15 @@ export const payoffQuoteSchema = z.object({
   validUntil: z.string(),
 });
 export type PayoffQuote = z.infer<typeof payoffQuoteSchema>;
+/** A signed statement file from `bank.statements.export`: the whole account, or one space (BK-pots-02). */
+export const statementFileSchema = z.object({
+  format: z.enum(['csv', 'pdf']),
+  filename: z.string(),
+  contentType: z.string(),
+  bodyBase64: z.string(),
+  sha256: z.string(),
+  rowCount: z.number().int().nonnegative(),
+});
 /** `bank.loans.statement` (BK-loan-06): one loan's signed CSV over a period; a month still running is provisional. */
 export const loanStatementSchema = z.object({
   format: z.literal('csv'),
@@ -181,6 +194,8 @@ export const ruleSchema = z.object({
   assetId: z.string(),
   threshold: money.nullable(),
   targetPoolId: z.string().nullable(),
+  /** A card round-up into one of the person's own spaces (BK-pots-02). */
+  targetSpaceId: z.string().nullable().optional(),
   buyAssetId: z.string().nullable(),
   amount: money.nullable(),
   cadence: z.enum(['daily', 'weekly', 'monthly']).nullable(),
@@ -882,7 +897,8 @@ export function bankWriteForReview(procedure: BankWrite, input: Record<string, u
           row.kind === (threshold ? 'threshold_sweep' : 'card_roundup') &&
           row.status === 'active' &&
           row.assetId === input.assetId &&
-          row.targetPoolId === input.targetPoolId &&
+          row.targetPoolId === (input.targetPoolId ?? null) &&
+          (row.targetSpaceId ?? null) === (input.targetSpaceId ?? null) &&
           (threshold
             ? exact(row.threshold, input.threshold) && row.amount === null
             : exact(row.amount, input.granularity) && row.threshold === null) &&

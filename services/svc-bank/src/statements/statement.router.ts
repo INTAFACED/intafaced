@@ -23,6 +23,7 @@ const statementOutput = z.object({
     from: z.string(),
     to: z.string(),
     assetId: z.string().nullable(),
+    spaceId: z.string().nullable(),
     rowCount: z.number().int().nonnegative(),
     generatedAt: z.string().datetime(),
     sha256: z.string(),
@@ -38,6 +39,8 @@ export function createStatementsRouter(bank: Pick<BankServices, 'statements'>) {
             from: z.string().datetime({ offset: true }),
             to: z.string().datetime({ offset: true }),
             assetId: z.string().min(1).max(16).optional(),
+            /** One of the caller's own named spaces: only its lines (BK-pots-02). */
+            spaceId: z.string().guid().optional(),
             format: z.enum(['csv', 'pdf']),
           })
           .strict(),

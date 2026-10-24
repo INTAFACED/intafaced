@@ -223,6 +223,14 @@ export const endsField: ActionField = {
     Number.isFinite(Date.parse(value)) && Date.parse(value) > Date.now() ? null : copyText('components.choose.an.end.after.first.run'),
 };
 export const iso = (value: string) => new Date(value).toISOString();
+/** A one-off has no end date, and an end at or before the first run would never fire. */
+export function scheduleWindowIssue(input: Record<string, unknown>): string | null {
+  if (typeof input.endsAt !== 'string') return null;
+  if (input.cadence === 'once') return copyText('components.last.run.hint');
+  return typeof input.startsAt === 'string' && Date.parse(input.endsAt) <= Date.parse(input.startsAt)
+    ? copyText('components.choose.an.end.after.first.run')
+    : null;
+}
 const outputNames: Record<string, string> = {
   get ledgerTxId() {
     return copyText('components.ledger.transaction');

@@ -93,16 +93,16 @@ archived spaces remain visible. `loans.releaseExcess` requires a caller-supplied
 
 ### `transfers`
 
-| Procedure                  | Scope        | Purpose                                                                                      |
-| -------------------------- | ------------ | -------------------------------------------------------------------------------------------- |
-| `transfers.create`         | `bank:write` | One-off transfer; `transferId` is client-supplied, so a retried request is the same transfer |
-| `transfers.schedule`       | `bank:write` | Standing order — daily, weekly, or monthly — or a one-off (`once`) on a date                 |
-| `transfers.listSchedules`  | `bank:read`  | The user's standing orders                                                                   |
-| `transfers.updateSchedule` | `bank:write` | Change the amount or end date at the revision read; refused inside the edit cutoff           |
-| `transfers.executions`     | `bank:read`  | What ran, what did not, and **why** — the answer to "where is my rent"                       |
-| `transfers.cancel`         | `bank:write` | Stop future firings. Never reverses ones that happened                                       |
-| `transfers.pause`          | `bank:write` | Hold a standing order. The reversible half of `cancel`                                       |
-| `transfers.resume`         | `bank:write` | Start it again **from here** — returns the occurrences that will never be made up            |
+| Procedure                  | Scope        | Purpose                                                                                                |
+| -------------------------- | ------------ | ------------------------------------------------------------------------------------------------------ |
+| `transfers.create`         | `bank:write` | One-off transfer; `transferId` is client-supplied, so a retried request is the same transfer           |
+| `transfers.schedule`       | `bank:write` | Standing order — daily, weekly, or monthly — or a one-off (`once`) on a date                           |
+| `transfers.listSchedules`  | `bank:read`  | The user's standing orders, with the space each pays from and, when it is their own, into (BK-pots-02) |
+| `transfers.updateSchedule` | `bank:write` | Change the amount or end date at the revision read; refused inside the edit cutoff                     |
+| `transfers.executions`     | `bank:read`  | What ran, what did not, and **why** — the answer to "where is my rent"                                 |
+| `transfers.cancel`         | `bank:write` | Stop future firings. Never reverses ones that happened                                                 |
+| `transfers.pause`          | `bank:write` | Hold a standing order. The reversible half of `cancel`                                                 |
+| `transfers.resume`         | `bank:write` | Start it again **from here** — returns the occurrences that will never be made up                      |
 
 **Resume does not settle up, and says so on the wire.** `planDue` fires every occurrence between `lastFired` and `now`, which is right after an outage and wrong after a pause: the user stopped the order precisely so those transfers would not happen, and catching up would move three months of rent in one pass on a day nobody chose. So `resume` records the elapsed occurrences as `skipped` — a **row**, not an absence, because `MAX(occurrence)` over `transfer_executions` _is_ `lastFired`, so writing the rows is what moves the schedule's floor forward. The same unique index that makes a double-fire impossible makes a double-skip impossible; there is no second watermark to keep in step. Resuming posts nothing to the ledger, ever.
 
@@ -161,14 +161,14 @@ The procedures exist and are mounted. With `BANK_CARD_ISSUER=none` (the default)
 
 ### `autoInvest` — **F-plane half. DCA refuses rates unset.**
 
-| Procedure                         | Scope        | What it does                                                                                                                |
-| --------------------------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------- |
-| `autoInvest.list`                 | `bank:read`  | The user's rules. Rules hold **no balance** — instructions only                                                             |
-| `autoInvest.createThresholdSweep` | `bank:write` | Keep `threshold` in primary available; excess → earn pool (**same asset**, no rate)                                         |
-| `autoInvest.createRoundUp`        | `bank:write` | Spare change after card capture → same-asset earn pool. Cross-asset `buyAssetId` **refuses `bank.auto_invest_rate_unset`**  |
-| `autoInvest.createDca`            | `bank:write` | Scheduled cross-asset buy — **refuses `bank.auto_invest_rate_unset`** until a convert port is wired. Never invents §8 rates |
-| `autoInvest.pause` / `resume`     | `bank:write` | Hold a rule without cancelling; resume applies normal due rules (no multi-fire invent)                                      |
-| `autoInvest.cancel`               | `bank:write` | Stop future firings. Does not reverse past runs                                                                             |
+| Procedure                         | Scope        | What it does                                                                                                                                                                                                                                                |
+| --------------------------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `autoInvest.list`                 | `bank:read`  | The user's rules. Rules hold **no balance** — instructions only                                                                                                                                                                                             |
+| `autoInvest.createThresholdSweep` | `bank:write` | Keep `threshold` in primary available; excess → earn pool (**same asset**, no rate)                                                                                                                                                                         |
+| `autoInvest.createRoundUp`        | `bank:write` | Spare change after card capture → same-asset earn pool, or one of the user's own named spaces (`targetSpaceId`, BK-pots-02; exactly one target, else `bank.auto_invest_target_invalid`). Cross-asset `buyAssetId` **refuses `bank.auto_invest_rate_unset`** |
+| `autoInvest.createDca`            | `bank:write` | Scheduled cross-asset buy — **refuses `bank.auto_invest_rate_unset`** until a convert port is wired. Never invents §8 rates                                                                                                                                 |
+| `autoInvest.pause` / `resume`     | `bank:write` | Hold a rule without cancelling; resume applies normal due rules (no multi-fire invent)                                                                                                                                                                      |
+| `autoInvest.cancel`               | `bank:write` | Stop future firings. Does not reverse past runs                                                                                                                                                                                                             |
 
 `ops.runAutoInvest` (`admin:treasury`) and `POST /internal/jobs/run-auto-invest` fire due **threshold / DCA** rules. Card round-ups fire on `ops.cardCapture`, not the runner. Kill switch: `AUTO_INVEST_ENABLED` — same code `bank.auto_invest_disabled` on HTTP, tRPC runner, **and the capture hook**. Sovereign allowance plane is not here — P-plane is `protocol.smart-accounts` (Shehzad). No APY is invented; the destination is an existing earn pool. DCA converts run as a standing instruction: bank calls svc-trade `standing.quote` / `standing.execute` as an authenticated svc-bank (body-bound service call, user and rule id in the signed body, no minted customer principal). The trade door is off until `TRADE_STANDING_INSTRUCTION_ENABLED`; while off, a DCA run refuses `bank.auto_invest_rate_unset`.
 

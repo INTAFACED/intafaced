@@ -1355,6 +1355,8 @@ export const autoInvestRules = bank.table(
     assetId: text('asset_id').notNull(),
     threshold: amount('threshold'),
     targetPoolId: uuid('target_pool_id'),
+    /** A card round-up into one of the person's own named spaces. Exactly one of this and `targetPoolId` on a round-up. */
+    targetSpaceId: uuid('target_space_id').references(() => spaces.id),
     buyAssetId: text('buy_asset_id'),
     amount: amount('amount'),
     cadence: transferCadenceEnum('cadence'),
