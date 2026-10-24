@@ -23,8 +23,8 @@
  * requires it). A missing scope is a real 403 from the service, not a fake
  * local refuse.
  *
- * Ledger reconcile is deliberately ABSENT — svc-edge has no route for it
- * (`operator-commands.ts` keeps it simulated).
+ * Ledger reconciliation is deliberately ABSENT here: it has its own controls on
+ * `/ledger` (`components/reconciliation-controls.tsx`).
  */
 
 export type ToolAuthority = 'module' | 'treasury';
