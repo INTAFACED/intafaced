@@ -120,7 +120,13 @@ export function assertFounderAudienceAttestation(consumed: ActionApproval, subje
   );
 }
 
-/** Consume a ledger operator approval. Freeze is a protective verb; thaw and reconcile are founder-audience. */
+/**
+ * Consume a ledger operator approval. Freeze is a protective verb; thaw and reconcile are founder-audience.
+ *
+ * `requestId` is the caller's business key for this consume (the operation id). Identity treats an omitted
+ * id as one-shot. The same id after a lost reply returns `consumption: already_consumed_by_this_request`
+ * and does not repeat the founder attestation, so that replay is accepted when the binding still matches.
+ */
 export async function consumeLedgerApproval(
   approvals: ActionApprovalConsumer,
   cmd: { readonly approvalId?: string | null; readonly operationId?: string | null },
@@ -128,8 +134,10 @@ export async function consumeLedgerApproval(
   targetId: string,
   expectedVersion: string,
   fields: Record<string, string>,
+  requestId?: string | null,
 ): Promise<ActionApproval> {
   const ids = readApprovalIds(cmd);
+  const replayKey = requestId?.trim() ?? '';
   const consumed = await approvals.consume({
     approvalId: ids.approvalId,
     operationId: ids.operationId,
@@ -137,7 +145,19 @@ export async function consumeLedgerApproval(
     targetService: 'svc-ledger',
     targetId,
     expectedVersion,
+    ...(replayKey.length > 0 ? { requestId: replayKey } : {}),
   });
-  assertFounderAudienceAttestation(consumed, { actionType, targetService: 'svc-ledger', targetId });
+  const subject = { actionType, targetService: 'svc-ledger' as const, targetId };
+  if (consumed.consumption === 'already_consumed_by_this_request') {
+    const verdict = founderAttestationVerdict(consumed, subject);
+    if (!verdict.ok && verdict.reason !== 'missing') {
+      throw new ActionApprovalConsumeError(
+        'the founder attestation does not match a distinct founder pair for this action',
+        ACTION_APPROVAL_NOT_FOUNDERS,
+      );
+    }
+    return consumed;
+  }
+  assertFounderAudienceAttestation(consumed, subject);
   return consumed;
 }

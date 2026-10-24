@@ -1,0 +1,1103 @@
+/**
+ * Operator reconciliation controls (OPS-reconciliation-01).
+ *
+ * Beside the three built-in proofs. Nothing here posts or freezes. A result
+ * row is committed before any balance read. An outside snapshot comes through
+ * the contract shape; no snapshot is the word `unset`, not null and not zero.
+ */
+
+import { createHash } from 'node:crypto';
+import type { JSONValue, Sql, TransactionSql } from 'postgres';
+import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
+import {
+  LEDGER_RECONCILE_ASOF_INVALID,
+  LEDGER_RECONCILE_BUILTIN_IMMUTABLE,
+  LEDGER_RECONCILE_CONTROL_NOT_FOUND,
+  LEDGER_RECONCILE_SOURCE_UNAVAILABLE,
+  OPS_CONTROL_MARGIN_UNSET,
+  OPS_CONTROL_POLICY_UNSET,
+  OPS_CONTROL_ACTOR_UNSET,
+  OPS_CONTROL_REASON_REQUIRED,
+  OPS_CONTROL_STATE_ILLEGAL,
+  defineReconciliationControlInputSchema,
+  reconciliationAccountSetSchema,
+  reconciliationControlRunSchema,
+  reconciliationControlViewSchema,
+  reconciliationScheduleSchema,
+  reconciliationThresholdSchema,
+  reconciliationToleranceSchema,
+  runReconciliationControlInputSchema,
+  updateReconciliationControlInputSchema,
+  type DefineReconciliationControlInput,
+  type ReconciliationAccountSet,
+  type ReconciliationControlRunView,
+  type ReconciliationControlView,
+  type ReconciliationSchedule,
+  type ReconciliationThreshold,
+  type UpdateReconciliationControlInput,
+} from '@intafaced/contracts/ledger-reconciliation';
+import type { ActionApprovalConsumer as LedgerApprovalConsumer } from './action-approval-consume.js';
+import { consumeLedgerApproval } from './action-approval-consume.js';
+import { verifyChain } from './reconcile.js';
+import { ReconciliationControlError } from './reconciliation-control-error.js';
+import {
+  assertNotFuture,
+  dueInstant,
+  periodBounds,
+  periodForSchedule,
+  readInstant,
+  type ReconciliationPeriod,
+} from './reconciliation-schedule.js';
+
+type Db = Sql | TransactionSql;
+
+export interface SnapshotRead {
+  readonly kind: 'unset' | 'unavailable' | 'snapshot';
+  readonly asOf?: string;
+  readonly balances?: readonly { readonly assetId: string; readonly amount: string }[];
+}
+
+export interface ReconciliationSources {
+  outsideBalance(readAt: Date): Promise<SnapshotRead>;
+  parity(readAt: Date): Promise<SnapshotRead>;
+}
+
+export function unsetReconciliationSources(): ReconciliationSources {
+  return {
+    outsideBalance: async () => ({ kind: 'unset' }),
+    parity: async () => ({ kind: 'unset' }),
+  };
+}
+
+export interface ControlActor {
+  readonly actorId: string;
+  readonly requestId: string | null;
+}
+
+interface ToleranceStored {
+  default?: string;
+  byAsset?: Record<string, string>;
+}
+
+interface ControlRow {
+  id: string;
+  builtin: boolean;
+  builtin_key: string | null;
+  template: ReconciliationControlView['template'];
+  check_kind: 'replay' | 'chain' | 'netting' | 'replay_and_netting' | null;
+  state: 'draft' | 'active';
+  explanation: string;
+  labels: string[];
+  schedule: ReconciliationSchedule | null;
+  severity: 'info' | 'warning' | 'critical' | null;
+  period: ReconciliationPeriod | null;
+  tolerance: ToleranceStored | null;
+  margin: string | null;
+  account_set: ReconciliationAccountSet;
+  threshold: ReconciliationThreshold | null;
+  version: number;
+}
+
+interface AssetEvidence {
+  assetId: string;
+  observed: string;
+  expected: string | 'unset';
+  difference: string | 'unset';
+  tolerance: string | 'unset';
+}
+
+interface Verdict {
+  status: 'PASS' | 'FAIL' | 'ERROR' | 'UNSET';
+  phase: string;
+  errorCode: string;
+  assets: AssetEvidence[];
+  outsideSide: 'unset' | 'snapshot' | 'unavailable' | 'not_applicable';
+  sources: ReconciliationControlRunView['sources'];
+}
+
+function actorOf(actorId: string): string {
+  const actor = actorId.trim();
+  if (!actor) throw new ReconciliationControlError(OPS_CONTROL_ACTOR_UNSET);
+  return actor;
+}
+
+function reasonOf(reason: string): string {
+  const trimmed = reason.trim();
+  if (trimmed.length < 12 || trimmed.length > 500) throw new ReconciliationControlError(OPS_CONTROL_REASON_REQUIRED);
+  return trimmed;
+}
+
+function likePrefix(prefix: string): string {
+  return `${prefix.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
+}
+
+function asJson(value: unknown): JSONValue {
+  return JSON.parse(JSON.stringify(value)) as JSONValue;
+}
+
+function fingerprint(parts: Record<string, string>): string {
+  return createHash('sha256').update(JSON.stringify(parts)).digest('hex');
+}
+
+function present<T>(value: T | null | undefined): value is T {
+  return value !== null && value !== undefined;
+}
+
+function toleranceReady(tolerance: ToleranceStored | null): boolean {
+  return typeof tolerance?.default === 'string' && tolerance.default.trim() !== '';
+}
+
+function policyReady(row: Pick<ControlRow, 'template' | 'schedule' | 'severity' | 'tolerance' | 'threshold'>): boolean {
+  if (!toleranceReady(row.tolerance) || !row.schedule || !row.severity) return false;
+  if (row.template === 'threshold') {
+    return !!row.threshold && Object.keys(row.threshold.byAsset).length > 0;
+  }
+  return true;
+}
+
+function setOrUnset<T extends string>(value: T | null): { status: 'unset' } | { status: 'set'; value: T } {
+  return value === null ? { status: 'unset' } : { status: 'set', value };
+}
+
+function toView(row: ControlRow): ReconciliationControlView {
+  const schedule = row.schedule ? reconciliationScheduleSchema.parse(row.schedule) : null;
+  const period = row.period ?? (schedule ? periodForSchedule(schedule) : null);
+  const tolerance = row.tolerance;
+  const threshold = row.threshold ? reconciliationThresholdSchema.parse(row.threshold) : null;
+  return reconciliationControlViewSchema.parse({
+    id: row.id,
+    builtin: row.builtin,
+    template: row.template,
+    checkKind: row.check_kind ? { status: 'set', value: row.check_kind } : { status: 'unset' },
+    state: row.state,
+    explanation: row.explanation,
+    labels: Array.isArray(row.labels) ? row.labels : [],
+    schedule: schedule && period ? { status: 'set', value: schedule, period } : { status: 'unset' },
+    severity: setOrUnset(row.severity),
+    tolerance:
+      tolerance && typeof tolerance.default === 'string'
+        ? { status: 'set', default: tolerance.default, byAsset: tolerance.byAsset ?? {} }
+        : { status: 'unset' },
+    margin: setOrUnset(row.margin),
+    accountSet: reconciliationAccountSetSchema.parse(row.account_set),
+    threshold: threshold ? { status: 'set', bound: threshold.bound, byAsset: threshold.byAsset } : { status: 'unset' },
+    version: Number(row.version),
+  });
+}
+
+async function audit(
+  tx: Db,
+  controlId: string,
+  actor: string,
+  reason: string,
+  action: 'define' | 'update' | 'run',
+  requestId: string | null,
+  detail: object,
+): Promise<void> {
+  await tx`
+    INSERT INTO reconciliation_control_audit (control_id, actor_id, reason, action, request_id, detail)
+    VALUES (${controlId}, ${actor}, ${reason}, ${action}, ${requestId}, ${tx.json(asJson(detail))})
+  `;
+}
+
+const CONTROL_COLUMNS = `
+  id, builtin, builtin_key, template, check_kind, state, explanation, labels, schedule, severity, period,
+  tolerance, margin, account_set, threshold, version
+`;
+
+async function loadControl(sql: Db, id: string, lock: boolean): Promise<ControlRow> {
+  const rows = await sql<ControlRow[]>`
+    SELECT ${sql.unsafe(CONTROL_COLUMNS)}
+      FROM reconciliation_controls
+     WHERE id = ${id}
+     ${lock ? sql.unsafe('FOR UPDATE') : sql.unsafe('')}
+  `;
+  const row = rows[0];
+  if (!row) throw new ReconciliationControlError(LEDGER_RECONCILE_CONTROL_NOT_FOUND);
+  return row;
+}
+
+function checkKindFor(template: ControlRow['template']): ControlRow['check_kind'] {
+  return template === 'ledger_invariant' ? 'replay_and_netting' : null;
+}
+
+export async function defineReconciliationControl(
+  sql: Sql,
+  actor: ControlActor,
+  input: DefineReconciliationControlInput,
+): Promise<ReconciliationControlView> {
+  const parsed = defineReconciliationControlInputSchema.parse(input);
+  const who = actorOf(actor.actorId);
+  const reason = reasonOf(parsed.reason);
+  const schedule = parsed.schedule ?? null;
+  const period = schedule ? periodForSchedule(schedule) : null;
+  const tolerance = parsed.tolerance ?? null;
+  const activate = parsed.activate === true;
+  const ready = policyReady({
+    template: parsed.template,
+    schedule,
+    severity: parsed.severity ?? null,
+    tolerance,
+    threshold: parsed.threshold ?? null,
+  });
+  let refused = false;
+  const view = await sql.begin(async (tx) => {
+    const inserted = await tx<ControlRow[]>`
+      INSERT INTO reconciliation_controls (
+        builtin, template, check_kind, state, explanation, labels, schedule, severity, period, tolerance, margin,
+        account_set, threshold, defined_by, defined_reason
+      ) VALUES (
+        false,
+        ${parsed.template},
+        ${checkKindFor(parsed.template)},
+        'draft',
+        ${parsed.explanation ?? ''},
+        ${tx.json(parsed.labels ?? [])},
+        ${schedule ? tx.json(schedule) : null},
+        ${parsed.severity ?? null},
+        ${period},
+        ${tolerance ? tx.json(tolerance) : null},
+        ${parsed.margin ?? null},
+        ${tx.json(parsed.accountSet)},
+        ${parsed.threshold ? tx.json(parsed.threshold) : null},
+        ${who},
+        ${reason}
+      )
+      RETURNING ${tx.unsafe(CONTROL_COLUMNS)}
+    `;
+    const row = inserted[0];
+    if (!row) throw new ReconciliationControlError(LEDGER_RECONCILE_SOURCE_UNAVAILABLE);
+    await audit(tx, row.id, who, reason, 'define', actor.requestId, { template: parsed.template, activate });
+    if (!activate) return toView(row);
+    if (!ready) {
+      refused = true;
+      return toView(row);
+    }
+    const activated = await tx<ControlRow[]>`
+      UPDATE reconciliation_controls
+         SET state = 'active', version = version + 1, updated_at = clock_timestamp()
+       WHERE id = ${row.id}
+       RETURNING ${tx.unsafe(CONTROL_COLUMNS)}
+    `;
+    const next = activated[0];
+    if (!next) throw new ReconciliationControlError(LEDGER_RECONCILE_SOURCE_UNAVAILABLE);
+    await audit(tx, row.id, who, reason, 'update', actor.requestId, { state: 'active' });
+    return toView(next);
+  });
+  if (refused) throw new ReconciliationControlError(OPS_CONTROL_POLICY_UNSET);
+  return view;
+}
+
+export async function updateReconciliationControl(
+  sql: Sql,
+  actor: ControlActor,
+  input: UpdateReconciliationControlInput,
+): Promise<ReconciliationControlView> {
+  const parsed = updateReconciliationControlInputSchema.parse(input);
+  const who = actorOf(actor.actorId);
+  const reason = reasonOf(parsed.reason);
+  return sql.begin(async (tx) => {
+    const current = await loadControl(tx, parsed.controlId, true);
+    if (current.builtin) throw new ReconciliationControlError(LEDGER_RECONCILE_BUILTIN_IMMUTABLE);
+    const schedule = parsed.schedule ?? current.schedule;
+    const severity = parsed.severity ?? current.severity;
+    const tolerance = parsed.tolerance ?? current.tolerance;
+    const threshold = parsed.threshold ?? current.threshold;
+    const margin = parsed.margin ?? current.margin;
+    const accountSet = parsed.accountSet ?? current.account_set;
+    const explanation = parsed.explanation ?? current.explanation;
+    const labels = parsed.labels ?? current.labels;
+    const period = schedule ? periodForSchedule(reconciliationScheduleSchema.parse(schedule)) : null;
+    const activate = parsed.activate === true;
+    const nextState = activate ? 'active' : current.state;
+    if (activate || current.state === 'active') {
+      const ready = policyReady({ template: current.template, schedule, severity, tolerance, threshold });
+      if (!ready) throw new ReconciliationControlError(OPS_CONTROL_POLICY_UNSET);
+    }
+    const updated = await tx<ControlRow[]>`
+      UPDATE reconciliation_controls
+         SET explanation = ${explanation},
+             labels = ${tx.json(labels)},
+             schedule = ${schedule ? tx.json(schedule) : null},
+             severity = ${severity},
+             period = ${period},
+             tolerance = ${tolerance ? tx.json(reconciliationToleranceSchema.parse(tolerance)) : null},
+             margin = ${margin},
+             account_set = ${tx.json(reconciliationAccountSetSchema.parse(accountSet))},
+             threshold = ${threshold ? tx.json(reconciliationThresholdSchema.parse(threshold)) : null},
+             state = ${nextState},
+             version = version + 1,
+             updated_at = clock_timestamp()
+       WHERE id = ${current.id}
+       RETURNING ${tx.unsafe(CONTROL_COLUMNS)}
+    `;
+    const row = updated[0];
+    if (!row) throw new ReconciliationControlError(LEDGER_RECONCILE_SOURCE_UNAVAILABLE);
+    await audit(tx, row.id, who, reason, 'update', actor.requestId, { state: row.state, version: row.version });
+    return toView(row);
+  });
+}
+
+export async function listReconciliationControls(sql: Sql): Promise<ReconciliationControlView[]> {
+  const rows = await sql<ControlRow[]>`
+    SELECT ${sql.unsafe(CONTROL_COLUMNS)}
+      FROM reconciliation_controls
+     ORDER BY builtin DESC, builtin_key ASC NULLS LAST, id ASC
+  `;
+  return rows.map(toView);
+}
+
+interface AccountHit {
+  id: string;
+  asset_id: string;
+}
+
+async function accountsInSet(sql: Db, accountSet: ReconciliationAccountSet, readAt: Date): Promise<AccountHit[]> {
+  if (accountSet.mode === 'explicit') {
+    return sql<AccountHit[]>`
+      SELECT id, asset_id FROM accounts
+       WHERE created_at <= ${readAt} AND id = ANY(${accountSet.accountIds}::uuid[])
+    `;
+  }
+  if (accountSet.mode === 'all') {
+    return sql<AccountHit[]>`SELECT id, asset_id FROM accounts WHERE created_at <= ${readAt}`;
+  }
+  const prefix = accountSet.ownerIdPrefix ? likePrefix(accountSet.ownerIdPrefix) : null;
+  return sql<AccountHit[]>`
+    SELECT id, asset_id FROM accounts
+     WHERE created_at <= ${readAt}
+       ${accountSet.ownerType ? sql`AND owner_type = ${accountSet.ownerType}::owner_type` : sql``}
+       ${prefix ? sql`AND owner_id LIKE ${prefix} ESCAPE '\\'` : sql``}
+       ${accountSet.kind ? sql`AND kind = ${accountSet.kind}::account_kind` : sql``}
+       ${accountSet.purpose !== undefined ? sql`AND purpose = ${accountSet.purpose}` : sql``}
+       ${accountSet.assetId ? sql`AND asset_id = ${accountSet.assetId}` : sql``}
+  `;
+}
+
+async function balancesAt(sql: Db, ids: string[], readAt: Date): Promise<Map<string, Amount>> {
+  const out = new Map<string, Amount>();
+  for (const id of ids) out.set(id, 0n);
+  if (ids.length === 0) return out;
+  const rows = await sql<Array<{ account_id: string; balance_after: string }>>`
+    SELECT DISTINCT ON (e.account_id) e.account_id, e.balance_after::text AS balance_after
+      FROM ledger_entries e
+      JOIN ledger_tx t ON t.id = e.tx_id
+     WHERE e.account_id = ANY(${ids}::uuid[]) AND t.posted_at <= ${readAt}
+     ORDER BY e.account_id, e.id DESC
+  `;
+  for (const row of rows) out.set(row.account_id, parseAmount(row.balance_after));
+  return out;
+}
+
+async function replayedAt(sql: Db, ids: string[], readAt: Date): Promise<Map<string, Amount>> {
+  const out = new Map<string, Amount>();
+  for (const id of ids) out.set(id, 0n);
+  if (ids.length === 0) return out;
+  const rows = await sql<Array<{ account_id: string; replayed: string }>>`
+    SELECT e.account_id,
+           COALESCE(SUM(CASE WHEN e.direction = 'debit' THEN e.amount ELSE -e.amount END), 0)::text AS replayed
+      FROM ledger_entries e
+      JOIN ledger_tx t ON t.id = e.tx_id
+     WHERE e.account_id = ANY(${ids}::uuid[]) AND t.posted_at <= ${readAt}
+     GROUP BY e.account_id
+  `;
+  for (const row of rows) out.set(row.account_id, parseAmount(row.replayed));
+  return out;
+}
+
+function toleranceFor(tolerance: ToleranceStored | null, assetId: string): Amount | null {
+  const raw = tolerance?.byAsset?.[assetId] ?? tolerance?.default;
+  if (raw === undefined || raw.trim() === '') return null;
+  return parseAmount(raw);
+}
+
+function sumByAsset(accounts: AccountHit[], amounts: Map<string, Amount>): Map<string, Amount> {
+  const totals = new Map<string, Amount>();
+  for (const account of accounts) {
+    totals.set(account.asset_id, (totals.get(account.asset_id) ?? 0n) + (amounts.get(account.id) ?? 0n));
+  }
+  return totals;
+}
+
+function assetRow(
+  assetId: string,
+  observed: Amount,
+  expected: Amount | 'unset',
+  tolerance: Amount | null,
+  pass: boolean | 'unset',
+): AssetEvidence {
+  if (expected === 'unset' || tolerance === null || pass === 'unset') {
+    return {
+      assetId,
+      observed: formatAmount(observed),
+      expected: 'unset',
+      difference: 'unset',
+      tolerance: tolerance === null ? 'unset' : formatAmount(tolerance),
+    };
+  }
+  return {
+    assetId,
+    observed: formatAmount(observed),
+    expected: formatAmount(expected),
+    difference: formatAmount(observed - expected),
+    tolerance: formatAmount(tolerance),
+  };
+}
+
+function foldAssets(assets: AssetEvidence[], unsetSource: boolean): 'PASS' | 'FAIL' | 'ERROR' | 'UNSET' {
+  if (assets.some((asset) => asset.tolerance === 'unset')) return 'ERROR';
+  if (unsetSource || assets.some((asset) => asset.expected === 'unset')) return 'UNSET';
+  if (assets.some((asset) => asset.difference !== 'unset' && parseAmount(asset.difference) !== 0n && !withinStored(asset))) return 'FAIL';
+  return 'PASS';
+}
+
+function withinStored(asset: AssetEvidence): boolean {
+  if (asset.difference === 'unset' || asset.tolerance === 'unset') return false;
+  const difference = parseAmount(asset.difference);
+  const abs = difference < 0n ? -difference : difference;
+  return abs <= parseAmount(asset.tolerance);
+}
+
+function equalAssets(
+  observed: Map<string, Amount>,
+  expected: Map<string, Amount>,
+  tolerance: ToleranceStored | null,
+  missingIsZero: boolean,
+): AssetEvidence[] {
+  const ids = new Set<string>([...observed.keys(), ...expected.keys()]);
+  const assets: AssetEvidence[] = [];
+  for (const assetId of [...ids].sort()) {
+    const left = observed.get(assetId);
+    const right = expected.get(assetId);
+    const seenLeft = left ?? (missingIsZero ? 0n : null);
+    const seenRight = right ?? (missingIsZero ? 0n : null);
+    const tol = toleranceFor(tolerance, assetId);
+    if (seenLeft === null || seenRight === null) {
+      assets.push(assetRow(assetId, seenLeft ?? 0n, 'unset', tol, 'unset'));
+      continue;
+    }
+    const difference = seenLeft - seenRight;
+    const abs = difference < 0n ? -difference : difference;
+    const pass = tol !== null && abs <= tol;
+    assets.push(assetRow(assetId, seenLeft, seenRight, tol, pass));
+  }
+  return assets;
+}
+
+function thresholdAssets(
+  observed: Map<string, Amount>,
+  threshold: ReconciliationThreshold,
+  tolerance: ToleranceStored | null,
+): AssetEvidence[] {
+  const assets: AssetEvidence[] = [];
+  for (const assetId of Object.keys(threshold.byAsset).sort()) {
+    const bound = parseAmount(threshold.byAsset[assetId] ?? '0');
+    const amount = observed.get(assetId) ?? 0n;
+    const tol = toleranceFor(tolerance, assetId);
+    if (tol === null) {
+      assets.push(assetRow(assetId, amount, bound, null, 'unset'));
+      continue;
+    }
+    const pass = threshold.bound === 'min' ? amount + tol >= bound : amount - tol <= bound;
+    const difference = threshold.bound === 'min' ? (amount < bound ? amount - bound : 0n) : amount > bound ? amount - bound : 0n;
+    assets.push({
+      assetId,
+      observed: formatAmount(amount),
+      expected: formatAmount(bound),
+      difference: formatAmount(difference),
+      tolerance: formatAmount(tol),
+    });
+    if (!pass && difference === 0n) {
+      assets[assets.length - 1] = {
+        assetId,
+        observed: formatAmount(amount),
+        expected: formatAmount(bound),
+        difference: formatAmount(amount - bound),
+        tolerance: formatAmount(tol),
+      };
+    }
+  }
+  return assets;
+}
+
+async function evaluate(
+  sql: Db,
+  row: ControlRow,
+  readAt: Date,
+  ledgerAsOf: string,
+  sources: ReconciliationSources,
+  past: boolean,
+): Promise<Verdict> {
+  const baseSources: ReconciliationControlRunView['sources'] = {
+    ledger: { asOf: ledgerAsOf },
+    outside: { asOf: 'unset' },
+    parity: { asOf: 'unset' },
+  };
+  const accountSet = reconciliationAccountSetSchema.parse(row.account_set);
+  let accounts: AccountHit[] = [];
+  try {
+    accounts = await accountsInSet(sql, accountSet, readAt);
+  } catch {
+    return {
+      status: 'ERROR',
+      phase: 'accounts',
+      errorCode: LEDGER_RECONCILE_SOURCE_UNAVAILABLE,
+      assets: [],
+      outsideSide: 'not_applicable',
+      sources: baseSources,
+    };
+  }
+  const ids = accounts.map((account) => account.id).sort();
+  const emptySources = baseSources;
+
+  if (row.check_kind === 'chain') {
+    try {
+      const chain = await verifyChain(sql, 1000, past ? readAt : undefined);
+      return {
+        status: chain.ok ? 'PASS' : 'FAIL',
+        phase: chain.ok ? '' : 'chain',
+        errorCode: '',
+        assets: [],
+        outsideSide: 'not_applicable',
+        sources: emptySources,
+      };
+    } catch {
+      return {
+        status: 'ERROR',
+        phase: 'chain',
+        errorCode: LEDGER_RECONCILE_SOURCE_UNAVAILABLE,
+        assets: [],
+        outsideSide: 'not_applicable',
+        sources: emptySources,
+      };
+    }
+  }
+
+  let ledgerTotals: Map<string, Amount>;
+  let replayTotals: Map<string, Amount>;
+  try {
+    const [balances, replayed] = await Promise.all([balancesAt(sql, ids, readAt), replayedAt(sql, ids, readAt)]);
+    ledgerTotals = sumByAsset(accounts, balances);
+    replayTotals = sumByAsset(accounts, replayed);
+  } catch {
+    return {
+      status: 'ERROR',
+      phase: 'ledger',
+      errorCode: LEDGER_RECONCILE_SOURCE_UNAVAILABLE,
+      assets: [],
+      outsideSide: 'not_applicable',
+      sources: emptySources,
+    };
+  }
+
+  if (row.template === 'ledger_invariant' && (row.check_kind === 'replay' || row.check_kind === 'replay_and_netting')) {
+    const replayRows = equalAssets(ledgerTotals, replayTotals, row.tolerance, true);
+    let assets = replayRows;
+    if (row.check_kind === 'replay_and_netting') {
+      const zeros = new Map<string, Amount>();
+      for (const assetId of ledgerTotals.keys()) zeros.set(assetId, 0n);
+      const netRows = equalAssets(ledgerTotals, zeros, row.tolerance, true);
+      if (foldAssets(replayRows, false) === 'PASS') assets = netRows;
+    }
+    const status = foldAssets(assets, false);
+    return {
+      status,
+      phase: status === 'ERROR' ? 'tolerance' : status === 'FAIL' ? 'invariant' : '',
+      errorCode: status === 'ERROR' ? OPS_CONTROL_POLICY_UNSET : '',
+      assets,
+      outsideSide: 'not_applicable',
+      sources: emptySources,
+    };
+  }
+
+  if (row.check_kind === 'netting') {
+    const zeros = new Map<string, Amount>();
+    for (const assetId of ledgerTotals.keys()) zeros.set(assetId, 0n);
+    const assets = equalAssets(ledgerTotals, zeros, row.tolerance, true);
+    const status = foldAssets(assets, false);
+    return {
+      status,
+      phase: status === 'FAIL' ? 'netting' : status === 'ERROR' ? 'tolerance' : '',
+      errorCode: status === 'ERROR' ? OPS_CONTROL_POLICY_UNSET : '',
+      assets,
+      outsideSide: 'not_applicable',
+      sources: emptySources,
+    };
+  }
+
+  if (row.template === 'threshold') {
+    let threshold: ReconciliationThreshold;
+    try {
+      threshold = reconciliationThresholdSchema.parse(row.threshold);
+    } catch {
+      return {
+        status: 'ERROR',
+        phase: 'threshold',
+        errorCode: OPS_CONTROL_POLICY_UNSET,
+        assets: [],
+        outsideSide: 'not_applicable',
+        sources: emptySources,
+      };
+    }
+    const assets = thresholdAssets(ledgerTotals, threshold, row.tolerance);
+    const status = assets.some((asset) => asset.tolerance === 'unset')
+      ? 'ERROR'
+      : assets.some((asset) => asset.difference !== 'unset' && parseAmount(asset.difference) !== 0n && !withinStored(asset))
+        ? 'FAIL'
+        : 'PASS';
+    return {
+      status,
+      phase: status === 'FAIL' ? 'threshold' : status === 'ERROR' ? 'tolerance' : '',
+      errorCode: status === 'ERROR' ? OPS_CONTROL_POLICY_UNSET : '',
+      assets,
+      outsideSide: 'not_applicable',
+      sources: emptySources,
+    };
+  }
+
+  const outsideTemplate = row.template === 'outside_balance';
+  let read: SnapshotRead;
+  try {
+    read = outsideTemplate ? await sources.outsideBalance(readAt) : await sources.parity(readAt);
+  } catch {
+    read = { kind: 'unavailable' };
+  }
+  const side = outsideTemplate ? 'outside' : 'parity';
+  if (read.kind === 'unavailable') {
+    return {
+      status: 'ERROR',
+      phase: side,
+      errorCode: LEDGER_RECONCILE_SOURCE_UNAVAILABLE,
+      assets: [],
+      outsideSide: outsideTemplate ? 'unavailable' : 'not_applicable',
+      sources: {
+        ...emptySources,
+        [side]: { asOf: 'unset' },
+      },
+    };
+  }
+  if (read.kind === 'unset') {
+    const assets: AssetEvidence[] = [...ledgerTotals.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([assetId, amount]) => ({
+        assetId,
+        observed: formatAmount(amount),
+        expected: 'unset',
+        difference: 'unset',
+        tolerance: (() => {
+          const tol = toleranceFor(row.tolerance, assetId);
+          return tol === null ? 'unset' : formatAmount(tol);
+        })(),
+      }));
+    return {
+      status: 'UNSET',
+      phase: side,
+      errorCode: '',
+      assets,
+      outsideSide: outsideTemplate ? 'unset' : 'not_applicable',
+      sources: emptySources,
+    };
+  }
+  const expected = new Map<string, Amount>();
+  for (const balance of read.balances ?? []) expected.set(balance.assetId, parseAmount(balance.amount));
+  const nextSources: ReconciliationControlRunView['sources'] = {
+    ...emptySources,
+    [side]: read.asOf ? { asOf: read.asOf } : { asOf: ledgerAsOf },
+  };
+  const assets = equalAssets(ledgerTotals, expected, row.tolerance, !outsideTemplate);
+  const unsetSource = outsideTemplate && assets.some((asset) => asset.expected === 'unset');
+  const status = foldAssets(assets, unsetSource);
+  return {
+    status: status === 'PASS' || status === 'FAIL' || status === 'ERROR' || status === 'UNSET' ? status : 'ERROR',
+    phase: status === 'FAIL' ? side : status === 'ERROR' ? 'tolerance' : '',
+    errorCode: status === 'ERROR' ? OPS_CONTROL_POLICY_UNSET : '',
+    assets,
+    outsideSide: outsideTemplate ? 'snapshot' : 'not_applicable',
+    sources: nextSources,
+  };
+}
+
+interface RunRow {
+  id: string;
+  control_id: string;
+  status: ReconciliationControlRunView['status'];
+  phase: string;
+  error_code: string;
+  as_of: Date;
+  read_at: Date;
+  margin: string;
+  sources: ReconciliationControlRunView['sources'];
+  evidence: { accounts?: string[]; assets?: AssetEvidence[] };
+  outside_side: ReconciliationControlRunView['outsideSide'];
+  period_start: Date;
+  period_end: Date;
+  accounts?: string[];
+}
+
+function toRun(row: RunRow): ReconciliationControlRunView {
+  const margin = row.margin === 'unset' ? { status: 'unset' as const } : { status: 'set' as const, value: row.margin };
+  return reconciliationControlRunSchema.parse({
+    id: row.id,
+    controlId: row.control_id,
+    status: row.status,
+    phase: row.phase ? { status: 'set', value: row.phase } : { status: 'unset' },
+    errorCode: row.error_code ? { status: 'set', value: row.error_code } : { status: 'unset' },
+    asOf: row.as_of.toISOString(),
+    readAt: row.read_at.toISOString(),
+    margin,
+    sources: row.sources,
+    outsideSide: row.outside_side,
+    periodStart: row.period_start.toISOString(),
+    periodEnd: row.period_end.toISOString(),
+    accounts: row.evidence.accounts ?? [],
+    assets: row.evidence.assets ?? [],
+  });
+}
+
+const RUN_COLUMNS = `
+  id, control_id, status, phase, error_code, as_of, read_at, margin, sources, evidence, outside_side, period_start, period_end
+`;
+
+function isUniqueViolation(err: unknown, depth = 0): boolean {
+  if (!err || typeof err !== 'object' || depth > 3) return false;
+  if ((err as { code?: unknown }).code === '23505') return true;
+  const cause = (err as { cause?: unknown }).cause;
+  return cause !== undefined && cause !== err && isUniqueViolation(cause, depth + 1);
+}
+
+/** A started row is the only one a later pass may finish. A terminal row is returned as stored. */
+async function finishRun(sql: Db, runId: string, verdict: Verdict, accountIds: string[]): Promise<RunRow> {
+  const rows = await sql<RunRow[]>`
+    UPDATE reconciliation_control_runs
+       SET status = ${verdict.status},
+           phase = ${verdict.phase},
+           error_code = ${verdict.errorCode},
+           sources = ${sql.json(verdict.sources)},
+           evidence = ${sql.json(asJson({ accounts: accountIds, assets: verdict.assets }))},
+           outside_side = ${verdict.outsideSide},
+           finished_at = clock_timestamp()
+     WHERE id = ${runId} AND status = 'started'
+     RETURNING ${sql.unsafe(RUN_COLUMNS)}
+  `;
+  if (rows[0]) return rows[0];
+  const current = await sql<RunRow[]>`
+    SELECT ${sql.unsafe(RUN_COLUMNS)}
+      FROM reconciliation_control_runs
+     WHERE id = ${runId}
+  `;
+  const row = current[0];
+  if (row && row.status !== 'started') return row;
+  throw new ReconciliationControlError(LEDGER_RECONCILE_SOURCE_UNAVAILABLE);
+}
+
+function unavailableVerdict(phase: string, readAt: Date): Verdict {
+  return {
+    status: 'ERROR',
+    phase,
+    errorCode: LEDGER_RECONCILE_SOURCE_UNAVAILABLE,
+    assets: [],
+    outsideSide: 'not_applicable',
+    sources: {
+      ledger: { asOf: readAt.toISOString() },
+      outside: { asOf: 'unset' },
+      parity: { asOf: 'unset' },
+    },
+  };
+}
+
+/**
+ * Finish a started row. A throw from the account read or from evaluate is stored as ERROR
+ * with that phase, so the same operation id does not stay `started` forever.
+ */
+async function resumeRun(
+  sql: Sql,
+  row: ControlRow,
+  opened: RunRow,
+  sources: ReconciliationSources,
+  past: boolean,
+): Promise<ReconciliationControlRunView> {
+  let phase = 'accounts';
+  try {
+    const accountSet = reconciliationAccountSetSchema.parse(row.account_set);
+    const accounts = await accountsInSet(sql, accountSet, opened.read_at);
+    const accountIds = accounts.map((account) => account.id).sort();
+    phase = 'evaluate';
+    const verdict = await evaluate(sql, row, opened.read_at, opened.read_at.toISOString(), sources, past);
+    return toRun(await finishRun(sql, opened.id, verdict, accountIds));
+  } catch {
+    return toRun(await finishRun(sql, opened.id, unavailableVerdict(phase, opened.read_at), []));
+  }
+}
+
+async function openRun(
+  sql: Sql,
+  row: ControlRow,
+  actor: ControlActor,
+  reason: string,
+  operationId: string,
+  fp: string,
+  asOf: Date,
+  readAt: Date,
+  margin: string,
+  period: { start: Date; end: Date },
+): Promise<RunRow> {
+  const sources: ReconciliationControlRunView['sources'] = {
+    ledger: { asOf: readAt.toISOString() },
+    outside: { asOf: 'unset' },
+    parity: { asOf: 'unset' },
+  };
+  return sql.begin(async (tx) => {
+    const inserted = await tx<RunRow[]>`
+      INSERT INTO reconciliation_control_runs (
+        control_id, operation_id, fingerprint, status, phase, error_code, as_of, read_at, margin, sources, evidence,
+        outside_side, period_start, period_end, actor_id, reason
+      ) VALUES (
+        ${row.id},
+        ${operationId},
+        ${fp},
+        'started',
+        '',
+        '',
+        ${asOf},
+        ${readAt},
+        ${margin},
+        ${tx.json(sources)},
+        ${tx.json({ accounts: [], assets: [] })},
+        'not_applicable',
+        ${period.start},
+        ${period.end},
+        ${actorOf(actor.actorId)},
+        ${reason}
+      )
+      RETURNING ${tx.unsafe(RUN_COLUMNS)}
+    `;
+    const run = inserted[0];
+    if (!run) throw new ReconciliationControlError(LEDGER_RECONCILE_SOURCE_UNAVAILABLE);
+    await audit(tx, row.id, actorOf(actor.actorId), reason, 'run', actor.requestId, { runId: run.id, operationId });
+    return run;
+  });
+}
+
+async function existingRun(sql: Sql, operationId: string): Promise<(RunRow & { fingerprint: string }) | null> {
+  const rows = await sql<Array<RunRow & { fingerprint: string }>>`
+    SELECT ${sql.unsafe(RUN_COLUMNS)}, fingerprint
+      FROM reconciliation_control_runs
+     WHERE operation_id = ${operationId}
+  `;
+  return rows[0] ?? null;
+}
+
+export async function runReconciliationControl(
+  sql: Sql,
+  approvals: LedgerApprovalConsumer,
+  actor: ControlActor,
+  input: unknown,
+  sources: ReconciliationSources = unsetReconciliationSources(),
+  now?: Date,
+): Promise<ReconciliationControlRunView> {
+  const parsed = runReconciliationControlInputSchema.parse(input);
+  const who = actorOf(actor.actorId);
+  const reason = reasonOf(parsed.reason);
+  const row = await loadControl(sql, parsed.controlId, false);
+  if (row.state !== 'active') throw new ReconciliationControlError(OPS_CONTROL_STATE_ILLEGAL);
+  const [clock] = await sql<Array<{ now: Date }>>`SELECT clock_timestamp() AS now`;
+  const dbNow = now ?? clock?.now;
+  if (!dbNow) throw new ReconciliationControlError(LEDGER_RECONCILE_SOURCE_UNAVAILABLE);
+  const past = parsed.asOf !== undefined;
+  const asOf = past ? new Date(parsed.asOf ?? '') : dbNow;
+  if (Number.isNaN(asOf.getTime())) throw new ReconciliationControlError(LEDGER_RECONCILE_ASOF_INVALID);
+  assertNotFuture(asOf, dbNow);
+  let margin = 'unset';
+  let readAt = asOf;
+  if (past) {
+    const chosen = parsed.margin ?? row.margin ?? undefined;
+    if (!present(chosen) || chosen.trim() === '') throw new ReconciliationControlError(OPS_CONTROL_MARGIN_UNSET);
+    margin = chosen.trim();
+    readAt = readInstant(asOf, margin);
+  }
+  const fp = fingerprint({
+    controlId: row.id,
+    asOf: past ? asOf.toISOString() : 'now',
+    margin,
+    reason,
+  });
+  const prior = await existingRun(sql, parsed.operationId);
+  if (prior) {
+    if (prior.fingerprint !== fp) throw new ReconciliationControlError('ledger.idempotency_conflict');
+    if (prior.status !== 'started') return toRun(prior);
+    return resumeRun(sql, row, prior, sources, past);
+  }
+  // operationId is the consume request id, so a retry after a lost reply is
+  // `already_consumed_by_this_request` and can still insert or resume this run.
+  await consumeLedgerApproval(
+    approvals,
+    parsed,
+    'ledger.reconciliation_control.run',
+    'posting_reconciliation_control.run',
+    String(row.version),
+    {
+      controlId: row.id,
+      asOf: past ? asOf.toISOString() : 'now',
+      margin,
+      reason,
+    },
+    parsed.operationId,
+  );
+  return openOrResumeRun(
+    sql,
+    row,
+    { actorId: who, requestId: actor.requestId },
+    reason,
+    parsed.operationId,
+    fp,
+    asOf,
+    readAt,
+    margin,
+    past,
+    sources,
+  );
+}
+
+async function openOrResumeRun(
+  sql: Sql,
+  row: ControlRow,
+  actor: ControlActor,
+  reason: string,
+  operationId: string,
+  fp: string,
+  asOf: Date,
+  readAt: Date,
+  margin: string,
+  past: boolean,
+  sources: ReconciliationSources,
+): Promise<ReconciliationControlRunView> {
+  const adopt = async (existing: RunRow & { fingerprint: string }): Promise<ReconciliationControlRunView> => {
+    if (existing.fingerprint !== fp) throw new ReconciliationControlError('ledger.idempotency_conflict');
+    if (existing.status !== 'started') return toRun(existing);
+    return resumeRun(sql, row, existing, sources, past);
+  };
+  const found = await existingRun(sql, operationId);
+  if (found) return adopt(found);
+  const schedule = row.schedule ? reconciliationScheduleSchema.parse(row.schedule) : null;
+  const periodName = row.period ?? (schedule ? periodForSchedule(schedule) : null);
+  if (!periodName) throw new ReconciliationControlError(OPS_CONTROL_POLICY_UNSET);
+  const period = periodBounds(periodName, readAt);
+  try {
+    const opened = await openRun(sql, row, actor, reason, operationId, fp, asOf, readAt, margin, period);
+    return resumeRun(sql, row, opened, sources, past);
+  } catch (err) {
+    if (!isUniqueViolation(err)) throw err;
+    const raced = await existingRun(sql, operationId);
+    if (!raced) throw err;
+    return adopt(raced);
+  }
+}
+
+export async function runDueControls(sql: Sql, sources: ReconciliationSources = unsetReconciliationSources()): Promise<void> {
+  const [clock] = await sql<Array<{ now: Date }>>`SELECT clock_timestamp() AS now`;
+  const at = clock?.now;
+  if (!at) throw new ReconciliationControlError(LEDGER_RECONCILE_SOURCE_UNAVAILABLE);
+  const rows = await sql<ControlRow[]>`
+    SELECT ${sql.unsafe(CONTROL_COLUMNS)}
+      FROM reconciliation_controls
+     WHERE builtin = false AND state = 'active' AND schedule IS NOT NULL
+  `;
+  for (const row of rows) {
+    const schedule = reconciliationScheduleSchema.parse(row.schedule);
+    const periodName = row.period ?? periodForSchedule(schedule);
+    const bounds = periodBounds(periodName, at);
+    const due = dueInstant(schedule, bounds.start);
+    if (!due || at.getTime() < due.getTime()) continue;
+    const operationId = `schedule:${row.id}:${bounds.start.toISOString()}`;
+    const existing = await existingRun(sql, operationId);
+    // A terminal row for this period is done. A started row is a crash between open and finish: resume it.
+    if (existing && existing.status !== 'started') continue;
+    if (existing) {
+      await resumeScheduled(sql, row, existing, sources);
+      continue;
+    }
+    const margin = row.margin;
+    if (margin === null || margin.trim() === '') {
+      await openRun(
+        sql,
+        row,
+        { actorId: 'reconciliation', requestId: null },
+        'scheduled reconciliation control',
+        operationId,
+        fingerprint({ controlId: row.id, asOf: due.toISOString(), margin: 'unset', reason: 'scheduled reconciliation control' }),
+        due,
+        due,
+        'unset',
+        bounds,
+      ).then((opened) =>
+        finishRun(
+          sql,
+          opened.id,
+          {
+            status: 'ERROR',
+            phase: 'margin',
+            errorCode: OPS_CONTROL_MARGIN_UNSET,
+            assets: [],
+            outsideSide: 'not_applicable',
+            sources: {
+              ledger: { asOf: due.toISOString() },
+              outside: { asOf: 'unset' },
+              parity: { asOf: 'unset' },
+            },
+          },
+          [],
+        ),
+      );
+      continue;
+    }
+    const readAt = readInstant(due, margin);
+    const fp = fingerprint({
+      controlId: row.id,
+      asOf: due.toISOString(),
+      margin,
+      reason: 'scheduled reconciliation control',
+    });
+    const opened = await openRun(
+      sql,
+      row,
+      { actorId: 'reconciliation', requestId: null },
+      'scheduled reconciliation control',
+      operationId,
+      fp,
+      due,
+      readAt,
+      margin,
+      periodBounds(periodName, readAt),
+    );
+    await resumeRun(sql, row, opened, sources, true);
+  }
+}
+
+async function resumeScheduled(sql: Sql, row: ControlRow, existing: RunRow, sources: ReconciliationSources): Promise<void> {
+  const margin = row.margin;
+  if ((margin === null || margin.trim() === '') && existing.margin === 'unset') {
+    await finishRun(
+      sql,
+      existing.id,
+      {
+        status: 'ERROR',
+        phase: 'margin',
+        errorCode: OPS_CONTROL_MARGIN_UNSET,
+        assets: [],
+        outsideSide: 'not_applicable',
+        sources: {
+          ledger: { asOf: existing.read_at.toISOString() },
+          outside: { asOf: 'unset' },
+          parity: { asOf: 'unset' },
+        },
+      },
+      [],
+    );
+    return;
+  }
+  await resumeRun(sql, row, existing, sources, true);
+}
+
+export async function runDueReconciliationControls(sql: Sql): Promise<void> {
+  await runDueControls(sql);
+}

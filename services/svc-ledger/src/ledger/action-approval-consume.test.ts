@@ -229,6 +229,26 @@ describe('founder attestation at ledger consume', () => {
     });
   });
 
+  it('replays a consume under the caller request id when founder flags are not repeated', async () => {
+    let seen: string | undefined;
+    const consumed = await consumeLedgerApproval(
+      echoingApproval('ledger.reconciliation_control.run', (row) => {
+        seen = typeof row.requestId === 'string' ? row.requestId : undefined;
+        delete row.approverIsFounder;
+        delete row.requesterIsFounder;
+        row.consumption = 'already_consumed_by_this_request';
+      }),
+      approvalCmd,
+      'ledger.reconciliation_control.run',
+      'posting_reconciliation_control.run',
+      '1',
+      { controlId: 'control-1' },
+      'op-1',
+    );
+    expect(seen).toBe('op-1');
+    expect(consumed.consumption).toBe('already_consumed_by_this_request');
+  });
+
   it('leaves ledger.freeze working without an attestation', async () => {
     const frozen = await consumeLedgerApproval(
       echoingApproval('ledger.freeze', (row) => {
