@@ -75,3 +75,69 @@ export const kybDocumentsUploadInputSchema = z
 
 /** The checklist row for the uploaded key. The same bytes for the same key again return the same document. */
 export const kybDocumentsUploadResultSchema = z.object({ row: kybDocumentRowSchema }).strict();
+
+// ---- compliance review (J-merchant-02 step 3) -------------------------------------------------------------------
+
+/** A compliance reviewer's verdict on one upload: accepted reads Verified to the business, rejected reads Invalid. */
+export const KYB_DOCUMENT_VERDICTS = ['accepted', 'rejected'] as const;
+export const kybDocumentVerdictSchema = z.enum(KYB_DOCUMENT_VERDICTS);
+export type KybDocumentVerdict = z.infer<typeof kybDocumentVerdictSchema>;
+
+/**
+ * Review the upload `documentId`, which must still be its key's current upload. A rejection carries the reason the
+ * business reads; an acceptance carries none. A verdict is final for that upload: the business sends a new file.
+ */
+export const kybDocumentReviewInputSchema = z
+  .object({
+    applicationId: applicationIdSchema,
+    documentId: z.string().guid(),
+    verdict: kybDocumentVerdictSchema,
+    reason: z.string().trim().min(3).max(1000).nullish(),
+  })
+  .strict()
+  .refine((input) => (input.verdict === 'rejected') === Boolean(input.reason), {
+    message: 'a rejection needs a reason, and an acceptance takes none',
+    path: ['reason'],
+  });
+export type KybDocumentReviewInput = z.infer<typeof kybDocumentReviewInputSchema>;
+
+/** A checklist row as the reviewer sees it: who gave the verdict and when, null while it waits. */
+export const kybDocumentReviewRowSchema = kybDocumentRowSchema
+  .extend({ reviewedBy: z.string().max(128).nullable(), reviewedAt: z.string().nullable() })
+  .strict();
+export type KybDocumentReviewRow = z.infer<typeof kybDocumentReviewRowSchema>;
+
+/** One merchant's current application and its documents, for compliance. `application` is null when none was started. */
+export const kybDocumentReviewViewSchema = z
+  .object({
+    merchantId: z.string().guid(),
+    application: z
+      .object({
+        applicationId: applicationIdSchema,
+        entityType: z.string().min(1).max(64),
+        country: z.string().length(2),
+        state: z.enum(['draft', 'submitted']),
+        submittedAt: z.string().nullable(),
+      })
+      .strict()
+      .nullable(),
+    rows: z.array(kybDocumentReviewRowSchema),
+    vendorCheck: kybDocumentVendorCheckSchema,
+  })
+  .strict();
+export type KybDocumentReviewView = z.infer<typeof kybDocumentReviewViewSchema>;
+
+export const kybDocumentReviewViewInputSchema = z.object({ merchantId: z.string().guid() }).strict();
+
+/** The bytes of one upload, decrypted for a compliance reviewer. Each read is recorded. */
+export const kybDocumentFileInputSchema = z.object({ applicationId: applicationIdSchema, documentId: z.string().guid() }).strict();
+export const kybDocumentFileSchema = z
+  .object({
+    documentId: z.string().guid(),
+    key: kybRequirementKeySchema,
+    contentType: z.string().min(1).max(128),
+    sha256: z.string().regex(/^[0-9a-f]{64}$/),
+    bytesBase64: z.string().min(1),
+  })
+  .strict();
+export type KybDocumentFile = z.infer<typeof kybDocumentFileSchema>;

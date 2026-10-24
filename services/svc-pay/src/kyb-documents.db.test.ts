@@ -56,9 +56,9 @@ async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> 
   }
 }
 
-async function ctx(userId: string, scopes: string[] = ['pay:onboard']): Promise<Context> {
+async function ctx(userId: string, scopes: string[] = ['pay:onboard'], mfa = true): Promise<Context> {
   const { token } = await issueAccessToken(
-    { userId, sessionId: '77777777-7777-4777-8777-777777777777', scopes, tier: 'full', mfa: true },
+    { userId, sessionId: '77777777-7777-4777-8777-777777777777', scopes, tier: 'full', mfa },
     authConfig,
   );
   return { principal: await verifyAccessToken(token, authConfig), service: null, region: 'DE', requestId: 'kyb-documents' };
@@ -93,7 +93,7 @@ describe('kyb documents', () => {
     await truncatePayForTest(
       sql,
       'pay',
-      `TRUNCATE pay.kyb_documents, pay.kyb_upload_rules, pay.kyb_application_events, pay.kyb_application_sections, pay.kyb_applications, pay.kyb_entity_types, pay.merchant_kyb_events, pay.merchant_status_events, pay.merchants RESTART IDENTITY CASCADE`,
+      `TRUNCATE pay.kyb_document_reads, pay.kyb_document_reviews, pay.kyb_documents, pay.kyb_upload_rules, pay.kyb_application_events, pay.kyb_application_sections, pay.kyb_applications, pay.kyb_entity_types, pay.merchant_kyb_events, pay.merchant_status_events, pay.merchants RESTART IDENTITY CASCADE`,
     );
     const [row] = await sql<Array<{ id: string }>>`
       INSERT INTO pay.merchants (user_id, mode, status, pricing) VALUES (${OWNER}, 'psp', 'active', ${sql.json({ feeBps: 250 } as never)}) RETURNING id
@@ -114,7 +114,7 @@ describe('kyb documents', () => {
   const publishRules = (maxBytes = 1024) =>
     sql`INSERT INTO pay.kyb_upload_rules (max_bytes, content_types) VALUES (${maxBytes}, ${[PDF, 'image/png']})`;
 
-  const api = async (opts: { userId?: string; key?: Buffer | null } = {}) => {
+  const api = async (opts: { userId?: string; key?: Buffer | null; scopes?: string[]; mfa?: boolean } = {}) => {
     const kyb = new KybService(sql);
     const types = new KybEntityTypeService(sql);
     return createKybPspRouter(
@@ -130,7 +130,7 @@ describe('kyb documents', () => {
       types,
       new KybApplicationService(sql, kyb, types),
       new KybDocumentService(sql, types, opts.key === undefined ? KEY : opts.key),
-    ).createCaller(await ctx(opts.userId ?? OWNER));
+    ).createCaller(await ctx(opts.userId ?? OWNER, opts.scopes, opts.mfa));
   };
 
   const startApplication = async () => {
@@ -334,5 +334,156 @@ describe('kyb documents', () => {
       sql`INSERT INTO pay.kyb_documents (application_id, document_key, content_type, byte_length, sha256, ciphertext, nonce, uploaded_by)
           VALUES (${id}, 'trust_deed', ${PDF}, 1, 'xyz', ${Buffer.from('x')}, ${randomBytes(12)}, 'u')`,
     ).rejects.toThrow();
+  });
+
+  describe('compliance review', () => {
+    const REVIEWER = '99999999-9999-4999-8999-999999999999';
+    const reviewer = (mfa = true) => api({ userId: REVIEWER, scopes: ['admin:compliance'], mfa });
+    const sent = async () => {
+      const id = await startApplication();
+      await publishRules();
+      const owner = await api();
+      const deed = await owner.kyb.documents.upload({
+        applicationId: id,
+        key: 'trust_deed',
+        contentType: PDF,
+        bytesBase64: b64('the deed'),
+      });
+      const address = await owner.kyb.documents.upload({
+        applicationId: id,
+        key: 'proof_of_address',
+        contentType: PDF,
+        bytesBase64: b64('the address'),
+      });
+      return { id, owner, deed: deed.row.document!.id, address: address.row.document!.id };
+    };
+
+    it('a reviewer marks one document accepted and another rejected with a reason, and the business reads both', async () => {
+      const { id, owner, deed, address } = await sent();
+      const desk = await reviewer();
+      const before = await desk.kyb.documents.reviewView({ merchantId });
+      expect(before.application).toMatchObject({ applicationId: id, entityType: 'trust', country: 'DE', state: 'draft' });
+      expect(before.rows.map((r) => [r.key, r.state, r.reviewedBy])).toEqual([
+        ['trust_deed', 'provided', null],
+        ['proof_of_address', 'provided', null],
+      ]);
+
+      const accepted = await desk.kyb.documents.review({ applicationId: id, documentId: deed, verdict: 'accepted' });
+      expect(accepted.row).toMatchObject({ state: 'accepted', rejectionReason: null });
+      await desk.kyb.documents.review({
+        applicationId: id,
+        documentId: address,
+        verdict: 'rejected',
+        reason: 'TEST the address is cut off',
+      });
+
+      const view = await owner.kyb.documents.checklist({ applicationId: id });
+      expect(view.rows.map((r) => [r.key, r.state, r.rejectionReason])).toEqual([
+        ['trust_deed', 'accepted', null],
+        ['proof_of_address', 'rejected', 'TEST the address is cut off'],
+      ]);
+      const after = await desk.kyb.documents.reviewView({ merchantId });
+      expect(after.rows.every((r) => r.reviewedBy === REVIEWER && r.reviewedAt !== null)).toBe(true);
+      const reviews = await sql<Array<{ verdict: string; reason: string | null; actor_scope: string }>>`
+        SELECT verdict, reason, actor_scope FROM pay.kyb_document_reviews ORDER BY created_at`;
+      expect(reviews).toEqual([
+        { verdict: 'accepted', reason: null, actor_scope: 'admin:compliance' },
+        { verdict: 'rejected', reason: 'TEST the address is cut off', actor_scope: 'admin:compliance' },
+      ]);
+    });
+
+    it('the same verdict again changes nothing; another verdict on a reviewed upload is refused', async () => {
+      const { id, deed } = await sent();
+      const desk = await reviewer();
+      await desk.kyb.documents.review({ applicationId: id, documentId: deed, verdict: 'rejected', reason: 'TEST blurry' });
+      const again = await desk.kyb.documents.review({ applicationId: id, documentId: deed, verdict: 'rejected', reason: 'TEST blurry' });
+      expect(again.row.state).toBe('rejected');
+      expect(await rejection(desk.kyb.documents.review({ applicationId: id, documentId: deed, verdict: 'accepted' }))).toMatchObject({
+        code: 'CONFLICT',
+        cause: expect.objectContaining({ code: 'pay.kyb_document_already_reviewed' }),
+      });
+      const count = await sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM pay.kyb_document_reviews`;
+      expect(count[0]?.n).toBe('1');
+    });
+
+    it('a rejection needs a reason and an acceptance takes none', async () => {
+      const { id, deed } = await sent();
+      const desk = await reviewer();
+      expect(await rejection(desk.kyb.documents.review({ applicationId: id, documentId: deed, verdict: 'rejected' }))).toMatchObject({
+        code: 'BAD_REQUEST',
+      });
+      expect(
+        await rejection(desk.kyb.documents.review({ applicationId: id, documentId: deed, verdict: 'accepted', reason: 'TEST fine' })),
+      ).toMatchObject({ code: 'BAD_REQUEST' });
+    });
+
+    it('only the current upload of a key takes a verdict', async () => {
+      const { id, owner, deed } = await sent();
+      await owner.kyb.documents.upload({ applicationId: id, key: 'trust_deed', contentType: PDF, bytesBase64: b64('a newer deed') });
+      const desk = await reviewer();
+      expect(await rejection(desk.kyb.documents.review({ applicationId: id, documentId: deed, verdict: 'accepted' }))).toMatchObject({
+        cause: expect.objectContaining({ code: 'pay.kyb_document_not_current' }),
+      });
+      await owner.kyb.application.restart({ applicationId: id, confirm: true });
+      const cleared = (await desk.kyb.documents.reviewView({ merchantId })).rows;
+      expect(cleared.map((r) => r.state)).toEqual(['missing', 'missing']);
+      expect(
+        await rejection(
+          desk.kyb.documents.review({ applicationId: id, documentId: '00000000-0000-4000-8000-000000000000', verdict: 'accepted' }),
+        ),
+      ).toMatchObject({ code: 'NOT_FOUND' });
+    });
+
+    it('a reviewer opens a file and gets the bytes the business sent; every open is recorded', async () => {
+      const { id, deed } = await sent();
+      const desk = await reviewer();
+      const file = await desk.kyb.documents.file({ applicationId: id, documentId: deed });
+      expect(Buffer.from(file.bytesBase64, 'base64').toString()).toBe('the deed');
+      expect(file).toMatchObject({ key: 'trust_deed', contentType: PDF, sha256: createHash('sha256').update('the deed').digest('hex') });
+      await desk.kyb.documents.file({ applicationId: id, documentId: deed });
+      const reads = await sql<Array<{ actor_id: string }>>`SELECT actor_id FROM pay.kyb_document_reads WHERE document_id = ${deed}`;
+      expect(reads.map((r) => r.actor_id)).toEqual([REVIEWER, REVIEWER]);
+      expect(
+        await rejection(
+          (await api({ userId: REVIEWER, scopes: ['admin:compliance'], key: randomBytes(32) })).kyb.documents.file({
+            applicationId: id,
+            documentId: deed,
+          }),
+        ),
+      ).toMatchObject({ cause: expect.objectContaining({ code: 'pay.kyb_document_unreadable' }) });
+    });
+
+    it('needs admin:compliance on a second-factor sign-in; the business owner cannot review or open files', async () => {
+      const { id, owner, deed } = await sent();
+      expect(await rejection(owner.kyb.documents.review({ applicationId: id, documentId: deed, verdict: 'accepted' }))).toMatchObject({
+        code: 'FORBIDDEN',
+      });
+      expect(await rejection(owner.kyb.documents.file({ applicationId: id, documentId: deed }))).toMatchObject({ code: 'FORBIDDEN' });
+      expect(await rejection(owner.kyb.documents.reviewView({ merchantId }))).toMatchObject({ code: 'FORBIDDEN' });
+      const noFactor = await reviewer(false);
+      expect(await rejection(noFactor.kyb.documents.review({ applicationId: id, documentId: deed, verdict: 'accepted' }))).toMatchObject({
+        code: 'UNAUTHORIZED',
+      });
+      expect(await rejection(noFactor.kyb.documents.file({ applicationId: id, documentId: deed }))).toMatchObject({ code: 'UNAUTHORIZED' });
+      expect((await sql<Array<{ state: string }>>`SELECT state FROM pay.kyb_documents WHERE id = ${deed}`)[0]?.state).toBe('provided');
+    });
+
+    it('the database lets an upload change only from waiting to a verdict, and keeps reviews and reads', async () => {
+      const { id, deed } = await sent();
+      await expect(sql`UPDATE pay.kyb_documents SET sha256 = ${'c'.repeat(64)} WHERE id = ${deed}`).rejects.toThrow(/verdict/);
+      await expect(sql`DELETE FROM pay.kyb_documents WHERE id = ${deed}`).rejects.toThrow(/DELETE/);
+      await (await reviewer()).kyb.documents.review({ applicationId: id, documentId: deed, verdict: 'accepted' });
+      await expect(
+        sql`UPDATE pay.kyb_documents SET state = 'rejected', rejection_reason = 'TEST later' WHERE id = ${deed}`,
+      ).rejects.toThrow(/verdict/);
+      await expect(sql`UPDATE pay.kyb_document_reviews SET reason = 'x'`).rejects.toThrow(/append-only/);
+      await expect(sql`DELETE FROM pay.kyb_document_reviews`).rejects.toThrow(/append-only/);
+    });
+
+    it('an unknown merchant is not found, and a merchant with no application reads empty', async () => {
+      const desk = await reviewer();
+      expect(await rejection(desk.kyb.documents.reviewView({ merchantId: STRANGER }))).toMatchObject({ code: 'NOT_FOUND' });
+      expect(await desk.kyb.documents.reviewView({ merchantId })).toMatchObject({ application: null, rows: [] });
+    });
   });
 });
