@@ -7,7 +7,8 @@ import { DEVICE_KEY, EDGE, ORIGIN, signUpInBrowser } from './stack.mjs';
 // (labelled TEST, never an owner decision) lets an override last 48 hours and puts the ceiling at 5000 USDT and 5000 USDC.
 // At or under it one founder sets it; above it the other founder must approve, and a run before they did changes
 // nothing. At its stored end time identity stops answering with the override and the base limit applies again; a founder
-// can also end one early. The other half of the step (a withdrawal meeting the limit) is the enforcing service's.
+// can also end one early. The other half of the step (a withdrawal meeting the limit) is the enforcing service's, so this
+// test is titled "step 12 (part 1)": the journey does not count step 12 as passed before it is whole.
 
 const REASON_LABEL = 'Why (kept in the override history, 12 to 255 characters)';
 
@@ -27,7 +28,7 @@ async function fillOverride(panel, { assetId, rolling, minutes }) {
   await panel.getByLabel('Lasts for (minutes)').fill(minutes);
 }
 
-test('J-ops-console-04 #12 a limit override applies until its stored expiry, then the base limit returns; above the owner ceiling it needs the other founder', async ({
+test('J-ops-console-04 step 12 (part 1) a limit override applies until its stored expiry, then the base limit returns; above the owner ceiling it needs the other founder', async ({
   browser,
 }) => {
   test.setTimeout(360_000);
