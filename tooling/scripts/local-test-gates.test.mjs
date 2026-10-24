@@ -23,6 +23,10 @@ import {
   termsProposal,
   TEST_TRANSFER_TERMS,
   TEST_ASSET_ROWS,
+  TEST_DEPOSIT_NETWORKS,
+  TEST_DEPOSIT_TERMS,
+  networkRowMatches,
+  payProposal,
   assetEditProposal,
   assetRowMatches,
   needsFullTier,
@@ -246,6 +250,37 @@ for (const row of TEST_ASSET_ROWS) {
   assert.ok(!assetRowMatches({ ...published, precision: null }, row));
   assert.ok(!assetRowMatches(null, row));
 }
+
+// TEST deposit networks and terms: labelled, decimal strings for money, every pair on a published network, and a network row
+// published once is left alone (version and clock aside) while any difference publishes it again.
+assert.deepEqual(
+  TEST_DEPOSIT_NETWORKS.map((n) => n.networkId),
+  ['ethereum', 'base'],
+);
+for (const n of TEST_DEPOSIT_NETWORKS) {
+  assert.ok(n.displayName.startsWith('TEST '), n.displayName);
+  assert.equal(typeof n.feeEstimateAmount, 'string');
+  const published = { ...n, assetCodes: [...n.assetCodes].reverse(), version: 3, updatedAt: '2026-10-24T00:00:00.000Z' };
+  assert.ok(networkRowMatches(published, n), `${n.networkId} published again on every run`);
+  assert.ok(!networkRowMatches({ ...published, enabled: false }, n), `${n.networkId} switched off taken as published`);
+  assert.ok(!networkRowMatches({ ...published, confirmationsRequired: null }, n));
+  assert.ok(!networkRowMatches(null, n));
+}
+assert.equal(TEST_DEPOSIT_TERMS.length, 4);
+for (const t of TEST_DEPOSIT_TERMS) {
+  const network = TEST_DEPOSIT_NETWORKS.find((n) => n.networkId === t.networkId);
+  assert.ok(network?.assetCodes.includes(t.assetId), `${t.assetId} on ${t.networkId} is not on a TEST network`);
+  assert.equal(t.label, network.displayName);
+  assert.equal(typeof t.minimumDeposit, 'string');
+}
+assert.deepEqual(payProposal('pay.registry_change', 'sha256:abc'), {
+  actionType: 'pay.registry_change',
+  targetService: 'svc-pay',
+  targetId: 'pay.registry_change',
+  expectedVersion: '1',
+  payloadHash: 'sha256:abc',
+  policyVersion: MARKERS.policyVersion,
+});
 
 // Operators are labelled and distinct.
 const a = operatorIdentity('a');

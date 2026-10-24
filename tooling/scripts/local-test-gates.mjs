@@ -988,7 +988,14 @@ export const TEST_DEPOSIT_TERMS = TEST_DEPOSIT_NETWORKS.flatMap((n) =>
 
 /** The svc-pay approval a founder change needs: the target is the action type itself, at version 1 (consumePayApproval). */
 export function payProposal(actionType, payloadHash) {
-  return { actionType, targetService: 'svc-pay', targetId: actionType, expectedVersion: '1', payloadHash, policyVersion: MARKERS.policyVersion };
+  return {
+    actionType,
+    targetService: 'svc-pay',
+    targetId: actionType,
+    expectedVersion: '1',
+    payloadHash,
+    policyVersion: MARKERS.policyVersion,
+  };
 }
 
 /**

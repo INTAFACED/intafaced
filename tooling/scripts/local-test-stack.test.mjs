@@ -58,6 +58,17 @@ const script = resolve(here, 'local-test-stack.mjs');
   console.log('local-test-stack: one service file per started service');
 }
 
+// The bank asks the stack's own svc-pay for the deposit catalogue and addresses; without PAY_URL every deposit answer is
+// "not published" (bank.deposit_custody_unset).
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const envs = localTestServiceEnvs();
+  const bank = envs.find((service) => service.name === 'bank');
+  const pay = envs.find((service) => service.name === 'pay');
+  assert.equal(bank.env.PAY_URL, `http://127.0.0.1:${pay.env.HTTP_PORT}`);
+  console.log('local-test-stack: bank reads deposit custody from the stack svc-pay');
+}
+
 // The bank process carries its BK-xfer-07 TEST values from the bank profile, verbatim, so a global send on this
 // stack meets the same payee list, exchange allowance and proof limits as CX-8 instead of the unset refusals.
 {
