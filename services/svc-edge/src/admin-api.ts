@@ -601,14 +601,16 @@ export function createAdminApi(state: KillSwitchState, deps: AdminApiDeps): Admi
         if (!hasScope(principal.scopes, scope)) continue;
         try {
           requireScope(principal, scope);
-          if (deps.sessionLive) await deps.sessionLive(principal);
-          return principal;
         } catch (err) {
           if (err instanceof AuthError && err.code === 'mfa.required') {
             sawMfa = true;
             continue;
           }
+          throw err;
         }
+        // Outside the scope catch: a revoked or unknown session refuses as itself, never as a missing scope.
+        if (deps.sessionLive) await deps.sessionLive(principal);
+        return principal;
       }
       if (sawMfa) throw new AuthError('A second factor is required', 'mfa.required');
       throw new AuthError('One of admin:treasury, admin:compliance is required', 'scope.denied');
