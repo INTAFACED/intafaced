@@ -27,6 +27,7 @@ import {
 } from './subaccount-guards';
 import './subaccount.css';
 import { RankPerks } from './RankPerks';
+import { Membership } from './Membership';
 import { VerifyEmail } from './VerifyEmail';
 import { EligibilityStatement } from '../money/Eligibility';
 import { CopyButton } from '../../screens/account/CopyButton';
@@ -348,6 +349,7 @@ export function Account() {
           {userId && <CopyButton value={userId} label={t('copyId')} />}
         </section>
         <RankPerks />
+        <Membership />
         <EligibilityStatement />
         {showSubaccounts && (
           <>
