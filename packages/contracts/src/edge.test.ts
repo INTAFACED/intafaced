@@ -154,6 +154,24 @@ describe('edge principal — pay step-up claim', () => {
   });
 });
 
+describe('edge principal — session family and trusted device', () => {
+  it('forwards fam and dev through encode, sign, and verifyForwardedPrincipal', () => {
+    const p = principal({ fam: '66666666-6666-4666-8666-666666666666', dev: '77777777-7777-4777-8777-777777777777' });
+    const raw = encodePrincipal(p);
+    const { principal: got, rejected } = verifyForwardedPrincipal(raw, signPrincipalHeader(raw, SECRET), SECRET);
+
+    expect(rejected).toBeNull();
+    expect(got?.fam).toBe('66666666-6666-4666-8666-666666666666');
+    expect(got?.dev).toBe('77777777-7777-4777-8777-777777777777');
+  });
+
+  it('omits both from the wire JSON when the principal has neither', () => {
+    const wire = JSON.parse(encodePrincipal(principal())) as Record<string, unknown>;
+    expect(wire).not.toHaveProperty('fam');
+    expect(wire).not.toHaveProperty('dev');
+  });
+});
+
 describe('edge principal — expiry', () => {
   it('refuses a signed but expired principal', () => {
     const p = principal({ expiresAt: new Date(Date.now() - 1) });
@@ -455,6 +473,16 @@ describe('edge principal — only svc-edge can sign (Ed25519)', () => {
     expect(got.rejected).toBeNull();
     expect(got.principal?.scopes).toEqual(['trade:read']);
     expect(got.principal?.tier).toBe('full');
+  });
+
+  it('carries fam and dev on the Ed25519 path too', () => {
+    const fam = '66666666-6666-4666-8666-666666666666';
+    const dev = '77777777-7777-4777-8777-777777777777';
+    const { raw, sig } = signed(principal({ fam, dev }));
+    const got = verifyForwardedPrincipal(raw, sig, TRUST, new Date(), 'DE');
+    expect(got.rejected).toBeNull();
+    expect(got.principal?.fam).toBe(fam);
+    expect(got.principal?.dev).toBe(dev);
   });
 
   it('the legacy shared-secret form still verifies for any holder of the secret until services migrate', () => {

@@ -72,6 +72,8 @@ export function encodePrincipal(principal: Principal): string {
     sid: principal.sid,
     userId: principal.userId,
     expiresAt: principal.expiresAt.toISOString(),
+    ...(principal.fam ? { fam: principal.fam } : {}),
+    ...(principal.dev ? { dev: principal.dev } : {}),
     ...(principal.sub_account ? { sub_account: principal.sub_account } : {}),
     ...(principal.kid ? { kid: principal.kid } : {}),
     ...(principal.key_env ? { key_env: principal.key_env } : {}),
