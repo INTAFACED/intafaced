@@ -282,6 +282,51 @@ describe('poller: failures', () => {
     poller.dispose();
   });
 
+  it('retries a first read that failed soon, not a whole slow interval later, and backs off from there', async () => {
+    const poller = createPoller({ visibility: visibility() });
+    let fails = 3;
+    const fetcher: Fetcher<number> = vi.fn(async (): Promise<Outcome<number>> =>
+      fails-- > 0 ? { ok: false, reason: 'unreachable', status: 502 } : ok(9),
+    );
+    const calls = () => (fetcher as unknown as { mock: { calls: unknown[] } }).mock.calls.length;
+    const source = poller.source('markets', fetcher, { intervalMs: 300_000 });
+    const stop = source.subscribe(() => undefined);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(source.getSnapshot().status).toBe('error');
+    expect(calls()).toBe(1);
+    await vi.advanceTimersByTimeAsync(1_998);
+    expect(calls()).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(calls()).toBe(2); // 2 s after the first read
+    await vi.advanceTimersByTimeAsync(3_999);
+    expect(calls()).toBe(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(calls()).toBe(3); // then 4 s
+    await vi.advanceTimersByTimeAsync(8_000);
+    expect(source.getSnapshot()).toMatchObject({ status: 'ready', data: 9 });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(calls()).toBe(4); // once answered, back to the source's own interval
+    stop();
+    poller.dispose();
+  });
+
+  it('never retries a refusal early: a typed 4xx is the answer', async () => {
+    const poller = createPoller({ visibility: visibility() });
+    const fetcher: Fetcher<number> = vi.fn(async (): Promise<Outcome<number>> => ({
+      ok: false,
+      reason: 'forbidden',
+      status: 403,
+      code: 'trade.no_book',
+    }));
+    const source = poller.source('k', fetcher, { intervalMs: 300_000 });
+    const stop = source.subscribe(() => undefined);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(source.getSnapshot()).toEqual({ status: 'refused', code: 'trade.no_book' });
+    expect((fetcher as unknown as { mock: { calls: unknown[] } }).mock.calls.length).toBe(1);
+    stop();
+    poller.dispose();
+  });
+
   it('keeps the last good answer through a blip, then gives up honestly, and backs off', async () => {
     const poller = createPoller({ visibility: visibility(), minStaleMs: 30_000, staleIntervals: 3 });
     let good = true;

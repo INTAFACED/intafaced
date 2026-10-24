@@ -8,6 +8,9 @@
  *   edge allows 300) and exposes a counter so tests, and the E2E run, can assert it.
  * - Backs off after failures (2x, 4x, 8x the interval) and keeps showing the last
  *   good answer for a while rather than flashing an error on one dropped request.
+ * - With no answer yet, an error is retried soon (2 s, 4 s, 8 s ... never later than the
+ *   backed-off interval), so one dropped first read of a slow source (the desk's market
+ *   list polls every 5 minutes) does not leave its screen on "Couldn't load" for 10.
  *
  * Framework-free: React only meets it through `Source` in `hooks.ts`.
  */
@@ -70,6 +73,8 @@ export interface Poller {
 const WINDOW_MS = 60_000;
 const IDLE_EVICT_MS = 5 * 60_000;
 const MAX_BACKOFF = 8;
+/** First retry of an error before any good answer; doubles per failure. */
+const FIRST_READ_RETRY_MS = 2_000;
 
 /** Rolling-window request counter. */
 export class RequestBudget {
@@ -218,7 +223,9 @@ export function createPoller(options: PollerOptions = {}): Poller {
     if (entry.intervals.size === 0 || entry.inflight || !visibility.isVisible()) return;
     const base = interval(entry);
     const multiplier = Math.min(2 ** entry.fails, MAX_BACKOFF);
-    const wait = base * multiplier + (entry.fails === 0 ? hashUnit(entry.key) * 0.2 * base : 0);
+    const backedOff = base * multiplier + (entry.fails === 0 ? hashUnit(entry.key) * 0.2 * base : 0);
+    const firstReadFailed = !entry.lastGood && entry.failure?.kind === 'error';
+    const wait = firstReadFailed ? Math.min(backedOff, FIRST_READ_RETRY_MS * 2 ** (entry.fails - 1)) : backedOff;
     const delay = Math.max(0, entry.startedAt + wait - now());
     entry.timer = setTimer(() => {
       entry.timer = null;
