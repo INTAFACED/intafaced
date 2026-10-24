@@ -1019,6 +1019,7 @@ export class BlueprintService implements BlueprintContract {
         mentorMatches: asStudent.map(toMentorMatch),
         mentoringOthers: asMentor.map(toMentorMatch),
         shares: await this.sharesForExport(input.userId),
+        cardsOpened: await this.opensForExport(input.userId),
       };
     });
   }
@@ -1152,65 +1153,78 @@ export class BlueprintService implements BlueprintContract {
   }
 
   /**
-   * Subject Blueprint the viewer may see, or `not_found`.
-   *
-   * `private` and "no row" are the same answer. `public` is any authenticated
-   * viewer. `crew` is same-crew only — an unplaced subject has no crew, so
-   * crew-visibility is never visible to anyone else.
+   * The share and the Blueprint behind it, or `not_found` for a missing,
+   * revoked, other-subject or invisible card. `lock` takes the share row FOR
+   * UPDATE for the rest of the transaction.
    */
+  private async shareCard(
+    tx: Sql,
+    viewerId: string,
+    shareId: string,
+    subjectUserId: string | undefined,
+    lock: boolean,
+  ): Promise<{ share: ShareRow; blueprint: BlueprintRecord }> {
+    const shares = await tx<ShareRow[]>`
+      SELECT id, owner_user_id, size, created_at, revoked_at
+        FROM blueprint.card_shares
+       WHERE id = ${shareId}
+       ${lock ? tx`FOR UPDATE` : tx``}
+    `;
+    const share = shares[0];
+    if (!share || share.revoked_at !== null) throw new BlueprintError(CARD_NOT_FOUND, 'blueprint.not_found');
+    if (subjectUserId !== undefined && subjectUserId !== share.owner_user_id) {
+      throw new BlueprintError(CARD_NOT_FOUND, 'blueprint.not_found');
+    }
+
+    const rows = await tx<BlueprintRow[]>`
+      SELECT id, user_id, engine_version, profile, card_asset_url, visibility, mentor_available, created_at
+        FROM blueprint.blueprints
+       WHERE user_id = ${share.owner_user_id}
+    `;
+    const row = rows[0];
+    if (!row) throw new BlueprintError(CARD_NOT_FOUND, 'blueprint.not_found');
+    const blueprint = toBlueprintRecord(row);
+
+    let sameCrew = false;
+    if (viewerId !== share.owner_user_id && blueprint.visibility === 'crew') {
+      const same = await tx<Array<{ ok: number }>>`
+        SELECT 1 AS ok
+          FROM blueprint.crew_members a
+          JOIN blueprint.crew_members b ON a.crew_id = b.crew_id
+         WHERE a.user_id = ${viewerId} AND b.user_id = ${share.owner_user_id}
+         LIMIT 1
+      `;
+      sameCrew = Boolean(same[0]);
+    }
+    if (
+      !mayViewCard({
+        viewerId,
+        subjectUserId: share.owner_user_id,
+        visibility: blueprint.visibility,
+        sameCrew,
+      })
+    ) {
+      throw new BlueprintError(CARD_NOT_FOUND, 'blueprint.not_found');
+    }
+
+    return { share, blueprint };
+  }
+
   /**
-   * Lock the share, refuse a revoked or invisible card, render it, and record
-   * the open in the same transaction. The share stays FOR UPDATE through the
-   * render. revoked_at is read again after the card is composed. If it is
-   * revoked, the transaction rolls back and the card is not returned. The
-   * owner is not an opener of their own share. A failed open write aborts the
-   * transaction, so the card is not returned.
+   * Render the card from an unlocked read, then lock the share, check it again
+   * and record the open in one transaction. The rasterizer has a ten-second
+   * budget, so it runs before the lock: holding the share row through it would
+   * queue every other opener and the owner's revoke behind it. revoked_at is
+   * read again after the open is written. If it is revoked, the transaction
+   * rolls back and the card is not returned. The owner is not an opener of
+   * their own share. A failed open write aborts the transaction, so the card is
+   * not returned.
    */
   private async openThroughShare(viewerId: string, shareId: string, subjectUserId: string | undefined): Promise<CardRender> {
+    const read = await this.shareCard(this.sql, viewerId, shareId, subjectUserId, false);
+    const render = await this.renderCard(read.blueprint, read.share.size);
     return transaction(this.sql, async (tx) => {
-      const shares = await tx<ShareRow[]>`
-        SELECT id, owner_user_id, size, created_at, revoked_at
-          FROM blueprint.card_shares
-         WHERE id = ${shareId}
-         FOR UPDATE
-      `;
-      const share = shares[0];
-      if (!share || share.revoked_at !== null) throw new BlueprintError(CARD_NOT_FOUND, 'blueprint.not_found');
-      if (subjectUserId !== undefined && subjectUserId !== share.owner_user_id) {
-        throw new BlueprintError(CARD_NOT_FOUND, 'blueprint.not_found');
-      }
-
-      const rows = await tx<BlueprintRow[]>`
-        SELECT id, user_id, engine_version, profile, card_asset_url, visibility, mentor_available, created_at
-          FROM blueprint.blueprints
-         WHERE user_id = ${share.owner_user_id}
-      `;
-      const row = rows[0];
-      if (!row) throw new BlueprintError(CARD_NOT_FOUND, 'blueprint.not_found');
-      const blueprint = toBlueprintRecord(row);
-
-      let sameCrew = false;
-      if (viewerId !== share.owner_user_id && blueprint.visibility === 'crew') {
-        const same = await tx<Array<{ ok: number }>>`
-          SELECT 1 AS ok
-            FROM blueprint.crew_members a
-            JOIN blueprint.crew_members b ON a.crew_id = b.crew_id
-           WHERE a.user_id = ${viewerId} AND b.user_id = ${share.owner_user_id}
-           LIMIT 1
-        `;
-        sameCrew = Boolean(same[0]);
-      }
-      if (
-        !mayViewCard({
-          viewerId,
-          subjectUserId: share.owner_user_id,
-          visibility: blueprint.visibility,
-          sameCrew,
-        })
-      ) {
-        throw new BlueprintError(CARD_NOT_FOUND, 'blueprint.not_found');
-      }
-
+      const { share, blueprint } = await this.shareCard(tx, viewerId, shareId, subjectUserId, true);
       if (viewerId !== share.owner_user_id) {
         try {
           const written = await tx<Array<{ share_id: string }>>`
@@ -1229,7 +1243,6 @@ export class BlueprintService implements BlueprintContract {
         }
       }
 
-      const render = await this.renderCard(blueprint, share.size, tx);
       const again = await tx<Array<{ revoked_at: Date | null }>>`
         SELECT revoked_at
           FROM blueprint.card_shares
@@ -1261,6 +1274,22 @@ export class BlueprintService implements BlueprintContract {
       state: row.revoked_at ? 'revoked' : 'active',
       openCount: counts[0]?.n ?? 0,
     };
+  }
+
+  /** The caller's own opens of other accounts' shares, newest first. */
+  private async opensForExport(userId: string): Promise<BlueprintExport['cardsOpened']> {
+    const rows = await this.sql<Array<{ share_id: string; first_opened: Date; last_opened: Date; open_count: number }>>`
+      SELECT share_id, first_opened, last_opened, open_count
+        FROM blueprint.card_opens
+       WHERE viewer_user_id = ${userId}
+       ORDER BY last_opened DESC, share_id
+    `;
+    return rows.map((row) => ({
+      shareId: row.share_id,
+      firstOpened: row.first_opened.toISOString(),
+      lastOpened: row.last_opened.toISOString(),
+      openCount: row.open_count,
+    }));
   }
 
   /** Owner export of shares. Opener rows have no account id (MC-blueprint-01). */
@@ -1302,6 +1331,13 @@ export class BlueprintService implements BlueprintContract {
     );
   }
 
+  /**
+   * Subject Blueprint the viewer may see, or `not_found`.
+   *
+   * `private` and "no row" are the same answer. `public` is any authenticated
+   * viewer. `crew` is same-crew only — an unplaced subject has no crew, so
+   * crew-visibility is never visible to anyone else.
+   */
   private async visibleBlueprint(viewerId: string, subjectUserId: string): Promise<BlueprintRecord> {
     const blueprint = await this.get({ userId: subjectUserId });
     if (!blueprint) {

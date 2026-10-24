@@ -234,6 +234,7 @@ describe('svc-blueprint mount — a real session, on the real router', () => {
       mentorMatches: [],
       mentoringOthers: [],
       shares: [],
+      cardsOpened: [],
     };
     // Counted so `mentors` can be shown NOT to route through the export — see
     // the assertion after the calls.

@@ -255,10 +255,10 @@ if (!available) {
       await seed('public');
       const opening = service();
       const share = await opening.createShare({ userId: OWNER, size: 'portrait' });
-      // The share is FOR UPDATE for the whole read, so another connection cannot
-      // commit a revoke until this transaction ends. The trigger revokes in that
+      // The share is FOR UPDATE from the open insert to the response, so another
+      // connection cannot commit a revoke in between. The trigger revokes in that
       // same transaction, after the open insert and before the response. The
-      // re-read must roll the open back. rendered proves the insert ran first.
+      // re-read must roll the open back. rendered proves the card was composed.
       let rendered = false;
       const renderer: CardRenderer = {
         id: 'revoke-during-open',
@@ -312,6 +312,32 @@ if (!available) {
       expect(stored[0]?.revoked_at).toBeNull();
     });
 
+    it('renders without holding the share, so a revoke during the render commits and the card is not returned', async () => {
+      await seed('public');
+      const owner = service();
+      const share = await owner.createShare({ userId: OWNER, size: 'portrait' });
+      // The renderer itself revokes on another connection and waits for it. If the
+      // share row were held through the render this would wait on its own lock.
+      const renderer: CardRenderer = {
+        id: 'revoke-while-rendering',
+        async rasterize() {
+          await owner.revokeShare({ userId: OWNER, shareId: share.id });
+          return { status: 'unavailable', code: 'blueprint.card_renderer_unconfigured', reason: 'Revoked while rendering' };
+        },
+      };
+      const blueprint = new BlueprintService(db.sql, new MockNeuralEngine(), new MemoryEventBus('svc-blueprint'), renderer, {
+        crewCapacity: 4,
+        mentorShortlistSize: 3,
+        season: 1,
+        sharesPerOwner: 2,
+        opensListLimit: 20,
+      });
+      await expect(blueprint.cardFor({ viewerId: VIEWER, shareId: share.id, size: 'portrait' })).rejects.toMatchObject({
+        code: 'blueprint.not_found',
+      });
+      expect(await db.sql`SELECT 1 FROM blueprint.card_opens WHERE share_id = ${share.id}`).toHaveLength(0);
+    });
+
     it('exports the shares, then erase removes the viewer row and the owner shares', async () => {
       await seed('public');
       await seed('public', VIEWER);
@@ -319,6 +345,11 @@ if (!available) {
       const share = await blueprint.createShare({ userId: OWNER, size: 'portrait' });
       await blueprint.cardFor({ viewerId: VIEWER, shareId: share.id, size: 'portrait' });
       expect((await blueprint.export({ userId: OWNER })).shares[0]?.openCount).toBe(1);
+      const viewerExport = await blueprint.export({ userId: VIEWER });
+      expect(viewerExport.cardsOpened).toEqual([
+        { shareId: share.id, firstOpened: expect.any(String), lastOpened: expect.any(String), openCount: 1 },
+      ]);
+      expect((await blueprint.export({ userId: OWNER })).cardsOpened).toEqual([]);
 
       const viewerReceipt = await blueprint.erase({ userId: VIEWER });
       expect(viewerReceipt.removed.cardOpens).toBe(1);

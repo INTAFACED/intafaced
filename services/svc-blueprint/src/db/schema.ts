@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { bigint, boolean, check, index, integer, jsonb, pgSchema, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { bigint, boolean, check, index, integer, jsonb, pgSchema, primaryKey, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { createdAt, tstz, updatedAt } from '@intafaced/db';
 
 /**
@@ -148,7 +148,7 @@ export const cardShares = blueprint.table(
     uniqueIndex('card_shares_owner_size_active_idx')
       .on(t.ownerUserId, t.size)
       .where(sql`${t.revokedAt} IS NULL`),
-    index('card_shares_owner_idx').on(t.ownerUserId, t.createdAt),
+    index('card_shares_owner_idx').on(t.ownerUserId, t.createdAt.desc()),
   ],
 );
 
@@ -165,7 +165,7 @@ export const cardOpens = blueprint.table(
     openCount: integer('open_count').notNull().default(1),
   },
   (t) => [
-    uniqueIndex('card_opens_pk').on(t.shareId, t.viewerUserId),
+    primaryKey({ name: 'card_opens_pk', columns: [t.shareId, t.viewerUserId] }),
     check('card_opens_count_chk', sql`${t.openCount} >= 1`),
     index('card_opens_viewer_idx').on(t.viewerUserId),
   ],

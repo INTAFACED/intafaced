@@ -379,6 +379,21 @@ export const blueprintExportSchema = z.object({
    * literal and drops keys it does not know.
    */
   shares: z.array(cardShareExportSchema).default([]),
+  /**
+   * The caller's own opens of other accounts' shares: the rows erase removes as
+   * the viewer (MC-blueprint-01). No owner account id. An omitted key is an
+   * empty array.
+   */
+  cardsOpened: z
+    .array(
+      z.object({
+        shareId: z.string().uuid(),
+        firstOpened: z.string().datetime({ offset: true }),
+        lastOpened: z.string().datetime({ offset: true }),
+        openCount: z.number().int().min(1),
+      }),
+    )
+    .default([]),
 });
 export type BlueprintExport = z.infer<typeof blueprintExportSchema>;
 
