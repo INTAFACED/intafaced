@@ -3,6 +3,9 @@ import {
   academyAssistantDraftInputSchema,
   academyDecideDraftInputSchema,
   academyDuplicateItemInputSchema,
+  academyFeatureLessonInputSchema,
+  academyFeaturedSlotSchema,
+  academyWithdrawLessonInputSchema,
   academyImportLessonInputSchema,
   academyImportLessonResultSchema,
   academyLessonSchema,
@@ -88,6 +91,12 @@ const OPS = {
     what: 'draft decided',
     why: 'Which draft, and accept or discard?',
   },
+  withdraw: {
+    schema: academyWithdrawLessonInputSchema,
+    procedure: 'admin.withdrawLesson',
+    what: 'withdrawn from learners',
+    why: 'Which lesson, read at which course revision, and why? Say why in up to 500 characters.',
+  },
   duplicate: {
     schema: academyDuplicateItemInputSchema,
     procedure: 'admin.duplicateItem',
@@ -96,8 +105,24 @@ const OPS = {
   },
 } as const;
 
-export type LessonOp = keyof typeof OPS | 'import';
-export const isLessonOp = (op: unknown): op is LessonOp => typeof op === 'string' && (op === 'import' || Object.hasOwn(OPS, op));
+export type LessonOp = keyof typeof OPS | 'import' | 'feature';
+export const isLessonOp = (op: unknown): op is LessonOp =>
+  typeof op === 'string' && (op === 'import' || op === 'feature' || Object.hasOwn(OPS, op));
+
+const readSlot = parseWith(academyFeaturedSlotSchema);
+
+/** The lesson fills the Learn hub's featured slot (AC-articles-01), then the editor reads the lesson again. */
+async function featureLesson(ctx: FounderCallContext, body: Record<string, unknown>) {
+  const { op: _op, ...input } = body;
+  const parsed = academyFeatureLessonInputSchema.safeParse(input);
+  if (!parsed.success) return { why: 'Which lesson, and why feature it? Say why in up to 500 characters.' };
+  const result = await founderCall(ctx, 'academy', 'admin.featureLesson', 'POST', parsed.data, readSlot);
+  if (result.kind !== 'ok') return reply(result, 'featured');
+  return reply(
+    await founderCall(ctx, 'academy', 'admin.lesson', 'GET', { itemId: parsed.data.itemId }, readLesson),
+    'featured on the Learn hub',
+  );
+}
 
 /** A lesson file: refused by size before it is read, or a report of each bad block with nothing created. */
 async function importLesson(ctx: FounderCallContext, body: Record<string, unknown>) {
@@ -127,6 +152,7 @@ export async function changeLesson(
   body: Record<string, unknown>,
 ): Promise<{ status: number; reply: LessonDeskReply } | { why: string }> {
   if (op === 'import') return importLesson(ctx, body);
+  if (op === 'feature') return featureLesson(ctx, body);
   const spec = OPS[op];
   const { op: _op, ...input } = body;
   const parsed = spec.schema.safeParse(input);

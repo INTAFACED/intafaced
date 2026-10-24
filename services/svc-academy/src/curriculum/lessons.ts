@@ -23,6 +23,7 @@ import type {
   AcademyPublishLessonInput,
   AcademyRevertLessonInput,
   AcademySaveLessonInput,
+  AcademyWithdrawLessonInput,
 } from '@intafaced/contracts';
 import {
   ACADEMY_ITEMS_WITHOUT_LESSON,
@@ -245,6 +246,44 @@ export class LessonRecords {
   }
 
   /**
+   * Learners stop seeing the lesson: no revision is live. The course revision moves on with a `withdrawn` event naming
+   * who and why, and a featured lesson leaves the Learn hub's featured slot in the same step (AC-articles-01).
+   */
+  async withdraw(input: AcademyWithdrawLessonInput & { operatorId: string; now: Date }): Promise<AcademyLesson> {
+    return this.sql.begin(async (tx) => {
+      const item = await this.lockItem(tx, input.itemId);
+      // This item's own withdrawal at the next course revision, by this founder: a repeat after a lost reply.
+      if (
+        item.course_revision === input.courseRevision + 1 &&
+        item.live_revision === null &&
+        item.live_course_revision === item.course_revision
+      ) {
+        const [own] = await tx<Array<{ kind: string }>>`
+          SELECT kind FROM academy.course_events
+          WHERE course_id = ${item.course_id} AND revision = ${item.course_revision} AND actor = ${input.operatorId}
+        `;
+        if (own?.kind === 'withdrawn') return this.read(tx, item.id);
+      }
+      if (item.course_revision !== input.courseRevision)
+        throw new AcademyError(
+          `course is at revision ${item.course_revision}, not ${input.courseRevision}`,
+          'academy.course_revision_stale',
+        );
+      if (item.live_revision === null) throw new AcademyError('learners see no revision of this lesson', 'academy.lesson_not_live');
+      if (item.course_state !== 'draft' && item.course_state !== 'published')
+        throw new AcademyError(`a ${item.course_state} course's lessons are not changed`, 'academy.course_not_editable');
+      const next = await this.courseEvent(tx, item, 'withdrawn', input.operatorId, input.reason, input.now);
+      await tx`UPDATE academy.course_items SET live_revision = NULL, live_course_revision = ${next} WHERE id = ${item.id}`;
+      await tx`
+        WITH gone AS (DELETE FROM academy.featured_items WHERE course_item_id = ${item.id} RETURNING slot)
+        INSERT INTO academy.featured_events (slot, action, course_item_id, reason, actor, at)
+        SELECT slot, 'withdrawn', ${item.id}, ${input.reason.trim()}, ${input.operatorId}, ${input.now} FROM gone
+      `;
+      return this.read(tx, item.id);
+    });
+  }
+
+  /**
    * A copy of the item right after it in its section, while the course is a draft. The copy's lesson starts at revision
    * 1 with the source's newest blocks and is not live; nothing about learners is copied, because nothing about learners
    * is kept on an item. Answers with the copy.
@@ -393,9 +432,10 @@ export class LessonRecords {
   /** The newest revisions, and the live one even when it is older than those, so the editor always shows it. */
   private async read(sql: Sql | TransactionSql, itemId: string): Promise<AcademyLesson> {
     const [[row], revisions, [draft]] = await Promise.all([
-      sql<Array<ItemRow & { course_title: string; lesson_revision: number | null }>>`
+      sql<Array<ItemRow & { course_title: string; lesson_revision: number | null; featured: boolean }>>`
         SELECT i.*, c.state AS course_state, c.revision AS course_revision, c.title AS course_title,
-          (SELECT max(r.revision) FROM academy.lesson_revisions r WHERE r.item_id = i.id) AS lesson_revision
+          (SELECT max(r.revision) FROM academy.lesson_revisions r WHERE r.item_id = i.id) AS lesson_revision,
+          EXISTS (SELECT 1 FROM academy.featured_items f WHERE f.course_item_id = i.id) AS featured
         FROM academy.course_items i JOIN academy.courses c ON c.id = i.course_id WHERE i.id = ${itemId}
       `,
       sql<RevisionRow[]>`
@@ -428,6 +468,7 @@ export class LessonRecords {
         liveRevision: row.live_revision,
       },
       importMaxBytes: this.importMaxBytes,
+      featured: row.featured,
       draft: draft
         ? {
             basedOnRevision: draft.based_on_revision,
@@ -490,7 +531,7 @@ export class LessonRecords {
   private async courseEvent(
     tx: TransactionSql,
     item: ItemRow,
-    kind: 'lesson' | 'outline',
+    kind: 'lesson' | 'outline' | 'withdrawn',
     actor: string,
     reason: string | null,
     now: Date,

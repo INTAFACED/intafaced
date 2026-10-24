@@ -88,6 +88,7 @@ const LESSON = {
   ],
   importMaxBytes: 8192,
   draft: null,
+  featured: false,
 };
 
 describe('academy lesson editor BFF', () => {
@@ -178,5 +179,40 @@ describe('academy lesson editor BFF', () => {
     expect(await res.json()).toMatchObject({ ok: false, code: 'owner.decision', title: 'Waiting for an owner decision' });
     await POST(post({ op: 'decide', itemId: ITEM_ID, basedOnRevision: 1, kind: 'template', decision: 'accept' }));
     expect(sent(c, 'admin.decideDraft')).toEqual({ itemId: ITEM_ID, basedOnRevision: 1, kind: 'template', decision: 'accept' });
+  });
+
+  it('feature fills the Learn hub slot then reads the lesson again; a lesson learners cannot read is refused by name', async () => {
+    configure();
+    const SLOT = {
+      curriculum: null,
+      lesson: {
+        itemId: ITEM_ID,
+        title: 'Position size',
+        courseId: COURSE_ID,
+        courseTitle: 'Risk basics',
+        courseState: 'draft',
+        liveRevision: 1,
+      },
+      reason: 'TEST',
+      chosenBy: USER_ID,
+      chosenAt: '2026-10-23T10:00:00.000Z',
+    };
+    const c = upstream({ 'admin.featureLesson': () => ok(SLOT), 'admin.lesson': () => ok({ ...LESSON, featured: true }) });
+    const body = await (await POST(post({ op: 'feature', itemId: ITEM_ID, reason: 'TEST' }))).json();
+    expect(body).toMatchObject({ ok: true, what: 'featured on the Learn hub', lesson: { featured: true } });
+    expect(sent(c, 'admin.featureLesson')).toEqual({ itemId: ITEM_ID, reason: 'TEST' });
+    upstream({ 'admin.featureLesson': () => refusal('academy.featured_not_live', 412) });
+    const refused = await POST(post({ op: 'feature', itemId: ITEM_ID, reason: 'TEST' }));
+    expect(refused.status).toBe(412);
+    expect(await refused.json()).toMatchObject({ ok: false, code: 'academy.featured_not_live' });
+    expect((await POST(post({ op: 'feature', itemId: ITEM_ID, reason: ' ' }))).status).toBe(400);
+  });
+
+  it('withdraw goes over the course revision read with a reason', async () => {
+    configure();
+    const c = upstream({ 'admin.withdrawLesson': () => ok(LESSON) });
+    const body = await (await POST(post({ op: 'withdraw', itemId: ITEM_ID, courseRevision: 3, reason: 'TEST pulled' }))).json();
+    expect(body).toMatchObject({ ok: true, what: 'withdrawn from learners' });
+    expect(sent(c, 'admin.withdrawLesson')).toEqual({ itemId: ITEM_ID, courseRevision: 3, reason: 'TEST pulled' });
   });
 });

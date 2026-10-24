@@ -40,6 +40,9 @@ const uploadLimits = () =>
         ACADEMY_UPLOAD_HANDOUT_TYPES: 'application/pdf,image/png',
       };
 
+// LOCAL TEST topic list limit (a TEST owner value): 100 (J-academy-11 #8).
+const topicsLimit = () => (process.env.LOCAL_STACK_ACADEMY_TOPICS_LIMIT === 'off' ? {} : { ACADEMY_TOPICS_LIST_LIMIT: '100' });
+
 export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
   name: 'academy',
   env: () => ({
@@ -54,5 +57,6 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     ...outlineLimits(),
     ...importLimit(),
     ...uploadLimits(),
+    ...topicsLimit(),
   }),
 });

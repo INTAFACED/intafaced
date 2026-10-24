@@ -461,3 +461,70 @@ test(`${J} #7 a video, an SRT file and a handout upload; blank limits refuse; to
   await expect(page.getByTestId('media-file-handout').filter({ hasText: 'TEST-handout.pdf' })).toHaveAttribute('data-state', 'ready');
   await page.context().close();
 });
+
+test(`${J} #8 a lesson featured on the Learn hub fills the slot and leaves it when withdrawn; a topic named like a tab is refused`, async ({
+  browser,
+}) => {
+  test.setTimeout(180_000);
+  if (!courseUrl) throw new Error(`${J}: #2 left no course, so this step has nothing to feature`);
+  const page = await console_(browser);
+  const outcome = page.getByTestId('course-desk-outcome');
+  await page.goto(courseUrl);
+  await page.getByRole('link', { name: 'Write Section 1 item 2', exact: true }).click();
+  await page.waitForURL(/\/items\/[0-9a-f-]{36}$/);
+  const lessonUrl = page.url();
+  const featuredNote = page.getByTestId('lesson-featured');
+  await expect(featuredNote).toContainText('Learners can read it, so it can be featured');
+
+  // Featured from the lesson's page: the hub desk's slot shows it, with who and why.
+  await page.getByLabel('Why feature it', { exact: true }).fill('TEST first article for new learners');
+  await page.getByRole('button', { name: 'Feature on the Learn hub' }).click();
+  await expect(outcome).toContainText('Done: featured on the Learn hub');
+  await expect(featuredNote).toContainText('This lesson is the Learn hub’s featured article.');
+  await page.goto('/academy-ops/catalogue/featured');
+  const slot = page.getByTestId('hub-featured');
+  await expect(slot).toContainText('TEST Position size');
+  await expect(slot).toContainText(TITLE);
+  await expect(slot).toContainText('TEST first article for new learners');
+
+  // Withdrawn from learners: it leaves the slot in the same step.
+  await page.goto(lessonUrl);
+  await page.getByLabel('Why withdraw it', { exact: true }).fill('TEST rewriting the opening');
+  await page.getByRole('button', { name: 'Withdraw from learners' }).click();
+  await expect(outcome).toContainText('Done: withdrawn from learners');
+  await expect(page.getByTestId('lesson-live-revision')).toHaveText('Nothing: no revision is published');
+  await expect(featuredNote).toContainText('Not featured. Only a lesson learners can read is featured.');
+  await page.goto('/academy-ops/catalogue/featured');
+  await expect(slot).toHaveText('Nothing is featured. Feature a lesson learners can read from that lesson’s page.');
+
+  // The lesson goes back to learners for the steps after this one.
+  await page.goto(lessonUrl);
+  await page.getByLabel('Reason', { exact: true }).fill('TEST back for learners');
+  await page.getByRole('button', { name: /^Publish revision \d+ to learners$/ }).click();
+  await expect(outcome).toContainText('Done: published to learners');
+
+  // Topics: a tab's address is refused by name; a topic of its own is added and the course is filed under it.
+  await page.goto('/academy-ops/catalogue/featured');
+  const addTopic = async (name, address) => {
+    await page.getByLabel('Topic name', { exact: true }).fill(name);
+    await page.getByLabel('Topic address', { exact: true }).fill(address);
+    await page.getByRole('button', { name: 'Add topic' }).click();
+  };
+  await addTopic('Learning', 'learning');
+  await expect(outcome).toHaveAttribute('data-code', 'academy.slug_reserved');
+  await expect(outcome).toContainText('That address is an Academy tab');
+  const topic = `TEST Risk ${RUN}`;
+  await addTopic(topic, `test-risk-${RUN}`);
+  await expect(outcome).toContainText('Done: topic added');
+  await expect(page.getByTestId('hub-topics')).toContainText(topic);
+
+  await page.goto(courseUrl);
+  await expect(page.getByTestId('course-topics')).toHaveText('Filed under no topic.');
+  await page.getByRole('checkbox', { name: topic, exact: true }).check();
+  await page.getByRole('button', { name: 'Save topics' }).click();
+  await expect(outcome).toContainText('Done: topics saved');
+  await expect(page.getByTestId('course-topics')).toHaveText(`Filed under: ${topic}.`);
+  await expect(page.getByTestId('course-history')).toContainText('filed under topics');
+  await expect(page.getByTestId('course-history')).toContainText('a lesson withdrawn from learners');
+  await page.context().close();
+});

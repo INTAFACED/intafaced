@@ -1,5 +1,18 @@
 import { sql } from 'drizzle-orm';
-import { bigint, boolean, date, index, integer, jsonb, pgSchema, primaryKey, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import {
+  type AnyPgColumn,
+  bigint,
+  boolean,
+  date,
+  index,
+  integer,
+  jsonb,
+  pgSchema,
+  primaryKey,
+  text,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core';
 import { amount, createdAt, tstz, updatedAt } from '@intafaced/db';
 
 /**
@@ -452,10 +465,24 @@ export const itemWindows = academy.table('item_windows', {
 
 export const featuredItems = academy.table('featured_items', {
   slot: text('slot').primaryKey(),
-  itemSlug: text('item_slug').notNull(),
+  /** A curriculum item by slug, or (0024) a course lesson by id: exactly one of the two. */
+  itemSlug: text('item_slug'),
+  courseItemId: uuid('course_item_id').references((): AnyPgColumn => courseItems.id, { onDelete: 'cascade' }),
   reason: text('reason').notNull(),
   chosenBy: uuid('chosen_by').notNull(),
   chosenAt: tstz('chosen_at').notNull(),
+});
+
+/** AC-articles-01 (0024): every choice and clear of the featured slot, with who and why. */
+export const featuredEvents = academy.table('featured_events', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  slot: text('slot').notNull(),
+  action: text('action').notNull(),
+  itemSlug: text('item_slug'),
+  courseItemId: uuid('course_item_id'),
+  reason: text('reason').notNull(),
+  actor: uuid('actor').notNull(),
+  at: tstz('at').notNull(),
 });
 
 export const courseStarts = academy.table('course_starts', {
@@ -688,7 +715,29 @@ export const courseMedia = academy.table(
   (t) => [uniqueIndex('course_media_key_uq').on(t.itemId, t.kind, t.sha256), index('course_media_item_idx').on(t.itemId)],
 );
 
-/** AC-videos-02: one caption file per course item and language, stored with its cues. */
+/** AC-articles-01: staff-owned topics; a topic's address is never an Academy tab. */
+export const topics = academy.table('topics', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  slug: text('slug').notNull().unique(),
+  name: text('name').notNull(),
+  createdBy: uuid('created_by').notNull(),
+  createdAt: tstz('created_at').notNull(),
+});
+
+export const courseTopics = academy.table(
+  'course_topics',
+  {
+    courseId: uuid('course_id')
+      .notNull()
+      .references(() => courses.id, { onDelete: 'cascade' }),
+    topicId: uuid('topic_id')
+      .notNull()
+      .references(() => topics.id, { onDelete: 'cascade' }),
+  },
+  (t) => [primaryKey({ columns: [t.courseId, t.topicId] }), index('course_topics_topic_idx').on(t.topicId)],
+);
+
+/** AC-videos-02: one caption file per course video and language, stored with its cues. */
 export const courseItemCaptions = academy.table(
   'course_item_captions',
   {
@@ -718,6 +767,9 @@ export const schema = {
   lessonDrafts,
   courseMedia,
   courseItemCaptions,
+  topics,
+  courseTopics,
+  featuredEvents,
   plannerTodos,
   learningGoals,
   itemVideos,

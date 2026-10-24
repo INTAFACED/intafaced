@@ -119,6 +119,15 @@ const schema = serviceEnvSchema
       ),
 
       /**
+       * AC-articles-01: how many topics the founder console's topic list shows. Blank / unset is unpublished: the list
+       * refuses `academy.topics_list_limit_unset`.
+       */
+      ACADEMY_TOPICS_LIST_LIMIT: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.coerce.number().int().min(1).max(1000)]),
+      ),
+
+      /**
        * AC-videos-02: the largest video or handout, in bytes, the Academy desk uploads. Blank / unset is unpublished:
        * an upload refuses `academy.upload_limits_unset`, and a larger file refuses `academy.upload_too_large` before an
        * upload address is issued.
