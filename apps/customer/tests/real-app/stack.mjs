@@ -3,13 +3,22 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { LOCAL_TEST_DEVICE_KEY } from '../../../../tooling/scripts/local-test-device.mjs';
+import { LOCAL_TEST_DEVICE_KEY, localTestDeviceState } from '../../../../tooling/scripts/local-test-device.mjs';
 import { localStackState } from '../../../../tooling/scripts/local-test-state.mjs';
 
 // The parts of a real-app journey that are not the customer's browser: the stack's own tools (the TEST operators,
 // TEST funding, the other TEST trader) and the customer's own API through Edge, to read what the ledger holds.
 /** The stack's one TEST browser key (local-test-device.mjs): scripted sign-ins present it as the journey's browser does. */
 export const DEVICE_KEY = LOCAL_TEST_DEVICE_KEY;
+
+/**
+ * Signs this browser out the way clearing its cookies does, and keeps it the same TEST browser: its device key goes back,
+ * so the next sign-in is not a new device. A journey that means a new device clears the cookies itself (J-identity-02 #5).
+ */
+export async function signOutBrowser(context) {
+  await context.clearCookies();
+  await context.addCookies(localTestDeviceState().cookies);
+}
 
 export const ROOT = fileURLToPath(new URL('../../../..', import.meta.url));
 export const EDGE = 'http://127.0.0.1:14500';

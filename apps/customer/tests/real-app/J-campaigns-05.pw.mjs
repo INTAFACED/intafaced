@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { randomBytes } from 'node:crypto';
-import { EDGE, ORIGIN, api, journeyState, mailedCodes, nextMailedCode, tool } from './stack.mjs';
+import { EDGE, ORIGIN, api, journeyState, mailedCodes, nextMailedCode, tool, signOutBrowser } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 
 // J-campaigns-05, in the running app (docs/roadmap/journeys.json): I get my referral link and bring a friend. One test
@@ -213,7 +213,7 @@ test(`${J} #5 after the window: refused by name and offered a reviewed change`, 
   // Time passes for this TEST account only: its sign-up moves back an hour, past the stack's ten-minute TEST window.
   expect(tool('local-test-gates.mjs', 'age', late.handle, '3600')).toContain('LOCAL TEST');
   run.write({ late });
-  await page.context().clearCookies();
+  await signOutBrowser(page.context());
   await signIn(page, late);
 
   const outcome = await accept(page, token);

@@ -1,4 +1,5 @@
 import { expect } from '@playwright/test';
+import { signOutBrowser } from './stack.mjs';
 
 // Passkeys belong to the stack's relying party, `localhost` (an IP address cannot be one), so these steps use the
 // customer app at http://localhost:3210 and Chromium's virtual authenticator in place of a device.
@@ -60,7 +61,7 @@ export async function nextCode(totp, secret, step) {
 
 /** Ends this browser's sign-in without touching the passkey on its authenticator. */
 export async function forgetSession(page) {
-  await page.context().clearCookies();
+  await signOutBrowser(page.context());
   await page.evaluate(() => {
     localStorage.clear();
     sessionStorage.clear();

@@ -1,6 +1,18 @@
 import { randomBytes } from 'node:crypto';
 import { test, expect } from '@playwright/test';
-import { api, bestPrices, fromUnits, fund, journeyState, otherTrader, signUpInBrowser, times, toUnits, tool } from './stack.mjs';
+import {
+  api,
+  bestPrices,
+  fromUnits,
+  fund,
+  journeyState,
+  otherTrader,
+  signUpInBrowser,
+  times,
+  toUnits,
+  tool,
+  signOutBrowser,
+} from './stack.mjs';
 import { awayBid, confirm, free, held, openDesk, openOrders, previewed, reviewLimit, reviewSheet, signIn } from './desk.mjs';
 
 // J-cex-spot-01, in the running app (docs/roadmap/journeys.json). One test per step, titled "J-cex-spot-01 #<n>", run in
@@ -84,7 +96,7 @@ test(`${J} #3 submits verification, two operators approve it, signs in again and
   const status = tool('local-test-gates.mjs', 'status');
   const accounts = JSON.parse(status.slice(status.indexOf('{'))).accounts;
   expect(accounts.find((a) => a.handle === who.handle)?.tiers).toContain('full');
-  await page.context().clearCookies();
+  await signOutBrowser(page.context());
   await desk(page);
   await page.getByRole('textbox', { name: 'Price' }).first().fill('60000.00');
   await page.getByRole('textbox', { name: 'Amount' }).first().fill('0.001');

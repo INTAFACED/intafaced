@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { signUp } from './desk.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
+import { signOutBrowser } from './stack.mjs';
 
 // J-ops-console-02 #2: a founder types a customer's email, then a key, into the cross-desk search, and sees hits grouped by
 // desk. Each desk answers in its own section: identity finds the account by its whole email, the ledger and the payments desk
@@ -13,7 +14,7 @@ test('J-ops-console-02 #2 an email or a key in the cross-desk search, with hits 
   test.setTimeout(240_000);
   const customer = await signUp(page, 'xe');
 
-  await page.context().clearCookies();
+  await signOutBrowser(page.context());
   await founderSignIn(page, 'a');
   await page.goto(`${ADMIN}/search?q=${encodeURIComponent(customer.email.toUpperCase())}`, { waitUntil: 'load' });
 

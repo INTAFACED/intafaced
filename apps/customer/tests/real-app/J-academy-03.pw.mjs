@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { EDGE, ORIGIN, api, journeyState } from './stack.mjs';
+import { EDGE, ORIGIN, api, journeyState, signOutBrowser } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 
 // J-academy-03, in the running app (docs/roadmap/journeys.json): work through a course. One test per step, titled
@@ -430,7 +430,7 @@ test(`${J} #8 /academy/progress shows percent complete with check marks, the gra
   await page.goto('/academy/progress');
   await expect(page.getByText(/^No quiz attempts on your account\./)).toBeVisible();
   await expect(page.locator('[data-grade-chart]')).toHaveCount(0);
-  await page.context().clearCookies();
+  await signOutBrowser(page.context());
 
   // Staff hide the results of a TEST quiz on the third item until next week; the learner takes it.
   const hiddenUntil = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();

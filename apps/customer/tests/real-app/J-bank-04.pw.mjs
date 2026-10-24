@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
-import { DEVICE_KEY, EDGE, ORIGIN, ROOT, api, fund, journeyState, staffFreeze, toUnits } from './stack.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, ROOT, api, fund, journeyState, staffFreeze, toUnits, signOutBrowser } from './stack.mjs';
 import { signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
 
@@ -85,7 +85,7 @@ async function people(page) {
   run.reset({ sender, recipient, secret, step });
   // /login resets its form once a session refresh answers, which can wipe the typed email: start the next sign-in clean.
   await page.goto('about:blank');
-  await page.context().clearCookies();
+  await signOutBrowser(page.context());
   return run.read();
 }
 

@@ -11,7 +11,7 @@ import {
   unpublish,
 } from './help-centre.mjs';
 import { signUp } from './desk.mjs';
-import { EDGE, ORIGIN } from './stack.mjs';
+import { EDGE, ORIGIN, signOutBrowser } from './stack.mjs';
 
 // J-support-public-01, in the running app (docs/roadmap/journeys.json): a signed-out visitor finds an answer in the help
 // centre. Tests titled "J-support-public-01 #<n>" prove a whole step. A step that changes an owner setting puts back what
@@ -213,7 +213,7 @@ test(`${J} #4 a search lists the labelled answer first, and the typed words surv
     // A person with an account, signed out on this device.
     const page = await visitor(browser);
     const who = await signUp(page, 'j01s');
-    await page.context().clearCookies();
+    await signOutBrowser(page.context());
 
     await page.goto('/help');
     const main = page.locator('main');
@@ -322,7 +322,7 @@ test(`${J} #6 a link to a signed-in-only answer asks the visitor to sign in and 
     const { answer, word } = await narrowedAnswer('#6', 'si', 'signed_in', made);
     page = await visitor(browser);
     const who = await signUp(page, 'j01a');
-    await page.context().clearCookies();
+    await signOutBrowser(page.context());
 
     await page.goto(`/helpdetail?id=${answer.id}`);
     const main = page.locator('main');
@@ -413,7 +413,7 @@ test(`${J} #8 a "No" vote with a comment sent as a request: one confirmation, on
 
     // Signed out, the card asks for a sign-in that comes back to this answer.
     const who = await signUp(page, 'j01f');
-    await page.context().clearCookies();
+    await signOutBrowser(page.context());
     await page.goto(`/helpdetail?id=${first.id}`);
     await expect(main.getByRole('heading', { level: 1, name: first.title })).toBeVisible();
     await card.getByRole('link', { name: 'Sign in to rate' }).click();
