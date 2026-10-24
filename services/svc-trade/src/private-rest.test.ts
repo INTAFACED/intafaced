@@ -2040,7 +2040,81 @@ describe('private REST — mount boundary + order write path', () => {
     );
     const res = await app.inject({ method: 'GET', url: '/api/v1/fees/published' });
     expect(res.statusCode, res.body).toBe(200);
-    expect(res.json()).toEqual({ version: 'desk', fees: { 'BTC/USDT': { makerBps: 8, takerBps: 10 } } });
+    expect(res.json()).toEqual({
+      version: 'desk',
+      fees: { 'BTC/USDT': { makerBps: 8, takerBps: 10 } },
+      groups: [
+        {
+          pairGroup: 'all',
+          isDefault: true,
+          symbols: ['BTC/USDT'],
+          rows: [{ tierId: 'regular', zeroFee: false, makerBps: 8, takerBps: 10, makerRebateBps: null }],
+        },
+      ],
+      tiers: ['regular'],
+    });
+    await app.close();
+  });
+
+  it('GET /fees/published: a rows schedule by pair group and tier; a named group with no rows is listed with none', async () => {
+    const markets = ['BTC/USDT', 'ETH/USDC', 'IFC/USDT'].map((symbol, i) =>
+      fakeMarket({ id: `00000000-0000-4000-8000-00000000000${i}`, symbol, makerBps: 10, takerBps: 20 }),
+    );
+    const app = await build(
+      deps({
+        markets: async () => markets,
+        feeSchedule: parseFeeScheduleJson(
+          JSON.stringify({
+            published: true,
+            version: 'rows',
+            defaultPairGroup: 'all-others',
+            pairGroups: { 'ETH/USDC': 'zero', 'IFC/USDT': 'unpriced' },
+            rows: [
+              { pairGroup: 'all-others', tierId: 'regular', zeroFee: false, makerBps: '8', takerBps: '10', minFee: null },
+              { pairGroup: 'all-others', tierId: 'vip-1', zeroFee: false, makerBps: '6', takerBps: '9', minFee: null },
+              { pairGroup: 'zero', tierId: 'regular', zeroFee: true, minFee: null },
+              { pairGroup: 'zero', tierId: 'vip-1', zeroFee: false, makerBps: '1', takerBps: '2', minFee: '0.5' },
+            ],
+          }),
+        ),
+      }),
+    );
+    const res = await app.inject({ method: 'GET', url: '/api/v1/fees/published' });
+    expect(res.statusCode, res.body).toBe(200);
+    const body = res.json();
+    // A market whose row is blank has no rate in `fees`; the order path refuses it by name.
+    expect(body.fees).toEqual({ 'BTC/USDT': { makerBps: 8, takerBps: 10 }, 'ETH/USDC': { makerBps: 0, takerBps: 0 } });
+    expect(body.tiers).toEqual(['regular', 'vip-1']);
+    expect(body.groups).toEqual([
+      {
+        pairGroup: 'all-others',
+        isDefault: true,
+        symbols: ['BTC/USDT'],
+        rows: [
+          { tierId: 'regular', zeroFee: false, makerBps: 8, takerBps: 10, makerRebateBps: null, minFee: null },
+          { tierId: 'vip-1', zeroFee: false, makerBps: 6, takerBps: 9, makerRebateBps: null, minFee: null },
+        ],
+      },
+      {
+        pairGroup: 'zero',
+        isDefault: false,
+        symbols: ['ETH/USDC'],
+        rows: [
+          { tierId: 'regular', zeroFee: true, makerBps: 0, takerBps: 0, makerRebateBps: null, minFee: null },
+          // Published, but no recipe takes a minimum fee: marked, so no page shows it as a rate anyone pays.
+          {
+            tierId: 'vip-1',
+            zeroFee: false,
+            makerBps: 1,
+            takerBps: 2,
+            makerRebateBps: null,
+            minFee: '0.5',
+            refusal: 'trade.min_fee_recipe_unavailable',
+          },
+        ],
+      },
+      { pairGroup: 'unpriced', isDefault: false, symbols: ['IFC/USDT'], rows: [] },
+    ]);
     await app.close();
   });
 
@@ -2071,7 +2145,19 @@ describe('private REST — mount boundary + order write path', () => {
     );
     const res = await app.inject({ method: 'GET', url: '/api/v1/fees/published' });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ version: 'desk', fees: {} });
+    expect(res.json()).toEqual({
+      version: 'desk',
+      fees: {},
+      groups: [
+        {
+          pairGroup: 'all',
+          isDefault: true,
+          symbols: [],
+          rows: [{ tierId: 'regular', zeroFee: false, makerBps: 8, takerBps: 10, makerRebateBps: null }],
+        },
+      ],
+      tiers: ['regular'],
+    });
     await app.close();
   });
 

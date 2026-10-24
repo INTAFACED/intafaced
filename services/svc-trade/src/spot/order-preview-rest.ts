@@ -20,7 +20,7 @@ import {
 import { assertStopTrigger, TRADE_STOP_TRIGGER_INVALID } from './stop-trigger-door.js';
 import { STOP_MARKET, stopMarketLimit } from './stop-market.js';
 import { validateSlippageTolerance } from './slippage-tolerance.js';
-import { FeeScheduleError, previewFeeBps, type OwnerFeeSchedule } from './fee-schedule.js';
+import { FEE_SCHEDULE_RESIDUAL, FeeScheduleError, previewFeeBps, type OwnerFeeSchedule } from './fee-schedule.js';
 import { TradeError, type Market, type OrderSide, type OrderType, type TimeInForce } from './types.js';
 import type { EdgeTrust } from '../edge-trust.js';
 
@@ -567,12 +567,17 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
     const feeRole: 'maker' | 'taker' | null = orderType === null ? null : rests ? 'maker' : 'taker';
     // A schedule row that refuses (no row, rebate or minimum with no recipe) leaves the fee unavailable, never a guess.
     const scheduleNow = deps.feeScheduleNow ? await deps.feeScheduleNow() : deps.feeSchedule;
+    // The code a refusing row gave (no row for this market's pair group, say), so the refusal names it.
+    let feeRowRefusal: FeeScheduleError | null = null;
     const feeBpsFor = (role: 'maker' | 'taker'): number | null => {
       if (!discountKnown) return null;
       try {
         return previewFeeBps(scheduleNow, role, discountBps, { symbol: market.symbol });
       } catch (err) {
-        if (err instanceof FeeScheduleError) return null;
+        if (err instanceof FeeScheduleError) {
+          feeRowRefusal ??= err;
+          return null;
+        }
         throw err;
       }
     };
@@ -585,11 +590,17 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
     if (feeRole === null) {
       // type already refused
     } else if (feeBps === null) {
-      refusals.push({
-        code: 'trade.order_preview_fee_unavailable',
-        field: 'fee',
-        message: 'published fee schedule is unavailable',
-      });
+      // A blank schedule, or a row that refuses for this market, names the same code the order path refuses with, in
+      // plain words (the schedule's own message names its env key and internal ids). An unknown rank discount is
+      // the remaining case.
+      const rowRefusal = feeRowRefusal as FeeScheduleError | null;
+      refusals.push(
+        rowRefusal
+          ? { code: rowRefusal.code, field: 'fee', message: rowRefusal.residual }
+          : scheduleNow.published !== true
+            ? { code: 'trade.fee_schedule_blank', field: 'fee', message: FEE_SCHEDULE_RESIDUAL }
+            : { code: 'trade.order_preview_fee_unavailable', field: 'fee', message: 'published fee schedule is unavailable' },
+      );
     } else if (
       orderType === 'limit'
         ? limitPrice !== null

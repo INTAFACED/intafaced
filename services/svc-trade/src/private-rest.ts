@@ -39,7 +39,13 @@ import {
   type AmendOrderInput,
   type PlaceOrderInput,
 } from './spot/trade-service.js';
-import { FEE_SCHEDULE_RESIDUAL, FeeScheduleError, publishedProductBps, type OwnerFeeSchedule } from './spot/fee-schedule.js';
+import {
+  FEE_SCHEDULE_RESIDUAL,
+  FeeScheduleError,
+  publicFeeSchedule,
+  publishedProductBps,
+  type OwnerFeeSchedule,
+} from './spot/fee-schedule.js';
 import {
   TradeError,
   type AmendOrderOutcome,
@@ -1522,8 +1528,9 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
 
   /**
    * The published spot schedule for anyone, signed in or not: the same regular-tier maker and taker rates
-   * `/account/fees` answers (that read has no rank personalisation either), with the schedule version. Strategy
-   * backtests in svc-quant price their simulated fills with it. Unpublished refuses `trade.fee_schedule_blank`; a
+   * `/account/fees` answers (that read has no rank personalisation either), with the schedule version, and the whole
+   * schedule by pair group and tier (`groups`, `tiers`) for the public fee page. Strategy backtests in svc-quant price
+   * their simulated fills with `fees`. Unpublished refuses `trade.fee_schedule_blank`; a
    * market whose row refuses is left out, never shown at zero. An empty listing answers an empty `fees` map.
    */
   app.get('/api/v1/fees/published', async (_req, reply) => {
@@ -1536,11 +1543,13 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
           intafacedCode: 'trade.fee_schedule_blank',
         });
       }
+      const listed = await deps.markets(MARKETS_LIMIT_MAX);
       const fees: Record<string, { makerBps: number; takerBps: number }> = {};
-      for (const [symbol, row] of Object.entries(presentAccountFees(await deps.markets(MARKETS_LIMIT_MAX), schedule))) {
+      for (const [symbol, row] of Object.entries(presentAccountFees(listed, schedule))) {
         fees[symbol] = { makerBps: row.makerBps, takerBps: row.takerBps };
       }
-      return reply.code(200).send({ version: schedule.version, fees });
+      const spotSymbols = listed.filter((market) => market.kind === 'spot').map((market) => market.symbol);
+      return reply.code(200).send({ version: schedule.version, fees, ...publicFeeSchedule(schedule, spotSymbols) });
     } catch (err) {
       const sent = sendDomainError(reply, err);
       if (sent) return sent;

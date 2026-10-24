@@ -16,6 +16,7 @@ import { publicCopy } from './public-copy';
 import { PasswordRecovery } from './PasswordRecovery';
 import { AboutPage, AppPage, NoticePage, PartnerPage, RoomDirectory } from './PublicPages';
 import { LabPage } from './LabPage';
+import { FeesPage } from './FeesPage';
 import { pagesCopy } from './public-pages-copy';
 import { StatusPage } from './StatusPage';
 import { StatusSubscriptionPage } from './StatusSubscription';
@@ -95,6 +96,8 @@ export function PublicRoutes({ path }: { path: string }) {
           <NoticePage />
         ) : path.startsWith('/notice/') || path.startsWith('/announcement/') ? (
           <NoticePage detail id={path.split('/')[2] ?? null} />
+        ) : path === '/fees' ? (
+          <FeesPage />
         ) : path === '/app' ? (
           <AppPage />
         ) : path === '/lab' ? (
@@ -110,6 +113,7 @@ export function PublicRoutes({ path }: { path: string }) {
         <div>
           <a href="/help">{t('Help')}</a>
           <a href="/status">{t('Status')}</a>
+          <a href="/fees">{t('Fees')}</a>
           <a href="/notice">{t('Notices')}</a>
           <a href="/partner">{t('Partners')}</a>
         </div>

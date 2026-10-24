@@ -373,7 +373,14 @@ export class TradeOpsAdmin {
    */
   async feeScheduleSet(
     principal: Principal,
-    input: { schedule: Record<string, unknown>; effectiveAt: string; expectedVersion: string; reason: string; approvalId: string },
+    input: {
+      schedule: Record<string, unknown>;
+      effectiveAt: string;
+      expectedVersion: string;
+      reason: string;
+      approvalId: string;
+      operationId: string;
+    },
   ): Promise<FeeScheduleVersionRow> {
     requireOperatorWrite(principal);
     const reason = requireReason(input.reason);
@@ -418,7 +425,8 @@ export class TradeOpsAdmin {
       targetId: 'spot-fee-schedule',
       expectedVersion: input.expectedVersion,
       payloadHash: payloadHash(body),
-      operationId: input.approvalId,
+      // The id identity gave the approval's operation when it was proposed: consume refuses any other.
+      operationId: input.operationId,
     });
     const next = (BigInt(version) + 1n).toString();
     try {
