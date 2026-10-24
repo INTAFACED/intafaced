@@ -15,7 +15,8 @@ type View =
 /**
  * Look up one ledger transaction by its id, or trace a business key to the transaction it booked (J-ops-console-03).
  * The read runs as the signed-in founder, and svc-ledger records each lookup under them before it reads. A transaction
- * shows every posting with the account's balance after it; the transaction id and the business key each lead to the
+ * shows its place in the ledger's log, its reference, request and ledger times and its audit entry, and every posting
+ * with where the value came from or went and the account's balance before and after it; the transaction id and the business key each lead to the
  * other lookup. `initial` (from `/ledger?txId=` or `?businessKey=`, the cross-desk search's link back) is looked up once on
  * opening, as a new recorded read.
  */
@@ -65,7 +66,7 @@ export function LedgerLookup({ initial = null }: { initial?: LedgerLookupQuery |
   };
 
   return (
-    <section className="adm-control-card" data-testid="ledger-lookup" aria-labelledby="ledger-lookup-heading">
+    <section id="ledger-lookup" className="adm-control-card" data-testid="ledger-lookup" aria-labelledby="ledger-lookup-heading">
       <h2 id="ledger-lookup-heading">Look up a transaction</h2>
       <p className="adm-subtle">
         Find one booked transaction by its id, or trace a business key (for example a deposit’s key) to the transaction it booked. Each
@@ -106,7 +107,8 @@ export function LedgerLookup({ initial = null }: { initial?: LedgerLookupQuery |
       )}
       {view.kind === 'answer' && !view.answer.found && (
         <p data-testid="ledger-lookup-not-found">
-          Nothing was booked under the business key <code>{view.answer.businessKey}</code>.
+          Nothing was booked under the business key <code>{view.answer.businessKey}</code>. No record: the ledger keeps no record of a write
+          it refused, so there is nothing more to show for this key.
         </p>
       )}
       {view.kind === 'answer' && view.answer.found && (
@@ -158,8 +160,42 @@ export function TransactionView({
         <dd>{transaction.module}</dd>
         <dt>Reason</dt>
         <dd>{transaction.reason}</dd>
-        <dt>Booked</dt>
-        <dd>{formatWhen(transaction.postedAt)}</dd>
+        <dt>Log sequence</dt>
+        <dd data-testid="ledger-lookup-seq">{transaction.booking.seq}</dd>
+        <dt>Reference</dt>
+        <dd data-testid="ledger-lookup-reference">
+          {transaction.booking.reference ? <code>{transaction.booking.reference}</code> : 'None recorded'}
+        </dd>
+        <dt>Request time</dt>
+        <dd data-testid="ledger-lookup-request-time">
+          {formatWhen(transaction.postedAt)}{' '}
+          <span className="adm-subtle">(the ledger’s clock when it took the request; the hash covers it)</span>
+        </dd>
+        <dt>Ledger time</dt>
+        <dd data-testid="ledger-lookup-ledger-time">
+          {transaction.booking.bookedAt ? (
+            <>
+              {formatWhen(transaction.booking.bookedAt)}{' '}
+              <span className="adm-subtle">(the database’s clock when the booking’s database transaction began)</span>
+            </>
+          ) : (
+            'Not recorded: this transaction has no event record'
+          )}
+        </dd>
+        <dt>Audit entry</dt>
+        <dd data-testid="ledger-lookup-event">
+          {transaction.booking.event ? (
+            <>
+              <code>{transaction.booking.event.subject}</code> record <code>{transaction.booking.event.id}</code>, written{' '}
+              {formatWhen(transaction.booking.event.recordedAt)} in the same commit;{' '}
+              {transaction.booking.event.publishedAt
+                ? `published ${formatWhen(transaction.booking.event.publishedAt)}`
+                : 'not yet published to the event bus'}
+            </>
+          ) : (
+            'None: the ledger holds no event record for this transaction'
+          )}
+        </dd>
         <dt>Hash</dt>
         <dd>
           <code>{transaction.hash}</code>
@@ -172,22 +208,26 @@ export function TransactionView({
           <caption className="adm-sr-only">Postings of this transaction</caption>
           <thead>
             <tr>
+              <th>From or to</th>
               <th>Account</th>
               <th>Asset</th>
               <th>Direction</th>
               <th>Amount</th>
+              <th>Balance before</th>
               <th>Balance after</th>
             </tr>
           </thead>
           <tbody>
             {transaction.postings.map((posting) => (
-              <tr key={posting.entryId}>
+              <tr key={posting.entryId} data-side={posting.side}>
+                <td>{posting.side === 'source' ? 'Source' : 'Destination'}</td>
                 <td>
                   <code>{posting.accountId}</code>
                 </td>
                 <td>{posting.assetId}</td>
                 <td>{posting.direction}</td>
                 <td>{posting.amount}</td>
+                <td>{posting.balanceBefore}</td>
                 <td>{posting.balanceAfter}</td>
               </tr>
             ))}

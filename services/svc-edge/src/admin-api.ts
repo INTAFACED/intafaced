@@ -287,7 +287,7 @@ export type LedgerControlPath =
   '/operator/reconciliation/controls' | '/operator/reconciliation/controls/update' | '/operator/reconciliation/controls/run';
 
 export type LedgerOperatorCall = (
-  path: '/operator/freeze' | '/operator/unfreeze' | '/operator/reconcile' | LedgerLookupPath | LedgerControlPath,
+  path: '/operator/freeze' | '/operator/unfreeze' | '/operator/reconcile' | LedgerLookupPath | LedgerDeskPath | LedgerControlPath,
   method: 'GET' | 'POST',
   bearer: string,
   body?: unknown,
@@ -298,10 +298,25 @@ export type LedgerOperatorCall = (
  * encoded business key, never from a caller's raw path, so the forward still reaches exactly one named route.
  */
 export type LedgerLookupPath = `/operator/transactions/${string}` | `/operator/trace?businessKey=${string}`;
+/** The ledger desk's named reads, with or without their query. */
+export type LedgerDeskPath =
+  (typeof LEDGER_DESK_READS)[LedgerDeskRead]['path'] | `${(typeof LEDGER_DESK_READS)[LedgerDeskRead]['path']}?${string}`;
 
 const LOOKUP_TX_ID = z.string().guid();
 const LOOKUP_BUSINESS_KEY = z.string().trim().min(1).max(512);
 const invalidLookup = (message: string) => ({ status: 400, body: { error: message, code: 'edge.invalid_ledger_lookup' } });
+
+/**
+ * The ledger desk's browsing reads (OPS-ledger-desk-01) and the query keys each one forwards. svc-ledger checks every
+ * value; the edge forwards only these keys, each a single string of bounded length, re-encoded onto one named route.
+ */
+export const LEDGER_DESK_READS = {
+  transactions: { path: '/operator/transactions', keys: ['assetId', 'from', 'to', 'before'] },
+  accounts: { path: '/operator/accounts', keys: ['prefix', 'after'] },
+  stats: { path: '/operator/stats', keys: [] },
+} as const satisfies Record<string, { path: string; keys: readonly string[] }>;
+export type LedgerDeskRead = keyof typeof LEDGER_DESK_READS;
+const DESK_QUERY_VALUE_MAX = 256;
 
 export interface AdminApi {
   /** Verify an Authorization header for module control, or throw `AuthError`. */
@@ -346,6 +361,8 @@ export interface AdminApi {
   lookupTransaction(txId: unknown, header: string): Promise<{ status: number; body: unknown }>;
   /** The transaction a business key booked, or svc-ledger's `found: false`. Recorded by svc-ledger first. */
   traceBusinessKey(businessKey: unknown, header: string): Promise<{ status: number; body: unknown }>;
+  /** One ledger desk read (list, address search or counts), read by svc-ledger as the operator. */
+  readLedgerDesk(read: LedgerDeskRead, query: unknown, header: string): Promise<{ status: number; body: unknown }>;
   /**
    * Reconciliation control list. `admin:treasury` (with a second factor) or `admin:compliance`.
    * Same rule as svc-ledger's list door.
@@ -591,6 +608,24 @@ export function createAdminApi(state: KillSwitchState, deps: AdminApiDeps): Admi
       const key = LOOKUP_BUSINESS_KEY.safeParse(businessKey);
       if (!key.success) return invalidLookup('A business key is 1 to 512 characters.');
       return deps.ledger(`/operator/trace?businessKey=${encodeURIComponent(key.data)}`, 'GET', header);
+    },
+
+    async readLedgerDesk(read, query, header) {
+      if (!deps.ledger) return unreachable;
+      const spec = LEDGER_DESK_READS[read];
+      const given = query && typeof query === 'object' ? (query as Record<string, unknown>) : {};
+      const params = new URLSearchParams();
+      for (const key of Object.keys(given)) {
+        if (!(spec.keys as readonly string[]).includes(key))
+          return invalidLookup(`This ledger read takes ${spec.keys.join(', ') || 'no query'}.`);
+        const value = given[key];
+        if (typeof value !== 'string' || value.length > DESK_QUERY_VALUE_MAX) {
+          return invalidLookup(`${key} is one value of at most ${DESK_QUERY_VALUE_MAX} characters.`);
+        }
+        params.set(key, value);
+      }
+      const search = params.toString();
+      return deps.ledger(search ? `${spec.path}?${search}` : spec.path, 'GET', header);
     },
 
     async authenticateControlRead(header) {

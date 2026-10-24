@@ -810,6 +810,20 @@ export function registerAdminRoutes(app: FastifyInstance, admin: AdminApi, match
     return reply.code(res.status).send(res.body);
   });
 
+  /**
+   * The ledger desk's browsing reads (OPS-ledger-desk-01): the transaction list, the account address search and the
+   * book's counts. The lookups' authority, the operator's OWN token forwarded so svc-ledger records the list and the
+   * search against the person before it reads. Only each read's named query keys go through; svc-ledger checks them.
+   */
+  for (const read of ['transactions', 'accounts', 'stats'] as const) {
+    app.get(`/admin/ledger/${read}`, async (req, reply) => {
+      const auth = await operator(req.headers.authorization, reply, 'lookup');
+      if (!auth) return reply;
+      const res = await admin.readLedgerDesk(read, req.query, auth.bearer);
+      return reply.code(res.status).send(res.body);
+    });
+  }
+
   const matchingUnwired = {
     error: 'MATCHING_URL or EDGE_PRINCIPAL_SECRET is unpublished. This edge does not read the book and does not halt it.',
     code: 'edge.matching_unwired' as const,
