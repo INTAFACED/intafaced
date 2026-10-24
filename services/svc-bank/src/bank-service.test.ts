@@ -3005,6 +3005,7 @@ describe('svc-bank money PG-hard', () => {
           'the INSTRUCTION; a customer edit replaces it under a new revision, and the run posts the amount it locked',
         'schedule_revisions.amount': 'a RECORD of one replaced instruction; written once when an edit lands',
         'transfer_executions.amount': 'a RECORD of one completed firing; written once',
+        'dd_collections.amount': 'a RECORD of what a creditor presented for one direct debit collection; written once',
         'personal_transfers.amount': 'a RECORD of one completed personal send; written once',
         'personal_transfer_terms.per_transfer_limit': 'a POLICY ceiling on one send; no money path writes it',
         'personal_transfer_terms.daily_limit': 'a POLICY ceiling on one UTC day; no money path writes it',

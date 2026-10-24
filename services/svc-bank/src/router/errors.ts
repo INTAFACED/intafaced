@@ -410,6 +410,17 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.loan_payoff_window_unset': 'PRECONDITION_FAILED',
   'bank.loan_terms_missing': 'PRECONDITION_FAILED',
   'bank.schedule_edit_cutoff_unset': 'PRECONDITION_FAILED',
+  'bank.dd_guarantee_unset': 'PRECONDITION_FAILED',
+  'bank.dd_invalid': 'BAD_REQUEST',
+  'bank.dd_creditor_unknown': 'BAD_REQUEST',
+  'bank.dd_mandate_not_found': 'NOT_FOUND',
+  'bank.dd_collection_not_found': 'NOT_FOUND',
+  'bank.dd_mandate_conflict': 'CONFLICT',
+  'bank.dd_collection_conflict': 'CONFLICT',
+  'bank.dd_collection_invalid': 'BAD_REQUEST',
+  'bank.dd_refund_not_collected': 'CONFLICT',
+  // The request is fine; the period it had to be made in is over.
+  'bank.dd_refund_window_closed': 'CONFLICT',
 
   // Kill switches. Same 503 class as the matching HTTP job endpoints —
   // operator flipped the flag off; tRPC must not be a back door past it.

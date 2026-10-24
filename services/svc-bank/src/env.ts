@@ -6,6 +6,7 @@ import { RAMP_SETTINGS } from './ramps/rails.js';
 import { GLOBAL_PARTNER_SETTINGS } from './personal-pay/global-sim.js';
 import { ONRAMP_RATE_SETTINGS } from './ramps/onramp-sim.js';
 import { PAYOUT_PARTNER_SETTINGS } from './cash-out/payout-sim.js';
+import { DD_SCHEME_SETTINGS } from './direct-debits/scheme.js';
 
 // This service self-mounts /trpc, so it must be able to authenticate the edge.
 // Every procedure here resolves `ctx.principal.userId` into somebody's spaces
@@ -70,6 +71,16 @@ const schema = serviceEnvSchema
        * interest leaves the pool reserve, and a reserve drained by a runaway job
        * cannot be un-paid without asking users to return money.
        */
+      /**
+       * Emergency stop for the direct debit collection run (BK-xfer-11). Same posture as the standing-order runner: each
+       * collection is a real debit, and stopping the run must not also turn off the person's block and refund controls,
+       * which unsetting the scheme would.
+       */
+      BANK_DD_COLLECTIONS_ENABLED: z
+        .union([z.boolean(), z.string()])
+        .default(true)
+        .transform((v) => (typeof v === 'boolean' ? v : !['0', 'false', 'off', 'no'].includes(v.toLowerCase()))),
+
       INTEREST_ACCRUAL_ENABLED: z
         .union([z.boolean(), z.string()])
         .default(true)
@@ -396,6 +407,18 @@ const schema = serviceEnvSchema
       BANK_GLOBAL_PARTNER: z.enum(GLOBAL_PARTNER_SETTINGS).default('none'),
       /** The stand-in's TEST catalogue (corridors, rates, banks, travel-rule fields, and optionally the amounts it screens). Read only when the setting is `global-sim`. */
       BANK_GLOBAL_SIM_JSON: z.string().optional(),
+
+      /**
+       * WHO SPEAKS FOR THE DIRECT DEBIT SCHEME (BK-xfer-11). `none` (default) | `dd-sim`.
+       *
+       * The scheme, its failure fees and its guarantee periods are the owner's decision (decision list item 12), and
+       * nothing is switched on: `none` refuses every direct debit control with `rail.bank`. `dd-sim` is a TEST stand-in
+       * for the local stack and journey tests only (`direct-debits/scheme.ts`): its TEST creditors and guarantee period
+       * come from `BANK_DD_SIM_JSON`, it pays nobody, and the service refuses to start with it outside dev or test.
+       */
+      BANK_DD_SCHEME: z.enum(DD_SCHEME_SETTINGS).default('none'),
+      /** The direct debit stand-in's TEST catalogue (creditors, guarantee days). Read only when the setting is `dd-sim`. */
+      BANK_DD_SIM_JSON: z.string().optional(),
 
       /**
        * Owner-published payee controls for a global send as JSON: `{ blockedAccounts: ["..."] }`. A published empty list

@@ -26,6 +26,8 @@ import { globalPortsFor } from './personal-pay/global-sim.js';
 import { onrampStandInFor } from './ramps/onramp-sim.js';
 import { cashOutPartnerFor } from './cash-out/payout-sim.js';
 import { payoutFailedBody, payoutPaidBody, payoutReturnedBody, payoutVerifyBody, redriveBody } from './cash-out/job-bodies.js';
+import { directDebitSchemeFor } from './direct-debits/scheme.js';
+import { ddRunBody, ddSimCollectionBody, ddSimMandateBody } from './direct-debits/job-bodies.js';
 import { rampProgrammeFor } from './ramps/rails.js';
 import { eventMarginCallSink } from './loans/margin-call-publisher.js';
 import { createIdentityPartyHandles } from './transfers/party-handles.js';
@@ -242,6 +244,11 @@ const bank = createBankServices(sql, ledger, history, {
   }),
   /** Who pays cash-outs out: unset unless the TEST stand-in was chosen, which refuses to boot outside dev/test. */
   cashOutPartner: cashOutPartnerFor(env.BANK_PAYOUT_PARTNER, env.BANK_PAYOUT_SIM_JSON, {
+    APP_ENV: process.env.APP_ENV,
+    NODE_ENV: process.env.NODE_ENV,
+  }),
+  /** Who speaks for the direct debit scheme: unset unless the TEST stand-in was chosen, which refuses to boot outside dev/test. */
+  directDebitScheme: directDebitSchemeFor(env.BANK_DD_SCHEME, env.BANK_DD_SIM_JSON, {
     APP_ENV: process.env.APP_ENV,
     NODE_ENV: process.env.NODE_ENV,
   }),
@@ -623,7 +630,7 @@ app.post('/internal/jobs/run-auto-invest', async (req, reply) => {
  * wired, every one refuses `rail.bank` and no cash-out is ever processing. The re-drive door (also a recovery-timer job)
  * picks up a cash-out left before its hold or the partner's acceptance.
  */
-function payoutDoor<T>(path: string, body: z.ZodType<T>, run: (input: T) => Promise<unknown>) {
+function jobDoor<T>(path: string, body: z.ZodType<T>, run: (input: T) => Promise<unknown>) {
   app.post(path, async (req, reply) => {
     if (!requireService(req)) return reply.code(401).send({ error: 'service credentials required', code: 'bank.unauthenticated' });
     const parsed = body.safeParse(req.body ?? {});
@@ -635,13 +642,34 @@ function payoutDoor<T>(path: string, body: z.ZodType<T>, run: (input: T) => Prom
     }
   });
 }
-payoutDoor('/internal/jobs/payout-sim/verify', payoutVerifyBody, (b) => bank.cashOut.verifyAccount(b.accountId));
-payoutDoor('/internal/jobs/payout-sim/paid', payoutPaidBody, (b) => bank.cashOut.complete(b.cashOutId));
-payoutDoor('/internal/jobs/payout-sim/failed', payoutFailedBody, (b) => bank.cashOut.fail(b.cashOutId, b.reason));
-payoutDoor('/internal/jobs/payout-sim/returned', payoutReturnedBody, (b) =>
+jobDoor('/internal/jobs/payout-sim/verify', payoutVerifyBody, (b) => bank.cashOut.verifyAccount(b.accountId));
+jobDoor('/internal/jobs/payout-sim/paid', payoutPaidBody, (b) => bank.cashOut.complete(b.cashOutId));
+jobDoor('/internal/jobs/payout-sim/failed', payoutFailedBody, (b) => bank.cashOut.fail(b.cashOutId, b.reason));
+jobDoor('/internal/jobs/payout-sim/returned', payoutReturnedBody, (b) =>
   bank.cashOut.returned(b.cashOutId, { amount: b.amount, assetId: b.assetId, reason: b.reason }),
 );
-payoutDoor('/internal/jobs/redrive-cash-outs', redriveBody, async (b) => recoveryCounts(await bank.cashOut.redrive(b.limit)));
+jobDoor('/internal/jobs/redrive-cash-outs', redriveBody, async (b) => recoveryCounts(await bank.cashOut.redrive(b.limit)));
+
+/**
+ * The direct debit scheme's side (BK-xfer-11): a creditor sets up a mandate and presents a collection. Signed job doors,
+ * never a customer or a staff session: with no scheme wired they refuse `rail.bank`, and on the stack only the TEST
+ * stand-in (`dd-sim`) answers. The collection run is the third door: it collects, fails or rejects every due collection.
+ */
+jobDoor('/internal/jobs/dd-sim/mandate', ddSimMandateBody, (b) => bank.directDebits.setUpMandate(b));
+jobDoor('/internal/jobs/dd-sim/collection', ddSimCollectionBody, (b) => bank.directDebits.present(b));
+app.post('/internal/jobs/run-due-direct-debits', async (req, reply) => {
+  if (!requireService(req)) return reply.code(401).send({ error: 'service credentials required', code: 'bank.unauthenticated' });
+  if (!env.BANK_DD_COLLECTIONS_ENABLED) {
+    return reply.code(503).send({ error: 'the direct debit collection run is stopped', code: 'bank.dd_collections_disabled' });
+  }
+  const body = ddRunBody.safeParse(req.body ?? {});
+  if (!body.success) return reply.code(400).send({ error: 'body not in shape', code: 'bank.validation_failed' });
+  try {
+    return await withSpan('bank.job.runDueDirectDebits', async () => bank.directDebits.runDue({ limit: body.data.limit }));
+  } catch (err) {
+    return sendBankJobRefuse(reply, err);
+  }
+});
 
 await app.register(fastifyTRPCPlugin, {
   prefix: '/trpc',

@@ -37,6 +37,8 @@ import type { LedgerHistory } from './analytics/ledger-history.js';
 import type { RecipientStatePort } from './recipient-state.js';
 import { BillPayService } from './personal-pay/bills.js';
 import { GlobalSendService } from './personal-pay/global.js';
+import { DirectDebitService } from './direct-debits/direct-debits.js';
+import { unsetDirectDebitScheme, type DirectDebitScheme } from './direct-debits/scheme.js';
 import { BANK_GLOBAL_HOLD_CANCEL_HOURS_ENV, GlobalHoldService } from './personal-pay/holds.js';
 import { SpendFiguresReader } from './insufficient-funds.js';
 import { emptyBillPorts, emptyGlobalPorts, type BillPorts, type GlobalPorts } from './personal-pay/ports.js';
@@ -93,6 +95,8 @@ export interface BankServices {
   readonly bills: BillPayService;
   readonly globalSend: GlobalSendService;
   readonly globalHolds: GlobalHoldService;
+  /** BK-xfer-11: Direct Debit mandates and collections. Every control refuses `rail.bank` while no scheme is wired. */
+  readonly directDebits: DirectDebitService;
   /** RC-wallet-09: figures for a refused spend. Reads only. */
   readonly spendFigures: SpendFiguresReader;
   /**
@@ -215,6 +219,8 @@ export interface BankServiceOptions {
    * Travel-rule `decision()` null means Nitro/Phantom have not decided.
    */
   global?: GlobalPorts;
+  /** Who speaks for the direct debit scheme. Unset unless the TEST stand-in was chosen (`BANK_DD_SCHEME=dd-sim`). */
+  directDebitScheme?: DirectDebitScheme;
   /** Owner-published purpose, source-of-funds and reference rules for a global send (JSON). Blank refuses. */
   sendFieldRules?: string | undefined;
   /** Owner-published payee controls (JSON). Blank refuses every global send. */
@@ -345,6 +351,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     bills,
     globalSend,
     globalHolds,
+    directDebits: new DirectDebitService(sql, ledger, spaces, options.directDebitScheme ?? unsetDirectDebitScheme),
     spendFigures: new SpendFiguresReader(sql, ledger),
     transferOps: { sql, handles: options.handles },
   };
