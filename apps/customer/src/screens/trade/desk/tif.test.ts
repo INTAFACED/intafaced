@@ -37,6 +37,14 @@ describe('time in force on the ticket', () => {
     expect(tifFor('bracket', 'FOK')).toBe('FOK');
     expect(tifFor('oco', 'IOC')).toBe('GTC');
   });
+  it('an OTO buy rests (GTC, first) or resolves at once (IOC, FOK), never post only or good till date', () => {
+    expect(tifsFor('oto')).toEqual(['GTC', 'IOC', 'FOK']);
+    expect(tifFor('oto', 'PO')).toBe('GTC');
+    expect(tifFor('oto', 'GTD')).toBe('GTC');
+    expect(tifFor('oto', 'IOC')).toBe('IOC');
+    expect(tifLabelKey('oto', 'GTC')).toBe('Tif bracket resting');
+    expect(tifLabelKey('oto', 'IOC')).toBe('Tif IOC');
+  });
   it('falls back to standard when the new order type cannot use the pick', () => {
     expect(tifFor('market', 'PO')).toBe('GTC');
     expect(tifFor('market', 'IOC')).toBe('GTC');

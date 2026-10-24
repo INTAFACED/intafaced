@@ -1832,26 +1832,29 @@ export class TradeService {
   }
 
   /**
-   * The exit of a bracket whose entry already filled: no cap or band may refuse it, since that leaves a position with
-   * no stop. The name alone is not trusted (a caller can pick any clientOrderId), so it must match this user's own
-   * stored bracket intent that has no exit yet.
+   * The exit of a bracket (or the close of an OTO) whose entry already filled: no cap or band may refuse it, since that
+   * leaves a position with no exit. The name alone is not trusted (a caller can pick any clientOrderId), so it must
+   * match this user's own stored intent of that kind that has no exit yet.
    */
   private async isPendingBracketExit(
     userId: string,
     clientOrderId: string,
     opts: { entryDone?: boolean; marketId?: string } = {},
   ): Promise<boolean> {
-    const exitOf = /^bracket:([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}):exit$/.exec(clientOrderId)?.[1];
-    if (!exitOf) return false;
+    const named = /^(bracket|oto):([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}):(exit|close)$/.exec(clientOrderId);
+    if (!named || (named[1] === 'bracket') !== (named[3] === 'exit')) return false;
+    const kind = named[1]!;
+    const exitOf = named[2]!;
     const pending = opts.entryDone
       ? await this.sql`
           SELECT 1 FROM trade.order_bracket_intent i JOIN trade.orders o ON o.id = i.order_id
-           WHERE i.order_id = ${exitOf} AND i.user_id = ${userId} AND i.exit_order_id IS NULL
+           WHERE i.order_id = ${exitOf} AND i.user_id = ${userId} AND i.kind = ${kind} AND i.exit_order_id IS NULL
              AND o.status NOT IN ('open', 'pending', 'recovery_required', 'hold_unknown')
              AND o.market_id = ${opts.marketId ?? null}
         `
       : await this.sql`
-          SELECT 1 FROM trade.order_bracket_intent WHERE order_id = ${exitOf} AND user_id = ${userId} AND exit_order_id IS NULL
+          SELECT 1 FROM trade.order_bracket_intent
+           WHERE order_id = ${exitOf} AND user_id = ${userId} AND kind = ${kind} AND exit_order_id IS NULL
         `;
     return pending.length > 0;
   }
