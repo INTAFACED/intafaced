@@ -3,7 +3,9 @@
  *
  * begin records the payment (scope, purpose, amount, target) and returns a
  * passkey challenge or accepts a six-digit authenticator code. complete proves
- * that fresh factor and mints one stepUpApprovalId. A refresh token is not a
+ * that fresh factor and mints one stepUpApprovalId. Only replacing or turning
+ * off the authenticator app also takes a recovery code, spent once, for the
+ * person who lost the phone (J-identity-05 #4). A refresh token is not a
  * factor: the caller must already hold a live access token, and complete still
  * checks the code or the passkey.
  *
@@ -52,6 +54,9 @@ export class StepUpError extends Error {
     this.name = 'StepUpError';
   }
 }
+
+/** The step-ups a recovery code may complete: replacing or turning off the authenticator app it belongs to. */
+const RECOVERY_CODE_SCOPES: ReadonlySet<string> = new Set(['identity.step_up.totp_replace', 'identity.step_up.totp_disable']);
 
 const STEP_UP_COPY: Readonly<Record<StepUpErrorCode, string>> = {
   'step_up.unknown_scope': 'That confirmation is not for a payment this app can approve.',
@@ -155,17 +160,28 @@ export class CustomerStepUpService {
 
   async complete(
     principal: { readonly userId: string; readonly sessionId: string },
-    input: { readonly challengeId: string; readonly totpCode?: string; readonly webauthn?: AuthenticationResponseJSON },
+    input: {
+      readonly challengeId: string;
+      readonly totpCode?: string;
+      readonly recoveryCode?: string;
+      readonly webauthn?: AuthenticationResponseJSON;
+    },
   ): Promise<StepUpCompleteResult> {
     const preview = await this.preview(input.challengeId, principal);
     if (input.webauthn && !preview.webauthnChallenge) {
       throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
+    }
+    // A recovery code confirms only a change to the authenticator itself (J-identity-05 #4: the app is lost), never a
+    // payment or any other security change; anywhere else it reads as a wrong code.
+    if (input.recoveryCode && !RECOVERY_CODE_SCOPES.has(preview.scope)) {
+      throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');
     }
     await this.auth.proveFreshFactor({
       userId: principal.userId,
       sessionId: principal.sessionId,
       purpose: stepUpPurposeOf(preview.scope),
       ...(input.totpCode ? { totpCode: input.totpCode } : {}),
+      ...(input.recoveryCode ? { recoveryCode: input.recoveryCode } : {}),
       ...(input.webauthn && preview.webauthnChallenge ? { webauthn: input.webauthn, webauthnChallenge: preview.webauthnChallenge } : {}),
     });
 

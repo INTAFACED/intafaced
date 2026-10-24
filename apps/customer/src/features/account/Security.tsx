@@ -819,7 +819,13 @@ export function Security() {
           <PasskeyNames revision={passkeyRevision} />
           <SigninMethods revision={passkeyRevision} onChanged={methodsChanged} />
           <AntiPhishing />
-          <Authenticator onChanged={methodsChanged} />
+          <Authenticator
+            onChanged={(change) => {
+              methodsChanged();
+              // A replace ended the other sessions: the sessions list below reads them again.
+              if (change?.sessionsEnded) setSeatVersion((value) => value + 1);
+            }}
+          />
           <ChangePassword onChanged={() => setSeatVersion((value) => value + 1)} />
           <SecurityLock />
           <FreezeAccount />
