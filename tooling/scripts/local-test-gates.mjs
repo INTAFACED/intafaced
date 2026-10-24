@@ -1365,6 +1365,47 @@ export async function setFeeSchedule(ctx, schedule, { effectiveAt, reason, sessi
   return row;
 }
 
+// ── 2c''. TEST fee-decay schedule for IFC holders (two-person approval) ───
+
+export const FEE_DISCOUNT_PUBLISH_ACTION = 'token.fee_discount.publish';
+
+/** The hash svc-token recomputes when it consumes a token.fee_discount.publish approval (services/svc-token/src/router.ts). */
+export function feeDiscountPublishPayloadHash({ schedule, expectedVersion }) {
+  const body = JSON.stringify({ actionType: FEE_DISCOUNT_PUBLISH_ACTION, schedule: canonicalJson(schedule), expectedVersion });
+  return `sha256:${crypto.createHash('sha256').update(body).digest('hex')}`;
+}
+
+/**
+ * Publish svc-token's fee-decay schedule (stake thresholds to fee discount bps) through its two-person founder door, as
+ * two founders would: read the stored version, approve exactly this ladder over it, write. Every value is the caller's
+ * TEST ladder; the stack ships the column blank. Returns `{ schedule, version, previousVersion }`.
+ */
+export async function setFeeDiscountSchedule(ctx, schedule, { sessions = null } = {}) {
+  const pair = sessions ?? (await approverSessions(ctx));
+  const current = data(await ctx.edge.query('token', 'feeDiscount.get', undefined, await pair.a.tradeOpsToken()));
+  if (typeof current?.version !== 'string') throw new Error('token feeDiscount.get gave no version');
+  const body = { schedule, expectedVersion: current.version };
+  const ids = await twoPerson(ctx, pair, {
+    actionType: FEE_DISCOUNT_PUBLISH_ACTION,
+    targetService: 'svc-token',
+    targetId: FEE_DISCOUNT_PUBLISH_ACTION,
+    expectedVersion: current.version,
+    payloadHash: feeDiscountPublishPayloadHash(body),
+    policyVersion: MARKERS.policyVersion,
+  });
+  assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
+  const res = await ctx.edge.mutate(
+    'token',
+    'feeDiscount.publish',
+    { ...body, approvalId: ids.approvalId, operationId: ids.operationId },
+    await pair.a.tradeOpsToken(),
+  );
+  const row = data(res);
+  if (!row?.version) throw new Error(`token feeDiscount.publish refused (${res.status}): ${refusalText(res)}`);
+  ctx.log(`fee discount schedule: version ${row.version} (${MARKERS.label}); approval ${ids.approvalId}`);
+  return row;
+}
+
 // ── 2d'. TEST P2P payment method (two-person approval) ─────────────────────
 
 /**

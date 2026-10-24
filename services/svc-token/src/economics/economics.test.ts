@@ -28,8 +28,11 @@ import {
   type StakeTier,
   accessTierFor,
   feeDiscountBps,
+  feeDiscountSchedulePayload,
+  feeDiscountScheduleVersion,
   isUnlocked,
   parseFeeDiscountSchedule,
+  publishableFeeDiscountSchedule,
   stakeWeight,
   unlockDate,
 } from './staking.js';
@@ -899,5 +902,68 @@ describe('end to end — a revenue window through the flywheel', () => {
     const shares = distributeYield(toRewards, stakes);
     expect(sum(shares.map((s) => s.share))).toBe(toRewards);
     expect(sum(shares.map((s) => s.share)) + toBurn).toBe(tokensBought);
+  });
+});
+
+describe('fee discount schedule — what the owner may publish', () => {
+  const ladder = {
+    basis: 'staked',
+    tiers: [
+      { minStake: '0', discountBps: 0 },
+      { minStake: '1000.50', discountBps: 1_000 },
+      { minStake: '10000', discountBps: 2_500 },
+    ],
+  };
+
+  it('stores a rising ladder with canonical decimal thresholds', () => {
+    expect(publishableFeeDiscountSchedule(ladder)).toEqual({
+      basis: 'staked',
+      tiers: [
+        { minStake: '0', discountBps: 0 },
+        { minStake: '1000.5', discountBps: 1_000 },
+        { minStake: '10000', discountBps: 2_500 },
+      ],
+    });
+  });
+
+  it('refuses a ladder the read path would charge differently from how it reads', () => {
+    const [zero, mid, top] = ladder.tiers;
+    // Unsorted: the read takes the best matching step, so the row would not read the way it charges.
+    expect(() => publishableFeeDiscountSchedule({ basis: 'staked', tiers: [zero, top, mid] })).toThrow(/above the step before it/);
+    expect(() => publishableFeeDiscountSchedule({ basis: 'staked', tiers: [top, zero] })).toThrow(/tiers\[0\]\.minStake must be "0"/);
+    expect(() => publishableFeeDiscountSchedule({ basis: 'staked', tiers: [zero, mid, { ...mid }] })).toThrow(/above the step before it/);
+    expect(() =>
+      publishableFeeDiscountSchedule({ basis: 'staked', tiers: [zero, { ...mid, discountBps: 3_000 }, { ...top, discountBps: 2_000 }] }),
+    ).toThrow(/must not be below the step before it/);
+  });
+
+  it('keeps every rule of the read parser: basis, ceiling, decimal strings, a zero step', () => {
+    expect(() => publishableFeeDiscountSchedule({ ...ladder, basis: 'balance' })).toThrow(/not implemented/);
+    expect(() =>
+      publishableFeeDiscountSchedule({ basis: 'staked', tiers: [{ minStake: '0', discountBps: MAX_FEE_DISCOUNT_BPS + 1 }] }),
+    ).toThrow(/policy ceiling/);
+    expect(() => publishableFeeDiscountSchedule({ basis: 'staked', tiers: [{ minStake: 0, discountBps: 0 }] })).toThrow(/decimal string/);
+    expect(() => publishableFeeDiscountSchedule({ basis: 'staked', tiers: [] })).toThrow(/non-empty/);
+  });
+
+  it('versions the stored row the same whatever order its keys come back in', () => {
+    const stored = publishableFeeDiscountSchedule(ladder);
+    const reordered = JSON.parse(
+      '{"tiers":[{"discountBps":0,"minStake":"0"},{"discountBps":1000,"minStake":"1000.5"},{"discountBps":2500,"minStake":"10000"}],"basis":"staked"}',
+    );
+    expect(feeDiscountScheduleVersion(stored)).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(feeDiscountScheduleVersion(reordered)).toBe(feeDiscountScheduleVersion(stored));
+    expect(feeDiscountScheduleVersion({ ...stored, tiers: stored.tiers.slice(0, 2) })).not.toBe(feeDiscountScheduleVersion(stored));
+    expect(feeDiscountScheduleVersion(null)).toBe('unset');
+  });
+
+  it('binds the approval to the ladder as typed, not to a reordering of its keys', () => {
+    const typed = { basis: 'staked', tiers: [{ minStake: '0', discountBps: 0 }] };
+    const sameKeysOtherOrder = { tiers: [{ discountBps: 0, minStake: '0' }], basis: 'staked' };
+    expect(feeDiscountSchedulePayload(sameKeysOtherOrder)).toBe(feeDiscountSchedulePayload(typed));
+    expect(feeDiscountSchedulePayload(typed)).toBe('{"basis":"staked","tiers":[{"discountBps":0,"minStake":"0"}]}');
+    expect(feeDiscountSchedulePayload({ basis: 'staked', tiers: [{ minStake: '0.0', discountBps: 0 }] })).not.toBe(
+      feeDiscountSchedulePayload(typed),
+    );
   });
 });

@@ -597,6 +597,126 @@ describe('svc-token mount — yield + buyback', () => {
     expect(token.distributeRevenue).not.toHaveBeenCalled();
   });
 
+  describe('feeDiscount.publish — the owner door to the fee-decay schedule', () => {
+    const LADDER = {
+      basis: 'staked' as const,
+      tiers: [
+        { minStake: '0', discountBps: 0 },
+        { minStake: '1000', discountBps: 1_000 },
+      ],
+    };
+    const writer = () => signed(principal({ scopes: ['admin:write'] }));
+    const published = () =>
+      stubToken({
+        publishFeeDiscountSchedule: vi.fn(async () => ({ schedule: LADDER, version: 'sha256:new', previousVersion: 'unset' })),
+      } as Partial<TokenService>);
+
+    it('publishes the approved ladder over the version it replaces, and names the approver', async () => {
+      const token = published();
+      let seen: Parameters<ActionApprovalConsumer['consume']>[0] | null = null;
+      const capture: ActionApprovalConsumer = {
+        async consume(input) {
+          seen = input;
+          return stubApprovalConsumer(CONFIRM).consume(input);
+        },
+      };
+      const result = await createTokenRouter(token, { approvals: capture })
+        .createCaller(writer())
+        .feeDiscount.publish({ schedule: LADDER, expectedVersion: 'unset', ...APPROVAL });
+      expect(result).toEqual({ schedule: LADDER, version: 'sha256:new', previousVersion: 'unset', confirmOperatorId: CONFIRM });
+      expect(token.publishFeeDiscountSchedule).toHaveBeenCalledWith({ schedule: LADDER, expectedVersion: 'unset' });
+      expect(seen).toMatchObject({ targetService: 'svc-token', targetId: 'token.fee_discount.publish', expectedVersion: 'unset' });
+    });
+
+    it('binds the approval to the ladder and the version: a different one presents a different hash', async () => {
+      const hashes: string[] = [];
+      const capture: ActionApprovalConsumer = {
+        async consume(input) {
+          hashes.push(input.payloadHash);
+          return stubApprovalConsumer(CONFIRM).consume(input);
+        },
+      };
+      const caller = createTokenRouter(published(), { approvals: capture }).createCaller(writer());
+      await caller.feeDiscount.publish({ schedule: LADDER, expectedVersion: 'unset', ...APPROVAL });
+      await caller.feeDiscount.publish({ schedule: LADDER, expectedVersion: 'sha256:other', ...APPROVAL });
+      await caller.feeDiscount.publish({
+        schedule: { ...LADDER, tiers: [LADDER.tiers[0]!, { minStake: '1000', discountBps: 5_000 }] },
+        expectedVersion: 'unset',
+        ...APPROVAL,
+      });
+      expect(new Set(hashes).size).toBe(3);
+    });
+
+    it('refuses without admin:write, without approval ids, and when the approver is the proposer', async () => {
+      const token = published();
+      await expect(
+        createTokenRouter(token, { approvals: stubApprovalConsumer(CONFIRM) })
+          .createCaller(signed())
+          .feeDiscount.publish({ schedule: LADDER, expectedVersion: 'unset', ...APPROVAL }),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      await expect(
+        createTokenRouter(token, { approvals: stubApprovalConsumer(CONFIRM) })
+          .createCaller(writer())
+          .feeDiscount.publish({ schedule: LADDER, expectedVersion: 'unset' }),
+      ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED', cause: { code: 'action_approval.missing' } });
+      await expect(
+        createTokenRouter(token, { approvals: stubApprovalConsumer(USER) })
+          .createCaller(writer())
+          .feeDiscount.publish({ schedule: LADDER, expectedVersion: 'unset', ...APPROVAL }),
+      ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
+      await expect(
+        createTokenRouter(token)
+          .createCaller(writer())
+          .feeDiscount.publish({ schedule: LADDER, expectedVersion: 'unset', ...APPROVAL }),
+      ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED', cause: { code: 'action_approval.identity_unwired' } });
+      expect(token.publishFeeDiscountSchedule).not.toHaveBeenCalled();
+    });
+
+    it('answers a stale version as a conflict and a bad ladder with the step that is wrong', async () => {
+      const stale = stubToken({
+        publishFeeDiscountSchedule: vi.fn(async () => {
+          throw new TokenError('expectedVersion unset is stale', 'token.fee_discount_stale');
+        }),
+      } as Partial<TokenService>);
+      await expect(
+        createTokenRouter(stale, { approvals: stubApprovalConsumer(CONFIRM) })
+          .createCaller(writer())
+          .feeDiscount.publish({ schedule: LADDER, expectedVersion: 'unset', ...APPROVAL }),
+      ).rejects.toMatchObject({ code: 'CONFLICT', message: userCopy('token.fee_discount_stale') });
+      const invalid = stubToken({
+        publishFeeDiscountSchedule: vi.fn(async () => {
+          throw new TokenError('fee_discount_schedule.tiers[1].minStake must be above the step before it', 'token.fee_discount_invalid');
+        }),
+      } as Partial<TokenService>);
+      await expect(
+        createTokenRouter(invalid, { approvals: stubApprovalConsumer(CONFIRM) })
+          .createCaller(writer())
+          .feeDiscount.publish({ schedule: LADDER, expectedVersion: 'unset', ...APPROVAL }),
+      ).rejects.toMatchObject({ code: 'BAD_REQUEST', message: expect.stringContaining('tiers[1].minStake') });
+    });
+
+    it('reads the stored ladder and its version for a token reader or an operator', async () => {
+      const token = stubToken({
+        feeDiscountScheduleRow: vi.fn(async () => ({ schedule: LADDER, version: 'sha256:abc' })),
+      } as Partial<TokenService>);
+      await expect(createTokenRouter(token).createCaller(signed()).feeDiscount.get()).resolves.toEqual({
+        schedule: LADDER,
+        version: 'sha256:abc',
+      });
+      await expect(
+        createTokenRouter(token)
+          .createCaller(signed(principal({ scopes: ['admin:read'] })))
+          .feeDiscount.get(),
+      ).resolves.toMatchObject({ version: 'sha256:abc' });
+      await expect(createTokenRouter(token).createCaller(anonymous()).feeDiscount.get()).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+      await expect(
+        createTokenRouter(token)
+          .createCaller(signed(principal({ scopes: ['trade:read'] })))
+          .feeDiscount.get(),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    });
+  });
+
   it('refuses buyback.runWindow without HMAC', async () => {
     const runBuybackWindow = vi.fn(async () => ({
       runId: RUN,

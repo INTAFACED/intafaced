@@ -18,7 +18,8 @@
  * `DEFAULT_FEE_DISCOUNT_SCHEDULE` is a pure-test fixture, not a live fee.
  */
 
-import { type Amount, ZERO, mulBps, parseAmount } from '@intafaced/ledger-client';
+import { createHash } from 'node:crypto';
+import { type Amount, ZERO, formatAmount, mulBps, parseAmount } from '@intafaced/ledger-client';
 
 export type StakeTier = 'flex' | 'm3' | 'm12';
 
@@ -283,4 +284,56 @@ export function feeDiscountBps(stakedAmount: Amount, schedule: FeeDiscountSchedu
     if (stakedAmount >= step.minStake && step.discountBps > discount) discount = step.discountBps;
   }
   return Math.min(discount, MAX_FEE_DISCOUNT_BPS);
+}
+
+/** The fee-decay row as the publish door stores it. */
+export interface PublishedFeeDiscountSchedule {
+  basis: 'staked';
+  tiers: Array<{ minStake: string; discountBps: number }>;
+}
+
+/**
+ * A ladder the owner may publish: it parses, its thresholds rise strictly from "0", and its discount never falls as
+ * the stake rises. The read path takes the best matching step of any parsed ladder; the publish door is stricter, so
+ * the stored row reads the way it charges. Returns the row as it is stored: thresholds as canonical decimal strings.
+ */
+export function publishableFeeDiscountSchedule(raw: unknown): PublishedFeeDiscountSchedule {
+  const parsed = parseFeeDiscountSchedule(raw);
+  parsed.tiers.forEach((step, i) => {
+    const prev = parsed.tiers[i - 1];
+    if (i === 0 && step.minStake !== ZERO) throw new RangeError('fee_discount_schedule.tiers[0].minStake must be "0"');
+    if (prev && step.minStake <= prev.minStake) {
+      throw new RangeError(`fee_discount_schedule.tiers[${i}].minStake must be above the step before it`);
+    }
+    if (prev && step.discountBps < prev.discountBps) {
+      throw new RangeError(`fee_discount_schedule.tiers[${i}].discountBps must not be below the step before it`);
+    }
+  });
+  return { basis: 'staked', tiers: parsed.tiers.map((step) => ({ minStake: formatAmount(step.minStake), discountBps: step.discountBps })) };
+}
+
+/** JSON with every object's keys sorted, so a jsonb round trip (which reorders keys) hashes the same. */
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  if (value !== null && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, v]) => v !== undefined)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stableJson(v)}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+/**
+ * Version of a stored fee-decay schedule: `unset` while the column is blank, otherwise a hash of the row. A publish
+ * names the version it replaces, so two owners publishing at once cannot both win.
+ */
+export function feeDiscountScheduleVersion(raw: unknown): string {
+  if (raw === null || raw === undefined) return 'unset';
+  return `sha256:${createHash('sha256').update(stableJson(raw)).digest('hex')}`;
+}
+
+/** The ladder as the approval binds it: same bytes whatever order the keys came in. */
+export function feeDiscountSchedulePayload(schedule: unknown): string {
+  return stableJson(schedule);
 }

@@ -33,6 +33,8 @@ const TOKEN_ERROR_CODES = [
   'token.params_missing',
   'token.params_invalid',
   'token.params_unset',
+  'token.fee_discount_stale',
+  'token.fee_discount_invalid',
   'token.proposal_not_found',
   'token.proposal_not_open',
   'token.proposal_window',
