@@ -200,6 +200,40 @@ test('ready state at 1440x900: the three columns, ticker, chart, book, form, str
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });
 
+test('market list: a young market’s "since" mark stays inside its own row (Phantom 24 Oct)', async ({ page }) => {
+  const exchange = new Exchange();
+  exchange.opts.windowStart = Date.now() - 4 * 60 * 60 * 1000;
+  await mount(page, exchange);
+  await ready(page);
+  const rows = page.locator('.dk-mk-row');
+  await expect(rows).toHaveCount(4);
+  await expect(rows.first()).toContainText('since');
+  const overflow = await rows.evaluateAll((items) =>
+    items.flatMap((row) => {
+      const box = row.getBoundingClientRect();
+      return [...row.querySelectorAll('.dk-mk-pair, .dk-mk-price, .dk-mk-sub, .dk-mk-change')]
+        .filter((node) => {
+          const r = node.getBoundingClientRect();
+          return r.top < box.top - 0.5 || r.bottom > box.bottom + 0.5;
+        })
+        .map((node) => `${row.querySelector('.dk-mk-pair')?.textContent} ${node.className} ${node.getBoundingClientRect().height}px`);
+    }),
+  );
+  expect(overflow).toEqual([]);
+  // Side by side, the name and the figures do not run into each other either.
+  const clash = await rows.evaluateAll(
+    (items) =>
+      items.filter((row) => {
+        const name = row.querySelector('.dk-mk-name');
+        if (name.scrollWidth > name.clientWidth) return true; // its text runs past its own box
+        const right = name.getBoundingClientRect().right;
+        return [...row.querySelectorAll('.dk-mk-figures > *')].some((node) => node.getBoundingClientRect().left < right);
+      }).length,
+  );
+  expect(clash).toBe(0);
+  await page.locator('.dk-mk-list').screenshot({ path: join(shots, 'desk-markets-young.png') });
+});
+
 test('chart: intervals, candles and line, market rules; the book tabs and grouping', async ({ page }) => {
   const m = await mount(page);
   await ready(page);
