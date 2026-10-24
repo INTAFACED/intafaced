@@ -1259,7 +1259,8 @@ const fr: Record<keyof typeof en, string> = {
   verifyNeedCode: 'Saisissez le code de vérification de 32 caractères pour le vérifier.',
   refCertNotFound: 'Aucun certificat n’a ce code de vérification. Vérifiez le code et réessayez.',
   refCertUnpublished: 'Ce certificat est enregistré, mais sa définition n’est plus publiée : Academy ne peut pas le décrire.',
-  refCertNotDue: 'Ce certificat est délivré automatiquement à la fin du délai : il ne peut pas être demandé plus tôt. Rien n’a été délivré.',
+  refCertNotDue:
+    'Ce certificat est délivré automatiquement à la fin du délai : il ne peut pas être demandé plus tôt. Rien n’a été délivré.',
   refVerifyRateLimited: 'Trop de vérifications de certificats sont venues de votre connexion. Patientez un moment, puis revérifiez.',
   refVerifyRateUnset: 'Academy n’a fixé aucune limite pour les vérifications de certificats : elle les refuse toutes.',
   refVerifyAddressUnset: 'Academy n’a pas pu savoir d’où venait cette vérification : elle la refuse.',

@@ -25,7 +25,8 @@ function state(...keys) {
   return s;
 }
 
-const trpc = (procedure, input) => `/api/academy/trpc/${procedure}${input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`}`;
+const trpc = (procedure, input) =>
+  `/api/academy/trpc/${procedure}${input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`}`;
 
 /** A read through the customer's own API with the learner's session. */
 async function read(who, procedure, input) {
@@ -141,7 +142,9 @@ test(`${J} #1 the last required item completes the course; with a delay rule the
   await context.close();
 
   // The delay passes and the sweep issues the first learner's certificate, once.
-  await expect.poll(async () => (await myCerts(waiting.who)).length, { timeout: (DELAY_MINUTES * 60 + 60) * 1000, intervals: [5000] }).toBe(1);
+  await expect
+    .poll(async () => (await myCerts(waiting.who)).length, { timeout: (DELAY_MINUTES * 60 + 60) * 1000, intervals: [5000] })
+    .toBe(1);
   const held = await myCerts(waiting.who);
   run.write({ waitingCode: held[0].publicId });
   await page.reload();
@@ -149,7 +152,9 @@ test(`${J} #1 the last required item completes the course; with a delay rule the
   expect(await myCerts(waiting.who)).toHaveLength(1);
 });
 
-test(`${J} #2 the Certificates tab lists my course and programme certificates, and a path with no published design says so`, async ({ page }) => {
+test(`${J} #2 the Certificates tab lists my course and programme certificates, and a path with no published design says so`, async ({
+  page,
+}) => {
   const { earner } = state('earner');
   await signIn(page, earner);
   await page.goto('/academy/certificates');
@@ -169,7 +174,10 @@ test(`${J} #2 the Certificates tab lists my course and programme certificates, a
   await expect(programmes).toContainText('Academy has published no learning programmes, so there is no programme certificate to earn.');
 });
 
-test(`${J} #3 the certificate sheet shows its serial number and offers only Copy link and Print, naming no partner`, async ({ page, context }) => {
+test(`${J} #3 the certificate sheet shows its serial number and offers only Copy link and Print, naming no partner`, async ({
+  page,
+  context,
+}) => {
   const { earner, code } = state('earner', 'code');
   await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: ORIGIN });
   await signIn(page, earner);
@@ -237,7 +245,9 @@ test(`${J} #5 after the certificate my rank shows the XP the owner published for
   if (policy) {
     // The owner published an XP value for this certificate: the rank ladder got exactly that much.
     await expect
-      .poll(async () => BigInt((await session.get('/api/identity/trpc/rank.get')).body.result.data.xp) - BigInt(xpBefore), { timeout: 30_000 })
+      .poll(async () => BigInt((await session.get('/api/identity/trpc/rank.get')).body.result.data.xp) - BigInt(xpBefore), {
+        timeout: 30_000,
+      })
       .toBe(BigInt(policy.xpDelta));
   }
   await page.goto('/academy/certificates');

@@ -223,6 +223,8 @@ describe('svc-academy mount — the router is actually mounted', () => {
         'videoPlayer',
         'itemVideo',
         'admin.setItemVideo',
+        'admin.setCertIssueRule',
+        'admin.certIssueRule',
         'admin.setVideoTracks',
         'paperDrill',
         'paperDrillResult',

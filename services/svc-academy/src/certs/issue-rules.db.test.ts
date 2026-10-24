@@ -120,7 +120,9 @@ describe('certificate issue rules', () => {
     expect(await grants()).toBe(0);
     const waiting = await academy.certProgress({ userId: USER, certId: CERT, now: minutes(10) });
     expect(waiting.issue).toEqual({ mode: 'delayed', delayMinutes: 60, issuesAt: minutes(60) });
-    await expect(academy.grantCert({ userId: USER, certId: CERT, now: minutes(10) })).rejects.toMatchObject({ code: 'academy.cert_not_due' });
+    await expect(academy.grantCert({ userId: USER, certId: CERT, now: minutes(10) })).rejects.toMatchObject({
+      code: 'academy.cert_not_due',
+    });
     expect(await academy.issueDueCertificates(minutes(59))).toBe(0);
     expect(await grants()).toBe(0);
     expect(await academy.issueDueCertificates(minutes(60))).toBe(1);
