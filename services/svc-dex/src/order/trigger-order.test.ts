@@ -15,7 +15,7 @@ import {
 } from '@intafaced/contracts';
 import { parseAmount } from '@intafaced/ledger-client/money';
 import { z } from 'zod';
-import { OrderBook, RATE_COPY, RESTING_ORDER_COPY, poolKey } from './order-book.js';
+import { ATTEMPT_TAIL, OrderBook, RATE_COPY, RESTING_ORDER_COPY, poolKey } from './order-book.js';
 import { PRICE_ORDER_TYPES, type OrderDomain } from './order-signature.js';
 import { runKeeperTick, startTriggerKeeper } from './trigger-keeper.js';
 import { minOutForFill, percentString } from './trigger-math.js';
@@ -586,7 +586,8 @@ describe('svc-dex price-trigger orders (D-limit-dca-02)', () => {
     expect(view.state).toBe('open');
     expect(fill.sent).toHaveLength(0);
     const reasons = (await caller().order.attempts({ orderHash: created.orderHash })).attempts.map((row) => row.reason);
-    expect(reasons).toEqual(['oracle_stale', 'oracle_disagree', 'oracle_stale', 'oracle_stale']);
+    // The old and the future reading are both stale: one row, since the reason did not change.
+    expect(reasons).toEqual(['oracle_stale', 'oracle_disagree', 'oracle_stale']);
   });
 
   it('does not fill when the freshness bound or the feed or the rail is blank', async () => {
@@ -717,6 +718,29 @@ describe('svc-dex price-trigger orders (D-limit-dca-02)', () => {
     expect(reasons).toContain('insufficient_liquidity');
   });
 
+  it('keeps the attempt log flat across many ticks on an unwired port and bounded when reasons change', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dex-attempt-tail-'));
+    const book = new OrderBook(dir);
+    const price = new ScriptPrice();
+    price.result = { status: 'unwired' };
+    const fill = new ScriptFill();
+    const { caller } = harness({ price, fill, book });
+    const created = await caller().order.createTrigger(await placed());
+    for (let n = 0; n < 500; n += 1) await runKeeperTick(book, { now: () => NOW, settings, price, fill }, `t${n}`);
+    expect(book.attempts(created.orderHash).map((row) => row.reason)).toEqual(['feed.market']);
+    expect(JSON.parse(readFileSync(join(dir, 'dex.order_attempts.json'), 'utf8')).attempts).toHaveLength(1);
+
+    for (let n = 0; n < 200; n += 1) {
+      price.result = n % 2 === 0 ? { status: 'stale' } : { status: 'unwired' };
+      await runKeeperTick(book, { now: () => NOW, settings, price, fill }, `flip${n}`);
+    }
+    expect(book.attempts(created.orderHash)).toHaveLength(ATTEMPT_TAIL);
+    expect((await caller().order.attempts({ orderHash: created.orderHash })).attempts).toHaveLength(ATTEMPT_TAIL);
+    const reopened = new OrderBook(dir);
+    expect(reopened.attempts(created.orderHash)).toHaveLength(ATTEMPT_TAIL);
+    expect(reopened.attempts(created.orderHash).at(-1)?.tick).toBe('flip199');
+  });
+
   it('repeats one attempt for one tick id and does not start a keeper when the interval is blank', async () => {
     const price = new ScriptPrice();
     const fill = new ScriptFill();
@@ -725,7 +749,8 @@ describe('svc-dex price-trigger orders (D-limit-dca-02)', () => {
     await runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'same');
     await runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'same');
     await runKeeperTick(book, { now: () => NOW, settings, price, fill }, 'other');
-    expect((await caller().order.attempts({ orderHash: created.orderHash })).attempts).toHaveLength(2);
+    // The same reason on a new tick is not a new row.
+    expect((await caller().order.attempts({ orderHash: created.orderHash })).attempts).toHaveLength(1);
     await expect(runKeeperTick(book, { now: () => NOW, settings, price, fill }, '  ')).rejects.toMatchObject({
       code: triggerOrderCodes.tickUnset,
     });

@@ -361,6 +361,9 @@ function storeOrder(row: Row): StoredOrder {
   };
 }
 
+/** Attempt rows kept per order. Older rows are dropped from memory and disk. */
+export const ATTEMPT_TAIL = 50;
+
 export class OrderBook {
   readonly directory: string;
   private readonly ordersPath: string;
@@ -371,6 +374,7 @@ export class OrderBook {
   private readonly tails = new Map<string, Promise<void>>();
   private readonly busy = new Set<string>();
   private tickRunning = false;
+  private attemptsDirty = false;
 
   /** `dir` omitted: a private temp directory. Pass the same directory to resume after a restart. */
   constructor(dir?: string) {
@@ -401,8 +405,10 @@ export class OrderBook {
     return true;
   }
 
+  /** Attempts noted during the tick reach disk once, here. */
   endTick(): void {
     this.tickRunning = false;
+    if (this.attemptsDirty) this.persistAttempts();
   }
 
   isBusy(orderHash: string): boolean {
@@ -493,15 +499,20 @@ export class OrderBook {
     return this.rows.get(orderHash);
   }
 
+  /**
+   * Logs a reason only when it differs from this order's last one, so a resting
+   * order on an unwired port adds one row, not one per tick. Each order keeps its
+   * last `ATTEMPT_TAIL` rows. Inside a tick the file is written once, at `endTick`.
+   */
   addAttempt(orderHash: string, tick: string, reason: string, at: string): void {
     const key = `dex.order.attempt:${orderHash}:${tick}:${reason}`;
     if (this.attemptByKey.has(key)) return;
-    const attempt: AttemptView = { key, orderHash, tick, reason, at };
-    this.attemptByKey.set(key, attempt);
     const list = this.attemptsByOrder.get(orderHash) ?? [];
-    list.push(attempt);
-    this.attemptsByOrder.set(orderHash, list);
-    this.persist();
+    if (list.at(-1)?.reason === reason) return;
+    const attempt: AttemptView = { key, orderHash, tick, reason, at };
+    this.keepAttempt(attempt);
+    if (this.tickRunning) this.attemptsDirty = true;
+    else this.persistAttempts();
   }
 
   markExpired(orderHash: string): boolean {
@@ -614,17 +625,30 @@ export class OrderBook {
       }
       if (typeof row.reason !== 'string' || typeof row.at !== 'string') throw new Error('dex.order_attempts row is unreadable');
       if (this.attemptByKey.has(row.key)) continue;
-      const attempt: AttemptView = { key: row.key, orderHash: row.orderHash, tick: row.tick, reason: row.reason, at: row.at };
-      this.attemptByKey.set(attempt.key, attempt);
-      const list = this.attemptsByOrder.get(attempt.orderHash) ?? [];
-      list.push(attempt);
-      this.attemptsByOrder.set(attempt.orderHash, list);
+      this.keepAttempt({ key: row.key, orderHash: row.orderHash, tick: row.tick, reason: row.reason, at: row.at });
     }
   }
 
-  private persist(): void {
+  /** Appends and drops the oldest rows past `ATTEMPT_TAIL` for that order. */
+  private keepAttempt(attempt: AttemptView): void {
+    const list = this.attemptsByOrder.get(attempt.orderHash) ?? [];
+    list.push(attempt);
+    this.attemptByKey.set(attempt.key, attempt);
+    while (list.length > ATTEMPT_TAIL) {
+      const dropped = list.shift();
+      if (dropped) this.attemptByKey.delete(dropped.key);
+    }
+    this.attemptsByOrder.set(attempt.orderHash, list);
+  }
+
+  private persistAttempts(): void {
+    this.attemptsDirty = false;
     const attempts = [...this.attemptByKey.values()];
     atomicWrite(this.attemptsPath, JSON.stringify({ attempts }));
+  }
+
+  private persist(): void {
+    if (this.attemptsDirty) this.persistAttempts();
     const orders = [...this.rows.values()].map(storeOrder);
     atomicWrite(this.ordersPath, JSON.stringify({ orders }));
   }
