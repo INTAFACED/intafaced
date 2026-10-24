@@ -9,6 +9,8 @@ const messages = {
   '15 min': '15 min',
   '4 h': '4 h',
   '5 min': '5 min',
+  'A copy appears here when the leader trades and automatic copying is on.':
+    'A copy appears here when the leader trades and automatic copying is on.',
   'A country list is published': 'A country list is published',
   'A price range, grid count, and a grid service': 'A price range, grid count, and a grid service',
   'A run can last 24 hours at most': 'A run can last 24 hours at most',
@@ -32,6 +34,7 @@ const messages = {
   Back: 'Back',
   'Balance unread': 'Balance unread',
   'Before this record': 'Before this record',
+  'Being checked': 'Being checked',
   Bot: 'Bot',
   'Bot catalogue': 'Bot catalogue',
   'Bot leaders': 'Bot leaders',
@@ -42,6 +45,7 @@ const messages = {
   Buy: 'Buy',
   'Buys a fixed amount on a schedule': 'Buys a fixed amount on a schedule',
   'Buys low and sells high inside a price range': 'Buys low and sells high inside a price range',
+  Cancelled: 'Cancelled',
   'Can’t load': 'Can’t load',
   Catalogue: 'Catalogue',
   'Change this follow': 'Change this follow',
@@ -81,6 +85,8 @@ const messages = {
   'Drawdown limit': 'Drawdown limit',
   'Each copied order uses this much, never more than the most per order.':
     'Each copied order uses this much, never more than the most per order.',
+  'Each new trade the leader makes is copied for you, within your limits.':
+    'Each new trade the leader makes is copied for you, within your limits.',
   'Each slice': 'Each slice',
   'Each slice pays the normal fee for this market ({maker} maker, {taker} taker)':
     'Each slice pays the normal fee for this market ({maker} maker, {taker} taker)',
@@ -96,6 +102,7 @@ const messages = {
   'Estimated cost, before fees and price moves': 'Estimated cost, before fees and price moves',
   'Estimated proceeds, before fees and price moves': 'Estimated proceeds, before fees and price moves',
   'Expected to finish': 'Expected to finish',
+  Expired: 'Expired',
   'Extra charge on your profit': 'Extra charge on your profit',
   'Fee on each copied order': 'Fee on each copied order',
   'Fee share': 'Fee share',
@@ -189,6 +196,7 @@ const messages = {
   'No bot exists with that request, so it did not go through. You can set it up again.':
     'No bot exists with that request, so it did not go through. You can set it up again.',
   'No bots started on this device': 'No bots started on this device',
+  'No copied orders': 'No copied orders',
   'No follow exists for that leader, so the request did not go through.':
     'No follow exists for that leader, so the request did not go through.',
   'No grid service exists. Nothing is simulated.': 'No grid service exists. Nothing is simulated.',
@@ -197,7 +205,6 @@ const messages = {
   'No markets are open for copying right now.': 'No markets are open for copying right now.',
   'No new slices are placed while it is paused. Slices already placed stay as they are.':
     'No new slices are placed while it is paused. Slices already placed stay as they are.',
-  'No order history': 'No order history',
   'No paper strategies': 'No paper strategies',
   'No price available right now': 'No price available right now',
   'No recurring-order service exists. Use Convert for a single trade.':
@@ -254,8 +261,10 @@ const messages = {
   'Permission ends': 'Permission ends',
   'Pick a bot, set its size and limits, see what it will cost before it starts, and stop it any time.':
     'Pick a bot, set its size and limits, see what it will cost before it starts, and stop it any time.',
+  Placed: 'Placed',
   'Positions already open are never sold unless you choose Close copied positions.':
     'Positions already open are never sold unless you choose Close copied positions.',
+  Price: 'Price',
   'Price limit': 'Price limit',
   'Price limit ({asset})': 'Price limit ({asset})',
   'Profit or loss': 'Profit or loss',
@@ -269,6 +278,7 @@ const messages = {
   'Recurring buy (DCA)': 'Recurring buy (DCA)',
   'Reference {code}': 'Reference {code}',
   Refresh: 'Refresh',
+  Refused: 'Refused',
   Released: 'Released',
   'Reserved for this copy': 'Reserved for this copy',
   Result: 'Result',
@@ -293,6 +303,7 @@ const messages = {
   'Search leaders': 'Search leaders',
   'See strategies': 'See strategies',
   Sell: 'Sell',
+  Sending: 'Sending',
   'Set up': 'Set up',
   'Set up a bot': 'Set up a bot',
   'Set up a {kind} bot': 'Set up a {kind} bot',
@@ -320,6 +331,8 @@ const messages = {
     'Spot trades: margin is what the leader paid, with no leverage. Buys and sells are paired oldest first.',
   'Start bot': 'Start bot',
   'Start copying': 'Start copying',
+  'Start copying also turns on automatic copying: each new trade the leader makes is placed for you, as you, within these limits, until you turn it off or the permission ends.':
+    'Start copying also turns on automatic copying: each new trade the leader makes is placed for you, as you, within these limits, until you turn it off or the permission ends.',
   Started: 'Started',
   State: 'State',
   Status: 'Status',
@@ -366,8 +379,6 @@ const messages = {
   'The leader can never raise these limits.': 'The leader can never raise these limits.',
   'The list of countries where copy trading is offered has not been approved':
     'The list of countries where copy trading is offered has not been approved',
-  'The list of orders copied for you is not available from the service. Check Order history on the spot desk.':
-    'The list of orders copied for you is not available from the service. Check Order history on the spot desk.',
   'The most per order is {cap} {asset}': 'The most per order is {cap} {asset}',
   'The same as trading alone': 'The same as trading alone',
   'The same trading fee as trading alone': 'The same trading fee as trading alone',
@@ -395,10 +406,14 @@ const messages = {
   'Total to trade': 'Total to trade',
   Trades: 'Trades',
   'Trades a fixed share of the market’s live volume': 'Trades a fixed share of the market’s live volume',
+  'Trades are not copied for you until you turn on automatic copying.':
+    'Trades are not copied for you until you turn on automatic copying.',
   'Trading fee': 'Trading fee',
   Trending: 'Trending',
   'Try again': 'Try again',
   'Try another name, or clear the search.': 'Try another name, or clear the search.',
+  'Turn off automatic copying': 'Turn off automatic copying',
+  'Turn on automatic copying': 'Turn on automatic copying',
   'Two letters. Copy trading is only offered in some countries.': 'Two letters. Copy trading is only offered in some countries.',
   Unknown: 'Unknown',
   'Unknown state': 'Unknown state',

@@ -727,6 +727,12 @@ const schema = serviceEnvSchema
       TRADE_COPY_MIN_TIER: z.string().default(''),
 
       /**
+       * How often the copy driver (CB-copy-10) looks for new leader fills to copy. It runs only while
+       * TRADE_COPY_PLACE_MIRROR is on; off, nothing is copied and copy.placeMirror refuses by name.
+       */
+      TRADE_COPY_MIRROR_SWEEP_INTERVAL_MS: z.coerce.number().int().min(250).max(60_000).default(2_000),
+
+      /**
        * Copy lead-page metric definitions (CB-copy-02). JSON or empty.
        *
        * Empty (default) = unpublished → every metric on a lead page reads

@@ -138,7 +138,7 @@ export function FollowWizard({
           const accepted = await api.acceptDisclosure({ version, clientAcceptId: `copy-accept:${version}` });
           if (!accepted.ok) return accepted;
         }
-        return api.follow({
+        const followed = await api.follow({
           ...(listed ? { leaderRef: listed.leaderRef } : { leaderId: leader.trim() }),
           region: region.trim().toUpperCase(),
           permittedMarkets: picked,
@@ -149,6 +149,9 @@ export function FollowWizard({
           expiresAt,
           clientRequestId: requestKey,
         });
+        if (!followed.ok) return followed;
+        // Starting to copy is the grant to place each copy as you; it can be turned off on the follow.
+        return api.grantCopying(followed.data.followId);
       },
       () => {
         disclosure.reload();
@@ -328,6 +331,11 @@ export function FollowWizard({
                 ]}
               />
             </section>
+            <InfoNote>
+              {t(
+                'Start copying also turns on automatic copying: each new trade the leader makes is placed for you, as you, within these limits, until you turn it off or the permission ends.',
+              )}
+            </InfoNote>
             <InfoNote>{t('If you stop, new copies stop at once. Positions already open stay yours until you close them.')}</InfoNote>
             <section aria-label={t('Copy risk disclosure')} className="cb-disclosure">
               <h3>{t('Copy risk disclosure')}</h3>

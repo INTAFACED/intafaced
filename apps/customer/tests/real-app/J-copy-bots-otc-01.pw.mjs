@@ -286,3 +286,48 @@ async function futuresRef(me) {
   if (!ref) throw new Error(`no futures leader listed: ${JSON.stringify(page.body).slice(0, 300)}`);
   return ref;
 }
+
+test(`${J} #8 sees the first copied trade: the leader's next buy is copied once as the follower at the fixed amount, and listed on the follow`, async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const follower = state('follower');
+  await signIn(page, follower);
+  await page.goto('/trade/copy?tab=follows');
+  // #7 followed the spot leader on screen and the futures leader by the API; this is the spot leader's follow.
+  const row = page
+    .getByRole('grid', { name: 'My follows' })
+    .getByRole('rowgroup')
+    .nth(1)
+    .getByRole('row')
+    .filter({ hasText: state('spotRef') });
+  await row.first().getByRole('button', { name: 'Manage' }).click();
+  const detail = page.getByRole('dialog');
+  // Start copying in #7 also turned automatic copying on; nothing is copied before the leader trades again.
+  await expect(detail.getByRole('button', { name: 'Turn off automatic copying' })).toBeVisible();
+  await expect(detail.getByText('No copied orders')).toBeVisible();
+
+  // The lead buys on the TEST book; the copy driver places the follower's copy at the leader's price, 20 USDT worth.
+  await takeBest(state('leader'), 'buy', '0.001', `${J}-8-buy-${state('tag')}`);
+  const copied = detail.getByRole('table', { name: 'Copied orders' }).locator('tbody tr:not([data-slot="table-empty-row"])');
+  await expect(async () => {
+    await page.reload();
+    await row.first().getByRole('button', { name: 'Manage' }).click();
+    await expect(copied).toHaveCount(1, { timeout: 2_000 });
+  }).toPass({ timeout: 60_000 });
+  await expect(copied.first()).toContainText('BTC/USDT');
+  await expect(copied.first()).toContainText('Buy');
+  // The copy is the fixed amount at the leader's price, stepped down to the market's lot: never more than 20 USDT.
+  const cells = copied.first().locator('td');
+  const number = async (i) => Number((await cells.nth(i).innerText()).replace(/[^\d.]/g, ''));
+  const notional = (await number(2)) * (await number(4));
+  expect(notional).toBeGreaterThan(0);
+  expect(notional).toBeLessThanOrEqual(20);
+  // The list reads the follower's own order book, so this row is an order placed as them.
+
+  // A second sweep places nothing more: still one copied order a few seconds later.
+  await page.waitForTimeout(5_000);
+  await page.reload();
+  await row.first().getByRole('button', { name: 'Manage' }).click();
+  await expect(copied).toHaveCount(1);
+});
