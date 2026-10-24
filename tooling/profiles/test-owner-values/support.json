@@ -1,0 +1,25 @@
+{
+  "label": "TEST: CX-8 rig and local test stack only. Not an owner decision and not a product default.",
+  "values": {
+    "SUPPORT_ATTACHMENT_STORE": {
+      "service": "support",
+      "value": "local-test-memory",
+      "note": "Keeps attached files in the process memory, lost on restart. Not durable storage."
+    },
+    "SUPPORT_MALWARE_SCANNER": {
+      "service": "support",
+      "value": "local-test-eicar",
+      "note": "Blocks only the EICAR test string and calls every other file clean. Finds no real malware."
+    },
+    "SUPPORT_BULK_CAP": {
+      "service": "support",
+      "value": "25",
+      "note": "Batch size for a bulk change of support requests, so a journey can use the bulk bar. Not an owner decision."
+    },
+    "SUPPORT_COMMENT_CAP": {
+      "service": "support",
+      "value": "50",
+      "note": "How many comments a requester may add to one request, so journeys can reply and J-support-public-09 can reach the cap. Not an owner decision."
+    }
+  }
+}

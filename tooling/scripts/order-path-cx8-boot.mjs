@@ -329,7 +329,7 @@ async function main() {
       // SMOKE RIG ONLY — throwaway secrets and owner integers, fresh each run; not production values
       PAY_CRYPTO_WEBHOOK_SECRET: randomBytes(24).toString('base64url'),
       PAY_CARD_SANDBOX_WEBHOOK_SECRET: randomBytes(24).toString('base64url'),
-      // Owner integers and rails: the labelled TEST profile (tooling/profiles/test-owner-values.json)
+      // Owner integers and rails: the labelled TEST profile (tooling/profiles/test-owner-values/<service>.json)
       ...profileEnvFor('pay', common.APP_ENV),
       PAY_CRYPTO_WATCHER_ENABLED: 'false',
       // The same local-test stand-in the trade service gets below (Nino, 2026-10-19: yes to the sanctions switch for svc-pay). Counsel's list is not ours
@@ -417,7 +417,7 @@ async function main() {
     // screening reader ignores 'off' there, so screening stays fail-closed.
     INTAFACED_SCREENING_FAIL_CLOSED: 'off', // SMOKE RIG ONLY — local-test fixture value, same as every service's vitest config; refused outside dev/test
     // Owner values (convert spread, slippage cap, dead-man timeouts, fee schedule, pre-trade caps): the labelled TEST profile,
-    // tooling/profiles/test-owner-values.json, listed in docs/OWNER-SETTINGS.md. Blank in compose; never a product default.
+    // tooling/profiles/test-owner-values/<service>.json, listed in docs/OWNER-SETTINGS.md. Blank in compose; never a product default.
     ...profileEnvFor('trade', common.APP_ENV),
     // NOT a boot requirement any more. svc-trade boots with this blank and logs
     // "FUTURES IS DISABLED" (optionalProfitSourceFromConfig in

@@ -1,6 +1,6 @@
 -- P-ads-merchant-21: one review per party per released trade, plus the hide audit.
 -- Ratings are counts. No balance is stored here.
--- Reversal: 0020_p2p_order_reviews.down.sql
+-- Reversal: 0024_p2p_order_reviews.down.sql
 CREATE TABLE IF NOT EXISTS "p2p"."order_reviews" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   "trade_id" uuid NOT NULL REFERENCES "p2p"."p2p_trades" ("id"),

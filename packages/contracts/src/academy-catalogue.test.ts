@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  academyCourseEnrolmentSchema,
   academyCurriculumSummarySchema,
+  academyEnrolCourseInputSchema,
   academyPublicCatalogueInputSchema,
   academyPublicCourseSchema,
   academyPublicHubSchema,
@@ -23,5 +25,29 @@ describe('academy signed-out catalogue shapes (AC-catalogue-01)', () => {
     expect(academyPublicCourseSchema.parse(course)).toEqual(course);
     expect(academyPublicCourseSchema.safeParse({ ...course, syllabus: [] }).success).toBe(false);
     expect(academyPublicHubSchema.parse({ featured: null })).toEqual({ featured: null });
+  });
+
+  it('course enrolment terms: no cap means no seat count, and the input takes only a course and a track', () => {
+    const terms = {
+      slug: 'markets',
+      startsAt: null,
+      seatCap: null,
+      seatsRemaining: null,
+      closed: null,
+      tracks: [
+        { track: 'audit', free: true, closed: null },
+        { track: 'certificate', free: false, closed: 'no_price' },
+      ],
+      enrolment: null,
+      activationMail: 'vendor.email',
+    };
+    expect(academyCourseEnrolmentSchema.parse(terms)).toEqual(terms);
+    expect(academyCourseEnrolmentSchema.safeParse({ ...terms, seatsRemaining: 3 }).success).toBe(false);
+    expect(academyCourseEnrolmentSchema.safeParse({ ...terms, seatCap: 20 }).success).toBe(false);
+    expect(academyCourseEnrolmentSchema.safeParse({ ...terms, seatCap: 20, seatsRemaining: 0 }).success).toBe(true);
+    expect(academyCourseEnrolmentSchema.safeParse({ ...terms, tracks: [] }).success).toBe(false);
+    expect(academyCourseEnrolmentSchema.safeParse({ ...terms, closed: 'sold_out' }).success).toBe(false);
+    expect(academyEnrolCourseInputSchema.safeParse({ slug: 'markets', track: 'audit' }).success).toBe(true);
+    expect(academyEnrolCourseInputSchema.safeParse({ slug: 'markets', track: 'audit', userId: 'x' }).success).toBe(false);
   });
 });

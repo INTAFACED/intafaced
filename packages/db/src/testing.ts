@@ -245,6 +245,9 @@ const RUN_DB_PREFIX = 'itf_run_';
  */
 const DROP_WAIT_MS = 2_000;
 
+/** How long `drop()` lets in-flight statements finish before it closes the pool anyway. Seconds, as postgres.js takes it. */
+const DRAIN_WAIT_S = 2;
+
 /**
  * Total time one sweep may spend dropping, across all candidates.
  *
@@ -371,13 +374,18 @@ export async function createTestDatabase(options: TestDatabaseOptions): Promise<
       },
       drop: async () => {
         /**
-         * `timeout: 0` closes the pool immediately instead of waiting up to five
-         * seconds for a graceful drain. There is nothing to drain gracefully into
-         * — the next statement destroys the database these connections point at,
-         * and FORCE would terminate them anyway. Those five seconds were most of
-         * a vitest `afterAll` budget spent waiting to throw work away.
+         * A graceful drain, bounded. An idle pool ends at once; the bound only
+         * applies while a statement is still in flight.
+         *
+         * It was `timeout: 0`, which destroys every connection on the next tick.
+         * A connection that has just opened runs postgres.js's own array-type
+         * lookup before its first statement, and the library never handles that
+         * promise: destroyed mid-lookup, it surfaces as an unhandled rejection
+         * (`CONNECTION_DESTROYED`, `select b.oid, b.typarray ...`) and fails a
+         * suite whose every test passed. That was the svc-pay red with no FAIL
+         * line. Draining lets the lookup and its statement finish first.
          */
-        await sql.end({ timeout: 0 }).catch(() => undefined);
+        await sql.end({ timeout: DRAIN_WAIT_S }).catch(() => undefined);
 
         /**
          * BOUNDED WAIT — see DROP_WAIT_MS for the measurements behind it.
@@ -413,7 +421,7 @@ export async function createTestDatabase(options: TestDatabaseOptions): Promise<
   } catch (err) {
     // The caller does not get drop(). End every pool this attempt opened, and
     // remove a database CREATE already committed, then rethrow the original error.
-    await client?.end({ timeout: 5 }).catch(() => undefined);
+    await client?.end({ timeout: DRAIN_WAIT_S }).catch(() => undefined);
     if (databaseCreated) {
       await admin.unsafe(`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`).catch(() => undefined);
     }

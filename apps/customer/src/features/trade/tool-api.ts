@@ -146,13 +146,55 @@ export const positionPreviewSchema = z.object({
   liquidationPrice: decimalSchema.nullable(),
   /** The size and price controls the order path applies (D-orders-06). Optional: older answers carry none of them. */
   type: z.enum(['market', 'limit']).optional(),
-  band: z.object({ fraction: decimalSchema, low: decimalSchema, high: decimalSchema }).nullable().optional(),
+  /**
+   * The band in force: the owner's static band, or wider while the operator's dynamic range has widened it
+   * (D-instruments-08). The fields after `high` are optional: older answers carry none of them.
+   */
+  band: z
+    .object({
+      fraction: decimalSchema,
+      low: decimalSchema,
+      high: decimalSchema,
+      staticFraction: decimalSchema.optional(),
+      source: z.enum(['static', 'dynamic']).optional(),
+      reason: z.string().optional(),
+      max: decimalSchema.nullable().optional(),
+      premium: decimalSchema.nullable().optional(),
+      changedAt: z.string().nullable().optional(),
+    })
+    .nullable()
+    .optional(),
   slippageCapBps: z.number().int().nullable().optional(),
   orderPrice: decimalSchema.nullable().optional(),
   priceCorrection: z.object({ asked: decimalSchema, applied: decimalSchema }).nullable().optional(),
   maxOrderNotional: decimalSchema.nullable().optional(),
   split: z
     .object({ parts: z.number().int(), sizes: z.array(decimalSchema) })
+    .nullable()
+    .optional(),
+  /** The margin tier the order carries its side into (D-orders-10); `confirmRequired` asks for `confirmTier`. */
+  riskTier: z
+    .object({
+      current: z.number().int().nullable(),
+      projected: z.number().int(),
+      maintenanceBps: z.number().int(),
+      maintenanceRate: decimalSchema,
+      notional: decimalSchema,
+      confirmRequired: z.boolean(),
+    })
+    .nullable()
+    .optional(),
+  /** The market's open-interest limits and the room this account has left (D-margin-05), in the base asset. */
+  openInterest: z
+    .object({
+      limit: decimalSchema,
+      shareBps: z.number().int(),
+      accountCap: decimalSchema,
+      accountCommitted: decimalSchema,
+      marketCommitted: decimalSchema,
+      room: decimalSchema,
+      binding: z.enum(['account', 'market']),
+    })
     .nullable()
     .optional(),
   orderable: z.boolean(),

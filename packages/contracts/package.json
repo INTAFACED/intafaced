@@ -74,9 +74,25 @@
       "types": "./dist/support-contact.d.ts",
       "default": "./dist/support-contact.js"
     },
+    "./support-kb-library": {
+      "types": "./dist/support-kb-library.d.ts",
+      "default": "./dist/support-kb-library.js"
+    },
+    "./support-help-centre": {
+      "types": "./dist/support-help-centre.d.ts",
+      "default": "./dist/support-help-centre.js"
+    },
     "./outreach-public": {
       "types": "./dist/outreach-public.d.ts",
       "default": "./dist/outreach-public.js"
+    },
+    "./status-page": {
+      "types": "./dist/status-page.d.ts",
+      "default": "./dist/status-page.js"
+    },
+    "./status-subscriptions": {
+      "types": "./dist/status-subscriptions.d.ts",
+      "default": "./dist/status-subscriptions.js"
     },
     "./ui-view-preferences": {
       "types": "./dist/ui-view-preferences.d.ts",
@@ -102,9 +118,17 @@
       "types": "./dist/tax-lot-book.d.ts",
       "default": "./dist/tax-lot-book.js"
     },
+    "./p2p-delist": {
+      "types": "./dist/p2p-delist.d.ts",
+      "default": "./dist/p2p-delist.js"
+    },
     "./home-tiles-preferences": {
       "types": "./dist/home-tiles-preferences.d.ts",
       "default": "./dist/home-tiles-preferences.js"
+    },
+    "./watchlists-preferences": {
+      "types": "./dist/watchlists-preferences.d.ts",
+      "default": "./dist/watchlists-preferences.js"
     },
     "./api-keys": {
       "types": "./dist/api-keys.d.ts",
@@ -113,6 +137,10 @@
     "./academy-catalogue": {
       "types": "./dist/academy-catalogue.d.ts",
       "default": "./dist/academy-catalogue.js"
+    },
+    "./academy-courses": {
+      "types": "./dist/academy-courses.d.ts",
+      "default": "./dist/academy-courses.js"
     }
   },
   "scripts": {

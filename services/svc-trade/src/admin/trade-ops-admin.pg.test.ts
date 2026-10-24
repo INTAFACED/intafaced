@@ -17,7 +17,9 @@ import { READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor, PUBLISHE
 import { TradingControls } from '../controls/trading-controls.js';
 import { MemoryApprovalBook, payloadHash } from './common.js';
 import { TradeOpsAdmin } from './service.js';
-import { currentRiskForMarkets } from './risk.js';
+import { currentRisk, currentRiskForMarkets } from './risk.js';
+import { readOpenInterestLimits } from '../futures/open-interest-limits.js';
+import { readPriceRangeSettings, sqlPriceBandStore } from '../futures/dynamic-price-band.js';
 import { tradeOpsAdminRouter } from './router.js';
 import { bindTradingRestrictApprovals } from './trading-restrict.js';
 
@@ -428,6 +430,140 @@ describe('trade operator procedures', () => {
     expect(history.map((row) => row.version)).toEqual(['1', '2']);
     expect(history.every((row) => row.operatorId === OP && row.approverId === APPROVER)).toBe(true);
     expect(await admin.riskGet(operator(), marketId)).toMatchObject({ version: '2', fatFinger: '80', slippageCap: null });
+  });
+
+  it('writes the open-interest pair, keeps it on a write that leaves it out, and clears it on null (D-margin-05)', async () => {
+    const reason = 'publish the open-interest limits';
+    const write = async (limits: Record<string, string | null>, expectedVersion: string, approvalId: string) => {
+      allow({
+        approvalId,
+        actionType: 'trade.risk_set',
+        operationId: `op-${approvalId}`,
+        targetId: marketId,
+        expectedVersion,
+        body: { actionType: 'trade.risk_set', market: marketId, limits, expectedVersion, reason },
+      });
+      return admin.riskSet(operatorWriter(), {
+        market: marketId,
+        limits: limits as typeof BLANK_LIMITS,
+        expectedVersion,
+        reason,
+        approvalId,
+        operationId: `op-${approvalId}`,
+      });
+    };
+    for (const bad of [
+      { oiShareBps: '0' },
+      { oiShareBps: '10001' },
+      { oiShareBps: '12.5' },
+      { oiLimit: '-1' },
+      { oiLimit: `1${'0'.repeat(40)}` },
+    ]) {
+      await expect(write({ ...BLANK_LIMITS, oiLimit: '1000', oiShareBps: '1000', ...bad }, '0', 'oi-bad')).rejects.toMatchObject({
+        code: 'risk_limit_not_exact',
+      });
+    }
+    const first = await write({ ...BLANK_LIMITS, oiLimit: '1000', oiShareBps: '1000' }, '0', 'oi-1');
+    expect(first).toMatchObject({ version: '1', oiLimit: '1000', oiShareBps: '1000' });
+    expect(readOpenInterestLimits(await currentRisk(db.sql, marketId))).toEqual({ limit: amt('1000'), shareBps: 1000 });
+
+    // An older desk that sends only the five other fields keeps the pair: its approval covers what it sent.
+    const older = await write({ ...BLANK_LIMITS, fatFinger: '50' }, '1', 'oi-2');
+    expect(older).toMatchObject({ version: '2', fatFinger: '50', oiLimit: '1000', oiShareBps: '1000' });
+
+    const cleared = await write({ ...BLANK_LIMITS, fatFinger: '50', oiLimit: null, oiShareBps: '1000' }, '2', 'oi-3');
+    expect(cleared).toMatchObject({ version: '3', oiLimit: null, oiShareBps: '1000' });
+    expect(readOpenInterestLimits(await currentRisk(db.sql, marketId))).toBeNull();
+    expect(await admin.riskGet(operator(), marketId)).toMatchObject({ version: '3', oiLimit: null, oiShareBps: '1000' });
+  });
+
+  it('writes the dynamic price range, keeps it on a write that leaves it out, and the band record keeps each change (D-instruments-08)', async () => {
+    const reason = 'publish the dynamic price range';
+    const write = async (limits: Record<string, string | null>, expectedVersion: string, approvalId: string) => {
+      allow({
+        approvalId,
+        actionType: 'trade.risk_set',
+        operationId: `op-${approvalId}`,
+        targetId: marketId,
+        expectedVersion,
+        body: { actionType: 'trade.risk_set', market: marketId, limits, expectedVersion, reason },
+      });
+      return admin.riskSet(operatorWriter(), {
+        market: marketId,
+        limits: limits as typeof BLANK_LIMITS,
+        expectedVersion,
+        reason,
+        approvalId,
+        operationId: `op-${approvalId}`,
+      });
+    };
+    const range = { priceRangeMax: '0.2', priceRangeTrigger: '0.001', priceRangeCadenceSeconds: '30' };
+    for (const bad of [
+      { priceRangeMax: '0' },
+      { priceRangeMax: '1' },
+      { priceRangeMax: '-0.1' },
+      { priceRangeTrigger: '1' },
+      { priceRangeTrigger: 'x' },
+      { priceRangeCadenceSeconds: '0' },
+      { priceRangeCadenceSeconds: '86401' },
+      { priceRangeCadenceSeconds: '1.5' },
+    ]) {
+      await expect(write({ ...BLANK_LIMITS, ...range, ...bad }, '0', 'range-bad')).rejects.toMatchObject({ code: 'risk_limit_not_exact' });
+    }
+    const first = await write({ ...BLANK_LIMITS, ...range }, '0', 'range-1');
+    expect(first).toMatchObject({ version: '1', ...range });
+    expect(readPriceRangeSettings(await currentRisk(db.sql, marketId))).toEqual({
+      max: amt('0.2'),
+      trigger: amt('0.001'),
+      cadenceSeconds: 30,
+    });
+    // A write that sends only the first five keeps the range, as it keeps the open-interest pair.
+    expect(await write({ ...BLANK_LIMITS, fatFinger: '50' }, '1', 'range-2')).toMatchObject({ version: '2', ...range });
+    // One value cleared would leave a range that never widens anything: refused before the approval is used.
+    await expect(write({ ...BLANK_LIMITS, priceRangeTrigger: null }, '2', 'range-3')).rejects.toMatchObject({
+      code: 'risk_limit_not_exact',
+    });
+    const none = { priceRangeMax: null, priceRangeTrigger: null, priceRangeCadenceSeconds: null };
+    const cleared = await write({ ...BLANK_LIMITS, ...none }, '2', 'range-4');
+    expect(cleared).toMatchObject({ version: '3', ...none });
+    expect(readPriceRangeSettings(await currentRisk(db.sql, marketId))).toBeNull();
+
+    // The band record: the band in force is upserted on each working; a change of value is kept once.
+    const store = sqlPriceBandStore(db.sql);
+    const at = (s: number) => new Date(Date.UTC(2026, 9, 23, 12, 0, s));
+    const working = { marketId, staticBand: amt('0.05'), premium: amt('0.01'), mark: amt('65000'), bookMid: amt('65650') };
+    // Two hosts working the market at once, with no row yet: one change is kept, not two.
+    const raced = await Promise.all([
+      store.record({ ...working, band: amt('0.06'), reason: 'widened', riskVersion: '3', checkedAt: at(0) }),
+      store.record({ ...working, band: amt('0.06'), reason: 'widened', riskVersion: '3', checkedAt: at(0) }),
+    ]);
+    expect(raced.map((r) => r.recorded).sort()).toEqual([false, true]);
+    expect(await store.record({ ...working, band: amt('0.06'), reason: 'widened', riskVersion: '3', checkedAt: at(30) })).toEqual({
+      recorded: true,
+      changed: false,
+    });
+    // A working older than the one kept is dropped.
+    expect(await store.record({ ...working, band: amt('0.09'), reason: 'widened', riskVersion: '3', checkedAt: at(20) })).toEqual({
+      recorded: false,
+      changed: false,
+    });
+    expect(await store.current(marketId)).toMatchObject({ band: amt('0.06'), checkedAt: at(30), changedAt: at(0), riskVersion: '3' });
+    await store.record({ ...working, band: amt('0.05'), premium: amt('0'), reason: 'within_trigger', riskVersion: '3', checkedAt: at(60) });
+    const changes = await store.changes(marketId, 10);
+    expect(changes.map((c) => [c.band, c.previousBand, c.reason])).toEqual([
+      [amt('0.05'), amt('0.06'), 'within_trigger'],
+      [amt('0.06'), null, 'widened'],
+    ]);
+    // The operator reads the same, as decimal strings; an unworked market reads as nothing kept.
+    expect(await admin.riskPriceBand(operator(), marketId)).toMatchObject({
+      marketId,
+      current: { band: '0.05', reason: 'within_trigger', riskVersion: '3', checkedAt: at(60).toISOString() },
+      changes: [
+        { band: '0.05', previousBand: '0.06' },
+        { band: '0.06', previousBand: null },
+      ],
+    });
+    expect(await admin.riskPriceBand(operator(), randomUUID())).toEqual({ marketId: expect.any(String), current: null, changes: [] });
   });
 
   it('reads the latest version as the newest one past version 9, not by its text', async () => {

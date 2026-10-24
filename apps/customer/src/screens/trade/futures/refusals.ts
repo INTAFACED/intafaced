@@ -75,7 +75,36 @@ const WORDS: Readonly<Record<string, Words>> = {
   },
   'trade.depth_unknown': {
     title: 'The book cannot be read right now',
-    body: 'Raising leverage releases margin, and that needs a readable order book. Lowering leverage adds margin and still works.',
+    body: 'Opening, adding size and raising leverage need a readable order book to rate the margin tier. Nothing was held or changed. Lowering leverage adds margin and still works.',
+  },
+  'trade.risk_limit_confirm_required': {
+    title: 'This order moves into a higher margin tier',
+    body: 'The tier changed since your review, or it was not confirmed. Nothing was held. Review again, read the new tier and confirm it.',
+    retryable: false,
+  },
+  'trade.confirm_tier_invalid': {
+    title: 'The margin tier confirmation was not readable',
+    body: 'Nothing was held. Review again and confirm the tier the review shows.',
+    retryable: false,
+  },
+  'trade.oi_share_limit': {
+    title: 'This order is above your share of open interest',
+    body: 'One account may hold only part of this contract’s open interest limit, counting your open position and live orders. Nothing was held. Review again to see how much you can still add.',
+    retryable: false,
+  },
+  'trade.oi_limit': {
+    title: 'This contract is near its open interest limit',
+    body: 'Open interest on this contract is capped, and this order would go past the cap. Nothing was held. Review again to see how much can still be added.',
+    retryable: false,
+  },
+  'trade.oi_limit_unset': {
+    title: 'This contract has no open interest limit published',
+    body: 'The platform has not published how much open interest this contract may carry, so nothing can be opened on it. Closing still works.',
+    retryable: false,
+  },
+  'trade.oi_room_unavailable': {
+    title: 'Your open interest room could not be read',
+    body: 'Nothing was held. Try the review again in a moment.',
   },
   'trade.ladder_unset': {
     title: 'Margin tiers are not published',
@@ -144,6 +173,36 @@ const WORDS: Readonly<Record<string, Words>> = {
     body: 'It is already closed or liquidated. Check your position history.',
     retryable: false,
   },
+  'trade.protection_wrong_side': {
+    title: 'That price is on the wrong side of the mark',
+    body: 'A take profit must be past the mark price in your favour, and a stop loss past it against you: above the mark for a long’s take profit, below it for its stop loss, and the other way round for a short. Nothing was saved.',
+    retryable: false,
+  },
+  'trade.conditional_trigger_off': {
+    title: 'Price triggers are switched off',
+    body: 'The platform is not watching prices for take-profit, stop-loss or stop orders right now, so none can be armed. Nothing was saved. Your position is unchanged.',
+  },
+  'trade.conditional_amount_invalid': {
+    title: 'That price is not a number we can use',
+    body: 'Enter each trigger as a price above zero. Nothing was saved.',
+    retryable: false,
+  },
+  'trade.conditional_market_not_futures': {
+    title: 'Only futures positions take these orders',
+    body: 'Take profit, stop loss and stop orders here are for futures positions. Nothing was saved.',
+    retryable: false,
+  },
+  'trade.conditional_not_cancellable': {
+    title: 'That order already fired or ended',
+    body: 'Only an armed take profit, stop loss or stop can be cancelled. This one has fired, filled or ended: see what it did in the Orders tab.',
+    retryable: false,
+  },
+  'trade.conditional_not_found': {
+    title: 'That order was not found',
+    body: 'It may belong to another account. Refresh the Orders tab.',
+    retryable: false,
+  },
+  'trade.client_request_id_required': { title: 'Request id missing', body: 'Nothing was sent. Start the action again.' },
   'trade.position_under_review': {
     title: 'That position is under review',
     body: 'The platform is checking this position. It cannot be changed until the review ends.',
