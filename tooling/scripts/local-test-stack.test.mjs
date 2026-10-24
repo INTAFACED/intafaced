@@ -80,8 +80,10 @@ const script = resolve(here, 'local-test-stack.mjs');
   const bank = localTestServiceEnvs().find((service) => service.name === 'bank');
   const profile = loadProfile().values;
   assert.equal(bank.env.BANK_GLOBAL_PARTNER, 'global-sim');
+  assert.equal(bank.env.BANK_ONRAMP_RATES, 'ramp-sim');
   for (const name of [
     'BANK_GLOBAL_SIM_JSON',
+    'BANK_ONRAMP_SIM_JSON',
     'BANK_SEND_FIELD_RULES_JSON',
     'BANK_PAYEE_COOLING_HOURS',
     'BANK_GLOBAL_HOLD_CANCEL_HOURS',
