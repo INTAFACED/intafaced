@@ -53,6 +53,7 @@ type CloseHost = {
   readonly optionsSettlementAssetLaw: string;
   now: () => Date;
   perks: { perksOf(userId: string): Promise<{ feeDiscountBps: number }> };
+  feeTierAt: (userId: string) => Promise<string>;
   requireMarket: (input: { symbol?: string; marketId?: string }) => Promise<Market>;
   findOrder: (orderId: string) => Promise<OrderRecord | null>;
   assertLifecycleAction: (market: Market, action: 'PLACE') => Promise<LifecycleAdmissionProof>;
@@ -155,19 +156,20 @@ export async function closeSpotPosition(svc: TradeService, principal: Principal,
   const hold =
     flatten.side === 'buy' ? { assetId: market.quoteAsset, amount: buyNotional } : holdFor(market, flatten.side, 0n as Amount, flatten.qty);
   const perks = await host.perks.perksOf(userId);
+  const feeTier = await host.feeTierAt(userId);
 
   // A market row carries no price (orders_price_shape_ck); the executed prices live in trade.fills (#4591).
   const inserted = await host.sql<Array<{ id: string }>>`
     INSERT INTO trade.orders (
       id, user_id, market_id, client_order_id, side, type,
-      price, qty, status, tif, hold_asset, hold_amount, fee_discount_bps, seeded, lifecycle_proof,
+      price, qty, status, tif, hold_asset, hold_amount, fee_discount_bps, fee_tier, seeded, lifecycle_proof,
       session_id, api_key_id
     ) VALUES (
       ${orderId}, ${userId}, ${market.id}, ${input.clientOrderId},
       ${flatten.side}, ${'market'},
       ${null}::numeric,
       ${formatAmount(flatten.qty)}::numeric, 'pending', ${'IOC'},
-      ${hold.assetId}, ${formatAmount(market.paper ? 0n : hold.amount)}::numeric, ${perks.feeDiscountBps},
+      ${hold.assetId}, ${formatAmount(market.paper ? 0n : hold.amount)}::numeric, ${perks.feeDiscountBps}, ${feeTier},
       ${false}, ${JSON.stringify(lifecycleProof)}::text::jsonb,
       ${attribution.sessionId}, ${attribution.apiKeyId}
     )

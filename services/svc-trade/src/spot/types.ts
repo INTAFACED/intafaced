@@ -149,6 +149,8 @@ export interface OrderRecord {
   /** Proven native-amend qty-down releases. Remainder is hold − fills − this. */
   readonly amendReleased: Amount;
   readonly feeDiscountBps: number;
+  /** The fee tier the order was placed at (the last finished tier snapshot then); its fills are charged at it. */
+  readonly feeTier: string;
   /** The caller's own label from the create body. Null when none was sent. Never part of the idempotency key. */
   readonly tag: string | null;
   readonly protectionPrice: Amount | null;

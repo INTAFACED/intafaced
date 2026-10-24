@@ -20,7 +20,14 @@ import {
 import { assertStopTrigger, TRADE_STOP_TRIGGER_INVALID } from './stop-trigger-door.js';
 import { STOP_MARKET, stopMarketLimit } from './stop-market.js';
 import { validateSlippageTolerance } from './slippage-tolerance.js';
-import { FEE_SCHEDULE_RESIDUAL, FeeScheduleError, makerRebateBpsFor, previewFeeBps, type OwnerFeeSchedule } from './fee-schedule.js';
+import {
+  FEE_SCHEDULE_RESIDUAL,
+  FeeScheduleError,
+  REGULAR_FEE_TIER,
+  makerRebateBpsFor,
+  previewFeeBps,
+  type OwnerFeeSchedule,
+} from './fee-schedule.js';
 import { TradeError, type Market, type OrderSide, type OrderType, type TimeInForce } from './types.js';
 import type { EdgeTrust } from '../edge-trust.js';
 
@@ -85,6 +92,8 @@ export interface SpotOrderPreviewWire {
   feeRole: 'maker' | 'taker' | null;
   /** Owner schedule version. Null when the schedule is unpublished. */
   feeScheduleVersion: string | null;
+  /** The fee tier the rates above are for: the one an order placed now would keep. */
+  feeTier: string;
   /** Discounted maker bps the fill would post if this order rests. */
   makerFeeBps: number | null;
   /** Discounted taker bps the fill would post if this order takes. */
@@ -151,6 +160,8 @@ export interface SpotOrderPreviewRestDeps {
    * zero. A failure refuses the fee rather than showing a rate the fill will not post.
    */
   feeDiscountBps?(userId: string): Promise<number>;
+  /** The fee tier an order placed now would take, the same read place uses. Absent in tests means regular. */
+  feeTier?(userId: string): Promise<string>;
 }
 
 const ALLOWED_FIELDS = new Set([
@@ -558,6 +569,16 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
       }
     }
 
+    let feeTier: string = REGULAR_FEE_TIER;
+    if (deps.feeTier) {
+      try {
+        feeTier = await deps.feeTier(principal.userId);
+      } catch {
+        discountKnown = false;
+        refusals.push({ code: 'trade.fee_tier_unavailable', field: 'fee', message: 'fee tier is unavailable' });
+      }
+    }
+
     // A stop-limit's role is unknown until it triggers, so the preview shows the taker (worst-case) fee.
     const takes =
       orderType !== null &&
@@ -577,7 +598,7 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
     const feeBpsFor = (role: 'maker' | 'taker'): number | null => {
       if (!discountKnown) return null;
       try {
-        return previewFeeBps(scheduleNow, role, discountBps, { symbol: market.symbol });
+        return previewFeeBps(scheduleNow, role, discountBps, { symbol: market.symbol, tierId: feeTier });
       } catch (err) {
         if (err instanceof FeeScheduleError) {
           feeRowRefusal ??= err;
@@ -589,7 +610,7 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
     const makerFeeBps = feeBpsFor('maker');
     const takerFeeBps = feeBpsFor('taker');
     // Same row as the maker rate above, so it is known exactly when that rate is.
-    const makerRebateBps = makerFeeBps === null ? null : makerRebateBpsFor(scheduleNow, { symbol: market.symbol });
+    const makerRebateBps = makerFeeBps === null ? null : makerRebateBpsFor(scheduleNow, { symbol: market.symbol, tierId: feeTier });
     const feeScheduleVersion = scheduleNow.published === true ? scheduleNow.version : null;
     const feeBps = feeRole === null ? null : feeRole === 'maker' ? makerFeeBps : takerFeeBps;
     let estimatedFee: Amount | null = null;
@@ -704,6 +725,7 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
       feeBps,
       feeRole,
       feeScheduleVersion,
+      feeTier,
       makerFeeBps,
       takerFeeBps,
       makerRebateBps,

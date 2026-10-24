@@ -10,6 +10,7 @@ import { requireScope, type Principal } from '@intafaced/auth';
 import { formatAmount, parseAmount, recipes, type Amount } from '@intafaced/ledger-client';
 import { withMoneySpan } from '../../tracing.js';
 import { orderIdFor } from '../ids.js';
+import { REGULAR_FEE_TIER } from '../fee-schedule.js';
 import {
   assertMarketOpen,
   assertNotional,
@@ -176,9 +177,9 @@ export async function placeOrderInner(
   assertMarketOpen(market, svc.now());
 
   // Owner schedule before paper SQL or any hold. Listing-row 10/20 is not a
-  // schedule; unpublished, or no row for this market's pair group, is a typed
-  // refuse (same hitch as order preview).
-  await svc.assertOwnerFeeSchedulePublished(market);
+  // schedule; unpublished, or no row for this market's pair group at the
+  // person's fee tier, is a typed refuse (same hitch as order preview).
+  await svc.assertOwnerFeeSchedulePublished(market, undefined, await svc.feeTierAt(userId));
 
   // Ownership + revoked gate (identity S2S). Before any new row or hold — a
   // foreign or revoked id must never land on trade.orders.sub_account_id.
@@ -419,6 +420,9 @@ export async function executeAdmittedOrder(svc: TradeServiceInternal, evidence: 
   const lifecycleProof = evidence.lifecycleProof as LifecycleAdmissionProof;
   const engineRequest = evidence.engineRequest as EngineSubmitRequest;
   if (!(await svc.findOrder(orderId))) await svc.refuseRestartedEngineSequence(market);
+  // The fee tier is read once, here, and kept on the row like the rank discount: a tier snapshot taken after this
+  // never re-prices the order. The house market maker has no tier.
+  const feeTier = seeded ? REGULAR_FEE_TIER : await svc.feeTierAt(userId);
   // ── 2b · THE INTENT ROW ─────────────────────────────────────────────────
   //
   // If this crashes exactly here, whose funds are stranded? Nobody's. A
@@ -433,14 +437,14 @@ export async function executeAdmittedOrder(svc: TradeServiceInternal, evidence: 
   const inserted = await svc.sql<Array<{ id: string; created_at: Date }>>`
     INSERT INTO trade.orders (
       id, user_id, sub_account_id, market_id, client_order_id, side, type,
-      price, qty, status, tif, hold_asset, hold_amount, fee_discount_bps, protection_price, seeded, lifecycle_proof,
+      price, qty, status, tif, hold_asset, hold_amount, fee_discount_bps, fee_tier, protection_price, seeded, lifecycle_proof,
       replacement_of, replacement_request_hash, session_id, api_key_id, tag
     ) VALUES (
       ${orderId}, ${userId}, ${input.subAccountId ?? null}, ${market.id}, ${input.clientOrderId!},
       ${input.side}, ${orderType},
       ${input.price == null ? null : formatAmount(input.price)}::numeric,
       ${formatAmount(input.qty)}::numeric, 'pending', ${tif},
-      ${hold.assetId}, ${formatAmount(hold.amount)}::numeric, ${perks.feeDiscountBps},
+      ${hold.assetId}, ${formatAmount(hold.amount)}::numeric, ${perks.feeDiscountBps}, ${feeTier},
       ${protectionPrice === null ? null : formatAmount(protectionPrice)}::numeric,
       ${seeded}, ${JSON.stringify(lifecycleProof)}::text::jsonb,
       ${input.replacementOf ?? null}, ${input.replacementRequestHash ?? null},
@@ -458,11 +462,11 @@ export async function executeAdmittedOrder(svc: TradeServiceInternal, evidence: 
     throw new TradeError(`order ${orderId} vanished between insert and read`, 'trade.order_not_found');
   }
 
-  // Fills are charged at the version in force at this row's own `created_at`. A version that took effect between the
-  // check above and this insert is checked here, still before the hold, so it cannot leave a held order that every
-  // fill refuses. Nothing is held yet, so a refusal only removes the pending row.
+  // Fills are charged at the version in force at this row's own `created_at`, at the row's fee tier. A version that took
+  // effect between the check above and this insert is checked here, still before the hold, so it cannot leave a held
+  // order that every fill refuses. Nothing is held yet, so a refusal only removes the pending row.
   try {
-    await svc.assertOwnerFeeSchedulePublished(market, inserted[0]!.created_at);
+    await svc.assertOwnerFeeSchedulePublished(market, inserted[0]!.created_at, feeTier);
   } catch (err) {
     await svc.sql`DELETE FROM trade.orders WHERE id = ${orderId} AND status = 'pending'`;
     throw err;

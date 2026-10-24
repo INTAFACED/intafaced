@@ -8,7 +8,7 @@ import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import { formatAmount, orderHoldAccount, parseAmount, recipes, type Amount } from '@intafaced/ledger-client';
 import { appendOrderEvent, parentIdFromClientOrder } from '../../orders/order-events.js';
-import { FeeScheduleError, fundedMakerRebateBps, makerRebateBpsFor, type OwnerFeeSchedule } from '../fee-schedule.js';
+import { FeeScheduleError, REGULAR_FEE_TIER, fundedMakerRebateBps, makerRebateBpsFor, type OwnerFeeSchedule } from '../fee-schedule.js';
 import { fillPayAmounts, fillReceivablesSurviveFees, ratesForFill as feeRatesForFill } from '../fees.js';
 import { ocoLegParent, settlementOrderId } from '../oco-legs.js';
 import { readOcoIntent } from '../oco-intent.js';
@@ -36,12 +36,14 @@ import type { PlaceOrderInput, TradeServiceInternal } from '../trade-service.js'
  * A spot market's own rates are resolved too, both roles at the regular tier, so a market whose pair group has no row
  * (or a row no granted recipe can post) refuses here, before any hold, rather than at its first fill. `at` is the
  * moment whose version is checked: placement checks now, then the order row's own `created_at`, which is the version
- * its fills are charged at.
+ * its fills are charged at. `tierId` is the fee tier the order is placed at, so a tier the market has no row for
+ * refuses here too.
  */
 export async function assertOwnerFeeSchedulePublished(
   svc: TradeServiceInternal,
   market: Pick<Market, 'kind' | 'symbol'>,
   at: Date = svc.now(),
+  tierId: string = REGULAR_FEE_TIER,
 ): Promise<void> {
   const schedule = await svc.feeScheduleAt(at);
   if (schedule.published !== true) {
@@ -49,7 +51,7 @@ export async function assertOwnerFeeSchedulePublished(
   }
   if (market.kind !== 'spot') return;
   try {
-    svc.ratesForSchedule(schedule, 0, 0, 'spot', market.symbol);
+    svc.ratesForSchedule(schedule, 0, 0, 'spot', market.symbol, tierId);
   } catch (err) {
     // The schedule's own message names its env key and the owner's internal group and tier ids; the caller gets the
     // code and a plain sentence.
@@ -59,8 +61,9 @@ export async function assertOwnerFeeSchedulePublished(
 }
 
 /**
- * Rates for one match. Each side is charged at the schedule version that was in force when ITS order was placed,
- * so a version approved after placement never re-prices an open order. The house market maker has no order
+ * Rates for one match. Each side is charged at the schedule version that was in force when ITS order was placed, and
+ * at the fee tier it was placed at, so neither a version approved nor a tier snapshot taken after placement re-prices
+ * an open order. The house market maker has no order
  * of its own to date: its side takes the taker's version.
  */
 export async function ratesForFill(
@@ -70,15 +73,16 @@ export async function ratesForFill(
   kind: 'spot' | 'futures' | 'options',
   symbol: string | undefined,
   placedAt: { readonly maker: Date; readonly taker: Date },
+  tiers: { readonly maker: string; readonly taker: string } = { maker: REGULAR_FEE_TIER, taker: REGULAR_FEE_TIER },
 ): Promise<{ makerFeeBps: number; takerFeeBps: number; makerRebateBps: number }> {
   const makerSchedule = await svc.feeScheduleAt(placedAt.maker);
   const takerSchedule = placedAt.maker.getTime() === placedAt.taker.getTime() ? makerSchedule : await svc.feeScheduleAt(placedAt.taker);
-  const makerFeeBps = svc.ratesForSchedule(makerSchedule, makerDiscountBps, takerDiscountBps, kind, symbol).makerFeeBps;
-  const takerFeeBps = svc.ratesForSchedule(takerSchedule, makerDiscountBps, takerDiscountBps, kind, symbol).takerFeeBps;
-  // The maker's rebate is its own placement version's row, funded by the taker rate this fill charges.
+  const makerFeeBps = svc.ratesForSchedule(makerSchedule, makerDiscountBps, takerDiscountBps, kind, symbol, tiers.maker).makerFeeBps;
+  const takerFeeBps = svc.ratesForSchedule(takerSchedule, makerDiscountBps, takerDiscountBps, kind, symbol, tiers.taker).takerFeeBps;
+  // The maker's rebate is its own placement version's row at its own tier, funded by the taker rate this fill charges.
   const makerRebateBps =
     kind === 'spot' && symbol !== undefined
-      ? fundedMakerRebateBps(makerRebateBpsFor(makerSchedule, { symbol }), makerFeeBps, takerFeeBps)
+      ? fundedMakerRebateBps(makerRebateBpsFor(makerSchedule, { symbol, tierId: tiers.maker }), makerFeeBps, takerFeeBps)
       : 0;
   return { makerFeeBps, takerFeeBps, makerRebateBps };
 }
@@ -90,6 +94,7 @@ export function ratesForSchedule(
   takerDiscountBps: number,
   kind: 'spot' | 'futures' | 'options',
   symbol?: string,
+  tierId: string = REGULAR_FEE_TIER,
 ) {
   if (kind === 'options') {
     throw new TradeError('options fee schedule is unpublished', 'trade.fee_product_unpublished');
@@ -100,7 +105,7 @@ export function ratesForSchedule(
       makerDiscountBps,
       takerDiscountBps,
       kind === 'futures' ? 'perpetual' : 'spot',
-      symbol === undefined ? undefined : { symbol },
+      symbol === undefined ? undefined : { symbol, tierId },
     );
   } catch (err) {
     if (err instanceof FeeScheduleError) {

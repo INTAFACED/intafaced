@@ -84,6 +84,7 @@ import { registerDeltaHedgeRest } from './greeks/delta-hedge-rest.js';
 import { registerQuantLiveDeployRest } from './quant/live-deploy-rest.js';
 import { registerPromoRest } from './spot/promo-rest.js';
 import { registerSpotOrderPreviewRest } from './spot/order-preview-rest.js';
+import { registerFeeTierRest } from './spot/fee-tier-rest.js';
 import { assertMakerRebatesPayable, parseFeeScheduleJson } from './spot/fee-schedule.js';
 import { feeScheduleAt } from './spot/fee-schedule-store.js';
 import { PositionService, FuturesError } from './futures/position-service.js';
@@ -148,6 +149,7 @@ import { HOUSE_MM_USER_UUID } from './spot/ids.js';
 import { parseCandleMarketIds, parseCandleTimeframes } from './spot/candles.js';
 import { startCandleJobs } from './spot/candle-jobs.js';
 import { startTrailingMarkJobs } from './spot/trailing-mark-jobs.js';
+import { startFeeTierJobs } from './spot/fee-tier-jobs.js';
 import { markSourceFromDepth } from './futures/mark-from-depth.js';
 import { markBookResolver, parseIndexSpotMarkets } from './futures/mark-from-spot-index.js';
 import { liquidationPriceFor } from './futures/liquidation-price.js';
@@ -774,6 +776,17 @@ const trailingMarkJobs = startTrailingMarkJobs({
     if (r.applied) app.log.info({ marketId: r.marketId }, 'trailing stops walked with the mark');
   },
 });
+const feeTierBootedAt = new Date();
+const feeTierJobs = startFeeTierJobs({
+  sql,
+  scheduleAt: (at) => feeScheduleAt(sql, feeSchedule, at),
+  bootedAt: feeTierBootedAt,
+  intervalMs: env.TRADE_FEE_TIER_JOBS_INTERVAL_MS,
+  onError: (name, err) => app.log.error({ err, job: name }, 'fee tier snapshot tick failed'),
+  onResult: (r) => {
+    if (r.outcome === 'written') app.log.info({ instant: r.instant, accounts: r.accounts }, 'fee tier snapshot written');
+  },
+});
 const mmMidSource = createMmMidSourceFromConfig({
   midsEnv: env.TRADE_MM_SEED_MIDS,
   midFromVenue: env.TRADE_MM_SEED_MID_FROM_VENUE,
@@ -1118,6 +1131,16 @@ registerSpotOrderPreviewRest(app, {
   feeSchedule,
   feeScheduleNow: () => feeScheduleAt(sql, feeSchedule, new Date()),
   feeDiscountBps: async (userId) => (await perks.perksOf(userId)).feeDiscountBps,
+  feeTier: (userId) => trade.feeTierAt(userId),
+});
+registerFeeTierRest(app, {
+  edgeSecret: env.EDGE_PRINCIPAL_SECRET,
+  edgeTrust: edgeTrustFromEnv(env),
+  serviceName: env.SERVICE_NAME,
+  sql,
+  scheduleAt: (at) => feeScheduleAt(sql, feeSchedule, at),
+  bootedAt: feeTierBootedAt,
+  snapshotsRunning: env.TRADE_FEE_TIER_JOBS_INTERVAL_MS !== null && env.TRADE_FEE_TIER_JOBS_INTERVAL_MS > 0,
 });
 const fundingHistory = memoryFundingHistory();
 registerInternalFundingRate(app, {
@@ -1416,6 +1439,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       conditionalJobs.stop();
       candleJobs.stop();
       trailingMarkJobs.stop();
+      feeTierJobs.stop();
       mmSeedJobs.stop();
       algoJobs.stop();
       copyMirrorJobs.stopAll();

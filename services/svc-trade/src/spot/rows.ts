@@ -1,5 +1,6 @@
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { lifecycleAdmissionProofSchema } from '../lifecycle-proof.js';
+import { REGULAR_FEE_TIER } from './fee-schedule.js';
 import type { Market, OrderRecord, OrderSide, OrderStatus, OrderType, RecoveryReason, TimeInForce } from './types.js';
 
 /**
@@ -121,6 +122,8 @@ export interface OrderRow {
   hold_amount: string;
   amend_released: string;
   fee_discount_bps: string;
+  /** Absent from a read that names its columns without it: the regular tier, as every order before tiers. */
+  fee_tier?: string | null;
   tag?: string | null;
   protection_price: string | null;
   engine_sequence: number | null;
@@ -162,6 +165,7 @@ export function toOrder(row: OrderRow): OrderRecord {
     holdAmount: parseAmount(row.hold_amount),
     amendReleased: parseAmount(row.amend_released ?? '0'),
     feeDiscountBps: Number(row.fee_discount_bps),
+    feeTier: row.fee_tier ?? REGULAR_FEE_TIER,
     tag: row.tag ?? null,
     protectionPrice: row.protection_price === null ? null : parseAmount(row.protection_price),
     engineSequence: row.engine_sequence,

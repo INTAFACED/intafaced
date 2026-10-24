@@ -607,6 +607,13 @@ const schema = serviceEnvSchema
       TRADE_TRAILING_MARK_JOBS_MARKET_IDS: z.string().default(''),
 
       /**
+       * Fee tier snapshot check interval in ms (fee-tier-jobs.ts). NO DEFAULT: blank → the job is not scheduled, no
+       * snapshot runs and every tier stays where the last one left it. The snapshot time itself is the owner's, in
+       * the fee schedule's `tierProgram`.
+       */
+      TRADE_FEE_TIER_JOBS_INTERVAL_MS: z.string().default('').transform(parseOwnerIntegerEnv),
+
+      /**
        * Engine ↔ ledger reconcile sweep (A10 / ENGINE-LEDGER-RECONCILE-HANDOFF).
        * Default OFF — builds counterpart view from trade.orders + hold balances,
        * POSTs matching `/reconcile`, alerts on refuse, auto-deletes only
