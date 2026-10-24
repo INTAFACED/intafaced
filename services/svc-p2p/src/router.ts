@@ -1563,7 +1563,11 @@ export function createP2pRouter(
             fiatCurrency: z.string(),
             label: z.string(),
             details: instrumentDetailsOutput,
+            /** Each detail's label from the method schema, in its order. */
+            fields: z.array(z.object({ key: z.string(), label: z.string() })),
             attachedAt: z.string(),
+            /** P-trade-orders-08: the seller changed or removed this destination after the order was placed. The order still pays the details above. */
+            payeeChange: z.object({ kind: z.enum(['changed', 'removed']) }).nullable(),
           }),
         )
         .query(async ({ ctx, input }) =>
@@ -1580,7 +1584,9 @@ export function createP2pRouter(
               fiatCurrency: view.fiatCurrency,
               label: view.label,
               details: { ...view.details },
+              fields: view.fields.map((field) => ({ key: field.key, label: field.label })),
               attachedAt: view.attachedAt.toISOString(),
+              payeeChange: view.payeeChange && { kind: view.payeeChange.kind },
             };
           }),
         ),
