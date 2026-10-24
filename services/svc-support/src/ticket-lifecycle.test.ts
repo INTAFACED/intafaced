@@ -7,6 +7,7 @@ import { MemoryStaffBook } from './desk-staff.js';
 import { createSupportRouter } from './router.js';
 import { SupportService } from './support-service.js';
 import { MemoryLifecycleBook } from './ticket-lifecycle.js';
+import { TEST_COMMENT_CAP } from './comment-cap.fixture.js';
 
 const authConfig = {
   secret: 'a-support-ticket-lifecycle-test-secret-long-enough',
@@ -38,6 +39,11 @@ function desk() {
     [],
     new MemoryPropertiesBook(),
     lifecycle,
+    undefined,
+    undefined,
+    null,
+    undefined,
+    TEST_COMMENT_CAP,
   );
   const router = createSupportRouter(support, undefined, undefined, support);
   const staff = async () => router.createCaller(await ctx(AGENT, ['support:ops', 'support:read', 'support:write']));

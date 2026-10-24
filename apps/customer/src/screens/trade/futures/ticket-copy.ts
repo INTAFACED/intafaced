@@ -37,6 +37,10 @@ export const ticketCopy = defineCopy('trade.futures.ticket', {
   'Band range': '{low} to {high}',
   'Band hint': 'The mark plus or minus {pct}. An order outside it is refused or moved to the edge.',
   'Band unset hint': 'No price band is published, so no order is placed.',
+  'Band wider hint':
+    'Wider than usual: the mark plus or minus {pct}, not the usual {usual}, while the futures price is {premium} away from the mark. An order outside it is refused or moved to the edge.',
+  'Band wider capped hint':
+    'Wider than usual and at its widest: the mark plus or minus {pct}, not the usual {usual}, while the futures price is {premium} away from the mark. An order outside it is refused or moved to the edge.',
   'Order price market': 'Protection price',
   'Order price limit': 'Order price',
   'Slippage cap': 'Slippage cap',
@@ -89,7 +93,7 @@ export const ticketCopy = defineCopy('trade.futures.ticket', {
     'To reduce or close a position, use Close in the positions table: it sends a reduce-only order for the size you choose.',
   'Take profit stop loss': 'Take profit / Stop loss',
   'Take profit off':
-    'Take-profit and stop-loss need a conditional order type that futures does not offer. Until then, watch the liquidation price and close by hand.',
+    'Set them on the position once it is open: Positions, Manage, Take profit / stop loss. Each closes the whole position through the book when the mark price crosses it.',
   Review: 'Review',
   Reviewing: 'Reviewing…',
   'Review to see cost': 'Review to see the all-in cost before you open.',
@@ -115,6 +119,25 @@ export const ticketCopy = defineCopy('trade.futures.ticket', {
   'Distance to liquidation': 'Distance to liquidation',
   'Distance hint': 'Of the mark price, on the way to liquidation',
   'Leverage cap': 'Leverage cap',
+  'Margin tier': 'Margin tier',
+  'Tier value': 'Tier {tier}, maintenance {rate}',
+  'Tier hint': 'From the published tiers at today’s order book depth.',
+  'Tier confirm hint': 'Higher than the tier your position sits in now. You confirm it before the order goes.',
+  'Tier confirm title': 'New margin tier',
+  'Tier confirm heading': 'New margin tier: tier {tier}',
+  'Tier confirm opens': 'This order opens your position in tier {tier}.',
+  'Tier confirm moves': 'This order moves your position from tier {from} into tier {tier}.',
+  'Tier confirm rate':
+    'Tier {tier} keeps {rate} of the position’s value as maintenance margin, so the liquidation price sits nearer the mark than in a lower tier.',
+  'Tier confirm leverage': 'Leverage {leverage}. Every tier allows up to the listing cap of {cap}.',
+  'Tier confirm leverage no cap': 'Leverage {leverage}. No listing leverage cap is published.',
+  'Tier confirm accept': 'I accept tier {tier}',
+  'Open interest room': 'Open interest you can add',
+  'Open interest room value': '{room} {base}',
+  'Open interest share hint': 'One account may hold up to {cap} {base}, {pct} of this contract’s open interest limit of {limit} {base}.',
+  'Open interest market hint': 'This contract’s open interest is near its limit of {limit} {base}.',
+  'Open interest unset': 'Not published',
+  'Open interest unset hint': 'The open interest limit for this contract is not published, so nothing can be opened on it.',
   'Unknown figure': 'The service did not publish this figure.',
 
   // Open

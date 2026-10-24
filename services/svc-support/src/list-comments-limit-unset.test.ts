@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { LIST_COMMENTS_LIMIT_UNSET, SupportError, SupportService, assertListCommentsLimit } from './support-service.js';
 import { userCopy } from './user-copy.js';
+import { withTestCommentCap } from './comment-cap.fixture.js';
 
 /**
  * listComments page size is refuse-closed when unset.
@@ -41,7 +42,7 @@ describe('listComments limit unset refuse', () => {
   });
 
   it('listComments omit refuses; explicit 100 pages; never dumps the thread', async () => {
-    const svc = new SupportService();
+    const svc = withTestCommentCap();
     const ticket = await svc.createTicket({
       userId: USER,
       category: 'other',

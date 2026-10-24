@@ -62,6 +62,16 @@ export interface RiskLimitValues {
   readonly slippageCap: string | null;
   readonly throttle: string | null;
   readonly circuitBreaker: string | null;
+  /** A futures market's largest open interest, in its base asset (D-margin-05). */
+  readonly oiLimit: string | null;
+  /** The largest share of `oiLimit` one account may hold, in basis points. */
+  readonly oiShareBps: string | null;
+  /** The widest a futures market's price band may go while the dynamic range widens it, a fraction (D-instruments-08). */
+  readonly priceRangeMax: string | null;
+  /** The premium of the futures book over the mark past which the band widens, a fraction. */
+  readonly priceRangeTrigger: string | null;
+  /** How often the band is worked out again, in whole seconds. */
+  readonly priceRangeCadenceSeconds: string | null;
 }
 
 /** `admin.risk.get`: the current limits, version "0" and all null when none were ever set. */
@@ -83,12 +93,27 @@ function limitValues(v: Record<string, unknown>): RiskLimitValues | null {
   if (!decOrNull(v.collar) || !decOrNull(v.fatFinger)) return null;
   if (!(v.slippageCap === null || uint(v.slippageCap)) || !(v.throttle === null || uint(v.throttle))) return null;
   if (!(v.circuitBreaker === null || uint(v.circuitBreaker))) return null;
+  // A version written before the open-interest pair existed reads as unset, never as a number.
+  const oiLimit = v.oiLimit === undefined ? null : v.oiLimit;
+  const oiShareBps = v.oiShareBps === undefined ? null : v.oiShareBps;
+  if (!decOrNull(oiLimit) || !(oiShareBps === null || uint(oiShareBps))) return null;
+  // The same for a version written before the dynamic price range existed.
+  const priceRangeMax = v.priceRangeMax === undefined ? null : v.priceRangeMax;
+  const priceRangeTrigger = v.priceRangeTrigger === undefined ? null : v.priceRangeTrigger;
+  const priceRangeCadenceSeconds = v.priceRangeCadenceSeconds === undefined ? null : v.priceRangeCadenceSeconds;
+  if (!decOrNull(priceRangeMax) || !decOrNull(priceRangeTrigger)) return null;
+  if (!(priceRangeCadenceSeconds === null || uint(priceRangeCadenceSeconds))) return null;
   return {
     collar: v.collar,
     fatFinger: v.fatFinger,
     slippageCap: v.slippageCap as string | null,
     throttle: v.throttle as string | null,
     circuitBreaker: v.circuitBreaker as string | null,
+    oiLimit,
+    oiShareBps: oiShareBps as string | null,
+    priceRangeMax,
+    priceRangeTrigger,
+    priceRangeCadenceSeconds: priceRangeCadenceSeconds as string | null,
   };
 }
 
@@ -115,6 +140,91 @@ export function parseRiskHistory(raw: unknown): readonly RiskVersionRow[] | null
     });
   }
   return rows;
+}
+
+/** Why a futures market's band is what it is, as svc-trade's `futures.price_band` job records it. */
+export type PriceBandReason = 'within_trigger' | 'widened' | 'capped' | 'inputs_missing';
+const BAND_REASONS: readonly string[] = ['within_trigger', 'widened', 'capped', 'inputs_missing'];
+
+/** One change of a futures market's band, newest first. */
+export interface PriceBandChangeRow {
+  readonly band: string;
+  readonly previousBand: string | null;
+  readonly staticBand: string;
+  readonly premium: string | null;
+  readonly reason: PriceBandReason;
+  readonly riskVersion: string;
+  readonly changedAt: string;
+}
+
+/**
+ * `admin.risk.priceBand`: the band the job last worked out for the market (null while it never has) and each change.
+ * The band new orders are held to is this one only while it is fresh and was worked for the limits in force; otherwise it
+ * is the static band.
+ */
+export interface PriceBandView {
+  readonly marketId: string;
+  readonly current: {
+    readonly band: string;
+    readonly staticBand: string;
+    readonly premium: string | null;
+    readonly mark: string | null;
+    readonly bookMid: string | null;
+    readonly reason: PriceBandReason;
+    readonly riskVersion: string;
+    readonly checkedAt: string;
+    readonly changedAt: string;
+  } | null;
+  readonly changes: readonly PriceBandChangeRow[];
+}
+
+/** The Risk limits room's read: the limits, every version, and on a futures market the band (or why it is not shown). */
+export interface RiskRead {
+  readonly current: RiskCurrent;
+  readonly history: readonly RiskVersionRow[];
+  readonly band: PriceBandView | null;
+  readonly bandRefusal: string | null;
+}
+
+const bandReason = (v: unknown): v is PriceBandReason => typeof v === 'string' && BAND_REASONS.includes(v);
+
+function parseBandChange(v: unknown): PriceBandChangeRow | null {
+  if (!rec(v) || !dec(v.band) || !decOrNull(v.previousBand) || !dec(v.staticBand) || !decOrNull(v.premium)) return null;
+  if (!bandReason(v.reason) || !uint(v.riskVersion) || !str(v.changedAt)) return null;
+  return {
+    band: v.band,
+    previousBand: v.previousBand,
+    staticBand: v.staticBand,
+    premium: v.premium,
+    reason: v.reason,
+    riskVersion: v.riskVersion,
+    changedAt: v.changedAt,
+  };
+}
+
+export function parsePriceBandView(raw: unknown): PriceBandView | null {
+  if (!rec(raw) || !str(raw.marketId) || !Array.isArray(raw.changes)) return null;
+  const changes = raw.changes.map(parseBandChange);
+  if (!changes.every((c): c is PriceBandChangeRow => c !== null)) return null;
+  if (raw.current === null) return { marketId: raw.marketId, current: null, changes };
+  const c = raw.current;
+  if (!rec(c) || !dec(c.band) || !dec(c.staticBand) || !decOrNull(c.premium) || !decOrNull(c.mark) || !decOrNull(c.bookMid)) return null;
+  if (!bandReason(c.reason) || !uint(c.riskVersion) || !str(c.checkedAt) || !str(c.changedAt)) return null;
+  return {
+    marketId: raw.marketId,
+    current: {
+      band: c.band,
+      staticBand: c.staticBand,
+      premium: c.premium,
+      mark: c.mark,
+      bookMid: c.bookMid,
+      reason: c.reason,
+      riskVersion: c.riskVersion,
+      checkedAt: c.checkedAt,
+      changedAt: c.changedAt,
+    },
+    changes,
+  };
 }
 
 // ── Liquidation desk and insurance fund (D-ops-06) ──────────────────────────

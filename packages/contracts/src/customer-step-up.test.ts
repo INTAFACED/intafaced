@@ -34,6 +34,48 @@ describe('customer step-up binding', () => {
     );
   });
 
+  it('binds a P2P take to its ad, coin amount and method, with a held quote when the take names one', () => {
+    const fields = {
+      offerId: '5f0e8a1b-2c4a-4d7d-8c55-9d1e2f6f0b6f',
+      amount: '21.739130434782608695',
+      method: 'test-bank-transfer',
+    };
+    const bound = bindCustomerStepUp(ACTOR, {
+      scope: 'p2p.step_up.trades.take',
+      purpose: 'trades.take',
+      amount: fields.amount,
+      target: fields.offerId,
+      fields,
+    });
+    expect(bound).toMatchObject({
+      ok: true,
+      payloadHash: customerStepUpPayloadHash('p2p.step_up.trades.take', { actor: ACTOR, ...fields }),
+    });
+    const quoteId = '9d1e2f6f-0b6f-4c1e-8a7d-4c552f6f0e8a';
+    expect(
+      bindCustomerStepUp(ACTOR, {
+        scope: 'p2p.step_up.trades.take',
+        purpose: 'trades.take',
+        amount: fields.amount,
+        target: fields.offerId,
+        fields: { ...fields, quoteId },
+      }),
+    ).toMatchObject({ ok: true, payloadHash: customerStepUpPayloadHash('p2p.step_up.trades.take', { actor: ACTOR, ...fields, quoteId }) });
+    expect(
+      bindCustomerStepUp(ACTOR, { scope: 'p2p.step_up.trades.take', purpose: 'trades.take', amount: '1', target: fields.offerId, fields }),
+    ).toEqual({ ok: false, code: 'step_up.amount' });
+    // The order id is the take's idempotency key, not part of what the person confirmed.
+    expect(
+      bindCustomerStepUp(ACTOR, {
+        scope: 'p2p.step_up.trades.take',
+        purpose: 'trades.take',
+        amount: fields.amount,
+        target: fields.offerId,
+        fields: { ...fields, tradeId: '0b6f1c1e-4a7d-4c55-9d1e-2f6f0e8a1b2c' },
+      }),
+    ).toEqual({ ok: false, code: 'step_up.fields' });
+  });
+
   it('sorts payroll lines by space id then amount string', () => {
     expect(
       canonicalPayrollLines([
@@ -79,6 +121,61 @@ describe('customer step-up binding', () => {
       },
     });
     expect(spoofed).toEqual({ ok: false, code: 'step_up.fields' });
+  });
+
+  it('hashes a note, reference or settled request on a send only when the send carries one, and refuses an empty one', () => {
+    const fields = { transferId: 'transfer-1', fromSpaceId: 'space-from', toUserId: 'user-2', assetId: 'USDT', amount: '10.50' };
+    const begin = (extra: Record<string, string>) =>
+      bindCustomerStepUp(ACTOR, {
+        scope: 'bank.step_up.transfers.toUser',
+        purpose: 'transfers.toUser',
+        amount: '10.50',
+        target: 'user-2',
+        fields: { ...fields, ...extra },
+      });
+    const withNote = begin({ note: 'Lunch', reference: 'INV-1', requestId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc' });
+    expect(withNote).toMatchObject({
+      ok: true,
+      payloadHash: customerStepUpPayloadHash('bank.step_up.transfers.toUser', {
+        actor: ACTOR,
+        ...fields,
+        note: 'Lunch',
+        reference: 'INV-1',
+        requestId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      }),
+    });
+    expect(begin({})).toMatchObject({ ok: true, payloadHash: 'sha256:ed94a0f0e49b1c63f030f1b90ba43575e859339a9ce3e63783f546024d22d406' });
+    // Only the shape the bank keeps after its own trimming: anything else would hash bytes the bank never hashes.
+    for (const extra of [
+      { note: '' } as Record<string, string>,
+      { note: '   ' },
+      { note: ' Lunch ' },
+      { note: 'x'.repeat(141) },
+      { note: 'line\nbreak' },
+      { reference: 'INV-1 ' },
+      { reference: 'Café' },
+      { reference: 'r'.repeat(65) },
+      { requestId: 'req-1' },
+    ])
+      expect(begin(extra), JSON.stringify(extra)).toEqual({ ok: false, code: 'step_up.fields' });
+    expect(begin({ memo: 'x' })).toEqual({ ok: false, code: 'step_up.fields' });
+    // An own-space-style door keeps its exact field list: a request id is not one of its fields.
+    expect(
+      bindCustomerStepUp(ACTOR, {
+        scope: 'bank.step_up.transfers.create',
+        purpose: 'transfers.create',
+        amount: '10.50',
+        target: 'space-2',
+        fields: {
+          transferId: 'transfer-1',
+          fromSpaceId: 'space-from',
+          toSpaceId: 'space-2',
+          assetId: 'USDT',
+          amount: '10.50',
+          requestId: 'r',
+        },
+      }),
+    ).toEqual({ ok: false, code: 'step_up.fields' });
   });
 
   it('refuses an amount or target that does not match the fields', () => {

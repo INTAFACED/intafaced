@@ -1724,6 +1724,12 @@ services:
       # Owner-published seconds that count as watched. Empty = unset refuse
       # academy.watch_threshold_unset. Never invent a duration.
       ACADEMY_VIDEO_WATCH_THRESHOLD_SECONDS: ${ACADEMY_VIDEO_WATCH_THRESHOLD_SECONDS:-}
+      ACADEMY_OUTLINE_MAX_SECTIONS: ${ACADEMY_OUTLINE_MAX_SECTIONS:-}
+      ACADEMY_OUTLINE_MAX_ITEMS: ${ACADEMY_OUTLINE_MAX_ITEMS:-}
+      ACADEMY_LESSON_IMPORT_MAX_BYTES: ${ACADEMY_LESSON_IMPORT_MAX_BYTES:-}
+      # Owner-published seconds between watch-position saves while playing.
+      # Empty = unset: the player saves on pause and on leaving only.
+      ACADEMY_VIDEO_POSITION_SAVE_SECONDS: ${ACADEMY_VIDEO_POSITION_SAVE_SECONDS:-}
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4016']
     healthcheck: *healthcheck

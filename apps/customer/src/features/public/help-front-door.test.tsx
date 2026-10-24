@@ -12,11 +12,14 @@ const ID = '11111111-1111-4111-8111-111111111111';
 const world = vi.hoisted(() => ({
   signedIn: false,
   awaiting: { ok: true, data: { count: 0, longestWaiting: null } } as unknown,
-  query: undefined as unknown as (module: string, procedure: string) => Promise<unknown>,
+  query: undefined as unknown as (module: string, procedure: string, input?: unknown) => Promise<unknown>,
 }));
 
 vi.mock('../session/session', () => {
-  const api = { query: (module: string, procedure: string) => world.query(module, procedure), mutate: async () => ({ ok: false }) };
+  const api = {
+    query: (module: string, procedure: string, input?: unknown) => world.query(module, procedure, input),
+    mutate: async () => ({ ok: false }),
+  };
   return {
     useApi: () => api,
     useSession: () => ({
@@ -45,7 +48,12 @@ beforeEach(() => {
   history.replaceState(null, '', '/help');
   world.signedIn = false;
   world.awaiting = { ok: true, data: { count: 0, longestWaiting: null } };
-  world.query = async (_module, procedure) => (procedure === 'awaitingMine' ? world.awaiting : { ok: true, data: [] });
+  world.query = async (_module, procedure) =>
+    procedure === 'awaitingMine'
+      ? world.awaiting
+      : procedure === 'kbLibrary'
+        ? { ok: true, data: { categories: [] } }
+        : { ok: true, data: [] };
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
@@ -135,9 +143,105 @@ describe('the help centre front door', () => {
     const asked: string[] = [];
     world.query = async (_m, procedure) => {
       asked.push(procedure);
-      return { ok: true, data: [] };
+      return procedure === 'kbLibrary' ? { ok: true, data: { categories: [] } } : { ok: true, data: [] };
     };
     await mount();
     expect(asked).not.toContain('awaitingMine');
+  });
+
+  it('a search shows the service ranking first, then the matches on this page, and carries the words to the desk', async () => {
+    const answer = (id: string, title: string, body: string) => ({
+      id,
+      titleKey: 'support.kb.stored.title',
+      bodyKey: 'support.kb.stored.body',
+      title,
+      body,
+      language: 'en',
+      published: true,
+      version: 1,
+    });
+    const mentions = answer('passkey-mention', 'Signing in on a new phone', 'You can also add a passkey.');
+    const labelled = answer('passkey-labelled', 'Use a security key', 'Hardware keys work as a second step.');
+    const local = answer('passkey-local', 'Passkey basics', 'What it is.');
+    const asked: unknown[] = [];
+    world.query = async (_module, procedure, input) => {
+      if (procedure === 'kbLibrary') return { ok: true, data: { categories: [] } };
+      if (procedure !== 'searchKb') return { ok: true, data: [] };
+      asked.push(input);
+      const q = (input as { q: string }).q;
+      return { ok: true, data: q ? [labelled, mentions] : [mentions, local, labelled] };
+    };
+    await mount();
+    const search = host.querySelector<HTMLInputElement>('input[name="help-search"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(search, 'passkey');
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => host.querySelector<HTMLFormElement>('form.help__search')!.requestSubmit());
+    await act(async () => undefined);
+    expect(asked).toContainEqual({ q: 'passkey', limit: 100 });
+    expect([...host.querySelectorAll('.help__row h2')].map((h) => h.textContent)).toEqual([
+      'Use a security key',
+      'Signing in on a new phone',
+      'Passkey basics',
+    ]);
+    const button = [...host.querySelectorAll('button')].find((b) => b.textContent === 'Send a request')!;
+    await act(async () => button.click());
+    expect(host.querySelector('[data-testid="request-sign-in"] a')!.getAttribute('href')).toBe('/login?redirect=%2Fsupport%3Fq%3Dpasskey');
+  });
+});
+
+describe('an answer in the languages the owner offers', () => {
+  const stored = {
+    id: 'withdraw-time',
+    titleKey: 'support.kb.stored.title',
+    bodyKey: 'support.kb.stored.body',
+    title: 'How long a withdrawal takes',
+    body: 'Paste <script>alert(1)</script> nowhere.',
+    language: 'en',
+    published: true,
+    version: 1,
+  };
+  const settings = (languages: string[] | null) => ({
+    name: null,
+    address: null,
+    defaultLanguage: null,
+    languages,
+    setupMode: null,
+    published: null,
+    revision: 1,
+    updatedAt: null,
+  });
+  const open = async (languages: string[] | null) => {
+    world.query = async (_module, procedure) =>
+      procedure === 'getKb'
+        ? { ok: true, data: stored }
+        : procedure === 'helpCentre'
+          ? { ok: true, data: settings(languages) }
+          : { ok: true, data: [] };
+    history.replaceState(null, '', '/helpdetail?id=withdraw-time');
+    await mount();
+  };
+
+  it('offers a picker; another language shows the answer with a label naming the language it is shown in', async () => {
+    await open(['en', 'es']);
+    const picker = host.querySelector<HTMLSelectElement>('select[name="help-language"]')!;
+    expect([...picker.options].map((o) => o.value)).toEqual(['en', 'es']);
+    expect(host.querySelector('[data-testid="help-language-fallback"]')).toBeNull();
+    await act(async () => {
+      picker.value = 'es';
+      picker.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    const label = host.querySelector('[data-testid="help-language-fallback"]')!;
+    expect(label.textContent).toContain('Spanish');
+    expect(label.textContent).toContain('English');
+    expect(host.querySelector('.help__body')!.textContent).toContain('<script>alert(1)</script>');
+    expect(host.querySelector('.help__body script')).toBeNull();
+  });
+
+  it('draws no picker while the owner offers no language', async () => {
+    await open(null);
+    expect(host.querySelector('select[name="help-language"]')).toBeNull();
+    expect(host.querySelector('.help__body')!.textContent).toContain('Paste');
   });
 });

@@ -28,6 +28,10 @@ export const kbSchema = z.object({
   published: z.boolean().optional(),
   category: z.string().optional(),
   tags: z.array(z.string()).optional(),
+  /** Set together on an answer typed in the desk: its own text in its own language. */
+  title: z.string().optional(),
+  body: z.string().optional(),
+  language: z.string().optional(),
 });
 export type Ticket = z.infer<typeof ticketSchema>;
 export type Comment = z.infer<typeof commentSchema>;

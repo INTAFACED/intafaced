@@ -189,6 +189,18 @@ const schema = serviceEnvSchema
       NOTIFY_VERIFY_CODE_PEPPER: blankAsAbsent(z.string().min(1).optional()),
 
       /**
+       * Status subscription mail (SP-status-04). `local-outbox` writes a LOCAL-TEST line per message to
+       * NOTIFY_STATUS_MAIL_OUTBOX and is allowed only when APP_ENV is exactly dev or test. Unset: the email gateway
+       * channel sends, with NOTIFY_PUBLIC_ORIGIN for the links; without both, status mail waits with `vendor.email`.
+       */
+      NOTIFY_STATUS_MAIL_TRANSPORT: blankAsAbsent(z.string().optional()),
+      NOTIFY_STATUS_MAIL_OUTBOX: blankAsAbsent(z.string().optional()),
+      /** Signs the confirm, manage and unsubscribe links in status mail. Unset: subscribing refuses with status.challenge_unset. */
+      NOTIFY_STATUS_LINK_SECRET: blankAsAbsent(z.string().min(32).optional()),
+      /** The public site origin the links in status mail open, e.g. https://example.test. No default. */
+      NOTIFY_PUBLIC_ORIGIN: blankAsAbsent(z.string().url().optional()),
+
+      /**
        * Public trade base URL for v22.alerts marks (`GET /api/v1/markets?limit=` +
        * `GET /api/v1/ticker/:symbol`). Same surface svc-bank already uses for
        * loan marks — no invent, no shared table. Need NOTIFY_MARKETS_LIST_LIMIT.

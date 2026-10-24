@@ -180,7 +180,7 @@ export function PositionsTable({
           planeOff={planeOff}
           stale={stale}
           onChanged={onChanged}
-          only={['add', 'leverage', 'close']}
+          only={['add', 'leverage', 'protect', 'close']}
         />
       ),
     },

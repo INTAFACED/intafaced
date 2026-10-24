@@ -71,6 +71,11 @@ export interface ReadSpec {
    * moment it reads (not calendar days), adds both to `input`, and the read's title says so. See `inputFor`.
    */
   readonly windowDays?: number;
+  /**
+   * With `windowDays`: the service takes whole UTC days (`YYYY-MM-DD`), not instants. The desk then sends the N calendar days
+   * ending today (UTC), today included.
+   */
+  readonly windowInUtcDays?: true;
   /** Send `{}` as the input when `input` is empty (the procedure's input is an object and refuses none). */
   readonly sendEmptyInput?: boolean;
   /** `record` is one object shown as facts; `list` is rows with a detail each. */
@@ -181,6 +186,14 @@ export interface DeskSpec {
   readonly sections: readonly DeskSection[];
   /** The common eight-section set this desk shows above its own sections (`common-sections.ts`). */
   readonly commonSet?: CommonDeskId;
+  /** Section pages of this desk: when set, the section navigation links to each page instead of to anchors on this one. */
+  readonly pages?: readonly DeskPage[];
+}
+
+export interface DeskPage {
+  readonly id: string;
+  readonly title: string;
+  readonly href: string;
 }
 
 export type CellValue = string | number | boolean | null | readonly string[];

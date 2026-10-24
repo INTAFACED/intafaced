@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { edgeTrustFromEnv } from '@intafaced/config';
-import { retainRawBody, s2sFromEnv } from '@intafaced/contracts';
+import { retainRawBody, s2sFromEnv, type StatusPage } from '@intafaced/contracts';
 import { createGuestIngressContext } from './guests/context.js';
 import { GuestNotificationService } from './guests/service.js';
 import { JetStreamEventBus } from '@intafaced/events';
@@ -23,6 +23,19 @@ import { DIGEST_RELEASE_INTERVAL_MS } from './preferences/digest.js';
 import { releaseDueHolds } from './preferences/release.js';
 import { NoticeBoard } from './notices/board.js';
 import { PostgresNoticeStore } from './notices/board.pg.js';
+import { SqlStatusPageBook } from './status-page/book.js';
+import { statusBadge, statusBadgeCacheControl, statusBadgeSvg } from './status-page/badge.js';
+import { readStatusPage } from './status-page/router.js';
+import { registerPublicReadApi } from './public-api.js';
+import { openStatusMailer } from './status-page/mailer.js';
+import { StatusSubscriptions } from './status-page/subscriptions.js';
+import { SqlSubscriptionStore } from './status-page/subscriptions.pg.js';
+import { IncidentTemplates } from './status-page/templates.js';
+import { SqlTemplateStore } from './status-page/templates.pg.js';
+import { Postmortems } from './status-page/postmortems.js';
+import { MAINTENANCE_SWEEP_INTERVAL_MS, MaintenanceLifecycle } from './notices/maintenance.js';
+import { SqlMaintenanceStore } from './notices/maintenance.pg.js';
+import { SqlPostmortemStore } from './status-page/postmortems.pg.js';
 import { noticeApprovalConsumerFromProcessEnv } from './notices/approval.js';
 import { ChannelSettings } from './ops-config/channel-settings.js';
 import { PostgresChannelSettingsStore } from './ops-config/channel-settings.pg.js';
@@ -181,7 +194,38 @@ const categories = new CategoryPrefs(new PostgresCategoryPrefStore(sql), command
 // Per-service keys (S2S v3): with no S2S_AUTH_MODE the producer door and the approval call stay on the shared secrets alone.
 const s2s = s2sFromEnv(env, 'svc-notify');
 const s2sKey = s2s.signer && s2s.s2sMode ? { signer: s2s.signer, mode: s2s.s2sMode } : undefined;
-const notices = new NoticeBoard(new PostgresNoticeStore(sql), noticeApprovalConsumerFromProcessEnv(s2sKey), commandLog);
+const statusBook = new SqlStatusPageBook(sql);
+const statusSubscriptions = new StatusSubscriptions({
+  store: new SqlSubscriptionStore(sql),
+  page: statusBook,
+  mailer: openStatusMailer({
+    appEnv: env.APP_ENV,
+    transport: env.NOTIFY_STATUS_MAIL_TRANSPORT,
+    outboxPath: env.NOTIFY_STATUS_MAIL_OUTBOX,
+    email: channels.get('email'),
+    publicOrigin: env.NOTIFY_PUBLIC_ORIGIN,
+  }),
+  secret: env.NOTIFY_STATUS_LINK_SECRET ?? null,
+  linkTtlMinutes: env.NOTIFY_VERIFY_TTL_MINUTES ?? null,
+  webhookTimeoutMs: env.NOTIFY_GATEWAY_TIMEOUT_MS,
+});
+const maintenanceStore = new SqlMaintenanceStore(sql);
+const notices = new NoticeBoard(
+  new PostgresNoticeStore(sql),
+  noticeApprovalConsumerFromProcessEnv(s2sKey),
+  commandLog,
+  undefined,
+  async () => (await statusBook.definition()).components.map((component) => component.id),
+  (row) => statusSubscriptions.fanOut(row),
+  (ids) => maintenanceStore.closedAmong(ids),
+  async () => (await statusBook.definition()).noticeCategories,
+);
+const maintenance = new MaintenanceLifecycle({
+  store: maintenanceStore,
+  notice: (id) => notices.maintenanceNotice(id),
+  upcoming: (at, limit) => notices.upcomingMaintenance(at, limit),
+  remind: (notice, offset) => statusSubscriptions.remind(notice, offset),
+});
 const opsApprovals = noticeApprovalConsumerFromProcessEnv(s2sKey);
 const channelSettings = new ChannelSettings(new PostgresChannelSettingsStore(sql), opsApprovals, commandLog, () => channels.status());
 const templates = new MessageTemplates(new PostgresTemplateStore(sql), opsApprovals, commandLog, {
@@ -305,11 +349,31 @@ const loadVenueIncident = async () =>
     allClear: env.NOTIFY_INCIDENT_ALL_CLEAR,
   });
 
-export const appRouter = createNotifyRouter(notify, alerts, loadVenueIncident, guests, {
-  pageSize: env.NOTIFY_INBOX_PAGE_SIZE ?? null,
-  unreadCap: env.NOTIFY_INBOX_UNREAD_CAP ?? null,
-  retentionDays: env.NOTIFY_INBOX_RETENTION_DAYS ?? null,
-});
+const incidentTemplates = new IncidentTemplates(new SqlTemplateStore(sql), async () =>
+  (await statusBook.definition()).components.map((component) => component.id),
+);
+const postmortems = new Postmortems(new SqlPostmortemStore(sql), (id) => notices.incidentState(id), opsApprovals);
+const statusPageDeps = {
+  book: statusBook,
+  notices,
+  subscriptions: statusSubscriptions,
+  templates: incidentTemplates,
+  postmortems,
+  maintenance,
+  publicOrigin: env.NOTIFY_PUBLIC_ORIGIN ?? null,
+};
+export const appRouter = createNotifyRouter(
+  notify,
+  alerts,
+  loadVenueIncident,
+  guests,
+  {
+    pageSize: env.NOTIFY_INBOX_PAGE_SIZE ?? null,
+    unreadCap: env.NOTIFY_INBOX_UNREAD_CAP ?? null,
+    retentionDays: env.NOTIFY_INBOX_RETENTION_DAYS ?? null,
+  },
+  statusPageDeps,
+);
 export type AppRouter = typeof appRouter;
 
 const edgeContext = createGuestIngressContext({
@@ -323,6 +387,43 @@ const app = Fastify({ logger: { level: env.LOG_LEVEL }, maxParamLength: 5_000 })
 retainRawBody(app);
 
 const { subscriptions, pending } = await subscribeNotificationEvents(bus, notify);
+
+// The status badge as an image another page can show (SP-status-05). Public through Edge; no script, no personal data.
+// Hot-linked pages can ask often, so one page read serves every badge for a few seconds.
+let badgePage: { at: number; page: Promise<StatusPage> } | null = null;
+const badgeRead = () => {
+  const at = Date.now();
+  if (!badgePage || at - badgePage.at > 5_000) {
+    const page = readStatusPage(statusPageDeps, new Date(at));
+    badgePage = { at, page };
+    page.catch(() => {
+      if (badgePage?.page === page) badgePage = null;
+    });
+  }
+  return badgePage.page;
+};
+app.get<{ Querystring: { component?: unknown } }>('/status/badge.svg', async (request, reply) => {
+  const raw = request.query.component;
+  reply.header('cache-control', 'no-store');
+  if (raw !== undefined && typeof raw !== 'string') return reply.code(404).send({ code: 'status.component_unknown' });
+  let page: StatusPage;
+  try {
+    page = await badgeRead();
+  } catch {
+    return reply.code(503).send({ code: 'notify.status_page_unavailable' });
+  }
+  const badge = statusBadge(page, raw === undefined || raw === '' ? null : raw);
+  if (!badge) return reply.code(404).send({ code: 'status.component_unknown' });
+  return reply
+    .header('content-type', 'image/svg+xml; charset=utf-8')
+    .header('cache-control', statusBadgeCacheControl(badge))
+    .header('content-security-policy', "default-src 'none'; style-src 'unsafe-inline'")
+    .send(statusBadgeSvg(badge));
+});
+
+// The documented read API for status and notices (SP-api-01): what the site reads, as plain GETs under /v1.
+// Polled by unsigned callers, so it shares the badge's few-second read.
+registerPublicReadApi(app, { notices, statusPage: badgeRead });
 
 app.get('/health', async () => ({
   ok: true,
@@ -452,6 +553,18 @@ const alertSweep = setInterval(() => {
   void runAlertSweepPass(alerts, alertSweepRecorder);
 }, ALERT_SWEEP_INTERVAL_MS);
 alertSweep.unref();
+
+/**
+ * THE MAINTENANCE REMINDER SWEEP (SP-status-03): makes each published window's reminder rows and sends the due ones.
+ * Fail-safe like the sweeps above: a tick that cannot run logs and waits for the next; a reminder it took and did not
+ * settle is taken again when its lease runs out, and its delivery rows keep anyone from getting it twice.
+ */
+const maintenanceSweep = setInterval(() => {
+  void maintenance.sweep().catch((err) => {
+    app.log.error({ err }, 'svc-notify maintenance reminder sweep failed — due reminders wait for the next tick');
+  });
+}, MAINTENANCE_SWEEP_INTERVAL_MS);
+maintenanceSweep.unref();
 
 await app.listen({ host: env.HTTP_HOST, port: env.HTTP_PORT });
 
