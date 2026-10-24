@@ -8,7 +8,7 @@ import type { PortalApi } from '../../api';
 import type { MerchantRecord } from '../../schemas';
 import { failed, noop, plain, ready } from '../account/testing';
 import { applicationCopy } from './application-copy';
-import type { Application, Checklist, EntityType } from './application-api';
+import type { Answers, Application, Checklist, EntityType } from './application-api';
 import {
   ApplicationView,
   fileProblem,
@@ -60,7 +60,7 @@ const application = (
       state: section === 'company_details' ? 'complete' : 'empty',
       version: section === 'company_details' ? 1 : 0,
       required: required.includes(section),
-      data: section === 'company_details' ? { legal_name: 'TEST Shop GmbH', registered_address: '1 Test Street' } : {},
+      data: (section === 'company_details' ? { legal_name: 'TEST Shop GmbH', registered_address: '1 Test Street' } : {}) as Answers,
       updatedAt: null,
     })),
     missing: ['people', 'documents', 'questionnaires'],
@@ -199,6 +199,9 @@ describe('documents', () => {
   it('refuses a file over the limit or of a wrong kind before it is sent, naming the limit', () => {
     expect(fileProblem({ size: 6 * 1024 * 1024, type: 'application/pdf' }, RULES, t)).toBe(
       'This file is 6.0 MB. The limit is 5.0 MB. Choose a smaller file.',
+    );
+    expect(fileProblem({ size: RULES.maxBytes + 1, type: 'application/pdf' }, RULES, t)).toBe(
+      'This file is 5242881 B. The limit is 5242880 B. Choose a smaller file.',
     );
     expect(fileProblem({ size: 10, type: 'text/html' }, RULES, t)).toBe('This kind of file isn’t accepted. Accepted: PDF, PNG.');
     expect(fileProblem({ size: 0, type: 'application/pdf' }, RULES, t)).toBe('This file is empty. Choose another.');

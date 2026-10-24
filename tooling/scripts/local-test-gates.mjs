@@ -17,6 +17,7 @@
  *   node tooling/scripts/local-test-gates.mjs chart-class <SYMBOL> <dataClass>   one market's data class (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs risk <SYMBOL> collar=0.1|unset throttle=20|unset   change one market's limits
  *   node tooling/scripts/local-test-gates.mjs p2p        register the TEST P2P payment method (two-person approval)
+ *   node tooling/scripts/local-test-gates.mjs kyb        publish the TEST business verification requirements and upload rules
  *   node tooling/scripts/local-test-gates.mjs age <handle> <seconds>   move one TEST account's sign-up time back
  *   node tooling/scripts/local-test-gates.mjs status     read-only: what is open, who is verified
  *
@@ -35,6 +36,9 @@
  *   9. time passing for one TEST journey account (`age`): its sign-up time, referral relationship, latest fee event and
  *      ended relationships move back, so a journey can show a window measured from sign-up closed (J-campaigns-05 #5, the referral attach
  *      window) or a relationship past the inactivity period (#7) without waiting for it.
+ *  10. the owner who publishes what each type of business sends to verify and the upload rules for its documents
+ *      (svc-pay ships both tables empty, so no business application can start while they are). There is no door for
+ *      this owner data, so the repo's own seed tool writes the rows (`seed-pay-kyb-test-requirements.mjs`).
  * Every record it writes is labelled "LOCAL TEST — not a real approval" and carries one of the markers
  * below, so a production check can recognise and refuse them (see MARKERS).
  *
@@ -1167,6 +1171,27 @@ export async function seedSpotTestListings(ctx) {
   }
 }
 
+/** Publish the TEST business verification requirements (`TEST_KYB_ENTITY_TYPES`) and upload rules once, as svc-pay's own role. */
+export async function seedPayKybRequirements(ctx) {
+  const { createRequire } = await import('node:module');
+  const postgres = createRequire(path.join(REPO, 'services', 'svc-pay', 'package.json'))('postgres');
+  const { insertKybTestRequirements, localTestDatabaseUrl } = await import('./seed-pay-kyb-test-requirements.mjs');
+  const url = `postgres://svc_pay:${encodeURIComponent(ctx.secrets.pgService)}@${HOST}:${ctx.marker.ports.postgres ?? 15460}/${DB_NAME}`;
+  const databaseUrl = localTestDatabaseUrl(url);
+  assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
+  const sql = postgres(databaseUrl, { max: 1, onnotice: () => {} });
+  try {
+    // A row already there (an earlier run, or anything else) is kept, never overwritten.
+    const out = await insertKybTestRequirements(sql);
+    for (const t of out.types)
+      ctx.log(`TEST business type ${t.entityType} ${t.changed ? 'published' : 'already published'} (${MARKERS.label})`);
+    ctx.log(`TEST document upload rules ${out.uploadRules.changed ? 'published' : 'already published'} (${MARKERS.label})`);
+    return out;
+  } finally {
+    await sql.end();
+  }
+}
+
 /** Publish the TEST agreements and quiz once each, through svc-trade's own doors with a second operator's approval. */
 export async function publishFuturesTerms(ctx) {
   const pair = await approverSessions(ctx);
@@ -1543,6 +1568,7 @@ async function main() {
       // The TEST perpetual and TEST spot markets are listed first, so the lifecycle, book and limit steps below include it.
       await seedFuturesListing(ctx);
       await seedSpotTestListings(ctx);
+      await seedPayKybRequirements(ctx);
       await publishFuturesTerms(ctx);
       for (const r of await publishLifecycles(ctx)) say(`  lifecycle ${r.symbol.padEnd(10)} ${r.status}`);
       for (const r of await openBooks(ctx)) say(`  open      ${r.symbol.padEnd(10)} accepted`);
@@ -1559,6 +1585,9 @@ async function main() {
       // before it (every journeys shard stopped here in run 231).
       for (const r of await publishP2pMethods(ctx))
         say(`  p2p       ${r.methodId} ${r.country} ${r.changed ? 'registered' : 'already registered'}`);
+    } else if (cmd === 'kyb') {
+      const out = await seedPayKybRequirements(ctx);
+      for (const t of out.types) say(`  kyb       ${t.entityType} ${t.changed ? 'published' : 'already published'}`);
     } else if (cmd === 'p2p') {
       for (const r of await publishP2pMethods(ctx))
         say(`  p2p       ${r.methodId} ${r.country} ${r.changed ? 'registered' : 'already registered'}`);

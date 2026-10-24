@@ -63,8 +63,11 @@ export function fileProblem(file: { size: number; type: string }, rules: NonNull
   if (file.size < 1) return t('emptyFile');
   if (!rules.contentTypes.some((type) => type.toLowerCase() === file.type.toLowerCase()))
     return t('wrongType', { types: kindsOf(rules.contentTypes) });
-  if (file.size > rules.maxBytes)
-    return t('tooLarge', { size: formatBytes(String(file.size)), limit: formatBytes(String(rules.maxBytes)) });
+  if (file.size > rules.maxBytes) {
+    const [size, limit] = [formatBytes(String(file.size)), formatBytes(String(rules.maxBytes))];
+    // Just over the limit both round to the same figure, so say it in bytes.
+    return size === limit ? t('tooLarge', { size: `${file.size} B`, limit: `${rules.maxBytes} B` }) : t('tooLarge', { size, limit });
+  }
   return null;
 }
 const kindsOf = (types: readonly string[]) => types.map((type) => (type.split('/')[1] ?? type).toUpperCase()).join(', ');
