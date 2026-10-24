@@ -67,6 +67,15 @@ Each door on the service port names the services that may call it (`src/door-cal
 
 The door names one caller, svc-ops (`src/door-callers.ts`), which uses it for the venue unit-economics report. svc-ops is named on no other door, and `fee-revenue-door.test.ts` proves every other door refuses it.
 
+### `holdingsHistory` — what one customer holds now, and how it moved
+
+`POST /trpc/holdingsHistory` takes `{ ownerType: 'user' | 'subaccount', ownerId, from, bucketSeconds }`, with `bucketSeconds` one of 60, 300, 3600, 14400 or 86400 and `from` an ISO time on that bucket's UTC grid, not in the future. It answers, from one repeatable-read snapshot:
+
+- `holdings`: every account of the owner (available and every lock kind) summed per asset, as of `asOf`. An asset held at zero is absent.
+- `movements`: each transaction posted at or after `from`, netted over the owner's accounts per asset, then summed per asset, ledger reason and bucket, oldest first: `inflow` from the transactions that left the owner with more, `outflow` from those that left it with less, so money in and money out under one reason in one bucket stay apart. `fee` is the trading fee taken from the owner's receiving fill line (the same figure `historyPage` names per line, held to it by the Postgres test). A transaction between the owner's own accounts (an order hold, a withdrawal put on hold or reversed) nets to zero and is left out.
+
+So holdings at any bucket boundary are `holdings` less `inflow - outflow` of every movement from that bucket on: svc-bank replays value over time and names the flows of the change-in-value bridge from it, without a second book (`holdings-history-postgres.test.ts` proves the replay lands on what was held before the first movement). More than 10,000 rows refuses `ledger.holdings_history_too_large`; a start off its grid or in the future refuses `ledger.holdings_history_window_invalid`; both are 400. It is a READ with no path into `post()`. The door names one caller, svc-bank (`src/door-callers.ts`), which decides whose holdings a customer may see before it asks.
+
 ### The asset and network registry (W-balances-05)
 
 The one list of supported assets, their networks, their precision and what each may be used for, in the wire shape of `packages/contracts/src/asset-registry.ts`. The rows live on `assets` (0025), the table every balance already has a foreign key to.
