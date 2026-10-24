@@ -12,6 +12,8 @@ import { AuthError as GuardError, requireMfa } from '@intafaced/auth';
 import { requestIpAls } from './auth/auth-service-ip.js';
 import { ACCOUNT_TYPES, SignUpError } from './auth/sign-up.js';
 import { LoginCodeError } from './auth/login-code.js';
+import { TrustedDeviceError } from './auth/trusted-devices.js';
+import { trustedDeviceTrpcError } from './trusted-devices-router.js';
 import type { RefreshCookieBag } from './auth/refresh-cookie.js';
 
 declare module '@intafaced/contracts' {
@@ -111,6 +113,9 @@ import { createSubAccountEditProcedures } from './sub-accounts/sub-account-edit-
 function toTrpcError(err: unknown): TRPCError {
   // Already shaped for the wire — do not re-wrap.
   if (err instanceof TRPCError) return err;
+
+  // New-device check (I-signin-sessions-07): every sign-in door can answer it once all factors passed.
+  if (err instanceof TrustedDeviceError) return trustedDeviceTrpcError(err);
 
   // A guard rejection (`requireMfa`) is not a server fault. It arrives as the
   // shared package's AuthError, which is a different class from this service's.
@@ -486,6 +491,8 @@ const sessionOutput = z.object({
   refreshToken: z.string().optional(),
   expiresAt: z.string(),
   userId: z.string().guid(),
+  /** A device key just trusted, for a native or API client only (a browser gets the `ifc_dk` cookie instead). */
+  deviceKey: z.string().optional(),
 });
 
 /** The tiers a user can ask for. `none` is the absence of a record, not a request. */
@@ -759,18 +766,24 @@ export function createIdentityRouter(
 
   const sessionWire = (
     ctx: { refreshCookie?: RefreshCookieBag | null },
-    session: { accessToken: string; refreshToken: string; expiresAt: Date; userId: string },
+    session: { accessToken: string; refreshToken: string; expiresAt: Date; userId: string; deviceKey?: string },
   ) => {
     const bag = ctx.refreshCookie;
     bag?.issue(session.refreshToken, auth.refreshLifetimeSeconds());
+    if (session.deviceKey) bag?.issueDevice(session.deviceKey);
     const wire = {
       accessToken: session.accessToken,
       expiresAt: session.expiresAt.toISOString(),
       userId: session.userId,
     };
     if (bag?.browser) return wire;
-    return { ...wire, refreshToken: session.refreshToken };
+    // A native or API client keeps its device key itself and presents it as `deviceKey` on sign-in.
+    return { ...wire, refreshToken: session.refreshToken, ...(session.deviceKey ? { deviceKey: session.deviceKey } : {}) };
   };
+
+  /** The trusted-device key this sign-in presents: the body's (native and API clients), else the browser's cookie. */
+  const presentedDeviceKey = (ctx: { refreshCookie?: RefreshCookieBag | null }, body: string | undefined): string | null =>
+    body ?? ctx.refreshCookie?.presentedDevice ?? null;
 
   const presentedRefreshToken = (ctx: { refreshCookie?: RefreshCookieBag | null }, body: string | undefined): string => {
     const token = body ?? ctx.refreshCookie?.presented ?? '';
@@ -1238,11 +1251,18 @@ export function createIdentityRouter(
         }),
 
       login: publicProcedure
-        .input(z.object({ identifier: z.string().min(1), password: z.string().min(1), totpCode: z.string().optional() }))
+        .input(
+          z.object({
+            identifier: z.string().min(1),
+            password: z.string().min(1),
+            totpCode: z.string().optional(),
+            deviceKey: z.string().min(16).max(128).optional(),
+          }),
+        )
         .output(sessionOutput)
         .mutation(async ({ input, ctx }) => {
           try {
-            const session = await auth.login(input);
+            const session = await auth.login({ ...input, deviceKey: presentedDeviceKey(ctx, input.deviceKey) });
             return sessionWire(ctx, session);
           } catch (err) {
             throw toTrpcError(err);
@@ -1287,12 +1307,16 @@ export function createIdentityRouter(
             flowId: z.string().guid(),
             code: z.string().trim().min(1).max(12),
             totpCode: z.string().trim().min(1).max(64).optional(),
+            deviceKey: z.string().min(16).max(128).optional(),
           }),
         )
         .output(sessionOutput)
         .mutation(async ({ input, ctx }) => {
           try {
-            return sessionWire(ctx, await auth.loginWithCode({ ...input, ip: requestIpAls.getStore() }));
+            return sessionWire(
+              ctx,
+              await auth.loginWithCode({ ...input, ip: requestIpAls.getStore(), deviceKey: presentedDeviceKey(ctx, input.deviceKey) }),
+            );
           } catch (err) {
             throw loginCodeTrpcError(err);
           }
@@ -1338,10 +1362,52 @@ export function createIdentityRouter(
             if (!userId) throw new SocialError('That provider account is not linked to an account', 'identity.social_not_linked');
             return sessionWire(
               ctx,
-              await auth.signInVerifiedIdentity(userId, input.totpCode === undefined ? {} : { totpCode: input.totpCode }),
+              await auth.signInVerifiedIdentity(userId, {
+                ...(input.totpCode === undefined ? {} : { totpCode: input.totpCode }),
+                deviceKey: presentedDeviceKey(ctx, undefined),
+              }),
             );
           } catch (err) {
             throw toSocialTrpcError(err);
+          }
+        }),
+
+      /**
+       * New-device sign-in (I-signin-sessions-07), from the waiting browser: the code mailed to the account approves this
+       * device and signs in at once. The flow's secret, which only that browser holds, proves it is the one asking. A
+       * wrong code counts toward the owner's lockout.
+       */
+      deviceApprove: publicProcedure
+        .input(
+          z
+            .object({
+              flowId: z.string().guid(),
+              secret: z.string().min(16).max(128),
+              code: z.string().trim().min(1).max(12),
+            })
+            .strict(),
+        )
+        .output(sessionOutput)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            return sessionWire(ctx, await auth.deviceApprove({ ...input, ip: requestIpAls.getStore() }));
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /**
+       * New-device sign-in, after a trusted session approved it: the waiting browser completes once with its secret.
+       * Not approved yet answers `auth.device_authorisation_pending`; a second completion `auth.device_authorisation_used`.
+       */
+      deviceComplete: publicProcedure
+        .input(z.object({ flowId: z.string().guid(), secret: z.string().min(16).max(128) }).strict())
+        .output(sessionOutput)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            return sessionWire(ctx, await auth.deviceComplete({ ...input, ip: requestIpAls.getStore() }));
+          } catch (err) {
+            throw toTrpcError(err);
           }
         }),
 

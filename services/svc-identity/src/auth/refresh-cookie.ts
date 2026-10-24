@@ -38,6 +38,7 @@
  */
 import { Readable } from 'node:stream';
 import type { FastifyInstance } from 'fastify';
+import { DEVICE_COOKIE_MAX_AGE_SECONDS, DEVICE_COOKIE_NAME, DEVICE_COOKIE_PATH } from './trusted-devices.js';
 
 export const REFRESH_COOKIE_NAME = 'ifc_rt';
 /**
@@ -97,6 +98,10 @@ export interface RefreshCookieBag {
   setCookie: string[] | null;
   issue(token: string, maxAgeSeconds: number): void;
   clear(): void;
+  /** The trusted-device key this browser presented (`ifc_dk`, I-signin-sessions-07), or null. */
+  readonly presentedDevice: string | null;
+  /** Hand this browser a newly trusted device key. It rides alongside the refresh cookie lines. */
+  issueDevice(key: string): void;
 }
 
 export function refreshCookieSecure(host: string | undefined): boolean {
@@ -131,17 +136,28 @@ export function cookiePathMatches(cookiePath: string, requestPath: string): bool
   return req.startsWith(cookiePath) && req[cookiePath.length] === '/';
 }
 
-export function readRefreshCookie(header: string | undefined): string | null {
+export function readRefreshCookie(header: string | undefined, name: string = REFRESH_COOKIE_NAME): string | null {
   if (!header) return null;
   for (const part of header.split(';')) {
     const trimmed = part.trim();
     const eq = trimmed.indexOf('=');
     if (eq <= 0) continue;
-    if (trimmed.slice(0, eq) !== REFRESH_COOKIE_NAME) continue;
+    if (trimmed.slice(0, eq) !== name) continue;
     const value = trimmed.slice(eq + 1).trim();
     return value.length > 0 ? value : null;
   }
   return null;
+}
+
+/**
+ * The trusted-device cookie: HttpOnly, SameSite=Strict, Secure except localhost, on the browser's own identity path
+ * (the edge forwards the Cookie header on `/api/identity/trpc/auth.*`, and passes Set-Cookie through unchanged).
+ */
+export function serializeDeviceCookie(key: string, secure: boolean): string {
+  const parts = [`${DEVICE_COOKIE_NAME}=${key}`, 'HttpOnly'];
+  if (secure) parts.push('Secure');
+  parts.push('SameSite=Strict', `Path=${DEVICE_COOKIE_PATH}`, `Max-Age=${DEVICE_COOKIE_MAX_AGE_SECONDS}`);
+  return parts.join('; ');
 }
 
 export function rewriteRefreshCookiePath(line: string): string {
@@ -172,16 +188,25 @@ export function openRefreshCookieBag(headers: {
   const host = headerOne(headers.host);
   const origin = headerOne(headers.origin);
   const secure = refreshCookieSecure(host);
+  let refreshLines: string[] = [];
+  let deviceLines: string[] = [];
   const bag: RefreshCookieBag = {
     presented: readRefreshCookie(headerOne(headers.cookie)),
+    presentedDevice: readRefreshCookie(headerOne(headers.cookie), DEVICE_COOKIE_NAME),
     browser: origin !== undefined,
     secure,
     setCookie: null,
     issue(token, maxAgeSeconds) {
-      bag.setCookie = refreshCookieLines(token, { maxAgeSeconds, secure });
+      refreshLines = refreshCookieLines(token, { maxAgeSeconds, secure });
+      bag.setCookie = [...refreshLines, ...deviceLines];
     },
     clear() {
-      bag.setCookie = refreshCookieLines('', { maxAgeSeconds: 0, secure });
+      refreshLines = refreshCookieLines('', { maxAgeSeconds: 0, secure });
+      bag.setCookie = [...refreshLines, ...deviceLines];
+    },
+    issueDevice(key) {
+      deviceLines = [serializeDeviceCookie(key, secure)];
+      bag.setCookie = [...refreshLines, ...deviceLines];
     },
   };
   return bag;

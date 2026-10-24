@@ -71,7 +71,8 @@ export type MailPurpose =
   | 'signup-code'
   | 'signup-existing'
   | 'login-code'
-  | 'login-no-account';
+  | 'login-no-account'
+  | 'new-device-code';
 
 export interface PasswordResetDeps {
   readonly sql: Sql;

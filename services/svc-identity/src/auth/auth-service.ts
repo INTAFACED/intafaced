@@ -51,6 +51,20 @@ import {
   type LoginCodePolicy,
 } from './login-code.js';
 import {
+  approveFromSession,
+  approveWithCode,
+  completeAuthorisation,
+  deviceLabel,
+  gateDevice,
+  listDevices,
+  pendingAuthorisations,
+  removeDevice,
+  trustDevice,
+  type NewDevicePolicy,
+  type TrustedDeviceDeps,
+  type TrustedDeviceRow,
+} from './trusted-devices.js';
+import {
   completePasswordReset,
   publishedPasswordResetTtlSeconds,
   relayMailOutbox,
@@ -415,6 +429,8 @@ export interface SessionTokens {
   sessionId: string;
   userId: string;
   mfaRequired: boolean;
+  /** A device key just trusted for this browser (`ifc_dk`): set on sign-up and on a completed new-device approval. */
+  deviceKey?: string;
 }
 
 const DEFAULT_WEBAUTHN: WebAuthnConfig = {
@@ -711,6 +727,64 @@ export class AuthService {
 
   private loginCodePolicy: LoginCodePolicy = {};
 
+  /** Owner settings for the new-device check (trusted-devices.ts). Unset: the check is off. */
+  useNewDevicePolicy(policy: NewDevicePolicy): void {
+    this.newDevicePolicy = policy;
+  }
+
+  private newDevicePolicy: NewDevicePolicy = { check: false };
+
+  /** Whether the owner turned the new-device check on. */
+  newDeviceCheckOn(): boolean {
+    return this.newDevicePolicy.check;
+  }
+
+  private deviceDeps(): TrustedDeviceDeps {
+    return {
+      sql: this.sql,
+      policy: this.newDevicePolicy,
+      mail: this.passwordResetMail,
+      subjectKey: this.flowSubjectKey,
+      now: this.passwordResetNow,
+      afterCommit: this.mailRelayTrigger,
+    };
+  }
+
+  /** After every factor passed: the live trusted device, or (check on) a new-device authorisation refusal. */
+  private gateDevice(userId: string, mfa: boolean, deviceKey: string | null | undefined): Promise<string | null> {
+    return gateDevice(this.deviceDeps(), { userId, mfa, deviceKey, label: deviceLabel(currentUserAgent()) });
+  }
+
+  /** New device, approved with the mailed code by the waiting browser, which then signs in at once. */
+  async deviceApprove(input: { flowId: string; secret: string; code: string; ip?: string }): Promise<SessionTokens> {
+    await approveWithCode(this.deviceDeps(), input);
+    return this.deviceComplete(input);
+  }
+
+  /** The waiting browser finishes an approved new-device sign-in, once. */
+  async deviceComplete(input: { flowId: string; secret: string; ip?: string }): Promise<SessionTokens> {
+    const done = await completeAuthorisation(this.deviceDeps(), input);
+    const session = await this.issueSession(done.userId, { ip: input.ip, mfa: done.mfa, trustedDeviceId: done.trustedDeviceId });
+    return { ...session, deviceKey: done.deviceKey };
+  }
+
+  /** A session on a trusted device approves a waiting sign-in of the same account (after its step-up). */
+  async deviceApproveFromSession(input: { flowId: string; userId: string; sessionId: string }): Promise<void> {
+    await approveFromSession(this.deviceDeps(), input);
+  }
+
+  async pendingDeviceAuthorisations(userId: string) {
+    return pendingAuthorisations(this.deviceDeps(), userId);
+  }
+
+  async trustedDevices(userId: string, sessionId: string | null): Promise<TrustedDeviceRow[]> {
+    return listDevices(this.deviceDeps(), { userId, sessionId });
+  }
+
+  async removeTrustedDevice(userId: string, deviceId: string): Promise<{ removed: boolean; sessionsEnded: number }> {
+    return removeDevice(this.deviceDeps(), { userId, deviceId });
+  }
+
   private loginCodeDeps(): LoginCodeDeps {
     return {
       ...this.loginCodePolicy,
@@ -739,7 +813,14 @@ export class AuthService {
    * counted and checked as on password sign-in, and the mailed code stays unspent until that passes. The code is then
    * spent with a compare-and-swap, so it opens one session at most.
    */
-  async loginWithCode(input: { flowId: string; code: string; totpCode?: string; device?: string; ip?: string }): Promise<SessionTokens> {
+  async loginWithCode(input: {
+    flowId: string;
+    code: string;
+    totpCode?: string;
+    device?: string;
+    ip?: string;
+    deviceKey?: string | null;
+  }): Promise<SessionTokens> {
     const deps = this.loginCodeDeps();
     const { userId, codeHash } = await checkLoginCode(deps, input);
     const [user] = await this.sql<
@@ -757,7 +838,8 @@ export class AuthService {
       await recordSuccess(this.sql, user.id, 'mfa');
     }
     await consumeLoginCode(deps, { flowId: input.flowId, codeHash });
-    return this.issueSession(user.id, { device: input.device, ip: input.ip, mfa });
+    const trustedDeviceId = await this.gateDevice(user.id, mfa, input.deviceKey);
+    return this.issueSession(user.id, { device: input.device, ip: input.ip, mfa, trustedDeviceId });
   }
 
   private emailConfirmDeps() {
@@ -951,7 +1033,14 @@ export class AuthService {
       xpDelta: 50,
       idempotencyKey: `identity.registered:${userId}`,
     });
-    return this.issueSession(userId, { device: input.device, ip: input.ip, mfa: false });
+    // Sign-up trusts the device it happened on, so the first sign-in is never asked to approve itself.
+    const device = await trustDevice(this.sql, this.newDevicePolicy, {
+      userId,
+      label: deviceLabel(currentUserAgent()),
+      now: this.passwordResetNow(),
+    });
+    const session = await this.issueSession(userId, { device: input.device, ip: input.ip, mfa: false, trustedDeviceId: device.id });
+    return { ...session, deviceKey: device.key };
   }
 
   /**
@@ -1055,7 +1144,14 @@ export class AuthService {
     return rows.length > 0;
   }
 
-  async login(input: { identifier: string; password: string; totpCode?: string; device?: string; ip?: string }): Promise<SessionTokens> {
+  async login(input: {
+    identifier: string;
+    password: string;
+    totpCode?: string;
+    device?: string;
+    ip?: string;
+    deviceKey?: string | null;
+  }): Promise<SessionTokens> {
     const rows = await this.sql<
       Array<{ id: string; password_hash: string; status: string; totp_secret: string | null }>
     >`SELECT id, password_hash, status, totp_secret FROM users WHERE handle = ${input.identifier} OR email = ${input.identifier}`;
@@ -1098,7 +1194,8 @@ export class AuthService {
       const upgraded = await hashPassword(input.password);
       await this.sql`UPDATE users SET password_hash = ${upgraded}, updated_at = now() WHERE id = ${user.id}`;
     }
-    return this.issueSession(user.id, { device: input.device, ip: input.ip, mfa });
+    const trustedDeviceId = await this.gateDevice(user.id, mfa, input.deviceKey);
+    return this.issueSession(user.id, { device: input.device, ip: input.ip, mfa, trustedDeviceId });
   }
 
   /**
@@ -1106,7 +1203,10 @@ export class AuthService {
    * provider identity). The second factor is still required: an account with TOTP needs its code,
    * counted and checked the same way as `login`, and a session without one is not marked `mfa`.
    */
-  async signInVerifiedIdentity(userId: string, input: { totpCode?: string; device?: string; ip?: string }): Promise<SessionTokens> {
+  async signInVerifiedIdentity(
+    userId: string,
+    input: { totpCode?: string; device?: string; ip?: string; deviceKey?: string | null },
+  ): Promise<SessionTokens> {
     const [user] = await this.sql<
       Array<{ id: string; status: string; totp_secret: string | null }>
     >`SELECT id, status, totp_secret FROM users WHERE id = ${userId}`;
@@ -1121,12 +1221,13 @@ export class AuthService {
       mfa = true;
       await recordSuccess(this.sql, user.id, 'mfa');
     }
-    return this.issueSession(user.id, { device: input.device, ip: input.ip, mfa });
+    const trustedDeviceId = await this.gateDevice(user.id, mfa, input.deviceKey);
+    return this.issueSession(user.id, { device: input.device, ip: input.ip, mfa, trustedDeviceId });
   }
 
   private async issueSession(
     userId: string,
-    options: { device?: string | undefined; ip?: string | undefined; mfa: boolean },
+    options: { device?: string | undefined; ip?: string | undefined; mfa: boolean; trustedDeviceId?: string | null },
   ): Promise<SessionTokens> {
     const refreshToken = generateToken(48);
     const expiresAt = new Date(Date.now() + this.tokens.refreshTtlSeconds * 1000);
@@ -1137,7 +1238,7 @@ export class AuthService {
         if (!user || user.status !== 'active') throw new AuthError('Account is unavailable', 'auth.account_frozen');
         return tx<
           Array<{ id: string }>
-        >`INSERT INTO sessions (user_id, refresh_hash, device, ip, user_agent, mfa, expires_at) VALUES (${userId}, ${hashToken(refreshToken)}, ${options.device ?? null}, ${options.ip ?? currentRequestIp()}, ${currentUserAgent()}, ${options.mfa}, ${expiresAt}) RETURNING id`;
+        >`INSERT INTO sessions (user_id, refresh_hash, device, ip, user_agent, mfa, expires_at, trusted_device_id) VALUES (${userId}, ${hashToken(refreshToken)}, ${options.device ?? null}, ${options.ip ?? currentRequestIp()}, ${currentUserAgent()}, ${options.mfa}, ${expiresAt}, ${options.trustedDeviceId ?? null}) RETURNING id`;
       },
       { isolation: 'read committed' },
     );
@@ -1252,9 +1353,10 @@ export class AuthService {
       // family's first login was given, so refreshing cannot keep a family alive forever. The owner's own absolute
       // lifetime setting is not published, so the refresh TTL measured from the first login is the bound.
       const expiresAt = new Date(Math.min(Date.now() + this.tokens.refreshTtlSeconds * 1000, session.expires_at.getTime()));
+      // The successor stays on the predecessor's trusted device (I-signin-sessions-07).
       const nextSession = await tx<
         Array<{ id: string }>
-      >`INSERT INTO sessions (user_id, family_id, refresh_hash, device, ip, user_agent, mfa, expires_at) VALUES (${session.user_id}, ${session.family_id}, ${hashToken(nextToken)}, ${options.device ?? session.device}, ${options.ip ?? currentRequestIp() ?? session.ip}, ${currentUserAgent() ?? session.user_agent}, ${session.mfa}, ${expiresAt}) RETURNING id`;
+      >`INSERT INTO sessions (user_id, family_id, refresh_hash, device, ip, user_agent, mfa, expires_at, trusted_device_id) VALUES (${session.user_id}, ${session.family_id}, ${hashToken(nextToken)}, ${options.device ?? session.device}, ${options.ip ?? currentRequestIp() ?? session.ip}, ${currentUserAgent() ?? session.user_agent}, ${session.mfa}, ${expiresAt}, (SELECT trusted_device_id FROM sessions WHERE id = ${session.id})) RETURNING id`;
       const sessionId = nextSession[0]!.id;
       await tx`UPDATE sessions SET successor_id = ${sessionId}, successor_refresh = ${sealRefreshToken(this.tokens.secret, nextToken)} WHERE id = ${session.id}`;
       const tier = await this.kycTier(session.user_id, tx);
