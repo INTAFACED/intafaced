@@ -101,11 +101,12 @@ function local(at) {
 }
 
 /** One action of the selected space's page, through its review, to the bank's own confirmation. */
-async function act(page, button, fill) {
+async function act(page, button, fill, form = true) {
   await page.locator('.money-selected-space').getByRole('button', { name: button, exact: true }).click();
   const dialog = page.getByRole('dialog');
   if (fill) await fill(dialog);
-  await dialog.getByRole('button', { name: 'Review' }).click();
+  // An action with nothing to fill in opens straight on its review.
+  if (form) await dialog.getByRole('button', { name: 'Review' }).click();
   return dialog;
 }
 async function confirm(dialog, submit = 'Confirm') {
@@ -240,7 +241,7 @@ test(`${J} #2 locks the space: a debit refuses bank.space_locked, a standing ord
   // An early unlock: the person confirms, and the space stays locked for the bank's TEST wait of 24 hours.
   await page.goto(`/bank/spaces?space=${pot}`);
   const asked = Date.now();
-  const dialog = await act(page, 'Unlock early');
+  const dialog = await act(page, 'Unlock early', undefined, false);
   await expect(dialog).toContainText('The space stays locked for the bank’s waiting time and then opens.');
   await confirm(dialog, 'Ask to unlock');
   await expect(dialog).toContainText('Opens early at');

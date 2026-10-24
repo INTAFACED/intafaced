@@ -277,6 +277,8 @@ export class SpaceService {
     lockedUntil?: Date | null;
   }): Promise<SpaceRecord> {
     const max = requireSpaceLimit(this.options.spaceLimit?.());
+    // A lock is made only where its owner can end it early: blank wait refuses before any row (BK-pots-02).
+    if (input.lockedUntil) requireUnlockWaitHours(this.options.unlockWaitHours?.());
     return this.underSpaceLock(input.userId, async (tx) => {
       await this.assertRoomForSpace(tx, input.userId, max);
       // The primary must exist before a named one is useful (it is where value arrives from every other module), and a
@@ -696,11 +698,15 @@ export class SpaceService {
 
   /**
    * Lock one of the owner's pots until a later date, or keep a lock for longer (BK-pots-02). A lock never gets shorter
-   * here: ending it sooner is an early unlock, which waits out the owner's window. A new lock date replaces any early
-   * unlock still waiting, since the owner has chosen to keep the money in. The same date again changes nothing.
+   * here: ending it sooner is an early unlock, which waits out the owner's window, and a lock is refused while that window
+   * is blank. A new lock date replaces any early unlock still waiting, since the owner has chosen to keep the money in
+   * (the app says so before it is sent). The same date again changes nothing.
    */
   async setLock(spaceId: string, userId: string, lockedUntil: Date, now: Date): Promise<SpaceRecord> {
     if (!(lockedUntil > now)) throw new BankError('A lock date must be in the future', 'bank.space_change_invalid');
+    // No lock without a way out: with the owner's early-unlock wait blank, a mistyped far date would hold the money
+    // with nothing the customer could do, so the lock itself refuses `bank.space_unlock_rule_unset` and writes nothing.
+    requireUnlockWaitHours(this.options.unlockWaitHours?.());
     return this.underRowLock(async (tx) => {
       const space = await this.ownPotForUpdate(tx, spaceId, userId);
       const current = lockEnd(space, now);
@@ -745,12 +751,14 @@ export class SpaceService {
     });
   }
 
-  /** Withdraw an early unlock that is still waiting: the pot stays locked to its date. None waiting changes nothing. */
+  /**
+   * Withdraw an early unlock that is still waiting: the pot stays locked to its date. When none waits (never asked, or
+   * already opened) nothing changes and the pot's state is the answer, so a retry after the opening time reads as open.
+   */
   async cancelUnlock(spaceId: string, userId: string, now: Date): Promise<SpaceRecord> {
     return this.underRowLock(async (tx) => {
       const space = await this.ownPotForUpdate(tx, spaceId, userId);
-      if (!space.unlocksAt) return space;
-      if (!lockEnd(space, now)) throw new BankError(`Space "${space.name}" is already unlocked`, 'bank.space_not_locked');
+      if (!space.unlocksAt || !lockEnd(space, now)) return space;
       const rows = await tx<SpaceRow[]>`
         UPDATE bank.spaces
            SET unlock_requested_at = NULL, unlocks_at = NULL, updated_at = now()

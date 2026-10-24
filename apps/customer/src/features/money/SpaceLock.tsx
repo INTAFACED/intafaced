@@ -66,7 +66,7 @@ export function SpaceLockActions({ space, open }: { space: Space; open: (spec: A
             procedure: 'spaces.setLock',
             facts: locked ? [...facts(), [t('lockNow'), date(space.lockedUntil)]] : facts(),
             fields: [{ ...startsField, name: 'lockedUntil', label: t('lockField') }],
-            notes: locked ? [t('lockNote'), t('lockLongerNote')] : [t('lockNote')],
+            notes: [t('lockNote'), ...(locked ? [t('lockLongerNote')] : []), ...(waiting ? [t('lockEndsEarlyUnlock')] : [])],
             input: (values) => ({ spaceId: space.id, lockedUntil: iso(values.lockedUntil ?? '') }),
             describeOutcome: outcome,
           })

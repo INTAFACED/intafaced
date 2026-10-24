@@ -29,13 +29,7 @@ function potState(space: SpaceRecord, now: Date) {
   };
 }
 
-const potStateOutput = z.object({
-  id: z.string(),
-  goalTarget: z.string().nullable(),
-  lockedUntil: z.string().nullable(),
-  unlocksAt: z.string().nullable(),
-  unlockRequestedAt: z.string().nullable(),
-});
+const potStateOutput = spaceOutput.pick({ id: true, goalTarget: true, lockedUntil: true, unlocksAt: true, unlockRequestedAt: true });
 
 export function createSpacesRouter(c: BankRouterContext) {
   const { bank } = c;
@@ -169,7 +163,7 @@ export function createSpacesRouter(c: BankRouterContext) {
         }),
       ),
 
-    /** Withdraw an early unlock still waiting; the pot stays locked to its date (BK-pots-02). */
+    /** Withdraw an early unlock still waiting; the pot stays locked to its date. None waiting changes nothing (BK-pots-02). */
     cancelUnlock: scopedProcedure('bank:write', { module: 'bank' })
       .input(z.object({ spaceId: z.string().guid() }))
       .output(potStateOutput)

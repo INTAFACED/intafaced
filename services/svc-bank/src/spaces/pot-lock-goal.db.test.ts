@@ -191,6 +191,22 @@ describe('pot goal and lock (BK-pots-02)', () => {
     });
   });
 
+  it('makes no lock while the owner wait is blank, so no lock is made that cannot be ended early', async () => {
+    const holiday = await pot();
+    const ada = caller(bank, ADA);
+    wait = undefined;
+    const until = new Date(Date.now() + 100 * 365 * 24 * HOUR).toISOString();
+    await expect(ada.spaces.setLock({ spaceId: holiday.id, lockedUntil: until })).rejects.toMatchObject({
+      cause: { code: 'bank.space_unlock_rule_unset' },
+    });
+    await expect(ada.spaces.create({ assetId: 'USDT', name: 'TEST locked', lockedUntil: until })).rejects.toMatchObject({
+      cause: { code: 'bank.space_unlock_rule_unset' },
+    });
+    expect((await row(holiday.id)).lockedUntil).toBeNull();
+    expect((await caller(bank, ADA).spaces.list({ assetId: 'USDT', limit: 50 })).map((s) => s.name)).not.toContain('TEST locked');
+    await expect(ada.spaces.create({ assetId: 'USDT', name: 'TEST unlocked' })).resolves.toMatchObject({ name: 'TEST unlocked' });
+  });
+
   it('withdraws a waiting early unlock, and a new lock date replaces one', async () => {
     const until = new Date(Date.now() + 5 * 24 * HOUR);
     const holiday = await pot(until);
@@ -201,6 +217,13 @@ describe('pot goal and lock (BK-pots-02)', () => {
       unlocksAt: null,
     });
     await expect(ada.spaces.cancelUnlock({ spaceId: holiday.id })).resolves.toMatchObject({ unlocksAt: null });
+
+    // Once an early unlock has opened the space, withdrawing it changes nothing and answers the open space.
+    const open = await bank.spaces.create({ userId: ADA, assetId: 'USDT', name: 'TEST opened', lockedUntil: until });
+    wait = '0';
+    await ada.spaces.requestUnlock({ spaceId: open.id });
+    await expect(ada.spaces.cancelUnlock({ spaceId: open.id })).resolves.toMatchObject({ lockedUntil: null, unlocksAt: null });
+    wait = '24';
 
     await ada.spaces.requestUnlock({ spaceId: holiday.id });
     const later = new Date(until.getTime() + 24 * HOUR);
