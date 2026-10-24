@@ -282,7 +282,12 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     sql,
     spaces,
     options.directory ?? unconfiguredBusinessDirectory(),
-    { inviteMinutes: () => options.sharedPotInviteMinutes, peopleCap: () => options.sharedPotPeopleCap },
+    {
+      inviteMinutes: () => options.sharedPotInviteMinutes,
+      peopleCap: () => options.sharedPotPeopleCap,
+      // Read at call time: the card service is made below.
+      cardProgramme: () => cards.programme(),
+    },
     directoryLookups,
   );
   const personalPay = new PersonalPayService(sql, ledger, transfers, spaces, {
@@ -326,6 +331,8 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
   const cards = new CardService(sql, ledger, {
     ...(options.cards ?? {}),
     onCaptureSettled: options.cards?.onCaptureSettled ?? ((event) => autoInvest.applyRoundUp(event)),
+    // A card linked to a shared pot: every change of its status is a line in the pot's log, in the card's transaction.
+    onStatusChanged: options.cards?.onStatusChanged ?? ((tx, change) => sharedPots.noteCardStatus(tx, change)),
   });
   // No ramp programme = every ramp procedure refuses `bank.no_ramp_rail`.
   // One registry: the address book reads the same one as deposits and the supported-asset list unless a test passes its own.

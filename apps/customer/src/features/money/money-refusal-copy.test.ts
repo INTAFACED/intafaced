@@ -123,9 +123,12 @@ describe('reading a refusal that has come back', () => {
       'sharedPots.accept',
       'sharedPots.cancelInvite',
       'sharedPots.decline',
+      'sharedPots.freezeCard',
       'sharedPots.invite',
       'sharedPots.leave',
+      'sharedPots.linkCard',
       'sharedPots.remove',
+      'sharedPots.unlinkCard',
       'transfers.create',
       'transfers.toUser',
       'transfers.updateSchedule',
@@ -150,6 +153,20 @@ describe('reading a refusal that has come back', () => {
     );
     expect(viewer.refusedFirst).toBe(true);
     expect(viewer.outcome).toMatchObject({ reason: 'error', message: expect.stringContaining('Nothing was sent.') });
+  });
+  it('a refused freeze of a pot’s card says why in the pot’s words, and that nothing changed', () => {
+    const viewer = settleRefusal(
+      { ok: false, reason: 'error', status: 403, code: 'bank.space_forbidden', message: 'bank.space_forbidden' },
+      'sharedPots.freezeCard',
+    );
+    expect(viewer.refusedFirst).toBe(true);
+    expect(viewer.outcome).toMatchObject({
+      message: 'You can see this shared pot, but only its owner and contributors can freeze its card. Nothing was changed.',
+    });
+    expect(moneyRefusalWords('bank.card_not_found', 'en', 'sharedPots.freezeCard')).toBe(
+      'No card is linked to this pot any more. Nothing was changed.',
+    );
+    expect(moneyRefusalWords('bank.shared_pot_invalid', 'en', 'sharedPots.linkCard')).toMatch(/^This pot already has a linked card/);
   });
   it('reads a standing-order edit refusal as changing nothing, a stale revision included', () => {
     for (const code of [

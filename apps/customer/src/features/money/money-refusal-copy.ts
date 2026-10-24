@@ -102,6 +102,9 @@ const en = {
   sharedPotFull: 'This pot is shared with as many people as the bank allows, open invites included. Nothing was sent.',
   sharedPotInvalid:
     'That cannot be done with this pot: the person may already share it or have an open invite, or it is your own. Nothing was changed.',
+  potCardForbidden: 'You can see this shared pot, but only its owner and contributors can freeze its card. Nothing was changed.',
+  potCardMissing: 'No card is linked to this pot any more. Nothing was changed.',
+  potCardTaken: 'This pot already has a linked card, or that card is linked to another pot. Unlink it first. Nothing was changed.',
 } as const;
 const es = {
   cardNotFound: 'No se encontró esa tarjeta. Actualiza tus tarjetas e inténtalo de nuevo.',
@@ -202,6 +205,10 @@ const es = {
   sharedPotFull: 'Esta hucha se comparte con tantas personas como permite el banco, invitaciones abiertas incluidas. No se envió nada.',
   sharedPotInvalid:
     'Eso no se puede hacer con esta hucha: puede que la persona ya la comparta o tenga una invitación abierta, o es la tuya. No se cambió nada.',
+  potCardForbidden: 'Puedes ver esta hucha compartida, pero solo su dueño y quienes aportan pueden congelar su tarjeta. No se cambió nada.',
+  potCardMissing: 'Esta hucha ya no tiene ninguna tarjeta vinculada. No se cambió nada.',
+  potCardTaken:
+    'Esta hucha ya tiene una tarjeta vinculada, o esa tarjeta está vinculada a otra hucha. Desvincúlala primero. No se cambió nada.',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
   cardNotFound: 'Cette carte est introuvable. Actualisez vos cartes et réessayez.',
@@ -304,6 +311,11 @@ const fr = {
     'Cette cagnotte est partagée avec autant de personnes que la banque le permet, invitations ouvertes comprises. Rien n’a été envoyé.',
   sharedPotInvalid:
     'Ce n’est pas possible avec cette cagnotte : la personne la partage peut-être déjà ou a une invitation ouverte, ou c’est la tienne. Rien n’a été modifié.',
+  potCardForbidden:
+    'Tu vois cette cagnotte partagée, mais seules les personnes qui la possèdent ou y contribuent peuvent geler sa carte. Rien n’a été modifié.',
+  potCardMissing: 'Aucune carte n’est plus liée à cette cagnotte. Rien n’a été modifié.',
+  potCardTaken:
+    'Cette cagnotte a déjà une carte liée, ou cette carte est liée à une autre cagnotte. Délie-la d’abord. Rien n’a été modifié.',
 } satisfies Record<keyof typeof en, string>;
 
 export const moneyRefusalCopy = defineCopy('customer.money.refusals', en, { es, fr });
@@ -430,6 +442,11 @@ export const REFUSAL_CHECKED_WRITES: ReadonlySet<string> = new Set([
   'sharedPots.decline',
   'sharedPots.leave',
   'sharedPots.remove',
+  // A pot's card: the link is one transaction; a freeze is refused before the card is touched, or it is the card's own
+  // status change, which leaves the row as it was when the issuer refuses.
+  'sharedPots.linkCard',
+  'sharedPots.unlinkCard',
+  'sharedPots.freezeCard',
 ]);
 
 /** The code's sentence key. A few sentences depend on which write was refused. */
@@ -439,6 +456,10 @@ function keyFor(code: string, procedure?: string): Key | undefined {
   if (normal === 'bank.business_self_approve')
     return procedure === undefined || procedure === 'business.runPayroll' ? 'payrollOverLimit' : undefined;
   if (normal === 'bank.card_not_found' && procedure === 'cards.issue') return 'cardNotIssued';
+  // A shared pot's card (BK-acct-09): the pot's own words, not the transfer's or the invite's.
+  if (normal === 'bank.space_forbidden' && procedure === 'sharedPots.freezeCard') return 'potCardForbidden';
+  if (normal === 'bank.card_not_found' && procedure === 'sharedPots.freezeCard') return 'potCardMissing';
+  if (normal === 'bank.shared_pot_invalid' && procedure === 'sharedPots.linkCard') return 'potCardTaken';
   return WORDS[normal];
 }
 

@@ -8,7 +8,7 @@ import type { ActionSpec } from './components';
 /**
  * Shared pots on the Spaces page (BK-acct-09, J-bank-07 #6): blank bank values said in words, an invite to the person
  * with its lifetime or that it ended, a pot shared with them with its owner, role, balance and people, a pot they share
- * with its open invites, and the log naming who did what.
+ * with its open invites, the card linked to a pot that its holders can freeze, and the log naming who did what.
  */
 
 vi.mock('../../shared/preferences', async (original) => {
@@ -49,6 +49,7 @@ beforeEach(() => {
         owned: [
           {
             pot: { id: MINE, name: 'Holiday TEST', assetId: 'USDT' },
+            card: null,
             members: [{ ...person('u-pia', 'Pia_Partner'), role: 'contributor', joinedAt: '2026-10-24T10:00:00Z' }],
             invites: [
               {
@@ -66,6 +67,7 @@ beforeEach(() => {
         shared: [
           {
             pot: { id: POT, name: 'Flat TEST', assetId: 'USDT', balance: '15' },
+            card: { cardId: 'c-olga', panTail: '4242', status: 'active', frozenBy: null },
             owner: person('u-olga', 'Olga_Owner'),
             role: 'viewer',
             members: [{ ...person('u-me', 'Me_Here'), role: 'viewer', joinedAt: '2026-10-24T10:00:00Z' }],
@@ -85,16 +87,41 @@ beforeEach(() => {
         ],
       },
     },
+    'cards.list': {
+      status: 'ready',
+      data: [
+        { id: 'c-open', panTail: '1111', assetId: 'USDT', status: 'frozen' },
+        { id: 'c-shut', panTail: '2222', assetId: 'USDT', status: 'closed' },
+      ],
+    },
     'sharedPots.activity': {
       status: 'ready',
       data: [
-        { id: '2', kind: 'joined', actor: person('u-pia', 'Pia_Partner'), subject: null, role: 'contributor', at: '2026-10-24T10:00:00Z' },
+        {
+          id: '3',
+          kind: 'card_frozen',
+          actor: person('u-pia', 'Pia_Partner'),
+          subject: null,
+          role: null,
+          card: { cardId: 'c-olga', panTail: '4242' },
+          at: '2026-10-24T11:00:00Z',
+        },
+        {
+          id: '2',
+          kind: 'joined',
+          actor: person('u-pia', 'Pia_Partner'),
+          subject: null,
+          role: 'contributor',
+          card: null,
+          at: '2026-10-24T10:00:00Z',
+        },
         {
           id: '1',
           kind: 'invited',
           actor: person('u-olga', 'Olga_Owner'),
           subject: person('u-gone', null),
           role: 'viewer',
+          card: null,
           at: '2026-10-24T09:00:00Z',
         },
       ],
@@ -173,8 +200,9 @@ describe('SharedPots', () => {
       details.dispatchEvent(new Event('toggle'));
     });
     const log = [...mine.querySelectorAll('[data-testid="shared-pot-log-entry"]')].map((el) => el.textContent);
-    expect(log[0]).toMatch(/^@Pia_Partner joined as a contributor, /);
-    expect(log[1]).toMatch(/^@Olga_Owner invited someone no longer on the app as a viewer, /);
+    expect(log[0]).toMatch(/^@Pia_Partner froze the card •••• 4242, /);
+    expect(log[1]).toMatch(/^@Pia_Partner joined as a contributor, /);
+    expect(log[2]).toMatch(/^@Olga_Owner invited someone no longer on the app as a viewer, /);
   });
 
   it('sharing sends a handle or an email as the bank expects, under the request id', async () => {
@@ -190,5 +218,65 @@ describe('SharedPots', () => {
     });
     expect(spec.input({ spaceId: MINE, who: 'vic@example.com', role: 'viewer' }, 'req-3')).toMatchObject({ email: 'vic@example.com' });
     expect(spec.fields!.find((f) => f.name === 'who')!.validate!('not an address!')).toBe('Enter an @handle or an email address.');
+  });
+
+  it('a holder of a pot with a linked card can freeze it, and the freeze is the pot’s own ask', async () => {
+    await mount();
+    const pot = host.querySelector('[data-testid="shared-pot-shared"]')!;
+    const card = pot.querySelector('[data-testid="shared-pot-card"]')!;
+    expect(card.getAttribute('data-status')).toBe('active');
+    expect(card.textContent).toBe('Card •••• 4242: active');
+    act(() => button(pot, 'Freeze card').click());
+    expect(opened[0]).toMatchObject({ procedure: 'sharedPots.freezeCard', title: 'Freeze the card •••• 4242' });
+    expect(opened[0]!.notes).toEqual(['The card stops paying at once, and the pot’s log names you. Only @Olga_Owner can unfreeze it.']);
+    expect(opened[0]!.input({}, 'req')).toEqual({ spaceId: POT });
+  });
+
+  it('a frozen card says who can lift it; the owner links one of their open cards, never a closed one', async () => {
+    const list = reads['sharedPots.list']!.data as { shared: Array<{ card: unknown }> };
+    list.shared[0]!.card = { cardId: 'c-olga', panTail: '4242', status: 'frozen', frozenBy: 'holder' };
+    await mount();
+    const pot = host.querySelector('[data-testid="shared-pot-shared"]')!;
+    expect(pot.textContent).toContain('Only @Olga_Owner can unfreeze it.');
+    expect(button(pot, 'Freeze card')).toBeUndefined();
+    const mine = host.querySelector('[data-testid="shared-pot-owned"]')!;
+    expect(mine.textContent).toContain('No card is linked.');
+    act(() => button(mine, 'Link a card').click());
+    expect(opened[0]).toMatchObject({ procedure: 'sharedPots.linkCard' });
+    expect(opened[0]!.fields![0]!.options).toEqual([{ value: 'c-open', label: '•••• 1111 (USDT)' }]);
+    expect(opened[0]!.input({ cardId: 'c-open' }, 'req')).toEqual({ spaceId: MINE, cardId: 'c-open' });
+  });
+
+  it('the owner of a pot whose card is frozen can unfreeze it through the card’s own door, or unlink it', async () => {
+    const list = reads['sharedPots.list']!.data as { owned: Array<{ card: unknown }> };
+    list.owned[0]!.card = { cardId: 'c-olga', panTail: '4242', status: 'frozen', frozenBy: 'holder' };
+    await mount();
+    const mine = host.querySelector('[data-testid="shared-pot-owned"]')!;
+    act(() => button(mine, 'Unfreeze').click());
+    expect(opened[0]).toMatchObject({ procedure: 'cards.setStatus' });
+    expect(opened[0]!.input({}, 'req')).toEqual({ cardId: 'c-olga', status: 'active' });
+    act(() => button(mine, 'Unlink card').click());
+    expect(opened[1]).toMatchObject({ procedure: 'sharedPots.unlinkCard' });
+    expect(opened[1]!.input({}, 'req')).toEqual({ spaceId: MINE });
+  });
+
+  it('a freeze the bank made says only the bank lifts it, offers no unfreeze, and the log names the bank', async () => {
+    const list = reads['sharedPots.list']!.data as { owned: Array<{ card: unknown }>; shared: Array<{ card: unknown }> };
+    list.owned[0]!.card = { cardId: 'c-olga', panTail: '4242', status: 'frozen', frozenBy: 'operator' };
+    list.shared[0]!.card = { cardId: 'c-x', panTail: '9999', status: 'frozen', frozenBy: 'operator' };
+    (reads['sharedPots.activity']!.data as Array<{ actor: unknown }>)[0]!.actor = person('bank', null);
+    await mount();
+    expect(host.querySelector('[data-testid="shared-pot-shared"]')!.textContent).toContain(
+      'The bank froze this card. Only the bank can lift that freeze.',
+    );
+    const mine = host.querySelector('[data-testid="shared-pot-owned"]')!;
+    expect(mine.textContent).toContain('The bank froze this card. Only the bank can lift that freeze.');
+    expect(button(mine, 'Unfreeze')).toBeUndefined();
+    const details = mine.querySelector('details')!;
+    await act(async () => {
+      details.open = true;
+      details.dispatchEvent(new Event('toggle'));
+    });
+    expect(mine.querySelector('[data-testid="shared-pot-log-entry"]')!.textContent).toMatch(/^The bank froze the card •••• 4242, /);
   });
 });
