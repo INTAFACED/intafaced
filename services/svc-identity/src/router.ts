@@ -3688,20 +3688,14 @@ export function createIdentityRouter(
 
       /**
        * The signed-in caller's own place (RC-campaigns-05's drop room, J-campaigns-20 #4): the entry whose email is this
-       * account's confirmed email, or null when it never joined. An unconfirmed email refuses `waitlist.email_unverified`,
-       * so nobody reads a place by typing someone else's address at sign-up.
+       * account's confirmed email, or null when it never joined. An unconfirmed email refuses `waitlist.email_unverified`.
        */
       mine: protectedProcedure.output(waitlistPlaceOutput.nullable()).query(async ({ ctx }) => {
         try {
-          const self = await auth.selfEmail(ctx.principal.userId);
-          if (self === null) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Authentication required' });
-          if (!self.emailVerified) {
-            throw new WaitlistError('Confirm your email to see your place in the queue', 'waitlist.email_unverified');
-          }
-          const out = await requireWaitlist().mine(self.email);
+          const out = await requireWaitlist().mine(() => auth.selfEmail(ctx.principal.userId));
           return out ? waitlistPlaceView(out) : null;
         } catch (err) {
-          throw err instanceof TRPCError ? err : toTrpcError(err);
+          throw toTrpcError(err);
         }
       }),
 

@@ -90,12 +90,13 @@ describe('identity.waitlist.mine', () => {
     expect(selfEmail).not.toHaveBeenCalled();
   });
 
-  it('refuses by flag name when the waitlist is switched off', async () => {
-    const { router } = await setup({ 'waitlist.enabled': false });
+  it('refuses by flag name when the waitlist is switched off, before it reads the account', async () => {
+    const { router, selfEmail } = await setup({ 'waitlist.enabled': false });
     const err = await router
-      .createCaller(await ctx(ME))
+      .createCaller(await ctx(UNCONFIRMED))
       .waitlist.mine()
       .catch((e: unknown) => e);
     expect(String((err as Error).message)).toContain('flag.waitlist.enabled.disabled');
+    expect(selfEmail).not.toHaveBeenCalled();
   });
 });

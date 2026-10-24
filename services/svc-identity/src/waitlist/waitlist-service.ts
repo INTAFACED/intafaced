@@ -120,13 +120,20 @@ export class WaitlistService {
 
   /**
    * The signed-in caller's own place (the drop room, J-campaigns-20 #4), found by the account's confirmed email. Null when
-   * that email never joined. The router passes the email from the session's own account, never from the request.
+   * that email never joined. `self` reads the session's own account, never the request, and runs only after the flag
+   * check, so a switched-off waitlist names its flag and reads no account. An unconfirmed email refuses
+   * `waitlist.email_unverified`, so nobody reads a place by typing someone else's address at sign-up.
    */
-  async mine(email: string): Promise<WaitlistPosition | null> {
+  async mine(self: () => Promise<{ email: string; emailVerified: boolean } | null>): Promise<WaitlistPosition | null> {
     this.assertWaitlist();
+    const account = await self();
+    if (account === null) return null;
+    if (!account.emailVerified) {
+      throw new WaitlistError('Confirm your email to see your place in the queue', 'waitlist.email_unverified');
+    }
     let entry: WaitlistEntry | null;
     try {
-      entry = await this.store.getByEmail(email);
+      entry = await this.store.getByEmail(account.email);
     } catch (err) {
       throw mapStoreError(err);
     }
