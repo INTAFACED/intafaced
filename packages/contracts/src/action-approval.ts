@@ -99,6 +99,8 @@ export const SAME_PERSON_ACTION_TYPES = [
   'p2p.step_up.trades.take',
   // Release a P2P order's escrow to the buyer (P-trade-orders-07, -16). Identity mints it; svc-p2p consumes it before the release.
   'p2p.step_up.trades.confirmReceived',
+  // Add, change or remove a P2P payment method (P-ads-merchant-18). Identity mints it; svc-p2p consumes it before the change.
+  'p2p.step_up.instruments.change',
 ] as const;
 
 /**

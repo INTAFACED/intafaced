@@ -31,6 +31,7 @@ import { DELIST_REASONS, type InstrumentService } from './instrument-service.js'
 import { assertModerator, isModerationConfigured, isModerator } from './moderation-auth.js';
 import { TakeStepUpError, unwiredTakeStepUp, type TakeStepUp, type TakeStepUpCaller } from './take-step-up.js';
 import { unwiredReleaseStepUp, type ReleaseStepUp } from './release-step-up.js';
+import { unwiredInstrumentStepUp, type InstrumentStepUp } from './instrument-step-up.js';
 import type { PublicProfileLookup } from './public-profile.js';
 import type { ReminderState } from './seller-reminders.js';
 import { MISMATCH_CLASSIFICATIONS, MISMATCH_KINDS, type MismatchReport } from './amount-mismatch.js';
@@ -105,6 +106,8 @@ export type P2pRouterOptions = {
   takeStepUp?: TakeStepUp;
   /** P-trade-orders-07 and -16: the seller's fresh confirmation of a release. Unset refuses every release. */
   releaseStepUp?: ReleaseStepUp;
+  /** P-ads-merchant-18: the person's fresh confirmation of a payment-method change. Unset refuses every change. */
+  instrumentStepUp?: InstrumentStepUp;
 };
 
 /**
@@ -886,6 +889,7 @@ export function createP2pRouter(
   const takeGate = options.takeGate ?? unwiredTakeGate();
   const takeStepUp = options.takeStepUp ?? unwiredTakeStepUp();
   const releaseStepUp = options.releaseStepUp ?? unwiredReleaseStepUp();
+  const instrumentStepUp = options.instrumentStepUp ?? unwiredInstrumentStepUp();
   const stepUpCaller = (principal: Principal): TakeStepUpCaller => ({
     userId: principal.userId,
     sessionId: principal.sid,
@@ -2214,12 +2218,17 @@ export function createP2pRouter(
             label: z.string().max(120).optional(),
             /** Exactly the fields the method schema declared. An extra key is refused. */
             details: z.record(z.string(), z.string()),
+            /** Identity's approval for this change (P-ads-merchant-18); omitted inside this session's ten-minute window. */
+            stepUpApprovalId: z.string().min(1).max(200).optional(),
           }),
         )
         .output(instrumentHeaderOutput)
         .mutation(async ({ ctx, input }) =>
-          guard(async () =>
-            toHeaderOut(
+          guard(async () => {
+            // Saved details are sealed with the instrument key: without it nothing is saved, before any confirmation.
+            if (options.instrumentKeyProvider !== 'local-test') refuseLiveOffersUntilOwnerKms();
+            await instrumentStepUp.assertConfirmed(stepUpCaller(ctx.principal), input.instrumentId, 'create', input.stepUpApprovalId);
+            return toHeaderOut(
               await instruments.createInstrument({
                 instrumentId: input.instrumentId,
                 ownerId: ctx.principal.userId,
@@ -2229,8 +2238,8 @@ export function createP2pRouter(
                 ...(input.label === undefined ? {} : { label: input.label }),
                 details: input.details,
               }),
-            ),
-          ),
+            );
+          }),
         ),
 
       /**
@@ -2243,30 +2252,47 @@ export function createP2pRouter(
             instrumentId: z.string().guid(),
             label: z.string().max(120).optional(),
             details: z.record(z.string(), z.string()).optional(),
+            stepUpApprovalId: z.string().min(1).max(200).optional(),
           }),
         )
         .output(instrumentHeaderOutput)
         .mutation(async ({ ctx, input }) =>
-          guard(async () =>
-            toHeaderOut(
+          guard(async () => {
+            if (input.details !== undefined && options.instrumentKeyProvider !== 'local-test') refuseLiveOffersUntilOwnerKms();
+            await instrumentStepUp.assertConfirmed(stepUpCaller(ctx.principal), input.instrumentId, 'update', input.stepUpApprovalId);
+            return toHeaderOut(
               await instruments.updateInstrument({
                 instrumentId: input.instrumentId,
                 ownerId: ctx.principal.userId,
                 ...(input.label === undefined ? {} : { label: input.label }),
                 ...(input.details === undefined ? {} : { details: input.details }),
               }),
-            ),
-          ),
+            );
+          }),
         ),
 
       /** Removal is a state change. An in-flight trade keeps working. */
       remove: merchantApiProcedure('p2p:write')
-        .input(z.object({ instrumentId: z.string().guid() }))
+        .input(z.object({ instrumentId: z.string().guid(), stepUpApprovalId: z.string().min(1).max(200).optional() }))
         .output(instrumentHeaderOutput)
         .mutation(async ({ ctx, input }) =>
-          guard(async () =>
-            toHeaderOut(await instruments.removeInstrument({ instrumentId: input.instrumentId, ownerId: ctx.principal.userId })),
-          ),
+          guard(async () => {
+            await instrumentStepUp.assertConfirmed(stepUpCaller(ctx.principal), input.instrumentId, 'remove', input.stepUpApprovalId);
+            return toHeaderOut(await instruments.removeInstrument({ instrumentId: input.instrumentId, ownerId: ctx.principal.userId }));
+          }),
+        ),
+
+      /**
+       * Until when this session's payment-method changes need no new confirmation (P-ads-merchant-18), or null when the
+       * next one does. A take's or a release's confirmation never counts here. An API key is refused.
+       */
+      stepUpWindow: merchantApiProcedure('p2p:read')
+        .output(z.object({ confirmedUntil: z.string().datetime().nullable() }))
+        .query(async ({ ctx }) =>
+          guard(async () => {
+            const { confirmedUntil } = await instrumentStepUp.window(stepUpCaller(ctx.principal));
+            return { confirmedUntil: confirmedUntil?.toISOString() ?? null };
+          }),
         ),
 
       /** The caller's own instruments. Headers only — no field values, ever. */

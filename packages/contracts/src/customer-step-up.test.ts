@@ -93,6 +93,26 @@ describe('customer step-up binding', () => {
     expect(bindCustomerStepUp(ACTOR, { ...request, fields: { tradeId, amount: '10' } })).toEqual({ ok: false, code: 'step_up.fields' });
   });
 
+  it('binds a P2P payment-method change to the method and the kind of change, the method as its target', () => {
+    const instrumentId = '7c1e0b6f-4a7d-4c55-9d1e-2f6f0e8a1b2c';
+    const request = {
+      scope: 'p2p.step_up.instruments.change',
+      purpose: 'instruments.change',
+      target: instrumentId,
+      fields: { instrumentId, change: 'create' },
+    };
+    expect(bindCustomerStepUp(ACTOR, request)).toMatchObject({
+      ok: true,
+      payloadHash: customerStepUpPayloadHash('p2p.step_up.instruments.change', { actor: ACTOR, instrumentId, change: 'create' }),
+    });
+    // Another method as the target, or details the change does not hash, is not this change.
+    expect(bindCustomerStepUp(ACTOR, { ...request, target: '9d1e2f6f-0b6f-4c1e-8a7d-4c552f6f0e8a' })).toMatchObject({ ok: false });
+    expect(bindCustomerStepUp(ACTOR, { ...request, fields: { instrumentId, change: 'create', iban: 'X' } })).toEqual({
+      ok: false,
+      code: 'step_up.fields',
+    });
+  });
+
   it('sorts payroll lines by space id then amount string', () => {
     expect(
       canonicalPayrollLines([

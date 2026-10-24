@@ -15,7 +15,7 @@ import { createP2pRouter } from './router.js';
 import { P2pErasure } from './erasure.js';
 import { BlockRfqService } from './block-rfq.js';
 import { MemoryBlockQuoteStore } from './block-rfq-store.js';
-import { confirmedReleaseStepUp, confirmedTakeStepUp, metTakeGate } from './take-gate-fixture.js';
+import { confirmedInstrumentStepUp, confirmedReleaseStepUp, confirmedTakeStepUp, metTakeGate } from './take-gate-fixture.js';
 
 // Attributed local screening fixture: exercise downstream authorization and storage.
 // Explicit dev mode accepts this fixture; it is never a production sanctions list.
@@ -258,6 +258,9 @@ describe('svc-p2p payment instruments', () => {
       takeGate: metTakeGate(),
       takeStepUp: confirmedTakeStepUp(),
       releaseStepUp: confirmedReleaseStepUp(),
+      instrumentStepUp: confirmedInstrumentStepUp(),
+      // The router saves a destination only with the instrument key on; this suite's service stores them plainly.
+      instrumentKeyProvider: 'local-test',
     });
     await registerMethod();
   });
@@ -1242,6 +1245,7 @@ describe('svc-p2p payment instruments', () => {
         // The caller's own confirmation window: a time, never an instrument.
         'trades.stepUpWindow': undefined,
         'trades.releaseStepUpWindow': undefined,
+        'instruments.stepUpWindow': undefined,
         // A reminder answers counts and times only.
         'trades.remind': { tradeId: trade.id },
         'trades.reportMismatch': { tradeId: trade.id, kind: 'under', amountReceived: '1' },

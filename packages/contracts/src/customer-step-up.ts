@@ -272,6 +272,19 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
     fixed: {},
   },
   {
+    // svc-p2p instrumentStepUpPayloadHash: the payment method (instrument) and whether it is added, changed or removed.
+    // The details are not hashed: they are the person's own, typed in the same session, and the own-name and format rules
+    // check them at the change itself.
+    scope: 'p2p.step_up.instruments.change',
+    purpose: 'instruments.change',
+    clientFields: ['instrumentId', 'change'],
+    targetField: 'instrumentId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
     scope: 'pay.step_up.payoutDestination.set',
     purpose: 'payoutDestination.set',
     clientFields: ['merchantId', 'railId', 'kind', 'ref'],
