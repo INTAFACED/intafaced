@@ -53,6 +53,15 @@ import type { ReconcileIncompleteAlert } from './ledger/scheduled-reconcile-tick
 import { withMoneySpan, withSpan } from './tracing.js';
 import type { RegistryAsset } from '@intafaced/contracts';
 import type { ActionApprovalConsumer } from './ledger/action-approval-consume.js';
+import {
+  deleteAccountMetadata,
+  operatorAccountMetadataRead,
+  readAccountMetadata,
+  setAccountMetadata,
+  type AccountMetadataChangeOutput,
+  type AccountMetadataOutput,
+  type AccountMetadataReadInput,
+} from './ledger/operator-account-metadata.js';
 import { applyAssetEdit, getAsset, listAssets, listOperatorAssets, type OperatorAssetRow } from './ledger/supported-assets.js';
 import { runDueReconciliationControls as runDueOperatorControls } from './ledger/reconciliation-controls.js';
 
@@ -248,6 +257,26 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
       readTransactionPage: (input) => listOperatorTransactions(this.sql, input),
       readAccountPage: (input) => searchOperatorAccounts(this.sql, input),
     };
+  }
+
+  /**
+   * An account's operator metadata (J-ops-console-03 #6, #7). The read is recorded first, like the desk's other reads.
+   * A set is one founder's; a delete spends a second founder's approval. Both refuse `ledger.frozen` under the freeze.
+   */
+  deskAccountMetadata(actor: LookupActor, input: AccountMetadataReadInput): Promise<AccountMetadataOutput> {
+    return operatorAccountMetadataRead(
+      { recordOperatorAccess: (entry) => this.recordOperatorAccess(entry), readAccountMetadata: (i) => readAccountMetadata(this.sql, i) },
+      actor,
+      input,
+    );
+  }
+
+  setAccountMetadata(actorId: string, input: unknown): Promise<AccountMetadataChangeOutput> {
+    return setAccountMetadata(this.sql, actorId, input);
+  }
+
+  deleteAccountMetadata(approvals: ActionApprovalConsumer, operatorId: string, input: unknown): Promise<AccountMetadataChangeOutput> {
+    return deleteAccountMetadata(this.sql, approvals, operatorId, input);
   }
 
   /** The book's counts. Names no one, so no access row. */

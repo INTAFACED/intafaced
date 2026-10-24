@@ -30,6 +30,8 @@ const GUARD_TRIGGERS: Record<Guard, ReadonlyArray<readonly [table: string, trigg
   truncate: [
     ['ledger_entries', 'ledger_entries_no_truncate'],
     ['ledger_tx', 'ledger_tx_no_truncate'],
+    // 0029: the metadata change record has a foreign key to `accounts`, so a reset's `accounts ... CASCADE` reaches it.
+    ['account_metadata_changes', 'account_metadata_changes_no_truncate'],
   ],
   balance: [['ledger_entries', 'ledger_entries_tx_must_balance']],
 };
