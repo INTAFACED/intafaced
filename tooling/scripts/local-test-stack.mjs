@@ -28,6 +28,7 @@
  *   node tooling/scripts/local-test-stack.mjs age-linked-accounts <email> <hours>   TEST fixture: past a cooling-off
  *   node tooling/scripts/local-test-stack.mjs expire-address-approvals <email>   TEST fixture: open approval links run out
  *   node tooling/scripts/local-test-stack.mjs expire-deposit-addresses <email>   TEST fixture: open extra deposit addresses expire
+ *   node tooling/scripts/local-test-stack.mjs expire-staff-holds <email>   TEST fixture: open staff holds with an expiry reach it
  *
  * Rules this file keeps (AGENTS.md "Money"):
  *   - Value moves ONLY through the ledger (packages/ledger-client recipes -> svc-ledger).
@@ -1737,6 +1738,29 @@ function cmdExpireDepositAddresses(args) {
 }
 
 /**
+ * `expire-staff-holds <email-or-userId>`: the TEST person's staff holds that have an expiry (J-ops-console-04, OPS-accounts-desk-01)
+ * reach it now, so a journey can show svc-ops' own expiry worker releasing what is left, without waiting the TEST hours out. It
+ * only moves the stored expiry; svc-ops checks it against its clock under the hold's lock and posts the release through the
+ * ledger itself. A hold without an expiry is left alone, and this releases nothing and moves no value.
+ */
+function cmdExpireStaffHolds(args) {
+  const [who] = args;
+  if (!who) fail('usage: node tooling/scripts/local-test-stack.mjs expire-staff-holds <email-or-userId>', 2);
+  const { secrets, userId } = localFixturePerson(who);
+  const moved = psql(
+    secrets,
+    `UPDATE ops.staff_holds SET expires_at = now() - interval '1 minute'
+      WHERE user_id = :'uid' AND expires_at > now() AND state IN ('active', 'partially_released') RETURNING hold_no`,
+    { db: DB_NAME, user: 'svc_ops', password: secrets.pgService, vars: { uid: userId }, tuples: true },
+  )
+    .trim()
+    .split('\n')
+    // psql prints the UPDATE tag after the hold numbers; count the numbers alone.
+    .filter((line) => /^[0-9]+$/.test(line));
+  say(`  ${moved.length} staff hold(s) of ${who} now past their expiry; svc-ops releases them on its next tick (LOCAL TEST fixture)`);
+}
+
+/**
  * `expire-address-approvals <email-or-userId>`: the TEST person's open withdrawal-address approval links (W-withdraw-09)
  * run out now, so a journey can show, as J-wallet-04 #5 does, that an expired link is refused and a new one is needed,
  * without waiting the TEST lifetime out. Both times move back by the same amount, so a link stays as long as it was
@@ -1995,6 +2019,7 @@ async function runCli() {
   else if (cmd === 'age-linked-accounts') cmdAgeLinkedAccounts(rest);
   else if (cmd === 'expire-address-approvals') cmdExpireAddressApprovals(rest);
   else if (cmd === 'expire-deposit-addresses') cmdExpireDepositAddresses(rest);
+  else if (cmd === 'expire-staff-holds') cmdExpireStaffHolds(rest);
   else if (cmd === 'customer-dist') cmdCustomerDist(rest);
   else if (cmd === 'status') {
     const ok = await healthTable({ gateMarket: true });
@@ -2003,7 +2028,7 @@ async function runCli() {
     process.exit(ok ? 0 : 1);
   } else
     fail(
-      `unknown command "${cmd}". Use: start | stop | status | fund | age-linked-accounts | expire-address-approvals | expire-deposit-addresses | plan | restart | customer-dist`,
+      `unknown command "${cmd}". Use: start | stop | status | fund | age-linked-accounts | expire-address-approvals | expire-deposit-addresses | expire-staff-holds | plan | restart | customer-dist`,
       2,
     );
 }

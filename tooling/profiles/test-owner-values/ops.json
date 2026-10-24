@@ -10,6 +10,16 @@
       "service": "ops",
       "value": "http://archive.test.invalid/restore",
       "note": "TEST joint-restore archive URL. Nothing is behind it, so the probe finds no backup list and none is listed; it only lets restore steps run on the test stack."
+    },
+    "OPS_STAFF_HOLD_CONFIRM_ACCOUNT": {
+      "service": "ops",
+      "value": "test-held-funds",
+      "note": "TEST account a confirmed staff hold moves to (ops:hold-confirm:test-held-funds). Not the owner's account; it only lets J-ops-console-04 #5 run on the test stack."
+    },
+    "OPS_STAFF_HOLD_EXPIRY_MAX_HOURS": {
+      "service": "ops",
+      "value": "24",
+      "note": "TEST longest staff hold expiry in hours. Not an owner decision."
     }
   }
 }
