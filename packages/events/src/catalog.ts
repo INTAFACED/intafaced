@@ -1665,6 +1665,13 @@ export const WIRING_SOCKETS = [
   },
   {
     event: 'coreOpsAlertPolicyUpdated',
+    missing: 'publisher',
+    class: 'A',
+    reason:
+      'svc-ops writes it to ops.alert_outbox in the same transaction as the routing tree (OPS-alerts-02), like the other alert events. No relay drains that outbox onto the bus yet; the tree is the durable row the desk reads.',
+  },
+  {
+    event: 'coreOpsAlertPolicyUpdated',
     missing: 'subscriber',
     class: 'A',
     reason:
