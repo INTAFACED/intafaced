@@ -159,15 +159,15 @@ export function useFills(fast: boolean): Loadable<Trade[]> {
 }
 
 const feesSchema = z.record(z.string(), z.object({ maker: decimalSchema, taker: decimalSchema }).passthrough());
-export type ListedFees = Record<string, { maker: string; taker: string }>;
+export type MyFees = Record<string, { maker: string; taker: string }>;
 
 /** The caller's own fee rates for each pair (maker and taker, as ratios), at its fee tier and after its rank discount; the order check has the rate this order pays. */
-export function useListedFees(): Loadable<ListedFees> {
+export function useMyFees(): Loadable<MyFees> {
   const env = useDataEnv();
   return useSource(
     useMemo(
       () =>
-        privateSource<ListedFees>(
+        privateSource<MyFees>(
           env,
           'desk-fees',
           async (signal) => {

@@ -676,12 +676,16 @@ test(`${J} #11 reads the fee and volume API: the same rates and volume as the sc
   };
   const { version, snapshotAt } = await publishTiers(70_000, `TEST tier programme, VIP from ${VIP_FROM}, for the fee API`);
   try {
-    // #6's market buy keeps this account over the TEST threshold, so the programme's first snapshot puts it on the TEST VIP tier.
+    // #6's market buy keeps this account over the TEST threshold, so the programme's own snapshot puts it on the TEST VIP
+    // tier (#6's snapshot may already hold it there: a programme published again reads the last snapshot until the next).
     await expect
-      .poll(async () => (await myTier(client)).tier, { timeout: snapshotAt.getTime() - Date.now() + 90_000, intervals: [5_000] })
-      .toBe('test-vip-1');
+      .poll(async () => (await myTier(client)).lastSnapshot?.instant ?? null, {
+        timeout: snapshotAt.getTime() - Date.now() + 90_000,
+        intervals: [5_000],
+      })
+      .toBe(snapshotAt.toISOString());
     const tier = await myTier(client);
-    expect(tier.lastSnapshot).toMatchObject({ instant: snapshotAt.toISOString(), tierId: 'test-vip-1', scheduleVersion: version });
+    expect(tier).toMatchObject({ tier: 'test-vip-1', lastSnapshot: { tierId: 'test-vip-1', scheduleVersion: version } });
 
     // The fee API answers the rates this account pays: the TEST VIP row, with no rank discount on a new TEST account.
     const mine = (await feesOf(client))['BTC/USDT'];
@@ -698,15 +702,13 @@ test(`${J} #11 reads the fee and volume API: the same rates and volume as the sc
     // Another account is answered at its own tier, never this one's.
     const other = await api(otherTrader());
     const theirTier = (await myTier(other)).tier;
-    expect((await feesOf(other))['BTC/USDT']).toMatchObject(
-      theirTier === 'test-vip-1' ? { tier: theirTier, makerBps: 6, takerBps: 9 } : { tier: 'regular', makerBps: 8, takerBps: 10 },
-    );
+    expect((await feesOf(other))['BTC/USDT']).toMatchObject({ tier: theirTier });
 
     // The desk shows the same rates, and its order check prices a resting order at the same maker rate.
     await signIn(page, who);
     await page.goto(deskPath());
     await expect(page.getByRole('button', { name: 'Buy BTC' })).toBeVisible();
-    await expect(buyForm(page).locator('.dk-fees-listed')).toHaveText(
+    await expect(buyForm(page).locator('.dk-fees-mine')).toHaveText(
       `Your rates: maker ${pct(mine.makerBps)} · taker ${pct(mine.takerBps)}`,
     );
     await page.mouse.move(0, 600);

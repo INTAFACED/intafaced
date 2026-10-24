@@ -87,6 +87,7 @@ import { registerSpotOrderPreviewRest } from './spot/order-preview-rest.js';
 import { registerFeeTierRest } from './spot/fee-tier-rest.js';
 import { assertMakerRebatesPayable, parseFeeScheduleJson } from './spot/fee-schedule.js';
 import { feeScheduleAt } from './spot/fee-schedule-store.js';
+import { feeTierAt } from './spot/fee-tier-store.js';
 import { PositionService, FuturesError } from './futures/position-service.js';
 import { readOpenInterestLimits } from './futures/open-interest-limits.js';
 import {
@@ -1257,7 +1258,7 @@ registerPrivateRest(app, {
   markets: (limit) => trade.markets(limit),
   feeSchedule,
   feeScheduleNow: () => feeScheduleAt(sql, feeSchedule, new Date()),
-  feeTier: (userId) => trade.feeTierAt(userId),
+  feeTier: (userId, schedule) => feeTierAt(sql, schedule, userId, new Date()),
   feeDiscountBps: async (userId) => (await perks.perksOf(userId)).feeDiscountBps,
   now: () => new Date(),
   lifecycleForMarket: (market) => trade.marketLifecycleSnapshot(market),
