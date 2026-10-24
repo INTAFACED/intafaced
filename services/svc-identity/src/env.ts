@@ -238,7 +238,7 @@ const schema = serviceEnvSchema
        */
       IDENTITY_REFERRAL_CODE_LENGTH: z.string().optional(),
       /**
-       * Owner setting: how long a referral relationship lasts without a commission-bearing fee event by the referred
+       * Owner setting: how long a referral relationship lasts without a fee event (any, whether or not it earns commission) by the referred
        * person, in whole seconds (CM-referral-01 RF-4, J-campaigns-05 #7). NO DEFAULT. Blank: the lapse sweep refuses
        * (`referral.lapse_period_unset`) and does not run. Parsed at start by `parseLapsePeriodSeconds`.
        */

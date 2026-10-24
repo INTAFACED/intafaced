@@ -12,12 +12,11 @@ CREATE TABLE IF NOT EXISTS "identity"."referral_activity" (
   "last_fee_at" timestamptz NOT NULL
 );
 
--- Fee events already stored as accruals count as activity, never later than now.
+-- Before this migration a fee that earned nothing (rates unset, a frozen referrer, a zero rate) left no trace, so the
+-- clock for every existing relationship starts now: nobody lapses for inactivity that identity could not see.
 INSERT INTO "identity"."referral_activity" ("user_id", "last_fee_at")
-SELECT a."payer_id", LEAST(max(a."accrued_at"), now())
-FROM "identity"."affiliate_commission_accruals" a
-JOIN "identity"."users" u ON u."id" = a."payer_id"
-GROUP BY a."payer_id"
+SELECT e."user_id", now()
+FROM "identity"."referral_edges" e
 ON CONFLICT ("user_id") DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS "identity"."referral_lapses" (

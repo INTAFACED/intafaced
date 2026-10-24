@@ -167,6 +167,18 @@ if (!available) {
     expect(await lapse('blank').standingOf(INVITEE)).toEqual({ state: 'none' });
   });
 
+  it('the migration starts every existing relationship clock at deploy: an old edge with no fee on record does not lapse', async () => {
+    await attachAged(FRIEND, REFERRER, 365 * DAY);
+    // A fee stored long ago says nothing about the fees since, which may have earned nothing and left no trace.
+    await storedAccrual(FRIEND, REFERRER, 300 * DAY, 'fee:stored');
+    const body = readFileSync(join(drizzleDir, '0076_referral_lapses.sql'), 'utf8');
+    await db.sql.unsafe(rewriteSchemaSql(body, 'identity', db.schema));
+    expect(await lapse().sweep()).toEqual([]);
+    expect(await edgeOf(FRIEND)).toMatchObject({ referrer_id: REFERRER });
+    const standing = await lapse().standingOf(FRIEND);
+    expect(standing.state === 'active' && Math.abs(standing.lastActivityAt.getTime() - Date.now())).toBeLessThan(60_000);
+  });
+
   it('two sweeps at once end the relationship once', async () => {
     await attachAged(FRIEND, REFERRER, 31 * DAY);
     const [a, b] = await Promise.all([lapse().sweep(), lapse().sweep()]);
