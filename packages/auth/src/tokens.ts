@@ -35,6 +35,17 @@ export const accessClaimsSchema = z.object({
   mfa: z.boolean().default(false),
   sid: z.string().guid(),
   /**
+   * The session family: one per sign-in, the same on every refresh of it (`sid` changes on each refresh, because a
+   * refresh opens a successor session). Interactive sessions carry it; API-key tokens and tokens minted before it
+   * existed do not, so a reader treats absence as unknown, never as a match.
+   */
+  fam: z.string().guid().optional(),
+  /**
+   * The trusted device (I-signin-sessions-07) the session is bound to, the same across refreshes. Absent when the
+   * session is bound to none (an API key, a passkey sign-in, a token minted before it existed).
+   */
+  dev: z.string().guid().optional(),
+  /**
    * Pay scopes minted by `auth.stepUpPay`. Absent on a normal session and on
    * every refresh. An API key may copy `pay:refund` / `pay:payout` only when
    * this claim lists them.
@@ -138,6 +149,10 @@ export interface IssueAccessInput {
   keyEnv?: 'live' | 'sandbox';
   /** Pay scopes this step-up mint is allowed to delegate onto a key. */
   stepUpScopes?: readonly string[];
+  /** The session's family (`fam`), stable across refreshes. */
+  familyId?: string | null;
+  /** The trusted device the session is bound to (`dev`). */
+  trustedDeviceId?: string | null;
 }
 
 export async function issueAccessToken(input: IssueAccessInput, config: TokenConfig): Promise<{ token: string; expiresAt: Date }> {
@@ -149,6 +164,8 @@ export async function issueAccessToken(input: IssueAccessInput, config: TokenCon
     tier: input.tier ?? 'none',
     mfa: input.mfa ?? false,
     sid: input.sessionId,
+    ...(input.familyId ? { fam: input.familyId } : {}),
+    ...(input.trustedDeviceId ? { dev: input.trustedDeviceId } : {}),
     ...(input.subAccountId ? { sub_account: input.subAccountId } : {}),
     ...(input.apiKeyId ? { kid: input.apiKeyId } : {}),
     ...(input.keyEnv ? { key_env: input.keyEnv } : {}),
