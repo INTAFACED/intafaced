@@ -2074,20 +2074,6 @@ export const WIRING_SOCKETS = [
       'svc-notify writes the dispute-status notice in the PP-send-request-18 svc-notify PR, idempotent by event id. No publisher exists yet, so no user is promised a receipt by this event today.',
   },
   {
-    event: 'bankScheduledReminder',
-    missing: 'subscriber',
-    class: 'A',
-    reason:
-      "Declared with svc-bank's publisher in the BK-acct-10 slice; svc-notify writes the reminder into the inbox in the next PR, idempotent by event id. Until then the notice stays on the bus and no screen promises it was delivered.",
-  },
-  {
-    event: 'bankScheduledFailed',
-    missing: 'subscriber',
-    class: 'A',
-    reason:
-      "Declared with svc-bank's publisher in the BK-acct-10 slice; svc-notify writes the failure notice into the inbox in the next PR, idempotent by event id. The failed run is already listed with its reason in Transfers and the calendar, so no money fact waits on it.",
-  },
-  {
     event: 'p2pChatMessageSent',
     missing: 'publisher',
     class: 'A',

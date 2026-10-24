@@ -86,7 +86,8 @@ describe('catalog — the key set is closed and complete', () => {
     // User spend caps (AG-spend-01) add seven refusal keys.
     // A blank hold age refuses (AG-spend-01) and adds one more refusal key.
     // The buyer-paid notice to the seller (P-trade-orders-23) adds a title and a body key.
-    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(264);
+    // Standing-order reminder and failure notices (BK-acct-10) add four title/body keys.
+    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(268);
 
     for (const surface of ['common.', 'auth.', 'trade.', 'wallet.', 'p2p.', 'notify.', 'error.', 'support.', 'agents.', 'admin.']) {
       expect(

@@ -5,6 +5,8 @@ import {
   personalRequestCreated,
   personalRequestSettled,
   personalTransferPosted,
+  bankScheduledReminder,
+  bankScheduledFailed,
   supportTicketResolved,
   fillSettled,
   kycApproved,
@@ -766,6 +768,58 @@ export async function subscribeNotificationEvents(
         bodyKey: 'notify.pay.transfer_sent.body',
       });
       nakIfRetryable(...(received ? [received, sent] : [sent]));
+    }),
+  );
+
+  attachments.push(
+    await attach(bus, 'bankScheduledReminder', bankScheduledReminder.subject, 'notify-bank-scheduled-reminder', async (payload) => {
+      // One reminder per standing-order run: deduped on schedule and run, so a redelivered event writes nothing new.
+      nakIfRetryable(
+        await notify.create({
+          userId: payload.userId,
+          kind: 'bank.scheduled_reminder',
+          titleKey: 'notify.bank.scheduled_reminder.title',
+          bodyKey: 'notify.bank.scheduled_reminder.body',
+          params: {
+            scheduleId: payload.scheduleId,
+            occurrence: String(payload.occurrence),
+            amount: payload.amount,
+            assetId: payload.assetId,
+            leadHours: String(payload.leadHours),
+            dueAt: payload.dueAt,
+          },
+          href: '/bank/transfers',
+          severity: 'info',
+          sourceSubject: bankScheduledReminder.subject,
+          sourceIdempotencyKey: `${payload.scheduleId}:${payload.occurrence}`,
+        }),
+      );
+    }),
+  );
+
+  attachments.push(
+    await attach(bus, 'bankScheduledFailed', bankScheduledFailed.subject, 'notify-bank-scheduled-failed', async (payload) => {
+      // A run the bank refused took nothing; the person hears once, with the bank's reason code, deduped on schedule and run.
+      nakIfRetryable(
+        await notify.create({
+          userId: payload.userId,
+          kind: 'bank.scheduled_failed',
+          titleKey: 'notify.bank.scheduled_failed.title',
+          bodyKey: 'notify.bank.scheduled_failed.body',
+          params: {
+            scheduleId: payload.scheduleId,
+            occurrence: String(payload.occurrence),
+            amount: payload.amount,
+            assetId: payload.assetId,
+            reasonCode: payload.reasonCode,
+            failedAt: payload.failedAt,
+          },
+          href: '/bank/transfers',
+          severity: 'action',
+          sourceSubject: bankScheduledFailed.subject,
+          sourceIdempotencyKey: `${payload.scheduleId}:${payload.occurrence}`,
+        }),
+      );
     }),
   );
 
