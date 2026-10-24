@@ -44,6 +44,8 @@ const record = (extra = {}) => ({
   matchRuns: [{ id: crewId, candidates: [], scores: [], placedCrewId: peer, ts: time }],
   mentorMatches: [],
   mentoringOthers: [],
+  shares: [],
+  cardsOpened: [],
   ...extra,
 });
 const reply = (route, data) => route.fulfill({ status: 200, json: { result: { data } } });

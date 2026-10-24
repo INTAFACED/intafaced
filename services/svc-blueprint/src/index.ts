@@ -94,6 +94,8 @@ const blueprint = new BlueprintService(sql, engine, bus, cardRenderer, {
   crewCapacity: env.BLUEPRINT_CREW_CAPACITY,
   mentorShortlistSize: env.BLUEPRINT_MENTOR_SHORTLIST_SIZE,
   season: env.BLUEPRINT_SEASON,
+  sharesPerOwner: env.BLUEPRINT_SHARES_PER_OWNER,
+  opensListLimit: env.BLUEPRINT_OPENS_LIST_LIMIT,
 });
 
 export const appRouter = createBlueprintRouter(blueprint);
