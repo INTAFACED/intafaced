@@ -2,6 +2,7 @@ import { createHmac } from 'node:crypto';
 import { transaction } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { AuthError } from './auth-service.js';
+import { queuePasswordChangedNotice } from './password-changed-notice.js';
 import { assertNotSecurityLocked } from './security-lock.js';
 import {
   assertPasswordNotBreached,
@@ -76,7 +77,8 @@ export type MailPurpose =
   | 'login-code'
   | 'login-no-account'
   | 'new-device-code'
-  | 'withdraw-address-approval';
+  | 'withdraw-address-approval'
+  | 'password-changed';
 
 export interface PasswordResetDeps {
   readonly sql: Sql;
@@ -361,6 +363,7 @@ export async function completePasswordReset(
   }
   const nextHash = await hashPassword(input.newPassword);
 
+  let noticed = false;
   const revokedIds = await transaction(
     deps.sql,
     async (tx) => {
@@ -389,10 +392,12 @@ export async function completePasswordReset(
         WHERE user_id = ${user.id} AND revoked = false
         RETURNING id
       `;
+      noticed = await queuePasswordChangedNotice(tx, { userId: user.id, nextHash, now: deps.now() });
       return revoked.map((row) => row.id);
     },
     { isolation: 'read committed' },
   );
+  if (noticed) await deps.afterCommit?.();
 
   return { userId: user.id, sessionsRevoked: revokedIds.length };
 }

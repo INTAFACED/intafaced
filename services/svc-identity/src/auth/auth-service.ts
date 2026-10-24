@@ -52,6 +52,7 @@ import {
   type LoginCodePolicy,
 } from './login-code.js';
 import { queueServiceMail } from './service-mail.js';
+import { queuePasswordChangedNotice } from './password-changed-notice.js';
 import {
   approveFromSession,
   approveWithCode,
@@ -1746,6 +1747,7 @@ export class AuthService {
       throw new AuthError('The new password must differ from the current one', 'auth.password_unchanged');
     }
     const nextHash = await hashPassword(input.newPassword);
+    let noticed = false;
     const revokedIds = await transaction(this.sql, async (tx) => {
       const locked = await tx<
         Array<{ password_hash: string; status: string }>
@@ -1765,8 +1767,10 @@ export class AuthService {
         Array<{ id: string }>
       >`UPDATE sessions SET revoked = true WHERE user_id = ${userId} AND revoked = false AND id <> ${sessionId} RETURNING id`;
       await recordSuccess(tx, userId, 'password');
+      noticed = await queuePasswordChangedNotice(tx, { userId, nextHash, now: this.passwordResetNow() });
       return revoked.map((r) => r.id);
     });
+    if (noticed) await this.mailRelayTrigger?.();
     for (const id of revokedIds) await syncNavigatorSessionClosed(this.sql, id);
     this.log.warn({ userId, sessionId, otherSessionsRevoked: revokedIds.length }, 'auth.password_changed');
   }

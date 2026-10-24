@@ -50,6 +50,9 @@ export function localMailLine(message: LocalMailMessage): string {
 function localMailBody(message: LocalMailMessage): string {
   const purpose = message.purpose ?? 'password-reset';
   const email = message.email.replace(/\s+/g, '');
+  if (purpose === 'password-changed') {
+    return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} notice=password-changed\n`;
+  }
   if (purpose === 'email-change-notice') {
     return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} notice=address-changed\n`;
   }
