@@ -2391,6 +2391,19 @@ export class AuthService {
   }
 
   /**
+   * The caller's own email, and whether it is confirmed (the drop room's waitlist read, `waitlist.mine`). Self-only: the
+   * user id comes from the session. Null when the account is gone.
+   */
+  async selfEmail(userId: string): Promise<{ email: string; emailVerified: boolean } | null> {
+    const rows = await this.sql<Array<{ email: string | null; email_verified_at: Date | string | null }>>`
+      SELECT email, email_verified_at FROM users WHERE id = ${userId} LIMIT 1
+    `;
+    const row = rows[0];
+    if (!row?.email) return null;
+    return { email: row.email, emailVerified: isEmailConfirmed(row) };
+  }
+
+  /**
    * Exact handle match for pay-by-@handle. `handle` is citext, so `=` is
    * case-insensitive and there is no LIKE, prefix or list path here.
    *
