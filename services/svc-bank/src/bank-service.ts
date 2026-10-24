@@ -7,7 +7,6 @@ import { EarnService } from './earn/earn-service.js';
 import { SpendAnalytics } from './analytics/spend.js';
 import { LoanService, type LoanServiceOptions } from './loans/loan-service.js';
 import { fixedPriceSource } from './loans/prices.js';
-import { BANK_LOAN_PAYOFF_FEE_ENV, BANK_LOAN_PAYOFF_WINDOW_ENV } from './loans/loan-reads.js';
 import { CardService, type CardServiceOptions } from './cards/card-service.js';
 import { RampService, type RampServiceOptions } from './ramps/ramp-service.js';
 import { AddMoneyService } from './ramps/add-money.js';
@@ -250,15 +249,10 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
   // fails with `bank.mark_missing`. The correct posture for a deployment that has
   // not decided where its prices come from.
   const loanBase = options.loans ?? { priceSource: fixedPriceSource({}) };
+  // The payoff fee and window come from env (index.ts); unset or blank refuses.
   const loans = new LoanService(sql, ledger, {
     ...loanBase,
-    // A value passed in, including a blank, wins. Otherwise the live env. Blank refuses.
-    payoffFee: options.loans && 'payoffFee' in options.loans ? options.loans.payoffFee : process.env[BANK_LOAN_PAYOFF_FEE_ENV],
-    payoffWindowMinutes:
-      options.loans && 'payoffWindowMinutes' in options.loans
-        ? options.loans.payoffWindowMinutes
-        : process.env[BANK_LOAN_PAYOFF_WINDOW_ENV],
-    statementSecret: options.loans && 'statementSecret' in options.loans ? options.loans.statementSecret : options.activity?.cursorSecret,
+    statementSecret: loanBase.statementSecret !== undefined ? loanBase.statementSecret : options.activity?.cursorSecret,
   });
   // No convert port = DCA refuses rates-unset; threshold sweeps still work.
   // Constructed before cards so the capture hook can call applyRoundUp without

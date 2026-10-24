@@ -14,9 +14,6 @@ import { dailyLoanInterest } from './risk.js';
  * stores a quote or posts.
  */
 
-export const BANK_LOAN_PAYOFF_FEE_ENV = 'BANK_LOAN_PAYOFF_FEE';
-export const BANK_LOAN_PAYOFF_WINDOW_ENV = 'BANK_LOAN_PAYOFF_WINDOW_MINUTES';
-
 const WINDOW_MAX_MINUTES = 10_080;
 
 export interface ProjectionRow {
