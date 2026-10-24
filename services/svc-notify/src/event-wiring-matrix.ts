@@ -84,6 +84,12 @@ export const NOTIFY_EVENT_CONSUMERS: readonly NotifyConsumerRow[] = [
     effect: 'Inbox row when verification tier is granted',
   },
   {
+    event: 'securityFactorChanged',
+    durable: 'notify-security-factor-changed',
+    subject: 'intafaced.identity.security_factor.updated',
+    effect: 'Inbox row when a sign-in factor is turned on, off, replaced, added or removed',
+  },
+  {
     event: 'rankUpdated',
     durable: 'notify-rank-updated',
     subject: 'intafaced.identity.rank.updated',

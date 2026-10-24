@@ -260,8 +260,11 @@ test(`${J} #6 mail and inbox notices for each factor change`, async ({ page }) =
   await expect
     .poll(() => mailedLines(who.email, 'factor-changed').some((line) => line.includes('change=totp_added')), { timeout: 20_000 })
     .toBe(true);
-  await page.goto('/notifications');
-  await expect(page.getByText('Authenticator app turned on')).toBeVisible(UNBUILT);
+  // The inbox row follows the event, which svc-identity's outbox relay publishes within a few seconds: reload until it shows.
+  await expect(async () => {
+    await page.goto('/notifications');
+    await expect(page.getByText('Authenticator app turned on')).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 20_000 });
 });
 
 test(`${J} #7 recovery keys set earlier (people they trust, never staff) claim the account back`, async ({ page }) => {
