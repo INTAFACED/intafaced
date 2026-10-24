@@ -5,6 +5,7 @@ import { signInReturnTarget } from '@/lib/crm-return';
 import { firstLoginError, loginFieldErrors, type LoginFieldErrors } from '@/lib/crm-login';
 import { submitProps } from '@/lib/crm-form-state';
 import { Callout } from './crm-callout';
+import { FounderDeviceApproval, postSession, SessionRefusal, type DeviceAuthorisation } from './founder-device-approval';
 
 /** After signing in: the page the sign-in link asked for (only a /crm path), else the enquiry whose edits this tab kept for the founder who just signed in, else /crm. */
 function returnTarget(session: unknown): string {
@@ -31,6 +32,7 @@ export function FounderLogin() {
   const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<LoginFieldErrors>({});
   const [busy, setBusy] = useState(false);
+  const [waiting, setWaiting] = useState<DeviceAuthorisation | null>(null);
   const fields = {
     identifier: useRef<HTMLInputElement>(null),
     password: useRef<HTMLInputElement>(null),
@@ -49,19 +51,14 @@ export function FounderLogin() {
         {fieldErrors[name]}
       </small>
     ) : null;
-  async function post(path: string, input: unknown) {
-    const response = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) });
-    const data: unknown = await response.json();
-    if (!response.ok) {
-      const code = data && typeof data === 'object' && 'code' in data ? String(data.code) : '';
-      throw new Error(
-        code.includes('unconfigured')
-          ? 'The founder workspace is awaiting deployment configuration.'
-          : 'Sign-in was refused. Check your credentials and second factor.',
-      );
-    }
-    return data;
-  }
+  if (waiting)
+    return (
+      <FounderDeviceApproval
+        waiting={waiting}
+        onSignedIn={(session) => window.location.assign(returnTarget(session))}
+        onStartOver={() => setWaiting(null)}
+      />
+    );
   return (
     <form
       className="adm-form"
@@ -80,9 +77,14 @@ export function FounderLogin() {
         setBusy(true);
         setError('');
         try {
-          const session = await post('/api/session', { identifier, password, totpCode });
+          const session = await postSession('/api/session', { identifier, password, totpCode });
           window.location.assign(returnTarget(session));
         } catch (failure) {
+          // The right password and code on a browser identity has not seen: approve this browser first.
+          if (failure instanceof SessionRefusal && failure.deviceAuthorisation) {
+            setWaiting(failure.deviceAuthorisation);
+            return;
+          }
           setError(failure instanceof Error ? failure.message : 'Sign-in failed.');
         } finally {
           setPassword('');
@@ -159,7 +161,7 @@ export function FounderLogin() {
           setError('');
           try {
             if (!navigator.credentials) throw new Error('Passkeys are unavailable in this browser.');
-            const raw = (await post('/api/session/passkey', { action: 'options', identifier })) as {
+            const raw = (await postSession('/api/session/passkey', { action: 'options', identifier })) as {
               challenge: string;
               allowCredentials?: Array<{ id: string; type: 'public-key'; transports?: AuthenticatorTransport[] }>;
               rpId?: string;
@@ -176,7 +178,7 @@ export function FounderLogin() {
             })) as PublicKeyCredential | null;
             if (!credential) throw new Error('Passkey sign-in was cancelled.');
             const response = credential.response as AuthenticatorAssertionResponse;
-            const session = await post('/api/session/passkey', {
+            const session = await postSession('/api/session/passkey', {
               action: 'authenticate',
               identifier,
               credential: {
