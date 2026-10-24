@@ -1,4 +1,5 @@
--- intafaced:destructive drops password-changed notices not yet sent; the password change itself stays.
+-- intafaced:destructive deletes every password-changed notice row, sent or not, so the old CHECK can apply again;
+-- the password changes themselves stay.
 DELETE FROM "identity"."mail_outbox" WHERE "purpose" = 'password-changed';
 ALTER TABLE "identity"."mail_outbox" DROP CONSTRAINT IF EXISTS "mail_outbox_purpose_check";
 ALTER TABLE "identity"."mail_outbox"

@@ -272,8 +272,9 @@ export async function relayMailOutbox(
   }
   for (const job of claimed) {
     // A service mail (POST /internal/mail) goes out only while its account is still active and the address is still
-    // its proved one; a freeze or an address change between the request and the send withdraws it.
-    if (job.user_id && !(await stillOwnAddress(deps.sql, job.user_id, job.recipient))) {
+    // its proved one; a freeze or an address change between the request and the send withdraws it. The password-changed
+    // notice is not withdrawn: it goes to the address proved at the change, which is the point of it.
+    if (job.user_id && job.purpose !== 'password-changed' && !(await stillOwnAddress(deps.sql, job.user_id, job.recipient))) {
       await deps.sql`UPDATE mail_outbox SET status = 'suppressed' WHERE id = ${job.id}`;
       continue;
     }
@@ -290,8 +291,10 @@ export async function relayMailOutbox(
       await deps.sql`UPDATE mail_outbox SET status = 'sent', sent_at = ${deps.now()} WHERE id = ${job.id}`;
       out.sent += 1;
     } catch {
-      // A throw can follow a send that landed. The row stays `unknown`, the flow stays valid.
+      // A throw can follow a send that landed. The row stays `unknown`, the flow stays valid. A password-changed notice
+      // carries no secret, so a second copy harms nothing: it goes back to pending and the next relay tries again.
       deps.log.warn({ jobId: job.id, purpose: job.purpose }, 'auth.password_reset_delivery_failed');
+      if (job.purpose === 'password-changed') await deps.sql`UPDATE mail_outbox SET status = 'pending' WHERE id = ${job.id}`;
       out.unknown += 1;
     }
   }
@@ -363,8 +366,7 @@ export async function completePasswordReset(
   }
   const nextHash = await hashPassword(input.newPassword);
 
-  let noticed = false;
-  const revokedIds = await transaction(
+  const { revokedIds, noticed } = await transaction(
     deps.sql,
     async (tx) => {
       const locked = await tx<Array<{ status: string }>>`
@@ -392,12 +394,13 @@ export async function completePasswordReset(
         WHERE user_id = ${user.id} AND revoked = false
         RETURNING id
       `;
-      noticed = await queuePasswordChangedNotice(tx, { userId: user.id, nextHash, now: deps.now() });
-      return revoked.map((row) => row.id);
+      const noticed = await queuePasswordChangedNotice(tx, { userId: user.id, now: deps.now() });
+      return { revokedIds: revoked.map((row) => row.id), noticed };
     },
     { isolation: 'read committed' },
   );
-  if (noticed) await deps.afterCommit?.();
+  // The reset has committed: a relay that fails to start now must not make it look refused. The timer relay sends it.
+  if (noticed) await Promise.resolve(deps.afterCommit?.()).catch(() => undefined);
 
   return { userId: user.id, sessionsRevoked: revokedIds.length };
 }

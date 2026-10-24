@@ -1747,8 +1747,7 @@ export class AuthService {
       throw new AuthError('The new password must differ from the current one', 'auth.password_unchanged');
     }
     const nextHash = await hashPassword(input.newPassword);
-    let noticed = false;
-    const revokedIds = await transaction(this.sql, async (tx) => {
+    const { revokedIds, noticed } = await transaction(this.sql, async (tx) => {
       const locked = await tx<
         Array<{ password_hash: string; status: string }>
       >`SELECT password_hash, status FROM users WHERE id = ${userId} FOR UPDATE`;
@@ -1767,10 +1766,11 @@ export class AuthService {
         Array<{ id: string }>
       >`UPDATE sessions SET revoked = true WHERE user_id = ${userId} AND revoked = false AND id <> ${sessionId} RETURNING id`;
       await recordSuccess(tx, userId, 'password');
-      noticed = await queuePasswordChangedNotice(tx, { userId, nextHash, now: this.passwordResetNow() });
-      return revoked.map((r) => r.id);
+      const noticed = await queuePasswordChangedNotice(tx, { userId, now: this.passwordResetNow() });
+      return { revokedIds: revoked.map((r) => r.id), noticed };
     });
-    if (noticed) await this.mailRelayTrigger?.();
+    // The change has committed: a relay that fails to start now must not make it look refused. The timer relay sends it.
+    if (noticed) await Promise.resolve(this.mailRelayTrigger?.()).catch(() => undefined);
     for (const id of revokedIds) await syncNavigatorSessionClosed(this.sql, id);
     this.log.warn({ userId, sessionId, otherSessionsRevoked: revokedIds.length }, 'auth.password_changed');
   }

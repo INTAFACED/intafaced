@@ -281,7 +281,7 @@ if (!available) {
       expect(notices(unproved.email)).toHaveLength(0);
     });
 
-    it('keeps the change and the queued notice when the mail transport fails; a later relay does not send it twice', async () => {
+    it('keeps the change when the mail transport fails, and the next relay tries the notice again', async () => {
       const user = await register();
       await proved(user.userId);
       failSend = true;
@@ -293,12 +293,26 @@ if (!available) {
         newPassword: NEW,
       });
       await expect(anon().auth.login({ identifier: user.email, password: NEW })).resolves.toMatchObject({ userId: user.userId });
+      expect(notices(user.email)).toHaveLength(1);
       failSend = false;
       await auth.drainMailOutbox();
-      expect(notices(user.email)).toHaveLength(1);
+      expect(notices(user.email)).toHaveLength(2);
       expect(await db.sql`SELECT status FROM mail_outbox WHERE purpose = 'password-changed' AND user_id = ${user.userId}`).toEqual([
-        { status: 'unknown' },
+        { status: 'sent' },
       ]);
+    });
+
+    it('still reaches the address proved at the change when the address changes or the account is frozen first', async () => {
+      const user = await register();
+      await proved(user.userId);
+      auth.useMailRelayTrigger(undefined);
+      await anon().auth.requestPasswordReset({ email: user.email });
+      await auth.drainMailOutbox();
+      const code = sent.filter((m) => m.purpose === 'password-reset').at(-1)!.code;
+      await anon().auth.completePasswordReset({ email: user.email, code, newPassword: NEW });
+      await db.sql`UPDATE users SET email = ${`moved-${user.email}`}, status = 'frozen' WHERE id = ${user.userId}`;
+      await auth.drainMailOutbox();
+      expect(notices(user.email)).toHaveLength(1);
     });
   });
 }
