@@ -36,6 +36,7 @@ import { Postmortems } from './status-page/postmortems.js';
 import { MAINTENANCE_SWEEP_INTERVAL_MS, MaintenanceLifecycle } from './notices/maintenance.js';
 import { SqlMaintenanceStore } from './notices/maintenance.pg.js';
 import { SqlPostmortemStore } from './status-page/postmortems.pg.js';
+import { audienceMembershipFromEnv } from './notices/audiences.js';
 import { noticeApprovalConsumerFromProcessEnv } from './notices/approval.js';
 import { ChannelSettings } from './ops-config/channel-settings.js';
 import { PostgresChannelSettingsStore } from './ops-config/channel-settings.pg.js';
@@ -145,6 +146,9 @@ await sql`SELECT impact, components, parent_id, resolves FROM notify.notices LIM
 await sql`SELECT changelog FROM notify.notices LIMIT 1`.catch(() => {
   throw new Error('notify.notices has no changelog column — run migration 0015_notify_changelog_fields before starting svc-notify');
 });
+await sql`SELECT audience FROM notify.notices LIMIT 1`.catch(() => {
+  throw new Error('notify.notices has no audience column — run migration 0034_notify_notice_audiences before starting svc-notify');
+});
 
 // Consumer only — trade / p2p / identity / token / bank own their streams.
 // `ownedStreams: []` matches svc-ws: we never create a stream for subjects we do
@@ -219,6 +223,7 @@ const notices = new NoticeBoard(
   (row) => statusSubscriptions.fanOut(row),
   (ids) => maintenanceStore.closedAmong(ids),
   async () => (await statusBook.definition()).noticeCategories,
+  audienceMembershipFromEnv(env, s2sKey),
 );
 const maintenance = new MaintenanceLifecycle({
   store: maintenanceStore,

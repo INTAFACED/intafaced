@@ -19,6 +19,7 @@ import {
   type NoticeStore,
   type StatusComponent,
 } from './board.js';
+import { isNoticeAudience, type MemberAudience, type NoticeAudience } from './audiences.js';
 import { fromStored as changelogFromStored, type Changelog } from './changelog.js';
 
 type NoticePg = {
@@ -41,6 +42,7 @@ type NoticePg = {
   changelog: unknown;
   reminder_offsets: number[] | null;
   category: NoticeCategory | null;
+  audience: string;
   author_id: string;
   client_request_id: string;
   publish_client_request_id: string | null;
@@ -68,6 +70,11 @@ function asPhase(value: string | null): IncidentPhase | null {
 function asComponents(values: string[]): StatusComponent[] {
   if (values.some((value) => !STATUS_COMPONENT_PATTERN.test(value))) throw new NoticeError('notify.notice_component_unknown');
   return values as StatusComponent[];
+}
+
+function asAudience(value: string): NoticeAudience {
+  if (!isNoticeAudience(value)) throw new NoticeError('notify.notice_audience_invalid');
+  return value;
 }
 
 function asChangelog(value: unknown): Changelog | null {
@@ -99,6 +106,7 @@ function fromPg(row: NoticePg): NoticeRow {
     changelog: asChangelog(row.changelog),
     reminderOffsets: row.reminder_offsets ?? [],
     category: row.category ?? null,
+    audience: asAudience(row.audience),
     authorId: row.author_id,
     clientRequestId: row.client_request_id,
     publishClientRequestId: row.publish_client_request_id,
@@ -109,7 +117,7 @@ function fromPg(row: NoticePg): NoticeRow {
 
 const COLUMNS = `
   id, kind, title, body, status, published_at, starts_at, ends_at, version,
-  impact, components, parent_id, resolves, asset, network, phase, changelog, reminder_offsets, category,
+  impact, components, parent_id, resolves, asset, network, phase, changelog, reminder_offsets, category, audience,
   author_id, client_request_id, publish_client_request_id, approval_id, created_at
 `;
 
@@ -129,8 +137,8 @@ export class PostgresNoticeStore implements NoticeStore {
     await this.sql`
       INSERT INTO notify.notices (
         id, kind, title, body, status, published_at, starts_at, ends_at, version,
-        impact, components, parent_id, resolves, asset, network, phase, changelog, reminder_offsets, category, author_id,
-        client_request_id
+        impact, components, parent_id, resolves, asset, network, phase, changelog, reminder_offsets, category, audience,
+        author_id, client_request_id
       ) VALUES (
         ${row.id}, ${row.kind}, ${row.title}, ${row.body}, ${row.status},
         ${row.publishedAt}, ${row.startsAt}, ${row.endsAt}, ${row.version},
@@ -139,6 +147,7 @@ export class PostgresNoticeStore implements NoticeStore {
         ${row.changelog ? this.sql.json(row.changelog as never) : null},
         ${[...(row.reminderOffsets ?? [])]}::integer[],
         ${row.category ? this.sql.json(row.category as never) : null},
+        ${row.audience ?? 'everyone'},
         ${row.authorId}, ${row.clientRequestId}
       )
     `;
@@ -167,7 +176,7 @@ export class PostgresNoticeStore implements NoticeStore {
       ? await this.sql<NoticePg[]>`
           WITH c AS (SELECT published_at AS cursor_at FROM notify.notices WHERE id = ${after.id})
           SELECT ${this.sql.unsafe(COLUMNS)} FROM notify.notices, c
-           WHERE status = 'published'
+           WHERE status = 'published' AND audience = 'everyone'
              ${kind == null ? this.sql`` : this.sql`AND kind = ${kind}`}
              AND (published_at < c.cursor_at OR (published_at = c.cursor_at AND id > ${after.id}))
            ORDER BY published_at DESC, id ASC
@@ -175,7 +184,7 @@ export class PostgresNoticeStore implements NoticeStore {
         `
       : await this.sql<NoticePg[]>`
           SELECT ${this.sql.unsafe(COLUMNS)} FROM notify.notices
-           WHERE status = 'published'
+           WHERE status = 'published' AND audience = 'everyone'
              ${kind == null ? this.sql`` : this.sql`AND kind = ${kind}`}
            ORDER BY published_at DESC, id ASC
            LIMIT ${limit}
@@ -186,7 +195,20 @@ export class PostgresNoticeStore implements NoticeStore {
   async listPublishedForStatus(limit: number): Promise<readonly NoticeRow[]> {
     const rows = await this.sql<NoticePg[]>`
       SELECT ${this.sql.unsafe(COLUMNS)} FROM notify.notices
-       WHERE status = 'published' AND kind IN ('incident', 'maintenance')
+       WHERE status = 'published' AND audience = 'everyone' AND kind IN ('incident', 'maintenance')
+       ORDER BY published_at DESC, id ASC
+       LIMIT ${limit}
+    `;
+    return rows.map(fromPg);
+  }
+
+  async listOpenForAudiences(audiences: readonly MemberAudience[], at: Date, limit: number): Promise<readonly NoticeRow[]> {
+    if (audiences.length === 0) return [];
+    // Open as noticeIsOpen reads it: started (or no start) and not yet ended (or no end).
+    const rows = await this.sql<NoticePg[]>`
+      SELECT ${this.sql.unsafe(COLUMNS)} FROM notify.notices
+       WHERE status = 'published' AND audience = ANY(${[...audiences]}::text[])
+         AND (starts_at IS NULL OR starts_at <= ${at}) AND (ends_at IS NULL OR ends_at > ${at})
        ORDER BY published_at DESC, id ASC
        LIMIT ${limit}
     `;

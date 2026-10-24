@@ -308,6 +308,12 @@ const schema = serviceEnvSchema
       MATCHING_URL: blankAsAbsent(z.string().url().optional()),
 
       /**
+       * svc-p2p, for notice audiences: whether an account is an active P2P merchant (GET /internal/reputation/:userId,
+       * signed). Unset / blank → the `p2p-merchants` audience reads unavailable and its members' read refuses.
+       */
+      P2P_URL: blankAsAbsent(z.string().url().optional()),
+
+      /**
        * Whale-flow allow-list: comma-separated market ids that may quote a
        * sourced ticker volume. Blank / unset → dark whale mark
        * (`alerts.whale_mark_dark`). Membership is not a flow number — TRADE_URL

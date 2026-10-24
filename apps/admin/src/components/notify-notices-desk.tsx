@@ -14,6 +14,8 @@ import {
   checkAnnouncementDraft,
   parseCategories,
   type Announcement,
+  type Audience,
+  type AudienceOption,
   type NoticeCategories,
   type NoticesDeskView,
   CATEGORIES_REASON_MAX,
@@ -24,7 +26,7 @@ import {
  *
  * Write an announcement filed under one of the founders' categories (or none), ask for the approval its publish spends,
  * approve another founder's request, publish. A published announcement is on the public notice board once, with its kind
- * and category. The category list is an owner value: blank means the kinds alone, and svc-notify then refuses any
+ * and category, or, written for P2P merchants, read signed in by active P2P merchants alone and on no public read. The category list is an owner value: blank means the kinds alone, and svc-notify then refuses any
  * category. Incidents and maintenance have their own desks.
  */
 
@@ -118,13 +120,21 @@ function CategoriesForm({ categories, busy, onSubmit }: { categories: NoticeCate
   );
 }
 
+const AUDIENCE_LABEL: Record<Audience, string> = {
+  everyone: 'Everyone (the public notice board)',
+  'p2p-merchants': 'P2P merchants only (signed in)',
+};
+
 function DraftForm({
   categories,
+  audiences,
   basis,
   busy,
   onSubmit,
 }: {
   categories: NoticeCategories | null;
+  /** Null when svc-notify's list could not be read: everyone is still offered, no member audience is. */
+  audiences: readonly AudienceOption[] | null;
   basis: string | null;
   busy: boolean;
   onSubmit: Submit;
@@ -132,7 +142,11 @@ function DraftForm({
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [category, setCategory] = useState('');
-  const check = checkAnnouncementDraft({ title, body, category: category === '' ? null : category });
+  const [audience, setAudience] = useState<Audience>('everyone');
+  const check = checkAnnouncementDraft({ title, body, category: category === '' ? null : category, audience });
+  const merchants = audiences?.find((a) => a.id === 'p2p-merchants') ?? null;
+  // A choice the desk no longer offers (the list was read again and P2P merchants went unavailable) is never sent.
+  const audienceOk = audience === 'everyone' || merchants?.available === true;
   const listed = categories?.list ?? [];
   return (
     <section className="dk-stack" aria-labelledby="notice-draft" data-testid="notice-draft">
@@ -174,13 +188,42 @@ function DraftForm({
           <p className="dk-muted">No categories are set, so an announcement carries its kind alone.</p>
         )}
       </div>
+      <div className="adm-field">
+        <label htmlFor="notice-audience">Who it is for</label>
+        <select
+          id="notice-audience"
+          className="adm-input"
+          value={audience}
+          onChange={(e) => setAudience(e.target.value as Audience)}
+          disabled={busy}
+          data-testid="notice-audience"
+        >
+          <option value="everyone">{AUDIENCE_LABEL.everyone}</option>
+          <option value="p2p-merchants" disabled={!merchants?.available}>
+            {AUDIENCE_LABEL['p2p-merchants']}
+          </option>
+        </select>
+        {merchants === null ? (
+          <p className="dk-muted" data-testid="notice-audience-why">
+            The audience list could not be read, so only everyone can be chosen.
+          </p>
+        ) : !merchants.available ? (
+          <p className="dk-muted" data-testid="notice-audience-why">
+            P2P merchants cannot be chosen: svc-notify has no P2P_URL, so it cannot tell who is a merchant.
+          </p>
+        ) : (
+          audience === 'p2p-merchants' && (
+            <p className="dk-muted">Active P2P merchants read it signed in. It is on no public read and mailed to no status subscriber.</p>
+          )
+        )}
+      </div>
       {!check.ok && (title !== '' || body !== '') && <p className="dk-why">{check.why}</p>}
       <div className="dk-row">
         <button
           type="button"
           className="adm-btn"
-          onClick={() => onSubmit({ op: 'draft', basis, title, body, category: category === '' ? null : category })}
-          disabled={busy || !check.ok}
+          onClick={() => onSubmit({ op: 'draft', basis, title, body, category: category === '' ? null : category, audience })}
+          disabled={busy || !check.ok || !audienceOk}
         >
           Save draft
         </button>
@@ -211,7 +254,8 @@ function AnnouncementCard({
       </h3>
       <p>{notice.body}</p>
       <p className="dk-muted" data-testid="notice-filing">
-        Kind: {notice.kind}. Category: {notice.category ? notice.category.name : 'none'}.
+        Kind: {notice.kind}. Category: {notice.category ? notice.category.name : 'none'}. For:{' '}
+        {notice.audience === 'everyone' ? 'everyone' : 'P2P merchants only'}.
         {notice.publishedAt ? ` Published ${formatWhen(notice.publishedAt)}.` : ''}
         {notice.authorId === me ? ' Written by you.' : ''}
       </p>
@@ -278,6 +322,7 @@ export function NotifyNoticesDesk({ initial }: { initial: NoticesDeskView }) {
   ];
   const announcements = view.announcements.kind === 'ok' ? view.announcements.data : [];
   const categories = view.categories.kind === 'ok' ? view.categories.data : null;
+  const audiences = view.audiences.kind === 'ok' ? view.audiences.data : null;
   return (
     <div className="dk-stack" data-testid="notices-desk">
       <header className="adm-pagehead">
@@ -303,7 +348,14 @@ export function NotifyNoticesDesk({ initial }: { initial: NoticesDeskView }) {
         ) : (
           <CategoriesForm key={categoriesKey} categories={view.categories.data} busy={busy} onSubmit={onSubmit} />
         )}
-        <DraftForm key={draftKey} categories={categories} basis={announcements[0]?.id ?? null} busy={busy} onSubmit={onSubmit} />
+        <DraftForm
+          key={draftKey}
+          categories={categories}
+          audiences={audiences}
+          basis={announcements[0]?.id ?? null}
+          busy={busy}
+          onSubmit={onSubmit}
+        />
         <section className="dk-stack" aria-labelledby="notices-list">
           <h2 id="notices-list">Announcements</h2>
           {view.announcements.kind === 'failed' ? (

@@ -625,6 +625,11 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'Only a published notice has deliveries to send again. Nothing was sent.',
     next: 'Read the desk again and pick a published notice.',
   },
+  'notify.notice_audience_invalid': {
+    title: 'That audience is not one an announcement can have',
+    body: 'An announcement is for everyone, or for P2P merchants only. Incidents, maintenance and changelog entries are always for everyone. Nothing was saved.',
+    next: 'Choose everyone or P2P merchants.',
+  },
   'status.category_unknown': {
     title: 'That category is not on the list',
     body: "An announcement may name only a category on the founders' list, and none while no list is set. Nothing was saved.",

@@ -3,14 +3,14 @@ import { adminBffSession } from '@/lib/admin-bff-gate';
 import { adminSessionErrorResponse } from '@/lib/founder-session';
 import { moduleDisabledResponse } from '@/lib/modules';
 import { approvePublish, publishIncident, requestPublish } from '@/lib/notify/incidents-server';
-import { CATEGORY_ID, checkAnnouncementDraft, parseCategories } from '@/lib/notify/notices-model';
+import { AUDIENCES, CATEGORY_ID, checkAnnouncementDraft, parseCategories, type Audience } from '@/lib/notify/notices-model';
 import { draftAnnouncement, loadNoticesDesk, setCategories } from '@/lib/notify/notices-server';
 
 /**
  * The announcement desk.
  *
  *   GET                                                   announcements (drafts too) with their category; the category list; approvals
- *   POST { op: 'draft', basis, title, body, category }    a draft announcement, filed under a category or none
+ *   POST { op: 'draft', basis, title, body, category, audience }   a draft announcement, filed under a category or none, for everyone or P2P merchants
  *   POST { op: 'request' | 'approve' | 'publish', noticeId, ... }   the four-eyes publish, as on the incident desk
  *   POST { op: 'categories', categories, expectedRevision, reason }   the whole category list as "id: Name" lines; blank clears it
  *
@@ -60,7 +60,9 @@ export async function POST(request: Request) {
         const category = body.category === null || body.category === undefined || body.category === '' ? null : str(body.category);
         if (basis !== null && !UUID.test(basis)) return incomplete('The basis is not a notice id.');
         if (category !== null && !CATEGORY_ID.test(category)) return incomplete('The category is not one svc-notify takes.');
-        const input = { title: str(body.title), body: str(body.body), category };
+        const audience = body.audience === null || body.audience === undefined || body.audience === '' ? 'everyone' : str(body.audience);
+        if (!(AUDIENCES as readonly string[]).includes(audience)) return incomplete('Choose everyone or P2P merchants.');
+        const input = { title: str(body.title), body: str(body.body), category, audience: audience as Audience };
         const check = checkAnnouncementDraft(input);
         if (!check.ok) return incomplete(check.why);
         return send(await draftAnnouncement(session, { ...input, basis }));
