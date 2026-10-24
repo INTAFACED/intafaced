@@ -10,6 +10,8 @@ import {
   lotChoiceSavedSchema,
   missingBasisSchema,
   pickSaleLotInputSchema,
+  pnlOverTimeInputSchema,
+  pnlOverTimeSchema,
   setDayMethodInputSchema,
   setIncludeTransfersInputSchema,
   setLotMethodInputSchema,
@@ -101,6 +103,23 @@ export function createTaxRouter(tax: TaxService) {
       .query(async ({ ctx, input }) => {
         try {
           return await tax.lotBook({ userId: ctx.principal!.userId, ...(input?.method === undefined ? {} : { method: input.method }) });
+        } catch (err) {
+          mapError(err);
+        }
+      }),
+
+    /** The indicator over a date range: the cumulative result at each moment, and the change split by coin, market and day. */
+    pnlOverTime: scopedProcedure('tax:read', { module: 'tax', plane: 'fiat' })
+      .input(pnlOverTimeInputSchema)
+      .output(pnlOverTimeSchema)
+      .query(async ({ ctx, input }) => {
+        try {
+          return await tax.pnlOverTime({
+            userId: ctx.principal!.userId,
+            from: input.from,
+            ...(input.to === undefined ? {} : { to: input.to }),
+            utcOffsetMinutes: input.utcOffsetMinutes,
+          });
         } catch (err) {
           mapError(err);
         }

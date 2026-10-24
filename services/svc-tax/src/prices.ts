@@ -26,6 +26,34 @@ export interface PriceAtTime {
   priceAt(assetId: string, at: Date): Promise<PriceAt | null>;
 }
 
+/** Candle sizes a series is read in. */
+export type SeriesTimeframe = '5m' | '1h' | '4h' | '1d' | '1w';
+export const SERIES_TIMEFRAME_MS: Readonly<Record<SeriesTimeframe, number>> = {
+  '5m': 300_000,
+  '1h': 3_600_000,
+  '4h': 14_400_000,
+  '1d': 86_400_000,
+  '1w': 604_800_000,
+};
+
+/** How many candles one series read may span, from one before its start to now (svc-trade's whole-window bound). */
+export const SERIES_POINTS_PER_READ = 719;
+
+/** One market's candles over a window: open time (epoch ms) and close, oldest first. */
+export interface CloseSeries {
+  readonly market: string;
+  readonly candles: ReadonlyArray<readonly [number, Amount]>;
+}
+
+/**
+ * CANDLE SERIES. One coin's candles over a window, on its USDT market, else its USDC market (the price-at-time order),
+ * read once so a chart's every point is priced from one answer. Null: the coin has no such market. Throws when the
+ * market data cannot be read, so a chart is never drawn from part of it.
+ */
+export interface CloseSeriesSource {
+  closes(assetId: string, timeframe: SeriesTimeframe, from: Date, to: Date): Promise<CloseSeries | null>;
+}
+
 const QUOTES = ['USDT', 'USDC'] as const;
 /**
  * Candle sizes in order, with how far back before the arrival each looks for its last candle. These are read windows
@@ -42,7 +70,7 @@ const POINTS_PER_READ = 720;
 
 type Rows = Array<[number, string]>;
 
-export function createTradePrices(baseUrl: string, fetchImpl: typeof fetch = fetch): PriceAtTime {
+export function createTradePrices(baseUrl: string, fetchImpl: typeof fetch = fetch): PriceAtTime & CloseSeriesSource {
   const base = baseUrl.replace(/\/$/, '');
   /** Candles from `since` on, or why there are none: no such market, or more candles than one read may return. */
   const candles = async (market: string, timeframe: string, since: number): Promise<Rows | 'no_market' | 'too_far'> => {
@@ -62,6 +90,24 @@ export function createTradePrices(baseUrl: string, fetchImpl: typeof fetch = fet
     );
   };
   return {
+    async closes(assetId, timeframe, from, to) {
+      const frameMs = SERIES_TIMEFRAME_MS[timeframe];
+      // One read: svc-trade answers a window only whole, from `since` to now in at most POINTS_PER_READ candles, so the
+      // caller picks a candle size that fits (SERIES_POINTS_PER_READ).
+      const since = Math.floor(from.getTime() / frameMs) * frameMs - frameMs;
+      for (const quote of QUOTES) {
+        const market = `${assetId.toUpperCase()}/${quote}`;
+        const rows = await candles(market, timeframe, since);
+        if (rows === 'no_market') continue;
+        if (rows === 'too_far') throw new Error(`market data refused ${market} ${timeframe} from ${new Date(since).toISOString()}`);
+        return {
+          market,
+          candles: rows.filter(([openAt]) => openAt <= to.getTime()).map(([openAt, close]) => [openAt, parseAmount(close)] as const),
+        };
+      }
+      return null;
+    },
+
     async priceAt(assetId, at) {
       const t = at.getTime();
       let failure: unknown = null;

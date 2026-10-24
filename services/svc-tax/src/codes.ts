@@ -63,6 +63,14 @@ export const TAX_CHOICES_UNAVAILABLE = 'tax.choices_unavailable' as const;
 export const TAX_OWN_SPACES_UNAVAILABLE = 'tax.own_spaces_unavailable' as const;
 /** BANK_URL is unset: the lot book does not ask which spaces are the customer's and follows the main account only. */
 export const TAX_OWN_SPACES_UNWIRED = 'tax.own_spaces_unwired' as const;
+/** A profit and loss range that ends before it starts, or ends in the future. */
+export const TAX_PNL_RANGE_INVALID = 'tax.pnl_range_invalid' as const;
+/** A range that starts too long ago for one read of candles to price it. */
+export const TAX_PNL_RANGE_TOO_LONG = 'tax.pnl_range_too_long' as const;
+/** A breakdown whose parts do not add up to the period: refused rather than drawn. */
+export const TAX_PNL_BREAKDOWN_MISMATCH = 'tax.pnl_breakdown_mismatch' as const;
+/** The candles a chart needs could not be read: no chart is drawn from part of them. */
+export const TAX_PNL_PRICES_UNAVAILABLE = 'tax.pnl_prices_unavailable' as const;
 /** The realised effect of a missing basis. A sentence, never a made-up number. */
 export const UNKNOWN_SHARE = 'unknown share' as const;
 
@@ -93,6 +101,10 @@ export type TaxRefuseCode =
   | typeof TAX_CHOICES_UNAVAILABLE
   | typeof TAX_OWN_SPACES_UNAVAILABLE
   | typeof TAX_OWN_SPACES_UNWIRED
+  | typeof TAX_PNL_RANGE_INVALID
+  | typeof TAX_PNL_RANGE_TOO_LONG
+  | typeof TAX_PNL_BREAKDOWN_MISMATCH
+  | typeof TAX_PNL_PRICES_UNAVAILABLE
   | typeof TAX_BASIS_PRICE_UNSET
   | typeof TAX_BASIS_PRICE_INVALID
   | typeof TAX_BASIS_DATE_UNSET

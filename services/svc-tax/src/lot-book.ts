@@ -152,6 +152,8 @@ export interface BookSale {
   readonly counted: 'all' | 'part' | 'none';
   /** The fee taken from what this sale received; absent on a withdrawal. */
   readonly fee?: BookFee;
+  /** Where it was sold: the coin sold over the coin received (`BTC/USDT`). Absent on a withdrawal. */
+  readonly market?: string;
   /** The method this sale was matched by, and where it came from. */
   readonly method: EngineMethod;
   readonly methodSource: BookMethodSource;
@@ -335,6 +337,7 @@ export function buildLotBook(input: {
   }
   // Each fill's fee, on the sale it made and the lot it bought; the dollar total is added up once the sales are known.
   const saleFees = new Map<string, BookFee>();
+  const saleMarkets = new Map<string, string>();
   const lotFees = new Map<string, BookFee>();
   const feeParts: Array<{ saleKey: string | null; makesLot: boolean; usd: Amount | null }> = [];
   for (const fill of input.fills) {
@@ -344,7 +347,10 @@ export function buildLotBook(input: {
     const saleKey = fill.paid !== null && !isPar(fill.paid.assetId) ? `${fill.txId}|${fill.paid.assetId}` : null;
     feeParts.push({ saleKey, makesLot, usd });
     if (makesLot) lotFees.set(`${fill.txId}|${fill.received.assetId}`, fee);
-    if (saleKey !== null) saleFees.set(saleKey, fee);
+    if (saleKey !== null) {
+      saleFees.set(saleKey, fee);
+      saleMarkets.set(saleKey, `${fill.paid!.assetId.toUpperCase()}/${fill.received.assetId.toUpperCase()}`);
+    }
   }
   for (const inflow of input.inflows ?? []) {
     if (PAR_ASSETS.has(inflow.assetId.toUpperCase())) continue; // a dollar coin is not a position
@@ -499,10 +505,12 @@ export function buildLotBook(input: {
               realizedUsd: partCost === null || partProceeds === null ? null : money(partProceeds - partCost),
             };
     const fee = sale.kind === 'sale' ? (saleFees.get(`${sale.txId}|${sale.assetId}`) ?? { status: 'unknown' as const }) : undefined;
+    const market = sale.kind === 'sale' ? saleMarkets.get(`${sale.txId}|${sale.assetId}`) : undefined;
     return {
       kind: sale.kind,
       counted,
       ...(fee === undefined ? {} : { fee }),
+      ...(market === undefined ? {} : { market }),
       method: sale.rule.method,
       methodSource: sale.rule.source,
       pickedLotId: sale.pickedLotId,

@@ -29,6 +29,8 @@ describe('buildLotBook', () => {
         kind: 'sale',
         counted: 'all',
         fee: { status: 'unknown' },
+        // Where it was sold: the coin sold over the coin received.
+        market: 'BTC/USDT',
         method: 'FIFO',
         methodSource: 'default',
         pickedLotId: null,
