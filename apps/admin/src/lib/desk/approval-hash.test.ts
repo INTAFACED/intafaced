@@ -12,6 +12,7 @@ import {
 import { identityActionPayloadHash } from '../../../../../services/svc-identity/src/auth/privileged-dual-control';
 import { AUTH_KEY_REMOVE_OLD_TARGET, AUTH_KEY_ROTATE_TARGET } from '../../../../../services/svc-identity/src/auth/auth-key-ring';
 import {
+  IDENTITY_ARCHIVE_ACTION_TYPE,
   IDENTITY_CLOSE_ACTION_TYPE,
   IDENTITY_REOPEN_ACTION_TYPE,
   IDENTITY_TIER_MOVE_ACTION_TYPE,
@@ -321,6 +322,33 @@ describe('identity staff close and reopen', () => {
       policyVersion: 'v1',
     });
     expect(proposeInputFor(reopen)).toMatchObject({ actionType: IDENTITY_REOPEN_ACTION_TYPE, targetId: userId, expectedVersion: '5' });
+  });
+});
+
+describe('identity customer archive', () => {
+  const userId = '0b6f7a3e-1c2d-4e5f-8a9b-0c1d2e3f4a5b';
+  const archive = {
+    kind: 'identity.account.archive' as const,
+    userId,
+    reasonCode: 'dormant' as const,
+    reason: 'Closed two years ago, no contact since',
+    version: '7',
+  };
+  it('hash equals identity’s identityArchivePayloadHash: account, action, reason code, reason, in that order', () => {
+    expect(payloadHashFor(archive)).toBe(
+      identityActionPayloadHash(userId, { action: 'archive', reasonCode: 'dormant', reason: archive.reason }),
+    );
+    expect(payloadHashFor({ ...archive, reasonCode: 'duplicate' })).not.toBe(payloadHashFor(archive));
+  });
+  it('is proposed against the account at the control version the founder read, under its own action type', () => {
+    expect(proposeInputFor(archive)).toEqual({
+      actionType: IDENTITY_ARCHIVE_ACTION_TYPE,
+      targetService: 'svc-identity',
+      targetId: userId,
+      expectedVersion: '7',
+      payloadHash: payloadHashFor(archive),
+      policyVersion: 'v1',
+    });
   });
 });
 

@@ -292,6 +292,41 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'A founder does not change the tier of their own account. Nothing was changed.',
     next: 'The other founder can make the request.',
   },
+  'identity.account_archived': {
+    title: 'This customer record is archived',
+    body: 'Identity keeps an archived record read-only: it cannot be frozen, unfrozen, reopened or archived again. Nothing was changed and any approval was not used.',
+    next: 'The person needs a new application to come back.',
+  },
+  'identity.archive_blocked_open_account': {
+    title: 'The account is still open',
+    body: 'Identity archives only a closed account. Nothing was changed and the approval was not used.',
+    next: 'Close the account first (Close or reopen), then ask again at the new control version.',
+  },
+  'identity.archive_requires_approver': {
+    title: 'Archiving needs a second person',
+    body: 'Identity archives a customer record only with an approval a different person signed. Nothing was changed.',
+    next: 'Make the request, send the packet to the other founder, and run it once they approve.',
+  },
+  'identity.archive_approval_mismatch': {
+    title: 'That approval is not for this archive',
+    body: 'Identity checked the approval against this account, its current version, the reason code and the reason, and they differ, or the approval was made or signed by someone it does not accept for this account. Nothing was changed and the approval was not used.',
+    next: 'Read the account again and make a new request.',
+  },
+  'identity.archive_approval_consumed': {
+    title: 'That approval was already used',
+    body: 'Identity spends an archive approval once. Nothing more was changed.',
+    next: 'Read the account again; if it is not archived, make a new request.',
+  },
+  'identity.archive_founder_forbidden': {
+    title: 'A founder record cannot be archived here',
+    body: 'Identity refuses to archive either founder record from the console. Nothing was changed.',
+    next: 'Nothing to do here.',
+  },
+  'identity.archive_self_forbidden': {
+    title: 'You cannot archive your own record',
+    body: 'Identity refuses an archive of the signed-in founder’s own record. Nothing was changed.',
+    next: 'Nothing to do here.',
+  },
   'identity.tier_account_closed': {
     title: 'The account is closed',
     body: 'Identity does not move a closed account onto a tier. Nothing was changed.',

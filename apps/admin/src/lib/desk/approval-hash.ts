@@ -96,6 +96,9 @@ export function payloadHashFor(request: DeskRequest): string {
       return shaIdentity(request.userId, { action: 'close', reasonCode: request.reasonCode, reason: request.reason });
     case 'identity.account.reopen':
       return shaIdentity(request.userId, { action: 'reopen', reason: request.reason });
+    // svc-identity `identityArchivePayloadHash`: { targetId, action: 'archive', reasonCode, reason }, in this order.
+    case 'identity.account.archive':
+      return shaIdentity(request.userId, { action: 'archive', reasonCode: request.reasonCode, reason: request.reason });
     // svc-identity `identityTierPayloadHash`: { targetId, action: 'tier_move', tierId, reason }, in this order.
     case 'identity.account.tier_move':
       return shaIdentity(request.userId, { action: 'tier_move', tierId: request.tierId, reason: request.reason });
@@ -259,8 +262,14 @@ export function proposeInputFor(request: DeskRequest): ProposeInput {
     // svc-identity's staff close and reopen are bound to the account itself, at the control version the founder read.
     case 'identity.account.close':
     case 'identity.account.reopen':
+    case 'identity.account.archive':
       return {
-        actionType: request.kind === 'identity.account.close' ? 'identity.account_close' : 'identity.account_reopen',
+        actionType:
+          request.kind === 'identity.account.close'
+            ? 'identity.account_close'
+            : request.kind === 'identity.account.reopen'
+              ? 'identity.account_reopen'
+              : 'identity.account_archive',
         targetService: 'svc-identity',
         targetId: request.userId,
         expectedVersion: request.version,

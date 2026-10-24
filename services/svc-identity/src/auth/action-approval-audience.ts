@@ -55,6 +55,8 @@ export const IDENTITY_UNFREEZE_ACTION_TYPE = 'identity.account_unfreeze';
 /** Staff close and reopen of one account (J-ops-console-04 #7). Operator-level, like the freeze: svc-identity is an operator target. */
 export const IDENTITY_CLOSE_ACTION_TYPE = 'identity.account_close';
 export const IDENTITY_REOPEN_ACTION_TYPE = 'identity.account_reopen';
+/** Staff archive of one closed customer record (J-ops-console-04 #10). Operator-level, like close: no money moves. */
+export const IDENTITY_ARCHIVE_ACTION_TYPE = 'identity.account_archive';
 /**
  * Moving one account onto another product tier (J-ops-console-04 #11). Founder-level: a tier carries fees and limits, so
  * it sits with the fee and limit policy types below; identity also re-checks at consumption that the approver is a live founder.
