@@ -609,9 +609,59 @@ export const accountClosures = identity.table('account_closures', {
   clientRequestId: text('client_request_id').notNull(),
 });
 
+/**
+ * A customer's staff-edited personal details (J-ops-console-04 #9), one encrypted JSON document under the KYC document
+ * key. Protected details change only through `customerDetailReviews`; the migration owns the one-open index.
+ */
+export const customerDetails = identity.table('customer_details', {
+  userId: uuid('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  version: bigint('version', { mode: 'bigint' }).notNull(),
+  ciphertext: bytea('ciphertext').notNull(),
+  nonce: bytea('nonce').notNull(),
+  keyId: text('key_id').notNull().default('v1'),
+  updatedAt: tstz('updated_at').notNull().defaultNow(),
+  updatedBy: uuid('updated_by').notNull(),
+});
+
+export const customerDetailReviews = identity.table('customer_detail_reviews', {
+  reviewId: uuid('review_id').primaryKey(),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  status: text('status').notNull(),
+  fields: text('fields').array().notNull(),
+  ciphertext: bytea('ciphertext').notNull(),
+  nonce: bytea('nonce').notNull(),
+  keyId: text('key_id').notNull().default('v1'),
+  documentIds: uuid('document_ids').array().notNull(),
+  reason: text('reason').notNull(),
+  requestedBy: uuid('requested_by').notNull(),
+  requestedAt: tstz('requested_at').notNull(),
+  decidedBy: uuid('decided_by'),
+  decidedAt: tstz('decided_at'),
+  decisionNote: text('decision_note'),
+});
+
+/** Append-only: every edit or decision attempt, with field names but no values. */
+export const customerDetailEvents = identity.table('customer_detail_events', {
+  auditId: uuid('audit_id').primaryKey(),
+  requestId: uuid('request_id').notNull(),
+  actorId: uuid('actor_id'),
+  userId: uuid('user_id').notNull(),
+  fingerprint: text('fingerprint').notNull(),
+  result: jsonb('result').notNull(),
+  stored: boolean('stored').notNull(),
+  createdAt: tstz('created_at').notNull().defaultNow(),
+});
+
 export const schema = {
   users,
   accountClosures,
+  customerDetails,
+  customerDetailReviews,
+  customerDetailEvents,
   profiles,
   kycRecords,
   rankState,

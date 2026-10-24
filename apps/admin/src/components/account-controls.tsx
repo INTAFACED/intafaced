@@ -15,6 +15,7 @@ import { AccountClosure } from '@/components/account-closure';
 import { AccountTierPanel } from '@/components/account-tier';
 import { AccountHolds } from '@/components/account-holds';
 import { AccountArchive } from '@/components/account-archive';
+import { AccountDetails } from '@/components/account-details';
 import { archivedNote } from '@/lib/accounts/archive-copy';
 
 const ARCHIVE_UNREAD =
@@ -272,6 +273,9 @@ export function AccountControls({ csrf, founderId }: { csrf: string; founderId: 
             </form>
           )}
         </div>
+      )}
+      {state && area === 'identity' && (
+        <AccountDetails key={`details:${id.toLowerCase()}`} userId={id} founderId={founderId} readOnly={readOnly} />
       )}
       {state && area === 'identity' && (
         <AccountClosure

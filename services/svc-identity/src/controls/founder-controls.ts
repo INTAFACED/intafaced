@@ -65,7 +65,13 @@ import {
 
 export class FounderControlError extends Error {
   constructor(
-    readonly code: 'identity.controls_unconfigured' | 'identity.controls_unavailable' | 'operator.denied' | 'mfa.required',
+    readonly code:
+      | 'identity.controls_unconfigured'
+      | 'identity.controls_unavailable'
+      | 'identity.details_unconfigured'
+      | 'identity.details_unreadable'
+      | 'operator.denied'
+      | 'mfa.required',
     message: string,
   ) {
     super(message);
@@ -81,7 +87,7 @@ export function parseFounderPair(first: unknown, second: unknown): readonly [str
   return [a.data.toLowerCase(), b.data.toLowerCase()].sort() as [string, string];
 }
 
-type UserRow = {
+export type UserRow = {
   id: string;
   status: 'active' | 'frozen' | 'closed';
   identity_control_version: string;
@@ -371,6 +377,45 @@ export class FounderControls {
       const shaped = storageError(error);
       if (shaped.code === 'identity.controls_unconfigured') return false;
       throw shaped;
+    }
+  }
+
+  /**
+   * One step of a founder door kept in its own file (customer details): the founder controls' lock, then the live-founder
+   * check of `context`, with the target's row locked too, in one read-committed transaction. `fn` decides what a refusal
+   * means; storage errors come back as typed founder control errors.
+   */
+  async founderStep<T>(
+    context: Context,
+    targetId: string,
+    fn: (
+      tx: Sql,
+      founder: {
+        readonly refusal: 'operator.denied' | 'mfa.required' | null;
+        readonly actorId: string | null;
+        readonly target: UserRow | undefined;
+        readonly isFounderRecord: boolean;
+      },
+    ) => Promise<T>,
+  ): Promise<T> {
+    try {
+      return await transaction(
+        this.sql,
+        async (tx) => {
+          await this.lock(tx);
+          const actor = await this.actor(tx, context, targetId);
+          return fn(tx, {
+            refusal: actor.refusal,
+            actorId: context.principal?.userId.toLowerCase() ?? null,
+            target: actor.users.find((row) => row.id === targetId),
+            isFounderRecord: this.pair?.includes(targetId) ?? false,
+          });
+        },
+        { isolation: 'read committed' },
+      );
+    } catch (error) {
+      if (error instanceof FounderControlError) throw error;
+      throw storageError(error);
     }
   }
 
