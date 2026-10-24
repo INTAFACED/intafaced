@@ -118,3 +118,90 @@ test(`${J} #1 the owner sets up hosted checkout once: defaults with Save, an ove
     await payer.close();
   }
 });
+
+test(`${J} #2 the owner makes a link from a product's price: the receipt shows the address once, the list shows active, 0 of 3 uses and the expiry, and one key makes one link`, async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  const state = journey();
+  await signInOwner(page, state, '/pay/products/new');
+  const refused = refusedPayCalls(page);
+
+  // A product with a one-time TEST 25 USDC price.
+  await page.getByLabel('Type *').selectOption({ label: 'Physical good' });
+  await page.getByLabel('Name *').fill('TEST Tote bag');
+  await page.getByRole('button', { name: 'Save product' }).click();
+  await expect(page).toHaveURL(/\/pay\/products\/[0-9a-f-]{36}$/);
+  await page.getByRole('button', { name: 'Add price' }).click();
+  await page.getByLabel('Billing *').selectOption({ label: 'One time' });
+  await page.getByLabel('Amount *').fill('25');
+  await page.getByLabel('Asset *').fill('USDC');
+  await page.getByRole('button', { name: 'Save price' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Price added.' })).toBeVisible();
+
+  // The picker reads the product and its price, and the price sets the amount and asset.
+  await page.goto('/pay/links/new');
+  const picker = page.getByRole('combobox', { name: /^Product and price/ });
+  await picker.selectOption({ label: 'TEST Tote bag · 25.00 USDC' });
+  await expect(page.getByLabel('Link label *')).toHaveValue('TEST Tote bag');
+  await expect(page.getByLabel('Fixed amount', { exact: true })).toHaveValue(/^25(\.0+)?$/);
+  await expect(page.getByLabel('Fixed amount', { exact: true })).toBeDisabled();
+  await expect(page.getByRole('combobox', { name: /^Asset/ })).toHaveValue('USDC');
+  await expect(page.getByRole('combobox', { name: /^Asset/ })).toBeDisabled();
+  await page.getByLabel('Maximum completed payments').fill('3');
+
+  // Create, reviewed, then confirmed with a double press: one request body, one key.
+  const creates = [];
+  page.on('request', (request) => {
+    if (request.url().includes('merchant.createLink') && request.method() === 'POST') creates.push(request);
+  });
+  await page.getByRole('button', { name: 'Create link' }).click();
+  const review = page.getByRole('dialog');
+  await expect(review).toContainText('TEST Tote bag · 25.00 USDC');
+  await review.getByRole('button', { name: 'Create link' }).dblclick();
+  await expect(page.getByRole('heading', { name: 'Your link is ready' })).toBeVisible();
+  const address = page.getByTestId('link-address');
+  await expect(address.getByRole('link', { name: 'Open the link' })).toHaveAttribute('href', /\/api\/pay\/checkout\?token=pl_/);
+  const linkId = (await page.locator('.pp-facts .pp-mono').first().textContent())?.trim();
+  expect(linkId).toMatch(/^[0-9a-f-]{36}$/);
+  // The second press of a double press sends nothing: one request, so one key.
+  expect(creates).toHaveLength(1);
+  const sent = creates[0];
+  const body = JSON.parse(sent.postData() ?? '{}');
+  const input = body.json ?? body;
+  expect(input).toMatchObject({ label: 'TEST Tote bag', currency: 'USDC', maxUses: 3 });
+  expect(input.priceId).toMatch(/^[0-9a-f-]{36}$/);
+  expect(typeof input.idempotencyKey).toBe('string');
+
+  // The same request sent again with its key answers with the same link, not a second one.
+  const headers = Object.fromEntries(
+    Object.entries(await sent.allHeaders()).filter(
+      ([name]) => !name.startsWith(':') && !['cookie', 'content-length', 'host'].includes(name),
+    ),
+  );
+  const again = await page.evaluate(
+    async ({ url, data, headers }) => {
+      const response = await fetch(url, { method: 'POST', body: data, headers, credentials: 'include' });
+      return { status: response.status, text: await response.text() };
+    },
+    { url: sent.url(), data: sent.postData(), headers },
+  );
+  expect(again.status).toBe(200);
+  expect(again.text).toContain(linkId);
+  run.write({ owner: saved(journey().owner), toteLinkId: linkId });
+
+  // The list shows the one link: active, 0 of 3 uses, with its expiry.
+  await page.goto('/pay/links');
+  const rows = page.getByRole('row').filter({ hasText: 'TEST Tote bag' });
+  await expect(rows).toHaveCount(1);
+  // "Available" is the portal's plain word for an active link.
+  await expect(rows.first()).toContainText('Available');
+  await expect(rows.first()).toContainText('0 of 3');
+  await expect(rows.first().locator('td').last()).not.toHaveText('—');
+  await expect(rows.first().locator('td').last()).toContainText(/\d{4}|[A-Z][a-z]{2}/);
+
+  // Its page names the product and price it sells.
+  await page.goto(`/pay/links/${linkId}`);
+  await expect(page.locator('dl.pp-facts')).toContainText('TEST Tote bag · 25.00 USDC');
+  expect(refused).toEqual([]);
+});

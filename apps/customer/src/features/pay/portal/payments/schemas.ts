@@ -121,6 +121,8 @@ export const linkRowSchema = linkSchema.extend({
   // A full web address, or a path from the service's public base ("/api/pay/checkout?token=…"). The schema takes any string
   // so one odd row never fails the whole list; `addressOf` (Links.tsx) shows only an http(s) address or a path, else none.
   checkoutUrl: z.string().max(2048).nullish(),
+  /** The catalogue price the link was made from (M-catalogue-03); null or absent when it was made without one. */
+  priceId: z.string().nullish(),
 });
 export type LinkRow = z.infer<typeof linkRowSchema>;
 
