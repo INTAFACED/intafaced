@@ -1107,6 +1107,54 @@ export const personalDisputeUpdated = defineEvent(
   'A personal Pay dispute changed state. svc-notify writes pay.dispute_changed for the opener and the counterparty.',
 );
 
+/**
+ * BK-acct-10 (J-bank-06 #6). Standing-order notices (the spec's `bank.scheduled.reminder/failed`, named with the
+ * subject law's verbs). svc-bank records each notice as owed in its own outbox
+ * (`bank.scheduled_notices`, one row per schedule, occurrence and kind) and publishes it until the bus takes it, so a
+ * retried job never tells a person twice and a lost publish is sent again. Neither moves value: the run that failed has
+ * already been recorded, and a reminder is about a run that has not happened.
+ */
+export const bankScheduledReminder = defineEvent(
+  'bank',
+  'scheduled_reminder',
+  'triggered',
+  1,
+  z.object({
+    noticeId: z.string().guid(),
+    userId: userIdSchema,
+    scheduleId: z.string().guid(),
+    /** Periods since the schedule's start; with `scheduleId` it names the one run this reminds of. */
+    occurrence: z.number().int().min(0),
+    dueAt: z.string().datetime({ offset: true }),
+    /** What the order will try to move, as it stands when the reminder is sent. */
+    amount: amountSchema,
+    assetId: assetIdSchema,
+    /** The lead time the person chose, in hours. */
+    leadHours: z.number().int().min(1),
+  }),
+  'A standing order runs within the lead time its owner chose. svc-notify writes bank.scheduled_reminder for that person.',
+);
+
+export const bankScheduledFailed = defineEvent(
+  'bank',
+  'scheduled_run',
+  'failed',
+  1,
+  z.object({
+    noticeId: z.string().guid(),
+    userId: userIdSchema,
+    scheduleId: z.string().guid(),
+    occurrence: z.number().int().min(0),
+    /** What the run tried to move. Nothing was posted. */
+    amount: amountSchema,
+    assetId: assetIdSchema,
+    /** Why the run was refused, as svc-bank recorded it (for example `ledger.insufficient_funds`). */
+    reasonCode: z.string().min(1).max(64),
+    failedAt: z.string().datetime({ offset: true }),
+  }),
+  'A standing order run was refused and posted nothing. svc-notify writes bank.scheduled_failed for its owner.',
+);
+
 // ── core-ops: platform alert rules (OPS-alerts-01) ───────────────────────────
 
 const alertRuleIdSchema = z.string().guid();
@@ -1383,6 +1431,8 @@ export const EVENT_CATALOG = {
   personalTransferPosted,
   personalRefundPosted,
   personalDisputeUpdated,
+  bankScheduledReminder,
+  bankScheduledFailed,
   blueprintCreated,
   blueprintDeleted,
   crewMemberCreated,
@@ -2022,6 +2072,20 @@ export const WIRING_SOCKETS = [
     class: 'A',
     reason:
       'svc-notify writes the dispute-status notice in the PP-send-request-18 svc-notify PR, idempotent by event id. No publisher exists yet, so no user is promised a receipt by this event today.',
+  },
+  {
+    event: 'bankScheduledReminder',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      "Declared with svc-bank's publisher in the BK-acct-10 slice; svc-notify writes the reminder into the inbox in the next PR, idempotent by event id. Until then the notice stays on the bus and no screen promises it was delivered.",
+  },
+  {
+    event: 'bankScheduledFailed',
+    missing: 'subscriber',
+    class: 'A',
+    reason:
+      "Declared with svc-bank's publisher in the BK-acct-10 slice; svc-notify writes the failure notice into the inbox in the next PR, idempotent by event id. The failed run is already listed with its reason in Transfers and the calendar, so no money fact waits on it.",
   },
   {
     event: 'p2pChatMessageSent',

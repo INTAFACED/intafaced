@@ -39,6 +39,7 @@ import { BillPayService } from './personal-pay/bills.js';
 import { GlobalSendService } from './personal-pay/global.js';
 import { DirectDebitService } from './direct-debits/direct-debits.js';
 import { CalendarService } from './calendar/calendar.js';
+import { ScheduledNoticeService, type ScheduledNoticeSink } from './rules/scheduled-notices.js';
 import { unsetDirectDebitScheme, type DirectDebitScheme } from './direct-debits/scheme.js';
 import { BANK_GLOBAL_HOLD_CANCEL_HOURS_ENV, GlobalHoldService } from './personal-pay/holds.js';
 import { SpendFiguresReader } from './insufficient-funds.js';
@@ -100,6 +101,8 @@ export interface BankServices {
   readonly directDebits: DirectDebitService;
   /** BK-acct-10: one read of what is dated, merged from svc-bank's own sources. Reads only. */
   readonly calendar: CalendarService;
+  /** BK-acct-10: the payment reminder rule and the standing-order notice outbox. Posts nothing. */
+  readonly scheduledNotices: ScheduledNoticeService;
   /** RC-wallet-09: figures for a refused spend. Reads only. */
   readonly spendFigures: SpendFiguresReader;
   /**
@@ -205,6 +208,8 @@ export interface BankServiceOptions {
   requestNotices?: PersonalRequestNotices;
   /** Inbox events for a posted personal send (both people). Unset = no notice; the send is unaffected. */
   transferNotices?: PersonalTransferNotices;
+  /** Standing-order reminders and failure notices. Unset = owed notices stay owed and the job names `bank.scheduled_notify_unwired`. */
+  scheduledNotices?: ScheduledNoticeSink;
   /**
    * Public handles and exact recipient lookup. Unset refuses team, approval
    * history and recipient-space reads. It does not invent a handle.
@@ -373,6 +378,10 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
             error: err instanceof Error ? err.message : String(err),
           }),
         ),
+    }),
+    scheduledNotices: new ScheduledNoticeService(sql, {
+      sink: options.scheduledNotices,
+      log: (event, detail) => console.error(JSON.stringify({ level: 'error', service: 'svc-bank', event, detail })),
     }),
     spendFigures: new SpendFiguresReader(sql, ledger),
     transferOps: { sql, handles: options.handles },

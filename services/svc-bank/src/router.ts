@@ -24,6 +24,7 @@ import { createBillsRouter, createGlobalRouter } from './personal-pay/router.js'
 import { createPersonalRequestRouter } from './transfers/personal-request.router.js';
 import { createDirectDebitsRouter } from './direct-debits/direct-debits.router.js';
 import { createCalendarRouter } from './calendar/calendar.router.js';
+import { createRulesRouter } from './rules/rules.router.js';
 import { amountString, type BankRouterOptions } from './router/shared.js';
 import { guard } from './router/errors.js';
 import { createRouterContext } from './router/context.js';
@@ -241,6 +242,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     directDebits: createDirectDebitsRouter(bank, guard),
     /** BK-acct-10: the money calendar. Read only. */
     calendar: createCalendarRouter(bank, guard),
+    /** BK-acct-10: the payment reminder rule; money-moving rules refuse `bank.rule_terms_unset`. */
+    rules: createRulesRouter(bank, guard),
     limits: createLimitsRouter(limitRequests, guard),
     ops,
   });
