@@ -18,7 +18,9 @@ import {
   LEDGER_HOLDINGS_HISTORY_TOO_LARGE,
   type BankValueOverTime,
   type LedgerHoldingsHistory,
+  type RegistryAssetKind,
 } from '@intafaced/contracts';
+import type { AssetRegistryReads } from '../assets/supported-assets.js';
 import { BankError } from '../errors.js';
 import type { LedgerHoldingsHistoryReads } from '../ledger-client.js';
 import type { CloseSeries, CloseSeriesSource } from './candles.js';
@@ -216,6 +218,8 @@ export interface PortfolioServiceOptions {
   history?: LedgerHoldingsHistoryReads;
   /** svc-trade's public candles. Unset = `valueOverTime` refuses `bank.prices_unavailable` once a coin needs a price. */
   closes?: CloseSeriesSource;
+  /** svc-ledger's asset registry, for the allocation's classes. Unset = the classes are left out (`classesRefused`). */
+  assets?: AssetRegistryReads | null;
   now?: () => Date;
 }
 
@@ -266,6 +270,7 @@ export class PortfolioService {
   private readonly pages: LedgerHistoryPages | undefined;
   private readonly history: LedgerHoldingsHistoryReads | undefined;
   private readonly closes: CloseSeriesSource | undefined;
+  private readonly assets: AssetRegistryReads | null;
   private readonly now: () => Date;
 
   constructor(
@@ -277,6 +282,7 @@ export class PortfolioService {
     this.pages = options.pages;
     this.history = options.history;
     this.closes = options.closes;
+    this.assets = options.assets ?? null;
     this.now = options.now ?? (() => new Date());
   }
 
@@ -353,8 +359,20 @@ export class PortfolioService {
 
   /** The priced holdings grouped by class and by where they sit (PF-balances-02); same prices and refusals as `summary`. */
   async allocation(userId: string): Promise<PortfolioAllocation> {
-    const { summary, holdings } = await this.valued(userId);
-    return allocate(summary, holdings);
+    // The registry is read alongside the balances and prices. Par assets and USD are classed by their code, so a book of
+    // only those needs no registry; otherwise an unreadable registry leaves the classes out (and says so) rather than
+    // calling every coin unclassified, and the places are still answered.
+    const registry = this.assets
+      ? this.assets.listed().then(
+          (rows) => rows,
+          () => null,
+        )
+      : Promise.resolve(null);
+    const [{ summary, holdings }, listed] = await Promise.all([this.valued(userId), registry]);
+    const kinds = !needsPrices(holdings)
+      ? new Map<string, RegistryAssetKind>()
+      : listed && new Map<string, RegistryAssetKind>(listed.map((asset) => [asset.id.toUpperCase(), asset.kind]));
+    return allocate(summary, holdings, kinds);
   }
 
   private async valued(
