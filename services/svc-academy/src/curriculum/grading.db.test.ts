@@ -199,8 +199,8 @@ describe('grading hand-ins (AC-assignments-02)', () => {
     await expect(grade(item.id, id, { score: '10.5' })).rejects.toMatchObject({ code: 'academy.grade_invalid' });
     await grade(item.id, id);
     await grade(item.id, id);
-    const [{ n }] = await db.sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM academy.assignment_grade_events`;
-    expect(n).toBe(1);
+    const [events] = await db.sql<Array<{ n: number }>>`SELECT count(*)::int AS n FROM academy.assignment_grade_events`;
+    expect(events!.n).toBe(1);
     await expect(grade(item.id, id, { score: '9' })).rejects.toMatchObject({ code: 'academy.revision_stale' });
     // The same n with another comment is a different grade, not a retry: refused, and the stored one stands.
     await expect(grade(item.id, id, { comment: 'Units missing.' })).rejects.toMatchObject({ code: 'academy.revision_stale' });
