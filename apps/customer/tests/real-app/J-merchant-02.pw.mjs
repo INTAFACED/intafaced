@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { forgetSession, nextCode } from './identity-factors.mjs';
 import { businessReadyPerson, openBusiness, refusedPayCalls, signInWithCode, verifiedBusiness } from './merchant.mjs';
-import { tool } from './stack.mjs';
+import { ADMIN, founderSignIn } from './admin.mjs';
 
 // J-merchant-02, in the running app (docs/roadmap/journeys.json): get verified and go live. Tests titled
 // "J-merchant-02 #<n>" prove a whole step; the others prove part of one and say which.
@@ -198,6 +198,7 @@ test(`${J} #2 the owner chooses the legal entity type; changing it returns the a
 
 test(`${J} #3 the owner adds the people and documents a sole trader is asked for; a file over the limit or of a wrong type is refused before it is sent; each row reads Pending, then Verified or Invalid with the reason once INTAFACED reviews it`, async ({
   page,
+  browser,
 }) => {
   test.setTimeout(240_000);
   const owner = await businessReadyPerson(page, 'mdc', '/pay/onboarding');
@@ -267,16 +268,23 @@ test(`${J} #3 the owner adds the people and documents a sole trader is asked for
   await expect(page.getByText('INTAFACED is reviewing it')).toBeVisible();
   await expect(app.getByRole('region', { name: 'Documents', exact: true }).locator('input[type=file]')).toHaveCount(0);
 
-  // INTAFACED's compliance reviewer gives each document a verdict through svc-pay's review door.
-  const verdict = (...args) =>
-    JSON.parse(
-      tool('local-test-world.mjs', 'review-kyb-document', merchantId, ...args)
-        .trim()
-        .split('\n')
-        .pop(),
-    );
-  expect(verdict('test_proof_of_identity', 'accepted')).toMatchObject({ state: 'accepted' });
-  expect(verdict('test_proof_of_address', 'rejected', 'TEST the address is cut off at the bottom')).toMatchObject({ state: 'rejected' });
+  // INTAFACED's compliance reviewer opens each file in the founder console and gives it a verdict.
+  const desk = await (await browser.newContext({ baseURL: ADMIN, viewport: { width: 1440, height: 1000 } })).newPage();
+  await founderSignIn(desk, 'a');
+  await desk.goto(`/merchants/${merchantId}?tab=verification`);
+  const review = desk.locator('#verification');
+  await expect(review).toContainText('Sent for review');
+  const opened = desk.context().waitForEvent('page');
+  await review.getByRole('button', { name: 'Open the file for Test proof of identity' }).click();
+  expect((await opened).url()).toMatch(/^blob:/);
+  await review.getByRole('button', { name: 'Mark Test proof of identity Verified' }).click();
+  await expect(review.getByRole('row', { name: /Test proof of identity/ })).toContainText('Verified');
+  const addressRow = review.getByRole('row', { name: /Test proof of address/ });
+  await expect(addressRow.getByRole('button', { name: 'Mark Test proof of address Invalid' })).toBeDisabled();
+  await addressRow.getByLabel('Reason, if Invalid (the merchant reads it)').fill('TEST the address is cut off at the bottom');
+  await addressRow.getByRole('button', { name: 'Mark Test proof of address Invalid' }).click();
+  await expect(addressRow).toContainText('Reason given: TEST the address is cut off at the bottom');
+  await desk.context().close();
   await page.reload();
   const reviewed = app.getByRole('region', { name: 'Documents', exact: true });
   await expect(reviewed.getByRole('row', { name: /Test proof of identity/ })).toContainText('Verified');
