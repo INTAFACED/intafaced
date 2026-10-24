@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { MemoryEventBus, bankScheduledFailed, bankScheduledReminder } from '@intafaced/events';
 import { MemoryNotifyStore } from './store.js';
-import { NotifyService } from './notify-service.js';
+import { NotifyService, type CreateResult } from './notify-service.js';
+import { categoryFromKind } from './preferences/categories.js';
 import { subscribeNotificationEvents } from './events.js';
 
 const OWNER = '33333333-3333-4333-8333-333333333333';
@@ -12,7 +13,8 @@ const reminder = {
   userId: OWNER,
   scheduleId: SCHEDULE,
   occurrence: 3,
-  dueAt: '2026-10-25T09:00:00.000Z',
+  // Far ahead, so the reminder is never read late by the real clock.
+  dueAt: '2099-10-25T09:00:00.000Z',
   amount: '40',
   assetId: 'USDT',
   leadHours: 24,
@@ -49,7 +51,15 @@ describe('standing-order notices (BK-acct-10, J-bank-06 #6)', () => {
       kind: 'bank.scheduled_reminder',
       titleKey: 'notify.bank.scheduled_reminder.title',
       bodyKey: 'notify.bank.scheduled_reminder.body',
-      params: { scheduleId: SCHEDULE, occurrence: '3', amount: '40', assetId: 'USDT', leadHours: '24', dueAt: reminder.dueAt },
+      params: {
+        scheduleId: SCHEDULE,
+        occurrence: '3',
+        amount: '40',
+        assetId: 'USDT',
+        leadHours: '24',
+        dueAt: reminder.dueAt,
+        dueDate: '2099-10-25',
+      },
       href: '/bank/transfers',
       severity: 'info',
       sourceSubject: bankScheduledReminder.subject,
@@ -82,8 +92,42 @@ describe('standing-order notices (BK-acct-10, J-bank-06 #6)', () => {
     const { notify, bus } = await wired();
 
     await bus.publish('bankScheduledReminder', reminder);
-    await bus.publish('bankScheduledReminder', { ...reminder, occurrence: 4, dueAt: '2026-11-25T09:00:00.000Z' });
+    await bus.publish('bankScheduledReminder', { ...reminder, occurrence: 4, dueAt: '2099-11-25T09:00:00.000Z' });
 
     expect((await notify.list({ userId: OWNER, limit: 10, unreadOnly: false })).items).toHaveLength(2);
+  });
+  it('drops a reminder read after its run was due: nobody is told to top up for a run that already happened', async () => {
+    const { notify, bus } = await wired();
+
+    await bus.publish('bankScheduledReminder', { ...reminder, dueAt: '2020-01-01T09:00:00.000Z' });
+
+    expect((await notify.list({ userId: OWNER, limit: 10, unreadOnly: false })).items).toHaveLength(0);
+  });
+
+  it("files both kinds under the orders category, so they follow the account's orders choices", () => {
+    expect(categoryFromKind('bank.scheduled_reminder')).toBe('orders');
+    expect(categoryFromKind('bank.scheduled_failed')).toBe('orders');
+  });
+
+  it('writes the failure notice, then asks for a retry when a channel answers "try again"', async () => {
+    class ChannelDown extends NotifyService {
+      override async create(input: Parameters<NotifyService['create']>[0]): Promise<CreateResult> {
+        const result = await super.create(input);
+        return {
+          ...result,
+          dispatch: {
+            notificationId: 'n-owner',
+            retry: true,
+            outcomes: [{ channel: 'email', status: 'failed', code: null, detail: 'gateway 503', retryable: true }],
+          },
+        };
+      }
+    }
+    const notify = new ChannelDown(new MemoryNotifyStore(), { fanoutEnabled: true });
+    const bus = new MemoryEventBus('svc-bank');
+    await subscribeNotificationEvents(bus, notify);
+
+    await expect(bus.publish('bankScheduledFailed', failed)).rejects.toThrow(/retry/);
+    expect((await notify.list({ userId: OWNER, limit: 10, unreadOnly: false })).items).toMatchObject([{ kind: 'bank.scheduled_failed' }]);
   });
 });

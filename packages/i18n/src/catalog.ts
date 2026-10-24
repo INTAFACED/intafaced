@@ -189,11 +189,10 @@ export const en = {
   'notify.pay.transfer_sent.title': 'Payment sent',
   'notify.pay.transfer_sent.body': 'You sent {amount} {assetId}.',
   'notify.bank.scheduled_reminder.title': 'Standing order coming up',
-  'notify.bank.scheduled_reminder.body':
-    'Your standing order of {amount} {assetId} runs within {leadHours} hours. Make sure the money is there.',
+  'notify.bank.scheduled_reminder.body': 'Your standing order of {amount} {assetId} runs on {dueDate} (UTC). Make sure the money is there.',
   'notify.bank.scheduled_failed.title': 'Standing order did not go through',
   'notify.bank.scheduled_failed.body':
-    'Your standing order of {amount} {assetId} could not run, and nothing was taken. Reason: {reasonCode}.',
+    'Your standing order of {amount} {assetId} could not run, and nothing was taken. Transfers shows why. Reference: {reasonCode}.',
   'notify.support.rate_request.title': 'How did we do?',
   'notify.support.rate_request.body': 'Your support request was resolved. Tell us how it went.',
   'notify.merchant.email_provider_unset.title': 'email not set up yet',

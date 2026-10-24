@@ -771,27 +771,29 @@ export async function subscribeNotificationEvents(
     }),
   );
 
+  // One notice per standing-order run and kind, deduped on schedule and run, so a redelivered event writes nothing new.
+  const standingOrder = (payload: { userId: string; scheduleId: string; occurrence: number; amount: string; assetId: string }) => ({
+    userId: payload.userId,
+    href: '/bank/transfers',
+    sourceIdempotencyKey: `${payload.scheduleId}:${payload.occurrence}`,
+    params: { scheduleId: payload.scheduleId, occurrence: String(payload.occurrence), amount: payload.amount, assetId: payload.assetId },
+  });
+
   attachments.push(
     await attach(bus, 'bankScheduledReminder', bankScheduledReminder.subject, 'notify-bank-scheduled-reminder', async (payload) => {
-      // One reminder per standing-order run: deduped on schedule and run, so a redelivered event writes nothing new.
+      // svc-bank drops a reminder whose run is due before it publishes; a reminder read late (this service was down or
+      // behind) is dropped here too, so nobody is told to top up for a run that has already happened.
+      if (Date.parse(payload.dueAt) <= Date.now()) return;
+      const base = standingOrder(payload);
       nakIfRetryable(
         await notify.create({
-          userId: payload.userId,
+          ...base,
           kind: 'bank.scheduled_reminder',
           titleKey: 'notify.bank.scheduled_reminder.title',
           bodyKey: 'notify.bank.scheduled_reminder.body',
-          params: {
-            scheduleId: payload.scheduleId,
-            occurrence: String(payload.occurrence),
-            amount: payload.amount,
-            assetId: payload.assetId,
-            leadHours: String(payload.leadHours),
-            dueAt: payload.dueAt,
-          },
-          href: '/bank/transfers',
+          params: { ...base.params, dueAt: payload.dueAt, dueDate: payload.dueAt.slice(0, 10), leadHours: String(payload.leadHours) },
           severity: 'info',
           sourceSubject: bankScheduledReminder.subject,
-          sourceIdempotencyKey: `${payload.scheduleId}:${payload.occurrence}`,
         }),
       );
     }),
@@ -799,25 +801,17 @@ export async function subscribeNotificationEvents(
 
   attachments.push(
     await attach(bus, 'bankScheduledFailed', bankScheduledFailed.subject, 'notify-bank-scheduled-failed', async (payload) => {
-      // A run the bank refused took nothing; the person hears once, with the bank's reason code, deduped on schedule and run.
+      // A run the bank refused took nothing; the person hears once, with the bank's reason as a reference.
+      const base = standingOrder(payload);
       nakIfRetryable(
         await notify.create({
-          userId: payload.userId,
+          ...base,
           kind: 'bank.scheduled_failed',
           titleKey: 'notify.bank.scheduled_failed.title',
           bodyKey: 'notify.bank.scheduled_failed.body',
-          params: {
-            scheduleId: payload.scheduleId,
-            occurrence: String(payload.occurrence),
-            amount: payload.amount,
-            assetId: payload.assetId,
-            reasonCode: payload.reasonCode,
-            failedAt: payload.failedAt,
-          },
-          href: '/bank/transfers',
+          params: { ...base.params, reasonCode: payload.reasonCode, failedAt: payload.failedAt },
           severity: 'action',
           sourceSubject: bankScheduledFailed.subject,
-          sourceIdempotencyKey: `${payload.scheduleId}:${payload.occurrence}`,
         }),
       );
     }),
