@@ -3,6 +3,22 @@ import { authoredRefusal, type ApiClient, type ApiResult } from '../../shared/ap
 import { decimalSchema } from '../../shared/money';
 import { withdrawalCopy } from './withdrawal-copy';
 
+/** svc-pay's customer vocabulary for a withdrawal (`withdrawals/status.ts`). */
+export const WITHDRAWAL_SHOWN = [
+  'requested',
+  'pending_review',
+  'approved',
+  'held',
+  'dispatching',
+  'broadcast',
+  'confirming',
+  'settled',
+  'rejected',
+  'canceled',
+  'failed',
+  'needs_review',
+] as const;
+
 // Published svc-pay withdrawalView. A record is a projection, not a balance
 // book, a delivery receipt or settlement evidence for another original action.
 export const withdrawalSchema = z.object({
@@ -21,15 +37,25 @@ export const withdrawalSchema = z.object({
   failureCode: z.string().nullable(),
   status: z.enum(['pending', 'held', 'sent', 'failed']),
   createdAt: z.string().datetime({ offset: true }),
+  // W-withdraw-07: the row in the customer vocabulary (a held row split by its dispatch journal), and whether a cancel would
+  // run now. Optional so an older svc-pay without them still reads; without `cancellable` the page offers Cancel on a
+  // requested withdrawal only, which is what an older svc-pay cancels.
+  customerStatus: z.enum(WITHDRAWAL_SHOWN).optional(),
+  cancellable: z.boolean().optional(),
 });
 export type WithdrawalRecord = z.infer<typeof withdrawalSchema>;
+export type WithdrawalShown = (typeof WITHDRAWAL_SHOWN)[number];
+// svc-pay's answer to `withdrawal.cancel`: the cancelled row, and whether a hold went back (`null`: unknown on a repeat).
+const canceledSchema = withdrawalSchema.extend({ customerStatus: z.literal('canceled'), holdReleased: z.boolean().nullable() });
+export type CanceledWithdrawal = z.infer<typeof canceledSchema>;
 export const withdrawalIdSchema = z
   .string()
   .guid()
   .transform((value) => value.toLowerCase());
 const limitSchema = z.number().int().min(1).max(200);
-type FailureKey = 'invalidId' | 'invalidOwner' | 'invalidWindow' | 'signedOut';
+type FailureKey = 'invalidId' | 'invalidOwner' | 'invalidWindow' | 'signedOut' | 'notCancellable';
 const failureKeys: Record<string, FailureKey> = {
+  'pay.withdrawal_not_cancellable': 'notCancellable',
   'withdrawal.input_invalid': 'invalidId',
   'withdrawal.owner_or_original_invalid': 'invalidOwner',
   'withdrawal.window_invalid': 'invalidWindow',
@@ -81,6 +107,19 @@ export function createWithdrawalReads(api: ApiClient, userId: string | null, cur
       // the exact original for retry; an ordinary 404 remains not_mounted.
       if (!result.ok && result.status === 404 && result.code === 'pay.withdrawal_not_found')
         return { ...result, reason: 'error', message: withdrawalCopy.t('notFoundNote'), messageCopy: undefined };
+      if (result.ok && (result.data.userId !== userId || result.data.id.toLowerCase() !== parsed.data))
+        return refuse('invalid_response', 'withdrawal.owner_or_original_invalid', 'invalidOwner');
+      return result;
+    },
+    /** Cancel one of the person's own withdrawals (W-withdraw-07). svc-pay decides whether it may; a refusal is typed. */
+    async cancel(withdrawalId: string): Promise<ApiResult<CanceledWithdrawal>> {
+      const denied = admission();
+      if (denied) return denied;
+      const parsed = withdrawalIdSchema.safeParse(withdrawalId);
+      if (!parsed.success) return refuse('error', 'withdrawal.input_invalid', 'invalidId');
+      const result = await api.mutate('pay', 'withdrawal.cancel', { withdrawalId: parsed.data }, canceledSchema);
+      const departed = admission();
+      if (departed) return departed;
       if (result.ok && (result.data.userId !== userId || result.data.id.toLowerCase() !== parsed.data))
         return refuse('invalid_response', 'withdrawal.owner_or_original_invalid', 'invalidOwner');
       return result;

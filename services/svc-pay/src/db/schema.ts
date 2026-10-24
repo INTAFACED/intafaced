@@ -471,6 +471,11 @@ export const withdrawals = pay.table(
     /** Machine-readable reason the last attempt failed, for the user and the operator. */
     failureCode: text('failure_code'),
     status: withdrawalStatusEnum('status').notNull().default('pending'),
+    /**
+     * True once the row moved into `held` under the code that journals every send before it asks the rail (W-withdraw-07).
+     * NULL on a row held before that: its dispatch history is unknown, so it is never cancelled.
+     */
+    dispatchJournaled: boolean('dispatch_journaled'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

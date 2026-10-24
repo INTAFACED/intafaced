@@ -83,13 +83,14 @@ export function storedStatusesFor(status: WithdrawalStatus): StoredWithdrawalSta
  * `broadcast` is not a plain `failed`: it goes through `needs_review` and is final only when an operator or the
  * reconciler proves it (ENGINE W-3). `held -> settled` is the rail with final acceptance (ENGINE W-4); a chain
  * withdrawal goes through `dispatching`, `broadcast` and `confirming`. `failed -> requested` is the retry of the same
- * client reference. W-withdraw-07, -10 and -11 add moves here.
+ * client reference. `held -> canceled` is W-withdraw-07: only when the dispatch journal proves nothing was sent
+ * (`isCancellable`). W-withdraw-10 and -11 add moves here.
  */
 const TRANSITIONS: Record<WithdrawalStatus, readonly WithdrawalStatus[]> = {
   requested: ['pending_review', 'approved', 'rejected', 'canceled'],
   pending_review: ['approved', 'rejected', 'canceled', 'needs_review'],
   approved: ['held', 'rejected', 'canceled'],
-  held: ['dispatching', 'settled', 'failed'],
+  held: ['dispatching', 'settled', 'failed', 'canceled'],
   dispatching: ['broadcast', 'failed', 'needs_review'],
   broadcast: ['confirming', 'needs_review'],
   confirming: ['settled', 'needs_review'],
@@ -136,4 +137,38 @@ export function mayReleaseHold(status: WithdrawalStatus): boolean {
 /** Final: nothing moves out of it. */
 export function isTerminal(status: WithdrawalStatus): boolean {
   return TRANSITIONS[status].length === 0;
+}
+
+/** The outcome of a withdrawal's current attempt in `pay.withdrawal_rail_attempts`, or `null` when none is journalled. */
+export type DispatchJournal = 'requested' | 'accepted' | 'refused' | null;
+
+/**
+ * What the customer sees for one row (W-withdraw-07). A stored `held` row is split by its current attempt's journal:
+ * nothing journalled is `held` (the hold is booked and nothing was asked of the rail), `requested` is `dispatching` (a send
+ * was asked for and its outcome is not known), `accepted` is `broadcast` (it left). A journalled refusal is still being put
+ * back, so it reads `held` until the row turns `failed`. `journal` undefined means the caller did not read it: `held`.
+ */
+export function shownStatus(stored: string, failureCode: string | null, journal?: DispatchJournal): WithdrawalStatus {
+  const status = customerStatus(stored, failureCode);
+  if (status !== 'held') return status;
+  if (journal === 'requested') return 'dispatching';
+  if (journal === 'accepted') return 'broadcast';
+  return 'held';
+}
+
+/**
+ * Whether `cancelWithdrawal` would cancel this row. A `requested` row with no send on record can be cancelled. A `held` row
+ * only when the journal proves nothing was sent: it moved into `held` under the journalling code (`dispatchJournaled`) and
+ * its current attempt has no journal row. Unknown means no.
+ */
+export function isCancellable(
+  stored: string,
+  failureCode: string | null,
+  journal: DispatchJournal | undefined,
+  dispatchJournaled: boolean | null | undefined,
+): boolean {
+  if (journal !== null) return false;
+  if (stored === 'pending') return true;
+  // A cancel that wrote its intent on the held row and stopped resumes; any other code on a held row is a refusal being put back.
+  return stored === 'held' && dispatchJournaled === true && (failureCode === null || failureCode === WITHDRAWAL_CANCELED_CODE);
 }
