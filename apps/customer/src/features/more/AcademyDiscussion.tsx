@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { z } from 'zod';
 import {
   ACADEMY_DISCUSSION_GENERAL_TOPIC,
@@ -13,7 +13,7 @@ import {
 } from '@intafaced/contracts/academy-discussion';
 import type { ApiResult } from '../../shared/api';
 import { usePreferences } from '../../shared/preferences';
-import { useResource } from '../../shared/resource';
+import { useResource, type Resource } from '../../shared/resource';
 import { Button, Field, Loading, Panel } from '../../shared/ui';
 import { useApi, useSession } from '../session/session';
 import { academyCodeOf, academyRefusalText } from './academy-flows';
@@ -45,6 +45,19 @@ async function base64Of(file: File): Promise<string> {
 
 /** A new request id for a new draft; the same draft sent again keeps it. */
 const newRequest = (kind: string) => `${kind}:${crypto.randomUUID()}`;
+
+/**
+ * The last answer for this key while a re-read is on its way, so a form under it keeps what the reader typed and the
+ * outcome of what they sent. A different key (another topic or post) shows nothing until its own answer lands.
+ */
+function useSteady<T>(resource: Resource<T>, key: string): T | null {
+  const [last, setLast] = useState<{ key: string; data: T } | null>(null);
+  const ready = resource.status === 'ready' ? resource.data : null;
+  useEffect(() => {
+    if (ready !== null) setLast({ key, data: ready });
+  }, [ready, key]);
+  return ready ?? (last?.key === key ? last.data : null);
+}
 
 function authorText(author: AcademyDiscussionAuthor, t: T) {
   if (author.kind === 'you') return author.anonymous ? t('discussionYouAnonymous') : t('discussionYou');
@@ -129,6 +142,8 @@ export function AcademyDiscussionPage({ courseSlug }: { courseSlug: string }) {
       }),
     `discussion-posts:${userId}:${courseSlug}:${topicSlug}`,
   );
+  const topicsData = useSteady(topics.resource, courseSlug);
+  const postsData = useSteady(posts.resource, `${courseSlug}:${topicSlug}`);
   const settled = () => {
     posts.reload();
     topics.reload();
@@ -138,13 +153,13 @@ export function AcademyDiscussionPage({ courseSlug }: { courseSlug: string }) {
       <a className="text-link" href="/academy/rooms">
         {t('discussionAll')}
       </a>
-      {topics.resource.status === 'loading' && <Loading />}
-      {topics.resource.status === 'failed' && (
+      {topics.resource.status === 'failed' ? (
         <OutcomeLine outcome={{ kind: 'refused', failure: topics.resource.failure }} done="" testId="discussion-refused" />
-      )}
-      {topics.resource.status === 'ready' &&
+      ) : topicsData === null ? (
+        <Loading />
+      ) : (
         (() => {
-          const data = topics.resource.data;
+          const data = topicsData;
           const open = data.topics.find((topic) => topic.slug === topicSlug) ?? data.topics[0]!;
           return (
             <div className="more-columns" data-discussion={data.course.slug}>
@@ -170,12 +185,13 @@ export function AcademyDiscussionPage({ courseSlug }: { courseSlug: string }) {
                 </nav>
               </Panel>
               <div className="academy-lms-stack" data-testid="discussion-open-topic" data-topic={open.slug}>
-                <TopicPosts courseSlug={data.course.slug} topic={open} posts={posts} />
+                <TopicPosts courseSlug={data.course.slug} topic={open} posts={postsData} failure={posts.resource} retry={posts.reload} />
                 <NewPost key={open.slug} courseSlug={data.course.slug} topic={open} onSettled={settled} />
               </div>
             </div>
           );
-        })()}
+        })()
+      )}
     </div>
   );
 }
@@ -188,44 +204,51 @@ function TopicPosts({
   courseSlug,
   topic,
   posts,
+  failure,
+  retry,
 }: {
   courseSlug: string;
   topic: AcademyDiscussionTopic;
-  posts: ReturnType<typeof useResource<z.infer<typeof academyDiscussionPostSchema>[]>>;
+  posts: z.infer<typeof academyDiscussionPostSchema>[] | null;
+  failure: Resource<unknown>;
+  retry: () => void;
 }) {
   const { t } = copy.useCopy();
   const { language } = usePreferences();
   return (
     <Panel title={t('discussionPostsTitle', { topic: topicName(topic, t) })}>
-      {posts.resource.status === 'loading' && <Loading />}
-      {posts.resource.status === 'failed' && <AcademyRefusal failure={posts.resource.failure} retry={posts.reload} />}
-      {posts.resource.status === 'ready' &&
-        (posts.resource.data.length === 0 ? (
-          <p role="status" data-testid="discussion-empty">
-            {t('discussionEmpty')}
-          </p>
-        ) : (
-          <ul className="academy-lms-rows">
-            {posts.resource.data.map((post) => (
-              <li key={post.id} data-discussion-post={post.id} data-kind={post.kind}>
-                <div>
-                  <a className="academy-learning-link" href={academyDiscussionHref(courseSlug, post.id)} lang="und">
-                    {post.title}
-                  </a>
-                  <div className="academy-lms-meta">
-                    <span className="academy-lms-chip">{post.kind === 'question' ? t('discussionKindQuestion') : t('discussionKindDiscussion')}</span>
-                    <span data-testid="post-author">{authorText(post.author, t)}</span>
-                    <span>{formatMoment(post.createdAt.toISOString(), language)}</span>
-                    <span>{t('discussionReplies', { count: post.replies })}</span>
-                    <span>{likesText(post.likes, t)}</span>
-                    {post.acceptedReplyId && <span className="academy-lms-chip">{t('discussionAccepted')}</span>}
-                    {post.hasImage && <span>{t('discussionHasImage')}</span>}
-                  </div>
+      {failure.status === 'failed' ? (
+        <AcademyRefusal failure={failure.failure} retry={retry} />
+      ) : posts === null ? (
+        <Loading />
+      ) : posts.length === 0 ? (
+        <p role="status" data-testid="discussion-empty">
+          {t('discussionEmpty')}
+        </p>
+      ) : (
+        <ul className="academy-lms-rows">
+          {posts.map((post) => (
+            <li key={post.id} data-discussion-post={post.id} data-kind={post.kind}>
+              <div>
+                <a className="academy-learning-link" href={academyDiscussionHref(courseSlug, post.id)} lang="und">
+                  {post.title}
+                </a>
+                <div className="academy-lms-meta">
+                  <span className="academy-lms-chip">
+                    {post.kind === 'question' ? t('discussionKindQuestion') : t('discussionKindDiscussion')}
+                  </span>
+                  <span data-testid="post-author">{authorText(post.author, t)}</span>
+                  <span>{formatMoment(post.createdAt.toISOString(), language)}</span>
+                  <span>{t('discussionReplies', { count: post.replies })}</span>
+                  <span>{likesText(post.likes, t)}</span>
+                  {post.acceptedReplyId && <span className="academy-lms-chip">{t('discussionAccepted')}</span>}
+                  {post.hasImage && <span>{t('discussionHasImage')}</span>}
                 </div>
-              </li>
-            ))}
-          </ul>
-        ))}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
     </Panel>
   );
 }
@@ -310,8 +333,8 @@ function NewPost({ courseSlug, topic, onSettled }: { courseSlug: string; topic: 
             aria-describedby={`${id}-image-hint`}
             onChange={(event) => setFile(event.target.files?.[0] ?? null)}
           />
-          <small id={`${id}-image-hint`}>{t('discussionImageHint')}</small>
         </label>
+        <small id={`${id}-image-hint`}>{t('discussionImageHint')}</small>
         <label className="academy-lms-choice" htmlFor={`${id}-anon`}>
           <input id={`${id}-anon`} type="checkbox" checked={anonymous} onChange={(event) => setAnonymous(event.target.checked)} />
           <span>{t('discussionAnonymous')}</span>
@@ -336,6 +359,7 @@ export function AcademyDiscussionThread({ courseSlug, postId }: { courseSlug: st
     (signal) => api.query('academy', 'discussionThread', { postId }, academyDiscussionThreadSchema, { signal }),
     `discussion-thread:${userId}:${postId}`,
   );
+  const threadData = useSteady(thread.resource, postId);
   const [busy, setBusy] = useState(false);
   const [refused, setRefused] = useState<Outcome | null>(null);
   const act = async (procedure: string, input: Record<string, unknown>, schema: z.ZodType) => {
@@ -353,19 +377,21 @@ export function AcademyDiscussionThread({ courseSlug, postId }: { courseSlug: st
       <a className="text-link" href={academyDiscussionHref(courseSlug)}>
         {t('discussionBack')}
       </a>
-      {thread.resource.status === 'loading' && <Loading />}
-      {thread.resource.status === 'failed' && (
+      {thread.resource.status === 'failed' ? (
         <OutcomeLine outcome={{ kind: 'refused', failure: thread.resource.failure }} done="" testId="discussion-refused" />
-      )}
-      {thread.resource.status === 'ready' &&
+      ) : threadData === null ? (
+        <Loading />
+      ) : (
         (() => {
-          const { post, image, replies, canAccept } = thread.resource.data;
+          const { post, image, replies, canAccept } = threadData;
           return (
             <div className="academy-lms-stack" data-discussion-thread={post.id}>
               <Panel title={<span lang="und">{post.title}</span>}>
                 <div className="academy-lms-stack">
                   <div className="academy-lms-meta">
-                    <span className="academy-lms-chip">{post.kind === 'question' ? t('discussionKindQuestion') : t('discussionKindDiscussion')}</span>
+                    <span className="academy-lms-chip">
+                      {post.kind === 'question' ? t('discussionKindQuestion') : t('discussionKindDiscussion')}
+                    </span>
                     <span data-testid="post-author">{authorText(post.author, t)}</span>
                     <span>{formatMoment(post.createdAt.toISOString(), language)}</span>
                     <span>{likesText(post.likes, t)}</span>
@@ -394,7 +420,9 @@ export function AcademyDiscussionThread({ courseSlug, postId }: { courseSlug: st
                       variant="secondary"
                       disabled={busy}
                       aria-pressed={post.liked}
-                      onClick={() => void act('likeDiscussionPost', { postId: post.id, on: !post.liked }, toggle.extend({ likes: z.number() }))}
+                      onClick={() =>
+                        void act('likeDiscussionPost', { postId: post.id, on: !post.liked }, toggle.extend({ likes: z.number() }))
+                      }
                     >
                       {post.liked ? t('discussionLiked') : t('discussionLike')}
                     </Button>
@@ -429,7 +457,11 @@ export function AcademyDiscussionThread({ courseSlug, postId }: { courseSlug: st
                                 disabled={busy}
                                 aria-pressed={reply.liked}
                                 onClick={() =>
-                                  void act('likeDiscussionPost', { postId: reply.id, on: !reply.liked }, toggle.extend({ likes: z.number() }))
+                                  void act(
+                                    'likeDiscussionPost',
+                                    { postId: reply.id, on: !reply.liked },
+                                    toggle.extend({ likes: z.number() }),
+                                  )
                                 }
                               >
                                 {reply.liked ? t('discussionLiked') : t('discussionLike')}
@@ -461,7 +493,8 @@ export function AcademyDiscussionThread({ courseSlug, postId }: { courseSlug: st
               </Panel>
             </div>
           );
-        })()}
+        })()
+      )}
     </div>
   );
 }
