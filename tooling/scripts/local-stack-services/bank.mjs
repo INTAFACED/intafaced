@@ -15,6 +15,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     LEDGER_URL: urlOf('ledger'),
     IDENTITY_URL: urlOf('identity'),
     TRADE_URL: urlOf('trade'),
+    // Deposit catalogue and addresses come from svc-pay's custody paths; without it every deposit answer is "not published".
+    PAY_URL: urlOf('pay'),
     // Required, no default (owner-unpublished). Inert LOCAL TEST placeholders so the service can
     // boot: the jobs they size are all switched off below, so no batch size is ever exercised.
     LOAN_QUOTE_ASSET_ID: 'USDT',

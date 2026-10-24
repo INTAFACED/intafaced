@@ -9,6 +9,7 @@
  *   node tooling/scripts/local-test-gates.mjs verify     test accounts submit, test operators approve "full"
  *   node tooling/scripts/local-test-gates.mjs terms      publish TEST personal transfer limits (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs assets     publish TEST supported assets and networks (two-person approval)
+ *   node tooling/scripts/local-test-gates.mjs deposit-terms   publish TEST crypto deposit networks and terms in svc-pay (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs futures    list the TEST perpetual, publish TEST derivatives terms and quiz
  *   node tooling/scripts/local-test-gates.mjs halt <SYMBOL>    halt one book in matching (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs resume <SYMBOL>  resume a halted book (two-person approval)
@@ -955,6 +956,149 @@ export async function publishAssetRegistry(ctx) {
   return out;
 }
 
+// ── 2c+. Crypto deposits: TEST networks and deposit terms (two-person approval) ──
+
+/**
+ * LOCAL TEST deposit terms, not owner values. svc-pay publishes a deposit pair only when its network is in the payment
+ * network registry (switched on, a confirmation count and a fee source set, the asset listed) AND the pair has an owner
+ * setting switched on (`pay.custody_deposit_settings`). Both start empty, so the Deposit room offers nothing and every
+ * address request refuses. The networks are the two TEST EVM chains the address book already offers.
+ */
+export const TEST_DEPOSIT_NETWORKS = [
+  { networkId: 'ethereum', displayName: 'TEST Ethereum' },
+  { networkId: 'base', displayName: 'TEST Base' },
+].map((n) => ({
+  ...n,
+  assetCodes: ['USDC', 'USDT'],
+  // TEST counts: as many confirmations as svc-pay's PAY_MIN_CONFIRMATIONS on the stack, and a TEST network fee estimate.
+  confirmationsRequired: 6,
+  enabled: true,
+  feeEstimateSource: 'fixed',
+  feeEstimateAmount: '1.5',
+}));
+export const TEST_DEPOSIT_TERMS = TEST_DEPOSIT_NETWORKS.flatMap((n) =>
+  n.assetCodes.map((assetId) => ({
+    assetId,
+    networkId: n.networkId,
+    label: n.displayName,
+    minimumDeposit: '10',
+    estimatedArrivalMinutes: 15,
+  })),
+);
+
+/** The svc-pay approval a founder change needs: the target is the action type itself, at version 1 (consumePayApproval). */
+export function payProposal(actionType, payloadHash) {
+  return {
+    actionType,
+    targetService: 'svc-pay',
+    targetId: actionType,
+    expectedVersion: '1',
+    payloadHash,
+    policyVersion: MARKERS.policyVersion,
+  };
+}
+
+/**
+ * One svc-pay founder change: preview it, and when the preview says a second founder must approve, founder A proposes the
+ * exact payload hash the preview names and founder B approves it; then founder A saves. Returns the saved row.
+ */
+async function payFounderSave(ctx, sessions, { preview, previewInput, save, input, what }) {
+  const token = sessions.a.token;
+  const looked = await ctx.edge.query('pay', preview, previewInput, token);
+  const plan = data(looked);
+  if (!plan?.payloadHash) throw new Error(`pay ${preview} for ${what} refused (${looked.status}): ${refusalText(looked)}`);
+  const ids = plan.needsDualControl ? await twoPerson(ctx, sessions, payProposal(plan.actionType, plan.payloadHash)) : {};
+  assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
+  const saved = await ctx.edge.mutate('pay', save, { ...input, ...ids }, token);
+  const row = data(saved);
+  if (!row) throw new Error(`pay ${save} for ${what} refused (${saved.status}): ${refusalText(saved)}`);
+  return { row, approvalId: ids.approvalId ?? null };
+}
+
+/**
+ * True when the registry row already carries the TEST network (version and clock aside). Assets listed beyond the TEST ones are
+ * someone else's and do not count as a difference.
+ */
+export function networkRowMatches(row, want) {
+  if (!row) return false;
+  const pick = (r) => JSON.stringify([r.displayName, r.confirmationsRequired, r.enabled, r.feeEstimateSource, r.feeEstimateAmount]);
+  return pick(row) === pick(want) && want.assetCodes.every((code) => row.assetCodes.includes(code));
+}
+
+/**
+ * Publish the TEST deposit networks and deposit terms through the founders' doors in svc-pay
+ * (`founderAdmin.registries.networks.save`, `founderAdmin.depositSettings.save`). A deposit pair is created switched off and
+ * switched on as its own dual-controlled change, as the service requires. A row that already says the same is left alone.
+ */
+export async function publishDepositTerms(ctx) {
+  const sessions = await approverSessions(ctx);
+  const token = sessions.a.token;
+  const out = [];
+  const networks = await ctx.edge.query('pay', 'founderAdmin.registries.networks.list', {}, token);
+  if (!Array.isArray(data(networks))) throw new Error(`pay networks.list refused (${networks.status}): ${refusalText(networks)}`);
+  for (const want of TEST_DEPOSIT_NETWORKS) {
+    const what = `network ${want.networkId}`;
+    let row = data(networks).find((n) => n.networkId === want.networkId) ?? null;
+    if (networkRowMatches(row, want)) {
+      out.push({ what, status: 'already published' });
+      continue;
+    }
+    const reason = `${MARKERS.label}: TEST deposit network`;
+    const save = (change) =>
+      payFounderSave(ctx, sessions, {
+        preview: 'founderAdmin.registries.preview',
+        previewInput: { registry: 'network', change },
+        save: 'founderAdmin.registries.networks.save',
+        input: change,
+        what,
+      });
+    // A new entry must be created switched off; switching it on is its own dual-controlled edit.
+    if (!row) row = (await save({ ...want, enabled: false, expectedVersion: null, reason })).row;
+    // Keep any asset already listed on the network beside the TEST ones.
+    const assetCodes = [...new Set([...row.assetCodes, ...want.assetCodes])].sort();
+    const r = await save({ ...want, assetCodes, expectedVersion: row.version, reason });
+    out.push({ what, status: 'published', approvalId: r.approvalId });
+    ctx.log(`deposit network ${want.networkId}: ${want.assetCodes.join(', ')} published (${MARKERS.label})`);
+  }
+  const listed = await ctx.edge.query('pay', 'founderAdmin.depositSettings.list', {}, token);
+  if (!Array.isArray(data(listed))) throw new Error(`pay depositSettings.list refused (${listed.status}): ${refusalText(listed)}`);
+  for (const want of TEST_DEPOSIT_TERMS) {
+    const what = `deposit ${want.assetId} on ${want.networkId}`;
+    let row = data(listed).find((r) => r.assetId === want.assetId && r.networkId === want.networkId) ?? null;
+    const same = (r) =>
+      r && r.label === want.label && r.minimumDeposit === want.minimumDeposit && r.estimatedArrivalMinutes === want.estimatedArrivalMinutes;
+    if (row?.enabled && same(row)) {
+      out.push({ what, status: 'already published' });
+      continue;
+    }
+    const reason = `${MARKERS.label}: TEST deposit terms`;
+    if (!row) {
+      // A new pair must be created switched off; switching it on (with the TEST terms) is its own dual-controlled change.
+      const change = { ...want, enabled: false, haltNote: null, expectedVersion: null, reason };
+      row = (
+        await payFounderSave(ctx, sessions, {
+          preview: 'founderAdmin.depositSettings.preview',
+          previewInput: change,
+          save: 'founderAdmin.depositSettings.save',
+          input: change,
+          what,
+        })
+      ).row;
+    }
+    const on = { ...want, enabled: true, haltNote: null, expectedVersion: row.version, reason };
+    const r = await payFounderSave(ctx, sessions, {
+      preview: 'founderAdmin.depositSettings.preview',
+      previewInput: on,
+      save: 'founderAdmin.depositSettings.save',
+      input: on,
+      what,
+    });
+    out.push({ what, status: 'published', approvalId: r.approvalId });
+    ctx.log(`${what}: minimum ${want.minimumDeposit}, about ${want.estimatedArrivalMinutes} min, switched on (${MARKERS.label})`);
+  }
+  return out;
+}
+
 // ── 2d. Pair price band and open-order cap (two-person approval) ────────────
 
 /**
@@ -1609,6 +1753,8 @@ async function main() {
       // before it (every journeys shard stopped here in run 231).
       for (const r of await publishP2pMethods(ctx))
         say(`  p2p       ${r.methodId} ${r.country} ${r.changed ? 'registered' : 'already registered'}`);
+      // Last: a svc-pay refusal here stops nothing the trading and transfer journeys need.
+      for (const r of await publishDepositTerms(ctx)) say(`  deposits  ${r.what}: ${r.status}`);
     } else if (cmd === 'kyb') {
       const out = await seedPayKybRequirements(ctx);
       for (const t of out.types) say(`  kyb       ${t.entityType} ${t.changed ? 'published' : 'already published'}`);
@@ -1617,6 +1763,8 @@ async function main() {
         say(`  p2p       ${r.methodId} ${r.country} ${r.changed ? 'registered' : 'already registered'}`);
     } else if (cmd === 'assets') {
       for (const r of await publishAssetRegistry(ctx)) say(`  asset     ${r.assetId.padEnd(10)} ${r.status} (revision ${r.revision})`);
+    } else if (cmd === 'deposit-terms') {
+      for (const r of await publishDepositTerms(ctx)) say(`  deposits  ${r.what}: ${r.status}`);
     } else if (cmd === 'halt' || cmd === 'resume') {
       const symbol = process.argv[3];
       if (!symbol) die(`usage: local-test-gates.mjs ${cmd} <SYMBOL>, for example ETH/USDT`, 2);
