@@ -1205,6 +1205,18 @@ const announceOwedCredits = () =>
 void announceOwedCredits();
 const creditAnnouncements = setInterval(() => void announceOwedCredits(), 60_000);
 creditAnnouncements.unref();
+// W-deposit-07: a counterparty wait on a deposit held for the travel rule that ran out is recorded, with or without the chain
+// watcher. The deposit stays held: a timer never releases it.
+const travelRuleWaits = setInterval(
+  () =>
+    void custodyDepositBook
+      .expireTravelRuleWaits()
+      .catch((err: unknown) =>
+        app.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'deposit travel-rule waits not checked'),
+      ),
+  30_000,
+);
+travelRuleWaits.unref();
 
 /**
  * The posture goes in the log on every start. In dev, where `assertRailPosture`
@@ -1243,6 +1255,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       clearInterval(lateFillSweep);
       clearInterval(holdSweep);
       clearInterval(creditAnnouncements);
+      clearInterval(travelRuleWaits);
       payoutReconciler?.stop();
       // No new metrics pass may start against a pool that is closing; an in-flight one rolls back and its marks stay.
       metricsRefresher.stop();

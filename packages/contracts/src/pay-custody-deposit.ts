@@ -299,6 +299,9 @@ export const payDepositTravelRuleViewSchema = z
   .strict();
 export type PayDepositTravelRuleView = z.infer<typeof payDepositTravelRuleViewSchema>;
 
+export const payDepositTravelRuleGetInputSchema = z.object({ depositId: z.string().uuid() }).strict();
+export type PayDepositTravelRuleGetInput = z.infer<typeof payDepositTravelRuleGetInputSchema>;
+
 /** One declared value. Free text the depositor types; svc-pay seals it and never returns it. */
 const declaredValueSchema = z.string().trim().min(1).max(500);
 

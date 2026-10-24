@@ -6,6 +6,7 @@ import {
   PAY_DEPOSIT_WALLET_TYPES,
   PAY_TRAVEL_RULE_FIELDS,
   payDepositTravelRuleDeclareInputSchema,
+  payDepositTravelRuleGetInputSchema,
   payDepositTravelRuleViewSchema,
   router,
   scopedProcedure,
@@ -443,7 +444,7 @@ export function createDepositTravelRuleCustomerRouter(deps: DepositTravelRuleDep
     custodyDeposit: router({
       travelRule: router({
         get: scopedProcedure('trade:read', { module: 'ledger' })
-          .input(z.object({ depositId: z.string().uuid() }).strict())
+          .input(payDepositTravelRuleGetInputSchema)
           .output(payDepositTravelRuleViewSchema)
           .query(({ ctx, input }) => wrap(() => service.forCustomer(ctx.principal.userId, input.depositId))),
         declare: scopedProcedure('trade:write', { module: 'ledger' })
