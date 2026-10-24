@@ -135,13 +135,16 @@ const looksLikePhone = (value: string) => /^\+?[\d\s().-]{7,}$/.test(value) && /
 
 type Account = { id: string; email: string };
 
-/** The active account this name signs in, or undefined. A frozen or closed account gets no code (FLW-4). */
+/**
+ * The active account this name signs in, or undefined. A frozen or closed account gets no code (FLW-4), and neither does
+ * one whose owner turned sign-in by mailed code off (I-account-lifecycle-07); the answer reads the same.
+ */
 async function activeAccount(sql: Sql, identifier: string): Promise<Account | undefined> {
-  const rows = await sql<Array<{ id: string; email: string; status: string }>>`
-    SELECT id, email, status FROM users WHERE handle = ${identifier} OR email = ${identifier}
+  const rows = await sql<Array<{ id: string; email: string; status: string; email_code_signin: boolean }>>`
+    SELECT id, email, status, email_code_signin FROM users WHERE handle = ${identifier} OR email = ${identifier}
   `;
   const user = rows[0];
-  return user && user.status === 'active' ? { id: user.id, email: user.email } : undefined;
+  return user && user.status === 'active' && user.email_code_signin ? { id: user.id, email: user.email } : undefined;
 }
 
 /**
@@ -284,7 +287,7 @@ export async function resendLoginCode(deps: LoginCodeDeps, input: { flowId: stri
       const recent = await recentSends(tx, flow.subject_hash, flow.user_id, since);
       if (recent.n >= budget.requestMax) throw overCap(budget, recent.oldest, now);
       const account = flow.user_id
-        ? (await tx<Array<{ id: string; email: string }>>`SELECT id, email FROM users WHERE id = ${flow.user_id} AND status = 'active'`)[0]
+        ? (await tx<Array<{ id: string; email: string }>>`SELECT id, email FROM users WHERE id = ${flow.user_id} AND status = 'active' AND email_code_signin`)[0]
         : undefined;
       // A resend never keeps a flow alive past one day from its start.
       const expiresAt = new Date(

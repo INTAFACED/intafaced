@@ -30,6 +30,13 @@ import {
   WeakPasswordError,
 } from './passwords.js';
 import { assertNotSecurityLocked } from './security-lock.js';
+import {
+  assertLeavesAWayIn,
+  lockedSigninMethods,
+  startWalletChallenge,
+  walletSigninAccount,
+  type WalletConfig,
+} from './signin-methods.js';
 import { accountHasSecondFactor, assertMayAddFactor, assertMayRemoveFactor, checkMayAddFactor, type FactorActor } from './factor-gate.js';
 import { confirmEmail, isEmailConfirmed, requestEmailConfirmation } from './email-confirmation.js';
 import {
@@ -1345,6 +1352,42 @@ export class AuthService {
     return device.deviceKey ? { ...session, deviceKey: device.deviceKey } : session;
   }
 
+  /** Wallet messages are written for the same origins passkeys answer on (WEBAUTHN_ORIGIN). */
+  walletConfig(): WalletConfig {
+    return { origins: [this.webauthn.origin].flat() };
+  }
+
+  /**
+   * Wallet sign-in, step 1 (I-account-lifecycle-07): the message the wallet signs. The same answer for a wallet that is
+   * linked and one that is not, so it tells a caller nothing.
+   */
+  async walletSigninChallenge(input: { address: string; chainId: number; origin?: string }) {
+    return startWalletChallenge(this.sql, this.walletConfig(), { purpose: 'signin', ...input });
+  }
+
+  /**
+   * Wallet sign-in, step 2: a signature from a wallet the account linked proves the person, as a linked provider does,
+   * and the second step still follows. An unlinked wallet is refused as a wrong password is.
+   */
+  async loginWithWallet(input: {
+    flowId: string;
+    message: string;
+    signature: string;
+    totpCode?: string;
+    device?: string;
+    ip?: string;
+    deviceKey?: string | null;
+  }): Promise<SessionTokens> {
+    const userId = await walletSigninAccount(this.sql, this.walletConfig(), input);
+    if (!userId) throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
+    return this.signInVerifiedIdentity(userId, {
+      ...(input.totpCode === undefined ? {} : { totpCode: input.totpCode }),
+      ...(input.device === undefined ? {} : { device: input.device }),
+      ...(input.ip === undefined ? {} : { ip: input.ip }),
+      deviceKey: input.deviceKey ?? null,
+    });
+  }
+
   /**
    * The sign-in (`fam`) and trusted device (`dev`) of the user's own live session, for a token minted from it outside
    * sign-in and refresh (step-up). A session that is not the user's, was revoked or has expired mints nothing.
@@ -2235,6 +2278,8 @@ export class AuthService {
       const creds = asCredentialList(rows[0].webauthn_creds);
       const next = creds.filter((c) => c.credentialId !== target);
       if (next.length === creds.length) return false;
+      // The last way in stays (I-account-lifecycle-07): a passkey is removed only while another method remains.
+      assertLeavesAWayIn(await lockedSigninMethods(tx, userId));
       await tx`UPDATE users SET webauthn_creds = ${tx.json(next as never)}, updated_at = now() WHERE id = ${userId}`;
       return true;
     });
