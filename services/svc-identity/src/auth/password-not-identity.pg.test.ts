@@ -229,4 +229,90 @@ if (!available) {
       await expect(anon().auth.login({ identifier: email, password: BREACHED })).resolves.toMatchObject({ userId: made.userId });
     });
   });
+
+  describe('the "your password was changed" notice (I-signin-sessions-08)', () => {
+    const notices = (email: string) => sent.filter((m) => m.email === email && m.purpose === 'password-changed');
+    const proved = async (userId: string) => db.sql`UPDATE users SET email_verified_at = ${new Date(T0)} WHERE id = ${userId}`;
+
+    it('mails the proved address once on a change and once on a reset, with no code', async () => {
+      const user = await register();
+      await proved(user.userId);
+      await auth.changePassword({
+        userId: user.userId,
+        sessionId: user.sessionId,
+        actor: { delegated: false, privileged: false, mfa: false },
+        currentPassword: OLD,
+        newPassword: NEW,
+      });
+      expect(notices(user.email)).toEqual([expect.objectContaining({ code: '', purpose: 'password-changed', userId: user.userId })]);
+
+      await anon().auth.requestPasswordReset({ email: user.email });
+      const code = sent.filter((m) => m.purpose === 'password-reset').at(-1)!.code;
+      await anon().auth.completePasswordReset({ email: user.email, code, newPassword: `${NEW} again` });
+      expect(notices(user.email)).toHaveLength(2);
+      expect(await db.sql`SELECT status FROM mail_outbox WHERE purpose = 'password-changed' AND user_id = ${user.userId}`).toEqual([
+        { status: 'sent' },
+        { status: 'sent' },
+      ]);
+    });
+
+    it('sends nothing for a refused change, and nothing to an address that was never proved', async () => {
+      const user = await register();
+      await proved(user.userId);
+      await expect(
+        auth.changePassword({
+          userId: user.userId,
+          sessionId: user.sessionId,
+          actor: { delegated: false, privileged: false, mfa: false },
+          currentPassword: OLD,
+          newPassword: user.email,
+        }),
+      ).rejects.toMatchObject({ code: 'auth.password_policy' });
+      expect(notices(user.email)).toHaveLength(0);
+
+      const unproved = await register();
+      await auth.changePassword({
+        userId: unproved.userId,
+        sessionId: unproved.sessionId,
+        actor: { delegated: false, privileged: false, mfa: false },
+        currentPassword: OLD,
+        newPassword: NEW,
+      });
+      expect(notices(unproved.email)).toHaveLength(0);
+    });
+
+    it('keeps the change when the mail transport fails, and the next relay tries the notice again', async () => {
+      const user = await register();
+      await proved(user.userId);
+      failSend = true;
+      await auth.changePassword({
+        userId: user.userId,
+        sessionId: user.sessionId,
+        actor: { delegated: false, privileged: false, mfa: false },
+        currentPassword: OLD,
+        newPassword: NEW,
+      });
+      await expect(anon().auth.login({ identifier: user.email, password: NEW })).resolves.toMatchObject({ userId: user.userId });
+      expect(notices(user.email)).toHaveLength(1);
+      failSend = false;
+      await auth.drainMailOutbox();
+      expect(notices(user.email)).toHaveLength(2);
+      expect(await db.sql`SELECT status FROM mail_outbox WHERE purpose = 'password-changed' AND user_id = ${user.userId}`).toEqual([
+        { status: 'sent' },
+      ]);
+    });
+
+    it('still reaches the address proved at the change when the address changes or the account is frozen first', async () => {
+      const user = await register();
+      await proved(user.userId);
+      auth.useMailRelayTrigger(undefined);
+      await anon().auth.requestPasswordReset({ email: user.email });
+      await auth.drainMailOutbox();
+      const code = sent.filter((m) => m.purpose === 'password-reset').at(-1)!.code;
+      await anon().auth.completePasswordReset({ email: user.email, code, newPassword: NEW });
+      await db.sql`UPDATE users SET email = ${`moved-${user.email}`}, status = 'frozen' WHERE id = ${user.userId}`;
+      await auth.drainMailOutbox();
+      expect(notices(user.email)).toHaveLength(1);
+    });
+  });
 }
