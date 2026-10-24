@@ -59,6 +59,7 @@ const messages = {
   'auth.too_many_attempts': 'Too many tries. Try again in {minutes} min.',
   'auth.password_policy':
     'Choose a password of at least 12 characters and at most 72 bytes, not one character repeated, and not your handle or email.',
+  'auth.password_breached': 'That password is known from a data breach. Choose a different one.',
   'auth.handle_taken': 'That handle is taken. Choose another.',
   'auth.email_taken': 'That email already has an account. Sign in instead.',
   'vendor.email': 'Email delivery is switched off in this build, so a sign-up code cannot be sent.',

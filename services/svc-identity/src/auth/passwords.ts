@@ -151,7 +151,11 @@ export function algorithmOf(storedHash: string): Algorithm | 'unknown' {
 }
 
 export class WeakPasswordError extends Error {
-  constructor(reason: string) {
+  constructor(
+    reason: string,
+    /** The refusal a caller answers with: the rule, or the owner's breached list. */
+    readonly code: 'auth.password_policy' | 'auth.password_breached' = 'auth.password_policy',
+  ) {
     super(reason);
     this.name = 'WeakPasswordError';
   }
@@ -183,6 +187,47 @@ export function assertPasswordNotIdentity(password: string, identity: { handle?:
   const handle = identity.handle?.trim().toLowerCase() ?? '';
   for (const name of [handle, email, local]) {
     if (name !== '' && candidate === name) throw new WeakPasswordError('Password cannot be your handle or email address');
+  }
+}
+
+/**
+ * The owner's breached-password list (I-signin-sessions-04): SHA-1 digests, upper-case hex, as published lists of
+ * passwords from data breaches are. `null` means the owner has not set one (`IDENTITY_BREACHED_PASSWORDS_FILE` blank),
+ * and nothing is screened; `breachedPasswordScreening()` says so, so a page can say the list is not set.
+ */
+let breachedPasswords: ReadonlySet<string> | null = null;
+
+export function useBreachedPasswords(list: ReadonlySet<string> | null): void {
+  breachedPasswords = list;
+}
+
+export function breachedPasswordScreening(): 'on' | 'unset' {
+  return breachedPasswords === null ? 'unset' : 'on';
+}
+
+/**
+ * Read a breached-password list: one SHA-1 digest per line, optionally followed by `:<count>` as the public lists ship
+ * it; blank lines and lines starting with `#` are skipped. Any other line refuses the whole file, so a wrong file is
+ * never taken for an empty list.
+ */
+export function parseBreachedPasswords(text: string): ReadonlySet<string> {
+  const out = new Set<string>();
+  for (const [i, raw] of text.split(/\r?\n/).entries()) {
+    const line = raw.trim();
+    if (line === '' || line.startsWith('#')) continue;
+    const m = /^([0-9A-Fa-f]{40})(?::\d+)?$/.exec(line);
+    if (!m) throw new Error(`breached-password list line ${i + 1} is not a SHA-1 digest`);
+    out.add(m[1]!.toUpperCase());
+  }
+  return out;
+}
+
+/** A new password that is on the owner's breached list is refused by name. Not checked at sign-in. */
+export function assertPasswordNotBreached(password: string): void {
+  if (breachedPasswords === null) return;
+  const digest = createHash('sha1').update(password, 'utf8').digest('hex').toUpperCase();
+  if (breachedPasswords.has(digest)) {
+    throw new WeakPasswordError('That password is known from a data breach', 'auth.password_breached');
   }
 }
 

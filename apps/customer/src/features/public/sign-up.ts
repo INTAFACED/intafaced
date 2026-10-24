@@ -65,6 +65,7 @@ export const SIGN_UP_CODES = [
   'identity.resend_too_soon',
   'auth.too_many_attempts',
   'auth.password_policy',
+  'auth.password_breached',
   'auth.handle_taken',
   'auth.email_taken',
   'vendor.email',

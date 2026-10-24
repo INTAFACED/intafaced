@@ -383,6 +383,7 @@ function toTrpcError(err: unknown): TRPCError {
     case 'auth.sub_account_same':
     case 'auth.password_unchanged':
     case 'auth.password_policy':
+    case 'auth.password_breached':
       return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });
     case 'auth.sub_account_nickname_invalid':
       return new TRPCError({ code: 'BAD_REQUEST', message, cause: err });

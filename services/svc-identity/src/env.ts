@@ -589,6 +589,16 @@ const schema = serviceEnvSchema
         return v;
       }, z.coerce.number().int().min(1).max(86400).optional()),
       /**
+       * The owner's breached-password list (I-signin-sessions-04): a file of SHA-1 digests, one per line (`HASH` or
+       * `HASH:count`), read once at boot. A new password on it is refused (`auth.password_breached`). Blank: nothing is
+       * screened. A relative path is read from the svc-identity folder. A path that cannot be read stops the boot.
+       */
+      IDENTITY_BREACHED_PASSWORDS_FILE: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.string().min(1).optional()),
+      /**
        * New-device check (I-signin-sessions-07): `on` or `off`. Blank leaves it off, and the Security page says the owner
        * has not turned it on. With it on, a sign-in from a browser with no trusted device for the account waits for
        * approval by a mailed code or from a trusted session.

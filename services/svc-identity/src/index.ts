@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { resolve as resolvePath } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
@@ -36,7 +39,7 @@ import { SqlAccrualStore } from './affiliates/accrual-store.js';
 import { parseAccrualTierLawJson } from './affiliates/commission-rate-law.js';
 import { parseDmaHierarchyLawJson } from './orgs/dma-hierarchy.js';
 import { createLedgerClient } from './ledger-client.js';
-import { assertArgon2Available, argon2Available } from './auth/passwords.js';
+import { assertArgon2Available, argon2Available, parseBreachedPasswords, useBreachedPasswords } from './auth/passwords.js';
 import { createIdentityRouter } from './router.js';
 import { createTradeIdentityAuthRouter } from './auth/trade-identity-auth-router.js';
 import { assertStaffSessionLive, createSqlTradeIdentityStore } from './auth/trade-identity-auth.js';
@@ -162,6 +165,12 @@ if (env.APP_ENV === 'prod') {
   await assertArgon2Available();
   // TOTP secrets must not sit base32-plaintext in prod; refuse boot without key.
   assertProdTotpKey(env);
+}
+// The owner's breached-password list: read once; a set path that cannot be read or parsed stops the boot. A relative
+// path is read from the svc-identity folder, whatever directory the process was started in.
+if (env.IDENTITY_BREACHED_PASSWORDS_FILE) {
+  const listPath = resolvePath(fileURLToPath(new URL('..', import.meta.url)), env.IDENTITY_BREACHED_PASSWORDS_FILE);
+  useBreachedPasswords(parseBreachedPasswords(readFileSync(listPath, 'utf8')));
 }
 // Request-signing secrets must not sit plaintext in prod or staging.
 assertSigningEncKey(env);

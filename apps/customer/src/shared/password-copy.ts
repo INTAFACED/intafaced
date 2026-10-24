@@ -11,6 +11,7 @@ const messages = {
   notConnected: 'The sign-in service is not connected right now. Nothing was changed.',
   badCode: 'That code is not valid or has run out. Ask for a new code.',
   policy: 'That password does not meet the rules. Use at least 12 characters, up to 72 bytes, and not one character repeated.',
+  breached: 'That password is known from a data breach. Choose a different one.',
   unchanged: 'Choose a new password that is different from your current one.',
   wrongCurrent: 'Your current password is not right. Nothing was changed.',
   rateLimited: 'Too many attempts. Wait a few minutes, then try again.',
@@ -40,6 +41,7 @@ export const passwordCopy: ReturnType<typeof defineCopy<typeof messages>> = defi
     notConnected: 'El servicio de inicio de sesión no está conectado ahora. No se cambió nada.',
     badCode: 'Ese código no es válido o ha caducado. Pide un código nuevo.',
     policy: 'Esa contraseña no cumple las reglas. Usa al menos 12 caracteres, hasta 72 bytes, y no un solo carácter repetido.',
+    breached: 'Esa contraseña se conoce por una filtración de datos. Elige otra.',
     unchanged: 'Elige una contraseña nueva distinta de la actual.',
     wrongCurrent: 'Tu contraseña actual no es correcta. No se cambió nada.',
     rateLimited: 'Demasiados intentos. Espera unos minutos y vuelve a intentarlo.',
@@ -68,6 +70,7 @@ export const passwordCopy: ReturnType<typeof defineCopy<typeof messages>> = defi
     badCode: 'Ce code n’est pas valide ou a expiré. Demandez-en un nouveau.',
     policy:
       'Ce mot de passe ne respecte pas les règles. Utilisez au moins 12 caractères, jusqu’à 72 octets, et pas un seul caractère répété.',
+    breached: 'Ce mot de passe est connu d’une fuite de données. Choisissez-en un autre.',
     unchanged: 'Choisissez un nouveau mot de passe différent de l’actuel.',
     wrongCurrent: 'Votre mot de passe actuel n’est pas correct. Rien n’a été modifié.',
     rateLimited: 'Trop de tentatives. Attendez quelques minutes, puis réessayez.',

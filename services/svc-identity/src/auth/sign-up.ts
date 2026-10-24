@@ -3,7 +3,7 @@ import { checkAccess } from '@intafaced/config';
 import { transaction } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { flowSubjectHash, type PasswordResetMail } from './password-reset.js';
-import { assertPasswordNotIdentity, assertPasswordShape, hashPassword, WeakPasswordError } from './passwords.js';
+import { assertPasswordNotBreached, assertPasswordNotIdentity, assertPasswordShape, hashPassword, WeakPasswordError } from './passwords.js';
 
 /**
  * Sign-up by email, with the code before the first session (I-signin-sessions-18) and the eligibility check
@@ -50,6 +50,7 @@ export type SignUpErrorCode =
   | 'identity.resend_too_soon'
   | 'auth.too_many_attempts'
   | 'auth.password_policy'
+  | 'auth.password_breached'
   | 'auth.handle_taken'
   | 'auth.email_taken'
   | 'vendor.email'
@@ -242,8 +243,9 @@ export async function startSignUp(deps: SignUpDeps, input: SignUpStart): Promise
   try {
     assertPasswordShape(input.password);
     assertPasswordNotIdentity(input.password, { handle: input.handle, email });
+    assertPasswordNotBreached(input.password);
   } catch (err) {
-    if (err instanceof WeakPasswordError) throw new SignUpError(err.message, 'auth.password_policy');
+    if (err instanceof WeakPasswordError) throw new SignUpError(err.message, err.code);
     throw err;
   }
   // Handles are public, so a taken one may be said out loud. An address is never confirmed this way.

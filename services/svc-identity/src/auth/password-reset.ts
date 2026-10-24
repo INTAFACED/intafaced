@@ -4,6 +4,7 @@ import type { Sql } from 'postgres';
 import { AuthError } from './auth-service.js';
 import { assertNotSecurityLocked } from './security-lock.js';
 import {
+  assertPasswordNotBreached,
   assertPasswordShape,
   assertPasswordNotIdentity,
   dummyPasswordHash,
@@ -350,8 +351,9 @@ export async function completePasswordReset(
   try {
     assertPasswordShape(input.newPassword);
     assertPasswordNotIdentity(input.newPassword, user);
+    assertPasswordNotBreached(input.newPassword);
   } catch (err) {
-    if (err instanceof WeakPasswordError) throw new AuthError(err.message, 'auth.password_policy');
+    if (err instanceof WeakPasswordError) throw new AuthError(err.message, err.code);
     throw err;
   }
   if (await verifyPassword(user.password_hash, input.newPassword)) {
