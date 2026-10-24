@@ -57,9 +57,9 @@ const account = (methodId, holder, extra = {}) => ({
 async function pickMethod(page, label) {
   const form = page.getByTestId('method-add-form');
   await expect(form).toBeVisible();
-  await form.getByLabel('Country of the account').fill('DE');
-  await form.getByLabel('Payment method').selectOption({ label });
-  await form.getByLabel('Currency you receive').selectOption('EUR');
+  await form.getByTestId('method-add-country').fill('DE');
+  await form.getByTestId('method-add-method').selectOption({ label });
+  await form.getByTestId('method-add-fiat').selectOption('EUR');
   return form;
 }
 
@@ -117,9 +117,9 @@ test('J-p2p-04 #1 the catalogue shows each method per country with what it asks 
   await expect(page.getByTestId('methods-catalogue').locator(`[data-method="${METHOD}"]`)).toBeVisible();
   await expect(page.getByTestId('methods-catalogue').locator(`[data-method="${J04_METHOD}"]`)).toHaveCount(0);
   const form = page.getByTestId('method-add-form');
-  await form.getByLabel('Country of the account').fill('DE');
-  await expect(form.getByLabel('Payment method').locator('option', { hasText: 'TEST bank transfer' }).first()).toBeAttached();
-  await expect(form.getByLabel('Payment method').locator('option', { hasText: J04_LABEL })).toHaveCount(0);
+  await form.getByTestId('method-add-country').fill('DE');
+  await expect(form.getByTestId('method-add-method').locator('option', { hasText: 'TEST bank transfer' }).first()).toBeAttached();
+  await expect(form.getByTestId('method-add-method').locator('option', { hasText: J04_LABEL })).toHaveCount(0);
   const refused = await s.bare.mutate('instruments.create', account(J04_METHOD, holderOf(who), { fiatCurrency: 'USD' }));
   expect(refusalCode(refused)).toBe('p2p.instrument_method_disabled');
   await page.goto('/uc/ad/create');
@@ -169,7 +169,7 @@ test('J-p2p-04 #2 a holder name that is not the verified name is refused and not
   const saved = page.getByTestId('saved-method');
   await expect(saved).toHaveCount(before.filter((row) => row.status === 'active').length);
   const form = await pickMethod(page, 'TEST bank transfer');
-  await form.getByLabel('Currency you receive').selectOption('USD');
+  await form.getByTestId('method-add-fiat').selectOption('USD');
   await expect(form.locator('[data-field="account_holder"]')).toContainText('Enter your name exactly as on your verified identity');
   await form.getByLabel('Account holder').fill('TEST Somebody Else');
   await form.getByLabel('IBAN').fill(TEST_IBAN);

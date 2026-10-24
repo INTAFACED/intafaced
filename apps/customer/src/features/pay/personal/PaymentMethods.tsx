@@ -302,6 +302,7 @@ function AddMethod({
         <input
           value={country}
           list="method-add-countries"
+          data-testid="method-add-country"
           maxLength={2}
           autoComplete="off"
           placeholder={t('addCountryPick')}
@@ -318,6 +319,7 @@ function AddMethod({
       <label className="field">
         <span>{t('addMethod')}</span>
         <select
+          data-testid="method-add-method"
           value={methodId}
           onChange={(event) => edit(() => (setMethodId(event.target.value), setDetails({})))}
           disabled={disabled || !countryOk}
@@ -332,7 +334,12 @@ function AddMethod({
       </label>
       <label className="field">
         <span>{t('addFiat')}</span>
-        <select value={fiatCurrency} onChange={(event) => edit(() => setFiatCurrency(event.target.value))} disabled={disabled}>
+        <select
+          data-testid="method-add-fiat"
+          value={fiatCurrency}
+          onChange={(event) => edit(() => setFiatCurrency(event.target.value))}
+          disabled={disabled}
+        >
           <option value="">{t('addFiatPick')}</option>
           {fiat.resource.status === 'ready'
             ? fiat.resource.data.map((currency) => (
