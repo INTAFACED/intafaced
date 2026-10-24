@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
 import { discoverWallets, firstAddress, parseChainId, type Eip1193Provider } from '../protocol/wallet/eip1193';
 
+// hand-declared-ok: svc-identity's wallet challenge answer has no browser-safe schema in packages/contracts yet
 /** The message a wallet signs to link it or to sign in with it (svc-identity, EIP-4361). */
 export const walletChallengeSchema = z.object({ flowId: z.string().guid(), message: z.string().min(1), expiresAt: z.string() });
 export type WalletChallenge = z.infer<typeof walletChallengeSchema>;

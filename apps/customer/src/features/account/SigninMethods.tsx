@@ -23,6 +23,7 @@ type Change = {
   saved: string;
 };
 type Off = { code: 'vendor.sms' | 'idp.social'; action: string };
+// hand-declared-ok: svc-identity's sign-in methods and provider link answers have no browser-safe schema in packages/contracts yet
 const started = z.object({ provider: z.string(), authorizationUrl: z.string().url(), expiresAt: z.string() });
 
 /**
