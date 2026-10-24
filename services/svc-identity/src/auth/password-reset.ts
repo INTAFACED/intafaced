@@ -78,7 +78,11 @@ export type MailPurpose =
   | 'login-no-account'
   | 'new-device-code'
   | 'withdraw-address-approval'
-  | 'password-changed';
+  | 'password-changed'
+  | 'mfa-reset-code'
+  | 'mfa-reset-started'
+  | 'mfa-reset-cancelled'
+  | 'mfa-reset-completed';
 
 export interface PasswordResetDeps {
   readonly sql: Sql;

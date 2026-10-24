@@ -17,6 +17,7 @@ import { Devices } from './Devices';
 import { CloseAccount } from './CloseAccount';
 import { FreezeAccount } from './FreezeAccount';
 import { SecurityLock } from './SecurityLock';
+import { MfaResetWaiting } from './MfaResetWaiting';
 import { TrustedDevices } from './TrustedDevices';
 import { securityCopy as copy } from './security-copy';
 import { refusalCopy } from '../../data/refusals';
@@ -577,6 +578,7 @@ export function Security() {
       <Page title={<Copy k="title" />} description={<Copy k="description" />}>
         <VerifyEmail />
         <SecurityChecklist revision={methodsRevision} />
+        <MfaResetWaiting />
         {uncertainty.map((record) => {
           const preparation = record.kind === 'options' || record.kind === 'setup';
           const retained = currentResponse?.guardRetained && currentResponse.record?.requestId === record.requestId;

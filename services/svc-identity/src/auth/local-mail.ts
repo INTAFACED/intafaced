@@ -53,6 +53,13 @@ function localMailBody(message: LocalMailMessage): string {
   if (purpose === 'password-changed') {
     return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} notice=password-changed\n`;
   }
+  if (purpose === 'mfa-reset-started') {
+    // The notice every contact gets while a second-step reset waits; `until` is when it would complete.
+    return `LOCAL-TEST purpose=${purpose} email=${email} until=${message.expiresAt.toISOString()} notice=mfa-reset-started\n`;
+  }
+  if (purpose === 'mfa-reset-cancelled' || purpose === 'mfa-reset-completed') {
+    return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} notice=${purpose}\n`;
+  }
   if (purpose === 'email-change-notice') {
     return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} notice=address-changed\n`;
   }
@@ -62,7 +69,7 @@ function localMailBody(message: LocalMailMessage): string {
   if (purpose === 'signup-existing') {
     return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} notice=already-registered\n`;
   }
-  if (purpose === 'signup-code' || purpose === 'login-code' || purpose === 'new-device-code') {
+  if (purpose === 'signup-code' || purpose === 'login-code' || purpose === 'new-device-code' || purpose === 'mfa-reset-code') {
     // A six-digit code the person types, not a link.
     return `LOCAL-TEST purpose=${purpose} email=${email} expires=${message.expiresAt.toISOString()} code=${message.code.replace(/\D/g, '')}\n`;
   }

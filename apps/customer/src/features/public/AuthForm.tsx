@@ -4,6 +4,8 @@ import { CodeSignIn } from './CodeSignIn';
 import { DeviceApproval } from './DeviceApproval';
 import { RecoveryCodeUsed, signInAnswerSchema, type SignInAnswer } from './RecoveryCodeUsed';
 import { recoveryCodeCopy } from './recovery-code-copy';
+import { MfaReset } from './MfaReset';
+import { mfaResetCopy } from './mfa-reset-copy';
 import { Button, Field, Failure } from '../../shared/ui';
 import { authoredRefusal, type ApiClient, type ApiResult, type SecondStep } from '../../shared/api';
 import { uiCopy } from '../../shared/ui-copy';
@@ -50,6 +52,7 @@ export function AuthForm({ register }: { register: boolean }) {
   const { t, Copy, requestedLocale, languageFor } = publicAuthCopy.useCopy();
   const { Copy: SharedCopy } = uiCopy.useCopy();
   const { t: r, languageFor: recoveryLanguageFor } = recoveryCodeCopy.useCopy();
+  const { t: m, languageFor: resetLanguageFor } = mfaResetCopy.useCopy();
   const { api, commit, userId, restoring } = useSession();
   const accountStatus = useAccountViewStatus();
   const context = useLocation();
@@ -68,6 +71,8 @@ export function AuthForm({ register }: { register: boolean }) {
   const [passkeyStopped, setPasskeyStopped] = useState(false);
   // The second step's code field takes a recovery code (I-signin-sessions-12); after a sign-in that spent one, how many are left.
   const [recoveryCode, setRecoveryCode] = useState(false);
+  // "I lost my authenticator": the locked-out reset replaces the form (I-signin-sessions-12, J-identity-05 #2).
+  const [lostAuthenticator, setLostAuthenticator] = useState(false);
   // Kept with the address it was shown on, so moving to another address never carries it, or its destination, along.
   const [recoveryUsed, setRecoveryUsed] = useState<{ left: number; next: string; url: string } | null>(null);
   // The browser wallet did not sign (none answered, declined, or failed); nothing was sent that signs in.
@@ -135,6 +140,7 @@ export function AuthForm({ register }: { register: boolean }) {
     setPassword('');
     setTotp('');
     setRecoveryCode(false);
+    setLostAuthenticator(false);
     setPending(false);
     setResult(null);
     setActiveRecord(null);
@@ -598,7 +604,9 @@ export function AuthForm({ register }: { register: boolean }) {
             </div>
           </>
         )}
-        {spentCode ? null : waitingDevice ? (
+        {spentCode ? null : lostAuthenticator ? (
+          <MfaReset identifier={identifier} onBack={() => setLostAuthenticator(false)} />
+        ) : waitingDevice ? (
           <DeviceApproval
             waiting={waitingDevice}
             onSignedIn={() => {
@@ -718,6 +726,16 @@ export function AuthForm({ register }: { register: boolean }) {
                           }}
                         >
                           {r(recoveryCode ? 'useApp' : 'useCode')}
+                        </Button>
+                      )}
+                      {codeStep && (
+                        <Button
+                          variant="ghost"
+                          disabled={pending}
+                          lang={resetLanguageFor('lost')}
+                          onClick={() => setLostAuthenticator(true)}
+                        >
+                          {m('lost')}
                         </Button>
                       )}
                       {passkeyOptions && (

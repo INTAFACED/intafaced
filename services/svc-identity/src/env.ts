@@ -8,6 +8,7 @@ import { parseDisplayCurrencyList } from './preferences/account-display.js';
 import { parseMembershipTiers } from './membership/membership-offer.js';
 import { parseSelfFreezeLiftWait } from './auth/self-freeze-lift.js';
 import { parseSecurityLockUnlockWait } from './auth/security-lock.js';
+import { parseMfaResetWait } from './auth/mfa-reset.js';
 
 // Self-mounts /trpc — must authenticate the edge principal (see packages/contracts/src/edge.ts).
 // INTERNAL_SERVICE_SECRET is required because rank.awardXp is a serviceProcedure
@@ -347,6 +348,23 @@ const schema = serviceEnvSchema
        * DEFAULT: blank / unset → the unlock request refuses (`identity.security_lock_unlock_wait_unset`); locking still
        * works. Zero is a published "no wait". A change applies to later requests, never to one already made.
        */
+      /**
+       * I-signin-sessions-12. Owner-set wait, in seconds, from a confirmed locked-out second-factor reset to when the next
+       * password sign-in may remove the authenticator app. NO DEFAULT: blank / unset → the reset refuses
+       * (`identity.mfa_reset_unconfigured`) and the sign-in page points to Support. Zero is a published "no wait". A
+       * change applies to later resets, never to one already waiting.
+       */
+      IDENTITY_MFA_RESET_WAIT_SECONDS: z
+        .string()
+        .optional()
+        .transform((v, ctx) => {
+          try {
+            return parseMfaResetWait(v);
+          } catch (error) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: (error as Error).message });
+            return z.NEVER;
+          }
+        }),
       IDENTITY_SECURITY_LOCK_UNLOCK_WAIT_SECONDS: z
         .string()
         .optional()
