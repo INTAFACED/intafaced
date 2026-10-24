@@ -22,6 +22,8 @@ export type ApiResult<T> =
       p2pLimit?: P2pLimit;
       /** Only on sign-in's `auth.device_authorisation_required`: the waiting new-device sign-in this browser holds. */
       deviceAuthorisation?: DeviceAuthorisation;
+      /** Only on sign-in's `auth.mfa_required`, sent after the password verified: which second steps answer it. */
+      secondStep?: SecondStep;
     };
 
 /** A new-device sign-in waiting for approval (svc-identity I-signin-sessions-07, contracts `deviceAuthorisationOf`). */
@@ -32,6 +34,23 @@ export const deviceAuthorisationSchema = z.object({
   mailed: z.boolean(),
 });
 export type DeviceAuthorisation = z.infer<typeof deviceAuthorisationSchema>;
+
+/** The second steps a sign-in may answer with, and the passkey challenge when one does (contracts `secondStepOf`). */
+export const secondStepSchema = z.object({
+  totp: z.boolean(),
+  passkey: z
+    .object({
+      challenge: z.string().min(1),
+      timeout: z.number().optional(),
+      rpId: z.string().optional(),
+      allowCredentials: z
+        .array(z.object({ id: z.string().min(1), type: z.literal('public-key'), transports: z.array(z.string()).optional() }))
+        .min(1),
+      userVerification: z.enum(['required', 'preferred', 'discouraged']).optional(),
+    })
+    .nullable(),
+});
+export type SecondStep = z.infer<typeof secondStepSchema>;
 
 const limitDecimal = z.string().regex(/^(0|[1-9]\d*)(\.\d+)?$/);
 /** The figures behind a P2P take limit, as svc-p2p sends them (contracts `p2pLimitOf`). Anything malformed is dropped. */
@@ -103,6 +122,7 @@ const errorEnvelope = z
                 accountState: z.enum(['frozen', 'closed']).optional().catch(undefined),
                 p2pLimit: p2pLimitSchema.optional().catch(undefined),
                 deviceAuthorisation: deviceAuthorisationSchema.optional().catch(undefined),
+                secondStep: secondStepSchema.optional().catch(undefined),
                 cause: z.object({ code: z.string().optional() }).passthrough().optional(),
               })
               .passthrough()
@@ -255,6 +275,7 @@ export function createApiClient(
           ...(code === 'auth.device_authorisation_required' && error?.data?.deviceAuthorisation
             ? { deviceAuthorisation: error.data.deviceAuthorisation }
             : {}),
+          ...(code === 'auth.mfa_required' && error?.data?.secondStep ? { secondStep: error.data.secondStep } : {}),
         };
       }
       const envelope = z.object({ result: z.object({ data: z.unknown() }) }).safeParse(body);

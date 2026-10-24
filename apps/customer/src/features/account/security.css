@@ -99,6 +99,12 @@
   white-space: normal;
   min-height: 44px;
 }
+.security__row--editing {
+  flex-wrap: wrap;
+}
+.security__row--editing > form {
+  flex-basis: 100%;
+}
 .security__row time {
   font-size: 16px;
   line-height: 24px;

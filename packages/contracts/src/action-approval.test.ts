@@ -142,6 +142,8 @@ describe('same-person approvals', () => {
       'passkey_add',
       'passkey_remove',
       'passkey_rename',
+      'passkey_purposes',
+      'passkey_second_step',
       'totp_replace',
       'totp_disable',
       'recovery_codes_regenerate',

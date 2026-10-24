@@ -1,7 +1,9 @@
 /**
  * Verify a passkey via @simplewebauthn/server so a later place can require it.
  * Refuse if no enrolled credential. No invented challenge — the library mints it.
- * RP id/origin come from the caller, never a localhost default.
+ * RP id/origin come from the caller, never a localhost default. Every place that reads the stamp is a security change
+ * (API keys, recovery codes, sessions), so only the passkeys that answer for `security_change` are offered and accepted
+ * (passkey-purposes.ts, I-signin-sessions-10).
  */
 import {
   generateAuthenticationOptions,
@@ -11,6 +13,7 @@ import {
 } from '@simplewebauthn/server';
 import { transaction } from '@intafaced/db';
 import type { Sql } from 'postgres';
+import { credentialsFor } from './passkey-purposes.js';
 import { b64urlDecode, type ChallengeStorePort } from './webauthn.js';
 import { requireOrigin, requireRpId, sqlPasskeyChallenges, type PasskeyRp, type StoredPasskey } from './enroll-passkey.js';
 
@@ -113,7 +116,10 @@ export async function beginVerifyPasskey(
   const options = await ceremony.generate({
     rpID: rpId,
     userVerification: 'required',
-    allowCredentials: existing.map((c) => ({ id: c.credentialId, transports: c.transports as 'internal'[] | undefined })),
+    allowCredentials: credentialsFor(existing, 'security_change').map((c) => ({
+      id: c.credentialId,
+      transports: c.transports as 'internal'[] | undefined,
+    })),
   });
   await challenges.put('authentication', options.challenge, userId);
   return options;
@@ -139,7 +145,7 @@ export async function verifyPasskey(
     throw new VerifyPasskeyError('No enrolled passkey', 'auth.passkey_missing');
   }
 
-  const stored = existing.find((c) => c.credentialId === response.id);
+  const stored = credentialsFor(existing, 'security_change').find((c) => c.credentialId === response.id);
   if (!stored) throw new VerifyPasskeyError('No enrolled passkey matches this authenticator', 'auth.passkey_missing');
 
   const clientChallenge = readClientChallenge(response.response.clientDataJSON);
@@ -160,7 +166,7 @@ export async function verifyPasskey(
     `;
     if (!locked[0]) throw new VerifyPasskeyError('User not found', 'auth.not_found');
     const creds = asCreds(locked[0].webauthn_creds);
-    const current = creds.find((c) => c.credentialId === response.id);
+    const current = credentialsFor(creds, 'security_change').find((c) => c.credentialId === response.id);
     if (!current) throw new VerifyPasskeyError('No enrolled passkey matches this authenticator', 'auth.passkey_missing');
 
     let verified: Awaited<ReturnType<typeof verifyAuthenticationResponse>>;

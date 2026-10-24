@@ -66,6 +66,8 @@ export type StoredPasskey = {
   label?: string;
   /** Derived at registration from the transports; absent on older rows (read with `passkeyKind`). */
   kind?: PasskeyKind;
+  /** The actions it is kept for (passkey-purposes.ts); absent or empty for none in particular. */
+  purposes?: string[];
 };
 
 export type PasskeyKind = 'platform' | 'cross_device' | 'security_key' | 'unknown';

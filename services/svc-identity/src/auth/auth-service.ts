@@ -114,6 +114,7 @@ import {
 } from '../agents/navigator-session-projection-sync.js';
 import { DEFAULT_REFRESH_REUSE_GRACE_SECONDS, REFRESH_RECOVERY_SECONDS_CEILING } from './refresh-cookie.js';
 import { openRefreshToken, sealRefreshToken } from './refresh-grace.js';
+import { credentialsFor, type PasskeyPurpose } from './passkey-purposes.js';
 import type { RankService } from '../rank/rank-service.js';
 
 /**
@@ -137,6 +138,7 @@ export class AuthError extends Error {
       | 'auth.handle_taken'
       | 'auth.email_taken'
       | 'auth.mfa_required'
+      | 'auth.second_step_expired'
       | 'auth.privileged_enrolment_requires_invite'
       | 'auth.mfa_invalid'
       | 'auth.mfa_already_enrolled'
@@ -197,7 +199,12 @@ export class AuthError extends Error {
      * Optional machine-readable extras. `retryAfterSeconds`: set by `auth.too_many_attempts` and `auth.email_confirm_rate_limited`.
      * `accountState`: set by sign-in's `auth.account_frozen`, only after the password (or a provider) verified who it is.
      */
-    readonly details?: { readonly retryAfterSeconds?: number; readonly accountState?: 'frozen' | 'closed' },
+    readonly details?: {
+      readonly retryAfterSeconds?: number;
+      readonly accountState?: 'frozen' | 'closed';
+      /** Set by sign-in's `auth.mfa_required` (I-signin-sessions-10): the second steps that answer it. */
+      readonly secondStep?: { readonly totp: boolean; readonly passkey: AuthenticationOptionsJSON | null };
+    },
   ) {
     super(message);
     this.name = 'AuthError';
@@ -400,6 +407,8 @@ function toKycRecord(row: KycRow): KycRecordView {
 
 const TIER_ORDER: Readonly<Record<KycTier, number>> = { none: 0, basic: 1, full: 2, institutional: 3 };
 const STEP_UP_TTL_SECONDS = 300;
+/** The passkey challenge of a sign-in second step: 120 seconds after the password verified, single use (I-signin-sessions-10). */
+const SECOND_STEP_CHALLENGE_TTL_MS = 120_000;
 const STEP_UP_SCOPES: readonly Scope[] = ['trade:withdraw'];
 
 /** What svc-pay says this person may do on one merchant. Both false refuses the mint. */
@@ -860,19 +869,13 @@ export class AuthService {
     const deps = this.loginCodeDeps();
     const { userId, codeHash } = await checkLoginCode(deps, input);
     const [user] = await this.sql<
-      Array<{ id: string; status: string; totp_secret: string | null }>
-    >`SELECT id, status, totp_secret FROM users WHERE id = ${userId}`;
+      Array<{ id: string; status: string; totp_secret: string | null; passkey_second_step: boolean; webauthn_creds: unknown }>
+    >`SELECT id, status, totp_secret, passkey_second_step, webauthn_creds FROM users WHERE id = ${userId}`;
     if (!user) throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
     // The code proved the mailbox, so the state is named as on password sign-in.
     if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen', accountStateOf(user.status));
-    let mfa = false;
-    if (user.totp_secret) {
-      if (!input.totpCode) throw new AuthError('Two-factor code required', 'auth.mfa_required');
-      await this.reserve(user.id, 'mfa');
-      await this.verifyMfaCode(user.id, user.totp_secret, input.totpCode);
-      mfa = true;
-      await recordSuccess(this.sql, user.id, 'mfa');
-    }
+    // A passkey asked for after the password is asked for after a mailed code too; the code then stays unspent until it expires.
+    const mfa = await this.passSecondStep(user, input.totpCode);
     await consumeLoginCode(deps, { flowId: input.flowId, codeHash });
     const device = await this.gateDevice(user.id, mfa, input.deviceKey);
     const session = await this.issueSession(user.id, { device: input.device, ip: input.ip, mfa, trustedDeviceId: device.trustedDeviceId });
@@ -1194,8 +1197,16 @@ export class AuthService {
     deviceKey?: string | null;
   }): Promise<SessionTokens> {
     const rows = await this.sql<
-      Array<{ id: string; password_hash: string; status: string; totp_secret: string | null }>
-    >`SELECT id, password_hash, status, totp_secret FROM users WHERE handle = ${input.identifier} OR email = ${input.identifier}`;
+      Array<{
+        id: string;
+        password_hash: string;
+        status: string;
+        totp_secret: string | null;
+        passkey_second_step: boolean;
+        webauthn_creds: unknown;
+      }>
+    >`SELECT id, password_hash, status, totp_secret, passkey_second_step, webauthn_creds FROM users
+      WHERE handle = ${input.identifier} OR email = ${input.identifier}`;
     const user = rows[0];
     // Reserve the password guess BEFORE verifying it (see attempt-lockout.ts). Unknown
     // identifiers have no row and keep answering `invalid_credentials`. A locked
@@ -1222,21 +1233,94 @@ export class AuthService {
     // account cannot be restored (founder-controls.ts `restore.not_permitted`); a frozen one can.
     // After recordSuccess, so the owner of a frozen account is never locked out of reading why.
     if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen', accountStateOf(user.status));
-    let mfa = false;
-    if (user.totp_secret) {
-      if (!input.totpCode) throw new AuthError('Two-factor code required', 'auth.mfa_required');
-      // Counted before the code is looked at; a locked account is refused here without consuming a step or a recovery code.
-      await this.reserve(user.id, 'mfa');
-      await this.verifyMfaCode(user.id, user.totp_secret, input.totpCode);
-      mfa = true;
-      await recordSuccess(this.sql, user.id, 'mfa');
-    }
+    // The password verified, so its hash is upgraded now, whichever second step follows (a passkey one never comes back here).
     if (await needsRehash(user.password_hash)) {
       const upgraded = await hashPassword(input.password);
       await this.sql`UPDATE users SET password_hash = ${upgraded}, updated_at = now() WHERE id = ${user.id}`;
     }
+    const mfa = await this.passSecondStep(user, input.totpCode);
     const device = await this.gateDevice(user.id, mfa, input.deviceKey);
     const session = await this.issueSession(user.id, { device: input.device, ip: input.ip, mfa, trustedDeviceId: device.trustedDeviceId });
+    return device.deviceKey ? { ...session, deviceKey: device.deviceKey } : session;
+  }
+
+  /**
+   * The second step after a first factor (the password, a mailed code or a linked provider). An account with an
+   * authenticator needs its code; a passkey that answers for sign-in is offered beside it, and is the second step on its
+   * own when the account asked for a passkey after its password (I-signin-sessions-10). With no code sent, the refusal
+   * names the steps that answer and carries a passkey challenge for `loginSecondStepPasskey`. Returns whether a second
+   * factor passed here.
+   */
+  private async passSecondStep(
+    user: { id: string; totp_secret: string | null; passkey_second_step: boolean; webauthn_creds: unknown },
+    totpCode: string | undefined,
+  ): Promise<boolean> {
+    const signinPasskeys = credentialsFor(asCredentialList(user.webauthn_creds), 'signin');
+    const passkeyStep = signinPasskeys.length > 0 && (user.totp_secret !== null || user.passkey_second_step);
+    if (!totpCode && (user.totp_secret !== null || passkeyStep)) {
+      throw new AuthError('Second step required', 'auth.mfa_required', {
+        secondStep: {
+          totp: user.totp_secret !== null,
+          passkey: passkeyStep ? await this.secondStepChallenge(user.id, signinPasskeys) : null,
+        },
+      });
+    }
+    if (user.totp_secret) {
+      // Counted before the code is looked at; a locked account is refused here without consuming a step or a recovery code.
+      await this.reserve(user.id, 'mfa');
+      await this.verifyMfaCode(user.id, user.totp_secret, totpCode!);
+      await recordSuccess(this.sql, user.id, 'mfa');
+      return true;
+    }
+    if (passkeyStep) {
+      // A code sent to an account that asked for a passkey and has no authenticator is a wrong second step.
+      await this.reserve(user.id, 'mfa');
+      throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');
+    }
+    return false;
+  }
+
+  /** A single-use passkey challenge for the second step, bound to the account whose password just verified. */
+  private async secondStepChallenge(userId: string, credentials: readonly StoredWebAuthnCredential[]): Promise<AuthenticationOptionsJSON> {
+    const challenge = generateChallenge();
+    await this.challenges.put('second-step', challenge, userId, SECOND_STEP_CHALLENGE_TTL_MS);
+    return createAuthenticationOptions(this.webauthn, credentials, challenge);
+  }
+
+  /**
+   * The second step by passkey (I-signin-sessions-10), after `login` answered `auth.mfa_required` with a passkey
+   * challenge. The challenge names the account; only a passkey of that account that answers for sign-in is accepted, so
+   * another person's passkey, or this person's passkey bound to other actions, is refused. Each try counts on the same
+   * MFA lockout as a code. The session it opens has passed two factors.
+   */
+  async loginSecondStepPasskey(input: {
+    credential: AuthenticationResponseJSON;
+    device?: string;
+    ip?: string;
+    deviceKey?: string | null;
+  }): Promise<SessionTokens> {
+    const refuse = (): never => {
+      throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
+    };
+    const clientChallenge = readClientChallenge(input.credential.response.clientDataJSON);
+    if (!clientChallenge) return refuse();
+    const held = await this.challenges.take(clientChallenge, 'second-step');
+    // An expired or spent challenge (or one this service never issued) asks for the password again.
+    if (!held?.userId) throw new AuthError('This sign-in step timed out', 'auth.second_step_expired');
+    const userId = held.userId;
+    const [user] = await this.sql<Array<{ status: string }>>`SELECT status FROM users WHERE id = ${userId}`;
+    if (!user) return refuse();
+    if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen', accountStateOf(user.status));
+    await this.reserve(userId, 'mfa');
+    await this.verifyAssertionAndAdvanceCounter(userId, held.challenge, input.credential, refuse, 'signin');
+    await recordSuccess(this.sql, userId, 'mfa');
+    const device = await this.gateDevice(userId, true, input.deviceKey);
+    const session = await this.issueSession(userId, {
+      device: input.device,
+      ip: input.ip,
+      mfa: true,
+      trustedDeviceId: device.trustedDeviceId,
+    });
     return device.deviceKey ? { ...session, deviceKey: device.deviceKey } : session;
   }
 
@@ -1250,19 +1334,12 @@ export class AuthService {
     input: { totpCode?: string; device?: string; ip?: string; deviceKey?: string | null },
   ): Promise<SessionTokens> {
     const [user] = await this.sql<
-      Array<{ id: string; status: string; totp_secret: string | null }>
-    >`SELECT id, status, totp_secret FROM users WHERE id = ${userId}`;
+      Array<{ id: string; status: string; totp_secret: string | null; passkey_second_step: boolean; webauthn_creds: unknown }>
+    >`SELECT id, status, totp_secret, passkey_second_step, webauthn_creds FROM users WHERE id = ${userId}`;
     if (!user) throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
     // The provider proved the identity, so the state is named as on password sign-in.
     if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen', accountStateOf(user.status));
-    let mfa = false;
-    if (user.totp_secret) {
-      if (!input.totpCode) throw new AuthError('Two-factor code required', 'auth.mfa_required');
-      await this.reserve(user.id, 'mfa');
-      await this.verifyMfaCode(user.id, user.totp_secret, input.totpCode);
-      mfa = true;
-      await recordSuccess(this.sql, user.id, 'mfa');
-    }
+    const mfa = await this.passSecondStep(user, input.totpCode);
     const device = await this.gateDevice(user.id, mfa, input.deviceKey);
     const session = await this.issueSession(user.id, { device: input.device, ip: input.ip, mfa, trustedDeviceId: device.trustedDeviceId });
     return device.deviceKey ? { ...session, deviceKey: device.deviceKey } : session;
@@ -2056,7 +2133,8 @@ export class AuthService {
     >`SELECT id, status, webauthn_creds FROM users WHERE handle = ${identifier} OR email = ${identifier}`;
     const user = rows[0];
     const challenge = generateChallenge();
-    const creds = user && user.status === 'active' ? asCredentialList(user.webauthn_creds) : [];
+    // Passkeys bound to sign-in are the only ones offered when any is (passkey-purposes.ts).
+    const creds = user && user.status === 'active' ? credentialsFor(asCredentialList(user.webauthn_creds), 'signin') : [];
     // Only an active account with a passkey can sign in; every other identifier gets decoys and a challenge with no user.
     const real = user !== undefined && creds.length > 0;
     await this.challenges.put('authentication', challenge, real ? user.id : null);
@@ -2085,7 +2163,7 @@ export class AuthService {
     if (!clientChallenge) return refuse();
     const held = await this.challenges.take(clientChallenge, 'authentication');
     if (!held || held.userId !== user.id) return refuse();
-    await this.verifyAssertionAndAdvanceCounter(user.id, held.challenge, response, refuse);
+    await this.verifyAssertionAndAdvanceCounter(user.id, held.challenge, response, refuse, 'signin');
     return this.issueSession(user.id, { device: options.device, ip: options.ip, mfa: true });
   }
 
@@ -2096,20 +2174,24 @@ export class AuthService {
    * concurrent assertions (or a locked enrolment racing a login) cannot read the
    * same counter and both succeed, and cannot overwrite each other's credential
    * list. The writers in enroll-passkey.ts, verify-passkey.ts and
-   * unenroll-passkey.ts take the same lock. `refuse` throws the caller's own AuthError for any refusal.
+   * unenroll-passkey.ts take the same lock. `refuse` throws the caller's own AuthError for any refusal. With a
+   * `purpose`, only the passkeys that answer for it (bound to it, or all when none is) are accepted, read under the
+   * same lock as the counter.
    */
   private async verifyAssertionAndAdvanceCounter(
     userId: string,
     challenge: string,
     response: AuthenticationResponseJSON,
     refuse: () => never,
+    purpose?: PasskeyPurpose,
   ): Promise<void> {
     await transaction(this.sql, async (tx) => {
       const rows = await tx<Array<{ webauthn_creds: unknown }>>`SELECT webauthn_creds FROM users WHERE id = ${userId} FOR UPDATE`;
       if (!rows[0]) return refuse();
       const creds = asCredentialList(rows[0].webauthn_creds);
       const responseId = normalizeCredId(response.id);
-      const credential = creds.find((c) => c.credentialId === responseId);
+      const allowed = purpose ? credentialsFor(creds, purpose) : creds;
+      const credential = allowed.find((c) => c.credentialId === responseId);
       if (!credential) return refuse();
       let newCounter: number;
       try {
@@ -2171,7 +2253,8 @@ export class AuthService {
     }
     const challenge = generateChallenge();
     await this.challenges.put('step-up', challenge, userId);
-    return createAuthenticationOptions(this.webauthn, creds, challenge);
+    // This door confirms money out (withdrawals, pay refunds and payouts, and API keys, which can carry them).
+    return createAuthenticationOptions(this.webauthn, credentialsFor(creds, 'money_out'), challenge);
   }
 
   async createApiKey(input: {
@@ -2654,7 +2737,10 @@ export class AuthService {
    * is not stored as kind `step-up`, so it cannot be spent on `auth.stepUp`
    * (that door mints a trade:withdraw bearer). Neither factor enrolled refuses.
    */
-  async customerStepUpMaterial(userId: string): Promise<{ totp: boolean; credentials: StoredWebAuthnCredential[] }> {
+  async customerStepUpMaterial(
+    userId: string,
+    purpose: PasskeyPurpose,
+  ): Promise<{ totp: boolean; credentials: StoredWebAuthnCredential[] }> {
     const rows = await this.sql<
       Array<{ status: string; totp_secret: string | null; webauthn_creds: unknown }>
     >`SELECT status, totp_secret, webauthn_creds FROM users WHERE id = ${userId}`;
@@ -2666,7 +2752,7 @@ export class AuthService {
     if (!totpEnrolled && credentials.length === 0) {
       throw new AuthError('Enrol two-factor authentication before confirming this payment', 'auth.mfa_not_enrolled');
     }
-    return { totp: totpEnrolled, credentials };
+    return { totp: totpEnrolled, credentials: credentialsFor(credentials, purpose) };
   }
 
   passkeyOptions(credentials: readonly StoredWebAuthnCredential[], challenge: string): AuthenticationOptionsJSON {
@@ -2684,6 +2770,8 @@ export class AuthService {
     totpCode?: string;
     webauthn?: AuthenticationResponseJSON;
     webauthnChallenge?: string;
+    /** The action the passkey confirms; only the passkeys that answer for it are accepted. */
+    purpose: PasskeyPurpose;
   }): Promise<void> {
     const hasTotp = typeof input.totpCode === 'string' && input.totpCode.length > 0;
     const hasWebauthn = input.webauthn !== undefined && input.webauthn !== null;
@@ -2723,9 +2811,15 @@ export class AuthService {
     if (!clientChallenge || clientChallenge !== expected) {
       throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
     }
-    await this.verifyAssertionAndAdvanceCounter(input.userId, expected, input.webauthn!, () => {
-      throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
-    });
+    await this.verifyAssertionAndAdvanceCounter(
+      input.userId,
+      expected,
+      input.webauthn!,
+      () => {
+        throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
+      },
+      input.purpose,
+    );
   }
 
   async stepUp(input: {
@@ -2768,9 +2862,15 @@ export class AuthService {
       if (!held || held.userId !== input.userId) {
         throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
       }
-      await this.verifyAssertionAndAdvanceCounter(input.userId, held.challenge, response, () => {
-        throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
-      });
+      await this.verifyAssertionAndAdvanceCounter(
+        input.userId,
+        held.challenge,
+        response,
+        () => {
+          throw new AuthError('Invalid two-factor assertion', 'auth.webauthn_invalid');
+        },
+        'money_out',
+      );
     }
     // A step-up token carries the withdraw scope only. Founder desk scopes stay
     // on the interactive session and are re-read at the next refresh.
@@ -2865,7 +2965,7 @@ export class AuthService {
     proof: { readonly totpCode: string } | { readonly webauthn: AuthenticationResponseJSON },
   ): Promise<'totp' | 'passkey'> {
     if ('totpCode' in proof) {
-      await this.proveFreshFactor({ userId, sessionId, totpCode: proof.totpCode });
+      await this.proveFreshFactor({ userId, sessionId, totpCode: proof.totpCode, purpose: 'money_out' });
       return 'totp';
     }
     // The challenge is the one `startWebauthnStepUp` (`auth.stepUpOptions`) stored.
@@ -2881,6 +2981,7 @@ export class AuthService {
       sessionId,
       webauthn: proof.webauthn,
       webauthnChallenge: held.challenge,
+      purpose: 'money_out',
     });
     return 'passkey';
   }

@@ -10,6 +10,7 @@ import {
   publicProcedure,
   retryAfterSecondsOf,
   accountStateOf,
+  secondStepOf,
   conflictProfile,
   router,
   type Context,
@@ -321,5 +322,46 @@ describe('errorFormatter p2p take limits', () => {
     expect(p2pLimitOf(refused('p2p.method_delisted', { until: null, reason: 'the bank said so' }))).toBeUndefined();
     expect(p2pLimitOf(refused('p2p.pair_limit_exceeded', { until: null, reason: 'regulation' }))).toBeUndefined();
     expect(p2pLimitOf(undefined)).toBeUndefined();
+  });
+});
+
+describe('errorFormatter secondStep (I-signin-sessions-10)', () => {
+  const passkey = {
+    challenge: 'Y2hhbGxlbmdl',
+    timeout: 60000,
+    rpId: 'localhost',
+    allowCredentials: [{ type: 'public-key', id: 'Y3JlZA', transports: ['internal'] }],
+    userVerification: 'required',
+  };
+  const mfa = (secondStep: unknown) => new FakeAuthError('auth.mfa_required', { secondStep } as never);
+
+  it('reaches the client on auth.mfa_required with the passkey challenge', async () => {
+    const steps = router({
+      both: publicProcedure.query(() => {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'x', cause: mfa({ totp: true, passkey }) });
+      }),
+    });
+    const res = await fetchRequestHandler({
+      endpoint: '/trpc',
+      req: new Request('http://localhost/trpc/both'),
+      router: steps,
+      createContext: () => ({}) as Context,
+    });
+    const data = ((await res.json()) as { error: { data: Record<string, unknown> } }).error.data;
+    expect(data.secondStep).toEqual({ totp: true, passkey });
+  });
+
+  it('drops any other code and any malformed passkey', () => {
+    expect(secondStepOf(new FakeAuthError('auth.invalid_credentials', { secondStep: { totp: true, passkey } } as never))).toBeUndefined();
+    expect(secondStepOf(mfa({ totp: true, passkey: null }))).toEqual({ totp: true, passkey: null });
+    expect(secondStepOf(mfa({ totp: 'yes', passkey: null }))).toBeUndefined();
+    expect(secondStepOf(mfa({ totp: false, passkey: { ...passkey, allowCredentials: [] } }))).toBeUndefined();
+    expect(secondStepOf(mfa({ totp: false, passkey: { ...passkey, challenge: 'not base64url!' } }))).toBeUndefined();
+    expect(
+      secondStepOf(mfa({ totp: false, passkey: { ...passkey, allowCredentials: [{ type: 'other', id: 'Y3JlZA' }] } })),
+    ).toBeUndefined();
+    expect(secondStepOf(mfa({ totp: false, passkey: { ...passkey, userVerification: 'sometimes' } }))?.passkey).not.toHaveProperty(
+      'userVerification',
+    );
   });
 });
