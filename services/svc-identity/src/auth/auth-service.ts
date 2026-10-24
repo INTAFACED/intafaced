@@ -1,7 +1,14 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
-import type { AccountState, EmailProof, ServiceMailAccepted, ServiceMailRequest, TrustedDeviceState } from '@intafaced/contracts';
+import type {
+  AccountState,
+  CampaignParticipant,
+  EmailProof,
+  ServiceMailAccepted,
+  ServiceMailRequest,
+  TrustedDeviceState,
+} from '@intafaced/contracts';
 import {
   assertDelegatableScopes,
   FOUNDER_SESSION_SCOPE_ALLOWLIST,
@@ -2444,6 +2451,32 @@ export class AuthService {
     const user = rows[0];
     if (!user) return null;
     return { userId: user.id, status: user.status, kycTier: await this.kycTier(user.id) };
+  }
+
+  /**
+   * Who the account is for a campaign's participation rules (CM-eligibility-rules-01): account type, region, status and
+   * KYC tier. Null for an unknown or malformed user, which the caller must refuse on, never read as eligible.
+   */
+  async campaignParticipant(userId: string): Promise<CampaignParticipant | null> {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) return null;
+    const rows = await this.sql<
+      Array<{ id: string; status: 'active' | 'frozen' | 'closed'; account_type: string | null; region: string | null }>
+    >`
+      SELECT u.id, u.status, p.account_type, p.region
+      FROM users u LEFT JOIN profiles p ON p.user_id = u.id
+      WHERE u.id = ${userId} LIMIT 1
+    `;
+    const row = rows[0];
+    if (!row) return null;
+    const region = row.region?.trim().toUpperCase() ?? '';
+    return {
+      userId: row.id,
+      // Accounts made before the sign-up choice existed are personal (migration 0066).
+      accountType: row.account_type === 'business' ? 'business' : 'individual',
+      region: /^[A-Z]{2}$/.test(region) ? region : null,
+      status: row.status,
+      kycTier: await this.kycTier(row.id),
+    };
   }
 
   /**

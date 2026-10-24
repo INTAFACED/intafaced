@@ -1,0 +1,10 @@
+{
+  "label": "TEST: CX-8 rig and local test stack only. Not an owner decision and not a product default.",
+  "values": {
+    "CAMPAIGNS_PLATFORM_TIME_ZONE": {
+      "service": "campaigns",
+      "value": "UTC",
+      "note": "The platform time zone campaign windows and the calendar are read in, so J-campaigns-01 can activate and join a TEST campaign. Not an owner decision."
+    }
+  }
+}

@@ -79,11 +79,29 @@ export async function applyWebhook(svc: PayServiceInternal, adapter: RailAdapter
         return { railId: adapter.id, eventId: event.eventId, type: event.type, duplicate: false, paymentId: null, applied: true };
       }
     }
+    if (svc.custodyDeposits?.reverse && event.type === 'chain.reorged' && chain) {
+      const reversed = await svc.custodyDeposits.reverse({ address: event.railRef, txHash: chain.txHash, outputIndex: chain.logIndex });
+      // A reorg of a transfer this address never recorded takes nothing back: answered, not acted on, so the watcher stops.
+      if (reversed.state !== 'unmatched') {
+        const applied = reversed.state === 'recorded';
+        return { railId: adapter.id, eventId: event.eventId, type: event.type, duplicate: false, paymentId: null, applied };
+      }
+    }
     // A verified event about a payment we have no record of. Rejecting is
     // right — inventing a payment row from a webhook is how a rail's bug
     // becomes our liability — but it is also an operator signal, not a
     // client error.
     throw new PayError(`No payment for ${adapter.id} reference ${event.railRef}`, 'pay.webhook_unmatched', {
+      railId: adapter.id,
+      railRef: event.railRef,
+      eventId: event.eventId,
+    });
+  }
+
+  // A chain reorg names a payment address: nothing here acts on it, and it is not recorded as handled, so it stays an
+  // operator signal (a 202 the route logs) and a redelivery is seen again, as it was before the type existed.
+  if (event.type === 'chain.reorged') {
+    throw new PayError(`Chain reorg for ${adapter.id} payment ${payment.id} is not acted on`, 'pay.webhook_unmatched', {
       railId: adapter.id,
       railRef: event.railRef,
       eventId: event.eventId,

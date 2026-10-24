@@ -1112,6 +1112,7 @@ registerSpotOrderPreviewRest(app, {
   futuresEnabled: env.TRADE_FUTURES_ENABLED,
   optionsSettlementLawStamped: env.TRADE_OPTIONS_SETTLEMENT_ASSET_LAW.trim().length > 0,
   slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
+  stopMarketCapBps: futuresSlippageCapBps,
   feeSchedule,
   feeScheduleNow: () => feeScheduleAt(sql, feeSchedule, new Date()),
   feeDiscountBps: async (userId) => (await perks.perksOf(userId)).feeDiscountBps,
@@ -1358,6 +1359,8 @@ registerPrivateRest(app, {
   statements: { ledger: ledgerPages, exports: new StatementExports(sql, ledgerPages) },
   icebergDisplay: sqlIcebergDisplay(sql),
   stopTriggers,
+  // A stop-market is bounded by the same per-market cap as a market order on its pair.
+  stopMarketCapBps: futuresSlippageCapBps,
   ocoExits: (ids) => readOcoIntents(sql, ids),
   orderHolds: (orders) => readOrderHolds(sql, orders),
   findClientOrder: (principal, input) => trade.findClientOrder(principal, input),

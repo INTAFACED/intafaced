@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import type { Context } from '@intafaced/contracts';
+import type { CampaignService } from './campaigns.js';
 import type { DropService } from './drops.js';
 import { createCampaignsRouter } from './router.js';
 import { parseTgeSchedule, tgeView } from './tge.js';
@@ -46,7 +47,25 @@ function setup(schedule: string | undefined = undefined) {
     listForOps: vi.fn(async () => ({ seasons: [], drops: [] })),
     createDrop: vi.fn(),
   };
-  return { drops, api: (c: Context) => createCampaignsRouter(drops as unknown as DropService).createCaller(c) };
+  const campaigns = {
+    join: vi.fn(async (input: { campaignId: string; accountId: string }) => ({
+      participation: {
+        campaignId: input.campaignId,
+        participationKey: `campaign:join:${input.campaignId}:${input.accountId}`,
+        revision: 1,
+        joinedAt: '2026-10-24T12:00:00.000Z',
+      },
+      created: true,
+    })),
+    myCampaigns: vi.fn(async () => ({ campaigns: [] })),
+    listForOps: vi.fn(async () => []),
+    transition: vi.fn(),
+  };
+  return {
+    drops,
+    campaigns,
+    api: (c: Context) => createCampaignsRouter(drops as unknown as DropService, campaigns as unknown as CampaignService).createCaller(c),
+  };
 }
 
 const messageOf = (e: unknown) => String((e as Error).message);
@@ -60,6 +79,31 @@ describe('campaigns router', () => {
     await expect(
       api(await ctx(['campaigns:write'])).drops.claim({ dropId: 'drop_1', accountId: 'someone-else' } as never),
     ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+  });
+
+  it('joins a campaign for the signed-in account, never one named in the request', async () => {
+    const { campaigns, api } = setup();
+    const out = await api(await ctx(['campaigns:read', 'campaigns:write'])).participation.join({ campaignId: 'cmp_1' });
+    expect(campaigns.join).toHaveBeenCalledWith({ campaignId: 'cmp_1', accountId: ME });
+    expect(out.participation.participationKey).toBe(`campaign:join:cmp_1:${ME}`);
+    await expect(
+      api(await ctx(['campaigns:write'])).participation.join({ campaignId: 'cmp_1', accountId: 'someone-else' } as never),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    await expect(api(await ctx(['campaigns:read'])).participation.join({ campaignId: 'cmp_1' })).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
+    await expect(api(await ctx([], { signedOut: true })).participation.mine()).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+  });
+
+  it('keeps the campaign operator doors behind campaigns:ops and a second factor', async () => {
+    const { campaigns, api } = setup();
+    const move = { id: 'cmp_1', action: 'approve' as const, revision: 1 };
+    await expect(api(await ctx(['campaigns:read', 'campaigns:write'])).ops.campaigns.transition(move)).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
+    await expect(api(await ctx(['campaigns:ops'], { mfa: false })).ops.campaigns.list()).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(campaigns.transition).not.toHaveBeenCalled();
+    await expect(api(await ctx(['campaigns:ops'])).ops.campaigns.list()).resolves.toEqual([]);
   });
 
   it('refuses signed out, and without the scope', async () => {
