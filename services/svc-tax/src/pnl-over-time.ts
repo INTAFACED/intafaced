@@ -27,6 +27,8 @@ import { TaxError, TAX_PNL_BREAKDOWN_MISMATCH, TAX_PNL_RANGE_INVALID } from './c
  */
 
 export const HELD_KEY = 'held';
+/** A withdrawal counted as a sale (transfers on) has no market: it is listed as `moved:<coin>`. */
+export const MOVED_KEY_PREFIX = 'moved:';
 
 /** Most points a chart is drawn with, and most candles one read may span to now (svc-trade answers whole windows). */
 const MAX_POINTS = 400;
@@ -178,14 +180,14 @@ export class BookTimeline {
     return out;
   }
 
-  /** The counted sales in (after, at], by market. A sale with no market (a withdrawal) is under its coin's name. */
+  /** The counted sales in (after, at], by market. A sale with no market (a withdrawal) is under `moved:<coin>`. */
   realizedByMarket(after: Date, at: Date): Map<string, Amount | null> {
     const out = new Map<string, Amount | null>();
     for (const sale of this.sales) {
       if (sale.counted === 'none') continue;
       const when = new Date(sale.disposedAt).getTime();
       if (when <= after.getTime() || when > at.getTime()) continue;
-      const key = sale.market ?? `${sale.assetId} moved out`;
+      const key = sale.market ?? `${MOVED_KEY_PREFIX}${sale.assetId}`;
       const prior = out.has(key) ? out.get(key)! : 0n;
       const r = num(sale.realizedUsd);
       out.set(key, prior === null || r === null ? null : prior + r);

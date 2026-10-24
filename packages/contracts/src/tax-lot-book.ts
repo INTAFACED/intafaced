@@ -308,7 +308,10 @@ export const pnlPointSchema = z.object({
 });
 
 export const pnlBreakdownRowSchema = z.object({
-  /** The coin, the market (`BTC/USDT`, or `held` for the price move on what is still held), or the day (`YYYY-MM-DD`). */
+  /**
+   * The coin; the market (`BTC/USDT`, `held` for the price move on what is still held, or `moved:<coin>` for a withdrawal
+   * counted as a sale); or the day (`YYYY-MM-DD`).
+   */
   key: z.string(),
   usd: z.string().nullable(),
 });

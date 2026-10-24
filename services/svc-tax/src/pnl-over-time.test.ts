@@ -11,7 +11,7 @@ import {
 import type { TaxLedgerReads } from './ledger-reads.js';
 import { TaxService } from './tax-service.js';
 import { buildLotBook, type Fill, type Inflow } from './lot-book.js';
-import { BookTimeline, HELD_KEY, chooseInterval, closeAt, dayEdges, pnlOverTime, samplesOf } from './pnl-over-time.js';
+import { BookTimeline, HELD_KEY, MOVED_KEY_PREFIX, chooseInterval, closeAt, dayEdges, pnlOverTime, samplesOf } from './pnl-over-time.js';
 import type { CloseSeries, CloseSeriesSource } from './prices.js';
 
 // J-portfolio-05 #4 and #5 (PF-performance-03). Every figure is hand-computed TEST data, not a real balance.
@@ -146,6 +146,21 @@ describe('pnlOverTime: the breakdown adds up to the change over the range', () =
     for (const rows of [out.byAsset, out.byMarket, out.byDay!]) expect(sum(rows)).toBe(amt('185'));
     // The sale's fee is inside its result and shown apart; the buy (day 1) is outside the range.
     expect(out.feesUsd).toBe('1.5');
+  });
+
+  it('lists a withdrawal counted as a sale under moved:<coin>, and the markets still add up', () => {
+    // Day 10 noon: 0.25 BTC leaves the platform, valued 200 when it left (cost 25 under FIFO): a result of 175.
+    const out = run({
+      book: bookOf(
+        [buy, sell],
+        { BTC: '0.25', USDT: '150' },
+        {
+          withdrawals: [{ txId: 'w1', postedAt: day(10, 12), assetId: 'BTC', amount: amt('0.25'), valueUsd: amt('200') }],
+        },
+      ),
+    });
+    expect(out.byMarket.find((r) => r.key === `${MOVED_KEY_PREFIX}BTC`)).toEqual({ key: 'moved:BTC', usd: '175' });
+    expect(sum(out.byMarket)).toBe(amt(out.periodUsd!));
   });
 
   it('cuts the days at the customer midnight, and the days still add up', () => {
