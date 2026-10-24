@@ -1692,7 +1692,10 @@ export class P2pService {
     }
     const ruleClass = terms === undefined ? null : brokenRuleClass(this.adContentRules, terms);
     if (ruleClass) {
-      throw new P2pError(`The ad's terms break the "${ruleClass}" content rule; nothing was saved`, 'p2p.content_rule_violation');
+      throw new P2pError(`The ad's terms break the "${ruleClass}" content rule; nothing was saved`, 'p2p.content_rule_violation', {
+        until: null,
+        ruleClass,
+      });
     }
   }
 

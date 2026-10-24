@@ -337,10 +337,13 @@ const P2P_LIMIT_CODES = new Set([
   'p2p.insufficient_balance',
   'p2p.remind_too_early',
   'p2p.remind_rate_limited',
+  'p2p.content_rule_violation',
 ]);
 const DELIST_REASONS: ReadonlySet<string> = new Set(P2P_DELIST_REASONS);
 const P2P_LIMIT_DECIMALS = ['cap', 'min', 'max', 'remaining', 'windowHours', 'available', 'shortBy'] as const;
 const P2P_LIMIT_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
+/** A compliance rule class (P-ads-merchant-05): a short lower-case slug, never the phrase that matched. */
+const P2P_RULE_CLASS = /^[a-z][a-z_]{0,31}$/;
 const P2P_LIMIT_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface P2pLimitDetails {
@@ -359,6 +362,8 @@ export interface P2pLimitDetails {
   openTradeIds?: string[];
   /** On `p2p.method_delisted` only: why the method was retired. */
   reason?: P2pDelistReason;
+  /** On `p2p.content_rule_violation` only: the content rule class an ad's terms broke, never the phrase. */
+  ruleClass?: string;
 }
 
 /**
@@ -388,6 +393,12 @@ export function p2pLimitOf(cause: unknown): P2pLimitDetails | undefined {
   if (row.reason !== undefined) {
     if (cause.code !== 'p2p.method_delisted' || typeof row.reason !== 'string' || !DELIST_REASONS.has(row.reason)) return undefined;
     out.reason = row.reason as P2pDelistReason;
+  }
+  if (row.ruleClass !== undefined) {
+    if (cause.code !== 'p2p.content_rule_violation' || typeof row.ruleClass !== 'string' || !P2P_RULE_CLASS.test(row.ruleClass)) {
+      return undefined;
+    }
+    out.ruleClass = row.ruleClass;
   }
   if (row.openTradeIds !== undefined) {
     const ids = row.openTradeIds;

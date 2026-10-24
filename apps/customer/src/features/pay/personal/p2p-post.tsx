@@ -217,6 +217,7 @@ export function OfferSummary({
   const limit = failure?.code === 'p2p.insufficient_balance' ? failure.p2pLimit : undefined;
   const band =
     failure?.code === 'p2p.verification_order_max' || failure?.code === 'p2p.verification_order_min' ? failure.p2pLimit : undefined;
+  const ruleClass = failure?.code === 'p2p.content_rule_violation' ? failure.p2pLimit?.ruleClass : undefined;
   const refused = refusalKey(failure);
   return (
     <section className="stack" data-testid="offer-summary" aria-label={t('summaryTitle')}>
@@ -250,6 +251,10 @@ export function OfferSummary({
       ) : band?.min && band.max && band.currency ? (
         <p className="failure" role="alert">
           {t('overLevel', { min: displayAmount(band.min), max: displayAmount(band.max), currency: band.currency })}
+        </p>
+      ) : ruleClass ? (
+        <p className="failure" role="alert">
+          {t('refusedContentClass', { rule: ruleClass.replaceAll('_', ' ') })}
         </p>
       ) : refused ? (
         <p className="failure" role="alert">

@@ -86,7 +86,7 @@ describe('svc-p2p ad content rules at post and edit (P-ads-merchant-05)', () => 
 
   it('refuses terms that break a rule with the rule class and never the phrase, and posts nothing', async () => {
     const refused = service().createOffer(ad('TEST terms: message me on Telegram before you pay'));
-    await expect(refused).rejects.toMatchObject({ code: 'p2p.content_rule_violation' });
+    await expect(refused).rejects.toMatchObject({ code: 'p2p.content_rule_violation', limit: { until: null, ruleClass: 'messenger' } });
     await expect(refused).rejects.toThrow('"messenger"');
     await expect(refused).rejects.not.toThrow(/telegram/i);
     expect(await offers()).toHaveLength(0);

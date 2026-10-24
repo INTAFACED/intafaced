@@ -128,6 +128,26 @@ describe('OfferSummary', () => {
     act(() => root?.unmount());
     root = null;
     expect((await render(summary('p2p.content_rule_violation'))).textContent).toContain('Your terms include something an ad may not carry');
+    act(() => root?.unmount());
+    root = null;
+    const classed = await render(
+      <OfferSummary
+        input={input}
+        methodLabels={['TEST bank transfer']}
+        termsNote={null}
+        failure={{
+          ok: false,
+          reason: 'error',
+          message: 'x',
+          code: 'p2p.content_rule_violation',
+          p2pLimit: { until: null, ruleClass: 'outside_link' },
+        }}
+        posting={false}
+        onConfirm={() => {}}
+        onBack={() => {}}
+      />,
+    );
+    expect(classed.textContent).toContain('Your terms break the “outside link” rule');
   });
 });
 

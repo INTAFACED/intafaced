@@ -76,6 +76,8 @@ const en = {
   refusedNoDestination: 'A sell ad needs your own payment details for every method on it. Add them under Payment methods first.',
   refusedTrading: 'Posting ads is paused on this service right now.',
   refusedVerify: 'Verify your identity before you post an ad.',
+  refusedContentClass:
+    'Your terms break the “{rule}” rule: ads may not carry messenger names, links or ways to reach you outside the order chat. Remove it and post again.',
   refusedContent:
     'Your terms include something an ad may not carry, such as a messenger name, a link or a way to reach you outside the order chat. Remove it and post again.',
   keyOff:
@@ -161,6 +163,8 @@ const es = {
   refusedNoDestination: 'Un anuncio de venta necesita tus propios datos de pago para cada método. Añádelos antes en Métodos de pago.',
   refusedTrading: 'La publicación de anuncios está en pausa en este servicio ahora mismo.',
   refusedVerify: 'Verifica tu identidad antes de publicar un anuncio.',
+  refusedContentClass:
+    'Tus condiciones incumplen la regla «{rule}»: los anuncios no pueden llevar nombres de apps de mensajería, enlaces ni formas de contactarte fuera del chat de la orden. Quítalo y vuelve a publicar.',
   refusedContent:
     'Tus condiciones incluyen algo que un anuncio no puede llevar, como el nombre de una app de mensajería, un enlace o una forma de contactarte fuera del chat de la orden. Quítalo y vuelve a publicar.',
   keyOff:
@@ -250,6 +254,8 @@ const fr = {
     'Une annonce de vente a besoin de vos propres coordonnées de paiement pour chaque moyen. Ajoutez-les d’abord dans Moyens de paiement.',
   refusedTrading: 'La publication d’annonces est en pause sur ce service pour le moment.',
   refusedVerify: 'Vérifiez votre identité avant de publier une annonce.',
+  refusedContentClass:
+    'Vos conditions enfreignent la règle « {rule} » : une annonce ne peut porter ni nom de messagerie, ni lien, ni moyen de vous joindre hors du chat de l’ordre. Retirez-le et publiez à nouveau.',
   refusedContent:
     'Vos conditions contiennent quelque chose qu’une annonce ne peut pas porter, comme le nom d’une messagerie, un lien ou un moyen de vous joindre hors du chat de l’ordre. Retirez-le et publiez à nouveau.',
   keyOff:
