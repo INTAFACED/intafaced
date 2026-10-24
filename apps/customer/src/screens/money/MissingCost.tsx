@@ -3,7 +3,7 @@ import { moneyCopy } from './copy';
 import { Amount, Button, fmtAmount, refusalCopy } from './deps';
 import { lotsMissingCost, type LotBook, type LotBookLot, type MissingBasis } from './pnl-model';
 import type { BasisOutcome } from './pnl-source';
-import { stamp } from './time';
+import { dayIn, stamp } from './time';
 import { usePreferences } from '../../shared/preferences';
 
 type Copy = ReturnType<typeof moneyCopy.useCopy>;
@@ -19,9 +19,10 @@ const BASIS_REFUSAL: Record<string, 'Price invalid' | 'Note needed' | 'Day neede
   'tax.basis_lot_unknown': 'Basis lot gone',
 };
 
-export function basisRefusalWords(code: string, copy: Copy): string {
-  const key = BASIS_REFUSAL[code];
-  return key ? copy.t(key) : refusalCopy(code).title;
+export function basisRefusalWords(outcome: { code: string; unsure: boolean }, copy: Copy): string {
+  if (outcome.unsure) return copy.t('Price unsure');
+  const key = BASIS_REFUSAL[outcome.code];
+  return key ? copy.t(key) : refusalCopy(outcome.code).title;
 }
 
 /** A positive decimal with a dot, as the service takes it. Checked here only to say so before sending; the service decides. */
@@ -38,7 +39,9 @@ function BasisForm({
 }) {
   const { t } = copy;
   const [price, setPrice] = useState('');
-  const [day, setDay] = useState(lot.acquiredAt.slice(0, 10));
+  const { timeZone } = usePreferences();
+  // The day the screen shows for the lot, in the viewer's zone, so saving untouched keeps the day they read.
+  const [day, setDay] = useState(() => dayIn(lot.acquiredAt, timeZone));
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -49,12 +52,14 @@ function BasisForm({
     if (busy) return;
     if (!priceOk) return setMessage(t('Price invalid'));
     if (note.trim() === '') return setMessage(t('Note needed'));
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || day > dayIn(new Date().toISOString(), timeZone)) return setMessage(t('Day needed'));
     setBusy(true);
     setMessage(null);
     // The day is the start of that day in UTC: the service keeps it as the day the coins were acquired.
     const result = await onSave({ pricePerUnit: price.trim(), date: `${day}T00:00:00.000Z`, sourceNote: note.trim() });
     setBusy(false);
-    setMessage(result.ok ? t('Price saved') : basisRefusalWords(result.code, copy));
+    // A saved price takes the lot off this list, and the page says so above it; only a refusal is said here.
+    if (!result.ok) setMessage(basisRefusalWords(result, copy));
   }
 
   return (
@@ -88,7 +93,17 @@ function BasisForm({
       <label className="money-note-form__label" htmlFor={`${id}-day`}>
         {t('Day acquired')}
       </label>
-      <input id={`${id}-day`} className="money-note-form__input" type="date" value={day} onChange={(event) => setDay(event.target.value)} />
+      <input
+        id={`${id}-day`}
+        className="money-note-form__input"
+        type="date"
+        value={day}
+        max={dayIn(new Date().toISOString(), timeZone)}
+        onChange={(event) => {
+          setDay(event.target.value);
+          setMessage(null);
+        }}
+      />
       <label className="money-note-form__label" htmlFor={`${id}-note`}>
         {t('Price note')}
       </label>
@@ -163,8 +178,8 @@ export function MissingCost({
                   : null}{' '}
                 <Amount value={`${fmtAmount(item.qty)} ${item.assetId}`} hidden={hidden} /> {t('Missing lot left')}
               </p>
-              {sales.map((sale) => (
-                <p key={`${sale.saleTxId}`} className="money-note" data-effect="unknown-share">
+              {sales.map((sale, index) => (
+                <p key={`${sale.saleTxId}:${index}`} className="money-note" data-effect="unknown-share">
                   {t('Unknown share', { qty: `${fmtAmount(sale.qty)} ${sale.assetId}` })}
                 </p>
               ))}
@@ -180,8 +195,8 @@ export function MissingCost({
             </li>
           );
         })}
-        {noLot.map((item) => (
-          <li key={`no-lot:${item.saleTxId}:${item.assetId}`} data-effect="no-lot">
+        {noLot.map((item, index) => (
+          <li key={`no-lot:${item.saleTxId}:${item.assetId}:${index}`} data-effect="no-lot">
             <p>{t('Missing cost no lot', { qty: `${fmtAmount(item.qty)} ${item.assetId}` })}</p>
           </li>
         ))}

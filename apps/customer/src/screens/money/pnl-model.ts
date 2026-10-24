@@ -112,12 +112,17 @@ export function lotsOf(book: LotBookAnswer, asset: string): LotBookLot[] {
   return book.lots.filter((lot) => lot.assetId === asset);
 }
 
-/** The part of one sale that reached a lot with no cost (or no lot at all), from the missing list; null when every part has a cost. */
+/** The parts of one sale that reached a lot with no cost (or no lot at all), from the missing list; empty when every part has a cost. */
 export function unknownShareOf(missing: MissingBasis, sale: { txId: string; assetId: string }): MissingBasisItem[] {
   return missing.items.filter((item) => item.kind === 'disposal' && item.saleTxId === sale.txId && item.assetId === sale.assetId);
 }
 
 /** The open lots with no cost, each once, in the order the missing list names them. */
 export function lotsMissingCost(missing: MissingBasis): MissingBasisItem[] {
-  return missing.items.filter((item) => item.kind === 'open' && item.lotId !== null);
+  const seen = new Set<string>();
+  return missing.items.filter((item) => {
+    if (item.kind !== 'open' || item.lotId === null || seen.has(item.lotId)) return false;
+    seen.add(item.lotId);
+    return true;
+  });
 }

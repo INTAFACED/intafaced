@@ -2,7 +2,15 @@
 import { useMemo } from 'react';
 import { useDataEnv, useSource, type Loadable } from '../../data';
 import { constantSource } from '../../data/source';
-import { basisWriteResultSchema, lotBookSchema, missingBasisSchema, type LotBook, type LotMethod, type MissingBasis } from './pnl-model';
+import {
+  LOT_METHODS,
+  basisWriteResultSchema,
+  lotBookSchema,
+  missingBasisSchema,
+  type LotBook,
+  type LotMethod,
+  type MissingBasis,
+} from './pnl-model';
 
 const LOT_BOOK_INTERVAL = 60_000;
 
@@ -49,25 +57,33 @@ export function useMissingBasis(method: LotMethod | null): Loadable<MissingBasis
   );
 }
 
-export type BasisOutcome = { ok: true } | { ok: false; code: string };
+/** `unsure`: the write may have been stored (a timeout or a server error after sending); the book is read again either way. */
+export type BasisOutcome = { ok: true } | { ok: false; code: string; unsure: boolean };
 
 /**
  * A price the customer enters for one of their lots with no cost (`tax.basisOverride.set`), or its removal
  * (`tax.basisOverride.remove`). Neither touches a balance. After either, the book and the missing list are read again.
  */
-export function useBasisOverride(method: LotMethod | null): {
+export function useBasisOverride(): {
   set: (input: { lotId: string; pricePerUnit: string; date: string; sourceNote: string }) => Promise<BasisOutcome>;
   remove: (lotId: string) => Promise<BasisOutcome>;
 } {
   const env = useDataEnv();
   return useMemo(() => {
+    // A price changes the book under every method, so every method's book and missing list is read again.
     const reread = () => {
-      if (!env.userId || method === null) return;
-      env.poller.refresh(bookKey(env.userId, method));
-      env.poller.refresh(missingKey(env.userId, method));
+      if (!env.userId) return;
+      for (const each of LOT_METHODS) {
+        env.poller.refresh(bookKey(env.userId, each));
+        env.poller.refresh(missingKey(env.userId, each));
+      }
     };
     const done = (result: { ok: true } | { ok: false; code?: string; reason: string }): BasisOutcome => {
-      if (!result.ok) return { ok: false, code: result.code ?? result.reason };
+      if (!result.ok) {
+        const unsure = result.reason === 'uncertain';
+        if (unsure) reread();
+        return { ok: false, code: result.code ?? result.reason, unsure };
+      }
       reread();
       return { ok: true };
     };
@@ -75,5 +91,5 @@ export function useBasisOverride(method: LotMethod | null): {
       set: async (input) => done(await env.api.mutate('tax', 'basisOverride.set', input, basisWriteResultSchema)),
       remove: async (lotId) => done(await env.api.mutate('tax', 'basisOverride.remove', { lotId }, basisWriteResultSchema)),
     };
-  }, [env, method]);
+  }, [env]);
 }

@@ -208,8 +208,8 @@ function SaleRows({ book, missing, hidden, copy }: { book: LotBook; missing: Mis
                     </span>
                   ) : null}
                   {missing
-                    ? unknownShareOf(missing, sale).map((part) => (
-                        <span key={`${part.lotId ?? 'no-lot'}`} className="money-note" data-effect="unknown-share">
+                    ? unknownShareOf(missing, sale).map((part, index) => (
+                        <span key={`${part.lotId ?? 'no-lot'}:${index}`} className="money-note" data-effect="unknown-share">
                           {' '}
                           {t('Unknown share', { qty: `${fmtAmount(part.qty)} ${part.assetId}` })}
                         </span>
@@ -349,6 +349,7 @@ function LotRows({
 function CustomerEntered({ lotId, copy, onRemove }: { lotId: string; copy: Copy; onRemove: (lotId: string) => Promise<BasisOutcome> }) {
   const { t } = copy;
   const [busy, setBusy] = useState(false);
+  // A removal takes this label away, and the page says so above; only a refusal is said here.
   const [message, setMessage] = useState<string | null>(null);
   return (
     <span className="money-note" data-label="customer-entered">
@@ -363,7 +364,7 @@ function CustomerEntered({ lotId, copy, onRemove }: { lotId: string; copy: Copy;
           setBusy(true);
           const result = await onRemove(lotId);
           setBusy(false);
-          setMessage(result.ok ? t('Price removed') : basisRefusalWords(result.code, copy));
+          if (!result.ok) setMessage(basisRefusalWords(result, copy));
         }}
       >
         {t('Remove my price')}
@@ -383,8 +384,20 @@ export default function Pnl({ search = '' }: { search?: string }) {
   const pick = (next: LotMethod) => navigate(`/money/pnl?method=${next}`, true);
   const book = useLotBook(method);
   const missing = useMissingBasis(method);
-  const basis = useBasisOverride(method);
+  const basis = useBasisOverride();
   const missingData = missing.status === 'ready' ? missing.data : null;
+  // What a price write did, said once at page level: the form or label that sent it leaves the page when it works.
+  const [notice, setNotice] = useState<string | null>(null);
+  const setPrice = async (input: Parameters<typeof basis.set>[0]) => {
+    const result = await basis.set(input);
+    if (result.ok) setNotice(t('Price saved'));
+    return result;
+  };
+  const removePrice = async (lotId: string) => {
+    const result = await basis.remove(lotId);
+    if (result.ok) setNotice(t('Price removed'));
+    return result;
+  };
   const portfolio = useMoneyPortfolio();
   const rows = portfolio.status === 'ready' ? portfolio.data.rows : null;
   const view = useMemo(() => (book.status === 'ready' ? pnlView(book.data, rows) : null), [book, rows]);
@@ -457,10 +470,25 @@ export default function Pnl({ search = '' }: { search?: string }) {
             ))}
           </ul>
         ) : null}
-        {missingData ? <MissingCost book={book.data} missing={missingData} hidden={hideBalances} copy={copy} onSave={basis.set} /> : null}
+        <p className="money-note" role="status" data-testid="basis-notice">
+          {notice ?? ''}
+        </p>
+        {missingData ? (
+          <MissingCost book={book.data} missing={missingData} hidden={hideBalances} copy={copy} onSave={setPrice} />
+        ) : missing.status === 'refused' || missing.status === 'error' ? (
+          <section className="money-card" aria-label={t('Missing cost')}>
+            <header className="money-card__head">
+              <h2>{t('Missing cost')}</h2>
+            </header>
+            <p className="money-note">
+              {t('Missing cost unreadable')}
+              {missing.status === 'refused' ? ` ${refusalCopy(missing.code).reference}` : ''}
+            </p>
+          </section>
+        ) : null}
         <AssetRows assets={view.assets} hidden={hideBalances} copy={copy} />
         <SaleRows book={book.data} missing={missingData} hidden={hideBalances} copy={copy} />
-        <LotRows book={book.data} search={search} hidden={hideBalances} copy={copy} onRemove={basis.remove} />
+        <LotRows book={book.data} search={search} hidden={hideBalances} copy={copy} onRemove={removePrice} />
       </>
     );
   }

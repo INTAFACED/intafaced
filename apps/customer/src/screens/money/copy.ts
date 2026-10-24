@@ -194,6 +194,8 @@ const messages = {
   'Our record unknown': 'our record: cost unknown',
   'Remove my price': 'Remove my price',
   'Price removed': 'Price removed. That lot’s cost is unknown again.',
+  'Price unsure': 'We could not confirm the save. The figures are being read again; check them before trying once more.',
+  'Missing cost unreadable': 'Lots with no cost can’t be listed right now, so no price can be entered. Try again in a minute.',
   'No trades to measure yet': 'No trades to measure yet.',
   'No trades to measure body': 'Once you buy and sell on the exchange, your result shows here.',
   'Go to Money': 'Go to Money',

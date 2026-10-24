@@ -178,7 +178,7 @@ test(`${J} #7 enters the price paid for that lot: the result recomputes, marked 
   await expect(form.getByRole('status')).toHaveText('Say where this price comes from, for example the receipt of the purchase.');
   await form.getByLabel('Where this price comes from').fill('TEST receipt from an earlier purchase');
   await form.getByRole('button', { name: 'Save price' }).click();
-  await expect(form.getByRole('status')).toHaveText('Price saved. The figures use it, marked customer-entered.');
+  await expect(page.getByTestId('basis-notice')).toHaveText('Price saved. The figures use it, marked customer-entered.');
 
   // The deposit's lot now has the customer's cost (0.004 at that price), labelled, with our own unknown beside it.
   const lots = page.getByRole('region', { name: 'Lots' });
@@ -199,7 +199,9 @@ test(`${J} #7 enters the price paid for that lot: the result recomputes, marked 
   // Taking the price back: the lot's cost is unknown again, and the sale's result with it. Nothing else moved.
   const balances = await (await api(who)).balances();
   await lot.getByRole('button', { name: 'Remove my price' }).click();
+  await expect(page.getByTestId('basis-notice')).toHaveText('Price removed. That lot’s cost is unknown again.');
   await expect(lot.locator('[data-col="cost"]')).toHaveText('Cost unknown');
   await expect(sale.locator('[data-col="result"]')).toContainText('Cost unknown');
+  await expect(page.getByRole('region', { name: 'Missing cost' })).toBeVisible();
   expect(await (await api(who)).balances()).toEqual(balances);
 });
