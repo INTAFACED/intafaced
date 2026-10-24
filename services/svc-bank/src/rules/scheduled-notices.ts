@@ -346,7 +346,7 @@ export class ScheduledNoticeService {
          WHERE id IN (
            SELECT id FROM bank.scheduled_notices
             WHERE announced_at IS NULL AND dropped_at IS NULL AND (claimed_until IS NULL OR claimed_until < ${now})
-            ORDER BY attempts, created_at
+            ORDER BY attempts, created_at, due_at, id
             LIMIT ${limit}
             FOR UPDATE SKIP LOCKED
          )
@@ -357,7 +357,7 @@ export class ScheduledNoticeService {
         FROM claimed c
         JOIN bank.scheduled_transfers s ON s.id = c.schedule_id
         LEFT JOIN bank.transfer_executions e ON c.kind = 'failed' AND e.schedule_id = c.schedule_id AND e.occurrence = c.occurrence
-       ORDER BY c.attempts, c.created_at
+       ORDER BY c.attempts, c.created_at, c.due_at, c.id
     `;
     let announced = 0;
     for (const [index, row] of rows.entries()) {
