@@ -8,7 +8,7 @@ import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import type { Context, CustomerDetailsEditInput } from '@intafaced/contracts';
 import { createTestDatabase } from '../fixture-truncate.testkit.js';
 import { FounderControls, parseFounderPair } from './founder-controls.js';
-import { CustomerDetailsDesk } from './customer-details.js';
+import { CustomerDetailsDesk, holderNameKey } from './customer-details.js';
 
 const url = process.env.TEST_DATABASE_URL ?? 'postgres://intafaced_ops:intafaced_ops@localhost:5433/intafaced_test';
 const migrationDirectory = join(dirname(fileURLToPath(import.meta.url)), '../../drizzle');
@@ -203,6 +203,54 @@ if (!available) {
       await expect(desk.state(first, { userId: target })).rejects.toMatchObject({ code: 'identity.details_unreadable' });
       await db.sql`UPDATE customer_details SET key_id = 'v1' WHERE user_id = ${target}`;
       expect(await desk.state(first, { userId: target })).toMatchObject({ version: '1', details: { city: 'Leeds' } });
+    });
+  });
+
+  describe('the own-name rule (P-ads-merchant-18, J-p2p-04 #2)', () => {
+    it('answers only the outcome: unverified until a legal name passes review, then match or mismatch after normalising', async () => {
+      expect(await desk.holderNameCheck({ userId: target, name: 'Anna-Lena Müller' })).toEqual({ userId: target, outcome: 'unverified' });
+      // An open review is not a verified name.
+      const opened = await desk.edit(first, edit({ legalName: 'Anna-Lena Müller' }));
+      expect(await desk.holderNameCheck({ userId: target, name: 'Anna-Lena Müller' })).toMatchObject({ outcome: 'unverified' });
+      await desk.decide(second, decision(opened.reviewId!, 'pass'));
+      for (const name of ['Anna-Lena Müller', 'anna lena muller', '  ANNA  LENA  MÜLLER ', 'Anna-Lena Mu\u0308ller']) {
+        expect(await desk.holderNameCheck({ userId: target, name })).toEqual({ userId: target, outcome: 'match' });
+      }
+      // A phone keyboard's hyphen (U+2010) is a dash like any other.
+      expect(await desk.holderNameCheck({ userId: target, name: 'Anna\u2010Lena Muller' })).toMatchObject({ outcome: 'match' });
+      for (const name of ['Müller Anna-Lena', 'Anna Müller', 'Anna-Lena Müllerr']) {
+        expect(await desk.holderNameCheck({ userId: target, name })).toEqual({ userId: target, outcome: 'mismatch' });
+      }
+      // Open details alone are not a name: a customer with only a city is unverified too.
+      const other = id(await seed());
+      await desk.edit(first, { ...edit({ city: 'Leeds' }), userId: other });
+      expect(await desk.holderNameCheck({ userId: other, name: 'Leeds' })).toMatchObject({ outcome: 'unverified' });
+      expect(await desk.holderNameCheck({ userId: randomUUID(), name: 'Anna-Lena Müller' })).toBeNull();
+      // A frozen, closed or archived account takes no new destination, whatever its name.
+      await db.sql`UPDATE users SET status = 'frozen' WHERE id = ${target}`;
+      expect(await desk.holderNameCheck({ userId: target, name: 'Anna-Lena Müller' })).toEqual({ userId: target, outcome: 'inactive' });
+      await db.sql`UPDATE users SET status = 'closed' WHERE id = ${target}`;
+      expect(await desk.holderNameCheck({ userId: target, name: 'Anna-Lena Müller' })).toMatchObject({ outcome: 'inactive' });
+    });
+
+    it('drops accents from Latin letters only, so a name in another script keeps its vowel marks', () => {
+      expect(holderNameKey('Søren Kierkegaard')).toBe(holderNameKey('Soren Kierkegaard'));
+      expect(holderNameKey('Straße')).toBe('strasse');
+      expect(holderNameKey('O‘Brien')).toBe(holderNameKey("O'Brien"));
+      // Kiran and Karan differ only by a vowel sign.
+      expect(holderNameKey('किरण')).not.toBe(holderNameKey('करण'));
+      expect(holderNameKey('किरण')).toBe('किरण');
+    });
+
+    it('is unconfigured without the key, and refuses a record the key cannot open', async () => {
+      const opened = await desk.edit(first, edit({ legalName: 'Ada Lovelace' }));
+      await desk.decide(second, decision(opened.reviewId!, 'pass'));
+      const keyless = new CustomerDetailsDesk(db.sql, controls, null);
+      expect(await keyless.holderNameCheck({ userId: target, name: 'Ada Lovelace' })).toEqual({ userId: target, outcome: 'unconfigured' });
+      const otherKey = new CustomerDetailsDesk(db.sql, controls, randomBytes(32));
+      await expect(otherKey.holderNameCheck({ userId: target, name: 'Ada Lovelace' })).rejects.toMatchObject({
+        code: 'identity.details_unreadable',
+      });
     });
   });
 }
