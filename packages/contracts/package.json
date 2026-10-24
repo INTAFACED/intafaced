@@ -46,6 +46,10 @@
       "types": "./dist/ops-console-mode.d.ts",
       "default": "./dist/ops-console-mode.js"
     },
+    "./ops-staff-holds": {
+      "types": "./dist/ops-staff-holds.d.ts",
+      "default": "./dist/ops-staff-holds.js"
+    },
     "./ops-console-announcements": {
       "types": "./dist/ops-console-announcements.d.ts",
       "default": "./dist/ops-console-announcements.js"

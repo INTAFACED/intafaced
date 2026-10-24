@@ -11,15 +11,23 @@ import { LEDGER_CALLER_SERVICES } from './caller-allowlist.js';
  * balances or history without posting.
  */
 const READERS_WITHOUT_POSTS = ['svc-matching', 'svc-tax'] as const satisfies readonly ServiceName[];
+/**
+ * Posters that read nothing but their own keys (ADR 2026-10-22 service-access-calls rule 5): a new poster does not
+ * become a ledger reader. `txByKey` answers identifying fields only and resolves the poster's own unknown outcomes.
+ */
+const POSTERS_WITHOUT_READS = ['svc-ops'] as const satisfies readonly ServiceName[];
 
 const POSTERS: readonly ServiceName[] = LEDGER_CALLER_SERVICES;
-const READERS: readonly ServiceName[] = [...POSTERS, ...READERS_WITHOUT_POSTS];
+const READERS: readonly ServiceName[] = [
+  ...POSTERS.filter((s) => !(POSTERS_WITHOUT_READS as readonly ServiceName[]).includes(s)),
+  ...READERS_WITHOUT_POSTS,
+];
 
 export const LEDGER_DOOR_CALLERS = {
   post: POSTERS,
   balance: READERS,
   balances: READERS,
-  txByKey: READERS,
+  txByKey: [...READERS, ...POSTERS_WITHOUT_READS],
   txById: READERS,
   history: READERS,
   historyPage: READERS,
@@ -28,9 +36,9 @@ export const LEDGER_DOOR_CALLERS = {
   /** The asset and network registry (W-balances-05): read by every service that reads balances. */
   assetsList: READERS,
   assetsGet: READERS,
-  /** svc-ops reads fee revenue for the venue report and calls no other door. */
+  /** svc-ops reads fee revenue for the venue report; besides this and the chain tip it only posts its staff holds and reads their keys. */
   feeRevenue: ['svc-ops'],
-  /** svc-ops reads the chain tip for the joint restore and calls no other door. */
+  /** svc-ops reads the chain tip for the joint restore. */
   restoreWatermark: ['svc-ops'],
   portfolio: [],
   statementPnl: [],

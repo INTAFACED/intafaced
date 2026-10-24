@@ -57,6 +57,21 @@ export const opsEnvSchema = baseEnvSchema
        * ops.restore_target_unset. Never invented.
        */
       OPS_RESTORE_TARGET: blankAsAbsent(z.string().min(1).max(256).optional()),
+      /**
+       * Owner setting: the `ops:hold-confirm:<slug>` account a confirmed staff hold moves to (lowercase letters, digits and
+       * dashes). Blank → a confirm refuses `owner.decision` before any approval is spent, and nothing posts.
+       */
+      OPS_STAFF_HOLD_CONFIRM_ACCOUNT: blankAsAbsent(
+        z
+          .string()
+          .regex(/^[a-z][a-z0-9-]{0,62}$/, 'OPS_STAFF_HOLD_CONFIRM_ACCOUNT must be a lowercase slug (a-z, 0-9, -).')
+          .optional(),
+      ),
+      /**
+       * Owner setting: the longest expiry a staff hold may be given, in hours. Blank → no expiry is offered
+       * (`ops.hold_expiry_unset`, the desk says "not set"); holds without an expiry still work. Never invented.
+       */
+      OPS_STAFF_HOLD_EXPIRY_MAX_HOURS: blankAsAbsent(z.coerce.number().int().positive().max(8760).optional()),
       /** svc-bank and svc-pay base URLs for the joint-restore watermark reads. Blank → that service reads as unavailable. */
       BANK_URL: blankAsAbsent(z.string().url().optional()),
       PAY_URL: blankAsAbsent(z.string().url().optional()),

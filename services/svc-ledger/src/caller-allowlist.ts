@@ -70,6 +70,11 @@ export const LEDGER_POST_ALLOWLIST = {
   'svc-mining-pool': {
     rewardPay: g('token', 'services/svc-mining-pool/src/ledger.ts'),
   },
+  'svc-ops': {
+    staffHoldConfirm: g('ops', 'services/svc-ops/src/staff-holds/desk.ts'),
+    staffHoldPlace: g('ops', 'services/svc-ops/src/staff-holds/desk.ts'),
+    staffHoldRelease: g('ops', 'services/svc-ops/src/staff-holds/desk.ts'),
+  },
   'svc-p2p': {
     escrowLock: g('p2p', 'services/svc-p2p/src/p2p-service.ts'),
     escrowRefund: g('p2p', 'services/svc-p2p/src/p2p-service.ts'),
