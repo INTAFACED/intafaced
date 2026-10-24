@@ -154,6 +154,24 @@ describe('edge principal — pay step-up claim', () => {
   });
 });
 
+describe('edge principal — session family and trusted device', () => {
+  it('forwards fam and dev through encode, sign, and verifyForwardedPrincipal', () => {
+    const p = principal({ fam: '66666666-6666-4666-8666-666666666666', dev: '77777777-7777-4777-8777-777777777777' });
+    const raw = encodePrincipal(p);
+    const { principal: got, rejected } = verifyForwardedPrincipal(raw, signPrincipalHeader(raw, SECRET), SECRET);
+
+    expect(rejected).toBeNull();
+    expect(got?.fam).toBe('66666666-6666-4666-8666-666666666666');
+    expect(got?.dev).toBe('77777777-7777-4777-8777-777777777777');
+  });
+
+  it('omits both from the wire JSON when the principal has neither', () => {
+    const wire = JSON.parse(encodePrincipal(principal())) as Record<string, unknown>;
+    expect(wire).not.toHaveProperty('fam');
+    expect(wire).not.toHaveProperty('dev');
+  });
+});
+
 describe('edge principal — expiry', () => {
   it('refuses a signed but expired principal', () => {
     const p = principal({ expiresAt: new Date(Date.now() - 1) });
