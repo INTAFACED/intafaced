@@ -9,6 +9,8 @@ import { useDeskApi } from './data';
 import { Button, fmtAmount, fmtPct, fmtPrice, refusalCopy, Skeleton, StateBlock, StatusTag, type Loadable } from './deps';
 import type { DeskMarket } from './market';
 import { fillFeeRate, fillRole } from './fill-detail';
+import { groupFillsByOrder } from './fill-groups';
+import { parseAmount } from '../../../shared/money';
 import { dayTime } from './time';
 import { placesOf, quotePlaces } from './text';
 import { canEdit } from './EditOrder';
@@ -180,6 +182,16 @@ export function CancelButton({ order, onDone }: { order: Order; onDone: () => vo
 export const baseOf = (symbol: string): string => symbol.split('/')[0] ?? symbol;
 export const quoteOf = (symbol: string): string => symbol.split('/')[1] ?? '';
 
+/** The words for an order's type; a type the screen has no words for shows as the service named it, never blank. */
+function typeWordOf(order: Order, t: ReturnType<typeof deskCopy.useCopy>['t'], precision: Precision): string {
+  if (order.exit) return t(exitKindKey(order.exit.kind));
+  if (order.type === 'limit') return t('Order type limit');
+  if (order.type === 'market') return t('Order type market');
+  if (order.type === 'stop_limit')
+    return `${t('Order type stopLimit')}${order.stopPrice ? ` @ ${fmtPrice(order.stopPrice, precision.tickOf(order.symbol))}` : ''}`;
+  return order.type;
+}
+
 /** Open orders (with Cancel) or past orders (with a status tag). `onChanged` runs after a cancel so the lists refresh. */
 export function OrdersTable({
   rows,
@@ -261,15 +273,7 @@ export function OrdersTable({
               </td>
               <td>{order.symbol}</td>
               <td>
-                {order.exit
-                  ? t(exitKindKey(order.exit.kind))
-                  : order.type === 'limit'
-                    ? t('Order type limit')
-                    : order.type === 'market'
-                      ? t('Order type market')
-                      : order.type === 'stop_limit'
-                        ? `${t('Order type stopLimit')}${order.stopPrice ? ` @ ${fmtPrice(order.stopPrice, precision.tickOf(order.symbol))}` : ''}`
-                        : order.type}
+                {typeWordOf(order, t, precision)}
                 <OrderTag order={order} />
                 <ExitLegs order={order} tick={precision.tickOf(order.symbol)} />
                 {order.tag ? (
@@ -350,12 +354,59 @@ const roleWord = (role: 'maker' | 'taker' | null, t: (key: 'Maker' | 'Taker') =>
 
 /**
  * Trade history from fills. `desk` keeps the strip's columns; `activity` leads with a plain sentence per trade
- * ("Bought 0.00015 BTC") and drops the columns that sentence already says.
+ * ("Bought 0.00015 BTC") and drops the columns that sentence already says. In `activity` an order that filled in parts is
+ * one order row (its type, how many fills, the totals) with its fills under it; `orders` gives the type, and an order not
+ * in it shows no type rather than a guessed one.
  */
-export function FillsTable({ rows, precision, layout = 'desk' }: { rows: Trade[]; precision: Precision; layout?: 'desk' | 'activity' }) {
+export function FillsTable({
+  rows,
+  precision,
+  layout = 'desk',
+  orders,
+}: {
+  rows: Trade[];
+  precision: Precision;
+  layout?: 'desk' | 'activity';
+  orders?: ReadonlyMap<string, Order>;
+}) {
   const { t } = deskCopy.useCopy();
   const { timeZone } = usePreferences();
   const activity = layout === 'activity';
+  const fillRow = (fill: Trade, of: string | null, typeWord: string | null) => {
+    // The sentence in Activity never rounds a fill: it shows the amount's own digits (up to 8). The desk keeps the lot's.
+    const amount = fmtAmount(fill.amount, { places: activity ? 8 : precision.lotOf(fill.symbol) });
+    const quote = quoteOf(fill.symbol);
+    return (
+      <tr key={fill.id} data-fill={fill.id} data-of={of ?? undefined} className={of ? 'dk-fill-part' : undefined}>
+        <td className="if-num">{dayTime(fill.timestamp, timeZone)}</td>
+        {activity ? (
+          <td>
+            <span className="dk-trade-what" data-side={fill.side}>
+              {t(fill.side === 'buy' ? 'Bought {amount} {asset}' : 'Sold {amount} {asset}', { amount, asset: baseOf(fill.symbol) })}
+            </span>
+            <span className="dk-trade-sub">{typeWord ? `${fill.symbol} · ${typeWord}` : fill.symbol}</span>
+          </td>
+        ) : (
+          <>
+            <td>{fill.symbol}</td>
+            <td>
+              <Side side={fill.side} />
+            </td>
+          </>
+        )}
+        <td className="dk-num if-num">{fmtPrice(fill.price, precision.tickOf(fill.symbol))}</td>
+        {activity ? null : <td className="dk-num if-num">{amount}</td>}
+        <td className="dk-num if-num">
+          {fmtAmount(fill.cost, { places: quotePlaces(quote), fixed: true })} <span className="dk-unit">{quote}</span>
+        </td>
+        {activity ? null : <td>{roleWord(fillRole(fill), t)}</td>}
+        <td className="dk-num if-num">
+          {fill.fee ? `${fmtAmount(fill.fee.cost, { places: 8 })} ${fill.fee.currency}` : '—'}
+          {!activity && fillFeeRate(fill) ? <span className="dk-unit"> {fmtPct(fillFeeRate(fill)!, { signed: false })}</span> : null}
+        </td>
+      </tr>
+    );
+  };
   return (
     <table className="dk-table" data-layout={layout}>
       <thead>
@@ -377,41 +428,44 @@ export function FillsTable({ rows, precision, layout = 'desk' }: { rows: Trade[]
         </tr>
       </thead>
       <tbody>
-        {byNewest(rows).map((fill) => {
-          // The sentence in Activity never rounds a fill: it shows the amount's own digits (up to 8). The desk keeps the lot's.
-          const amount = fmtAmount(fill.amount, { places: activity ? 8 : precision.lotOf(fill.symbol) });
-          const quote = quoteOf(fill.symbol);
-          return (
-            <tr key={fill.id}>
-              <td className="if-num">{dayTime(fill.timestamp, timeZone)}</td>
-              {activity ? (
-                <td>
-                  <span className="dk-trade-what" data-side={fill.side}>
-                    {t(fill.side === 'buy' ? 'Bought {amount} {asset}' : 'Sold {amount} {asset}', { amount, asset: baseOf(fill.symbol) })}
-                  </span>
-                  <span className="dk-trade-sub">{fill.symbol}</span>
-                </td>
-              ) : (
-                <>
-                  <td>{fill.symbol}</td>
+        {activity
+          ? groupFillsByOrder(rows).flatMap((group) => {
+              const order = group.order ? orders?.get(group.order) : undefined;
+              const typeWord = order ? typeWordOf(order, t, precision) : null;
+              const [first] = group.fills;
+              if (!first) return [];
+              if (group.fills.length === 1) return [fillRow(first, null, typeWord)];
+              const quote = quoteOf(first.symbol);
+              const head = (
+                <tr key={`order:${group.order}`} className="dk-fill-order" data-order={group.order ?? undefined}>
+                  <td className="if-num">{dayTime(first.timestamp, timeZone)}</td>
                   <td>
-                    <Side side={fill.side} />
+                    <span className="dk-trade-what" data-side={first.side}>
+                      {t(first.side === 'buy' ? 'Bought {amount} {asset}' : 'Sold {amount} {asset}', {
+                        amount: fmtAmount(group.amount, { places: 8 }),
+                        asset: baseOf(first.symbol),
+                      })}
+                    </span>
+                    <span className="dk-trade-sub">
+                      {typeWord
+                        ? t('Order of fills', { type: typeWord, count: group.fills.length })
+                        : t('Order of fills no type', { count: group.fills.length })}
+                      {/* The order filled more than the fills read here: older ones are past the latest page. */}
+                      {order && parseAmount(order.filled) > parseAmount(group.amount) ? ` · ${t('Order of fills older')}` : null}
+                    </span>
                   </td>
-                </>
-              )}
-              <td className="dk-num if-num">{fmtPrice(fill.price, precision.tickOf(fill.symbol))}</td>
-              {activity ? null : <td className="dk-num if-num">{amount}</td>}
-              <td className="dk-num if-num">
-                {fmtAmount(fill.cost, { places: quotePlaces(quote), fixed: true })} <span className="dk-unit">{quote}</span>
-              </td>
-              {activity ? null : <td>{roleWord(fillRole(fill), t)}</td>}
-              <td className="dk-num if-num">
-                {fill.fee ? `${fmtAmount(fill.fee.cost, { places: 8 })} ${fill.fee.currency}` : '—'}
-                {!activity && fillFeeRate(fill) ? <span className="dk-unit"> {fmtPct(fillFeeRate(fill)!, { signed: false })}</span> : null}
-              </td>
-            </tr>
-          );
-        })}
+                  <td className="dk-num if-num" title={t('Average price')}>
+                    {group.average ? fmtPrice(group.average, precision.tickOf(first.symbol)) : '—'}
+                  </td>
+                  <td className="dk-num if-num">
+                    {fmtAmount(group.cost, { places: quotePlaces(quote), fixed: true })} <span className="dk-unit">{quote}</span>
+                  </td>
+                  <td className="dk-num if-num">{group.fee ? `${fmtAmount(group.fee.cost, { places: 8 })} ${group.fee.currency}` : '—'}</td>
+                </tr>
+              );
+              return [head, ...group.fills.map((fill) => fillRow(fill, group.order, null))];
+            })
+          : byNewest(rows).map((fill) => fillRow(fill, null, null))}
       </tbody>
     </table>
   );

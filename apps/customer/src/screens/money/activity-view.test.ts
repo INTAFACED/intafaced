@@ -342,6 +342,14 @@ describe('groupActivity: only the same orderId groups lines', () => {
     expect(groupActivity(rows).groups.map((group) => group.id)).toEqual(['p', 'd']);
   });
 
+  it('lists oldest first when the person asked for it', () => {
+    const rows = [
+      item({ id: 'd', kind: 'deposit', postedAt: '2026-10-01T00:00:00.000Z', txId: 'd' }),
+      item({ id: 'p', kind: 'transfer_in', postedAt: '2026-10-02T00:00:00.000Z', txId: 'p' }),
+    ];
+    expect(groupActivity(rows, 'asc').groups.map((group) => group.id)).toEqual(['d', 'p']);
+  });
+
   it('gives every row a different id', () => {
     const groups = rowsOf([
       L(0, 'trade', 'in', 'BTC', '0.1', 'o1'),

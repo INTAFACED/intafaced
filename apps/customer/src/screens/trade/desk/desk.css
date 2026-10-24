@@ -1224,6 +1224,14 @@
   .dk-table[data-layout='activity'] td {
     height: 48px;
   }
+  /* The fills of an order that filled in parts sit under its order row, set in from it. */
+  .dk-table[data-layout='activity'] tr.dk-fill-part td {
+    height: 40px;
+    color: var(--if-fg-2);
+  }
+  .dk-table[data-layout='activity'] tr.dk-fill-part td:nth-child(2) {
+    padding-left: 24px;
+  }
   .dk-unit {
     color: var(--if-fg-2);
   }
