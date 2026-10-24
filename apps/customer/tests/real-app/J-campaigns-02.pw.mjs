@@ -305,7 +305,7 @@ test(`${J} #7 opens the reward's redemption log: the outcome, any failure reason
   const rollback = page.getByTestId('task-rollback');
   await expect(rollback).toHaveAttribute('data-code', 'campaigns.reclaim_unavailable');
   await expect(rollback).toContainText('1 day after it was posted, until');
-  await expect(rollback).toContainText('A rollback cannot be made yet');
+  await expect(rollback).toContainText('No rollback can be made');
 });
 
 test(`${J} #8 misses a day in a streak task: the streak resets at the zone boundary`, async () => {
