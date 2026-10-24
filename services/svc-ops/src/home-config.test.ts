@@ -44,7 +44,10 @@ describe('home.config: Home owner values (HM-dashboard-03)', () => {
     [{ OPS_HOME_SEARCH_RESULT_CAP: '21' }, /searchResultCap/],
     [{ OPS_HOME_WORK_LIST_ORDER: 'verification,coffee' }, /"coffee", which is not a work item kind/],
     [{ OPS_HOME_WORK_LIST_ORDER: 'verification,verification' }, /each kind once/],
-    [{ OPS_HOME_WORK_LIST_ORDER: ',' }, /workListOrder/],
+    [{ OPS_HOME_WORK_LIST_ORDER: ',' }, /empty entry/],
+    [{ OPS_HOME_WORK_LIST_ORDER: 'verification,,card_frozen' }, /empty entry/],
+    [{ OPS_HOME_WORK_LIST_ORDER: 'verification,' }, /empty entry/],
+    [{ OPS_HOME_WORK_LIST_CAP: '0', OPS_HOME_SEARCH_RESULT_CAP: '21' }, /workListCap.*; searchResultCap/],
   ])('refuses a malformed value at boot instead of reading it as blank: %o', (env, message) => {
     expect(() => homeConfigFrom(env)).toThrow(message);
   });

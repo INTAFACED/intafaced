@@ -249,6 +249,23 @@ test(`${J}, part of #4: Needs you is on Home and loads with Home's TEST list set
   await expect(work).not.toContainText('Not served here');
 });
 
+test(`${J}, part of #4: with Home's list cap blank, as in production, the list is refused with its code, never "nothing needs you"`, async ({
+  page,
+}) => {
+  // The running app against the real services, with only svc-ops' answer changed to what a blank owner value gives.
+  await page.route('**/api/ops/trpc/home.config**', async (route) => {
+    const res = await route.fetch();
+    const body = await res.json();
+    body.result.data.workListCap = null;
+    await route.fulfill({ response: res, json: body });
+  });
+  await signIn(page, who);
+  await page.goto('/');
+  const work = page.locator('section[aria-labelledby="home-work-title"]');
+  await expect(work).toContainText('home.work_list_cap_unset');
+  await expect(work).not.toContainText('Nothing needs you');
+});
+
 test(`${J}, part of #4: an unverified person gets one item linking to Verification`, async ({ page }) => {
   await signUp(page, 'hmw');
   await page.goto('/');

@@ -25,11 +25,9 @@ function wholeNumber(name: string, value: string | undefined): number | null {
 
 function kinds(value: string | undefined): HomeConfig['workListOrder'] {
   if (blank(value)) return null;
-  const list = value!
-    .split(',')
-    .map((kind) => kind.trim())
-    .filter(Boolean);
+  const list = value!.split(',').map((kind) => kind.trim());
   for (const kind of list) {
+    if (kind === '') throw new Error('OPS_HOME_WORK_LIST_ORDER has an empty entry (a stray comma).');
     if (!workItemKindSchema.safeParse(kind).success) {
       throw new Error(`OPS_HOME_WORK_LIST_ORDER names "${kind}", which is not a work item kind.`);
     }
@@ -47,8 +45,8 @@ export function homeConfigFrom(env: HomeConfigEnv): HomeConfig {
     revision: 0,
   });
   if (!parsed.success) {
-    const issue = parsed.error.issues[0];
-    throw new Error(`Home owner values refused: ${issue?.path.join('.') ?? 'value'} ${issue?.message ?? 'is not valid'}.`);
+    const issues = parsed.error.issues.map((issue) => `${issue.path.join('.') || 'value'} ${issue.message}`);
+    throw new Error(`Home owner values refused: ${issues.join('; ')}.`);
   }
   return parsed.data;
 }
