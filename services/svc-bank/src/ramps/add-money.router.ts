@@ -79,12 +79,12 @@ export function createAddMoneyRouter(bank: Pick<BankServices, 'addMoney'>, guard
       .input(
         z
           .object({
-            requestId: z.string().uuid(),
+            requestId: z.string().guid(),
             assetId,
             amount,
             method: z.enum(ONRAMP_METHODS),
             country,
-            quoteId: z.string().uuid().optional(),
+            quoteId: z.string().guid().optional(),
           })
           .strict(),
       )

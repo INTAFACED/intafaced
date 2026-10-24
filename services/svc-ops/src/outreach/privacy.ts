@@ -95,7 +95,7 @@ export class OutreachPrivacy {
     if (actor === null) {
       if (!config.data.retention?.automationEnabled) throw new OutreachError('ops.crm.retention_unconfigured');
     } else {
-      actor = z.string().uuid().parse(actor).toLowerCase();
+      actor = z.string().guid().parse(actor).toLowerCase();
       if (!config.data.founders.includes(actor)) throw new OutreachError('ops.crm.operator_forbidden');
     }
     try {
@@ -246,7 +246,7 @@ export class OutreachPrivacy {
   }
   async retentionReview(raw: z.input<typeof crmRetentionReviewInputSchema>, actor: string) {
     const input = crmRetentionReviewInputSchema.parse(raw);
-    actor = z.string().uuid().parse(actor).toLowerCase();
+    actor = z.string().guid().parse(actor).toLowerCase();
     return this.controlled(actor, async (tx) => {
       this.policy();
       await assertRequestNotErased(tx, input.requestId);

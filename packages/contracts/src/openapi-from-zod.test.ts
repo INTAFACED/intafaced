@@ -8,10 +8,10 @@ import {
   ZOD_TO_OPENAPI_VERSION,
 } from './openapi-from-zod.js';
 
-describe('CARD G-developer OpenAPI from Zod 3', () => {
-  it('pins @asteasolutions/zod-to-openapi@7.3.4', () => {
+describe('CARD G-developer OpenAPI from Zod 4', () => {
+  it('pins @asteasolutions/zod-to-openapi@8.5.0', () => {
     expect(ZOD_TO_OPENAPI).toBe('@asteasolutions/zod-to-openapi');
-    expect(ZOD_TO_OPENAPI_VERSION).toBe('7.3.4');
+    expect(ZOD_TO_OPENAPI_VERSION).toBe('8.5.0');
   });
 
   it('refuses a wrong adapter version rather than inventing OpenAPI', () => {
@@ -40,22 +40,21 @@ describe('CARD G-developer OpenAPI from Zod 3', () => {
     expect(result.reason).toBe('svc_fix_not_this_pr');
   });
 
-  it('generates OpenAPI from existing Zod 3 or refuses if the adapter is missing', () => {
+  it('generates OpenAPI from existing Zod 4 schemas made before the adapter loads', () => {
     const result = generateOpenApiFromZod({
       schemas: { QuoteConvention: quoteConventionSchema },
       title: '@intafaced/contracts',
       version: '0.0.0',
     });
+    expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.adapter).toBe(ZOD_TO_OPENAPI);
-      expect(result.adapterVersion).toBe('7.3.4');
+      expect(result.adapterVersion).toBe('8.5.0');
       expect(result.document.openapi.startsWith('3.')).toBe(true);
       const schema = result.document.components?.schemas?.QuoteConvention as { properties?: Record<string, { type?: string }> } | undefined;
       expect(schema?.properties?.unitSize?.type).not.toBe('number');
       expect(schema?.properties?.pipSize?.type).not.toBe('number');
-      return;
     }
-    expect(result.reason).toBe('openapi_unset');
   });
 });
 
