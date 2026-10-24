@@ -20,7 +20,7 @@ describe('instruments.create requires a caller instrumentId', () => {
       instruments.indexOf('create: merchantApiProcedure'),
       instruments.indexOf('update: merchantApiProcedure'),
     );
-    expect(create).toMatch(/instrumentId: z\.string\(\)\.uuid\(\)/);
+    expect(create).toMatch(/instrumentId: z\.string\(\)\.guid\(\)/);
     expect(create).toMatch(/instrumentId: input\.instrumentId/);
   });
 });

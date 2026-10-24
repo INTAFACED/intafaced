@@ -1248,7 +1248,7 @@ export class OutreachCrm {
     return activity;
   }
 }
-const uuidSchema = z.string().uuid();
+const uuidSchema = z.string().guid();
 function staffTextOf(payload: unknown): string | null {
   const message = (payload as { message?: { staffText?: unknown } } | null)?.message;
   return typeof message?.staffText === 'string' && message.staffText.length > 0 ? message.staffText : null;

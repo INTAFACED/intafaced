@@ -43,8 +43,8 @@ export function createSessionFamiliesRouter(sql: Sql) {
 
     /** Ends one sign-in by its family id. Another account's family answers like one that does not exist. */
     revokeSessionFamily: scopedProcedure('identity:write')
-      .input(z.object({ familyId: z.string().uuid() }).strict())
-      .output(z.object({ familyId: z.string().uuid(), revoked: z.boolean() }).strict())
+      .input(z.object({ familyId: z.string().guid() }).strict())
+      .output(z.object({ familyId: z.string().guid(), revoked: z.boolean() }).strict())
       .mutation(async ({ ctx, input }) => {
         const own = await callerFamily(sql, ctx.principal.userId, ctx.principal.sid);
         if (input.familyId === own) {

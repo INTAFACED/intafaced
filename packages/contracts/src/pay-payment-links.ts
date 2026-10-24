@@ -21,7 +21,7 @@ export const payCreateLinkInputSchema = z
   .object({
     merchantId: payMerchantIdSchema,
     label: z.string().min(1).max(120),
-    profileId: z.string().uuid().nullish(),
+    profileId: z.string().guid().nullish(),
     amount: payAmountStringSchema.optional(),
     currency: payAssetCodeSchema.optional(),
     /** Omit for the service default. A link with no expiry cannot be created. */
@@ -35,7 +35,7 @@ export type PayCreateLinkInput = z.infer<typeof payCreateLinkInputSchema>;
 
 export const payCreateLinkOutputSchema = z
   .object({
-    id: z.string().uuid(),
+    id: z.string().guid(),
     token: z.string().min(8).max(200),
     prefix: z.string().min(1).max(64),
     label: z.string(),
@@ -66,7 +66,7 @@ export const payLinkListInputSchema = z
 
 export const payLinkListItemSchema = z
   .object({
-    id: z.string().uuid(),
+    id: z.string().guid(),
     prefix: z.string().min(1).max(64),
     label: z.string(),
     amount: payAmountStringSchema.nullable(),
@@ -89,7 +89,7 @@ export const payLinkListPageSchema = payPageSchema(payLinkListItemSchema);
 export const payGetLinkInputSchema = z
   .object({
     merchantId: payMerchantIdSchema,
-    linkId: z.string().uuid(),
+    linkId: z.string().guid(),
   })
   .strict();
 export type PayGetLinkInput = z.infer<typeof payGetLinkInputSchema>;

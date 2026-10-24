@@ -46,7 +46,7 @@ const activityListInput = z
     /** Oldest first or newest first (the default). */
     sort: z.enum(['asc', 'desc']).optional(),
     /** `main` for the account itself, or the id of one named Space. */
-    accountId: z.union([z.literal('main'), z.string().uuid()]).optional(),
+    accountId: z.union([z.literal('main'), z.string().guid()]).optional(),
     /** A UTC calendar year. */
     year: z.number().int().min(1970).max(2200).optional(),
     /** A tax year. Its start date is an owner value that is not set, so this refuses `portfolio.tax_year_start_unset`. */
@@ -89,7 +89,7 @@ const activityItem = z.object({
   privateNote: z.string().max(500).optional(),
   /** This caller's description for a report or a statement. */
   reportDescription: z.string().max(500).optional(),
-  dispute: z.object({ id: z.string().uuid(), status: z.literal('open'), reason: z.string().max(500) }).optional(),
+  dispute: z.object({ id: z.string().guid(), status: z.literal('open'), reason: z.string().max(500) }).optional(),
   /** The crypto address a withdrawal went to, when one was recorded. Omitted on every other line. */
   address: z.string().min(1).max(256).optional(),
 });
@@ -271,13 +271,13 @@ export function createActivityRouter(bank: Pick<BankServices, 'activity' | 'acti
             .object({
               id: z.string().min(1).max(512),
               reason: plainWords.pipe(z.string().min(1).max(500)),
-              disputeId: z.string().uuid(),
+              disputeId: z.string().guid(),
             })
             .strict(),
         )
         .output(
           z.object({
-            disputeId: z.string().uuid(),
+            disputeId: z.string().guid(),
             activityId: z.string(),
             status: z.literal('open'),
             reason: z.string(),
