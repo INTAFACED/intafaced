@@ -6,7 +6,7 @@ import {
   type ComplianceQueueItem,
   type ComplianceQueueKind,
 } from '@intafaced/config';
-import { statusForAuthError, type AdminApi } from './admin-api.js';
+import { InvalidControlBodyError, statusForAuthError, type AdminApi } from './admin-api.js';
 import type { MatchingOperatorCall, MatchingOperatorPath } from './matching-operator-door.js';
 import { DualControlError } from './dual-control.js';
 import { ActionApprovalConsumeError, edgeActionPayloadHash, readApprovalIds } from './action-approval-consume.js';
@@ -746,7 +746,8 @@ export function registerAdminRoutes(app: FastifyInstance, admin: AdminApi, match
     try {
       res = await admin.defineReconciliationControl(req.body, auth.bearer);
     } catch (err) {
-      return reply.code(400).send({ error: (err as Error).message, code: 'edge.invalid_reconciliation_control' });
+      if (!(err instanceof InvalidControlBodyError)) throw err;
+      return reply.code(400).send({ error: err.message, code: 'edge.invalid_reconciliation_control' });
     }
     req.log.warn({ operator: auth.principal.userId, status: res.status }, 'edge: LEDGER RECONCILIATION CONTROL define');
     return reply.code(res.status).send(res.body);
@@ -759,7 +760,8 @@ export function registerAdminRoutes(app: FastifyInstance, admin: AdminApi, match
     try {
       res = await admin.updateReconciliationControl(req.body, auth.bearer);
     } catch (err) {
-      return reply.code(400).send({ error: (err as Error).message, code: 'edge.invalid_reconciliation_control' });
+      if (!(err instanceof InvalidControlBodyError)) throw err;
+      return reply.code(400).send({ error: err.message, code: 'edge.invalid_reconciliation_control' });
     }
     req.log.warn({ operator: auth.principal.userId, status: res.status }, 'edge: LEDGER RECONCILIATION CONTROL update');
     return reply.code(res.status).send(res.body);
@@ -772,7 +774,8 @@ export function registerAdminRoutes(app: FastifyInstance, admin: AdminApi, match
     try {
       res = await admin.runReconciliationControl(req.body, auth.bearer);
     } catch (err) {
-      return reply.code(400).send({ error: (err as Error).message, code: 'edge.invalid_reconciliation_control' });
+      if (!(err instanceof InvalidControlBodyError)) throw err;
+      return reply.code(400).send({ error: err.message, code: 'edge.invalid_reconciliation_control' });
     }
     req.log.warn({ operator: auth.principal.userId, status: res.status }, 'edge: LEDGER RECONCILIATION CONTROL run');
     return reply.code(res.status).send(res.body);

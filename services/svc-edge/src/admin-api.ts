@@ -204,9 +204,12 @@ const thawSchema = z.object({
 
 const reconcileSchema = thawSchema;
 
+/** A control body Edge refuses before forwarding. Only this is a 400; a ledger that cannot be reached is not. */
+export class InvalidControlBodyError extends Error {}
+
 function parsedControlBody<T>(schema: z.ZodType<T>, body: unknown): T {
   const parsed = schema.safeParse(body ?? {});
-  if (!parsed.success) throw new Error(parsed.error.issues.map((issue) => issue.message).join('; '));
+  if (!parsed.success) throw new InvalidControlBodyError(parsed.error.issues.map((issue) => issue.message).join('; '));
   return parsed.data;
 }
 
