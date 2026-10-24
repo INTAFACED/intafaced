@@ -235,14 +235,17 @@ export async function startMfaReset(deps: MfaResetDeps, userId: string): Promise
 export async function confirmMfaReset(deps: MfaResetDeps, input: { resetId: string; code: string }): Promise<MfaResetView> {
   const budget = requireBudget(deps);
   const outcome = await transaction(deps.sql, async (tx) => {
+    // The user row first, then the reset, in the same order as start, cancel and completion.
+    const [owner] = await tx<Array<{ user_id: string }>>`SELECT user_id FROM mfa_resets WHERE id = ${input.resetId}`;
+    if (!owner) return { refuse: 'auth.code_invalid' as const };
+    const user = await lockUser(tx, owner.user_id);
+    if (!user) return { refuse: 'auth.code_invalid' as const };
     const [row] = await tx<Array<ResetRow & { user_id: string }>>`
       SELECT id, user_id, state, code_hash, code_expires_at, attempts, completes_at, code_expires_at <= clock_timestamp() AS expired
       FROM mfa_resets WHERE id = ${input.resetId} FOR UPDATE`;
     if (!row) return { refuse: 'auth.code_invalid' as const };
     if (row.state === 'locked') return { refuse: 'auth.too_many_attempts' as const };
     if (row.state !== 'code_sent' && row.state !== 'waiting') return { refuse: 'auth.code_expired' as const };
-    const user = await lockUser(tx, row.user_id);
-    if (!user) return { refuse: 'auth.code_invalid' as const };
     if (row.state === 'waiting') return { view: waitingView(row, user) };
     if (row.expired) {
       await tx`UPDATE mfa_resets SET state = 'expired', code_hash = NULL, updated_at = now() WHERE id = ${row.id}`;
