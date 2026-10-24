@@ -1419,6 +1419,37 @@ describe('svc-p2p mount — trade/dispute read IDOR', () => {
     expect((await read(null)).terms).toBeNull();
   });
 
+  it('gives a party the readable status, the frozen fee rate, and the release split of a released order only', async () => {
+    const ctx = signed(principal({ userId: BUYER, sub: BUYER, scopes: ['p2p:read'] }));
+    const read = (patch: Record<string, unknown>) =>
+      createP2pRouter(stubP2p({ getTrade: async () => ({ ...foreignTrade, termsSnapshot: null, ...patch }) as never }), stubInstruments())
+        .createCaller(ctx)
+        .trades.get({ tradeId });
+    const fifty = parseAmount('50');
+    // Open: nothing has been paid out, so there is no split to show.
+    expect(await read({ amount: fifty })).toMatchObject({
+      displayStatus: 'waiting_for_buyer_to_pay',
+      feeBps: 100,
+      fee: null,
+      netAmount: null,
+    });
+    const done = await read({ amount: fifty, status: 'released', resolution: 'released', resolutionReason: 'confirmed' });
+    expect(done).toMatchObject({ displayStatus: 'completed', fee: '0.5', netAmount: '49.5' });
+    // A refund returns the whole escrow to the seller: no fee was taken.
+    const refunded = await read({ amount: fifty, status: 'cancelled', resolution: 'refunded', resolutionReason: 'timeout.escrowed' });
+    expect(refunded).toMatchObject({ displayStatus: 'cancelled_by_timeout', fee: null, netAmount: null });
+    // The ledger ceils the fee, so the buyer's share is never rounded up.
+    const odd = await read({ amount: parseAmount('0.000000000000000003'), feeBps: 1, status: 'released', resolution: 'released' });
+    expect(odd).toMatchObject({ fee: '0.000000000000000001', netAmount: '0.000000000000000002' });
+    // A split that leaves the buyer nothing is one the release refuses; the read names none rather than a zero payout.
+    const nothing = await read({ amount: 1n, feeBps: 1, status: 'released', resolution: 'released' });
+    expect(nothing).toMatchObject({ fee: null, netAmount: null });
+    expect(await read({ amount: fifty, feeBps: 0, status: 'released', resolution: 'released' })).toMatchObject({
+      fee: '0',
+      netAmount: '50',
+    });
+  });
+
   it("hides another pair's dispute as NOT_FOUND rather than FORBIDDEN or 500", async () => {
     let reads = 0;
     const dispute = {

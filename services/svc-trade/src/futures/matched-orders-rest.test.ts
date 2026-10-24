@@ -4,6 +4,7 @@ import type { Principal } from '@intafaced/auth';
 import { parseAmount } from '@intafaced/ledger-client';
 import { attachMatchedOrderRoutes, readPlaceBody, type FuturesOrderWire, type MatchedOrdersRestDeps } from './matched-orders-rest.js';
 import { MatchedOrderError, type PlaceMatchedOrderInput } from './matched-orders.js';
+import type { ReverseInput, ReverseView } from './reverse.js';
 
 const USER = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const principal = { userId: USER, scopes: ['trade:read', 'trade:write'], tier: 2 } as unknown as Principal;
@@ -357,6 +358,64 @@ describe('futures orders through the book: REST', () => {
       expect(split.statusCode).toBe(400);
       expect(split.json()).toMatchObject({ error: 'trade.entry_protection_split_unsupported' });
       expect(placed).toBe(0);
+    });
+  });
+  describe('one-tap reverse (J-derivatives-03 #9)', () => {
+    const view = { clientRequestId: 'reverse:1', status: 'done' } as unknown as ReverseView;
+
+    it('passes the position, the request id, the accepted tier, the signed account and the edge region', async () => {
+      const seen: { userId: string; input: ReverseInput; region: string | null | undefined }[] = [];
+      const server = await app({
+        reverse: async (p, input, context) => {
+          seen.push({ userId: p.userId, input, region: context.region });
+          return view;
+        },
+      });
+      const res = await server.inject({
+        method: 'POST',
+        url: '/api/v1/positions/pos-1/reverse',
+        payload: { clientRequestId: ' reverse:1 ', confirmTier: 2 },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual(view);
+      expect(seen).toEqual([{ userId: USER, input: { positionId: 'pos-1', clientRequestId: 'reverse:1', confirmTier: 2 }, region: 'EU' }]);
+    });
+
+    it('a missing request id or a malformed tier never reaches the service; a typed refusal keeps its code', async () => {
+      let calls = 0;
+      const server = await app({
+        reverse: async () => {
+          calls += 1;
+          throw new MatchedOrderError('one-way', 'trade.futures_one_way_flip_refused', 409);
+        },
+      });
+      const missing = await server.inject({ method: 'POST', url: '/api/v1/positions/pos-1/reverse', payload: {} });
+      expect(missing.statusCode).toBe(400);
+      expect(missing.json().error).toBe('trade.client_request_id_required');
+      const tier = await server.inject({
+        method: 'POST',
+        url: '/api/v1/positions/pos-1/reverse',
+        payload: { clientRequestId: 'r', confirmTier: '2' },
+      });
+      expect(tier.json().error).toBe('trade.confirm_tier_invalid');
+      expect(calls).toBe(0);
+      const refused = await server.inject({ method: 'POST', url: '/api/v1/positions/pos-1/reverse', payload: { clientRequestId: 'r' } });
+      expect(refused.statusCode).toBe(409);
+      expect(refused.json().error).toBe('trade.futures_one_way_flip_refused');
+    });
+
+    it('unwired is 503, signed out 401, and the jurisdiction gate holds it back', async () => {
+      const unwired = await (
+        await app({})
+      ).inject({ method: 'POST', url: '/api/v1/positions/p/reverse', payload: { clientRequestId: 'r' } });
+      expect(unwired.statusCode).toBe(503);
+      const reverse = async () => view;
+      expect(
+        (await (await app({ reverse }, { signedIn: false })).inject({ method: 'POST', url: '/api/v1/positions/p/reverse' })).statusCode,
+      ).toBe(401);
+      expect(
+        (await (await app({ reverse }, { jurisdiction: false })).inject({ method: 'POST', url: '/api/v1/positions/p/reverse' })).statusCode,
+      ).toBe(403);
     });
   });
 });

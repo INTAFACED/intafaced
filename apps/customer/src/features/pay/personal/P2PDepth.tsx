@@ -3,6 +3,7 @@ import { PayDetails } from '../components';
 import { StatusTag } from '@intafaced/ui';
 import type { Trade } from '../schemas';
 import { p2pDepth } from './p2p-depth-copy';
+import { orderHistoryCopy } from './order-history-copy';
 import { disputeStages, escrowView, timeLeft, type OrderAction, type OrderFilter, type StepId, type StepState } from './p2p-model';
 import './p2p-depth.css';
 
@@ -33,12 +34,14 @@ const STATUS_KEY = {
 } as const satisfies Record<Trade['status'], string>;
 
 /** An order's status in words a person uses, never the machine value. */
-export function TradeStatus({ status }: { status: Trade['status'] }) {
+/** An order's state; with the server's readable status (`trades.get`), in the order list's own words. */
+export function TradeStatus({ status, display }: { status: Trade['status']; display?: Trade['displayStatus'] }) {
   const { t } = p2pDepth.useCopy();
+  const list = orderHistoryCopy.useCopy();
   return (
     <StatusTag
       status={status === 'cancelled' ? 'failed' : status === 'released' ? 'filled' : status === 'disputed' ? 'pending' : 'working'}
-      label={t(STATUS_KEY[status])}
+      label={display ? list.t(display) : t(STATUS_KEY[status])}
     />
   );
 }

@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { evaluateFraud, FRAUD_THRESHOLD_UNPUBLISHED, isAutoDecline, type FraudDecision } from './evaluate.js';
+import { payServiceSource } from '../payment-service/source.testkit.js';
 
 /**
  * Unit card — pay.fraud mechanism · wave 13 L02
@@ -253,7 +254,7 @@ describe('pay.fraud mechanism — evaluateFraud', () => {
     expect(src).toMatch(/parseAmount/);
     expect(src).not.toMatch(/from '@intafaced\/ledger-client\/recipes'/);
     // Outcome posts live in chargeback-ledger.ts. This module stays free of them.
-    const pay = readFileSync(join(here, '../payment-service.ts'), 'utf8');
+    const pay = payServiceSource();
     expect(pay).not.toMatch(/recipes\.chargeback/);
     expect(pay).toMatch(/postDisputeWon/);
     expect(pay).toMatch(/postDisputeShortfall/);

@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Position } from '@intafaced/exchange-contract/schemas';
 import {
   Button,
+  Checkbox,
   Dialog,
   DialogContent,
   DialogDescription,
@@ -10,6 +11,7 @@ import {
   DialogTitle,
   Field,
   Input,
+  KeyValue,
   Menu,
   MenuContent,
   MenuItem,
@@ -18,8 +20,9 @@ import {
 } from '@intafaced/ui';
 import { fmtAmount, fmtPrice } from '../../../data/format';
 import { useSession } from '../../../features/session/session';
-import type { ConditionalOrder, StopInput } from './api';
-import { useConditionalOrders, useFuturesRefresh } from './data';
+import type { ConditionalOrder, PositionPreview, Reverse, StopInput } from './api';
+import { useConditionalOrders, useFuturesApi, useFuturesRefresh } from './data';
+import { futuresRefusal } from './refusals';
 import { positionsCopy } from './positions-copy';
 import { newNonce, usePendingNote, useFuturesWriter, type Writer } from './hooks';
 import { adjustmentId, closeAllPlan, leveragePresets, stateOf } from './model';
@@ -741,6 +744,211 @@ export function CloseAllDialog({ positions, onClose, onDone }: { positions: Posi
 const STOP_KINDS: readonly StopInput['kind'][] = ['stop_market', 'stop_limit', 'trailing_stop'];
 const STOP_SOURCES: readonly StopInput['triggerSource'][] = ['mark', 'last', 'index'];
 
+/** A reverse's outcome as it stands, or a working one still settling (J-derivatives-03 #9). */
+function reverseWords(r: Reverse, t: T): string {
+  const words = {
+    from: sideWord(t, r.from),
+    to: sideWord(t, r.to),
+    size: fmtAmount(r.size, { places: 8 }),
+    leverage: fmtAmount(r.leverage),
+  };
+  const reason = () => {
+    const refusal = futuresRefusal({ code: r.refusalCode ?? undefined });
+    return `${refusal.title}. ${refusal.body}`;
+  };
+  switch (r.status) {
+    case 'done':
+      return t('Reverse done', words);
+    case 'opened_part':
+      return t('Reverse opened part', { ...words, opened: fmtAmount(r.openedQuantity ?? '0', { places: 8 }) });
+    case 'closed_only':
+      return t('Reverse closed only', { ...words, reason: reason() });
+    case 'close_incomplete':
+      return t('Reverse close incomplete', { ...words, closed: fmtAmount(r.closedQuantity ?? '0', { places: 8 }) });
+    case 'refused':
+      return t('Reverse refused', { reason: reason() });
+    default:
+      return t('Reverse working');
+  }
+}
+
+/**
+ * One-tap reverse (J-derivatives-03 step 9, D-account-03): one reviewed request closes the position through the book
+ * and opens the other side at the same size and leverage. The review prices the open from the service's own preview,
+ * and a margin tier it moves into must be accepted, as in the ticket. A working reverse is checked by sending the same
+ * request id again, which carries it on and never places a leg twice.
+ */
+export function ReverseDialog({ position, onClose, onRefusal }: Omit<DialogBase, 'onDone'>) {
+  const { t } = positionsCopy.useCopy();
+  const api = useFuturesApi();
+  const writer = useFuturesWriter();
+  const refresh = useFuturesRefresh();
+  const to = position.side === 'long' ? 'short' : 'long';
+  const [review, setReview] = useState<{ status: 'loading' } | { status: 'ready'; data: PositionPreview } | { status: 'error' }>({
+    status: 'loading',
+  });
+  const [tierAccepted, setTierAccepted] = useState(false);
+  const [moved, setMoved] = useState(false);
+  const [result, setResult] = useState<Reverse | null>(null);
+  const nonce = useRef<{ key: string; nonce: string } | null>(null);
+  const refusal = writer.outcome?.kind === 'refused' ? writer.outcome.refusal.code : undefined;
+  useEffect(() => {
+    if (refusal !== undefined) onRefusal?.(refusal);
+  }, [refusal, onRefusal]);
+  const priceOpen = useCallback(
+    (signal?: AbortSignal) =>
+      position.leverage === null
+        ? Promise.resolve(null)
+        : api
+            .preview({ symbol: position.symbol, side: to, size: position.contracts, leverage: position.leverage, type: 'market' }, signal)
+            .then((answer) => (answer.ok ? answer.data : null)),
+    [api, position.symbol, position.contracts, position.leverage, to],
+  );
+  useEffect(() => {
+    if (position.leverage === null) return;
+    const ask = new AbortController();
+    void priceOpen(ask.signal).then((data) => {
+      if (!ask.signal.aborted) setReview(data ? { status: 'ready', data } : { status: 'error' });
+    });
+    return () => ask.abort();
+  }, [priceOpen, position.leverage]);
+
+  const preview = review.status === 'ready' ? review.data : null;
+  const tier = preview?.riskTier ?? null;
+  const tierNeeded = tier?.confirmRequired === true;
+  const working = result !== null && (result.status === 'closing' || result.status === 'opening');
+  // A refused reverse changed nothing, so it may be tried again as a new request.
+  const finished = result !== null && !working && result.status !== 'refused';
+  const words = {
+    contract: position.symbol,
+    from: sideWord(t, position.side),
+    to: sideWord(t, to),
+    size: fmtAmount(position.contracts, { places: 8 }),
+    leverage: position.leverage === null ? '—' : fmtAmount(position.leverage),
+  };
+  const off =
+    position.id === null ||
+    position.leverage === null ||
+    preview === null ||
+    (tierNeeded && !tierAccepted) ||
+    writer.note.state !== 'none' ||
+    finished;
+
+  const run = async () => {
+    if (position.id === null) return;
+    let confirmTier = tierNeeded && tier ? tier.projected : undefined;
+    if (!working) {
+      // The mark moves: the review is priced again just before a new reverse is sent, and a changed margin tier is
+      // shown for acceptance instead of being sent unaccepted.
+      setMoved(false);
+      const fresh = await priceOpen();
+      if (fresh === null) {
+        setReview({ status: 'error' });
+        return;
+      }
+      setReview({ status: 'ready', data: fresh });
+      const freshTier = fresh.riskTier ?? null;
+      if (freshTier?.confirmRequired === true && (!tierAccepted || freshTier.projected !== tier?.projected)) {
+        setTierAccepted(false);
+        setMoved(true);
+        return;
+      }
+      confirmTier = freshTier?.confirmRequired === true ? freshTier.projected : undefined;
+    }
+    // The same position re-sends the same request id, so a check carries on the reverse already started.
+    nonce.current = pickNonce(nonce.current, `reverse:${position.id}`, newNonce);
+    const outcome = await writer.run({
+      op: 'reverse',
+      input: {
+        positionId: position.id,
+        symbol: position.symbol,
+        clientRequestId: `reverse:${nonce.current.nonce}`,
+        ...(confirmTier !== undefined ? { confirmTier } : {}),
+      },
+    });
+    if (outcome.kind === 'done' && outcome.reverse) {
+      setResult(outcome.reverse);
+      refresh();
+      // A reverse that refused changed nothing: another try is a new request.
+      if (outcome.reverse.status === 'refused') nonce.current = null;
+    }
+  };
+  const check = async () => {
+    if (writer.note.state !== 'pending') return;
+    const outcome = await writer.check(writer.note.pending);
+    if (outcome.kind === 'done' && outcome.reverse) {
+      setResult(outcome.reverse);
+      refresh();
+    }
+  };
+  const money = (v: string | null | undefined) => (v == null ? null : fmtAmount(v));
+  const price = (v: string | null | undefined) => (v == null ? null : fmtPrice(v, null));
+
+  return (
+    <Frame
+      title={t('Reverse title')}
+      onClose={onClose}
+      description={t('Reverse summary', words)}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            {finished ? t('Reverse finished') : t('Cancel')}
+          </Button>
+          {working ? (
+            <Button variant="secondary" loading={writer.busy} disabled={writer.note.state !== 'none'} onClick={() => void run()}>
+              {t('Reverse check')}
+            </Button>
+          ) : (
+            <Button variant={to === 'long' ? 'buy' : 'sell'} loading={writer.busy} disabled={off} onClick={() => void run()}>
+              {t('Reverse button', { to: sideWord(t, to) })}
+            </Button>
+          )}
+        </>
+      }
+    >
+      {position.leverage === null ? <p className="text-warn">{t('Reverse no leverage')}</p> : null}
+      <section aria-label={t('Reverse review', { to: sideWord(t, to) })} className="flex flex-col gap-2">
+        <h3 className="text-sm font-medium">{t('Reverse review', { to: sideWord(t, to) })}</h3>
+        {review.status === 'loading' && position.leverage !== null ? (
+          <p className="text-fg-2">{t('Reverse review loading', { to: sideWord(t, to) })}</p>
+        ) : null}
+        {review.status === 'error' ? <p className="text-warn">{t('Reverse review error', { to: sideWord(t, to) })}</p> : null}
+        {preview ? (
+          <KeyValue
+            density="dense"
+            unknownLabel="—"
+            items={[
+              { label: t('Reverse mark'), value: price(preview.markPrice) },
+              { label: t('Reverse margin'), value: money(preview.initialMargin) },
+              { label: t('Reverse fee'), value: money(preview.estimatedFee) },
+              { label: t('Reverse liquidation'), value: price(preview.liquidationPrice) },
+              ...(tier ? [{ label: t('Reverse tier'), value: t('Reverse tier value', { tier: String(tier.projected) }) }] : []),
+            ]}
+          />
+        ) : null}
+        {moved ? <p className="text-warn">{t('Reverse review moved')}</p> : null}
+        {tierNeeded && tier ? (
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox checked={tierAccepted} disabled={finished} onCheckedChange={(v) => setTierAccepted(v === true)} />
+            <span>{t('Reverse tier accept', { tier: String(tier.projected), to: sideWord(t, to) })}</span>
+          </label>
+        ) : null}
+      </section>
+      {result ? (
+        <div role="status" data-reverse={result.status} className="flex flex-col gap-1 rounded-sm border border-line p-3">
+          <p className={result.status === 'done' ? 'font-medium' : 'text-warn'}>{reverseWords(result, t)}</p>
+          {result.closeOrderId || result.openOrderId ? (
+            <p className="text-2xs text-fg-3">
+              {t('Reverse legs', { close: result.closeOrderId ?? '—', open: result.openOrderId ?? '—' })}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+      <WriteNotice writer={writer} onCheck={() => void check()} />
+    </Frame>
+  );
+}
+
 /**
  * A stop on a position (J-derivatives-03 step 5): a stop market, a stop limit or a trailing stop, judged on the mark or
  * the last trade. It is always the closing side and reduce-only; the service refuses one that would open or enlarge,
@@ -945,8 +1153,9 @@ export function PositionRowActions({
   locked = false,
   stale = false,
   onChanged,
-  only = ['add', 'reduce', 'leverage', 'protect', 'stop', 'close'],
+  only = ['add', 'reduce', 'leverage', 'protect', 'stop', 'reverse', 'close'],
   compact = false,
+  onReverse,
 }: {
   position: Position;
   free: string | null;
@@ -959,6 +1168,11 @@ export function PositionRowActions({
   only?: ActionKey[];
   /** Fold the margin and leverage actions into one Manage menu so Close always stays in view (dense tables). */
   compact?: boolean;
+  /**
+   * Opens the reverse dialog above the table. A reverse closes this row's position, and the next read drops the row,
+   * so its outcome is shown by a dialog the row does not own. Without it the dialog stays in the row.
+   */
+  onReverse?(position: Position): void;
 }) {
   const { t } = positionsCopy.useCopy();
   const { userId } = useSession();
@@ -975,6 +1189,7 @@ export function PositionRowActions({
     leverage: t('Action leverage'),
     protect: t('Action protect'),
     stop: t('Action stop'),
+    reverse: t('Action reverse'),
     close: closing ? t('Action retry close') : t('Action close'),
   };
   const done = () => {
@@ -983,6 +1198,7 @@ export function PositionRowActions({
   };
   const onRefusal = (code: string | null) => code === REFUSAL_LIQUIDATING && setLiquidating(true);
   const common = { position, onClose: () => setOpen(null), onDone: done, onRefusal };
+  const choose = (key: ActionKey) => (key === 'reverse' && onReverse ? onReverse(position) : setOpen(key));
   return (
     // The menu and the dialogs render in portals, and React still bubbles their clicks to the table row, which would
     // open the position's detail on top of them. Nothing in here is a click on the row.
@@ -997,7 +1213,7 @@ export function PositionRowActions({
               {shown
                 .filter((key) => key !== 'close')
                 .map((key) => (
-                  <MenuItem key={key} disabled={gate[key] !== null} onClick={() => setOpen(key)}>
+                  <MenuItem key={key} disabled={gate[key] !== null} onClick={() => choose(key)}>
                     {label[key]}
                   </MenuItem>
                 ))}
@@ -1011,7 +1227,7 @@ export function PositionRowActions({
             size={28}
             disabled={gate[key] !== null}
             aria-label={t('Action label', { action: label[key], contract: position.symbol })}
-            onClick={() => setOpen(key)}
+            onClick={() => choose(key)}
           >
             {label[key]}
           </Button>
@@ -1022,6 +1238,7 @@ export function PositionRowActions({
       {open === 'leverage' ? <LeverageDialog {...common} cap={leverageCap} /> : null}
       {open === 'protect' ? <ProtectionDialog {...common} /> : null}
       {open === 'stop' ? <StopDialog {...common} /> : null}
+      {open === 'reverse' ? <ReverseDialog {...common} /> : null}
       {open === 'close' ? <CloseDialog {...common} /> : null}
     </div>
   );

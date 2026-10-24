@@ -183,6 +183,7 @@ function Colgroup({ pro }: { pro: boolean }) {
       <col className="money-col--today money-cell--today" />
       {pro ? <col className="money-col--free money-cell--pro" /> : null}
       {pro ? <col className="money-col--used money-cell--pro" /> : null}
+      {pro ? <col className="money-col--locked money-cell--pro" /> : null}
       {pro ? <col className="money-col--spaces money-cell--pro" /> : null}
       <col className="money-col--actions money-cell--actions" />
     </colgroup>

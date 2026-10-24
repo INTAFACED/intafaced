@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { AuthError, requireMfa, type Principal } from '@intafaced/auth';
 import { router, publicProcedure, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import { enabledFiat } from '@intafaced/config';
-import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
+import { formatAmount, mulBps, parseAmount, sub, type Amount } from '@intafaced/ledger-client';
 import {
   ActionApprovalConsumeError,
   consumeDisputeResolveApproval,
@@ -205,8 +205,19 @@ const tradeOutput = z.object({
   resolvedAt: z.string().nullable(),
   settledAt: z.string().nullable(),
 });
-/** One order as its page reads it: plus the ad's terms as they were when it was placed (null before terms were copied). */
-const tradeDetailOutput = tradeOutput.extend({ terms: z.string().nullable() });
+/**
+ * One order as its page reads it: the ad's terms as they were when it was placed (null before terms were copied), the
+ * readable status the order list shows, the fee rate frozen at take, and, for a released order only, the split the
+ * ledger's escrow release posts from that rate (`mulBps`, fee off the escrowed amount). A refund or a void takes no fee,
+ * so those carry no split.
+ */
+const tradeDetailOutput = tradeOutput.extend({
+  terms: z.string().nullable(),
+  displayStatus: z.enum(DISPLAY_STATUSES),
+  feeBps: z.number().int(),
+  fee: amountString.nullable(),
+  netAmount: amountString.nullable(),
+});
 
 const blockQuoteOutput = z.object({
   quoteId: z.string().guid(),
@@ -1387,7 +1398,13 @@ export function createP2pRouter(
             if (trade.buyerId !== ctx.principal.userId && trade.sellerId !== ctx.principal.userId) {
               throw unknownTrade(input.tradeId);
             }
-            return { ...toTradeOut(trade), terms: trade.termsSnapshot };
+            return {
+              ...toTradeOut(trade),
+              terms: trade.termsSnapshot,
+              displayStatus: displayStatus(trade),
+              feeBps: trade.feeBps,
+              ...releaseSplit(trade),
+            };
           }),
         ),
 
@@ -3338,6 +3355,21 @@ function toDisputeOut(d: DisputeRecord, viewerId: string | null): z.infer<typeof
     fourEyes: d.fourEyes ?? null,
     lastSeenByModeratorAt: d.lastSeenByModeratorAt?.toISOString() ?? null,
   };
+}
+
+/**
+ * What a released order paid the buyer and the house: the same `mulBps` the ledger's `escrowRelease` posts with, on the
+ * rate frozen at take. Null for anything not released, and for a split with nothing left for the buyer (the release
+ * refuses that, `assertReleasePostable`, so a released order never has one).
+ */
+function releaseSplit(trade: { resolution: string | null; amount: Amount; feeBps: number }): {
+  fee: string | null;
+  netAmount: string | null;
+} {
+  if (trade.resolution !== 'released') return { fee: null, netAmount: null };
+  const fee = mulBps(trade.amount, trade.feeBps);
+  const net = sub(trade.amount, fee);
+  return net > 0n ? { fee: formatAmount(fee), netAmount: formatAmount(net) } : { fee: null, netAmount: null };
 }
 
 function toTradeOut(trade: Awaited<ReturnType<P2pService['getTrade']>>): TradeOut {

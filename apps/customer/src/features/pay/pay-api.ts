@@ -379,7 +379,9 @@ export function createPersonalPayApi(
     parseAmount(a.fiatAmount) === parseAmount(b.fiatAmount) &&
     parseAmount(a.price) === parseAmount(b.price) &&
     // Only `trades.get` carries the ad's terms: two readings that both have them must agree.
-    (a.terms === undefined || b.terms === undefined || a.terms === b.terms);
+    (a.terms === undefined || b.terms === undefined || a.terms === b.terms) &&
+    // The fee rate is frozen at take too: two readings that both carry it must agree.
+    (a.feeBps === undefined || b.feeBps === undefined || a.feeBps === b.feeBps);
   const sameTerms = (a: s.Trade, b: s.Trade) => sameImmutableTerms(a, b) && a.status === b.status && a.deadlineAt === b.deadlineAt;
   async function currentOffer(offerId: string, signal?: AbortSignal) {
     const denied = signedIn();

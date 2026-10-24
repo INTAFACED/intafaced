@@ -10,13 +10,14 @@ import { payCopy, PayCopy, payRefusal } from './copy';
 import { orderCopy } from './p2p-order-copy';
 import { PayAmount, PayDetails, PayFailure, PayState, PayTime } from './components';
 import { TradeStatus } from './personal/P2PDepth';
+import { percentOf } from './portal/payments/payment-model';
 import { ContactActions } from './personal/ContactActions';
 import './p2p-order.css';
 
 /**
  * What a released order came to, from the order record alone. "Released" is the recorded decision; the ledger pays out
- * after it, so nothing is called received until the record carries the settlement time. The record has no fee, and the
- * screen says so for the buyer, whose share the fee comes out of.
+ * after it, so nothing is called received until the record carries the settlement time. The order read carries the fee
+ * frozen at take and, once released, the buyer's share after it; a record without them says the fee is not on it.
  */
 export function OrderResult({ trade, seller }: { trade: Trade; seller: boolean }) {
   const { t } = orderCopy.useCopy();
@@ -37,11 +38,20 @@ export function OrderResult({ trade, seller }: { trade: Trade; seller: boolean }
                   [t('youSent'), t('sentValue', quantity)],
                   [t('youReceivedExternal'), fiat],
                 ]
-              : [
-                  [t('youReceived'), t('receivedValue', quantity)],
-                  [t('youPaidExternal'), fiat],
-                  [t('serviceFee'), t('serviceFeeValue')],
-                ]
+              : trade.netAmount && trade.fee && trade.feeBps !== undefined
+                ? [
+                    [t('youReceived'), t('receivedNetValue', { amount: displayAmount(trade.netAmount), asset: trade.asset })],
+                    [t('youPaidExternal'), fiat],
+                    [
+                      t('serviceFee'),
+                      t('serviceFeeRateValue', { amount: displayAmount(trade.fee), asset: trade.asset, rate: percentOf(trade.feeBps) }),
+                    ],
+                  ]
+                : [
+                    [t('youReceived'), t('receivedValue', quantity)],
+                    [t('youPaidExternal'), fiat],
+                    [t('serviceFee'), t('serviceFeeValue')],
+                  ]
           }
         />
       )}
@@ -170,7 +180,7 @@ export function P2POrder({
             <PayDetails
               values={[
                 [payCopy.t('order'), <span lang="zxx">{recovery.data.id}</span>],
-                [t('reported'), <TradeStatus status={recovery.data.status} />],
+                [t('reported'), <TradeStatus status={recovery.data.status} display={recovery.data.displayStatus} />],
                 [
                   payCopy.t('ledgerSettlement'),
                   recovery.data.settledAt ? <PayTime value={recovery.data.settledAt} /> : payCopy.t('notConfirmed'),
@@ -202,7 +212,7 @@ export function P2POrder({
                     {trade.id}
                   </p>
                   <p className="muted">
-                    <Copy k="reported" /> · <TradeStatus status={trade.status} />
+                    <Copy k="reported" /> · <TradeStatus status={trade.status} display={trade.displayStatus} />
                   </p>
                 </header>
                 <div className="p2p-order-quantities">

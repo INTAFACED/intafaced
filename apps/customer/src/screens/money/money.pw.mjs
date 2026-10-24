@@ -599,6 +599,35 @@ test('Pro Money: Available and In orders columns, 40 px rows, hero 32/40, Buy an
   await expect(btc.locator('.money-row__actions a').nth(1)).toHaveAttribute('href', '/trade/spot/BTC-USDT?side=sell');
   await expect(btc.locator('.money-row__actions')).toHaveCSS('opacity', '1'); // always shown in Pro
   expect(await page.locator('.if-money').innerText()).not.toMatch(forbidden);
+  // Every column has its own width: the row actions never sit over In spaces (Phantom 24 Oct). Below 1280 the
+  // rows drop their buttons; the page's own stay.
+  for (const size of [
+    { width: 1440, height: 900 },
+    { width: 1280, height: 800 },
+    { width: 1100, height: 800 },
+  ]) {
+    await page.setViewportSize(size);
+    for (const row of [usdt, btc]) {
+      const spacesBox = await row.locator('td[data-col="in-spaces"]').boundingBox();
+      expect(spacesBox, `${size.width}px`).not.toBeNull();
+      const actions = row.locator('.money-row__actions a');
+      if (size.width < 1280) {
+        await expect(actions.first()).toBeHidden();
+        continue;
+      }
+      const firstAction = await actions.first().boundingBox();
+      expect(firstAction, `${size.width}px`).not.toBeNull();
+      expect(firstAction.x, `${size.width}px`).toBeGreaterThanOrEqual(spacesBox.x + spacesBox.width - 0.5);
+    }
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(page.locator('.money-actions a').first()).toBeVisible();
+  // Profit and loss is its own panel, spaced below the last card, not glued to it.
+  const lastCard = await page.locator('.money-card').last().boundingBox();
+  const pnl = await page.locator('.money-pnl-link').boundingBox();
+  expect(lastCard).not.toBeNull();
+  expect(pnl).not.toBeNull();
+  expect(pnl.y - (lastCard.y + lastCard.height)).toBeGreaterThanOrEqual(24);
   await snap(page, 'portfolio-pro-1440x900');
   // No sideways scroll at 1280 and 390.
   for (const size of [

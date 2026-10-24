@@ -20,6 +20,7 @@ import { ModeStrip } from './ModeStrip';
 import { OrdersTab } from './OrdersTab';
 import { TriggersTable } from './TriggersTable';
 import { PositionDetail } from './PositionDetail';
+import { ReverseDialog } from './PositionDialogs';
 import { PositionsTable } from './PositionsTable';
 import { RiskSummary, freeOf } from './RiskSummary';
 import { TiersTab } from './TiersTab';
@@ -59,6 +60,8 @@ export default function FuturesScreen({ search }: ScreenProps) {
 
   const [tab, setTab] = useState<Tab>('positions');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Held here, not in the row: a reverse closes the row's position, and its outcome must outlive the row.
+  const [reversing, setReversing] = useState<Position | null>(null);
   const strip = useTickerStrip(symbol);
   const funding = useFundingRate(symbol);
   const positions = useOpenPositions();
@@ -166,6 +169,7 @@ export default function FuturesScreen({ search }: ScreenProps) {
             now={now}
             onOpen={(p) => setSelectedId(p.id)}
             onChanged={refresh}
+            onReverse={setReversing}
           />
         </TabsPanel>
         <TabsPanel value="orders">
@@ -204,8 +208,13 @@ export default function FuturesScreen({ search }: ScreenProps) {
           planeOff={planeOff}
           onClose={() => setSelectedId(null)}
           onChanged={refresh}
+          onReverse={(p) => {
+            setSelectedId(null);
+            setReversing(p);
+          }}
         />
       ) : null}
+      {reversing ? <ReverseDialog position={reversing} onClose={() => setReversing(null)} /> : null}
     </div>
   );
 }

@@ -132,10 +132,12 @@
     color: var(--if-fg-1);
     font: inherit;
   }
+  /* Spaced below the cards like they are spaced from each other, so it never reads as glued to the last card. */
   .money-pnl-link {
     display: flex;
     flex-direction: column;
     gap: 2px;
+    margin-top: 32px;
     padding: 12px 16px;
     border: 1px solid var(--if-line);
     border-radius: 12px;
@@ -414,26 +416,55 @@
     height: 40px;
   }
   @media (min-width: 961px) {
+    /* One col per column, the four held columns included, so the actions keep their own column. */
     .if-money[data-density='pro'] .money-col--coin {
       width: 18%;
     }
     .if-money[data-density='pro'] .money-col--amount {
-      width: 14%;
+      width: 12%;
     }
     .if-money[data-density='pro'] .money-col--value {
-      width: 12%;
+      width: 10%;
     }
     .if-money[data-density='pro'] .money-col--today {
       width: 12%;
     }
     .if-money[data-density='pro'] .money-col--free,
     .if-money[data-density='pro'] .money-col--used,
+    .if-money[data-density='pro'] .money-col--locked,
+    .if-money[data-density='pro'] .money-col--spaces {
+      width: 8%;
+    }
+    .if-money[data-density='pro'] .money-col--actions {
+      width: 16%;
+    }
+  }
+  /* Too narrow for three row buttons beside eight figures: Pro rows drop theirs (the page's own Buy, Sell, Convert and
+     Send stay above) and the figures take the room. */
+  @media (min-width: 961px) and (max-width: 1279px) {
+    .if-money[data-density='pro'] .money-cell--actions {
+      display: none;
+    }
+    .if-money[data-density='pro'] .money-col--coin {
+      width: 20%;
+    }
+    .if-money[data-density='pro'] .money-col--amount {
+      width: 14%;
+    }
+    .if-money[data-density='pro'] .money-col--value,
+    .if-money[data-density='pro'] .money-col--today {
+      width: 13%;
+    }
+    .if-money[data-density='pro'] .money-col--free,
+    .if-money[data-density='pro'] .money-col--used,
+    .if-money[data-density='pro'] .money-col--locked,
     .if-money[data-density='pro'] .money-col--spaces {
       width: 10%;
     }
-    .if-money[data-density='pro'] .money-col--actions {
-      width: 14%;
-    }
+  }
+  /* A long figure goes onto a second line rather than into the next column. */
+  .if-money[data-density='pro'] .money-table td {
+    overflow-wrap: anywhere;
   }
   .if-money[data-density='pro'] .money-table td {
     height: 40px;

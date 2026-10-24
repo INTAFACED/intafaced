@@ -230,6 +230,7 @@ export class Exchange {
       previewError: false,
       fail: {}, // { orderbook: 500, ohlcv: 500, ... } answers that read with a server error
       hideOrders: false, // the order lists come back empty (an order the service took is not found)
+      windowStart: undefined, // epoch ms the tickers' 24h figures start at (a young market's "since")
     };
   }
 
@@ -307,8 +308,9 @@ export class Exchange {
     const name = path.split('/')[0];
     if (this.opts.fail[name]) return json({ error: { message: 'down' } }, this.opts.fail[name]);
     if (path === 'markets') return json(this.opts.markets);
-    if (path === 'tickers') return json(tickers());
-    if (path.startsWith('ticker/')) return json(tickers()[decodeURIComponent(path.slice(7))] ?? tickers()['BTC/USDT']);
+    const all = () => tickers({ windowStart: this.opts.windowStart });
+    if (path === 'tickers') return json(all());
+    if (path.startsWith('ticker/')) return json(all()[decodeURIComponent(path.slice(7))] ?? all()['BTC/USDT']);
     if (path.startsWith('orderbook/')) return json(this.opts.book === 'error' ? null : { ...this.opts.book, timestamp: Date.now() });
     if (path.startsWith('trades/')) return json(tape(decodeURIComponent(path.slice(7))));
     if (path.startsWith('ohlcv/')) return json(candles(query.timeframe ?? '15m', Number(query.limit ?? 200)));
