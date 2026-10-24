@@ -17,6 +17,8 @@ export const publicFeeRowSchema = z.object({
   takerBps: bpsSchema,
   makerRebateBps: bpsSchema.nullable(),
   minFee: z.string().nullable().optional(),
+  /** Published, but an order on it is refused (a rebate or minimum fee the ledger cannot post): never shown as a rate. */
+  refusal: z.string().optional(),
 });
 
 export const publicFeeScheduleSchema = z.object({

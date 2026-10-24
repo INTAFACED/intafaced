@@ -101,6 +101,7 @@ const SETTLED_KINDS: ReadonlySet<RefusalKind> = new Set([
   'accountOnHold',
   'notFound',
   'notSetUp',
+  'feeScheduleUnset',
   'algoSchedulerOff',
 ]);
 /** Try again belongs to network trouble and to refusals that can clear by themselves, never to a missing setting or permission. */

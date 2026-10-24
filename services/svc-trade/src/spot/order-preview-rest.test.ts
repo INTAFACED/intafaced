@@ -555,7 +555,7 @@ describe('POST /api/v1/orders/preview', () => {
       feeAsset: null,
       orderable: false,
     });
-    expect(response.json().refusals.map((row: { code: string }) => row.code)).toContain('trade.order_preview_fee_unavailable');
+    expect(response.json().refusals.map((row: { code: string }) => row.code)).toContain('trade.fee_schedule_blank');
     await app.close();
   });
 
@@ -577,6 +577,9 @@ describe('POST /api/v1/orders/preview', () => {
     const codes = response.json().refusals.map((row: { code: string }) => row.code);
     expect(codes).toContain('trade.fee_schedule_blank');
     expect(codes).not.toContain('trade.order_preview_fee_unavailable');
+    // Plain words: not the env key or the owner's internal group id.
+    expect(response.body).not.toContain('TRADE_FEE_SCHEDULE');
+    expect(response.body).not.toContain('unpriced');
     await app.close();
   });
 
@@ -596,7 +599,7 @@ describe('POST /api/v1/orders/preview', () => {
       feeAsset: null,
       orderable: false,
     });
-    expect(response.json().refusals.map((row: { code: string }) => row.code)).toContain('trade.order_preview_fee_unavailable');
+    expect(response.json().refusals.map((row: { code: string }) => row.code)).toContain('trade.fee_schedule_blank');
     expect(response.body).not.toMatch(/"feeBps":\s*(10|20)/);
     await app.close();
   });

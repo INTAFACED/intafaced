@@ -17,7 +17,16 @@ const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const REGULAR = { pairGroup: 'all-others', tierId: 'regular', zeroFee: false, makerBps: '8', takerBps: '10', minFee: null };
 const VIP = { pairGroup: 'all-others', tierId: 'test-vip-1', zeroFee: false, makerBps: '6', takerBps: '9', minFee: null };
 const ZERO = { pairGroup: 'test-zero-fee', tierId: 'regular', zeroFee: true, minFee: null };
-const SCHEDULE = { defaultPairGroup: 'all-others', pairGroups: { 'ETH/USDC': 'test-zero-fee' }, rows: [REGULAR, VIP, ZERO] };
+/**
+ * A stored version replaces the stack's boot schedule for every later order, futures too, so it carries the stack's own
+ * perpetual block (tooling/scripts/local-stack-services/trade.mjs) unchanged.
+ */
+const SCHEDULE = {
+  defaultPairGroup: 'all-others',
+  pairGroups: { 'ETH/USDC': 'test-zero-fee' },
+  rows: [REGULAR, VIP, ZERO],
+  perpetual: { makerBps: '2', takerBps: '5' },
+};
 /** The same, with IFC/USDT in a pair group the owner named and gave no row: its rate is blank. */
 const BLANK_IFC = { ...SCHEDULE, pairGroups: { ...SCHEDULE.pairGroups, 'IFC/USDT': 'test-unpriced' } };
 
@@ -44,11 +53,11 @@ async function ops() {
   return operators;
 }
 
-/** Write `schedule` as the next version, effective in two seconds, and wait until the public read serves it. */
+/** Write `schedule` as the next version, effective in ten seconds, and wait until the public read serves it. */
 async function publish(schedule, reason) {
   const { ctx, sessions } = await ops();
   const row = await setFeeSchedule(ctx, schedule, { reason: `LOCAL TEST ${J}: ${reason}`, sessions });
-  await expect.poll(async () => (await published()).body.version, { timeout: 20_000 }).toBe(`v${row.version}`);
+  await expect.poll(async () => (await published()).body.version, { timeout: 30_000 }).toBe(`v${row.version}`);
   return row;
 }
 

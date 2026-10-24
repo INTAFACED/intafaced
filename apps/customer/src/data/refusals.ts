@@ -139,7 +139,7 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
   notSetUp: { title: 'Not switched on', body: "This part of INTAFACED isn't switched on. Nothing was changed." },
   feeScheduleUnset: {
     title: 'Fee schedule not set',
-    body: 'No trading fee is published for this market, so the order was not placed. Nothing was held.',
+    body: 'No trading fee is published for this market, so no order can be placed on it. Nothing was held.',
   },
   chartRange: { title: 'That chart range is too long', body: 'Choose a shorter range and try again.' },
   algoSchedulerOff: {

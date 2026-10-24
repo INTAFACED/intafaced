@@ -430,7 +430,7 @@ export async function executeAdmittedOrder(svc: TradeServiceInternal, evidence: 
   // hold posted against an order id that exists nowhere is money nobody can
   // find. This way there is always a row pointing at the money, in every
   // interleaving.
-  const inserted = await svc.sql<Array<{ id: string }>>`
+  const inserted = await svc.sql<Array<{ id: string; created_at: Date }>>`
     INSERT INTO trade.orders (
       id, user_id, sub_account_id, market_id, client_order_id, side, type,
       price, qty, status, tif, hold_asset, hold_amount, fee_discount_bps, protection_price, seeded, lifecycle_proof,
@@ -447,7 +447,7 @@ export async function executeAdmittedOrder(svc: TradeServiceInternal, evidence: 
       ${attribution.sessionId}, ${attribution.apiKeyId}, ${input.tag ?? null}
     )
     ON CONFLICT (id) DO NOTHING
-    RETURNING id
+    RETURNING id, created_at
   `;
 
   if (inserted.length === 0) {
@@ -456,6 +456,16 @@ export async function executeAdmittedOrder(svc: TradeServiceInternal, evidence: 
     const raced = await svc.findOrder(orderId);
     if (raced) return assertSamePlaceCommand(raced, input, orderType, tif, seeded);
     throw new TradeError(`order ${orderId} vanished between insert and read`, 'trade.order_not_found');
+  }
+
+  // Fills are charged at the version in force at this row's own `created_at`. A version that took effect between the
+  // check above and this insert is checked here, still before the hold, so it cannot leave a held order that every
+  // fill refuses. Nothing is held yet, so a refusal only removes the pending row.
+  try {
+    await svc.assertOwnerFeeSchedulePublished(market, inserted[0]!.created_at);
+  } catch (err) {
+    await svc.sql`DELETE FROM trade.orders WHERE id = ${orderId} AND status = 'pending'`;
+    throw err;
   }
 
   // ── 3 · THE HOLD ────────────────────────────────────────────────────────

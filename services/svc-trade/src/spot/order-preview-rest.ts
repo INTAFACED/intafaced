@@ -20,7 +20,7 @@ import {
 import { assertStopTrigger, TRADE_STOP_TRIGGER_INVALID } from './stop-trigger-door.js';
 import { STOP_MARKET, stopMarketLimit } from './stop-market.js';
 import { validateSlippageTolerance } from './slippage-tolerance.js';
-import { FeeScheduleError, previewFeeBps, type OwnerFeeSchedule } from './fee-schedule.js';
+import { FEE_SCHEDULE_RESIDUAL, FeeScheduleError, previewFeeBps, type OwnerFeeSchedule } from './fee-schedule.js';
 import { TradeError, type Market, type OrderSide, type OrderType, type TimeInForce } from './types.js';
 import type { EdgeTrust } from '../edge-trust.js';
 
@@ -590,11 +590,16 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
     if (feeRole === null) {
       // type already refused
     } else if (feeBps === null) {
+      // A blank schedule, or a row that refuses for this market, names the same code the order path refuses with, in
+      // plain words (the schedule's own message names its env key and internal ids). An unknown rank discount is
+      // the remaining case.
       const rowRefusal = feeRowRefusal as FeeScheduleError | null;
       refusals.push(
         rowRefusal
-          ? { code: rowRefusal.code, field: 'fee', message: rowRefusal.message }
-          : { code: 'trade.order_preview_fee_unavailable', field: 'fee', message: 'published fee schedule is unavailable' },
+          ? { code: rowRefusal.code, field: 'fee', message: rowRefusal.residual }
+          : scheduleNow.published !== true
+            ? { code: 'trade.fee_schedule_blank', field: 'fee', message: FEE_SCHEDULE_RESIDUAL }
+            : { code: 'trade.order_preview_fee_unavailable', field: 'fee', message: 'published fee schedule is unavailable' },
       );
     } else if (
       orderType === 'limit'

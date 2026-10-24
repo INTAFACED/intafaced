@@ -19,6 +19,7 @@ export const feesCopy = defineCopy('public-fees', {
   colMaker: 'Maker',
   colTaker: 'Taker',
   notSet: 'not set',
+  notAvailable: 'not available',
   zeroFee: 'Zero fee',
   regular: 'Regular',
   makerTakerTitle: 'Maker and taker',

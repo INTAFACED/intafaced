@@ -33,15 +33,29 @@ import type { PlaceOrderInput, TradeServiceInternal } from '../trade-service.js'
 /**
  * Unpublished owner schedule is a typed refuse — never listing-row 10/20.
  *
- * With a spot market named, its own rates are resolved too, both roles at the regular tier, so a market whose pair
- * group has no row (or a row no granted recipe can post) refuses here, before any hold, rather than at its first fill.
+ * A spot market's own rates are resolved too, both roles at the regular tier, so a market whose pair group has no row
+ * (or a row no granted recipe can post) refuses here, before any hold, rather than at its first fill. `at` is the
+ * moment whose version is checked: placement checks now, then the order row's own `created_at`, which is the version
+ * its fills are charged at.
  */
-export async function assertOwnerFeeSchedulePublished(svc: TradeServiceInternal, market?: Pick<Market, 'kind' | 'symbol'>): Promise<void> {
-  const schedule = await svc.feeScheduleAt(svc.now());
+export async function assertOwnerFeeSchedulePublished(
+  svc: TradeServiceInternal,
+  market: Pick<Market, 'kind' | 'symbol'>,
+  at: Date = svc.now(),
+): Promise<void> {
+  const schedule = await svc.feeScheduleAt(at);
   if (schedule.published !== true) {
     throw new TradeError('published fee schedule is unavailable', 'trade.fee_schedule_blank');
   }
-  if (market?.kind === 'spot') svc.ratesForSchedule(schedule, 0, 0, 'spot', market.symbol);
+  if (market.kind !== 'spot') return;
+  try {
+    svc.ratesForSchedule(schedule, 0, 0, 'spot', market.symbol);
+  } catch (err) {
+    // The schedule's own message names its env key and the owner's internal group and tier ids; the caller gets the
+    // code and a plain sentence.
+    if (err instanceof TradeError) throw new TradeError('published fee schedule has no rate for this market', err.code);
+    throw err;
+  }
 }
 
 /**

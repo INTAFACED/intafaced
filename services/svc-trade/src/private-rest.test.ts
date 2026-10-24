@@ -2073,6 +2073,7 @@ describe('private REST — mount boundary + order write path', () => {
               { pairGroup: 'all-others', tierId: 'regular', zeroFee: false, makerBps: '8', takerBps: '10', minFee: null },
               { pairGroup: 'all-others', tierId: 'vip-1', zeroFee: false, makerBps: '6', takerBps: '9', minFee: null },
               { pairGroup: 'zero', tierId: 'regular', zeroFee: true, minFee: null },
+              { pairGroup: 'zero', tierId: 'vip-1', zeroFee: false, makerBps: '1', takerBps: '2', minFee: '0.5' },
             ],
           }),
         ),
@@ -2098,7 +2099,19 @@ describe('private REST — mount boundary + order write path', () => {
         pairGroup: 'zero',
         isDefault: false,
         symbols: ['ETH/USDC'],
-        rows: [{ tierId: 'regular', zeroFee: true, makerBps: 0, takerBps: 0, makerRebateBps: null, minFee: null }],
+        rows: [
+          { tierId: 'regular', zeroFee: true, makerBps: 0, takerBps: 0, makerRebateBps: null, minFee: null },
+          // Published, but no recipe takes a minimum fee: marked, so no page shows it as a rate anyone pays.
+          {
+            tierId: 'vip-1',
+            zeroFee: false,
+            makerBps: 1,
+            takerBps: 2,
+            makerRebateBps: null,
+            minFee: '0.5',
+            refusal: 'trade.min_fee_recipe_unavailable',
+          },
+        ],
       },
       { pairGroup: 'unpriced', isDefault: false, symbols: ['IFC/USDT'], rows: [] },
     ]);

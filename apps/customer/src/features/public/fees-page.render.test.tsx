@@ -24,6 +24,22 @@ const schedule: PublicFeeSchedule = {
       symbols: ['ETH/USDC'],
       rows: [{ tierId: 'regular', zeroFee: true, makerBps: 0, takerBps: 0, makerRebateBps: null, minFee: null }],
     },
+    {
+      pairGroup: 'floored',
+      isDefault: false,
+      symbols: ['IFC/USDT'],
+      rows: [
+        {
+          tierId: 'regular',
+          zeroFee: false,
+          makerBps: 8,
+          takerBps: 10,
+          makerRebateBps: null,
+          minFee: '0.5',
+          refusal: 'trade.min_fee_recipe_unavailable',
+        },
+      ],
+    },
   ],
 };
 
@@ -41,6 +57,8 @@ describe('/fees', () => {
     // The zero group has no vip-1 row: blank, not the regular rate and not zero.
     expect(html).toMatch(/data-pair-group="zero"[\s\S]*<th scope="row">Regular<\/th><td>Zero fee<\/td><td>Zero fee<\/td>/);
     expect(html).toMatch(/data-pair-group="zero"[\s\S]*<th scope="row">vip-1<\/th><td>not set<\/td><td>not set<\/td>/);
+    // A published row the ledger cannot post (a minimum fee) is never shown as a rate.
+    expect(html).toMatch(/data-pair-group="floored"[\s\S]*<th scope="row">Regular<\/th><td>not available<\/td><td>not available<\/td>/);
     expect(html).toContain('Network fee on withdrawals: not set here');
   });
 

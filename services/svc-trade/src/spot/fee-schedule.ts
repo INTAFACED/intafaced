@@ -370,6 +370,18 @@ export interface PublicFeeRow {
   readonly makerRebateBps: number | null;
   /** Absent on the flat schedule, which publishes no minimum either way. */
   readonly minFee?: string | null;
+  /**
+   * Set when an order on this row is refused although the row is published: a rebate or a minimum fee that no granted
+   * ledger recipe can post (`resolveFeeRow`). A page shows the row as not available, never as a rate anyone pays.
+   */
+  readonly refusal?: 'trade.rebate_recipe_unavailable' | 'trade.min_fee_recipe_unavailable';
+}
+
+/** The code `resolveFeeRow` refuses a published row with, or undefined when the row can be charged. */
+function rowRefusal(row: FeeScheduleRow): PublicFeeRow['refusal'] {
+  if (row.makerRebateBps !== null && row.makerRebateBps > 0) return 'trade.rebate_recipe_unavailable';
+  if (row.minFee !== null) return 'trade.min_fee_recipe_unavailable';
+  return undefined;
 }
 
 /** One pair group: the listed spot markets in it and the tiers the owner published a row for. */
@@ -425,14 +437,11 @@ export function publicFeeSchedule(
     symbols: spotSymbols.filter((symbol) => groupOf(symbol) === pairGroup),
     rows: schedule
       .rows!.filter((row) => row.pairGroup === pairGroup)
-      .map(({ tierId, zeroFee, makerBps, takerBps, makerRebateBps, minFee }) => ({
-        tierId,
-        zeroFee,
-        makerBps,
-        takerBps,
-        makerRebateBps,
-        minFee,
-      })),
+      .map((row) => {
+        const refusal = rowRefusal(row);
+        const { tierId, zeroFee, makerBps, takerBps, makerRebateBps, minFee } = row;
+        return { tierId, zeroFee, makerBps, takerBps, makerRebateBps, minFee, ...(refusal ? { refusal } : {}) };
+      }),
   }));
   const tiers = [...new Set([REGULAR_FEE_TIER, ...schedule.rows.map((row) => row.tierId)])];
   return { groups, tiers };

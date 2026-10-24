@@ -1288,18 +1288,18 @@ export function feeScheduleSetPayloadHash({ schedule, effectiveAt, expectedVersi
 
 /**
  * Write one new version of the spot fee schedule through svc-trade's two-person door, as two operators would. `schedule`
- * is the rates only (svc-trade sets `version` and `published`); it takes effect at `effectiveAt` (ISO, not in the past),
- * and an order placed before then keeps the version it was placed under. Returns the written version row.
+ * is the rates only (svc-trade sets `version` and `published`); it takes effect at `effectiveAt` (ISO, not in the past;
+ * default ten seconds from the write), and an order placed before then keeps the version it was placed under. Versions
+ * are append-only and the latest effective one wins for every later order on the stack, futures included, so a
+ * schedule written here carries every block the stack's own TRADE_FEE_SCHEDULE has. Returns the written version row.
  */
-export async function setFeeSchedule(
-  ctx,
-  schedule,
-  { effectiveAt = new Date(Date.now() + 2_000).toISOString(), reason, sessions = null } = {},
-) {
+export async function setFeeSchedule(ctx, schedule, { effectiveAt, reason, sessions = null } = {}) {
   const pair = sessions ?? (await approverSessions(ctx));
   const current = data(await ctx.edge.query('trade', 'admin.fees.get', undefined, await pair.a.tradeOpsToken()));
   if (typeof current?.version !== 'string') throw new Error('trade admin.fees.get gave no version');
-  const at = new Date(effectiveAt).toISOString();
+  // The time is bound into the approval, and svc-trade refuses one already past when the write lands, so the default
+  // leaves room for the propose, approve and write round trips after the sign-ins and the read above.
+  const at = new Date(effectiveAt ?? Date.now() + 10_000).toISOString();
   const body = { schedule, effectiveAt: at, expectedVersion: current.version, reason: reason ?? `${MARKERS.label}: TEST fee schedule` };
   const ids = await twoPerson(ctx, pair, {
     actionType: FEE_SCHEDULE_SET_ACTION,

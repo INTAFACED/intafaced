@@ -69,7 +69,13 @@ function Groups({ schedule }: { schedule: PublicFeeSchedule }) {
   if (schedule.groups.length === 0) return <p role="status">{copy.t('noGroups')}</p>;
   const tierName = (tierId: string) => (tierId === 'regular' ? copy.t('regular') : tierId);
   const rate = (row: PublicFeeRow | null, role: 'maker' | 'taker') =>
-    row === null ? copy.t('notSet') : row.zeroFee ? copy.t('zeroFee') : bpsAsPercent(role === 'maker' ? row.makerBps : row.takerBps);
+    row === null
+      ? copy.t('notSet')
+      : row.refusal
+        ? copy.t('notAvailable')
+        : row.zeroFee
+          ? copy.t('zeroFee')
+          : bpsAsPercent(role === 'maker' ? row.makerBps : row.takerBps);
   return (
     <>
       {schedule.groups.map((group) => (
