@@ -23,7 +23,7 @@ const data = (res, what) => {
 /**
  * svc-notify's payload hash: id, kind, title, body and version, plus the incident status fields when the draft set any,
  * the asset, network and phase as stored (an update keeps its incident's pair) when it has any, the category when it names
- * one and the audience when it is not everyone. No changelog or reminder fields (no journey here drafts those).
+ * one and the audience when it is not everyone. A fee change adds the time it takes effect. No changelog or reminder fields (no journey here drafts those).
  */
 const payloadHash = (row) => {
   const status = row.statusFields;
@@ -32,6 +32,7 @@ const payloadHash = (row) => {
   const withScope = asset !== null || phase !== null ? { scope: { asset, network, phase } } : {};
   const withCategory = row.category ? { category: row.category } : {};
   const withAudience = row.audience && row.audience !== 'everyone' ? { audience: row.audience } : {};
+  const withEffective = row.kind === 'fee_change' ? { effectiveAt: row.startsAt ?? null } : {};
   return `sha256:${createHash('sha256')
     .update(
       JSON.stringify({
@@ -44,6 +45,7 @@ const payloadHash = (row) => {
         ...withScope,
         ...withCategory,
         ...withAudience,
+        ...withEffective,
       }),
     )
     .digest('hex')}`;
@@ -53,6 +55,7 @@ const payloadHash = (row) => {
  * A draft notice, open from now for `minutes` unless `startsAt`/`endsAt` say otherwise. Returns the stored row. An incident may name an impact and status page
  * components, update an earlier incident (`parentId`) and close it (`resolves`). A funding incident or maintenance window names
  * one `asset` on one `network` (the registry's spelling, e.g. USDT and ethereum), and every incident entry its `phase`.
+ * A `fee_change` notice takes `startsAt` as the time its fee schedule version takes effect, and no end.
  */
 export async function draftNotice({
   kind,
@@ -72,7 +75,10 @@ export async function draftNotice({
   network = null,
   phase = null,
 }) {
-  if (endsAt === null && !(minutes > 0)) throw new Error('draftNotice needs `minutes` or an `endsAt`');
+  // A fee change names the time it takes effect and has no end; every other notice gets a short window.
+  const feeChange = kind === 'fee_change';
+  if (feeChange && !startsAt) throw new Error('a fee_change notice needs the `startsAt` it takes effect');
+  if (!feeChange && endsAt === null && !(minutes > 0)) throw new Error('draftNotice needs `minutes` or an `endsAt`');
   const { ctx, pair } = await founders();
   const now = Date.now();
   const res = await ctx.edge.mutate(
@@ -83,7 +89,7 @@ export async function draftNotice({
       title,
       body,
       startsAt: startsAt ?? new Date(now - 60_000).toISOString(),
-      endsAt: endsAt ?? new Date(now + minutes * 60_000).toISOString(),
+      ...(feeChange ? {} : { endsAt: endsAt ?? new Date(now + minutes * 60_000).toISOString() }),
       ...(impact ? { impact } : {}),
       ...(components.length ? { components } : {}),
       ...(parentId ? { parentId } : {}),

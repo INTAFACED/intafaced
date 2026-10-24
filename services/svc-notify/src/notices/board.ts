@@ -28,7 +28,11 @@ import {
 } from './audiences.js';
 import { buildStatusFeed, clampStatusDays, openIncidentRoots, STATUS_FEED_ROWS_MAX, type StatusFeed } from './status-feed.js';
 
-export const NOTICE_KINDS = ['announcement', 'maintenance', 'incident', 'changelog'] as const;
+/**
+ * `fee_change` announces a new trading fee schedule version: `startsAt` is the time it takes effect, and it has no end.
+ * It is read before that time and changes no rate itself; the rate changes only with svc-trade's stored version.
+ */
+export const NOTICE_KINDS = ['announcement', 'maintenance', 'incident', 'changelog', 'fee_change'] as const;
 export type NoticeKind = (typeof NOTICE_KINDS)[number];
 export type NoticeStatus = 'draft' | 'published';
 
@@ -75,6 +79,7 @@ export type NoticeCode =
   | 'notify.notice_reminders_invalid'
   | 'notify.notice_audience_invalid'
   | 'notify.notice_audience_unavailable'
+  | 'notify.notice_effective_invalid'
   | 'status.category_unknown'
   | ChangelogCode;
 
@@ -320,6 +325,8 @@ function payloadHash(row: NoticeRow): string {
     ...(row.reminderOffsets?.length ? { reminders: row.reminderOffsets } : {}),
     ...(row.category ? { category: row.category } : {}),
     ...(row.audience && row.audience !== 'everyone' ? { audience: row.audience } : {}),
+    // A fee change is approved with the time it takes effect.
+    ...(row.kind === 'fee_change' ? { effectiveAt: row.startsAt?.toISOString() ?? null } : {}),
   });
   return `sha256:${createHash('sha256').update(payload).digest('hex')}`;
 }
@@ -561,6 +568,9 @@ export class NoticeBoard {
     const status = await this.statusFields({ ...input, kind: input.kind });
     const changelog = changelogFields(input.kind, input.changelog);
     const startsAt = parseOptionalInstant(input.startsAt, 'notify.notice_copy_unset');
+    const endsAt = parseOptionalInstant(input.endsAt, 'notify.notice_copy_unset');
+    // A fee change names the one time it takes effect, and never ends.
+    if (input.kind === 'fee_change' && (startsAt === null || endsAt !== null)) throw new NoticeError('notify.notice_effective_invalid');
     const reminderOffsets = reminderFields(input.kind, input.reminderOffsets, startsAt);
     const category = await this.categoryField(input.kind, input.category);
     const audience = audienceField(input.kind, input.audience);
@@ -574,7 +584,7 @@ export class NoticeBoard {
       status: 'draft',
       publishedAt: null,
       startsAt,
-      endsAt: parseOptionalInstant(input.endsAt, 'notify.notice_copy_unset'),
+      endsAt,
       version: 1,
       ...status,
       changelog,
