@@ -20,6 +20,7 @@ import {
   rememberLastLesson,
   resumeTarget,
   roomSummary,
+  academyAssignmentHref,
   academyCourseHref,
   academyRoute,
   academySectionRedirect,
@@ -310,6 +311,8 @@ describe('tab addresses (AC-order-01)', () => {
     expect(academyRoute('/academy/%E0%A4%A')).toEqual({ kind: 'reader', slug: undefined });
     expect(academyRoute('/academy/learning/course/markets')).toEqual({ kind: 'course', slug: 'markets' });
     expect(academyRoute('/academy/learning/course')).toEqual({ kind: 'course', slug: undefined });
+    expect(academyRoute('/academy/learning/course/markets/assignment/abc')).toEqual({ kind: 'assignment', slug: 'markets', itemId: 'abc' });
+    expect(academyAssignmentHref('a b', 'x')).toBe('/academy/learning/course/a%20b/assignment/x');
     expect(academyCourseHref('a b')).toBe('/academy/learning/course/a%20b');
   });
 

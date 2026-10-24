@@ -11,7 +11,7 @@ import { useResource } from '../../shared/resource';
 import { Loading, Panel } from '../../shared/ui';
 import { t as copyText } from './copy';
 import { academyLmsCopy as copy } from './academy-lms-copy';
-import { academyCourseHref, academyCourseSignInHref } from './academy-lms';
+import { academyAssignmentHref, academyCourseHref, academyCourseSignInHref } from './academy-lms';
 import { AcademyRefusal } from './AcademyLmsParts';
 import { AcademyCourseEnrol } from './AcademyCourseEnrol';
 
@@ -92,7 +92,13 @@ export function AuthoredCourseBody({ data, note }: { data: AcademyCourseLearnerV
                       </li>
                     ) : (
                       <li key={ii} data-lock={item.lock ?? 'none'} style={{ marginInlineStart: `${item.indent * 1.5}rem` }}>
-                        <span lang="und">{item.title}</span>
+                        {item.kind === 'assignment' && item.lock === null ? (
+                          <a className="academy-learning-link" href={academyAssignmentHref(data.slug, item.id)} lang="und">
+                            {item.title}
+                          </a>
+                        ) : (
+                          <span lang="und">{item.title}</span>
+                        )}
                         <span className="academy-lms-meta">
                           <span>{t(OUTLINE_KINDS[item.kind])}</span>
                           {item.lock && <span>{t(LOCKS[item.lock])}</span>}

@@ -23,6 +23,7 @@ import {
 } from './AcademyLearning';
 import { academyLearningCopy } from './academy-learning-copy';
 import { AcademyCoursePage, AcademyHub } from './AcademyHub';
+import { AcademyAssignment } from './AcademyAssignment';
 import { AcademyAccessGrants, AcademyMyLearning } from './AcademyMyLearning';
 import { AcademyCourseProgress, AcademyPlanner } from './AcademyProgressPage';
 import { AcademyCourseOutline } from './AcademyCourseOutline';
@@ -60,7 +61,8 @@ function Academy({ route, slug, initialPath }: { route: AcademyRoute; slug?: str
   // A finished quiz or a watched video can meet an item's course rule: the outline beside it reads itself again.
   const [progressMade, setProgressMade] = useState(0);
   // Each tab is its own address: a click pushes history, so the back button returns to the previous tab.
-  const tab = route.kind === 'tab' ? route.tab : route.kind === 'reader' || route.kind === 'course' ? 'Learning' : '';
+  const tab =
+    route.kind === 'tab' ? route.tab : route.kind === 'reader' || route.kind === 'course' || route.kind === 'assignment' ? 'Learning' : '';
   const [selection, setSelection] = useState({ owner: userId, id: selectedCertificate(userId) });
   const selected = selection.owner === userId ? selection.id : selectedCertificate(userId);
   useEffect(() => {
@@ -94,6 +96,8 @@ function Academy({ route, slug, initialPath }: { route: AcademyRoute; slug?: str
       {route.kind === 'tab' && route.hub && <AcademyHub />}
       {route.kind === 'course' ? (
         <AcademyCoursePage slug={route.slug} signedIn />
+      ) : route.kind === 'assignment' ? (
+        <AcademyAssignment key={route.itemId} slug={route.slug ?? ''} itemId={route.itemId ?? ''} />
       ) : route.kind === 'progress' ? (
         <AcademyProgress action={action} />
       ) : tab === 'Learning' ? (
