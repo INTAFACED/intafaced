@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Failure, Loading } from '../../shared/ui';
 import type { Resource } from '../../shared/resource';
 import { CopyButton } from '../../screens/account/CopyButton';
@@ -52,7 +52,7 @@ function SetView({ set }: { set: AccountDetailSet }) {
   );
 }
 
-export function AccountDetailsList({ rows }: { rows: readonly AccountDetailsRow[] }) {
+export function AccountDetailsList({ rows, heading: Heading = 'h3' }: { rows: readonly AccountDetailsRow[]; heading?: 'h3' | 'h4' }) {
   const { t } = accountDetailsCopy.useCopy();
   if (rows.length === 0) return <p className="money-caption">{t('detailsEmpty')}</p>;
   const stateKey = {
@@ -65,7 +65,7 @@ export function AccountDetailsList({ rows }: { rows: readonly AccountDetailsRow[
     <div className="bd-stack">
       {rows.map((row) => (
         <section key={row.currency} aria-label={row.currency} data-testid={`account-details-${row.currency}`}>
-          <h3>{row.currency}</h3>
+          <Heading>{row.currency}</Heading>
           <p role="status">
             {t(stateKey[row.state])} {row.blocker && <small className="muted">{t('blocker', { code: row.blocker })}</small>}
           </p>
@@ -114,6 +114,8 @@ export function AccountDetailsByCurrency() {
   const { profiles } = useSession();
   const read = useBankRead('accountDetails.list', { profile: profiles.active });
   const [currency, setCurrency] = useState('');
+  // Another profile has its own rows: the choice starts again.
+  useEffect(() => setCurrency(''), [profiles.active]);
   if (read.resource.status !== 'ready' || read.resource.data.currencies.length === 0) {
     return <AccountDetailsBody resource={read.resource} reload={read.reload} />;
   }
@@ -132,7 +134,7 @@ export function AccountDetailsByCurrency() {
           ))}
         </select>
       </label>
-      {chosen && <AccountDetailsList rows={[chosen]} />}
+      {chosen && <AccountDetailsList rows={[chosen]} heading="h4" />}
     </div>
   );
 }

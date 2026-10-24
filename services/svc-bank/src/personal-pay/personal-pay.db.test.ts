@@ -1897,12 +1897,16 @@ describe('personal bill pay and global send', () => {
         account: 'NL91ABNA0417164300',
         country: 'NL',
       });
+      // The catalogue read says so before anything is sent: NL has no method a partner pays out on.
+      const listed0 = await me.global.corridors.list();
+      expect(listed0.find((row) => row.country === 'NL')).toMatchObject({ deliveryMethods: ['sepa'], payoutMethods: [] });
+      expect(listed0.find((row) => row.country === 'DE')).toMatchObject({ payoutMethods: ['sepa'] });
       // The rate is the partner's answer for the currency, so the quote still comes back.
       const lock = await me.global.quote({ asset: 'USDT', amount: '40', toCurrency: 'EUR' });
       expect(lock).toMatchObject({ rate: '2', receiveAmount: '80' });
       const nl = { ...body, recipientId: dutch.id, country: 'NL', idempotencyKey: `send-${randomUUID()}`, quoteId: lock.quoteId };
       await expect(me.global.send(nl)).rejects.toMatchObject({
-        cause: { code: 'bank.global_payout_unset', blocker: 'socket.psp-partners' },
+        cause: { code: 'bank.global_payout_uncovered', blocker: 'socket.psp-partners' },
       });
       expect(transfers(ledger)).toHaveLength(0);
       expect(await balance()).toBe(parseAmount('100'));
@@ -1911,7 +1915,7 @@ describe('personal bill pay and global send', () => {
       const listed = (await me.global.list({ limit: 10 })).items;
       expect(listed).toHaveLength(1);
       expect(listed[0]).toMatchObject({ status: 'failed', country: 'NL', amount: '40' });
-      await expect(me.global.send(nl)).rejects.toMatchObject({ cause: { code: 'bank.global_payout_unset' } });
+      await expect(me.global.send(nl)).rejects.toMatchObject({ cause: { code: 'bank.global_payout_uncovered' } });
       expect((await me.global.list({ limit: 10 })).items).toHaveLength(1);
       // The failed send gave its lock back: a covered corridor can be paid on it.
       expect(await me.global.send({ ...body, quoteId: lock.quoteId })).toMatchObject({ status: 'sent', quoteId: lock.quoteId });

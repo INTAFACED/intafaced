@@ -193,16 +193,20 @@ test(`${J} #4 with no partner for the destination, pressing send names it, nothi
   const where = card.getByLabel('Where it goes');
   await expect(where.locator('option', { hasText: 'NL · EUR · sepa' })).toHaveCount(1, { timeout: 30_000 });
   await where.selectOption({ label: 'NL · EUR · sepa' });
+  // The destination says before anything is sent that no partner pays out there.
+  await expect(card.getByTestId('global-no-payout')).toHaveText(
+    'No payout partner is connected for this destination. A send here is refused, nothing leaves your balance, and the send is kept in your history.',
+  );
   await card.getByLabel('Recipient’s full name').fill('Daan TEST');
   await card.getByLabel('Account number or IBAN').fill('NL91 ABNA 0417 1643 00');
   await card.getByTestId('global-recipient-save').click();
   const recipient = card.getByLabel('Recipient', { exact: true });
   await expect(recipient.locator('option', { hasText: 'Daan TEST' })).toHaveCount(1, { timeout: 30_000 });
   await recipient.selectOption({ label: await recipient.locator('option', { hasText: 'Daan TEST' }).innerText() });
-  await card.getByLabel('You send').fill('40');
+  await card.getByLabel('You send').fill('41');
   await card.getByRole('button', { name: 'Get a quote' }).click();
   // The rate is the partner's answer for the currency, so a quote still comes back.
-  await expect(card.getByTestId('global-quote')).toContainText('80 EUR', { timeout: 30_000 });
+  await expect(card.getByTestId('global-quote')).toContainText('82 EUR', { timeout: 30_000 });
   await card.getByRole('button', { name: 'Review and send' }).click();
   const confirm = card.getByTestId('global-confirm');
   await confirm.getByLabel('Authenticator code').fill(await code());
@@ -210,8 +214,8 @@ test(`${J} #4 with no partner for the destination, pressing send names it, nothi
   await expect(card.getByTestId('global-failure')).toContainText('No payout partner for this destination', { timeout: 30_000 });
   await expect(card.getByTestId('global-sent')).toHaveCount(0);
   // The intent row is kept, refused with nothing taken.
-  const row = card.getByTestId('global-history').locator('li[data-status="failed"]').first();
-  await expect(row).toContainText('40 USDT to EUR', { timeout: 30_000 });
+  const row = card.getByTestId('global-history').locator('li[data-status="failed"]', { hasText: '41 USDT to EUR' });
+  await expect(row).toContainText('41 USDT to EUR', { timeout: 30_000 });
   await expect(row).toContainText('It was not sent and nothing remains taken from your balance.');
   expect(toUnits(await usdt())).toBe(toUnits(before));
 });

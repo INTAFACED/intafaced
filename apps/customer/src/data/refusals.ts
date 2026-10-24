@@ -191,7 +191,7 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
   },
   globalNoPayout: {
     title: 'No payout partner for this destination',
-    body: 'Money sent here needs a payout partner, and none is connected for it. Nothing was sent, and the send is kept in your history with this reason.',
+    body: 'Money sent here needs a payout partner, and none is connected for this destination. Nothing was sent, and the send is kept in your history.',
   },
   globalNoRate: {
     title: 'No exchange rate is available',

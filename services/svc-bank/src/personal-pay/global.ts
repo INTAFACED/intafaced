@@ -183,6 +183,7 @@ const DEFINITE = new Set([
   'bank.global_quote_required',
   'bank.global_quote_expired',
   'bank.global_payout_unset',
+  'bank.global_payout_uncovered',
   'bank.global_payout_refused',
   'bank.global_travel_rule_undecided',
   'bank.global_travel_rule_incomplete',
@@ -388,11 +389,30 @@ export class GlobalSendService {
     return { standIn: this.ports.standIn?.label ?? null };
   }
 
-  async corridors(): Promise<Corridor[]> {
+  /** The catalogue, each corridor with the delivery methods a payout partner pays out on (`payoutMethods`). */
+  async corridors(): Promise<Array<Corridor & { payoutMethods: string[] }>> {
     if (this.ports.corridors.status() !== 'live') throw personalPayError('bank.global_corridors_unset');
     const rows = await this.ports.corridors.list();
     if (!Array.isArray(rows)) throw personalPayError('bank.global_corridors_unusable');
-    return rows.map(usableCorridor);
+    return rows.map(usableCorridor).map((corridor) => ({
+      ...corridor,
+      payoutMethods:
+        this.ports.payout.status() === 'live'
+          ? corridor.deliveryMethods.filter((method) => this.paysOut(corridor.country, corridor.currency, method))
+          : [],
+    }));
+  }
+
+  /** Whether the payout partner covers one corridor and method. A partner that names no coverage covers every corridor. */
+  private paysOut(country: string, currency: string, deliveryMethod: string): boolean {
+    const covers = this.ports.payout.covers;
+    if (!covers) return true;
+    try {
+      return covers.call(this.ports.payout, { country, currency, deliveryMethod }) === true;
+    } catch {
+      // A coverage answer the service cannot read is the provider's shape problem: nothing is refused or posted on it.
+      throw personalPayError('bank.global_payout_unusable');
+    }
   }
 
   async validateRecipient(input: { account: string; bic?: string }): Promise<{
@@ -936,12 +956,7 @@ export class GlobalSendService {
     }
     if (this.ports.fx.status() !== 'live') return this.definite(row, 'bank.global_fx_unset');
     if (this.ports.payout.status() !== 'live') return this.definite(row, 'bank.global_payout_unset');
-    if (
-      this.ports.payout.covers &&
-      !this.ports.payout.covers({ country: row.country, currency: row.to_currency, deliveryMethod: row.delivery_method })
-    ) {
-      return this.definite(row, 'bank.global_payout_unset');
-    }
+    if (!this.paysOut(row.country, row.to_currency, row.delivery_method)) return this.definite(row, 'bank.global_payout_uncovered');
     const decision = this.ports.travelRule.decision();
     if (!decision || !decision.decidedBy.trim() || !Array.isArray(decision.requiredFields)) {
       return this.definite(row, 'bank.global_travel_rule_undecided');

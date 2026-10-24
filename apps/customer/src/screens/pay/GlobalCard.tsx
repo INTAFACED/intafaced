@@ -577,7 +577,7 @@ export function GlobalCard() {
     }
     setFailure(sayFor(result.code, result.message));
     if (!field) setReview(null);
-    // A definite refusal keeps the send's intent row, failed with its reason: the history shows it.
+    // A refusal may have kept the send's intent row, failed: the history is read again to show it.
     void loadHistory();
     // A lock the service will not pay on (ran out, used, or not for this send) is dropped: only a new quote goes on.
     if (result.code && QUOTE_REFUSALS.has(result.code)) setQuote(null);
@@ -646,6 +646,11 @@ export function GlobalCard() {
                 </option>
               ))}
             </select>
+            {destination && !destination.paysOut ? (
+              <p className="pay-hint" role="note" data-testid="global-no-payout">
+                {g('destinationNoPayout')}
+              </p>
+            ) : null}
             {limits ? (
               <p className="pay-hint" data-testid="global-limits">
                 {[
