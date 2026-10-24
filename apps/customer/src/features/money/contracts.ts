@@ -188,6 +188,44 @@ export const offrampSchema = rampBase.extend({
   holdLedgerTxId: z.string().nullable(),
   settleLedgerTxId: z.string().nullable(),
 });
+/** One income sorter (BK-pots-03): whole basis points of each payment from another person into the person's own spaces. */
+export const sorterSchema = z.object({
+  id: z.string(),
+  assetId: z.string(),
+  status: z.enum(['active', 'cancelled']),
+  legs: z.array(z.object({ spaceId: z.string(), shareBp: z.number().int() })),
+  createdAt: z.string(),
+  cancelledAt: z.string().nullable(),
+});
+export const sorterListSchema = z.object({
+  terms: z.discriminatedUnion('state', [
+    z.object({ state: z.literal('set'), minCredit: money }),
+    z.object({ state: z.literal('not_set'), code: z.literal('bank.sorter_terms_unset') }),
+  ]),
+  sorters: z.array(sorterSchema),
+});
+/** What one sorted payment came to: each split's amount and what became of it. */
+export const sorterRunSchema = z.object({
+  id: z.string(),
+  creditTransferId: z.string(),
+  creditTxId: z.string(),
+  creditAmount: money,
+  /** When the payment posted; `createdAt` is when it was sorted. */
+  creditPostedAt: z.string(),
+  /** Recorded and not split: under the bank's smallest sorted payment, or no terms stood. */
+  skippedReason: z.enum(['below_minimum', 'terms_unset']).nullable(),
+  createdAt: z.string(),
+  legs: z.array(
+    z.object({
+      position: z.number().int(),
+      spaceId: z.string(),
+      amount: money,
+      status: z.enum(['pending', 'settled', 'rejected']),
+      ledgerTxId: z.string().nullable(),
+      rejectionCode: z.string().nullable(),
+    }),
+  ),
+});
 export const ruleSchema = z.object({
   id: z.string(),
   kind: z.enum(['threshold_sweep', 'dca', 'card_roundup']),
@@ -686,6 +724,8 @@ export const bankReads = {
   'directDebits.list': directDebitsViewSchema,
   'calendar.window': calendarViewSchema,
   'rules.get': rulesViewSchema,
+  'sorter.list': sorterListSchema,
+  'sorter.runs': z.array(sorterRunSchema),
   'cashOut.quote': cashOutQuoteSchema,
   // The same wire shape Pay reads (J-bank-04 #3): one definition of `bank.transfers.quote`.
   'transfers.quote': transferQuoteSchema,
@@ -822,6 +862,8 @@ export const bankWrites = {
   'autoInvest.pause': ruleSchema,
   'autoInvest.resume': ruleSchema,
   'autoInvest.cancel': z.object({ ok: z.literal(true) }),
+  'sorter.create': sorterSchema,
+  'sorter.cancel': sorterSchema,
   'ramps.setWithdrawDestination': z.object({ kind: z.string(), ref: z.string() }),
   'ramps.offramp': offrampSchema,
   'business.create': businessSchema,
@@ -906,6 +948,21 @@ export function bankWriteForReview(procedure: BankWrite, input: Record<string, u
           row.cadence === null &&
           row.nextRunAt === null
         );
+      }
+      case 'sorter.create': {
+        const row = data as z.infer<typeof sorterSchema>,
+          legs = Array.isArray(input.legs) ? (input.legs as Array<{ spaceId: unknown; shareBp: unknown }>) : [];
+        return (
+          row.id === input.sorterId &&
+          row.status === 'active' &&
+          row.assetId === input.assetId &&
+          row.legs.length === legs.length &&
+          row.legs.every((leg, i) => leg.spaceId === legs[i]!.spaceId && leg.shareBp === legs[i]!.shareBp)
+        );
+      }
+      case 'sorter.cancel': {
+        const row = data as z.infer<typeof sorterSchema>;
+        return row.id === input.sorterId && row.status === 'cancelled';
       }
       case 'autoInvest.pause':
       case 'autoInvest.resume': {

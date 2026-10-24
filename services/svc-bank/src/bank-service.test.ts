@@ -3114,6 +3114,8 @@ describe('svc-bank money PG-hard', () => {
         'auto_invest_rules.threshold': 'a POLICY keep-amount for a threshold sweep; instruction, not a holding',
         'auto_invest_rules.amount': 'a POLICY spend for a DCA schedule, or round-up granularity; instruction, not a holding',
         'auto_invest_runs.amount': 'a RECORD of one run (settled or rejected); written once',
+        'income_sorter_runs.credit_amount': 'a RECORD of one posted payment from another person, as the ledger booked it; written once',
+        'income_sorter_run_legs.amount': 'an INSTRUCTION fixed when the run is made: one split of that payment; written once',
         'business_accounts.spend_threshold': 'a POLICY dual-control floor; instruction, not a holding',
         'business_control_requests.spend_threshold':
           'the PROPOSED floor on one dual-control request; written once, applied by copying it onto the account',
