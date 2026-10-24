@@ -6,6 +6,8 @@ import { PASSKEY_ORIGIN } from './identity-factors.mjs';
 import {
   METHOD,
   RETIRING_METHOD,
+  SLOW_METHOD,
+  SLOW_WINDOW_SECONDS,
   TEST_IBAN,
   browserHoldsPasskey,
   confirmEmail,
@@ -14,6 +16,7 @@ import {
   refusalCode,
   restorePasskey,
   registerRetiringMethod,
+  registerSlowMethod,
   retireRetiringMethod,
   testInstrument,
   testPasskey,
@@ -679,6 +682,93 @@ test('J-p2p-01 #7 the buyer ticks the checklist and marks paid; the order moves 
   // Still one after the next svc-p2p sweep (every 30 s on the stack) has had its chance to hand it over again.
   await page.waitForTimeout(35_000);
   expect(await notices()).toHaveLength(1);
+});
+
+test('J-p2p-01 #7 a method that is not instant shows its settlement window on the board, the ad, the take and the order; the seller must accept it, and a dispute waits for the window', async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  // Its own seller and buyer, and a TEST method whose money takes up to two days; the shared TEST bank transfer stays instant.
+  const registered = await registerSlowMethod();
+  expect(registered.settlement).toEqual({ instant: false, windowSeconds: SLOW_WINDOW_SECONDS });
+  const seller = await signUp(page, 'p2p01n');
+  await verify(page, seller);
+  expect(fund(seller.email, 'USDT', '100').tx).toBeTruthy();
+  const s = p2p(await api(seller));
+  await testInstrument(s, seller);
+  await s.mutate('instruments.create', {
+    instrumentId: randomUUID(),
+    methodId: SLOW_METHOD,
+    country: 'DE',
+    fiatCurrency: 'EUR',
+    label: 'TEST slow account',
+    details: { account_holder: seller.handle, iban: TEST_IBAN },
+  });
+  const ad = {
+    side: 'sell',
+    asset: 'USDT',
+    fiatCurrency: 'EUR',
+    priceType: 'fixed',
+    price: AD.price,
+    minAmount: AD.min,
+    maxAmount: AD.max,
+    totalAmount: '100',
+    methods: [METHOD, SLOW_METHOD],
+    terms: 'TEST terms: pay from an account in your own name.',
+  };
+
+  // Listing a method that is not instant needs the seller's consent; with it, the ad goes up and says so.
+  const unconsented = await s.raw.mutate('offers.create', { ...ad, idempotencyKey: `${J}:slow-offer-refused:${seller.handle}` });
+  expect(unconsented.status).toBe(400);
+  expect(refusalCode(unconsented)).toBe('p2p.non_instant_not_accepted');
+  const offer = await s.mutate('offers.create', { ...ad, acceptsNonInstant: true, idempotencyKey: `${J}:slow-offer:${seller.handle}` });
+  expect(offer.acceptsNonInstant).toBe(true);
+  expect(offer.nonInstantMethods).toEqual([{ methodId: SLOW_METHOD, windowSeconds: SLOW_WINDOW_SECONDS }]);
+
+  const buyer = await signUp(page, 'p2p01w');
+  await verify(page, buyer);
+  const b = await readyTaker(await api(buyer), buyer);
+  await signIn(page, buyer);
+
+  // The board names the slow method and its window on the ad's row.
+  await page.goto(`/p2p?methodId=${SLOW_METHOD}&makerId=${offer.makerId}`);
+  const row = page.locator(`li[data-offer-id="${offer.id}"]`);
+  await expect(row.getByTestId('offer-settlement')).toContainText(`${SLOW_METHOD}: not instant, the money can take up to 2 days to arrive`);
+
+  // The ad says it too, with the seller's consent; the take tells the buyer the window when they choose that method.
+  await page.goto(`/p2p?offerId=${offer.id}`);
+  const settlement = page.getByRole('main').getByTestId('offer-settlement').first();
+  await expect(settlement).toContainText(`${SLOW_METHOD}: not instant, the money can take up to 2 days to arrive`);
+  await expect(settlement).toContainText('The seller accepts payment methods that are not instant.');
+  const take = page.getByTestId('take-offer');
+  await take.locator('select').selectOption(SLOW_METHOD);
+  await expect(take.getByTestId('take-settlement')).toHaveText(
+    'This method is not instant. You have 2 days to pay, and a dispute opens only after that.',
+  );
+  await take.locator('select').selectOption(METHOD);
+  await expect(take.getByTestId('take-settlement')).toHaveCount(0);
+
+  // The order copies the window: the buyer has two days to pay, not the published payment time.
+  const placed = await b.mutate('trades.take', { offerId: offer.id, tradeId: randomUUID(), amount: AD.min, method: SLOW_METHOD });
+  await expect.poll(async () => (await b.query('trades.get', { tradeId: placed.id })).status, { timeout: 30_000 }).toBe('escrowed');
+  const trade = await b.query('trades.get', { tradeId: placed.id });
+  expect(trade.settlement).toEqual({ instant: false, windowSeconds: SLOW_WINDOW_SECONDS });
+  expect(Date.parse(trade.deadlineAt) - Date.parse(trade.escrowedAt)).toBe(SLOW_WINDOW_SECONDS * 1000);
+
+  await page.goto(`/uc/order?tradeId=${placed.id}`);
+  const order = page.getByRole('main');
+  await expect(order.getByTestId('order-settlement')).toHaveText(
+    'Not instant: the payment window is 2 days, and a dispute opens only after it ends',
+  );
+  await expect(order.getByTestId('escrow-path')).toContainText(/4[67] h \d+ min left/);
+
+  // Marked paid, the money may still be on its way: neither side can open a dispute until the window ends.
+  expect((await b.mutate('trades.markFiatSent', { tradeId: placed.id })).status).toBe('fiat_sent');
+  for (const side of [b, s]) {
+    const early = await side.raw.mutate('disputes.open', { tradeId: placed.id, reason: 'TEST not received yet' });
+    expect(early.status).toBe(400);
+    expect(refusalCode(early)).toBe('p2p.dispute_before_settlement');
+  }
 });
 
 test('J-p2p-01 #8 the seller releases; the order says Completed with the coins after the fee, they are in the balance, and the list says Completed', async ({

@@ -14,6 +14,7 @@ import {
   type OfferFormProblem,
   type OfferFormValues,
 } from './p2p-model';
+import { settlementCopy } from './settlement-copy';
 import { P2PReason } from './P2PDepth';
 import { Button } from '@intafaced/ui';
 import './p2p-depth.css';
@@ -97,6 +98,7 @@ const PROBLEM_KEY = {
   minTooHigh: 'problemMinTooHigh',
   totalTooLow: 'problemTotalTooLow',
   tooLong: 'problemTooLong',
+  nonInstantConsent: 'problemNonInstantConsent',
 } as const satisfies Record<OfferFormProblem, string>;
 
 const FIELD_LABEL = {
@@ -115,7 +117,18 @@ function Fields({ pay, baseline, mode }: { pay: PersonalPayApi; baseline: OfferF
   const [values, setValues] = useState<OfferFormValues>(baseline);
   const fiat = useResource((signal) => pay.fiat(signal), 'pay:fiat');
   const methods = useResource((signal) => pay.methods(signal), 'pay:registered-methods');
-  const problems = useMemo(() => checkOfferForm(values), [values]);
+  // P-disputes-security-09: the registry's methods that are not instant in some market.
+  const nonInstant = useMemo(
+    () =>
+      new Set(
+        methods.resource.status === 'ready'
+          ? methods.resource.data.filter((method) => method.settlement?.instant === false).map((method) => method.methodId.toLowerCase())
+          : [],
+      ),
+    [methods.resource],
+  );
+  const choseNonInstant = values.side === 'sell' && values.methods.some((method) => nonInstant.has(method.toLowerCase()));
+  const problems = useMemo(() => checkOfferForm(values, nonInstant), [values, nonInstant]);
   const set = <K extends keyof OfferFormValues>(key: K, value: OfferFormValues[K]) =>
     setValues((previous) => ({ ...previous, [key]: value }));
   const shown = (field: OfferFormField) => {
@@ -247,6 +260,19 @@ function Fields({ pay, baseline, mode }: { pay: PersonalPayApi; baseline: OfferF
                 ))}
             </div>
           ) : null}
+          {choseNonInstant ? (
+            <label className="p2p-check-list" data-testid="offer-non-instant-consent">
+              <input
+                type="checkbox"
+                checked={values.acceptsNonInstant}
+                // The consent is given at post; an edit keeps what the ad was posted with.
+                disabled={mode === 'edit'}
+                onChange={(event) => set('acceptsNonInstant', event.target.checked)}
+              />
+              <span>{settlementCopy.t('consentLabel')}</span>
+            </label>
+          ) : null}
+          {shown('methods') ? <small className="error-text">{shown('methods')}</small> : null}
         </div>
         <label className="field">
           <span>{t('fieldTerms')}</span>

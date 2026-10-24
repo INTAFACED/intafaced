@@ -143,6 +143,8 @@ const en = {
   failLimitsUnset: 'The order limits for this ad could not be checked, so no order can be placed. Nothing was placed.',
   failMethodRetired:
     'This payment method has been retired and no longer takes orders. This has no end time: choose another method on this ad, or another ad. Nothing was placed.',
+  failNonInstant:
+    'This payment method is not instant where the seller is paid, and this ad does not accept that. Choose another method on this ad, or another ad. Nothing was placed.',
   failMethodRetiredRegulation:
     'This payment method has been retired because of a regulatory requirement. This has no end time: choose another method on this ad, or another ad. Nothing was placed.',
   failMethodRetiredProviderWithdrawn:
@@ -225,6 +227,7 @@ const en = {
   problemMinTooHigh: 'The minimum is above the maximum',
   problemTotalTooLow: 'The total is below the maximum',
   problemTooLong: 'Too long',
+  problemNonInstantConsent: 'A method you chose is not instant: accept that before you post.',
   formReview: 'Review offer',
   formSave: 'Save changes',
   formOffCreateTitle: 'Publishing from this form is off',
@@ -432,6 +435,8 @@ const es = {
     'No se pudieron comprobar los límites de pedido de este anuncio, así que no se puede hacer ningún pedido. No se hizo nada.',
   failMethodRetired:
     'Este método de pago se ha retirado y ya no admite pedidos. No tiene fecha de fin. Elige otro método de este anuncio u otro anuncio. No se hizo nada.',
+  failNonInstant:
+    'Este método de pago no es instantáneo donde cobra el vendedor, y este anuncio no lo acepta. Elige otro método de este anuncio u otro anuncio. No se hizo nada.',
   failMethodRetiredRegulation:
     'Este método de pago se ha retirado por un requisito normativo. No tiene fecha de fin. Elige otro método de este anuncio u otro anuncio. No se hizo nada.',
   failMethodRetiredProviderWithdrawn:
@@ -515,6 +520,7 @@ const es = {
   problemMinTooHigh: 'El mínimo supera el máximo',
   problemTotalTooLow: 'El total es inferior al máximo',
   problemTooLong: 'Demasiado largo',
+  problemNonInstantConsent: 'Un método que elegiste no es instantáneo: acéptalo antes de publicar.',
   formReview: 'Revisar oferta',
   formSave: 'Guardar cambios',
   formOffCreateTitle: 'Publicar desde este formulario está desactivado',
@@ -722,6 +728,8 @@ const fr = {
     'Les limites de commande de cette annonce n’ont pas pu être vérifiées, aucune commande ne peut donc être passée. Rien n’a été passé.',
   failMethodRetired:
     'Ce mode de paiement a été retiré et n’accepte plus de commandes. Ce retrait n’a pas de fin. Choisissez un autre mode sur cette annonce, ou une autre annonce. Rien n’a été passé.',
+  failNonInstant:
+    'Ce mode de paiement n’est pas instantané là où le vendeur est payé, et cette annonce ne l’accepte pas. Choisissez un autre mode sur cette annonce, ou une autre annonce. Rien n’a été passé.',
   failMethodRetiredRegulation:
     'Ce mode de paiement a été retiré en raison d’une exigence réglementaire. Ce retrait n’a pas de fin. Choisissez un autre mode sur cette annonce, ou une autre annonce. Rien n’a été passé.',
   failMethodRetiredProviderWithdrawn:
@@ -808,6 +816,7 @@ const fr = {
   problemMinTooHigh: 'Le minimum dépasse le maximum',
   problemTotalTooLow: 'Le total est inférieur au maximum',
   problemTooLong: 'Trop long',
+  problemNonInstantConsent: 'Un moyen choisi n’est pas instantané : acceptez-le avant de publier.',
   formReview: 'Vérifier l’offre',
   formSave: 'Enregistrer les modifications',
   formOffCreateTitle: 'La publication depuis ce formulaire est désactivée',

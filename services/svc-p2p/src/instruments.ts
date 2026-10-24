@@ -80,7 +80,20 @@ export interface MethodSchema {
   readonly label: string;
   readonly fields: readonly FieldSpec[];
   readonly enabled: boolean;
+  /** P-disputes-security-09: whether money on this method in this market arrives at once. */
+  readonly settlement: MethodSettlement;
 }
+
+/**
+ * How money on a method arrives in one market. Instant: at once, and the published payment deadline applies. Non-instant:
+ * within `windowSeconds`, which becomes the order's payment deadline and the earliest a party may open a dispute; a blank
+ * window falls back to the published payment deadline.
+ */
+export type MethodSettlement = { readonly instant: true } | { readonly instant: false; readonly windowSeconds: number | null };
+
+/** The bounds of a settlement window, in seconds (one minute to thirty days); the database checks the same. */
+export const SETTLEMENT_WINDOW_MIN_SECONDS = 60;
+export const SETTLEMENT_WINDOW_MAX_SECONDS = 30 * 24 * 60 * 60;
 
 /** Country wildcard. A schema registered against it applies to every country. */
 export const ANY_COUNTRY = '*';

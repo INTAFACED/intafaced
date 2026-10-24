@@ -131,7 +131,15 @@ import {
   type TradeOutcome,
   type XpPolicy,
 } from './reputation.js';
-import { InstrumentError, methodIdKey, methodsWithLiveDestination, missingSellDestinations, sellOfferBoardable } from './instruments.js';
+import {
+  InstrumentError,
+  methodIdFromOfferEntry,
+  methodIdKey,
+  methodsWithLiveDestination,
+  missingSellDestinations,
+  sellOfferBoardable,
+  type MethodSettlement,
+} from './instruments.js';
 import { P2P_COPY, resolveP2pCopy } from './user-copy.js';
 import type { DelistReason, DenialSink } from './instrument-service.js';
 import { recordSwallowed, withMoneySpan, withSpan } from './tracing.js';
@@ -177,6 +185,8 @@ import { fireAffiliatePayout, NoopAffiliatePayout, type AffiliatePayoutPort } fr
  */
 
 export type P2pErrorCode =
+  | 'p2p.non_instant_not_accepted'
+  | 'p2p.dispute_before_settlement'
   | 'p2p.quote_not_found'
   | 'p2p.quote_mismatch'
   | 'p2p.quote_expired'
@@ -592,7 +602,7 @@ export interface TradeInstrumentAttacher {
   attachToTrade(
     tx: Sql,
     input: { tradeId: string; sellerId: string; takerId: string; methodId: string; fiatCurrency: string; sink: DenialSink },
-  ): Promise<{ instrumentId: string; fingerprint: string }>;
+  ): Promise<{ instrumentId: string; fingerprint: string; settlement?: MethodSettlement }>;
 
   /**
    * THE ONE REFUSAL. Queues the attempt against the seller, then throws.
@@ -630,6 +640,15 @@ export interface TradeInstrumentAttacher {
    * the instrument service's own pool). Optional so a test stub without a catalogue still builds.
    */
   retiredMethod?(methodId: string): Promise<{ reason: DelistReason; delistedAt: Date } | null>;
+
+  /**
+   * P-disputes-security-09: the listed methods that are non-instant where this seller is paid. Optional so a test stub
+   * without a catalogue still builds (every method then reads instant).
+   */
+  nonInstantMethodKeys?(ownerId: string, fiatCurrency: string, methodIds: readonly string[]): Promise<ReadonlySet<string>>;
+
+  /** P-disputes-security-09: each non-instant method's board profile (absent = instant). Optional like the above. */
+  boardSettlements?(methodIds: readonly string[]): Promise<ReadonlyMap<string, MethodSettlement>>;
 }
 
 export interface P2pServiceOptions {
@@ -744,6 +763,8 @@ export interface OfferRecord {
   terms: string;
   /** Maker verification tier at create. Null when it was never stored. */
   makerTier: string | null;
+  /** P-disputes-security-09: the seller consented at post to methods whose money arrives within a settlement window. */
+  acceptsNonInstant: boolean;
   status: 'active' | 'paused' | 'closed';
   createdAt: Date;
 }
@@ -776,6 +797,8 @@ export interface TradeRecord {
   settledAt: Date | null;
   /** The ad's terms text copied at take; later ad edits never change it. Null on orders placed before 0015. */
   termsSnapshot: string | null;
+  /** P-disputes-security-09: the method's profile in the market the buyer pays into, copied at take. */
+  settlement: MethodSettlement;
 }
 
 export interface DisputeRecord {
@@ -837,6 +860,8 @@ interface TradeRow {
   resolved_at: Date | null;
   settled_at: Date | null;
   terms_snapshot: string | null;
+  non_instant?: boolean;
+  settlement_window_seconds?: number | null;
 }
 
 interface OfferRow {
@@ -854,6 +879,7 @@ interface OfferRow {
   methods: unknown[];
   terms: string;
   maker_tier: string | null;
+  accepts_non_instant?: boolean;
   status: 'active' | 'paused' | 'closed';
   created_at: Date;
 }
@@ -1323,6 +1349,23 @@ export class P2pService {
     });
   }
 
+  /**
+   * P-disputes-security-09: a sell ad that lists a method whose money arrives within a settlement window needs the
+   * seller's consent at post (and on an edit that lists one), so no seller is surprised by a slow payment.
+   */
+  private async assertNonInstantConsent(input: {
+    sellerId: string;
+    fiatCurrency: string;
+    methods: readonly unknown[];
+    consented: boolean;
+  }): Promise<void> {
+    if (input.consented || !this.instruments.nonInstantMethodKeys) return;
+    const ids = input.methods.map(methodIdFromOfferEntry).filter((id): id is string => id !== null);
+    const slow = await this.instruments.nonInstantMethodKeys(input.sellerId, input.fiatCurrency, ids);
+    if (slow.size === 0) return;
+    throw new P2pError('The seller has not accepted non-instant payment methods on this ad', 'p2p.non_instant_not_accepted');
+  }
+
   /** P-trade-orders-03: the order's fiat amount against the owner's bounds for this asset and fiat pair. */
   private assertPairLimit(input: { asset: string; fiatCurrency: string; fiatAmount: Amount }): void {
     if (!this.takeLimits) return;
@@ -1464,6 +1507,8 @@ export class P2pService {
     idempotencyKey?: string;
     /** Signed-in maker tier at create. Anything else is stored as never-set. */
     makerTier?: string;
+    /** P-disputes-security-09: the seller's consent to non-instant methods. Absent is no consent. */
+    acceptsNonInstant?: boolean;
   }): Promise<OfferRecord> {
     this.assertTradingEnabled();
     this.assertSellNotLocked(input.side === 'sell');
@@ -1525,6 +1570,12 @@ export class P2pService {
       if (missing.length > 0) {
         throw new PricingError(resolveP2pCopy(P2P_COPY.offerMethodNoDestination), 'p2p.offer_method_no_destination');
       }
+      await this.assertNonInstantConsent({
+        sellerId: input.makerId,
+        fiatCurrency,
+        methods: input.methods,
+        consented: input.acceptsNonInstant === true,
+      });
     }
 
     /**
@@ -1565,6 +1616,7 @@ export class P2pService {
       input.terms ?? '',
       clientOfferId ?? '',
       makerTier ?? '',
+      input.acceptsNonInstant === true ? 'non-instant' : '',
     ]);
 
     let replayId: string | null = null;
@@ -1596,14 +1648,15 @@ export class P2pService {
           const rows = await tx<OfferRow[]>`
             INSERT INTO p2p.offers (
               id, maker_id, side, asset, fiat_currency, price_type, price,
-              min_amt, max_amt, total_amt, remaining_amt, methods, terms, status, maker_tier
+              min_amt, max_amt, total_amt, remaining_amt, methods, terms, status, maker_tier, accepts_non_instant
             )
             VALUES (
               ${offerId}, ${input.makerId}, ${input.side}, ${input.asset}, ${fiatCurrency},
               ${input.priceType}, ${formatAmount(input.price)}::numeric,
               ${formatAmount(input.minAmt)}::numeric, ${formatAmount(input.maxAmt)}::numeric,
               ${formatAmount(totalAmt)}::numeric, ${formatAmount(totalAmt)}::numeric,
-              ${tx.json((input.methods ?? []) as never)}, ${input.terms ?? ''}, 'active', ${makerTier}
+              ${tx.json((input.methods ?? []) as never)}, ${input.terms ?? ''}, 'active', ${makerTier},
+              ${input.acceptsNonInstant === true}
             )
             RETURNING *
           `;
@@ -2059,7 +2112,7 @@ export class P2pService {
             //
             // The snapshot is taken now and never re-read, which is also what stops
             // a seller swapping the destination once the buyer has started paying.
-            await this.instruments.attachToTrade(tx, {
+            const attached = await this.instruments.attachToTrade(tx, {
               tradeId: input.tradeId,
               sellerId,
               takerId: input.takerId,
@@ -2068,7 +2121,20 @@ export class P2pService {
               sink,
             });
 
-            return toTrade(inserted[0]);
+            // P-disputes-security-09: a non-instant method needs the sell ad's consent (an operator may have changed the
+            // profile after the ad was posted). The order copies the profile: its payment deadline and earliest dispute
+            // come from it, whatever the operator changes later.
+            const settlement = attached.settlement ?? { instant: true };
+            if (settlement.instant) return toTrade(inserted[0]);
+            if (offer.side === 'sell' && !offer.acceptsNonInstant) {
+              throw new P2pError('The seller has not accepted non-instant payment methods on this ad', 'p2p.non_instant_not_accepted');
+            }
+            const [profiled] = await tx<TradeRow[]>`
+              UPDATE p2p.p2p_trades SET non_instant = true, settlement_window_seconds = ${settlement.windowSeconds}
+               WHERE id = ${input.tradeId}
+              RETURNING *
+            `;
+            return toTrade(profiled!);
           },
           { isolation: 'read committed', maxAttempts: 5 },
         ),
@@ -2192,7 +2258,10 @@ export class P2pService {
   /** Stamp an acknowledged lock while the caller still holds the trade row. */
   private async advanceToEscrowed(tx: Sql, trade: TradeRecord): Promise<TradeRecord> {
     const now = await txNow(tx);
-    const deadlineAt = deadlineFor('escrowed', now, this.deadlines);
+    // P-disputes-security-09: a non-instant order's payment window is its method's settlement window; a blank window
+    // keeps the published payment deadline.
+    const window = trade.settlement.instant ? null : trade.settlement.windowSeconds;
+    const deadlineAt = deadlineFor('escrowed', now, window === null ? this.deadlines : { ...this.deadlines, paymentSeconds: window });
     const deadlines = withDeadline(trade.deadlines, 'escrowed', deadlineAt);
     const next = await tx<TradeRow[]>`
       UPDATE p2p.p2p_trades
@@ -2448,6 +2517,15 @@ export class P2pService {
         assertTransition(trade.status, 'disputed');
 
         const now = await txNow(tx);
+        // P-disputes-security-09: on a non-instant method the money may still be on its way until the payment window
+        // ends, so a party's dispute opens only after it.
+        const settledBy = trade.settlement.instant || !trade.deadlines.paymentBy ? null : new Date(trade.deadlines.paymentBy);
+        if (origin === 'party' && settledBy && now < settledBy) {
+          throw new P2pError(
+            'The payment may still be on its way: a dispute opens once the settlement window ends',
+            'p2p.dispute_before_settlement',
+          );
+        }
         const deadlineAt = deadlineFor('disputed', now, this.deadlines);
         const deadlines = withDeadline(trade.deadlines, 'disputed', deadlineAt);
         // Copy the trade's thread when it already has one; otherwise allocate
@@ -3754,6 +3832,12 @@ export class P2pService {
         if (missingSellDestinations(input.methods, live).length > 0) {
           throw new PricingError(resolveP2pCopy(P2P_COPY.offerMethodNoDestination), 'p2p.offer_method_no_destination');
         }
+        await this.assertNonInstantConsent({
+          sellerId: preview.makerId,
+          fiatCurrency: preview.fiatCurrency,
+          methods: input.methods,
+          consented: preview.acceptsNonInstant,
+        });
       }
     }
 
@@ -4545,6 +4629,7 @@ function toOffer(row: OfferRow): OfferRecord {
     methods: Array.isArray(row.methods) ? row.methods : [],
     terms: row.terms,
     makerTier: row.maker_tier ?? null,
+    acceptsNonInstant: row.accepts_non_instant === true,
     status: row.status,
     createdAt: row.created_at,
   };
@@ -4577,6 +4662,7 @@ function toTrade(row: TradeRow): TradeRecord {
     resolvedAt: row.resolved_at,
     settledAt: row.settled_at,
     termsSnapshot: row.terms_snapshot,
+    settlement: row.non_instant ? { instant: false, windowSeconds: row.settlement_window_seconds ?? null } : { instant: true },
   };
 }
 
@@ -4760,6 +4846,7 @@ function sameCreate(
     maxAmt: Amount;
     methods?: unknown[];
     terms?: string;
+    acceptsNonInstant?: boolean;
   },
   fiatCurrency: string,
   totalAmt: Amount,
@@ -4777,7 +4864,8 @@ function sameCreate(
     offer.totalAmt === totalAmt &&
     offer.terms === (input.terms ?? '') &&
     JSON.stringify(offer.methods) === JSON.stringify(input.methods ?? []) &&
-    (offer.makerTier ?? null) === makerTier
+    (offer.makerTier ?? null) === makerTier &&
+    offer.acceptsNonInstant === (input.acceptsNonInstant === true)
   );
 }
 
