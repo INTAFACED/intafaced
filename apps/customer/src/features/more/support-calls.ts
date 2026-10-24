@@ -21,8 +21,8 @@ import { ticketSchema } from './support-schemas';
 const mismatch = () => deskCopy.t('answerMismatch');
 
 export const ratingSchema = z.object({
-  ticketId: z.string().uuid(),
-  userId: z.string().uuid(),
+  ticketId: z.string().guid(),
+  userId: z.string().guid(),
   score: z.number().int(),
   note: z.string().nullable(),
   createdAt: z.string(),
@@ -32,12 +32,12 @@ export const attachmentSchema = supportAttachmentSchema;
 const limitsCall = contractProcedure('support', 'attachmentLimits', { output: supportAttachmentLimitsSchema });
 const downloadCall = contractProcedure('support', 'attachmentDownload', {
   output: supportAttachmentDownloadSchema,
-  input: z.object({ attachmentId: z.string().uuid() }),
+  input: z.object({ attachmentId: z.string().guid() }),
 });
 const feedbackSchema = z.object({
   articleId: z.string(),
   version: z.number().int().positive(),
-  userId: z.string().uuid(),
+  userId: z.string().guid(),
   helpful: z.boolean(),
 });
 
@@ -53,7 +53,7 @@ export function readRating(api: ApiClient, ticketId: string, userId: string | nu
 
 /** Ids of the signed-in person's own requests that already carry a rating. Only used to offer "rate this" on the rest. */
 export function readRatedTicketIds(api: ApiClient, signal?: AbortSignal) {
-  return api.query('support', 'ratedMine', undefined, z.array(z.string().uuid()), { signal });
+  return api.query('support', 'ratedMine', undefined, z.array(z.string().guid()), { signal });
 }
 
 export async function closeRequest(api: ApiClient, input: { ticketId: string; userId: string | null; clientRequestId: string }) {

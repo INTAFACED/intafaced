@@ -23,7 +23,7 @@ const bps = z.number().int();
 export const CREATE_LOAN_PRODUCT_ACTION = 'bank.ops.createLoanProduct';
 
 const productInput = z.object({
-  productId: z.string().uuid(),
+  productId: z.string().guid(),
   name: z.string().max(120),
   debtAssetId: z.string().min(1).max(16),
   collateralAssetId: z.string().min(1).max(16),
@@ -81,7 +81,7 @@ export function createLoanProductProcedure(
     )
     .output(
       z.object({
-        productId: z.string().uuid(),
+        productId: z.string().guid(),
         status: z.string(),
         aprBps: z.number().int(),
         maxLtvBps: z.number().int(),

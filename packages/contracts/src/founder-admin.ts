@@ -79,7 +79,7 @@ export const founderMerchantDrilldownInputSchema = z.object({ merchantId: payMer
 /** One `pay.control_audit` row for this merchant. `before` / `after` blobs stay in the table; this is the trail a founder reads. */
 export const founderControlAuditEventSchema = z
   .object({
-    id: z.string().uuid(),
+    id: z.string().guid(),
     seq: z.string().regex(/^[1-9]\d*$/),
     scope: z.enum(['merchant', 'tier', 'pricing', 'approval']),
     scopeId: z.string().min(1).max(128),
@@ -87,7 +87,7 @@ export const founderControlAuditEventSchema = z
     outcome: z.string().min(1).max(64),
     actorId: z.string().min(1).max(128),
     secondActorId: z.string().min(1).max(128).nullable(),
-    requestId: z.string().uuid().nullable(),
+    requestId: z.string().guid().nullable(),
     reason: z.string().min(1).max(4000),
     createdAt: payTimestampSchema,
   })
@@ -163,10 +163,10 @@ export const founderApprovalQueueInputSchema = z
   .strict();
 
 /** One approval on the founder queue. The answer is the stored destination, not the masked list form. */
-export const founderApprovalDestinationInputSchema = z.object({ approvalId: z.string().uuid() }).strict();
+export const founderApprovalDestinationInputSchema = z.object({ approvalId: z.string().guid() }).strict();
 export const founderApprovalDestinationSchema = z
   .object({
-    approvalId: z.string().uuid(),
+    approvalId: z.string().guid(),
     railId: payRailIdSchema,
     destinationKind: payDestinationKindSchema,
     /** Exact account or address stored on the approval. Never a merchant-list field. */
@@ -179,7 +179,7 @@ export type FounderApprovalDestination = z.infer<typeof founderApprovalDestinati
  * The same founder must not confirm again; the service also refuses that call.
  * Merchant approval lists use `payoutApprovalSchema` and do not carry this id.
  */
-export const founderApprovalQueueItemSchema = payoutApprovalSchema.extend({ founderFirstUserId: z.string().uuid().nullable() }).strict();
+export const founderApprovalQueueItemSchema = payoutApprovalSchema.extend({ founderFirstUserId: z.string().guid().nullable() }).strict();
 export type FounderApprovalQueueItem = z.infer<typeof founderApprovalQueueItemSchema>;
 export const founderApprovalQueueSchema = z
   .object({ approvals: z.array(founderApprovalQueueItemSchema), nextCursor: z.string().nullable() })
@@ -195,7 +195,7 @@ export const FOUNDER_CONTROL_AUDIT_SCOPES = ['merchant', 'tier', 'pricing', 'app
 /** One append-only `pay.control_audit` row. `before` / `after` are the stored JSON, including `captured_over_cap`. */
 export const founderControlAuditEntrySchema = z
   .object({
-    id: z.string().uuid(),
+    id: z.string().guid(),
     seq: payAuditCursorSchema,
     scope: z.enum(FOUNDER_CONTROL_AUDIT_SCOPES),
     scopeId: z.string().min(1).max(256),
@@ -244,7 +244,7 @@ export const founderPendingChangeSchema = z
     reason: z.string().min(1).max(4000),
     expectedVersion: z.string().regex(/^(?:0|[1-9]\d*)$/),
     /** Founder who submitted. That same founder cannot confirm. */
-    makerUserId: z.string().uuid(),
+    makerUserId: z.string().guid(),
     createdAt: payTimestampSchema,
   })
   .strict();
@@ -331,10 +331,10 @@ export const founderMerchantSectionInputSchema = z
         dueAfter: payTimestampSchema.optional(),
         dueBefore: payTimestampSchema.optional(),
         deadline: z.enum(['set', 'unset']).optional(),
-        paymentId: z.string().uuid().optional(),
+        paymentId: z.string().guid().optional(),
         active: z.boolean().optional(),
         role: z.enum(['owner', 'admin', 'finance', 'developer', 'viewer']).optional(),
-        endpointId: z.string().uuid().optional(),
+        endpointId: z.string().guid().optional(),
         kind: z.enum(['payments', 'settlements', 'payouts', 'refunds', 'ledger_statement', 'disputes', 'fees']).optional(),
         objectType: z.enum(['payment', 'team', 'kyb', 'dispute', 'export', 'approval', 'webhook']).optional(),
       })
@@ -349,14 +349,14 @@ const feeSnapshotSchema = z
     fee: payAmountStringSchema,
     assetCode: payAssetCodeSchema,
     appliedLayer: z.enum(['global', 'tier', 'merchant']),
-    ruleId: z.string().uuid(),
+    ruleId: z.string().guid(),
     recordedAt: payTimestampSchema,
   })
   .strict();
 
 const paymentItemSchema = z
   .object({
-    id: z.string().uuid(),
+    id: z.string().guid(),
     merchantId: payMerchantIdSchema,
     assetId: payAssetCodeSchema,
     amount: payAmountStringSchema,
@@ -374,14 +374,14 @@ const paymentItemSchema = z
 
 const refundItemSchema = z
   .object({
-    id: z.string().uuid(),
+    id: z.string().guid(),
     refundId: z.string().min(1).max(128),
-    paymentId: z.string().uuid(),
+    paymentId: z.string().guid(),
     merchantId: payMerchantIdSchema,
     amount: payAmountStringSchema,
     assetId: payAssetCodeSchema,
     reason: z.string().nullable(),
-    actor: z.string().uuid().nullable(),
+    actor: z.string().guid().nullable(),
     status: z.enum(['posted', 'settled', 'reversed']),
     createdAt: payTimestampSchema,
     settledAt: payTimestampSchema.nullable(),
@@ -390,13 +390,13 @@ const refundItemSchema = z
       .object({
         recorded: z.boolean(),
         pot: z.enum(['clearing', 'merchantProceeds', 'userAvailable']).nullable(),
-        ledgerTxId: z.string().uuid().nullable(),
+        ledgerTxId: z.string().guid().nullable(),
         direction: z.enum(['debit', 'credit']).nullable(),
       })
       .strict(),
     payment: z
       .object({
-        paymentId: z.string().uuid(),
+        paymentId: z.string().guid(),
         status: z.enum(['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed']),
       })
       .strict(),
@@ -440,7 +440,7 @@ const disputeItemSchema = z
 
 const settlementItemSchema = z
   .object({
-    id: z.string().uuid(),
+    id: z.string().guid(),
     merchantId: payMerchantIdSchema,
     window: z.string().min(1).max(64),
     assetId: payAssetCodeSchema,
@@ -461,7 +461,7 @@ const settlementItemSchema = z
 
 const destinationItemSchema = z
   .object({
-    id: z.string().uuid(),
+    id: z.string().guid(),
     merchantId: payMerchantIdSchema,
     railId: z.string().min(1).max(64),
     kind: z.string().min(1).max(32),
@@ -496,7 +496,7 @@ const customerItemSchema = z
 
 const linkItemSchema = z
   .object({
-    id: z.string().uuid(),
+    id: z.string().guid(),
     prefix: z.string().min(1).max(64),
     label: z.string().max(200),
     amount: payAmountStringSchema.nullable(),
@@ -511,14 +511,14 @@ const linkItemSchema = z
 
 const invoiceItemSchema = z
   .object({
-    id: z.string().uuid(),
+    id: z.string().guid(),
     status: z.enum(['draft', 'sent', 'void', 'paid']),
     assetId: payAssetCodeSchema,
     amount: payAmountStringSchema,
     customerRef: z.string().nullable(),
     description: z.string().nullable(),
-    paymentLinkId: z.string().uuid().nullable(),
-    paymentId: z.string().uuid().nullable(),
+    paymentLinkId: z.string().guid().nullable(),
+    paymentId: z.string().guid().nullable(),
     sentAt: payTimestampSchema.nullable(),
     voidedAt: payTimestampSchema.nullable(),
     paidAt: payTimestampSchema.nullable(),
@@ -528,8 +528,8 @@ const invoiceItemSchema = z
 
 const subscriptionItemSchema = z
   .object({
-    id: z.string().uuid(),
-    mandateId: z.string().uuid(),
+    id: z.string().guid(),
+    mandateId: z.string().guid(),
     merchantId: payMerchantIdSchema,
     customerId: z.string().min(1).max(200),
     status: z.enum(['active', 'paused', 'cancelled', 'completed']),
@@ -544,7 +544,7 @@ const subscriptionItemSchema = z
 
 const teamItemSchema = z
   .object({
-    memberId: z.string().uuid().nullable(),
+    memberId: z.string().guid().nullable(),
     userId: z.string().min(1).max(128),
     role: z.enum(['owner', 'admin', 'finance', 'developer', 'viewer']),
     status: z.enum(['active', 'invited', 'removed']),
@@ -558,7 +558,7 @@ const teamItemSchema = z
 
 const webhookItemSchema = z
   .object({
-    id: z.string().uuid(),
+    id: z.string().guid(),
     url: z.string().min(1).max(2000),
     status: z.enum(['active', 'disabled']),
     disabledReason: z.string().nullable(),
@@ -570,8 +570,8 @@ const webhookItemSchema = z
 
 const deliveryItemSchema = z
   .object({
-    id: z.string().uuid(),
-    endpointId: z.string().uuid(),
+    id: z.string().guid(),
+    endpointId: z.string().guid(),
     eventType: z.string().min(1).max(128),
     status: z.enum(['pending', 'delivered', 'failed', 'dead']),
     attempts: z.number().int().min(0),
@@ -595,7 +595,7 @@ const activityItemSchema = z
 
 const exportItemSchema = z
   .object({
-    jobId: z.string().uuid(),
+    jobId: z.string().guid(),
     kind: z.enum(['payments', 'settlements', 'payouts', 'refunds', 'ledger_statement', 'disputes', 'fees']),
     status: z.enum(['queued', 'running', 'ready', 'failed', 'expired']),
     failureCode: z.string().nullable(),
@@ -632,7 +632,7 @@ export const founderMerchantSectionSchema = z.discriminatedUnion('section', [
     'payouts',
     z
       .object({
-        id: z.string().uuid(),
+        id: z.string().guid(),
         merchantId: payMerchantIdSchema,
         window: z.string().min(1).max(64),
         assetId: payAssetCodeSchema,
@@ -721,7 +721,7 @@ export const founderPayoutListSchema = z
     items: z.array(
       z
         .object({
-          id: z.string().uuid(),
+          id: z.string().guid(),
           merchantId: payMerchantIdSchema,
           window: z.string().min(1).max(64),
           assetId: payAssetCodeSchema,

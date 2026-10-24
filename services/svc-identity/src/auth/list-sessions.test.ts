@@ -162,7 +162,7 @@ describe('listSessions', () => {
     expect(src).not.toMatch(/SELECT \*/);
     expect(routerSrc).not.toMatch(/refresh_hash/);
     expect(routerSrc).toMatch(/scopedProcedure\('identity:read'\)/);
-    expect(routerSrc).toMatch(/userId: z\.string\(\)\.uuid\(\)/);
+    expect(routerSrc).toMatch(/userId: z\.string\(\)\.guid\(\)/);
     expect(routerSrc).toMatch(/limit: z\.number\(\)\.int\(\)\.min\(1\)\.max\(200\)/);
     expect(routerSrc).toMatch(/listSessions\(sql, input\.userId, input\.limit,/);
   });

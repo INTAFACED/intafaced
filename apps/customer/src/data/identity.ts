@@ -20,7 +20,7 @@ export const HANDLE_LOOKUP_RATE_LIMITED = 'identity.handle_lookup_rate_limited';
 export const HANDLE_PATTERN = /^[a-zA-Z0-9_]{3,32}$/;
 
 export const meSchema = z.object({
-  userId: z.string().uuid(),
+  userId: z.string().guid(),
   handle: z.string().min(1),
   /** Absent on a server that does not yet report confirmation. */
   emailVerified: z.boolean().optional(),
@@ -28,7 +28,7 @@ export const meSchema = z.object({
 
 export const resolveHandleSchema = z.discriminatedUnion('found', [
   z.object({ found: z.literal(false) }),
-  z.object({ found: z.literal(true), userId: z.string().uuid(), handle: z.string().min(1), self: z.boolean() }),
+  z.object({ found: z.literal(true), userId: z.string().guid(), handle: z.string().min(1), self: z.boolean() }),
 ]);
 
 export type MeOutcome =

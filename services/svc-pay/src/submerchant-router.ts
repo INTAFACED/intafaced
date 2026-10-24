@@ -44,9 +44,9 @@ import { MAX_FEE_BPS } from './fee-bps-bound.js';
 const areaSchema = z.enum(PERMISSION_AREAS);
 
 const subMerchantView = z.object({
-  id: z.string().uuid(),
+  id: z.string().guid(),
   userId: z.string(),
-  parentMerchantId: z.string().uuid().nullable(),
+  parentMerchantId: z.string().guid().nullable(),
   mode: z.enum(['gateway', 'psp', 'payfac']),
   status: z.enum(['pending', 'active', 'suspended', 'closed']),
   kybStatus: z.enum(['none', 'pending', 'approved', 'rejected']),
@@ -64,7 +64,7 @@ const subMerchantView = z.object({
 
 const summaryPayment = z
   .object({
-    id: z.string().uuid(),
+    id: z.string().guid(),
     status: z.string(),
     amount: payAmountStringSchema,
     assetId: z.string(),
@@ -106,7 +106,7 @@ const subMerchantSummaryView = subMerchantView
           z
             .object({
               area: z.string(),
-              granteeMerchantId: z.string().uuid(),
+              granteeMerchantId: z.string().guid(),
             })
             .strict(),
         ),
@@ -117,26 +117,26 @@ const subMerchantSummaryView = subMerchantView
   .strict();
 
 const grantView = z.object({
-  granteeMerchantId: z.string().uuid(),
-  subjectMerchantId: z.string().uuid(),
+  granteeMerchantId: z.string().guid(),
+  subjectMerchantId: z.string().guid(),
   area: areaSchema,
   reason: z.string(),
   actorId: z.string(),
-  actorMerchantId: z.string().uuid(),
+  actorMerchantId: z.string().guid(),
   grantedAt: z.string().datetime({ offset: true }),
 });
 
 const permissionEventView = z.object({
-  id: z.string().uuid(),
+  id: z.string().guid(),
   /** A `bigserial` ordering key. A string, never arithmetic. */
   seq: z.string(),
-  granteeMerchantId: z.string().uuid(),
-  subjectMerchantId: z.string().uuid(),
+  granteeMerchantId: z.string().guid(),
+  subjectMerchantId: z.string().guid(),
   area: z.string(),
   action: z.enum(['grant', 'revoke']),
   reason: z.string(),
   actorId: z.string(),
-  actorMerchantId: z.string().uuid(),
+  actorMerchantId: z.string().guid(),
   actorScope: z.string(),
   createdAt: z.string().datetime({ offset: true }),
 });
@@ -246,7 +246,7 @@ export function createSubMerchantRouter(subMerchants: SubMerchantService, mercha
       create: scopedProcedure('pay:write', { module: 'pay' })
         .input(
           z.object({
-            parentMerchantId: z.string().uuid(),
+            parentMerchantId: z.string().guid(),
             userId: z.string().min(1).max(128),
             pricing: z.object({ feeBps: z.number().int().min(0).max(MAX_FEE_BPS) }),
             /**
@@ -256,7 +256,7 @@ export function createSubMerchantRouter(subMerchants: SubMerchantService, mercha
              * themselves. See `SETTLING_PARTY_SELF`.
              */
             settlingParty: z.string().min(1).max(64).optional(),
-            settlementPrefs: z.record(z.unknown()).optional(),
+            settlementPrefs: z.record(z.string(), z.unknown()).optional(),
           }),
         )
         .output(subMerchantView)
@@ -284,7 +284,7 @@ export function createSubMerchantRouter(subMerchants: SubMerchantService, mercha
       list: scopedProcedure('pay:read', { module: 'pay' })
         .input(
           z.object({
-            merchantId: z.string().uuid(),
+            merchantId: z.string().guid(),
             /**
              * Page size. Optional so omit reaches `pay.submerchant_list_limit_unset`.
              * Blank is not 100; pass 100 explicitly.
@@ -303,7 +303,7 @@ export function createSubMerchantRouter(subMerchants: SubMerchantService, mercha
 
       /** One node's record. Requires `merchant.profile`, not `submerchant`. */
       get: scopedProcedure('pay:read', { module: 'pay' })
-        .input(z.object({ merchantId: z.string().uuid() }))
+        .input(z.object({ merchantId: z.string().guid() }))
         .output(subMerchantView)
         .query(({ ctx, input }) =>
           wrap(async () => {
@@ -322,7 +322,7 @@ export function createSubMerchantRouter(subMerchants: SubMerchantService, mercha
         .input(
           z
             .object({
-              merchantId: z.string().uuid(),
+              merchantId: z.string().guid(),
               recentPaymentsLimit: z.number().int().min(1).max(200).optional(),
               grantsLimit: z.number().int().min(1).max(200).optional(),
               recentPaymentsCursor: z.string().min(1).max(300).optional(),
@@ -354,8 +354,8 @@ export function createSubMerchantRouter(subMerchants: SubMerchantService, mercha
       grant: scopedProcedure('pay:write', { module: 'pay' })
         .input(
           z.object({
-            granteeMerchantId: z.string().uuid(),
-            subjectMerchantId: z.string().uuid(),
+            granteeMerchantId: z.string().guid(),
+            subjectMerchantId: z.string().guid(),
             area: areaSchema,
             /** `min(3)`: one character satisfies "not blank" and answers nothing. */
             reason: z.string().trim().min(3).max(500),
@@ -383,8 +383,8 @@ export function createSubMerchantRouter(subMerchants: SubMerchantService, mercha
       revoke: scopedProcedure('pay:write', { module: 'pay' })
         .input(
           z.object({
-            granteeMerchantId: z.string().uuid(),
-            subjectMerchantId: z.string().uuid(),
+            granteeMerchantId: z.string().guid(),
+            subjectMerchantId: z.string().guid(),
             area: areaSchema,
             reason: z.string().trim().min(3).max(500),
           }),
@@ -411,7 +411,7 @@ export function createSubMerchantRouter(subMerchants: SubMerchantService, mercha
       list: scopedProcedure('pay:read', { module: 'pay' })
         .input(
           z.object({
-            subjectMerchantId: z.string().uuid(),
+            subjectMerchantId: z.string().guid(),
             /**
              * Page size. Optional so omit reaches `pay.submerchant_permission_list_limit_unset`.
              * Blank is not 50; pass 50 explicitly.
@@ -432,7 +432,7 @@ export function createSubMerchantRouter(subMerchants: SubMerchantService, mercha
       history: scopedProcedure('pay:read', { module: 'pay' })
         .input(
           z.object({
-            subjectMerchantId: z.string().uuid(),
+            subjectMerchantId: z.string().guid(),
             /**
              * Page size. Optional so omit reaches `pay.submerchant_permission_history_limit_unset`.
              * Blank is not 50; pass 50 explicitly.

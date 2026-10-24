@@ -35,7 +35,7 @@ export const p2pLimitSchema = z.object({
     .string()
     .regex(/^[A-Z]{3}$/)
     .optional(),
-  openTradeIds: z.array(z.string().uuid()).max(50).optional(),
+  openTradeIds: z.array(z.string().guid()).max(50).optional(),
   reason: z.enum(P2P_DELIST_REASONS).optional(),
 });
 export type P2pLimit = z.infer<typeof p2pLimitSchema>;

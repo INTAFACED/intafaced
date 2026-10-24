@@ -1,6 +1,6 @@
 /**
  * G-developer (PTX-M19-R02, PTX-M19-R04, PTX-M19-R05, PTX-M05-R08).
- * OpenAPI from existing Zod 3 via @asteasolutions/zod-to-openapi@7.3.4.
+ * OpenAPI from existing Zod 4 via @asteasolutions/zod-to-openapi@8.5.0.
  * Changelog/deprecation is contractual. SDK money is an explicit decimal
  * string. svc-fix is not recut — FIX OpenAPI refuses here.
  */
@@ -10,7 +10,7 @@ import { z } from 'zod';
 import { instrumentIdSchema, instrumentSchema, quoteConventionSchema } from './instruments.js';
 
 export const ZOD_TO_OPENAPI = '@asteasolutions/zod-to-openapi' as const;
-export const ZOD_TO_OPENAPI_VERSION = '7.3.4' as const;
+export const ZOD_TO_OPENAPI_VERSION = '8.5.0' as const;
 
 export type DeveloperRefuseReason =
   'openapi_unset' | 'schema_unregistered' | 'ieee_money' | 'decimal_unset' | 'deprecation_unset' | 'silent_break' | 'svc_fix_not_this_pr';
@@ -182,7 +182,9 @@ export function generateOpenApiFromZod(
     adapter.extendZodWithOpenApi(z);
     const registry = new adapter.OpenAPIRegistry();
     for (const [name, schema] of Object.entries(schemas)) {
-      if (schema) registry.register(name, schema);
+      // zod-to-openapi 8 only adds `.openapi()` to schemas built after
+      // extendZodWithOpenApi; a clone is built now, so it has the method.
+      if (schema) registry.register(name, schema.clone());
     }
     const document = new adapter.OpenApiGeneratorV3(registry.definitions).generateDocument({
       openapi: '3.0.3',
@@ -202,6 +204,6 @@ export function generateOpenApiFromZod(
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'unknown';
-    return refuse('schema_unregistered', `Zod 3 schema did not register through zod-to-openapi@7.3.4 — ${message}`);
+    return refuse('schema_unregistered', `Zod schema did not register through ${ZOD_TO_OPENAPI}@${ZOD_TO_OPENAPI_VERSION} — ${message}`);
   }
 }
