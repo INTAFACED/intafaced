@@ -197,7 +197,7 @@ if (!available) {
       // Time passes: the stored expiry is now behind us.
       await db.sql`UPDATE account_limit_overrides SET set_at = now() - interval '2 hours', expires_at = now() - interval '1 second'
         WHERE user_id = ${target}`;
-      expect((await desk.overrideInForce(target, 'withdrawal', 'USDT'))!.override).toBeNull();
+      expect(await desk.overrideInForce(target, 'withdrawal', 'USDT')).toMatchObject({ override: null });
       expect((await desk.state(first, { userId: target }))!.overrides).toMatchObject([{ status: 'expired', version: '1' }]);
       expect(
         await desk.clear(first, {
@@ -225,7 +225,7 @@ if (!available) {
         before: { status: 'active', version: '2' },
         after: { status: 'cleared', version: '3', clearedBy: id(second) },
       });
-      expect((await desk.overrideInForce(target, 'withdrawal', 'USDT'))!.override).toBeNull();
+      expect(await desk.overrideInForce(target, 'withdrawal', 'USDT')).toMatchObject({ override: null });
       expect(
         await desk.clear(second, {
           requestId: randomUUID(),
