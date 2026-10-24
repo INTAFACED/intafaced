@@ -33,12 +33,13 @@ class Approvals implements NoticeApprovalConsumer {
   }
 }
 
-const board = () =>
+/** A board on `store`, at the time `clock` reads. */
+const board = (store = new MemoryNoticeStore(), clock: () => Date = () => NOW) =>
   new NoticeBoard(
-    new MemoryNoticeStore(),
+    store,
     new Approvals(),
     new MemoryCommandLog(),
-    () => NOW,
+    clock,
     async () => [],
     async () => undefined,
     async () => new Set(),
@@ -75,20 +76,23 @@ describe('fee change notices', () => {
 
   it('is approved with the time it takes effect: the same draft at another time is another payload', async () => {
     const store = new MemoryNoticeStore();
-    const b = new NoticeBoard(
-      store,
-      new Approvals(),
-      new MemoryCommandLog(),
-      () => NOW,
-      async () => [],
-      async () => undefined,
-      async () => new Set(),
-      async () => null,
-    );
+    const b = board(store);
     const row = await draft(b, 'h', { startsAt: EFFECTIVE });
     const before = (await b.publishProposal(row.id)).payloadHash;
     const stored = (await store.findById(row.id))!;
     stored.startsAt = new Date('2026-11-02T00:00:00.000Z');
     expect((await b.publishProposal(row.id)).payloadHash).not.toBe(before);
+  });
+
+  it('is told before it takes effect: a past time refuses as a draft, and a time that passed while it waited refuses to publish', async () => {
+    let now = NOW;
+    const b = board(new MemoryNoticeStore(), () => now);
+    await expect(draft(b, 'past', { startsAt: NOW.toISOString() })).rejects.toMatchObject({ code: 'notify.notice_effective_passed' });
+    const row = await draft(b, 'late', { startsAt: EFFECTIVE });
+    now = new Date(EFFECTIVE);
+    await expect(
+      b.publish(AUTHOR, { id: row.id, clientRequestId: 'pub-late', approvalId: 'approval-late', operationId: 'o' }),
+    ).rejects.toMatchObject({ code: 'notify.notice_effective_passed' });
+    expect((await b.notices({ limit: 50 })).map((n) => n.id)).not.toContain(row.id);
   });
 });

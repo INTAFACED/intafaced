@@ -75,10 +75,14 @@ async function ops() {
   return operators;
 }
 
-/** Write `schedule` as the next version, effective in ten seconds, and wait until the public read serves it. */
-async function publish(schedule, reason) {
+/**
+ * Write `schedule` as the next version, effective in ten seconds or just after `after` (a version already stored to
+ * take effect later, since svc-trade refuses one that would start before it), and wait until the public read serves it.
+ */
+async function publish(schedule, reason, after = null) {
   const { ctx, sessions } = await ops();
-  const row = await setFeeSchedule(ctx, schedule, { reason: `LOCAL TEST ${J}: ${reason}`, sessions });
+  const effectiveAt = Math.max(Date.now() + 10_000, after ? Date.parse(after) + 5_000 : 0);
+  const row = await setFeeSchedule(ctx, schedule, { effectiveAt, reason: `LOCAL TEST ${J}: ${reason}`, sessions });
   await expect.poll(async () => (await published()).body.version, { timeout: 30_000 }).toBe(`v${row.version}`);
   return row;
 }
@@ -366,6 +370,7 @@ test(`${J} #10 a fee change is on the notice board before it takes effect, and a
   const tag = Date.now().toString(36);
 
   await publish(changeTo('4'), 'IFC/USDT maker 0.04% before the change');
+  let next = null;
   try {
     // An order the person places now, under the version in force: maker 0.04%. It rests until after the change.
     fund(who.email, 'USDT', '100');
@@ -374,7 +379,7 @@ test(`${J} #10 a fee change is on the notice board before it takes effect, and a
 
     // Two operators approve the next version ahead of time, and the notice board says when it takes effect.
     const { ctx, sessions } = await ops();
-    const next = await setFeeSchedule(ctx, changeTo('2'), {
+    next = await setFeeSchedule(ctx, changeTo('2'), {
       effectiveAt: Date.now() + 90_000,
       reason: `LOCAL TEST ${J}: IFC/USDT maker 0.02% from a time a notice names`,
       sessions,
@@ -395,7 +400,7 @@ test(`${J} #10 a fee change is on the notice board before it takes effect, and a
     await expect(card).toContainText(`TEST fee change ${tag}`);
     await expect(card).toContainText('Fee change');
     const when = card.getByTestId('notice-effective');
-    await expect(when).toHaveText(`Takes effect ${effectiveAt.slice(0, 16).replace('T', ' ')} UTC`);
+    await expect(when).toHaveText(`Takes effect ${effectiveAt.slice(0, 19).replace('T', ' ')} UTC`);
     await expect(when).toHaveAttribute('datetime', effectiveAt);
     await expect(card).toContainText('Orders placed before then keep the fees in force when they were placed.');
     expect(Date.now()).toBeLessThan(Date.parse(effectiveAt));
@@ -404,6 +409,10 @@ test(`${J} #10 a fee change is on the notice board before it takes effect, and a
     // The version takes effect at the time the notice named.
     await expect.poll(async () => (await published()).body.version, { timeout: 150_000 }).toBe(`v${next.version}`);
     expect(Date.now()).toBeGreaterThanOrEqual(Date.parse(effectiveAt));
+    // Still resting: nothing filled it under the old version while the person waited.
+    expect((await openOrders(who, 'IFC/USDT')).map((o) => o.id)).toContain(order.id);
+    const { body: early } = await client.get(`/api/v1/account/trades?symbol=${encodeURIComponent('IFC/USDT')}&limit=100`);
+    expect((Array.isArray(early) ? early : (early.trades ?? [])).filter((f) => f.order === order.id)).toEqual([]);
 
     // The order placed before then fills afterwards, and pays the maker rate of the version it was placed under (a
     // buyer's fee comes out of the IFC it receives).
@@ -425,6 +434,6 @@ test(`${J} #10 a fee change is on the notice board before it takes effect, and a
     expect(check).toMatchObject({ feeRole: 'maker', feeBps: 2 });
     await expect(feeLine(page)).toHaveText(`Fee ${pct(2)} · maker`);
   } finally {
-    await publish(SCHEDULE, 'IFC/USDT back in the default pair group');
+    await publish(SCHEDULE, 'IFC/USDT back in the default pair group', next?.effectiveAt);
   }
 });

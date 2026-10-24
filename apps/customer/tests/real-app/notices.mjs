@@ -78,6 +78,7 @@ export async function draftNotice({
   // A fee change names the time it takes effect and has no end; every other notice gets a short window.
   const feeChange = kind === 'fee_change';
   if (feeChange && !startsAt) throw new Error('a fee_change notice needs the `startsAt` it takes effect');
+  if (feeChange && endsAt !== null) throw new Error('a fee_change notice has no `endsAt`: svc-notify refuses one');
   if (!feeChange && endsAt === null && !(minutes > 0)) throw new Error('draftNotice needs `minutes` or an `endsAt`');
   const { ctx, pair } = await founders();
   const now = Date.now();

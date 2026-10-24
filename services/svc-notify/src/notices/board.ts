@@ -80,6 +80,7 @@ export type NoticeCode =
   | 'notify.notice_audience_invalid'
   | 'notify.notice_audience_unavailable'
   | 'notify.notice_effective_invalid'
+  | 'notify.notice_effective_passed'
   | 'status.category_unknown'
   | ChangelogCode;
 
@@ -571,6 +572,9 @@ export class NoticeBoard {
     const endsAt = parseOptionalInstant(input.endsAt, 'notify.notice_copy_unset');
     // A fee change names the one time it takes effect, and never ends.
     if (input.kind === 'fee_change' && (startsAt === null || endsAt !== null)) throw new NoticeError('notify.notice_effective_invalid');
+    // A fee change is told before it takes effect, never after.
+    if (input.kind === 'fee_change' && startsAt !== null && startsAt.getTime() <= this.now().getTime())
+      throw new NoticeError('notify.notice_effective_passed');
     const reminderOffsets = reminderFields(input.kind, input.reminderOffsets, startsAt);
     const category = await this.categoryField(input.kind, input.category);
     const audience = audienceField(input.kind, input.audience);
@@ -891,6 +895,9 @@ export class NoticeBoard {
     const row = await this.store.findById(input.id);
     if (!row) return fail('notify.notice_not_found');
     if (row.status === 'published') return fail('notify.notice_published_immutable');
+    // A fee change whose time came while it waited for its approval would be told after the fact: draft it again.
+    if (row.kind === 'fee_change' && (!row.startsAt || row.startsAt.getTime() <= this.now().getTime()))
+      return fail('notify.notice_effective_passed');
     if (row.parentId) {
       const parent = await this.store.findById(row.parentId);
       if (!parent || parent.status !== 'published') return fail('notify.notice_parent_invalid');

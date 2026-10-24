@@ -66,7 +66,7 @@ describe('public notice feed', () => {
     const page = renderToString(<NoticeList notices={[row]} />).replace(/<!-- -->/g, '');
     expect(page).toContain('Fee change');
     expect(page).toContain(
-      '<time data-testid="notice-effective" dateTime="2026-11-01T00:00:00.000Z">Takes effect 2026-11-01 00:00 UTC</time>',
+      '<time data-testid="notice-effective" dateTime="2026-11-01T00:00:00.000Z">Takes effect 2026-11-01 00:00:00 UTC</time>',
     );
     expect(page).toContain('Orders placed before then keep the fees in force when they were placed.');
     expect(page).not.toContain('Window');

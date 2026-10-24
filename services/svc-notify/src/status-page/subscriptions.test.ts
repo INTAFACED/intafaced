@@ -164,6 +164,10 @@ describe('status subscriptions', () => {
     expect(outbox.mail.filter((m) => m.subject.startsWith('Status update') && m.to === 'trading@example.com')).toHaveLength(1);
     await h.subs.fanOut({ ...notice, id: 'n3', kind: 'changelog' });
     expect(outbox.mail.filter((m) => m.subject.includes('n3'))).toHaveLength(0);
+    // A fee change is on the notice board, not a status update: no mail, whatever the subscriber chose.
+    const sent = outbox.mail.length;
+    await h.subs.fanOut({ ...notice, id: 'n4', kind: 'fee_change' });
+    expect(outbox.mail).toHaveLength(sent);
   });
 
   it('a maintenance reminder reaches each subscriber it concerns once per offset, however often it is sent', async () => {
