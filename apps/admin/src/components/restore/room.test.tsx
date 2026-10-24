@@ -51,6 +51,15 @@ describe('restore room', () => {
     expect(html).toContain('data-testid="start-run"');
   });
 
+  it('says an archive that could not be read lists no backup, and never says it is not probed', () => {
+    const backups = { kind: 'ok', data: { reason: 'ops.restore_archive_unprobed', backups: [] } } as Room['backups'];
+    const html = renderToStaticMarkup(<RestoreRoom room={room({ backups })} runNo={null} />);
+    expect(html).toContain('data-testid="backups-empty"');
+    expect(html).toContain('An archive is configured but it could not be read, or did not answer with a backup list');
+    expect(html).not.toContain('not probed');
+    expect(html).not.toContain('does not probe');
+  });
+
   it('shows a failed part as a failure, not as empty', () => {
     const html = renderToStaticMarkup(<RestoreRoom room={room({ runs: failed, stamps: failed, backups: failed })} runNo={null} />);
     expect(html).toContain('data-testid="runs-failed"');

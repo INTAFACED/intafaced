@@ -8,7 +8,8 @@ import '../desk.css';
 
 /**
  * The joint restore desk. Every part is svc-ops's own answer; a part that failed says why and shows no rows, so a down service never
- * reads as an empty list. The archive is not probed, so no backup is listed; the reason is shown instead of a guess.
+ * reads as an empty list. svc-ops probes the archive; when it cannot be read or does not answer with a backup list, no backup is
+ * listed and the reason is shown instead of a guess.
  */
 
 function Failed({ part, testId }: { part: Extract<Part<unknown>, { kind: 'failed' }>; testId: string }) {
@@ -90,7 +91,7 @@ function Run({ detail }: { detail: RunDetail }) {
           );
         })}
       </ol>
-      <p className="dk-muted">Step rows record what the operator attested; the archive is not probed.</p>
+      <p className="dk-muted">Step rows record what the operator attested.</p>
       <Verdicts detail={detail} />
       {detail.next && detail.next !== 'finalize' && <StepButton restoreNo={run.restoreNo} step={detail.next} />}
       {detail.next === 'finalize' && !detail.finalizeOffered && (
