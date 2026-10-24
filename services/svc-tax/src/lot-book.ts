@@ -9,6 +9,7 @@ import {
   type SaleRules,
   type ValuedAt,
 } from './lot-engine.js';
+import type { OwnMove } from './own-moves.js';
 
 /**
  * LOT BOOK. Profit and loss as an indicator, built only from the customer's own trade fills. Not a tax form and not tied to
@@ -55,6 +56,8 @@ export interface Inflow {
   /** Basis under the owner's deposit policy; null when the policy leaves it to the customer, is unset, or no price exists. */
   readonly costUsd: Amount | null;
   readonly valuedAt: ValuedAt | null;
+  /** The named space it arrived in; absent: the main account. */
+  readonly spaceId?: string;
 }
 
 export interface BookAsset {
@@ -95,6 +98,12 @@ export interface BookLot {
   readonly termClass: null;
   /** Present only when this lot's cost is a price the customer entered. */
   readonly basisSource?: 'customer-entered';
+  /** Present when the lot sits in one of the customer's named spaces; absent: the main account. */
+  readonly spaceId?: string;
+  /** Present when the customer-entered cost is a price stored under another lot (the one this lot was carried from). */
+  readonly basisLotId?: string;
+  /** Present when the lot was moved here from another of the customer's own accounts, with its date and basis. */
+  readonly carriedFrom?: { readonly lotId: string; readonly txId: string; readonly movedAt: string };
 }
 
 export interface BookMatch {
@@ -144,6 +153,15 @@ export type BookChoices =
 
 export const UNWIRED_CHOICES: BookChoices = { status: 'unwired', code: 'tax.basis_store_unwired' };
 
+/** The customer's named spaces as svc-bank listed them, or why the book could not ask. */
+export type BookSpaces =
+  | {
+      readonly status: 'read';
+      readonly list: Array<{ spaceId: string; assetId: string; name: string; archived: boolean }>;
+    }
+  | { readonly status: 'unwired'; readonly code: 'tax.own_spaces_unwired' }
+  | { readonly status: 'unavailable'; readonly code: 'tax.own_spaces_unavailable' };
+
 export interface LotBook {
   /** The account's method: the previewed one, else the saved one, else the product default. */
   readonly method: EngineMethod;
@@ -160,6 +178,8 @@ export interface LotBook {
   readonly residuals: string[];
   /** Customer-typed positions held apart from balances. Absent when there are none. */
   readonly manualPositions?: ManualPosition[];
+  /** The named spaces whose lots the book follows. Absent when the caller did not ask about spaces. */
+  readonly spaces?: BookSpaces;
 }
 
 export interface ManualPosition {
@@ -234,6 +254,11 @@ export function buildLotBook(input: {
   now?: Date;
   /** Dollars per unit for a lot that has no cost of its own. Keyed by lot id. Ignored when the lot already has a cost. */
   overridePricePerUnit?: ReadonlyMap<string, Amount>;
+  /** Moves between the customer's own accounts: the lots go with the coins. */
+  moves?: readonly OwnMove[];
+  spaces?: BookSpaces;
+  /** What each named space holds now, by coin, from its ledger history. Lots in a space are checked against it. */
+  spaceHeld?: ReadonlyMap<string, ReadonlyMap<string, Amount>>;
 }): LotBook {
   const residuals = new Set<string>();
   if (input.truncated) residuals.add(TAX_LOT_BOOK_INCOMPLETE);
@@ -250,6 +275,19 @@ export function buildLotBook(input: {
       source: inflow.source,
       reason: inflow.reason,
       valuedAt: inflow.valuedAt,
+      ...(inflow.spaceId === undefined ? {} : { space: inflow.spaceId }),
+    });
+  }
+  for (const move of input.moves ?? []) {
+    if (PAR_ASSETS.has(move.assetId.toUpperCase())) continue;
+    movements.push({
+      side: 'move',
+      txId: move.txId,
+      postedAt: move.postedAt,
+      assetId: move.assetId,
+      qty: move.amount,
+      from: move.from,
+      to: move.to,
     });
   }
   const run = runLotEngine(movements, input.rules ?? input.method, input.overridePricePerUnit);
@@ -259,7 +297,8 @@ export function buildLotBook(input: {
   // cannot see, and there is no way to say which lot is open: the cost of that asset is unknown, not a guess.
   const openByAsset = new Map<string, { qty: Amount; cost: Amount | null }>();
   for (const lot of run.lots) {
-    if (lot.remaining === 0n) continue;
+    // `held` is the main account: lots in a space are listed under it and do not count here.
+    if (lot.remaining === 0n || lot.space !== null) continue;
     const entry = openByAsset.get(lot.assetId) ?? { qty: 0n, cost: 0n as Amount | null };
     entry.qty += lot.remaining;
     entry.cost = entry.cost === null || lot.remainingCostUsd === null ? null : entry.cost + lot.remainingCostUsd;
@@ -295,7 +334,24 @@ export function buildLotBook(input: {
   // A sale with no lot behind it at all leaves an asset unseen by the lots; it is unknown the same way.
   for (const assetId of soldAssets) if (input.outsideInflows?.has(assetId) && !PAR_ASSETS.has(assetId.toUpperCase())) outside.add(assetId);
 
+  // Each space the same way: if its open lots do not add up to what it holds, coins left it in a way the book does not follow
+  // (sent to someone else), so the cost of what is left there is unknown, not a guess.
+  const spaceOutside = new Set<string>();
+  for (const [spaceId, heldHere] of input.spaceHeld ?? []) {
+    const open = new Map<string, Amount>();
+    for (const lot of run.lots) if (lot.space === spaceId) open.set(lot.assetId, (open.get(lot.assetId) ?? 0n) + lot.remaining);
+    for (const assetId of new Set([...open.keys(), ...heldHere.keys()])) {
+      if (PAR_ASSETS.has(assetId.toUpperCase())) continue;
+      if ((open.get(assetId) ?? 0n) !== (heldHere.get(assetId) ?? 0n)) {
+        residuals.add(TAX_LOT_BOOK_UNRECONCILED);
+        spaceOutside.add(`${spaceId}|${assetId}`);
+      }
+    }
+  }
+
   const blank = (assetId: string) => input.truncated || outside.has(assetId);
+  const blankLot = (lot: { assetId: string; space: string | null }) =>
+    lot.space === null ? blank(lot.assetId) : input.truncated || spaceOutside.has(`${lot.space}|${lot.assetId}`);
   const sales: BookSale[] = run.sales.map((sale) => {
     const matches = sale.matches.map((m) => {
       const costUsd = blank(sale.assetId) ? null : money(m.costUsd);
@@ -333,7 +389,7 @@ export function buildLotBook(input: {
     qty: formatAmount(lot.qty),
     remaining: formatAmount(lot.remaining),
     costUsd: input.truncated ? null : money(lot.costUsd),
-    remainingCostUsd: blank(lot.assetId) ? null : money(lot.remainingCostUsd),
+    remainingCostUsd: blankLot(lot) ? null : money(lot.remainingCostUsd),
     valuedAt:
       lot.valuedAt === null
         ? null
@@ -347,6 +403,13 @@ export function buildLotBook(input: {
     daysHeld: lot.remaining === 0n ? null : Math.max(0, Math.floor((now - lot.acquiredAt.getTime()) / DAY_MS)),
     termClass: null,
     ...(!input.truncated && lot.customerEntered && lot.costUsd !== null ? { basisSource: 'customer-entered' as const } : {}),
+    ...(!input.truncated && lot.customerEntered && lot.costUsd !== null && lot.priceLotId !== undefined
+      ? { basisLotId: lot.priceLotId }
+      : {}),
+    ...(lot.space === null ? {} : { spaceId: lot.space }),
+    ...(lot.carriedFrom === undefined
+      ? {}
+      : { carriedFrom: { lotId: lot.carriedFrom.lotId, txId: lot.carriedFrom.txId, movedAt: lot.carriedFrom.movedAt.toISOString() } }),
   }));
 
   let realizedTotal: Amount | null = 0n;
@@ -369,5 +432,6 @@ export function buildLotBook(input: {
     realizedUsd: sales.length === 0 ? null : realizedTotal === null ? null : formatAmount(realizedTotal),
     termRule: { status: 'unset', code: TAX_TERM_RULE_UNSET },
     residuals: [...residuals].sort(),
+    ...(input.spaces === undefined ? {} : { spaces: input.spaces }),
   };
 }

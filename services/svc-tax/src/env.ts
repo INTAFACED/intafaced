@@ -66,6 +66,11 @@ const schema = baseEnvSchema
        */
       TRADE_URL: blankAsAbsent(z.string().url().optional()),
       /**
+       * svc-bank, which says which named spaces are the customer's (`spaces.ownedAccounts`), so the lot book can follow a move
+       * between the main account and a space. Blank: the book follows the main account only and names `tax.own_spaces_unwired`.
+       */
+      BANK_URL: blankAsAbsent(z.string().url().optional()),
+      /**
        * Owner policy for the cost of a deposit, reward or transfer in: `market` (its value when it arrived) or `customer`
        * (unknown until the customer enters one). Blank: unknown, named `tax.deposit_basis_policy_unset`. Never a default.
        */

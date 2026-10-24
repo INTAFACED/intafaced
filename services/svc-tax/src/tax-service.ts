@@ -19,21 +19,26 @@ import {
   TAX_LEDGER_UNWIRED,
   TAX_LOT_METHOD_REQUIRED,
   TAX_LOT_PICK_INVALID,
+  TAX_OWN_SPACES_UNAVAILABLE,
+  TAX_OWN_SPACES_UNWIRED,
   TAX_PRICE_AT_TIME_UNAVAILABLE,
   TaxError,
 } from './codes.js';
 import { parseJurisdictionMap, refuseExportCompleteness, requireMappedRegion, type JurisdictionMap } from './jurisdiction-map.js';
-import type { HistoryRange, InflowLine, SubAccountActivityLine, TaxLedgerReads } from './ledger-reads.js';
+import type { AccountLine, HistoryRange, InflowLine, SubAccountActivityLine, TaxLedgerReads } from './ledger-reads.js';
 import type { PriceAt, PriceAtTime } from './prices.js';
 import {
   buildLotBook,
   DEFAULT_LOT_BOOK_METHOD,
   PAR_ASSETS,
   type BookChoices,
+  type BookSpaces,
   type Inflow,
   type LotBook,
   type ManualPosition,
 } from './lot-book.js';
+import type { BankOwnSpacesPort } from '@intafaced/contracts';
+import { pairOwnMoves, type OwnMove, type SpaceInflow } from './own-moves.js';
 import { NO_CHOICES, saleRules, type ChoiceStore, type CostBasisChoices } from './choices.js';
 import { isLotMethod, runLots, type LotMethod, type LotMovement } from './lots.js';
 import { isEngineMethod, type EngineMethod, type ValuedAt } from './lot-engine.js';
@@ -114,6 +119,8 @@ export interface TaxServiceDeps {
   readonly basis?: BasisStore;
   /** The customer's saved cost-basis choices. Absent: saves refuse `tax.basis_store_unwired` and the product default applies. */
   readonly choices?: ChoiceStore;
+  /** Which named spaces are the customer's (svc-bank). Absent: the book follows the main account only, `tax.own_spaces_unwired`. */
+  readonly spaces?: BankOwnSpacesPort;
 }
 
 export const DEPOSIT_BASIS_POLICIES = ['market', 'customer'] as const;
@@ -209,6 +216,7 @@ export class TaxService {
   private readonly prices: PriceAtTime | undefined;
   private readonly basis: BasisStore | undefined;
   private readonly choices: ChoiceStore | undefined;
+  private readonly spaces: BankOwnSpacesPort | undefined;
 
   constructor(deps: TaxServiceDeps) {
     this.map = parseJurisdictionMap(deps.mapRaw);
@@ -221,6 +229,7 @@ export class TaxService {
     this.prices = deps.prices;
     this.basis = deps.basis;
     this.choices = deps.choices;
+    this.spaces = deps.spaces;
   }
 
   async exportPreview(input: { userId: string; region: string; lotMethod: string; complete?: boolean }): Promise<TaxExportPreview> {
@@ -263,10 +272,11 @@ export class TaxService {
     const shared = { method, rules: saleRules(saved, DEFAULT_LOT_BOOK_METHOD, preview), preview: preview !== null, choices };
     const readFills = this.reads.tradeFills;
     if (!readFills) throw new TaxError(TAX_LEDGER_UNWIRED, 'the ledger fill reader is not attached — tax does not invent a book');
-    const [balances, filled, active] = await Promise.all([
+    const [balances, filled, active, spaces] = await Promise.all([
       this.reads.balances('user', userId),
       readFills.call(this.reads, userId),
       this.activeBasis(userId),
+      this.ownSpaces(userId),
     ]);
     const held = new Map<string, Amount>();
     for (const row of balances) {
@@ -287,17 +297,83 @@ export class TaxService {
       );
     }
     const extra = new Set<string>();
-    const inflows = await this.valueInflows(filled.inflows, extra);
+    const own = await this.ownMoves(spaces, filled.inflows, filled.outflows ?? [], extra);
+    const inflows = await this.valueInflows([...own.mainInflows, ...own.spaceInflows], extra);
     const book = buildLotBook({
       ...shared,
       fills: filled.fills,
       held,
-      truncated: filled.truncated,
+      truncated: filled.truncated || own.truncated,
       inflows,
+      moves: own.moves,
+      spaces: own.spaces,
+      ...(own.spaceHeld ? { spaceHeld: own.spaceHeld } : {}),
       now: this.now(),
       ...(overridePricePerUnit ? { overridePricePerUnit } : {}),
     });
     return this.withManual({ ...book, residuals: [...new Set([...book.residuals, ...extra])].sort() }, active);
+  }
+
+  /** The caller's named spaces from svc-bank. No port: unwired; no answer: unavailable, and the book says so. */
+  private async ownSpaces(userId: string): Promise<BookSpaces> {
+    if (!this.spaces) return { status: 'unwired', code: TAX_OWN_SPACES_UNWIRED };
+    const got = await this.spaces.list({ userId });
+    if (got.state !== 'read') return { status: 'unavailable', code: TAX_OWN_SPACES_UNAVAILABLE };
+    return {
+      status: 'read',
+      list: got.spaces.map((s) => ({ spaceId: s.spaceId, assetId: s.assetId, name: s.name, archived: s.archived })),
+    };
+  }
+
+  /**
+   * Reads the caller's spaces' ledger history and pairs lines inside one transaction into moves between their own accounts
+   * (own-moves.ts). A space history that cannot be read leaves the spaces out of this answer, named, rather than failing it.
+   */
+  private async ownMoves(
+    spaces: BookSpaces,
+    mainInflows: readonly InflowLine[],
+    mainOutflows: readonly AccountLine[],
+    residuals: Set<string>,
+  ): Promise<{
+    spaces: BookSpaces;
+    moves: OwnMove[];
+    mainInflows: InflowLine[];
+    spaceInflows: SpaceInflow[];
+    truncated: boolean;
+    spaceHeld?: Map<string, Map<string, Amount>>;
+  }> {
+    const none = { moves: [], mainInflows: [...mainInflows], spaceInflows: [], truncated: false };
+    if (spaces.status === 'unavailable') residuals.add(TAX_OWN_SPACES_UNAVAILABLE);
+    if (spaces.status !== 'read' || spaces.list.length === 0) return { spaces, ...none };
+    const readHistory = this.reads.spaceHistory;
+    if (!readHistory) {
+      residuals.add(TAX_OWN_SPACES_UNAVAILABLE);
+      return { spaces: { status: 'unavailable', code: TAX_OWN_SPACES_UNAVAILABLE }, ...none };
+    }
+    let history;
+    try {
+      history = await readHistory.call(
+        this.reads,
+        spaces.list.map((s) => s.spaceId),
+      );
+    } catch {
+      residuals.add(TAX_OWN_SPACES_UNAVAILABLE);
+      return { spaces: { status: 'unavailable', code: TAX_OWN_SPACES_UNAVAILABLE }, ...none };
+    }
+    // What each space holds now, from its own lines: the book checks the space's lots against it.
+    const spaceHeld = new Map<string, Map<string, Amount>>();
+    for (const line of history.lines) {
+      const held = spaceHeld.get(line.spaceId) ?? new Map<string, Amount>();
+      held.set(line.assetId, (held.get(line.assetId) ?? 0n) + (line.direction === 'debit' ? line.amount : -line.amount));
+      spaceHeld.set(line.spaceId, held);
+    }
+    for (const space of spaces.list) if (!spaceHeld.has(space.spaceId)) spaceHeld.set(space.spaceId, new Map());
+    return {
+      spaces,
+      ...pairOwnMoves({ mainInflows, mainOutflows, spaceLines: history.lines }),
+      truncated: history.truncated,
+      spaceHeld,
+    };
   }
 
   private bookChoices(saved: CostBasisChoices): BookChoices {
@@ -404,7 +480,7 @@ export class TaxService {
   }
 
   /** Each arrival becomes a lot: its source, its value when it arrived, and the basis the owner's policy gives it. */
-  private async valueInflows(lines: readonly InflowLine[], residuals: Set<string>): Promise<Inflow[]> {
+  private async valueInflows(lines: ReadonlyArray<InflowLine & { spaceId?: string }>, residuals: Set<string>): Promise<Inflow[]> {
     const cache = new Map<string, Promise<PriceAt | null>>();
     const priceAt = (assetId: string, at: Date): Promise<PriceAt | null> => {
       const prices = this.prices;
@@ -446,6 +522,7 @@ export class TaxService {
           source: inflowSource(line.reason),
           costUsd: this.depositBasis === 'market' && valuedAt !== null ? valuedAt.usd : null,
           valuedAt,
+          ...(line.spaceId === undefined ? {} : { spaceId: line.spaceId }),
         };
       }),
     );

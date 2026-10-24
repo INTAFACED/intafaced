@@ -59,6 +59,10 @@ export const TAX_LOT_PICK_UNUSABLE = 'tax.lot_pick_unusable' as const;
 export const TAX_LOT_PICK_INVALID = 'tax.lot_pick_invalid' as const;
 /** The saved choices could not be read for this answer; the product default was used and the book says so. */
 export const TAX_CHOICES_UNAVAILABLE = 'tax.choices_unavailable' as const;
+/** svc-bank could not say which named spaces are the customer's: moves to and from spaces are not followed in this answer. */
+export const TAX_OWN_SPACES_UNAVAILABLE = 'tax.own_spaces_unavailable' as const;
+/** BANK_URL is unset: the lot book does not ask which spaces are the customer's and follows the main account only. */
+export const TAX_OWN_SPACES_UNWIRED = 'tax.own_spaces_unwired' as const;
 /** The realised effect of a missing basis. A sentence, never a made-up number. */
 export const UNKNOWN_SHARE = 'unknown share' as const;
 
@@ -87,6 +91,8 @@ export type TaxRefuseCode =
   | typeof TAX_LOT_PICK_UNUSABLE
   | typeof TAX_LOT_PICK_INVALID
   | typeof TAX_CHOICES_UNAVAILABLE
+  | typeof TAX_OWN_SPACES_UNAVAILABLE
+  | typeof TAX_OWN_SPACES_UNWIRED
   | typeof TAX_BASIS_PRICE_UNSET
   | typeof TAX_BASIS_PRICE_INVALID
   | typeof TAX_BASIS_DATE_UNSET

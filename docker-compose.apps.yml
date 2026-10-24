@@ -1530,6 +1530,8 @@ services:
       SERVICE_NAME: svc-tax
       HTTP_PORT: '4020'
       LEDGER_URL: http://svc-ledger:4001
+      # Which named spaces are the customer's, so the lot book follows a move to a space (spaces.ownedAccounts).
+      BANK_URL: http://svc-bank:4009
       # Counsel/owner map. Blank is refuse-closed (tax.jurisdiction_unmapped).
       TAX_JURISDICTION_MAP_JSON: ${TAX_JURISDICTION_MAP_JSON:-}
       # Owner-published history window. Blank refuses tax.history_years_unset (never invent 10).

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   coinMethod,
+  lotAccountFromQuery,
+  lotAccounts,
   lotAssetFromQuery,
   lotAssets,
   lotsMissingCost,
@@ -8,6 +10,7 @@ import {
   methodFromQuery,
   pickableLots,
   pnlView,
+  spaceOf,
   unknownShareOf,
   type LotBook,
   type LotBookLot,
@@ -148,6 +151,31 @@ describe('lots', () => {
   it('lists the coins that have lots in the order they first arrived, and the lots of one coin', () => {
     expect(lotAssets(lots)).toEqual(['ETH', 'BTC']);
     expect(lotsOf(lots, 'ETH').map((l) => l.id)).toEqual(['lot:a:ETH', 'lot:c:ETH']);
+  });
+
+  it('splits the lots of a coin by the account they sit in, main first, and ?account= picks one or all', () => {
+    const SPACE = '33333333-3333-4333-8333-333333333333';
+    const carried = {
+      ...lot('lot:a:ETH>mv', 'ETH', 'trade'),
+      spaceId: SPACE,
+      carriedFrom: { lotId: 'lot:a:ETH', txId: 'mv', movedAt: '2026-10-21T10:00:00.000Z' },
+    };
+    const spaced = book({
+      lots: [...lots.lots, carried],
+      spaces: { status: 'read', list: [{ spaceId: SPACE, assetId: 'ETH', name: 'Cold TEST', archived: true }] },
+    });
+    expect(lotAccounts(spaced, 'ETH')).toEqual(['main', SPACE]);
+    expect(lotAccounts(spaced, 'BTC')).toEqual(['main']);
+    expect(lotsOf(spaced, 'ETH', SPACE).map((l) => l.id)).toEqual(['lot:a:ETH>mv']);
+    expect(lotsOf(spaced, 'ETH', 'main').map((l) => l.id)).toEqual(['lot:a:ETH', 'lot:c:ETH']);
+    expect(lotsOf(spaced, 'ETH').map((l) => l.id)).toHaveLength(3);
+    expect(lotAccountFromQuery(`?account=${SPACE}`, lotAccounts(spaced, 'ETH'))).toBe(SPACE);
+    expect(lotAccountFromQuery('?account=nope', lotAccounts(spaced, 'ETH'))).toBe('all');
+    expect(spaceOf(spaced, SPACE)).toEqual({ name: 'Cold TEST', archived: true });
+    // A sale on the main account cannot pick a lot that sits in a space.
+    const sale = { assetId: 'ETH', disposedAt: '2026-10-22T10:00:00.000Z', matches: [] } as unknown as LotBookSale;
+    expect(pickableLots(spaced, sale).map((l) => l.id)).toEqual(['lot:a:ETH', 'lot:c:ETH']);
+    expect(spaceOf(book({ spaces: { status: 'unavailable', code: 'tax.own_spaces_unavailable' } }), SPACE)).toBeNull();
   });
 
   it('?asset= picks the coin, any case; an unknown or absent one falls back to the first', () => {

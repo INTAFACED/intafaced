@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { EDGE, ORIGIN, api, bestPrices, fromUnits, fund, journeyState, toUnits } from './stack.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, api, bestPrices, fromUnits, fund, journeyState, toUnits } from './stack.mjs';
 import { confirm, deskPath, fundedTrader, held, reviewLimit, signIn } from './desk.mjs';
 
 // J-portfolio-04, in the running app (docs/roadmap/journeys.json): "I control how my cost basis is worked out". One test
@@ -336,4 +336,102 @@ test(`${J} #7 enters the price paid for that lot: the result recomputes, marked 
   await expect(sale.locator('[data-col="result"]')).toContainText('Cost unknown');
   await expect(page.getByRole('region', { name: 'Missing cost' })).toBeVisible();
   expect(await (await api(who)).balances()).toEqual(balances);
+});
+
+/** The person's own svc-bank API through Edge, with a session of its own (not the browser's). */
+async function bank(who) {
+  const login = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
+    method: 'POST',
+    headers: { origin: ORIGIN, 'content-type': 'application/json' },
+    body: JSON.stringify({ deviceKey: DEVICE_KEY, identifier: who.email, password: who.password }),
+  }).then((r) => r.json());
+  const token = login?.result?.data?.accessToken;
+  if (!token) throw new Error(`sign-in for ${who.email} refused`);
+  const res = await fetch(`${EDGE}/api/bank/trpc/spaces.list?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`, {
+    headers: { origin: ORIGIN, authorization: `Bearer ${token}` },
+  });
+  const body = await res.json();
+  if (!res.ok) throw new Error(`spaces.list refused: ${res.status} ${JSON.stringify(body).slice(0, 300)}`);
+  return body.result.data;
+}
+
+// Step 2 runs last: moving the coins out of the main account changes which lots the sales of steps 4 to 7 could draw on.
+test(`${J} #2 moves TEST BTC from the main account to a space: each lot keeps its acquired date and basis and shows in the space's list`, async ({
+  page,
+}) => {
+  const who = account();
+  const SPACE = 'Cold TEST';
+  await signIn(page, who);
+  // A fresh TEST buy, so the move carries a lot with a known cost as well as what is left of the deposit (cost unknown).
+  const bought = await buyNow(page, who, '0.002');
+
+  // The open lots on the main account before the move, as the list shows them.
+  let lots = await lotsPage(page);
+  const open = [];
+  for (const row of await lots.locator('tbody tr').all()) {
+    if ((await row.locator('[data-col="left"]').innerText()) === '0') continue;
+    open.push({
+      id: await row.getAttribute('data-lot'),
+      acquired: await row.locator('th').innerText(),
+      source: await row.getAttribute('data-source'),
+      left: await row.locator('[data-col="left"]').innerText(),
+      costLeft: await row.locator('[data-col="cost-left"]').innerText(),
+    });
+  }
+  expect(open.map((lot) => lot.source)).toEqual(['deposit', 'trade']);
+  expect(open[1].left).toBe(fromUnits(bought.qty));
+  expect(open[1].costLeft).toBe(usd(bought.cost));
+
+  // Create the space in the app, then move every BTC on the main account into it.
+  await page.goto('/bank/spaces');
+  await page.getByRole('button', { name: 'Create space' }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel('Asset', { exact: true }).selectOption('BTC');
+  await dialog.getByLabel('Space name').fill(SPACE);
+  await dialog.getByRole('button', { name: 'Review' }).click();
+  await dialog.getByRole('button', { name: 'Confirm' }).click();
+  await expect(dialog.getByText('Confirmed by the service')).toBeVisible();
+  const spaces = await bank(who);
+  const main = spaces.find((s) => s.kind === 'primary' && s.assetId === 'BTC');
+  const cold = spaces.find((s) => s.kind === 'named' && s.name === SPACE);
+  expect(cold).toBeTruthy();
+  const amount = main.balance;
+  expect(toUnits(amount)).toBe(open.reduce((sum, lot) => sum + toUnits(lot.left), 0n));
+
+  await page.goto('/bank/transfers');
+  await page.getByLabel('From your space').selectOption(main.id);
+  await page.getByRole('button', { name: 'Continue' }).click();
+  const move = page.getByRole('dialog');
+  await move.getByLabel('To which of your accounts').selectOption(cold.id);
+  await move.getByLabel(/Amount/).fill(amount);
+  await move.getByRole('button', { name: 'Review' }).click();
+  await move.getByRole('button', { name: 'Confirm' }).click();
+  await expect(move.getByText(/ledger/i).first()).toBeVisible();
+  const after = await bank(who);
+  expect(after.find((s) => s.id === cold.id).balance).toBe(amount);
+
+  // The space's lots: one per lot that moved, with the date, source and cost it had, marked as moved between accounts.
+  lots = await lotsPage(page);
+  await lots.getByLabel('Account for lots').selectOption(cold.id);
+  await expect(page).toHaveURL(new RegExp(`account=${cold.id}`));
+  const rows = lots.locator('tbody tr');
+  await expect(rows).toHaveCount(open.length);
+  for (const [i, before] of open.entries()) {
+    const row = rows.nth(i);
+    await expect(row.locator('th')).toHaveText(before.acquired);
+    await expect(row).toHaveAttribute('data-source', before.source);
+    await expect(row.locator('[data-col="account"]')).toContainText(`Space: ${SPACE}`);
+    await expect(row.locator('[data-col="account"] [data-label="carried"]')).toContainText('Moved between your accounts');
+    await expect(row.locator('[data-col="qty"]')).toHaveText(before.left);
+    await expect(row.locator('[data-col="cost-left"]')).toHaveText(before.costLeft);
+  }
+  // The bought lot's basis went with it, to the cent; the deposit's part is still without a cost, not a made-up one.
+  await expect(rows.nth(1).locator('[data-col="cost"]')).toHaveText(usd(bought.cost));
+  await expect(rows.nth(0).locator('[data-col="cost"]')).toContainText('Cost unknown');
+  await expect(lots).toContainText('Moving coins between your main account and your spaces is not a sale.');
+
+  // A move is not a sale: no new sale row, and the main account's lots are used up by the move.
+  await lots.getByLabel('Account for lots').selectOption('main');
+  for (const lot of open) await expect(lots.locator(`tbody tr[data-lot="${lot.id}"] [data-col="left"]`)).toHaveText('0');
+  await expect(page.getByRole('region', { name: 'Sales' }).locator('tr[data-sale]')).toHaveCount(3);
 });

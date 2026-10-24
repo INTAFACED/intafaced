@@ -122,6 +122,13 @@ const messages = {
   Lots: 'Lots',
   'Lots for': 'Lots for',
   'Coin for lots': 'Coin for lots',
+  'Lots in': 'Lots in',
+  'Account for lots': 'Account for lots',
+  'Space {name}': 'Space: {name}',
+  'Space archived {name}': 'Space: {name} (archived)',
+  'Carried rule':
+    'Moving coins between your main account and your spaces is not a sale. The coins keep the date and cost they had, and their lots move with them.',
+  'Spaces not followed': 'Moves to and from your spaces are not shown here right now',
   'Lots rule':
     'Each time coins reached you is a lot: bought on the exchange, deposited, paid as a reward or moved in. A sale uses lots by the method you pick.',
   Acquired: 'Acquired',

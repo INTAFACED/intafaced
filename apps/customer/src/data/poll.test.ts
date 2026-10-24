@@ -357,3 +357,31 @@ describe('sources: combine and switchMap', () => {
     poller.dispose();
   });
 });
+
+describe('poller: refresh after a save', () => {
+  it('drops a read already in flight, so an answer from before the save never overwrites the newer one', async () => {
+    const poller = createPoller({ visibility: visibility() });
+    const pending: Array<(value: Outcome<string>) => void> = [];
+    const fetcher = vi.fn(
+      (signal: AbortSignal) =>
+        new Promise<Outcome<string>>((resolve, reject) => {
+          pending.push(resolve);
+          signal.addEventListener('abort', () => reject(new Error('aborted')));
+        }),
+    ) as unknown as Fetcher<string>;
+    const source = poller.source('book', fetcher, { intervalMs: 60_000 });
+    const stop = source.subscribe(() => undefined);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(pending).toHaveLength(1); // the read that started before the save
+    poller.refresh('book'); // the save finished
+    await vi.advanceTimersByTimeAsync(1);
+    expect(pending).toHaveLength(2);
+    pending[1]!(ok('after the save'));
+    await vi.advanceTimersByTimeAsync(1);
+    pending[0]!(ok('before the save'));
+    await vi.advanceTimersByTimeAsync(1);
+    expect(source.getSnapshot()).toMatchObject({ status: 'ready', data: 'after the save' });
+    stop();
+    poller.dispose();
+  });
+});
