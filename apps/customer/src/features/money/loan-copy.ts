@@ -42,6 +42,7 @@ const messages = {
   releasableOver: 'That is more than the bank would release now. Release {releasable} or less.',
   releasableNone: 'The bank would release no collateral from this loan now.',
   releasableFailed: 'The bank could not say how much it would release now, so nothing was sent.',
+  releasableRefused: 'The bank gave no release figure for this loan now, so nothing was sent. Reference: {code}',
 } as const;
 
 const es = {
@@ -88,6 +89,7 @@ const es = {
   releasableOver: 'Es más de lo que el banco liberaría ahora. Libera {releasable} o menos.',
   releasableNone: 'El banco no liberaría ninguna garantía de este préstamo ahora.',
   releasableFailed: 'El banco no pudo decir cuánto liberaría ahora, así que no se envió nada.',
+  releasableRefused: 'El banco no dio una cifra de liberación para este préstamo ahora, así que no se envió nada. Referencia: {code}',
 } as const;
 const fr = {
   statusPending: 'En attente',
@@ -134,6 +136,7 @@ const fr = {
   releasableOver: 'C’est plus que ce que la banque libérerait maintenant. Libère {releasable} ou moins.',
   releasableNone: 'La banque ne libérerait aucune garantie de ce prêt maintenant.',
   releasableFailed: 'La banque n’a pas pu dire combien elle libérerait maintenant, donc rien n’a été envoyé.',
+  releasableRefused: 'La banque n’a donné aucun montant libérable pour ce prêt maintenant, donc rien n’a été envoyé. Référence : {code}',
 } as const;
 export const loanCopy = defineCopy('customer.money.loans', messages, { es, fr });
 

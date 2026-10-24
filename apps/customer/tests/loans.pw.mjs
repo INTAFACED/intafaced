@@ -66,6 +66,17 @@ async function setup(page) {
   await page.route('**/api/bank/trpc/loans.health', (r) => (state.healthFail ? readFailed(r) : response(r, state.health)));
   await page.route('**/api/bank/trpc/loans.releasable?*', (r) => {
     const loanId = JSON.parse(new URL(r.request().url()).searchParams.get('input')).loanId;
+    if (state.releasable === null)
+      return r.fulfill({
+        status: 409,
+        json: {
+          error: {
+            message: 'No usable mark',
+            code: -32603,
+            data: { code: 'CONFLICT', httpStatus: 409, cause: { code: 'bank.mark_missing' } },
+          },
+        },
+      });
     return response(r, { loanId, held: '0.2', releasable: state.releasable, maxLtvBps: 5000, ltvBps: 5013 });
   });
   await page.route('**/api/bank/trpc/loans.*', (r) => {
@@ -298,6 +309,61 @@ test('a repayment whose reply was lost is sent again under the same reference, a
   expect(state.writes[1]).toEqual(state.writes[0]);
   expect(await journal(page)).toEqual([]);
   await expect(page.locator('#bank-unconfirmed')).toHaveCount(0);
+});
+
+test('a second send whose reply is lost again, or that the service refuses, leaves the original guarded and sendable', async ({ page }) => {
+  const state = await setup(page);
+  state.dropReplies = 2;
+  await signIn(page);
+  await review(page);
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('button', { name: 'Confirm', exact: true }).click();
+  await expect(dialog).toContainText('This request may have completed');
+  const again = dialog.getByRole('button', { name: 'Send the same request again', exact: true });
+  await again.click();
+  await expect(dialog).toContainText('This request may have completed');
+  await expect(again).toBeVisible();
+  expect(state.writes).toHaveLength(2);
+  expect(await journal(page)).toHaveLength(1);
+  // A refusal on a second send cannot prove the first did nothing: still unknown, still journaled, still sendable.
+  state.uncertain = true;
+  await again.click();
+  await expect(dialog).toContainText('This request may have completed');
+  await expect(again).toBeVisible();
+  expect(state.writes).toHaveLength(3);
+  expect(new Set(state.writes.map((w) => JSON.stringify(w))).size).toBe(1);
+  expect(await journal(page)).toHaveLength(1);
+  await expect(page.locator('#bank-unconfirmed')).toBeVisible();
+});
+
+test('a second send while another tab holds the bank write lock sends nothing and stays unknown', async ({ page }) => {
+  const state = await setup(page);
+  state.dropReplies = 1;
+  await signIn(page);
+  await review(page);
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('button', { name: 'Confirm', exact: true }).click();
+  await expect(dialog).toContainText('This request may have completed');
+  await page.evaluate((id) => {
+    void navigator.locks.request('bank-write:' + id, () => new Promise(() => {}));
+  }, userId);
+  await dialog.getByRole('button', { name: 'Send the same request again', exact: true }).click();
+  await expect(dialog).toContainText('Another tab has a Bank request running');
+  await expect(dialog).toContainText('This request may have completed');
+  await expect(dialog.getByRole('button', { name: 'Send the same request again', exact: true })).toBeVisible();
+  expect(state.writes).toHaveLength(1);
+  expect(await journal(page)).toHaveLength(1);
+});
+
+test('the release review names the service refusal when it gives no figure', async ({ page }) => {
+  const state = await setup(page);
+  state.releasable = null;
+  await signIn(page);
+  await review(page, 'Release excess', 0, '0.1');
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByTestId('review-terms-blocked')).toContainText('Reference: bank.mark_missing');
+  await expect(dialog.getByRole('button', { name: 'Confirm', exact: true })).toBeDisabled();
+  expect(state.writes).toEqual([]);
 });
 
 test('an unknown release offers no second send: only a request the service answers by its reference may go again', async ({ page }) => {

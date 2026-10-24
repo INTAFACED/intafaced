@@ -60,7 +60,11 @@ export async function readReleasable(
   signal?: AbortSignal,
 ): Promise<{ rows: [string, string][]; blocked: string | null }> {
   const read = await api.query('bank', 'loans.releasable', { loanId }, bankReads['loans.releasable'], { signal });
-  if (!read.ok) return { rows: [], blocked: loanCopy.t('releasableFailed') };
+  if (!read.ok)
+    return {
+      rows: [],
+      blocked: read.code?.includes('.') ? loanCopy.t('releasableRefused', { code: read.code }) : loanCopy.t('releasableFailed'),
+    };
   const most = parseAmount(read.data.releasable);
   const shown = amount(read.data.releasable, assetId);
   const rows: [string, string][] = [[loanCopy.t('releasableNow'), shown]];

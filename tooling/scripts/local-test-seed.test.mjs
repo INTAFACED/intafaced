@@ -785,9 +785,9 @@ test('house inventory stocks both sides of the stack default markets', () => {
   const symbols = JSON.parse(found[1].replaceAll("'", '"'));
   const stocked = new Set(TEST_HOUSE_INVENTORY.map((row) => row.assetId));
   for (const symbol of symbols) {
-    const [base, quote] = symbol.split('/');
-    assert.ok(stocked.has(base), base);
-    assert.ok(stocked.has(quote), quote);
+    // A perpetual names its settle asset after a colon (`BTC/USDT:USDT`); every asset it names is stocked.
+    const [base, rest] = symbol.split('/');
+    for (const asset of [base, ...rest.split(':')]) assert.ok(stocked.has(asset), asset);
   }
   const quoteSrc = readFileSync(path.join(repo, 'services/svc-trade/src/convert/quote.ts'), 'utf8');
   assert.match(quoteSrc, /baseAsset/);

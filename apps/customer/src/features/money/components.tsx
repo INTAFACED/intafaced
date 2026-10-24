@@ -346,8 +346,9 @@ export function MutationDialog({
   const [requestId, setRequestId] = useState(() => crypto.randomUUID());
   // The request that was last sent to the bank. A different request after it never reuses its reference.
   const lastSent = useRef<Record<string, unknown> | null>(null);
-  // Its journal entry while its outcome is unknown, so sending the same request again can clear it once the bank answers.
-  const journaled = useRef<PendingReservation | null>(null);
+  // This dialog's own journaled request while its outcome is unknown: sending it again sends exactly this, under this
+  // entry's reference, and clears the entry once the bank answers.
+  const journaled = useRef<{ reservation: PendingReservation; input: Record<string, unknown> } | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [stage, setStage] = useState<'form' | 'review' | 'sending' | 'outcome'>((spec.fields?.length ?? 0) ? 'form' : 'review');
   const [result, setResult] = useState<ApiResult<unknown> | null>(null);
@@ -477,7 +478,7 @@ export function MutationDialog({
     if (definitive) {
       try {
         await clearPendingOutcome(original, live);
-        if (journaled.current === original) journaled.current = null;
+        if (journaled.current?.reservation === original) journaled.current = null;
       } catch {
         if (live()) setClearFailure(true);
       }
@@ -490,6 +491,26 @@ export function MutationDialog({
         message: outcome.message + copyText('components.the.original.request.remains.guarded.until.its'),
       };
     return outcome;
+  }
+  /**
+   * One bank write at a time across this person's tabs. When the lock is held elsewhere, or the browser has none, nothing
+   * is sent, and `unsent` says how that reads for the caller.
+   */
+  function underWriteLock(
+    body: () => Promise<ApiResult<unknown>>,
+    unsent: (reason: 'error' | 'not_supported', message: string) => ApiResult<unknown>,
+  ): Promise<ApiResult<unknown>> {
+    if (!navigator.locks)
+      return Promise.resolve(unsent('not_supported', copyText('components.this.browser.cannot.coordinate.bank.requests.across')));
+    return navigator.locks.request(`bank-write:${userId}`, { ifAvailable: true }, (lock) =>
+      lock ? body() : Promise.resolve(unsent('error', copyText('components.another.tab.has.a.bank.request.running'))),
+    );
+  }
+  function finish(outcome: ApiResult<unknown>) {
+    sending.current = null;
+    setResult(outcome);
+    setStage('outcome');
+    if (outcome.ok) onDone();
   }
   // The confirmation answers after an async factor check; it must reach this render's submit, not the one it began with.
   const latestSubmit = useRef<(stepUpApprovalId?: string | null) => Promise<void>>(async () => {});
@@ -538,7 +559,7 @@ export function MutationDialog({
       } catch {
         return { ok: false, reason: 'error', message: copyText('components.recovery.storage.is.unavailable.no.bank.request') };
       }
-      journaled.current = reservation;
+      journaled.current = { reservation, input };
       onPendingChange();
       if (!currentRun()) {
         // This original has not dispatched. Remove only its just-saved marker;
@@ -558,71 +579,51 @@ export function MutationDialog({
       if (currentRun()) onPendingChange();
       return said;
     };
-    const outcome = navigator.locks
-      ? await navigator.locks.request(`bank-write:${userId}`, { ifAvailable: true }, (lock) =>
-          lock
-            ? dispatch()
-            : Promise.resolve({
-                ok: false as const,
-                reason: 'error' as const,
-                message: copyText('components.another.tab.has.a.bank.request.running'),
-              }),
-        )
-      : {
-          ok: false as const,
-          reason: 'not_supported' as const,
-          message: copyText('components.this.browser.cannot.coordinate.bank.requests.across'),
-        };
+    const outcome = await underWriteLock(dispatch, (reason, message) => ({ ok: false, reason, message }));
     if (!currentRun()) return;
-    sending.current = null;
-    setResult(outcome);
     lastSent.current = input;
-    setStage('outcome');
-    if (outcome.ok) onDone();
+    finish(outcome);
+  }
+  /** The journaled original this dialog may send again: its own, the last one it sent, under the reference it shows. */
+  function resendable() {
+    const original = journaled.current;
+    return spec.resendSame &&
+      !spec.stepUp &&
+      original &&
+      original.reservation.reference === requestId &&
+      original.input === lastSent.current
+      ? original
+      : null;
   }
   /**
    * After an unknown outcome, the same request again: the same body and reference, without a new journal entry or a
    * fresh preflight (what it read has changed if the first send landed). The bank answers with the first send's result.
+   * Anything that stops it before it is sent leaves the outcome unknown, as it was.
    */
   async function resend() {
-    const input = lastSent.current;
-    const original = journaled.current;
-    if (!spec.resendSame || spec.stepUp || !admitted() || stage !== 'outcome' || sending.current || !input || !original) return;
-    if (!result || result.ok || result.reason !== 'uncertain' || reviewed.current !== input || !userId) return;
+    const original = resendable();
+    if (!original || !admitted() || stage !== 'outcome' || sending.current || !userId) return;
+    if (!result || result.ok || result.reason !== 'uncertain' || reviewed.current !== original.input) return;
+    const { reservation, input } = original;
     const run = {};
     sending.current = run;
     setStage('sending');
     const currentRun = () => current() && sending.current === run && reviewed.current === input;
+    const unknown = (message: string): ApiResult<unknown> => ({ ok: false, reason: 'uncertain', message });
     const again = async (): Promise<ApiResult<unknown>> => {
+      if (!currentRun()) return authoredRefusal('uncertain', { key: 'accountChanged' });
       // Any other original with an unknown outcome still pauses every bank write.
-      if (pendingOutcomes(userId).some((record) => record.reference !== original.reference))
-        return { ok: false, reason: 'uncertain', message: copyText('components.an.original.bank.request.still.requires.recovery') };
+      if (pendingOutcomes(userId).some((record) => record.reference !== reservation.reference))
+        return unknown(copyText('components.an.original.bank.request.still.requires.recovery'));
       const { outcome, definitive } = await post(input, input);
       if (!currentRun()) return authoredRefusal('uncertain', { key: 'accountChanged' });
-      const said = await settle(outcome, definitive, original, currentRun);
+      const said = await settle(outcome, definitive, reservation, currentRun);
       if (currentRun()) onPendingChange();
       return said;
     };
-    const outcome = navigator.locks
-      ? await navigator.locks.request(`bank-write:${userId}`, { ifAvailable: true }, (lock) =>
-          lock
-            ? again()
-            : Promise.resolve({
-                ok: false as const,
-                reason: 'error' as const,
-                message: copyText('components.another.tab.has.a.bank.request.running'),
-              }),
-        )
-      : {
-          ok: false as const,
-          reason: 'not_supported' as const,
-          message: copyText('components.this.browser.cannot.coordinate.bank.requests.across'),
-        };
+    const outcome = await underWriteLock(again, (_reason, message) => unknown(message));
     if (!currentRun()) return;
-    sending.current = null;
-    setResult(outcome);
-    setStage('outcome');
-    if (outcome.ok) onDone();
+    finish(outcome);
   }
   const terminalUnknown = result && !result.ok && result.reason === 'uncertain';
   const described =
@@ -827,7 +828,7 @@ export function MutationDialog({
                   <Text k="components.request.reference" />
                   {requestId}
                 </p>
-                {spec.resendSame && !spec.stepUp && (
+                {resendable() && (
                   <>
                     <p className="muted">
                       <Text k="components.the.bank.answers.this.reference.with.its.first.result" />

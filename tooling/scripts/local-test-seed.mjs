@@ -516,7 +516,7 @@ export async function unseedAll(deps) {
  * #2: a repayment pays interest first). Only the loan's dates move: when it was opened and drawn, and when its opening
  * pledge settled. Nothing is posted and no figure is written; the interest is the bank's, charged later by its job door.
  * Refused unless the loan is on a TEST product, active, drawn, and has nothing after its opening yet (no interest row,
- * repayment, liquidation or later collateral move), so no recorded event is ever left before the loan's start.
+ * repayment, liquidation, margin call or later collateral move), so no recorded event is ever left before the loan's start.
  */
 export async function ageLoan(deps, loanId, days) {
   if (typeof loanId !== 'string' || !UUID.test(loanId)) throw new GuardError('refusing: age-loan needs a loan id (a UUID)');
@@ -727,12 +727,18 @@ export async function openLocal(plan) {
         `;
         const loan = rows[0];
         if (!loan) return { refused: 'is not on this stack' };
+        // Held to the end of this transaction: no event row can be written for any loan while the count and the move run.
+        await tx`
+          LOCK TABLE bank.loan_interest_accruals, bank.loan_repayments, bank.loan_liquidations,
+                     bank.loan_collateral_events, bank.loan_margin_calls IN SHARE MODE
+        `;
         if (!testProducts.includes(loan.product)) return { refused: 'is not on a TEST loan product' };
         if (loan.status !== 'active' || loan.drawn_at === null) return { refused: `is ${loan.status}, not an active drawn loan` };
         const [later] = await tx`
           SELECT (SELECT count(*) FROM bank.loan_interest_accruals WHERE loan_id = ${loanId})
                + (SELECT count(*) FROM bank.loan_repayments WHERE loan_id = ${loanId})
                + (SELECT count(*) FROM bank.loan_liquidations WHERE loan_id = ${loanId})
+               + (SELECT count(*) FROM bank.loan_margin_calls WHERE loan_id = ${loanId})
                + (SELECT count(*) FROM bank.loan_collateral_events WHERE loan_id = ${loanId} AND sequence <> 0) AS n
         `;
         if (Number(later.n) > 0) return { refused: 'already has events after its opening' };
