@@ -196,14 +196,16 @@ function proposalDetailSchema(id: string) {
     }
   });
 }
-export function Token() {
+export type TokenTab = 'Staking' | 'Governance' | 'Economy';
+/** `tab`: the section an address such as /token/economy opens on. */
+export function Token({ tab: first }: { tab?: TokenTab } = {}) {
   const { hideBalances } = usePreferences();
   const api = useApi(),
     { userId } = useSession(),
     action = useAction('token');
   const selection = useOriginalProposal(userId);
   const ballot = useSavedBallot(userId);
-  const [tab, setTab] = useState(() => (selectedFor(userId) ? 'Governance' : 'Staking')),
+  const [tab, setTab] = useState<TokenTab>(() => first ?? (selectedFor(userId) ? 'Governance' : 'Staking')),
     [status, setStatus] = useState('all'),
     [limit, setLimit] = useState(50),
     [proposalStatus, setProposalStatus] = useState('all'),
@@ -271,7 +273,7 @@ export function Token() {
         items={['Staking', 'Governance', 'Economy']}
         labels={{ Staking: copyText('token.staking'), Governance: copyText('token.governance'), Economy: copyText('token.economy') }}
         value={tab}
-        onChange={setTab}
+        onChange={(value) => setTab(value as TokenTab)}
         label={copyText('token.token.sections')}
       />
       {tab === 'Staking' ? (

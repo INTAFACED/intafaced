@@ -14,10 +14,12 @@ import './mining-availability.css';
 // from the pool. A configured connection or registered job is never evidence of a credit or payout.
 type Status = { resource: Resource<MiningHealth>; reload: () => void };
 const TABS = ['Overview', 'Workers', 'Shares', 'Rewards', 'Status'] as const;
-export function Mining() {
+export type MiningTab = (typeof TABS)[number];
+/** `tab`: the section an address such as /mining/workers opens on; Overview for /mining. */
+export function Mining({ tab: first = 'Overview' }: { tab?: MiningTab }) {
   const api = useApi();
   const status = useResource((signal) => api.plain('mining', '/health', miningHealth, { signal }), 'mining-health');
-  const [tab, setTab] = useState<(typeof TABS)[number]>('Overview');
+  const [tab, setTab] = useState<MiningTab>(first);
   const depth = miningDepthCopy.useCopy();
   return (
     <div className="more-grid">

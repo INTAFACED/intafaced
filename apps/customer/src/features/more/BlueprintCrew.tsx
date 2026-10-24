@@ -101,7 +101,7 @@ export function BlueprintCrew() {
   const date = (value: string) =>
     new Intl.DateTimeFormat(requestedLocale, { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' }).format(new Date(value)) + ' UTC';
   return (
-    <section className="blueprint-crew" aria-label={t('title')} lang={languageFor('title')}>
+    <section id="blueprint-crew" className="blueprint-crew" aria-label={t('title')} lang={languageFor('title')}>
       <Panel title={t('title')}>
         {rendered.status === 'idle' ? <p className="muted">{t('intro')}</p> : null}
         {rendered.status === 'loading' ? <p role="status">{t('loading')}</p> : null}

@@ -6,11 +6,11 @@ import { launchDepthCopy } from './launch-depth-copy';
 import { LaunchCheck, LaunchJourney, LaunchParticipation } from './LaunchRooms';
 import './launch-availability.css';
 
-type LaunchTab = 'Journey' | 'Check' | 'Requirements' | 'Participation';
+export type LaunchTab = 'Journey' | 'Check' | 'Requirements' | 'Participation';
 const TABS: readonly LaunchTab[] = ['Journey', 'Check', 'Requirements', 'Participation'];
-/** Issuer journey, pre-listing check, requirements and participation. */
-export function Launch({ orders = false }: { orders?: boolean }) {
-  const [tab, setTab] = useState<LaunchTab>(orders ? 'Participation' : 'Journey');
+/** Issuer journey, pre-listing check, requirements and participation. `tab`: the section an address such as /launch/check opens on. */
+export function Launch({ orders = false, tab: first }: { orders?: boolean; tab?: LaunchTab }) {
+  const [tab, setTab] = useState<LaunchTab>(first ?? (orders ? 'Participation' : 'Journey'));
   const { t } = launchDepthCopy.useCopy();
   return (
     <div className="more-grid">

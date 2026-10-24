@@ -5,6 +5,8 @@
 }
 .blueprint-crew {
   min-width: 0;
+  /* /blueprint/crew scrolls here: keep the heading clear of the sticky top bar. */
+  scroll-margin-top: calc(var(--if-topbar-h) + 16px);
 }
 .blueprint-crew p,
 .blueprint-crew dd,

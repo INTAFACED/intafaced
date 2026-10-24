@@ -11,7 +11,8 @@ vi.stubGlobal('location', new URL('https://app.example.com/'));
 vi.stubGlobal('history', { state: null, replaceState: () => undefined, pushState: () => undefined });
 
 import { SessionProvider } from '../session/session';
-import { MoreRoutes } from './MoreRoutes';
+import { MoreRoutes, SECTION_TABS } from './MoreRoutes';
+import { MORE_ROUTES } from './more-room-routes';
 
 const page = (path: string) =>
   renderToString(
@@ -37,6 +38,33 @@ describe('More room sections and records (MC-order-01)', () => {
     const html = page('/mining/workers');
     expect(html).toContain('Mining workers');
     expect(html).not.toContain('No details are shown for this record');
+  });
+
+  it("opens each section address on its own tab, not on the room's first one (Phantom 24 Oct)", () => {
+    const selected = (html: string) => [...html.matchAll(/aria-pressed="true"[^>]*>([^<]*)</g)].map((hit) => hit[1]);
+    expect(selected(page('/mining'))).toEqual(['Overview']);
+    for (const [path, tab] of [
+      ['/mining/workers', 'Workers'],
+      ['/mining/shares', 'Shares'],
+      ['/mining/rewards', 'Rewards'],
+      ['/mining/status', 'Pool status'],
+      ['/launch/new', 'Issuer journey'],
+      ['/launch/check', 'Pre-listing check'],
+      ['/launch/requirements', 'Requirements'],
+      ['/token/governance', 'Governance'],
+      ['/token/economy', 'Economy'],
+    ] as const) {
+      expect(selected(page(path)), path).toEqual([tab]);
+    }
+    expect(selected(page('/mining/workers?simulated=true'))).toEqual(['Workers']);
+  });
+
+  it("gives every tabbed room's section address a tab, so a new section cannot fall back to the first one", () => {
+    for (const route of MORE_ROUTES) {
+      if (route.kind !== 'part' || !(route.room in SECTION_TABS)) continue;
+      const tabs: Record<string, string> = SECTION_TABS[route.room as keyof typeof SECTION_TABS];
+      expect(tabs[route.pattern.split('/')[2] ?? ''], route.pattern).toBeTruthy();
+    }
   });
 
   it('keeps the honest "no customer route" panel for a path that is not a section or record', () => {
