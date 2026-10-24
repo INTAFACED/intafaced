@@ -79,8 +79,8 @@ const schema = serviceEnvSchema
        */
       SUPPORT_COMMENT_CAP: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
       /**
-       * How many votes one signed-out reader may cast in the window below.
-       * Either one blank refuses a public vote with support.feedback_rate_limit_unset. Never defaulted.
+       * How many help-answer votes one account or signed-out reader may cast in the window below.
+       * Either one blank refuses every vote with support.feedback_rate_limit_unset. Never defaulted.
        */
       SUPPORT_FEEDBACK_RATE_LIMIT: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
       SUPPORT_FEEDBACK_RATE_WINDOW_SECONDS: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
