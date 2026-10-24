@@ -8,7 +8,7 @@ import {
   type PayCustodyDepositRecordsReply,
   type PayCustodyDepositStatus,
 } from '@intafaced/contracts';
-import type { PayDepositCreditPostedPayload } from '@intafaced/events';
+import { payDepositCreditPostedPayloadSchema, type PayDepositCreditPostedPayload } from '@intafaced/events';
 import type { RegistryReader } from '../../registries/read-api.js';
 
 /**
@@ -202,17 +202,26 @@ export class CustodyDepositBook {
        WHERE status = 'credited' AND credit_notified_at IS NULL ORDER BY credited_at, id LIMIT ${ANNOUNCE_BATCH}`;
     let announced = 0;
     for (const row of owed) {
-      try {
-        await announceCredit({
+      const credit = payDepositCreditPostedPayloadSchema.safeParse({
+        depositId: row.id,
+        userId: row.user_id,
+        assetId: row.asset_id,
+        networkId: row.network_id,
+        amount: row.amount,
+        txHash: row.tx_hash,
+        ledgerTxId: row.ledger_tx_id,
+        creditedAt: row.credited_at.toISOString(),
+      });
+      if (!credit.success) {
+        // A row the event cannot carry is not a bus failure: it stays owed and is named, and the rows after it still go out.
+        this.deps.log?.('custody deposit credit cannot be announced', {
           depositId: row.id,
-          userId: row.user_id,
-          assetId: row.asset_id,
-          networkId: row.network_id,
-          amount: row.amount,
-          txHash: row.tx_hash,
-          ledgerTxId: row.ledger_tx_id,
-          creditedAt: row.credited_at.toISOString(),
+          fields: credit.error.issues.map((issue) => issue.path.join('.')),
         });
+        continue;
+      }
+      try {
+        await announceCredit(credit.data);
       } catch (err) {
         this.deps.log?.('custody deposit credit not announced yet', {
           depositId: row.id,

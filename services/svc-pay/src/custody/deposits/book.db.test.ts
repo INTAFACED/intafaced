@@ -375,6 +375,22 @@ describe('custody deposit record (real Postgres)', () => {
       expect(await unannounced()).toBe(0);
     });
 
+    it('a row the event cannot carry is named and skipped; the rows after it are still announced', async () => {
+      await book().receive(seen());
+      await book().receive(seen({ outputIndex: 1 }));
+      const [first] = await db.sql<Array<{ id: string }>>`
+        SELECT id FROM pay.custody_deposits WHERE output_index = 0`;
+      await db.sql`UPDATE pay.custody_deposits SET user_id = 'not-a-user-id' WHERE id = ${first!.id}`;
+      const sent: Sent[] = [];
+      expect(await announcing(sent).announceOwed()).toBe(1);
+      expect(sent.map((c) => c.depositId)).not.toContain(first!.id);
+      expect(logs).toContainEqual({
+        msg: 'custody deposit credit cannot be announced',
+        extra: { depositId: first!.id, fields: ['userId'] },
+      });
+      expect(await unannounced()).toBe(1);
+    });
+
     it('with no publisher nothing is announced; credits wait and are announced once one is passed', async () => {
       await book().receive(seen());
       await book().receive(seen({ outputIndex: 1 }));
