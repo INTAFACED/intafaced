@@ -6,12 +6,13 @@ import { DEVICE_KEY, EDGE, ORIGIN, api, fund, journeyState, signUpInBrowser, too
 // J-ops-console-04 steps #2-#5: staff holds on one TEST customer's funds, on the founder console's account page.
 //   #2 founder A holds 40 of the customer's 100 TEST USDT with a reason: available falls to 60, the total stays 100; a hold
 //      above what is available is refused by the ledger and holds nothing.
-//   #3 founder A asks to release 15 of it; a run before anyone approved changes nothing; founder B approves the same hold and
-//      amount on their own console; A runs it once: 25 stays held and 75 is available again.
-//   #4 a hold with an expiry releases itself: the stack's TEST fixture moves its stored expiry to just past, and svc-ops' own
-//      expiry worker releases what is left, with no approver.
-//   #5 founder A asks to confirm the first hold, B approves, A runs it: the 25 still held leaves the customer's balance for
-//      the TEST owner-named account, and the hold says so.
+//   #3 a hold with an expiry releases itself at the stored time: the stack's TEST fixture moves its stored expiry to just
+//      past, and svc-ops' own expiry worker releases what is left, with no approver, under release number 1 only.
+//   #4 founder A asks to release 15 of the first hold: A approving it is refused (action_approval.same_person) and a run
+//      before anyone approved changes nothing; founder B approves; A runs it once and 25 stays held; running it again
+//      returns the stored release.
+//   #5 A asks to confirm the first hold and to release all 25 of it, B approves both, and A runs both at the same moment:
+//      exactly one wins (svc-ops locks the hold's row). A confirm debits the 25 once, for the TEST owner-named account.
 // Holds go out on the console's treasury credential (founder A's, on the stack); the money only ever moves in the ledger.
 
 const J = 'J-ops-console-04-holds';
@@ -57,6 +58,20 @@ async function placeHold(holds, { amount, reason, hours = '' }) {
   await expect(reply).toBeVisible({ timeout: 60_000 });
   return reply;
 }
+
+/** One step of a two-founder request, posted as the signed-in founder in `page` (the console's own CSRF header). */
+const step = (page, body) =>
+  page.evaluate(async (payload) => {
+    const session = await (await fetch('/api/session', { cache: 'no-store' })).json();
+    const res = await fetch('/api/accounts/holds', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-intafaced-csrf': session.csrf },
+      body: JSON.stringify(payload),
+    });
+    return { status: res.status, body: await res.json() };
+  }, body);
+
+const decode = (text) => JSON.parse(Buffer.from(text.slice('ifa1.'.length), 'base64url').toString('utf8'));
 
 const row = (holds, holdNo) => holds.locator(`[data-testid=hold-row][data-hold-no="${holdNo}"]`);
 
@@ -122,7 +137,39 @@ test('J-ops-console-04 #2 holds part of a customer’s funds with a reason: avai
   run.write({ who, userId, firstHold });
 });
 
-test('J-ops-console-04 #3 releases part of a hold with a second founder: alone it changes nothing, approved it runs once', async ({
+test('J-ops-console-04 #3 a hold with an expiry releases itself at the stored time, with no approver, once', async ({ browser }) => {
+  test.setTimeout(300_000);
+  const { who, userId } = saved();
+  const tag = randomUUID().slice(0, 8);
+  const a = await (await browser.newContext()).newPage();
+  await founderSignIn(a, 'a');
+  const holds = await openHolds(a, userId);
+
+  const placed = await placeHold(holds, { amount: '10', reason: `LOCAL TEST hold until checked ${tag}`, hours: '2' });
+  await expect(placed).toContainText(/hold \d+ is active, 10 USDT still held/);
+  const holdNo = /hold (\d+) is active/.exec(await placed.innerText())[1];
+  await expect(row(holds, holdNo)).not.toContainText('No expiry');
+  expect(await usdt(who)).toEqual({ free: '50', total: '100' });
+
+  // Longer than the owner's longest expiry (24 TEST hours) is refused before anything is sent.
+  await holds.getByLabel(/^Expires in hours/).fill('25');
+  await expect(holds.getByTestId('hold-place-why')).toContainText('at most 24 hours');
+
+  // The stored expiry is moved to just past; svc-ops' worker checks it against its own clock and releases the rest.
+  tool('local-test-stack.mjs', 'expire-staff-holds', who.email);
+  await expect.poll(async () => (await usdt(who)).free, { timeout: 60_000, message: 'the expiry worker released the 10' }).toBe('60');
+  // Worker ticks after the release keep the one stored release: no second number, no second post.
+  await a.waitForTimeout(12_000);
+  const listed = row(await openHolds(a, userId), holdNo);
+  await expect(listed.getByTestId('hold-state')).toHaveText('Released when it expired');
+  await expect(listed.getByTestId('hold-movement')).toHaveCount(2);
+  await expect(listed.getByTestId('hold-movement').nth(1)).toContainText(
+    `Release 1: 10, the expiry, no approver, posted · key ops:hold-release:${holdNo}:1`,
+  );
+  expect(await usdt(who)).toEqual({ free: '60', total: '100' });
+});
+
+test('J-ops-console-04 #4 releases part of a hold: the requester alone is refused, a different approver lets it run once', async ({
   browser,
 }) => {
   test.setTimeout(300_000);
@@ -144,12 +191,15 @@ test('J-ops-console-04 #3 releases part of a hold with a second founder: alone i
     submit: 'Ask a second founder to approve the release',
   });
 
-  // Alone: A cannot approve their own request, and a run before anyone approved changes nothing.
+  // Alone: identity refuses A approving their own request, and a run before anyone approved changes nothing.
   await desk.getByLabel(/to approve or run it$/).fill(phrase);
   await expect(desk.getByRole('button', { name: 'Approve this request' })).toBeDisabled();
+  const ticket = decode(packet);
+  const selfApprove = await step(a, { step: 'approve', request: ticket.request, confirm: phrase, approvalId: ticket.approvalId });
+  expect(selfApprove.body).toMatchObject({ ok: false, refusal: { code: 'action_approval.same_person' } });
   await runIt(desk, phrase);
   await expect(desk.getByTestId('step-reply')).not.toContainText('still held');
-  expect(await usdt(who), 'nothing released without the second founder').toEqual({ free: '60', total: '100' });
+  expect(await usdt(who), 'nothing released without a different approver').toEqual({ free: '60', total: '100' });
 
   await approveOn(b, userId, 'hold-release', packet, phrase, `Release 15 USDT of staff hold ${firstHold}`);
   await runIt(desk, phrase);
@@ -157,45 +207,21 @@ test('J-ops-console-04 #3 releases part of a hold with a second founder: alone i
     timeout: 60_000,
   });
   expect(await usdt(who)).toEqual({ free: '75', total: '100' });
+  // Running it again returns the stored release; nothing more moves.
+  await runIt(desk, phrase);
+  await expect(desk.getByTestId('step-reply')).toContainText(`Already done: hold ${firstHold} is partially released, 25 USDT still held.`);
+  expect(await usdt(who)).toEqual({ free: '75', total: '100' });
 
   const listed = row(await openHolds(a, userId), firstHold);
   await expect(listed.getByTestId('hold-state')).toHaveText('Partly released');
   await expect(listed.getByTestId('hold-remaining')).toHaveText('25 USDT');
+  await expect(listed.getByTestId('hold-movement')).toHaveCount(2);
   await expect(listed.getByTestId('hold-movement').nth(1)).toContainText(
     `Release 1: 15, approved by ${founderB.userId.slice(0, 8)}, posted · key ops:hold-release:${firstHold}:1`,
   );
 });
 
-test('J-ops-console-04 #4 a hold with an expiry releases itself once it is due, with no approver', async ({ browser }) => {
-  test.setTimeout(300_000);
-  const { who, userId } = saved();
-  const tag = randomUUID().slice(0, 8);
-  const a = await (await browser.newContext()).newPage();
-  await founderSignIn(a, 'a');
-  const holds = await openHolds(a, userId);
-
-  const placed = await placeHold(holds, { amount: '10', reason: `LOCAL TEST hold until checked ${tag}`, hours: '2' });
-  await expect(placed).toContainText(/hold \d+ is active, 10 USDT still held/);
-  const holdNo = /hold (\d+) is active/.exec(await placed.innerText())[1];
-  await expect(row(holds, holdNo)).not.toContainText('No expiry');
-  expect(await usdt(who)).toEqual({ free: '65', total: '100' });
-
-  // Longer than the owner's longest expiry (24 TEST hours) is refused before anything is sent.
-  await holds.getByLabel(/^Expires in hours/).fill('25');
-  await expect(holds.getByTestId('hold-place-why')).toContainText('at most 24 hours');
-
-  // The stored expiry is moved to just past; svc-ops' worker checks it against its own clock and releases the rest.
-  tool('local-test-stack.mjs', 'expire-staff-holds', who.email);
-  await expect.poll(async () => (await usdt(who)).free, { timeout: 60_000, message: 'the expiry worker released the 10' }).toBe('75');
-  const listed = row(await openHolds(a, userId), holdNo);
-  await expect(listed.getByTestId('hold-state')).toHaveText('Released when it expired');
-  await expect(listed.getByTestId('hold-movement').nth(1)).toContainText(
-    `Release 1: 10, the expiry, no approver, posted · key ops:hold-release:${holdNo}:1`,
-  );
-  expect(await usdt(who)).toEqual({ free: '75', total: '100' });
-});
-
-test('J-ops-console-04 #5 confirms a hold with a second founder: what is still held leaves for the owner-named account', async ({
+test('J-ops-console-04 #5 confirms the rest while a release of it runs at the same moment: exactly one wins, a confirm debits once', async ({
   browser,
 }) => {
   test.setTimeout(300_000);
@@ -209,22 +235,69 @@ test('J-ops-console-04 #5 confirms a hold with a second founder: what is still h
   const holds = await openHolds(a, userId);
   await expect(holds.getByTestId('hold-settings')).toContainText('The owner-named account.');
   await holds.getByLabel('Hold', { exact: true }).selectOption(firstHold);
-  const desk = holds.getByTestId('hold-confirm');
-  const phrase = `CONFIRM HOLD ${firstHold}`;
-  const packet = await ask(desk, {
+  const confirmPhrase = `CONFIRM HOLD ${firstHold}`;
+  const confirmPacket = await ask(holds.getByTestId('hold-confirm'), {
     why: `LOCAL TEST fraud confirmed ${tag}`,
-    phrase,
+    phrase: confirmPhrase,
     submit: 'Ask a second founder to approve the confirm',
   });
-  await approveOn(b, userId, 'hold-confirm', packet, phrase, `Confirm staff hold ${firstHold}`);
-  await runIt(desk, phrase);
-  await expect(desk.getByTestId('step-reply')).toContainText(`hold ${firstHold} is confirmed, 0 USDT still held.`, { timeout: 60_000 });
-  expect(await usdt(who), 'the 25 still held left the customer’s balance').toEqual({ free: '75', total: '75' });
+  await holds.getByLabel('Amount to release').fill('25');
+  const releasePhrase = `RELEASE HOLD ${firstHold}`;
+  const releasePacket = await ask(holds.getByTestId('hold-release'), {
+    why: `LOCAL TEST customer proved the rest ${tag}`,
+    phrase: releasePhrase,
+    submit: 'Ask a second founder to approve the release',
+  });
+  await approveOn(b, userId, 'hold-confirm', confirmPacket, confirmPhrase, `Confirm staff hold ${firstHold}`);
+  await approveOn(b, userId, 'hold-release', releasePacket, releasePhrase, `Release 25 USDT of staff hold ${firstHold}`);
 
-  const listed = row(await openHolds(a, userId), firstHold);
+  // Both approved; A runs both at the same moment. svc-ops takes the hold's row lock for each, so one finds nothing left.
+  const run1 = (text, phrase) => {
+    const ticket = decode(text);
+    return step(a, {
+      step: 'execute',
+      request: ticket.request,
+      confirm: phrase,
+      approvalId: ticket.approvalId,
+      operationId: ticket.operationId,
+    });
+  };
+  const [confirmed, released] = await Promise.all([run1(confirmPacket, confirmPhrase), run1(releasePacket, releasePhrase)]);
+  const winners = [confirmed, released].filter((r) => r.body.ok === true);
+  expect(winners, `exactly one of the two runs wins: ${JSON.stringify([confirmed.body, released.body])}`).toHaveLength(1);
+  const loser = confirmed.body.ok ? released : confirmed;
+  expect(loser.body).toMatchObject({ ok: false, refusal: { code: expect.stringMatching(/^ops\.hold_/) } });
+
+  console.log(`J-ops-console-04 #5: the ${confirmed.body.ok ? 'confirm' : 'release'} won the race`);
+  let confirmedHold = firstHold;
+  if (confirmed.body.ok) {
+    expect(await usdt(who), 'the confirm won: the 25 left the customer once').toEqual({ free: '75', total: '75' });
+  } else {
+    // The release won: the 25 is the customer's again and the confirm moved nothing. A confirm is then shown on a fresh hold.
+    expect(await usdt(who), 'the release won: nothing was confirmed').toEqual({ free: '100', total: '100' });
+    const again = await openHolds(a, userId);
+    const placed = await placeHold(again, { amount: '25', reason: `LOCAL TEST fraud confirmed ${tag}` });
+    confirmedHold = /hold (\d+) is active/.exec(await placed.innerText())[1];
+    await again.getByLabel('Hold', { exact: true }).selectOption(confirmedHold);
+    const phrase = `CONFIRM HOLD ${confirmedHold}`;
+    const packet = await ask(again.getByTestId('hold-confirm'), {
+      why: `LOCAL TEST fraud confirmed ${tag}`,
+      phrase,
+      submit: 'Ask a second founder to approve the confirm',
+    });
+    await approveOn(b, userId, 'hold-confirm', packet, phrase, `Confirm staff hold ${confirmedHold}`);
+    const done = await run1(packet, phrase);
+    expect(done.body).toMatchObject({ ok: true });
+    expect(await usdt(who), 'the 25 left the customer once').toEqual({ free: '75', total: '75' });
+  }
+
+  const listed = row(await openHolds(a, userId), confirmedHold);
   await expect(listed.getByTestId('hold-state')).toContainText('Confirmed');
-  await expect(listed.getByTestId('hold-movement').nth(2)).toContainText(`Confirm 1: 25,`);
-  await expect(listed.getByTestId('hold-movement').nth(2)).toContainText(`posted · key ops:hold-confirm:${firstHold}:1`);
-  // Nothing is left to release or confirm.
-  await expect(holds.getByLabel('Hold', { exact: true }).locator(`option[value="${firstHold}"]`)).toHaveCount(0);
+  await expect(listed.getByTestId('hold-movement').filter({ hasText: 'Confirm 1: 25,' })).toContainText(
+    `posted · key ops:hold-confirm:${confirmedHold}:1`,
+  );
+  await expect(listed.getByTestId('hold-movement').filter({ hasText: /^Confirm/ })).toHaveCount(1);
+  // Nothing is left to release or confirm on it.
+  await expect(holds.getByLabel('Hold', { exact: true }).locator(`option[value="${confirmedHold}"]`)).toHaveCount(0);
+  expect(await usdt(who)).toEqual({ free: '75', total: '75' });
 });
