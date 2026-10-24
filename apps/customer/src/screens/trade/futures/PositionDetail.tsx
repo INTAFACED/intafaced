@@ -46,6 +46,7 @@ export function PositionDetail({
   planeOff,
   onClose,
   onChanged,
+  onReverse,
 }: {
   position: Position;
   marginCall: MarginCall | null | undefined;
@@ -54,6 +55,7 @@ export function PositionDetail({
   planeOff: boolean;
   onClose(): void;
   onChanged(): void;
+  onReverse?(p: Position): void;
 }) {
   const { t } = positionsCopy.useCopy();
   const { timeZone } = usePreferences();
@@ -115,7 +117,14 @@ export function PositionDetail({
           <KeyValue items={items} density="dense" />
           <MarginCallPanel call={marginCall} t={t} />
           <section aria-label={t('Detail actions')}>
-            <PositionRowActions position={position} free={free} leverageCap={leverageCap} planeOff={planeOff} onChanged={onChanged} />
+            <PositionRowActions
+              position={position}
+              free={free}
+              leverageCap={leverageCap}
+              planeOff={planeOff}
+              onChanged={onChanged}
+              {...(onReverse ? { onReverse } : {})}
+            />
           </section>
         </div>
       </DialogContent>

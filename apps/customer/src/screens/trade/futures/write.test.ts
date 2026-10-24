@@ -11,6 +11,8 @@ import type {
   PlaceOrderInput,
   Protection,
   ReduceInput,
+  Reverse,
+  ReverseRequest,
   StopInput,
 } from './api';
 import { checkPending, intentId, loadIntent, runIntent, type Intent } from './write';
@@ -123,6 +125,7 @@ function fakeApi() {
     cancelConditional: vi.fn<(id: string) => Promise<ApiResult<ConditionalOrder>>>(),
     conditionalOrder: vi.fn<(id: string) => Promise<ApiResult<ConditionalOrder>>>(),
     createConditional: vi.fn<(input: StopInput) => Promise<ApiResult<ConditionalOrder>>>(),
+    reverse: vi.fn<(input: ReverseRequest) => Promise<ApiResult<Reverse>>>(),
   };
   return { api, typed: api as unknown as FuturesApi };
 }
@@ -261,6 +264,58 @@ describe('a reduce-only order from the ticket (J-derivatives-03 #8)', () => {
     api.orders.mockResolvedValue(ok([order({ orderId: 'ord-7', clientOrderId: 'open-red', reduceOnly: true })]));
     expect(await checkPending(typed, USER, pendingFor('open-red'))).toMatchObject({ kind: 'done', order: { orderId: 'ord-7' } });
     expect(api.placeOrder).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('one-tap reverse (J-derivatives-03 #9)', () => {
+  const request: ReverseRequest = { positionId: 'pos-1', symbol: 'BTC/USDT:USDT', clientRequestId: 'reverse:abc', confirmTier: 2 };
+  const reverse = (status: Reverse['status']): Reverse => ({
+    clientRequestId: 'reverse:abc',
+    positionId: 'pos-1',
+    symbol: 'BTC/USDT:USDT',
+    from: 'long',
+    to: 'short',
+    size: '1',
+    leverage: '5',
+    status,
+    closeClientOrderId: 'rv:c:reverse:abc',
+    openClientOrderId: 'rv:o:reverse:abc',
+    closeOrderId: 'ord-c',
+    openOrderId: status === 'done' ? 'ord-o' : null,
+    closedQuantity: status === 'closing' ? null : '1',
+    openedQuantity: status === 'done' ? '1' : null,
+    newPositionId: status === 'done' ? 'pos-2' : null,
+    refusalCode: null,
+    createdAt: '2026-10-23T12:00:00.000Z',
+    updatedAt: '2026-10-23T12:00:01.000Z',
+  });
+
+  it('is one request under its own id, with the tier the trader accepted; done answers with the reverse', async () => {
+    const { api, typed } = fakeApi();
+    api.reverse.mockResolvedValue(ok(reverse('done')));
+    const intent: Intent = { op: 'reverse', input: request };
+    expect(intentId(intent)).toBe('reverse:abc');
+    expect(await runIntent(typed, USER, intent)).toMatchObject({ kind: 'done', reverse: { status: 'done', newPositionId: 'pos-2' } });
+    expect(api.reverse).toHaveBeenCalledTimes(1);
+    expect(api.reverse.mock.calls[0]![0]).toEqual(request);
+    expect(api.placeOrder).not.toHaveBeenCalled();
+  });
+
+  it('a working reverse is sent again under the same id until it ends', async () => {
+    const { api, typed } = fakeApi();
+    api.reverse.mockResolvedValueOnce(ok(reverse('closing'))).mockResolvedValueOnce(ok(reverse('done')));
+    expect(await runIntent(typed, USER, { op: 'reverse', input: request })).toMatchObject({ kind: 'done', reverse: { status: 'done' } });
+    expect(api.reverse.mock.calls.map((c) => c[0].clientRequestId)).toEqual(['reverse:abc', 'reverse:abc']);
+  });
+
+  it('an unknown answer keeps the note; Check sends the same request id again, which carries it on', async () => {
+    const { api, typed } = fakeApi();
+    api.reverse.mockResolvedValueOnce(failure('uncertain', undefined, 504));
+    expect(await runIntent(typed, USER, { op: 'reverse', input: request })).toEqual({ kind: 'uncertain', id: 'reverse:abc' });
+    api.reverse.mockResolvedValueOnce(ok(reverse('done')));
+    expect(await checkPending(typed, USER, pendingFor('reverse:abc'))).toMatchObject({ kind: 'done', reverse: { status: 'done' } });
+    expect(api.reverse.mock.calls.map((c) => c[0])).toEqual([request, request]);
+    expect(readPending(USER)).toEqual({ state: 'none' });
   });
 });
 

@@ -45,6 +45,7 @@ import {
   refuseFuturesRestingLimit,
   startConditionalOrderJobs,
 } from './futures/conditional-orders/index.js';
+import { createReverseService } from './futures/reverse.js';
 import { listCallerLiquidations, listFundingPayments, loadPositionLiquidation, readFuturesTickerFacts } from './futures/futures-reads.js';
 import { listPayoutsForUser } from './futures/futures-payouts.js';
 import { registerPrivateRest } from './private-rest.js';
@@ -686,6 +687,17 @@ futuresJobs.host.every('futures.fill_waits', env.TRADE_FUTURES_LIQ_INTERVAL_MS, 
     app.log.error({ job: 'futures.fill_waits', sequence: item.sequence, err: item.message }, 'a waiting futures fill failed to settle');
   }
 });
+// One-tap reverse: a close and an open through the book under one request. Its reconciler reports, never places, and
+// runs on the matched-order cadence whenever orders go through the book, since only then can a reverse be served.
+const reverses = createReverseService({
+  sql,
+  place: (principal, input, context) => positions.placeMatchedOrder(principal, input, context),
+});
+if (env.TRADE_FUTURES_MATCHING_ENABLED) {
+  futuresJobs.host.every('futures.reverse', env.TRADE_FUTURES_LIQ_INTERVAL_MS, async () => {
+    await reverses.reconcile();
+  });
+}
 const conditionalJobsConfig = {
   enabled: env.TRADE_FUTURES_CONDITIONAL_JOBS_ENABLED,
   intervalMs: env.TRADE_FUTURES_CONDITIONAL_JOBS_INTERVAL_MS,
@@ -1203,6 +1215,7 @@ registerPrivateRest(app, {
           cancel: (principal, orderId) => positions.cancelMatchedOrder(principal, orderId),
           list: (principal, input) => positions.listMatchedOrders(principal.userId, input),
           entryProtection: { record: (userId, input) => conditionalOrders.recordEntryProtection(userId, input) },
+          reverse: (principal, input, context) => reverses.reverse(principal, input, context),
         },
       }
     : {}),

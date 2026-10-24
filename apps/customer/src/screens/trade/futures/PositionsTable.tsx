@@ -75,6 +75,7 @@ export function PositionsTable({
   now,
   onOpen,
   onChanged,
+  onReverse,
 }: {
   positions: Loadable<Position[]>;
   marginCalls: Loadable<MarginCalls>;
@@ -83,6 +84,7 @@ export function PositionsTable({
   now: number;
   onOpen(p: Position): void;
   onChanged(): void;
+  onReverse?(p: Position): void;
 }) {
   const { t } = positionsCopy.useCopy();
   const refresh = useFuturesRefresh();
@@ -180,7 +182,8 @@ export function PositionsTable({
           planeOff={planeOff}
           stale={stale}
           onChanged={onChanged}
-          only={['add', 'leverage', 'protect', 'stop', 'close']}
+          only={['add', 'leverage', 'protect', 'stop', 'reverse', 'close']}
+          {...(onReverse ? { onReverse } : {})}
         />
       ),
     },
