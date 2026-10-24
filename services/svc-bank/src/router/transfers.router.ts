@@ -136,7 +136,11 @@ export function createTransfersRouter(c: BankRouterContext) {
            *
            * What the missing check DID cost was disclosure, not safety — see
            * `gateDestination`, which is the half that was actually missing.
+           *
+           * A shared pot (BK-acct-09) adds one rule to each side, refused by name with `bank.space_forbidden`: a member
+           * never takes money out of a pot they do not own (here), and a viewer never adds money to it (`gateDestination`).
            */
+          await bank.sharedPots.assertMayTakeOut(ctx.principal.userId, from);
           assertSelf(ctx.principal.userId, from.userId);
 
           // Money to somebody else's space needs a step-up. A move between the caller's OWN spaces never
@@ -209,6 +213,7 @@ export function createTransfersRouter(c: BankRouterContext) {
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
           const from = await bank.spaces.get(input.fromSpaceId);
+          await bank.sharedPots.assertMayTakeOut(ctx.principal.userId, from);
           assertSelf(ctx.principal.userId, from.userId);
           const note = plainNote(input.note) ?? undefined;
           const reference = plainReference(input.reference) ?? undefined;
@@ -328,6 +333,7 @@ export function createTransfersRouter(c: BankRouterContext) {
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
           const from = await bank.spaces.get(input.fromSpaceId);
+          await bank.sharedPots.assertMayTakeOut(ctx.principal.userId, from);
           assertSelf(ctx.principal.userId, from.userId);
           // Approval happens at creation, and again for an edit of the amount or end (updateSchedule). The payee
           // never changes, and the order runs without a session, so execution, pause and resume need none (cancel
@@ -383,6 +389,7 @@ export function createTransfersRouter(c: BankRouterContext) {
           // Same exemption, same reason as `transfers.create` above: the debit
           // side is the side that can lose value, and a standing order to
           // another user is the same product feature on a timer.
+          await bank.sharedPots.assertMayTakeOut(ctx.principal.userId, from);
           assertSelf(ctx.principal.userId, from.userId);
 
           // A standing order to another person is approved at creation; an unknown destination counts as foreign.

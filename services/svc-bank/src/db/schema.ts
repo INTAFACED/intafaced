@@ -1,5 +1,19 @@
 import { sql } from 'drizzle-orm';
-import { bigint, boolean, date, index, integer, jsonb, pgSchema, primaryKey, smallint, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import {
+  bigint,
+  bigserial,
+  boolean,
+  date,
+  index,
+  integer,
+  jsonb,
+  pgSchema,
+  primaryKey,
+  smallint,
+  text,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core';
 import { amount, bps, createdAt, tstz, updatedAt } from '@intafaced/db';
 
 /**
@@ -1613,6 +1627,64 @@ export const billsPots = bank.table(
     setAt: tstz('set_at').notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.userId, t.assetId] })],
+);
+
+// Shared pots (BK-acct-09, J-bank-07 #6): who may see a named pot (viewer) or add money to it (contributor), the invites
+// that lead there with their owner-set lifetime, and the log of who did what. Membership decides who may call; it is
+// never a balance, and the pot's money stays the owner's ledger account.
+export const sharedPotInvites = bank.table(
+  'shared_pot_invites',
+  {
+    /** The caller's own request id: asking again with it returns the same invite. */
+    id: uuid('id').primaryKey(),
+    spaceId: uuid('space_id')
+      .notNull()
+      .references(() => spaces.id),
+    inviterUserId: text('inviter_user_id').notNull(),
+    inviteeUserId: text('invitee_user_id').notNull(),
+    role: text('role').notNull(),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+    /** created_at plus the owner's BANK_SHARED_POT_INVITE_MINUTES, on the database clock. */
+    expiresAt: tstz('expires_at').notNull(),
+    acceptedAt: tstz('accepted_at'),
+    declinedAt: tstz('declined_at'),
+  },
+  (t) => [
+    index('shared_pot_invites_invitee_idx').on(t.inviteeUserId, t.createdAt),
+    index('shared_pot_invites_space_idx').on(t.spaceId, t.createdAt),
+  ],
+);
+
+export const sharedPotMembers = bank.table(
+  'shared_pot_members',
+  {
+    spaceId: uuid('space_id')
+      .notNull()
+      .references(() => spaces.id),
+    userId: text('user_id').notNull(),
+    role: text('role').notNull(),
+    inviteId: uuid('invite_id')
+      .notNull()
+      .references(() => sharedPotInvites.id),
+    joinedAt: tstz('joined_at').notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.spaceId, t.userId] }), index('shared_pot_members_user_idx').on(t.userId)],
+);
+
+export const sharedPotActivity = bank.table(
+  'shared_pot_activity',
+  {
+    id: bigserial('id', { mode: 'bigint' }).primaryKey(),
+    spaceId: uuid('space_id')
+      .notNull()
+      .references(() => spaces.id),
+    actorUserId: text('actor_user_id').notNull(),
+    subjectUserId: text('subject_user_id'),
+    kind: text('kind').notNull(),
+    role: text('role'),
+    at: tstz('at').notNull().defaultNow(),
+  },
+  (t) => [index('shared_pot_activity_space_idx').on(t.spaceId, t.id)],
 );
 
 export const schema = {

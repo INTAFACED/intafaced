@@ -80,6 +80,8 @@ function build(opts: { transferError: unknown; earnFails?: boolean }) {
       },
     },
     spendFigures: new SpendFiguresReader(sql, ledger),
+    // Nobody here is a member of a shared pot (BK-acct-09): both transfer checks let the call through.
+    sharedPots: { assertMayTakeOut: async () => undefined, assertMayAddTo: async () => undefined },
   } as unknown as BankServices;
   const router = createBankRouter(bank);
   return { caller: router.createCaller(signed(USER)), posted };

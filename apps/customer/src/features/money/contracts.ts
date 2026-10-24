@@ -188,6 +188,47 @@ export const offrampSchema = rampBase.extend({
   holdLedgerTxId: z.string().nullable(),
   settleLedgerTxId: z.string().nullable(),
 });
+/** Shared pots (BK-acct-09, J-bank-07 #6): who shares which pot, invites with their lifetime, from the bank. */
+const sharedPotRoleSchema = z.enum(['contributor', 'viewer']);
+const sharedPotPersonSchema = z.object({ userId: z.string(), handle: z.string().nullable() });
+const sharedPotMemberSchema = sharedPotPersonSchema.extend({ role: sharedPotRoleSchema, joinedAt: z.string() });
+const sharedPotInviteSchema = z.object({
+  inviteId: z.string(),
+  spaceId: z.string(),
+  role: sharedPotRoleSchema,
+  createdAt: z.string(),
+  expiresAt: z.string(),
+  expired: z.boolean(),
+});
+const sharedPotSchema = z.object({ id: z.string(), name: z.string(), assetId: z.string() });
+export const sharedPotsSchema = z.object({
+  terms: z.object({ inviteMinutes: z.number().int().nullable(), peopleCap: z.number().int().nullable() }),
+  owned: z.array(
+    z.object({
+      pot: sharedPotSchema,
+      members: z.array(sharedPotMemberSchema),
+      invites: z.array(sharedPotInviteSchema.extend({ invitee: sharedPotPersonSchema })),
+    }),
+  ),
+  shared: z.array(
+    z.object({
+      pot: sharedPotSchema.extend({ balance: money }),
+      owner: sharedPotPersonSchema,
+      role: sharedPotRoleSchema,
+      members: z.array(sharedPotMemberSchema),
+    }),
+  ),
+  invites: z.array(sharedPotInviteSchema.extend({ pot: sharedPotSchema.omit({ id: true }), owner: sharedPotPersonSchema })),
+});
+export const sharedPotActivitySchema = z.object({
+  id: z.string(),
+  kind: z.enum(['invited', 'joined', 'declined', 'left', 'removed']),
+  actor: sharedPotPersonSchema,
+  subject: sharedPotPersonSchema.nullable(),
+  role: sharedPotRoleSchema.nullable(),
+  at: z.string(),
+});
+
 /** One income sorter (BK-pots-03): whole basis points of each payment from another person into the person's own spaces. */
 export const sorterSchema = z.object({
   id: z.string(),
@@ -731,6 +772,8 @@ export const bankReads = {
   'rules.get': rulesViewSchema,
   'sorter.list': sorterListSchema,
   'sorter.runs': z.array(sorterRunSchema),
+  'sharedPots.list': sharedPotsSchema,
+  'sharedPots.activity': z.array(sharedPotActivitySchema),
   'cashOut.quote': cashOutQuoteSchema,
   // The same wire shape Pay reads (J-bank-04 #3): one definition of `bank.transfers.quote`.
   'transfers.quote': transferQuoteSchema,
@@ -877,6 +920,11 @@ export const bankWrites = {
   'autoInvest.cancel': z.object({ ok: z.literal(true) }),
   'sorter.create': sorterSchema,
   'sorter.cancel': sorterSchema,
+  'sharedPots.invite': sharedPotInviteSchema.extend({ invitee: sharedPotPersonSchema }),
+  'sharedPots.accept': z.object({ spaceId: z.string(), role: sharedPotRoleSchema }),
+  'sharedPots.decline': z.object({ declined: z.literal(true) }),
+  'sharedPots.leave': z.object({ left: z.literal(true) }),
+  'sharedPots.remove': z.object({ removed: z.literal(true) }),
   'ramps.setWithdrawDestination': z.object({ kind: z.string(), ref: z.string() }),
   'ramps.offramp': offrampSchema,
   'business.create': businessSchema,
@@ -979,6 +1027,10 @@ export function bankWriteForReview(procedure: BankWrite, input: Record<string, u
       }
       case 'spaces.clearBillsPot':
         return (data as z.infer<(typeof bankWrites)['spaces.clearBillsPot']>).spaceId === input.spaceId;
+      case 'sharedPots.invite': {
+        const row = data as z.infer<(typeof bankWrites)['sharedPots.invite']>;
+        return row.inviteId === input.inviteId && row.spaceId === input.spaceId && row.role === input.role;
+      }
       case 'sorter.cancel': {
         const row = data as z.infer<typeof sorterSchema>;
         return row.id === input.sorterId && row.status === 'cancelled';

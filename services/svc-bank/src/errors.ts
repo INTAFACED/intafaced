@@ -595,6 +595,22 @@ export type BankErrorCode =
   | 'bank.earn_positions_list_limit_unset'
   /** earn.interestHistory page size unpublished. Blank is not 50 — never dump every paid day. */
   | 'bank.earn_interest_list_limit_unset'
+  /** sharedPots.list or sharedPots.activity page size unpublished. Blank is not 50. */
+  | 'bank.shared_pots_list_limit_unset'
+  /** BANK_SHARED_POT_INVITE_MINUTES or BANK_SHARED_POT_PEOPLE_CAP is blank: no pot is shared (BK-acct-09 decision note). */
+  | 'bank.joint_unset'
+  /** An invite accepted after its owner-set lifetime. */
+  | 'bank.invite_expired'
+  /** No unanswered invite of the caller's has this id, or they declined it. */
+  | 'bank.invite_not_found'
+  /** No active account has the handle or email asked for: unknown, frozen and closed are one answer. */
+  | 'bank.invitee_not_found'
+  /** A pot is shared with the owner-set number of people, open invites included. */
+  | 'bank.shared_pot_full'
+  /** An invite to oneself, to a member or someone already invited, an invite id reused, or an answer to an answered invite. */
+  | 'bank.shared_pot_invalid'
+  /** A shared pot's viewer moving money into it, or a member taking money out of a pot they do not own. */
+  | 'bank.space_forbidden'
   /** loans.list page size unpublished. Blank is not 50 — never dump every loan. */
   | 'bank.loans_list_limit_unset'
   /** cards.list page size unpublished. Blank is not 50 — never dump every card. */

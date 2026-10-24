@@ -202,7 +202,9 @@ export async function gateDestination(
   // Otherwise: somebody else's live space in the right asset. Cross-user
   // transfer is the product; it proceeds, and a failure after this point comes
   // from the caller's OWN side — their funds, their lock — and is theirs to
-  // read.
+  // read. One exception the caller already knows of: they view that space as a
+  // member of a shared pot (BK-acct-09), and a viewer adds no money to it.
+  await bank.sharedPots.assertMayAddTo(callerUserId ?? '', to.id);
   return { mayDescribe: false };
 }
 

@@ -42,6 +42,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     // LOCAL TEST value from the bank profile (BK-pots-03): the smallest payment from another person the income sorter
     // splits. Unset, making a sorter refuses bank.sorter_terms_unset and no payment is sorted.
     BANK_INCOME_SORTER_MIN_CREDIT: testValue('BANK_INCOME_SORTER_MIN_CREDIT'),
+    // LOCAL TEST values from the bank profile (BK-acct-09): how long a shared pot invite stays open and how many people one
+    // pot may be shared with. Unset, inviting and accepting refuse bank.joint_unset and no pot is shared.
+    BANK_SHARED_POT_INVITE_MINUTES: testValue('BANK_SHARED_POT_INVITE_MINUTES'),
+    BANK_SHARED_POT_PEOPLE_CAP: testValue('BANK_SHARED_POT_PEOPLE_CAP'),
     BANK_ACCOUNT_DETAILS_CURRENCIES: 'EUR,GBP,USD',
     // LOCAL TEST values, not owner decisions: how many withdrawal addresses one person may save, and how long a
     // new one waits before money may leave to it. Unset, the address book refuses saves and lists every row as

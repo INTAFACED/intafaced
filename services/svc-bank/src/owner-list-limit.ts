@@ -28,6 +28,11 @@ export function assertEarnInterestListLimit(limit: number | undefined): number {
   return assertOwnerListLimit(limit, 'bank.earn_interest_list_limit_unset', 'earn.interestHistory');
 }
 
+/** sharedPots.list and sharedPots.activity page size. Blank refuses rather than return every pot, invite or log row. */
+export function assertSharedPotsListLimit(limit: number | undefined): number {
+  return assertOwnerListLimit(limit, 'bank.shared_pots_list_limit_unset', 'sharedPots.list');
+}
+
 /** loans.list page size. Omit used to dump every loan. */
 export function assertLoansListLimit(limit: number | undefined): number {
   return assertOwnerListLimit(limit, 'bank.loans_list_limit_unset', 'loans.list');

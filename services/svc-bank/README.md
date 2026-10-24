@@ -188,6 +188,20 @@ The procedures exist and are mounted. With `BANK_CARD_ISSUER=none` (the default)
 
 A payment from another person (`transfers.toUser`, a paid request) is sorted right after it posts, and `POST /internal/jobs/run-income-sorter` sweeps any posted payment the send never sorted and any split whose outcome was unknown. Each split is an own-space `bankTransfer` keyed `sorter:<sorter>:<payment ledger tx>` with the split's position, so a payment is split once whichever path drives it. A refused split (an empty account, an archived space) moves nothing and stays refused. While an earlier post of a split is younger than the ledger's in-flight bound (`POST_IN_FLIGHT_BOUND_SECONDS`), an absent key proves nothing, so the split is neither posted again nor refused until a later sweep.
 
+### `sharedPots` — **shared pots (BK-acct-09). Membership only; blank owner values refuse.**
+
+| Procedure             | Scope        | What it does                                                                                                                                                                                              |
+| --------------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sharedPots.list`     | `bank:read`  | The bank's two values (null when not set), the caller's pots they share with their people and open invites, pots shared with them with the ledger balance, and invites to them not answered               |
+| `sharedPots.invite`   | `bank:write` | Invite an active person by handle or email to one of the caller's live named pots as `viewer` or `contributor`. The invite lasts `BANK_SHARED_POT_INVITE_MINUTES`; the same invite id returns that invite |
+| `sharedPots.accept`   | `bank:write` | Join with the invite's role; past its lifetime refuses `bank.invite_expired`; a pot shared with `BANK_SHARED_POT_PEOPLE_CAP` people (open invites included) refuses `bank.shared_pot_full`                |
+| `sharedPots.decline`  | `bank:write` | Say no to an invite                                                                                                                                                                                       |
+| `sharedPots.leave`    | `bank:write` | Stop sharing a pot; the pot and its money stay the owner's                                                                                                                                                |
+| `sharedPots.remove`   | `bank:write` | The owner stops sharing a pot with one member                                                                                                                                                             |
+| `sharedPots.activity` | `bank:read`  | The pot's log, newest first, naming who invited, joined, declined, left and was removed by handle; for the owner and the pot's members                                                                    |
+
+**Moves no value.** A contributor adds money with `transfers.create` into the pot, the same transfer as anyone paying into a space. A viewer doing so, and any member taking money out of a pot they do not own, refuses `bank.space_forbidden`. Either owner value blank refuses `bank.joint_unset` (the slice's decision note: nothing is shared until the owner decides). Handles come from svc-identity's directory (`IDENTITY_URL`).
+
 ### `business` — **maker/checker with ledger holds. Not full bank-biz.**
 
 | Procedure                      | Scope                  | What it does                                                                                                                                                                                |
