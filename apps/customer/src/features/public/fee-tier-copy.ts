@@ -24,7 +24,7 @@ export const feeTierCopy = defineCopy('public-fee-tier', {
   volumeLine: '{amount} over the last 30 days, from {fills} trades',
   reaches: 'At the next snapshot this volume reaches: {tier}',
   nextTier: 'Next tier: {tier} from {min}, {remaining} to go',
-  topTier: 'You are on the top tier.',
+  topTier: 'This volume reaches the top tier: there is no threshold above it.',
   snapshotTitle: 'When your tier changes',
   nextSnapshot: 'Next snapshot: {time}. A tier changes at a snapshot, never during the day.',
   noSnapshotTime: 'No snapshot time set: no snapshot runs, and tiers stay where the last one left them.',

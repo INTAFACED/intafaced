@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { approverSessions, makeContext, setFeeSchedule } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { EDGE, api, bestPrices, fromUnits, fund, journeyState, otherTrader, times, toUnits } from './stack.mjs';
-import { awayBid, deskPath, fundedTrader, held, openDesk, openOrders } from './desk.mjs';
+import { awayBid, deskPath, fundedTrader, held, openDesk, openOrders, signIn } from './desk.mjs';
 import { draftNotice, publishNotice } from './notices.mjs';
 
 // J-cex-spot-10, in the running app (docs/roadmap/journeys.json): a person sees what they pay, what tier they are in,
@@ -9,8 +9,8 @@ import { draftNotice, publishNotice } from './notices.mjs';
 // TEST USDT through the real ledger. The owner's schedule is written the way two operators would, through svc-trade's
 // two-person door (`setFeeSchedule`), as TEST versions: the default pair group keeps the stack's own regular rates
 // (maker 0.08%, taker 0.10%), so every other journey on the stack trades at the rates it always did. TEST groups hold
-// markets no other journey trades: ETH/USDC at zero fee, and IFC/USDT, which #3 leaves blank for a moment. Steps 4-11
-// join this file with the slices that build them.
+// markets no other journey trades: ETH/USDC at zero fee, and IFC/USDT, which #3 leaves blank for a moment. #5-#6 add a
+// TEST tier programme only for as long as they run. Steps 7-9 and 11 join this file with the slices that build them.
 const J = 'J-cex-spot-10';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
@@ -50,6 +50,25 @@ const changeTo = (makerBps) => ({
   ...SCHEDULE,
   pairGroups: { ...SCHEDULE.pairGroups, 'IFC/USDT': 'test-fee-change' },
   rows: [...SCHEDULE.rows, { pairGroup: 'test-fee-change', tierId: 'regular', zeroFee: false, makerBps, takerBps: '10', minFee: null }],
+});
+
+/** TEST threshold, not an owner value: 1,000 of counted volume over 30 days puts an account on the TEST VIP tier. */
+const VIP_FROM = '1000';
+/**
+ * SCHEDULE with a TEST tier programme whose daily snapshot runs at `snapshotAt`'s minute (UTC). A programme needs a row
+ * for each of its tiers in every pair group, so the zero-fee group gains the TEST VIP tier, still at zero fee.
+ */
+const tiersAt = (snapshotAt) => ({
+  ...SCHEDULE,
+  rows: [...SCHEDULE.rows, { ...ZERO, tierId: 'test-vip-1' }],
+  tierProgram: {
+    thresholds: [{ tierId: 'test-vip-1', minVolume30d: VIP_FROM }],
+    volumeQuotes: ['USDT', 'USDC'],
+    snapshotTimeUtc: snapshotAt.toISOString().slice(11, 16),
+    downgradeGraceDays: null,
+    subAccounts: null,
+    botsAndCopy: null,
+  },
 });
 
 test.describe.configure({ mode: 'default' });
@@ -142,6 +161,20 @@ async function restingIfcBuy(client, amount, clientOrderId) {
   });
   expect(placed.status, JSON.stringify(placed.body).slice(0, 300)).toBeLessThan(300);
   return { id: placed.body.id, price, amount };
+}
+
+/** The TEST tier programme, its snapshot on the first whole minute at least `leadMs` from now. */
+async function publishTiers(leadMs, reason) {
+  const snapshotAt = new Date(Math.ceil((Date.now() + leadMs) / 60_000) * 60_000);
+  const row = await publish(tiersAt(snapshotAt), reason);
+  return { version: `v${row.version}`, snapshotAt };
+}
+
+/** The account's own fee tier read, as My tier shows it. */
+async function myTier(client) {
+  const { status, body } = await client.get('/api/v1/account/fee-tier');
+  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  return body;
 }
 
 const tab = (page, name) => page.locator('[role=tab]', { hasText: new RegExp(`^${name}$`) });
@@ -357,6 +390,151 @@ test(`${J} #4 fills on a zero-fee pair and a rebate pair: "Zero fee" on one, a m
     await expect(row).not.toContainText(/-\s*0\.\d/);
   } finally {
     await publish(SCHEDULE, 'IFC/USDT back in the default pair group');
+  }
+});
+
+test(`${J} #5 opens My tier: the tier, the volume counted and from what, what is excluded, and the next threshold`, async ({ page }) => {
+  // Two schedule versions (the programme, then none) around a page.
+  test.setTimeout(180_000);
+  const who = account();
+  const client = await api(who);
+  const { snapshotAt } = await publishTiers(120_000, `TEST tier programme, VIP from ${VIP_FROM}`);
+  try {
+    // The volume counted is the person's own spot fills quoted in USDT or USDC: the ones #4 made, nothing invented.
+    let own = 0n;
+    let count = 0;
+    for (const symbol of ['BTC/USDT', 'ETH/USDC', 'IFC/USDT']) {
+      const { body } = await client.get(`/api/v1/account/trades?symbol=${encodeURIComponent(symbol)}&limit=100`);
+      for (const fill of Array.isArray(body) ? body : (body.trades ?? [])) {
+        own += toUnits(fill.cost);
+        count += 1;
+      }
+    }
+    const tier = await myTier(client);
+    expect(toUnits(tier.volume.amount)).toBe(own);
+    expect(tier.volume.fills).toBe(count);
+    expect(count).toBeGreaterThan(0);
+    expect(own).toBeLessThan(toUnits(VIP_FROM));
+    expect(tier).toMatchObject({
+      tier: 'regular',
+      lastSnapshot: null,
+      volume: { reaches: 'regular' },
+      next: { tierId: 'test-vip-1', minVolume30d: VIP_FROM },
+      snapshotsRunning: true,
+      nextSnapshotAt: snapshotAt.toISOString(),
+      snapshots: [],
+    });
+    expect(toUnits(tier.next.remaining)).toBe(toUnits(VIP_FROM) - own);
+    expect(tier.excluded).toEqual(expect.arrayContaining(['futures_and_options', 'bots_and_copy', 'sub_accounts', 'assets']));
+
+    await signIn(page, who);
+    await page.goto('/fees/my-tier');
+    await expect(page.getByRole('heading', { level: 1, name: 'My fee tier' })).toBeVisible();
+    await expect(page.locator('h2[data-tier=regular]')).toHaveText('Your tier: Regular');
+    await expect(page.locator(`[data-volume="${tier.volume.amount}"]`)).toHaveText(
+      `${tier.volume.amount} over the last 30 days, from ${count} trades`,
+    );
+    await expect(page.locator('[data-reaches=regular]')).toHaveText('At the next snapshot this volume reaches: Regular');
+    await expect(page.locator('[data-tier-page=next]')).toHaveText(`Next tier: test-vip-1 from ${VIP_FROM}, ${tier.next.remaining} to go`);
+    await expect(page.locator('tr[data-threshold=test-vip-1] td')).toHaveText(VIP_FROM);
+    // What counts, and what does not: the asset input is named as not counted, never left out.
+    await expect(page.locator('[data-counted=spot]')).toContainText('quoted in USDT, USDC');
+    for (const code of tier.excluded) await expect(page.locator(`[data-excluded=${code}]`)).toBeVisible();
+    await expect(page.locator('[data-excluded=assets]')).toHaveText('Assets you hold: not counted (no asset thresholds set).');
+    await expect(page.locator(`[data-next-snapshot="${snapshotAt.toISOString()}"]`)).toContainText(
+      `Next snapshot: ${snapshotAt.toISOString().slice(0, 16).replace('T', ' ')} UTC`,
+    );
+    await expect(page.locator('[data-tier-page=snapshots]')).toContainText('No snapshot has included you yet.');
+  } finally {
+    await publish(SCHEDULE, 'tier programme off');
+  }
+  // With no programme every account is regular, and the page says the thresholds are not set.
+  expect(await myTier(client)).toMatchObject({ tier: 'regular', program: null, volume: null, next: null });
+  await page.reload();
+  await expect(page.locator('[data-tier-page=thresholds-not-set]')).toHaveText('Thresholds not set. Every account is on the regular tier.');
+});
+
+test(`${J} #6 crosses the threshold during the day: the tier changes at the next snapshot, and its row shows the figures`, async ({
+  page,
+}) => {
+  // Two schedule versions, a fill, and a wait of up to three minutes for the snapshot.
+  test.setTimeout(360_000);
+  const who = account();
+  const client = await api(who);
+  const { version, snapshotAt } = await publishTiers(150_000, `TEST tier programme, VIP from ${VIP_FROM}, snapshot due`);
+  const deskCheck = async () => {
+    await page.goto(deskPath());
+    await expect(page.getByRole('button', { name: 'Buy BTC' })).toBeVisible();
+    await page.mouse.move(0, 600);
+    await tab(page, 'Limit').click();
+    await page.getByRole('combobox', { name: 'Time in force' }).click();
+    await page.getByRole('option', { name: 'Post only', exact: true }).click();
+    await buyForm(page)
+      .getByRole('textbox', { name: 'Price' })
+      .fill(await awayBid(95));
+    return checkOf(page, () => buyForm(page).getByRole('textbox', { name: 'Amount' }).fill('0.001'));
+  };
+  try {
+    // A market buy on BTC/USDT for more than the rest of the threshold, during the day.
+    fund(who.email, 'USDT', '2000');
+    let now = await myTier(client);
+    expect(now.tier).toBe('regular');
+    for (let attempt = 0; attempt < 3 && now.volume.reaches === 'regular'; attempt += 1) {
+      const { ask } = await bestPrices('BTC/USDT');
+      const want = toUnits(now.next.remaining) + toUnits('25');
+      const step = 10n ** 13n; // 0.00001 BTC
+      const amount = fromUnits(((want * 10n ** 18n) / toUnits(ask) / step + 1n) * step);
+      const bought = await client.post('/api/v1/orders', {
+        symbol: 'BTC/USDT',
+        side: 'buy',
+        type: 'market',
+        amount,
+        clientOrderId: `js10-tier-${attempt}-${Date.now().toString(36)}`,
+      });
+      expect(bought.status, JSON.stringify(bought.body).slice(0, 300)).toBeLessThan(300);
+      await fillsOf(client, 'BTC/USDT', bought.body.id);
+      const was = toUnits(now.volume.amount);
+      await expect.poll(async () => toUnits((now = await myTier(client)).volume.amount) > was, { timeout: 30_000 }).toBe(true);
+    }
+    // The volume reaches the TEST VIP tier, but the tier stays regular until the snapshot: never mid-day.
+    expect(now).toMatchObject({ tier: 'regular', volume: { reaches: 'test-vip-1' }, next: null, nextSnapshotAt: snapshotAt.toISOString() });
+    expect(Date.now()).toBeLessThan(snapshotAt.getTime());
+    await signIn(page, who);
+    await page.goto('/fees/my-tier');
+    await expect(page.locator('h2[data-tier=regular]')).toHaveText('Your tier: Regular');
+    await expect(page.locator('[data-reaches=test-vip-1]')).toHaveText('At the next snapshot this volume reaches: test-vip-1');
+    // A new order before the snapshot is still checked at the regular maker rate.
+    expect(await deskCheck()).toMatchObject({ feeRole: 'maker', feeBps: 8, feeTier: 'regular' });
+
+    // The snapshot runs at its minute and the tier changes; its row keeps the figures it used.
+    await expect
+      .poll(async () => (await myTier(client)).tier, { timeout: snapshotAt.getTime() - Date.now() + 90_000, intervals: [5_000] })
+      .toBe('test-vip-1');
+    const after = await myTier(client);
+    expect(after.lastSnapshot).toMatchObject({
+      instant: snapshotAt.toISOString(),
+      tierId: 'test-vip-1',
+      volume30d: now.volume.amount,
+      countedFills: now.volume.fills,
+      scheduleVersion: version,
+    });
+    expect(after.lastSnapshot.key).toMatch(new RegExp(`^tier-snapshot:${snapshotAt.toISOString().slice(0, 16)}Z:`));
+    expect(after.snapshots[0]).toEqual(after.lastSnapshot);
+
+    await page.goto('/fees/my-tier');
+    await expect(page.locator('h2[data-tier=test-vip-1]')).toHaveText('Your tier: test-vip-1');
+    const minute = `${snapshotAt.toISOString().slice(0, 16).replace('T', ' ')} UTC`;
+    await expect(page.locator('[data-tier-page=tier]')).toContainText(`From the snapshot at ${minute}.`);
+    const row = page.locator(`tr[data-snapshot="${after.lastSnapshot.key}"]`);
+    await expect(row.locator('th')).toHaveText(minute);
+    await expect(row.locator('td')).toHaveText(['test-vip-1', now.volume.amount, String(now.volume.fills), version]);
+
+    // A new order is now checked at the TEST VIP maker rate.
+    const check = await deskCheck();
+    expect(check).toMatchObject({ feeRole: 'maker', feeBps: 6, feeTier: 'test-vip-1' });
+    await expect(feeLine(page)).toHaveText(`Fee ${pct(6)} · maker`);
+  } finally {
+    await publish(SCHEDULE, 'tier programme off');
   }
 });
 
