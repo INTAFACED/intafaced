@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { formatWhen } from '@/lib/as-of';
-import { lookupQuery, lookupRefusal, type LedgerLookupAnswer, type LedgerTransaction } from '@/lib/ledger/lookup';
+import { lookupQuery, lookupRefusal, type LedgerLookupAnswer, type LedgerLookupQuery, type LedgerTransaction } from '@/lib/ledger/lookup';
 
 type Mode = 'txId' | 'businessKey';
 
@@ -16,13 +16,15 @@ type View =
  * Look up one ledger transaction by its id, or trace a business key to the transaction it booked (J-ops-console-03).
  * The read runs as the signed-in founder, and svc-ledger records each lookup under them before it reads. A transaction
  * shows every posting with the account's balance after it; the transaction id and the business key each lead to the
- * other lookup.
+ * other lookup. `initial` (from `/ledger?txId=` or `?businessKey=`, the cross-desk search's link back) is looked up once on
+ * opening, as a new recorded read.
  */
-export function LedgerLookup() {
-  const [mode, setMode] = useState<Mode>('businessKey');
-  const [typed, setTyped] = useState('');
+export function LedgerLookup({ initial = null }: { initial?: LedgerLookupQuery | null }) {
+  const [mode, setMode] = useState<Mode>(initial && 'txId' in initial ? 'txId' : 'businessKey');
+  const [typed, setTyped] = useState(initial ? ('txId' in initial ? initial.txId : initial.businessKey) : '');
   const [view, setView] = useState<View>({ kind: 'idle' });
   const query = lookupQuery(mode, typed);
+  const opened = useRef(false);
 
   const run = async (nextMode: Mode, value: string) => {
     const next = lookupQuery(nextMode, value);
@@ -43,6 +45,13 @@ export function LedgerLookup() {
       setView({ kind: 'refused', code: 'admin.upstream_unavailable', status: 503 });
     }
   };
+
+  useEffect(() => {
+    if (opened.current || !initial) return;
+    opened.current = true;
+    void run('txId' in initial ? 'txId' : 'businessKey', 'txId' in initial ? initial.txId : initial.businessKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on opening
+  }, []);
 
   const follow = (nextMode: Mode, value: string) => {
     setMode(nextMode);
@@ -107,34 +116,43 @@ export function LedgerLookup() {
   );
 }
 
-function TransactionView({
+/** One booked transaction and its postings. With `onFollow`, the id and the key each run the other lookup; without, they are text. */
+export function TransactionView({
   transaction,
   readAt,
   onFollow,
 }: {
   transaction: LedgerTransaction;
   readAt: string;
-  onFollow: (mode: Mode, value: string) => void;
+  onFollow?: (mode: Mode, value: string) => void;
 }) {
   return (
     <div data-testid="ledger-lookup-transaction">
       <dl>
         <dt>Transaction id</dt>
         <dd>
-          <button type="button" className="adm-link" onClick={() => onFollow('txId', transaction.txId)} data-testid="ledger-lookup-tx-id">
-            {transaction.txId}
-          </button>
+          {onFollow ? (
+            <button type="button" className="adm-link" onClick={() => onFollow('txId', transaction.txId)} data-testid="ledger-lookup-tx-id">
+              {transaction.txId}
+            </button>
+          ) : (
+            <code data-testid="ledger-lookup-tx-id">{transaction.txId}</code>
+          )}
         </dd>
         <dt>Business key</dt>
         <dd>
-          <button
-            type="button"
-            className="adm-link"
-            onClick={() => onFollow('businessKey', transaction.businessKey)}
-            data-testid="ledger-lookup-business-key"
-          >
-            {transaction.businessKey}
-          </button>
+          {onFollow ? (
+            <button
+              type="button"
+              className="adm-link"
+              onClick={() => onFollow('businessKey', transaction.businessKey)}
+              data-testid="ledger-lookup-business-key"
+            >
+              {transaction.businessKey}
+            </button>
+          ) : (
+            <code data-testid="ledger-lookup-business-key">{transaction.businessKey}</code>
+          )}
         </dd>
         <dt>Module</dt>
         <dd>{transaction.module}</dd>

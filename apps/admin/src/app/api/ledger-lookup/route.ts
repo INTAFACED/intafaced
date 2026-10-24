@@ -1,6 +1,7 @@
 import { moduleDisabledResponse } from '@/lib/modules';
-import { adminSessionErrorResponse, AdminSessionError, authorizeAdminRequest, upstreamCodeOf } from '@/lib/founder-session';
-import { lookupQuery, parseLookupAnswer } from '@/lib/ledger/lookup';
+import { adminSessionErrorResponse, AdminSessionError, authorizeAdminRequest } from '@/lib/founder-session';
+import { lookupQuery } from '@/lib/ledger/lookup';
+import { readLedgerLookup } from '@/lib/ledger/lookup-server';
 
 /**
  * The ledger object lookup (J-ops-console-03, OPS-rules-monitoring-12).
@@ -13,13 +14,11 @@ import { lookupQuery, parseLookupAnswer } from '@/lib/ledger/lookup';
 
 export const dynamic = 'force-dynamic';
 
-const TIMEOUT_MS = 6_000;
-
 export async function GET(request: Request) {
   const disabled = moduleDisabledResponse('ledger');
   if (disabled) return disabled;
   try {
-    const { session, config } = await authorizeAdminRequest(request);
+    const founder = await authorizeAdminRequest(request);
     const params = new URL(request.url).searchParams;
     const keys = [...params.keys()];
     if (keys.length !== 1 || (keys[0] !== 'txId' && keys[0] !== 'businessKey'))
@@ -27,39 +26,9 @@ export async function GET(request: Request) {
     const mode = keys[0];
     const query = lookupQuery(mode, params.get(mode) ?? '');
     if (!query) throw new AdminSessionError('admin.ledger_lookup_input', 400);
-    const path =
-      'txId' in query
-        ? `/admin/ledger/transactions/${query.txId}`
-        : `/admin/ledger/trace?businessKey=${encodeURIComponent(query.businessKey)}`;
-    let upstream: Response;
-    let text: string;
-    try {
-      upstream = await fetch(`${config.edgeUrl}${path}`, {
-        method: 'GET',
-        headers: { accept: 'application/json', authorization: `Bearer ${session.accessToken}` },
-        cache: 'no-store',
-        redirect: 'error',
-        signal: AbortSignal.timeout(TIMEOUT_MS),
-      });
-      // Read inside the same deadline: a body that stops arriving is an unavailable ledger, not a bad shape.
-      text = await upstream.text();
-    } catch {
-      throw new AdminSessionError('admin.upstream_unavailable', 503);
-    }
-    const body: unknown = (() => {
-      try {
-        return JSON.parse(text) as unknown;
-      } catch {
-        return null;
-      }
-    })();
-    if (!upstream.ok) {
-      const status = upstream.status >= 400 && upstream.status < 600 ? upstream.status : 502;
-      return Response.json({ code: upstreamCodeOf(body) ?? `http.${status}` }, { status, headers: { 'cache-control': 'no-store' } });
-    }
-    const answer = parseLookupAnswer(query, body);
-    if (!answer) throw new AdminSessionError('admin.upstream_invalid', 502);
-    return Response.json(answer, { headers: { 'cache-control': 'no-store' } });
+    const outcome = await readLedgerLookup(founder, query);
+    if (!outcome.ok) return Response.json({ code: outcome.code }, { status: outcome.status, headers: { 'cache-control': 'no-store' } });
+    return Response.json(outcome.answer, { headers: { 'cache-control': 'no-store' } });
   } catch (error) {
     return adminSessionErrorResponse(error);
   }
