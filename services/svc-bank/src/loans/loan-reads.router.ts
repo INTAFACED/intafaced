@@ -3,6 +3,7 @@ import { scopedProcedure } from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import type { BankServices } from '../bank-service.js';
 import { assertSelf } from '../assert-self.js';
+import { signedAmountString } from '../router/shared.js';
 
 /**
  * `bank.loans.projection`, `payoffQuote` and `statement` (BK-loan-06, J-bank-11), and `interestRows` and
@@ -13,7 +14,6 @@ import { assertSelf } from '../assert-self.js';
  */
 
 const amountString = z.string().regex(/^\d+(\.\d{1,18})?$/);
-const signedAmountString = z.string().regex(/^-?\d+(\.\d{1,18})?$/);
 
 const projectionRow = z
   .object({
@@ -105,11 +105,7 @@ export function loanCustomerReadProcedures(bank: Pick<BankServices, 'loans'>, gu
             assetId: z.string(),
             days: z.array(z.object({ date: z.string(), rateBps: z.number().int(), basis: amountString, interest: amountString }).strict()),
             earlierDays: z.number().int().nonnegative(),
-            corrections: z.array(
-              z
-                .object({ id: z.string(), at: z.string(), effectiveDate: z.string(), amount: signedAmountString, reason: z.string() })
-                .strict(),
-            ),
+            corrections: z.array(z.object({ id: z.string(), at: z.string(), amount: signedAmountString, reason: z.string() }).strict()),
             accrued: amountString,
             corrected: signedAmountString,
             paid: amountString,
@@ -121,7 +117,7 @@ export function loanCustomerReadProcedures(bank: Pick<BankServices, 'loans'>, gu
         guard(async () => {
           const loan = await bank.loans.loan(input.loanId);
           assertSelf(ctx.principal.userId, loan.userId);
-          const rows = await bank.loans.interestRows(input.loanId);
+          const rows = await bank.loans.interestRows(loan);
           return {
             loanId: rows.loanId,
             assetId: rows.assetId,
@@ -135,7 +131,6 @@ export function loanCustomerReadProcedures(bank: Pick<BankServices, 'loans'>, gu
             corrections: rows.corrections.map((c) => ({
               id: c.id,
               at: c.at.toISOString(),
-              effectiveDate: c.effectiveDate,
               amount: formatAmount(c.amount),
               reason: c.reason,
             })),
@@ -171,7 +166,7 @@ export function loanCustomerReadProcedures(bank: Pick<BankServices, 'loans'>, gu
         guard(async () => {
           const loan = await bank.loans.loan(input.loanId);
           assertSelf(ctx.principal.userId, loan.userId);
-          const check = await bank.loans.ledgerCheck(input.loanId);
+          const check = await bank.loans.ledgerCheck(loan);
           return {
             loanId: check.loanId,
             status: check.status,

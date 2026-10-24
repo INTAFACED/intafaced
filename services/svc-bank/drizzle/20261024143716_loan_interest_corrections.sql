@@ -20,7 +20,6 @@ CREATE TABLE IF NOT EXISTS "bank"."loan_adjustments" (
   "proposed_by" text NOT NULL,
   "approved_by" text NOT NULL,
   "approval_id" text NOT NULL,
-  "effective_date" date NOT NULL,
   "created_at" timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT "loan_adjustments_kind_ck" CHECK ("kind" IN ('interest_correction')),
   CONSTRAINT "loan_adjustments_amount_ck" CHECK ("amount" <> 0),

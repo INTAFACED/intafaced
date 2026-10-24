@@ -25,7 +25,7 @@ import { transferDetailProcedure } from '../ops/transfer-detail.js';
 import { authorizationGetProcedure } from '../ops/authorization-detail.js';
 import { businessApprovalsProcedure } from '../ops/business-approvals.js';
 import { ADJUST_LOAN_INTEREST_ACTION, correctionApprovalFields } from '../loans/loan-adjustments.js';
-import { amountString, actionApprovalFields } from './shared.js';
+import { amountString, actionApprovalFields, signedAmountString } from './shared.js';
 import { guard } from './errors.js';
 import type { BankRouterContext } from './context.js';
 
@@ -273,7 +273,7 @@ export function createOpsRouter(c: BankRouterContext) {
         z.object({
           loanId: z.string().guid(),
           adjustmentId: z.string().guid(),
-          amount: z.string().regex(/^-?\d+(\.\d{1,18})?$/),
+          amount: signedAmountString,
           reason: z.string().min(3).max(500),
           ...actionApprovalFields,
         }),
@@ -286,7 +286,6 @@ export function createOpsRouter(c: BankRouterContext) {
           reason: z.string(),
           proposedBy: z.string(),
           approvedBy: z.string(),
-          effectiveDate: z.string(),
           createdAt: z.string(),
           replay: z.boolean(),
           interestOwed: amountString,
@@ -318,7 +317,6 @@ export function createOpsRouter(c: BankRouterContext) {
             reason: a.reason,
             proposedBy: a.proposedBy,
             approvedBy: a.approvedBy,
-            effectiveDate: a.effectiveDate,
             createdAt: a.createdAt.toISOString(),
             replay: written.replay,
             interestOwed: formatAmount(debt.interest),

@@ -3127,14 +3127,12 @@ export class LoanService {
   }
 
   /** The loan's accrual days and corrections, with the totals they add up to. Reads only. */
-  async interestRows(loanId: string): Promise<InterestRows> {
-    const loan = await this.loan(loanId);
+  interestRows(loan: LoanRecord): Promise<InterestRows> {
     return readInterestRows(this.sql, loan, async (tx) => (await this.outstanding(loan.id, tx)).interest);
   }
 
   /** The loan's settled rows against the ledger's own transactions, leg by leg. Reads only; never repairs. */
-  async ledgerCheck(loanId: string, now: Date = new Date()): Promise<LedgerCheck> {
-    const loan = await this.loan(loanId);
+  ledgerCheck(loan: LoanRecord, now: Date = new Date()): Promise<LedgerCheck> {
     return checkLoanLedger(this.sql, this.ledger, loan, now);
   }
 

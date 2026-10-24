@@ -82,7 +82,7 @@ const en = {
   colReason: 'Reason',
   ckTitle: 'Checked against the ledger',
   ckLead:
-    'The bank compares each payout, repayment and collateral move on this loan with the transaction the ledger booked for it, entry by entry, and the collateral held with those moves. It only reads: nothing is changed by the check.',
+    'The bank compares each payout, repayment and collateral pledge or return on this loan with the transaction the ledger booked for it, entry by entry, finds each collateral sale under its own reference, and compares the collateral held with all of those moves. It only reads: nothing is changed by the check.',
   ckAgrees: 'Agrees: {count} transactions match, and the collateral held is {held}.',
   ckDiffers: 'Differs: {count} of the checks do not match the ledger. Contact support and give them this loan’s reference.',
   ckPending: 'A move on this loan is still being confirmed, so the check can’t agree or differ. Check again in a moment.',
@@ -187,7 +187,7 @@ const es: Record<keyof typeof en, string> = {
   colReason: 'Motivo',
   ckTitle: 'Comprobado con el libro mayor',
   ckLead:
-    'El banco compara cada desembolso, reembolso y movimiento de garantía de este préstamo con la transacción que el libro mayor registró, asiento por asiento, y la garantía retenida con esos movimientos. Solo lee: la comprobación no cambia nada.',
+    'El banco compara cada desembolso, reembolso y aportación o devolución de garantía de este préstamo con la transacción que el libro mayor registró, asiento por asiento, localiza cada venta de garantía por su propia referencia y compara la garantía retenida con todos esos movimientos. Solo lee: la comprobación no cambia nada.',
   ckAgrees: 'Coincide: {count} transacciones cuadran y la garantía retenida es {held}.',
   ckDiffers: 'No coincide: {count} comprobaciones no cuadran con el libro mayor. Contacta con soporte y da la referencia de este préstamo.',
   ckPending:
@@ -294,7 +294,7 @@ const fr: Record<keyof typeof en, string> = {
   colReason: 'Raison',
   ckTitle: 'Vérifié avec le grand livre',
   ckLead:
-    'La banque compare chaque décaissement, remboursement et mouvement de garantie de ce prêt avec la transaction que le grand livre a enregistrée, écriture par écriture, et la garantie détenue avec ces mouvements. Elle ne fait que lire : la vérification ne change rien.',
+    'La banque compare chaque décaissement, remboursement et dépôt ou restitution de garantie de ce prêt avec la transaction que le grand livre a enregistrée, écriture par écriture, retrouve chaque vente de garantie sous sa propre référence, et compare la garantie détenue avec tous ces mouvements. Elle ne fait que lire : la vérification ne change rien.',
   ckAgrees: 'Concorde : {count} transactions correspondent, et la garantie détenue est de {held}.',
   ckDiffers:
     'Ne concorde pas : {count} vérifications ne correspondent pas au grand livre. Contactez le support en donnant la référence de ce prêt.',

@@ -11,6 +11,7 @@ import {
   type PostRequest,
 } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
+import { signedAmountString } from '../router/shared.js';
 
 /**
  * LOAN-05 (J-bank-11 #4): interest corrections, the loan's interest rows, and the per-loan check against the ledger.
@@ -28,7 +29,6 @@ import { BankError } from '../errors.js';
 
 export const ADJUST_LOAN_INTEREST_ACTION = 'bank.adjust_loan_interest';
 
-const SIGNED_AMOUNT = /^-?\d+(\.\d{1,18})?$/;
 /** The most accrual days the interest rows list, newest first. Older days are counted, never cut silently. */
 export const INTEREST_ROWS_LISTED = 366;
 
@@ -49,7 +49,6 @@ export interface InterestAdjustment {
   readonly proposedBy: string;
   readonly approvedBy: string;
   readonly approvalId: string;
-  readonly effectiveDate: string;
   readonly createdAt: Date;
 }
 
@@ -60,13 +59,15 @@ export function correctionApprovalFields(terms: InterestCorrectionTerms): Record
 
 /** Shape only. The amount is signed and never zero; the reason is a sentence a person can read back. */
 export function parseCorrection(terms: InterestCorrectionTerms): { amount: Amount; reason: string } {
-  if (!SIGNED_AMOUNT.test(terms.amount)) {
+  if (!signedAmountString.safeParse(terms.amount).success) {
     throw new BankError('An interest correction needs a signed decimal amount', 'bank.correction_invalid');
   }
   const amount = parseAmount(terms.amount);
   if (amount === 0n) throw new BankError('An interest correction of zero changes nothing', 'bank.correction_invalid');
   const reason = terms.reason.trim();
-  if (reason.length < 3 || reason.length > 500) {
+  // Counted in characters, as the database CHECK counts them (char_length), not in UTF-16 units.
+  const length = [...reason].length;
+  if (length < 3 || length > 500) {
     throw new BankError('An interest correction needs a reason of 3 to 500 characters', 'bank.correction_invalid');
   }
   if (reason !== terms.reason) {
@@ -84,7 +85,6 @@ interface AdjustmentRow {
   proposed_by: string;
   approved_by: string;
   approval_id: string;
-  effective_date: string;
   created_at: Date;
 }
 
@@ -98,15 +98,13 @@ function toAdjustment(row: AdjustmentRow): InterestAdjustment {
     proposedBy: row.proposed_by,
     approvedBy: row.approved_by,
     approvalId: row.approval_id,
-    effectiveDate: row.effective_date,
     createdAt: row.created_at,
   };
 }
 
 export async function adjustmentById(sql: Sql, id: string): Promise<InterestAdjustment | null> {
   const rows = await sql<AdjustmentRow[]>`
-    SELECT id, loan_id, kind, amount::text AS amount, reason, proposed_by, approved_by, approval_id,
-           effective_date::text AS effective_date, created_at
+    SELECT id, loan_id, kind, amount::text AS amount, reason, proposed_by, approved_by, approval_id, created_at
       FROM bank.loan_adjustments WHERE id = ${id}
   `;
   return rows[0] ? toAdjustment(rows[0]) : null;
@@ -172,7 +170,8 @@ export async function checkCorrection(deps: CorrectionDeps, terms: InterestCorre
 /**
  * Write one approved correction. Under the loan row lock, which repay's claim also takes, so a repayment either
  * splits against the corrected interest or is pending and refuses the correction. The id is the operation's own
- * business key: the same id with the same terms returns the first row and writes nothing.
+ * business key: the same id with the same terms returns the first row and writes nothing, also when two requests
+ * with that id race (the second waits on the lock and finds the first row).
  */
 export async function writeCorrection(
   deps: CorrectionDeps,
@@ -184,21 +183,28 @@ export async function writeCorrection(
   return transaction(
     deps.sql,
     async (tx) => {
+      // The loan row lock first: a second request with this id waits here, then finds the first one's row.
+      const locked = await tx<Array<{ id: string }>>`SELECT id FROM bank.loans WHERE id = ${terms.loanId} FOR UPDATE`;
+      if (locked.length === 0) throw new BankError(`No loan ${terms.loanId}`, 'bank.loan_not_found');
       const prior = await adjustmentById(tx, terms.adjustmentId);
       if (prior) {
         assertSameCorrection(prior, terms);
         return { adjustment: prior, replay: true };
       }
-      await assertCorrectable(deps, tx, terms.loanId, amount, true);
+      await assertCorrectable(deps, tx, terms.loanId, amount, false);
       const rows = await tx<AdjustmentRow[]>`
-        INSERT INTO bank.loan_adjustments
-          (id, loan_id, kind, amount, reason, proposed_by, approved_by, approval_id, effective_date, created_at)
+        INSERT INTO bank.loan_adjustments (id, loan_id, kind, amount, reason, proposed_by, approved_by, approval_id, created_at)
         VALUES (${terms.adjustmentId}, ${terms.loanId}, 'interest_correction', ${formatAmount(amount)}::numeric, ${reason},
-                ${people.proposedBy}, ${people.approvedBy}, ${people.approvalId}, ${now.toISOString().slice(0, 10)}::date, ${now})
-        RETURNING id, loan_id, kind, amount::text AS amount, reason, proposed_by, approved_by, approval_id,
-                  effective_date::text AS effective_date, created_at
+                ${people.proposedBy}, ${people.approvedBy}, ${people.approvalId}, ${now})
+        ON CONFLICT (id) DO NOTHING
+        RETURNING id, loan_id, kind, amount::text AS amount, reason, proposed_by, approved_by, approval_id, created_at
       `;
-      return { adjustment: toAdjustment(rows[0]!), replay: false };
+      if (rows[0]) return { adjustment: toAdjustment(rows[0]), replay: false };
+      // The same id written for another loan (whose lock this request did not hold): the first row stands.
+      const other = await adjustmentById(tx, terms.adjustmentId);
+      if (!other) throw new BankError(`Correction ${terms.adjustmentId} could not be written`, 'bank.correction_conflict');
+      assertSameCorrection(other, terms);
+      return { adjustment: other, replay: true };
     },
     { isolation: 'read committed', maxAttempts: 1 },
   );
@@ -211,7 +217,7 @@ export interface InterestRows {
   readonly days: Array<{ date: string; rateBps: number; basis: Amount; interest: Amount }>;
   /** Days older than the listed ones; their interest is in `accrued`. */
   readonly earlierDays: number;
-  readonly corrections: Array<{ id: string; at: Date; effectiveDate: string; amount: Amount; reason: string }>;
+  readonly corrections: Array<{ id: string; at: Date; amount: Amount; reason: string }>;
   /** Every day's interest, every correction, the interest paid by repayments and sales, and what is owed now. */
   readonly accrued: Amount;
   readonly corrected: Amount;
@@ -238,8 +244,8 @@ export async function readInterestRows(
         SELECT COUNT(*)::text AS n, COALESCE(SUM(interest_amount), 0)::text AS v
           FROM bank.loan_interest_accruals WHERE loan_id = ${loan.id}
       `,
-      tx<Array<{ id: string; created_at: Date; effective_date: string; amount: string; reason: string }>>`
-        SELECT id, created_at, effective_date::text AS effective_date, amount::text AS amount, reason
+      tx<Array<{ id: string; created_at: Date; amount: string; reason: string }>>`
+        SELECT id, created_at, amount::text AS amount, reason
           FROM bank.loan_adjustments WHERE loan_id = ${loan.id} AND kind = 'interest_correction'
          ORDER BY created_at DESC, id ASC
       `,
@@ -260,7 +266,6 @@ export async function readInterestRows(
     const listedCorrections = corrections.map((c) => ({
       id: c.id,
       at: c.created_at,
-      effectiveDate: c.effective_date,
       amount: parseAmount(c.amount),
       reason: c.reason,
     }));
@@ -310,10 +315,19 @@ interface CheckedLoan {
   drawLedgerTxId: string | null;
 }
 
+/** How many ledger reads the check has in flight at once. */
+const CHECK_CONCURRENCY = 8;
+
 /**
  * The per-loan ledger reconciliation. Each settled row is rebuilt with its recipe and compared, leg by leg, with the
  * transaction the ledger booked under the row's tx id. A liquidation rung and its bad-debt post are checked by key
- * (their legs depend on the sale's venue and the insurance fund, which the row does not carry).
+ * (their legs depend on the sale's venue and the insurance fund, which the row does not carry); what a sale took out
+ * of the pot still counts in the collateral comparison.
+ *
+ * The pot is read first and the rows after it, in one snapshot. A move is claimed as a pending row before it posts, so
+ * anything the pot already holds is in the snapshot, settled or pending. While any move is pending the pot is not
+ * compared (the answer is `pending`), and a pot that changed while the check read it counts as a move in flight too,
+ * so a move in flight never reads as a difference.
  */
 export async function checkLoanLedger(
   sql: Sql,
@@ -321,25 +335,33 @@ export async function checkLoanLedger(
   loan: CheckedLoan,
   now: Date = new Date(),
 ): Promise<LedgerCheck> {
-  const [repayments, collateral, liquidations, pending] = await Promise.all([
-    sql<Array<{ sequence: number; interest_amount: string; principal_amount: string; ledger_tx_id: string | null }>>`
-      SELECT sequence, interest_amount::text AS interest_amount, principal_amount::text AS principal_amount, ledger_tx_id
-        FROM bank.loan_repayments WHERE loan_id = ${loan.id} AND status = 'settled' ORDER BY sequence
-    `,
-    sql<Array<{ sequence: number; direction: string; amount: string; ledger_tx_id: string | null }>>`
-      SELECT sequence, direction, amount::text AS amount, ledger_tx_id
-        FROM bank.loan_collateral_events WHERE loan_id = ${loan.id} AND status = 'settled' ORDER BY sequence
-    `,
-    sql<Array<{ tranche: number; collateral_sold: string; ledger_tx_id: string | null; bad_debt_ledger_tx_id: string | null }>>`
-      SELECT tranche, collateral_sold::text AS collateral_sold, ledger_tx_id, bad_debt_ledger_tx_id
-        FROM bank.loan_liquidations WHERE loan_id = ${loan.id} AND status = 'settled' ORDER BY tranche
-    `,
-    sql<Array<{ n: string }>>`
-      SELECT ((SELECT COUNT(*) FROM bank.loan_repayments WHERE loan_id = ${loan.id} AND status = 'pending')
-            + (SELECT COUNT(*) FROM bank.loan_collateral_events WHERE loan_id = ${loan.id} AND status = 'pending')
-            + (SELECT COUNT(*) FROM bank.loan_liquidations WHERE loan_id = ${loan.id} AND status = 'pending'))::text AS n
-    `,
-  ]);
+  const held = (await ledger.balance(loanCollateralAccount(loan.userId, loan.collateralAssetId, loan.id))).amount;
+  const { repayments, collateral, liquidations, pending } = await sql.begin('isolation level repeatable read read only', async (t) => {
+    const tx = t as unknown as Sql;
+    const [repayments, collateral, liquidations, pending] = await Promise.all([
+      tx<Array<{ sequence: number; interest_amount: string; principal_amount: string; ledger_tx_id: string | null }>>`
+        SELECT sequence, interest_amount::text AS interest_amount, principal_amount::text AS principal_amount, ledger_tx_id
+          FROM bank.loan_repayments WHERE loan_id = ${loan.id} AND status = 'settled' ORDER BY sequence
+      `,
+      tx<Array<{ sequence: number; direction: string; amount: string; ledger_tx_id: string | null }>>`
+        SELECT sequence, direction, amount::text AS amount, ledger_tx_id
+          FROM bank.loan_collateral_events WHERE loan_id = ${loan.id} AND status = 'settled' ORDER BY sequence
+      `,
+      tx<Array<{ tranche: number; collateral_sold: string; ledger_tx_id: string | null; bad_debt_ledger_tx_id: string | null }>>`
+        SELECT tranche, collateral_sold::text AS collateral_sold, ledger_tx_id, bad_debt_ledger_tx_id
+          FROM bank.loan_liquidations WHERE loan_id = ${loan.id} AND status = 'settled' ORDER BY tranche
+      `,
+      tx<Array<{ n: string }>>`
+        SELECT ((SELECT COUNT(*) FROM bank.loan_repayments WHERE loan_id = ${loan.id} AND status = 'pending')
+              + (SELECT COUNT(*) FROM bank.loan_collateral_events WHERE loan_id = ${loan.id} AND status = 'pending')
+              + (SELECT COUNT(*) FROM bank.loan_liquidations WHERE loan_id = ${loan.id} AND status = 'pending'))::text AS n
+      `,
+    ]);
+    return { repayments, collateral, liquidations, pending: Number(pending[0]?.n ?? 0) };
+  });
+  // Read again: a move that claimed, posted and settled between the first read and the snapshot changed the pot. It
+  // is then in flight for this check, never a difference.
+  const moved = (await ledger.balance(loanCollateralAccount(loan.userId, loan.collateralAssetId, loan.id))).amount !== held;
 
   const accountIds = new Map<string, Promise<string>>();
   const accountId = (ref: AccountRef) => {
@@ -354,42 +376,31 @@ export async function checkLoanLedger(
   const legs = async (request: PostRequest) =>
     (await Promise.all(request.entries.map(async (e) => `${await accountId(e.account)} ${e.direction} ${formatAmount(e.amount)}`))).sort();
 
-  const mismatches: LedgerCheckMismatch[] = [];
-  let checked = 0;
-  const compare = async (kind: LedgerCheckKind, ref: string, txId: string | null, request: PostRequest, byKeyOnly = false) => {
-    checked += 1;
-    const tx = txId ? await ledger.getTx(txId) : null;
-    if (!tx) {
-      mismatches.push({ kind, ref, problem: 'missing', expected: request.idempotencyKey, found: txId ?? '' });
-      return;
-    }
-    if (tx.idempotencyKey !== request.idempotencyKey) {
-      mismatches.push({ kind, ref, problem: 'key', expected: request.idempotencyKey, found: tx.idempotencyKey });
-      return;
-    }
-    if (byKeyOnly) return;
-    const want = await legs(request);
-    const got = tx.entries.map((e) => `${e.accountId} ${e.direction} ${formatAmount(e.amount)}`).sort();
-    if (want.join('|') !== got.join('|')) {
-      mismatches.push({ kind, ref, problem: 'entries', expected: want.join('; '), found: got.join('; ') });
-    }
-  };
+  interface Check {
+    kind: LedgerCheckKind;
+    ref: string;
+    txId: string | null;
+    request: PostRequest;
+    byKeyOnly: boolean;
+  }
+  const checks: Check[] = [];
   const keyOnly = (idempotencyKey: string): PostRequest => ({ idempotencyKey, module: 'bank', reason: '', entries: [] });
 
   if (loan.drawLedgerTxId) {
-    await compare(
-      'draw',
-      loan.id,
-      loan.drawLedgerTxId,
-      recipes.loanDraw({ loanId: loan.id, userId: loan.userId, debtAssetId: loan.debtAssetId, principal: loan.principal }),
-    );
+    checks.push({
+      kind: 'draw',
+      ref: loan.id,
+      txId: loan.drawLedgerTxId,
+      request: recipes.loanDraw({ loanId: loan.id, userId: loan.userId, debtAssetId: loan.debtAssetId, principal: loan.principal }),
+      byKeyOnly: false,
+    });
   }
   for (const r of repayments) {
-    await compare(
-      'repayment',
-      String(r.sequence),
-      r.ledger_tx_id,
-      recipes.loanRepay({
+    checks.push({
+      kind: 'repayment',
+      ref: String(r.sequence),
+      txId: r.ledger_tx_id,
+      request: recipes.loanRepay({
         loanId: loan.id,
         userId: loan.userId,
         debtAssetId: loan.debtAssetId,
@@ -397,7 +408,8 @@ export async function checkLoanLedger(
         interest: parseAmount(r.interest_amount),
         sequence: Number(r.sequence),
       }),
-    );
+      byKeyOnly: false,
+    });
   }
   let locked = 0n;
   let released = 0n;
@@ -409,26 +421,58 @@ export async function checkLoanLedger(
       amount: parseAmount(c.amount),
       sequence: Number(c.sequence),
     };
-    if (c.direction === 'release') {
-      released += input.amount;
-      await compare('collateral_release', String(c.sequence), c.ledger_tx_id, recipes.loanCollateralRelease(input));
-    } else {
-      locked += input.amount;
-      await compare('collateral_lock', String(c.sequence), c.ledger_tx_id, recipes.loanCollateralLock(input));
-    }
+    const release = c.direction === 'release';
+    if (release) released += input.amount;
+    else locked += input.amount;
+    checks.push({
+      kind: release ? 'collateral_release' : 'collateral_lock',
+      ref: String(c.sequence),
+      txId: c.ledger_tx_id,
+      request: release ? recipes.loanCollateralRelease(input) : recipes.loanCollateralLock(input),
+      byKeyOnly: false,
+    });
   }
   let sold = 0n;
   for (const q of liquidations) {
     sold += parseAmount(q.collateral_sold);
-    await compare('liquidation', String(q.tranche), q.ledger_tx_id, keyOnly(`bank.loan.liquidate:${loan.id}:${q.tranche}`), true);
+    checks.push({
+      kind: 'liquidation',
+      ref: String(q.tranche),
+      txId: q.ledger_tx_id,
+      request: keyOnly(`bank.loan.liquidate:${loan.id}:${q.tranche}`),
+      byKeyOnly: true,
+    });
     if (q.bad_debt_ledger_tx_id) {
-      await compare('bad_debt', String(q.tranche), q.bad_debt_ledger_tx_id, keyOnly(`bank.loan.baddebt:${loan.id}`), true);
+      checks.push({
+        kind: 'bad_debt',
+        ref: String(q.tranche),
+        txId: q.bad_debt_ledger_tx_id,
+        request: keyOnly(`bank.loan.baddebt:${loan.id}`),
+        byKeyOnly: true,
+      });
     }
   }
 
-  const held = (await ledger.balance(loanCollateralAccount(loan.userId, loan.collateralAssetId, loan.id))).amount;
+  const compare = async ({ kind, ref, txId, request, byKeyOnly }: Check): Promise<LedgerCheckMismatch | null> => {
+    const tx = txId ? await ledger.getTx(txId) : null;
+    if (!tx) return { kind, ref, problem: 'missing', expected: request.idempotencyKey, found: txId ?? '' };
+    if (tx.idempotencyKey !== request.idempotencyKey) {
+      return { kind, ref, problem: 'key', expected: request.idempotencyKey, found: tx.idempotencyKey };
+    }
+    if (byKeyOnly) return null;
+    const want = await legs(request);
+    const got = tx.entries.map((e) => `${e.accountId} ${e.direction} ${formatAmount(e.amount)}`).sort();
+    return want.join('|') === got.join('|') ? null : { kind, ref, problem: 'entries', expected: want.join('; '), found: got.join('; ') };
+  };
+  const mismatches: LedgerCheckMismatch[] = [];
+  for (let at = 0; at < checks.length; at += CHECK_CONCURRENCY) {
+    const found = await Promise.all(checks.slice(at, at + CHECK_CONCURRENCY).map(compare));
+    for (const m of found) if (m) mismatches.push(m);
+  }
+
   const expectedHeld = locked - released - sold;
-  if (held !== expectedHeld) {
+  const inFlight = pending > 0 || moved;
+  if (!inFlight && held !== expectedHeld) {
     mismatches.push({
       kind: 'collateral_balance',
       ref: loan.id,
@@ -437,12 +481,11 @@ export async function checkLoanLedger(
       found: formatAmount(held),
     });
   }
-  const open = Number(pending[0]?.n ?? 0);
   return {
     loanId: loan.id,
-    status: mismatches.length > 0 ? 'differs' : open > 0 ? 'pending' : 'agrees',
-    checked,
-    pending: open,
+    status: mismatches.length > 0 ? 'differs' : inFlight ? 'pending' : 'agrees',
+    checked: checks.length,
+    pending,
     collateralHeld: held,
     collateralExpected: expectedHeld,
     mismatches,

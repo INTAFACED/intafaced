@@ -179,7 +179,7 @@ describe('interest corrections and the per-loan ledger check (LOAN-05)', () => {
     const bank = services();
     const loanId = await seed(bank);
     const ids = identity();
-    const before = await bank.loans.interestRows(loanId);
+    const before = await bank.loans.interestRows(await bank.loans.loan(loanId));
     expect(before.days).toHaveLength(10);
     expect(before.owed).toBe(before.accrued);
     const posted = ledger.journal().length;
@@ -327,9 +327,43 @@ describe('interest corrections and the per-loan ledger check (LOAN-05)', () => {
 
     const draw = (await bank.loans.loan(loanId)).drawLedgerTxId;
     await sql`UPDATE bank.loan_repayments SET ledger_tx_id = ${draw} WHERE loan_id = ${loanId}`;
-    const differs = await bank.loans.ledgerCheck(loanId);
+    const differs = await bank.loans.ledgerCheck(await bank.loans.loan(loanId));
     expect(differs.status).toBe('differs');
     expect(differs.mismatches).toEqual([expect.objectContaining({ kind: 'repayment', ref: '0', problem: 'key' })]);
+  });
+
+  it('a move still pending reads as pending, never as a difference', async () => {
+    const bank = services();
+    const loanId = await seed(bank);
+    await sql`
+      INSERT INTO bank.loan_collateral_events (id, loan_id, sequence, direction, amount, status)
+      VALUES (${randomUUID()}, ${loanId}, 7, 'lock', '0.2'::numeric, 'pending')
+    `;
+    const check = await bank.loans.ledgerCheck(await bank.loans.loan(loanId));
+    expect(check).toMatchObject({ status: 'pending', pending: 1, mismatches: [] });
+  });
+
+  it('two requests with one correction id race: one row, and the second answers with it', async () => {
+    const bank = services();
+    const loanId = await seed(bank);
+    const terms = { loanId, adjustmentId: randomUUID(), amount: '-0.01', reason: 'TEST: sent twice at once' };
+    const [a, b] = await Promise.all([
+      bank.loans.correctInterest(terms, { proposedBy: FOUNDER_A, approvedBy: FOUNDER_B, approvalId: 'appr-race-1' }),
+      bank.loans.correctInterest(terms, { proposedBy: FOUNDER_A, approvedBy: FOUNDER_B, approvalId: 'appr-race-2' }),
+    ]);
+    expect([a.replay, b.replay].sort()).toEqual([false, true]);
+    expect(a.adjustment.id).toBe(b.adjustment.id);
+    expect(await sql`SELECT id FROM bank.loan_adjustments WHERE loan_id = ${loanId}`).toHaveLength(1);
+  });
+
+  it('counts a reason in characters, as the database does', async () => {
+    const bank = services();
+    const loanId = await seed(bank);
+    await expect(bank.loans.checkCorrection({ loanId, adjustmentId: randomUUID(), amount: '-0.01', reason: '😀😀' })).rejects.toMatchObject(
+      {
+        code: 'bank.correction_invalid',
+      },
+    );
   });
 
   it('another person cannot read the interest rows or the ledger check', async () => {

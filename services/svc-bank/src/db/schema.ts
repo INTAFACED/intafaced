@@ -594,7 +594,6 @@ export const loanAdjustments = bank.table(
     proposedBy: text('proposed_by').notNull(),
     approvedBy: text('approved_by').notNull(),
     approvalId: text('approval_id').notNull(),
-    effectiveDate: date('effective_date').notNull(),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex('loan_adjustments_approval_idx').on(t.approvalId), index('loan_adjustments_loan_idx').on(t.loanId, t.createdAt)],

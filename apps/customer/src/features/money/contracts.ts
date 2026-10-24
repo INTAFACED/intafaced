@@ -103,9 +103,7 @@ export const loanInterestRowsSchema = z.object({
   assetId: z.string(),
   days: z.array(z.object({ date: z.string(), rateBps: z.number().int(), basis: money, interest: money })),
   earlierDays: z.number().int().nonnegative(),
-  corrections: z.array(
-    z.object({ id: z.string(), at: z.string(), effectiveDate: z.string(), amount: signedDecimalSchema, reason: z.string() }),
-  ),
+  corrections: z.array(z.object({ id: z.string(), at: z.string(), amount: signedDecimalSchema, reason: z.string() })),
   accrued: money,
   corrected: signedDecimalSchema,
   paid: money,
