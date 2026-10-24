@@ -116,7 +116,7 @@ import { createSubAccountEditProcedures } from './sub-accounts/sub-account-edit-
  * before any consumer is touched (§15.2).
  */
 
-function toTrpcError(err: unknown): TRPCError {
+export function toTrpcError(err: unknown): TRPCError {
   // Already shaped for the wire — do not re-wrap.
   if (err instanceof TRPCError) return err;
 

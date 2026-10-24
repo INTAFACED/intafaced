@@ -20,6 +20,9 @@ import {
   committedOperationAdmissionSchema,
   operationRecoveryInputSchema,
   recoveryMatchesAdmission,
+  customerDetailChangesSchema,
+  customerDetailReviewSchema,
+  customerDetailValueSchemas,
 } from './account-controls.js';
 
 const USER = '11111111-1111-4111-8111-111111111111';
@@ -471,5 +474,41 @@ describe('account tier results (J-ops-console-04 #11)', () => {
     expect(accountTierTermsSchema.safeParse(terms).success).toBe(true);
     expect(accountTierTermsSchema.safeParse({ ...terms, monthlyFee: 4.99 }).success).toBe(false);
     expect(accountTierTermsSchema.safeParse({ ...terms, dailyLimit: '-1' }).success).toBe(false);
+  });
+});
+
+describe('customer details (J-ops-console-04 #9)', () => {
+  const USER = '11111111-1111-4111-8111-111111111111';
+  it('takes one or more details, null to take one off the record, and refuses an empty or unknown change', () => {
+    expect(customerDetailChangesSchema.safeParse({ city: 'Leeds', phone: null }).success).toBe(true);
+    expect(customerDetailChangesSchema.safeParse({}).success).toBe(false);
+    expect(customerDetailChangesSchema.safeParse({ nickname: 'x' }).success).toBe(false);
+  });
+  it('reads a date of birth as a real calendar date and a country as two capitals', () => {
+    expect(customerDetailValueSchemas.dateOfBirth.safeParse('1990-12-10').success).toBe(true);
+    expect(customerDetailValueSchemas.dateOfBirth.safeParse('1990-02-30').success).toBe(false);
+    expect(customerDetailValueSchemas.dateOfBirth.safeParse('1899-12-31').success).toBe(false);
+    expect(customerDetailValueSchemas.dateOfBirth.safeParse('2999-01-01').success).toBe(false);
+    expect(customerDetailValueSchemas.countryCode.safeParse('GB').success).toBe(true);
+    expect(customerDetailValueSchemas.countryCode.safeParse('gb').success).toBe(false);
+  });
+  it('keeps a review open only without a decision, and names only protected fields', () => {
+    const review = {
+      reviewId: USER,
+      userId: USER,
+      status: 'open',
+      fields: ['legalName'],
+      proposed: { legalName: 'Ada King' },
+      documentIds: [],
+      reason: 'Marriage certificate seen',
+      requestedBy: USER,
+      requestedAt: '2026-10-24T19:00:00.000Z',
+      decidedBy: null,
+      decidedAt: null,
+      decisionNote: null,
+    };
+    expect(customerDetailReviewSchema.safeParse(review).success).toBe(true);
+    expect(customerDetailReviewSchema.safeParse({ ...review, status: 'passed' }).success).toBe(false);
+    expect(customerDetailReviewSchema.safeParse({ ...review, fields: ['city'] }).success).toBe(false);
   });
 });

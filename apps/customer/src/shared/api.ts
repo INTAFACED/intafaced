@@ -1,4 +1,5 @@
 import { P2P_DELIST_REASONS } from '@intafaced/contracts/p2p-delist';
+import { P2P_RULE_CLASS } from '@intafaced/contracts/p2p-rule-class';
 import { z, type ZodType } from 'zod';
 import { uiMessage, type UiMessage } from './ui-copy';
 
@@ -71,6 +72,7 @@ export const p2pLimitSchema = z.object({
     .optional(),
   openTradeIds: z.array(z.string().guid()).max(50).optional(),
   reason: z.enum(P2P_DELIST_REASONS).optional(),
+  ruleClass: z.string().regex(P2P_RULE_CLASS).optional(),
 });
 export type P2pLimit = z.infer<typeof p2pLimitSchema>;
 export type RequestOptions = {

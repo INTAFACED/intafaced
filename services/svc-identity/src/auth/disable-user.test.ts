@@ -21,10 +21,14 @@ function store(users: UserRow[], keys: KeyRow[]) {
     if (text.includes('update users')) {
       writes += 1;
       const id = values[0];
+      const out: Array<{ id: string }> = [];
       for (const u of users) {
-        if (u.id === id) u.status = 'frozen';
+        if (u.id === id && !u.archived) {
+          u.status = 'frozen';
+          out.push({ id: u.id });
+        }
       }
-      return [];
+      return out;
     }
     if (text.includes('update sessions')) {
       writes += 1;

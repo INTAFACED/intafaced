@@ -6,7 +6,7 @@ import { createPayRouter } from '../router.js';
 import { PayError, type PayService } from '../payment-service.js';
 import { CardSandboxAdapter } from '../rails/card-sandbox.js';
 import { RailRegistry } from '../rails/registry.js';
-import type { UserMoneyService, WithdrawalRecord } from '../user-money-service.js';
+import type { CanceledWithdrawal, UserMoneyService } from '../user-money-service.js';
 import { WITHDRAWAL_CANCELED_CODE } from './status.js';
 
 /** `withdrawal.cancel` through the real router: scope, strict input, the caller's own id, typed refusals. */
@@ -42,7 +42,7 @@ function signed(scopes: string[]) {
 const api = (money: Partial<UserMoneyService>, scopes = ['trade:write']) =>
   createPayRouter({} as PayService, rails, money as UserMoneyService).createCaller(signed(scopes));
 
-const cancelled: WithdrawalRecord = {
+const cancelled: CanceledWithdrawal = {
   id: ID,
   userId: USER,
   assetId: 'USDT',
@@ -55,7 +55,8 @@ const cancelled: WithdrawalRecord = {
   failureCode: WITHDRAWAL_CANCELED_CODE,
   status: 'failed',
   createdAt: new Date('2026-10-20T08:00:00.000Z'),
-} as WithdrawalRecord;
+  holdReleased: true,
+} as CanceledWithdrawal;
 
 describe('withdrawal.cancel', () => {
   it('cancels for the signed-in user and shows the customer status', async () => {
@@ -70,6 +71,8 @@ describe('withdrawal.cancel', () => {
       id: ID,
       customerStatus: 'canceled',
       failureCode: WITHDRAWAL_CANCELED_CODE,
+      holdReleased: true,
+      cancellable: false,
     });
     expect(asked).toEqual([{ userId: USER, withdrawalId: ID }]);
     await expect(caller.withdrawal.cancel({ withdrawalId: ID, userId: 'someone-else' } as never)).rejects.toBeDefined();

@@ -80,6 +80,11 @@ export async function assertNotSecurityLocked(tx: Sql, userId: string): Promise<
   if (row?.holds) throw new SecurityLockError('identity.security_locked', row.unlocks_at);
 }
 
+/** Whether the account's lock holds now, for a writer that waits on it instead of refusing. */
+export async function securityLockHolds(tx: Sql, userId: string): Promise<boolean> {
+  return (await openLock(tx, userId))?.holds === true;
+}
+
 type WarnLog = { warn(obj: Record<string, unknown>, msg: string): void };
 
 export type SecurityLockChange = SecurityLockView & { changed: boolean };

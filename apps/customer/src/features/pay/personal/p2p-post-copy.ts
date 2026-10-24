@@ -76,6 +76,9 @@ const en = {
   refusedNoDestination: 'A sell ad needs your own payment details for every method on it. Add them under Payment methods first.',
   refusedTrading: 'Posting ads is paused on this service right now.',
   refusedVerify: 'Verify your identity before you post an ad.',
+  refusedContentClass: 'Your terms break the content rule “{rule}”. Remove what that rule covers and post again.',
+  refusedContent:
+    'Your terms include something an ad may not carry, such as a messenger name, a link or a way to reach you outside the order chat. Remove it and post again.',
   keyOff:
     'Posting an ad needs a key service for payment details. It is switched off in this build: you can fill in and review the ad, and posting it is refused.',
   refusedPostedAlready: 'This form already sent an ad, so it cannot send a different one. Check Your offers, then post another ad.',
@@ -159,6 +162,9 @@ const es = {
   refusedNoDestination: 'Un anuncio de venta necesita tus propios datos de pago para cada método. Añádelos antes en Métodos de pago.',
   refusedTrading: 'La publicación de anuncios está en pausa en este servicio ahora mismo.',
   refusedVerify: 'Verifica tu identidad antes de publicar un anuncio.',
+  refusedContentClass: 'Tus condiciones incumplen la regla de contenido «{rule}». Quita lo que cubre esa regla y vuelve a publicar.',
+  refusedContent:
+    'Tus condiciones incluyen algo que un anuncio no puede llevar, como el nombre de una app de mensajería, un enlace o una forma de contactarte fuera del chat de la orden. Quítalo y vuelve a publicar.',
   keyOff:
     'Publicar un anuncio necesita un servicio de claves para los datos de pago. Está desactivado en esta versión: puedes rellenar y revisar el anuncio, y su publicación se rechaza.',
   refusedPostedAlready:
@@ -246,6 +252,9 @@ const fr = {
     'Une annonce de vente a besoin de vos propres coordonnées de paiement pour chaque moyen. Ajoutez-les d’abord dans Moyens de paiement.',
   refusedTrading: 'La publication d’annonces est en pause sur ce service pour le moment.',
   refusedVerify: 'Vérifiez votre identité avant de publier une annonce.',
+  refusedContentClass: 'Vos conditions enfreignent la règle de contenu « {rule} ». Retirez ce que couvre cette règle et publiez à nouveau.',
+  refusedContent:
+    'Vos conditions contiennent quelque chose qu’une annonce ne peut pas porter, comme le nom d’une messagerie, un lien ou un moyen de vous joindre hors du chat de l’ordre. Retirez-le et publiez à nouveau.',
   keyOff:
     'Publier une annonce nécessite un service de clés pour les coordonnées de paiement. Il est désactivé dans cette version : vous pouvez remplir et vérifier l’annonce, et sa publication est refusée.',
   refusedPostedAlready:

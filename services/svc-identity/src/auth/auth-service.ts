@@ -62,6 +62,18 @@ import {
 import { queueServiceMail } from './service-mail.js';
 import { queuePasswordChangedNotice } from './password-changed-notice.js';
 import {
+  cancelMfaReset,
+  completeDueMfaReset,
+  confirmMfaReset,
+  MfaResetError,
+  mfaResetConfigured,
+  mfaResetStatus,
+  startMfaReset,
+  stopMfaResetByProof,
+  type MfaResetDeps,
+  type MfaResetView,
+} from './mfa-reset.js';
+import {
   approveFromSession,
   approveWithCode,
   completeAuthorisation,
@@ -773,6 +785,54 @@ export class AuthService {
 
   private loginCodePolicy: LoginCodePolicy = {};
 
+  /** The owner's wait for a locked-out second-factor reset (mfa-reset.ts). Unset refuses every reset. */
+  useMfaResetWait(seconds: number | undefined): void {
+    this.mfaResetWaitSeconds = seconds;
+  }
+
+  private mfaResetWaitSeconds: number | undefined;
+
+  /** The reset's code uses the owner's numbers for mailed sign-in codes, the flow key and the recovery mail relay. */
+  private mfaResetDeps(): MfaResetDeps {
+    return {
+      sql: this.sql,
+      mail: this.passwordResetMail,
+      waitSeconds: this.mfaResetWaitSeconds,
+      codeTtlSeconds: this.loginCodePolicy.codeTtlSeconds,
+      maxAttempts: this.loginCodePolicy.maxAttempts,
+      subjectKey: this.flowSubjectKey,
+      now: this.passwordResetNow,
+      log: this.log,
+      afterCommit: this.mailRelayTrigger,
+    };
+  }
+
+  /**
+   * Locked-out reset, step 1 (I-signin-sessions-12): the password again, checked and counted exactly as sign-in checks
+   * it, then a code to the proved address. The wait is checked first, so a blank one refuses before any guess counts.
+   */
+  async mfaResetStart(input: { identifier: string; password: string }): Promise<MfaResetView> {
+    const deps = this.mfaResetDeps();
+    if (!mfaResetConfigured(deps)) throw new MfaResetError('identity.mfa_reset_unconfigured');
+    const user = await this.passFirstFactor(input);
+    return startMfaReset(deps, user.id);
+  }
+
+  /** Locked-out reset, step 2: the mailed code starts the wait and tells every contact. */
+  async mfaResetConfirm(input: { resetId: string; code: string }): Promise<MfaResetView> {
+    return confirmMfaReset(this.mfaResetDeps(), input);
+  }
+
+  /** The account's waiting reset, for its own sessions. */
+  async mfaResetStatus(userId: string): Promise<{ resetId: string; waitingSince: string; completesAt: string } | null> {
+    return mfaResetStatus(this.sql, userId);
+  }
+
+  /** Stop the account's open reset from one of its own sessions. */
+  async mfaResetCancel(input: { userId: string; sessionId: string }): Promise<{ cancelled: boolean }> {
+    return cancelMfaReset(this.mfaResetDeps(), input);
+  }
+
   /** Owner settings for the new-device check (trusted-devices.ts). Unset: the check is off. */
   useNewDevicePolicy(policy: NewDevicePolicy): void {
     this.newDevicePolicy = policy;
@@ -1241,6 +1301,29 @@ export class AuthService {
     ip?: string;
     deviceKey?: string | null;
   }): Promise<SessionTokens> {
+    const user = await this.passFirstFactor(input);
+    // A locked-out reset whose wait has passed completes at a sign-in by password alone: the authenticator app goes, with
+    // every session. A sign-in that brings a code is the person who still has the app or a recovery code.
+    const reset = user.totp_secret !== null && !input.totpCode && (await completeDueMfaReset(this.mfaResetDeps(), user.id));
+    if (reset) await syncNavigatorSessionsClosedForUser(this.sql, user.id);
+    const { mfa, recoveryCodesLeft } = await this.passSecondStep(reset ? { ...user, totp_secret: null } : user, input.totpCode);
+    const device = await this.gateDeviceAfterSecondStep(user.id, { mfa, recoveryCodesLeft }, input.deviceKey);
+    const session = await this.issueSession(user.id, { device: input.device, ip: input.ip, mfa, trustedDeviceId: device.trustedDeviceId });
+    return withSecondStep(session, device.deviceKey, recoveryCodesLeft);
+  }
+
+  /**
+   * The password as the first factor, for sign-in and for the locked-out reset: counted on the password lockout before it
+   * is checked, the same answer for an unknown name and a wrong password, the account state named only after it verified.
+   */
+  private async passFirstFactor(input: { identifier: string; password: string }): Promise<{
+    id: string;
+    password_hash: string;
+    status: string;
+    totp_secret: string | null;
+    passkey_second_step: boolean;
+    webauthn_creds: unknown;
+  }> {
     const rows = await this.sql<
       Array<{
         id: string;
@@ -1283,10 +1366,7 @@ export class AuthService {
       const upgraded = await hashPassword(input.password);
       await this.sql`UPDATE users SET password_hash = ${upgraded}, updated_at = now() WHERE id = ${user.id}`;
     }
-    const { mfa, recoveryCodesLeft } = await this.passSecondStep(user, input.totpCode);
-    const device = await this.gateDeviceAfterSecondStep(user.id, { mfa, recoveryCodesLeft }, input.deviceKey);
-    const session = await this.issueSession(user.id, { device: input.device, ip: input.ip, mfa, trustedDeviceId: device.trustedDeviceId });
-    return withSecondStep(session, device.deviceKey, recoveryCodesLeft);
+    return user;
   }
 
   /**
@@ -1315,6 +1395,8 @@ export class AuthService {
       await this.reserve(user.id, 'mfa');
       const recovery = await this.verifyMfaCode(user.id, user.totp_secret, totpCode!);
       await recordSuccess(this.sql, user.id, 'mfa');
+      // The app or a recovery code still works for this person: a locked-out reset of it stops, with its notice.
+      await stopMfaResetByProof(this.mfaResetDeps(), user.id);
       return { mfa: true, ...recovery };
     }
     if (passkeyStep) {

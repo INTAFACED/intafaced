@@ -26,6 +26,7 @@ import {
 import { listSupportedAssets, withdrawNetworksFrom, type AssetRegistryReads, type SupportedAssetView } from './assets/supported-assets.js';
 import { AutoInvestService, type AutoInvestServiceOptions } from './auto-invest/auto-invest-service.js';
 import { IncomeSorterService } from './sorter/income-sorter.js';
+import { BillsPotService } from './spaces/bills-pot.js';
 import { BusinessService } from './business/business-service.js';
 import { unconfiguredBusinessDirectory, type BusinessDirectoryPort, type BusinessLookupLimiter } from './business/business-directory.js';
 import { PortfolioService, type PortfolioServiceOptions } from './portfolio/portfolio-service.js';
@@ -72,6 +73,8 @@ export interface BankServices {
   readonly personalPay: PersonalPayService;
   /** BK-pots-03: payments from other people split across the person's own spaces. */
   readonly sorter: IncomeSorterService;
+  /** The person's bills pot per asset, and whether a standing order from it may top it up from the main account. */
+  readonly billsPots: BillsPotService;
   readonly earn: EarnService;
   readonly analytics: SpendAnalytics;
   readonly portfolio: PortfolioService;
@@ -264,7 +267,8 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     spaceLimit: () => options.spaceLimit,
     unlockWaitHours: () => options.spaceUnlockWaitHours,
   });
-  const transfers = new TransferService(sql, ledger, spaces, { editCutoffMinutes: options.scheduleEditCutoffMinutes });
+  const billsPots = new BillsPotService(sql, spaces);
+  const transfers = new TransferService(sql, ledger, spaces, { editCutoffMinutes: options.scheduleEditCutoffMinutes }, billsPots);
   const sorter = new IncomeSorterService(sql, ledger, spaces, { minCredit: () => options.incomeSorterMinCredit });
   const personalPay = new PersonalPayService(sql, ledger, transfers, spaces, {
     handles: options.handles,
@@ -369,6 +373,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
   return {
     spaces,
     sorter,
+    billsPots,
     transfers,
     personalPay,
     earn,

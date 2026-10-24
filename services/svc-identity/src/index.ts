@@ -61,6 +61,7 @@ import { createApiKeyAttributionRouter } from './api-key-attribution-router.js';
 import { createDisableUserRouter } from './disable-user-router.js';
 import { FounderControls, parseFounderPair } from './controls/founder-controls.js';
 import { createFounderControlsRouter } from './controls/founder-controls-router.js';
+import { CustomerDetailsDesk } from './controls/customer-details.js';
 import { parseAccountTiers } from './controls/account-tiers.js';
 import { parseDormancyDays } from './controls/account-archive.js';
 import { createOperatorOpsRouter } from './ops/ops-router.js';
@@ -89,6 +90,7 @@ import { createServerTimeRouter } from './server-time-router.js';
 import { createTotpLifecycleRouter } from './totp-lifecycle-router.js';
 import { createSelfFreezeLiftRouter } from './self-freeze-lift-router.js';
 import { createSecurityLockRouter } from './security-lock-router.js';
+import { createMfaResetRouter } from './mfa-reset-router.js';
 import { createTrustedDevicesRouter } from './trusted-devices-router.js';
 import { SecurityLock } from './auth/security-lock.js';
 import { SelfFreezeLift } from './auth/self-freeze-lift.js';
@@ -112,6 +114,7 @@ import { parseApiKeyCapByTier, passkeyMintRule } from './auth/developer-keys.js'
 import { installApiKeyProductExchange, requestProductAls } from './auth/auth-service-product.js';
 import { installApiKeyAccountExchange } from './auth/bind-api-key-account.js';
 import { bootKycVault } from './kyc/boot-vault.js';
+import { parseKycDocKey } from './kyc/document-crypto.js';
 import { identityReadyHonesty } from './ready-honesty.js';
 import { SqlActionApprovalStore } from './auth/action-approval-store.js';
 import { ActionApprovalService } from './auth/action-approval-service.js';
@@ -401,6 +404,8 @@ auth.useLoginCodePolicy({
   requestMax: env.IDENTITY_LOGIN_CODE_REQUEST_MAX,
   requestWindowSeconds: env.IDENTITY_LOGIN_CODE_REQUEST_WINDOW_SECONDS,
 });
+// The locked-out second-factor reset waits the owner's time; blank refuses and the sign-in page points to Support.
+auth.useMfaResetWait(env.IDENTITY_MFA_RESET_WAIT_SECONDS);
 auth.useNewDevicePolicy({
   check: env.IDENTITY_NEW_DEVICE_CHECK === 'on',
   flowTtlSeconds: env.IDENTITY_NEW_DEVICE_TTL_SECONDS,
@@ -444,6 +449,8 @@ const ledger = env.LEDGER_URL ? createLedgerClient(env.LEDGER_URL, env.INTERNAL_
  * (not a silent missing store). Never invent a key. Live vendor webhook remains Class X.
  */
 const vault = bootKycVault(sql, env.IDENTITY_KYC_DOC_KEY);
+// Staff-edited customer details (J-ops-console-04 #9) are encrypted under the same key; unset, every details door refuses.
+const customerDetails = new CustomerDetailsDesk(sql, founderControls, parseKycDocKey(env.IDENTITY_KYC_DOC_KEY));
 
 const waitlist = new WaitlistService(
   new SqlWaitlistStore(sql),
@@ -625,7 +632,7 @@ export const appRouter = mergeRouters(
   createApiKeyProductRouter(sql, auth, auth),
   createApiKeyAttributionRouter(auth),
   createDisableUserRouter(founderControls),
-  createFounderControlsRouter(founderControls),
+  createFounderControlsRouter(founderControls, customerDetails),
   createOperatorOpsRouter(sql),
   createPreferencesRouter(sql, {
     displayCurrencies: env.IDENTITY_DISPLAY_CURRENCIES,
@@ -671,6 +678,7 @@ export const appRouter = mergeRouters(
   createServerTimeRouter(),
   createSelfFreezeLiftRouter(selfFreezeLift, securityStepUp),
   createSecurityLockRouter(securityLock, securityStepUp),
+  createMfaResetRouter(auth),
   createTrustedDevicesRouter(auth, securityStepUp),
   createActionApprovalRouter(actionApprovals, {
     privilegedUserIds: founderPair ?? [],

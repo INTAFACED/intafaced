@@ -44,6 +44,7 @@ import { railCopy } from './rail-copy';
 import { SelectedSpace } from './SelectedSpace';
 import { SpaceInflows } from './SpaceInflows';
 import { IncomeSorter } from './IncomeSorter';
+import { BillsPotActions } from './BillsPot';
 import { AccountHome } from './AccountHome';
 import { AddMoney } from './AddMoney';
 import { addMoneyCopy } from './add-money-copy';
@@ -152,6 +153,7 @@ function SpaceActions({ space, open }: { space: Space; open: (spec: ActionSpec) 
         <Text k="rooms.transfer" />
       </a>
       <SpaceLockActions space={space} open={open} />
+      <BillsPotActions space={space} open={open} />
       {space.kind === 'named' && (
         <Button
           variant="ghost"

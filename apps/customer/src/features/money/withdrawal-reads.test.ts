@@ -135,3 +135,46 @@ describe('owned withdrawal network boundary', () => {
     expect(await pending).toMatchObject({ ok: false, reason: 'aborted' });
   });
 });
+
+describe('cancel a withdrawal (W-withdraw-07)', () => {
+  const canceled = { ...original, status: 'failed', failureCode: 'withdrawal.canceled', customerStatus: 'canceled', cancellable: false };
+  it('posts the one id to withdrawal.cancel and reads whether a hold went back', async () => {
+    const requests: { url: string; method?: string; body?: unknown }[] = [];
+    const api = createApiClient({
+      canWrite: () => true,
+      fetch: async (url, opts) => {
+        requests.push({ url: String(url), method: opts?.method, body: opts?.body });
+        return wire({ ...canceled, holdReleased: true });
+      },
+    });
+    const result = await createWithdrawalReads(api, owner, () => true).cancel(id.toUpperCase());
+    expect(result).toMatchObject({ ok: true, data: { customerStatus: 'canceled', holdReleased: true } });
+    expect(requests).toHaveLength(1);
+    expect(requests[0]!.url).toContain('withdrawal.cancel');
+    expect(requests[0]!.method).toBe('POST');
+    expect(JSON.parse(String(requests[0]!.body))).toEqual({ withdrawalId: id });
+  });
+  it("refuses an answer about another account's withdrawal, and a bad id before dispatch", async () => {
+    const api = createApiClient({ canWrite: () => true, fetch: async () => wire({ ...canceled, userId: other, holdReleased: false }) });
+    expect(await createWithdrawalReads(api, owner, () => true).cancel(id)).toMatchObject({
+      ok: false,
+      code: 'withdrawal.owner_or_original_invalid',
+    });
+    const fetcher = vi.fn();
+    expect(await createWithdrawalReads(createApiClient({ fetch: fetcher }), owner, () => true).cancel('nope')).toMatchObject({
+      ok: false,
+      code: 'withdrawal.input_invalid',
+    });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+  it('keeps the old record readable without the customer status, and reads the new fields when present', async () => {
+    const api = createApiClient({ fetch: async () => wire({ ...original, customerStatus: 'dispatching', cancellable: false }) });
+    expect(await createWithdrawalReads(api, owner, () => true).get(id)).toMatchObject({
+      ok: true,
+      data: { customerStatus: 'dispatching', cancellable: false },
+    });
+    const old = createApiClient({ fetch: async () => wire(original) });
+    const read = await createWithdrawalReads(old, owner, () => true).get(id);
+    expect(read.ok && read.data.customerStatus).toBeUndefined();
+  });
+});

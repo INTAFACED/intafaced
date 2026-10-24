@@ -4,6 +4,7 @@ import { requireScope, requireTier, AuthError, hasScope } from '@intafaced/auth'
 import type { AccessDecision, KycTier, ModuleId, Plane } from '@intafaced/config';
 import { checkAccess } from '@intafaced/config';
 import { P2P_DELIST_REASONS, type P2pDelistReason } from './p2p-delist.js';
+import { P2P_RULE_CLASS } from './p2p-rule-class.js';
 import { isPreviewRefusal, type PreviewRefusal } from './preview-refusal.js';
 import { requireServiceCaller } from './service-auth.js';
 
@@ -337,6 +338,7 @@ const P2P_LIMIT_CODES = new Set([
   'p2p.insufficient_balance',
   'p2p.remind_too_early',
   'p2p.remind_rate_limited',
+  'p2p.content_rule_violation',
 ]);
 const DELIST_REASONS: ReadonlySet<string> = new Set(P2P_DELIST_REASONS);
 const P2P_LIMIT_DECIMALS = ['cap', 'min', 'max', 'remaining', 'windowHours', 'available', 'shortBy'] as const;
@@ -359,6 +361,8 @@ export interface P2pLimitDetails {
   openTradeIds?: string[];
   /** On `p2p.method_delisted` only: why the method was retired. */
   reason?: P2pDelistReason;
+  /** On `p2p.content_rule_violation` only: the content rule class an ad's terms broke, never the phrase. */
+  ruleClass?: string;
 }
 
 /**
@@ -388,6 +392,12 @@ export function p2pLimitOf(cause: unknown): P2pLimitDetails | undefined {
   if (row.reason !== undefined) {
     if (cause.code !== 'p2p.method_delisted' || typeof row.reason !== 'string' || !DELIST_REASONS.has(row.reason)) return undefined;
     out.reason = row.reason as P2pDelistReason;
+  }
+  if (row.ruleClass !== undefined) {
+    if (cause.code !== 'p2p.content_rule_violation' || typeof row.ruleClass !== 'string' || !P2P_RULE_CLASS.test(row.ruleClass)) {
+      return undefined;
+    }
+    out.ruleClass = row.ruleClass;
   }
   if (row.openTradeIds !== undefined) {
     const ids = row.openTradeIds;
