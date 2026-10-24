@@ -7,7 +7,8 @@ import type { RegistryReader } from '../../registries/read-api.js';
  * Customer crypto deposit addresses (W-deposit-01). NO BALANCE LIVES HERE: this issues an address and credits nothing.
  *
  * - The CATALOGUE is the owner's settings (`custody_deposit_settings`) joined to a network the registry calls routable (enabled,
- *   confirmation count set) that lists the asset. A pair missing from either side is not published, so a blank minimum or
+ *   confirmation count set) that lists the asset. A pair the owner switched off on such a network, once it had been switched on
+ *   or given a note, is listed as `halted` with the owner's note and takes no address; one never launched is not mentioned. A pair missing from either side is not published, so a blank minimum or
  *   confirmation count never reaches a customer. `memoRequired` and `sharedAddressGroup` are always false and null: the one
  *   chain behind the port routes by address and attributes a deposit by address, so a shared address would credit the wrong
  *   asset. A memo-routed or shared-address network needs a source that can attribute them (W-deposit-05).
@@ -30,6 +31,8 @@ interface SettingRow {
   label: string;
   minimum_deposit: string;
   estimated_arrival_minutes: number;
+  enabled: boolean;
+  halt_note: string | null;
 }
 
 export class CustodyDepositService {
@@ -39,16 +42,29 @@ export class CustodyDepositService {
     const [networks, settings] = await Promise.all([
       this.deps.registries.listRoutableNetworks(),
       this.deps.sql<SettingRow[]>`
-        SELECT asset_id, network_id, label, minimum_deposit, estimated_arrival_minutes
-          FROM pay.custody_deposit_settings
-         WHERE enabled
-         ORDER BY asset_id, network_id`,
+        SELECT s.asset_id, s.network_id, s.label, s.minimum_deposit, s.estimated_arrival_minutes, s.enabled, s.halt_note
+          FROM pay.custody_deposit_settings s
+         WHERE s.enabled
+            -- Switched off after it was on, or given a note for customers. A pair created off and never switched on has not
+            -- launched: customers are not told about it.
+            OR s.halt_note IS NOT NULL
+            OR EXISTS (
+                 SELECT 1 FROM pay.custody_deposit_setting_events e
+                  WHERE e.asset_id = s.asset_id AND e.network_id = s.network_id AND e.after->>'enabled' = 'true')
+         ORDER BY s.asset_id, s.network_id`,
     ]);
     const byNetwork = new Map(networks.map((n) => [n.networkId, n]));
     const entries: PayCustodyDepositCatalogue['entries'] = [];
+    const halted: NonNullable<PayCustodyDepositCatalogue['halted']> = [];
     for (const row of settings) {
       const network = byNetwork.get(row.network_id);
       if (!network || network.confirmationsRequired === null || !network.assetCodes.includes(row.asset_id)) continue;
+      // Switched off by the owner (after launch) on a network that would otherwise take it: named, with the owner's note, and
+      // given no address.
+      if (!row.enabled) {
+        halted.push({ assetId: row.asset_id, networkId: row.network_id, label: row.label, haltNote: row.halt_note });
+        continue;
+      }
       entries.push({
         assetId: row.asset_id,
         networkId: row.network_id,
@@ -60,7 +76,7 @@ export class CustodyDepositService {
         sharedAddressGroup: null,
       });
     }
-    return { entries };
+    return { entries, halted };
   }
 
   async address(input: PayCustodyDepositAddressInput): Promise<PayCustodyDepositAddressReply> {
