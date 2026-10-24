@@ -8,7 +8,7 @@ import { Text } from './copy';
 /** A reference identifies one record in the current owner response. This
  * protects against ambiguous/case-varied rows; producer ownership stays required. */
 export function currentOwnerRecord<T extends { id: string }>(rows: readonly T[], id: string) {
-  if (!z.string().uuid().safeParse(id).success) return undefined;
+  if (!z.string().guid().safeParse(id).success) return undefined;
   const matches = rows.filter((row) => row.id.toLowerCase() === id.toLowerCase());
   return matches.length === 1 ? matches[0] : undefined;
 }

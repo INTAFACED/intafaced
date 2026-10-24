@@ -135,7 +135,7 @@ export type OAuthRegisterAppInput = z.infer<typeof oauthRegisterAppInputSchema>;
 
 export const oauthAppSchema = z
   .object({
-    id: z.string().uuid(),
+    id: z.string().guid(),
     clientId: z.string(),
     name: z.string(),
     description: z.string().nullable(),
@@ -156,14 +156,14 @@ export type OAuthRegisterAppOutput = z.infer<typeof oauthRegisterAppOutputSchema
 
 export const oauthListAppsOutputSchema = z.object({ apps: z.array(oauthAppSchema) }).strict();
 
-export const oauthRollSecretInputSchema = z.object({ appId: z.string().uuid(), requestId: z.string().min(1).max(200) }).strict();
+export const oauthRollSecretInputSchema = z.object({ appId: z.string().guid(), requestId: z.string().min(1).max(200) }).strict();
 
 export const oauthReviewAppInputSchema = z
-  .object({ appId: z.string().uuid(), decision: z.enum(['approve', 'suspend']), reason: z.string().trim().max(500).optional() })
+  .object({ appId: z.string().guid(), decision: z.enum(['approve', 'suspend']), reason: z.string().trim().max(500).optional() })
   .strict();
 
 /** What the operator queue shows about one app. */
-export const oauthReviewQueueRowSchema = oauthAppSchema.extend({ developerUserId: z.string().uuid() }).strict();
+export const oauthReviewQueueRowSchema = oauthAppSchema.extend({ developerUserId: z.string().guid() }).strict();
 
 /** The request the third party sent to `/oauth/authorize`. PKCE with S256 and `state` are required. */
 export const oauthAuthorizeRequestSchema = z

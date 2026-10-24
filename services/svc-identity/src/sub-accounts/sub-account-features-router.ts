@@ -31,7 +31,7 @@ export function createSubAccountFeatureProcedures(service: SubAccountFeatureServ
   };
   return {
     getFeatures: protectedProcedure
-      .input(z.object({ subAccountId: z.string().uuid() }).strict())
+      .input(z.object({ subAccountId: z.string().guid() }).strict())
       .output(
         z.object({
           kind: z.enum(SUB_ACCOUNT_KINDS),
@@ -48,7 +48,7 @@ export function createSubAccountFeatureProcedures(service: SubAccountFeatureServ
         }
       }),
     setFeatures: protectedProcedure
-      .input(z.object({ subAccountId: z.string().uuid(), feature, enabled: z.boolean() }).strict())
+      .input(z.object({ subAccountId: z.string().guid(), feature, enabled: z.boolean() }).strict())
       .output(z.object({ feature, enabled: z.boolean(), changed: z.boolean() }))
       .mutation(async ({ ctx, input }) => {
         try {

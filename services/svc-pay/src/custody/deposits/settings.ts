@@ -105,8 +105,8 @@ export const depositSettingEventViewSchema = z
     actorId: z.string(),
     approverId: z.string().nullable(),
     dualControl: z.boolean(),
-    before: z.record(z.unknown()).nullable(),
-    after: z.record(z.unknown()),
+    before: z.record(z.string(), z.unknown()).nullable(),
+    after: z.record(z.string(), z.unknown()),
     reason: z.string(),
     createdAt: z.string(),
   })

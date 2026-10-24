@@ -6,7 +6,7 @@ import { WITHDRAWAL_STATUSES } from '../../withdrawals/status.js';
  * Every input object is `.strict()`. Amounts are decimal strings. A timeout, a default count or a limit is never
  * defaulted: blank stays blank.
  */
-const id = z.string().uuid();
+const id = z.string().guid();
 const networkId = z.string().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/);
 const reason = z.string().trim().min(1).max(500);
 

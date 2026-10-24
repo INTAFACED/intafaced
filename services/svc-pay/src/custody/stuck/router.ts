@@ -55,7 +55,7 @@ export function createCustodyStuckRouters(
         .query(({ input }) => wrap(() => service.diagnose(input.walletId))),
       cancel: founder
         .input(cancelInputSchema)
-        .output(z.object({ withdrawalId: z.string().uuid(), canceled: z.literal(true) }))
+        .output(z.object({ withdrawalId: z.string().guid(), canceled: z.literal(true) }))
         .mutation(({ ctx, input }) => wrap(() => service.cancel(actorOf(ctx), input.withdrawalId))),
     }),
     stuck: router({

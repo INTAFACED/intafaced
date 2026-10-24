@@ -12,6 +12,7 @@ import { ANY_COUNTRY } from './instruments.js';
 import { P2pService } from './p2p-service.js';
 import { createP2pRouter } from './router.js';
 import { createTakeGate, RiskAcceptances, type ContactReader, type TakeGate } from './take-eligibility.js';
+import { confirmedTakeStepUp } from './take-gate-fixture.js';
 
 /**
  * P-trade-orders-02 / P-disputes-security-08: a take is refused by the first
@@ -134,7 +135,7 @@ describe('svc-p2p take eligibility (P-trade-orders-02, P-disputes-security-08)',
       ...(options.kid ? { kid: options.kid } : {}),
     } as Principal;
     const raw = encodePrincipal(principal);
-    return createP2pRouter(p2p, instruments, undefined, takeGate ? { takeGate } : {}).createCaller(
+    return createP2pRouter(p2p, instruments, undefined, takeGate ? { takeGate, takeStepUp: confirmedTakeStepUp() } : {}).createCaller(
       edge({
         headers: {
           'x-intafaced-principal': raw,

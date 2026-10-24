@@ -70,8 +70,8 @@ describe('repay pins eventId before MAX+1 sequence allocation', () => {
     const closeAt = src.indexOf("close: scopedProcedure('bank:write'", doorAt);
     const body = src.slice(doorAt, closeAt === -1 ? doorAt + 1800 : closeAt);
     expect(doorAt).toBeGreaterThan(-1);
-    expect(body).toMatch(/eventId:\s*z\.string\(\)\.uuid\(\)/);
-    expect(body).not.toMatch(/eventId:\s*z\.string\(\)\.uuid\(\)\.optional\(\)/);
+    expect(body).toMatch(/eventId:\s*z\.string\(\)\.guid\(\)/);
+    expect(body).not.toMatch(/eventId:\s*z\.string\(\)\.guid\(\)\.optional\(\)/);
   });
 });
 

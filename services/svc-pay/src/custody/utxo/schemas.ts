@@ -4,7 +4,7 @@ import { z } from 'zod';
  * Wire shapes for `founderAdmin.custody.utxo.*` (W-custody-ops-13). Every input object is `.strict()`. Amounts are decimal
  * strings, never numbers. A consolidation trigger is never defaulted: no trigger row is the blank state.
  */
-const walletId = z.string().uuid();
+const walletId = z.string().guid();
 const networkId = z.string().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/);
 const decimal = z
   .string()
@@ -19,8 +19,8 @@ export const utxoListInputSchema = z.object({ walletId, state: z.enum(UTXO_STATE
 export type UtxoListInput = z.infer<typeof utxoListInputSchema>;
 
 export const utxoViewSchema = z.object({
-  id: z.string().uuid(),
-  walletId: z.string().uuid(),
+  id: z.string().guid(),
+  walletId: z.string().guid(),
   txid: z.string(),
   vout: z.number().int(),
   amount: z.string(),
@@ -32,7 +32,7 @@ export const utxoViewSchema = z.object({
 });
 export type UtxoView = z.infer<typeof utxoViewSchema>;
 
-export const utxoLabelInputSchema = z.object({ utxoId: z.string().uuid(), label: z.string().trim().min(1).max(100).nullable() }).strict();
+export const utxoLabelInputSchema = z.object({ utxoId: z.string().guid(), label: z.string().trim().min(1).max(100).nullable() }).strict();
 export type UtxoLabelInput = z.infer<typeof utxoLabelInputSchema>;
 
 /** At least one trigger is set. A fee trigger carries the unit the estimator reports in. */
@@ -87,9 +87,9 @@ export const consolidateInputSchema = z
 export type ConsolidateInput = z.infer<typeof consolidateInputSchema>;
 
 export const consolidationViewSchema = z.object({
-  id: z.string().uuid(),
+  id: z.string().guid(),
   intentRef: z.string(),
-  walletId: z.string().uuid(),
+  walletId: z.string().guid(),
   inputCount: z.number().int(),
   totalAmount: z.string(),
   /** `intent`: written, no outcome yet; a retry with the same reference resumes it. */

@@ -101,7 +101,7 @@ const channelSchema = z.enum(CHANNEL_IDS);
 const outOfAppChannelSchema = z.enum(OUT_OF_APP_CHANNELS);
 
 const notificationOutput = z.object({
-  id: z.string().uuid(),
+  id: z.string().guid(),
   userId: z.string(),
   kind: z.string(),
   titleKey: z.string(),
@@ -110,7 +110,7 @@ const notificationOutput = z.object({
   title: z.string(),
   /** Catalog-resolved body. Unknown keys are the key string, never invented English. */
   body: z.string(),
-  params: z.record(z.unknown()),
+  params: z.record(z.string(), z.unknown()),
   href: z.string().nullable(),
   severity: severitySchema,
   readAt: z.string().nullable(),
@@ -138,8 +138,8 @@ const deliveryOutput = z.object({
  * There is no `delivered` stamp: in-app `accepted` is inbox write; OOA `accepted` is gateway accept.
  */
 const operatorDeliveryOutput = deliveryOutput.extend({
-  id: z.string().uuid(),
-  notificationId: z.string().uuid(),
+  id: z.string().guid(),
+  notificationId: z.string().guid(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -323,7 +323,7 @@ const digestOutput = z.object({
 });
 
 const recentDeliveryOutput = z.object({
-  notificationId: z.string().uuid(),
+  notificationId: z.string().guid(),
   channel: channelSchema,
   status: z.enum(['pending', 'accepted', 'refused', 'failed', 'abandoned']),
   outcome: z.enum(['sent', 'refused', 'failed']),
@@ -417,7 +417,7 @@ const changelogInput = z.object({
 });
 
 const noticeWireOutput = z.object({
-  id: z.string().uuid(),
+  id: z.string().guid(),
   kind: z.enum(['announcement', 'maintenance', 'incident', 'changelog']),
   title: z.string(),
   body: z.string(),
@@ -482,7 +482,7 @@ const alertExtras = {
 };
 
 const priceAlertOutput = z.object({
-  id: z.string().uuid(),
+  id: z.string().guid(),
   userId: z.string(),
   marketId: z.string(),
   kind: z.enum(SOURCED_ALERT_KINDS),
@@ -604,7 +604,7 @@ export function createNotifyRouter(
         .input(
           z
             .object({
-              cursor: z.string().uuid().optional(),
+              cursor: z.string().guid().optional(),
               /**
                * Page size. Optional here so omit reaches the named refuse
                * (`notify.list_limit_unset`) instead of a Zod "Required".
@@ -618,7 +618,7 @@ export function createNotifyRouter(
         .output(
           z.object({
             items: z.array(notificationOutput),
-            nextCursor: z.string().uuid().nullable(),
+            nextCursor: z.string().guid().nullable(),
           }),
         )
         .query(async ({ ctx, input }) => {
@@ -650,7 +650,7 @@ export function createNotifyRouter(
         .query(async ({ ctx }) => ({ count: await notify.unreadCount(ctx.principal.userId) })),
 
       markRead: scopedProcedure('notify:write', { module: 'notify' })
-        .input(z.object({ ids: z.array(z.string().uuid()).min(1).max(100) }))
+        .input(z.object({ ids: z.array(z.string().guid()).min(1).max(100) }))
         .output(z.object({ marked: z.number().int().nonnegative() }))
         .mutation(async ({ ctx, input }) => ({
           marked: await notify.markRead(ctx.principal.userId, input.ids),
@@ -863,7 +863,7 @@ export function createNotifyRouter(
        * tells a stranger which notification ids exist.
        */
       deliveries: scopedProcedure('notify:read', { module: 'notify' })
-        .input(z.object({ notificationId: z.string().uuid() }))
+        .input(z.object({ notificationId: z.string().guid() }))
         .output(z.array(deliveryOutput))
         .query(async ({ ctx, input }) => (await notify.deliveriesFor(ctx.principal.userId, input.notificationId)).map(deliveryToWire)),
 
@@ -891,7 +891,7 @@ export function createNotifyRouter(
               failed: z.number().int(),
               abandoned: z.number().int(),
             }),
-            byChannel: z.record(z.number().int()),
+            byChannel: z.record(z.string(), z.number().int()),
           }),
         )
         .query(async () => {
@@ -1160,7 +1160,7 @@ export function createNotifyRouter(
             kind: z.enum(['announcement', 'maintenance', 'incident', 'changelog']).optional(),
             limit: z.number().int().min(1),
             /** The id of the last notice of the page before: answers the page after it. */
-            after: z.string().uuid().optional(),
+            after: z.string().guid().optional(),
           }),
         )
         .output(z.array(noticeWireOutput))
@@ -1180,7 +1180,7 @@ export function createNotifyRouter(
         }),
 
       notice: publicProcedure
-        .input(z.object({ id: z.string().uuid() }))
+        .input(z.object({ id: z.string().guid() }))
         .output(noticeWireOutput)
         .query(async ({ input }) => {
           if (!notify.notices) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.notice_not_found' });
@@ -1225,7 +1225,7 @@ export function createNotifyRouter(
           z.object({
             upcoming: z.array(noticeWireOutput),
             retired: z.array(
-              z.object({ endpoint: z.string(), entryId: z.string().uuid(), title: z.string(), releaseOn: changelogDay.nullable() }),
+              z.object({ endpoint: z.string(), entryId: z.string().guid(), title: z.string(), releaseOn: changelogDay.nullable() }),
             ),
           }),
         )
@@ -1297,7 +1297,7 @@ export function createNotifyRouter(
             endsAt: z.string().datetime({ offset: true }).nullable().optional(),
             impact: statusImpact.nullable().optional(),
             components: z.array(z.string().regex(STATUS_COMPONENT_PATTERN)).max(STATUS_COMPONENTS_MAX).nullable().optional(),
-            parentId: z.string().uuid().nullable().optional(),
+            parentId: z.string().guid().nullable().optional(),
             resolves: z.boolean().nullable().optional(),
             asset: noticeAsset.nullable().optional(),
             network: noticeNetwork.nullable().optional(),
@@ -1336,7 +1336,7 @@ export function createNotifyRouter(
             noticeWireOutput.extend({
               impact: statusImpact.nullable(),
               components: z.array(z.string()),
-              parentId: z.string().uuid().nullable(),
+              parentId: z.string().guid().nullable(),
               resolves: z.boolean(),
               authorId: z.string(),
               createdAt: z.string(),
@@ -1357,7 +1357,7 @@ export function createNotifyRouter(
 
       /** What identity's approval for one draft's publish has to carry: action, target, version and payload hash. */
       noticeProposal: scopedProcedure('admin:write', { module: 'notify' })
-        .input(z.object({ id: z.string().uuid() }))
+        .input(z.object({ id: z.string().guid() }))
         .output(proposalOutput.extend({ actionType: z.literal('notify.notice.publish'), targetService: z.literal('svc-notify') }))
         .query(async ({ input }) => {
           if (!notify.notices) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.notices_unavailable' });
@@ -1371,7 +1371,7 @@ export function createNotifyRouter(
       publishNotice: scopedProcedure('admin:write', { module: 'notify' })
         .input(
           z.object({
-            id: z.string().uuid(),
+            id: z.string().guid(),
             clientRequestId: z.string().min(1).max(128),
             approvalId: z.string().min(1).max(128),
             operationId: z.string().min(1).max(128),
@@ -1528,7 +1528,7 @@ export function createNotifyRouter(
           z.object({
             key: z.string().min(1).max(64),
             version: z.number().int().positive().optional(),
-            values: z.record(z.union([z.string(), z.number()])).optional(),
+            values: z.record(z.string(), z.union([z.string(), z.number()])).optional(),
           }),
         )
         .output(z.object({ sample: z.literal(true), version: z.number().int().positive(), subject: z.string(), body: z.string() }))
@@ -1802,7 +1802,7 @@ export function createNotifyRouter(
         }),
 
       cancelAlert: scopedProcedure('notify:write', { module: 'notify' })
-        .input(z.object({ id: z.string().uuid() }))
+        .input(z.object({ id: z.string().guid() }))
         .output(z.object({ cancelled: z.boolean(), alert: priceAlertOutput.nullable() }))
         .mutation(async ({ ctx, input }) => {
           if (!alerts) return { cancelled: false, alert: null };
@@ -1818,7 +1818,7 @@ export function createNotifyRouter(
       updateAlert: scopedProcedure('notify:write', { module: 'notify' })
         .input(
           z.object({
-            id: z.string().uuid(),
+            id: z.string().guid(),
             targetPrice: z.string().min(1).max(64).optional(),
             condition: z.enum(ALERT_CONDITIONS).optional(),
             name: z.string().max(2000).nullable().optional(),
@@ -1850,7 +1850,7 @@ export function createNotifyRouter(
 
       /** Pause (`active: false`) an active alert or resume a stopped one. Repeating it is harmless: the alert is returned as it is. */
       setAlertActive: scopedProcedure('notify:write', { module: 'notify' })
-        .input(z.object({ id: z.string().uuid(), active: z.boolean() }))
+        .input(z.object({ id: z.string().guid(), active: z.boolean() }))
         .output(z.object({ changed: z.boolean(), alert: priceAlertOutput }))
         .mutation(async ({ ctx, input }) => {
           if (!alerts) throw new TRPCError({ code: 'NOT_FOUND', message: 'alert.not_found' });
@@ -1885,13 +1885,13 @@ export function createNotifyRouter(
        * rows are kept; blank refuses `notify.alert_trigger_log_retention_unset` rather than answering an empty list.
        */
       alertTriggers: scopedProcedure('notify:read', { module: 'notify' })
-        .input(z.object({ alertId: z.string().uuid().optional(), limit: z.number().int().min(1).max(200) }))
+        .input(z.object({ alertId: z.string().guid().optional(), limit: z.number().int().min(1).max(200) }))
         .output(
           z.object({
             retentionDays: z.number().int(),
             items: z.array(
               z.object({
-                alertId: z.string().uuid(),
+                alertId: z.string().guid(),
                 /** Which trigger of the alert this is, from 1. */
                 seq: z.number().int(),
                 marketId: z.string(),
@@ -1931,7 +1931,7 @@ export function createNotifyRouter(
 
       /** Delete an alert whatever its state. Deleting one that is already gone answers `deleted: false`. */
       deleteAlert: scopedProcedure('notify:write', { module: 'notify' })
-        .input(z.object({ id: z.string().uuid() }))
+        .input(z.object({ id: z.string().guid() }))
         .output(z.object({ deleted: z.boolean() }))
         .mutation(async ({ ctx, input }) => {
           if (!alerts) return { deleted: false };
@@ -1945,7 +1945,7 @@ export function createNotifyRouter(
       evaluateAlert: scopedProcedure('notify:write', { module: 'notify' })
         .input(
           z.union([
-            z.object({ id: z.string().uuid() }),
+            z.object({ id: z.string().guid() }),
             z.object({ kind: z.enum(UNPUBLISHED_ALERT_KINDS) }),
             z.object({ kind: z.literal('portfolio') }),
           ]),

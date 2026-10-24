@@ -140,6 +140,21 @@ const schema = baseEnvSchema
        * stop-out), below the margin call level. NO DEFAULT: blank, a margin run refuses `quant.account_rule_unset` naming it.
        */
       QUANT_ACCOUNT_STOP_OUT_PERCENT: blankable(z.string().regex(/^\d{1,4}(\.\d{1,2})?$/)),
+      /**
+       * Public reads of a share link allowed in one window (AL-report-03). NO DEFAULT: blank refuses
+       * `quant.share_rate_unset`. Zero is a real cap and refuses every public read.
+       */
+      QUANT_SHARE_RATE: blankable(z.string().regex(/^\d{1,7}$/)),
+      /**
+       * The window those reads are counted in, in whole seconds. NO DEFAULT: blank refuses `quant.share_window_unset`.
+       * Never 60 unless the owner sets 60.
+       */
+      QUANT_SHARE_WINDOW_SEC: blankable(z.string().regex(/^[1-9]\d{0,6}$/)),
+      /**
+       * Frame origins that may embed a shared result, comma-separated. NO DEFAULT: a blank list refuses only the embed
+       * snippet (`quant.embed_origins_unset`). The link still opens.
+       */
+      QUANT_EMBED_ORIGINS: blankable(z.string().max(2000)),
       /** Required only when DATABASE_URL is set. Blank is not 10. */
       DATABASE_POOL_MAX: z
         .string()
