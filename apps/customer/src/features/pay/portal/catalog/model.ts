@@ -53,11 +53,12 @@ export function eventInstant(local: string): string | null {
 }
 
 /** The body `merchantCatalog.products.create` takes. Only an event sends its start and place; blank optional fields are left out. */
-export function productBody(draft: ProductDraft, requestId: string): ProductCreateInput {
+export function productBody(draft: ProductDraft, requestId: string, mode: 'live' | 'test' = 'live'): ProductCreateInput {
   const optional = (value: string) => (value.trim() ? value.trim() : undefined);
   const startsAt = draft.type === 'event' ? eventInstant(draft.eventStartsAt) : null;
   return {
     requestId,
+    ...(mode === 'test' ? { mode } : {}),
     name: draft.name.trim(),
     type: draft.type,
     ...(optional(draft.productKey) ? { productKey: draft.productKey.trim() } : {}),

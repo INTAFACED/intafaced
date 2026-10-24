@@ -59,6 +59,8 @@ export const productSchema = z
     statementDescriptor: z.string().nullable(),
     event: productEventSchema.nullable(),
     imageId: z.string().guid().nullable(),
+    /** The product in the other catalogue this one was copied from; null for one made here. */
+    copiedFrom: z.string().guid().nullable(),
     status: z.enum(['active', 'archived']),
     version: z.number().int().min(1),
     createdAt: z.string(),
@@ -70,6 +72,8 @@ export type MerchantProduct = z.infer<typeof productSchema>;
 
 export const productListInputSchema = z
   .object({
+    /** Which catalogue: live (left out) or test. */
+    mode: catalogModeSchema.optional(),
     status: z.enum(['active', 'archived']).optional(),
     limit: z.number().int().min(1).max(100).optional(),
     cursor: z.string().min(1).max(200).optional(),
@@ -87,6 +91,8 @@ export const productCreateInputSchema = z
   .object({
     /** The client's key for this one create, so a retry after a lost answer makes one product. */
     requestId: z.string().guid(),
+    /** Which catalogue the product joins: live (left out) or test. */
+    mode: catalogModeSchema.optional(),
     /** The business's own id for the product. Left out: svc-pay makes one. */
     productKey: productKeySchema.optional(),
     name: text(250),
@@ -363,6 +369,8 @@ export const productImportInputSchema = z
     csv: z.string().min(1).max(PRODUCT_IMPORT_MAX_CHARS),
     /** false: a dry run, which writes nothing. */
     commit: z.boolean(),
+    /** Which catalogue the file's products join: live (left out) or test. */
+    mode: catalogModeSchema.optional(),
   })
   .strict();
 
@@ -396,3 +404,62 @@ export const productImportSchema = z
   })
   .strict();
 export type ProductImport = z.infer<typeof productImportSchema>;
+
+/**
+ * Copying the catalogue between test and live (J-merchant-03 step 6, M-adv-payments-core-21). Every active product of
+ * one catalogue that has no copy in the other is copied with its active prices, keyed by (source product, target
+ * catalogue): a second copy makes nothing new. A product whose id the other catalogue already uses for a product of its
+ * own is skipped, and so is an archived one.
+ */
+export const catalogCopyInputSchema = z
+  .object({ from: catalogModeSchema, to: catalogModeSchema })
+  .strict()
+  .refine((v) => v.from !== v.to, { message: 'from and to must differ', path: ['to'] });
+
+/**
+ * At most this many products are copied in one step, and one step reads at most `CATALOG_COPY_MAX_READ` products of
+ * the source catalogue (those skipped included); more of either is refused whole (`pay.catalog_copy_too_large`).
+ */
+export const CATALOG_COPY_MAX_PRODUCTS = 500;
+export const CATALOG_COPY_MAX_READ = 5000;
+
+export const CATALOG_COPY_SKIPS = [
+  /** The other catalogue already holds this product's copy. */
+  'copied_before',
+  /** A product of the other catalogue already has this product id. */
+  'id_taken',
+  /** The product is archived. */
+  'archived',
+] as const;
+
+export const catalogCopySchema = z
+  .object({
+    from: catalogModeSchema,
+    to: catalogModeSchema,
+    created: z.array(
+      z
+        .object({
+          sourceId: z.string().guid(),
+          productId: z.string().guid(),
+          productKey: z.string(),
+          name: z.string(),
+          /** Active prices copied with it. */
+          prices: z.number().int().nonnegative(),
+        })
+        .strict(),
+    ),
+    skipped: z.array(
+      z
+        .object({
+          sourceId: z.string().guid(),
+          productKey: z.string(),
+          name: z.string(),
+          reason: z.enum(CATALOG_COPY_SKIPS),
+          /** The product in the other catalogue that is the copy, or that holds the id; null for an archived one. */
+          productId: z.string().guid().nullable(),
+        })
+        .strict(),
+    ),
+  })
+  .strict();
+export type CatalogCopy = z.infer<typeof catalogCopySchema>;
