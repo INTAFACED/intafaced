@@ -16,7 +16,7 @@ import { EntityList } from '../ui/EntityList';
 import { Freshness } from '../ui/Freshness';
 import { useServerList } from '../ui/useServerList';
 import { useReadAt } from '../hooks';
-import { useRequestId } from '../payments/invoice-model';
+import { useBodyRequestId } from '../payments/invoice-model';
 import { catalogCopy as c } from './copy';
 import { blankProduct, checkImage, draftProblem, productBody, sizeText, type ProductDraft } from './model';
 
@@ -89,8 +89,11 @@ export function ProductCreate({ portal }: { portal: PortalApi }) {
   const { t } = c.useCopy();
   const may = useMayAddProducts();
   const rules = useResource((signal) => portal.productImageRules(signal), 'portal:catalog:image-rules');
-  const request = useRequestId('catalog:product-new');
   const [draft, setDraft] = useState<ProductDraft>(blankProduct);
+  // One request id per body: a retry of the same product after a lost answer is the same request, and any change to it
+  // is a new one, so the service never sees one id with two different products.
+  const { requestId: _unsent, ...body } = productBody(draft, '');
+  const request = useBodyRequestId('catalog:product-new', body);
   const [busy, setBusy] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
   const [shown, setShown] = useState(false);
@@ -103,14 +106,13 @@ export function ProductCreate({ portal }: { portal: PortalApi }) {
     setBusy(true);
     setRefused(null);
     try {
-      const result = await portal.createProduct(productBody(draft, request.id));
+      request.sent();
+      const result = await portal.createProduct({ ...body, requestId: request.id });
       if (result.ok) {
         request.renew();
         navigate(productHref(result.data.product.id));
       } else {
         setRefused(result.message);
-        // A refused request id names a create that was different: the next try is a new request.
-        if (result.code === 'pay.request_id_reused' || result.code === 'pay.product_id_taken') request.renew();
       }
     } finally {
       setBusy(false);
