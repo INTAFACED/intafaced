@@ -28,10 +28,32 @@ describe('effective console settings', () => {
     for (const def of CONSOLE_SETTINGS) if (def.blocks === null) expect(def.blankMeans).toBeTruthy();
   });
 
-  it('lists flag overrides by name, sorted, and nothing else from the environment', () => {
-    expect(flagOverrides({ INTAFACED_FLAG_B: 'off', PATH: '/bin', INTAFACED_FLAG_A: 'on' })).toEqual([
-      { name: 'INTAFACED_FLAG_A', value: 'on' },
-      { name: 'INTAFACED_FLAG_B', value: 'off' },
+  it('a set value the console cannot use is listed with the blanks, with why', () => {
+    const rows = settingRows({
+      ANALYTICS_REPLICA_CONFIGURED: 'false',
+      ANALYTICS_ETL_WATERMARK_AT: 'soon',
+      ANALYTICS_REPLICA_LAG_SECONDS: '30',
+    });
+    const by = Object.fromEntries(rows.map((r) => [r.name, r]));
+    expect(by.ANALYTICS_REPLICA_CONFIGURED).toMatchObject({
+      state: 'invalid',
+      value: 'false',
+      blocks: expect.stringContaining('warehouse'),
+    });
+    expect(by.ANALYTICS_ETL_WATERMARK_AT).toMatchObject({ state: 'invalid', problem: expect.stringContaining('ISO-8601') });
+    expect(by.ANALYTICS_REPLICA_LAG_SECONDS).toMatchObject({ state: 'set', blocks: null, problem: null });
+    expect(blockingBlanks(rows).map((r) => r.name)).toEqual(
+      expect.arrayContaining(['ANALYTICS_REPLICA_CONFIGURED', 'ANALYTICS_ETL_WATERMARK_AT']),
+    );
+    expect(settingRows({ ANALYTICS_REPLICA_CONFIGURED: 'true' }).find((r) => r.name === 'ANALYTICS_REPLICA_CONFIGURED')?.state).toBe('set');
+    expect(settingRows({ HSTS_MAX_AGE_SECONDS: '63072001' }).find((r) => r.name === 'HSTS_MAX_AGE_SECONDS')?.state).toBe('invalid');
+  });
+
+  it('lists flag pins sorted, as every service reads them; an empty value is no pin', () => {
+    expect(flagOverrides({ INTAFACED_FLAG_B: 'off', INTAFACED_FLAG_A: 'on', INTAFACED_FLAG_C: '', INTAFACED_FLAG_D: 'maybe' })).toEqual([
+      { name: 'INTAFACED_FLAG_A', resolved: 'on', unrecognised: null },
+      { name: 'INTAFACED_FLAG_B', resolved: 'off', unrecognised: null },
+      { name: 'INTAFACED_FLAG_D', resolved: 'off', unrecognised: 'maybe' },
     ]);
   });
 
@@ -41,13 +63,17 @@ describe('effective console settings', () => {
     const walk = (dir: string) => {
       for (const name of readdirSync(dir)) {
         const path = join(dir, name);
-        if (statSync(path).isDirectory()) walk(path);
-        else if (/\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name)) files.push(path);
+        // src/testing holds the journey harnesses, which read their own evidence settings and are not the console.
+        if (statSync(path).isDirectory()) {
+          if (path !== join(src, 'testing')) walk(path);
+        } else if (/\.(tsx?|mjs)$/.test(name) && !/\.(test|pw)\.(tsx?|mjs)$/.test(name)) files.push(path);
       }
     };
     walk(src);
     const read = new Set<string>(Object.values(TOKEN_VAR));
-    for (const file of files) for (const m of readFileSync(file, 'utf8').matchAll(/\benv(?:\.|\[')([A-Z][A-Z0-9_]+)/g)) read.add(m[1]!);
+    // `env.X`, `env['X']`, and a name handed to a reader as a string (`present(env, 'X')`, `setValue(env, 'X')`).
+    const reads = /\benv(?:\.|\[['"])([A-Z][A-Z0-9_]+)|\benv,\s*['"]([A-Z][A-Z0-9_]+)['"]/g;
+    for (const file of files) for (const m of readFileSync(file, 'utf8').matchAll(reads)) read.add((m[1] ?? m[2])!);
     const runtime = new Set(['NODE_ENV', 'NEXT_RUNTIME', 'APP_ENV', 'ADMIN_ROUTE_PROBE', 'TZ']);
     const listed = new Set(CONSOLE_SETTINGS.map((d) => d.name));
     expect([...read].filter((name) => !runtime.has(name) && !listed.has(name))).toEqual([]);

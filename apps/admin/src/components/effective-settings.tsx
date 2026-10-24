@@ -1,15 +1,16 @@
 import Link from 'next/link';
 import { formatAsOf } from '@/lib/as-of';
 import type { ComplianceSection, EdgeComplianceStatus } from '@/lib/compliance/model';
-import { blockingBlanks, STAFF_COUNTS_UNWIRED, type SettingRow } from '@/lib/settings/effective';
+import { blockingBlanks, STAFF_COUNTS_UNWIRED, type FlagOverride, type SettingRow } from '@/lib/settings/effective';
 import './desk.css';
 
 export interface EffectiveSettingsProps {
   readonly rows: readonly SettingRow[];
   readonly deployment: { readonly appEnv: string; readonly drop: string };
-  readonly edge: ComplianceSection<EdgeComplianceStatus>;
+  /** svc-edge's posture; `module-off` when the jurisdiction module is switched off on this console, so it is not read. */
+  readonly edge: ComplianceSection<EdgeComplianceStatus> | { readonly kind: 'module-off' };
   readonly edgeAsOf: string;
-  readonly flags: readonly { readonly name: string; readonly value: string }[];
+  readonly flags: readonly FlagOverride[];
 }
 
 /**
@@ -19,6 +20,8 @@ export interface EffectiveSettingsProps {
  */
 export function EffectiveSettings({ rows, deployment, edge, edgeAsOf, flags }: EffectiveSettingsProps) {
   const blocking = blockingBlanks(rows);
+  const edgeBlanks = edgeBlankItems(edge);
+  const anyBlocking = blocking.length > 0 || edgeBlanks.length > 0;
   return (
     <div className="dk-stack" data-testid="effective-settings">
       <header className="dk-stack">
@@ -30,20 +33,39 @@ export function EffectiveSettings({ rows, deployment, edge, edgeAsOf, flags }: E
         </p>
       </header>
 
-      <section className="adm-callout dk-stack" data-tone={blocking.length ? 'warn' : 'info'} data-testid="settings-blocking">
+      <section
+        className="adm-callout dk-stack"
+        data-tone={anyBlocking || edge.kind === 'failed' ? 'warn' : 'info'}
+        data-testid="settings-blocking"
+      >
         <h2>Blank settings that stop an action</h2>
-        {blocking.length === 0 ? (
-          <p>None: every setting this console needs is set.</p>
-        ) : (
+        {!anyBlocking && (
+          <p>
+            {edge.kind === 'ok'
+              ? 'None: every setting this console and svc-edge report is set.'
+              : 'None among this console’s own settings.'}
+          </p>
+        )}
+        {anyBlocking && (
           <ul>
             {blocking.map((row) => (
               <li key={row.name} data-testid={`blocking-${row.name}`}>
-                <code>{row.name}</code> is blank. Stops: {row.blocks}
+                <code>{row.name}</code> {row.state === 'invalid' ? `is set but unusable (${row.problem})` : 'is blank'}. Stops: {row.blocks}
+              </li>
+            ))}
+            {edgeBlanks.map((b) => (
+              <li key={b.id} data-testid={`blocking-edge-${b.id}`}>
+                {b.text}
               </li>
             ))}
           </ul>
         )}
-        <EdgeBlanks edge={edge} />
+        {edge.kind === 'failed' && (
+          <p className="dk-muted">svc-edge’s own settings could not be read; see below. Nothing is assumed set.</p>
+        )}
+        {edge.kind === 'module-off' && (
+          <p className="dk-muted">svc-edge’s own settings are not read here: the jurisdiction module is off on this console.</p>
+        )}
       </section>
 
       <section className="dk-stack" aria-labelledby="h-console-settings">
@@ -65,7 +87,10 @@ export function EffectiveSettings({ rows, deployment, edge, edgeAsOf, flags }: E
                     <code>{row.name}</code>
                   </td>
                   <td>{row.what}</td>
-                  <td>{row.state === 'blank' ? 'Blank' : row.value === null ? 'Set (secret, not shown)' : <code>{row.value}</code>}</td>
+                  <td>
+                    {row.state === 'blank' ? 'Blank' : row.value === null ? 'Set (secret, not shown)' : <code>{row.value}</code>}
+                    {row.state === 'invalid' && <> Unusable: {row.problem}</>}
+                  </td>
                   <td>{row.state === 'set' ? '' : (row.blocks ?? row.blankMeans)}</td>
                 </tr>
               ))}
@@ -77,11 +102,16 @@ export function EffectiveSettings({ rows, deployment, edge, edgeAsOf, flags }: E
       <section className="dk-stack" aria-labelledby="h-edge-posture" data-testid="settings-edge-posture">
         <h2 id="h-edge-posture">Screening and network (svc-edge)</h2>
         <p className="dk-asof">As of {formatAsOf(edgeAsOf)} (when this console read svc-edge)</p>
-        {edge.kind === 'failed' ? (
+        {edge.kind === 'module-off' ? (
+          <div className="adm-callout" data-tone="info" role="status" data-state="module-off">
+            <strong>Not read: the jurisdiction module is off</strong>
+            <p>This console has the jurisdiction module switched off (ADMIN_MODULES), so it does not read svc-edge’s compliance status.</p>
+          </div>
+        ) : edge.kind === 'failed' ? (
           <div className="adm-callout" data-tone="warn" role="status" data-state="refused">
             <strong>Could not read svc-edge’s settings</strong>
             <p>{edge.message}</p>
-            <p className="dk-muted">Code: ops.settings_read_unavailable{edge.code ? ` (svc-edge: ${edge.code})` : ''}</p>
+            <p className="dk-muted">Code: ops.settings_read_unavailable{edge.code ? ` (cause: ${edge.code})` : ''}</p>
           </div>
         ) : (
           <dl className="dk-kv" data-state="read">
@@ -104,8 +134,12 @@ export function EffectiveSettings({ rows, deployment, edge, edgeAsOf, flags }: E
           </dl>
         )}
         <p>
-          <Link href="/jurisdiction">Jurisdiction rules in force</Link> · <Link href="/">Flags and kill-switches</Link> ·{' '}
-          <Link href="/launch">Launch sequence</Link>
+          {edge.kind !== 'module-off' && (
+            <>
+              <Link href="/jurisdiction">Jurisdiction rules in force</Link> ·{' '}
+            </>
+          )}
+          <Link href="/">Flags and kill-switches</Link> · <Link href="/launch">Launch sequence</Link>
         </p>
       </section>
 
@@ -117,7 +151,13 @@ export function EffectiveSettings({ rows, deployment, edge, edgeAsOf, flags }: E
           <ul>
             {flags.map((flag) => (
               <li key={flag.name}>
-                <code>{flag.name}</code> = <code>{flag.value}</code>
+                <code>{flag.name}</code> pins it {flag.resolved}
+                {flag.unrecognised !== null && (
+                  <>
+                    {' '}
+                    (<code>{flag.unrecognised}</code> is not a recognised value, so it reads as off)
+                  </>
+                )}
               </li>
             ))}
           </ul>
@@ -133,10 +173,9 @@ export function EffectiveSettings({ rows, deployment, edge, edgeAsOf, flags }: E
   );
 }
 
-function EdgeBlanks({ edge }: { edge: ComplianceSection<EdgeComplianceStatus> }) {
-  if (edge.kind === 'failed')
-    return <p className="dk-muted">svc-edge’s own settings could not be read; see below. Nothing is assumed set.</p>;
-  const blanks = [
+function edgeBlankItems(edge: EffectiveSettingsProps['edge']): readonly { readonly id: string; readonly text: string }[] {
+  if (edge.kind !== 'ok') return [];
+  return [
     !edge.data.geoBlock.screeningConfigured && {
       id: 'screening',
       text: `svc-edge’s sanctions screening list is blank. ${edge.data.geoBlock.screeningDeclaration}`,
@@ -146,14 +185,4 @@ function EdgeBlanks({ edge }: { edge: ComplianceSection<EdgeComplianceStatus> })
       text: `svc-edge’s network signal partner is blank. ${edge.data.networkSignal.declaration}`,
     },
   ].filter((b): b is { id: string; text: string } => Boolean(b));
-  if (blanks.length === 0) return null;
-  return (
-    <ul>
-      {blanks.map((b) => (
-        <li key={b.id} data-testid={`blocking-edge-${b.id}`}>
-          {b.text}
-        </li>
-      ))}
-    </ul>
-  );
 }

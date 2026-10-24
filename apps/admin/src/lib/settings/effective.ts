@@ -1,4 +1,6 @@
+import { parseFlagEnv } from '@intafaced/config';
 import { AUTHORITY_REACH } from '@/lib/console-status';
+import { hstsSettings } from '@/lib/security-headers.mjs';
 
 /**
  * The effective settings viewer (OPS-admin-access-08, ops-console-admin-access-037): what this console runs with, and every
@@ -21,7 +23,16 @@ export interface SettingDef {
   readonly blankMeans?: string;
   /** A secret is shown as set or blank only. A non-secret's value is shown as it is. */
   readonly secret: boolean;
+  /**
+   * For a value the console parses: why this value is not one it can use, or null when it can. A set value the reader
+   * rejects stops the same action a blank one does, so it is listed with the blanks.
+   */
+  readonly check?: (raw: string) => string | null;
 }
+
+const isInstant = (raw: string) => (Number.isFinite(Date.parse(raw)) ? null : 'Not an ISO-8601 instant, so it is read as absent.');
+const isSeconds = (raw: string) =>
+  /^\d+(\.\d+)?$/.test(raw) && Number.isFinite(Number(raw)) ? null : 'Not a number of seconds, so it is read as unset.';
 
 /** Every environment setting this console reads (each is read in this app; a test pins the list to the code). */
 export const CONSOLE_SETTINGS: readonly SettingDef[] = [
@@ -62,6 +73,7 @@ export const CONSOLE_SETTINGS: readonly SettingDef[] = [
     what: 'Whether the analytics read replica is wired for the warehouse read.',
     blocks: 'The warehouse cubes on Operator tools (they refuse rather than show a number).',
     secret: false,
+    check: (raw) => (raw === 'true' ? null : 'Only `true` turns the replica read on; any other value leaves it off.'),
   },
   {
     name: 'ANALYTICS_REPLICA_LEDGER_URL',
@@ -86,24 +98,62 @@ export const CONSOLE_SETTINGS: readonly SettingDef[] = [
     what: 'The replica lag the owner accepts.',
     blocks: 'Labelling a warehouse figure as live.',
     secret: false,
+    check: isSeconds,
   },
   {
     name: 'ANALYTICS_ETL_WATERMARK_AT',
     what: 'When the warehouse load last completed.',
     blocks: 'Labelling a warehouse figure as live.',
     secret: false,
+    check: isInstant,
+  },
+  {
+    name: 'ADMIN_BFF_SHARED_SECRET',
+    what: 'A legacy front-door secret; the console only reports whether it is present.',
+    blocks: null,
+    blankMeans: 'Nothing changes: every page and route checks the founder session on its own.',
+    secret: true,
+  },
+  {
+    name: 'LAUNCH_DROP',
+    what: 'The launch drop flags resolve at.',
+    blocks: null,
+    blankMeans: 'Drop 0: every drop-gated flag is off.',
+    secret: false,
+    check: (raw) =>
+      ['0', 'I', 'II', 'III', 'IV', 'V'].includes(raw) ? null : 'Not a drop (0, I, II, III, IV or V); the console refuses to start.',
+  },
+  {
+    name: 'HSTS_MAX_AGE_SECONDS',
+    what: 'How long browsers keep this console on HTTPS only (the HSTS stage).',
+    blocks: null,
+    blankMeans: 'One day (86400 seconds), the first stage.',
+    secret: false,
+    check: (raw) =>
+      hstsSettings({ HSTS_MAX_AGE_SECONDS: raw }).ok ? null : 'Not whole seconds up to two years; the console refuses to start.',
+  },
+  {
+    name: 'HSTS_INCLUDE_SUBDOMAINS',
+    what: 'Whether the HSTS stage covers subdomains.',
+    blocks: null,
+    blankMeans: 'Subdomains are not covered.',
+    secret: false,
+    check: (raw) => (hstsSettings({ HSTS_INCLUDE_SUBDOMAINS: raw }).ok ? null : 'Only `true` or `false`; the console refuses to start.'),
   },
 ];
 
 export interface SettingRow {
   readonly name: string;
   readonly what: string;
-  readonly state: 'set' | 'blank';
-  /** The value, for a set non-secret only. */
+  /** `invalid`: set to a value the console's reader does not accept. */
+  readonly state: 'set' | 'blank' | 'invalid';
+  /** The value, for a set (or invalid) non-secret only. */
   readonly value: string | null;
-  /** What this blank setting stops; null when set, or when blank stops nothing. */
+  /** What this blank or unusable setting stops; null when set, or when blank stops nothing. */
   readonly blocks: string | null;
   readonly blankMeans: string | null;
+  /** Why an invalid value is not used. */
+  readonly problem: string | null;
 }
 
 type Env = Readonly<Record<string, string | undefined>>;
@@ -112,26 +162,45 @@ export function settingRows(env: Env): readonly SettingRow[] {
   return CONSOLE_SETTINGS.map((def) => {
     const raw = (env[def.name] ?? '').trim();
     const set = raw.length > 0;
+    const problem = set && def.check ? def.check(raw) : null;
+    const usable = set && problem === null;
     return {
       name: def.name,
       what: def.what,
-      state: set ? 'set' : 'blank',
+      state: usable ? 'set' : set ? 'invalid' : 'blank',
       value: set && !def.secret ? raw : null,
-      blocks: set ? null : def.blocks,
+      blocks: usable ? null : def.blocks,
       blankMeans: set ? null : (def.blankMeans ?? null),
+      problem,
     };
   });
 }
 
-/** The blank settings that stop something, the list the page leads with. */
-export const blockingBlanks = (rows: readonly SettingRow[]): readonly SettingRow[] => rows.filter((r) => r.state === 'blank' && r.blocks);
+/** The blank (or unusable) settings that stop something, the list the page leads with. */
+export const blockingBlanks = (rows: readonly SettingRow[]): readonly SettingRow[] => rows.filter((r) => r.state !== 'set' && r.blocks);
 
-/** `INTAFACED_FLAG_*` overrides on this process, by name and value (a flag value is on or off, never a secret). */
-export function flagOverrides(env: Env): readonly { readonly name: string; readonly value: string }[] {
-  return Object.keys(env)
-    .filter((name) => name.startsWith('INTAFACED_FLAG_') && env[name] !== undefined)
+export interface FlagOverride {
+  readonly name: string;
+  /** What the override resolves to, the way every service reads it (`parseFlagEnv`). */
+  readonly resolved: 'on' | 'off';
+  /** The raw value, when it is not one of the recognised words (it then resolves off). */
+  readonly unrecognised: string | null;
+}
+
+/**
+ * The `INTAFACED_FLAG_*` pins in force, from `readOperatorEnv().flagEnv` (the one scan of this process's flags). An empty
+ * value is no pin, as `parseFlagEnv` reads it, so it is left out.
+ */
+export function flagOverrides(flagEnv: Readonly<Record<string, string>>): readonly FlagOverride[] {
+  return Object.keys(flagEnv)
     .sort()
-    .map((name) => ({ name, value: String(env[name]) }));
+    .flatMap((name) => {
+      const raw = flagEnv[name] ?? '';
+      const pin = parseFlagEnv(raw);
+      if (pin === undefined) return [];
+      const known = ['1', 'true', 'on', 'yes', '0', 'false', 'off', 'no'].includes(raw.trim().toLowerCase());
+      return [{ name, resolved: pin ? 'on' : 'off', unrecognised: known ? null : raw }];
+    });
 }
 
 /** Staff counts by role and recent activity need a staff directory read the console does not have yet. */
