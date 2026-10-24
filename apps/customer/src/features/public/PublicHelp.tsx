@@ -321,7 +321,7 @@ export function PublicHelp() {
             <Button type="submit">{t('search')}</Button>
           </form>
           <div className="help__request">
-            <RequestEntry query={typed} />
+            <RequestEntry query={typed} found={!typed || !loaded || ranking || articles.length > 0} />
           </div>
           <HelpLibraryNav />
           <p className="help__caption muted" role="status">
@@ -383,6 +383,7 @@ export function PublicHelp() {
                     <div className="help__empty" role="status">
                       <h2>{t(loaded.articles.length ? 'noMatches' : 'empty')}</h2>
                       <p className="muted">{t(loaded.articles.length ? 'noMatchesBody' : 'emptyBody')}</p>
+                      {typed && <RequestEntry query={typed} found={false} contact />}
                     </div>
                   )}
                   {ranking && <Loading label={t('searching')} />}

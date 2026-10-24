@@ -549,8 +549,40 @@ export class SupportService implements SupportContract {
   async listMyTickets(input: { userId: string; limit?: number }): Promise<SupportTicket[]> {
     return withSupportSpan('support.listMyTickets', { op: 'listMyTickets' }, async () => {
       const limit = assertListMineTicketsLimit(input.limit);
-      return this.store.listByUser(input.userId, { limit });
+      return this.withCustomerStatus(await this.store.listByUser(input.userId, { limit }));
     });
+  }
+
+  /**
+   * The caller's own request that a `support.create` key made, as it stands now, or null when that key made none. A page
+   * whose create answer was lost reads this instead of sending again (SP-tickets-01). The receipt is the caller's own, so
+   * another account's key reads as none.
+   */
+  async createdByRequest(input: { userId: string; clientRequestId: string }): Promise<SupportTicket | null> {
+    return withSupportSpan('support.createdByRequest', { op: 'createdByRequest' }, async () => {
+      const receipt = (await this.store.readReceipt('support.create', input.userId, input.clientRequestId)) as {
+        ticket?: { id?: unknown };
+      } | null;
+      const id = receipt?.ticket?.id;
+      if (typeof id !== 'string') return null;
+      const ticket = await this.store.findById(id);
+      if (!ticket || ticket.userId !== input.userId) return null;
+      return (await this.withCustomerStatus([ticket]))[0]!;
+    });
+  }
+
+  /** Each ticket with what its owner reads as its status: whose turn it is, from the lifecycle facts. */
+  private async withCustomerStatus(tickets: SupportTicket[]): Promise<SupportTicket[]> {
+    const waiting = new Set(
+      (await this.lifecycle.awaitingCustomer(tickets.filter((t) => t.status !== 'resolved' && t.status !== 'closed').map((t) => t.id))).map(
+        (row) => row.ticketId,
+      ),
+    );
+    return tickets.map((ticket) => ({
+      ...ticket,
+      customerStatus:
+        ticket.status === 'resolved' || ticket.status === 'closed' ? 'solved' : waiting.has(ticket.id) ? 'awaiting_reply' : 'open',
+    }));
   }
 
   /**
@@ -587,7 +619,9 @@ export class SupportService implements SupportContract {
       // An operator reads their own tickets as a customer; anything else obeys desk scope.
       if (input.asOperator === true && ticket.userId !== input.userId) await this.assertDeskVisible(input.userId, ticket.id);
       const merge = ticket.status === 'closed' ? await this.store.findMergeBySource(ticket.id) : null;
-      return merge ? { ...ticket, mergedInto: merge.survivorId } : ticket;
+      const read = merge ? { ...ticket, mergedInto: merge.survivorId } : ticket;
+      // The owner reads whose turn it is; a staff read of someone else's request keeps the desk's own facts.
+      return ticket.userId === input.userId ? (await this.withCustomerStatus([read]))[0]! : read;
     });
   }
 
