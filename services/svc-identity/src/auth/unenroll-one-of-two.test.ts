@@ -10,6 +10,9 @@ import { unenrollOneOfTwo } from './unenroll-one-of-two.js';
 import { beginVerifyPasskey, type VerifyPasskeyCeremony } from './verify-passkey.js';
 import type { ChallengeStorePort } from './webauthn.js';
 
+/** The factor-changed outbox rows each removal queued. */
+const factorNotices: unknown[][] = [];
+
 type StoredCred = { credentialId?: unknown; lastVerifiedAt?: unknown };
 type UserRow = { id: string; webauthn_creds: StoredCred[] };
 type SessionRow = { id: string; user_id: string; revoked: boolean };
@@ -122,6 +125,13 @@ function combinedStore(users: UserRow[], sessions: SessionRow[], keys: KeyRow[])
           account_id: null,
           product_scopes: [],
         }));
+    }
+    // The factor-changed notice (I-signin-sessions-08): the account's address, the change count, and its two outbox rows.
+    if (text.includes('email_verified_at') && text.includes('from users')) return [];
+    if (text.includes('from security_factor_events')) return [{ n: 0 }];
+    if (text.includes('into security_factor_events') || text.includes('into mail_outbox')) {
+      factorNotices.push(values);
+      return [];
     }
     throw new Error(`unexpected sql: ${text}`);
   };

@@ -13,6 +13,7 @@ import {
 import { transaction } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { checkMayAddFactor, type FactorActor } from './factor-gate.js';
+import { queueFactorChangedNotice } from './factor-changed-notice.js';
 import { SqlChallengeStore, type ChallengeStorePort } from './webauthn.js';
 
 export class EnrollPasskeyError extends Error {
@@ -251,6 +252,7 @@ export async function enrollPasskey(
          SET webauthn_creds = ${tx.json(next as never)}, updated_at = now()
        WHERE id = ${userId}
     `;
+    await queueFactorChangedNotice(tx, { userId, change: 'passkey_added', now: new Date() });
   });
   return { credentialId: stored.credentialId };
 }

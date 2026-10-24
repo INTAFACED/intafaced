@@ -9,6 +9,7 @@ import { serviceOfRequest } from './s2s-door.js';
 import { readIdentityWatermark } from './restore-watermark.js';
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
+import { relaySecurityFactorEvents } from './auth/factor-changed-notice.js';
 import { AuthService } from './auth/auth-service.js';
 import { createPayMerchantEmailInviteClaimer } from './auth/merchant-email-invite-claim.js';
 import { openIdentityMail } from './auth/local-mail.js';
@@ -377,6 +378,16 @@ auth.useMailRelayTrigger(() => {
   setImmediate(drainRecoveryMail);
 });
 setInterval(drainRecoveryMail, 15_000).unref();
+// Each change to a sign-in factor leaves an outbox row in its own transaction (I-signin-sessions-08). The relay
+// publishes them for the inbox notice, at least once, and then sends their mails without waiting for the mail timer.
+const relayFactorChanges = () => {
+  void relaySecurityFactorEvents({ sql, bus, now: () => new Date() })
+    .then((published) => {
+      if (published > 0) drainRecoveryMail();
+    })
+    .catch((err) => app.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'auth.factor_change_relay_failed'));
+};
+setInterval(relayFactorChanges, 3_000).unref();
 if (env.PAY_URL) {
   auth.useMerchantEmailInviteClaimer(createPayMerchantEmailInviteClaimer(env.PAY_URL, env.INTERNAL_SERVICE_SECRET, fetch, outS2s));
 }

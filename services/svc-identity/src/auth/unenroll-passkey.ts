@@ -5,6 +5,7 @@
 import { transaction } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { assertLeavesAWayIn, lockedSigninMethods } from './signin-methods.js';
+import { queueFactorChangedNotice } from './factor-changed-notice.js';
 
 export class UnenrollPasskeyError extends Error {
   constructor(
@@ -57,6 +58,7 @@ export async function unenrollPasskey(
          SET webauthn_creds = ${tx.json(remaining as never)}, updated_at = now()
        WHERE id = ${userId}
     `;
+    await queueFactorChangedNotice(tx, { userId, change: 'passkey_removed', now: new Date() });
     return { credentialId: id, remaining: remaining.length };
   });
 }

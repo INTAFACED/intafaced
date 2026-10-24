@@ -20,6 +20,7 @@ import type { PendingTotpEnrolmentStore } from './pending-totp-store.js';
 import { generateRecoveryCodes, generateSecret, matchTotpStep, totpUri } from './totp.js';
 import { encryptTotpSecret, materializeTotpSecret } from './totp-crypto.js';
 import { syncNavigatorSessionClosed } from '../agents/navigator-session-projection-sync.js';
+import { queueFactorChangedNotice } from './factor-changed-notice.js';
 
 export const TOTP_LABEL_MAX = 64;
 const CONTROL_OR_LINE_SEPARATOR = /[\p{Cc}\p{Zl}\p{Zp}]/u;
@@ -70,6 +71,10 @@ function requireKey(key: Buffer | null): Buffer {
 
 export class TotpLifecycle {
   constructor(private readonly deps: TotpLifecycleDeps) {}
+
+  private now(): Date {
+    return this.deps.now?.() ?? new Date();
+  }
 
   private async lock(tx: Sql, userId: string): Promise<UserRow> {
     const rows = await tx<UserRow[]>`
@@ -155,6 +160,7 @@ export class TotpLifecycle {
       const proof = await this.proveCurrent(tx, userId, u, code);
       await tx`UPDATE users SET totp_secret = NULL, totp_label = NULL, totp_enrolled_at = NULL, totp_last_step = NULL,
         recovery_code_hashes = '[]'::jsonb, updated_at = now() WHERE id = ${userId}`;
+      await queueFactorChangedNotice(tx, { userId, change: 'totp_removed', now: this.now() });
       return proof;
     });
     await recordSuccess(this.deps.sql, userId, 'mfa');
@@ -209,6 +215,7 @@ export class TotpLifecycle {
         UPDATE trusted_devices SET removed_at = now()
         WHERE user_id = ${userId} AND removed_at IS NULL
           AND id IS DISTINCT FROM (SELECT trusted_device_id FROM sessions WHERE id = ${keepSessionId}::uuid)`;
+      await queueFactorChangedNotice(tx, { userId, change: 'totp_replaced', now: this.now() });
       return { ...proof, recoveryCodes, ended: ended.map((r) => r.id) };
     });
     await recordSuccess(this.deps.sql, userId, 'mfa');
