@@ -121,6 +121,11 @@ jobs:
           node tooling/scripts/local-test-market.mjs history
           node tooling/scripts/local-test-market.mjs
 
+      # Labelled TEST rows (earn pools, loan products, a TEST P2P method) so those rooms show working, after the gates
+      # published the limits they need (docs/LOCAL-TEST-STACK.md, "Local test content"). Production stays blank.
+      - name: Load the TEST content
+        run: LOCAL_TEST=1 node tooling/scripts/local-test-seed.mjs apply --state "$LOCAL_STACK_STATE"
+
       - name: Demo account (verified, TEST USDT)
         env:
           TRY_PASSWORD: ${{ secrets.TRY_PASSWORD }}

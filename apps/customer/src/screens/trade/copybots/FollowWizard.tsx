@@ -15,7 +15,9 @@ import {
 import type { Listing } from '../../../features/trade/trade-api';
 import { dec } from '../../../data/decimal';
 import { displayAmount } from '../../../shared/money';
+import { useBalances } from '../desk/data';
 import type { CopyDesk, LeaderRow, RoomApi } from './api';
+import { useLive } from './live';
 import { bpsText, deskState } from './desk';
 import { roomCopy } from './copy';
 import type { WriteGuard } from './guard';
@@ -60,11 +62,21 @@ export function FollowWizard({
   const [perOrder, setPerOrder] = useState('');
   const [aggregate, setAggregate] = useState('');
   const [maxLoss, setMaxLoss] = useState('');
+  const [useFixed, setUseFixed] = useState(true);
+  const [fixed, setFixed] = useState('');
   const [expiry, setExpiry] = useState('');
   const [understood, setUnderstood] = useState(false);
+  // One key per opening of the wizard: a second press of Start copying, or a retry after a lost answer, is the same
+  // request and returns the same follow.
+  const [requestKey, setRequestKey] = useState('');
   const state = deskState(desk);
+  const balances = useBalances();
+  const disclosure = useLive((signal) => api.disclosure(signal), `copy-disclosure:${open ? 'open' : 'closed'}`, null);
   useEffect(() => {
-    if (open) setLeader(initialLeader);
+    if (open) {
+      setLeader(initialLeader);
+      setRequestKey(`copy-start:${Date.now().toString(36)}`);
+    }
   }, [open, initialLeader]);
 
   const quote = useMemo(() => {
@@ -72,6 +84,7 @@ export function FollowWizard({
     return assets.size === 1 ? [...assets][0]! : null;
   }, [markets, picked]);
 
+  const free = quote && balances.status === 'ready' ? (dec(balances.data[quote]?.free ?? '0') ?? 0n) : null;
   const problems = {
     leader: listed || leader.trim() ? '' : t('Enter the leader’s ID'),
     region: /^[A-Za-z]{2}$/.test(region.trim()) ? '' : t('Enter your country as two letters, for example ID'),
@@ -82,12 +95,20 @@ export function FollowWizard({
         ? ''
         : t('The total can’t be below the amount per order'),
     maxLoss: !maxLoss || (dec(maxLoss) ?? 0n) > 0n ? '' : t('Enter an amount above zero, or leave it empty'),
+    fixed: !useFixed
+      ? ''
+      : (dec(fixed) ?? 0n) <= 0n
+        ? t('Enter an amount above zero')
+        : (dec(fixed) ?? 0n) > (dec(perOrder) ?? 0n)
+          ? t('The most per order is {cap} {asset}', { cap: displayAmount(perOrder || '0'), asset: quote ?? '' })
+          : '',
+    reserve: free !== null && (dec(aggregate) ?? 0n) > free ? t('That is more than your free {asset}', { asset: quote ?? '' }) : '',
     expiry: instantOf(expiry) && new Date(expiry).getTime() > Date.now() ? '' : t('Choose a time in the future'),
     mixedQuote: picked.length > 0 && quote === null ? t('Choose markets that settle in the same asset') : '',
   };
   const valid1 = !problems.leader && !problems.region;
   const valid2 = !problems.markets && !problems.mixedQuote;
-  const valid3 = !problems.perOrder && !problems.aggregate && !problems.maxLoss && !problems.expiry;
+  const valid3 = !problems.perOrder && !problems.aggregate && !problems.maxLoss && !problems.fixed && !problems.reserve && !problems.expiry;
   const [touched, setTouched] = useState(false);
   const show = (message: string) => (touched ? message : '');
 
@@ -104,22 +125,33 @@ export function FollowWizard({
       setStep((step + 1) as Step);
     }
   };
+  const terms = disclosure.data;
   const confirm = () => {
     const expiresAt = instantOf(expiry);
-    if (!expiresAt || guard.busy || guard.locked) return;
+    if (!expiresAt || guard.busy || guard.locked || !terms?.published || !terms.version) return;
+    const version = terms.version;
     void guard.run(
       { kind: 'copy', id: `follow:${listed ? listed.leaderRef : leader.trim()}:${Date.now()}`, symbol: picked.join(',') },
-      () =>
-        api.follow({
+      async () => {
+        // Accepting is its own record, keyed by the version; the follow then goes through the same gate.
+        if (!terms.accepted) {
+          const accepted = await api.acceptDisclosure({ version, clientAcceptId: `copy-accept:${version}` });
+          if (!accepted.ok) return accepted;
+        }
+        return api.follow({
           ...(listed ? { leaderRef: listed.leaderRef } : { leaderId: leader.trim() }),
           region: region.trim().toUpperCase(),
           permittedMarkets: picked,
           maxNotionalPerOrder: perOrder,
           maxAggregateExposure: aggregate,
           ...(maxLoss ? { maxLoss } : {}),
+          ...(useFixed ? { fixedOrderSize: fixed } : {}),
           expiresAt,
-        }),
+          clientRequestId: requestKey,
+        });
+      },
       () => {
+        disclosure.reload();
         onFollowed();
         onOpenChange(false);
         reset();
@@ -217,6 +249,34 @@ export function FollowWizard({
             >
               <Input kind="decimal" value={aggregate} onValueChange={setAggregate} precision={8} trailing={asset} />
             </Field>
+            <KeyValue
+              items={[
+                {
+                  label: t('Free {asset} now', { asset }),
+                  value: balances.status === 'ready' ? `${displayAmount(balances.data[asset]?.free ?? '0')} ${asset}` : t('Balance unread'),
+                },
+                { label: t('Reserved for this copy'), value: aggregate ? `${displayAmount(aggregate)} ${asset}` : t('Not set') },
+              ]}
+            />
+            {show(problems.reserve) ? (
+              <p className="cb-error" role="alert">
+                {problems.reserve}
+              </p>
+            ) : null}
+            <label className="cb-check">
+              <Checkbox checked={useFixed} onCheckedChange={(v) => setUseFixed(v === true)} />
+              <span>{t('Use the same amount for every copied order')}</span>
+            </label>
+            {useFixed ? (
+              <Field
+                label={t('Fixed amount per copied order ({asset})', { asset })}
+                hint={t('Each copied order uses this much, never more than the most per order.')}
+                error={show(problems.fixed)}
+                required
+              >
+                <Input kind="decimal" value={fixed} onValueChange={setFixed} precision={8} trailing={asset} />
+              </Field>
+            ) : null}
             <Field
               label={t('Stop at a loss of ({asset})', { asset })}
               hint={t('Optional. Copying stops when losses reach this.')}
@@ -246,6 +306,11 @@ export function FollowWizard({
                 { label: t('Markets'), value: picked.join(', ') },
                 { label: t('Most per order'), value: `${displayAmount(perOrder)} ${asset}` },
                 { label: t('Most in total'), value: `${displayAmount(aggregate)} ${asset}` },
+                { label: t('Reserved for this copy'), value: `${displayAmount(aggregate)} ${asset}` },
+                {
+                  label: t('Fixed amount per copied order'),
+                  value: useFixed ? `${displayAmount(fixed)} ${asset}` : t('Not set'),
+                },
                 { label: t('Stop at a loss of'), value: maxLoss ? `${displayAmount(maxLoss)} ${asset}` : t('Not set') },
                 { label: t('Permission ends'), value: new Date(expiry).toLocaleString() },
               ]}
@@ -264,10 +329,29 @@ export function FollowWizard({
               />
             </section>
             <InfoNote>{t('If you stop, new copies stop at once. Positions already open stay yours until you close them.')}</InfoNote>
-            <label className="cb-check">
-              <Checkbox checked={understood} onCheckedChange={(v) => setUnderstood(v === true)} />
-              <span>{t('I understand copying is not a guaranteed result and a leader’s order can lose money.')}</span>
-            </label>
+            <section aria-label={t('Copy risk disclosure')} className="cb-disclosure">
+              <h3>{t('Copy risk disclosure')}</h3>
+              {disclosure.status === 'loading' ? (
+                <p>{t('Loading')}</p>
+              ) : disclosure.failure && !terms ? (
+                <RefusalNote failure={disclosure.failure} retry={disclosure.reload} />
+              ) : !terms?.published ? (
+                <InfoNote tone="warn">{t('Not published. Copying can’t start until the platform publishes its risk disclosure.')}</InfoNote>
+              ) : (
+                <>
+                  <p className="cb-disclosure-text">{terms.text}</p>
+                  <p className="cb-meta">{t('Version {version}', { version: terms.version ?? '' })}</p>
+                  <label className="cb-check">
+                    <Checkbox
+                      checked={terms.accepted || understood}
+                      disabled={terms.accepted}
+                      onCheckedChange={(v) => setUnderstood(v === true)}
+                    />
+                    <span>{terms.accepted ? t('You accepted this version.') : t('I have read this disclosure and accept it.')}</span>
+                  </label>
+                </>
+              )}
+            </section>
           </div>
         ) : null}
 
@@ -280,8 +364,12 @@ export function FollowWizard({
           {step < 4 ? (
             <Button onClick={next}>{t('Next')}</Button>
           ) : (
-            <Button onClick={confirm} loading={guard.busy} disabled={!understood || guard.locked || !guard.signedIn}>
-              {t('Confirm and follow')}
+            <Button
+              onClick={confirm}
+              loading={guard.busy}
+              disabled={!terms?.published || !(terms.accepted || understood) || guard.locked || !guard.signedIn}
+            >
+              {t('Start copying')}
             </Button>
           )}
         </DialogFooter>

@@ -3,15 +3,18 @@ import { requireFounderPage } from '@/lib/founder-page';
 import { requireModulePage } from '@/lib/module-page-guard';
 import { LedgerOps } from '@/components/ledger-ops';
 import { LedgerLookup } from '@/components/ledger-lookup';
+import { ReconciliationControls } from '@/components/reconciliation-controls';
 import { PayHaltsDesk } from '@/components/pay-halts-desk';
 import { readConsoleStatus } from '@/lib/console-status';
 import { readFreeze } from '@/lib/control-plane-client';
 import { loadPayHalts } from '@/lib/pay-halts/server';
+import { treasuryParked } from '@/lib/ledger/reconciliation-server';
 import { ledgerQueryFromParams } from '@/lib/search/cross-search';
 
 /**
- * Ledger operations (§4.2 / §14.6): the posting freeze, the transaction lookup (J-ops-console-03), and the payments halts
- * that stop one operation. `?txId=` or `?businessKey=` (the cross-desk search's link back) opens the lookup on that query.
+ * Ledger operations (§4.2 / §14.6): the posting freeze, the transaction lookup (J-ops-console-03), the reconciliation
+ * controls (J-ops-console-07), and the payments halts that stop one operation. `?txId=` or `?businessKey=` (the cross-desk
+ * search's link back) opens the lookup on that query.
  *
  * Server-loads the real freeze state through `readFreeze()` — the same client `/api/ledger-freeze` uses — so the
  * first paint is svc-ledger's answer and not a default. This page previously rendered `operator-commands.ts` stubs
@@ -37,6 +40,7 @@ export default async function LedgerOpsPage({ searchParams }: { searchParams: Pr
     <div className="adm-stack">
       <LedgerOps treasury={status.treasury} initialFreeze={initialFreeze} initialReadAt={initialReadAt} userId={founder.session.userId} />
       <LedgerLookup key={initial ? JSON.stringify(initial) : ''} initial={initial} />
+      <ReconciliationControls treasuryParked={treasuryParked()} userId={founder.session.userId} />
       <PayHaltsDesk initial={halts} userId={founder.session.userId} />
       <p>
         <Link href="/restore">Joint restore</Link>

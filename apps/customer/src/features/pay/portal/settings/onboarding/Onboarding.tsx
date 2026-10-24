@@ -14,6 +14,7 @@ import { DestinationConfirm } from '../../access/DestinationConfirm';
 import type { DestinationProof } from '../../access/destination-step-up';
 import { normaliseReference } from '../../money/Destinations';
 import { useUnsavedForm } from '../../useUnsavedForm';
+import { BusinessApplication } from './Application';
 import { reason as notLive } from '../../chrome/copy';
 import { accountCopy } from '../account/copy';
 import type { Progress, TermsState } from '../account/schemas';
@@ -528,9 +529,13 @@ function StepVerification({ portal, merchant, kyb, history, loadMoreHistory, onK
           }}
         </Gate>
       </PaySection>
-      <Blocker reason={notLive('reasonDocuments')} needs="document check provider" title={a('docsHeading')}>
-        {a('docsBlocked')}
-      </Blocker>
+      <BusinessApplication
+        portal={portal}
+        merchant={merchant}
+        kybStatus={kyb.status === 'ready' && kyb.data ? kyb.data.kybStatus : merchant.kybStatus}
+        kybRef={kyb.status === 'ready' && kyb.data ? kyb.data.kybRef : merchant.kybRef}
+        onSubmitted={onKybSubmitted}
+      />
       <a className="text-link" href="/pay/onboarding/go-live">
         {a('continueGoLive')}
       </a>

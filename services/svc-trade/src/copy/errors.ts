@@ -70,7 +70,13 @@ export type CopyErrorCode =
   | 'trade.copy_leader_mode_invalid'
   | 'trade.copy_leader_search_invalid'
   | 'trade.copy_leader_trades_limit_unset'
-  | 'trade.copy_leader_trades_cursor_invalid';
+  | 'trade.copy_leader_trades_cursor_invalid'
+  | 'trade.copy_fixed_size_above_cap'
+  | 'trade.copy_tier_unset'
+  | 'trade.tier_insufficient'
+  | 'trade.copy_subaccount_refused'
+  | 'trade.copy_reserve_exceeds_balance'
+  | 'trade.copy_market_quote_mixed';
 
 /**
  * Closed set for the customer desk and blank-law refusals.

@@ -25,7 +25,7 @@ import { describeUnconfigured, readConsoleStatus, type Authority } from '@/lib/c
  * Until this file existed, this app's own README said it plainly: "Flag
  * overrides staged on `/` are held in the browser session only", and the board
  * printed "Staged changes are held in this browser session and have not been
- * sent anywhere." `src/lib/operator-commands.ts` was blunter still about the
+ * sent anywhere." The old `src/lib/operator-commands.ts` was blunter still about the
  * ledger controls: "They do NOT call them." §14.6 asks for a kill-switch an
  * operator can reach, and nothing here reached anything.
  *

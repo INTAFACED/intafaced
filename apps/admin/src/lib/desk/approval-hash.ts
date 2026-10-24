@@ -12,7 +12,8 @@ export const WAVE_RELEASE_TARGET = 'waitlist.wave.release';
  * The hash is the whole binding between "what the approver read" and "what the service will do". It must equal,
  * byte for byte, what the target computes at consume time:
  *   - svc-edge   `edgeActionPayloadHash('edge.kill', { module, disabled: 'true'|'false', reason })`
- *   - svc-ledger `ledgerActionPayloadHash('ledger.freeze', { reason })` / `('ledger.unfreeze', {})`
+ *   - svc-ledger `ledgerActionPayloadHash('ledger.freeze', { reason })` / `('ledger.unfreeze', {})`,
+ *     and `('ledger.reconciliation_control.run', { controlId, asOf, margin, reason })`
  *   - svc-market `marketActionPayloadHash('market.vendor.vet', { vendorId, decision, reason })`
  *   - svc-academy `academyActionPayloadHash('academy.ambassador.freeze', { userId, reason })` / `.unfreeze` / `.appoint` `{ userId }`,
  *     and `('academy.residency.decide', { id, decision })`
@@ -62,6 +63,13 @@ export function payloadHashFor(request: DeskRequest): string {
       return sha('ledger.freeze', { reason: request.reason });
     case 'ledger.unfreeze':
       return sha('ledger.unfreeze', {});
+    case 'ledger.reconciliation_control.run':
+      return sha('ledger.reconciliation_control.run', {
+        controlId: request.controlId,
+        asOf: request.asOf,
+        margin: request.margin,
+        reason: request.reason,
+      });
     case 'market.vendor.vet':
       return sha('market.vendor.vet', { vendorId: request.vendorId, decision: request.decision, reason: request.reason });
     case 'academy.ambassador.freeze':
@@ -154,6 +162,16 @@ export function proposeInputFor(request: DeskRequest): ProposeInput {
         actionType: 'ledger.unfreeze',
         targetService: 'svc-ledger',
         targetId: 'posting_unfreeze',
+        expectedVersion: request.version,
+        payloadHash,
+        policyVersion: 'v1',
+      };
+    // svc-ledger consumes a control run at the control version it reads, against `posting_reconciliation_control.run`.
+    case 'ledger.reconciliation_control.run':
+      return {
+        actionType: 'ledger.reconciliation_control.run',
+        targetService: 'svc-ledger',
+        targetId: 'posting_reconciliation_control.run',
         expectedVersion: request.version,
         payloadHash,
         policyVersion: 'v1',

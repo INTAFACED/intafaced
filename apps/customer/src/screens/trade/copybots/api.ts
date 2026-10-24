@@ -92,6 +92,15 @@ export type LeaderTrade = z.infer<typeof leaderTradeSchema>;
 const leaderTradesSchema = z.object({ trades: z.array(leaderTradeSchema), nextCursor: z.string().nullable() });
 
 /** Leaders per directory page and trades per lead page. The service refuses a read without one. */
+/** The owner's copy risk disclosure and whether this person accepted the current version. */
+export const copyDisclosureSchema = z.object({
+  published: z.boolean(),
+  version: z.string().nullable(),
+  text: z.string().nullable(),
+  accepted: z.boolean(),
+});
+export type CopyDisclosure = z.infer<typeof copyDisclosureSchema>;
+
 export const LEADER_PAGE = 50;
 export const LEADER_TRADES_PAGE = 20;
 
@@ -103,7 +112,11 @@ export type FollowRequest = {
   maxNotionalPerOrder: string;
   maxAggregateExposure: string;
   maxLoss?: string;
+  /** Quote amount each copied order uses. Left out means no fixed size. */
+  fixedOrderSize?: string;
   expiresAt: string;
+  /** This Start copying request's own key: pressing again returns the same follow. */
+  clientRequestId: string;
 };
 export type TwapRequest = {
   symbol: string;
@@ -145,6 +158,9 @@ export function createRoomApi(api: ApiClient) {
       }),
     follows: tools.copyFollows,
     follow: (input: FollowRequest) => api.mutate('trade', 'copy.follow', input, copyFollowSchema),
+    disclosure: (signal?: AbortSignal) => api.query('trade', 'copy.disclosure', undefined, copyDisclosureSchema, { signal }),
+    acceptDisclosure: (input: { version: string; clientAcceptId: string }) =>
+      api.mutate('trade', 'copy.acceptDisclosure', input, z.object({ version: z.string() }).passthrough()),
     followAction: tools.copyAction,
     flatten: (followId: string) => api.mutate('trade', 'copy.flatten', { followId }, ackSchema.passthrough()),
     algoPolicy: (signal?: AbortSignal) => api.query('trade', 'algo.policy', undefined, algoPolicySchema, { signal }),

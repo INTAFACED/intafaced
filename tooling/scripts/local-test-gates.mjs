@@ -17,6 +17,7 @@
  *   node tooling/scripts/local-test-gates.mjs chart-class <SYMBOL> <dataClass>   one market's data class (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs risk <SYMBOL> collar=0.1|unset throttle=20|unset   change one market's limits
  *   node tooling/scripts/local-test-gates.mjs p2p        register the TEST P2P payment method (two-person approval)
+ *   node tooling/scripts/local-test-gates.mjs kyb        publish the TEST business verification requirements and upload rules
  *   node tooling/scripts/local-test-gates.mjs age <handle> <seconds>   move one TEST account's sign-up time back
  *   node tooling/scripts/local-test-gates.mjs status     read-only: what is open, who is verified
  *
@@ -35,6 +36,9 @@
  *   9. time passing for one TEST journey account (`age`): its sign-up time, referral relationship, latest fee event and
  *      ended relationships move back, so a journey can show a window measured from sign-up closed (J-campaigns-05 #5, the referral attach
  *      window) or a relationship past the inactivity period (#7) without waiting for it.
+ *  10. the owner who publishes what each type of business sends to verify and the upload rules for its documents
+ *      (svc-pay ships both tables empty, so no business application can start while they are). There is no door for
+ *      this owner data, so the repo's own seed tool writes the rows (`seed-pay-kyb-test-requirements.mjs`).
  * Every record it writes is labelled "LOCAL TEST — not a real approval" and carries one of the markers
  * below, so a production check can recognise and refuse them (see MARKERS).
  *
@@ -514,11 +518,14 @@ export async function ensureOperators(ctx) {
 
 /** Short-lived access token for this operator's live session, carrying an `admin:compliance` operator scope. */
 async function mintOperatorToken(ctx, op, scopes = ['admin:compliance']) {
-  const minted = await ctx.tokens.issueAccessToken(
+  return (await mintSessionToken(ctx, op, scopes, 300)).token;
+}
+
+async function mintSessionToken(ctx, op, scopes, ttlSeconds) {
+  return ctx.tokens.issueAccessToken(
     { userId: op.userId, sessionId: op.sessionId, scopes, tier: 'none', mfa: true },
-    { secret: ctx.secrets.jwt, issuer: 'intafaced', audience: 'intafaced.api', accessTtlSeconds: 300 },
+    { secret: ctx.secrets.jwt, issuer: 'intafaced', audience: 'intafaced.api', accessTtlSeconds: ttlSeconds },
   );
-  return minted.token;
 }
 
 /** Sign both operators in with their second factor. Returns { a, b } sessions with minted tokens. */
@@ -549,6 +556,27 @@ export async function approverSessions(ctx) {
   const ops = {};
   for (const { key, ...f } of pair) ops[key] = { ...f, lastStep: Number(steps[key] ?? 0) };
   return signInPair(ctx, ops, () => writePrivate(stepsFile, { ...readJson(stepsFile, {}), a: ops.a.lastStep, b: ops.b.lastStep }));
+}
+
+/**
+ * The founder console's LOCAL TEST treasury credential (ADMIN_TREASURY_TOKEN): founder a signs in with their second
+ * factor, and that fresh session gets `admin:treasury`, which svc-edge's treasury doors check together with the second
+ * factor and a live session. Founder sessions never carry that scope, so without this the stack's console shows the
+ * treasury doors parked. The stack's own JWT secret signs it, so it is valid nowhere else. Null until the founder pair
+ * is enrolled.
+ */
+export async function consoleTreasuryToken(ctx, { ttlSeconds }) {
+  const a = founderSignIns(readJson(path.join(ctx.paths.stateDir, FOUNDER_VAULT_NAME), null)).find((f) => f.key === 'a');
+  if (!a) return null;
+  const stepsFile = path.join(ctx.paths.stateDir, FOUNDER_STEPS_NAME);
+  const op = { ...a, lastStep: Number(readJson(stepsFile, {}).a ?? 0) };
+  try {
+    await operatorLogin(ctx, op);
+  } finally {
+    // Identity may have spent the step even when the login then failed: never hand it to the next tool.
+    writePrivate(stepsFile, { ...readJson(stepsFile, {}), a: op.lastStep });
+  }
+  return mintSessionToken(ctx, op, ['admin:treasury'], ttlSeconds);
 }
 
 /**
@@ -1167,6 +1195,27 @@ export async function seedSpotTestListings(ctx) {
   }
 }
 
+/** Publish the TEST business verification requirements (`TEST_KYB_ENTITY_TYPES`) and upload rules once, as svc-pay's own role. */
+export async function seedPayKybRequirements(ctx) {
+  const { createRequire } = await import('node:module');
+  const postgres = createRequire(path.join(REPO, 'services', 'svc-pay', 'package.json'))('postgres');
+  const { insertKybTestRequirements, localTestDatabaseUrl } = await import('./seed-pay-kyb-test-requirements.mjs');
+  const url = `postgres://svc_pay:${encodeURIComponent(ctx.secrets.pgService)}@${HOST}:${ctx.marker.ports.postgres ?? 15460}/${DB_NAME}`;
+  const databaseUrl = localTestDatabaseUrl(url);
+  assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
+  const sql = postgres(databaseUrl, { max: 1, onnotice: () => {} });
+  try {
+    // A row already there (an earlier run, or anything else) is kept, never overwritten.
+    const out = await insertKybTestRequirements(sql);
+    for (const t of out.types)
+      ctx.log(`TEST business type ${t.entityType} ${t.changed ? 'published' : 'already published'} (${MARKERS.label})`);
+    ctx.log(`TEST document upload rules ${out.uploadRules.changed ? 'published' : 'already published'} (${MARKERS.label})`);
+    return out;
+  } finally {
+    await sql.end();
+  }
+}
+
 /** Publish the TEST agreements and quiz once each, through svc-trade's own doors with a second operator's approval. */
 export async function publishFuturesTerms(ctx) {
   const pair = await approverSessions(ctx);
@@ -1543,6 +1592,7 @@ async function main() {
       // The TEST perpetual and TEST spot markets are listed first, so the lifecycle, book and limit steps below include it.
       await seedFuturesListing(ctx);
       await seedSpotTestListings(ctx);
+      await seedPayKybRequirements(ctx);
       await publishFuturesTerms(ctx);
       for (const r of await publishLifecycles(ctx)) say(`  lifecycle ${r.symbol.padEnd(10)} ${r.status}`);
       for (const r of await openBooks(ctx)) say(`  open      ${r.symbol.padEnd(10)} accepted`);
@@ -1559,6 +1609,9 @@ async function main() {
       // before it (every journeys shard stopped here in run 231).
       for (const r of await publishP2pMethods(ctx))
         say(`  p2p       ${r.methodId} ${r.country} ${r.changed ? 'registered' : 'already registered'}`);
+    } else if (cmd === 'kyb') {
+      const out = await seedPayKybRequirements(ctx);
+      for (const t of out.types) say(`  kyb       ${t.entityType} ${t.changed ? 'published' : 'already published'}`);
     } else if (cmd === 'p2p') {
       for (const r of await publishP2pMethods(ctx))
         say(`  p2p       ${r.methodId} ${r.country} ${r.changed ? 'registered' : 'already registered'}`);

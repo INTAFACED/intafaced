@@ -4,7 +4,7 @@ import { CopyError } from './errors.js';
 import { drawdownDecision, mirrorOccupiesConcurrencySlot } from './follow-limits-extra.js';
 import { canonicalizeCopyFillId } from './fee-share.js';
 import { followRelationshipState, parseCopyRelationshipState } from './copy-lifecycle.js';
-import type { CopyFollow } from './follows.js';
+import { copyReserveKey, type CopyFollow } from './follows.js';
 import { dropFollowSessionKey, overlayFollowSessionKey, persistFollowSessionKey } from './session-key.js';
 
 /** postgres.js surfaces PG SQLSTATE on `err.code`. */
@@ -233,6 +233,14 @@ export interface CopyFollowStore {
   listFollowsByFollower(followerId: string, limit?: number): Promise<CopyFollow[]>;
   /** ACTIVE follows of one leader. The count only — no follower identity. */
   countActiveFollowsByLeader(leaderId: string): Promise<number>;
+  /**
+   * The unused part of one follower's held reserves in one asset: each reserve less its follow's open exposure (which
+   * the ledger's available balance already leaves out). Released reserves and stopping, detached or expired follows do
+   * not count.
+   */
+  sumUnusedReserves(followerId: string, asset: string): Promise<Amount>;
+  /** Serialises reserve checks for one follower and asset until the surrounding transaction ends. */
+  lockReserves(followerId: string, asset: string): Promise<void>;
   getExposure(followId: string): Promise<Amount>;
   setExposure(followId: string, amount: Amount): Promise<void>;
   /**
@@ -401,9 +409,17 @@ function pendingFeeShareClaim(followId: string, fillId: string, leaderId: string
   };
 }
 
+/** A stopped or detached follow places no new copies, so its reserve is released. */
+function reserveEnds(follow: CopyFollow): boolean {
+  const state = followRelationshipState(follow);
+  return state === 'STOPPING' || state === 'DETACHED';
+}
+
 /** In-memory store — default for unit tests and single-process dev. */
 export class MemoryCopyFollowStore implements CopyFollowStore {
   private readonly follows = new Map<string, CopyFollow>();
+  /** Reserve rows of removed follows: the record stays, released. */
+  readonly releasedReserves = new Map<string, NonNullable<CopyFollow['reserve']>>();
   private readonly exposure = new Map<string, Amount>();
   private readonly period = new Map<string, CopyPeriodStats>();
   /** Keyed `${followId}\0${fillId}` — one plan per leader fill under a follow. */
@@ -430,7 +446,10 @@ export class MemoryCopyFollowStore implements CopyFollowStore {
         throw new CopyError('Already following this leader', 'trade.copy_already_following');
       }
     }
-    this.follows.set(follow.followId, follow);
+    // The reserve is held once and only ever released, the same as the SQL row.
+    const held = this.follows.get(follow.followId)?.reserve ?? follow.reserve;
+    const reserve = held && held.releasedAt === null && reserveEnds(follow) ? { ...held, releasedAt: new Date() } : held;
+    this.follows.set(follow.followId, reserve ? { ...follow, reserve } : follow);
     persistFollowSessionKey(follow);
     if (!this.exposure.has(follow.followId)) {
       this.exposure.set(follow.followId, exposure);
@@ -443,6 +462,8 @@ export class MemoryCopyFollowStore implements CopyFollowStore {
   }
 
   async deleteFollow(followId: string): Promise<void> {
+    const reserve = this.follows.get(followId)?.reserve;
+    if (reserve) this.releasedReserves.set(copyReserveKey(followId), { ...reserve, releasedAt: reserve.releasedAt ?? new Date() });
     this.follows.delete(followId);
     dropFollowSessionKey(followId);
     this.exposure.delete(followId);
@@ -473,6 +494,23 @@ export class MemoryCopyFollowStore implements CopyFollowStore {
   async listFollowsByFollower(followerId: string, limit?: number): Promise<CopyFollow[]> {
     const rows = [...this.follows.values()].filter((f) => f.followerId === followerId).map(overlayFollowSessionKey);
     return limit === undefined ? rows : rows.slice(0, limit);
+  }
+
+  async sumUnusedReserves(followerId: string, asset: string): Promise<Amount> {
+    const now = Date.now();
+    let total = 0n;
+    for (const follow of this.follows.values()) {
+      const r = follow.reserve;
+      if (follow.followerId !== followerId || r?.asset !== asset || r.releasedAt !== null) continue;
+      if (reserveEnds(follow) || follow.envelope.expiresAt.getTime() <= now) continue;
+      const unused = r.amount - (this.exposure.get(follow.followId) ?? 0n);
+      if (unused > 0n) total += unused;
+    }
+    return total;
+  }
+
+  async lockReserves(): Promise<void> {
+    // One process, no concurrent writers in tests.
   }
 
   async countActiveFollowsByLeader(leaderId: string): Promise<number> {
@@ -735,6 +773,8 @@ type FollowRow = {
   relationship_state?: string | null;
   exposure: string;
   created_at: Date;
+  fixed_order_size?: string | null;
+  reserve?: { asset: string; amount: string; heldAt: string | Date; releasedAt: string | Date | null } | null;
 };
 
 type MirroredFillRow = {
@@ -782,7 +822,18 @@ function rowToFollow(row: FollowRow): CopyFollow {
       ...(row.max_slippage_bps != null && row.max_slippage_bps !== '' ? { maxSlippageBps: Number(row.max_slippage_bps) } : {}),
       ...(row.max_concurrent != null && row.max_concurrent !== '' ? { maxConcurrent: Number(row.max_concurrent) } : {}),
       ...(row.max_drawdown ? { maxDrawdown: parseAmount(String(row.max_drawdown)) } : {}),
+      ...(row.fixed_order_size ? { fixedOrderSize: parseAmount(String(row.fixed_order_size)) } : {}),
     },
+    ...(row.reserve
+      ? {
+          reserve: {
+            asset: row.reserve.asset,
+            amount: parseAmount(String(row.reserve.amount)),
+            heldAt: new Date(row.reserve.heldAt),
+            releasedAt: row.reserve.releasedAt === null ? null : new Date(row.reserve.releasedAt),
+          },
+        }
+      : {}),
     createdAt: row.created_at instanceof Date ? row.created_at : new Date(row.created_at),
     feeShareKilled: row.fee_share_killed,
     relationshipState: parseCopyRelationshipState(row.relationship_state),
@@ -902,13 +953,14 @@ export class SqlCopyFollowStore implements CopyFollowStore {
 
   async saveFollow(follow: CopyFollow, exposure: Amount = 0n): Promise<void> {
     const markets = JSON.stringify([...follow.envelope.permittedMarkets]);
+    let inserted = false;
     try {
-      await this.sql`
+      const [row] = await this.sql<Array<{ inserted: boolean }>>`
       INSERT INTO copy_follows (
         follow_id, follower_id, leader_id, region, permitted_markets,
         max_notional_per_order, max_aggregate_exposure, max_loss,
         max_slippage_bps, max_concurrent, max_drawdown, expires_at,
-        fee_share_killed, relationship_state, exposure, created_at, updated_at
+        fee_share_killed, relationship_state, exposure, created_at, updated_at, fixed_order_size
       ) VALUES (
         ${follow.followId},
         ${follow.followerId},
@@ -926,7 +978,8 @@ export class SqlCopyFollowStore implements CopyFollowStore {
         ${followRelationshipState(follow)},
         ${formatAmount(exposure)},
         ${follow.createdAt},
-        now()
+        now(),
+        ${follow.envelope.fixedOrderSize !== undefined ? formatAmount(follow.envelope.fixedOrderSize) : null}
       )
       ON CONFLICT (follow_id) DO UPDATE SET
         fee_share_killed = EXCLUDED.fee_share_killed,
@@ -940,21 +993,74 @@ export class SqlCopyFollowStore implements CopyFollowStore {
         max_drawdown = EXCLUDED.max_drawdown,
         expires_at = EXCLUDED.expires_at,
         region = EXCLUDED.region,
+        fixed_order_size = EXCLUDED.fixed_order_size,
         updated_at = now()
+      RETURNING (xmax = 0) AS inserted
     `;
+      inserted = row?.inserted === true;
     } catch (err) {
       rethrowCopyFollowUnique(err);
     }
+    await this.writeReserve(follow, inserted);
     persistFollowSessionKey(follow);
+  }
+
+  /**
+   * The reserve row rides on the follow write: held once by its business key, released when the follow stops or
+   * detaches. A new follow row with a released reserve (the same follow id followed again after a removal) holds it
+   * again; an update of an existing follow never does.
+   */
+  private async writeReserve(follow: CopyFollow, newFollowRow: boolean): Promise<void> {
+    if (follow.reserve) {
+      await this.sql`
+        INSERT INTO copy_follow_reserves (reserve_key, follow_id, follower_id, asset, amount, held_at)
+        VALUES (${copyReserveKey(follow.followId)}, ${follow.followId}, ${follow.followerId}, ${follow.reserve.asset},
+                ${formatAmount(follow.reserve.amount)}, ${follow.reserve.heldAt})
+        ON CONFLICT (reserve_key) DO UPDATE SET
+          asset = EXCLUDED.asset, amount = EXCLUDED.amount, held_at = EXCLUDED.held_at, released_at = NULL
+        WHERE copy_follow_reserves.released_at IS NOT NULL AND ${newFollowRow}
+      `;
+    }
+    if (reserveEnds(follow)) await this.releaseReserve(follow.followId);
+  }
+
+  private async releaseReserve(followId: string): Promise<void> {
+    await this.sql`
+      UPDATE copy_follow_reserves SET released_at = now()
+       WHERE follow_id = ${followId} AND released_at IS NULL
+    `;
+  }
+
+  /** The columns every follow read selects after follow_id, follower_id, leader_id, region, permitted_markets. */
+  private followColumns() {
+    return this.sql`max_notional_per_order::text, max_aggregate_exposure::text,
+      max_loss::text, max_slippage_bps, max_concurrent, max_drawdown::text,
+      peak_result::text, expires_at, fee_share_killed, relationship_state,
+      exposure::text, created_at, fixed_order_size::text,
+      (SELECT json_build_object('asset', r.asset, 'amount', r.amount::text, 'heldAt', r.held_at, 'releasedAt', r.released_at)
+         FROM copy_follow_reserves r WHERE r.follow_id = copy_follows.follow_id) AS reserve`;
+  }
+
+  async sumUnusedReserves(followerId: string, asset: string): Promise<Amount> {
+    const [row] = await this.sql<Array<{ total: string | null }>>`
+      SELECT sum(greatest(r.amount - f.exposure, 0))::text AS total
+        FROM copy_follow_reserves r
+        JOIN copy_follows f ON f.follow_id = r.follow_id
+       WHERE r.follower_id = ${followerId} AND r.asset = ${asset} AND r.released_at IS NULL
+         AND coalesce(f.relationship_state, 'ACTIVE') NOT IN ('STOPPING', 'DETACHED')
+         AND f.expires_at > now()
+    `;
+    return row?.total ? parseAmount(row.total) : 0n;
+  }
+
+  async lockReserves(followerId: string, asset: string): Promise<void> {
+    await this.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`copy.reserve:${followerId}:${asset}`}, 0))`;
   }
 
   async getFollow(followId: string): Promise<CopyFollow | null> {
     const rows = await this.sql<FollowRow[]>`
       SELECT follow_id, follower_id, leader_id, region, permitted_markets,
-             max_notional_per_order::text, max_aggregate_exposure::text,
-             max_loss::text, max_slippage_bps, max_concurrent, max_drawdown::text,
-             peak_result::text, expires_at, fee_share_killed, relationship_state,
-             exposure::text, created_at
+             ${this.followColumns()}
         FROM copy_follows
        WHERE follow_id = ${followId}
        LIMIT 1
@@ -969,16 +1075,15 @@ export class SqlCopyFollowStore implements CopyFollowStore {
     await this.sql`DELETE FROM copy_mirrored_fills WHERE follow_id = ${followId}`;
     await this.sql`DELETE FROM copy_placed_mirrors WHERE follow_id = ${followId}`;
     await this.sql`DELETE FROM copy_follows WHERE follow_id = ${followId}`;
+    // After the follow row: a crash between the two leaves a reserve with no follow, which sumUnusedReserves skips.
+    await this.releaseReserve(followId);
     dropFollowSessionKey(followId);
   }
 
   async listFollows(): Promise<CopyFollow[]> {
     const rows = await this.sql<FollowRow[]>`
       SELECT follow_id, follower_id, leader_id, region, permitted_markets,
-             max_notional_per_order::text, max_aggregate_exposure::text,
-             max_loss::text, max_slippage_bps, max_concurrent, max_drawdown::text,
-             peak_result::text, expires_at, fee_share_killed, relationship_state,
-             exposure::text, created_at
+             ${this.followColumns()}
         FROM copy_follows
     `;
     return rows.map(followFromRow);
@@ -989,19 +1094,13 @@ export class SqlCopyFollowStore implements CopyFollowStore {
       limit === undefined
         ? await this.sql<FollowRow[]>`
             SELECT follow_id, follower_id, leader_id, region, permitted_markets,
-                   max_notional_per_order::text, max_aggregate_exposure::text,
-                   max_loss::text, max_slippage_bps, max_concurrent, max_drawdown::text,
-                   peak_result::text, expires_at, fee_share_killed, relationship_state,
-                   exposure::text, created_at
+                   ${this.followColumns()}
               FROM copy_follows
              WHERE follower_id = ${followerId}
           `
         : await this.sql<FollowRow[]>`
             SELECT follow_id, follower_id, leader_id, region, permitted_markets,
-                   max_notional_per_order::text, max_aggregate_exposure::text,
-                   max_loss::text, max_slippage_bps, max_concurrent, max_drawdown::text,
-                   peak_result::text, expires_at, fee_share_killed, relationship_state,
-                   exposure::text, created_at
+                   ${this.followColumns()}
               FROM copy_follows
              WHERE follower_id = ${followerId}
              LIMIT ${limit}

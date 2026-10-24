@@ -15,6 +15,7 @@ import type { TradeService } from '../spot/trade-service.js';
 import { type LookupFollowerFillFeePort, type LookupLeaderFillPort } from './copy-service.js';
 import type { CopyFeeShareLaw, CopyJurisdictionLaw } from './fee-share-law.js';
 import { MemoryCopyFollowStore } from './follow-store.js';
+import { GateOpenLedger, GateOpenStore, OPEN_FOLLOW_GATE } from './test/follow-gate.fixture.js';
 
 const SECRET = 'a-trade-copy-mount-test-edge-secret-long';
 const FOLLOWER = '00000000-0000-4000-8000-000000000001';
@@ -100,7 +101,7 @@ class BlockingLedger extends MemoryLedger {
   }
 }
 
-class BlockingMirrorStore extends MemoryCopyFollowStore {
+class BlockingMirrorStore extends GateOpenStore {
   readonly entered = deferred();
   readonly release = deferred();
 
@@ -143,7 +144,9 @@ function makeCopy(opts?: {
   lookupFollowerFillFee?: LookupFollowerFillFeePort;
   lookupLeaderFill?: LookupLeaderFillPort;
 }) {
-  return new CopyService(opts?.ledger ?? new MemoryLedger(), {
+  return new CopyService(opts?.ledger ?? new GateOpenLedger(), {
+    ...OPEN_FOLLOW_GATE,
+    store: new GateOpenStore(),
     feeShareLaw: opts?.fee ?? { published: false },
     jurisdictionLaw: opts?.jur ?? { published: false },
     ...(opts?.store ? { store: opts.store } : {}),
@@ -188,6 +191,7 @@ describe('trade.copy product mount', () => {
     const router = createTradeRouter(stubTrade(), undefined, makeCopy({ fee: publishedFee, jur: { published: false } }));
     await expect(
       router.createCaller(signed()).copy.follow({
+        clientRequestId: 'test-request-1',
         leaderId: LEADER,
         region: 'SG',
         permittedMarkets: ['BTC-USDT'],
@@ -203,6 +207,7 @@ describe('trade.copy product mount', () => {
     const caller = router.createCaller(signed());
 
     const follow = await caller.copy.follow({
+      clientRequestId: 'test-request-2',
       leaderId: LEADER,
       region: 'SG',
       permittedMarkets: ['BTC-USDT'],
@@ -231,7 +236,7 @@ describe('trade.copy product mount', () => {
       recipes.deposit({
         userId: FOLLOWER,
         assetId: 'USDT',
-        amount: parseAmount('100'),
+        amount: parseAmount('11000'),
         rail: 'test',
         railRef: 'copy-kill-public',
       }),
@@ -254,6 +259,7 @@ describe('trade.copy product mount', () => {
     });
     const caller = createTradeRouter(stubTrade(), undefined, copy).createCaller(signed());
     const follow = await caller.copy.follow({
+      clientRequestId: 'test-request-3',
       leaderId: LEADER,
       region: 'SG',
       permittedMarkets: ['BTC-USDT'],
@@ -318,6 +324,7 @@ describe('trade.copy product mount', () => {
     const copy = makeCopy({ fee: { published: false }, jur: publishedJur, store });
     const caller = createTradeRouter(stubTrade(), undefined, copy).createCaller(signed());
     const follow = await caller.copy.follow({
+      clientRequestId: 'test-request-4',
       leaderId: LEADER,
       region: 'SG',
       permittedMarkets: ['BTC-USDT'],
@@ -388,6 +395,7 @@ describe('trade.copy product mount', () => {
     const router = createTradeRouter(stubTrade(), undefined, makeCopy({ fee: publishedFee, jur: publishedJur }));
     await expect(
       router.createCaller(anonymous()).copy.follow({
+        clientRequestId: 'test-request-5',
         leaderId: LEADER,
         region: 'SG',
         permittedMarkets: ['BTC-USDT'],
@@ -404,6 +412,7 @@ describe('trade.copy product mount', () => {
     expect(await caller.copy.listMyFollows({ limit: 50 })).toEqual([]);
 
     const follow = await caller.copy.follow({
+      clientRequestId: 'test-request-6',
       leaderId: LEADER,
       region: 'SG',
       permittedMarkets: ['BTC-USDT'],
@@ -422,6 +431,7 @@ describe('trade.copy product mount', () => {
     const router = createTradeRouter(stubTrade(), undefined, makeCopy({ fee: publishedFee, jur: publishedJur }));
     const caller = router.createCaller(signed());
     const follow = await caller.copy.follow({
+      clientRequestId: 'test-request-7',
       leaderId: LEADER,
       region: 'SG',
       permittedMarkets: ['BTC-USDT'],

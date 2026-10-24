@@ -709,6 +709,8 @@ services:
       TRADE_COPY_DISCLOSURE_LAW: ${TRADE_COPY_DISCLOSURE_LAW:-}
       # CB-copy-02 lead-page metric definitions. Empty = no metric number shown.
       TRADE_COPY_METRIC_DEFINITIONS: ${TRADE_COPY_METRIC_DEFINITIONS:-}
+      # CB-copy-03 copy verification level. Empty = every follow refuses.
+      TRADE_COPY_MIN_TIER: ${TRADE_COPY_MIN_TIER:-}
       # PTX-M21 fee/rebate schedule — pass-through, no compose default.
       # Blank host → order preview refuses (never invent bps).
       TRADE_FEE_SCHEDULE: ${TRADE_FEE_SCHEDULE:-}

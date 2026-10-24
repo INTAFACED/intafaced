@@ -242,9 +242,12 @@ export function describeRequest(request: SignRequest): SheetFact[] {
   const { domain, primaryType } = request.typedData;
   const facts: SheetFact[] = [{ label: 'action', value: primaryType }];
   facts.push({ label: 'domain', value: JSON.stringify(domain) });
-  if (domain.verifyingContract) facts.push({ label: 'contract', value: domain.verifyingContract });
   // Every occurrence is listed, in the order the types declare them: a batch shows every token and amount.
   const { leaves } = walkTyped(request.typedData);
+  if (domain.verifyingContract) facts.push({ label: 'contract', value: domain.verifyingContract });
+  // An EIP-2612 permit is signed in the token's own domain, so its verifying contract is also the token being allowed.
+  if (domain.verifyingContract && primaryType === 'Permit' && !leaves.some((leaf) => TOKEN_KEYS.includes(leaf.name)))
+    facts.push({ label: 'token', value: domain.verifyingContract });
   const labelOf = (name: string): SheetFact['label'] | undefined =>
     TOKEN_KEYS.includes(name)
       ? 'token'

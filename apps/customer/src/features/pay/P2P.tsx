@@ -29,6 +29,7 @@ import { OrderChat } from './personal/OrderChat';
 import { OfferForm } from './personal/OfferForm';
 import { OrderHistory } from './personal/OrderHistory';
 import { OrderReceipt } from './personal/OrderReceipt';
+import { OrderReview } from './personal/OrderReview';
 import { p2pDepth } from './personal/p2p-depth-copy';
 import { P2PEligibilityPanel } from './personal/Eligibility';
 
@@ -250,6 +251,7 @@ function OrderDetail({ pay, tradeId, userId }: { pay: PersonalPayApi; tradeId: s
         <>
           <EscrowPath trade={trade} userId={userId} />
           <OrderReceipt pay={pay} trade={trade} />
+          <OrderReview key={'review:' + trade.id + ':' + trade.status} pay={pay} trade={trade} />
           <OrderPaymentDetails key={trade.id + ':' + trade.status} trade={trade} pay={pay} userId={userId} />
           <OrderChat pay={pay} trade={trade} userId={userId} />
           <OrderDispute trade={trade} pay={pay} reloadOrder={reload} />

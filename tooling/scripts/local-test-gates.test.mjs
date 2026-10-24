@@ -38,6 +38,7 @@ import {
 } from './local-test-gates.mjs';
 import { draftFounderVault } from './local-test-founders.mjs';
 import { TEST_SPOT_LISTINGS, localTestDatabaseUrl } from './seed-spot-test-listing.mjs';
+import { TEST_KYB_ENTITY_TYPES, TEST_KYB_UPLOAD_RULES } from './seed-pay-kyb-test-requirements.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const script = resolve(here, 'local-test-gates.mjs');
@@ -289,6 +290,35 @@ assert.deepEqual(
   assert.equal(localTestDatabaseUrl(local, {}), local);
   assert.throws(() => localTestDatabaseUrl(local, { NODE_ENV: 'production' }), /NODE_ENV is production/);
   assert.throws(() => localTestDatabaseUrl('postgres://u:p@db.example:5432/intafaced', {}), /does not look local or test/);
+}
+
+// The TEST business verification requirements: shaped as pay.kyb_entity_types accepts them, every key labelled test_, and
+// a sole trader asked for different documents than a company (J-merchant-02 #3). `apply` publishes them.
+{
+  const KNOWN = [
+    'private_company',
+    'listed_company',
+    'financial_institution',
+    'fund',
+    'trust',
+    'non_profit',
+    'government_owned',
+    'family_office',
+    'partnership',
+    'sole_proprietorship',
+  ];
+  for (const t of TEST_KYB_ENTITY_TYPES) {
+    assert.ok(KNOWN.includes(t.entityType), t.entityType);
+    for (const key of [...t.documentKeys, ...t.peopleRoles, ...t.questionnaireKeys]) assert.match(key, /^test_[a-z0-9_]{1,58}$/);
+    assert.ok(t.countries.length >= 1 && t.countries.every((c) => /^[A-Z]{2}$/.test(c)));
+    // The journeys open their businesses in DE (merchant.mjs openBusiness).
+    assert.ok(t.countries.includes('DE'));
+  }
+  const docs = (name) => TEST_KYB_ENTITY_TYPES.find((t) => t.entityType === name).documentKeys;
+  assert.notDeepEqual(docs('private_company'), docs('sole_proprietorship'));
+  assert.ok(TEST_KYB_UPLOAD_RULES.maxBytes >= 1 && TEST_KYB_UPLOAD_RULES.contentTypes.length >= 1);
+  const gatesSrc = readFileSync(script, 'utf8');
+  assert.match(gatesSrc, /await seedSpotTestListings\(ctx\);\n\s*await seedPayKybRequirements\(ctx\);/);
 }
 
 // Tier planning: nobody with an approved full or institutional record is touched.

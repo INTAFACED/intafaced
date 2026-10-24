@@ -3,6 +3,7 @@ import { ADMIN, founderSignIn } from './admin.mjs';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { ORIGIN, tool } from './stack.mjs';
+import { signIn, signUp, verify } from './desk.mjs';
 
 // J-academy-11, in the running app (docs/roadmap/journeys.json): a founder creates a course on the founder console's
 // Academy desk and publishes it. One test per step, titled "J-academy-11 #<n>", run in order. The founder is the stack's
@@ -586,4 +587,48 @@ test(`${J} #9 Preview as new learner shows the real syllabus with locks and reco
   await expect(history).toHaveText(before);
   await visitor.context().close();
   await page.context().close();
+});
+
+test(`${J} #10 published, the course is in the public catalogue and a learner enrols on the free track while the paid track stays closed in words`, async ({
+  browser,
+}) => {
+  test.setTimeout(240_000);
+  if (!courseUrl) throw new Error(`${J}: #2 left no course, so this step has nothing to publish`);
+  const page = await console_(browser);
+  await page.goto(courseUrl);
+  await page.getByLabel('Reason', { exact: true }).fill('TEST open to learners');
+  await page.getByRole('button', { name: 'Publish', exact: true }).click();
+  await expect(page.getByTestId('course-desk-outcome').first()).toContainText('Done');
+  await expect(page.getByTestId('course-history')).toContainText('moved to published');
+  await page.context().close();
+
+  // Signed out, the public catalogue lists it and its page shows the real syllabus, locked until enrolment.
+  const visitor = await (await browser.newContext({ baseURL: ORIGIN })).newPage();
+  await visitor.goto('/academy/learning');
+  const card = visitor.locator('[data-academy-authored-cards] li').filter({ hasText: TITLE });
+  await expect(card).toContainText('25.5 USDT');
+  await card.getByRole('link', { name: TITLE, exact: true }).click();
+  const course = visitor.locator(`[data-academy-authored-course="${SLUG}"]`);
+  await expect(course.locator('li[data-lock]').filter({ hasText: 'TEST Position size' }).first()).toHaveAttribute('data-lock', 'enrol');
+  await expect(course).toContainText('Locked until you enrol');
+  await expect(course.getByRole('link', { name: 'Sign in to enrol' })).toBeVisible();
+  await visitor.context().close();
+
+  // A verified learner enrols on the free track; the paid track is closed because course payments are off.
+  const learner = await (await browser.newContext({ baseURL: ORIGIN })).newPage();
+  const who = await signUp(learner, 'j11');
+  await verify(learner, who);
+  await signIn(learner, who);
+  await learner.goto(`/academy/learning/course/${SLUG}`);
+  const block = learner.locator(`[data-academy-enrol="${SLUG}"]`);
+  await expect(block.getByRole('radio', { name: /Free track/ })).toBeChecked();
+  await expect(block.getByRole('radio', { name: /Certificate track/ })).toBeDisabled();
+  await expect(block.getByText('Course payments are switched off, so this paid track is closed for enrolment.')).toBeVisible();
+  await block.getByRole('button', { name: 'Enrol now', exact: true }).click();
+  await expect(block.getByText(/^You are enrolled on the Free track since /)).toBeVisible();
+  const enrolled = learner.locator(`[data-academy-authored-course="${SLUG}"]`);
+  await expect(enrolled.locator('li[data-lock]').filter({ hasText: 'TEST Position size' }).first()).toHaveAttribute('data-lock', 'none');
+  await learner.reload();
+  await expect(block.getByText(/^You are enrolled on the Free track since /)).toBeVisible();
+  await learner.context().close();
 });

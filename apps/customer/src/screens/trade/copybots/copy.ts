@@ -30,6 +30,7 @@ const messages = {
   'Automatic copying of leader orders is switched off': 'Automatic copying of leader orders is switched off',
   'Average price': 'Average price',
   Back: 'Back',
+  'Balance unread': 'Balance unread',
   'Before this record': 'Before this record',
   Bot: 'Bot',
   'Bot catalogue': 'Bot catalogue',
@@ -55,13 +56,13 @@ const messages = {
   'Close copied positions and leave?': 'Close copied positions and leave?',
   'Close price': 'Close price',
   Closed: 'Closed',
-  'Confirm and follow': 'Confirm and follow',
   'Copied orders': 'Copied orders',
   Copiers: 'Copiers',
   'Copy desk closed': 'Copy desk closed',
   'Copy desk open': 'Copy desk open',
   'Copy desk unknown': 'Copy desk unknown',
   'Copy permission': 'Copy permission',
+  'Copy risk disclosure': 'Copy risk disclosure',
   'Copy trading': 'Copy trading',
   'Copy trading can lose money. A leader’s past return is not a promise. Only copy what you can afford to lose, and set a loss limit.':
     'Copy trading can lose money. A leader’s past return is not a promise. Only copy what you can afford to lose, and set a loss limit.',
@@ -78,6 +79,8 @@ const messages = {
   'Days trading': 'Days trading',
   Dismiss: 'Dismiss',
   'Drawdown limit': 'Drawdown limit',
+  'Each copied order uses this much, never more than the most per order.':
+    'Each copied order uses this much, never more than the most per order.',
   'Each slice': 'Each slice',
   'Each slice pays the normal fee for this market ({maker} maker, {taker} taker)':
     'Each slice pays the normal fee for this market ({maker} maker, {taker} taker)',
@@ -103,11 +106,14 @@ const messages = {
   'Filled so far': 'Filled so far',
   'Find a leader': 'Find a leader',
   Finished: 'Finished',
+  'Fixed amount per copied order': 'Fixed amount per copied order',
+  'Fixed amount per copied order ({asset})': 'Fixed amount per copied order ({asset})',
   Follow: 'Follow',
   'Follow a leader': 'Follow a leader',
   'Follow by leader ID': 'Follow by leader ID',
   'Follow of {leader}': 'Follow of {leader}',
   'Follow {name}': 'Follow {name}',
+  'Free {asset} now': 'Free {asset} now',
   'From the trading fee, never from your profit': 'From the trading fee, never from your profit',
   'Funds are held': 'Funds are held',
   Futures: 'Futures',
@@ -118,8 +124,7 @@ const messages = {
   Grid: 'Grid',
   Halted: 'Halted',
   'How a leader is paid': 'How a leader is paid',
-  'I understand copying is not a guaranteed result and a leader’s order can lose money.':
-    'I understand copying is not a guaranteed result and a leader’s order can lose money.',
+  'I have read this disclosure and accept it.': 'I have read this disclosure and accept it.',
   'If you stop, new copies stop at once. Positions already open stay yours until you close them.':
     'If you stop, new copies stop at once. Positions already open stay yours until you close them.',
   'It halted so you can check it': 'It halted so you can check it',
@@ -147,6 +152,7 @@ const messages = {
   'Left out (below one lot)': 'Left out (below one lot)',
   'Left to use': 'Left to use',
   'Live account: real orders': 'Live account: real orders',
+  Loading: 'Loading',
   'Loss limit': 'Loss limit',
   'Lot size {lot}': 'Lot size {lot}',
   Manage: 'Manage',
@@ -209,6 +215,8 @@ const messages = {
   'Not granted': 'Not granted',
   'Not now': 'Not now',
   'Not published': 'Not published',
+  'Not published. Copying can’t start until the platform publishes its risk disclosure.':
+    'Not published. Copying can’t start until the platform publishes its risk disclosure.',
   'Not set': 'Not set',
   'Not set by the platform': 'Not set by the platform',
   'Not verified': 'Not verified',
@@ -261,6 +269,8 @@ const messages = {
   'Recurring buy (DCA)': 'Recurring buy (DCA)',
   'Reference {code}': 'Reference {code}',
   Refresh: 'Refresh',
+  Released: 'Released',
+  'Reserved for this copy': 'Reserved for this copy',
   Result: 'Result',
   'Result so far': 'Result so far',
   Resume: 'Resume',
@@ -340,6 +350,7 @@ const messages = {
   'That follow is no longer in your list.': 'That follow is no longer in your list.',
   'That follow is now {state}.': 'That follow is now {state}.',
   'That is more than 500 slices. Make the gap longer.': 'That is more than 500 slices. Make the gap longer.',
+  'That is more than your free {asset}': 'That is more than your free {asset}',
   'That request belongs to the spot desk or another room. Check it there; it stays locked until then.':
     'That request belongs to the spot desk or another room. Check it there; it stays locked until then.',
   'The ID the leader shares with you': 'The ID the leader shares with you',
@@ -357,6 +368,7 @@ const messages = {
     'The list of countries where copy trading is offered has not been approved',
   'The list of orders copied for you is not available from the service. Check Order history on the spot desk.':
     'The list of orders copied for you is not available from the service. Check Order history on the spot desk.',
+  'The most per order is {cap} {asset}': 'The most per order is {cap} {asset}',
   'The same as trading alone': 'The same as trading alone',
   'The same trading fee as trading alone': 'The same trading fee as trading alone',
   'The scheduler that places slices is switched off in this environment. The bot can be created and watched, but no slice is placed until it runs.':
@@ -391,9 +403,11 @@ const messages = {
   Unknown: 'Unknown',
   'Unknown state': 'Unknown state',
   'Up to 1440': 'Up to 1440',
+  'Use the same amount for every copied order': 'Use the same amount for every copied order',
   Used: 'Used',
   'Used now': 'Used now',
   'Verified live': 'Verified live',
+  'Version {version}': 'Version {version}',
   'Volume history is still short. A slice may be refused when it is due.':
     'Volume history is still short. A slice may be refused when it is due.',
   'Volume-weighted (VWAP)': 'Volume-weighted (VWAP)',
@@ -411,6 +425,7 @@ const messages = {
   'Win rate': 'Win rate',
   Withdrawn: 'Withdrawn',
   'Write and save a strategy in Quant Studio and it appears here.': 'Write and save a strategy in Quant Studio and it appears here.',
+  'You accepted this version.': 'You accepted this version.',
   'You are signed out': 'You are signed out',
   'You aren’t following anyone': 'You aren’t following anyone',
   'You can still set everything up and manage follows you already have. A new follow is refused until it opens.':

@@ -130,7 +130,7 @@ describe('verification step', () => {
   it('needs step 1 first', () => {
     expect(html({ step: 'verification' })).toContain('Do step 1 first');
   });
-  it('takes a reference, shows history, and names the document check as a blocker', () => {
+  it('takes a reference, holds the business application, and shows history', () => {
     const out = html({
       step: 'verification',
       merchant: { ...merchant, status: 'pending', kybStatus: 'none', kybRef: null },
@@ -139,8 +139,8 @@ describe('verification step', () => {
     });
     expect(out).toContain('Verification file reference *');
     expect(out).toContain('Send for review');
-    expect(out).toContain('Document checks are not connected here');
-    expect(out).toContain('never counts as passed');
+    expect(out).toContain('Business application');
+    expect(out).toContain('Tell INTAFACED what kind of business this is');
     expect(out).toContain('Nothing sent yet');
   });
   it('shows a pending review without a form to resubmit', () => {

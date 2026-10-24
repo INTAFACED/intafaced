@@ -62,7 +62,12 @@ import {
   academyFeatureLessonInputSchema,
   academyClearFeaturedInputSchema,
   academyTopicListSchema,
+  academyAuthoredCourseEnrolmentSchema,
+  academyAuthoredCourseInputSchema,
   academyCourseByLinkInputSchema,
+  academyLeaveAuthoredCourseInputSchema,
+  academyPublishedCourseListSchema,
+  academyPublishedCoursesInputSchema,
   academyCourseIdInputSchema,
   academyCourseLearnerViewSchema,
   academyCreatedPrivateLinkSchema,
@@ -1097,6 +1102,18 @@ export function createAcademyRouter(
       .input(academyCourseByLinkInputSchema)
       .output(academyCourseLearnerViewSchema)
       .mutation(({ input }) => guard(() => academy.courseByLink(input))),
+
+    /** AC-catalogue-03: the published courses staff made, newest first, up to the page asked for. */
+    publicAuthoredCourses: publicProcedure
+      .input(academyPublishedCoursesInputSchema)
+      .output(academyPublishedCourseListSchema)
+      .query(({ input }) => guard(() => academy.publishedCourses(input.limit))),
+
+    /** AC-catalogue-03: a published course's public page; anything else is `academy.course_not_found`. Writes nothing. */
+    publicAuthoredCourse: publicProcedure
+      .input(academyAuthoredCourseInputSchema)
+      .output(academyCourseLearnerViewSchema)
+      .query(({ input }) => guard(() => academy.authoredCoursePage(input.slug, null))),
 
     /** AC-articles-01: the hub's featured slot, only what staff chose; null when nobody chose one. */
     publicHub: publicProcedure.output(academyPublicHubSchema).query(() => guard(async () => ({ featured: await academy.featuredItem() }))),
@@ -2354,6 +2371,32 @@ export function createAcademyRouter(
       .input(z.object({ slug: z.string().min(1).max(64) }).strict())
       .output(academyCourseEnrolmentSchema)
       .query(({ input, ctx }) => guard(() => academy.courseEnrolment({ userId: ctx.principal.userId, slug: input.slug }))),
+
+    /** AC-catalogue-03: a published course staff made, as the caller sees it: their enrolment opens what is released. */
+    authoredCourse: scopedProcedure('academy:read', { module: 'academy' })
+      .input(academyAuthoredCourseInputSchema)
+      .output(academyCourseLearnerViewSchema)
+      .query(({ input, ctx }) => guard(() => academy.authoredCoursePage(input.slug, ctx.principal.userId))),
+
+    /** AC-enrolment-01: the terms of enrolling in a course staff made, and the caller's own enrolment. */
+    authoredCourseEnrolment: scopedProcedure('academy:read', { module: 'academy' })
+      .input(academyAuthoredCourseInputSchema)
+      .output(academyAuthoredCourseEnrolmentSchema)
+      .query(({ input, ctx }) => guard(() => academy.authoredCourseEnrolment({ userId: ctx.principal.userId, slug: input.slug }))),
+
+    /** AC-enrolment-01: enrol on the free track, keyed `enrol:<user>:<course>`; a closed track refuses `academy.enrolment_closed`. */
+    enrolAuthoredCourse: scopedProcedure('academy:write', { module: 'academy' })
+      .input(academyEnrolCourseInputSchema)
+      .output(academyAuthoredCourseEnrolmentSchema)
+      .mutation(({ input, ctx }) =>
+        guard(() => academy.enrolAuthoredCourse({ userId: ctx.principal!.userId, slug: input.slug, track: input.track })),
+      ),
+
+    /** AC-enrolment-01: leave the enrolment that began at `enrolledAt`; a repeat is the same leave. */
+    leaveAuthoredCourse: scopedProcedure('academy:write', { module: 'academy' })
+      .input(academyLeaveAuthoredCourseInputSchema)
+      .output(academyAuthoredCourseEnrolmentSchema)
+      .mutation(({ input, ctx }) => guard(() => academy.leaveAuthoredCourse({ ...input, userId: ctx.principal!.userId }))),
 
     /** AC-catalogue-02: My learning, the caller's enrolled courses with real progress and where Continue goes. */
     myLearning: scopedProcedure('academy:read', { module: 'academy' })
