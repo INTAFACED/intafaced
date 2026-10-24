@@ -1001,6 +1001,14 @@ export function createPersonalPayApi(
         undefined,
         p2pCurrent,
       ),
+    /** P-trade-orders-20: the seller reports what arrived in their bank. Moves nothing; svc-p2p classifies it. */
+    reportMismatch: (tradeId: string, kind: s.TradeMismatch['kind'], amountReceived: string) =>
+      guard.run(
+        `${userId}:mismatch:${tradeId}`,
+        () => api.mutate('p2p', 'trades.reportMismatch', { tradeId, kind, amountReceived }, s.tradeMismatchSchema),
+        undefined,
+        p2pCurrent,
+      ),
     appendEvidence: (tradeId: string, evidence: string) =>
       guard.run(
         `${userId}:evidence:${tradeId}`,

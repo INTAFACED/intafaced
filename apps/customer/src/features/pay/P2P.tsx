@@ -23,6 +23,7 @@ import { P2POffers } from './P2POffers';
 import { P2POrder } from './P2POrder';
 import { ReleaseAction } from './p2p-release';
 import { RemindSeller } from './p2p-remind';
+import { BuyerMismatch, ReportMismatch } from './p2p-mismatch';
 import { orderCopy } from './p2p-order-copy';
 import { P2PCounterparty } from './P2PCounterparty';
 import { p2pReturn } from './p2p-return';
@@ -424,6 +425,7 @@ export function OrderActions({
           />
         )}
         {trade.buyerId === userId && trade.status === 'fiat_sent' && <RemindSeller trade={trade} pay={pay} onSent={reload} />}
+        {trade.buyerId === userId && trade.status === 'fiat_sent' && <BuyerMismatch trade={trade} />}
         {trade.sellerId === userId && trade.status === 'fiat_sent' && (
           <ReleaseAction
             trade={trade}
@@ -433,6 +435,7 @@ export function OrderActions({
             disabled={locked}
           />
         )}
+        {trade.sellerId === userId && trade.status === 'fiat_sent' && <ReportMismatch trade={trade} pay={pay} onReported={reload} />}
       </div>
       {['created', 'escrowed'].includes(trade.status) && (
         <details className="p2p-order-other">

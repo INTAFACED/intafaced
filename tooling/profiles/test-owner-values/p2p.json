@@ -26,6 +26,11 @@
       "value": "3",
       "note": "Most seller reminders one order may send; small, so a journey can reach the cap."
     },
+    "P2P_MISMATCH_TOLERANCE_BPS": {
+      "service": "p2p",
+      "value": "50",
+      "note": "Basis points of an order's fiat amount within which a reported under- or overpayment lets the order go on; J-p2p-02 reports 9.19 of 9.2 EUR (within) and 5 (outside)."
+    },
     "P2P_EXPORT_MAX_RANGE_DAYS": {
       "service": "p2p",
       "value": "90",
