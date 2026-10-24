@@ -125,7 +125,7 @@ export function assertFounderAudienceAttestation(consumed: ActionApproval, subje
  *
  * `requestId` is the caller's business key for this consume (the operation id). Identity treats an omitted
  * id as one-shot. The same id after a lost reply returns `consumption: already_consumed_by_this_request`
- * and does not repeat the founder attestation, so that replay is accepted when the binding still matches.
+ * and does not repeat the founder attestation, so that replay is refused: a lost reply needs a fresh approval.
  * A replay key is always sent with the consuming operator (`consumerPrincipalId`), so identity answers the
  * replay only to the operator who consumed it; another principal with the same ids is refused.
  */
@@ -154,17 +154,8 @@ export async function consumeLedgerApproval(
     expectedVersion,
     ...(replayKey.length > 0 ? { requestId: replayKey, consumerPrincipalId: consumer } : {}),
   });
-  const subject = { actionType, targetService: 'svc-ledger' as const, targetId };
-  if (consumed.consumption === 'already_consumed_by_this_request') {
-    const verdict = founderAttestationVerdict(consumed, subject);
-    if (!verdict.ok && verdict.reason !== 'missing') {
-      throw new ActionApprovalConsumeError(
-        'the founder attestation does not match a distinct founder pair for this action',
-        ACTION_APPROVAL_NOT_FOUNDERS,
-      );
-    }
-    return consumed;
-  }
-  assertFounderAudienceAttestation(consumed, subject);
+  // Fail closed on a replay too. Identity does not repeat the attestation on `already_consumed_by_this_request`,
+  // so a replay is refused like any consume without one: a retry must never turn a refused pair into a run.
+  assertFounderAudienceAttestation(consumed, { actionType, targetService: 'svc-ledger', targetId });
   return consumed;
 }
