@@ -1,6 +1,13 @@
 import { createHash } from 'node:crypto';
 import { CONSOLE_MODE_TARGET_ID, CONSOLE_MODE_TARGET_SERVICE, consoleModeApprovalFields } from '@intafaced/contracts/ops-console-mode';
 import { marketTargetId, poolTargetId } from '@intafaced/contracts/protocol-ops';
+import {
+  STAFF_HOLD_TARGET_SERVICE,
+  normaliseStaffHoldAmount,
+  staffHoldConfirmFields,
+  staffHoldReleaseFields,
+  staffHoldTargetId,
+} from '@intafaced/contracts/ops-staff-holds';
 import { normaliseCostAmount } from '@/lib/venue-economics/model';
 import type { DeskRequest } from './approval-packet';
 
@@ -115,6 +122,12 @@ export function payloadHashFor(request: DeskRequest): string {
       return sha(request.kind, consoleModeApprovalFields(request.kind, request.reason));
     case 'ops.console_mode.off':
       return sha(request.kind, consoleModeApprovalFields(request.kind, null));
+    // svc-ops `approvalPayloadHash('ops.hold.release', staffHoldReleaseFields(holdNo, amount))`: { targetId: 'hold:<n>', amount }.
+    case 'ops.hold.release':
+      return sha(request.kind, staffHoldReleaseFields(request.holdNo, normaliseStaffHoldAmount(request.amount)));
+    // svc-ops `approvalPayloadHash('ops.hold.confirm', staffHoldConfirmFields(holdNo))`: { targetId: 'hold:<n>' }.
+    case 'ops.hold.confirm':
+      return sha(request.kind, staffHoldConfirmFields(request.holdNo));
     // svc-ops `approvalPayloadHash('ops.venue_cost.record', { period, category, amount, asset, sourceNote })`, fields in this order.
     case 'ops.venue_cost.record':
       return sha('ops.venue_cost.record', {
@@ -307,6 +320,17 @@ export function proposeInputFor(request: DeskRequest): ProposeInput {
         actionType: request.kind,
         targetService: CONSOLE_MODE_TARGET_SERVICE,
         targetId: CONSOLE_MODE_TARGET_ID,
+        expectedVersion: '1',
+        payloadHash,
+        policyVersion: 'v1',
+      };
+    // svc-ops consumes against the hold itself. Its target service is not on identity's operator list, so both founders are needed.
+    case 'ops.hold.release':
+    case 'ops.hold.confirm':
+      return {
+        actionType: request.kind,
+        targetService: STAFF_HOLD_TARGET_SERVICE,
+        targetId: staffHoldTargetId(request.holdNo),
         expectedVersion: '1',
         payloadHash,
         policyVersion: 'v1',

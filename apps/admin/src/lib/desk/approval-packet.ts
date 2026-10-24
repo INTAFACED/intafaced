@@ -2,6 +2,7 @@ import { isModuleId, type ModuleId } from '@intafaced/config';
 import { reconciliationDecimalSchema } from '@intafaced/contracts/ledger-reconciliation';
 import { COST_AMOUNT, COST_ASSET, PERIOD, isCategory, type CostCategory } from '@/lib/venue-economics/model';
 import { METADATA_KEY } from '@/lib/ledger/account-metadata';
+import { STAFF_HOLD_AMOUNT_PATTERN, STAFF_HOLD_ASSET_PATTERN } from '@intafaced/contracts/ops-staff-holds';
 
 /**
  * The request a founder hands to the other founder.
@@ -87,6 +88,26 @@ export type DeskRequest =
       readonly reason: string;
       readonly version: string;
     }
+  /**
+   * Release part or all of one staff hold on a customer's funds back to them (svc-ops `staffHolds.release`, J-ops-console-04
+   * #3, #4). svc-ops binds the hold and the amount; the customer and coin are shown so the approver knows whose money it is.
+   */
+  | {
+      readonly kind: 'ops.hold.release';
+      readonly holdNo: string;
+      readonly userId: string;
+      readonly assetId: string;
+      readonly amount: string;
+      readonly reason: string;
+    }
+  /** Confirm one staff hold: what is still held moves to the owner-named account (svc-ops `staffHolds.confirm`, #5). */
+  | {
+      readonly kind: 'ops.hold.confirm';
+      readonly holdNo: string;
+      readonly userId: string;
+      readonly assetId: string;
+      readonly reason: string;
+    }
   /** One venue cost note (svc-ops `recordVenueCost`). `reason` is the source note the service stores and the approver signs. */
   | {
       readonly kind: 'ops.venue_cost.record';
@@ -132,6 +153,8 @@ const REASON_CODE = /^[A-Za-z0-9._:-]{1,64}$/;
 /** A market symbol as the service keys it: no surrounding space, no lower case, so one market has one target id. */
 const MARKET_SYMBOL = /^[A-Z0-9][A-Z0-9._/-]{0,63}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+/** svc-ops' staff hold number: one global sequence. */
+const HOLD_NO = /^[1-9][0-9]{0,18}$/;
 /** svc-ledger's control version. A margin is the contract's decimal (`reconciliationDecimalSchema`). */
 const CONTROL_VERSION = /^[1-9]\d{0,15}$/;
 
@@ -323,6 +346,24 @@ export function readDeskRequest(raw: unknown): DeskRequest | null {
     if (keys !== 'kind') return null;
     return { kind: 'ops.console_mode.off' };
   }
+  // svc-ops binds the hold and the amount of a release, and the hold alone for a confirm (it moves whatever is left).
+  if (raw.kind === 'ops.hold.release' || raw.kind === 'ops.hold.confirm') {
+    const release = raw.kind === 'ops.hold.release';
+    if (keys !== (release ? 'amount,assetId,holdNo,kind,reason,userId' : 'assetId,holdNo,kind,reason,userId')) return null;
+    if (typeof raw.holdNo !== 'string' || !HOLD_NO.test(raw.holdNo)) return null;
+    if (typeof raw.userId !== 'string' || !UUID.test(raw.userId)) return null;
+    if (typeof raw.assetId !== 'string' || !STAFF_HOLD_ASSET_PATTERN.test(raw.assetId) || !validReason(raw.reason)) return null;
+    if (!release) return { kind: 'ops.hold.confirm', holdNo: raw.holdNo, userId: raw.userId, assetId: raw.assetId, reason: raw.reason };
+    if (typeof raw.amount !== 'string' || !STAFF_HOLD_AMOUNT_PATTERN.test(raw.amount) || !/[1-9]/.test(raw.amount)) return null;
+    return {
+      kind: 'ops.hold.release',
+      holdNo: raw.holdNo,
+      userId: raw.userId,
+      assetId: raw.assetId,
+      amount: raw.amount,
+      reason: raw.reason,
+    };
+  }
   // svc-ops binds the month, line, amount, asset and source note to the approval: a changed figure is a different request.
   if (raw.kind === 'ops.venue_cost.record') {
     if (keys !== 'amount,asset,category,kind,period,reason') return null;
@@ -480,6 +521,10 @@ export function confirmPhrase(request: DeskRequest): string {
       return `MOVE TIER ${request.userId.slice(0, 8)}`;
     case 'ops.venue_cost.record':
       return `RECORD COST ${request.category} ${request.period}`;
+    case 'ops.hold.release':
+      return `RELEASE HOLD ${request.holdNo}`;
+    case 'ops.hold.confirm':
+      return `CONFIRM HOLD ${request.holdNo}`;
     case 'protocol.pool.hide':
       return `HIDE POOL ${request.poolAddress.slice(0, 10)}`;
     case 'protocol.pool.restore':
@@ -550,6 +595,10 @@ export function describeRequest(request: DeskRequest): string {
       return `Reopen account ${request.userId} ("${request.reason}"): its owner can sign in again with a new sign-in. Revoked sessions, API keys and sub-accounts stay revoked. Identity reopens only an account the customer closed, at control version ${request.version}.`;
     case 'identity.account.tier_move':
       return `Move account ${request.userId} onto tier "${request.tierId}" ("${request.reason}"). The account takes that tier's terms as identity holds them. Identity refuses a tier with any blank term, and applies it only if the account is still at tier version ${request.version}. Both people must be founders.`;
+    case 'ops.hold.release':
+      return `Release ${request.amount} ${request.assetId} of staff hold ${request.holdNo} back to customer ${request.userId} ("${request.reason}"). svc-ops posts it in the ledger under the hold's next release number; it refuses more than is still held, and does nothing while another action on the hold is settling.`;
+    case 'ops.hold.confirm':
+      return `Confirm staff hold ${request.holdNo} on customer ${request.userId} ("${request.reason}"): whatever ${request.assetId} is still held when it runs moves out of the customer's balance to the owner-named account. It cannot be undone from this console. svc-ops refuses while the owner has named no such account (owner.decision).`;
     case 'ops.venue_cost.record':
       return `Record a venue cost for ${request.period}: ${request.category.replace(/_/g, ' ')} is ${request.amount} ${request.asset}, from "${request.reason}". It becomes the figure the unit-economics report uses for that line; an earlier figure stays in the history. No money moves.`;
     case 'protocol.pool.hide':

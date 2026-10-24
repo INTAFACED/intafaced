@@ -7,6 +7,7 @@ import { formatAsOf } from '@/lib/as-of';
 import { ControlDesk } from '@/components/control-desk';
 import { AccountClosure } from '@/components/account-closure';
 import { AccountTierPanel } from '@/components/account-tier';
+import { AccountHolds } from '@/components/account-holds';
 
 function controlExplanation(area: 'identity' | 'trading' | 'merchant'): string {
   if (area === 'identity')
@@ -248,6 +249,7 @@ export function AccountControls({ csrf, founderId }: { csrf: string; founderId: 
           }}
         />
       )}
+      {state && area === 'identity' && <AccountHolds key={`holds:${id.toLowerCase()}`} userId={id} founderId={founderId} />}
       {state && area === 'identity' && (
         <AccountTierPanel
           key={`tier:${id.toLowerCase()}`}

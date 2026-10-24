@@ -108,16 +108,32 @@ export async function founderCall<T>(
   parse: (raw: unknown) => T | null,
   options: FounderCallOptions = {},
 ): Promise<FounderCallResult<T>> {
+  return edgeCall({ edgeUrl: ctx.config.edgeUrl, token: ctx.session.accessToken }, module, procedure, method, input, parse, options);
+}
+
+/**
+ * The same hop with a named bearer. Only `treasuryOps` (lib/accounts/holds-server.ts) passes anything but the founder's own token: the treasury
+ * credential, for the procedures a founder session can never carry (`admin:treasury`).
+ */
+export async function edgeCall<T>(
+  target: { readonly edgeUrl: string; readonly token: string },
+  module: CallModule,
+  procedure: string,
+  method: 'GET' | 'POST',
+  input: unknown,
+  parse: (raw: unknown) => T | null,
+  options: FounderCallOptions = {},
+): Promise<FounderCallResult<T>> {
   const empty = typeof input === 'object' && input !== null && Object.keys(input as object).length === 0;
   const hasInput = input !== undefined && input !== null && (!empty || options.sendEmptyInput === true);
   const query = method === 'GET' && hasInput ? `?input=${encodeURIComponent(JSON.stringify(input))}` : '';
   let response: Response;
   try {
-    response = await fetch(`${ctx.config.edgeUrl}/api/${module}/trpc/${procedure}${query}`, {
+    response = await fetch(`${target.edgeUrl}/api/${module}/trpc/${procedure}${query}`, {
       method,
       headers: {
         accept: 'application/json',
-        authorization: `Bearer ${ctx.session.accessToken}`,
+        authorization: `Bearer ${target.token}`,
         ...(method === 'POST' ? { 'content-type': 'application/json' } : {}),
       },
       ...(method === 'POST' ? { body: JSON.stringify(input ?? {}) } : {}),
