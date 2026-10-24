@@ -176,6 +176,14 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
      */
     PROTOCOL_OPS_WINDOW_SECONDS: blankIsUnset(z.coerce.number().int().min(60).max(2_592_000).optional()),
 
+    /**
+     * Gas tracker percentiles and history length (D-explorer-01). No default.
+     * Blank or malformed refuses `protocol.gasPrice` with `protocol.gas_percentiles_unset`.
+     * TEST fixtures may pass `10,50,90` and a block count; this schema does not.
+     */
+    PROTOCOL_GAS_PERCENTILES: z.string().default(''),
+    PROTOCOL_GAS_HISTORY_BLOCKS: z.string().default(''),
+
     /** Kill-switch mirror for `protocol.smartAccounts` (§14 admin controls). */
     PROTOCOL_RELAY_ENABLED: z
       .union([z.boolean(), z.string()])
