@@ -1,7 +1,18 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { Sql } from 'postgres';
 import { z } from 'zod';
-import { AuthError, bearerToken, requireScope, verifyAccessToken, type Principal, type TokenConfig } from '@intafaced/auth';
+import { AuthError, bearerToken, hasScope, requireScope, verifyAccessToken, type Principal, type TokenConfig } from '@intafaced/auth';
 import { LedgerError } from '@intafaced/ledger-client';
+import {
+  LEDGER_RECONCILE_ASOF_INVALID,
+  LEDGER_RECONCILE_CONTROL_NOT_FOUND,
+  LEDGER_RECONCILE_SOURCE_UNAVAILABLE,
+  OPS_CONTROL_ACTOR_UNSET,
+  OPS_CONTROL_REASON_REQUIRED,
+  defineReconciliationControlInputSchema,
+  runReconciliationControlInputSchema,
+  updateReconciliationControlInputSchema,
+} from '@intafaced/contracts/ledger-reconciliation';
 import { ASSET_EDIT_STALE, ASSET_OPERATION_CONFLICT, REGISTRY_REFUSALS } from './ledger/supported-assets.js';
 import { DualControlError } from './ledger/dual-control.js';
 import { ActionApprovalConsumeError, consumeLedgerApproval, type ActionApprovalConsumer } from './ledger/action-approval-consume.js';
@@ -9,6 +20,13 @@ import { LOOKUP_UNRECORDED, LookupUnrecordedError, requireLookupAuthority, type 
 import { TraceInconsistentError, operatorTraceInputSchema, operatorTraceOutputSchema, traceBusinessKey } from './ledger/operator-trace.js';
 import { LEDGER_TX_NOT_FOUND, operatorTxGet, operatorTxGetInputSchema, operatorTxGetOutputSchema } from './ledger/operator-tx-get.js';
 import { SKEW_BOUND_UNSET, WRITES_BLOCKED_CLOCK_SKEW } from './ledger/clock-skew.js';
+import { ReconciliationControlError } from './ledger/reconciliation-control-error.js';
+import {
+  defineReconciliationControl,
+  listReconciliationControls,
+  runReconciliationControl,
+  updateReconciliationControl,
+} from './ledger/reconciliation-controls.js';
 import type { LedgerService } from './service.js';
 
 /**
@@ -53,11 +71,14 @@ import type { LedgerService } from './service.js';
  * one line each, and nothing reachable that is not named here.
  *
  * Routes: GET/POST `/operator/freeze`, POST `/operator/unfreeze`,
- * POST `/operator/reconcile`, and the two object lookups GET
- * `/operator/transactions/:txId` and GET `/operator/trace?businessKey=`. Reconcile was the residual of the original
+ * POST `/operator/reconcile`, GET/POST `/operator/reconciliation/controls`,
+ * POST `/operator/reconciliation/controls/update`, POST `/operator/reconciliation/controls/run`,
+ * and the two object lookups GET `/operator/transactions/:txId` and GET
+ * `/operator/trace?businessKey=`. Reconcile was the residual of the original
  * freeze-only ship — freeze was wired first because halt is more urgent than
  * audit, and apps/admin kept an honest-simulated reconcile button until this
- * path existed for edge to proxy.
+ * path existed for edge to proxy. The control routes are the same kind of
+ * explicit door: `appRouter` stays unmounted because it includes `post`.
  *
  * ── Authentication ─────────────────────────────────────────────────────────
  *
@@ -215,6 +236,9 @@ export function registerOperatorHttp(
         // this and NOT verified: not a 400 the operator would read as a bad request, not an `ok: false`.
         if (err instanceof LedgerError && err.code === 'ledger.reconcile_incomplete') {
           return reply.code(503).send({ message: err.message, code: err.code });
+        }
+        if (err instanceof ReconciliationControlError) {
+          return reply.code(controlHttpStatus(err.code)).send({ message: err.code, code: err.code });
         }
         // The asset registry (W-balances-05): another edit landed first, or the operation id was used for
         // another edit. Nothing changed; 409 so the console asks for a fresh approval rather than retrying.
@@ -431,4 +455,96 @@ export function registerOperatorHttp(
       return asset;
     }),
   );
+
+  /**
+   * Operator reconciliation controls (OPS-reconciliation-01). Not `appRouter`: that router also serves `post`.
+   * List is `admin:treasury` or `admin:compliance`. Define, update and run are treasury, and treasury requires MFA.
+   * Define and update require a reason. Run also consumes an approval. The book's sql is the service's own handle.
+   */
+  const controls = controlSql(ledger);
+  const actorOf = (operator: Principal, req: OperatorRequest) => ({
+    actorId: operator.userId,
+    requestId: typeof req.id === 'string' && req.id.length > 0 ? req.id : null,
+  });
+
+  app.get(
+    '/operator/reconciliation/controls',
+    guarded(async (_operator, _body, _req, reply) => {
+      if (!controls) return reply.code(503).send(sourceUnavailable());
+      return { controls: await listReconciliationControls(controls) };
+    }, requireControlList),
+  );
+
+  app.post(
+    '/operator/reconciliation/controls',
+    guarded(async (operator, body, req, reply) => {
+      if (!controls) return reply.code(503).send(sourceUnavailable());
+      const input = defineReconciliationControlInputSchema.safeParse(body ?? {});
+      if (!input.success) return reply.code(400).send(invalidControl(input.error));
+      return defineReconciliationControl(controls, actorOf(operator, req), input.data);
+    }),
+  );
+
+  app.post(
+    '/operator/reconciliation/controls/update',
+    guarded(async (operator, body, req, reply) => {
+      if (!controls) return reply.code(503).send(sourceUnavailable());
+      const input = updateReconciliationControlInputSchema.safeParse(body ?? {});
+      if (!input.success) return reply.code(400).send(invalidControl(input.error));
+      return updateReconciliationControl(controls, actorOf(operator, req), input.data);
+    }),
+  );
+
+  app.post(
+    '/operator/reconciliation/controls/run',
+    guarded(async (operator, body, req, reply) => {
+      if (!controls) return reply.code(503).send(sourceUnavailable());
+      const input = runReconciliationControlInputSchema.safeParse(body ?? {});
+      if (!input.success) return reply.code(400).send(invalidControl(input.error));
+      const run = await runReconciliationControl(controls, approvals, actorOf(operator, req), input.data);
+      app.log.info({ actor: operator.userId, controlId: run.controlId, status: run.status }, 'LEDGER RECONCILIATION CONTROL run');
+      return run;
+    }),
+  );
+}
+
+function invalidControl(error: z.ZodError): { message: string; code: 'ledger.operator_request_failed' } {
+  return { message: error.issues.map((issue) => issue.message).join('; '), code: 'ledger.operator_request_failed' };
+}
+
+/** `admin:compliance` may list. `admin:treasury` may list too, and it still requires a second factor. */
+function requireControlList(principal: Principal): void {
+  const scopes = ['admin:treasury', 'admin:compliance'] as const;
+  let sawMfa = false;
+  for (const scope of scopes) {
+    if (!hasScope(principal.scopes, scope)) continue;
+    try {
+      requireScope(principal, scope);
+      return;
+    } catch (err) {
+      if (err instanceof AuthError && err.code === 'mfa.required') {
+        sawMfa = true;
+        continue;
+      }
+    }
+  }
+  if (sawMfa) throw new AuthError('A second factor is required', 'mfa.required');
+  throw new AuthError('One of admin:treasury, admin:compliance is required', 'scope.denied');
+}
+
+function controlSql(ledger: LedgerService): Sql | null {
+  const sql = (ledger as unknown as { sql?: Sql }).sql;
+  return sql ?? null;
+}
+
+function sourceUnavailable(): { message: string; code: typeof LEDGER_RECONCILE_SOURCE_UNAVAILABLE } {
+  return { message: LEDGER_RECONCILE_SOURCE_UNAVAILABLE, code: LEDGER_RECONCILE_SOURCE_UNAVAILABLE };
+}
+
+function controlHttpStatus(code: string): number {
+  if (code === 'ledger.idempotency_conflict') return 409;
+  if (code === LEDGER_RECONCILE_CONTROL_NOT_FOUND) return 404;
+  if (code === LEDGER_RECONCILE_ASOF_INVALID || code === OPS_CONTROL_ACTOR_UNSET || code === OPS_CONTROL_REASON_REQUIRED) return 400;
+  if (code === LEDGER_RECONCILE_SOURCE_UNAVAILABLE) return 503;
+  return 412;
 }

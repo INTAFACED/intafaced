@@ -39,7 +39,7 @@ describe('no founder or operator door in the merchant portal (G9)', () => {
       expect(name, name).toMatch(
         new RegExp(
           [
-            '^(merchantOps\\.|merchantMetrics\\.|merchantAnalytics\\.|submerchant(Permission)?\\.|merchant\\.(me|myAccess|create|submitKyb|setPayoutDestination|listLinks|checkoutSettings\\.get|payoutDestinations\\.(list|setDefault|remove)|statement\\.list|businessProfile\\.[A-Za-z]+|onboarding\\.progress)$|railHealth$',
+            '^(merchantOps\\.|merchantMetrics\\.|merchantAnalytics\\.|submerchant(Permission)?\\.|merchant\\.(me|myAccess|create|submitKyb|setPayoutDestination|listLinks|checkoutSettings\\.get|payoutDestinations\\.(list|setDefault|remove)|statement\\.list|businessProfile\\.[A-Za-z]+|onboarding\\.progress|terms\\.accept)$|railHealth$',
             // W3b: the merchant's own reads, and the three maker-checker calls. The operator side of these namespaces is not named here.
             'payment\\.(list|get|history|refunds\\.(list|get))$',
             'settlement\\.(list|get|lines|lifecycle|payout)$',
@@ -105,6 +105,7 @@ describe('no founder or operator door in the merchant portal (G9)', () => {
         'merchant.businessProfile.submit',
         'merchant.businessProfile.confirm',
         'merchant.businessProfile.setSecondApproval',
+        'merchant.terms.accept',
       ]),
       merchantControl: new Set([
         'merchantControl.get',

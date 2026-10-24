@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { boolean, date, index, integer, jsonb, pgSchema, primaryKey, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { bigint, boolean, date, index, integer, jsonb, pgSchema, primaryKey, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { amount, createdAt, tstz, updatedAt } from '@intafaced/db';
 
 /**
@@ -665,6 +665,50 @@ export const lessonDrafts = academy.table(
   (t) => [primaryKey({ columns: [t.itemId, t.basedOnRevision, t.kind] })],
 );
 
+/** AC-videos-02: an upload to our object store for a course item, keyed `media:<item>:<kind>:<sha256>`. */
+export const courseMedia = academy.table(
+  'course_media',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    itemId: uuid('item_id')
+      .notNull()
+      .references(() => courseItems.id, { onDelete: 'cascade' }),
+    kind: text('kind').notNull(),
+    sha256: text('sha256').notNull(),
+    fileName: text('file_name').notNull(),
+    contentType: text('content_type').notNull(),
+    bytes: bigint('bytes', { mode: 'number' }).notNull(),
+    objectKey: text('object_key').notNull(),
+    state: text('state').notNull().default('pending'),
+    refusal: text('refusal'),
+    createdBy: uuid('created_by').notNull(),
+    createdAt: tstz('created_at').notNull(),
+    confirmedAt: tstz('confirmed_at'),
+  },
+  (t) => [uniqueIndex('course_media_key_uq').on(t.itemId, t.kind, t.sha256), index('course_media_item_idx').on(t.itemId)],
+);
+
+/** AC-videos-02: one caption file per course item and language, stored with its cues. */
+export const courseItemCaptions = academy.table(
+  'course_item_captions',
+  {
+    itemId: uuid('item_id')
+      .notNull()
+      .references(() => courseItems.id, { onDelete: 'cascade' }),
+    mediaId: uuid('media_id')
+      .notNull()
+      .references(() => courseMedia.id, { onDelete: 'cascade' }),
+    language: text('language').notNull(),
+    label: text('label').notNull(),
+    format: text('format').notNull(),
+    source: text('source').notNull(),
+    cues: jsonb('cues').notNull(),
+    setBy: uuid('set_by').notNull(),
+    setAt: tstz('set_at').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.mediaId, t.language] })],
+);
+
 export const schema = {
   courses,
   courseEvents,
@@ -672,6 +716,8 @@ export const schema = {
   courseItems,
   lessonRevisions,
   lessonDrafts,
+  courseMedia,
+  courseItemCaptions,
   plannerTodos,
   learningGoals,
   itemVideos,

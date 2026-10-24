@@ -120,7 +120,15 @@ export function assertFounderAudienceAttestation(consumed: ActionApproval, subje
   );
 }
 
-/** Consume a ledger operator approval. Freeze is a protective verb; thaw and reconcile are founder-audience. */
+/**
+ * Consume a ledger operator approval. Freeze is a protective verb; thaw and reconcile are founder-audience.
+ *
+ * `requestId` is the caller's business key for this consume (the operation id). Identity treats an omitted
+ * id as one-shot. The same id after a lost reply returns `consumption: already_consumed_by_this_request`
+ * and does not repeat the founder attestation, so that replay is refused: a lost reply needs a fresh approval.
+ * A replay key is always sent with the consuming operator (`consumerPrincipalId`), so identity answers the
+ * replay only to the operator who consumed it; another principal with the same ids is refused.
+ */
 export async function consumeLedgerApproval(
   approvals: ActionApprovalConsumer,
   cmd: { readonly approvalId?: string | null; readonly operationId?: string | null },
@@ -128,8 +136,15 @@ export async function consumeLedgerApproval(
   targetId: string,
   expectedVersion: string,
   fields: Record<string, string>,
+  requestId?: string | null,
+  consumerPrincipalId?: string | null,
 ): Promise<ActionApproval> {
   const ids = readApprovalIds(cmd);
+  const replayKey = requestId?.trim() ?? '';
+  const consumer = consumerPrincipalId?.trim() ?? '';
+  if (replayKey.length > 0 && consumer.length === 0) {
+    throw new ActionApprovalConsumeError('a replayable consume must name the operator who consumes it', ACTION_APPROVAL_MISSING);
+  }
   const consumed = await approvals.consume({
     approvalId: ids.approvalId,
     operationId: ids.operationId,
@@ -137,7 +152,10 @@ export async function consumeLedgerApproval(
     targetService: 'svc-ledger',
     targetId,
     expectedVersion,
+    ...(replayKey.length > 0 ? { requestId: replayKey, consumerPrincipalId: consumer } : {}),
   });
+  // Fail closed on a replay too. Identity does not repeat the attestation on `already_consumed_by_this_request`,
+  // so a replay is refused like any consume without one: a retry must never turn a refused pair into a run.
   assertFounderAudienceAttestation(consumed, { actionType, targetService: 'svc-ledger', targetId });
   return consumed;
 }

@@ -6,7 +6,7 @@ import {
   type ComplianceQueueItem,
   type ComplianceQueueKind,
 } from '@intafaced/config';
-import { statusForAuthError, type AdminApi } from './admin-api.js';
+import { InvalidControlBodyError, statusForAuthError, type AdminApi } from './admin-api.js';
 import type { MatchingOperatorCall, MatchingOperatorPath } from './matching-operator-door.js';
 import { DualControlError } from './dual-control.js';
 import { ActionApprovalConsumeError, edgeActionPayloadHash, readApprovalIds } from './action-approval-consume.js';
@@ -718,6 +718,76 @@ export function registerAdminRoutes(app: FastifyInstance, admin: AdminApi, match
       return reply.code(400).send({ error: (err as Error).message, code: 'edge.invalid_reconcile_request' });
     }
     req.log.warn({ operator: auth.principal.userId, status: res.status }, 'edge: LEDGER RECONCILE requested');
+    return reply.code(res.status).send(res.body);
+  });
+
+  /**
+   * Operator reconciliation controls. Forwarded with the operator's own token.
+   * List is treasury or compliance. Define, update and run are treasury (MFA).
+   * Run's body carries the reason and the approval. svc-ledger's answer passes through.
+   */
+  app.get('/admin/ledger/reconciliation/controls', async (req, reply) => {
+    try {
+      await admin.authenticateControlRead(req.headers.authorization);
+    } catch (err) {
+      if (err instanceof AuthError) return reply.code(statusForAuthError(err)).send({ error: err.message, code: err.code });
+      throw err;
+    }
+    const header = req.headers.authorization;
+    if (typeof header !== 'string') return reply.code(401).send({ error: 'An operator token is required', code: 'token.invalid' });
+    const res = await admin.listReconciliationControls(header);
+    return reply.code(res.status).send(res.body);
+  });
+
+  app.post('/admin/ledger/reconciliation/controls', async (req, reply) => {
+    const auth = await operator(req.headers.authorization, reply, 'treasury');
+    if (!auth) return reply;
+    let res;
+    try {
+      res = await admin.defineReconciliationControl(req.body, auth.bearer);
+    } catch (err) {
+      if (!(err instanceof InvalidControlBodyError)) throw err;
+      return reply.code(400).send({ error: err.message, code: 'edge.invalid_reconciliation_control' });
+    }
+    req.log.warn({ operator: auth.principal.userId, status: res.status }, 'edge: LEDGER RECONCILIATION CONTROL define');
+    return reply.code(res.status).send(res.body);
+  });
+
+  app.post('/admin/ledger/reconciliation/controls/update', async (req, reply) => {
+    const auth = await operator(req.headers.authorization, reply, 'treasury');
+    if (!auth) return reply;
+    let res;
+    try {
+      res = await admin.updateReconciliationControl(req.body, auth.bearer);
+    } catch (err) {
+      if (!(err instanceof InvalidControlBodyError)) throw err;
+      return reply.code(400).send({ error: err.message, code: 'edge.invalid_reconciliation_control' });
+    }
+    req.log.warn({ operator: auth.principal.userId, status: res.status }, 'edge: LEDGER RECONCILIATION CONTROL update');
+    return reply.code(res.status).send(res.body);
+  });
+
+  app.post('/admin/ledger/reconciliation/controls/run', async (req, reply) => {
+    const auth = await operator(req.headers.authorization, reply, 'treasury');
+    if (!auth) return reply;
+    let res;
+    try {
+      res = await admin.runReconciliationControl(req.body, auth.bearer);
+    } catch (err) {
+      if (!(err instanceof InvalidControlBodyError)) throw err;
+      return reply.code(400).send({ error: err.message, code: 'edge.invalid_reconciliation_control' });
+    }
+    const ran = req.body as { controlId?: unknown; operationId?: unknown; approvalId?: unknown };
+    req.log.warn(
+      {
+        operator: auth.principal.userId,
+        status: res.status,
+        controlId: ran.controlId,
+        operationId: ran.operationId,
+        approvalId: ran.approvalId,
+      },
+      'edge: LEDGER RECONCILIATION CONTROL run',
+    );
     return reply.code(res.status).send(res.body);
   });
 

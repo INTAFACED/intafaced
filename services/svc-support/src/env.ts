@@ -79,6 +79,12 @@ const schema = serviceEnvSchema
        */
       SUPPORT_COMMENT_CAP: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
       /**
+       * How many personal views one person may save, and how many shared views the desk may keep.
+       * Blank is unset: a save refuses support.view_cap_unset and names the setting. Never defaulted.
+       */
+      SUPPORT_VIEW_PERSONAL_CAP: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().min(0).optional()),
+      SUPPORT_VIEW_SHARED_CAP: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().min(0).optional()),
+      /**
        * How many help-answer votes one account or signed-out reader may cast in the window below.
        * Either one blank refuses every vote with support.feedback_rate_limit_unset. Never defaulted.
        */

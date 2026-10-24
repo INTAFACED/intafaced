@@ -32,6 +32,7 @@ import {
   decodeListingCursor,
   encodeListingCursor,
   listingContentKey,
+  normaliseLeaderSearch,
   normaliseListingWrite,
   presentLeaderPage,
   presentLeaderRow,
@@ -41,8 +42,10 @@ import {
   requireClientRequestId,
   type CopyLeaderCustomerStatus,
   type CopyLeaderListingState,
+  type CopyLeaderMarketMode,
   type CopyLeaderRecordKind,
   type LeaderDirectoryPage,
+  type LeaderDirectoryRow,
   type StoredLeaderListing,
   type UpsertLeaderListingInput,
 } from './leader-listing.js';
@@ -65,6 +68,10 @@ export type SetLeaderStateInput = {
 export type ListLeadersQuery = {
   readonly limit?: number;
   readonly cursor?: string | null;
+  /** One market's leaders only. Omitted lists every mode. */
+  readonly marketMode?: string;
+  /** Name search, case-insensitive, matched on the server. */
+  readonly q?: string;
   readonly sort?: string;
   readonly order?: string;
   readonly orderBy?: string;
@@ -72,7 +79,13 @@ export type ListLeadersQuery = {
   readonly profit?: string;
   readonly copiers?: string;
   readonly rank?: string;
+  /** A ranked category or the trending row. Always refused: rankings are not offered (CB-copy-23). */
+  readonly category?: string;
+  readonly trending?: boolean;
 };
+
+/** Server-side directory filter: one market mode and a name fragment, both optional. */
+export type ListedFilter = { readonly marketMode: CopyLeaderMarketMode | null; readonly nameLike: string | null };
 
 type AuditInsert = {
   readonly auditId: string;
@@ -99,7 +112,7 @@ interface LeaderBackend {
   getByUser(leaderUserId: string, lock: boolean): Promise<StoredLeaderListing | null>;
   insertListing(row: StoredLeaderListing): Promise<void>;
   updateListing(row: StoredLeaderListing): Promise<void>;
-  listListed(afterListedAt: Date, afterRef: string, limit: number): Promise<StoredLeaderListing[]>;
+  listListed(afterListedAt: Date, afterRef: string, limit: number, filter?: ListedFilter): Promise<StoredLeaderListing[]>;
   countActive(leaderUserId: string): Promise<number>;
   insertEvent(event: StoredLeaderEvent): Promise<void>;
   insertCapacityFullOnce(listing: StoredLeaderListing, occurredAt: Date): Promise<void>;
@@ -153,6 +166,7 @@ type ListingSqlRow = {
   leader_user_id: string;
   state: CopyLeaderListingState;
   display_name: string;
+  market_mode: CopyLeaderMarketMode | null;
   record_kind: CopyLeaderRecordKind;
   tenure_start: Date | string | null;
   assets: unknown;
@@ -176,6 +190,7 @@ function listingFromRow(row: ListingSqlRow): StoredLeaderListing {
     leaderUserId: row.leader_user_id,
     state: row.state,
     displayName: row.display_name,
+    marketMode: row.market_mode ?? 'spot',
     recordKind: row.record_kind,
     tenureStart: asDate(row.tenure_start),
     assets: asAssets(row.assets),
@@ -195,7 +210,7 @@ function listingFromRow(row: ListingSqlRow): StoredLeaderListing {
 }
 
 const LISTING_COLUMNS = `
-  leader_ref, leader_user_id, state, display_name, record_kind,
+  leader_ref, leader_user_id, state, display_name, market_mode, record_kind,
   tenure_start, assets, capacity, strategy_version,
   published_return, maximum_drawdown, window_start, window_end,
   net_of_costs, evidence_ref, listed_at, state_changed_at, created_at, updated_at
@@ -280,7 +295,8 @@ export class LeaderDirectory {
     refuseLeaderDirectoryRanking(input);
     const limit = publishedCopyPageLimit(input.limit, 'trade.copy_leaders_limit_unset', 'listLeaders');
     const cursor = decodeListingCursor(input.cursor);
-    const rows = await this.backend.listListed(cursor.listedAt, cursor.leaderRef, limit + 1);
+    const filter = normaliseLeaderSearch(input);
+    const rows = await this.backend.listListed(cursor.listedAt, cursor.leaderRef, limit + 1, filter);
     const page = rows.slice(0, limit);
     const leaders = [];
     for (const row of page) {
@@ -289,6 +305,21 @@ export class LeaderDirectory {
     const last = page[page.length - 1];
     const nextCursor = rows.length > limit && last?.listedAt ? encodeListingCursor(last.listedAt, last.leaderRef) : null;
     return presentLeaderPage(leaders, nextCursor);
+  }
+
+  /**
+   * One listed leader's public row by its ref, with the user id kept server-side for the trade read. Anything
+   * not listed (unknown, unlisted, suspended, delisted) is not found, so a page never shows a leader the
+   * directory does not.
+   */
+  async listedLeader(leaderRef: string): Promise<{ readonly row: LeaderDirectoryRow; readonly leaderUserId: string }> {
+    const ref = leaderRef.trim();
+    const listing = ref ? await this.backend.getByRef(ref, false) : null;
+    if (!listing || listing.state !== 'listed') throw new CopyError('Leader not found', 'trade.copy_leader_not_found');
+    return {
+      row: presentLeaderRow(listing, await this.backend.countActive(listing.leaderUserId), this.feeShareLaw),
+      leaderUserId: listing.leaderUserId,
+    };
   }
 
   async followEvents(input: { leaderUserId: string; since: Date; limit?: number; cursor?: string | null }): Promise<LeaderEventsPage> {
@@ -326,6 +357,7 @@ export class LeaderDirectory {
         leaderUserId: write.leaderUserId,
         state: write.state,
         displayName: write.displayName,
+        marketMode: write.marketMode ?? existing?.marketMode ?? 'spot',
         recordKind: write.recordKind,
         tenureStart: write.tenureStart,
         assets: write.assets,
@@ -520,9 +552,12 @@ class MemoryLeaderBackend implements LeaderBackend {
     this.byUser.set(row.leaderUserId, row);
   }
 
-  async listListed(afterListedAt: Date, afterRef: string, limit: number): Promise<StoredLeaderListing[]> {
+  async listListed(afterListedAt: Date, afterRef: string, limit: number, filter?: ListedFilter): Promise<StoredLeaderListing[]> {
+    const needle = filter?.nameLike?.toLowerCase() ?? null;
     return [...this.byRef.values()]
       .filter((row) => row.state === 'listed' && row.listedAt !== null)
+      .filter((row) => !filter?.marketMode || row.marketMode === filter.marketMode)
+      .filter((row) => needle === null || row.displayName.toLowerCase().includes(needle))
       .filter((row) => {
         const at = row.listedAt as Date;
         return at > afterListedAt || (at.getTime() === afterListedAt.getTime() && row.leaderRef > afterRef);
@@ -624,7 +659,7 @@ class SqlLeaderBackend implements LeaderBackend {
   async insertListing(row: StoredLeaderListing): Promise<void> {
     await this.sql`
       INSERT INTO trade.copy_leader_listings (
-        leader_ref, leader_user_id, state, display_name, record_kind,
+        leader_ref, leader_user_id, state, display_name, market_mode, record_kind,
         tenure_start, assets, capacity, strategy_version,
         published_return, maximum_drawdown, window_start, window_end,
         net_of_costs, evidence_ref, listed_at, state_changed_at, created_at, updated_at
@@ -633,6 +668,7 @@ class SqlLeaderBackend implements LeaderBackend {
         ${row.leaderUserId},
         ${row.state},
         ${row.displayName},
+        ${row.marketMode},
         ${row.recordKind},
         ${row.tenureStart},
         ${this.sql.json([...row.assets])},
@@ -657,6 +693,7 @@ class SqlLeaderBackend implements LeaderBackend {
       UPDATE trade.copy_leader_listings SET
         state = ${row.state},
         display_name = ${row.displayName},
+        market_mode = ${row.marketMode},
         record_kind = ${row.recordKind},
         tenure_start = ${row.tenureStart},
         assets = ${this.sql.json([...row.assets])},
@@ -675,15 +712,20 @@ class SqlLeaderBackend implements LeaderBackend {
     `;
   }
 
-  async listListed(afterListedAt: Date, afterRef: string, limit: number): Promise<StoredLeaderListing[]> {
+  async listListed(afterListedAt: Date, afterRef: string, limit: number, filter?: ListedFilter): Promise<StoredLeaderListing[]> {
+    const mode = filter?.marketMode ?? null;
+    // ILIKE wildcards in the person's text are matched literally.
+    const like = filter?.nameLike ? `%${filter.nameLike.replace(/[\\%_]/g, (c) => `\\${c}`)}%` : null;
     const rows = await this.sql<ListingSqlRow[]>`
-      SELECT leader_ref, leader_user_id, state, display_name, record_kind,
+      SELECT leader_ref, leader_user_id, state, display_name, market_mode, record_kind,
              tenure_start, assets, capacity, strategy_version,
              published_return, maximum_drawdown, window_start, window_end,
              net_of_costs, evidence_ref, listed_at, state_changed_at, created_at, updated_at
         FROM trade.copy_leader_listings
        WHERE state = 'listed'
          AND listed_at IS NOT NULL
+         AND (${mode}::text IS NULL OR market_mode = ${mode})
+         AND (${like}::text IS NULL OR display_name ILIKE ${like})
          AND (listed_at > ${afterListedAt} OR (listed_at = ${afterListedAt} AND leader_ref > ${afterRef}))
        ORDER BY listed_at ASC, leader_ref ASC
        LIMIT ${limit}

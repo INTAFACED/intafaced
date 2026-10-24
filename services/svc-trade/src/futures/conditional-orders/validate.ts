@@ -14,6 +14,8 @@ export type ConditionalKind = (typeof CONDITIONAL_KINDS)[number];
 export type ConditionalSide = 'buy' | 'sell';
 export type ConditionalStatus = 'armed' | 'triggered' | 'filled' | 'cancelled' | 'failed';
 export type AttachmentLeg = 'take_profit' | 'stop_loss';
+/** The price a trigger is judged on: the published mark, or the futures book's last trade. */
+export type TriggerSource = 'mark' | 'last';
 
 export interface ParsedConditional {
   readonly market: string;
@@ -25,6 +27,7 @@ export interface ParsedConditional {
   readonly trailingDistance: Amount | null;
   readonly reduceOnly: true;
   readonly clientOrderId: string;
+  readonly triggerSource: TriggerSource;
 }
 
 export interface CreateConditionalInput {
@@ -37,6 +40,7 @@ export interface CreateConditionalInput {
   readonly trailingDistance?: unknown;
   readonly reduceOnly?: unknown;
   readonly clientOrderId: unknown;
+  readonly triggerSource?: unknown;
 }
 
 const FIELD_REQUIRED = 'trade.conditional_field_required';
@@ -98,6 +102,7 @@ export function validateConditional(input: CreateConditionalInput): ParsedCondit
     throw new FuturesError('reduceOnly must be true when it is sent', FIELD_UNSUPPORTED, 400);
   }
 
+  const triggerSource = parseTriggerSource(input.triggerSource);
   const triggerMode = input.kind === 'trailing_stop' ? 'forbidden' : 'required';
   const limitMode = input.kind === 'stop_limit' ? 'required' : 'forbidden';
   const trailMode = input.kind === 'trailing_stop' ? 'required' : 'forbidden';
@@ -111,7 +116,26 @@ export function validateConditional(input: CreateConditionalInput): ParsedCondit
     trailingDistance: decimalField('trailingDistance', input.trailingDistance, trailMode),
     reduceOnly: true,
     clientOrderId,
+    triggerSource,
   };
+}
+
+/**
+ * Absent is the mark. The index is a source this deployment does not publish (an outside feed), so a trigger judged on
+ * it would never fire: it is refused by name rather than stored.
+ */
+function parseTriggerSource(raw: unknown): TriggerSource {
+  if (raw === undefined || raw === null || raw === 'mark') return 'mark';
+  if (raw === 'last') return 'last';
+  if (raw === 'index') {
+    // The same code spot answers for a trigger source with no published feed (placement-options.ts).
+    throw new FuturesError(
+      'the index price is not published on this deployment, so a trigger cannot be judged on it',
+      'trade.trigger_source_unset',
+      400,
+    );
+  }
+  throw new FuturesError('triggerSource must be mark, last or index', 'trade.trigger_source_unsupported', 400);
 }
 
 export function requestHash(parts: Readonly<Record<string, string>>): string {
@@ -132,6 +156,8 @@ export function conditionalHash(order: ParsedConditional): string {
     limitPrice: order.limitPrice == null ? '' : formatAmount(order.limitPrice),
     trailingDistance: order.trailingDistance == null ? '' : formatAmount(order.trailingDistance),
     reduceOnly: 'true',
+    // A mark-judged order hashes as it always has, so a retry sent before trigger sources existed still replays.
+    ...(order.triggerSource !== 'mark' ? { triggerSource: order.triggerSource } : {}),
   });
 }
 

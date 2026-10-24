@@ -17,7 +17,9 @@ import { useUnsavedForm } from '../../useUnsavedForm';
 import { BusinessApplication } from './Application';
 import { reason as notLive } from '../../chrome/copy';
 import { accountCopy } from '../account/copy';
-import type { Progress } from '../account/schemas';
+import type { Progress, TermsState } from '../account/schemas';
+import { readyAccess, useOptionalMerchantAccess } from '../../access/MerchantAccess';
+import { DateTime } from '../../ui/DateTime';
 import { Blocker } from '../account/ui';
 import { portalCopy } from '../copy';
 import { mc } from '../../money/copy';
@@ -174,6 +176,59 @@ export function OnboardingView(props: OnboardingViewProps) {
   );
 }
 
+/**
+ * The merchant terms: a blocker naming what is missing while none are published, the published version to read and
+ * accept, or when it was accepted. Only the owner signs for the business; svc-pay refuses anyone else.
+ */
+function Terms({
+  portal,
+  merchantId,
+  terms,
+  onAccepted,
+}: {
+  portal: PortalApi;
+  merchantId: string;
+  terms: TermsState | null;
+  onAccepted: () => void;
+}) {
+  const { t: a } = accountCopy.useCopy();
+  const owner = readyAccess(useOptionalMerchantAccess())?.role === 'owner';
+  // Unknown until progress answers: say nothing rather than claim none are published (the step notes a failed read).
+  if (!terms) return null;
+  if (terms.state === 'not_configured')
+    return (
+      <Blocker reason={a('waitTerms')} needs="terms version" title={a('termsTitle')}>
+        {a('termsBlocked')}
+      </Blocker>
+    );
+  return (
+    <div className="stack">
+      <h3 className="pp-sub">{a('termsTitle')}</h3>
+      <p className="muted">{a('termsBody')}</p>
+      <a className="text-link" href={terms.url} target="_blank" rel="noreferrer noopener">
+        {a('termsRead', { version: terms.version })}
+      </a>
+      {terms.state === 'accepted' ? (
+        <p className="pp-confirmed" role="status">
+          {a('termsAccepted', { version: terms.version })} <DateTime value={terms.acceptedAt} />
+        </p>
+      ) : (
+        <div className="pp-actions">
+          <PortalReview
+            title={a('termsAccept')}
+            variant="primary"
+            description={a('termsAcceptBody', { version: terms.version })}
+            perform={() => portal.termsAccept(merchantId, terms.version)}
+            onConfirmed={onAccepted}
+            disabled={!owner}
+            disabledReason={a('termsOwnerOnly')}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Where things stand: what is done, what is left, and what can be done right now. */
 function Overview(props: OnboardingViewProps) {
   const { t: a } = accountCopy.useCopy();
@@ -190,6 +245,7 @@ function Overview(props: OnboardingViewProps) {
       );
     if (steps.kybStatus !== 'approved') left.push(steps.kybStatus === 'pending' ? a('leftVerifyWaiting') : a('leftVerify'));
     if (!steps.destination) left.push(a('leftDestination'));
+    if (progress?.terms.state === 'not_accepted') left.push(a('leftTerms'));
     if (merchant.status !== 'active' || steps.kybStatus !== 'approved') left.push(a('leftLive'));
   }
   return (
@@ -242,9 +298,11 @@ function Overview(props: OnboardingViewProps) {
           <Blocker reason={notLive('reasonDocuments')} needs="document check provider" title={a('docsHeading')}>
             {a('docsBlocked')}
           </Blocker>
-          <Blocker reason={a('waitTerms')} needs="terms version" title={a('termsTitle')}>
-            {a('termsBlocked')}
-          </Blocker>
+          {progress?.terms.state === 'not_configured' && (
+            <Blocker reason={a('waitTerms')} needs="terms version" title={a('termsTitle')}>
+              {a('termsBlocked')}
+            </Blocker>
+          )}
         </div>
       </PaySection>
     </>
@@ -633,9 +691,7 @@ function StepGoLive(props: OnboardingViewProps) {
             {a('liveBlockedBody')}
           </Blocker>
         )}
-        <Blocker reason={a('waitTerms')} needs="terms version" title={a('termsTitle')}>
-          {a('termsBlocked')}
-        </Blocker>
+        <Terms portal={portal} merchantId={merchant.id} terms={steps.progress?.terms ?? null} onAccepted={retry} />
         <div className="pp-actions">
           <a className="text-link" href="/pay/pricing">
             {t('reviewPricing')}

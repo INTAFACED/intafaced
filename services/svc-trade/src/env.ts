@@ -719,6 +719,16 @@ const schema = serviceEnvSchema
       TRADE_COPY_DISCLOSURE_LAW: z.string().default(''),
 
       /**
+       * Copy lead-page metric definitions (CB-copy-02). JSON or empty.
+       *
+       * Empty (default) = unpublished → every metric on a lead page reads
+       * "Not set by the platform". Never invent what a metric means.
+       * Published shape: {"published":true,"version":"…","definitions":{"publishedReturn":"…","maximumDrawdown":"…"}}
+       * Keys: publishedReturn, maximumDrawdown, winRate, sharpeRatio. The text is owner content.
+       */
+      TRADE_COPY_METRIC_DEFINITIONS: z.string().default(''),
+
+      /**
        * Spot maker/taker fee/rebate schedule (PTX-M21). JSON or empty.
        *
        * Empty (default) = unpublished → preview and place/fill refuse.

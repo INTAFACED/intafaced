@@ -11,6 +11,8 @@ export const corridorSchema = z.object({
   minAmount: amount.nullable(),
   maxAmount: amount.nullable(),
   cutOffTime: z.string().nullable(),
+  /** The delivery methods a payout partner pays out on: a send on any other is refused, with nothing taken. */
+  payoutMethods: z.array(z.string()),
 });
 export const recipientSchema = z.object({
   id: z.string(),
@@ -97,7 +99,7 @@ export type GlobalHold = z.infer<typeof holdSchema>;
 export type GlobalReceipt = z.infer<typeof receiptSchema>;
 
 /** One row of the destination list: a country and currency with one delivery method. */
-export type Destination = { key: string; country: string; currency: string; method: string; corridor: Corridor };
+export type Destination = { key: string; country: string; currency: string; method: string; paysOut: boolean; corridor: Corridor };
 export function destinationsFrom(corridors: readonly Corridor[]): Destination[] {
   return corridors.flatMap((corridor) =>
     corridor.deliveryMethods.map((method) => ({
@@ -105,6 +107,7 @@ export function destinationsFrom(corridors: readonly Corridor[]): Destination[] 
       country: corridor.country,
       currency: corridor.currency,
       method,
+      paysOut: corridor.payoutMethods.includes(method),
       corridor,
     })),
   );

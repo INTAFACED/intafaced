@@ -67,6 +67,7 @@ export function registerConditionalOrdersRest(app: FastifyInstance, deps: Condit
         trailingDistance: body.trailingDistance,
         reduceOnly: body.reduceOnly,
         clientOrderId: body.clientOrderId,
+        triggerSource: body.triggerSource,
       });
       return reply.code(created.replay ? 200 : 201).send(created.order);
     } catch (err) {

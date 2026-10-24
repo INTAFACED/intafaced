@@ -78,6 +78,7 @@ export type RefusalKind =
   | 'algoSchedulerOff'
   | 'globalOff'
   | 'globalNoRate'
+  | 'globalNoPayout'
   | 'globalPurpose'
   | 'globalSource'
   | 'globalReference'
@@ -243,6 +244,7 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'bank.global_corridors_unset': 'globalOff',
   'bank.global_corridors_unusable': 'globalOff',
   'bank.global_payout_unset': 'globalOff',
+  'bank.global_payout_uncovered': 'globalNoPayout',
   'bank.global_payout_unusable': 'globalOff',
   'bank.global_fx_unusable': 'globalOff',
   'bank.global_travel_rule_undecided': 'globalOff',

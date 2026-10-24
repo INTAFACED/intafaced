@@ -45,6 +45,26 @@
       "service": "trade",
       "value": "1000000",
       "note": "Futures loss cap, quote units."
+    },
+    "TRADE_COPY_FEE_SHARE_LAW": {
+      "service": "trade",
+      "value": "{\"published\": true, \"leaderShareBps\": 1000, \"earningsCapPerFollower\": \"1000.00\", \"decayRoundTrips\": 50, \"decayShareBps\": 5000}",
+      "note": "The fee share D26-P0-02 published in .env.example: 10% of the trading fee on copied orders, capped at 1000 per follower, halved after 50 round trips."
+    },
+    "TRADE_COPY_JURISDICTION_LAW": {
+      "service": "trade",
+      "value": "{\"published\": true, \"allowedRegions\": [\"DE\", \"FR\", \"GB\", \"ID\", \"NL\", \"SG\"]}",
+      "note": "TEST fixture, never a product default (ADR 2026-08-12: test fixtures may use codes). Counsel has supplied no list, so live stays blank and refuses. US is left off so a refusal can be seen."
+    },
+    "TRADE_COPY_DISCLOSURE_LAW": {
+      "service": "trade",
+      "value": "{\"published\": true, \"version\": \"TEST-2026-10-23\", \"text\": \"TEST disclosure, not owner text. Copy trading can lose money. A leader's past results are not a promise of future results. Every copied order is your own order, placed in your name, with your own trading fee. Only copy what you can afford to lose.\"}",
+      "note": "Copy risk disclosure text and version a follower accepts."
+    },
+    "TRADE_COPY_METRIC_DEFINITIONS": {
+      "service": "trade",
+      "value": "{\"published\": true, \"version\": \"TEST-2026-10-23\", \"definitions\": {\"publishedReturn\": \"TEST definition: the leader's published return over the window shown, in percent.\", \"maximumDrawdown\": \"TEST definition: the largest fall from a peak over the same window, in percent.\"}}",
+      "note": "What a lead page's return and drawdown mean. Win rate and Sharpe ratio stay undefined, so they read Not set."
     }
   }
 }

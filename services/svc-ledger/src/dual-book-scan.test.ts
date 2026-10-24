@@ -37,6 +37,10 @@ const ONE_BOOK_TABLES = new Set([
   'operator_access_log',
   // One row per applied founder edit of the asset registry (who proposed, approved, sent). Append-only, holds no balance.
   'asset_edits',
+  // Operator reconciliation controls, their append-only audit, and run rows (OPS-reconciliation-01). No balance is stored.
+  'reconciliation_controls',
+  'reconciliation_control_audit',
+  'reconciliation_control_runs',
 ]);
 
 const JAVA_WALLET_IDS: readonly { readonly id: string; readonly re: RegExp; readonly why: string }[] = [

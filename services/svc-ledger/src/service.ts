@@ -38,6 +38,7 @@ import { withMoneySpan, withSpan } from './tracing.js';
 import type { RegistryAsset } from '@intafaced/contracts';
 import type { ActionApprovalConsumer } from './ledger/action-approval-consume.js';
 import { applyAssetEdit, getAsset, listAssets, listOperatorAssets, type OperatorAssetRow } from './ledger/supported-assets.js';
+import { runDueReconciliationControls as runDueOperatorControls } from './ledger/reconciliation-controls.js';
 
 /**
  * The service layer: the ledger engine plus the three things wrapping every
@@ -454,6 +455,11 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
    */
   consecutiveIncompleteRuns(): Promise<number> {
     return countConsecutiveIncompleteRuns(this.sql);
+  }
+
+  /** Due operator controls. Read-only: a failure does not freeze posting. */
+  runDueReconciliationControls(): Promise<void> {
+    return runDueOperatorControls(this.sql);
   }
 
   private async publishReconciliationDrift(report: ReconciliationReport): Promise<void> {
