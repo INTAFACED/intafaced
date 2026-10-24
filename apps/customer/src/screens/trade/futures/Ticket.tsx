@@ -16,6 +16,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   Button,
+  Checkbox,
   Collapsible,
   CollapsibleTrigger,
   EmptyState,
@@ -41,6 +42,7 @@ import {
 } from '@intafaced/ui';
 import { dec, fractionDigits, isPositive, str } from '../../../data/decimal';
 import { fmtAmount, fmtPct, fmtPctPoints, fmtPrice } from '../../../data/format';
+import { bpsToRatio } from '../desk/form-logic';
 import type { BalanceEntry } from '../../../data/derive';
 import type { Loadable } from '../../../data/types';
 import type { AdlDisclosure, FuturesListing, FuturesOrder, OrderTypeEntry, PositionPreview, TickerStrip } from './api';
@@ -60,6 +62,7 @@ import {
   sizeInBase,
   splitPreview,
   sizePlaces,
+  tierToConfirm,
   type FormKey,
   type OpenBlock,
   type ReviewBlock,
@@ -94,6 +97,8 @@ interface Confirm {
   checking: boolean;
   /** Placed as the children the review named (`split`), not as one order. */
   split: boolean;
+  /** The trader ticked the new margin tier the review named (`riskTier.confirmRequired`). */
+  tierAccepted: boolean;
 }
 
 /** The two types the futures book takes; everything else the catalogue lists is shown with its refusal. */
@@ -296,10 +301,12 @@ export function Ticket(props: TicketProps) {
       if (!previewsEqual(result.data, confirm.data)) {
         setCap(result.data.leverageCap);
         setReview({ status: 'ready', form: asked, data: result.data, at: Date.now() });
-        setConfirm({ data: result.data, changed: true, checking: false, split: confirm.split });
+        setConfirm({ data: result.data, changed: true, checking: false, split: confirm.split, tierAccepted: false });
         return;
       }
     }
+    const tier = tierToConfirm(confirm.data);
+    if (tier !== null && !confirm.tierAccepted) return;
     setConfirm(null);
     if (typeOff !== null) return;
     const { limitPrice: askedPrice, ...rest } = asked;
@@ -311,6 +318,7 @@ export function Ticket(props: TicketProps) {
           type: orderType,
           ...(askedPrice !== undefined ? { price: askedPrice } : {}),
           ...(confirm.split ? { split: true as const } : {}),
+          ...(tier !== null ? { confirmTier: tier } : {}),
           clientOpenId: openId(nonce),
         },
       }),
@@ -356,8 +364,63 @@ export function Ticket(props: TicketProps) {
         hint: t('Distance hint'),
       },
       { label: t('Leverage cap'), value: p.leverageCap === null ? null : `${fmtAmount(p.leverageCap)}x` },
+      ...tierItems(p),
+      ...openInterestItems(p),
       ...controlItems(p),
     ];
+  };
+  /** The margin tier the order carries this side into, from the service's own ladder at today's depth. */
+  const tierItems = (p: PositionPreview): KeyValueItem[] => {
+    if (p.riskTier === undefined) return [];
+    const tier = p.riskTier;
+    return [
+      {
+        label: t('Margin tier'),
+        value:
+          tier === null ? null : t('Tier value', { tier: String(tier.projected), rate: fmtPct(tier.maintenanceRate, { signed: false }) }),
+        hint: tier?.confirmRequired ? t('Tier confirm hint') : t('Tier hint'),
+      },
+    ];
+  };
+  /** The open interest this account may still add on the contract, and the limit that sets it (D-margin-05). */
+  const openInterestItems = (p: PositionPreview): KeyValueItem[] => {
+    if (p.openInterest === undefined) return [];
+    const oi = p.openInterest;
+    const base = market.base;
+    if (oi === null) {
+      // Only a blank limit reads "not published"; a room that could not be read is an unknown figure, named on its line.
+      const unset = p.refusals.some((r) => r.code === 'trade.oi_limit_unset');
+      return [
+        unset
+          ? { label: t('Open interest room'), value: t('Open interest unset'), hint: t('Open interest unset hint') }
+          : { label: t('Open interest room'), value: null },
+      ];
+    }
+    return [
+      {
+        label: t('Open interest room'),
+        value: t('Open interest room value', { room: fmtAmount(oi.room), base }),
+        hint:
+          oi.binding === 'market'
+            ? t('Open interest market hint', { limit: fmtAmount(oi.limit), base })
+            : t('Open interest share hint', {
+                cap: fmtAmount(oi.accountCap),
+                limit: fmtAmount(oi.limit),
+                base,
+                pct: fmtPct(bpsToRatio(oi.shareBps), { signed: false }),
+              }),
+      },
+    ];
+  };
+  /** The band's width and, while the dynamic range has widened it, by how much and why. */
+  const bandHint = (band: NonNullable<PositionPreview['band']>): string => {
+    const pct = (v: string) => fmtPct(v, { signed: false });
+    if (band.source !== 'dynamic' || !band.staticFraction) return t('Band hint', { pct: pct(band.fraction) });
+    return t(band.reason === 'capped' ? 'Band wider capped hint' : 'Band wider hint', {
+      pct: pct(band.fraction),
+      usual: pct(band.staticFraction),
+      premium: band.premium == null ? '' : pct(band.premium),
+    });
   };
   /** The band, the price the order is held and sent at, the slippage cap and the max-order: the limits this order meets. */
   const controlItems = (p: PositionPreview): KeyValueItem[] => {
@@ -366,7 +429,7 @@ export function Ticket(props: TicketProps) {
       {
         label: t('Price band'),
         value: p.band === null ? t('Not set') : t('Band range', { low: price(p.band.low) ?? '', high: price(p.band.high) ?? '' }),
-        hint: p.band === null ? t('Band unset hint') : t('Band hint', { pct: fmtPct(p.band.fraction, { signed: false }) }),
+        hint: p.band === null ? t('Band unset hint') : bandHint(p.band),
       },
       { label: p.type === 'limit' ? t('Order price limit') : t('Order price market'), value: price(p.orderPrice ?? null) },
     ];
@@ -720,7 +783,7 @@ export function Ticket(props: TicketProps) {
                 variant="secondary"
                 size={32}
                 disabled={splitOff !== null}
-                onClick={() => setConfirm({ data: shown, changed: false, checking: false, split: true })}
+                onClick={() => setConfirm({ data: shown, changed: false, checking: false, split: true, tierAccepted: false })}
               >
                 {t('Split button', { parts: String(shown.split.parts) })}
               </Button>
@@ -748,7 +811,7 @@ export function Ticket(props: TicketProps) {
         fullWidth
         disabled={openOff !== null}
         loading={writer.busy}
-        onClick={() => shown && setConfirm({ data: shown, changed: false, checking: false, split: false })}
+        onClick={() => shown && setConfirm({ data: shown, changed: false, checking: false, split: false, tierAccepted: false })}
       >
         {side === 'long' ? t('Open long') : t('Open short')}
       </Button>
@@ -765,7 +828,8 @@ export function Ticket(props: TicketProps) {
 
       <AlertDialog open={confirm !== null} onOpenChange={(open) => !open && !confirm?.checking && setConfirm(null)}>
         {confirm ? (
-          <AlertDialogContent>
+          // A long review (the cost rows, a split, a new margin tier) scrolls inside the dialog on a short screen.
+          <AlertDialogContent className="max-h-[calc(100dvh-32px)] overflow-y-auto">
             <AlertDialogHeader>
               <AlertDialogTitle>
                 {side === 'long' ? t('Confirm title long', { symbol: market.symbol }) : t('Confirm title short', { symbol: market.symbol })}
@@ -778,6 +842,16 @@ export function Ticket(props: TicketProps) {
                     : t('Confirm body', { total: fmtAmount(allInCost(confirm.data, free).totalToCommit), asset })}
               </AlertDialogDescription>
             </AlertDialogHeader>
+            {confirm.data.riskTier?.confirmRequired ? (
+              <TierConfirm
+                tier={confirm.data.riskTier}
+                leverage={form?.leverage ?? null}
+                cap={confirm.data.leverageCap}
+                accepted={confirm.tierAccepted}
+                disabled={confirm.checking}
+                onAccept={(accepted) => setConfirm({ ...confirm, tierAccepted: accepted })}
+              />
+            ) : null}
             <KeyValue
               density="dense"
               unknownLabel={t('Unknown figure')}
@@ -802,7 +876,10 @@ export function Ticket(props: TicketProps) {
               <Button
                 variant={side === 'long' ? 'buy' : 'sell'}
                 loading={confirm.checking}
-                disabled={(confirm.split ? gate(splitPreview(confirm.data)) : gate(confirm.data)) !== null}
+                disabled={
+                  (confirm.split ? gate(splitPreview(confirm.data)) : gate(confirm.data)) !== null ||
+                  (tierToConfirm(confirm.data) !== null && !confirm.tierAccepted)
+                }
                 onClick={() => void confirmOpen()}
               >
                 {confirm.checking ? t('Checking') : side === 'long' ? t('Confirm open long') : t('Confirm open short')}
@@ -811,6 +888,48 @@ export function Ticket(props: TicketProps) {
           </AlertDialogContent>
         ) : null}
       </AlertDialog>
+    </section>
+  );
+}
+
+type RiskTier = NonNullable<PositionPreview['riskTier']>;
+
+/**
+ * The confirm step before an order moves the position into a higher margin tier (D-orders-10): the tier, its
+ * maintenance rate and the leverage that applies, and a tick the trader must give before the order can be sent.
+ */
+function TierConfirm(props: {
+  tier: RiskTier;
+  leverage: string | null;
+  cap: string | null;
+  accepted: boolean;
+  disabled: boolean;
+  onAccept(accepted: boolean): void;
+}) {
+  const { t } = ticketCopy.useCopy();
+  const { tier } = props;
+  const tierWord = String(tier.projected);
+  return (
+    <section aria-label={t('Tier confirm title')} className="mb-4 flex flex-col gap-2 rounded-lg border border-warn p-3">
+      <h4 className="text-sm font-medium">{t('Tier confirm heading', { tier: tierWord })}</h4>
+      <p className="text-xs text-fg-2">
+        {tier.current === null
+          ? t('Tier confirm opens', { tier: tierWord })
+          : t('Tier confirm moves', { from: String(tier.current), tier: tierWord })}{' '}
+        {t('Tier confirm rate', { tier: tierWord, rate: fmtPct(tier.maintenanceRate, { signed: false }) })}
+      </p>
+      <p className="text-xs text-fg-2">
+        {props.cap === null
+          ? t('Tier confirm leverage no cap', { leverage: props.leverage ? `${fmtAmount(props.leverage)}x` : '—' })
+          : t('Tier confirm leverage', {
+              leverage: props.leverage ? `${fmtAmount(props.leverage)}x` : '—',
+              cap: `${fmtAmount(props.cap)}x`,
+            })}
+      </p>
+      <label className="flex items-center gap-2 text-sm">
+        <Checkbox checked={props.accepted} disabled={props.disabled} onCheckedChange={(v) => props.onAccept(v === true)} />
+        <span>{t('Tier confirm accept', { tier: tierWord })}</span>
+      </label>
     </section>
   );
 }

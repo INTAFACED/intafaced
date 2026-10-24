@@ -139,9 +139,9 @@ const right = [{ questionId: 'q1', choiceId: 'b' }];
 describe('academy assessments and certificates', () => {
   it('refuses an unpublished assessment and a blank pass mark, and hides the answer key', async () => {
     const bare = service();
-    expect(() => bare.getAssessment('foundations-risk-first')).toThrow(expect.objectContaining({ code: 'academy.assessment_unpublished' }));
+    await expect(bare.getAssessment('foundations-risk-first')).rejects.toMatchObject({ code: 'academy.assessment_unpublished' });
     const blank = service({ assessmentCatalog: [BLANK_MARK] });
-    expect(() => blank.getAssessment('foundations-order-types')).toThrow(expect.objectContaining({ code: 'academy.pass_mark_unset' }));
+    await expect(blank.getAssessment('foundations-order-types')).rejects.toMatchObject({ code: 'academy.pass_mark_unset' });
 
     const academy = service({ assessmentCatalog: [TEST_QUIZ], certCatalog: [FOUNDATIONS_V1, TEST_ASSESSED] });
     const caller = createAcademyRouter(academy).createCaller(signed());

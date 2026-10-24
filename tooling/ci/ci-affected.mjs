@@ -39,8 +39,18 @@ export const FULL_TRIGGERS = [
 ];
 
 /** Agent-rule and gate files are never docs-only, even though most of them are Markdown. */
-export const GATE_FILES = ['AGENTS.md', 'CLAUDE.md', '.cursor/', '.agents/', 'tooling/', '.github/'];
-const GATE_BASENAMES = new Set(['AGENTS.md', 'CLAUDE.md']);
+export const GATE_FILES = [
+  'AGENTS.md',
+  'CLAUDE.md',
+  '.cursor/',
+  '.agents/',
+  '.claude/',
+  'docs/agents/',
+  'docs/CODEOWNERS',
+  'tooling/',
+  '.github/',
+];
+const GATE_BASENAMES = new Set(['AGENTS.md', 'CLAUDE.md', 'SKILL.md']);
 
 const PRODUCT_DIRS = /^(apps|services|packages)\//;
 
@@ -188,6 +198,10 @@ function selfTest() {
     { files: ['vendor/x/y.ts'], expected: { full: true, affected: false } },
     { files: ['services/svc-trade/CLAUDE.md'], expected: { full: true, affected: false } },
     { files: ['tooling/agent-protocol/AGENT_PROTOCOL.md'], expected: { full: true, affected: false } },
+    { files: ['docs/agents/build-slice.md'], expected: { full: true, affected: false } },
+    { files: ['docs/CODEOWNERS'], expected: { full: true, affected: false } },
+    { files: ['.claude/agents/explore.md'], expected: { full: true, affected: false } },
+    { files: ['services/svc-x/SKILL.md'], expected: { full: true, affected: false } },
     { files: ['.github/pull_request_template.md'], expected: { full: true, affected: false } },
     { files: ['docs/x.md'], expected: none },
     { files: ['services/svc-trade/README.md'], expected: none },

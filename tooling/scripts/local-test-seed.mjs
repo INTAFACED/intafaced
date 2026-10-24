@@ -485,7 +485,9 @@ export async function unseedAll(deps) {
   const products = await deps.closeProducts(productNames);
   let method = 'absent';
   try {
-    const row = await deps.instruments.setMethodSchemaEnabled(P2P_METHOD_ID, P2P_COUNTRY, false);
+    // svc-p2p will not switch a method off without one of its retirement reasons; a TEST rail taken down is the
+    // closest of them to "no longer offered".
+    const row = await deps.instruments.setMethodSchemaEnabled(P2P_METHOD_ID, P2P_COUNTRY, false, 'low_demand');
     method = row?.enabled === false ? 'disabled' : 'updated';
   } catch (err) {
     if (codeOf(err) !== 'p2p.instrument_method_unknown') throw err;
@@ -624,7 +626,8 @@ export async function openLocal(plan) {
     loans,
     instruments: {
       registerMethodSchema: (input) => instruments.registerMethodSchema(input),
-      setMethodSchemaEnabled: (methodId, country, enabled) => instruments.setMethodSchemaEnabled(methodId, country, enabled),
+      setMethodSchemaEnabled: (methodId, country, enabled, reason) =>
+        instruments.setMethodSchemaEnabled(methodId, country, enabled, reason),
       enabledMethodKeys: () => instruments.enabledMethodKeys(),
       async findMethod(methodId, country) {
         const rows = await p2pSql`

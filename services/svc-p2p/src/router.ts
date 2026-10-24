@@ -1,8 +1,8 @@
 import { z } from 'zod';
-import { AuthError, requireMfa } from '@intafaced/auth';
+import { AuthError, requireMfa, type Principal } from '@intafaced/auth';
 import { router, publicProcedure, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import { enabledFiat } from '@intafaced/config';
-import { formatAmount, parseAmount } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import {
   ActionApprovalConsumeError,
   consumeDisputeResolveApproval,
@@ -24,8 +24,11 @@ import {
   type P2pService,
 } from './p2p-service.js';
 import { InstrumentError, parseFieldSpecs } from './instruments.js';
-import type { InstrumentService } from './instrument-service.js';
+import { BOARD_SORTS, type BoardSort } from './customer-depth.js';
+import { ELIGIBILITY_CHECK_IDS, ELIGIBILITY_STATES, TakeGateError, unwiredTakeGate, type TakeGate } from './take-eligibility.js';
+import { DELIST_REASONS, type InstrumentService } from './instrument-service.js';
 import { assertModerator, isModerationConfigured, isModerator } from './moderation-auth.js';
+import { TakeStepUpError, unwiredTakeStepUp, type TakeStepUp, type TakeStepUpCaller } from './take-step-up.js';
 import { moderationHonestySchema, moderationOnPublicDoor } from './moderation-honesty.js';
 import {
   ceilingOnWire,
@@ -83,6 +86,18 @@ export type P2pRouterOptions = {
    * Turning this on is a lead policy decision. This service does not turn it on.
    */
   disputeResolveRequiresApproval?: boolean;
+  /**
+   * What a person needs before taking an ad: confirmed contact and the accepted
+   * risk notice (`take-eligibility.ts`). Unset → every take refuses
+   * `p2p.take_gate_unwired`; a missing gate never means "no checks".
+   */
+  takeGate?: TakeGate;
+  /**
+   * P-trade-orders-07: the fresh passkey or authenticator confirmation a take
+   * needs (`take-step-up.ts`). Unset → every take refuses `auth.step_up_failed`;
+   * a missing wire never means "no confirmation needed".
+   */
+  takeStepUp?: TakeStepUp;
 };
 
 /**
@@ -108,6 +123,22 @@ const amountString = z.string().regex(/^\d+(\.\d{1,18})?$/, 'amounts are unsigne
  * Shared board filters. `offers.list` stays an array for the live customer
  * parser. `offers.page` is the cursor page. Cursor is not a list input.
  */
+/** A take sized in the coin (`amount`) or in the ad's fiat (`fiatAmount`): exactly one. */
+const takeAmountInput = z
+  .object({
+    offerId: z.string().uuid(),
+    amount: amountString.optional(),
+    fiatAmount: amountString.optional(),
+    method: z.string().min(1).max(64),
+  })
+  .refine((value) => (value.amount === undefined) !== (value.fiatAmount === undefined), {
+    message: 'p2p.invalid_amount: give the amount in the coin or in fiat, not both',
+    path: ['amount'],
+  });
+
+const takeAmountOf = (input: { amount?: string; fiatAmount?: string }): { amount: Amount } | { fiatAmount: Amount } =>
+  input.amount !== undefined ? { amount: parseAmount(input.amount) } : { fiatAmount: parseAmount(input.fiatAmount!) };
+
 const offerListShape = {
   asset: z.string().optional(),
   fiatCurrency: z.string().length(3).optional(),
@@ -123,6 +154,10 @@ const offerListShape = {
   makerId: z.string().min(1).max(128).optional(),
   /** Minimum fiat the offer can still trade, as an exact decimal. Float offers are left out: no reference is invented. */
   minFiat: amountString.optional(),
+  /** P-trade-orders-01: a fiat amount the ad can take whole (within its limits and what is left). Fixed price only. */
+  fiatAmount: amountString.optional(),
+  /** P-trade-orders-01: fixed-price ads by price, cheapest or dearest first, then floating ads. Default cheapest. */
+  sort: z.enum(BOARD_SORTS).optional(),
 };
 
 const offerOutput = z.object({
@@ -139,6 +174,11 @@ const offerOutput = z.object({
   totalAmount: amountString,
   filledAmount: amountString,
   tradesCompleted: z.number().int().nonnegative(),
+  /**
+   * Board reads only, floating ads only: the market reference the multiplier applies to, or null when no market feed
+   * prices this pair (the ad then cannot be priced or taken). Absent on fixed-price ads and on single-offer reads.
+   */
+  referencePrice: amountString.nullable().optional(),
   methods: z.array(z.unknown()),
   terms: z.string(),
   status: z.enum(['active', 'paused', 'closed']),
@@ -348,6 +388,26 @@ function toTrpcError(err: unknown): TRPCError {
     return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
   }
 
+  // Confirm the order again: nothing was reserved or locked. Unverifiable is the deployment's, not the person's.
+  if (err instanceof TakeStepUpError) {
+    const code = err.code === 'p2p.step_up_unverifiable' ? 'PRECONDITION_FAILED' : 'FORBIDDEN';
+    return new TRPCError({ code, message: err.message, cause: err });
+  }
+
+  if (err instanceof TakeGateError) {
+    switch (err.code) {
+      // The person can fix these themself: confirm the address, read and accept the notice.
+      case 'p2p.contact_required':
+      case 'p2p.risk_not_accepted':
+        return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
+      case 'p2p.risk_version_stale':
+        return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
+      // The deployment, not the caller: an unpublished notice or an unreachable identity service.
+      default:
+        return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
+    }
+  }
+
   if (err instanceof InstrumentError) {
     switch (err.code) {
       case 'p2p.instrument_not_found':
@@ -405,6 +465,7 @@ function toTrpcError(err: unknown): TRPCError {
   if (err instanceof P2pError) {
     switch (err.code) {
       case 'p2p.offer_not_found':
+      case 'p2p.quote_not_found':
       case 'p2p.trade_not_found':
       case 'p2p.dispute_not_found':
       case 'p2p.user_not_found':
@@ -467,6 +528,7 @@ function toTrpcError(err: unknown): TRPCError {
       // looking for a scope they already have.
       case 'p2p.merchant_ineligible':
       case 'p2p.merchant_reason_required':
+      case 'p2p.quote_mismatch':
         return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
       // State, not permission and not a typo: the row is real and the move is
       // wrong for where it currently stands.
@@ -478,6 +540,13 @@ function toTrpcError(err: unknown): TRPCError {
       case 'p2p.dispute_already_resolved':
       case 'p2p.dispute_resolve_approval_consumed':
       case 'p2p.trade_exists':
+      // The quote's window passed, or its price or fee moved: ask for a new quote.
+      case 'p2p.quote_expired':
+      case 'p2p.quote_changed':
+      // Too many ongoing orders: one has to finish first. The error data lists them and the soonest deadline.
+      case 'p2p.active_order_cap':
+      // Buying is paused after too many cancelled orders; the error data says until when.
+      case 'p2p.buying_restricted':
       case 'p2p.idempotency_conflict':
       case 'p2p.idempotency_in_progress':
       case 'p2p.erase_blocked':
@@ -508,6 +577,9 @@ function toTrpcError(err: unknown): TRPCError {
       case 'p2p.verification_order_max':
       case 'p2p.verification_daily_limit':
       case 'p2p.verification_lifetime_limit':
+      case 'p2p.pair_limit_exceeded':
+      // The ad lists a method the operator retired: choose another method or ad.
+      case 'p2p.method_delisted':
       case 'p2p.offer_limit_exceeded':
       case 'p2p.invalid_fee_bps':
       case 'p2p.invalid_escrow_deadline':
@@ -640,6 +712,13 @@ export function createP2pRouter(
   const approvals = options.approvals ?? unwiredApprovalConsumer();
   const opsReads = options.opsReads;
   const disputeResolveRequiresApproval = options.disputeResolveRequiresApproval === true;
+  const takeGate = options.takeGate ?? unwiredTakeGate();
+  const takeStepUp = options.takeStepUp ?? unwiredTakeStepUp();
+  const stepUpCaller = (principal: Principal): TakeStepUpCaller => ({
+    userId: principal.userId,
+    sessionId: principal.sid,
+    viaApiKey: principal.kid !== undefined,
+  });
 
   const requireOpsReads = (): OpsReads => {
     if (!opsReads) {
@@ -730,6 +809,8 @@ export function createP2pRouter(
           methodId?: string;
           makerId?: string;
           minFiat?: string;
+          fiatAmount?: string;
+          sort?: BoardSort;
           cursor?: string | null;
         }
       | undefined,
@@ -742,13 +823,36 @@ export function createP2pRouter(
       ...(input?.methodId ? { methodId: input.methodId } : {}),
       ...(input?.makerId ? { makerId: input.makerId } : {}),
       ...(input?.minFiat ? { minFiat: input.minFiat } : {}),
+      ...(input?.fiatAmount ? { fiatAmount: input.fiatAmount } : {}),
+      ...(input?.sort ? { sort: input.sort } : {}),
       ...(includeCursor && input?.cursor ? { cursor: input.cursor } : {}),
       limit: input?.limit,
       viewerId,
     });
     const counts = await p2p.releasedTradeCounts(page.offers.map((offer) => offer.id));
+    // One reference read per floating pair on the page, never per row.
+    const references = new Map<string, Promise<string | null>>();
+    const referenceFor = (asset: string, fiat: string) => {
+      const key = `${asset}/${fiat}`;
+      if (!references.has(key)) {
+        references.set(
+          key,
+          p2p
+            .referencePrice(asset, fiat)
+            .then((price) => (price === null ? null : formatAmount(price)))
+            // A feed that fails prices nothing: the floating ad says so, and the rest of the board still reads.
+            .catch(() => null),
+        );
+      }
+      return references.get(key)!;
+    };
     return {
-      offers: page.offers.map((offer) => toOfferOut(offer, counts.get(offer.id) ?? 0)),
+      offers: await Promise.all(
+        page.offers.map(async (offer) => ({
+          ...toOfferOut(offer, counts.get(offer.id) ?? 0),
+          ...(offer.priceType === 'float' ? { referencePrice: await referenceFor(offer.asset, offer.fiatCurrency) } : {}),
+        })),
+      ),
       nextCursor: page.nextCursor,
     };
   };
@@ -967,7 +1071,7 @@ export function createP2pRouter(
         .output(z.array(offerOutput))
         .query(async ({ ctx, input }) => guard(async () => (await presentBoard(ctx.principal.userId, input, false)).offers)),
 
-      /** Cursor page. The live customer board still calls `offers.list` and parses an array. */
+      /** Cursor page: the customer board reads this, filtered and sorted here, and continues with `nextCursor`. */
       page: merchantApiProcedure('p2p:read')
         .input(z.object({ ...offerListShape, cursor: z.string().max(500).nullable().optional() }).optional())
         .output(z.object({ offers: z.array(offerOutput), nextCursor: z.string().nullable() }))
@@ -1045,6 +1149,70 @@ export function createP2pRouter(
     }),
 
     /**
+     * P-trade-orders-02. What the caller needs before taking an ad, check by
+     * check, in the order the hub shows them. Scope only, no module gate: an
+     * unverified person must be able to read that verification is the step
+     * they are missing, which the jurisdiction gate would refuse to say.
+     */
+    access: router({
+      eligibility: scopedProcedure('p2p:read')
+        .output(
+          z.object({
+            checks: z.array(
+              z.object({
+                id: z.enum(ELIGIBILITY_CHECK_IDS),
+                state: z.enum(ELIGIBILITY_STATES),
+                reason: z.string(),
+                fix: z.string().nullable(),
+              }),
+            ),
+            canTake: z.boolean(),
+            /** The published risk notice and the caller's acceptance, so the panel needs no second read. */
+            notice: z.object({ version: z.string(), acceptedAt: z.string().nullable() }).nullable(),
+          }),
+        )
+        .query(async ({ ctx }) =>
+          guard(async () => {
+            const { checks, notice } = await takeGate.eligibility(ctx);
+            return {
+              checks: [...checks],
+              canTake: checks.every((check) => check.state === 'met'),
+              notice: notice ? { version: notice.version, acceptedAt: notice.acceptedAt?.toISOString() ?? null } : null,
+            };
+          }),
+        ),
+    }),
+
+    /**
+     * P-disputes-security-08. The P2P risk notice: which owner-published version
+     * is current and whether the caller accepted it. Accepting is a person's own
+     * act, so an API key cannot do it for them.
+     */
+    risk: router({
+      notice: scopedProcedure('p2p:read')
+        .output(z.object({ version: z.string(), acceptedAt: z.string().nullable() }))
+        .query(async ({ ctx }) =>
+          guard(async () => {
+            const notice = await takeGate.riskNotice(ctx.principal.userId);
+            return { version: notice.version, acceptedAt: notice.acceptedAt?.toISOString() ?? null };
+          }),
+        ),
+      // `person`: a service holding a forwarded principal cannot accept for the person either.
+      accept: scopedProcedure('p2p:write', { person: true })
+        .input(z.object({ version: z.string().min(1).max(64) }))
+        .output(z.object({ version: z.string(), acceptedAt: z.string() }))
+        .mutation(async ({ ctx, input }) =>
+          guard(async () => {
+            if (ctx.principal.kid) {
+              throw new TRPCError({ code: 'FORBIDDEN', message: 'Accepting the risk notice is interactive only.' });
+            }
+            const accepted = await takeGate.acceptRisk(ctx.principal.userId, input.version);
+            return { version: accepted.version, acceptedAt: accepted.acceptedAt.toISOString() };
+          }),
+        ),
+    }),
+
+    /**
      * P-disputes-security-15. The caller's own verification cap, and whether a
      * security-change sell lock is published. Neither invents a number.
      */
@@ -1079,6 +1247,19 @@ export function createP2pRouter(
     }),
 
     trades: router({
+      /**
+       * Until when this session's takes need no new confirmation (P-trade-orders-07), or null when the next take does.
+       * An API key is refused: it never confirms a take.
+       */
+      stepUpWindow: merchantApiProcedure('p2p:read')
+        .output(z.object({ confirmedUntil: z.string().datetime().nullable() }))
+        .query(async ({ ctx }) =>
+          guard(async () => {
+            const { confirmedUntil } = await takeStepUp.window(stepUpCaller(ctx.principal));
+            return { confirmedUntil: confirmedUntil?.toISOString() ?? null };
+          }),
+        ),
+
       /** Take an offer → `escrowLock`. The first money path in this router. */
       take: merchantApiProcedure('p2p:write')
         .input(
@@ -1087,22 +1268,41 @@ export function createP2pRouter(
             tradeId: z.string().uuid(),
             amount: amountString,
             method: z.string().min(1).max(64),
+            /** P-trade-orders-06: the locked quote (`trades.lockQuote`) this take places, inside its window. */
+            quoteId: z.string().uuid().optional(),
+            /** P-trade-orders-07: identity's single-use confirmation of exactly this take. Optional inside a live window. */
+            stepUpApprovalId: z.string().min(1).max(128).optional(),
           }),
         )
         .output(tradeOutput)
         .mutation(async ({ ctx, input }) =>
-          guard(async () =>
-            toTradeOut(
+          guard(async () => {
+            // Before anything is reserved or locked: the same checks the eligibility panel shows.
+            await takeGate.assertCanTake(ctx);
+            // Then the fresh confirmation, over the strings this take carries.
+            await takeStepUp.assertConfirmed(
+              stepUpCaller(ctx.principal),
+              {
+                tradeId: input.tradeId,
+                offerId: input.offerId,
+                amount: input.amount,
+                method: input.method,
+                ...(input.quoteId ? { quoteId: input.quoteId } : {}),
+              },
+              input.stepUpApprovalId,
+            );
+            return toTradeOut(
               await p2p.takeOffer({
                 offerId: input.offerId,
                 takerId: ctx.principal.userId,
                 amount: parseAmount(input.amount),
                 tradeId: input.tradeId,
                 method: input.method,
+                ...(input.quoteId ? { quoteId: input.quoteId } : {}),
                 ...(ctx.principal.tier === undefined ? {} : { tier: ctx.principal.tier }),
               }),
-            ),
-          ),
+            );
+          }),
         ),
 
       markFiatSent: merchantApiProcedure('p2p:write')
@@ -1206,13 +1406,7 @@ export function createP2pRouter(
        * the offer and the published fee. No row is written.
        */
       quote: merchantApiProcedure('p2p:read')
-        .input(
-          z.object({
-            offerId: z.string().uuid(),
-            amount: amountString,
-            method: z.string().min(1).max(64),
-          }),
-        )
+        .input(takeAmountInput)
         .output(
           z.object({
             amount: amountString,
@@ -1229,8 +1423,8 @@ export function createP2pRouter(
             const quoted = await p2p.quoteTake({
               offerId: input.offerId,
               takerId: ctx.principal.userId,
-              amount: parseAmount(input.amount),
               method: input.method,
+              ...takeAmountOf(input),
               ...(ctx.principal.tier === undefined ? {} : { tier: ctx.principal.tier }),
             });
             return {
@@ -1241,6 +1435,51 @@ export function createP2pRouter(
               fee: formatAmount(quoted.fee),
               netAmount: formatAmount(quoted.netAmount),
               reservationExpiresAt: quoted.reservationExpiresAt.toISOString(),
+            };
+          }),
+        ),
+
+      /**
+       * P-trade-orders-06: lock the quote for its window. `trades.take` with this `quoteId` places exactly these terms,
+       * or refuses `p2p.quote_expired` / `p2p.quote_changed` before anything is reserved. Client-chosen `quoteId`: a
+       * retry returns the same quote.
+       */
+      lockQuote: merchantApiProcedure('p2p:write')
+        .input(takeAmountInput.and(z.object({ quoteId: z.string().uuid() })))
+        .output(
+          z.object({
+            quoteId: z.string().uuid(),
+            amount: amountString,
+            price: amountString,
+            fiatAmount: amountString,
+            feeBps: z.number().int().nonnegative(),
+            fee: amountString,
+            netAmount: amountString,
+            expiresAt: z.string(),
+            /** Time left by the service's clock when answered: count down from receipt, not from the device clock. */
+            expiresInMs: z.number().int().nonnegative(),
+          }),
+        )
+        .mutation(async ({ ctx, input }) =>
+          guard(async () => {
+            const locked = await p2p.lockQuote({
+              quoteId: input.quoteId,
+              offerId: input.offerId,
+              takerId: ctx.principal.userId,
+              method: input.method,
+              ...takeAmountOf(input),
+              ...(ctx.principal.tier === undefined ? {} : { tier: ctx.principal.tier }),
+            });
+            return {
+              quoteId: locked.quoteId,
+              amount: formatAmount(locked.amount),
+              price: formatAmount(locked.price),
+              fiatAmount: formatAmount(locked.fiatAmount),
+              feeBps: locked.feeBps,
+              fee: formatAmount(locked.fee),
+              netAmount: formatAmount(locked.netAmount),
+              expiresAt: locked.expiresAt.toISOString(),
+              expiresInMs: locked.expiresInMs,
             };
           }),
         ),
@@ -1571,6 +1810,8 @@ export function createP2pRouter(
               methodId: z.string().min(1).max(64),
               country: z.string().min(1).max(2),
               enabled: z.boolean(),
+              /** Required when retiring (`enabled: false`); the customer is told it on a take. */
+              reason: z.enum(DELIST_REASONS).optional(),
               confirmOperatorId: z.string().max(128).nullish(),
               approvalId: z.string().max(128).nullish(),
               operationId: z.string().max(128).nullish(),
@@ -1588,12 +1829,21 @@ export function createP2pRouter(
                 throw err;
               }
               void requireUser(ctx);
+              // Checked here as well as in the service so a refused change never spends the approval.
+              if (!input.enabled && !input.reason) {
+                throw new InstrumentError('Retiring a payment method needs a reason', 'p2p.delist_reason_required');
+              }
+              if (input.enabled && input.reason) {
+                throw new TRPCError({ code: 'BAD_REQUEST', message: 'A payment method switched on has no retirement reason' });
+              }
+              const reason = input.enabled ? undefined : input.reason;
               const confirmOperatorId = await consumeOperatorApproval(input, 'p2p.method_set_enabled', {
                 methodId: input.methodId,
                 country: input.country,
                 enabled: input.enabled ? 'true' : 'false',
+                ...(reason ? { reason } : {}),
               });
-              const schema = await instruments.setMethodSchemaEnabled(input.methodId, input.country, input.enabled);
+              const schema = await instruments.setMethodSchemaEnabled(input.methodId, input.country, input.enabled, reason);
               return { ...schema, fields: [...schema.fields], confirmOperatorId };
             }),
           ),

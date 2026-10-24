@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { AuthError, requireScope, type Principal } from '@intafaced/auth';
 import {
+  SUPPORT_KB_STORED_BODY_KEY,
+  SUPPORT_KB_STORED_TITLE_KEY,
+  supportKbBodyProblem,
+  supportKbTitleProblem,
   SUPPORT_ATTACHMENT_DOWNLOAD_TYPE,
   SUPPORT_ATTACHMENT_KEYS,
   SUPPORT_KB_AUDIENCES,
@@ -61,7 +65,17 @@ import {
   type ScanVerdict,
 } from './attachments.js';
 import { MemoryAttachmentSettingsBook, type AttachmentSettingsBook } from './attachment-settings.js';
-import { assertKbArticle, assertKbTopic, getKb, KbCatalogError, relatedPublished, searchKb, toPublicKb } from './kb-catalog.js';
+import {
+  assertKbArticle,
+  assertKbTopic,
+  getKb,
+  KbCatalogError,
+  kbVersionOf,
+  namesVendor,
+  relatedPublished,
+  searchKb,
+  toPublicKb,
+} from './kb-catalog.js';
 import { isTerminal } from './lifecycle.js';
 import {
   OperatorQueueLimitUnsetError,
@@ -120,6 +134,9 @@ function parseEnumField<T extends string>(
 
 const heldKey = (storeKey: string): string => `held/${storeKey}`;
 const scanRefused = (): SupportError => new SupportError('attachment did not pass the scanner', 'support.attachment_scan_refused');
+
+/** The owner setting a blank comment cap names (`SUPPORT_COMMENT_CAP`). */
+export const SUPPORT_COMMENT_CAP_KEY = 'support.comment_cap';
 
 export class SupportError extends Error {
   constructor(
@@ -242,8 +259,16 @@ export function assertListEventsLimit(limit: number | undefined): number {
 /** setKbAudience got something outside public, signed_in and staff. */
 export const KB_AUDIENCE_INVALID = 'support.kb_audience_invalid' as const;
 
+/**
+ * The reader of a help door, from the signed principal and nothing else.
+ * A visitor has no principal. The desk is a `support:ops` principal.
+ */
+export function kbViewerOf(principal: Pick<Principal, 'scopes'> | null | undefined): SupportKbViewer {
+  return { signedIn: Boolean(principal), staff: Boolean(principal?.scopes.includes('support:ops')) };
+}
+
 /** The reader of a public help door when the caller did not say: a signed-out visitor sees public articles only. */
-const ANONYMOUS_KB_VIEWER: SupportKbViewer = { signedIn: false, staff: false };
+const ANONYMOUS_KB_VIEWER: SupportKbViewer = kbViewerOf(null);
 
 /** The audiences a reader may see: public always, signed_in once signed in, staff for the desk. */
 function audiencesFor(viewer: SupportKbViewer): SupportKbAudience[] {
@@ -328,6 +353,11 @@ export class SupportService implements SupportContract {
       assistantModel: null,
       searchQueryMax: null,
     },
+    /**
+     * How many comments a requester may add to one request (SP-api-01). Owner value; blank (null) refuses a requester's
+     * comment `support.comment_cap_unset`. Operators are not counted and not capped.
+     */
+    private readonly commentCap: number | null = null,
   ) {}
 
   /** The viewer's place in the desk, or null while no group exists (visibility not restricted). */
@@ -549,8 +579,16 @@ export class SupportService implements SupportContract {
    * is finished; storing a reply nobody will queue is a ghost. Operators may
    * still annotate a closed ticket.
    */
-  async comment(input: { userId: string; ticketId: string; body: string; asOperator?: boolean }): Promise<SupportComment> {
+  async comment(input: {
+    userId: string;
+    ticketId: string;
+    body: string;
+    asOperator?: boolean;
+    /** The caller's key. The same key again answers the first comment and writes nothing; with other text it refuses. */
+    clientRequestId?: string;
+  }): Promise<SupportComment> {
     return withSupportSpan('support.comment', { op: 'comment', ticketId: input.ticketId }, async () => {
+      if (input.clientRequestId !== undefined) this.requireClientRequestId(input.clientRequestId);
       await this.getTicket({
         userId: input.userId,
         ticketId: input.ticketId,
@@ -561,10 +599,30 @@ export class SupportService implements SupportContract {
         authorId: input.userId,
         authorRole: input.asOperator ? 'operator' : 'user',
         body: input.body,
+        ...(input.clientRequestId !== undefined ? { clientRequestId: input.clientRequestId.trim() } : {}),
+        ...(!input.asOperator ? { userCap: this.commentCap } : {}),
       });
       if (result.status === 'refuse') {
         if (result.reason === 'not_found') throw ticketNotFound();
+        if (result.reason === 'cap_unset') {
+          throw new SupportError('the comment cap per request is not set', 'support.comment_cap_unset', SUPPORT_COMMENT_CAP_KEY);
+        }
+        if (result.reason === 'cap_reached') {
+          throw new SupportError('this request holds as many of your comments as it may', 'support.comment_cap_reached');
+        }
+        if (result.reason === 'idempotency_conflict') {
+          throw new SupportError('idempotency key was already used for a different command', 'support.idempotency_conflict');
+        }
         throw new SupportError('comment refused: ticket is terminal', 'support.comment.terminal');
+      }
+      // A replay wrote nothing. While its comment is still the request's last write, the first call may have died before
+      // the lifecycle below, so the replay settles it again (both writes keep what is already set); after a later write it
+      // moves nothing, or it would undo that write's side. A later write can share the comment's millisecond, so a
+      // lifecycle already moved at or after the comment also counts as later.
+      if (result.replay) {
+        if (result.ticket.updatedAt !== result.comment.createdAt) return result.comment;
+        const settled = await this.lifecycle.get(input.ticketId);
+        if (settled?.waitingSince && settled.waitingSince >= result.comment.createdAt) return result.comment;
       }
       // Every operator comment is visible to the customer (there are no internal notes), so each is a public reply:
       // the ticket now waits on the customer and the first one is stamped once. A customer reply puts it back on the team.
@@ -967,6 +1025,8 @@ export class SupportService implements SupportContract {
     baseRevision: number;
     category?: string | null;
     tags?: readonly string[] | null;
+    /** Text typed in the desk and its section (SP-kb-01); checked by publishKbText. */
+    text?: { title: string; body: string; language: string; sectionId: string };
   }): Promise<SupportKbArticle> {
     let topic: { category: string | null; tags: string[] | null };
     try {
@@ -984,14 +1044,73 @@ export class SupportService implements SupportContract {
       published: true,
       category: topic.category,
       tags: topic.tags,
+      ...(input.text ? { text: input.text } : {}),
     });
     if (result.status === 'refuse') {
       if (result.reason === 'revision_stale') {
         throw new SupportError('KB revision is stale', 'support.kb.revision_stale');
       }
+      if (result.reason === 'section_unknown') throw new SupportError('KB section is not open', 'support.kb_section_unknown');
       throw new SupportError('KB article refused', result.reason === 'vendor' ? 'support.kb_vendor_name' : 'support.kb_invalid');
     }
     return toPublicKb(result.article);
+  }
+
+  /**
+   * Publish an article typed in the desk (SP-kb-01). A blank title refuses `support.kb_title_blank`, a body that is
+   * blank, too long or carries control characters `support.kb_body_invalid`. The section is checked by the caller.
+   * The text is stored as typed (trimmed) and shown as text.
+   */
+  async publishKbText(input: {
+    id: string;
+    title: string;
+    body: string;
+    language: string;
+    sectionId: string;
+    tags?: readonly string[] | null;
+    baseRevision: number;
+  }): Promise<SupportKbArticle> {
+    const titleProblem = supportKbTitleProblem(input.title);
+    if (titleProblem) throw new SupportError('KB title refused', titleProblem);
+    const bodyProblem = supportKbBodyProblem(input.body);
+    if (bodyProblem) throw new SupportError('KB body refused', bodyProblem);
+    // Readers see this text, so it is held to the same no-vendor rule as the catalogue keys.
+    if (namesVendor(`${input.title} ${input.body} ${(input.tags ?? []).join(' ')}`)) {
+      throw new SupportError('KB text must stay vendor-clean', 'support.kb_vendor_name');
+    }
+    const text = { title: input.title.trim(), body: input.body.trim(), language: input.language.trim(), sectionId: input.sectionId };
+    try {
+      return await this.publishKb({
+        id: input.id,
+        titleKey: SUPPORT_KB_STORED_TITLE_KEY,
+        bodyKey: SUPPORT_KB_STORED_BODY_KEY,
+        baseRevision: input.baseRevision,
+        tags: input.tags ?? null,
+        text,
+      });
+    } catch (err) {
+      // A lost reply retried: the head is the version this same publish made from this same base, so it is the answer.
+      if (!(err instanceof SupportError) || err.code !== 'support.kb.revision_stale') throw err;
+      const versions = await this.store.listKbVersions(input.id);
+      const head = versions[versions.length - 1];
+      const tags = [...(input.tags ?? [])].map((tag) => tag.trim()).filter(Boolean);
+      const same =
+        head &&
+        kbVersionOf(head) === input.baseRevision + 1 &&
+        head.title === text.title &&
+        head.body === text.body &&
+        head.language === text.language &&
+        head.sectionId === text.sectionId &&
+        JSON.stringify(head.tags ?? []) === JSON.stringify(tags) &&
+        (await this.store.getPublishedKb(input.id)) !== null;
+      if (same) return toPublicKb({ ...head, published: true });
+      throw err;
+    }
+  }
+
+  /** Every published article the viewer may read, unpaged: what the library counts and a section page draws from. */
+  async listKbVisible(viewer: SupportKbViewer = ANONYMOUS_KB_VIEWER): Promise<SupportKbArticle[]> {
+    return this.visibleKb(await this.store.listPublishedKb({ audiences: audiencesFor(viewer) }), viewer).map(toPublicKb);
   }
 
   /** Operator unpublish. Unpublished never appears on public list/search/get. */

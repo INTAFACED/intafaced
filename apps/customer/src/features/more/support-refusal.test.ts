@@ -28,6 +28,8 @@ describe('which sentence answers a support refusal', () => {
     ['support.attachment_type_refused', 'refuseAttachType'],
     ['support.attachment_body_invalid', 'refuseAttachUnreadable'],
     ['support.kb.not_published', 'refuseArticleGone'],
+    ['support.comment_cap_unset', 'refuseCommentsOff'],
+    ['support.comment_cap_reached', 'refuseCommentCap'],
   ] as const)('%s reads as %s', (code, key) => {
     expect(supportRefusalKey(fail({ message: code, code: 'CONFLICT', status: 409 }))).toBe(key);
   });
@@ -46,6 +48,12 @@ describe('which sentence answers a support refusal', () => {
 
   it('answers a not-found by its class, since the service hides which one it was', () => {
     expect(supportRefusalKey(fail({ reason: 'not_mounted', message: 'Not found', code: 'NOT_FOUND', status: 404 }))).toBe('refuseNotFound');
+  });
+
+  it('says a reused key changed request only for the action that names it', () => {
+    const conflict = fail({ message: 'support.idempotency_conflict', code: 'CONFLICT', status: 409 });
+    expect(supportRefusalKey(conflict)).toBe('refuseGeneric');
+    expect(supportRefusalKey(conflict, { 'support.idempotency_conflict': 'refuseReplyChanged' })).toBe('refuseReplyChanged');
   });
 
   it('gives an unknown support code a plain sentence, not the dotted code', () => {

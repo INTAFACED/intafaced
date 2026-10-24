@@ -7,6 +7,7 @@ vi.mock('@/lib/founder-session', () => ({
 }));
 
 import { riskSetPayloadHash } from '@/lib/trade-ops/risk-set-hash';
+import type { RiskSetBody } from '@/lib/trade-ops/risk-limits-model';
 import { POST } from './route';
 
 const ME = '00000000-0000-4000-8000-000000000001';
@@ -64,6 +65,41 @@ describe('risk limits route', () => {
     expect(urls().some((u) => u.includes('/api/trade/trpc/admin.risk.get'))).toBe(true);
   });
 
+  it('reads the band the futures job last worked out beside the limits when asked, and a band it cannot read does not hide them', async () => {
+    const band = { marketId: MARKET, current: null, changes: [] };
+    fetchMock.mockImplementation(async (url: URL) =>
+      String(url).includes('admin.risk.history')
+        ? json({ result: { data: { json: [] } } })
+        : String(url).includes('admin.risk.priceBand')
+          ? json({ result: { data: { json: band } } })
+          : json({ result: { data: { json: current('0') } } }),
+    );
+    // Not asked (a spot or options market): no band read.
+    expect(await (await post({ action: 'read', market: MARKET })).json()).toMatchObject({
+      kind: 'ok',
+      data: { band: null, bandRefusal: null },
+    });
+    expect(urls().some((u) => u.includes('admin.risk.priceBand'))).toBe(false);
+    expect(await (await post({ action: 'read', market: MARKET, band: true })).json()).toMatchObject({
+      kind: 'ok',
+      data: { current: { version: '0' }, band, bandRefusal: null },
+    });
+    expect(urls().some((u) => u.includes('/api/trade/trpc/admin.risk.priceBand'))).toBe(true);
+    fetchMock.mockImplementation(async (url: URL) =>
+      String(url).includes('admin.risk.history')
+        ? json({ result: { data: { json: [] } } })
+        : String(url).includes('admin.risk.priceBand')
+          ? json({ error: { json: { message: 'not found', data: { code: 'NOT_FOUND', appCode: 'not_found' } } } }, 404)
+          : json({ result: { data: { json: current('0') } } }),
+    );
+    const res = await post({ action: 'read', market: MARKET, band: true });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      kind: 'ok',
+      data: { current: { version: '0' }, band: null, bandRefusal: expect.any(String) },
+    });
+  });
+
   it('refuses a body that is not the shape it expects instead of showing half of it', async () => {
     fetchMock.mockImplementation(async () => json({ result: { data: { json: { marketId: MARKET, version: 'x' } } } }));
     const res = await post({ action: 'read', market: MARKET });
@@ -84,10 +120,37 @@ describe('risk limits route', () => {
     expect(sent.payloadHash).toBe(
       riskSetPayloadHash({
         market: MARKET,
-        limits: { collar: '0.05', fatFinger: null, slippageCap: '100', throttle: null, circuitBreaker: null },
+        limits: {
+          collar: '0.05',
+          fatFinger: null,
+          slippageCap: '100',
+          throttle: null,
+          circuitBreaker: null,
+        },
         expectedVersion: '2',
         reason: REASON,
       }),
+    );
+  });
+
+  it('a form without the open-interest pair leaves it out of the hash and the write, so the service keeps it; a form with it sends it', async () => {
+    fetchMock.mockImplementation(async (url: URL) =>
+      String(url).includes('actionApproval.propose')
+        ? json({ result: { data: { json: { approvalId: 'ap-1', status: 'PENDING' } } } })
+        : json({ result: { data: { json: current('2', { oiLimit: '1000', oiShareBps: '500' }) } } }),
+    );
+    const hashOf = async (v: Record<string, string>) =>
+      ((await (await post({ action: 'hash', market: MARKET, values: v, reason: REASON })).json()) as { data: { payloadHash: string } }).data
+        .payloadHash;
+    const five = { collar: '0.05', fatFinger: null, slippageCap: '100', throttle: null, circuitBreaker: null };
+    const body = (limits: object) => ({ market: MARKET, limits, expectedVersion: '2', reason: REASON }) as RiskSetBody;
+    expect(await hashOf(values)).toBe(riskSetPayloadHash(body(five)));
+    expect(await hashOf({ ...values, oiLimit: '2000', oiShareBps: '500' })).toBe(
+      riskSetPayloadHash(body({ ...five, oiLimit: '2000', oiShareBps: '500' })),
+    );
+    // Sent blank is an explicit clear, and hashes differently from leaving it out.
+    expect(await hashOf({ ...values, oiLimit: '', oiShareBps: '' })).toBe(
+      riskSetPayloadHash(body({ ...five, oiLimit: null, oiShareBps: null })),
     );
   });
 
