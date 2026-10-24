@@ -45,7 +45,7 @@ import { CourseRecords } from './curriculum/courses.js';
 import { LessonRecords } from './curriculum/lessons.js';
 import { CourseMedia, type ReadBackFn } from './curriculum/media.js';
 import { CourseAssignments, type PutObjectFn } from './curriculum/assignments.js';
-import { PeerReviews } from './curriculum/peer-review.js';
+import { PeerReviews, type GetObjectFn } from './curriculum/peer-review.js';
 import { LearnHub } from './curriculum/learn-hub.js';
 import { CoursePreview } from './curriculum/course-preview.js';
 import { CourseLearners } from './curriculum/course-learners.js';
@@ -288,6 +288,8 @@ export interface AcademyServiceOptions {
   mediaReadBack?: ReadBackFn;
   /** Test seam: how a learner's file reaches the object store. Production PUTs over HTTP. */
   assignmentPut?: PutObjectFn;
+  /** Test seam: how a reviewed file is read back from the object store. Production GETs over HTTP. */
+  assignmentGet?: GetObjectFn;
   /** AC-articles-01: how many topics a list shows (`ACADEMY_TOPICS_LIST_LIMIT`). Unset, the list refuses. */
   topicsListLimit?: number;
   /** Stage-1 tournament ladder kill-switch (`ACADEMY_TOURNAMENT_ENABLED`). */
@@ -371,7 +373,7 @@ export class AcademyService {
       { maxBytes: this.options.uploadMaxBytes ?? null, types: this.options.uploadHandoutTypes ?? null },
       this.options.assignmentPut,
     );
-    this.peerReviews = new PeerReviews(sql, this.courseAssignments);
+    this.peerReviews = new PeerReviews(sql, this.courseAssignments, this.options.mediaStorage ?? null, this.options.assignmentGet);
     this.courseStarts = new CourseStarts(sql);
     this.plannerStore = new PlannerStore(sql, this.options.plannerTodoLimit ?? null);
     this.videoTracks = new VideoTracks(sql);
@@ -2398,6 +2400,11 @@ export class AcademyService {
   /** AC-assignments-03: the learner's review stage, handing out the next work when one is due and free. */
   peerReview(input: { itemId: string; userId: string; now?: Date }) {
     return this.peerReviews.state({ ...input, now: input.now ?? new Date() });
+  }
+
+  /** AC-assignments-03: the file of work handed to the caller to review, read back through svc-academy. */
+  peerReviewFile(input: { itemId: string; taskId: string; userId: string; now?: Date }) {
+    return this.peerReviews.file({ ...input, now: input.now ?? new Date() });
   }
 
   submitPeerReview(input: AcademySubmitPeerReviewInput & { userId: string; now?: Date }) {

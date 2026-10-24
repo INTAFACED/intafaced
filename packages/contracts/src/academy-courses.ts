@@ -649,8 +649,7 @@ export const ACADEMY_RUBRIC_MAX_CRITERIA = 20;
 export const ACADEMY_REVIEW_MAX_PEERS = 20;
 const rubricLevel = z.string().regex(ACADEMY_RUBRIC_LEVEL);
 /** Levels as typed: "0", "1.5". Ascending, no two alike; compared as decimals, never as JavaScript numbers. */
-const ascending = (levels: readonly string[]) =>
-  levels.every((level, i) => i === 0 || decimalCompare(levels[i - 1]!, level) < 0);
+const ascending = (levels: readonly string[]) => levels.every((level, i) => i === 0 || decimalCompare(levels[i - 1]!, level) < 0);
 /** -1, 0 or 1 for two rubric levels, compared digit by digit. */
 export function decimalCompare(a: string, b: string): number {
   const [ai, af = ''] = a.split('.');
@@ -793,7 +792,6 @@ export const academySubmitAssignmentInputSchema = z
   .strict();
 export type AcademySubmitAssignmentInput = z.infer<typeof academySubmitAssignmentInputSchema>;
 
-
 /** `admin.saveReviewSteps`: the steps and the rubric, over the revision read. A rubric is needed when any step is on. */
 export const academySaveReviewStepsInputSchema = z
   .object({
@@ -817,7 +815,8 @@ export const academyReviewTaskSchema = z.object({
   /** The n-th classmate's work this learner was handed, as their alias; null on the self review. Never the author's account. */
   ordinal: z.number().int().positive().nullable(),
   text: z.string().nullable(),
-  file: z.object({ fileName: z.string().min(1), contentType: z.string().min(1), bytes: z.number().int().positive() }).nullable(),
+  /** The file handed in; its name only on the self review, since a classmate's file name can name them. */
+  file: z.object({ fileName: z.string().min(1).nullable(), contentType: z.string().min(1), bytes: z.number().int().positive() }).nullable(),
   criteria: z.array(academyRubricCriterionSchema).min(1),
 });
 export type AcademyReviewTask = z.infer<typeof academyReviewTaskSchema>;
@@ -837,6 +836,15 @@ export type AcademyReviewState = z.infer<typeof academyReviewStateSchema>;
 
 /** `peerReview`: the caller's review stage; hands them the next classmate's work when one is due and free. */
 export const academyPeerReviewInputSchema = z.object({ itemId: z.string().guid() }).strict();
+
+/** `peerReviewFile`: the file of work handed to the caller to review, its bytes in base64 (at most the inline bound). */
+export const academyPeerReviewFileInputSchema = z.object({ itemId: z.string().guid(), taskId: z.string().guid() }).strict();
+export const academyPeerReviewFileSchema = z.object({
+  contentType: z.string().min(1),
+  bytes: z.number().int().positive(),
+  contentBase64: z.string().min(1),
+});
+export type AcademyPeerReviewFile = z.infer<typeof academyPeerReviewFileSchema>;
 
 /** `submitPeerReview`: one level per criterion, in the rubric's order; the same marks again answer as stored. */
 export const academySubmitPeerReviewInputSchema = z

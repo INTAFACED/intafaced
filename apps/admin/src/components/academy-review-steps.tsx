@@ -62,7 +62,9 @@ export function ReviewSteps({
             peer,
             peerCount: trimmed === '' ? null : /^\d+$/.test(trimmed) ? Number(trimmed) : trimmed,
             self,
-            criteria: rows.filter((row) => row.name.trim() || row.levels.trim()).map((row) => ({ name: row.name.trim(), levels: levelsOf(row.levels) })),
+            criteria: rows
+              .filter((row) => row.name.trim() || row.levels.trim())
+              .map((row) => ({ name: row.name.trim(), levels: levelsOf(row.levels) })),
           });
         }}
       >
@@ -88,7 +90,12 @@ export function ReviewSteps({
             <div className="dk-row" key={i}>
               <div className="adm-field">
                 <label htmlFor={`review-criterion-${i}`}>Criterion {i + 1}</label>
-                <input id={`review-criterion-${i}`} value={row.name} maxLength={120} onChange={(e) => change(i, { name: e.target.value })} />
+                <input
+                  id={`review-criterion-${i}`}
+                  value={row.name}
+                  maxLength={120}
+                  onChange={(e) => change(i, { name: e.target.value })}
+                />
               </div>
               <div className="adm-field">
                 <label htmlFor={`review-criterion-${i}-levels`}>Criterion {i + 1} levels</label>
@@ -106,13 +113,18 @@ export function ReviewSteps({
               )}
             </div>
           ))}
-          <button type="button" className="adm-btn" disabled={rows.length >= 20} onClick={() => setRows((all) => [...all, { name: '', levels: '' }])}>
+          <button
+            type="button"
+            className="adm-btn"
+            disabled={rows.length >= 20}
+            onClick={() => setRows((all) => [...all, { name: '', levels: '' }])}
+          >
             Add criterion
           </button>
         </fieldset>
         <p className="dk-muted">
-          Learners review after handing in, never their own work as a peer, and wait while no classmate&apos;s work is free. Changing
-          the criteria makes a new rubric; reviews already sent keep the one they were scored against.
+          Learners review after handing in, never their own work as a peer, and wait while no classmate&apos;s work is free. Changing the
+          criteria makes a new rubric; reviews already sent keep the one they were scored against.
         </p>
         <button type="submit" className="adm-btn" disabled={busy}>
           Save review steps

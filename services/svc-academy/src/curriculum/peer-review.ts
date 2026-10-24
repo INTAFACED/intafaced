@@ -11,12 +11,15 @@
  * is free the learner waits (a stage, not an error). After the peer reviews comes the self review of the learner's own
  * latest hand-in. Each review is one row keyed `peer:<assignment>:<reviewer>:<author>`, written when the work is handed
  * out and completed once with the marks: the same marks again answer as stored, other marks refuse. The reviewer sees
- * the work under an alias and never the author's account. Training examples, cohort-only pairing and rubric import by
+ * the work under an alias and never the author's account or file name; a file is read back through svc-academy, never
+ * from a store address that carries the account. Training examples, cohort-only pairing and rubric import by
  * file are later parts of this slice. No money moves here.
  */
+import { createHash } from 'node:crypto';
 import type { Sql, TransactionSql } from 'postgres';
 import { isDeepStrictEqual } from 'node:util';
 import type {
+  AcademyPeerReviewFile,
   AcademyReviewState,
   AcademyReviewSteps,
   AcademyReviewTask,
@@ -25,7 +28,20 @@ import type {
   AcademySubmitPeerReviewInput,
 } from '@intafaced/contracts';
 import { AcademyError } from '../errors.js';
+import { isVideoStorageConfigured, signGetObjectUrl, type VideoStorageConfig } from '../video/storage.js';
 import type { CourseAssignments } from './assignments.js';
+
+/** Reads an object's bytes at a signed GET address; answers with the store's status. Swapped in tests. */
+export type GetObjectFn = (url: string) => Promise<{ status: number; bytes: Uint8Array }>;
+
+export const getOverHttp: GetObjectFn = async (url) => {
+  const res = await fetch(url, { signal: AbortSignal.timeout(60_000) });
+  if (!res.ok) {
+    await res.body?.cancel().catch(() => undefined);
+    return { status: res.status, bytes: new Uint8Array() };
+  }
+  return { status: res.status, bytes: new Uint8Array(await res.arrayBuffer()) };
+};
 
 type Db = Sql | TransactionSql;
 
@@ -73,7 +89,7 @@ export async function reviewStepsOf(sql: Db, itemId: string): Promise<AcademyRev
   `;
   if (!row) return null;
   const [waiting] = await sql<Array<{ short: number; waiting: number }>>`
-    WITH authors AS (SELECT DISTINCT user_id FROM academy.assignment_submissions WHERE item_id = ${itemId}),
+    WITH authors AS (SELECT DISTINCT user_id FROM academy.assignment_submissions WHERE item_id = ${itemId} AND state <> 'withdrawn'),
     tally AS (
       SELECT a.user_id,
         (SELECT count(*) FROM academy.assignment_reviews r
@@ -81,11 +97,14 @@ export async function reviewStepsOf(sql: Db, itemId: string): Promise<AcademyRev
         (SELECT count(*) FROM academy.assignment_reviews r
           WHERE r.item_id = ${itemId} AND r.reviewer_id = a.user_id AND r.author_id <> a.user_id AND r.marks IS NOT NULL)::int AS given,
         EXISTS (SELECT 1 FROM academy.assignment_reviews r
-          WHERE r.item_id = ${itemId} AND r.reviewer_id = a.user_id AND r.author_id <> a.user_id AND r.marks IS NULL) AS open
+          WHERE r.item_id = ${itemId} AND r.reviewer_id = a.user_id AND r.author_id <> a.user_id AND r.marks IS NULL) AS open,
+        EXISTS (SELECT 1 FROM authors o WHERE o.user_id <> a.user_id
+          AND NOT EXISTS (SELECT 1 FROM academy.assignment_reviews r
+            WHERE r.item_id = ${itemId} AND r.reviewer_id = a.user_id AND r.author_id = o.user_id)) AS free
       FROM authors a
     )
     SELECT count(*) FILTER (WHERE received < ${row.peer_count ?? 0})::int AS short,
-      count(*) FILTER (WHERE given < ${row.peer_count ?? 0} AND NOT open)::int AS waiting
+      count(*) FILTER (WHERE given < ${row.peer_count ?? 0} AND NOT open AND NOT free)::int AS waiting
     FROM tally
   `;
   const peerOn = row.peer && row.peer_count !== null;
@@ -108,26 +127,32 @@ export async function assertPeerCountsSet(sql: Db, courseId: string): Promise<vo
     LIMIT 1
   `;
   if (unset)
-    throw new AcademyError(`"${unset.title}" has peer review on with no review count, so the course is not published`, 'academy.peer_count_unset');
+    throw new AcademyError(
+      `"${unset.title}" has peer review on with no review count, so the course is not published`,
+      'academy.peer_count_unset',
+    );
 }
 
 export class PeerReviews {
   constructor(
     private readonly sql: Sql,
     private readonly assignments: CourseAssignments,
+    private readonly storage: VideoStorageConfig | null = null,
+    private readonly get: GetObjectFn = getOverHttp,
   ) {}
 
   /** The steps and rubric over the revision read. The same criteria as the current rubric keep it; others are a new one. */
   async save(input: AcademySaveReviewStepsInput & { operatorId: string; now: Date }): Promise<void> {
     await this.sql.begin(async (tx) => {
-      const [item] = await tx<Array<{ course_id: string; course_state: string; briefed: boolean }>>`
-        SELECT i.course_id, c.state AS course_state, a.item_id IS NOT NULL AS briefed
+      const [item] = await tx<Array<{ course_id: string; course_state: string; briefed: boolean; withdrawn: boolean }>>`
+        SELECT i.course_id, c.state AS course_state, a.item_id IS NOT NULL AS briefed, a.withdrawn_at IS NOT NULL AS withdrawn
         FROM academy.course_items i JOIN academy.courses c ON c.id = i.course_id
         LEFT JOIN academy.course_assignments a ON a.item_id = i.id
         WHERE i.id = ${input.itemId} AND i.kind = 'assignment'
         FOR UPDATE OF i
       `;
       if (!item?.briefed) throw new AcademyError('save the assignment brief before its review steps', 'academy.assignment_not_found');
+      if (item.withdrawn) throw new AcademyError('a withdrawn assignment is not edited', 'academy.assignment_closed');
       const [current] = await tx<StepsRow[]>`
         SELECT s.revision, s.peer, s.peer_count, s.self, s.rubric_id, r.criteria
         FROM academy.assignment_review_steps s LEFT JOIN academy.assignment_rubrics r ON r.id = s.rubric_id
@@ -192,6 +217,30 @@ export class PeerReviews {
     });
   }
 
+  /**
+   * The file of work handed to the caller to review, open or done, read back from our own store and checked against the
+   * SHA-256 it was stored under. The store address carries the author's account, so it never reaches the reviewer.
+   */
+  async file(input: { itemId: string; taskId: string; userId: string; now: Date }): Promise<AcademyPeerReviewFile> {
+    await this.assignments.learnerRow(this.sql, input.itemId, input.userId);
+    const [row] = await this.sql<Array<{ object_key: string; sha256: string; content_type: string; bytes: string }>>`
+      SELECT f.object_key, f.sha256, f.content_type, f.bytes::text AS bytes
+      FROM academy.assignment_reviews r
+      JOIN academy.assignment_submissions s ON s.item_id = r.item_id AND s.user_id = r.author_id AND s.version = r.version
+      JOIN academy.assignment_files f ON f.id = s.file_id
+      WHERE r.id = ${input.taskId} AND r.item_id = ${input.itemId} AND r.reviewer_id = ${input.userId}
+    `;
+    if (!row) throw new AcademyError('no file in a review of yours with that id', 'academy.review_task_not_found');
+    if (!isVideoStorageConfigured(this.storage))
+      throw new AcademyError('File storage is not configured', 'academy.video_storage_unconfigured');
+    const { playbackUrl } = signGetObjectUrl(this.storage, row.object_key, input.now);
+    const read = await this.get(playbackUrl).catch(() => null);
+    const bytes = read && read.status >= 200 && read.status < 300 ? Buffer.from(read.bytes) : null;
+    if (!bytes || bytes.byteLength !== Number(row.bytes) || createHash('sha256').update(bytes).digest('hex') !== row.sha256)
+      throw new AcademyError('the file could not be read back whole from storage; try again', 'academy.file_unavailable');
+    return { contentType: row.content_type, bytes: bytes.byteLength, contentBase64: bytes.toString('base64') };
+  }
+
   private async stateIn(tx: TransactionSql, itemId: string, userId: string, now: Date): Promise<AcademyReviewState> {
     await this.assignments.learnerRow(tx, itemId, userId);
     // One learner at a time per assignment, so "least-reviewed first" reads the counts every other hand-out left.
@@ -214,16 +263,20 @@ export class PeerReviews {
       peerDone: done!.peer_done,
       selfDone: done!.self_done,
     };
-    const at = (stage: AcademyReviewState['stage'], task: AcademyReviewTask | null = null): AcademyReviewState => ({ ...base, stage, task });
+    const at = (stage: AcademyReviewState['stage'], task: AcademyReviewTask | null = null): AcademyReviewState => ({
+      ...base,
+      stage,
+      task,
+    });
     if (!steps || (!peer && !self) || steps.rubric_id === null) return at('off');
     const [mine] = await tx<Array<{ version: number }>>`
-      SELECT max(version)::int AS version FROM academy.assignment_submissions WHERE item_id = ${itemId} AND user_id = ${userId}
+      SELECT max(version)::int AS version FROM academy.assignment_submissions
+      WHERE item_id = ${itemId} AND user_id = ${userId} AND state <> 'withdrawn'
     `;
     if (mine?.version == null) return at('hand_in_first');
 
     if (peer) {
-      if (steps.peer_count === null)
-        throw new AcademyError('peer review has no review count set', 'academy.peer_count_unset');
+      if (steps.peer_count === null) throw new AcademyError('peer review has no review count set', 'academy.peer_count_unset');
       if (base.peerDone < steps.peer_count) {
         const open = await this.openTask(tx, itemId, userId, 'peer');
         if (open) return at('peer', open);
@@ -297,8 +350,11 @@ export class PeerReviews {
       kind,
       ordinal: kind === 'self' ? null : row.ordinal,
       text: row.text,
+      // A classmate's file name can name them, so only the learner's own carries it.
       file:
-        row.file_name === null ? null : { fileName: row.file_name, contentType: row.content_type!, bytes: Number(row.bytes) },
+        row.file_name === null
+          ? null
+          : { fileName: kind === 'self' ? row.file_name : null, contentType: row.content_type!, bytes: Number(row.bytes) },
       criteria: row.criteria,
     };
   }

@@ -9,8 +9,8 @@ import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { CourseRecords } from './courses.js';
 import { CoursePreview } from './course-preview.js';
 import { CourseLearners } from './course-learners.js';
-import { CourseAssignments } from './assignments.js';
-import { PeerReviews, rubricTotal } from './peer-review.js';
+import { CourseAssignments, type PutObjectFn } from './assignments.js';
+import { PeerReviews, rubricTotal, type GetObjectFn } from './peer-review.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -40,14 +40,27 @@ afterAll(async () => {
   await db.drop();
 }, 30_000);
 
+/** A fake object store keyed by path: what a signed PUT stored, a signed GET of the same key reads. */
+let store = new Map<string, Uint8Array>();
 beforeEach(async () => {
   await db.truncateAll();
+  store = new Map();
 });
+const STORAGE = { endpoint: 'http://store.test', bucket: 'b', accessKey: 'k', secretKey: 's', region: 'r', ttlSeconds: 300 };
+const put: PutObjectFn = async (url, bytes) => {
+  store.set(new URL(url).pathname, bytes);
+  return 200;
+};
+const get: GetObjectFn = async (url) => {
+  const bytes = store.get(new URL(url).pathname);
+  return bytes ? { status: 200, bytes } : { status: 404, bytes: new Uint8Array() };
+};
+const PDF = Buffer.from('%PDF-1.4\nTEST\n%%EOF\n');
 
 const courses = () => new CourseRecords(db.sql, { maxSections: 5, maxItems: 5 });
 const learners = () => new CourseLearners(db.sql, new CoursePreview(db.sql));
-const assignments = () => new CourseAssignments(db.sql, null, { maxBytes: null, types: null });
-const reviews = () => new PeerReviews(db.sql, assignments());
+const assignments = () => new CourseAssignments(db.sql, STORAGE, { maxBytes: 1024, types: ['application/pdf'] }, put);
+const reviews = () => new PeerReviews(db.sql, assignments(), STORAGE, get);
 
 const CRITERIA = [
   { name: 'Sizing', levels: ['0', '1', '2'] },
@@ -55,7 +68,7 @@ const CRITERIA = [
 ];
 
 /** A free course with one text-only assignment, its brief saved, and learners L, M, N and X enrolled. Published unless asked. */
-async function openAssignment({ publish = true } = {}) {
+async function openAssignment({ publish = true, file = 'off' as 'off' | 'optional' } = {}) {
   const course = await courses().create({
     slug: 'risk-basics',
     title: 'Risk basics',
@@ -82,13 +95,20 @@ async function openAssignment({ publish = true } = {}) {
     points: '10',
     dueAt: null,
     text: 'required',
-    file: 'off',
+    file,
     operatorId: A,
     now: NOW,
   });
   const publishIt = async () => {
     const current = await courses().get(course.id);
-    await courses().setState({ courseId: course.id, to: 'published', revision: current.course.revision, reason: 'TEST', operatorId: A, now: NOW });
+    await courses().setState({
+      courseId: course.id,
+      to: 'published',
+      revision: current.course.revision,
+      reason: 'TEST',
+      operatorId: A,
+      now: NOW,
+    });
     for (const userId of [L, M, N, X]) await learners().enrol({ userId, slug: 'risk-basics', track: 'audit', now: NOW });
   };
   if (publish) await publishIt();
@@ -113,11 +133,22 @@ describe('review steps on the founder console (AC-assignments-03)', () => {
     await steps(item.id, { revision: 1, peerCount: 3 });
     const same = (await assignments().adminView(item.id)).review!;
     expect(same.rubric!.id).toBe(first.rubric!.id);
-    await reviews().save({ itemId: item.id, revision: 2, peer: true, peerCount: 3, self: false, criteria: [CRITERIA[0]!], operatorId: A, now: NOW });
+    await reviews().save({
+      itemId: item.id,
+      revision: 2,
+      peer: true,
+      peerCount: 3,
+      self: false,
+      criteria: [CRITERIA[0]!],
+      operatorId: A,
+      now: NOW,
+    });
     const other = (await assignments().adminView(item.id)).review!;
     expect(other.rubric!.id).not.toBe(first.rubric!.id);
     // The first rubric stays as it was, for the reviews scored against it.
-    const [kept] = await db.sql<Array<{ criteria: unknown }>>`SELECT criteria FROM academy.assignment_rubrics WHERE id = ${first.rubric!.id}`;
+    const [kept] = await db.sql<
+      Array<{ criteria: unknown }>
+    >`SELECT criteria FROM academy.assignment_rubrics WHERE id = ${first.rubric!.id}`;
     expect(kept!.criteria).toEqual(CRITERIA);
   });
 
@@ -132,11 +163,22 @@ describe('review steps on the founder console (AC-assignments-03)', () => {
 
   it('a step with no rubric, or two criteria of one name, refuses as an invalid rubric', async () => {
     const { item } = await openAssignment();
-    await expect(reviews().save({ itemId: item.id, revision: 0, peer: true, peerCount: 1, self: false, criteria: [], operatorId: A, now: NOW })).rejects.toMatchObject({
+    await expect(
+      reviews().save({ itemId: item.id, revision: 0, peer: true, peerCount: 1, self: false, criteria: [], operatorId: A, now: NOW }),
+    ).rejects.toMatchObject({
       code: 'academy.rubric_invalid',
     });
     await expect(
-      reviews().save({ itemId: item.id, revision: 0, peer: false, peerCount: null, self: true, criteria: [CRITERIA[0]!, { ...CRITERIA[1]!, name: 'sizing' }], operatorId: A, now: NOW }),
+      reviews().save({
+        itemId: item.id,
+        revision: 0,
+        peer: false,
+        peerCount: null,
+        self: true,
+        criteria: [CRITERIA[0]!, { ...CRITERIA[1]!, name: 'sizing' }],
+        operatorId: A,
+        now: NOW,
+      }),
     ).rejects.toMatchObject({ code: 'academy.rubric_invalid' });
   });
 });
@@ -153,7 +195,10 @@ describe('peer and self review for learners (AC-assignments-03)', () => {
 
     await handIn(item.id, M, 'M sizes by a fixed amount.', 1);
     const one = await state(item.id, L);
-    expect(one).toMatchObject({ stage: 'peer', task: { kind: 'peer', ordinal: 1, text: 'M sizes by a fixed amount.', criteria: CRITERIA } });
+    expect(one).toMatchObject({
+      stage: 'peer',
+      task: { kind: 'peer', ordinal: 1, text: 'M sizes by a fixed amount.', criteria: CRITERIA },
+    });
     // Reading again hands out nothing new.
     expect((await state(item.id, L)).task!.id).toBe(one.task!.id);
     const afterOne = await reviews().submit({ itemId: item.id, taskId: one.task!.id, marks: ['1', '0.5'], userId: L, now: NOW });
@@ -223,6 +268,45 @@ describe('peer and self review for learners (AC-assignments-03)', () => {
     const { item } = await openAssignment();
     await expect(state(item.id, OUTSIDER)).rejects.toMatchObject({ code: 'academy.enrolment_required' });
     expect((await state(item.id, L)).stage).toBe('off');
+  });
+
+  it('a classmate’s file is read back through svc-academy under no name; a non-reviewer and a bad store read refuse', async () => {
+    const { item } = await openAssignment({ file: 'optional' });
+    await steps(item.id, { peerCount: 1, self: false });
+    await handIn(item.id, L, 'L');
+    const upload = {
+      itemId: item.id,
+      fileName: 'Jane_Doe_sizing.pdf',
+      contentType: 'application/pdf',
+      contentBase64: PDF.toString('base64'),
+    };
+    const stored = await assignments().uploadFile({ ...upload, userId: M, now: NOW });
+    await assignments().submit({ itemId: item.id, version: 1, text: 'M', fileId: stored.id, userId: M, now: later(1) });
+    const task = (await state(item.id, L)).task!;
+    // The reviewer sees that a file is there, never its name.
+    expect(task.file).toEqual({ fileName: null, contentType: 'application/pdf', bytes: PDF.byteLength });
+    const read = await reviews().file({ itemId: item.id, taskId: task.id, userId: L, now: NOW });
+    expect(Buffer.from(read.contentBase64, 'base64')).toEqual(PDF);
+    await expect(reviews().file({ itemId: item.id, taskId: task.id, userId: N, now: NOW })).rejects.toMatchObject({
+      code: 'academy.review_task_not_found',
+    });
+    store.clear();
+    await expect(reviews().file({ itemId: item.id, taskId: task.id, userId: L, now: NOW })).rejects.toMatchObject({
+      code: 'academy.file_unavailable',
+    });
+  });
+
+  it('the waiting list counts only learners with no classmate’s work free, and a withdrawn assignment keeps its steps', async () => {
+    const { item } = await openAssignment();
+    await steps(item.id, { peerCount: 1, self: false });
+    await handIn(item.id, L, 'L');
+    await handIn(item.id, M, 'M', 1);
+    // Each could be handed the other's work at once: nobody waits, though nobody opened the page.
+    expect((await assignments().adminView(item.id)).review).toMatchObject({ authorsShortOfReviews: 2, reviewersWaiting: 0 });
+    await reviews().submit({ itemId: item.id, taskId: (await state(item.id, L)).task!.id, marks: ['1', '0'], userId: L, now: NOW });
+    expect((await assignments().adminView(item.id)).review).toMatchObject({ authorsShortOfReviews: 1, reviewersWaiting: 0 });
+    await assignments().withdraw({ itemId: item.id, reason: 'TEST', operatorId: A, now: NOW });
+    await expect(steps(item.id, { revision: 1 })).rejects.toMatchObject({ code: 'academy.assignment_closed' });
   });
 
   it('sums rubric levels as decimals', () => {

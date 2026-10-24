@@ -252,6 +252,8 @@ export type AcademyErrorCode =
   | 'academy.review_task_not_found'
   /** The review was already sent with other marks; it is not changed. */
   | 'academy.review_already_sent'
+  /** A reviewed file could not be read back whole from our own store; nothing changed. */
+  | 'academy.file_unavailable'
   /** AC-videos-02: the owner has not set the upload size limit or the accepted video or handout types. */
   | 'academy.upload_limits_unset'
   /** The file is over the owner's upload size limit; no upload address was issued. */
@@ -424,6 +426,7 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.review_marks_invalid',
   'academy.review_task_not_found',
   'academy.review_already_sent',
+  'academy.file_unavailable',
   'academy.upload_limits_unset',
   'academy.upload_too_large',
   'academy.upload_type_refused',

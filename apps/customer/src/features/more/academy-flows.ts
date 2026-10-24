@@ -182,7 +182,8 @@ export type RefusalKey =
   | 'refPeerCountUnset'
   | 'refReviewMarksInvalid'
   | 'refReviewTaskNotFound'
-  | 'refReviewAlreadySent';
+  | 'refReviewAlreadySent'
+  | 'refFileUnavailable';
 
 /** Which sentence words a typed Academy refusal, or null when Academy did not type it (a dropped connection, a sign-in problem). */
 export function academyRefusalKey(failure: Pick<Failure, 'code' | 'message'>): RefusalKey | null {
@@ -290,6 +291,8 @@ export function academyRefusalKey(failure: Pick<Failure, 'code' | 'message'>): R
       return 'refReviewTaskNotFound';
     case 'academy.review_already_sent':
       return 'refReviewAlreadySent';
+    case 'academy.file_unavailable':
+      return 'refFileUnavailable';
     default:
       return null;
   }

@@ -261,6 +261,7 @@ describe('svc-academy mount — the router is actually mounted', () => {
         'uploadAssignmentFile',
         'submitAssignment',
         'peerReview',
+        'peerReviewFile',
         'submitPeerReview',
         'myLearning',
         'myProgress',

@@ -72,6 +72,8 @@ import {
   academySaveAssignmentInputSchema,
   academySaveReviewStepsInputSchema,
   academyPeerReviewInputSchema,
+  academyPeerReviewFileInputSchema,
+  academyPeerReviewFileSchema,
   academyReviewStateSchema,
   academySubmitPeerReviewInputSchema,
   academySubmissionFileSchema,
@@ -921,6 +923,7 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.lesson_not_live':
     case 'academy.item_video_missing':
     case 'academy.upload_incomplete':
+    case 'academy.file_unavailable':
       return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
 
     case 'academy.outline_too_large':
@@ -2446,6 +2449,12 @@ export function createAcademyRouter(
       .input(academyPeerReviewInputSchema)
       .output(academyReviewStateSchema)
       .mutation(({ input, ctx }) => guard(() => academy.peerReview({ itemId: input.itemId, userId: ctx.principal!.userId }))),
+
+    /** AC-assignments-03: the file of work handed to the caller to review, read back so its store address stays hidden. */
+    peerReviewFile: scopedProcedure('academy:read', { module: 'academy' })
+      .input(academyPeerReviewFileInputSchema)
+      .output(academyPeerReviewFileSchema)
+      .query(({ input, ctx }) => guard(() => academy.peerReviewFile({ ...input, userId: ctx.principal!.userId }))),
 
     /** AC-assignments-03: one review's marks, keyed `peer:<assignment>:<reviewer>:<author>`; the same marks answer as stored. */
     submitPeerReview: scopedProcedure('academy:write', { module: 'academy' })
