@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { USD_UNIT, usdToBtc, valueText } from './display-unit';
+import { USD_UNIT, changeText, usdToBtc, valueText } from './display-unit';
 
 // TEST figures only.
 describe('usdToBtc', () => {
@@ -25,5 +25,17 @@ describe('valueText', () => {
     expect(valueText(USD_UNIT, '12.5', usd)).toBe('$12.5');
     expect(valueText({ code: 'BTC', priceUsd: '50000' }, '12.5', usd)).toBe('₿0.00025000');
     expect(valueText({ code: 'BTC', priceUsd: '50000' }, null, usd)).toBeNull();
+  });
+});
+
+describe('changeText', () => {
+  const line = (usd: string | null, pct: string | null) => `USD ${usd} ${pct}`;
+  const pct = (value: string) => `${value}%`;
+  const btc = { code: 'BTC', priceUsd: '50000' } as const;
+  it('keeps the dollar line in USD and converts the amount in BTC, signed, with the same percent', () => {
+    expect(changeText(USD_UNIT, '12.5', '0.01', line, pct)).toBe('USD 12.5 0.01');
+    expect(changeText(btc, '12.5', '0.01', line, pct)).toBe('+₿0.00025000 (0.01%)');
+    expect(changeText(btc, '-12.5', null, line, pct)).toBe('−₿0.00025000');
+    expect(changeText(btc, '0', '0', line, pct)).toBe('₿0.00000000 (0%)');
   });
 });

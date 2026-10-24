@@ -42,7 +42,9 @@ import {
   SUMMARY_INTERVAL,
   useAssetBalances,
   useLockSplits,
-  useDisplayCurrencyRefusal,
+  moneyUnitOf,
+  useDisplayRate,
+  type DisplayRate,
   useMoneyPortfolio,
   useNamedAccounts,
   type MoneyRow,
@@ -50,7 +52,7 @@ import {
   type NamedAccount,
 } from './portfolio-source';
 import { DerivedTotalNote } from './total-note';
-import { USD_UNIT, valueText, type ValueUnit } from './display-unit';
+import { USD_UNIT, changeText, valueText, type ValueUnit } from './display-unit';
 import { Movers } from './Movers';
 import { fmtCoinPrice } from './price-text';
 import { ValuationNote } from './ValuationNote';
@@ -65,6 +67,19 @@ const UnitContext = createContext<ValueUnit>(USD_UNIT);
 function useValueText(): (usd: string | null) => string | null {
   const unit = useContext(UnitContext);
   return (usd) => valueText(unit, usd, fmtUsd);
+}
+
+/** A change line (amount and percent) in the chosen unit. */
+function useChangeText(): (usd: string | null, pct: string | null) => string {
+  const unit = useContext(UnitContext);
+  return (usd, pct) =>
+    changeText(
+      unit,
+      usd,
+      pct,
+      (u, p) => fmtChangeLine(u, p),
+      (p) => fmtPct(p),
+    );
 }
 
 // ── where the buttons go ─────────────────────────────────────────────────────
@@ -133,8 +148,8 @@ function satoshis(value: string | null): string | null {
 function Headline({ view, hidden, copy, pro }: { view: MoneyView; hidden: boolean; copy: Copy; pro: boolean }) {
   const { t } = copy;
   const { timeZone, displayCurrency } = usePreferences();
-  // The bank sends the BTC total when asked for it; with no BTC price it says why and the dollar total stays on screen.
-  const inBtc = displayCurrency === 'BTC' && view.btc !== null && view.btc.total !== null;
+  // The bank sends the BTC total and its price when asked; with no BTC price it says why and the dollar total stays on screen.
+  const inBtc = useContext(UnitContext).code === 'BTC';
   const btcMissing = displayCurrency === 'BTC' && view.source === 'server' && !inBtc;
   const since = view.windowStart;
   const changeLabel =
@@ -145,6 +160,7 @@ function Headline({ view, hidden, copy, pro }: { view: MoneyView; hidden: boolea
         : t('Today');
   const unpriced = view.unpriced.length;
   const value = useValueText();
+  const change = useChangeText();
   // A cash-only account has no price moves: "$0.00 (0.00%) Today" would say nothing.
   const hasCrypto = (dec(view.cryptoUsd) ?? 0n) > 0n;
   return (
@@ -176,7 +192,7 @@ function Headline({ view, hidden, copy, pro }: { view: MoneyView; hidden: boolea
       ) : null}
       {view.change24hUsd !== null && hasCrypto ? (
         <p className="money-change">
-          <ChangeText value={fmtChangeLine(view.change24hUsd, view.change24hPct)} hidden={hidden} suffix={changeLabel} />
+          <ChangeText value={change(view.change24hUsd, view.change24hPct)} hidden={hidden} suffix={changeLabel} />
           <InfoTip text={t('Today change rule')} label={t('Today change rule label')} />
         </p>
       ) : null}
@@ -298,8 +314,9 @@ function CoinRow({
 }) {
   const name = assetName(row.asset, copy);
   const cash = row.class === 'cash';
-  const today = row.usdChange24h === null || cash ? null : fmtChangeLine(row.usdChange24h, row.changeRatio);
   const value = useValueText();
+  const change = useChangeText();
+  const today = row.usdChange24h === null || cash ? null : change(row.usdChange24h, row.changeRatio);
   return (
     <tr className="money-row" data-asset={row.asset}>
       <td>
@@ -549,7 +566,7 @@ export default function Portfolio() {
   const layout: Mode = layoutMode === 'pro' ? 'pro' : 'simple';
   const [scope, setScope] = useState('combined');
   // Only this screen shows BTC; Home and P&L ask for USD, so a missing BTC price never takes their dollar total away.
-  const portfolio = useMoneyPortfolio(scope, displayCurrency === 'BTC' ? 'BTC' : 'USD');
+  const portfolio = useMoneyPortfolio(scope, moneyUnitOf(displayCurrency));
   const scoped = scope !== 'combined';
   const balances = useAssetBalances(layout === 'pro');
   const lockSplit = useLockSplits(layout === 'pro');
@@ -557,10 +574,10 @@ export default function Portfolio() {
   const accounts = useNamedAccounts();
 
   const view = portfolio.status === 'ready' ? portfolio.data : null;
-  // BTC when the bank gave its BTC total and the price behind it; otherwise every value stays in USD.
-  const btcPrice = displayCurrency === 'BTC' && view?.btc?.total != null ? (view.btc.priceUsd ?? null) : null;
-  const unit: ValueUnit = btcPrice !== null ? { code: 'BTC', priceUsd: btcPrice } : USD_UNIT;
-  const noRate = useDisplayCurrencyRefusal(displayCurrency);
+  // BTC only when the bank gave both its BTC total and the price behind it; otherwise every value stays in USD.
+  const btc = displayCurrency === 'BTC' ? view?.btc : null;
+  const unit: ValueUnit = btc?.total != null && btc.priceUsd != null ? { code: 'BTC', priceUsd: btc.priceUsd } : USD_UNIT;
+  const rate = useDisplayRate(displayCurrency);
   const cashRows = useMemo(() => view?.rows.filter((row) => row.class === 'cash') ?? [], [view]);
   const cryptoRows = useMemo(() => view?.rows.filter((row) => row.class === 'crypto') ?? [], [view]);
 
@@ -764,20 +781,32 @@ export default function Portfolio() {
             </select>
           </label>
         ) : null}
-        {noRate.refused !== null ? <NoRateNote currency={displayCurrency} code={noRate.refused} copy={copy} /> : null}
+        <NoRateNote currency={displayCurrency} rate={rate} copy={copy} />
         {body}
       </div>
     </UnitContext.Provider>
   );
 }
 
-/** The chosen display currency has no rate: the bank refused it by name, so every value stays in USD and this says why. */
-function NoRateNote({ currency, code, copy }: { currency: string; code: string; copy: Copy }) {
-  const words = refusalCopy(code);
-  return (
-    <p className="money-note" role="status" data-refusal={code}>
-      {copy.t('No rate for display currency', { currency })}
-      {words.reference ? <span className="money-note__ref"> {words.reference}</span> : null}
-    </p>
-  );
+/**
+ * The chosen display currency is not USD or BTC: every value stays in USD and this says why. The bank refused it by name
+ * (no rate), or it could not be asked, which is said as that and never as a missing rate.
+ */
+function NoRateNote({ currency, rate, copy }: { currency: string; rate: DisplayRate; copy: Copy }) {
+  if (rate.state === 'no_rate') {
+    const words = refusalCopy(rate.code);
+    return (
+      <p className="money-note" role="status" data-refusal={rate.code}>
+        {copy.t('No rate for display currency', { currency })}
+        {words.reference ? <span className="money-note__ref"> {words.reference}</span> : null}
+      </p>
+    );
+  }
+  if (rate.state === 'unchecked')
+    return (
+      <p className="money-note" role="status">
+        {copy.t('Display currency not checked', { currency })}
+      </p>
+    );
+  return null;
 }

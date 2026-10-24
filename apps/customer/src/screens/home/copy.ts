@@ -12,6 +12,7 @@ const messages = {
   'Shown in BTC hidden': 'Shown in BTC at the current BTC price.',
   'BTC price missing': 'There is no BTC price right now, so the total is shown in dollars.',
   'No rate for display currency': 'No exchange rate is set for {currency}, so the total is shown in USD.',
+  'Display currency not checked': 'We couldn’t check {currency} right now, so the total is shown in USD.',
   'Total value rule':
     'USDT and USDC count as 1 USD. Other assets are valued at their last price against USDT, or USDC if there is no USDT market. Assets without a price are not counted.',
   Today: 'Today',
@@ -179,6 +180,7 @@ export const homeCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCo
     'Shown in BTC hidden': 'En BTC al precio actual de BTC.',
     'BTC price missing': 'Ahora no hay precio de BTC, así que el total se muestra en dólares.',
     'No rate for display currency': 'No hay tipo de cambio para {currency}, así que el total se muestra en USD.',
+    'Display currency not checked': 'Ahora no pudimos comprobar {currency}, así que el total se muestra en USD.',
     'Total value rule':
       'USDT y USDC cuentan como 1 USD. Los demás activos se valoran a su último precio frente a USDT, o a USDC si no hay mercado con USDT. Los activos sin precio no se cuentan.',
     Today: 'Hoy',
@@ -349,6 +351,7 @@ export const homeCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCo
     'Shown in BTC hidden': 'En BTC au prix actuel du BTC.',
     'BTC price missing': 'Aucun prix du BTC pour le moment, le total est donc affiché en dollars.',
     'No rate for display currency': 'Aucun taux de change n’est défini pour {currency}, le total est donc affiché en USD.',
+    'Display currency not checked': 'Impossible de vérifier {currency} pour le moment, le total est donc affiché en USD.',
     'Total value rule':
       'L’USDT et l’USDC comptent pour 1 USD. Les autres actifs sont valorisés à leur dernier prix contre l’USDT, ou l’USDC s’il n’y a pas de marché USDT. Les actifs sans prix ne sont pas comptés.',
     Today: 'Aujourd’hui',

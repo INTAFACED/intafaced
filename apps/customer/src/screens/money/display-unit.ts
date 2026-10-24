@@ -32,3 +32,23 @@ export function valueText(unit: ValueUnit, value: string | null, usd: (value: st
   const btc = usdToBtc(value, unit.priceUsd);
   return btc === null ? null : `₿${btc}`;
 }
+
+/**
+ * A change line ("+$12.30 (1.20%)") in the chosen unit: in BTC the amount is converted like any value and the percent is
+ * the same. `usdLine` is the screen's own dollar line; `pctText` formats the percent the way it does.
+ */
+export function changeText(
+  unit: ValueUnit,
+  usd: string | null,
+  pct: string | null,
+  usdLine: (usd: string | null, pct: string | null) => string,
+  pctText: (pct: string) => string,
+): string {
+  if (unit.code === 'USD' || usd === null) return usdLine(usd, pct);
+  const btc = usdToBtc(usd, unit.priceUsd);
+  if (btc === null) return usdLine(null, pct);
+  const negative = btc.startsWith('-');
+  const zero = /^-?0\.0+$/.test(btc);
+  const amount = `${zero ? '' : negative ? '−' : '+'}₿${negative ? btc.slice(1) : btc}`;
+  return pct !== null && dec(pct) !== null ? `${amount} (${pctText(pct)})` : amount;
+}

@@ -19,6 +19,7 @@ import {
   useFavorites,
   useMarkets,
   useMovers,
+  moneyUnitOf,
   useHomePortfolio,
   DerivedTotalTag,
   useSparklines,
@@ -233,7 +234,7 @@ function Balance({ portfolio, hidden }: { portfolio: Loadable<HomePortfolio>; hi
 function HomeSimple() {
   const { t } = homeCopy.useCopy();
   const { hideBalances, timeZone, displayCurrency } = usePreferences();
-  const portfolio = useHomePortfolio(displayCurrency === 'BTC' ? 'BTC' : 'USD');
+  const portfolio = useHomePortfolio(moneyUnitOf(displayCurrency));
   const markets = useMarkets();
   const tickers = useTickers();
   const movers = useMovers(6);

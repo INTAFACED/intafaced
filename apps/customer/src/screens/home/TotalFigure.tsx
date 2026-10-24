@@ -1,6 +1,6 @@
 import { homeCopy } from './copy';
 import type { UiDisplayCurrency } from '@intafaced/contracts/ui-view-preferences';
-import { HeroNumber, dec, roundScaled, toFixedString, useDisplayCurrencyRefusal, type HomePortfolio } from './deps';
+import { HeroNumber, dec, roundScaled, toFixedString, refusalCopy, useDisplayRate, type HomePortfolio } from './deps';
 
 /** A decimal rounded half-up to `places`, as the string HeroNumber animates. Unknown stays null. */
 function rounded(value: string | null, places: number): string | null {
@@ -60,11 +60,20 @@ export function TotalUnitNote({
 }) {
   const { t } = homeCopy.useCopy();
   const { inBtc, btcMissing } = totalUnit(data, displayCurrency);
-  const noRate = useDisplayCurrencyRefusal(displayCurrency);
-  if (noRate.refused !== null)
+  const rate = useDisplayRate(displayCurrency);
+  if (rate.state === 'no_rate') {
+    const reference = refusalCopy(rate.code).reference;
     return (
-      <p className={className} data-total-unit="USD" data-refusal={noRate.refused}>
+      <p className={className} data-total-unit="USD" data-refusal={rate.code}>
         {t('No rate for display currency', { currency: displayCurrency })}
+        {reference ? ` ${reference}` : null}
+      </p>
+    );
+  }
+  if (rate.state === 'unchecked')
+    return (
+      <p className={className} data-total-unit="USD">
+        {t('Display currency not checked', { currency: displayCurrency })}
       </p>
     );
   if (inBtc)

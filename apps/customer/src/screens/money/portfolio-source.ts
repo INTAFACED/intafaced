@@ -224,12 +224,24 @@ function serverSource(env: DataEnv, scope: MoneyScope, unit: MoneyUnit): Source<
   });
 }
 
+/** The unit the bank is asked for: BTC when chosen, else USD (a currency with no rate is shown in USD). */
+export function moneyUnitOf(displayCurrency: string): MoneyUnit {
+  return displayCurrency === 'BTC' ? 'BTC' : 'USD';
+}
+
+/** Long enough that the probe is read about once per visit: the answer is an owner setting, not a moving figure. */
+const RATE_PROBE_INTERVAL = 3_600_000;
+
 /**
- * A display currency the screen has no rate for (anything but USD and BTC) is asked of the bank, which owns the rule: it
- * refuses by name (`bank.fx_rate_unset`) and the screen keeps USD and says why. Null while asking, for USD and BTC, or when the
- * bank's answer was not a refusal (a rate this screen cannot show yet is still shown as USD, with the generic note).
+ * A display currency the screen has no rate for (anything but USD and BTC) is asked of the bank, which owns the rule.
+ * `no_rate`: the bank refused it by name (`bank.fx_rate_unset`); `unchecked`: the bank could not be asked or answered
+ * something else, so the screen cannot say which; either way every value stays in USD and the screen says so.
  */
-export function useDisplayCurrencyRefusal(code: string): { refused: string | null; pending: boolean } {
+export type DisplayRate = { state: 'usd_or_btc' } | { state: 'pending' } | { state: 'no_rate'; code: string } | { state: 'unchecked' };
+
+export const FX_RATE_UNSET = 'bank.fx_rate_unset';
+
+export function useDisplayRate(code: string): DisplayRate {
   const env = useDataEnv();
   const ask = code !== 'USD' && code !== 'BTC';
   const snap = useSource(
@@ -240,15 +252,16 @@ export function useDisplayCurrencyRefusal(code: string): { refused: string | nul
               `${SERVER_SUMMARY_KEY}:${env.userId}:unit:${code}`,
               async (signal): Promise<Outcome<ServerSummary>> =>
                 env.api.query('bank', 'portfolio.summary', { displayCurrency: code }, summarySchema, { signal }),
-              { intervalMs: SUMMARY_INTERVAL * 10 },
+              { intervalMs: RATE_PROBE_INTERVAL },
             )
           : constantSource<ServerSummary>({ status: 'refused', code: 'auth.required' }),
       [env, ask, code],
     ),
   );
-  if (!ask) return { refused: null, pending: false };
-  if (snap.status === 'loading') return { refused: null, pending: true };
-  return { refused: snap.status === 'refused' ? snap.code : null, pending: false };
+  if (!ask) return { state: 'usd_or_btc' };
+  if (snap.status === 'loading') return { state: 'pending' };
+  if (snap.status === 'refused' && snap.code === FX_RATE_UNSET) return { state: 'no_rate', code: snap.code };
+  return { state: 'unchecked' };
 }
 
 function mapLoadable<A>(snap: Loadable<A>, map: (value: A) => MoneyView): Loadable<MoneyView> {
