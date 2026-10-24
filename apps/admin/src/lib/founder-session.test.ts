@@ -378,15 +378,23 @@ describe('founder admin session security boundaries', () => {
         error: { json: { message: 'auth.device_authorisation_required', data: { deviceAuthorisation: { ...waiting, flowId: 'x' } } } },
       }),
     ).toBeUndefined();
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => new Response(JSON.stringify(body), { status: 403 })),
-    );
-    const refused = await founderEdgeCall(config(), 'identity', 'auth.login', 'POST', {}).catch((error: unknown) => error);
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(body), { status: 403 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const refused = await founderEdgeCall(config(), 'identity', 'auth.login', 'POST', {}, undefined, {
+      userAgent: 'Founder Browser/1',
+    }).catch((error: unknown) => error);
     expect(await adminSessionErrorResponse(refused).json()).toEqual({
       code: 'admin.authority_refused',
       upstream: 'auth.device_authorisation_required',
       deviceAuthorisation: waiting,
+    });
+    // The founder's own browser names the device identity trusts, not this server.
+    expect((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].headers).toMatchObject({ 'user-agent': 'Founder Browser/1' });
+    // Any other call never carries a waiting sign-in to the page.
+    const other = await founderEdgeCall(config(), 'ops', 'outreach.metrics', 'GET', {}, ACCESS).catch((error: unknown) => error);
+    expect(await adminSessionErrorResponse(other).json()).toEqual({
+      code: 'admin.authority_refused',
+      upstream: 'auth.device_authorisation_required',
     });
   });
 

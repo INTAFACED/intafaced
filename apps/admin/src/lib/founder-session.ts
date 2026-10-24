@@ -3,6 +3,9 @@ import { accountOperatorEntitlementSchema } from '@intafaced/contracts';
 
 export const ADMIN_COOKIE = '__Host-intafaced-admin';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+/** A waiting new-device sign-in's id and the secret only the browser that signed in holds (identity's own bounds). */
+export const DEVICE_FLOW_ID = UUID;
+export const DEVICE_FLOW_SECRET = /^[A-Za-z0-9_-]{16,128}$/;
 const MAX_SESSION_MS = 4 * 60 * 60 * 1000;
 
 export interface FounderSession {
@@ -56,9 +59,9 @@ export function deviceAuthorisationOf(body: unknown): DeviceAuthorisation | unde
   if (
     !d ||
     typeof d.flowId !== 'string' ||
-    !UUID.test(d.flowId) ||
+    !DEVICE_FLOW_ID.test(d.flowId) ||
     typeof d.secret !== 'string' ||
-    !/^[A-Za-z0-9_-]{16,128}$/.test(d.secret) ||
+    !DEVICE_FLOW_SECRET.test(d.secret) ||
     typeof d.expiresAt !== 'string' ||
     !Number.isFinite(Date.parse(d.expiresAt)) ||
     typeof d.mailed !== 'boolean'
@@ -214,6 +217,11 @@ export async function founderEdgeCall(
   method: 'GET' | 'POST',
   input: unknown,
   accessToken?: string,
+  /**
+   * Sign-in calls only: the founder's own browser `user-agent`, so identity labels the device it trusts by that browser
+   * and not by this server, and `signIn` keeps a waiting new-device sign-in on the refusal for that browser alone.
+   */
+  signIn?: { userAgent: string | null },
 ): Promise<unknown> {
   const query = method === 'GET' ? `?input=${encodeURIComponent(JSON.stringify(input ?? {}))}` : '';
   let response: Response;
@@ -235,6 +243,7 @@ export async function founderEdgeCall(
             accept: 'application/json',
             ...(method === 'POST' ? { 'content-type': 'application/json' } : {}),
             ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}),
+            ...(signIn?.userAgent ? { 'user-agent': signIn.userAgent.slice(0, 512) } : {}),
           },
           ...(method === 'POST' ? { body: JSON.stringify(input ?? {}) } : {}),
           cache: 'no-store',
@@ -257,7 +266,7 @@ export async function founderEdgeCall(
       response.status === 401 || response.status === 403 ? 'admin.authority_refused' : 'admin.upstream_refused',
       response.status >= 400 && response.status < 600 ? response.status : 502,
       upstreamCodeOf(body) ?? undefined,
-      deviceAuthorisationOf(body),
+      signIn ? deviceAuthorisationOf(body) : undefined,
     );
   if (!body || typeof body !== 'object' || !('result' in body)) throw new AdminSessionError('admin.upstream_invalid', 502);
   const result = (body as { result?: { data?: unknown } }).result;

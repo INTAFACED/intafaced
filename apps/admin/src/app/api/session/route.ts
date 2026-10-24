@@ -48,7 +48,9 @@ export async function POST(request: Request) {
     // Identity's new-device check knows this browser by its key; a browser it has not seen waits for approval
     // (`/api/session/device`), and the key is kept so the approval lands on this same browser.
     device = adminDeviceKey(request.headers.get('cookie'));
-    const raw = await founderEdgeCall(config, 'identity', 'auth.login', 'POST', { ...input, deviceKey: device.key });
+    const raw = await founderEdgeCall(config, 'identity', 'auth.login', 'POST', { ...input, deviceKey: device.key }, undefined, {
+      userAgent: request.headers.get('user-agent'),
+    });
     return await founderSignedIn(raw, config, device.cookie);
   } catch (error) {
     const response = adminSessionErrorResponse(error);

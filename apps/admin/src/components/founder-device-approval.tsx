@@ -1,14 +1,9 @@
 'use client';
 import { useState } from 'react';
+import type { DeviceAuthorisation } from '@/lib/founder-session';
 import { Callout } from './crm-callout';
 
-/** A sign-in identity holds until this browser is approved (identity's new-device check, I-signin-sessions-07). */
-export interface DeviceAuthorisation {
-  flowId: string;
-  secret: string;
-  expiresAt: string;
-  mailed: boolean;
-}
+export type { DeviceAuthorisation };
 
 /** A refusal from the console's own session routes, with identity's typed code when it sent one. */
 export class SessionRefusal extends Error {
@@ -31,6 +26,15 @@ const REFUSALS: Record<string, string> = {
   'auth.device_authorisation_invalid': 'That sign-in request is no longer valid. Start over to sign in again.',
   'auth.account_frozen': 'This account is frozen, so it cannot sign in.',
 };
+
+/** Refusals after which this request can never sign in: only Start over helps. */
+const TERMINAL = new Set([
+  'auth.too_many_attempts',
+  'auth.code_expired',
+  'auth.device_authorisation_used',
+  'auth.device_authorisation_invalid',
+  'auth.account_frozen',
+]);
 
 function deviceAuthorisationOf(data: unknown): DeviceAuthorisation | undefined {
   const d =
@@ -86,12 +90,16 @@ export function FounderDeviceApproval({
     setBusy(true);
     setError('');
     try {
-      if (approve) await postSession('/api/session/device', { action: 'approve', ...flow, code: code.trim() });
-      onSignedIn(await postSession('/api/session/device', { action: 'complete', ...flow }));
+      // The emailed code approves and signs in at once; Continue picks up an approval made from a trusted session.
+      onSignedIn(
+        await postSession(
+          '/api/session/device',
+          approve ? { action: 'approve', ...flow, code: code.trim() } : { action: 'complete', ...flow },
+        ),
+      );
     } catch (failure) {
       const upstream = failure instanceof SessionRefusal ? failure.upstream : undefined;
-      if (upstream === 'auth.too_many_attempts' || upstream === 'auth.code_expired' || upstream === 'auth.device_authorisation_used')
-        setLocked(true);
+      if (upstream && TERMINAL.has(upstream)) setLocked(true);
       setError(failure instanceof Error ? failure.message : 'Approval failed.');
     } finally {
       setCode('');

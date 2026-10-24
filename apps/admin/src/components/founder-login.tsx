@@ -51,7 +51,6 @@ export function FounderLogin() {
         {fieldErrors[name]}
       </small>
     ) : null;
-  const post = postSession;
   if (waiting)
     return (
       <FounderDeviceApproval
@@ -78,7 +77,7 @@ export function FounderLogin() {
         setBusy(true);
         setError('');
         try {
-          const session = await post('/api/session', { identifier, password, totpCode });
+          const session = await postSession('/api/session', { identifier, password, totpCode });
           window.location.assign(returnTarget(session));
         } catch (failure) {
           // The right password and code on a browser identity has not seen: approve this browser first.
@@ -162,7 +161,7 @@ export function FounderLogin() {
           setError('');
           try {
             if (!navigator.credentials) throw new Error('Passkeys are unavailable in this browser.');
-            const raw = (await post('/api/session/passkey', { action: 'options', identifier })) as {
+            const raw = (await postSession('/api/session/passkey', { action: 'options', identifier })) as {
               challenge: string;
               allowCredentials?: Array<{ id: string; type: 'public-key'; transports?: AuthenticatorTransport[] }>;
               rpId?: string;
@@ -179,7 +178,7 @@ export function FounderLogin() {
             })) as PublicKeyCredential | null;
             if (!credential) throw new Error('Passkey sign-in was cancelled.');
             const response = credential.response as AuthenticatorAssertionResponse;
-            const session = await post('/api/session/passkey', {
+            const session = await postSession('/api/session/passkey', {
               action: 'authenticate',
               identifier,
               credential: {
