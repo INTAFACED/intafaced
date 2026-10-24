@@ -244,6 +244,28 @@ describe('svc-p2p order reviews (P-ads-merchant-21)', () => {
     expect(still[0]?.comment).toBe('later');
   });
 
+  it('does not rewrite a review once it has a reply or a moderator hid it', async () => {
+    await fund(MAKER, '1000');
+    p2p = service(3600);
+    const trade = await released();
+    await caller(TAKER).reviews.leave({ tradeId: trade.id, rating: 'good', comment: 'fine' });
+    await caller(MAKER).reviews.reply({ tradeId: trade.id, text: 'thanks' });
+    await expect(caller(TAKER).reviews.edit({ tradeId: trade.id, rating: 'bad', explanation: 'TEST changed' })).rejects.toMatchObject({
+      cause: expect.objectContaining({ code: 'p2p.review_not_eligible' }),
+    });
+    const other = await released();
+    const hidden = await caller(TAKER).reviews.leave({ tradeId: other.id, rating: 'bad', explanation: 'abuse' });
+    await caller(MOD, ['p2p:read'], [MOD]).reviews.moderate({ reviewId: hidden.id, reason: 'TEST abusive' });
+    await expect(caller(TAKER).reviews.edit({ tradeId: other.id, comment: 'TEST softer' })).rejects.toMatchObject({
+      cause: expect.objectContaining({ code: 'p2p.review_not_eligible' }),
+    });
+    const rows = await sql<Array<{ rating: string; comment: string }>>`SELECT rating, comment FROM p2p.order_reviews ORDER BY created_at`;
+    expect(rows).toEqual([
+      { rating: 'good', comment: 'fine' },
+      { rating: 'bad', comment: '' },
+    ]);
+  });
+
   it('allows one reply and refuses a different second reply', async () => {
     await fund(MAKER, '1000');
     const trade = await released();
@@ -341,6 +363,10 @@ describe('svc-p2p order reviews (P-ads-merchant-21)', () => {
     await caller(TAKER).reviews.leave({ tradeId: second.id, rating: 'good', comment: 'two' });
     const page = await caller(OTHER, ['p2p:read']).reviews.list({ userId: MAKER, limit: 1 });
     expect(page.reviews).toHaveLength(1);
+    // A stranger reads the words and the rating, not who wrote it or on which order.
+    expect(page.reviews[0]).toMatchObject({ tradeId: null, authorId: null, subjectId: MAKER, rating: 'good' });
+    const own = await caller(MAKER, ['p2p:read']).reviews.list({ userId: MAKER, limit: 10 });
+    expect(own.reviews.map((r) => r.authorId)).toEqual([TAKER, TAKER]);
     expect(page.nextCursor).toBeTruthy();
     const rest = await caller(OTHER, ['p2p:read']).reviews.list({ userId: MAKER, limit: 1, cursor: page.nextCursor });
     expect(rest.reviews).toHaveLength(1);
@@ -352,6 +378,16 @@ describe('svc-p2p order reviews (P-ads-merchant-21)', () => {
     });
     await expect(caller(OTHER, ['p2p:read']).reviews.list({ userId: MAKER, limit: 10, cursor: 'nope' })).rejects.toMatchObject({
       cause: expect.objectContaining({ code: 'p2p.cursor_invalid' }),
+    });
+  });
+
+  it('refuses the review list to a person either side blocked', async () => {
+    await fund(MAKER, '1000');
+    const trade = await released();
+    await caller(TAKER).reviews.leave({ tradeId: trade.id, rating: 'good' });
+    await sql`INSERT INTO p2p.contacts (owner_id, peer_id, kind) VALUES (${MAKER}, ${OTHER}, 'block')`;
+    await expect(caller(OTHER, ['p2p:read']).reviews.list({ userId: MAKER, limit: 10 })).rejects.toMatchObject({
+      cause: expect.objectContaining({ code: 'p2p.blocked' }),
     });
   });
 

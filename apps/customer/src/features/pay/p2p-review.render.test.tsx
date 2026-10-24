@@ -107,11 +107,26 @@ describe('P2P order review (J-p2p-01 #9)', () => {
     expect(host.textContent).toContain('TEST paid late');
   });
 
+  it('shows a reply, and keeps a replied-to review as it was', async () => {
+    const { pay } = payWith([
+      {
+        mine: review({ reply: 'TEST thanks', repliedAt: '2026-10-24T05:30:00.000Z' }),
+        theirs: review({ authorId: SELLER, subjectId: BUYER, reply: 'TEST noted', repliedAt: '2026-10-24T05:31:00.000Z' }),
+      },
+    ]);
+    await open(pay, 'released');
+    expect(host.textContent).toContain('Reply: TEST thanks');
+    expect(host.textContent).toContain('This review has a reply, so it stays as it was replied to.');
+    expect(host.querySelector('form')).toBeNull();
+  });
+
   it('shows the other side’s visible review of you, or says there is none', async () => {
     const { pay } = payWith([{ mine: review({}), theirs: review({ authorId: SELLER, subjectId: BUYER, comment: 'TEST quick payer' }) }]);
     await open(pay, 'released');
     expect(host.textContent).toContain('Their review of you');
     expect(host.textContent).toContain('TEST quick payer');
+    expect(host.querySelector('form[aria-label="Reply to their review"]')).not.toBeNull();
+    expect(button('Edit review')).toBeTruthy();
     act(() => root?.unmount());
     root = null;
     const none = payWith([{ mine: review({}), theirs: null }]);

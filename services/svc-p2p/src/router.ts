@@ -714,8 +714,8 @@ const merchantEventOutput = z.object({
 
 const reviewOutput = z.object({
   id: z.string().guid(),
-  tradeId: z.string().guid(),
-  authorId: z.string(),
+  tradeId: z.string().guid().nullable(),
+  authorId: z.string().nullable(),
   subjectId: z.string(),
   rating: z.enum(['good', 'bad']),
   comment: z.string(),
@@ -728,11 +728,13 @@ const reviewOutput = z.object({
   hiddenReason: z.string().nullable(),
 });
 
-function toReviewOut(row: ReviewRecord): z.infer<typeof reviewOutput> {
+/** One review on the wire. A viewer who is neither its author nor its subject gets no trade id, author or hide reason. */
+function toReviewOut(row: ReviewRecord, viewerId?: string): z.infer<typeof reviewOutput> {
+  const party = viewerId === undefined || viewerId === row.authorId || viewerId === row.subjectId;
   return {
     id: row.id,
-    tradeId: row.tradeId,
-    authorId: row.authorId,
+    tradeId: party ? row.tradeId : null,
+    authorId: party ? row.authorId : null,
     subjectId: row.subjectId,
     rating: row.rating,
     comment: row.comment,
@@ -742,7 +744,7 @@ function toReviewOut(row: ReviewRecord): z.infer<typeof reviewOutput> {
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     hidden: row.hidden,
-    hiddenReason: row.hiddenReason,
+    hiddenReason: party ? row.hiddenReason : null,
   };
 }
 
@@ -2941,13 +2943,17 @@ export function createP2pRouter(
         .output(z.object({ reviews: z.array(reviewOutput), nextCursor: z.string().nullable() }))
         .query(async ({ ctx, input }) =>
           guard(async () => {
+            const viewer = requireUser(ctx);
+            // The same block reputation.get honours: a blocked pair reads neither the card nor the reviews behind it.
+            await p2p.assertNotBlocked(viewer, input.userId);
             const page = await p2p.listOrderReviews({
               subjectId: input.userId,
-              viewerId: requireUser(ctx),
+              viewerId: viewer,
               ...(input.limit === undefined ? {} : { limit: input.limit }),
               ...(input.cursor ? { cursor: input.cursor } : {}),
             });
-            return { reviews: page.reviews.map(toReviewOut), nextCursor: page.nextCursor };
+            // Who reviewed and on which order stays with the two people on it; anyone else reads the words and the rating.
+            return { reviews: page.reviews.map((row) => toReviewOut(row, viewer)), nextCursor: page.nextCursor };
           }),
         ),
 

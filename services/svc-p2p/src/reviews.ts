@@ -190,6 +190,13 @@ export async function editReview(
     if (!current) {
       throw new ReviewError('p2p.review_not_eligible: no review to edit', 'p2p.review_not_eligible');
     }
+    // A reply answers the words it was written under, and a moderator's hide is a decision on them: neither is rewritten.
+    if (current.reply !== null) {
+      throw new ReviewError('p2p.review_not_eligible: the review has a reply, so it stays as replied to', 'p2p.review_not_eligible');
+    }
+    if (current.hidden) {
+      throw new ReviewError('p2p.review_not_eligible: a hidden review is not edited', 'p2p.review_not_eligible');
+    }
     if (!current.within_window) {
       const until = current.edit_until instanceof Date ? current.edit_until.toISOString() : String(current.edit_until);
       throw new ReviewError(`p2p.review_not_eligible: edit window ended at ${until}`, 'p2p.review_not_eligible');

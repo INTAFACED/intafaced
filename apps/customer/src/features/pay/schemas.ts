@@ -578,8 +578,9 @@ export type OrderExport = z.infer<typeof orderExportSchema>;
 /** svc-p2p `reviews.*`: one good/bad review per party of a released order. */
 export const orderReviewSchema = z.object({
   id,
-  tradeId: id,
-  authorId: z.string(),
+  /** Null for a viewer who is neither the author nor the subject (`reviews.list`). */
+  tradeId: id.nullable(),
+  authorId: z.string().nullable(),
   subjectId: z.string(),
   rating: z.enum(['good', 'bad']),
   comment: z.string(),

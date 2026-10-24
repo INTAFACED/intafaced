@@ -716,6 +716,12 @@ test('J-p2p-01 #9 the completed order has a receipt and an open one none; each s
   const theirs = page.getByRole('region', { name: 'Their review of you' });
   await expect(theirs).toContainText('Bad');
   await expect(theirs).toContainText('TEST paid from another name');
+  // The buyer answers it once, under the words it answers.
+  const reply = page.getByTestId('order-review').getByRole('form', { name: 'Reply to their review' });
+  await reply.getByLabel('Reply to their review').fill('TEST the account is in my own name');
+  await reply.getByRole('button', { name: 'Reply' }).click();
+  await expect(theirs).toContainText('Reply: TEST the account is in my own name');
+  await expect(page.getByRole('form', { name: 'Reply to their review' })).toHaveCount(0);
   // One review per party: the seller's is about the buyer, the buyer's about the seller.
   const rows = await buyer.query('reviews.forTrade', { tradeId: state.tradeId });
   expect(rows.theirs).toMatchObject({ authorId: rows.mine.subjectId, subjectId: rows.mine.authorId, rating: 'bad' });

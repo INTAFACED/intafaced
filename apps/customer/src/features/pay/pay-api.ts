@@ -494,6 +494,12 @@ export function createPersonalPayApi(
     /** One review per party of a released order; a second leave returns the first, unchanged. A bad one needs an explanation. */
     leaveReview: (input: { tradeId: string; rating: 'good' | 'bad'; comment?: string; explanation?: string }) =>
       signedIn() ? Promise.resolve(signedIn()!) : api.mutate('p2p', 'reviews.leave', input, s.orderReviewSchema),
+    /** Rewrite one's own review inside the owner's edit window; a blank window, or one with a reply or a hide, refuses. */
+    editReview: (input: { tradeId: string; rating: 'good' | 'bad'; comment?: string; explanation?: string }) =>
+      signedIn() ? Promise.resolve(signedIn()!) : api.mutate('p2p', 'reviews.edit', input, s.orderReviewSchema),
+    /** One reply from the person a review is about. */
+    replyReview: (input: { tradeId: string; text: string }) =>
+      signedIn() ? Promise.resolve(signedIn()!) : api.mutate('p2p', 'reviews.reply', input, s.orderReviewSchema),
     health: (signal?: AbortSignal) => api.query('p2p', 'health', undefined, s.p2pHealthSchema, { signal }),
     fiat: (signal?: AbortSignal) => api.query('p2p', 'fiat.list', undefined, z.array(s.fiatSchema), { signal }),
     methods: (signal?: AbortSignal) => api.query('p2p', 'instruments.methods.list', { limit: 200 }, z.array(s.methodSchema), { signal }),

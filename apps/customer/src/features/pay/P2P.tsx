@@ -251,7 +251,7 @@ function OrderDetail({ pay, tradeId, userId }: { pay: PersonalPayApi; tradeId: s
         <>
           <EscrowPath trade={trade} userId={userId} />
           <OrderReceipt pay={pay} trade={trade} />
-          <OrderReview key={trade.id + ':' + trade.status} pay={pay} trade={trade} />
+          <OrderReview key={'review:' + trade.id + ':' + trade.status} pay={pay} trade={trade} />
           <OrderPaymentDetails key={trade.id + ':' + trade.status} trade={trade} pay={pay} userId={userId} />
           <OrderChat pay={pay} trade={trade} userId={userId} />
           <OrderDispute trade={trade} pay={pay} reloadOrder={reload} />

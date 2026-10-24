@@ -127,7 +127,8 @@ const schema = serviceEnvSchema
        */
       P2P_REVIEW_EDIT_WINDOW_SECONDS: z.preprocess(
         (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
-        z.coerce.number().int().min(1).optional(),
+        // At most a year: the edit check casts it to a Postgres int, and no window is longer than the order it reviews.
+        z.coerce.number().int().min(1).max(31_536_000).optional(),
       ),
       /** P-trade-orders-21: hours support has to review a completion appeal. Empty is unset → appeal refuses p2p.config_unset. */
       P2P_APPEAL_REVIEW_HOURS: z.preprocess(

@@ -17,6 +17,15 @@ const en = {
   onePerParty: 'You can leave one review for this order.',
   leave: 'Leave review',
   leaving: 'Leaving review…',
+  edit: 'Edit review',
+  editLabel: 'Edit your review',
+  save: 'Save review',
+  editReplied: 'This review has a reply, so it stays as it was replied to.',
+  editHidden: 'This review was hidden by moderation, so it is not edited.',
+  replyLabel: 'Reply to their review',
+  replyOnce: 'You can reply once.',
+  reply: 'Reply',
+  replyHeading: 'Reply:',
   hidden: 'Hidden by moderation: {reason}',
 } as const;
 const es = {
@@ -35,6 +44,15 @@ const es = {
   onePerParty: 'Puedes dejar una valoración para este pedido.',
   leave: 'Dejar valoración',
   leaving: 'Dejando la valoración…',
+  edit: 'Editar valoración',
+  editLabel: 'Edita tu valoración',
+  save: 'Guardar valoración',
+  editReplied: 'Esta valoración tiene respuesta, así que se queda como se respondió.',
+  editHidden: 'La moderación ocultó esta valoración, así que no se edita.',
+  replyLabel: 'Responder a su valoración',
+  replyOnce: 'Puedes responder una vez.',
+  reply: 'Responder',
+  replyHeading: 'Respuesta:',
   hidden: 'Oculta por moderación: {reason}',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
@@ -53,6 +71,15 @@ const fr = {
   onePerParty: 'Vous pouvez laisser une évaluation pour cette commande.',
   leave: 'Laisser l’évaluation',
   leaving: 'Envoi de l’évaluation…',
+  edit: 'Modifier l’évaluation',
+  editLabel: 'Modifier votre évaluation',
+  save: 'Enregistrer l’évaluation',
+  editReplied: 'Cette évaluation a une réponse, elle reste telle qu’on y a répondu.',
+  editHidden: 'La modération a masqué cette évaluation, elle n’est pas modifiée.',
+  replyLabel: 'Répondre à son évaluation',
+  replyOnce: 'Vous pouvez répondre une fois.',
+  reply: 'Répondre',
+  replyHeading: 'Réponse :',
   hidden: 'Masquée par la modération : {reason}',
 } satisfies Record<keyof typeof en, string>;
 
