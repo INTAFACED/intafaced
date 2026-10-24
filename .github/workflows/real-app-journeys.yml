@@ -8,7 +8,7 @@
 # (Failure it prevents: one job running every journey hit its 45-minute limit from 23 Oct 02:26 UTC, runs 122, 140 and
 # 155, so no run finished and the scoreboard froze. Setup takes about 14 minutes and the journeys run one at a time, so
 # the suite outgrew one job and keeps growing.) Journey files are independent: each makes its own accounts and keeps its
-# own run file, so Playwright can split them by file.
+# own run file, so the plan job can split them by file.
 name: Real-app journeys
 
 on:
@@ -26,6 +26,7 @@ on:
       - 'tsconfig*.json'
       - 'tooling/scripts/local-test-*.mjs'
       - 'tooling/scripts/roadmap.mjs'
+      - 'tooling/scripts/journey-shards.mjs'
       - '.github/workflows/real-app-journeys.yml'
 
 # A run that started finishes; newer pushes wait as one queued run, and each newer push replaces the one waiting, so the
@@ -42,8 +43,44 @@ env:
   TURBO_TELEMETRY_DISABLED: 1
 
 jobs:
+  # Splits the journey files across the shards by their times in the last finished run on main, so the shards end
+  # together (tooling/scripts/journey-shards.mjs; Playwright's own --shard split by count left one shard 33 minutes
+  # behind the shortest in run 338). With no earlier report it splits by count.
+  plan:
+    name: Plan the shards
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read # to download the last finished run's report
+    outputs:
+      shards: ${{ steps.plan.outputs.shards }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 20
+      - name: Planner tests
+        run: node --test tooling/scripts/journey-shards.test.mjs
+      - name: Last finished run's report
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/last"
+          for id in $(gh run list --repo "$GITHUB_REPOSITORY" --workflow real-app-journeys.yml --branch main --status completed --limit 20 --json databaseId,conclusion --jq '.[] | select(.conclusion != "cancelled") | .databaseId'); do
+            gh run download "$id" --repo "$GITHUB_REPOSITORY" --name real-app-journeys --dir "$RUNNER_TEMP/last" 2>/dev/null && { echo "timings from run $id"; break; }
+          done
+      - name: Plan
+        id: plan
+        run: |
+          shards=$(node tooling/scripts/journey-shards.mjs --shards 8 --report "$RUNNER_TEMP/last/report.json")
+          echo "shards=$shards" >> "$GITHUB_OUTPUT"
+
   journeys:
     name: Journeys (shard ${{ matrix.shard }} of 8)
+    needs: plan
     runs-on: ubuntu-24.04
     # About 14 minutes of setup plus one shard of the journeys.
     timeout-minutes: 60
@@ -152,7 +189,17 @@ jobs:
 
       # No traces: they would carry the run's TEST session and password into a public artifact. Screenshots stay.
       - name: Journeys in the running app (this shard)
-        run: pnpm exec playwright test --config apps/customer/tests/real-app/real-app.playwright.config.mjs --trace off --shard ${{ matrix.shard }}/8
+        env:
+          SHARDS: ${{ needs.plan.outputs.shards }}
+        run: |
+          JOURNEY_FILES=$(jq -r --argjson n '${{ matrix.shard }}' '.[$n - 1]' <<<"$SHARDS")
+          if [ -z "$JOURNEY_FILES" ] || [ "$JOURNEY_FILES" = null ]; then
+            echo "::error::the plan gave shard ${{ matrix.shard }} no journey files"
+            exit 1
+          fi
+          echo "$JOURNEY_FILES" | tr ' ' '\n'
+          export JOURNEY_FILES
+          pnpm exec playwright test --config apps/customer/tests/real-app/real-app.playwright.config.mjs --trace off
 
       # The shard's blob (merged by the scoreboard job) and its failure screenshots; the run's TEST account files stay
       # on the runner.

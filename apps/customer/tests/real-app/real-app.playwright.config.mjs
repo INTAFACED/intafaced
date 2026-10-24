@@ -5,7 +5,8 @@ import { defineConfig } from '@playwright/test';
 // uses the stack's own tools. Test titles start "J-<module>-NN #<step>" so `roadmap.mjs --progress --results` counts them.
 export default defineConfig({
   testDir: '.',
-  testMatch: '*.pw.mjs',
+  // The Real-app journeys workflow hands each shard its own files (tooling/scripts/journey-shards.mjs), by name.
+  testMatch: process.env.JOURNEY_FILES ? process.env.JOURNEY_FILES.split(' ').filter(Boolean) : '*.pw.mjs',
   workers: 1,
   fullyParallel: false,
   retries: 0,
