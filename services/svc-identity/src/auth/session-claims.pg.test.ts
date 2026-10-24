@@ -47,7 +47,20 @@ if (!available) {
     migrations: migrations.map((body) => (schema: string) => rewriteSchemaSql(body, 'identity', schema)),
   });
   const bus = new MemoryEventBus('svc-identity');
-  const auth = new AuthService(db.sql, bus, new RankService(db.sql, bus), tokenConfig, webauthnConfig, randomBytes(32).toString('base64'));
+  // Grace 10s and recovery 120s, so the second-tab and lost-reply refreshes run too.
+  const auth = new AuthService(
+    db.sql,
+    bus,
+    new RankService(db.sql, bus),
+    tokenConfig,
+    webauthnConfig,
+    randomBytes(32).toString('base64'),
+    undefined,
+    undefined,
+    25,
+    10,
+    120,
+  );
   auth.useLogger({ warn: () => undefined });
 
   let counter = 0;
@@ -95,8 +108,31 @@ if (!available) {
       const otherBrowser = await auth.login({ identifier: handle, password: PASSWORD, deviceKey: randomBytes(24).toString('base64url') });
       const other = await claims(otherBrowser.accessToken);
       expect(other.fam).not.toBe(first.fam);
-      expect(other.dev).toBe((await row(otherBrowser.sessionId)).trusted_device_id ?? undefined);
+      const otherDevice = (await row(otherBrowser.sessionId)).trusted_device_id;
+      expect(otherDevice).not.toBeNull();
+      expect(other.dev).toBe(otherDevice);
       expect(other.dev).not.toBe(first.dev);
+    });
+
+    it('a second tab inside the grace window and a lost reply recovered later both keep fam and dev', async () => {
+      const handle = `sc${process.pid}x${++counter}`;
+      const signedUp = await auth.register({ handle, email: `${handle}@example.com`, password: PASSWORD });
+      const first = await claims(signedUp.accessToken);
+      expect(first.dev).toBeDefined();
+
+      const rotated = await auth.refresh(signedUp.refreshToken);
+      const secondTab = await auth.refresh(signedUp.refreshToken);
+      expect(secondTab.sessionId).toBe(rotated.sessionId);
+      const graced = await claims(secondTab.accessToken);
+      expect(graced.fam).toBe(first.fam);
+      expect(graced.dev).toBe(first.dev);
+
+      await db.sql`UPDATE sessions SET rotated_at = ${new Date(Date.now() - 12_000)} WHERE id = ${signedUp.sessionId}`;
+      const recovered = await auth.refresh(signedUp.refreshToken);
+      expect(recovered.sessionId).toBe(rotated.sessionId);
+      const late = await claims(recovered.accessToken);
+      expect(late.fam).toBe(first.fam);
+      expect(late.dev).toBe(first.dev);
     });
   });
 }

@@ -216,7 +216,8 @@ if (!available) {
       expect(principal.mfa).toBe(true);
       // The step-up token names the same sign-in and device as the session it was minted from.
       const signedIn = await verifyAccessToken(session.accessToken, tokenConfig);
-      expect(principal.fam).toBeDefined();
+      expect(signedIn.fam).toBeDefined();
+      expect(signedIn.dev).toBeDefined();
       expect(principal.fam).toBe(signedIn.fam);
       expect(principal.dev).toBe(signedIn.dev);
       const audit = await db.sql<Array<{ scopes: string[]; factor: string }>>`

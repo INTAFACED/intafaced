@@ -1257,14 +1257,17 @@ export class AuthService {
   }
 
   /**
-   * The sign-in (`fam`) and trusted device (`dev`) of the user's own session, for a token minted from it outside
-   * sign-in and refresh (step-up). A session that is not the user's, or is gone, gives neither.
+   * The sign-in (`fam`) and trusted device (`dev`) of the user's own live session, for a token minted from it outside
+   * sign-in and refresh (step-up). A session that is not the user's, was revoked or has expired mints nothing.
    */
-  private async sessionClaimsOf(userId: string, sessionId: string): Promise<{ familyId: string | null; trustedDeviceId: string | null }> {
+  private async sessionClaimsOf(userId: string, sessionId: string): Promise<{ familyId: string; trustedDeviceId: string | null }> {
     const rows = await this.sql<Array<{ family_id: string; trusted_device_id: string | null }>>`
-      SELECT family_id, trusted_device_id FROM sessions WHERE id = ${sessionId} AND user_id = ${userId}
+      SELECT family_id, trusted_device_id FROM sessions
+      WHERE id = ${sessionId} AND user_id = ${userId} AND revoked = false AND expires_at > now()
     `;
-    return { familyId: rows[0]?.family_id ?? null, trustedDeviceId: rows[0]?.trusted_device_id ?? null };
+    const row = rows[0];
+    if (!row) throw new AuthError('Session not found', 'auth.session_invalid');
+    return { familyId: row.family_id, trustedDeviceId: row.trusted_device_id };
   }
 
   private async issueSession(
@@ -2775,12 +2778,13 @@ export class AuthService {
     const base = await this.scopesForNewAccessToken(input.userId);
     const scopes = [...base];
     for (const scope of requested) if (!scopes.includes(scope)) scopes.push(scope);
+    // Read before the audit row, so a session that cannot mint leaves no record of a mint.
+    const claims = await this.sessionClaimsOf(input.userId, input.sessionId);
     await this.sql`
       INSERT INTO pay_step_up_mints (audit_id, user_id, session_id, merchant_id, scopes, factor)
       VALUES (${randomUUID()}, ${input.userId}, ${input.sessionId}, ${input.merchantId}, ${[...requested]}, ${factor})
     `;
     const tier = await this.kycTier(input.userId);
-    const claims = await this.sessionClaimsOf(input.userId, input.sessionId);
     const { token, expiresAt } = await issueAccessToken(
       {
         userId: input.userId,
