@@ -146,7 +146,7 @@ test(`${J} #3 "send me a code" instead of a password: wrong codes lock, a used c
 test(`${J} #5 a browser never used before is asked to authorise this device, by a signed-in session or a mailed code`, async ({
   browser,
 }) => {
-  const who = await account(browser);
+  let who = await account(browser);
   // A browser this account has never signed in on: no device cookie at all.
   const fresh = await browser.newContext();
   await fresh.clearCookies();
@@ -175,7 +175,14 @@ test(`${J} #5 a browser never used before is asked to authorise this device, by 
   await expect(page.getByLabel('Device code from the email')).toHaveCount(0);
   await page.getByRole('button', { name: 'Start over' }).click();
 
-  // A new request; the mailed code approves this browser and signs in.
+  // The wrong codes count against the account, not the request: starting over inside the window is refused with the
+  // minutes left, so a fresh request never buys more guesses.
+  await page.goto('/login');
+  await fillSignIn(page, who.email, who.password);
+  await expect(page.getByRole('alert')).toContainText(/Too many tries\. You can try again in \d+ min/);
+
+  // Another account on this browser: the mailed code approves the browser and signs in.
+  who = await account(browser);
   await enter(await askDevice());
   await expect(page).not.toHaveURL(/\/login/, { timeout: 10_000 });
 
