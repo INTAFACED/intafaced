@@ -1,5 +1,6 @@
 import { createHmac } from 'node:crypto';
-import { createServer, type AddressInfo } from 'node:http';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import postgres from 'postgres';
 import { describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
