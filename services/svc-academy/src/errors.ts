@@ -340,7 +340,9 @@ export type AcademyErrorCode =
   /** AC-quizzes-01: the caller's address is outside the quiz's IP filter. */
   | 'academy.ip_not_allowed'
   /** AC-quizzes-01: an IP filter entry that is not an address or a CIDR range. */
-  | 'academy.ip_rule_invalid';
+  | 'academy.ip_rule_invalid'
+  /** AC-quizzes-02: this survey already has the caller's answers (or this device's, when anonymous). */
+  | 'academy.survey_duplicate';
 
 export class AcademyError extends Error {
   constructor(
@@ -529,6 +531,7 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.access_code_invalid',
   'academy.ip_unreadable',
   'academy.ip_not_allowed',
+  'academy.survey_duplicate',
   'academy.ip_rule_invalid',
 ] as const;
 

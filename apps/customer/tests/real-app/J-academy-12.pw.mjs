@@ -17,7 +17,7 @@ const CODE = `TEST-${RUN}`;
 test.describe.configure({ mode: 'serial' });
 
 /** What the steps before a step left behind (serial, one worker). */
-const run = { courseId: null, quizId: null, learner: null };
+const run = { courseId: null, quizId: null, mixedId: null, surveyId: null, learner: null };
 
 function needs(...keys) {
   for (const key of keys) if (!run[key]) throw new Error(`${J}: an earlier step left no ${key}, so this step has nothing to work on`);
@@ -64,7 +64,7 @@ async function enrolledLearner(browser, prefix) {
   return who;
 }
 
-const quizPage = (page) => page.goto(`/academy-ops/catalogue/courses/${run.courseId}/items/${run.quizId}`);
+const quizPage = (page, itemId = run.quizId) => page.goto(`/academy-ops/catalogue/courses/${run.courseId}/items/${itemId}`);
 const editor = (page) => page.getByTestId('quiz-editor');
 
 async function saveDraft(page) {
@@ -100,6 +100,8 @@ test(`${J} #1 publishing a quiz with no pass mark refuses by name; two attempts 
         items: [
           { kind: 'lesson', title: 'TEST Sizing a trade', indent: 0, url: null },
           { kind: 'quiz', title: 'TEST Check yourself', indent: 0, url: null },
+          { kind: 'quiz', title: 'TEST Size the trade', indent: 0, url: null },
+          { kind: 'quiz', title: 'TEST Tell us', indent: 0, url: null },
           { kind: 'assignment', title: 'TEST Write-up', indent: 0, url: null },
         ],
       },
@@ -107,6 +109,8 @@ test(`${J} #1 publishing a quiz with no pass mark refuses by name; two attempts 
   });
   run.courseId = course.id;
   run.quizId = outline.outline[0].items[1].id;
+  run.mixedId = outline.outline[0].items[2].id;
+  run.surveyId = outline.outline[0].items[3].id;
 
   const page = await console_(browser);
   await quizPage(page);
@@ -153,7 +157,7 @@ test(`${J} #1 publishing a quiz with no pass mark refuses by name; two attempts 
   run.learner = await enrolledLearner(browser, 'ja12');
   const started = await learnerWrite(run.learner, 'startCourseQuiz', { itemId: run.quizId, accessCode: null });
   expect(started.status, JSON.stringify(started.body).slice(0, 300)).toBe(200);
-  expect(started.body.result.data).toMatchObject({ slug: run.quizId, number: 1, result: null });
+  expect(started.body.result.data).toMatchObject({ itemId: run.quizId, number: 1, result: null });
 
   await quizPage(page);
   await expect(editor(page).getByTestId('quiz-facts')).toContainText('Attempts by learners1');
@@ -162,6 +166,105 @@ test(`${J} #1 publishing a quiz with no pass mark refuses by name; two attempts 
   await editor(page).getByRole('button', { name: 'Take back to draft' }).click();
   await expect(editor(page).getByText('Learners have taken this quiz')).toBeVisible();
   await expect(editor(page).getByTestId('quiz-facts')).toContainText('Published');
+  await page.context().close();
+});
+
+test(`${J} #2 numeric, multi-select, essay and survey questions: tolerance, partial credit and results visibility; an essay stays pending until graded; an anonymous survey keeps no account`, async ({
+  browser,
+}) => {
+  test.setTimeout(240_000);
+  needs('courseId', 'mixedId', 'surveyId', 'learner');
+  const page = await console_(browser);
+  await quizPage(page, run.mixedId);
+  await expect(editor(page)).toBeVisible();
+  const q = (n, what) => editor(page).getByLabel(`Question ${n} ${what}`, { exact: true });
+
+  // A numeric question with a tolerance, a multi-select with partial credit and an essay.
+  for (let i = 0; i < 3; i += 1) await editor(page).getByRole('button', { name: 'Add question' }).click();
+  await q(1, 'kind').selectOption('numeric');
+  await editor(page).getByLabel('Question 1', { exact: true }).fill('TEST Risking 2% of 1000, how much is at risk?');
+  await q(1, 'points').fill('2');
+  await q(1, 'numeric answer').fill('20');
+  await q(1, 'tolerance').fill('0.5');
+  await q(2, 'kind').selectOption('multi');
+  await editor(page).getByLabel('Question 2', { exact: true }).fill('TEST Which of these cap a loss?');
+  await q(2, 'points').fill('2');
+  await q(2, 'choices, one per line').fill('A stop order\nPosition size\nHope');
+  await editor(page).getByLabel('Question 2 correct: A stop order').check();
+  await editor(page).getByLabel('Question 2 correct: Position size').check();
+  await q(2, 'partial credit').check();
+  await q(3, 'kind').selectOption('essay');
+  await editor(page).getByLabel('Question 3', { exact: true }).fill('TEST Why size a trade before entering it?');
+  await q(3, 'points').fill('4');
+  await editor(page).getByLabel('Pass mark (points)').fill('5');
+  await editor(page).getByLabel('Attempts allowed').fill('1');
+  await editor(page).getByLabel('Results shown to learners').selectOption('after_last_attempt');
+  await saveDraft(page);
+  await publish(page, `TEST ${J}: mixed questions`);
+  await expect(editor(page).getByText('quiz published')).toBeVisible();
+
+  // The learner reads the questions without any key, and answers: inside the tolerance, one of two correct choices, an essay.
+  const read = await (await api(run.learner)).get(trpc('courseQuiz', { itemId: run.mixedId }));
+  expect(read.status).toBe(200);
+  expect(read.body.result.data.questions.map((x) => x.kind)).toEqual(['numeric', 'multi', 'essay']);
+  expect(read.body.result.data.resultsVisibility).toBe('after_last_attempt');
+  expect(JSON.stringify(read.body)).not.toMatch(/correctChoiceIds|tolerance|"answer"/);
+  const started = await learnerWrite(run.learner, 'startCourseQuiz', { itemId: run.mixedId, accessCode: null });
+  expect(started.status, JSON.stringify(started.body).slice(0, 300)).toBe(200);
+  const attemptId = started.body.result.data.attemptId;
+  const [numeric, multi, essay] = read.body.result.data.questions;
+  for (const [questionId, answer] of [
+    [numeric.id, '20.4'],
+    [multi.id, [multi.choices[0].id]],
+    [essay.id, 'TEST The stop and the size fix the loss before the trade starts.'],
+  ]) {
+    const saved = await learnerWrite(run.learner, 'answerCourseQuiz', { attemptId, questionId, answer });
+    expect(saved.status, JSON.stringify(saved.body).slice(0, 300)).toBe(200);
+  }
+  const finished = await learnerWrite(run.learner, 'finishCourseQuiz', { attemptId });
+  expect(finished.status).toBe(200);
+  expect(finished.body.result.data.result).toMatchObject({ state: 'pending_review' });
+
+  // Staff see it waiting under an alias, score the essay, and the attempt is graded: 2 + 1 (partial credit) + 3.
+  await quizPage(page, run.mixedId);
+  await expect(editor(page).getByTestId('quiz-facts')).toContainText('Waiting for an essay score1');
+  const reviews = editor(page).getByTestId('quiz-reviews');
+  await expect(reviews).toContainText('Learner 1, attempt 1');
+  await expect(reviews).toContainText('TEST The stop and the size fix the loss before the trade starts.');
+  await reviews.getByLabel('Learner 1 essay 1 points (0 to 4)').fill('3');
+  await reviews.getByRole('button', { name: 'Save scores for learner 1' }).click();
+  await expect(editor(page).getByText('essays scored')).toBeVisible();
+  await expect(reviews).toContainText('No attempt is waiting for an essay score.');
+  const graded = await (await api(run.learner)).get(trpc('courseQuizAttempt', { itemId: run.mixedId }));
+  expect(graded.body.result.data.result).toMatchObject({ state: 'graded', score: 6, maxScore: 8, pass: true });
+
+  // An anonymous survey: no pass mark, answered once per device, and the reply keeps no account.
+  await quizPage(page, run.surveyId);
+  await editor(page).getByLabel('Quiz kind').selectOption('survey');
+  await editor(page)
+    .getByLabel(/Anonymous survey/)
+    .check();
+  await editor(page).getByRole('button', { name: 'Add question' }).click();
+  await q(1, 'kind').selectOption('essay');
+  await editor(page).getByLabel('Question 1', { exact: true }).fill('TEST What would make this course better?');
+  await saveDraft(page);
+  await expect(editor(page).getByText('Nothing stops Publish.')).toBeVisible();
+  await publish(page, `TEST ${J}: survey`);
+  await expect(editor(page).getByText('quiz published')).toBeVisible();
+  await expect(editor(page).getByTestId('quiz-facts')).toContainText('Anonymous survey');
+  const survey = await (await api(run.learner)).get(trpc('courseQuiz', { itemId: run.surveyId }));
+  expect(survey.body.result.data).toMatchObject({ kind: 'survey', anonymous: true, passMark: null });
+  const token = `TEST-${RUN}-device-token`;
+  const answers = { [survey.body.result.data.questions[0].id]: 'TEST More worked examples.' };
+  const sent = await learnerWrite(run.learner, 'submitCourseSurvey', { itemId: run.surveyId, clientToken: token, answers });
+  expect(sent.status, JSON.stringify(sent.body).slice(0, 300)).toBe(200);
+  expect(sent.body.result.data).toMatchObject({ itemId: run.surveyId, anonymous: true });
+  expect(JSON.stringify(sent.body)).not.toContain(run.learner.userId ?? '\u0000');
+  const again = await learnerWrite(run.learner, 'submitCourseSurvey', { itemId: run.surveyId, clientToken: token, answers });
+  expect(again.status).toBe(409);
+  expect(again.body?.error?.data?.cause?.code).toBe('academy.survey_duplicate');
+  await quizPage(page, run.surveyId);
+  await expect(editor(page).getByTestId('quiz-facts')).toContainText('Survey responses1');
   await page.context().close();
 });
 
