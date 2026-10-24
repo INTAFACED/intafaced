@@ -95,14 +95,31 @@ test(`${J} #1 joins the waitlist signed out and sees a queue position`, async ({
   // Coming back to the link shows the same place, read again, not remembered.
   await page.goto(`/waitlist?code=${code}`);
   await expect(page.getByRole('heading', { level: 1, name: 'Your place in the queue' })).toBeVisible();
-  run.write({ code, firstRank: shown.rank });
+  run.write({ code });
 });
 
 test(`${J} #2 each friend who joins with my link moves me up; ties go by join order`, async ({ browser }) => {
-  const { code, firstRank } = state('code', 'firstRank');
+  const { code } = state('code');
+  const bring = async (refCode, who) => {
+    const p = await visitor(browser);
+    await p.goto(`/waitlist?ref=${refCode}`);
+    await joinAs(p, `jc20-${who}-${tag}@local-test.invalid`);
+    await p.context().close();
+  };
+  // A rival joins after me and brings three friends, so they are ahead of me and my friends have someone to move me past
+  // (on a fresh stack I would otherwise be first already).
+  const rival = await visitor(browser);
+  await rival.goto('/waitlist');
+  const rivalCode = await joinAs(rival, `jc20-rival-${tag}@local-test.invalid`);
+  await rival.context().close();
+  for (const n of [1, 2, 3]) await bring(rivalCode, `rivalfriend${n}`);
+  expect((await standing(rivalCode)).rank).toBeLessThan((await standing(code)).rank);
+
   const page = await visitor(browser);
   await page.goto(`/waitlist?code=${code}`);
   let before = await shownRank(page);
+  const start = before.rank;
+  expect(start).toBeGreaterThan(1);
   // Two friends at least; on a long-lived stack an earlier run may have left people waiting with friends of their own, so
   // keep inviting (twenty-five at most) until I am first in the queue, which #3's wave then reaches.
   for (let n = 1; n <= 2 || (before.rank > 1 && n <= 25); n++) {
@@ -116,7 +133,7 @@ test(`${J} #2 each friend who joins with my link moves me up; ties go by join or
     expect(after.rank).toBeLessThanOrEqual(before.rank);
     before = after;
   }
-  expect(before.rank).toBeLessThan(firstRank);
+  expect(before.rank).toBeLessThan(start);
   expect(before.rank).toBe(1);
 
   // Ties: x joins before y. With no friends each, x is ahead; one friend moves y past x; one friend for x too is a tie,
@@ -128,12 +145,6 @@ test(`${J} #2 each friend who joins with my link moves me up; ties go by join or
   await y.goto('/waitlist');
   const yCode = await joinAs(y, `jc20-y-${tag}@local-test.invalid`);
   expect((await standing(xCode)).rank).toBeLessThan((await standing(yCode)).rank);
-  const bring = async (refCode, who) => {
-    const p = await visitor(browser);
-    await p.goto(`/waitlist?ref=${refCode}`);
-    await joinAs(p, `jc20-${who}-${tag}@local-test.invalid`);
-    await p.context().close();
-  };
   await bring(yCode, 'yfriend');
   expect((await standing(yCode)).rank).toBeLessThan((await standing(xCode)).rank);
   await bring(xCode, 'xfriend');
