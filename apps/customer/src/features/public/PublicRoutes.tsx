@@ -3,7 +3,9 @@ import { useSession } from '../session/session';
 import { Page, EmptyState } from '../../shared/ui';
 import { AuthForm } from './AuthForm';
 import { SignUp } from './SignUp';
+import { CannotSignIn } from './CannotSignIn';
 import { ConfirmEmail } from './ConfirmEmail';
+import { RecoverAccount } from './RecoverAccount';
 import { Invitation } from './Invitation';
 import { DevelopersRoutes } from '../developers/DevelopersRoutes';
 import { PublicHelp as Help } from './PublicHelp';
@@ -73,6 +75,10 @@ export function PublicRoutes({ path }: { path: string }) {
           <SignUp />
         ) : path === '/confirm-email' ? (
           <ConfirmEmail />
+        ) : path === '/cannot-sign-in' ? (
+          <CannotSignIn />
+        ) : path === '/recover-account' ? (
+          <RecoverAccount />
         ) : auth ? (
           <AuthForm register={false} />
         ) : path === '/invite' ? (

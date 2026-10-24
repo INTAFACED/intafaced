@@ -149,6 +149,50 @@ export const mfaResetStatusSchema = z
   .strict();
 export const mfaResetCancelSchema = z.object({ cancelled: z.boolean() }).strict();
 /**
+ * Support-assisted recovery (I-signin-sessions-24; J-identity-05 #5, J-identity-19), svc-identity's top-level
+ * `supportRecovery`. An operator opens a case (masked proved address and live sessions, no link yet), files the
+ * `approvalProposal` as a four-eyes approval that a different operator approves, then sends a one-time link to the
+ * account's proved address. No answer ever carries the link. `state` reads `expired` once a sent link's lifetime ended.
+ * `redeem` is the signed-out page the link opens: it answers only that the account was recovered.
+ */
+export const supportRecoveryCaseSchema = z
+  .object({
+    caseId: z.string().guid(),
+    userId: z.string().guid(),
+    handle: z.string(),
+    state: z.enum(['open', 'link_sent', 'used', 'cancelled', 'expired']),
+    reason: z.string(),
+    openedBy: z.string().guid(),
+    openedAt: z.string().datetime({ offset: true }),
+    approvedBy: z.string().guid().nullable(),
+    linkSentAt: z.string().datetime({ offset: true }).nullable(),
+    linkExpiresAt: z.string().datetime({ offset: true }).nullable(),
+    usedAt: z.string().datetime({ offset: true }).nullable(),
+    closedAt: z.string().datetime({ offset: true }).nullable(),
+    contact: z.object({ email: z.string().nullable(), emailProved: z.boolean() }).strict(),
+    sessions: z.array(
+      z
+        .object({
+          deviceLabel: z.string().nullable(),
+          created: z.string().datetime({ offset: true }),
+          lastSeen: z.string().datetime({ offset: true }),
+        })
+        .strict(),
+    ),
+    approvalProposal: z
+      .object({
+        actionType: z.literal('identity.support_recovery_link'),
+        targetService: z.literal('svc-identity'),
+        targetId: z.string().guid(),
+        expectedVersion: z.literal('1'),
+        payloadHash: z.string(),
+      })
+      .strict(),
+  })
+  .strict();
+export type SupportRecoveryCase = z.infer<typeof supportRecoveryCaseSchema>;
+export const supportRecoveryRedeemSchema = z.object({ recovered: z.literal(true) }).strict();
+/**
  * A mail another service asks identity to send to a customer's own proved address (`POST /internal/mail`, service
  * credentials). Identity holds the address, so the caller names the account and never sees or sends one. Each purpose
  * has one link shape that identity builds from `token`, and one caller allowed to ask for it:

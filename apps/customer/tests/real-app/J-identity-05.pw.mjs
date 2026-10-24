@@ -245,12 +245,107 @@ test(`${J} #4 replacing the authenticator on the new phone ends the old device's
   await next.context.close();
 });
 
+let founderSessions;
+/** The stack's founder sessions, signed in once for the file: Support's two people for the recovery case. */
+function founders() {
+  founderSessions ??= (async () => {
+    const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
+    const ctx = await gates.makeContext({ log: () => {} });
+    return { gates, ctx, sessions: await gates.approverSessions(ctx) };
+  })();
+  // A failed sign-in is not kept: the next staff call signs in again.
+  founderSessions.catch(() => {
+    founderSessions = undefined;
+  });
+  return founderSessions;
+}
+
+/** One identity call as a member of Support (founder `a` or `b` of the local stack), answering its data or its refusal. */
+async function support(kind, procedure, input, founder = 'a') {
+  const { ctx, sessions } = await founders();
+  const res =
+    kind === 'query'
+      ? await ctx.edge.query('identity', procedure, input, sessions[founder].token)
+      : await ctx.edge.mutate('identity', procedure, input, sessions[founder].token);
+  return { status: res.status, data: res.json?.result?.data, text: res.text };
+}
+
 test(`${J} #5 support recovery: a case with a mailed one-time link, a second approver, and the agent never sees the link`, async ({
   page,
+  browser,
 }) => {
-  await page.goto('/login');
-  await page.getByRole('link', { name: 'I cannot sign in' }).click(UNBUILT);
-  await expect(page.getByRole('heading', { name: /a person answers/i })).toBeVisible(UNBUILT);
+  test.setTimeout(150_000);
+  const { who } = await withAuthenticator(page);
+  // The phone is gone: on a fresh browser the sign-in page's "I cannot sign in" says a person answers, and how.
+  const lost = await browser.newContext();
+  const elsewhere = await lost.newPage();
+  await elsewhere.goto('/login');
+  await elsewhere.getByRole('link', { name: 'I cannot sign in' }).click();
+  await expect(elsewhere.getByRole('heading', { name: /a person answers/i })).toBeVisible();
+  await expect(elsewhere.getByText('A second member of Support must approve the case.')).toBeVisible();
+
+  // Support finds the account and opens a case: the masked address and live sessions, no link yet.
+  const found = await support('query', 'accountDirectory.search', { email: who.email });
+  const userId = found.data?.rows?.[0]?.id;
+  expect(userId, found.text).toBeTruthy();
+  const opened = await support('mutate', 'supportRecovery.open', {
+    userId,
+    reason: 'TEST: lost phone and recovery codes, identity checked on a call',
+    requestId: `j05-5-${who.handle}`,
+  });
+  expect(opened.data, opened.text).toMatchObject({ state: 'open', approvedBy: null, linkSentAt: null, contact: { emailProved: true } });
+  expect(opened.data.contact.email).not.toBe(who.email);
+  expect(opened.data.sessions.length).toBeGreaterThan(0);
+  expect(mailedLines(who.email, 'support-recovery')).toHaveLength(0);
+
+  // Without a second approver no link is made.
+  const alone = await support('mutate', 'supportRecovery.sendLink', { caseId: opened.data.caseId, approvalId: 'apr-none' });
+  expect(alone.status).toBe(412);
+  expect(alone.text).toContain('identity.support_recovery_approval_required');
+  expect(mailedLines(who.email, 'support-recovery')).toHaveLength(0);
+
+  // The agent files the case's approval, a different person approves it, and the agent sends the link.
+  const { gates, ctx, sessions } = await founders();
+  const { approvalId } = await gates.twoPerson(ctx, sessions, { ...opened.data.approvalProposal, policyVersion: 'local-test:v1' });
+  const sent = await support('mutate', 'supportRecovery.sendLink', { caseId: opened.data.caseId, approvalId });
+  expect(sent.data, sent.text).toMatchObject({ state: 'link_sent', approvedBy: expect.any(String) });
+  expect(sent.data.approvedBy).not.toBe(sent.data.openedBy);
+  await expect.poll(() => mailedLines(who.email, 'support-recovery').length, { timeout: 20_000 }).toBe(1);
+  const link = /\blink=(\S+)/.exec(mailedLines(who.email, 'support-recovery')[0])[1];
+  const token = new URL(link, 'http://x').searchParams.get('token');
+  // The agent never sees it: no answer of the case carries it.
+  const watched = await support('query', 'supportRecovery.case', { caseId: opened.data.caseId });
+  expect(watched.data.state).toBe('link_sent');
+  expect(watched.text).not.toContain(token);
+  expect(sent.text).not.toContain(token);
+
+  // The person opens the link from the mail on the new phone and recovers the account.
+  await elsewhere.goto(`/${link}`);
+  await expect(elsewhere).toHaveURL(/\/recover-account$/);
+  await elsewhere.getByRole('button', { name: 'Recover', exact: true }).click();
+  await expect(elsewhere.getByRole('heading', { name: 'Your account is recovered' })).toBeVisible();
+  // The old phone's sessions ended.
+  await page.goto('/money');
+  await expect(page.getByRole('heading', { name: 'Sign in to continue' })).toBeVisible({ timeout: 30_000 });
+  expect((await support('query', 'supportRecovery.case', { caseId: opened.data.caseId })).data.state).toBe('used');
+
+  // The link worked once.
+  await elsewhere.goto(`/${link}`);
+  await elsewhere.getByRole('button', { name: 'Recover', exact: true }).click();
+  await expect(elsewhere.getByRole('heading', { name: 'This recovery link does not work' })).toBeVisible();
+
+  // The password alone signs in now, and Security offers a new authenticator app. Recovery un-trusted every device, so
+  // this one is approved with the code mailed to the proved address first.
+  await elsewhere.goto('/login');
+  const seen = mailedCodes(who.email, 'new-device-code').length;
+  await fillSignIn(elsewhere, who);
+  await expect(elsewhere.getByRole('heading', { name: 'Authorise this device' })).toBeVisible({ timeout: 10_000 });
+  await elsewhere.getByLabel('Device code from the email').fill(await nextMailedCode(who.email, seen, 20_000, 'new-device-code'));
+  await elsewhere.getByRole('button', { name: 'Approve this device' }).click();
+  await elsewhere.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 30_000 });
+  await elsewhere.goto('/uc/safe');
+  await expect(elsewhere.getByRole('button', { name: 'Start authenticator setup' }).first()).toBeVisible({ timeout: 30_000 });
+  await lost.close();
 });
 
 test(`${J} #6 mail and inbox notices for each factor change`, async ({ page }) => {

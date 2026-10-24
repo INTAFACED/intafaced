@@ -11,6 +11,11 @@
       "value": "20",
       "note": "A locked-out second-step reset completes twenty seconds after its mailed code is confirmed, so the journey sees the waiting time, a stop from a signed-in session, and a reset that completes (J-identity-05 #2, #3)."
     },
+    "IDENTITY_SUPPORT_RECOVERY_LINK_TTL_SECONDS": {
+      "service": "identity",
+      "value": "1800",
+      "note": "A recovery link a Support case mails works for thirty minutes, so the journey can send it, use it once and see a second use refused (J-identity-05 #5)."
+    },
     "IDENTITY_SECURITY_LOCK_UNLOCK_WAIT_SECONDS": {
       "service": "identity",
       "value": "86400",
