@@ -284,6 +284,10 @@ export const orders = trade.table(
      * settleable when svc-identity is down.
      */
     feeDiscountBps: bps('fee_discount_bps').notNull().default('0'),
+    /** The fee tier at placement (fee-tiers.ts); fills charge it, as they charge the placement schedule version. */
+    feeTier: text('fee_tier').notNull().default('regular'),
+    /** Whether its fills count toward the owner's fee tier, decided at placement (fee-tier-store.ts). */
+    tierVolume: boolean('tier_volume').notNull().default(true),
     tag: text('tag'),
     /**
      * The protection price a market BUY was submitted at. A market buy is

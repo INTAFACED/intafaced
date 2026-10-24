@@ -47,6 +47,7 @@ import { cancelScaleGroup, createScaleGroup, getScaleGroup, type ScaleCreateInpu
 import { appendOrderEvent, listAlgoReports, parentIdFromClientOrder, type OrderEventKind } from '../orders/order-events.js';
 import { UNPUBLISHED_FEE_SCHEDULE, type OwnerFeeSchedule } from './fee-schedule.js';
 import { feeScheduleAt as feeScheduleAtStore } from './fee-schedule-store.js';
+import { feeTierAt as feeTierAtStore } from './fee-tier-store.js';
 import { operatorSlippageCapBps, type Touch } from '../admin/risk.js';
 import { type HoldRead, type HoldUnknownAlert, type HoldUnknownSweepResult } from './hold-outcome.js';
 import { toMarket, toOrder, type OrderRow } from './rows.js';
@@ -1338,13 +1339,18 @@ export class TradeService {
 
   // ── Holds: the only two things that can happen to one ─────────────────────
 
-  private async assertOwnerFeeSchedulePublished(market: Pick<Market, 'kind' | 'symbol'>, at?: Date): Promise<void> {
-    return holds.assertOwnerFeeSchedulePublished(this.internal, market, at);
+  private async assertOwnerFeeSchedulePublished(market: Pick<Market, 'kind' | 'symbol'>, at?: Date, tierId?: string): Promise<void> {
+    return holds.assertOwnerFeeSchedulePublished(this.internal, market, at, tierId);
   }
 
   /** The owner schedule in force at `at` (a later approved version, else the boot value). */
   private feeScheduleAt(at: Date): Promise<OwnerFeeSchedule> {
     return feeScheduleAtStore(this.sql, this.feeSchedule, at);
+  }
+
+  /** The fee tier an order `userId` places at `at` is charged at (fee-tier-store.ts). */
+  async feeTierAt(userId: string, at: Date = this.now()): Promise<string> {
+    return feeTierAtStore(this.sql, await this.feeScheduleAt(at), userId, at);
   }
 
   private async ratesForFill(
@@ -1353,8 +1359,9 @@ export class TradeService {
     kind: 'spot' | 'futures' | 'options' = 'spot',
     symbol?: string,
     placedAt: { readonly maker: Date; readonly taker: Date } = { maker: this.now(), taker: this.now() },
+    tiers?: { readonly maker: string; readonly taker: string },
   ): Promise<{ makerFeeBps: number; takerFeeBps: number; makerRebateBps: number }> {
-    return holds.ratesForFill(this.internal, makerDiscountBps, takerDiscountBps, kind, symbol, placedAt);
+    return holds.ratesForFill(this.internal, makerDiscountBps, takerDiscountBps, kind, symbol, placedAt, tiers);
   }
 
   private ratesForSchedule(
@@ -1363,8 +1370,9 @@ export class TradeService {
     takerDiscountBps: number,
     kind: 'spot' | 'futures' | 'options',
     symbol?: string,
+    tierId?: string,
   ) {
-    return holds.ratesForSchedule(this.internal, schedule, makerDiscountBps, takerDiscountBps, kind, symbol);
+    return holds.ratesForSchedule(this.internal, schedule, makerDiscountBps, takerDiscountBps, kind, symbol, tierId);
   }
 
   private assertFillFeesPostable(

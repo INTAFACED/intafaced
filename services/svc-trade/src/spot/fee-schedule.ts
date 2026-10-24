@@ -9,6 +9,7 @@
  */
 
 import { logRefusalSpec } from '../refusal-spec-log.js';
+import { parseTierProgram, type FeeTierProgram } from './fee-tiers.js';
 
 export const TRADE_FEE_SCHEDULE_ENV = 'TRADE_FEE_SCHEDULE' as const;
 
@@ -83,6 +84,8 @@ export type OwnerFeeSchedule =
       /** Symbol → pair group. A symbol not listed sits in `defaultPairGroup`. */
       readonly pairGroups?: Readonly<Record<string, string>>;
       readonly defaultPairGroup?: string;
+      /** Tiers by 30-day volume (fee-tiers.ts). Absent or null: every account is on the regular tier. */
+      readonly tierProgram?: FeeTierProgram | null;
     };
 
 export const UNPUBLISHED_FEE_SCHEDULE: OwnerFeeSchedule = { published: false };
@@ -163,8 +166,10 @@ export function parseFeeScheduleJson(raw: string | null | undefined): OwnerFeeSc
       rows: spot.rows,
       pairGroups: spot.pairGroups,
       defaultPairGroup: spot.defaultPairGroup,
+      tierProgram: parseTierProgram(obj.tierProgram, spot.rows),
     };
   }
+  parseTierProgram(obj.tierProgram, undefined);
 
   const makerBps = parseBpsDecimalString(obj.makerBps, 'makerBps');
   const takerBps = parseBpsDecimalString(obj.takerBps, 'takerBps');

@@ -7,6 +7,7 @@ import type { Sql } from 'postgres';
 import type { LifecycleAdmissionProof } from '../lifecycle-proof.js';
 import { edgeTrustFromEnv } from '@intafaced/config';
 import { env } from '../env.js';
+import { REGULAR_FEE_TIER } from './fee-schedule.js';
 import { orderIdFor } from './ids.js';
 import { closePositionOnMatching, type MatchingCloseRequest } from './matching-close.js';
 import type { EngineSubmitResult, MatchingClient } from './matching-client.js';
@@ -53,6 +54,7 @@ type CloseHost = {
   readonly optionsSettlementAssetLaw: string;
   now: () => Date;
   perks: { perksOf(userId: string): Promise<{ feeDiscountBps: number }> };
+  feeTierAt: (userId: string) => Promise<string>;
   requireMarket: (input: { symbol?: string; marketId?: string }) => Promise<Market>;
   findOrder: (orderId: string) => Promise<OrderRecord | null>;
   assertLifecycleAction: (market: Market, action: 'PLACE') => Promise<LifecycleAdmissionProof>;
@@ -134,6 +136,9 @@ export async function closeSpotPosition(svc: TradeService, principal: Principal,
   }
 
   const lifecycleProof = await host.assertLifecycleAction(market, 'PLACE');
+  // The fee tier is read before the engine is asked: once the flatten has printed, the row must be written whatever
+  // else is down, so nothing that can fail is read between the two.
+  const feeTier = market.paper ? REGULAR_FEE_TIER : await host.feeTierAt(userId);
   const request: MatchingCloseRequest = {
     orderId,
     accountId: userId,
@@ -160,14 +165,14 @@ export async function closeSpotPosition(svc: TradeService, principal: Principal,
   const inserted = await host.sql<Array<{ id: string }>>`
     INSERT INTO trade.orders (
       id, user_id, market_id, client_order_id, side, type,
-      price, qty, status, tif, hold_asset, hold_amount, fee_discount_bps, seeded, lifecycle_proof,
+      price, qty, status, tif, hold_asset, hold_amount, fee_discount_bps, fee_tier, seeded, lifecycle_proof,
       session_id, api_key_id
     ) VALUES (
       ${orderId}, ${userId}, ${market.id}, ${input.clientOrderId},
       ${flatten.side}, ${'market'},
       ${null}::numeric,
       ${formatAmount(flatten.qty)}::numeric, 'pending', ${'IOC'},
-      ${hold.assetId}, ${formatAmount(market.paper ? 0n : hold.amount)}::numeric, ${perks.feeDiscountBps},
+      ${hold.assetId}, ${formatAmount(market.paper ? 0n : hold.amount)}::numeric, ${perks.feeDiscountBps}, ${feeTier},
       ${false}, ${JSON.stringify(lifecycleProof)}::text::jsonb,
       ${attribution.sessionId}, ${attribution.apiKeyId}
     )

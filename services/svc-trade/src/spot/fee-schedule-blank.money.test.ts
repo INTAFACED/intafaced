@@ -76,7 +76,7 @@ describe('fee-schedule blank hitch (source)', () => {
     const src = tradeServiceSource();
     // Placement and settleFill live in spot/trade-service/order-place.ts and fills.ts since the split by area.
     const place = tradeServiceArea('order-place');
-    const placeHitch = place.indexOf('svc.assertOwnerFeeSchedulePublished(market);');
+    const placeHitch = place.indexOf('svc.assertOwnerFeeSchedulePublished(market, undefined, feeTier);');
     const orderHold = place.indexOf('recipes.orderHold({');
     expect(placeHitch).toBeGreaterThan(-1);
     expect(orderHold).toBeGreaterThan(-1);

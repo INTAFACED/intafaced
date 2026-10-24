@@ -140,6 +140,9 @@ const messages = {
   'One Lab entry': 'One Lab entry',
   'Trading fees': 'Trading fees',
   'Maker and taker rates by pair group and tier': 'Maker and taker rates by pair group and tier',
+  'My fee tier': 'My fee tier',
+  'Your tier, the volume counted toward the next one, and the snapshots':
+    'Your tier, the volume counted toward the next one, and the snapshots',
   Money: 'Money',
   Assets: 'Assets',
   'Holdings and available funds': 'Holdings and available funds',
@@ -544,6 +547,9 @@ export const navigationCopy: ReturnType<typeof defineCopy<typeof messages>> = de
     'One Lab entry': 'Una entrada del Lab',
     'Trading fees': 'Comisiones de trading',
     'Maker and taker rates by pair group and tier': 'Comisiones maker y taker por grupo de pares y nivel',
+    'My fee tier': 'Mi nivel de comisiones',
+    'Your tier, the volume counted toward the next one, and the snapshots':
+      'Tu nivel, el volumen contado para el siguiente y las instantáneas',
     Money: 'Dinero',
     Assets: 'Activos',
     'Holdings and available funds': 'Activos y fondos disponibles',
@@ -879,6 +885,8 @@ export const navigationCopy: ReturnType<typeof defineCopy<typeof messages>> = de
     'One Lab entry': 'Une entrée du Lab',
     'Trading fees': 'Frais de trading',
     'Maker and taker rates by pair group and tier': 'Frais maker et taker par groupe de paires et niveau',
+    'My fee tier': 'Mon niveau de frais',
+    'Your tier, the volume counted toward the next one, and the snapshots': 'Votre niveau, le volume compté pour le suivant et les relevés',
     Money: 'Argent',
     Assets: 'Actifs',
     'Holdings and available funds': 'Avoirs et fonds disponibles',

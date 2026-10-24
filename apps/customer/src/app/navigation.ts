@@ -88,6 +88,13 @@ export const rooms: readonly Room[] = [
   },
   { path: '/lab', title: 'Lab', description: 'Entries the owner publishes', area: 'public' },
   { path: '/fees', title: 'Trading fees', description: 'Maker and taker rates by pair group and tier', area: 'public' },
+  {
+    path: '/fees/my-tier',
+    title: 'My fee tier',
+    description: 'Your tier, the volume counted toward the next one, and the snapshots',
+    area: 'public',
+    returnAfterSignIn: true,
+  },
   { path: '/lab/detail/:id', title: 'Lab entry', description: 'One Lab entry', area: 'public', hidden: true },
   { path: '/bzb', title: 'Lab', description: 'Entries the owner publishes', area: 'public', alias: '/lab' },
   { path: '/home', title: 'Home', description: 'Your money and markets', door: 'Home', area: 'home', screen: 'home' },

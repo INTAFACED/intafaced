@@ -429,6 +429,22 @@ which is exactly why it is the right place to be strict.
 > needs `tradeFill` to accept fee amounts instead of bps, which is a `packages/ledger-client` change and
 > therefore its own PR first (§15.2).
 
+### Volume tiers (`tierProgram`, J-cex-spot-10 #5-#6)
+
+A rows fee schedule may carry the owner's `tierProgram`: volume thresholds (`tierId`, `minVolume30d`), the quote
+assets whose spot fills count (`volumeQuotes`, one unit each), and a daily `snapshotTimeUtc`. It is written through
+the same two-person `admin.fees.set` door and versioned with the rows. Every threshold tier needs a row in every pair
+group. Rules this service cannot apply yet (`downgradeGraceDays`, `subAccounts`, `botsAndCopy`, an asset tier
+`minAssets`) must be written as `null` and refuse when set.
+
+`spot/fee-tier-jobs.ts` (every `TRADE_FEE_TIER_JOBS_INTERVAL_MS`, blank is off) writes the snapshot due at the
+programme's time: one `trade.fee_tier_snapshots` row per account under `tier-snapshot:<minute>:<userId>`, then the
+`trade.fee_tier_snapshot_runs` row that puts it in force, in one transaction; a re-run writes nothing. Counted volume
+excludes the house market maker, sub-accounts, other quote assets, and orders placed by an algorithm, an execution
+child or copy trading. An order takes the tier of the last finished snapshot when it is placed and keeps it on the
+row (`orders.fee_tier`). No programme means every account is regular. `GET /api/v1/account/fee-tier` gives the
+caller's tier, counted volume, next threshold, next snapshot and own snapshot rows.
+
 ---
 
 ## Database constraints as a backstop
@@ -476,7 +492,7 @@ The public tRPC proof is `src/copy/router-mount.test.ts`. It blocks an in-flight
 | TWAP / VWAP / POV                                                              | `trade.algo`                                                                                                                                            |
 | internal market-maker bot, venue aggregation                                   | `trade.mm-bot`, `venue.aggregation`                                                                                                                     |
 | CCXT REST/ws surface over this router                                          | `trade.ccxt-api`                                                                                                                                        |
-| volume aggregates per user per window feeding fee tiers                        | SOCKET §13 — a windowed job over `fills`; the fills it needs are all written here already                                                               |
+| volume aggregates per user per window feeding fee tiers                        | `spot/fee-tier-store.ts` daily snapshot (see Volume tiers)                                                                                              |
 
 The `market_kind` enum already carries `futures` and `options`, so listing one later is an `INSERT`, not a
 migration.
