@@ -108,7 +108,7 @@
     },
     "IDENTITY_NEW_DEVICE_CHECK": {
       "service": "identity",
-      "value": "off",
+      "value": "on",
       "note": "The new-device check stays off on the stack until the journey helpers sign in through it; then this turns on (J-identity-02 #5)."
     },
     "IDENTITY_NEW_DEVICE_TTL_SECONDS": {
