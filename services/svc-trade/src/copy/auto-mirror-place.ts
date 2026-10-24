@@ -39,7 +39,8 @@ export type PlaceFollowerOrderInput = {
 
 export type PlaceFollowerOrderPort = (principal: Principal, input: PlaceFollowerOrderInput) => Promise<{ orderId: string }>;
 
-export type InspectCopyMarket = (symbol: string) => Promise<{ paper: boolean } | null>;
+/** `lotSize` rounds a fixed-amount copy down to the market's quantity grid. */
+export type InspectCopyMarket = (symbol: string) => Promise<{ paper: boolean; lotSize?: Amount } | null>;
 
 /** Denylist: only 1/true/on/yes enable. Empty / unset / anything else = off. */
 export function parseCopyPlaceMirrorFlag(raw: string | boolean | undefined | null): boolean {

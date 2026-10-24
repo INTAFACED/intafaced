@@ -85,5 +85,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY })
     TRADE_COPY_DISCLOSURE_LAW: testValue('TRADE_COPY_DISCLOSURE_LAW'),
     TRADE_COPY_METRIC_DEFINITIONS: testValue('TRADE_COPY_METRIC_DEFINITIONS'),
     TRADE_COPY_MIN_TIER: testValue('TRADE_COPY_MIN_TIER'),
+    // LOCAL TEST, not an owner decision: the copy driver places each copy as the follower, so J-copy-bots-otc-01 #8
+    // sees a first copied trade on TEST money. Production leaves it off until the owner turns copy placing on.
+    TRADE_COPY_PLACE_MIRROR: 'on',
   }),
 });

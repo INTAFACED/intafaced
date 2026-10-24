@@ -1698,6 +1698,16 @@ export function createTradeRouter(
           }),
         ),
 
+      /** The caller's copied orders on one of their follows, newest first. */
+      followPositions: scopedProcedure('trade:read', { module: 'trade' })
+        .input(z.object({ followId: z.string().min(1).max(64) }))
+        .query(({ ctx, input }) =>
+          guard(async () => {
+            if (!copy) throw new CopyError('Follow not found', 'trade.copy_not_following');
+            return copy.followPositions(ctx.principal, input);
+          }),
+        ),
+
       /** Events for the caller's own follow, since the follow began. Limit is required. */
       followEvents: scopedProcedure('trade:read', { module: 'trade' })
         .input(
