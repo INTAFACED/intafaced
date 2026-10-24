@@ -122,7 +122,7 @@ import { registerClosureFinalize } from './closure/closure-job.js';
 import { createClosureOpsRouter } from './closure/closure-ops-router.js';
 import { AccountClosureService } from './closure/closure-service.js';
 import { SqlWaitlistStore } from './waitlist/waitlist-store.js';
-import { WaitlistService } from './waitlist/waitlist-service.js';
+import { parseWaveSize, WaitlistService } from './waitlist/waitlist-service.js';
 import { registerAffiliateProducerAccrue } from './affiliates/producer-accrue.js';
 import { registerBusinessDirectoryRoutes, sqlBusinessDirectory } from './business-directory.js';
 import { registerAffiliateProducerPayout } from './affiliates/producer-payout.js';
@@ -417,13 +417,17 @@ const ledger = env.LEDGER_URL ? createLedgerClient(env.LEDGER_URL, env.INTERNAL_
  */
 const vault = bootKycVault(sql, env.IDENTITY_KYC_DOC_KEY);
 
-const waitlist = new WaitlistService(new SqlWaitlistStore(sql), {
-  drop: env.LAUNCH_DROP,
-  env: {
-    INTAFACED_FLAG_WAITLIST_ENABLED: env.INTAFACED_FLAG_WAITLIST_ENABLED,
-    INTAFACED_FLAG_REFERRAL_QUEUE: env.INTAFACED_FLAG_REFERRAL_QUEUE,
+const waitlist = new WaitlistService(
+  new SqlWaitlistStore(sql),
+  {
+    drop: env.LAUNCH_DROP,
+    env: {
+      INTAFACED_FLAG_WAITLIST_ENABLED: env.INTAFACED_FLAG_WAITLIST_ENABLED,
+      INTAFACED_FLAG_REFERRAL_QUEUE: env.INTAFACED_FLAG_REFERRAL_QUEUE,
+    },
   },
-});
+  parseWaveSize(env.IDENTITY_WAITLIST_WAVE_SIZE),
+);
 
 installApiKeyIpExchange(auth, sql);
 installApiKeyAccountExchange(auth, sql);

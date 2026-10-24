@@ -41,6 +41,11 @@
       "value": "5",
       "note": "The lapse sweep runs every five seconds on the stack."
     },
+    "IDENTITY_WAITLIST_WAVE_SIZE": {
+      "service": "identity",
+      "value": "2",
+      "note": "Two waiting entries per waitlist wave, so the journey sees the top two released and the third still waiting (J-campaigns-20 #3)."
+    },
     "IDENTITY_WATCHLIST_LIST_CAP": {
       "service": "identity",
       "value": "10",

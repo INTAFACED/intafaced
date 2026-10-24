@@ -245,6 +245,11 @@ const schema = serviceEnvSchema
       IDENTITY_REFERRAL_LAPSE_PERIOD_SECONDS: z.string().optional(),
       /** Owner setting: how often the lapse sweep runs, in whole seconds. NO DEFAULT. Blank leaves the sweep timer off. */
       IDENTITY_REFERRAL_LAPSE_SWEEP_SECONDS: z.string().optional(),
+      /**
+       * Owner setting: how many waiting entries one waitlist wave releases (RC-campaigns-03, J-campaigns-20 #3). NO DEFAULT.
+       * Blank refuses every release (`drop.wave_unset`) and releases nobody. Parsed at start by `parseWaveSize`.
+       */
+      IDENTITY_WAITLIST_WAVE_SIZE: z.string().optional(),
       IDENTITY_MAX_SUB_ACCOUNTS: z.preprocess((v) => {
         if (v === undefined || v === null) return undefined;
         if (typeof v === 'string' && v.trim() === '') return undefined;
