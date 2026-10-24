@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { P2pError } from './p2p-service.js';
+import { toTrpcError } from './router.js';
 import { brokenRuleClass, parseAdContentRules } from './ad-content-rules.js';
 
 /** P-ads-merchant-05: compliance's content rules for ad terms, refused by rule class. */
@@ -41,5 +43,11 @@ describe('ad content rules', () => {
     const literal = parseAdContentRules(JSON.stringify({ link: ['a.b(c)*'] }));
     expect(brokenRuleClass(literal, 'aXb(c)')).toBeNull();
     expect(brokenRuleClass(literal, 'see a.b(c)* here')).toBe('link');
+  });
+
+  it('reaches the caller as a request the person can fix, and a broken list as the operator’s', () => {
+    const violation = new P2pError('x', 'p2p.content_rule_violation', { until: null, ruleClass: 'messenger' });
+    expect(toTrpcError(violation).code).toBe('BAD_REQUEST');
+    expect(toTrpcError(new P2pError('x', 'p2p.content_rules_invalid')).code).toBe('PRECONDITION_FAILED');
   });
 });
