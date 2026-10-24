@@ -3,6 +3,10 @@ import { z } from 'zod';
 import {
   ACADEMY_DISCUSSION_GENERAL_TOPIC,
   academyDiscussionCourseSchema,
+  academyDiscussionAcceptResultSchema,
+  academyDiscussionFollowResultSchema,
+  academyDiscussionImageSchema,
+  academyDiscussionLikeResultSchema,
   academyDiscussionPostSchema,
   academyDiscussionReplySchema,
   academyDiscussionThreadSchema,
@@ -31,6 +35,7 @@ import { AcademyRefusal } from './AcademyLmsParts';
 /** The page sizes these reads ask for. */
 const COURSES_PAGE = 50;
 const POSTS_PAGE = 50;
+const REPLIES_PAGE = 200;
 
 type Failure = Extract<ApiResult<never>, { ok: false }>;
 type Outcome = { kind: 'refused'; failure: Failure } | { kind: 'uncertain' } | { kind: 'done' };
@@ -66,6 +71,8 @@ function authorText(author: AcademyDiscussionAuthor, t: T) {
 }
 
 const likesText = (likes: number, t: T) => (likes === 1 ? t('discussionLikesOne') : t('discussionLikes', { count: likes }));
+const repliesText = (count: number, t: T) => (count === 1 ? t('discussionRepliesOne') : t('discussionReplies', { count }));
+const postsText = (count: number, t: T) => (count === 1 ? t('discussionTopicPostsOne') : t('discussionTopicPosts', { count }));
 
 function OutcomeLine({ outcome, done, testId }: { outcome: Outcome; done: string; testId: string }) {
   const { t } = copy.useCopy();
@@ -153,45 +160,46 @@ export function AcademyDiscussionPage({ courseSlug }: { courseSlug: string }) {
       <a className="text-link" href="/academy/rooms">
         {t('discussionAll')}
       </a>
-      {topics.resource.status === 'failed' ? (
+      {topics.resource.status === 'failed' && (
         <OutcomeLine outcome={{ kind: 'refused', failure: topics.resource.failure }} done="" testId="discussion-refused" />
-      ) : topicsData === null ? (
-        <Loading />
-      ) : (
-        (() => {
-          const data = topicsData;
-          const open = data.topics.find((topic) => topic.slug === topicSlug) ?? data.topics[0]!;
-          return (
-            <div className="more-columns" data-discussion={data.course.slug}>
-              <Panel title={<span lang="und">{data.course.title}</span>}>
-                <nav aria-label={t('discussionTopicsTitle')}>
-                  <ol className="academy-lms-rows">
-                    {data.topics.map((topic) => (
-                      <li key={topic.slug} data-discussion-topic={topic.slug} data-pinned={String(topic.pinned)}>
-                        <Button
-                          variant={topic.slug === open.slug ? 'primary' : 'secondary'}
-                          aria-pressed={topic.slug === open.slug}
-                          onClick={() => setTopicSlug(topic.slug)}
-                        >
-                          <span lang={topic.general ? undefined : 'und'}>{topic.general ? t('discussionTopicGeneral') : topic.title}</span>
-                        </Button>
-                        <span className="academy-lms-meta">
-                          {topic.pinned && <span className="academy-lms-chip">{t('discussionPinned')}</span>}
-                          <span>{t('discussionTopicPosts', { count: topic.posts })}</span>
-                        </span>
-                      </li>
-                    ))}
-                  </ol>
-                </nav>
-              </Panel>
-              <div className="academy-lms-stack" data-testid="discussion-open-topic" data-topic={open.slug}>
-                <TopicPosts courseSlug={data.course.slug} topic={open} posts={postsData} failure={posts.resource} retry={posts.reload} />
-                <NewPost key={open.slug} courseSlug={data.course.slug} topic={open} onSettled={settled} />
-              </div>
-            </div>
-          );
-        })()
       )}
+      {topicsData === null
+        ? topics.resource.status !== 'failed' && <Loading />
+        : (() => {
+            const data = topicsData;
+            const open = data.topics.find((topic) => topic.slug === topicSlug) ?? data.topics[0]!;
+            return (
+              <div className="more-columns" data-discussion={data.course.slug}>
+                <Panel title={<span lang="und">{data.course.title}</span>}>
+                  <nav aria-label={t('discussionTopicsTitle')}>
+                    <ol className="academy-lms-rows">
+                      {data.topics.map((topic) => (
+                        <li key={topic.slug} data-discussion-topic={topic.slug} data-pinned={String(topic.pinned)}>
+                          <Button
+                            variant={topic.slug === open.slug ? 'primary' : 'secondary'}
+                            aria-pressed={topic.slug === open.slug}
+                            onClick={() => setTopicSlug(topic.slug)}
+                          >
+                            <span lang={topic.general ? undefined : 'und'}>
+                              {topic.general ? t('discussionTopicGeneral') : topic.title}
+                            </span>
+                          </Button>
+                          <span className="academy-lms-meta">
+                            {topic.pinned && <span className="academy-lms-chip">{t('discussionPinned')}</span>}
+                            <span>{postsText(topic.posts, t)}</span>
+                          </span>
+                        </li>
+                      ))}
+                    </ol>
+                  </nav>
+                </Panel>
+                <div className="academy-lms-stack" data-testid="discussion-open-topic" data-topic={open.slug}>
+                  <TopicPosts courseSlug={data.course.slug} topic={open} posts={postsData} failure={posts.resource} retry={posts.reload} />
+                  <NewPost key={open.slug} courseSlug={data.course.slug} topic={open} onSettled={settled} />
+                </div>
+              </div>
+            );
+          })()}
     </div>
   );
 }
@@ -217,10 +225,9 @@ function TopicPosts({
   const { language } = usePreferences();
   return (
     <Panel title={t('discussionPostsTitle', { topic: topicName(topic, t) })}>
-      {failure.status === 'failed' ? (
-        <AcademyRefusal failure={failure.failure} retry={retry} />
-      ) : posts === null ? (
-        <Loading />
+      {failure.status === 'failed' && <AcademyRefusal failure={failure.failure} retry={retry} />}
+      {posts === null ? (
+        failure.status !== 'failed' && <Loading />
       ) : posts.length === 0 ? (
         <p role="status" data-testid="discussion-empty">
           {t('discussionEmpty')}
@@ -239,7 +246,7 @@ function TopicPosts({
                   </span>
                   <span data-testid="post-author">{authorText(post.author, t)}</span>
                   <span>{formatMoment(post.createdAt.toISOString(), language)}</span>
-                  <span>{t('discussionReplies', { count: post.replies })}</span>
+                  <span>{repliesText(post.replies, t)}</span>
                   <span>{likesText(post.likes, t)}</span>
                   {post.acceptedReplyId && <span className="academy-lms-chip">{t('discussionAccepted')}</span>}
                   {post.hasImage && <span>{t('discussionHasImage')}</span>}
@@ -267,6 +274,11 @@ function NewPost({ courseSlug, topic, onSettled }: { courseSlug: string; topic: 
   const request = useRef(newRequest('post'));
   const inFlight = useRef(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  /** A changed draft is a new post: only the same draft sent again keeps its request id. */
+  const edited = (change: () => void) => {
+    change();
+    request.current = newRequest('post');
+  };
   const send = async () => {
     // A second press while the first is on its way sends nothing: the first answer is the answer.
     if (inFlight.current) return;
@@ -313,15 +325,25 @@ function NewPost({ courseSlug, topic, onSettled }: { courseSlug: string; topic: 
       >
         <label className="field" htmlFor={`${id}-kind`}>
           <span>{t('discussionKind')}</span>
-          <select id={`${id}-kind`} value={kind} onChange={(event) => setKind(event.target.value as AcademyDiscussionPostKind)}>
+          <select
+            id={`${id}-kind`}
+            value={kind}
+            onChange={(event) => edited(() => setKind(event.target.value as AcademyDiscussionPostKind))}
+          >
             <option value="question">{t('discussionKindQuestion')}</option>
             <option value="discussion">{t('discussionKindDiscussion')}</option>
           </select>
         </label>
-        <Field label={t('discussionPostTitle')} value={title} maxLength={200} required onChange={(event) => setTitle(event.target.value)} />
+        <Field
+          label={t('discussionPostTitle')}
+          value={title}
+          maxLength={200}
+          required
+          onChange={(event) => edited(() => setTitle(event.target.value))}
+        />
         <label className="field" htmlFor={`${id}-body`}>
           <span>{t('discussionPostBody')}</span>
-          <textarea id={`${id}-body`} value={body} rows={5} required onChange={(event) => setBody(event.target.value)} />
+          <textarea id={`${id}-body`} value={body} rows={5} required onChange={(event) => edited(() => setBody(event.target.value))} />
         </label>
         <label className="field" htmlFor={`${id}-image`}>
           <span>{t('discussionImage')}</span>
@@ -331,12 +353,17 @@ function NewPost({ courseSlug, topic, onSettled }: { courseSlug: string; topic: 
             type="file"
             accept="image/png,image/jpeg,image/gif"
             aria-describedby={`${id}-image-hint`}
-            onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+            onChange={(event) => edited(() => setFile(event.target.files?.[0] ?? null))}
           />
         </label>
         <small id={`${id}-image-hint`}>{t('discussionImageHint')}</small>
         <label className="academy-lms-choice" htmlFor={`${id}-anon`}>
-          <input id={`${id}-anon`} type="checkbox" checked={anonymous} onChange={(event) => setAnonymous(event.target.checked)} />
+          <input
+            id={`${id}-anon`}
+            type="checkbox"
+            checked={anonymous}
+            onChange={(event) => edited(() => setAnonymous(event.target.checked))}
+          />
           <span>{t('discussionAnonymous')}</span>
         </label>
         <p className="muted">{t('discussionAnonymousHint')}</p>
@@ -356,7 +383,7 @@ export function AcademyDiscussionThread({ courseSlug, postId }: { courseSlug: st
   const { t } = copy.useCopy();
   const { language } = usePreferences();
   const thread = useResource(
-    (signal) => api.query('academy', 'discussionThread', { postId }, academyDiscussionThreadSchema, { signal }),
+    (signal) => api.query('academy', 'discussionThread', { postId, limit: REPLIES_PAGE }, academyDiscussionThreadSchema, { signal }),
     `discussion-thread:${userId}:${postId}`,
   );
   const threadData = useSteady(thread.resource, postId);
@@ -371,10 +398,9 @@ export function AcademyDiscussionThread({ courseSlug, postId }: { courseSlug: st
     // Whatever the reply said, the page shows what Academy stored.
     thread.reload();
   };
-  const toggle = z.object({ postId: z.string(), on: z.boolean() });
   return (
     <div className="academy-lms-stack">
-      <a className="text-link" href={academyDiscussionHref(courseSlug)}>
+      <a className="text-link" href={academyDiscussionHref(threadData?.course.slug ?? courseSlug)}>
         {t('discussionBack')}
       </a>
       {thread.resource.status === 'failed' ? (
@@ -383,7 +409,7 @@ export function AcademyDiscussionThread({ courseSlug, postId }: { courseSlug: st
         <Loading />
       ) : (
         (() => {
-          const { post, image, replies, canAccept } = threadData;
+          const { post, replies, canAccept } = threadData;
           return (
             <div className="academy-lms-stack" data-discussion-thread={post.id}>
               <Panel title={<span lang="und">{post.title}</span>}>
@@ -399,20 +425,15 @@ export function AcademyDiscussionThread({ courseSlug, postId }: { courseSlug: st
                   <p lang="und" className="academy-discussion-body">
                     {post.body}
                   </p>
-                  {image && (
-                    <img
-                      data-post-image
-                      className="academy-discussion-image"
-                      src={`data:${image.contentType};base64,${image.base64}`}
-                      alt={t('discussionImageAlt')}
-                    />
-                  )}
+                  {post.hasImage && <PostImage postId={post.id} />}
                   <div className="academy-lms-meta">
                     <Button
                       variant="secondary"
                       disabled={busy}
                       aria-pressed={post.following}
-                      onClick={() => void act('followDiscussionPost', { postId: post.id, on: !post.following }, toggle)}
+                      onClick={() =>
+                        void act('followDiscussionPost', { postId: post.id, on: !post.following }, academyDiscussionFollowResultSchema)
+                      }
                     >
                       {post.following ? t('discussionFollowing') : t('discussionFollow')}
                     </Button>
@@ -421,7 +442,7 @@ export function AcademyDiscussionThread({ courseSlug, postId }: { courseSlug: st
                       disabled={busy}
                       aria-pressed={post.liked}
                       onClick={() =>
-                        void act('likeDiscussionPost', { postId: post.id, on: !post.liked }, toggle.extend({ likes: z.number() }))
+                        void act('likeDiscussionPost', { postId: post.id, on: !post.liked }, academyDiscussionLikeResultSchema)
                       }
                     >
                       {post.liked ? t('discussionLiked') : t('discussionLike')}
@@ -457,11 +478,7 @@ export function AcademyDiscussionThread({ courseSlug, postId }: { courseSlug: st
                                 disabled={busy}
                                 aria-pressed={reply.liked}
                                 onClick={() =>
-                                  void act(
-                                    'likeDiscussionPost',
-                                    { postId: reply.id, on: !reply.liked },
-                                    toggle.extend({ likes: z.number() }),
-                                  )
+                                  void act('likeDiscussionPost', { postId: reply.id, on: !reply.liked }, academyDiscussionLikeResultSchema)
                                 }
                               >
                                 {reply.liked ? t('discussionLiked') : t('discussionLike')}
@@ -474,7 +491,7 @@ export function AcademyDiscussionThread({ courseSlug, postId }: { courseSlug: st
                                     void act(
                                       'acceptDiscussionReply',
                                       { postId: post.id, replyId: reply.id },
-                                      z.object({ postId: z.string(), acceptedReplyId: z.string() }),
+                                      academyDiscussionAcceptResultSchema,
                                     )
                                   }
                                 >
@@ -499,6 +516,29 @@ export function AcademyDiscussionThread({ courseSlug, postId }: { courseSlug: st
   );
 }
 
+/** A post's image, read once on its own: a like or a follow re-reads the thread, not the image. */
+function PostImage({ postId }: { postId: string }) {
+  const api = useApi();
+  const { userId } = useSession();
+  const { t } = copy.useCopy();
+  const image = useResource(
+    (signal) => api.query('academy', 'discussionPostImage', { postId }, academyDiscussionImageSchema.nullable(), { signal }),
+    `discussion-image:${userId}:${postId}`,
+  );
+  if (image.resource.status === 'loading') return <Loading />;
+  if (image.resource.status === 'failed') return <AcademyRefusal failure={image.resource.failure} retry={image.reload} />;
+  const data = image.resource.data;
+  if (!data) return null;
+  return (
+    <img
+      data-post-image
+      className="academy-discussion-image"
+      src={`data:${data.contentType};base64,${data.base64}`}
+      alt={t('discussionImageAlt')}
+    />
+  );
+}
+
 function ReplyForm({ postId, onSettled }: { postId: string; onSettled: () => void }) {
   const api = useApi();
   const { t } = copy.useCopy();
@@ -509,6 +549,11 @@ function ReplyForm({ postId, onSettled }: { postId: string; onSettled: () => voi
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const request = useRef(newRequest('reply'));
   const inFlight = useRef(false);
+  /** A changed reply is a new reply: only the same reply sent again keeps its request id. */
+  const edited = (change: () => void) => {
+    change();
+    request.current = newRequest('reply');
+  };
   const send = async () => {
     if (inFlight.current) return;
     inFlight.current = true;
@@ -548,10 +593,15 @@ function ReplyForm({ postId, onSettled }: { postId: string; onSettled: () => voi
     >
       <label className="field" htmlFor={`${id}-reply`}>
         <span>{t('discussionReply')}</span>
-        <textarea id={`${id}-reply`} value={body} rows={3} required onChange={(event) => setBody(event.target.value)} />
+        <textarea id={`${id}-reply`} value={body} rows={3} required onChange={(event) => edited(() => setBody(event.target.value))} />
       </label>
       <label className="academy-lms-choice" htmlFor={`${id}-anon`}>
-        <input id={`${id}-anon`} type="checkbox" checked={anonymous} onChange={(event) => setAnonymous(event.target.checked)} />
+        <input
+          id={`${id}-anon`}
+          type="checkbox"
+          checked={anonymous}
+          onChange={(event) => edited(() => setAnonymous(event.target.checked))}
+        />
         <span>{t('discussionAnonymous')}</span>
       </label>
       <Button type="submit" disabled={sending}>

@@ -18,6 +18,7 @@ import {
   type AcademyCreateDiscussionPostInput,
   type AcademyDiscussionAuthor,
   type AcademyDiscussionCourse,
+  type AcademyDiscussionImage,
   type AcademyDiscussionPost,
   type AcademyDiscussionPostKind,
   type AcademyDiscussionReply,
@@ -57,6 +58,8 @@ type PostRow = {
 };
 
 const GENERAL_TITLE = 'General';
+/** What staff read of a post: never its image bytes. */
+const STAFF_COLUMNS = ['id', 'course_id', 'topic_slug', 'kind', 'title', 'body', 'author_id', 'anonymous', 'created_at'] as const;
 const IMAGE_TYPES: readonly string[] = ACADEMY_DISCUSSION_IMAGE_TYPES;
 
 /** A classmate's name within one course: stable for the course, and no account id. */
@@ -161,7 +164,11 @@ export class CourseDiscussion {
   private rows(
     db: Db,
     readerId: string,
-    where: { id?: string; parent?: string; topic?: { courseId: string; slug: string; limit: number } },
+    where: {
+      id?: string;
+      parent?: { id: string; accepted: string | null; limit: number };
+      topic?: { courseId: string; slug: string; limit: number };
+    },
   ) {
     return db<PostRow[]>`
       SELECT p.id, p.course_id, p.topic_slug, p.parent_id, p.kind, p.title, p.body, p.author_id, p.anonymous, p.image_type,
@@ -175,11 +182,15 @@ export class CourseDiscussion {
          where.id !== undefined
            ? db`p.id = ${where.id}`
            : where.parent !== undefined
-             ? db`p.parent_id = ${where.parent}`
+             ? db`p.parent_id = ${where.parent.id}`
              : db`p.parent_id IS NULL AND p.course_id = ${where.topic!.courseId} AND p.topic_slug = ${where.topic!.slug}`
        }
-       ORDER BY ${where.parent !== undefined ? db`p.created_at, p.id` : db`p.created_at DESC, p.id`}
-       ${where.topic ? db`LIMIT ${where.topic.limit}` : db``}
+       ORDER BY ${
+         where.parent !== undefined
+           ? db`(p.id = ${where.parent.accepted}::uuid) IS TRUE DESC, p.created_at, p.id`
+           : db`p.created_at DESC, p.id`
+       }
+       ${where.topic ? db`LIMIT ${where.topic.limit}` : where.parent ? db`LIMIT ${where.parent.limit}` : db``}
     `;
   }
 
@@ -245,36 +256,77 @@ export class CourseDiscussion {
     return rows.map((row) => postView(row, input.userId));
   }
 
-  /** A post with its image and replies: the accepted answer first, then oldest first. A reply's id opens nothing here. */
-  async thread(input: { userId: string; postId: string }): Promise<AcademyDiscussionThread> {
+  /** A post and up to `limit` replies: the accepted answer first, then oldest first. A reply's id opens nothing here. */
+  async thread(input: { userId: string; postId: string; limit: number }): Promise<AcademyDiscussionThread> {
     const post = await this.entry(this.sql, input.postId, input.userId);
     if (post.parent_id !== null) throw new AcademyError(`academy.post_not_found post=${input.postId}`, 'academy.post_not_found');
     const [course] = await this.sql<CourseRow[]>`SELECT id, slug, title FROM academy.courses WHERE id = ${post.course_id}`;
-    const replies = await this.rows(this.sql, input.userId, { parent: post.id });
     const accepted = post.accepted_reply_id;
-    const ordered = [...replies.filter((r) => r.id === accepted), ...replies.filter((r) => r.id !== accepted)];
-    let image: AcademyDiscussionThread['image'] = null;
-    if (post.image_type !== null) {
-      const [stored] = await this.sql<{ image: Buffer }[]>`SELECT image FROM academy.discussion_posts WHERE id = ${post.id}`;
-      image = { contentType: post.image_type as (typeof ACADEMY_DISCUSSION_IMAGE_TYPES)[number], base64: stored!.image.toString('base64') };
-    }
+    const replies = await this.rows(this.sql, input.userId, { parent: { id: post.id, accepted, limit: input.limit } });
     return {
       course: { courseId: course!.id, slug: course!.slug, title: course!.title },
       post: postView(post, input.userId),
-      image,
-      replies: ordered.map((row) => replyView(row, input.userId, accepted)),
+      replies: replies.map((row) => replyView(row, input.userId, accepted)),
       canAccept: post.kind === 'question' && post.author_id === input.userId,
     };
+  }
+
+  /** A post's image, or null when it has none. */
+  async image(input: { userId: string; postId: string }): Promise<AcademyDiscussionImage | null> {
+    const post = await this.entry(this.sql, input.postId, input.userId);
+    if (post.image_type === null) return null;
+    const [stored] = await this.sql<{ image: Buffer }[]>`SELECT image FROM academy.discussion_posts WHERE id = ${post.id}`;
+    return { contentType: post.image_type as AcademyDiscussionImage['contentType'], base64: stored!.image.toString('base64') };
+  }
+
+  /**
+   * The row an earlier send with this request id stored, or null. A request id answers only the same send: a different
+   * post, reply, text or image under it refuses `academy.request_reused`, so an edited draft is never dropped in silence.
+   */
+  private async byRequest(
+    userId: string,
+    clientRequestId: string,
+    same: {
+      parentId: string | null;
+      topicSlug: string;
+      kind: string | null;
+      title: string | null;
+      body: string;
+      anonymous: boolean;
+      image: Buffer | null;
+    },
+  ): Promise<PostRow | null> {
+    const [found] = await this.sql<{ id: string; same: boolean }[]>`
+      SELECT id,
+             (parent_id IS NOT DISTINCT FROM ${same.parentId}::uuid AND topic_slug = ${same.topicSlug}
+              AND kind IS NOT DISTINCT FROM ${same.kind}::text AND title IS NOT DISTINCT FROM ${same.title}::text
+              AND body = ${same.body} AND anonymous = ${same.anonymous} AND image IS NOT DISTINCT FROM ${same.image}::bytea) AS same
+        FROM academy.discussion_posts WHERE author_id = ${userId} AND client_request_id = ${clientRequestId}
+    `;
+    if (!found) return null;
+    if (!found.same)
+      throw new AcademyError(`academy.request_reused request=${clientRequestId} answers another post`, 'academy.request_reused');
+    const [row] = await this.rows(this.sql, userId, { id: found.id });
+    return row!;
   }
 
   /** A new question or discussion. A retry with the same client request id answers with the stored post. */
   async createPost(input: AcademyCreateDiscussionPostInput & { userId: string; now: Date }): Promise<AcademyDiscussionPost> {
     const course = await this.enrolledCourse(this.sql, input.courseSlug, input.userId);
     await this.assertTopic(this.sql, course.id, input.topicSlug);
-    const stored = await this.byRequest(input.userId, input.clientRequestId);
-    if (stored) return stored;
     checkPostLength(input.body, this.limits.postMaxChars);
     const image = input.image ? checkDiscussionImage(input.image, this.limits.imageMaxBytes) : null;
+    const same = {
+      parentId: null,
+      topicSlug: input.topicSlug,
+      kind: input.kind,
+      title: input.title,
+      body: input.body,
+      anonymous: input.anonymous,
+      image,
+    };
+    const stored = await this.byRequest(input.userId, input.clientRequestId, same);
+    if (stored) return postView(stored, input.userId);
     await this.sql`
       INSERT INTO academy.discussion_posts
         (course_id, topic_slug, kind, title, body, author_id, anonymous, image_type, image, client_request_id, created_at)
@@ -282,39 +334,32 @@ export class CourseDiscussion {
               ${input.image ? input.image.contentType : null}, ${image}, ${input.clientRequestId}, ${input.now})
       ON CONFLICT (author_id, client_request_id) DO NOTHING
     `;
-    return (await this.byRequest(input.userId, input.clientRequestId))!;
-  }
-
-  private async byRequest(userId: string, clientRequestId: string): Promise<AcademyDiscussionPost | null> {
-    const [found] = await this.sql<{ id: string }[]>`
-      SELECT id FROM academy.discussion_posts WHERE author_id = ${userId} AND client_request_id = ${clientRequestId}
-    `;
-    if (!found) return null;
-    const [row] = await this.rows(this.sql, userId, { id: found.id });
-    return postView(row!, userId);
+    return postView((await this.byRequest(input.userId, input.clientRequestId, same))!, input.userId);
   }
 
   /** A reply to a post. Replies nest one level: a reply to a reply refuses `academy.post_not_found`. */
   async reply(input: AcademyReplyDiscussionPostInput & { userId: string; now: Date }): Promise<AcademyDiscussionReply> {
     const post = await this.entry(this.sql, input.postId, input.userId);
     if (post.parent_id !== null) throw new AcademyError(`academy.post_not_found post=${input.postId}`, 'academy.post_not_found');
-    const [existing] = await this.sql<{ id: string }[]>`
-      SELECT id FROM academy.discussion_posts WHERE author_id = ${input.userId} AND client_request_id = ${input.clientRequestId}
+    checkPostLength(input.body, this.limits.postMaxChars);
+    const same = {
+      parentId: post.id,
+      topicSlug: post.topic_slug,
+      kind: null,
+      title: null,
+      body: input.body,
+      anonymous: input.anonymous,
+      image: null,
+    };
+    const stored = await this.byRequest(input.userId, input.clientRequestId, same);
+    if (stored) return replyView(stored, input.userId, post.accepted_reply_id);
+    await this.sql`
+      INSERT INTO academy.discussion_posts (course_id, topic_slug, parent_id, body, author_id, anonymous, client_request_id, created_at)
+      VALUES (${post.course_id}, ${post.topic_slug}, ${post.id}, ${input.body}, ${input.userId}, ${input.anonymous},
+              ${input.clientRequestId}, ${input.now})
+      ON CONFLICT (author_id, client_request_id) DO NOTHING
     `;
-    if (!existing) {
-      checkPostLength(input.body, this.limits.postMaxChars);
-      await this.sql`
-        INSERT INTO academy.discussion_posts (course_id, topic_slug, parent_id, body, author_id, anonymous, client_request_id, created_at)
-        VALUES (${post.course_id}, ${post.topic_slug}, ${post.id}, ${input.body}, ${input.userId}, ${input.anonymous},
-                ${input.clientRequestId}, ${input.now})
-        ON CONFLICT (author_id, client_request_id) DO NOTHING
-      `;
-    }
-    const [row] = await this.sql<{ id: string }[]>`
-      SELECT id FROM academy.discussion_posts WHERE author_id = ${input.userId} AND client_request_id = ${input.clientRequestId}
-    `;
-    const [reply] = await this.rows(this.sql, input.userId, { id: row!.id });
-    return replyView(reply!, input.userId, post.accepted_reply_id);
+    return replyView((await this.byRequest(input.userId, input.clientRequestId, same))!, input.userId, post.accepted_reply_id);
   }
 
   /** The asker marks one reply of their question as accepted; marking another moves the mark. */
@@ -379,11 +424,13 @@ export class CourseDiscussion {
   }
 
   /** Staff: a post and its replies with the account behind each, anonymous or not. */
-  async staffThread(postId: string): Promise<AcademyStaffDiscussionThread> {
-    const [post] = await this.sql<PostRow[]>`SELECT * FROM academy.discussion_posts WHERE id = ${postId} AND parent_id IS NULL`;
+  async staffThread(postId: string, limit: number): Promise<AcademyStaffDiscussionThread> {
+    const [post] = await this.sql<PostRow[]>`
+      SELECT ${this.sql(STAFF_COLUMNS)} FROM academy.discussion_posts WHERE id = ${postId} AND parent_id IS NULL
+    `;
     if (!post) throw new AcademyError(`academy.post_not_found post=${postId}`, 'academy.post_not_found');
     const replies = await this.sql<PostRow[]>`
-      SELECT * FROM academy.discussion_posts WHERE parent_id = ${postId} ORDER BY created_at, id
+      SELECT ${this.sql(STAFF_COLUMNS)} FROM academy.discussion_posts WHERE parent_id = ${postId} ORDER BY created_at, id LIMIT ${limit}
     `;
     const entry = (row: PostRow) => ({
       id: row.id,

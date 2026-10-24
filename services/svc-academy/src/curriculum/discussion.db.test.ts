@@ -178,7 +178,20 @@ describe('course discussion', () => {
     expect(await sql`SELECT count(*)::int AS n FROM academy.discussion_posts`).toEqual([{ n: 2 }]);
     const withImage = await post(d, { clientRequestId: 'post:3', image: png });
     expect(withImage.hasImage).toBe(true);
-    expect((await d.thread({ userId: PEER, postId: withImage.id })).image).toEqual({ contentType: 'image/png', base64: PNG });
+    expect(await d.image({ userId: PEER, postId: withImage.id })).toEqual({ contentType: 'image/png', base64: PNG });
+    expect(await d.image({ userId: PEER, postId: first.id })).toBeNull();
+    // A request id answers only the same send: an edited draft under it, or a reply under a post's id, is refused.
+    await expect(post(d, { body: 'TEST edited' })).rejects.toMatchObject({ code: 'academy.request_reused' });
+    await expect(
+      d.reply({
+        postId: first.id,
+        body: 'TEST How big should one trade be?',
+        anonymous: false,
+        clientRequestId: 'post:1',
+        userId: ME,
+        now: NOW,
+      }),
+    ).rejects.toMatchObject({ code: 'academy.request_reused' });
   });
 
   it('puts the accepted answer first, moves it on a second accept, and lets only the asker accept', async () => {
@@ -205,19 +218,19 @@ describe('course discussion', () => {
       code: 'academy.post_not_found',
     });
     await d.accept({ userId: ME, postId: q.id, replyId: b.id });
-    let thread = await d.thread({ userId: ME, postId: q.id });
+    let thread = await d.thread({ userId: ME, postId: q.id, limit: 50 });
     expect(thread.replies.map((r) => [r.id, r.accepted])).toEqual([
       [b.id, true],
       [a.id, false],
     ]);
     await d.accept({ userId: ME, postId: q.id, replyId: a.id });
-    thread = await d.thread({ userId: ME, postId: q.id });
+    thread = await d.thread({ userId: ME, postId: q.id, limit: 50 });
     expect(thread.replies.map((r) => [r.id, r.accepted])).toEqual([
       [a.id, true],
       [b.id, false],
     ]);
     expect(thread.canAccept).toBe(true);
-    expect((await d.thread({ userId: PEER, postId: q.id })).canAccept).toBe(false);
+    expect((await d.thread({ userId: PEER, postId: q.id, limit: 50 })).canAccept).toBe(false);
   });
 
   it('sets follow and like once, and takes them back', async () => {
@@ -228,11 +241,11 @@ describe('course discussion', () => {
     await d.follow({ userId: ME, postId: q.id, on: true, now: NOW });
     expect((await d.like({ userId: PEER, postId: q.id, on: true, now: NOW })).likes).toBe(1);
     expect((await d.like({ userId: PEER, postId: q.id, on: true, now: NOW })).likes).toBe(1);
-    let view = (await d.thread({ userId: ME, postId: q.id })).post;
+    let view = (await d.thread({ userId: ME, postId: q.id, limit: 50 })).post;
     expect([view.following, view.likes, view.liked]).toEqual([true, 1, false]);
     await d.follow({ userId: ME, postId: q.id, on: false, now: NOW });
     expect((await d.like({ userId: PEER, postId: q.id, on: false, now: NOW })).likes).toBe(0);
-    view = (await d.thread({ userId: ME, postId: q.id })).post;
+    view = (await d.thread({ userId: ME, postId: q.id, limit: 50 })).post;
     expect([view.following, view.likes]).toEqual([false, 0]);
   });
 
@@ -246,6 +259,6 @@ describe('course discussion', () => {
     expect(JSON.stringify(seen)).not.toContain(ME);
     expect(seen.find((p) => p.id === named.id)!.author).toEqual({ kind: 'learner', label: classmateLabel(c.id, ME) });
     expect(anon.author).toEqual({ kind: 'you', anonymous: true });
-    expect((await d.staffThread(anon.id)).post).toMatchObject({ authorId: ME, anonymous: true });
+    expect((await d.staffThread(anon.id, 50)).post).toMatchObject({ authorId: ME, anonymous: true });
   });
 });

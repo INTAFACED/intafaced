@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ACADEMY_DISCUSSION_IMAGE_MAX_BYTES } from '@intafaced/contracts';
 import { edgeEnvSchema, internalServiceEnvSchema, loadEnv, s2sEnvSchema, serviceEnvSchema } from '@intafaced/config';
 
 /**
@@ -142,7 +143,7 @@ const schema = serviceEnvSchema
        */
       ACADEMY_POST_IMAGE_MAX_BYTES: z.preprocess(
         (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
-        z.union([z.undefined(), z.coerce.number().int().min(1).max(786_432)]),
+        z.union([z.undefined(), z.coerce.number().int().min(1).max(ACADEMY_DISCUSSION_IMAGE_MAX_BYTES)]),
       ),
 
       /**

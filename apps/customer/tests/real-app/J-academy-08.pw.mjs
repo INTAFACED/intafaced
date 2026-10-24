@@ -235,7 +235,7 @@ test(`${J} #3 a classmate replies; the reply I accept is on top, a second accept
   await expect(liked.getByTestId('reply-likes')).toHaveText('1 like');
   await write(run.me, 'likeDiscussionPost', { postId: run.replies[0], on: true });
   await write(run.me, 'followDiscussionPost', { postId: run.question, on: true });
-  const view = await read(run.me, 'discussionThread', { postId: run.question });
+  const view = await read(run.me, 'discussionThread', { postId: run.question, limit: 50 });
   expect(view.post.following).toBe(true);
   expect(view.post.acceptedReplyId).toBe(run.replies[0]);
   expect(view.replies.find((r) => r.id === run.replies[0]).likes).toBe(1);
@@ -275,7 +275,7 @@ test(`${J} #4 an anonymous post shows classmates no name, and staff see who wrot
   await peer.context().close();
 
   // Staff see the account behind it.
-  const staffView = await staff('query', 'admin.discussionThread', { postId: run.anon });
+  const staffView = await staff('query', 'admin.discussionThread', { postId: run.anon, limit: 50 });
   expect(staffView.post.anonymous).toBe(true);
   expect(staffView.post.authorId).toBe((await api(run.me)).userId);
 });

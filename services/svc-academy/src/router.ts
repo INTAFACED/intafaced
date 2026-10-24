@@ -33,6 +33,11 @@ import {
   academyDiscussionReplySchema,
   academyDiscussionThreadSchema,
   academyDiscussionThreadInputSchema,
+  academyDiscussionPostImageInputSchema,
+  academyDiscussionImageSchema,
+  academyDiscussionFollowResultSchema,
+  academyDiscussionLikeResultSchema,
+  academyDiscussionAcceptResultSchema,
   academyCreateDiscussionPostInputSchema,
   academyReplyDiscussionPostInputSchema,
   academyAcceptDiscussionReplyInputSchema,
@@ -2787,11 +2792,17 @@ export function createAcademyRouter(
       .output(z.array(academyDiscussionPostSchema))
       .query(({ input, ctx }) => guard(() => academy.discussion.posts({ ...input, userId: ctx.principal!.userId }))),
 
-    /** AC-rooms-01: one post with its image and replies, the accepted answer first. */
+    /** AC-rooms-01: one post and up to `limit` of its replies, the accepted answer first. */
     discussionThread: scopedProcedure('academy:read', { module: 'academy' })
       .input(academyDiscussionThreadInputSchema)
       .output(academyDiscussionThreadSchema)
-      .query(({ input, ctx }) => guard(() => academy.discussion.thread({ userId: ctx.principal!.userId, postId: input.postId }))),
+      .query(({ input, ctx }) => guard(() => academy.discussion.thread({ ...input, userId: ctx.principal!.userId }))),
+
+    /** AC-rooms-01: a post's image, or null when it has none. */
+    discussionPostImage: scopedProcedure('academy:read', { module: 'academy' })
+      .input(academyDiscussionPostImageInputSchema)
+      .output(academyDiscussionImageSchema.nullable())
+      .query(({ input, ctx }) => guard(() => academy.discussion.image({ userId: ctx.principal!.userId, postId: input.postId }))),
 
     /** AC-rooms-01: post a question or a discussion; a retry with the same client request id is the same post. */
     createDiscussionPost: scopedProcedure('academy:write', { module: 'academy' })
@@ -2810,19 +2821,19 @@ export function createAcademyRouter(
     /** AC-rooms-01: the asker marks one reply as the accepted answer; marking another moves the mark. */
     acceptDiscussionReply: scopedProcedure('academy:write', { module: 'academy' })
       .input(academyAcceptDiscussionReplyInputSchema)
-      .output(z.object({ postId: z.string(), acceptedReplyId: z.string() }))
+      .output(academyDiscussionAcceptResultSchema)
       .mutation(({ input, ctx }) => guard(() => academy.discussion.accept({ ...input, userId: ctx.principal!.userId }))),
 
     /** AC-rooms-01: follow a post or stop; a repeat changes nothing. */
     followDiscussionPost: scopedProcedure('academy:write', { module: 'academy' })
       .input(academyDiscussionToggleInputSchema)
-      .output(z.object({ postId: z.string(), on: z.boolean() }))
+      .output(academyDiscussionFollowResultSchema)
       .mutation(({ input, ctx }) => guard(() => academy.discussion.follow({ ...input, userId: ctx.principal!.userId, now: new Date() }))),
 
     /** AC-rooms-01: like a post or a reply, or take it back; a repeat changes nothing. */
     likeDiscussionPost: scopedProcedure('academy:write', { module: 'academy' })
       .input(academyDiscussionToggleInputSchema)
-      .output(z.object({ postId: z.string(), on: z.boolean(), likes: z.number().int().nonnegative() }))
+      .output(academyDiscussionLikeResultSchema)
       .mutation(({ input, ctx }) => guard(() => academy.discussion.like({ ...input, userId: ctx.principal!.userId, now: new Date() }))),
 
     myCerts: scopedProcedure('academy:read', { module: 'academy' })
@@ -3377,7 +3388,7 @@ export function createAcademyRouter(
       discussionThread: scopedProcedure('admin:read', { module: 'academy' })
         .input(academyDiscussionThreadInputSchema)
         .output(academyStaffDiscussionThreadSchema)
-        .query(({ input }) => guard(() => academy.discussion.staffThread(input.postId))),
+        .query(({ input }) => guard(() => academy.discussion.staffThread(input.postId, input.limit))),
 
       /** AC-programmes-01: the programmes staff made, newest first. */
       programmes: scopedProcedure('admin:read', { module: 'academy' })

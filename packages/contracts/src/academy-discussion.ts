@@ -6,13 +6,19 @@ import { ACADEMY_COURSE_SLUG, academyCourseSlugSchema } from './academy-courses.
  * topics, pin them and set their order, and pinned topics always come first. A learner enrolled in the course posts a
  * question or a discussion, may post anonymously to classmates (staff still see the account), and may attach one image.
  * Replies nest one level. The asker marks one reply as the accepted answer; follow and like are set once. Post length and
- * image size are owner values with no default: a post while either is blank refuses by name. No money moves here.
+ * image size are owner values with no default: a post while the length is blank refuses by name, and so does an image
+ * while the size is blank. No money moves here.
  */
 export const ACADEMY_DISCUSSION_GENERAL_TOPIC = 'general';
 export const ACADEMY_DISCUSSION_POST_KINDS = ['question', 'discussion'] as const;
 export type AcademyDiscussionPostKind = (typeof ACADEMY_DISCUSSION_POST_KINDS)[number];
 /** The image types a post may carry, checked by their leading bytes. An SVG is never one (it can carry script). */
 export const ACADEMY_DISCUSSION_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif'] as const;
+/**
+ * The most an owner may allow for one post's image, in bytes. A request is at most 1 MiB at the edge and in the service,
+ * and base64 makes an image a third larger, so 512 KiB of image plus the longest post still fits in one request.
+ */
+export const ACADEMY_DISCUSSION_IMAGE_MAX_BYTES = 524_288;
 /** The most rows one discussion read lists. */
 export const ACADEMY_DISCUSSION_LIST_MAX = 200;
 
@@ -69,6 +75,7 @@ export const academyDiscussionAuthorSchema = z.discriminatedUnion('kind', [
 export type AcademyDiscussionAuthor = z.infer<typeof academyDiscussionAuthorSchema>;
 
 export const academyDiscussionImageSchema = z.object({ contentType: z.enum(ACADEMY_DISCUSSION_IMAGE_TYPES), base64: z.string() });
+export type AcademyDiscussionImage = z.infer<typeof academyDiscussionImageSchema>;
 
 export const academyDiscussionPostSchema = z.object({
   id: z.string().guid(),
@@ -99,11 +106,13 @@ export const academyDiscussionReplySchema = z.object({
 });
 export type AcademyDiscussionReply = z.infer<typeof academyDiscussionReplySchema>;
 
-/** `discussionThread`: one post with its image and its replies, the accepted answer first, then oldest first. */
+/**
+ * `discussionThread`: one post and up to `limit` of its replies, the accepted answer first, then oldest first. The image
+ * is its own read (`discussionPostImage`).
+ */
 export const academyDiscussionThreadSchema = z.object({
   course: academyDiscussionCourseSchema,
   post: academyDiscussionPostSchema,
-  image: academyDiscussionImageSchema.nullable(),
   replies: z.array(academyDiscussionReplySchema),
   /** True when the caller asked the question, and so may mark the accepted answer. */
   canAccept: z.boolean(),
@@ -119,7 +128,11 @@ export const academyDiscussionPostsInputSchema = z
     limit: z.number().int().min(1).max(ACADEMY_DISCUSSION_LIST_MAX),
   })
   .strict();
-export const academyDiscussionThreadInputSchema = z.object({ postId: z.string().guid() }).strict();
+export const academyDiscussionThreadInputSchema = z
+  .object({ postId: z.string().guid(), limit: z.number().int().min(1).max(ACADEMY_DISCUSSION_LIST_MAX) })
+  .strict();
+/** `discussionPostImage`: a post's image, read once on its own so a like or follow does not send it again. */
+export const academyDiscussionPostImageInputSchema = z.object({ postId: z.string().guid() }).strict();
 
 /**
  * `createDiscussionPost`. The client request id makes a retry the same post (`post:<account>:<request>`). The image's
@@ -135,7 +148,13 @@ export const academyCreateDiscussionPostInputSchema = z
     body,
     anonymous: z.boolean(),
     image: z
-      .object({ contentType: z.string().min(1).max(200), base64: z.string().min(1).max(2_000_000) })
+      .object({
+        contentType: z.string().min(1).max(200),
+        base64: z
+          .string()
+          .min(1)
+          .max(Math.ceil(ACADEMY_DISCUSSION_IMAGE_MAX_BYTES / 3) * 4),
+      })
       .strict()
       .nullable(),
     clientRequestId: requestId,
@@ -154,8 +173,15 @@ export const academyAcceptDiscussionReplyInputSchema = z.object({ postId: z.stri
 
 /** `followDiscussionPost` and `likeDiscussionPost`: set on or off; a repeat changes nothing. Like takes a post or a reply. */
 export const academyDiscussionToggleInputSchema = z.object({ postId: z.string().guid(), on: z.boolean() }).strict();
+export const academyDiscussionFollowResultSchema = z.object({ postId: z.string().guid(), on: z.boolean() });
+export const academyDiscussionLikeResultSchema = z.object({
+  postId: z.string().guid(),
+  on: z.boolean(),
+  likes: z.number().int().nonnegative(),
+});
+export const academyDiscussionAcceptResultSchema = z.object({ postId: z.string().guid(), acceptedReplyId: z.string().guid() });
 
-/** `admin.discussionThread`: a post and its replies as staff see them, with the account behind each, anonymous or not. */
+/** `admin.discussionThread`: a post and up to `limit` of its replies as staff see them, with the account behind each, anonymous or not. */
 const staffEntry = z.object({
   id: z.string().guid(),
   authorId: z.string().guid(),

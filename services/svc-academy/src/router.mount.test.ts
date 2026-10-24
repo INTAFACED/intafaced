@@ -231,6 +231,7 @@ describe('svc-academy mount — the router is actually mounted', () => {
         'discussionTopics',
         'discussionPosts',
         'discussionThread',
+        'discussionPostImage',
         'createDiscussionPost',
         'replyDiscussionPost',
         'acceptDiscussionReply',
