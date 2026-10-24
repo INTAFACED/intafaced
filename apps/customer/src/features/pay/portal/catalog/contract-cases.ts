@@ -11,6 +11,7 @@ export const catalogContract: ContractPart = {
       run: (p) => p.createProduct({ requestId: 'c3000001-0000-4000-8000-000000000001', name: 'TEST Poster', type: 'physical' }),
     },
     { method: 'prices', run: (p) => p.prices('c1000001-0000-4000-8000-000000000001', undefined) },
+    { method: 'monthlyPriceChoices', run: (p) => p.monthlyPriceChoices('USDC', '20') },
     {
       method: 'createPrice',
       run: (p) =>
@@ -28,6 +29,12 @@ export const catalogContract: ContractPart = {
     setDefaultPrice: write,
     quotePrice: 'quotes a price the same run added; the Playwright run checks it',
     uploadProductImage: write,
+    archiveProduct: write,
+    unarchiveProduct: write,
+    deleteProduct: write,
+    replacePrice: write,
+    priceUsage: 'reads what uses a price the same run added; the catalogue view tests and the Playwright run check it',
+    pricedProduct: 'reads back a price the same run added; the subscription view tests and the Playwright run check it',
     productImage: 'reads back an image the same run uploaded; the catalogue view tests draw it',
   },
 };

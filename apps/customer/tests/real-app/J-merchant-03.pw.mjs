@@ -213,20 +213,126 @@ test(`${J} #3 a one-time TEST 20 USDC price is the default until the monthly one
   expect(refused.filter((r) => !r.includes('merchantCatalog.prices.quote'))).toEqual([]);
 });
 
-// Steps 4 to 6 come with their slices (M-adv-payments-core-20 and -21, the import). Until then each fails at its first
-// check, quickly.
-const unbuilt = { timeout: 5000 };
+/** A mandate the owner records for a TEST customer: what a subscription charges, monthly, from next month. */
+async function recordMandate(page, customerId, amount) {
+  await page.getByRole('button', { name: 'New mandate' }).click();
+  await page.getByLabel('Authorized customer ID').fill(customerId);
+  await page.getByLabel('Authorized amount').fill(amount);
+  await page.getByLabel('Cadence').selectOption('monthly');
+  const starts = new Date(Date.now() + 30 * 86_400_000);
+  const local = new Date(starts.getTime() - starts.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+  await page.getByLabel('Authorization starts').fill(local);
+  const recorded = page.waitForResponse((r) => r.url().includes('mandate.create') && r.request().method() === 'POST');
+  await page.getByRole('button', { name: 'Record mandate' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Record mandate' }).click();
+  expect((await recorded).ok()).toBe(true);
+}
+
+/** Choose the mandate of `customerId` in the subscription form; its option names the customer first. */
+async function chooseMandate(page, customerId) {
+  const select = page.getByLabel('Active customer mandate *');
+  await expect(select.locator('option', { hasText: customerId })).toHaveCount(1);
+  const value = await select.locator('option', { hasText: customerId }).getAttribute('value');
+  await select.selectOption(value);
+}
 
 test(`${J} #4 replacing a price a subscription uses keeps the subscription on the old one, and archiving keeps old documents readable`, async ({
   page,
 }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(300_000);
   const state = journey();
   if (!state.productUrl) throw new Error(`${J} #2 made no product, so this step has none to change`);
   await signInOwner(page, state, state.productUrl);
-  await page.getByRole('button', { name: 'Replace price' }).first().click(unbuilt);
-  await page.getByRole('button', { name: 'Archive product' }).click(unbuilt);
+  const refused = refusedPayCalls(page);
+  const prices = page.getByRole('region', { name: 'Prices of this product' });
+  const row = (text) => prices.getByRole('row').filter({ hasText: text });
+
+  // A monthly TEST 5 USDT price, and a subscription started on it from a 5 USDT monthly mandate.
+  await page.getByRole('button', { name: 'Add price' }).click();
+  await page.getByLabel('Billing *').selectOption({ label: 'Monthly' });
+  await page.getByLabel('Amount *').fill('5');
+  await page.getByLabel('Asset *').fill('USDT');
+  await page.getByRole('button', { name: 'Save price' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Price added.' })).toBeVisible();
+  await expect(row('5.00 USDT')).toHaveCount(1);
+
+  const customer = `TEST-customer-${state.owner.handle}`;
+  await page.goto('/pay/subscriptions/new');
+  await recordMandate(page, customer, '5');
+  await chooseMandate(page, customer);
+  await page.getByLabel('Supported charge path *').selectOption({ label: 'Crypto invoice and watch' });
+  const pick = page.getByLabel('Price from your catalogue');
+  await expect(pick.locator('option', { hasText: 'TEST Poster · 5.00 USDT monthly' })).toHaveCount(1);
+  // A 5 USDC price is not offered to a USDT mandate, and a one-time price never is.
+  await expect(pick.locator('option', { hasText: 'USDC' })).toHaveCount(0);
+  await pick.selectOption({ label: 'TEST Poster · 5.00 USDT monthly' });
+  const created = page.waitForResponse((r) => r.url().includes('subscription.create') && r.request().method() === 'POST');
+  await page.getByRole('button', { name: 'Create subscription' }).click();
+  const review = page.getByRole('dialog');
+  await expect(review.getByText('TEST Poster · 5.00 USDT monthly')).toBeVisible();
+  await review.getByRole('button', { name: 'Create subscription' }).click();
+  expect((await created).ok()).toBe(true);
+  await page.getByRole('link', { name: 'Open the new subscription' }).click();
+  await expect(page).toHaveURL(/\/pay\/subscriptions\/[0-9a-f-]{36}$/);
+  const subscriptionUrl = new URL(page.url()).pathname;
+  run.write({ subscriptionUrl });
+  await expect(page.getByRole('link', { name: 'TEST Poster · 5.00 USDT monthly' })).toBeVisible();
+
+  // Replace price says what uses the old price first; the new one takes its place and the subscription stays.
+  await page.goto(state.productUrl);
+  await row('5.00 USDT').getByRole('button', { name: 'Replace price' }).click();
+  const replace = page.getByRole('group', { name: 'Replace 5.00 USDT' });
+  await expect(replace.getByRole('status')).toHaveText('1 subscription uses this price. It stays on this price.');
+  await replace.getByLabel('Amount *').fill('6');
+  await replace.getByRole('button', { name: 'Save replacement' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Price replaced.' })).toBeVisible();
+  await expect(row('6.00 USDT').filter({ hasText: 'Active' })).toHaveCount(1);
+  await expect(row('5.00 USDT').filter({ hasText: 'Archived' })).toHaveCount(1);
+  await expect(row('5.00 USDT').getByRole('button', { name: 'Replace price' })).toHaveCount(0);
+  await page.goto(subscriptionUrl);
+  await expect(page.getByRole('link', { name: 'TEST Poster · 5.00 USDT monthly (archived)' })).toBeVisible();
+
+  // A product with prices cannot be deleted; it is archived instead, and leaves the list and the price picker.
+  await page.goto(state.productUrl);
+  await page.getByRole('button', { name: 'Delete product' }).click();
+  await page.getByRole('group', { name: 'Delete product' }).getByRole('button', { name: 'Delete product' }).click();
+  await expect(page.getByRole('alert')).toContainText('This product has prices, so it cannot be deleted.');
+  await page.getByRole('button', { name: 'Archive product' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Product archived.' })).toBeVisible();
+  await expect(page.getByText('This product is archived.', { exact: false })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Add price' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Replace price' })).toHaveCount(0);
+
+  await page.goto('/pay/products');
+  await expect(page.getByRole('heading', { name: 'No active products' })).toBeVisible();
+  await page.getByLabel('Show').selectOption({ label: 'Archived products' });
+  await expect(page.getByRole('region', { name: 'Your products' }).getByText('TEST Poster', { exact: true }).first()).toBeVisible();
+
+  const second = `TEST-customer-2-${state.owner.handle}`;
+  await page.goto('/pay/subscriptions/new');
+  await recordMandate(page, second, '6');
+  await chooseMandate(page, second);
+  await expect(page.getByText('No active monthly price in your catalogue has this mandate’s amount and asset.')).toBeVisible();
+
+  // The subscription still reads the price and product it was sold on.
+  await page.goto(subscriptionUrl);
+  await expect(page.getByRole('link', { name: 'TEST Poster · 5.00 USDT monthly (archived, product archived)' })).toBeVisible();
+
+  // A product without prices can be deleted.
+  await page.goto('/pay/products/new');
+  await page.getByLabel('Name *').fill('TEST Draft');
+  await page.getByRole('button', { name: 'Save product' }).click();
+  await expect(page).toHaveURL(/\/pay\/products\/[0-9a-f-]{36}$/);
+  await page.getByRole('button', { name: 'Delete product' }).click();
+  await page.getByRole('group', { name: 'Delete product' }).getByRole('button', { name: 'Delete product' }).click();
+  await expect(page).toHaveURL(/\/pay\/products$/);
+  await expect(page.getByText('TEST Draft')).toHaveCount(0);
+  expect(refused.filter((r) => !r.includes('merchantCatalog.products.delete'))).toEqual([]);
 });
+
+// Steps 5 and 6 come with their slices (the import, and M-adv-payments-core-21). Until then each fails at its first
+// check, quickly.
+const unbuilt = { timeout: 5000 };
 
 test(`${J} #5 an import dry run lists line-numbered errors and writes nothing, and a commit writes once`, async ({ page }) => {
   test.setTimeout(120_000);

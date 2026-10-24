@@ -108,11 +108,85 @@ export function createCatalogMock(ctx) {
             maxAmount: chosen ? input.maxAmount : null,
             isDefault: !state.prices.some((p) => p.productId === input.productId && p.isDefault),
             status: 'active',
+            replacesId: null,
             createdAt: iso(Date.now()),
             createdBy: USER_ID,
           };
           state.prices.push({ ...price, requestId: input.requestId });
           return ok(route, { price, replayed: false });
+        }
+        case 'merchantCatalog.prices.replace': {
+          const replay = state.prices.find((p) => p.requestId === input.requestId);
+          if (replay) {
+            const old = state.prices.find((p) => p.id === replay.replacesId);
+            return ok(route, { price: strip(replay), replaced: strip(old), replayed: true });
+          }
+          const product = state.products.find((p) => p.id === input.productId);
+          if (!product) return refuse(route, 404, 'pay.product_not_found');
+          if (product.status !== 'active') return refuse(route, 412, 'pay.product_archived');
+          const old = state.prices.find((p) => p.id === input.priceId && p.productId === input.productId);
+          if (!old) return refuse(route, 404, 'pay.price_not_found');
+          if (old.status !== 'active') return refuse(route, 412, 'pay.price_archived');
+          const chosen = input.kind === 'customer_chosen';
+          const price = {
+            id: hex('c3', state.prices.length + 1),
+            productId: input.productId,
+            billing: input.billing,
+            kind: input.kind,
+            assetId: input.assetId,
+            amount: chosen ? null : input.amount,
+            minAmount: chosen ? input.minAmount : null,
+            maxAmount: chosen ? input.maxAmount : null,
+            isDefault: old.isDefault,
+            status: 'active',
+            replacesId: old.id,
+            createdAt: iso(Date.now()),
+            createdBy: USER_ID,
+          };
+          Object.assign(old, { status: 'archived', isDefault: false });
+          state.prices.push({ ...price, requestId: input.requestId });
+          return ok(route, { price, replaced: strip(old), replayed: false });
+        }
+        case 'merchantCatalog.prices.get': {
+          const found = state.prices.find((p) => p.id === input.priceId);
+          const product = found && state.products.find((p) => p.id === found.productId);
+          if (!found || !product) return refuse(route, 404, 'pay.price_not_found');
+          return ok(route, pricedProduct(found, product));
+        }
+        case 'merchantCatalog.prices.usage': {
+          if (!state.prices.some((p) => p.id === input.priceId)) return refuse(route, 404, 'pay.price_not_found');
+          const open = (state.subscriptions ?? []).filter(
+            (s) => s.priceId === input.priceId && (s.status === 'active' || s.status === 'paused'),
+          ).length;
+          return ok(route, { priceId: input.priceId, openSubscriptions: open });
+        }
+        case 'merchantCatalog.prices.choices': {
+          const rows = state.prices
+            .filter((p) => p.status === 'active')
+            .filter((p) => !input.billing || p.billing === input.billing)
+            .filter((p) => !input.kind || p.kind === input.kind)
+            .filter((p) => !input.assetId || p.assetId === input.assetId)
+            .filter((p) => input.amount === undefined || (p.amount !== null && scaled(p.amount) === scaled(input.amount)))
+            .map((p) => [p, state.products.find((x) => x.id === p.productId)])
+            .filter(([, product]) => product && product.status === 'active')
+            .reverse()
+            .map(([p, product]) => pricedProduct(p, product));
+          return ok(route, page(rows, input));
+        }
+        case 'merchantCatalog.products.archive':
+        case 'merchantCatalog.products.unarchive': {
+          const found = state.products.find((p) => p.id === input.productId);
+          if (!found) return refuse(route, 404, 'pay.product_not_found');
+          const status = procedure.endsWith('.archive') ? 'archived' : 'active';
+          if (found.status !== status) Object.assign(found, { status, version: found.version + 1, updatedAt: iso(Date.now()) });
+          return ok(route, strip(found));
+        }
+        case 'merchantCatalog.products.delete': {
+          const at = state.products.findIndex((p) => p.id === input.productId);
+          if (at < 0) return refuse(route, 404, 'pay.product_not_found');
+          if (state.prices.some((p) => p.productId === input.productId)) return refuse(route, 412, 'pay.product_has_prices');
+          state.products.splice(at, 1);
+          return ok(route, { productId: input.productId, deleted: true });
         }
         case 'merchantCatalog.prices.setDefault': {
           const found = state.prices.find((p) => p.id === input.priceId && p.productId === input.productId);
@@ -144,3 +218,8 @@ const scaled = (value) => {
 };
 
 const strip = ({ requestId: _requestId, ...product }) => product;
+
+const pricedProduct = (price, product) => ({
+  price: strip(price),
+  product: { id: product.id, productKey: product.productKey, name: product.name, status: product.status },
+});

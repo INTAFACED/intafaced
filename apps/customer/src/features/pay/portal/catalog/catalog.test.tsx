@@ -1,3 +1,4 @@
+import type React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -11,12 +12,14 @@ import { allows, type Access } from '../access/resolve';
 import { ROLE_CAPABILITIES } from '../access/capabilities';
 import type { PortalApi } from '../api';
 import { parsePortalRoute } from '../routes';
-import { ProductCreate } from './Products';
+import { ProductCreate, ProductList } from './Products';
+import { SubscriptionPriceFact, SubscriptionPricePicker } from './SubscriptionPrice';
 import { productImageUploadInputSchema } from '@intafaced/contracts/merchant-catalog';
 import {
   blankPrice,
   blankProduct,
   checkImage,
+  draftOf,
   draftProblem,
   imageRequestId,
   priceBody,
@@ -141,5 +144,51 @@ describe('product catalogue (J-merchant-03 steps 1 and 2)', () => {
       assetId: 'USDC',
       amount: '9',
     });
+  });
+});
+
+describe('replacing prices, archiving products and the price a subscription runs on (J-merchant-03 step 4)', () => {
+  const inAccess = (node: React.ReactNode, access = ready('owner')) =>
+    renderToStaticMarkup(
+      <MerchantAccessContext.Provider value={{ access, can: (need: Parameters<typeof allows>[1]) => allows(access, need) } as never}>
+        {node}
+      </MerchantAccessContext.Provider>,
+    );
+  it('lists active products by default and offers the archived ones under Show', () => {
+    const page = inAccess(<ProductList portal={{ products: () => pending } as unknown as PortalApi} />);
+    expect(page).toContain('Show');
+    expect(page).toContain('Active products');
+    expect(page).toContain('Archived products');
+  });
+  it('starts a replacement from the old price, so an unchanged form sends the same details', () => {
+    const old = {
+      id: 'c3000001-0000-4000-8000-000000000001',
+      productId: 'p1',
+      billing: 'monthly' as const,
+      kind: 'fixed' as const,
+      assetId: 'USDC',
+      amount: '5',
+      minAmount: null,
+      maxAmount: null,
+    };
+    expect(priceBody(draftOf(old), 'p1')).toEqual({ productId: 'p1', billing: 'monthly', kind: 'fixed', assetId: 'USDC', amount: '5' });
+    expect(priceProblem(draftOf(old))).toBeNull();
+    const chosen = {
+      ...old,
+      billing: 'one_time' as const,
+      kind: 'customer_chosen' as const,
+      amount: null,
+      minAmount: '5',
+      maxAmount: '100',
+    };
+    expect(priceBody(draftOf(chosen), 'p1')).toMatchObject({ minAmount: '5', maxAmount: '100' });
+  });
+  it('offers catalogue prices only to a monthly mandate, and names no price when a subscription has none', () => {
+    const portal = { monthlyPriceChoices: () => pending, pricedProduct: () => pending } as unknown as PortalApi;
+    const weekly = { id: 'm1', assetId: 'USDC', amount: '5', cadence: 'weekly' };
+    expect(inAccess(<SubscriptionPricePicker portal={portal} mandate={weekly} value="" onChange={() => undefined} />)).toContain(
+      'Only a monthly mandate can start on a catalogue price.',
+    );
+    expect(inAccess(<SubscriptionPriceFact portal={portal} priceId={null} />)).toBe('None');
   });
 });

@@ -8,7 +8,7 @@ import { assertPermission, type MerchantCaller } from '../merchant-ops/roles.js'
 import type { ProductImageRule } from './image-rules.js';
 
 /**
- * The product catalogue (M-catalogue-01, J-merchant-03 steps 1 and 2).
+ * The product catalogue (M-catalogue-01, J-merchant-03 steps 1 and 2; archive and delete, M-adv-payments-core-20, step 4).
  *
  * Scoped to the caller's own business, resolved from the signed principal (`resolveMerchantCaller`): another
  * business's product or image answers exactly as one that does not exist. Every role reads (`products.read`); the
@@ -16,7 +16,10 @@ import type { ProductImageRule } from './image-rules.js';
  * session without a second factor holds no writes. The portal writes `live` products; nothing here writes `test`.
  *
  * A create is keyed by the client's request id: the same id with the same details answers with the product it made,
- * the same id with other details is refused. Nothing here moves money; prices are in `prices.ts`.
+ * the same id with other details is refused. An archived product leaves the lists and pickers that offer products
+ * (`status` filter, `prices.choices`) and still reads by id, so old documents resolve; it can be unarchived. A product is
+ * deleted only while it has no price, so nothing that ever named one of its prices loses it, and its image goes with it
+ * when no other product shows that image. Nothing here moves money; prices are in `prices.ts`.
  */
 
 const MODE = 'live' as const;
@@ -189,12 +192,69 @@ export class ProductCatalog {
         if (raced) return { product: raced, replayed: true };
       }
       if (isUnique(err, 'catalog_products_key_once')) throw new MerchantOpsError('pay.product_id_taken', 'conflict');
+      // Its image was deleted with another product between the check above and this insert.
+      if ((err as { code?: string }).code === '23503') throw imageNotFound();
       throw err;
     }
   }
 
+  /** Archive or unarchive a product. Setting the status it already has answers with the product unchanged. */
+  async setStatus(caller: MerchantCaller, productId: string, status: 'active' | 'archived'): Promise<MerchantProduct> {
+    assertWriter(caller);
+    if (!UUID.test(productId)) throw productNotFound();
+    const sql = this.sql;
+    const rows = await sql<ProductRow[]>`
+      UPDATE pay.catalog_products SET status = ${status}, version = version + 1, updated_at = now()
+       WHERE id = ${productId}::uuid AND merchant_id = ${caller.merchantId} AND mode = ${MODE} AND status <> ${status}
+      RETURNING ${FIELDS(sql)}`;
+    return rows[0] ? view(rows[0]) : this.get(caller, productId);
+  }
+
+  /**
+   * Delete a product that has no price. One with a price, archived or not, is refused (`pay.product_has_prices`): a
+   * price may be named by a subscription or a document, so the product is archived instead. Its image is deleted with
+   * it unless another product shows the same image.
+   */
+  async delete(caller: MerchantCaller, productId: string): Promise<{ productId: string; deleted: true }> {
+    assertWriter(caller);
+    if (!UUID.test(productId)) throw productNotFound();
+    return this.sql.begin(async (tx) => {
+      const [row] = await tx<Array<{ id: string; image_id: string | null; request_id: string; request_hash: string }>>`
+        SELECT id, image_id, request_id, request_hash FROM pay.catalog_products
+         WHERE id = ${productId}::uuid AND merchant_id = ${caller.merchantId} AND mode = ${MODE}
+         FOR UPDATE`;
+      if (!row) throw productNotFound();
+      // Prices take the product's lock to be made, so none can appear between this check and the delete.
+      const [priced] = await tx`SELECT 1 FROM pay.catalog_prices WHERE product_id = ${productId}::uuid LIMIT 1`;
+      if (priced) throw new MerchantOpsError('pay.product_has_prices', 'precondition');
+      await tx`DELETE FROM pay.catalog_products WHERE id = ${productId}::uuid`;
+      // The create that made it stays known, so a retry of it is told the product was deleted, not made again.
+      await tx`
+        INSERT INTO pay.catalog_product_tombstones (merchant_id, request_id, request_hash, product_id, deleted_by)
+        VALUES (${caller.merchantId}, ${row.request_id}::uuid, ${row.request_hash}, ${row.id}::uuid, ${caller.userId})`;
+      if (row.image_id) {
+        // A product being made with the same image at this moment keeps it: the image's delete gives way (in a
+        // savepoint, so the product's delete still commits) rather than failing the whole request.
+        await tx
+          .savepoint(
+            (sp) => sp`
+              DELETE FROM pay.catalog_product_images i
+               WHERE i.id = ${row.image_id}::uuid AND i.merchant_id = ${caller.merchantId}
+                 AND NOT EXISTS (SELECT 1 FROM pay.catalog_products p WHERE p.image_id = i.id)`,
+          )
+          .catch((err: unknown) => {
+            if ((err as { code?: string }).code !== '23503') throw err;
+          });
+      }
+      return { productId: row.id, deleted: true as const };
+    });
+  }
+
   private async replay(caller: MerchantCaller, requestId: string, hash: string): Promise<MerchantProduct | null> {
     const sql = this.sql;
+    const [gone] = await sql<Array<{ request_hash: string }>>`
+      SELECT request_hash FROM pay.catalog_product_tombstones WHERE merchant_id = ${caller.merchantId} AND request_id = ${requestId}::uuid`;
+    if (gone) throw new MerchantOpsError(gone.request_hash === hash ? 'pay.product_deleted' : 'pay.request_id_reused', 'conflict');
     const rows = await sql<ProductRow[]>`
       SELECT ${FIELDS(sql)} FROM pay.catalog_products WHERE merchant_id = ${caller.merchantId} AND request_id = ${requestId}::uuid`;
     if (!rows[0]) return null;

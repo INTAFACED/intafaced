@@ -16,10 +16,13 @@ const unresolved = (): ApiResult<z.infer<typeof subscriptionSchema>> => ({
 });
 
 // Both creation surfaces share this admission. pay.mutate stores the attempt id
-// and original charge path on `subscription-create:${mandateId}`. Replays use
-// that body; definite refusals clear the journal so a fresh attempt is allowed.
-export async function createSubscriptionWithRecovery(pay: BusinessPayApi, mandateId: string, path: string) {
-  const input = z.object({ mandateId: id, path: z.enum(['crypto_invoice', 'card', 'card_mandate']) }).safeParse({ mandateId, path });
+// and original charge path (and catalogue price, when one was chosen) on
+// `subscription-create:${mandateId}`. Replays use that body; definite refusals
+// clear the journal so a fresh attempt is allowed.
+export async function createSubscriptionWithRecovery(pay: BusinessPayApi, mandateId: string, path: string, priceId?: string) {
+  const input = z
+    .object({ mandateId: id, path: z.enum(['crypto_invoice', 'card', 'card_mandate']), priceId: id.optional() })
+    .safeParse({ mandateId, path, ...(priceId ? { priceId } : {}) });
   if (!input.success) return payRefusal('invalidInput', { reason: 'error' });
   // A call that never ran (the gateway has no such procedure) is a definite refusal, never an outcome to wait for.
   return plainFailure(
@@ -53,6 +56,7 @@ export function replaySubscriptionCreate(
   mandateId: string,
   path: string,
   current: () => boolean,
+  priceId?: string,
 ): Promise<ApiResult<z.infer<typeof subscriptionSchema>>> {
   if (!current()) {
     return Promise.resolve(
@@ -63,12 +67,13 @@ export function replaySubscriptionCreate(
     );
   }
   if (!path) return Promise.resolve(unresolved());
-  return checkThenResend(pay, mandateId, path);
+  return checkThenResend(pay, mandateId, path, priceId);
 }
 async function checkThenResend(
   pay: BusinessPayApi,
   mandateId: string,
   path: string,
+  priceId: string | undefined,
 ): Promise<ApiResult<z.infer<typeof subscriptionSchema>>> {
   const existing = await findOpenSubscription(pay, mandateId);
   if (existing) {
@@ -77,7 +82,7 @@ async function checkThenResend(
     if (held?.status === 'present') await pay.guard.resolve(lockId, held.raw);
     return { ok: true, data: existing };
   }
-  return createSubscriptionWithRecovery(pay, mandateId, path);
+  return createSubscriptionWithRecovery(pay, mandateId, path, priceId);
 }
 
 export function checkSubscriptionOriginal(pay: BusinessPayApi, subscriptionId: string, current: () => boolean) {

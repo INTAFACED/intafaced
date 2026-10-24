@@ -178,6 +178,8 @@ export const priceSchema = z
     maxAmount: z.string().nullable(),
     isDefault: z.boolean(),
     status: z.enum(['active', 'archived']),
+    /** The price this one replaced, when it was made by Replace price. */
+    replacesId: z.string().guid().nullable(),
     createdAt: z.string(),
     createdBy: z.string(),
   })
@@ -235,3 +237,71 @@ export const priceQuoteSchema = z
   })
   .strict();
 export type PriceQuote = z.infer<typeof priceQuoteSchema>;
+
+/** A product's id, for archiving, unarchiving or deleting it. */
+export const productIdInputSchema = z.object({ productId: z.string().guid() }).strict();
+
+export const productDeletedSchema = z.object({ productId: z.string().guid(), deleted: z.literal(true) }).strict();
+
+/**
+ * Replace a price: a new price with these details, made in the same step that archives the one it replaces
+ * (M-adv-payments-core-20). Anything already using the old price stays on it.
+ */
+export const priceReplaceInputSchema = z.object({ ...priceCreateInputSchema.shape, priceId: z.string().guid() }).strict();
+export type PriceReplaceInput = z.infer<typeof priceReplaceInputSchema>;
+
+export const priceReplaceSchema = z
+  .object({
+    price: priceSchema,
+    /** The old price, now archived. */
+    replaced: priceSchema,
+    replayed: z.boolean(),
+  })
+  .strict();
+
+export const priceIdInputSchema = z.object({ priceId: z.string().guid() }).strict();
+
+/** What uses a price, so Replace price can say it before anything is changed. */
+export const priceUsageSchema = z
+  .object({
+    priceId: z.string().guid(),
+    /** Subscriptions started on this price that have not ended (active or paused). */
+    openSubscriptions: z.number().int().nonnegative(),
+  })
+  .strict();
+
+/** A price with the product it belongs to, so a document that names a price can still read both once they are archived. */
+export const pricedProductSchema = z
+  .object({
+    price: priceSchema,
+    product: z
+      .object({
+        id: z.string().guid(),
+        productKey: z.string(),
+        name: z.string(),
+        status: z.enum(['active', 'archived']),
+      })
+      .strict(),
+  })
+  .strict();
+export type PricedProduct = z.infer<typeof pricedProductSchema>;
+
+/** The prices a picker offers: active prices of active products only, newest price first. */
+export const priceChoicesInputSchema = z
+  .object({
+    billing: priceBillingSchema.optional(),
+    kind: priceKindSchema.optional(),
+    assetId: priceAssetSchema.optional(),
+    /** A fixed price's amount, compared as a number ("5" is "5.00"). */
+    amount: priceAmountSchema.optional(),
+    limit: z.number().int().min(1).max(100).optional(),
+    cursor: z.string().min(1).max(200).optional(),
+  })
+  .strict();
+
+export const priceChoicesSchema = z
+  .object({
+    items: z.array(pricedProductSchema),
+    nextCursor: z.string().nullable(),
+  })
+  .strict();

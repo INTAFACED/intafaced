@@ -41,7 +41,7 @@ export type PayBusinessAuthority = {
   confirmable?: readonly ('pay:refund' | 'pay:payout')[];
 };
 
-type PayOriginal = { status: 'uncertain'; reference?: string; path?: string };
+type PayOriginal = { status: 'uncertain'; reference?: string; path?: string; priceId?: string };
 function decodePayOriginal(raw: string): PayOriginal {
   if (raw === 'pending' || raw === 'uncertain') return { status: 'uncertain' };
   const parsed: unknown = JSON.parse(raw);
@@ -49,8 +49,9 @@ function decodePayOriginal(raw: string): PayOriginal {
   const value = parsed as Record<string, unknown>;
   if (
     value.status !== 'uncertain' ||
-    Object.keys(value).some((key) => !['status', 'reference', 'path'].includes(key)) ||
+    Object.keys(value).some((key) => !['status', 'reference', 'path', 'priceId'].includes(key)) ||
     ('path' in value && !['crypto_invoice', 'card', 'card_mandate'].includes(value.path as string)) ||
+    ('priceId' in value && !s.id.safeParse(value.priceId).success) ||
     ('reference' in value && (typeof value.reference !== 'string' || !value.reference || value.reference.length > 200))
   )
     throw new Error('Invalid Pay original');
@@ -185,7 +186,7 @@ export function createPayMutationGuard(storage?: JournalStorage, requirePersiste
     reference?: string,
     isCurrent?: () => boolean,
     recoveryCurrent = isCurrent ?? (() => true),
-    recovery?: { path?: string },
+    recovery?: { path?: string; priceId?: string },
   ): Promise<ApiResult<T>> {
     if (isCurrent && !isCurrent()) return sendContextChanged();
     const coordinated = await journal(key).coordinate(async (lease): Promise<ApiResult<T>> => {
@@ -200,6 +201,7 @@ export function createPayMutationGuard(storage?: JournalStorage, requirePersiste
         status: 'uncertain',
         ...(reference ? { reference } : {}),
         ...(recovery?.path ? { path: recovery.path } : {}),
+        ...(recovery?.priceId ? { priceId: recovery.priceId } : {}),
       });
       const saved = lease.writeExact(null, record);
       if (!saved.ok) return unavailable(key, saved.reason);
@@ -1119,11 +1121,12 @@ export function createBusinessPayApi(
     if (procedure !== 'subscription.create' && procedure !== 'merchant.createLink')
       return guard.run(lockId, () => api.mutate('pay', procedure, input, outcome), reference);
     const fields = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
-    const sendAttempt = async (attemptId: string, path?: string): Promise<ApiResult<T>> => {
+    // A replay sends the body the first attempt sent: its charge path and, for a subscription, its catalogue price.
+    const sendAttempt = async (attemptId: string, path?: string, priceId?: string): Promise<ApiResult<T>> => {
       const result = await api.mutate(
         'pay',
         procedure,
-        { ...fields, ...(path ? { path } : {}), idempotencyKey: `${lockId}:${attemptId}` },
+        { ...fields, ...(path ? { path } : {}), ...(priceId ? { priceId } : {}), idempotencyKey: `${lockId}:${attemptId}` },
         outcome,
       );
       if (!result.ok && ['pay.idempotency_conflict', 'pay.subscription_mandate_open'].includes(result.code ?? ''))
@@ -1146,7 +1149,7 @@ export function createBusinessPayApi(
         if (!attemptId) {
           return payRefusal('theOriginalActionHasNotBeenConfirmed', { code: 'pay.operation_unresolved', reason: 'uncertain' });
         }
-        const replayed = await sendAttempt(attemptId, held.value.path);
+        const replayed = await sendAttempt(attemptId, held.value.path, held.value.priceId);
         // Match the first attempt: a known outcome, including a definite
         // refusal, drops the journal. Uncertain and aborted replies stay held
         // so the same attempt can be retried.
@@ -1173,7 +1176,8 @@ export function createBusinessPayApi(
       });
     }
     const path = 'path' in fields && typeof fields.path === 'string' ? fields.path : undefined;
-    return guard.run(lockId, () => sendAttempt(attemptId), attemptId, undefined, undefined, { path });
+    const priceId = 'priceId' in fields && typeof fields.priceId === 'string' ? fields.priceId : undefined;
+    return guard.run(lockId, () => sendAttempt(attemptId), attemptId, undefined, undefined, { path, priceId });
   }
   return {
     merchant,
