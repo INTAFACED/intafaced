@@ -138,7 +138,8 @@ export type PayCustodyDepositAddressReply = z.infer<typeof payCustodyDepositAddr
  * never meets a state it cannot name. `held_for_release` (reason `address_expired`) is a deposit that first reached an extra
  * address after its expiry (W-deposit-02): never credited on its own, kept for a support or compliance release. `on_hold`
  * (reason `address_frozen`) is a deposit to an address compliance froze (W-compliance-notices-03): never credited while the
- * freeze stands, and judged again once a second founder unfreezes it.
+ * freeze stands, and judged again once a second founder unfreezes it. `held_travel_rule` is a deposit at or above the owner's
+ * inbound travel-rule threshold (W-deposit-07): never credited while held, credited once after a founder releases it.
  */
 export const PAY_CUSTODY_DEPOSIT_STATUSES = [
   'detected',
@@ -148,6 +149,7 @@ export const PAY_CUSTODY_DEPOSIT_STATUSES = [
   'held_for_screening',
   'held_for_release',
   'on_hold',
+  'held_travel_rule',
   'rejected',
   'reversed',
   'needs_review',
@@ -163,7 +165,10 @@ export const PAY_CUSTODY_DEPOSIT_PENDING_STATUSES = ['detected', 'confirming'] a
  * issued for. `chain_reorg` is a credit reversed because the chain rewrote the block it was read from; `reversal_unfunded` is
  * a reversal the balance could not cover (the funds were already spent), left for a person to resolve. `address_expired` is a
  * deposit that first reached an extra address after its expiry (`held_for_release`). `address_frozen` is a deposit to an
- * address compliance froze (`on_hold`).
+ * address compliance froze (`on_hold`). `travel_rule_unset` is a deposit that is otherwise due while the owner has set no
+ * inbound travel rule for its asset (it stays `confirming`, never credited). The other `travel_rule_*` reasons say where a
+ * `held_travel_rule` deposit stands: waiting for the depositor's declaration, under compliance review, waiting on the
+ * counterparty, or past that wait (still held: a timer never releases).
  */
 export const PAY_CUSTODY_DEPOSIT_REASONS = [
   'below_minimum',
@@ -175,6 +180,11 @@ export const PAY_CUSTODY_DEPOSIT_REASONS = [
   'reversal_unfunded',
   'address_expired',
   'address_frozen',
+  'travel_rule_unset',
+  'travel_rule_declaration',
+  'travel_rule_review',
+  'travel_rule_counterparty',
+  'travel_rule_expired',
 ] as const;
 export type PayCustodyDepositReason = (typeof PAY_CUSTODY_DEPOSIT_REASONS)[number];
 
@@ -238,3 +248,65 @@ export interface PayCustodyDepositPort {
   address(input: PayCustodyDepositAddressInput): Promise<PayCustodyDepositAddressResult>;
   records(input: PayCustodyDepositRecordsInput): Promise<PayCustodyDepositRecordsResult>;
 }
+
+// ── Inbound travel rule on a deposit (W-deposit-07, W-compliance-notices-05) ───────────────────────────────────────────────
+
+/** Where a deposit held for the travel rule stands. `released` is the one state that lets it be credited. */
+export const PAY_DEPOSIT_TRAVEL_RULE_STATES = [
+  'awaiting_declaration',
+  'under_review',
+  'counterparty_pending',
+  'blocking_time_expired',
+  'released',
+] as const;
+export type PayDepositTravelRuleState = (typeof PAY_DEPOSIT_TRAVEL_RULE_STATES)[number];
+
+/** The IVMS101-shaped fields an owner can ask for (the same list as the outbound rule). */
+export const PAY_TRAVEL_RULE_FIELDS = [
+  'originator_name',
+  'originator_address',
+  'originator_date_of_birth',
+  'originator_national_identifier',
+  'beneficiary_name',
+  'beneficiary_address',
+  'beneficiary_account',
+  'beneficiary_institution',
+  'beneficiary_wallet_type',
+  'transfer_purpose',
+  'self_or_third_party',
+] as const;
+export type PayTravelRuleField = (typeof PAY_TRAVEL_RULE_FIELDS)[number];
+
+/** Where the money came from: another exchange (a VASP) or a wallet the sender holds the keys to. */
+export const PAY_DEPOSIT_WALLET_TYPES = ['exchange', 'self_hosted'] as const;
+export type PayDepositWalletType = (typeof PAY_DEPOSIT_WALLET_TYPES)[number];
+
+/** The depositor's own view of one held deposit: what to declare and where it stands. No declared value is ever sent back. */
+export const payDepositTravelRuleViewSchema = z
+  .object({
+    depositId: z.string().uuid(),
+    assetId: assetIdSchema,
+    networkId: networkIdSchema,
+    amount: decimalSchema,
+    threshold: decimalSchema,
+    state: z.enum(PAY_DEPOSIT_TRAVEL_RULE_STATES),
+    requiredFields: z.array(z.enum(PAY_TRAVEL_RULE_FIELDS)),
+    walletType: z.enum(PAY_DEPOSIT_WALLET_TYPES).nullable(),
+    declaredAt: z.string().datetime().nullable(),
+    /** Set while compliance waits on the counterparty: when that wait runs out. Past it the deposit stays held. */
+    waitDeadline: z.string().datetime().nullable(),
+  })
+  .strict();
+export type PayDepositTravelRuleView = z.infer<typeof payDepositTravelRuleViewSchema>;
+
+/** One declared value. Free text the depositor types; svc-pay seals it and never returns it. */
+const declaredValueSchema = z.string().trim().min(1).max(500);
+
+export const payDepositTravelRuleDeclareInputSchema = z
+  .object({
+    depositId: z.string().uuid(),
+    walletType: z.enum(PAY_DEPOSIT_WALLET_TYPES),
+    fields: z.partialRecord(z.enum(PAY_TRAVEL_RULE_FIELDS), declaredValueSchema),
+  })
+  .strict();
+export type PayDepositTravelRuleDeclareInput = z.infer<typeof payDepositTravelRuleDeclareInputSchema>;

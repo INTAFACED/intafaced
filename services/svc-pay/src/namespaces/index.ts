@@ -14,6 +14,7 @@ import { createMerchantCatalogRouter, type CatalogMountDeps } from '../catalog/r
 import { createCheckoutBrandingRouter, type CheckoutBrandingMountDeps } from '../checkout-branding/router.js';
 import type { DepositSettingsMountDeps } from '../custody/deposits/settings.js';
 import type { DepositFreezesMountDeps } from '../custody/deposits/freezes.js';
+import type { DepositTravelRuleMountDeps } from '../custody/deposits/travel-rule.js';
 import type { CustodyMountDeps } from '../custody/router.js';
 import type { PurchaseHoldMountDeps } from '../withdrawals/purchase-holds/router.js';
 import type { WithdrawalQuoteMountDeps } from '../withdrawals/quotes/router.js';
@@ -69,6 +70,7 @@ export function createPayNamespaces(deps: {
   checkoutBranding?: CheckoutBrandingMountDeps;
   depositSettings?: DepositSettingsMountDeps;
   depositFreezes?: DepositFreezesMountDeps;
+  depositTravelRule?: DepositTravelRuleMountDeps;
   limits?: WithdrawalLimitsMountDeps;
   custody?: CustodyMountDeps;
   purchaseHolds?: PurchaseHoldMountDeps;
@@ -124,6 +126,7 @@ export function createPayNamespaces(deps: {
       categoryPolicy: deps.categoryPolicy,
       depositSettings: deps.depositSettings,
       depositFreezes: deps.depositFreezes,
+      depositTravelRule: deps.depositTravelRule,
       limits: deps.limits,
       custody: deps.custody,
       purchaseHolds: deps.purchaseHolds,
