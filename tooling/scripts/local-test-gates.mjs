@@ -648,7 +648,7 @@ async function signInPair(ctx, ops, saveSteps) {
 }
 
 /** Operator A proposes, operator B approves, with two different signed-in sessions. Returns { approvalId, operationId }. */
-async function twoPerson(ctx, sessions, proposal) {
+export async function twoPerson(ctx, sessions, proposal) {
   // Two different people, or the approval proves nothing: refuse when the proposer and approver are the same operator
   // or cannot be told apart.
   const who = (s) => s.op?.handle ?? s.op?.email ?? null;

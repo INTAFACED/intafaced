@@ -49,3 +49,29 @@ export const academyCertIssueSchema = z.object({
   issuesAt: z.coerce.date().nullable(),
 });
 export type AcademyCertIssue = z.infer<typeof academyCertIssueSchema>;
+
+/**
+ * `admin.revokeCert`: staff revoke one issued certificate by its public verification code, with a reason, under
+ * two-person approval (action `academy.cert.revoke`, payload `{publicId, reason}`). The public check then says revoked.
+ */
+export const academyRevokeCertInputSchema = z
+  .object({
+    publicId: z.string().regex(/^[0-9a-f]{32}$/),
+    reason: z.string().trim().min(1).max(500),
+    approvalId: z.string().max(128).nullish(),
+    operationId: z.string().max(128).nullish(),
+  })
+  .strict();
+export type AcademyRevokeCertInput = z.infer<typeof academyRevokeCertInputSchema>;
+
+/** One revocation as Academy recorded it: which certificate, who proposed, approved and carried it out, why and when. */
+export const academyCertRevocationSchema = z.object({
+  publicId: z.string(),
+  certId: z.string(),
+  proposedBy: z.string(),
+  approvedBy: z.string(),
+  revokedBy: z.string(),
+  reason: z.string(),
+  revokedAt: z.coerce.date(),
+});
+export type AcademyCertRevocation = z.infer<typeof academyCertRevocationSchema>;

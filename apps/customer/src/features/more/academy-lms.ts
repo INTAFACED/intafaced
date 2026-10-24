@@ -31,6 +31,23 @@ export const lessonSummary = z.object({
 export type LessonSummary = z.infer<typeof lessonSummary>;
 export const lessonCatalogue = z.array(lessonSummary).max(200);
 
+/** The XP Academy publishes to the rank ladder per certificate (`certXpPlane`). Only the fields the sheet reads. */
+export const certXpPlaneRow = z.object({
+  emitEnabled: z.boolean(),
+  policies: z.array(z.object({ certId: ref, xpDelta: z.number().int().safe() })),
+});
+export type CertXpPlaneRow = z.infer<typeof certXpPlaneRow>;
+
+/**
+ * What a certificate is worth on the holder's rank: the XP Academy publishes for it, the same XP while publishing is
+ * switched off (so the rank has not moved), or none when no XP value is published for it.
+ */
+export function certificateXp(plane: CertXpPlaneRow, certId: string): { kind: 'worth' | 'off'; xp: number } | { kind: 'none' } {
+  const policy = plane.policies.find((row) => row.certId === certId);
+  if (!policy || policy.xpDelta <= 0) return { kind: 'none' };
+  return { kind: plane.emitEnabled ? 'worth' : 'off', xp: policy.xpDelta };
+}
+
 export const certDefinition = z.object({
   id: ref,
   title: ref,
@@ -68,6 +85,8 @@ export const certGrant = z.object({
   idempotencyKey: ref,
   /** Absent when the service did not send one; the certificate is then shown without a verification code. */
   publicId: publicCertCode.optional(),
+  /** `revoked` once Academy revoked it: no sheet, no XP line, and the public check says revoked. */
+  status: z.enum(['valid', 'revoked']).optional(),
 });
 export type CertGrant = z.infer<typeof certGrant>;
 
@@ -244,9 +263,10 @@ export function rememberLastLesson(owner: string | null | undefined, slug: strin
   }
 }
 
-export type CertificateState = 'earned' | 'ready' | 'issuing' | 'in-progress' | 'not-started';
+export type CertificateState = 'earned' | 'revoked' | 'ready' | 'issuing' | 'in-progress' | 'not-started';
 
 export function certificateState(progress: CertProgressRow | undefined, grant: CertGrant | undefined): CertificateState {
+  if (grant?.status === 'revoked') return 'revoked';
   if (grant || progress?.granted) return 'earned';
   if (!progress) return 'not-started';
   if (progress.complete && progress.issue?.issuesAt) return 'issuing';

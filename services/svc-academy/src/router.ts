@@ -24,6 +24,8 @@ import {
   academyCertIssueRuleSchema,
   academyCertIssueSchema,
   academyCertIdSchema,
+  academyCertRevocationSchema,
+  academyRevokeCertInputSchema,
   academyItemVideoSchema,
   academySetItemVideoInputSchema,
   academySetVideoTracksInputSchema,
@@ -602,6 +604,8 @@ const certGrantOut = z.object({
   grantedAt: z.date(),
   idempotencyKey: z.string(),
   publicId: z.string().regex(/^[0-9a-f]{32}$/),
+  /** `revoked` once staff revoked it (AC-certificates-03); the public check then says revoked too. */
+  status: z.enum(['valid', 'revoked']).optional(),
 });
 /**
  * Stage-2 XP outcome on a grant.
@@ -772,6 +776,7 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.cert_already_granted':
     case 'academy.cert_incomplete':
     case 'academy.cert_not_due':
+    case 'academy.cert_revoked':
       return new TRPCError({ code: 'CONFLICT', message, cause: err });
 
     case 'academy.cert_not_found':
@@ -989,6 +994,30 @@ async function consumeOperatorApproval(
   targetId: string,
   fields: Record<string, string>,
 ): Promise<string> {
+  const consumed = await consumeApproval(principal, approvals, input, targetId, fields);
+  return consumed.approverId ?? consumed.requesterId;
+}
+
+/** The same consume, answering both people: who proposed the action and who approved it (refused when nobody approved it). */
+async function consumeApprovalPair(
+  principal: Principal | null | undefined,
+  approvals: ActionApprovalConsumer,
+  input: { readonly approvalId?: string | null; readonly operationId?: string | null },
+  targetId: string,
+  fields: Record<string, string>,
+): Promise<{ proposedBy: string; approvedBy: string }> {
+  const consumed = await consumeApproval(principal, approvals, input, targetId, fields);
+  if (!consumed.approverId) throw new DualControlError('the approval names no approver; a second person must approve it');
+  return { proposedBy: consumed.requesterId, approvedBy: consumed.approverId };
+}
+
+async function consumeApproval(
+  principal: Principal | null | undefined,
+  approvals: ActionApprovalConsumer,
+  input: { readonly approvalId?: string | null; readonly operationId?: string | null },
+  targetId: string,
+  fields: Record<string, string>,
+) {
   if (!principal) {
     throw new DualControlError('operator identity is required; the academy ambassador door does not invent a caller');
   }
@@ -1001,7 +1030,7 @@ async function consumeOperatorApproval(
     throw err;
   }
   const ids = readApprovalIds(input);
-  const consumed = await approvals.consume({
+  return approvals.consume({
     approvalId: ids.approvalId,
     operationId: ids.operationId,
     payloadHash: academyActionPayloadHash(targetId, fields),
@@ -1009,7 +1038,6 @@ async function consumeOperatorApproval(
     targetId,
     expectedVersion: '1',
   });
-  return consumed.approverId ?? consumed.requesterId;
 }
 
 /** TCP peer the HTTP adapter attached. Blank is not an address. */
@@ -3232,6 +3260,26 @@ export function createAcademyRouter(
         .input(academySetCertIssueRuleInputSchema)
         .output(academyCertIssueRuleSchema)
         .mutation(({ input, ctx }) => guard(() => academy.setCertIssueRule({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /**
+       * AC-certificates-03: revoke one issued certificate by its public code, under two-person approval
+       * (`academy.cert.revoke`, payload `{publicId, reason}`). The public check then says revoked.
+       */
+      revokeCert: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyRevokeCertInputSchema)
+        .output(academyCertRevocationSchema)
+        .mutation(({ input, ctx }) =>
+          guard(async () => {
+            // A repeat answers with the first record, and an unknown code refuses, before the two people's approval is spent.
+            const recorded = await academy.certRevocation(input.publicId);
+            if (recorded) return recorded;
+            const pair = await consumeApprovalPair(ctx.principal, approvals, input, 'academy.cert.revoke', {
+              publicId: input.publicId,
+              reason: input.reason,
+            });
+            return academy.revokeCert({ publicId: input.publicId, reason: input.reason, ...pair, operatorId: ctx.principal!.userId });
+          }),
+        ),
 
       /** AC-certificates-02: one certificate's stored issue rule, or null when staff have set none (the learner claims it). */
       certIssueRule: scopedProcedure('admin:read', { module: 'academy' })

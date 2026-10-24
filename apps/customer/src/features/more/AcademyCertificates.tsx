@@ -10,6 +10,8 @@ import { z } from 'zod';
 import {
   academyVerifyHref,
   certPathRow,
+  certXpPlaneRow,
+  certificateXp,
   certificateCards,
   certificateDocument,
   certificateLessons,
@@ -155,6 +157,7 @@ function CertificateCardView({ card, lessons, onView }: { card: CertificateCard;
         </p>
       )}
       {!card.grant && <IssueLine progress={card.progress} />}
+      {card.state === 'revoked' && <p data-testid="certificate-revoked">{t('revokedNote')}</p>}
       <div className="academy-learning-actions">
         {card.state === 'earned' && (
           <Button variant="secondary" onClick={onView}>
@@ -261,6 +264,7 @@ function CertificateSheet({
             </>
           )}
         </article>
+        <CertificateXp certId={doc.certId} />
         <ShareCertificate key={doc.code ?? doc.certId} code={doc.code} />
         {doc.code && (
           <div className="academy-learning-actions">
@@ -283,6 +287,29 @@ function CertificateSheet({
         </details>
       </div>
     </Panel>
+  );
+}
+
+/**
+ * What this certificate did to the holder's rank, from the XP Academy publishes for it. Perks come from the rank in
+ * identity, never from the certificate, so none is named here. A failed read shows its refusal, never a number.
+ */
+function CertificateXp({ certId }: { certId: string }) {
+  const api = useApi();
+  const { t } = copy.useCopy();
+  const plane = useResource((signal) => api.query('academy', 'certXpPlane', undefined, certXpPlaneRow, { signal }), 'cert-xp-plane');
+  if (plane.resource.status === 'loading') return <Loading />;
+  if (plane.resource.status === 'failed') return <AcademyRefusal failure={plane.resource.failure} retry={plane.reload} />;
+  const xp = certificateXp(plane.resource.data, certId);
+  return (
+    <p data-testid="certificate-xp">
+      <span data-testid="certificate-xp-text">
+        {xp.kind === 'none' ? t('certXpNone') : t(xp.kind === 'worth' ? 'certXpWorth' : 'certXpOff', { xp: xp.xp })}
+      </span>{' '}
+      <a className="academy-learning-link" href="/account">
+        {t('seeRank')}
+      </a>
+    </p>
   );
 }
 
