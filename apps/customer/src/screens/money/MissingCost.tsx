@@ -151,6 +151,8 @@ export function MissingCost({
   const { t } = copy;
   const { timeZone } = usePreferences();
   const [open, setOpen] = useState<string | null>(null);
+  // Quantities inside a sentence follow hide balances too, as <Amount> does for a figure on its own.
+  const masked = (qty: string) => (hidden ? '••••' : fmtAmount(qty));
   const lots = lotsMissingCost(missing);
   const noLot = missing.items.filter((item) => item.kind === 'disposal' && item.lotId === null);
   if (lots.length === 0 && noLot.length === 0) return null;
@@ -180,7 +182,7 @@ export function MissingCost({
               </p>
               {sales.map((sale, index) => (
                 <p key={`${sale.saleTxId}:${index}`} className="money-note" data-effect="unknown-share">
-                  {t('Unknown share', { qty: `${fmtAmount(sale.qty)} ${sale.assetId}` })}
+                  {t('Unknown share', { qty: `${masked(sale.qty)} ${sale.assetId}` })}
                 </p>
               ))}
               {lot ? (
@@ -197,7 +199,7 @@ export function MissingCost({
         })}
         {noLot.map((item, index) => (
           <li key={`no-lot:${item.saleTxId}:${item.assetId}:${index}`} data-effect="no-lot">
-            <p>{t('Missing cost no lot', { qty: `${fmtAmount(item.qty)} ${item.assetId}` })}</p>
+            <p>{t('Missing cost no lot', { qty: `${masked(item.qty)} ${item.assetId}` })}</p>
           </li>
         ))}
       </ul>

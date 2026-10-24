@@ -211,7 +211,7 @@ function SaleRows({ book, missing, hidden, copy }: { book: LotBook; missing: Mis
                     ? unknownShareOf(missing, sale).map((part, index) => (
                         <span key={`${part.lotId ?? 'no-lot'}:${index}`} className="money-note" data-effect="unknown-share">
                           {' '}
-                          {t('Unknown share', { qty: `${fmtAmount(part.qty)} ${part.assetId}` })}
+                          {t('Unknown share', { qty: `${hidden ? '••••' : fmtAmount(part.qty)} ${part.assetId}` })}
                         </span>
                       ))
                     : null}
