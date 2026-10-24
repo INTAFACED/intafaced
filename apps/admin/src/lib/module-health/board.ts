@@ -258,6 +258,7 @@ export const HEALTH_ROWS: readonly HealthRowSpec[] = [
   unwired('support', 'Support', { href: '/support', label: 'Support queue' }),
   unwired('tax', 'Tax', null),
   unwired('quant', 'Quant', { href: '/more-ops', label: 'More modules' }),
+  unwired('campaigns', 'Campaigns', { href: '/more-ops', label: 'More modules' }),
   unwired('edge', 'Edge', { href: '/', label: 'Module board' }),
   unwired('chain', 'Chain', { href: '/protocol-ops', label: 'Protocol ops' }),
   unwired('indexer', 'Indexer', { href: '/protocol-ops', label: 'Protocol ops' }),

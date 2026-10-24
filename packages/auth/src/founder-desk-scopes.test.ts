@@ -68,9 +68,17 @@ describe('founder desk scopes', () => {
     const desk = [...new Set<Scope>([...fromNames, ...fromFounderGrant])];
 
     expect(desk).toEqual(
-      expect.arrayContaining(['admin:read', 'admin:write', 'admin:treasury', 'admin:compliance', 'support:ops', 'market:ops']),
+      expect.arrayContaining([
+        'admin:read',
+        'admin:write',
+        'admin:treasury',
+        'admin:compliance',
+        'support:ops',
+        'market:ops',
+        'campaigns:ops',
+      ]),
     );
-    expect(desk).toHaveLength(6);
+    expect(desk).toHaveLength(7);
 
     for (const scope of desk) {
       expect(INTERACTIVE_ONLY_SCOPES, scope).toContain(scope);
@@ -86,7 +94,7 @@ describe('founder desk scopes', () => {
     for (const scope of SESSION_MFA_SCOPES) {
       expect(INTERACTIVE_ONLY_SCOPES, scope).toContain(scope);
     }
-    for (const scope of ['admin:read', 'admin:write', 'admin:compliance', 'support:ops', 'market:ops'] as const) {
+    for (const scope of ['admin:read', 'admin:write', 'admin:compliance', 'support:ops', 'market:ops', 'campaigns:ops'] as const) {
       expect(SESSION_MFA_SCOPES, scope).not.toContain(scope);
     }
   });
