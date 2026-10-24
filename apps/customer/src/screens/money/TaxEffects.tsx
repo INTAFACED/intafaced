@@ -8,6 +8,7 @@ import { useSession } from '../../features/session/session';
 
 type Copy = ReturnType<typeof moneyCopy.useCopy>;
 
+// hand-declared-ok: svc-bank activity.taxEffects declares its answer in its own router; packages/contracts has no schema for it
 const effectsShape = z.object({ effects: z.record(z.string(), z.string()) });
 
 const EFFECT_WORD: Record<KnownEffect, 'Tax effect income' | 'Tax effect disposal' | 'Tax effect neutral'> = {
