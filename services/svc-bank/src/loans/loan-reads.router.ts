@@ -32,7 +32,7 @@ export function loanCustomerReadProcedures(bank: Pick<BankServices, 'loans'>, gu
       .input(
         z
           .object({
-            loanId: z.string().uuid(),
+            loanId: z.string().guid(),
             days: z.number().int().min(1).max(366),
             extraRepayment: amountString.optional(),
           })
@@ -67,7 +67,7 @@ export function loanCustomerReadProcedures(bank: Pick<BankServices, 'loans'>, gu
 
     /** Interest through today, then principal, plus the published fee. Valid until the owner's window or the day's end. Not stored. */
     payoffQuote: scopedProcedure('bank:read', { module: 'bank' })
-      .input(z.object({ loanId: z.string().uuid() }).strict())
+      .input(z.object({ loanId: z.string().guid() }).strict())
       .output(
         z
           .object({
@@ -95,7 +95,7 @@ export function loanCustomerReadProcedures(bank: Pick<BankServices, 'loans'>, gu
       .input(
         z
           .object({
-            loanId: z.string().uuid(),
+            loanId: z.string().guid(),
             from: z.string().datetime({ offset: true }),
             to: z.string().datetime({ offset: true }),
           })
