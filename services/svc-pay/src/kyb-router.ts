@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { AuthError, requireMfa } from '@intafaced/auth';
 import {
+  kybApplicationChangeTypeInputSchema,
   kybApplicationCurrentInputSchema,
   kybApplicationRestartInputSchema,
   kybApplicationSaveSectionInputSchema,
@@ -122,7 +123,12 @@ function toTrpcError(err: unknown): unknown {
     if (err.code === 'pay.kyb_application_not_found') {
       return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
     }
-    if (err.code === 'pay.kyb_incomplete' || err.code === 'pay.kyb_application_submitted' || err.code === 'pay.kyb_application_unwired') {
+    if (
+      err.code === 'pay.kyb_incomplete' ||
+      err.code === 'pay.kyb_documents_missing' ||
+      err.code === 'pay.kyb_application_submitted' ||
+      err.code === 'pay.kyb_application_unwired'
+    ) {
       return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
     }
     return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
@@ -147,7 +153,7 @@ export function createKybPspRouter(
     },
   },
   /** Unwired means no application can be kept: every call refuses. */
-  applications?: Pick<KybApplicationService, 'merchantOf' | 'start' | 'current' | 'saveSection' | 'restart' | 'submit'>,
+  applications?: Pick<KybApplicationService, 'merchantOf' | 'start' | 'current' | 'saveSection' | 'restart' | 'changeType' | 'submit'>,
   documents?: Pick<KybDocumentService, 'checklist' | 'upload'>,
 ) {
   const applicationService = () => {
@@ -229,6 +235,17 @@ export function createKybPspRouter(
             wrap(async () => {
               await ownedApplication(ctx.principal.userId, input.applicationId);
               return applicationService().restart({ applicationId: input.applicationId, actorId: ctx.principal.userId });
+            }),
+          ),
+
+        /** Change the draft's entity type or country: the sections clear and what is needed is listed again for the new type. */
+        changeType: scopedProcedure('pay:onboard', { module: 'pay' })
+          .input(kybApplicationChangeTypeInputSchema)
+          .output(kybApplicationViewSchema)
+          .mutation(({ ctx, input }) =>
+            wrap(async () => {
+              await ownedApplication(ctx.principal.userId, input.applicationId);
+              return applicationService().changeType({ ...input, actorId: ctx.principal.userId });
             }),
           ),
 

@@ -185,6 +185,24 @@ describe('kyb documents', () => {
     expect(view.uploadRules).toEqual({ maxBytes: 1024, contentTypes: [PDF, 'image/png'] });
   });
 
+  it('after a restart the checklist asks for every document again, and the same file sent again counts as new', async () => {
+    const id = await startApplication();
+    await publishRules();
+    const owner = await api();
+    const input = { applicationId: id, key: 'trust_deed', contentType: PDF, bytesBase64: b64('the deed') };
+    const before = await owner.kyb.documents.upload(input);
+    await owner.kyb.application.restart({ applicationId: id, confirm: true });
+    const cleared = await owner.kyb.documents.checklist({ applicationId: id });
+    expect(cleared.rows.map((r) => r.state)).toEqual(['missing', 'missing']);
+    const after = await owner.kyb.documents.upload(input);
+    expect(after.row.document?.id).not.toBe(before.row.document?.id);
+    const view = await owner.kyb.documents.checklist({ applicationId: id });
+    expect(view.rows.find((r) => r.key === 'trust_deed')).toMatchObject({ state: 'provided', document: { id: after.row.document?.id } });
+    // Both uploads are kept; only the one after the restart counts.
+    const kept = await sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM pay.kyb_documents WHERE application_id = ${id}`;
+    expect(kept[0]?.n).toBe('2');
+  });
+
   it('a later upload for the key replaces what the checklist shows', async () => {
     const id = await startApplication();
     await publishRules();

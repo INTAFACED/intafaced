@@ -100,7 +100,7 @@ import { KybService } from './kyb-service.js';
 import { PspModeService, assertNoThirdPartyMoneyLibrary } from './psp-mode.js';
 import { createKybPspRouter } from './kyb-router.js';
 import { KybEntityTypeService } from './kyb-entity-types.js';
-import { KybApplicationService } from './kyb-application.js';
+import { KybApplicationService, readKybApplicationDueDays } from './kyb-application.js';
 import { KYB_DOC_KEY_ENV, KybDocumentService, parseKybDocKey } from './kyb-documents.js';
 import { SubMerchantService } from './submerchants.js';
 import { createSubMerchantRouter } from './submerchant-router.js';
@@ -598,7 +598,7 @@ export const appRouter = mergeRouters(
     actionApprovals,
     pay,
     kybEntityTypes,
-    new KybApplicationService(sql, kyb, kybEntityTypes),
+    new KybApplicationService(sql, kyb, kybEntityTypes, readKybApplicationDueDays(process.env)),
     new KybDocumentService(sql, kybEntityTypes, parseKybDocKey(process.env[KYB_DOC_KEY_ENV])),
   ),
   // `pay` is passed only as the ACTOR LOOKUP — the router resolves the caller's
