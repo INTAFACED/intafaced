@@ -23,7 +23,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { localStackState } from './local-test-state.mjs';
-import { LOCAL_TEST_DEVICE_KEY } from './local-test-device.mjs';
+import { LOCAL_TEST_DEVICE_KEY, localTestDeviceCookie, localTestDeviceState } from './local-test-device.mjs';
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const REPO = path.resolve(path.dirname(SCRIPT), '..', '..');
@@ -356,7 +356,9 @@ export function createGate({ password, publicOrigin, port = 8088, endsAt = null,
       const token = crypto.randomBytes(32).toString('base64url');
       sessions.add(token);
       const cookie = `${GATE_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Strict${secure ? '; Secure' : ''}`;
-      return redirect(res, next === '/' ? '/__try/' : next, { 'set-cookie': cookie });
+      // The visitor's browser becomes the stack's one TEST browser, which the demo account trusts, so identity's
+      // new-device check does not ask for a code mailed to an outbox the visitor cannot read. Only the password sets it.
+      return redirect(res, next === '/' ? '/__try/' : next, { 'set-cookie': [cookie, localTestDeviceCookie({ secure })] });
     }
 
     if (!signedIn(req)) {
@@ -423,7 +425,9 @@ async function cmdDemo() {
   const who = { ...DEMO, password };
   const browser = await chromium.launch(process.env.JOURNEY_CHROMIUM ? { executablePath: process.env.JOURNEY_CHROMIUM } : {});
   try {
-    const page = await (await browser.newContext({ baseURL: UPSTREAM_ORIGIN })).newPage();
+    const page = await (
+      await browser.newContext({ baseURL: UPSTREAM_ORIGIN, storageState: localTestDeviceState([UPSTREAM.host]) })
+    ).newPage();
     await stack.signUpInBrowser(page, who);
     await page.goto('/verification');
     await page.getByLabel('Level to request').selectOption({ label: 'Full' });
