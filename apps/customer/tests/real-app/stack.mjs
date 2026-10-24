@@ -119,7 +119,7 @@ export async function nextMailedCode(email, seen = 0, waitMs = 20_000, purpose =
 export async function signUpInBrowser(page, who, { country = 'DE', dateOfBirth = '1990-05-01', accountType = 'individual' } = {}) {
   const seen = mailedCodes(who.email).length;
   await page.goto('/register');
-  if (accountType === 'business') await page.getByLabel(/^Business/).check();
+  if (accountType === 'business') await page.getByRole('radio', { name: /Business/ }).check();
   await page.getByLabel('Email address').fill(who.email);
   await page.getByLabel('Handle').fill(who.handle);
   await page.getByLabel('Password').fill(who.password);

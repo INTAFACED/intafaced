@@ -8,8 +8,8 @@ import { api, journeyState, signUpInBrowser } from './stack.mjs';
 // stack's two LOCAL TEST founders through svc-campaigns' operator doors: A creates and asks, B approves, A activates.
 // The platform time zone is the stack's labelled TEST value (CAMPAIGNS_PLATFORM_TIME_ZONE, UTC, in
 // tooling/profiles/test-owner-values/campaigns.json). The customer signs up on the Customer app and reads /campaigns.
-// #4 and #5 need participation rules and region lists (CM-eligibility-rules-01); until they land the operator door refuses
-// such a campaign (campaigns.eligibility_unwired) and the step fails there at once.
+// #4 and #5 read participation rules and region lists (CM-eligibility-rules-01): svc-campaigns asks svc-identity for the
+// account type and the region chosen at sign-up. The region list is a TEST list made for this run.
 const J = 'J-campaigns-01';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const tag = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -194,8 +194,10 @@ test(`${J} #4 an excluded account type sees the typed reason and can ask for one
 test(`${J} #5 a region-scoped campaign from a blocked region shows the reason; another person gets the same answer`, async ({
   browser,
 }) => {
-  // A campaign scoped to a TEST region list that leaves France out (CM-eligibility-rules-01).
-  const scoped = await liveCampaign(`TEST region ${tag}`, { participation: { exclusions: [], regionScope: 'listed' } });
+  // A campaign scoped by a TEST region list that leaves France out (CM-eligibility-rules-01).
+  const scoped = await liveCampaign(`TEST region ${tag}`, {
+    participation: { exclusions: [], regionScope: 'listed', restrictedRegions: ['FR'] },
+  });
   const answers = [];
   for (const n of [1, 2]) {
     const who = person(`jc01fr${n}${tag}`.slice(0, 20));

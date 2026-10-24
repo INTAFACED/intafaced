@@ -58,6 +58,10 @@ function setup(schedule: string | undefined = undefined) {
       created: true,
     })),
     myCampaigns: vi.fn(async () => ({ campaigns: [] })),
+    requestReview: vi.fn(async (input: { campaignId: string; accountId: string }) => ({
+      review: { campaignId: input.campaignId, requestedAt: '2026-10-24T12:00:00.000Z' },
+      created: true,
+    })),
     listForOps: vi.fn(async () => []),
     transition: vi.fn(),
   };
@@ -93,6 +97,19 @@ describe('campaigns router', () => {
       code: 'FORBIDDEN',
     });
     await expect(api(await ctx([], { signedOut: true })).participation.mine()).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+  });
+
+  it('asks for an eligibility review for the signed-in account only, behind campaigns:write', async () => {
+    const { campaigns, api } = setup();
+    const out = await api(await ctx(['campaigns:write'])).participation.requestReview({ campaignId: 'cmp_1' });
+    expect(campaigns.requestReview).toHaveBeenCalledWith({ campaignId: 'cmp_1', accountId: ME });
+    expect(out.created).toBe(true);
+    await expect(
+      api(await ctx(['campaigns:write'])).participation.requestReview({ campaignId: 'cmp_1', accountId: 'someone-else' } as never),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    await expect(api(await ctx(['campaigns:read'])).participation.requestReview({ campaignId: 'cmp_1' })).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
   });
 
   it('keeps the campaign operator doors behind campaigns:ops and a second factor', async () => {
