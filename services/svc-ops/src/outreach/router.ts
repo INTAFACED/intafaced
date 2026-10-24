@@ -116,7 +116,7 @@ export function createOutreachRouter(crm: OutreachCrm, authority: FounderAuthori
       .output(crmOpportunityPageSchema)
       .query(({ input }) => mapped(() => crm.listOpportunities(input))),
     getOpportunity: staffRead
-      .input(z.object({ opportunityId: z.string().uuid() }).strict())
+      .input(z.object({ opportunityId: z.string().guid() }).strict())
       .query(({ input }) => mapped(() => crm.getOpportunity(input))),
     assign: staffWrite
       .input(crmAssignmentInputSchema)
@@ -138,11 +138,11 @@ export function createOutreachRouter(crm: OutreachCrm, authority: FounderAuthori
       .output(
         z
           .object({
-            ownerUserIds: z.array(z.string().uuid()).length(2),
-            initialOwnerUserId: z.string().uuid(),
+            ownerUserIds: z.array(z.string().guid()).length(2),
+            initialOwnerUserId: z.string().guid(),
             owners: z.tuple([
-              z.object({ userId: z.string().uuid(), displayName: z.literal('Nitro') }).strict(),
-              z.object({ userId: z.string().uuid(), displayName: z.literal('Phantom') }).strict(),
+              z.object({ userId: z.string().guid(), displayName: z.literal('Nitro') }).strict(),
+              z.object({ userId: z.string().guid(), displayName: z.literal('Phantom') }).strict(),
             ]),
           })
           .strict(),

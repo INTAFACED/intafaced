@@ -20,7 +20,7 @@ const registrationResponse = z.object({
     attestationObject: z.string().min(1),
     transports: z.array(z.string()).optional(),
   }),
-  clientExtensionResults: z.record(z.unknown()).optional(),
+  clientExtensionResults: z.record(z.string(), z.unknown()).optional(),
 });
 
 /**

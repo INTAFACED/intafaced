@@ -16,7 +16,7 @@ describe('trades.take requires a caller tradeId', () => {
   it('router take input requires tradeId uuid', () => {
     const router = readFileSync(join(here, 'router.ts'), 'utf8');
     const take = router.slice(router.indexOf('take: merchantApiProcedure'), router.indexOf('markFiatSent:'));
-    expect(take).toMatch(/tradeId: z\.string\(\)\.uuid\(\)/);
+    expect(take).toMatch(/tradeId: z\.string\(\)\.guid\(\)/);
     expect(take).toMatch(/tradeId: input\.tradeId/);
   });
 });

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
 
-const uuid = z.string().uuid();
+const uuid = z.string().guid();
 const instant = z
   .string()
   .datetime({ offset: true })

@@ -67,8 +67,8 @@ function toAccountTrpc(err: unknown): never {
 export function createApiKeyAccountRouter(sql: Sql, minter: AccountExchanger, gate: ApiKeyFactorGate) {
   return router({
     bindApiKeyAccount: scopedProcedure('identity:write')
-      .input(z.object({ keyId: z.string().uuid(), accountId: z.string().uuid() }))
-      .output(z.object({ id: z.string().uuid(), accountId: z.string().uuid() }))
+      .input(z.object({ keyId: z.string().guid(), accountId: z.string().guid() }))
+      .output(z.object({ id: z.string().guid(), accountId: z.string().guid() }))
       .mutation(async ({ ctx, input }) => {
         try {
           assertDelegateCannotGrant(ctx.principal.kid);
@@ -82,7 +82,7 @@ export function createApiKeyAccountRouter(sql: Sql, minter: AccountExchanger, ga
         z.object({
           name: z.string().min(1).max(64),
           scopes: z.array(z.string()).min(1),
-          accountId: z.string().uuid(),
+          accountId: z.string().guid(),
           factorProof: optionalFactorProof,
           domainWhitelist: z.array(z.string()).optional(),
           mode: z.enum(['live', 'sandbox']).optional(),
@@ -117,8 +117,8 @@ export function createApiKeyAccountRouter(sql: Sql, minter: AccountExchanger, ga
         }
       }),
     assertApiKeyAccount: scopedProcedure('identity:write')
-      .input(z.object({ keyId: z.string().uuid(), accountId: z.string().uuid() }))
-      .output(z.object({ id: z.string().uuid(), accountId: z.string().uuid() }))
+      .input(z.object({ keyId: z.string().guid(), accountId: z.string().guid() }))
+      .output(z.object({ id: z.string().guid(), accountId: z.string().guid() }))
       .mutation(async ({ ctx, input }) => {
         try {
           return await assertApiKeyAccount(sql, ctx.principal.userId, input.keyId, input.accountId);
@@ -134,7 +134,7 @@ export function createApiKeyAccountRouter(sql: Sql, minter: AccountExchanger, ga
       .input(
         z.object({
           key: z.string().min(8).max(200),
-          accountId: z.string().uuid(),
+          accountId: z.string().guid(),
           request: requestSignWireSchema.optional(),
         }),
       )
@@ -142,11 +142,11 @@ export function createApiKeyAccountRouter(sql: Sql, minter: AccountExchanger, ga
         z.object({
           accessToken: z.string(),
           expiresAt: z.string(),
-          userId: z.string().uuid(),
-          keyId: z.string().uuid(),
+          userId: z.string().guid(),
+          keyId: z.string().guid(),
           scopes: z.array(z.string()),
           mode: z.enum(['live', 'sandbox']),
-          accountId: z.string().uuid(),
+          accountId: z.string().guid(),
           requireSignature: z.boolean().optional(),
           requireNonEmptyIpAllowlist: z.boolean().optional(),
           ipAllowlist: z.array(z.string()).optional(),

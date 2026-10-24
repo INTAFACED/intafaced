@@ -81,7 +81,7 @@ export interface MerchantOpsDeps {
   readonly receiptPlaces?: ReceiptAssetPlaces;
 }
 
-const id = z.string().uuid();
+const id = z.string().guid();
 const iso = z.string().datetime({ offset: true });
 const assetIdIn = z.string().trim().min(1).max(32);
 const note = z.string().trim().min(1).max(2000);

@@ -108,7 +108,7 @@ export const tierViewSchema = tierDefinitionSchema
 export const tierListInputSchema = z.object({}).strict();
 
 export const pricingRuleViewSchema = controlPricingRuleSchema
-  .extend({ ruleId: z.string().uuid(), version: payVersionSchema, createdAt: payTimestampSchema })
+  .extend({ ruleId: z.string().guid(), version: payVersionSchema, createdAt: payTimestampSchema })
   .strict();
 export const pricingRuleListInputSchema = z
   .object({ layer: z.enum(['global', 'tier', 'merchant']).optional(), scopeId: z.string().min(1).max(64).optional() })
@@ -130,10 +130,10 @@ export const pricingPreviewInputSchema = z
 
 export const pricingQuoteSchema = z
   .object({
-    ruleId: z.string().uuid(),
+    ruleId: z.string().guid(),
     appliedLayer: z.enum(['global', 'tier', 'merchant']),
     ruleChain: z.array(
-      z.object({ layer: z.enum(['global', 'tier', 'merchant']), ruleId: z.string().uuid(), version: payVersionSchema }).strict(),
+      z.object({ layer: z.enum(['global', 'tier', 'merchant']), ruleId: z.string().guid(), version: payVersionSchema }).strict(),
     ),
     monthlyVolumeBefore: payAmountStringSchema,
     bandFrom: payAmountStringSchema,
@@ -175,16 +175,16 @@ export const usageViewSchema = z
 export const approvalRequestInputSchema = z
   .object({
     merchantId: payMerchantIdSchema,
-    settlementId: z.string().uuid(),
+    settlementId: z.string().guid(),
     railId: z.string().min(1).max(64),
   })
   .strict();
-export const approvalCancelInputSchema = z.object({ approvalId: z.string().uuid(), reason: payReasonSchema }).strict();
+export const approvalCancelInputSchema = z.object({ approvalId: z.string().guid(), reason: payReasonSchema }).strict();
 
 /** A founder decision on an above-founder-threshold payout; the first and the second founder both call this. */
 export const founderApprovalDecideInputSchema = z
   .object({
-    approvalId: z.string().uuid(),
+    approvalId: z.string().guid(),
     decision: z.enum(['approve', 'reject']),
     expectedPayloadHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
     reason: payReasonSchema,
