@@ -11,6 +11,7 @@ import { Actions, toSource } from '../ParkedProtocolRoom';
 import '../protocol.css';
 import { walletCopy } from './copy';
 import { APP_CHAIN_ID, shortAddress } from './eip1193';
+import { PermitForm } from './PermitForm';
 import { useWallet } from './WalletProvider';
 
 const SECTIONS = ['overview', 'activity', 'approvals', 'sessionKeys', 'accounts', 'safety'] as const;
@@ -138,16 +139,19 @@ export function WalletRoom({ section: initial }: { section: 'overview' | 'activi
     section === 'overview' ? (
       overview
     ) : (
-      <Panel title={t(`section_${section}`)}>
-        {wallet.status !== 'connected' && <p className="muted">{t('needsWallet')}</p>}
-        <DataTable label={t(`section_${section}`)} headers={HEADERS[section].map((key) => t(key))}>
-          <tr>
-            <td colSpan={HEADERS[section].length}>
-              <EmptyState title={t(`empty_${section}`)} />
-            </td>
-          </tr>
-        </DataTable>
-      </Panel>
+      <>
+        {section === 'approvals' && <PermitForm />}
+        <Panel title={t(`section_${section}`)}>
+          {wallet.status !== 'connected' && <p className="muted">{t('needsWallet')}</p>}
+          <DataTable label={t(`section_${section}`)} headers={HEADERS[section].map((key) => t(key))}>
+            <tr>
+              <td colSpan={HEADERS[section].length}>
+                <EmptyState title={t(`empty_${section}`)} />
+              </td>
+            </tr>
+          </DataTable>
+        </Panel>
+      </>
     );
 
   return (
