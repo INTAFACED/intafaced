@@ -204,6 +204,7 @@ function SideForm({
   const busyRef = useRef(false);
   const mounted = useRef(true);
   const spendAsset = side === 'buy' ? market.quote : market.base;
+  const receiveAsset = side === 'buy' ? market.base : market.quote;
   const amountPlaces = placesOf(market.lotSize);
   const pricePlaces = placesOf(market.tickSize);
 
@@ -784,6 +785,17 @@ function SideForm({
           </span>
         ) : null}
       </p>
+      {/* Spot takes the fee out of the asset the order receives and has no fee token, so the choice is shown, disabled,
+          with its reason, and nothing is sent (the service refuses any other fee currency: trade.fee_currency_unsupported). */}
+      <div className="dk-fee-asset" data-fee-currency={receiveAsset}>
+        <span>{t('Fees in', { asset: receiveAsset })}</span>
+        <button type="button" className="dk-fee-asset-choice" disabled aria-describedby={`dk-fee-asset-why-${side}`}>
+          {t('Pay fees in another asset')}
+        </button>
+        <span id={`dk-fee-asset-why-${side}`} className="dk-fee-asset-why">
+          {t('Fee currency reason', { asset: receiveAsset })}
+        </span>
+      </div>
       {signedIn ? (
         <Button
           type="submit"

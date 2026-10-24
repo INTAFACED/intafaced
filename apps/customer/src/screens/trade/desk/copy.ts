@@ -190,6 +190,10 @@ const messages = {
   'Fee up to': 'Fee up to {rate}',
   'Fee up to rebate': 'Fee up to {rate} · rebate {rebate} on what rests',
   'Fee unknown': 'Fee —',
+  'Fees in': 'Fees in {asset}',
+  'Pay fees in another asset': 'Pay fees in another asset',
+  'Fee currency reason':
+    'Not offered on spot: there is no fee token, so paying fees in IFC is not available. The fee comes out of the {asset} this order receives.',
   'Short of funds hint': 'Not enough {asset}',
   'Send again': 'Send the same order again',
   'Send again hint': 'If the order never arrived, this sends it once more under the same order number, so it can’t be placed twice.',
