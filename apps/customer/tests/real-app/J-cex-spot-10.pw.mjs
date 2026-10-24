@@ -543,7 +543,7 @@ test(`${J} #8 looks at the fee currency row: disabled with its reason, and no re
   // Every request the desk sends that names a fee currency: there must be none.
   const named = [];
   page.on('request', (req) => {
-    if ((req.postData() ?? '').includes('feeCurrency')) named.push(`${req.method()} ${new URL(req.url()).pathname}`);
+    if (`${req.url()} ${req.postData() ?? ''}`.includes('feeCurrency')) named.push(`${req.method()} ${new URL(req.url()).pathname}`);
   });
   await openDesk(page, who);
   await page.mouse.move(0, 600);
@@ -554,16 +554,22 @@ test(`${J} #8 looks at the fee currency row: disabled with its reason, and no re
   const choice = row.getByRole('button', { name: 'Pay fees in another asset' });
   await expect(choice).toBeDisabled();
   await expect(choice).toHaveAccessibleDescription(
-    'Not offered on spot: there is no fee token, so paying fees in IFC is not available. The fee comes out of the BTC this order receives.',
+    'Not offered on spot: there is no fee token to pay fees in. The fee comes out of the BTC this order receives.',
   );
+  // It stays reachable from the keyboard, and pressing or clicking it does nothing.
+  await choice.focus();
+  await expect(choice).toBeFocused();
+  await page.keyboard.press('Enter');
   await choice.click({ force: true });
-  const sell = page.locator('form.dk-form[data-side=sell] [data-fee-currency]');
-  if (await sell.isVisible()) await expect(sell).toContainText('Fees in USDT');
+  await expect(page.locator('form.dk-form[data-side=sell] [data-fee-currency]')).toContainText('Fees in USDT');
+  // Long enough for a request the click started to have been sent.
+  await page.waitForTimeout(1_500);
   expect(named).toEqual([]);
 
   // The service says the same thing to a caller who sends one anyway, and holds nothing.
   const client = await api(who);
-  const before = await client.balances();
+  const before = held(await client.balances(), 'USDT');
+  const clientOrderId = `js10-fee-currency-${Date.now().toString(36)}`;
   const sent = await client.post('/api/v1/orders', {
     symbol: 'BTC/USDT',
     side: 'buy',
@@ -571,11 +577,12 @@ test(`${J} #8 looks at the fee currency row: disabled with its reason, and no re
     amount: '0.001',
     price: await awayBid(95),
     feeCurrency: 'IFC',
-    clientOrderId: `js10-fee-currency-${Date.now().toString(36)}`,
+    clientOrderId,
   });
   expect(sent.status).toBe(400);
   expect(JSON.stringify(sent.body)).toContain('trade.fee_currency_unsupported');
-  expect((await client.balances()).USDT?.free).toBe(before.USDT?.free);
+  expect(held(await client.balances(), 'USDT')).toBe(before);
+  expect((await openOrders(who, 'BTC/USDT')).filter((o) => o.clientOrderId === clientOrderId)).toEqual([]);
 });
 
 test(`${J} #10 a fee change is on the notice board before it takes effect, and an order placed before then keeps its fees`, async ({

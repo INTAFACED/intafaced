@@ -204,7 +204,6 @@ function SideForm({
   const busyRef = useRef(false);
   const mounted = useRef(true);
   const spendAsset = side === 'buy' ? market.quote : market.base;
-  const receiveAsset = side === 'buy' ? market.base : market.quote;
   const amountPlaces = placesOf(market.lotSize);
   const pricePlaces = placesOf(market.tickSize);
 
@@ -324,6 +323,8 @@ function SideForm({
     () => env.poller.recordExternalRequest(),
     market.tickSize,
   );
+  // The asset the fee comes out of: the order check's own answer once it has one, else the asset the order receives.
+  const receiveAsset = (live.state === 'ok' ? live.preview.feeAsset : null) ?? (side === 'buy' ? market.base : market.quote);
 
   // A market buy is held at the service's price protection (best ask plus the slippage cap), so Max is sized from it.
   // It is learnt from the order check, or from one small probe check on the Market tab; never guessed.
@@ -789,7 +790,14 @@ function SideForm({
           with its reason, and nothing is sent (the service refuses any other fee currency: trade.fee_currency_unsupported). */}
       <div className="dk-fee-asset" data-fee-currency={receiveAsset}>
         <span>{t('Fees in', { asset: receiveAsset })}</span>
-        <button type="button" className="dk-fee-asset-choice" disabled aria-describedby={`dk-fee-asset-why-${side}`}>
+        {/* aria-disabled, not disabled: it stays in the tab order, so a keyboard or screen-reader user reaches the reason. */}
+        <button
+          type="button"
+          className="dk-fee-asset-choice"
+          aria-disabled="true"
+          aria-describedby={`dk-fee-asset-why-${side}`}
+          onClick={(event) => event.preventDefault()}
+        >
           {t('Pay fees in another asset')}
         </button>
         <span id={`dk-fee-asset-why-${side}`} className="dk-fee-asset-why">
