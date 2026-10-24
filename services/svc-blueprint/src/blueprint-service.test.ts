@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createTestDatabase, postgresAvailable, resolveTestDatabaseUrl, type TestDatabase } from '@intafaced/db';
+import { createTestDatabase, postgresAvailable, type TestDatabase } from '@intafaced/db';
 import { describe, expect, it, beforeEach, afterAll } from 'vitest';
 import { MemoryEventBus, MemorySeenStore, idempotent } from '@intafaced/events';
 import { CARD_DIMENSIONS, cardRenderSchema, type BlueprintProfile, type CardRaster, type OnboardInput } from '@intafaced/contracts';
@@ -26,7 +26,9 @@ import { UnconfiguredCardRenderer, type CardRasterizeRequest, type CardRenderer 
  * `NeuralEngineClient` interface.
  */
 
-const URL = resolveTestDatabaseUrl('TEST_DATABASE_URL_BLUEPRINT', 'postgres://svc_blueprint:svc_blueprint@localhost:5433/intafaced_test');
+// createTestDatabase makes a whole database, so it connects as the test admin
+// (TEST_DATABASE_URL, which has CREATEDB), not as the svc_blueprint role.
+const raw = process.env.TEST_DATABASE_URL;
 const here = dirname(fileURLToPath(import.meta.url));
 const migrations = ['0000_blueprint_init.sql', '0001_card_shares.sql'].map((name) =>
   readFileSync(join(here, '..', 'drizzle', name), 'utf8'),
@@ -52,14 +54,14 @@ const USER_C = uuid(103);
  * letting turbo's "N successful" imply that everything did.
  * (`tooling/ci/skip-honesty-scan.mjs` fails a build that re-adds a private probe.)
  */
-const available = await postgresAvailable(URL);
+const available = raw ? await postgresAvailable(raw) : await postgresAvailable();
 
 if (!available) {
   describe.skip('svc-blueprint (Postgres unavailable — start docker compose)', () => {
     it('skipped', () => undefined);
   });
 } else {
-  const db: TestDatabase = await createTestDatabase({ service: 'blueprint', url: URL, migrations });
+  const db: TestDatabase = await createTestDatabase({ service: 'blueprint', ...(raw ? { url: raw } : {}), migrations });
   const sql = db.sql;
 
   let bus: MemoryEventBus;
