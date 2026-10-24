@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { ACADEMY_RESERVED_TAB_SLUGS } from '@intafaced/contracts';
 import {
+  academyVerifyHref,
+  certificateState,
+  issueWait,
   buildTracking,
   certificateCards,
   certificateDocument,
@@ -333,5 +336,39 @@ describe('tab addresses (AC-order-01)', () => {
 describe('copy', () => {
   it('carries every message in Spanish and French', () => {
     for (const locale of ['es', 'fr'] as const) expect(academyLmsCopy.coverage(locale).missing).toEqual([]);
+  });
+});
+
+describe('certificate issue and verify links (AC-certificates-01/02)', () => {
+  const row = {
+    userId: owner,
+    certId: 'foundations-v1',
+    title: 'Foundations',
+    requiredCount: 2,
+    completedCount: 2,
+    ratio: '1.0000',
+    missingItemSlugs: [],
+    complete: true,
+    granted: false,
+    grantIdempotencyKey: null,
+  };
+  it('a complete certificate waiting out its delay is issuing; with no wait it is ready to request', () => {
+    const issuesAt = new Date('2026-10-24T14:00:00.000Z');
+    expect(certificateState({ ...row, issue: { mode: 'delayed', delayMinutes: 60, issuesAt } }, undefined)).toBe('issuing');
+    expect(certificateState({ ...row, issue: { mode: 'manual', delayMinutes: null, issuesAt: null } }, undefined)).toBe('ready');
+    expect(certificateState(row, undefined)).toBe('ready');
+  });
+  it('words a wait in its largest whole unit', () => {
+    expect(issueWait(1)).toEqual({ unit: 'waitMinutes', n: 1 });
+    expect(issueWait(120)).toEqual({ unit: 'waitHours', n: 2 });
+    expect(issueWait(2880)).toEqual({ unit: 'waitDays', n: 2 });
+    expect(issueWait(90)).toEqual({ unit: 'waitMinutes', n: 90 });
+  });
+  it('the shared link opens the public check under the certificates tab', () => {
+    const code = 'a'.repeat(32);
+    expect(academyVerifyHref(code)).toBe(`/academy/certificates/verify/${code}`);
+    expect(academyRoute(academyVerifyHref(code))).toEqual({ kind: 'verify', code });
+    expect(academyRoute('/academy/certificates/verify')).toEqual({ kind: 'verify', code: undefined });
+    expect(academyRoute('/academy/certificates')).toEqual({ kind: 'tab', tab: 'Certificates' });
   });
 });

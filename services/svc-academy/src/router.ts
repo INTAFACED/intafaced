@@ -558,6 +558,7 @@ const publicAmbassadorPayQuoteOut = z.object({
 const certDefinitionOut = z.object({
   id: z.string(),
   title: z.string(),
+  path: z.enum(['foundations', 'markets', 'builder', 'sovereign']).nullable(),
   requiredItemSlugs: z.array(z.string()),
 });
 const enrollmentOut = z.object({
@@ -2394,6 +2395,7 @@ export function createAcademyRouter(
         academy.listCertDefinitions().map((c) => ({
           id: c.id,
           title: c.title,
+          path: c.path ?? null,
           requiredItemSlugs: [...c.requiredItemSlugs],
         })),
       ),

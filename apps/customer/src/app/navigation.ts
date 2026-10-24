@@ -754,6 +754,14 @@ export const rooms: readonly Room[] = [
     area: 'more',
     hidden: true,
   },
+  {
+    path: '/academy/certificates/verify/:code',
+    title: 'Certificate check',
+    description: 'Check a certificate by its link',
+    door: 'More',
+    area: 'more',
+    hidden: true,
+  },
   { path: '/academy/:slug', title: 'Academy reader', description: 'Read a learning path', door: 'More', area: 'more', hidden: true },
   {
     path: '/market/strategy',
