@@ -76,6 +76,11 @@
       "value": "180",
       "note": "How many days a verified wallet ownership proof holds (J-wallet-04)."
     },
+    "BANK_ADDRESS_APPROVAL_LINK_MINUTES": {
+      "service": "bank",
+      "value": "30",
+      "note": "How many minutes an emailed link that approves a new withdrawal address works (J-wallet-04 #5)."
+    },
     "BANK_PAYEE_CONTROLS_JSON": {
       "service": "bank",
       "value": "{\"blockedAccounts\": [\"999000000001\"]}",

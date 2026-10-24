@@ -4,6 +4,7 @@ import type { Resource } from '../../shared/resource';
 import { useSession } from '../session/session';
 import { date, useBankRead, type ActionSpec } from './components';
 import {
+  approvalMailAskedSchema,
   destinationCheckSchema,
   destinationReadinessSchema,
   destinationRemovedSchema,
@@ -36,11 +37,12 @@ const STATE_KEYS = {
 } as const;
 
 /**
- * What the status column says. An active entry is not ready while its cooling-off has not ended, nor while the bank has
+ * What the status column says. An active or approved (cooling) entry is ready once its cooling-off has ended, which the
+ * bank's own readiness answer says the same way; it is not ready while the cooling-off runs, nor while the bank has
  * published no cooling-off period at all (the bank refuses to send to it then), so it reads cooling off or blocked.
  */
 export function shownState(state: keyof typeof STATE_KEYS, cooling: 'ends' | 'ended' | 'unset'): keyof typeof STATE_KEYS {
-  if (state !== 'active') return state;
+  if (state !== 'active' && state !== 'cooling') return state;
   return cooling === 'ends' ? 'cooling' : cooling === 'unset' ? 'blocked' : 'active';
 }
 
@@ -120,9 +122,11 @@ export function AddressTable({
                     </td>
                     <td>{date(row.addedAt)}</td>
                     <td>
-                      {cooling.state === 'unset'
-                        ? t('aCoolingUnset')
-                        : t(cooling.state === 'ends' ? 'aCoolingEnds' : 'aCoolingEnded', { time: date(cooling.at) })}
+                      {row.state === 'pending'
+                        ? t('aCoolingAfterApproval')
+                        : cooling.state === 'unset'
+                          ? t('aCoolingUnset')
+                          : t(cooling.state === 'ends' ? 'aCoolingEnds' : 'aCoolingEnded', { time: date(cooling.at) })}
                     </td>
                     <td>{row.state ? t(STATE_KEYS[shownState(row.state, cooling.state)]) : t('aNotReturned')}</td>
                     <td>
@@ -213,6 +217,8 @@ export function readinessWords(
       return { text: t('aUseCoolingUnset', { label }), locked: false };
     case 'blocked':
       return { text: t('aUseBlocked', { label }), locked: false };
+    case 'approval_pending':
+      return { text: t('aUseApproval', { label }), locked: false };
     case 'locked':
       return {
         text: `${t('aUseLocked')} ${answer.lockUnlocksAt ? t('aUseLockEnds', { time: date(answer.lockUnlocksAt) }) : t('aUseLockAsk')}`,
@@ -255,6 +261,9 @@ export function UseAddress({ row, onClose }: { row: Destination; onClose: () => 
       {!answer && !problem && <p role="status">{t('aUseChecking')}</p>}
       {words && <p role={answer?.state === 'ready' ? 'status' : 'alert'}>{words.text}</p>}
       {problem && <p role="alert">{problem}</p>}
+      {answer?.state === 'approval_pending' && (
+        <ApprovalMail destinationId={row.destinationId} openUntil={answer.approvalLinkExpiresAt ?? null} />
+      )}
       <p>
         {words?.locked && (
           <a className="button button--secondary" href="/uc/safe">
@@ -263,6 +272,63 @@ export function UseAddress({ row, onClose }: { row: Destination; onClose: () => 
         )}
         <Button variant="ghost" onClick={onClose}>
           {t('aUseClose')}
+        </Button>
+      </p>
+    </div>
+  );
+}
+
+/** The bank's refusals of an approval-link request, in the customer's words. */
+function approvalMailWords(code: string | undefined, t: ReturnType<typeof withdrawalCopy.useCopy>['t']): string {
+  switch (code) {
+    case 'bank.address_approval_email_unproved':
+      return t('aApprovalMailUnproved');
+    case 'bank.address_approval_mail_unavailable':
+      return t('aApprovalMailOff');
+    case 'bank.address_approval_link_unset':
+      return t('aApprovalLinkUnset');
+    case 'bank.address_approval_not_pending':
+      return t('aApprovalNotPending');
+    default:
+      return moneyRefusalWords(code) ?? t('aApprovalMailFailed');
+  }
+}
+
+/**
+ * "Email me an approval link" (W-withdraw-09): the bank asks identity to mail a single-use link to the email address on
+ * the account. The answer says the link was asked for and until when it works, never that it arrived. Asking again
+ * replaces the open link, so only the newest email works.
+ */
+export function ApprovalMail({ destinationId, openUntil }: { destinationId: string; openUntil: string | null }) {
+  const { t } = withdrawalCopy.useCopy();
+  const { api } = useSession();
+  const [busy, setBusy] = useState(false);
+  const [asked, setAsked] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const until = asked ?? openUntil;
+  async function ask() {
+    if (busy) return;
+    setBusy(true);
+    setProblem(null);
+    try {
+      const answer = await api.mutate('bank', 'ramps.destinations.approval.requestMail', { destinationId }, approvalMailAskedSchema);
+      if (answer.ok) setAsked(answer.data.expiresAt);
+      else setProblem(approvalMailWords(answer.code, t));
+    } catch {
+      setProblem(t('aApprovalMailFailed'));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="bd-stack" data-testid="address-approval-mail">
+      {until && (
+        <p role="status">{asked ? t('aApprovalMailAsked', { time: date(asked) }) : t('aUseApprovalOpen', { time: date(until) })}</p>
+      )}
+      {problem && <p role="alert">{problem}</p>}
+      <p>
+        <Button variant="secondary" onClick={() => void ask()} disabled={busy}>
+          {until ? t('aApprovalMailAgain') : t('aApprovalMail')}
         </Button>
       </p>
     </div>

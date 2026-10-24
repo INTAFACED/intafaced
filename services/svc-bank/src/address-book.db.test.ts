@@ -60,9 +60,32 @@ describe.each(stores)('address book: %s', (_name, make) => {
     const store = make();
     const u = fresh();
     const saved = await save(store, u, { tag: '12345' });
-    expect(saved).toMatchObject({ assetId: 'USDT', network: 'erc20', tag: '12345', origin: 'customer', state: 'active', kind: 'crypto' });
+    // A new entry waits for the customer's approval (W-withdraw-09).
+    expect(saved).toMatchObject({ assetId: 'USDT', network: 'erc20', tag: '12345', origin: 'customer', state: 'pending', kind: 'crypto' });
+    expect(saved).toMatchObject({ approvedAt: null, approvedBy: null });
     expect(await store.list(u)).toHaveLength(1);
     expect(await store.list(fresh())).toEqual([]);
+  });
+
+  it('an approval makes a new entry cooling from that moment, once', async () => {
+    const store = make();
+    const u = fresh();
+    const saved = await save(store, u);
+    expect(saved.state).toBe('pending');
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const approved = await store.approve({ userId: u, destinationId: saved.destinationId, by: 'link' });
+    expect(approved).toMatchObject({ state: 'cooling', approvedBy: 'link' });
+    expect(approved.approvedAt).not.toBeNull();
+    // The cooling-off runs from the approval, not from the save.
+    expect(approved.updatedAt.getTime()).toBeGreaterThan(saved.updatedAt.getTime());
+    // Approving again changes nothing.
+    const again = await store.approve({ userId: u, destinationId: saved.destinationId, by: 'link' });
+    expect(again).toMatchObject({ state: 'cooling', approvedBy: 'link' });
+    expect(again.updatedAt).toEqual(approved.updatedAt);
+    // Someone else's entry, or none at all, is missing.
+    await expect(store.approve({ userId: fresh(), destinationId: saved.destinationId, by: 'link' })).rejects.toMatchObject({
+      code: 'bank.withdraw_destination_missing',
+    });
   });
 
   it('saves the same (asset, network, address, tag) once, whatever the address case, without moving it', async () => {

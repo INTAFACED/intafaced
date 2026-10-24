@@ -26,6 +26,7 @@
  *   pnpm local:stack customer-dist <abs>  serve a Customer build from another folder (never rebuilt or overwritten)
  *   pnpm local:stack customer-dist --clear   go back to this checkout's own build
  *   node tooling/scripts/local-test-stack.mjs age-linked-accounts <email> <hours>   TEST fixture: past a cooling-off
+ *   node tooling/scripts/local-test-stack.mjs expire-address-approvals <email>   TEST fixture: open approval links run out
  *
  * Rules this file keeps (AGENTS.md "Money"):
  *   - Value moves ONLY through the ledger (packages/ledger-client recipes -> svc-ledger).
@@ -1653,10 +1654,11 @@ const AMOUNT_RE = /^\d+(\.\d+)?$/;
  * TEST window out. A local test fixture like `fund`: it refuses anything but this stack's own database, changes only when
  * the accounts were linked (never their verification, which only the partner's signed call sets) and moves no value.
  */
-function cmdAgeLinkedAccounts(args) {
-  const [who, hoursRaw] = args;
-  if (!who || !hoursRaw) fail('usage: node tooling/scripts/local-test-stack.mjs age-linked-accounts <email-or-userId> <hours>', 2);
-  if (!/^[1-9][0-9]{0,3}$/.test(hoursRaw)) fail(`hours must be a whole number from 1 to 9999 (got "${hoursRaw}")`, 2);
+/**
+ * The running local stack's own database and one TEST person on it, for the fixtures below. Refuses anything but this
+ * stack's database.
+ */
+function localFixturePerson(who) {
   if (!fs.existsSync(P.marker)) fail(`refusing: marker ${P.marker} not found. Start the stack first (pnpm local:stack).`);
   const marker = readJson(P.marker);
   if (marker.kind !== 'intafaced-local-test-stack') fail('refusing: marker file is not a local test stack marker');
@@ -1675,17 +1677,50 @@ function cmdAgeLinkedAccounts(args) {
     .split('\n')
     .filter(Boolean);
   if (found.length !== 1) fail(`no single user "${who}" in the local identity database`);
+  return { secrets, userId: found[0] };
+}
+
+function cmdAgeLinkedAccounts(args) {
+  const [who, hoursRaw] = args;
+  if (!who || !hoursRaw) fail('usage: node tooling/scripts/local-test-stack.mjs age-linked-accounts <email-or-userId> <hours>', 2);
+  if (!/^[1-9][0-9]{0,3}$/.test(hoursRaw)) fail(`hours must be a whole number from 1 to 9999 (got "${hoursRaw}")`, 2);
+  const { secrets, userId } = localFixturePerson(who);
   const moved = psql(
     secrets,
     `UPDATE bank.linked_bank_accounts SET created_at = created_at - make_interval(hours => :'hours'::int)
       WHERE user_id = :'uid' AND removed_at IS NULL RETURNING id`,
-    { db: DB_NAME, user: 'svc_bank', password: secrets.pgService, vars: { uid: found[0], hours: hoursRaw }, tuples: true },
+    { db: DB_NAME, user: 'svc_bank', password: secrets.pgService, vars: { uid: userId, hours: hoursRaw }, tuples: true },
   )
     .trim()
     .split('\n')
     // psql prints the UPDATE tag after the ids; count the ids alone.
     .filter((line) => /^[0-9a-f-]{36}$/.test(line));
   say(`  ${moved.length} linked account(s) of ${who} now linked ${hoursRaw} hours earlier (LOCAL TEST fixture)`);
+}
+
+/**
+ * `expire-address-approvals <email-or-userId>`: the TEST person's open withdrawal-address approval links (W-withdraw-09)
+ * run out now, so a journey can show, as J-wallet-04 #5 does, that an expired link is refused and a new one is needed,
+ * without waiting the TEST lifetime out. Both times move back by the same amount, so a link stays as long as it was
+ * issued for. It never marks a link used, never approves an address and moves no value.
+ */
+function cmdExpireAddressApprovals(args) {
+  const [who] = args;
+  if (!who) fail('usage: node tooling/scripts/local-test-stack.mjs expire-address-approvals <email-or-userId>', 2);
+  const { secrets, userId } = localFixturePerson(who);
+  const moved = psql(
+    secrets,
+    `UPDATE bank.destination_approval_links
+        SET created_at = created_at - (expires_at - now()) - interval '1 minute',
+            mailed_at = mailed_at - (expires_at - now()) - interval '1 minute',
+            expires_at = now() - interval '1 minute'
+      WHERE user_id = :'uid' AND used_at IS NULL AND expires_at > now() RETURNING id`,
+    { db: DB_NAME, user: 'svc_bank', password: secrets.pgService, vars: { uid: userId }, tuples: true },
+  )
+    .trim()
+    .split('\n')
+    .filter((line) => /^[0-9a-f-]{36}$/.test(line));
+  say(`  ${moved.length} open address approval link(s) of ${who} now expired (LOCAL TEST fixture)`);
 }
 
 async function cmdFund(rawArgs) {
@@ -1920,11 +1955,16 @@ async function runCli() {
   else if (cmd === 'fund') await cmdFund(rest);
   else if (cmd === 'chain-deposit') await cmdChainDeposit(rest);
   else if (cmd === 'age-linked-accounts') cmdAgeLinkedAccounts(rest);
+  else if (cmd === 'expire-address-approvals') cmdExpireAddressApprovals(rest);
   else if (cmd === 'customer-dist') cmdCustomerDist(rest);
   else if (cmd === 'status') {
     const ok = await healthTable({ gateMarket: true });
     say('');
     say(`  ${describeCustomerDist()}`);
     process.exit(ok ? 0 : 1);
-  } else fail(`unknown command "${cmd}". Use: start | stop | status | fund | age-linked-accounts | plan | restart | customer-dist`, 2);
+  } else
+    fail(
+      `unknown command "${cmd}". Use: start | stop | status | fund | age-linked-accounts | expire-address-approvals | plan | restart | customer-dist`,
+      2,
+    );
 }

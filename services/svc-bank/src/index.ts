@@ -33,6 +33,7 @@ import { rampProgrammeFor } from './ramps/rails.js';
 import { eventMarginCallSink } from './loans/margin-call-publisher.js';
 import { createIdentityPartyHandles } from './transfers/party-handles.js';
 import { createIdentitySecurityLock, unconfiguredSecurityLock } from './security-lock.js';
+import { createIdentityApprovalMail, unconfiguredApprovalMail } from './ramps/address-approval.js';
 import { eventPersonalRequestNotices } from './transfers/request-notices.js';
 import { eventPersonalTransferNotices } from './transfers/transfer-notices.js';
 import { eventScheduledNotices } from './rules/scheduled-notices.js';
@@ -282,12 +283,18 @@ const bank = createBankServices(sql, ledger, history, {
     offrampCoolingHours: env.BANK_OFFRAMP_COOLING_HOURS,
     addressBookCap: env.BANK_ADDRESS_BOOK_CAP,
     walletProofWindowMinutes: env.BANK_WALLET_PROOF_WINDOW_MINUTES,
+    addressApprovalLinkMinutes: env.BANK_ADDRESS_APPROVAL_LINK_MINUTES,
     walletProofValidDays: env.BANK_WALLET_PROOF_VALID_DAYS,
     // The owner's security lock (W-withdraw-09): identity owns it, bank asks per request. No IDENTITY_URL refuses every
     // address change and send with `bank.security_lock_unset` rather than acting as if no lock were set.
     securityLock: env.IDENTITY_URL
       ? createIdentitySecurityLock(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, undefined, undefined, ledgerS2s)
       : unconfiguredSecurityLock(),
+    // New-address approval links are mailed by identity, which holds the customer's address (W-withdraw-09). No
+    // IDENTITY_URL refuses every link request; approving from another signed-in device still works.
+    approvalMail: env.IDENTITY_URL
+      ? createIdentityApprovalMail(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, undefined, ledgerS2s)
+      : unconfiguredApprovalMail(),
     /** The TEST add-money rate stand-in: none unless chosen, and it refuses to boot outside dev/test. It opens no payment. */
     onrampStandIn: onrampStandInFor(env.BANK_ONRAMP_RATES, env.BANK_ONRAMP_SIM_JSON, {
       APP_ENV: process.env.APP_ENV,

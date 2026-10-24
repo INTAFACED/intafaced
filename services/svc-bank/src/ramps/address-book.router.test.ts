@@ -1,3 +1,4 @@
+import { memoryApprovalLinks } from './address-approval.js';
 import { describe, expect, it } from 'vitest';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { keccak_256 } from '@noble/hashes/sha3.js';
@@ -58,6 +59,7 @@ function callerWith(
     addressBookCap: '2',
     withdrawNetworks: networks,
     walletProofs,
+    approvalLinks: memoryApprovalLinks(),
     walletProofWindowMinutes: '30',
     walletProofValidDays: '180',
   });
@@ -95,7 +97,7 @@ describe('bank.ramps.destinations: the address book', () => {
       network: 'erc20',
       tag: '777',
       origin: 'customer',
-      state: 'active',
+      state: 'pending',
       refMasked: '0xabCD…EF01',
     });
     const listed = await callerWith(['bank:read']).ramps.destinations.list();
@@ -106,6 +108,23 @@ describe('bank.ramps.destinations: the address book', () => {
       label: 'Vault',
     });
     expect(renamed.label).toBe('Vault');
+  });
+
+  it('saves a new address waiting for approval; approving by link needs the step-up scope, asking for a link does not (W-withdraw-09)', async () => {
+    const destinations = memoryWithdrawDestinations({ addressBookCap: () => '5' });
+    const stepped = callerWith(['bank:read', 'bank:write', 'trade:withdraw'], true, REGISTRY, destinations);
+    const saved = await stepped.ramps.destinations.save({ ...entry, label: 'Approve me' });
+    expect(saved).toMatchObject({ state: 'pending', coolingOffEndsAt: null, approvedAt: null, approvalLinkExpiresAt: null });
+    await expect(
+      callerWith(['bank:read', 'bank:write']).ramps.destinations.approval.confirmLink({ token: 'A'.repeat(43) }),
+    ).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
+    await expect(
+      callerWith(['bank:read', 'bank:write'], true, REGISTRY, destinations).ramps.destinations.approval.requestMail({
+        destinationId: saved.destinationId,
+      }),
+    ).rejects.toMatchObject({ cause: { code: 'bank.address_approval_link_unset' } });
   });
 
   it('names the typed refusals for a taken label and a full book', async () => {
@@ -258,6 +277,7 @@ describe('bank.ramps.destinations: a changed character and a look-alike address 
       addressBookCap: '5',
       withdrawNetworks: REGISTRY,
       walletProofs: memoryWalletProofs(),
+      approvalLinks: memoryApprovalLinks(),
     });
     const plain = await ramps.saveDestination({
       userId: USER,
@@ -336,6 +356,7 @@ describe('bank.ramps.destinations.ownership: prove a saved wallet (W-withdraw-17
       destinations,
       withdrawNetworks: REGISTRY,
       walletProofs: memoryWalletProofs(),
+      approvalLinks: memoryApprovalLinks(),
       walletProofWindowMinutes: '',
       walletProofValidDays: '180',
     });

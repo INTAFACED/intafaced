@@ -196,8 +196,15 @@ export const destinationSchema = z.object({
       offerExpiresAt: z.string().nullable(),
     })
     .optional(),
+  // A new address waits (`pending`) until approved by an emailed link (W-withdraw-09).
+  approvedAt: z.string().nullable().optional(),
+  approvedBy: z.enum(['link']).nullable().optional(),
+  // Until when the newest emailed approval link works, while one is open.
+  approvalLinkExpiresAt: z.string().nullable().optional(),
 });
 export type Destination = z.infer<typeof destinationSchema>;
+/** svc-bank `bank.ramps.destinations.approval.requestMail`: the approval link was asked for, and works until `expiresAt`. */
+export const approvalMailAskedSchema = z.object({ destinationId: z.string(), expiresAt: z.string() });
 /** A message the bank offers to sign, proving the customer controls a saved wallet. */
 export const walletProofStartedSchema = z.object({
   proofId: z.string(),
@@ -225,9 +232,10 @@ export const destinationRemovedSchema = z.object({ destinationId: z.string(), re
 /** svc-bank `bank.ramps.destinations.readiness`: whether money may be sent to one saved address now, or what stands first. */
 export const destinationReadinessSchema = z.object({
   destinationId: z.string(),
-  state: z.enum(['ready', 'locked', 'blocked', 'cooling_unset', 'cooling']),
+  state: z.enum(['ready', 'locked', 'blocked', 'approval_pending', 'cooling_unset', 'cooling']),
   coolingOffEndsAt: z.string().nullable(),
   lockUnlocksAt: z.string().nullable(),
+  approvalLinkExpiresAt: z.string().nullable().optional(),
 });
 export type DestinationReadiness = z.infer<typeof destinationReadinessSchema>;
 /** svc-bank `bank.ramps.destinations.check`: whether the bank takes an address as typed, before any confirmation. */

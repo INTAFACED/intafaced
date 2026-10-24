@@ -346,6 +346,14 @@ const schema = serviceEnvSchema
       BANK_WALLET_PROOF_WINDOW_MINUTES: z.string().optional(),
 
       /**
+       * Owner-set minutes an emailed link that approves a new withdrawal address works (W-withdraw-09), up to seven days.
+       *
+       * No default. Blank / unset / zero / not a whole number → asking for a link refuses `bank.address_approval_link_unset`.
+       * Approving from another signed-in device does not need it. Boot stays up; the request is the refuse.
+       */
+      BANK_ADDRESS_APPROVAL_LINK_MINUTES: z.string().optional(),
+
+      /**
        * Owner-set days a verified wallet ownership proof holds before the customer proves the wallet again (W-withdraw-17).
        *
        * No default. Blank / unset / zero / not a whole number → a proof refuses `bank.wallet_proof_validity_unset`.

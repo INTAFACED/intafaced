@@ -113,6 +113,9 @@ describe('bank ramps money-out needs a step-up', () => {
       // does not control; adding the address to prove still needs the step-up scope.
       'ramps.destinations.ownership.start',
       'ramps.destinations.ownership.verify',
+      // Asking for a new-address approval link (W-withdraw-09) mails the customer's own address on file and approves
+      // nothing; approving by that link or from another device still needs the step-up scope.
+      'ramps.destinations.approval.requestMail',
     ]);
     const procedures = (router as unknown as { _def: { procedures: Record<string, { _def: { type: string } }> } })._def.procedures;
     const mutations = Object.entries(procedures)

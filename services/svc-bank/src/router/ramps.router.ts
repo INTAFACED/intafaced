@@ -267,6 +267,30 @@ export function createRampsRouter(c: BankRouterContext) {
         ),
 
       /**
+       * New-address approval (W-withdraw-09, J-wallet-04 #5). A saved entry waits, `pending`, until the customer approves it;
+       * its cooling-off starts then. `requestMail` asks identity to mail a single-use link to the address on the account
+       * (`bank:write`: it only sends the customer's own mail; the answer says until when the link works, never that it
+       * arrived). `confirmLink` approves the entry the link names, for the customer it was sent to, after a fresh
+       * confirmation (`trade:withdraw`, the step-up scope), so approving takes the mailbox as well as the second factor.
+       * Both refuse while the security lock holds. Approval from another signed-in device waits for identity to name a
+       * session that stays the same across token refreshes.
+       */
+      approval: router({
+        requestMail: scopedProcedure('bank:write', { module: 'bank' })
+          .input(z.object({ destinationId: z.string().guid() }).strict())
+          .output(z.object({ destinationId: z.string(), expiresAt: z.string() }).strict())
+          .mutation(async ({ ctx, input }) =>
+            guard(async () => bank.ramps.requestAddressApproval({ userId: ctx.principal.userId, destinationId: input.destinationId })),
+          ),
+        confirmLink: scopedProcedure('trade:withdraw', { module: 'bank' })
+          .input(z.object({ token: z.string().min(1).max(256) }).strict())
+          .output(destinationViewOutput)
+          .mutation(async ({ ctx, input }) =>
+            guard(async () => bank.ramps.approveAddressByLink({ userId: ctx.principal.userId, token: input.token })),
+          ),
+      }),
+
+      /**
        * Rename. Changes only the label, so `bank:write` is enough and the cooling window does not restart. It cannot
        * add or change an address; a stolen plain token could only swap labels between the customer's own saved ones.
        */
@@ -319,7 +343,8 @@ export function createRampsRouter(c: BankRouterContext) {
       /**
        * Whether money may be sent to one saved address now (W-withdraw-09), or what stands in the way first: the owner's
        * security lock (`locked`, with `lockUnlocksAt` once an unlock is asked for), an entry not held as active
-       * (`blocked`), no published cooling-off (`cooling_unset`) or a cooling-off still running (`cooling`, with
+       * (`blocked`), a new address not approved yet (`approval_pending`, with `approvalLinkExpiresAt` while an emailed link
+       * works), no published cooling-off (`cooling_unset`) or a cooling-off still running (`cooling`, with
        * `coolingOffEndsAt`). Read-only (`bank:read`); the send path applies the same rules and refuses on its own.
        */
       readiness: scopedProcedure('bank:read', { module: 'bank' })
@@ -328,9 +353,10 @@ export function createRampsRouter(c: BankRouterContext) {
           z
             .object({
               destinationId: z.string().guid(),
-              state: z.enum(['ready', 'locked', 'blocked', 'cooling_unset', 'cooling']),
+              state: z.enum(['ready', 'locked', 'blocked', 'approval_pending', 'cooling_unset', 'cooling']),
               coolingOffEndsAt: z.string().nullable(),
               lockUnlocksAt: z.string().nullable(),
+              approvalLinkExpiresAt: z.string().nullable(),
             })
             .strict(),
         )

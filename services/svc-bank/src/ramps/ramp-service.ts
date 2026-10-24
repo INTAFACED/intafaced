@@ -33,6 +33,7 @@ import {
   removeDestination,
   renameDestination,
   saveDestination,
+  viewWithOwnership,
   type CustomerOnrampView,
   type CustomerRampDeps,
   type DestinationCheck,
@@ -52,6 +53,16 @@ import {
   type WalletProofStore,
 } from './wallet-ownership.js';
 import { assertCryptoRamp, assertFiatSocketWhenNone, refuseFiatRamp, type RampProgramme, NO_RAMP_PROGRAMME } from './rails.js';
+import {
+  BANK_ADDRESS_APPROVAL_LINK_ENV,
+  approveByLink,
+  requestApprovalMail,
+  sqlApprovalLinks,
+  unconfiguredApprovalMail,
+  type AddressApprovalDeps,
+  type ApprovalLinkStore,
+  type ApprovalMailPort,
+} from './address-approval.js';
 import {
   BANK_ADDRESS_BOOK_CAP_ENV,
   destKindForRamp,
@@ -252,6 +263,14 @@ export interface RampServiceOptions {
    * `bank.security_lock_unset`: a bank that cannot read the lock does not act as if there were none.
    */
   securityLock?: SecurityLockPort;
+  /**
+   * New-address approval (W-withdraw-09): the links store (omit for the Postgres store on `sql`), identity's mail door
+   * (omitted, a link request refuses `bank.address_approval_mail_unavailable`), and the owner's link lifetime
+   * (`BANK_ADDRESS_APPROVAL_LINK_MINUTES`; omit to read the env at call time, blank refuses).
+   */
+  approvalLinks?: ApprovalLinkStore;
+  approvalMail?: ApprovalMailPort;
+  addressApprovalLinkMinutes?: string;
 }
 
 export class RampService {
@@ -268,6 +287,9 @@ export class RampService {
   private readonly walletProofWindowMinutes: string | undefined;
   private readonly walletProofValidDays: string | undefined;
   private readonly securityLock: SecurityLockPort;
+  private readonly approvalLinks: ApprovalLinkStore;
+  private readonly approvalMail: ApprovalMailPort;
+  private readonly addressApprovalLinkMinutes: string | undefined;
 
   constructor(
     private readonly sql: Sql,
@@ -291,6 +313,20 @@ export class RampService {
     this.walletProofWindowMinutes = options.walletProofWindowMinutes;
     this.walletProofValidDays = options.walletProofValidDays;
     this.securityLock = options.securityLock ?? unconfiguredSecurityLock();
+    this.approvalLinks = options.approvalLinks ?? sqlApprovalLinks(sql);
+    this.approvalMail = options.approvalMail ?? unconfiguredApprovalMail();
+    this.addressApprovalLinkMinutes = options.addressApprovalLinkMinutes;
+  }
+
+  private approvalDeps(): AddressApprovalDeps {
+    return {
+      destinations: this.destinations,
+      links: this.approvalLinks,
+      mail: this.approvalMail,
+      securityLock: this.securityLock,
+      linkMinutesRaw: () =>
+        this.addressApprovalLinkMinutes !== undefined ? this.addressApprovalLinkMinutes : process.env[BANK_ADDRESS_APPROVAL_LINK_ENV],
+    };
   }
 
   private walletProofDeps(): WalletProofDeps {
@@ -318,6 +354,7 @@ export class RampService {
       coolingRaw: () => this.ownerOfframpCoolingHoursRaw(),
       proofs: this.walletProofs,
       securityLock: this.securityLock,
+      approvalLinks: this.approvalLinks,
     };
   }
 
@@ -396,6 +433,16 @@ export class RampService {
   /** Whether money may be sent to one saved address now, or what stands in the way first (W-withdraw-09). Read-only. */
   destinationReadiness(input: { userId: string; destinationId: string }): Promise<DestinationReadiness> {
     return destinationReadiness(this.customerDeps(), input);
+  }
+
+  /** Mail a single-use link that approves one new address (W-withdraw-09). Says until when it works; never that it arrived. */
+  requestAddressApproval(input: { userId: string; destinationId: string }): Promise<{ destinationId: string; expiresAt: string }> {
+    return requestApprovalMail(this.approvalDeps(), input);
+  }
+
+  /** Approve the new address an emailed link names, for the customer it was sent to. */
+  async approveAddressByLink(input: { userId: string; token: string }): Promise<DestinationView> {
+    return viewWithOwnership(this.customerDeps(), input.userId, await approveByLink(this.approvalDeps(), input));
   }
 
   /** Remove one saved destination. `idempotencyKey` replays the same removal. */
