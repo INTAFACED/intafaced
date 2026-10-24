@@ -358,6 +358,13 @@ export function parseDefinition(input: CampaignDefinitionInput): Definition {
   const rewardAsset = input.reward ? parseAsset(input.reward.asset, 'campaigns.reward_unset', 'The reward') : null;
   const rewardAmount = input.reward ? parseAmount(input.reward.amount, 'campaigns.reward_unset', 'The reward amount') : null;
   const tasks = input.tasks ? parseTasks(type as CampaignType, input.tasks) : null;
+  const longest = Math.max(0, ...(tasks?.steps ?? []).map((s) => s.streakDays ?? 0));
+  if (longest > 0 && (weekdays || hours)) {
+    throw new CampaignsError('campaigns.tasks_invalid', 'A streak runs every day: a streak campaign has no weekday or hour windows');
+  }
+  if (longest > 0 && startsAt && endsAt && endsAt.getTime() - startsAt.getTime() < longest * 86_400_000) {
+    throw new CampaignsError('campaigns.tasks_invalid', `The time frame is shorter than the ${longest}-day streak`);
+  }
   return {
     name: input.name.trim(),
     type: type as CampaignType,

@@ -407,6 +407,8 @@ export const taskProgressSchema = z.object({
         .object({
           days: z.number().int().min(0),
           best: z.number().int().min(0),
+          /** The run that ends on the last day done: the one a missed day broke, or the one still alive. */
+          lastRun: z.number().int().min(0),
           lastDay: z
             .string()
             .regex(/^\d{4}-\d{2}-\d{2}$/)

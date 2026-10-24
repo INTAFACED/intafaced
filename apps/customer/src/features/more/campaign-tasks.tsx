@@ -56,8 +56,11 @@ function useFormat() {
       second: '2-digit',
       timeZoneName: 'short',
     });
+    const date = new Intl.DateTimeFormat(renderedLocale, { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' });
     return {
       when: (isoTime: string) => time.format(new Date(isoTime)),
+      /** A calendar day (`YYYY-MM-DD`) as the reader writes dates; the day is the platform zone's, so no zone shift. */
+      day: (ymd: string) => date.format(new Date(`${ymd}T00:00:00Z`)),
       /** Whole seconds in the largest unit that divides them. */
       duration: (seconds: number) => {
         const [unit, size] = UNITS.find(([, s]) => seconds % s === 0)!;
@@ -174,11 +177,11 @@ function Steps({ progress: p }: { progress: TaskProgress }) {
 /** A streak's run: alive until the zone midnight, or reset after a missed day. Times are the platform zone's. */
 function StreakState({ streak }: { streak: NonNullable<TaskProgress['steps'][number]['streak']> }) {
   const { t } = campaignTasksCopy.useCopy();
-  const { when } = useFormat();
+  const { when, day } = useFormat();
   return (
     <p data-testid="task-streak" data-days={streak.days} data-best={streak.best} data-reset={streak.reset ? 'true' : 'false'}>
       {streak.reset
-        ? t('streakReset', { best: String(streak.best), day: streak.lastDay ?? '' })
+        ? t('streakReset', { run: String(streak.lastRun), day: streak.lastDay ? day(streak.lastDay) : '' })
         : streak.resetsAt
           ? t('streakAlive', { when: when(streak.resetsAt) })
           : t('streakNone')}

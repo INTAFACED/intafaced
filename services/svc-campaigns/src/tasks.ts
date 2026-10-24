@@ -17,7 +17,7 @@ import { effectiveState, outsideWindow } from './campaigns.js';
 import type { ParticipantSource } from './participants.js';
 import type { PayoutSaga } from './payouts.js';
 import type { MarketNames } from './markets.js';
-import { streakOf } from './streaks.js';
+import { NO_STREAK, streakOf } from './streaks.js';
 
 /**
  * Task campaigns (CM-tasks-quests-01): progress from verified bus events, the claim window, the verification gate and
@@ -133,7 +133,7 @@ export function stepStates(
             timeZone,
             now,
           )
-        : { days: 0, best: 0, lastDay: null, resetsAt: null };
+        : NO_STREAK;
       const complete = run.best >= s.streakDays;
       return {
         index,
@@ -144,6 +144,7 @@ export function stepStates(
         streak: {
           days: run.days,
           best: run.best,
+          lastRun: run.lastRun,
           lastDay: run.lastDay,
           resetsAt: run.resetsAt ? iso(run.resetsAt) : null,
           reset: !complete && run.lastDay !== null && run.days === 0,
@@ -232,10 +233,12 @@ export class TaskService {
         const events = await tx<ProgressRow[]>`
           SELECT step_index, occurred_at FROM campaigns.task_progress
           WHERE campaign_id = ${row.id} AND account_id = ${row.account_id}`;
+        // A late or redelivered fill can close the steps: the claim window opens when they closed here, not earlier.
+        const completedAt = new Date(Math.max(at.getTime(), this.now().getTime()));
         if (stepStates(row.tasks!, events, timeZone, at).every((s) => s.complete)) {
           await tx`
             INSERT INTO campaigns.task_completions (campaign_id, account_id, completed_at)
-            VALUES (${row.id}, ${row.account_id}, ${at})
+            VALUES (${row.id}, ${row.account_id}, ${completedAt})
             ON CONFLICT DO NOTHING`;
         }
       });
@@ -262,7 +265,12 @@ export class TaskService {
         SELECT *, amount::text AS amount FROM campaigns.reward_intents
         WHERE reward_key = ${rewardKeyOf(row.id, input.accountId, PERIOD_ONCE)}`,
     ]);
-    const steps = stepStates(tasks, events, this.timeZone(), this.now());
+    const timeZone = this.timeZone();
+    // Streak days are read in the platform zone: blank, a streak campaign refuses rather than show 0 days.
+    if (!timeZone && tasks.steps.some((s) => s.streakDays)) {
+      throw new CampaignsError('campaigns.timezone_unset', 'The platform time zone is not set, so streak days cannot be read');
+    }
+    const steps = stepStates(tasks, events, timeZone, this.now());
     const closes =
       completion && tasks.claimWindowSeconds ? new Date(completion.completed_at.getTime() + tasks.claimWindowSeconds * 1000) : null;
     return {

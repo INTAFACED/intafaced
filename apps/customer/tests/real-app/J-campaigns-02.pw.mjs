@@ -331,7 +331,7 @@ test(`${J} #8 misses a day in a streak task: the streak resets at the zone bound
   const run1 = page.getByTestId('task-streak');
   await expect(page.getByTestId('task-step').first()).toContainText('1 of 3 days in a row');
   await expect(run1).toHaveAttribute('data-reset', 'false');
-  await expect(run1).toContainText('Do it again before');
+  await expect(run1).toContainText('Your streak resets at');
 
   // That trading day becomes two days ago (LOCAL TEST fixture): yesterday was missed, so the run ended at midnight.
   expect(tool('local-test-stack.mjs', 'age-task-progress', me.email, streak.id, '2')).toContain('1 join(s) and 1 counted event(s)');
@@ -341,10 +341,10 @@ test(`${J} #8 misses a day in a streak task: the streak resets at the zone bound
   await expect(reset).toHaveAttribute('data-days', '0');
   await expect(reset).toHaveAttribute('data-best', '1');
   await expect(reset).toContainText('Streak reset');
-  await expect(reset).toContainText('midnight in the platform time zone');
+  await expect(reset).toContainText('the run ended at midnight in the platform time zone (days in it: 1)');
   await expect(page.getByTestId('task-step').first()).toContainText('0 of 3 days in a row');
   const p = await progressOf(me, streak.id);
-  expect(p.steps[0]).toMatchObject({ done: 0, complete: false, streak: { days: 0, best: 1, reset: true, resetsAt: null } });
+  expect(p.steps[0]).toMatchObject({ done: 0, complete: false, streak: { days: 0, best: 1, lastRun: 1, reset: true, resetsAt: null } });
 
   // Trading again starts a new run of one day; the claim stays closed until three days in a row are done.
   await trade(me, 'sell');
