@@ -741,6 +741,18 @@ export const academySubmissionSchema = z.object({
 });
 export type AcademySubmission = z.infer<typeof academySubmissionSchema>;
 
+/** AC-assignments-02: the grade on the learner's newest graded hand-in, as they see it: never the grader. */
+export const academyLearnerGradeSchema = z.object({
+  version: z.number().int().positive(),
+  score: z.string(),
+  points: z.string(),
+  comment: z.string().nullable(),
+  gradedAt: isoInstant,
+  /** When the learner marked this grade's feedback read; null until then. */
+  readAt: isoInstant.nullable(),
+});
+export type AcademyLearnerGrade = z.infer<typeof academyLearnerGradeSchema>;
+
 /** `assignment`: an assignment as the enrolled learner sees it, with their own hand-ins, newest first. */
 export const academyAssignmentInputSchema = z.object({ itemId: z.string().guid() }).strict();
 export const academyAssignmentViewSchema = z.object({
@@ -758,6 +770,8 @@ export const academyAssignmentViewSchema = z.object({
   fileLimits: z.object({ maxBytes: z.number().int().positive().nullable(), types: z.array(z.string()).nullable() }),
   withdrawnAt: isoInstant.nullable(),
   submissions: z.array(academySubmissionSchema),
+  /** AC-assignments-02: the grade on the newest graded hand-in, released when staff save it; null before. */
+  grade: academyLearnerGradeSchema.nullable(),
   /** The version the next hand-in takes; a retry of a lost hand-in sends the version it was made with. */
   nextVersion: z.number().int().positive(),
 });
@@ -857,3 +871,65 @@ export const academySubmitPeerReviewInputSchema = z
   })
   .strict();
 export type AcademySubmitPeerReviewInput = z.infer<typeof academySubmitPeerReviewInputSchema>;
+
+/**
+ * AC-assignments-02: staff grade a hand-in with a score and comment. A grade is an append-only trail keyed
+ * `grade:<submission>:<n>`; the newest event is the grade. Changing a grade is an override and needs a reason
+ * (`academy.reason_required`). A grader holds a lease on the hand-in for the owner's lease length while grading; another
+ * grader is refused `academy.grader_locked`, and with the length blank grading refuses `academy.grader_lease_unset`.
+ * Graders see learners under a per-assignment alias, never their name or account, and a learner never sees who graded.
+ * A grade is released to the learner when it is saved. Bulk grading by file and removing a response are later parts.
+ */
+/** A score: a decimal string from 0 with at most two places, never above the assignment's points (`academy.grade_invalid`). */
+export const ACADEMY_SCORE = /^(?:0|[1-9]\d{0,5})(?:\.\d{1,2})?$/;
+export const academyGradingQueueInputSchema = z.object({ itemId: z.string().guid() }).strict();
+export const academyGradingRowSchema = z.object({
+  submissionId: z.string().guid(),
+  /** "Learner 3": stable per assignment, by first hand-in. Never the learner's name or account. */
+  alias: z.number().int().positive(),
+  version: z.number().int().positive(),
+  submittedAt: isoInstant,
+  late: z.boolean(),
+  text: z.string().nullable(),
+  file: z.object({ fileName: z.string().min(1), contentType: z.string().min(1), bytes: z.number().int().positive() }).nullable(),
+  /** Peer reviews this hand-in received, and their mean total as a decimal string (null with none). */
+  peerReviews: z.object({ received: z.number().int().nonnegative(), meanTotal: z.string().nullable() }),
+  grade: z
+    .object({ score: z.string(), comment: z.string().nullable(), gradedAt: isoInstant, overrides: z.number().int().nonnegative() })
+    .nullable(),
+  /** The event number the next grade on this hand-in takes. */
+  nextN: z.number().int().positive(),
+  lease: z.object({ mine: z.boolean(), expiresAt: isoInstant }).nullable(),
+});
+export type AcademyGradingRow = z.infer<typeof academyGradingRowSchema>;
+export const academyGradingQueueSchema = z.object({
+  itemId: z.string().guid(),
+  courseId: z.string().guid(),
+  title: z.string().min(1),
+  points: z.string(),
+  /** The owner's grader lease length in seconds; null is not set, and grading refuses until it is. */
+  leaseSeconds: z.number().int().positive().nullable(),
+  rows: z.array(academyGradingRowSchema),
+});
+export type AcademyGradingQueue = z.infer<typeof academyGradingQueueSchema>;
+
+/** `admin.openGrading`: take (or renew) the lease on one hand-in; answers with the queue. */
+export const academyOpenGradingInputSchema = z.object({ itemId: z.string().guid(), submissionId: z.string().guid() }).strict();
+export type AcademyOpenGradingInput = z.infer<typeof academyOpenGradingInputSchema>;
+
+/** `admin.gradeSubmission`: grade event `n` on a hand-in; the same `n` again answers as stored. */
+export const academyGradeSubmissionInputSchema = z
+  .object({
+    itemId: z.string().guid(),
+    submissionId: z.string().guid(),
+    n: z.number().int().positive(),
+    score: z.string().regex(ACADEMY_SCORE),
+    comment: z.string().trim().max(5000).nullable(),
+    reason: z.string().trim().min(1).max(500).nullable(),
+  })
+  .strict();
+export type AcademyGradeSubmissionInput = z.infer<typeof academyGradeSubmissionInputSchema>;
+
+/** `markFeedbackRead`: the caller read the feedback on version `version`; a repeat answers as stored. */
+export const academyMarkFeedbackReadInputSchema = z.object({ itemId: z.string().guid(), version: z.number().int().positive() }).strict();
+export type AcademyMarkFeedbackReadInput = z.infer<typeof academyMarkFeedbackReadInputSchema>;

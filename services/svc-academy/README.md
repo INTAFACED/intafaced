@@ -266,6 +266,19 @@ A seat belongs to `ctx.principal.userId`. **No procedure takes a userId from the
 
 ---
 
+### Assignments, peer review and grading (AC-assignments-01/02/03)
+
+Journey J-academy-04. A learner hands in text and a file (`submitAssignment`, versioned), reviews classmates and themself against the rubric staff set (`peerReview`, `submitPeerReview`, `admin.saveReviewSteps`), and reads the grade on the assignment page.
+
+| Procedure               | Scope           | Purpose                                                                                                                                                                                             |
+| ----------------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `admin.gradingQueue`    | `admin:read`    | Each learner's newest hand-in under an alias ("Learner 3", by first hand-in), never a name or account, with its peer reviews, current grade, next event number and the grader lease                 |
+| `admin.openGrading`     | `admin:write`   | Takes or renews the caller's lease on one hand-in for `ACADEMY_GRADER_LEASE_SECONDS` (blank: `grader_lease_unset`); another grader's live lease refuses `grader_locked`                             |
+| `admin.gradeSubmission` | `admin:write`   | Grade event `n` (score, comment): the same `n` again answers as stored, an older one refuses `revision_stale`; a score above the points refuses `grade_invalid`; a change of grade needs a `reason` |
+| `markFeedbackRead`      | `academy:write` | The learner read the newest grade on a hand-in version; recorded once, the grade unchanged; a version with no grade refuses `submission_not_found`                                                  |
+
+The learner's `assignment` view carries `grade` (score, points, comment, when, read) with no grader. Grades show as soon as they are saved; a release date, bulk grading and the `grade.posted` event are later slices.
+
 ## Events
 
 **Publishes:** `intafaced.identity.xp.earned`, on certification grant and nowhere else. **Consumes:** none.

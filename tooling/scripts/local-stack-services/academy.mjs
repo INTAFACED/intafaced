@@ -43,6 +43,9 @@ const uploadLimits = () =>
 // LOCAL TEST topic list limit (a TEST owner value): 100 (J-academy-11 #8).
 const topicsLimit = () => (process.env.LOCAL_STACK_ACADEMY_TOPICS_LIMIT === 'off' ? {} : { ACADEMY_TOPICS_LIST_LIMIT: '100' });
 
+// LOCAL TEST grader lease (a TEST owner value): 15 minutes (J-academy-04 #6).
+const graderLease = () => (process.env.LOCAL_STACK_ACADEMY_GRADER_LEASE === 'off' ? {} : { ACADEMY_GRADER_LEASE_SECONDS: '900' });
+
 export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
   name: 'academy',
   env: () => ({
@@ -58,5 +61,6 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     ...importLimit(),
     ...uploadLimits(),
     ...topicsLimit(),
+    ...graderLease(),
   }),
 });

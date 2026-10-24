@@ -254,6 +254,14 @@ export type AcademyErrorCode =
   | 'academy.review_already_sent'
   /** A reviewed file could not be read back whole from our own store; nothing changed. */
   | 'academy.file_unavailable'
+  /** AC-assignments-02: another grader holds this hand-in's lease. */
+  | 'academy.grader_locked'
+  /** The owner has not set how long a grader holds a hand-in (`ACADEMY_GRADER_LEASE_SECONDS`). */
+  | 'academy.grader_lease_unset'
+  /** A score that is above the assignment's points. */
+  | 'academy.grade_invalid'
+  /** No newest hand-in with that id on the assignment, or no grade on it to read. */
+  | 'academy.submission_not_found'
   /** AC-videos-02: the owner has not set the upload size limit or the accepted video or handout types. */
   | 'academy.upload_limits_unset'
   /** The file is over the owner's upload size limit; no upload address was issued. */
@@ -427,6 +435,10 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.review_task_not_found',
   'academy.review_already_sent',
   'academy.file_unavailable',
+  'academy.grader_locked',
+  'academy.grader_lease_unset',
+  'academy.grade_invalid',
+  'academy.submission_not_found',
   'academy.upload_limits_unset',
   'academy.upload_too_large',
   'academy.upload_type_refused',

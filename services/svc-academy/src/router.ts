@@ -72,6 +72,11 @@ import {
   academySaveAssignmentInputSchema,
   academySaveReviewStepsInputSchema,
   academyPeerReviewInputSchema,
+  academyGradingQueueInputSchema,
+  academyGradingQueueSchema,
+  academyOpenGradingInputSchema,
+  academyGradeSubmissionInputSchema,
+  academyMarkFeedbackReadInputSchema,
   academyPeerReviewFileInputSchema,
   academyPeerReviewFileSchema,
   academyReviewStateSchema,
@@ -907,6 +912,7 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.submission_version_stale':
     case 'academy.assignment_has_submissions':
     case 'academy.review_already_sent':
+    case 'academy.grader_locked':
       return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
 
     case 'academy.enrolment_required':
@@ -924,6 +930,7 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.item_video_missing':
     case 'academy.upload_incomplete':
     case 'academy.file_unavailable':
+    case 'academy.grader_lease_unset':
       return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
 
     case 'academy.outline_too_large':
@@ -946,11 +953,13 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.private_link_not_found':
     case 'academy.assignment_not_found':
     case 'academy.review_task_not_found':
+    case 'academy.submission_not_found':
       return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
 
     case 'academy.prerequisite_cycle':
     case 'academy.window_invalid':
     case 'academy.reason_required':
+    case 'academy.grade_invalid':
       return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
   }
 }
@@ -2450,6 +2459,12 @@ export function createAcademyRouter(
       .output(academyReviewStateSchema)
       .mutation(({ input, ctx }) => guard(() => academy.peerReview({ itemId: input.itemId, userId: ctx.principal!.userId }))),
 
+    /** AC-assignments-02: the caller read the feedback on one of their graded hand-ins; changes no grade. */
+    markFeedbackRead: scopedProcedure('academy:write', { module: 'academy' })
+      .input(academyMarkFeedbackReadInputSchema)
+      .output(academyAssignmentViewSchema)
+      .mutation(({ input, ctx }) => guard(() => academy.markFeedbackRead({ ...input, userId: ctx.principal!.userId }))),
+
     /** AC-assignments-03: the file of work handed to the caller to review, read back so its store address stays hidden. */
     peerReviewFile: scopedProcedure('academy:read', { module: 'academy' })
       .input(academyPeerReviewFileInputSchema)
@@ -3050,6 +3065,24 @@ export function createAcademyRouter(
         .input(academyWithdrawAssignmentInputSchema)
         .output(academyAdminAssignmentSchema)
         .mutation(({ input, ctx }) => guard(() => academy.withdrawAssignment({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-assignments-02: each learner's newest hand-in under an alias, with its peer reviews, grade and lease. */
+      gradingQueue: scopedProcedure('admin:read', { module: 'academy' })
+        .input(academyGradingQueueInputSchema)
+        .output(academyGradingQueueSchema)
+        .query(({ input, ctx }) => guard(() => academy.gradingQueue({ itemId: input.itemId, operatorId: ctx.principal!.userId }))),
+
+      /** AC-assignments-02: take or renew the caller's grader lease on one hand-in. */
+      openGrading: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyOpenGradingInputSchema)
+        .output(academyGradingQueueSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.openGrading({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-assignments-02: grade event n, keyed `grade:<submission>:<n>`; an override needs a reason. */
+      gradeSubmission: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academyGradeSubmissionInputSchema)
+        .output(academyGradingQueueSchema)
+        .mutation(({ input, ctx }) => guard(() => academy.gradeSubmission({ ...input, operatorId: ctx.principal!.userId }))),
 
       /** AC-assignments-03: peer and self review steps and the rubric, over the revision read. */
       saveReviewSteps: scopedProcedure('admin:write', { module: 'academy' })
