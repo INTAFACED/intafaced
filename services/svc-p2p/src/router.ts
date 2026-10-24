@@ -277,6 +277,12 @@ const tradeDetailOutput = tradeOutput.extend({
   reminders: reminderOutput,
   /** P-trade-orders-20: the seller's amount report on this order, or null. */
   mismatch: mismatchOutput.nullable(),
+  /**
+   * P-trade-orders-11: whether the bank rail can check this order's payment. `blocker` names what stops it:
+   * `rail.bank` (no rail is wired) or `p2p.method_not_rail_validated` (the rail does not cover the method); null when
+   * it can be checked.
+   */
+  paymentValidation: z.object({ blocker: z.enum(['rail.bank', 'p2p.method_not_rail_validated']).nullable() }),
 });
 
 const blockQuoteOutput = z.object({
@@ -605,6 +611,9 @@ function toTrpcError(err: unknown): TRPCError {
       case 'p2p.invalid_security_change_lock':
       case 'p2p.security_change_lock_unwired':
       case 'p2p.review_list_limit_unset':
+      // No bank rail is wired, or it does not validate this method: nothing was checked and nothing moved.
+      case 'rail.bank':
+      case 'p2p.method_not_rail_validated':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
       case 'p2p.merchant_not_found':
         return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
@@ -637,6 +646,8 @@ function toTrpcError(err: unknown): TRPCError {
       case 'p2p.remind_rate_limited':
       // One amount report per order: more goes to the dispute.
       case 'p2p.mismatch_report_exists':
+      // The bank rail's payment does not match the order: an exception row waits for a person; nothing was released.
+      case 'p2p.rail_mismatch':
       // Selling into a buy ad from a balance that falls short: nothing was held; the error data says by how much.
       case 'p2p.insufficient_balance':
       // A sell ad whose maker holds less than it offers: the order was voided and nothing is held.
@@ -1549,6 +1560,43 @@ export function createP2pRouter(
           ),
         ),
 
+      /**
+       * P-trade-orders-11 / J-p2p-02 #4: the seller of a paid order has the bank rail check the payment. An exact match
+       * releases once (`released`); nothing arrived yet answers `pending`. Refuses `rail.bank` while no rail is wired,
+       * `p2p.method_not_rail_validated` for a method the rail does not cover, and `p2p.rail_mismatch` (an exception row
+       * for a person, no release) when what arrived differs. A check that can release asks for the same confirmation
+       * as a release by hand (P-trade-orders-07), so the rail never becomes a release door without a fresh factor.
+       */
+      validatePayment: merchantApiProcedure('p2p:write')
+        .input(
+          z.object({
+            tradeId: z.string().guid(),
+            /** P-trade-orders-07: identity's single-use confirmation of this release, or the session's release window. */
+            stepUpApprovalId: z.string().min(1).max(128).optional(),
+          }),
+        )
+        .output(z.object({ outcome: z.enum(['released', 'pending']), trade: tradeOutput }))
+        .mutation(async ({ ctx, input }) =>
+          guard(async () => {
+            const current = await p2p.getTrade(input.tradeId);
+            if (current.buyerId !== ctx.principal.userId && current.sellerId !== ctx.principal.userId) {
+              throw unknownTrade(input.tradeId);
+            }
+            // Only a check that could release is confirmed: a switched-off rail, the buyer, or a disputed or ended order
+            // gets the service's own refusal first. `created` and `escrowed` are asked too, since the buyer can mark the
+            // order paid between this read and the service's own.
+            if (
+              current.sellerId === ctx.principal.userId &&
+              (current.status === 'created' || current.status === 'escrowed' || current.status === 'fiat_sent') &&
+              p2p.paymentValidationBlocker(current) === null
+            ) {
+              await releaseStepUp.assertConfirmed(stepUpCaller(ctx.principal), input.tradeId, input.stepUpApprovalId);
+            }
+            const result = await p2p.validatePayment(input.tradeId, ctx.principal.userId);
+            return { outcome: result.outcome, trade: toTradeOut(result.trade) };
+          }),
+        ),
+
       /** Cancel → `escrowRefund`, in full, to the seller. */
       cancel: merchantApiProcedure('p2p:write')
         .input(z.object({ tradeId: z.string().guid(), reason: z.string().max(200).optional() }))
@@ -1580,6 +1628,7 @@ export function createP2pRouter(
                 reminders: toReminderOut(reminders),
                 mismatch: mismatch ? toMismatchOut(mismatch) : null,
               }))),
+              paymentValidation: { blocker: p2p.paymentValidationBlocker(trade) },
             };
           }),
         ),
