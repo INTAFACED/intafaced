@@ -267,8 +267,11 @@ describe('deposit room: a network the owner switched off, and a person not yet v
     expect(field('Network').textContent).toContain('Deposits of USDC are switched off on every network.');
     await choose('Network', 'base');
     const banner = host.querySelector('[data-testid="deposit-halted"]')!;
-    expect(banner.querySelectorAll('p')).toHaveLength(1);
-    expect(banner.textContent).toContain('No address is shown for it.');
+    // No owner's note: only the two standard lines, the second saying a deposit to a kept address waits and is credited later.
+    expect([...banner.querySelectorAll('p')].map((p) => p.textContent)).toEqual([
+      'No address is shown for it. Choose another network, or come back when it is switched on.',
+      'Anything sent to an address you already had for it is not lost: it waits, and is credited after deposits are switched back on.',
+    ]);
   });
 
   it.each(['denied.kyc_required', 'tier.insufficient', 'bank.tier_required'])(

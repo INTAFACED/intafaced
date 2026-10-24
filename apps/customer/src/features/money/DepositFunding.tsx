@@ -111,6 +111,7 @@ export function DepositAddressPanel({ asset, catalogue, networkId }: Omit<Props,
           <strong>{t('haltedTitle', { asset, network: off.label })}</strong>
           {off.haltNote && <p lang="und">{off.haltNote}</p>}
           <p>{t('haltedBody')}</p>
+          <p>{t('haltedKept')}</p>
         </div>
       ) : !network ? (
         needsVerification(catalogue) ? (

@@ -170,6 +170,8 @@ test(`${J}, part of #2 a switched-off network shows the owner's banner and no ad
   await expect(banner).toHaveAttribute('role', 'alert');
   await expect(banner).toContainText('Deposits of USDC on TEST Base are switched off');
   await expect(banner).toContainText('TEST: switched off on this test stack so the notice can be seen.');
+  // Money already on its way to an address the person kept is not lost: svc-pay credits it once the pair is back on.
+  await expect(banner).toContainText('it waits, and is credited after deposits are switched back on.');
   await expect(page.getByRole('button', { name: 'Show my deposit address' })).toHaveCount(0);
   await expect(page.getByTestId('deposit-address')).toHaveCount(0);
   // Asked directly, the bank issues nothing for it either.
