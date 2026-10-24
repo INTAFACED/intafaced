@@ -16,6 +16,10 @@ import type { CopyDisclosureLaw } from './disclosure.js';
 import { CopyError } from './errors.js';
 import { assertMayFollow, assertReserveFits, copyFollowIdFor, copyQuoteAsset, parseCopyMinTier } from './follow-gate.js';
 import { MemoryCopyFollowStore, SqlCopyFollowStore, type CopyFollowStore } from './follow-store.js';
+import type { CopyFollow } from './follows.js';
+import { planMirror } from './mirror.js';
+import { sqlLeaderDirectory } from './leader-directory.js';
+import type { Sql } from 'postgres';
 import type { CopyFeeShareLaw, CopyJurisdictionLaw } from './index.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -66,7 +70,13 @@ const input = (over: Record<string, unknown> = {}) => ({
 });
 
 async function setup(
-  opts: { store?: CopyFollowStore; minTier?: 'basic' | 'full' | null; usdt?: string; disclosure?: CopyDisclosureLaw } = {},
+  opts: {
+    store?: CopyFollowStore;
+    minTier?: 'basic' | 'full' | null;
+    usdt?: string;
+    disclosure?: CopyDisclosureLaw;
+    sqlDirectory?: Sql;
+  } = {},
 ) {
   const ledger = new MemoryLedger();
   if (opts.usdt) {
@@ -82,6 +92,7 @@ async function setup(
     disclosureLaw: opts.disclosure ?? LAW,
     minTier: opts.minTier === undefined ? 'full' : opts.minTier,
     store,
+    ...(opts.sqlDirectory ? { directory: sqlLeaderDirectory(opts.sqlDirectory, { now: () => NOW, feeShareLaw: fee }) } : {}),
     now: () => NOW,
   });
   return { copy, ledger, store };
@@ -95,7 +106,7 @@ async function refusedWithNothingWritten(ctx: Awaited<ReturnType<typeof setup>>,
   const journalBefore = (await ctx.ledger.balances('user', FOLLOWER)).map((b) => `${b.accountId}:${b.amount}`);
   await expect(run()).rejects.toMatchObject({ code });
   expect(await ctx.store.listFollowsByFollower(FOLLOWER)).toEqual([]);
-  expect(await ctx.store.sumHeldReserves(FOLLOWER, 'USDT')).toBe(0n);
+  expect(await ctx.store.sumUnusedReserves(FOLLOWER, 'USDT')).toBe(0n);
   expect((await ctx.ledger.balances('user', FOLLOWER)).map((b) => `${b.accountId}:${b.amount}`)).toEqual(journalBefore);
 }
 
@@ -203,7 +214,7 @@ describe('the fixed amount and the reserve', () => {
     expect(again.followId).toBe(first.followId);
     expect(first).toMatchObject({ fixedOrderSize: '25', reserve: { asset: 'USDT', amount: '500', released: false } });
     expect(await ctx.store.listFollowsByFollower(FOLLOWER)).toHaveLength(1);
-    expect(await ctx.store.sumHeldReserves(FOLLOWER, 'USDT')).toBe(parseAmount('500'));
+    expect(await ctx.store.sumUnusedReserves(FOLLOWER, 'USDT')).toBe(parseAmount('500'));
     // The reserve is a limit row: the follower's ledger balance is exactly what it was.
     expect(await ctx.ledger.balances('user', FOLLOWER)).toEqual(before);
     // A different request key for the same leader is a second follow, which is refused as one.
@@ -218,12 +229,90 @@ describe('the fixed amount and the reserve', () => {
     const before = await ctx.ledger.balances('user', FOLLOWER);
     const first = await ctx.copy.startFollow(principal(), input());
     await ctx.copy.detach(principal(), { followId: first.followId });
-    expect(await ctx.store.sumHeldReserves(FOLLOWER, 'USDT')).toBe(0n);
+    expect(await ctx.store.sumUnusedReserves(FOLLOWER, 'USDT')).toBe(0n);
     const second = await ctx.copy.startFollow(principal(), input({ leaderId: LEADER_2, clientRequestId: 'start-copy-0004' }));
-    expect(await ctx.store.sumHeldReserves(FOLLOWER, 'USDT')).toBe(parseAmount('500'));
+    expect(await ctx.store.sumUnusedReserves(FOLLOWER, 'USDT')).toBe(parseAmount('500'));
     await ctx.copy.unfollow(principal(), { followId: second.followId });
-    expect(await ctx.store.sumHeldReserves(FOLLOWER, 'USDT')).toBe(0n);
+    expect(await ctx.store.sumUnusedReserves(FOLLOWER, 'USDT')).toBe(0n);
     expect(await ctx.ledger.balances('user', FOLLOWER)).toEqual(before);
+  });
+});
+
+describe('the reserve after review', () => {
+  it('a retry with the same key after a failed save makes the follow instead of an admission conflict', async () => {
+    class FailOnce extends MemoryCopyFollowStore {
+      failed = false;
+      override async saveFollow(follow: CopyFollow, exposure?: bigint): Promise<void> {
+        if (!this.failed) {
+          this.failed = true;
+          throw new Error('database blip');
+        }
+        return super.saveFollow(follow, exposure);
+      }
+    }
+    const ctx = await setup({ usdt: '1000', store: new FailOnce() });
+    await accepted(ctx.copy);
+    await expect(ctx.copy.startFollow(principal(), input())).rejects.toThrow('database blip');
+    const made = await ctx.copy.startFollow(principal(), input());
+    expect(made.followId).toBe(copyFollowIdFor(FOLLOWER, LEADER, 'start-copy-0001'));
+    expect(await ctx.store.sumUnusedReserves(FOLLOWER, 'USDT')).toBe(parseAmount('500'));
+  });
+
+  it('counts only the unused part of another reserve, since its copied orders already left the free balance', async () => {
+    const ctx = await setup({ usdt: '1000' });
+    await accepted(ctx.copy);
+    const first = await ctx.copy.startFollow(principal(), input());
+    await ctx.store.setExposure(first.followId, parseAmount('300'));
+    expect(await ctx.store.sumUnusedReserves(FOLLOWER, 'USDT')).toBe(parseAmount('200'));
+  });
+
+  it('releases the reserve when the follow is stopped', async () => {
+    const ctx = await setup({ usdt: '1000' });
+    await accepted(ctx.copy);
+    const first = await ctx.copy.startFollow(principal(), input());
+    await ctx.copy.stop(principal(), { followId: first.followId });
+    expect(await ctx.store.sumUnusedReserves(FOLLOWER, 'USDT')).toBe(0n);
+    const after = await ctx.store.getFollow(first.followId);
+    expect(after?.reserve?.releasedAt).not.toBeNull();
+  });
+
+  it('sizes a copied order at the fixed amount, scaling the quantity from the leader fill price', () => {
+    const follow: CopyFollow = {
+      followId: 'f1',
+      followerId: FOLLOWER,
+      leaderId: LEADER,
+      region: 'SG',
+      createdAt: NOW,
+      feeShareKilled: false,
+      envelope: {
+        permittedMarkets: ['BTC/USDT'],
+        maxNotionalPerOrder: parseAmount('100'),
+        maxAggregateExposure: parseAmount('500'),
+        expiresAt: new Date('2026-12-01T00:00:00.000Z'),
+        fixedOrderSize: parseAmount('20'),
+      },
+    };
+    const observation = {
+      fillId: 'fill-1',
+      leaderId: LEADER,
+      marketId: 'BTC/USDT',
+      side: 'buy' as const,
+      qty: parseAmount('0.002'),
+      notional: parseAmount('90'),
+      observedAt: NOW,
+    };
+    const plan = planMirror({ follow, observation, currentExposure: 0n, now: NOW });
+    expect(plan.notional).toBe(parseAmount('20'));
+    // 0.002 x 20 / 90, rounded down to the ledger scale.
+    expect(plan.qty).toBe((parseAmount('0.002') * parseAmount('20')) / parseAmount('90'));
+    expect(plan.nextExposure).toBe(parseAmount('20'));
+    const unfixed = planMirror({
+      follow: { ...follow, envelope: { ...follow.envelope, fixedOrderSize: undefined } },
+      observation,
+      currentExposure: 0n,
+      now: NOW,
+    });
+    expect(unfixed.notional).toBe(parseAmount('90'));
   });
 });
 
@@ -282,14 +371,81 @@ describe('the reserve row on Postgres', () => {
     expect(rows).toEqual([{ reserve_key: `copy.reserve:${first.followId}`, amount: '500.000000000000000000', released_at: null }]);
     const restarted = new SqlCopyFollowStore(db!.sql);
     expect((await restarted.getFollow(first.followId))?.envelope.fixedOrderSize).toBe(parseAmount('25'));
-    expect(await restarted.sumHeldReserves(FOLLOWER, 'USDT')).toBe(parseAmount('500'));
+    expect(await restarted.sumUnusedReserves(FOLLOWER, 'USDT')).toBe(parseAmount('500'));
 
     await ctx.copy.unfollow(principal(), { followId: first.followId });
     const after = await db!.sql<Array<{ released: boolean }>>`
       SELECT released_at IS NOT NULL AS released FROM copy_follow_reserves WHERE follower_id = ${FOLLOWER}
     `;
     expect(after).toEqual([{ released: true }]);
-    expect(await restarted.sumHeldReserves(FOLLOWER, 'USDT')).toBe(0n);
+    expect(await restarted.sumUnusedReserves(FOLLOWER, 'USDT')).toBe(0n);
+  });
+
+  it('two Start copying presses at once cannot both reserve the same free balance', async () => {
+    const follower = '00000000-0000-4000-8000-0000000000f2';
+    const p = principal({ sub: follower, userId: follower });
+    // The SQL directory, as production mounts it, so the follow and its reserve check share one transaction.
+    const ctx = await setup({ store: new SqlCopyFollowStore(db!.sql), sqlDirectory: db!.sql });
+    await ctx.ledger.post(
+      recipes.deposit({ userId: follower, assetId: 'USDT', amount: parseAmount('1000'), rail: 'test', railRef: 'race-fund' }),
+    );
+    await accepted(ctx.copy, p);
+    const results = await Promise.allSettled([
+      ctx.copy.startFollow(p, input({ maxAggregateExposure: '600', clientRequestId: 'race-a-0001' })),
+      ctx.copy.startFollow(p, input({ leaderId: LEADER_2, maxAggregateExposure: '600', clientRequestId: 'race-b-0001' })),
+    ]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect(results.find((r) => r.status === 'rejected')).toMatchObject({ reason: { code: 'trade.copy_reserve_exceeds_balance' } });
+    expect(await ctx.store.sumUnusedReserves(follower, 'USDT')).toBe(parseAmount('600'));
+  });
+
+  it('the reserve lock holds a second check for the same follower and asset until the first transaction ends', async () => {
+    const follower = '00000000-0000-4000-8000-0000000000f4';
+    let releaseFirst!: () => void;
+    const firstHolds = new Promise<void>((resolve) => (releaseFirst = resolve));
+    let locked!: () => void;
+    const firstLocked = new Promise<void>((resolve) => (locked = resolve));
+    const first = db!.sql.begin(async (tx) => {
+      await new SqlCopyFollowStore(tx as unknown as Sql).lockReserves(follower, 'USDT');
+      locked();
+      await firstHolds;
+    });
+    await firstLocked;
+    let secondDone = false;
+    const second = db!.sql
+      .begin(async (tx) => {
+        await new SqlCopyFollowStore(tx as unknown as Sql).lockReserves(follower, 'USDT');
+      })
+      .then(() => {
+        secondDone = true;
+      });
+    // Another asset is not held up.
+    await db!.sql.begin(async (tx) => {
+      await new SqlCopyFollowStore(tx as unknown as Sql).lockReserves(follower, 'USDC');
+    });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(secondDone).toBe(false);
+    releaseFirst();
+    await first;
+    await second;
+    expect(secondDone).toBe(true);
+  });
+
+  it('following again with the same key after an unfollow holds the reserve again', async () => {
+    const follower = '00000000-0000-4000-8000-0000000000f3';
+    const p = principal({ sub: follower, userId: follower });
+    const ctx = await setup({ store: new SqlCopyFollowStore(db!.sql) });
+    await ctx.ledger.post(
+      recipes.deposit({ userId: follower, assetId: 'USDT', amount: parseAmount('1000'), rail: 'test', railRef: 'again-fund' }),
+    );
+    await accepted(ctx.copy, p);
+    const first = await ctx.copy.startFollow(p, input());
+    await ctx.copy.unfollow(p, { followId: first.followId });
+    expect(await ctx.store.sumUnusedReserves(follower, 'USDT')).toBe(0n);
+    const again = await ctx.copy.startFollow(p, input());
+    expect(again.followId).toBe(first.followId);
+    expect(again.reserve).toMatchObject({ released: false });
+    expect(await ctx.store.sumUnusedReserves(follower, 'USDT')).toBe(parseAmount('500'));
   });
 
   it('refuses a fixed size above the per-order cap in the table itself', async () => {

@@ -35,7 +35,7 @@ export function assertMayFollow(principal: Pick<Principal, 'tier' | 'sub_account
     throw new CopyError('A sub-account cannot follow a leader. Follow from the main account.', 'trade.copy_subaccount_refused');
   }
   if (minTier === null) {
-    throw new CopyError('Copy trading is not available yet: the verification level for copying is not set.', 'trade.copy_tier_unset');
+    throw new CopyError('Copy trading is closed: the platform has not set the verification level for copying.', 'trade.copy_tier_unset');
   }
   if (TIER_ORDER[principal.tier] < TIER_ORDER[minTier]) {
     throw new CopyError(`Copy trading needs ${minTier} verification. Your account is at ${principal.tier}.`, 'trade.tier_insufficient');
@@ -82,6 +82,11 @@ export function freeSpotBalance(rows: readonly Balance[], asset: string): Amount
   return free;
 }
 
+/**
+ * `free` is the ledger's available balance, which each copied order's hold already lowers. So `reservedElsewhere` is
+ * only the unused part of the other follows' reserves (reserve less that follow's open exposure), or used reserve
+ * would count twice.
+ */
 export function assertReserveFits(input: { amount: Amount; free: Amount; reservedElsewhere: Amount; asset: string }): void {
   const left = input.free > input.reservedElsewhere ? input.free - input.reservedElsewhere : 0n;
   if (input.amount > left) {

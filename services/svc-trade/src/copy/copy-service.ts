@@ -13,7 +13,6 @@
  * laws refuse at the door. Pause/stop/detach never call flatten.
  */
 
-import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, type Amount, type LedgerClient } from '@intafaced/ledger-client';
 import { requireScope, type Principal } from '@intafaced/auth';
@@ -57,6 +56,7 @@ import {
   requireNewCopyIntentAllowed,
 } from './copy-lifecycle.js';
 import { assertCopyRegionAllowed, copyRegionClosed, parseCopyEnvelope, presentCopyFollow, type CopyFollow } from './follows.js';
+import { randomUUID } from 'node:crypto';
 import { assertMayFollow, assertReserveFits, copyFollowIdFor, copyQuoteAsset, freeSpotBalance, type CopyTier } from './follow-gate.js';
 import {
   attributeCopyFeeShare,
@@ -572,8 +572,9 @@ export class CopyService {
    */
   async startFollow(principal: Principal, input: Parameters<CopyService['follow']>[1] & { readonly clientRequestId: string }) {
     // The desk's own blocker first: with no country list nothing else matters.
+    let region: string;
     try {
-      assertCopyRegionAllowed(this.jurisdictionLaw, input.region);
+      region = assertCopyRegionAllowed(this.jurisdictionLaw, input.region);
     } catch (err) {
       this.blankLawRefusal(err);
     }
@@ -594,15 +595,31 @@ export class CopyService {
     } catch {
       throw new CopyError('Copy envelope caps must be valid decimal amounts', 'trade.copy_envelope_invalid');
     }
-    assertReserveFits({
-      amount,
-      asset,
-      free: freeSpotBalance(await this.ledger.balances('user', principal.userId), asset),
-      reservedElsewhere: await this.store.sumHeldReserves(principal.userId, asset),
+    const free = freeSpotBalance(await this.ledger.balances('user', principal.userId), asset);
+    // A quick refusal before admission; the same check runs again under the follower's reserve lock in the save.
+    assertReserveFits({ amount, asset, free, reservedElsewhere: await this.store.sumUnusedReserves(principal.userId, asset) });
+    return this.follow(principal, input, {
+      followId,
+      leaderId,
+      region,
+      reserveAsset: asset,
+      beforeSave: async (store, follow) => {
+        await store.lockReserves(principal.userId, asset);
+        assertReserveFits({
+          amount: follow.reserve!.amount,
+          asset,
+          free,
+          reservedElsewhere: await store.sumUnusedReserves(principal.userId, asset),
+        });
+      },
     });
-    return this.follow(principal, input, { followId, reserveAsset: asset });
   }
 
+  /**
+   * The follow write without startFollow's gates (tier, disclosure, reserve). The router mounts only startFollow; this
+   * stays callable for the unit tests of the envelope and lifecycle. Without `admitted` no reserve is held and the id
+   * is random, so two direct follows of one leader race to the unique (follower, leader) row as before.
+   */
   async follow(
     principal: Principal,
     input: {
@@ -628,16 +645,27 @@ export class CopyService {
       /** Leader recommendations — clamp only; never raise follower caps. */
       leaderSettings?: CopyLeaderLimitSettings;
     },
-    /** Set by startFollow: the request's follow id and the asset its reserve is held in. */
-    admitted?: { readonly followId: string; readonly reserveAsset: string },
+    /** From startFollow: the request's follow id, the resolved leader and region, the reserve asset and its check. */
+    admitted?: {
+      readonly followId: string;
+      readonly leaderId: string;
+      readonly region: string;
+      readonly reserveAsset: string;
+      readonly beforeSave: (store: CopyFollowStore, follow: CopyFollow) => Promise<void>;
+    },
   ) {
+    let leaderId: string;
     let region: string;
-    try {
-      region = assertCopyRegionAllowed(this.jurisdictionLaw, input.region);
-    } catch (err) {
-      this.blankLawRefusal(err);
+    if (admitted) {
+      ({ leaderId, region } = admitted);
+    } else {
+      try {
+        region = assertCopyRegionAllowed(this.jurisdictionLaw, input.region);
+      } catch (err) {
+        this.blankLawRefusal(err);
+      }
+      leaderId = await this.directory.resolveLeaderId(input.leaderId, input.leaderRef);
     }
-    const leaderId = await this.directory.resolveLeaderId(input.leaderId, input.leaderRef);
     if (leaderId === principal.userId) {
       throw new CopyError('Cannot follow yourself', 'trade.copy_self_follow');
     }
@@ -704,11 +732,11 @@ export class CopyService {
         leaderId: follow.leaderId,
         envelope: follow.envelope,
         region: follow.region,
-        createdAt: follow.createdAt,
+        ...(follow.reserve ? { reserve: { asset: follow.reserve.asset, amount: follow.reserve.amount } } : {}),
       }),
     );
     try {
-      await this.directory.admitNewFollow(leaderId, this.store, follow);
+      await this.directory.admitNewFollow(leaderId, this.store, follow, admitted?.beforeSave);
     } catch (err) {
       if (err instanceof CopyError) throw err;
       rethrowCopyFollowUnique(err);
