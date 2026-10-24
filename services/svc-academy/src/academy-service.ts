@@ -1962,11 +1962,14 @@ export class AcademyService {
    * quiz, pending while staff hide results, with per-type averages over released results only.
    */
   async progressPage(userId: string, now: Date = new Date()): Promise<AcademyProgressPage> {
-    const [enrolments, grades, courseGrades] = await Promise.all([
+    const [enrolments, allGrades, courseGrades] = await Promise.all([
       this.publishedEnrolments(userId),
       this.assessments.grades(userId, now),
       this.grading.courseGrades(userId),
     ]);
+    // Quizzes in courses staff made (AC-quizzes-01) carry their item id as slug; their grades belong to that course's
+    // gradebook (AC-assignments-04), not to the curriculum paths' grades here.
+    const grades = allGrades.filter((row) => getCurriculumItem(row.slug) !== null);
     const paths = enrolments.map((row) => row.pathSlug as CurriculumPath);
     const times = await this.completionTimes(
       userId,
@@ -1989,7 +1992,7 @@ export class AcademyService {
       };
     });
     const rows = grades.map((row) => {
-      const title = getCurriculumItem(row.slug)?.title ?? row.slug;
+      const title = getCurriculumItem(row.slug)!.title;
       return row.pending
         ? {
             pending: true as const,
