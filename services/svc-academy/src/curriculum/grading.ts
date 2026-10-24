@@ -14,6 +14,7 @@
  */
 import type { Sql, TransactionSql } from 'postgres';
 import type {
+  AcademyCourseGrades,
   AcademyGradeSubmissionInput,
   AcademyGradingQueue,
   AcademyGradingRow,
@@ -46,6 +47,25 @@ type QueueRow = {
   holder: string | null;
   expires_at: Date | null;
 };
+
+type CourseGradeRow = {
+  course_id: string;
+  slug: string;
+  course_title: string;
+  item_id: string;
+  title: string;
+  points: string;
+  withdrawn: boolean;
+  handed_in: boolean;
+  score: string | null;
+  graded_points: string | null;
+};
+
+/** part / whole as a percentage with one decimal place, rounded half up. */
+function tenthsOf(part: bigint, whole: bigint): string {
+  const t = (part * 2000n + whole) / (2n * whole);
+  return `${t / 10n}.${t % 10n}`;
+}
 
 type HandIn = {
   submission_id: string;
@@ -146,6 +166,64 @@ export class AssignmentGrading {
       await tx`DELETE FROM academy.assignment_grader_leases WHERE submission_id = ${handIn.submission_id}`;
     });
     return this.queueIn(this.sql, input.itemId, input.operatorId, input.now);
+  }
+
+  /**
+   * The caller's grades in each published course they are enrolled in (AC-progress-02): every assignment with a brief,
+   * in outline order, at its newest grade. An assignment never handed in is `not_attempted`, never a zero, and counts
+   * toward no average. Writes nothing.
+   */
+  async courseGrades(userId: string): Promise<AcademyCourseGrades[]> {
+    const rows = await this.sql<CourseGradeRow[]>`
+      SELECT c.id AS course_id, c.slug, c.title AS course_title, i.id AS item_id, i.title, a.points::text AS points,
+        a.withdrawn_at IS NOT NULL AS withdrawn, l.id IS NOT NULL AS handed_in, g.score::text AS score, g.points::text AS graded_points
+      FROM academy.course_enrolments e
+      JOIN academy.courses c ON c.id = e.course_id AND c.state = 'published'
+      JOIN academy.course_items i ON i.course_id = c.id AND i.kind = 'assignment'
+      JOIN academy.course_sections sec ON sec.id = i.section_id
+      JOIN academy.course_assignments a ON a.item_id = i.id
+      -- The newest hand-in staff can grade (as the queue shows it); a newer hand-in after a grade waits for its own.
+      LEFT JOIN LATERAL (
+        SELECT s.id FROM academy.assignment_submissions s
+        WHERE s.item_id = i.id AND s.user_id = ${userId}
+        ORDER BY s.version DESC
+        LIMIT 1
+      ) l ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT g.score, g.points FROM academy.assignment_grade_events g WHERE g.submission_id = l.id ORDER BY g.n DESC LIMIT 1
+      ) g ON TRUE
+      WHERE e.user_id = ${userId} AND e.left_at IS NULL
+      ORDER BY c.title, c.id, sec.position, i.position
+    `;
+    const courses = new Map<string, AcademyCourseGrades>();
+    for (const r of rows) {
+      let course = courses.get(r.course_id);
+      if (!course) courses.set(r.course_id, (course = { slug: r.slug, title: r.course_title, rows: [], averages: [] }));
+      const row = { itemId: r.item_id, title: r.title, type: 'assignment' as const };
+      course.rows.push(
+        r.score !== null
+          ? { ...row, state: 'graded', score: canonicalPrice(r.score)!, possible: canonicalPrice(r.graded_points!)! }
+          : {
+              ...row,
+              state: r.handed_in ? 'handed_in' : r.withdrawn ? 'withdrawn' : 'not_attempted',
+              possible: canonicalPrice(r.points)!,
+            },
+      );
+    }
+    for (const course of courses.values()) {
+      const graded = course.rows.filter((row) => row.state === 'graded');
+      const possible = graded.reduce((sum, row) => sum + hundredths(row.possible), 0n);
+      if (graded.length > 0)
+        course.averages.push({
+          type: 'assignment',
+          count: graded.length,
+          percent: tenthsOf(
+            graded.reduce((sum, row) => sum + hundredths(row.score), 0n),
+            possible,
+          ),
+        });
+    }
+    return [...courses.values()];
   }
 
   /** The learner read grade event `n` on version `version`, the one their page showed. A repeat answers as stored. */

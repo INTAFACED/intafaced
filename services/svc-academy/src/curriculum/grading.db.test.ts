@@ -71,7 +71,7 @@ const CRITERIA = [
 ];
 
 /** A free course with one text-only assignment, its brief saved, and learners L, M, N and X enrolled. Published unless asked. */
-async function openAssignment({ publish = true, file = 'off' as 'off' | 'optional' } = {}) {
+async function openAssignment({ publish = true, file = 'off' as 'off' | 'optional', titles = ['Write-up'] } = {}) {
   const course = await courses().create({
     slug: 'risk-basics',
     title: 'Risk basics',
@@ -86,22 +86,24 @@ async function openAssignment({ publish = true, file = 'off' as 'off' | 'optiona
   const detail = await courses().saveOutline({
     courseId: course.id,
     revision: 1,
-    sections: [{ title: 'Work', items: [{ kind: 'assignment', title: 'Write-up', indent: 0, url: null }] }],
+    sections: [{ title: 'Work', items: titles.map((title) => ({ kind: 'assignment' as const, title, indent: 0, url: null })) }],
     operatorId: A,
     now: NOW,
   });
-  const item = detail.outline[0]!.items[0]!;
-  await assignments().save({
-    itemId: item.id,
-    revision: 0,
-    instructions: 'Size one trade.',
-    points: '10',
-    dueAt: null,
-    text: 'required',
-    file,
-    operatorId: A,
-    now: NOW,
-  });
+  const items = detail.outline[0]!.items;
+  const item = items[0]!;
+  for (const { id } of items)
+    await assignments().save({
+      itemId: id,
+      revision: 0,
+      instructions: 'Size one trade.',
+      points: '10',
+      dueAt: null,
+      text: 'required',
+      file,
+      operatorId: A,
+      now: NOW,
+    });
   const publishIt = async () => {
     const current = await courses().get(course.id);
     await courses().setState({
@@ -115,7 +117,7 @@ async function openAssignment({ publish = true, file = 'off' as 'off' | 'optiona
     for (const userId of [L, M, N, X]) await learners().enrol({ userId, slug: 'risk-basics', track: 'audit', now: NOW });
   };
   if (publish) await publishIt();
-  return { course, item, publishIt };
+  return { course, item, items, publishIt };
 }
 
 const steps = (itemId: string, over: Partial<{ revision: number; peer: boolean; peerCount: number | null; self: boolean }> = {}) =>
@@ -247,5 +249,33 @@ describe('grading hand-ins (AC-assignments-02)', () => {
     await expect(grading().markRead({ itemId: item.id, version: 1, n: 1, userId: OUTSIDER, now: NOW })).rejects.toMatchObject({
       code: 'academy.enrolment_required',
     });
+  });
+
+  it('the grades table lists each assignment in outline order: a grade, a hand-in waiting, and never a zero for one not tried', async () => {
+    const { items } = await openAssignment({ titles: ['Write-up', 'Journal review'] });
+    await handIn(items[0]!.id, L, 'L');
+    await handIn(items[0]!.id, M, 'M');
+    const rows = (await grading().queue({ itemId: items[0]!.id, operatorId: A, now: NOW })).rows;
+    await grade(items[0]!.id, rows[0]!.submissionId);
+    const [course] = await grading().courseGrades(L);
+    expect(course).toEqual({
+      slug: 'risk-basics',
+      title: 'Risk basics',
+      rows: [
+        { state: 'graded', itemId: items[0]!.id, title: 'Write-up', type: 'assignment', score: '8', possible: '10' },
+        { state: 'not_attempted', itemId: items[1]!.id, title: 'Journal review', type: 'assignment', possible: '10' },
+      ],
+      averages: [{ type: 'assignment', count: 1, percent: '80.0' }],
+    });
+    const [waiting] = await grading().courseGrades(M);
+    expect(waiting!.rows.map((r) => r.state)).toEqual(['handed_in', 'not_attempted']);
+    expect(waiting!.averages).toEqual([]);
+    // A newer hand-in after the grade waits for its own; an assignment staff withdrew reads as withdrawn, not a zero.
+    await assignments().submit({ itemId: items[0]!.id, version: 2, text: 'L again', fileId: null, userId: L, now: later(5) });
+    await assignments().withdraw({ itemId: items[1]!.id, reason: 'TEST', operatorId: A, now: NOW });
+    const [again] = await grading().courseGrades(L);
+    expect(again!.rows.map((r) => r.state)).toEqual(['handed_in', 'withdrawn']);
+    expect(again!.averages).toEqual([]);
+    expect(await grading().courseGrades(OUTSIDER)).toEqual([]);
   });
 });
