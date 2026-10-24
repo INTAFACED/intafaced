@@ -10,6 +10,8 @@ CREATE TABLE IF NOT EXISTS "identity"."mfa_resets" (
   "user_id"          uuid NOT NULL REFERENCES "identity"."users" ("id") ON DELETE CASCADE,
   "state"            text NOT NULL CHECK ("state" IN ('code_sent', 'locked', 'waiting', 'cancelled', 'completed', 'expired')),
   -- SHA-256 of the mailed code (HMAC with the flow key); null once the code has been used.
+  -- When the authenticator app it was started for was set up: a reset removes only that app, never one set up later.
+  "factor_enrolled_at" timestamptz,
   "code_hash"        text CHECK ("code_hash" IS NULL OR "code_hash" ~ '^[0-9a-f]{64}$'),
   "code_expires_at"  timestamptz NOT NULL,
   "attempts"         integer NOT NULL DEFAULT 0 CHECK ("attempts" >= 0),

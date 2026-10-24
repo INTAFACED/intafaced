@@ -17,6 +17,7 @@ import { createTestDb } from '../fixture-truncate.testkit.js';
 import { createMfaResetRouter } from '../mfa-reset-router.js';
 import { RankService } from '../rank/rank-service.js';
 import { AuthService, type SessionTokens } from './auth-service.js';
+import { relayMailOutbox } from './password-reset.js';
 import { totp } from './totp.js';
 
 function identityTestUrl(): string {
@@ -70,6 +71,11 @@ if (!available) {
   );
   auth.useLogger({ warn: () => undefined });
   const api = createMfaResetRouter(auth);
+  const lock = (userId: string) =>
+    db.sql`INSERT INTO account_security_locks (user_id, set_by, set_by_user_id) VALUES (${userId}, 'self', ${userId})`;
+  const resetState = async (userId: string) =>
+    (await db.sql<Array<{ state: string }>>`SELECT state FROM mfa_resets WHERE user_id = ${userId} ORDER BY created_at DESC LIMIT 1`)[0]
+      ?.state;
   const anon = () => api.createCaller({ principal: null, service: null, region: 'DE', requestId: 'req-mfa-reset' } as Context);
   const callerOf = async (tokens: SessionTokens) => {
     const principal = await verifyAccessToken(tokens.accessToken, tokenConfig);
@@ -155,6 +161,13 @@ if (!available) {
       expect(await refusal(anon().mfaReset.start({ identifier: a.handle, password: PASSWORD }))).toBe(
         'identity.mfa_reset_no_proved_address',
       );
+    });
+
+    it('refuses while the security lock holds, and mails nothing', async () => {
+      const a = await account();
+      await lock(a.userId);
+      expect(await refusal(anon().mfaReset.start({ identifier: a.handle, password: PASSWORD }))).toBe('identity.security_locked');
+      expect(await mails(a.userId, 'mfa-reset-code')).toHaveLength(0);
     });
 
     it('mails a code to the proved address and names it masked', async () => {
@@ -247,6 +260,33 @@ if (!available) {
       expect(await own.mfaReset.cancel()).toEqual({ cancelled: false });
     });
 
+    it('an API key or a sub-account is refused in words and stops nothing', async () => {
+      const a = await account();
+      await waiting(a);
+      const principal = await verifyAccessToken(a.session.accessToken, tokenConfig);
+      const keyed = api.createCaller({
+        principal: { ...principal, kid: 'k-test' },
+        service: null,
+        region: 'DE',
+        requestId: 'r',
+      } as Context);
+      expect(await refusal(keyed.mfaReset.cancel())).toBe('identity.delegated_refused');
+      expect(await resetState(a.userId)).toBe('waiting');
+    });
+
+    it('a sign-in that passes the second step with the app stops it, with the notice, even after the wait', async () => {
+      const a = await account();
+      auth.useMfaResetWait(0);
+      await waiting(a);
+      // The code enrolment used is spent; let this window's code count again, as a later window's would.
+      await db.sql`UPDATE users SET totp_last_step = NULL WHERE id = ${a.userId}`;
+      await auth.login({ identifier: a.handle, password: PASSWORD, totpCode: totp(a.secret) });
+      expect(await resetState(a.userId)).toBe('cancelled');
+      expect((await userRow(a.userId)).totp_secret).not.toBeNull();
+      expect(await mails(a.userId, 'mfa-reset-cancelled')).toHaveLength(1);
+      expect(await mails(a.userId, 'mfa-reset-completed')).toHaveLength(0);
+    });
+
     it("another account's session stops nothing", async () => {
       const a = await account();
       const b = await account();
@@ -284,6 +324,29 @@ if (!available) {
       expect((await userRow(a.userId)).totp_secret).not.toBeNull();
     });
 
+    it('the security lock holds it: nothing completes while the lock is on', async () => {
+      const a = await account();
+      auth.useMfaResetWait(0);
+      await waiting(a);
+      await lock(a.userId);
+      await expect(auth.login({ identifier: a.handle, password: PASSWORD })).rejects.toMatchObject({ code: 'auth.mfa_required' });
+      expect((await userRow(a.userId)).totp_secret).not.toBeNull();
+      expect(await resetState(a.userId)).toBe('waiting');
+    });
+
+    it('an app set up again during the wait ends the reset and stays', async () => {
+      const a = await account();
+      auth.useMfaResetWait(0);
+      await waiting(a);
+      // As a replace does: a new secret with a new set-up time.
+      await db.sql`UPDATE users SET totp_enrolled_at = now() + interval '1 second' WHERE id = ${a.userId}`;
+      expect(await (await callerOf(a.session)).mfaReset.status()).toEqual({ waiting: null });
+      await expect(auth.login({ identifier: a.handle, password: PASSWORD })).rejects.toMatchObject({ code: 'auth.mfa_required' });
+      expect((await userRow(a.userId)).totp_secret).not.toBeNull();
+      expect(await resetState(a.userId)).toBe('expired');
+      expect(await liveSessions(a.userId)).toBe(1);
+    });
+
     it('a frozen account completes nothing', async () => {
       const a = await account();
       auth.useMfaResetWait(0);
@@ -291,6 +354,30 @@ if (!available) {
       await db.sql`UPDATE users SET status = 'frozen' WHERE id = ${a.userId}`;
       await expect(auth.login({ identifier: a.handle, password: PASSWORD })).rejects.toMatchObject({ code: 'auth.account_frozen' });
       expect((await userRow(a.userId)).totp_secret).not.toBeNull();
+    });
+  });
+
+  describe('the notices on the relay', () => {
+    it('a started notice whose send threw goes back for another try, and a freeze does not withdraw it', async () => {
+      const a = await account();
+      await waiting(a);
+      await db.sql`UPDATE mail_outbox SET status = 'sent' WHERE user_id = ${a.userId} AND purpose <> 'mfa-reset-started'`;
+      await db.sql`UPDATE users SET status = 'frozen' WHERE id = ${a.userId}`;
+      const deps = {
+        sql: db.sql,
+        mail: {
+          async send() {
+            throw new Error('TEST provider down');
+          },
+        },
+        ttlSeconds: 600,
+        now: () => new Date(),
+        log: { warn: () => undefined },
+      };
+      expect(await relayMailOutbox(deps)).toMatchObject({ unknown: 1 });
+      const [row] = await db.sql<Array<{ status: string; failed_sends: number }>>`
+        SELECT status, failed_sends FROM mail_outbox WHERE user_id = ${a.userId} AND purpose = 'mfa-reset-started'`;
+      expect(row).toEqual({ status: 'pending', failed_sends: 1 });
     });
   });
 }

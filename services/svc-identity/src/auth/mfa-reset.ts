@@ -9,7 +9,11 @@
  *   and the sign-in page then points to Support.
  * - When the wait starts, every contact on file is told: the proved address by mail. A proved phone would be texted, but
  *   texting needs `vendor.sms`, which this build does not have, so the answer names that instead of claiming a text.
- * - Any signed-in session of the account stops it (`cancel`), which mails a notice too.
+ * - Any signed-in session of the account stops it (`cancel`), which mails a notice too. So does a sign-in whose second step
+ *   passes with the authenticator app or a recovery code (`stopByProof`): the person still has a way in.
+ * - It is tied to the authenticator app it was started for: an app turned off or set up again after the wait began ends
+ *   the reset (`expired`), never removes the new app.
+ * - The customer security lock refuses a start and holds a waiting reset: nothing completes while the lock holds.
  * - Once the wait has passed, the next password sign-in completes it (`completeDue`): a compare-and-swap from `waiting`
  *   to `completed` at or after `completes_at` on the database clock, and in the same transaction the authenticator app
  *   and its recovery codes are removed and every session ends. A crash leaves either all of it or none of it.
@@ -22,6 +26,7 @@ import { transaction } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import type { PasswordResetMail } from './password-reset.js';
 import { maskEmail } from '../ops/account-directory.js';
+import { assertNotSecurityLocked, securityLockHolds } from './security-lock.js';
 
 /** One day. Longer than that is not a mailed code. */
 const MAX_CODE_TTL_SECONDS = 86_400;
@@ -185,6 +190,7 @@ export async function startMfaReset(deps: MfaResetDeps, userId: string): Promise
     transaction(deps.sql, async (tx) => {
       const user = await lockUser(tx, userId);
       if (!user?.totp_secret) throw new MfaResetError('identity.mfa_reset_not_enrolled');
+      await assertNotSecurityLocked(tx, userId);
       if (!user.email || !user.email_verified_at) throw new MfaResetError('identity.mfa_reset_no_proved_address');
       const [open] = await tx<ResetRow[]>`
         SELECT id, state, code_hash, code_expires_at, attempts, completes_at, false AS expired
@@ -202,8 +208,10 @@ export async function startMfaReset(deps: MfaResetDeps, userId: string): Promise
       const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
       const codeExpiresAt = new Date(now.getTime() + budget.ttl * 1000);
       const [row] = await tx<Array<{ id: string }>>`
-        INSERT INTO mfa_resets (user_id, state, code_expires_at, created_at, updated_at)
-        VALUES (${userId}, 'code_sent', ${codeExpiresAt}, ${now}, ${now}) RETURNING id`;
+        INSERT INTO mfa_resets (user_id, state, factor_enrolled_at, code_expires_at, created_at, updated_at)
+        VALUES (
+          ${userId}, 'code_sent', (SELECT totp_enrolled_at FROM users WHERE id = ${userId}), ${codeExpiresAt}, ${now}, ${now}
+        ) RETURNING id`;
       const resetId = row!.id;
       await tx`UPDATE mfa_resets SET code_hash = ${codeHash(budget.key, resetId, code)} WHERE id = ${resetId}`;
       await queueMail(tx, {
@@ -250,7 +258,10 @@ export async function confirmMfaReset(deps: MfaResetDeps, input: { resetId: stri
       return { refuse: lock ? ('auth.too_many_attempts' as const) : ('auth.code_invalid' as const) };
     }
     // Still the account it was started for: an authenticator to remove, a proved address to tell, an active account.
-    if (!user.totp_secret || user.status !== 'active' || !user.email || !user.email_verified_at) {
+    const [tied] = await tx<Array<{ same: boolean }>>`
+      SELECT r.factor_enrolled_at IS NOT DISTINCT FROM u.totp_enrolled_at AS same
+      FROM mfa_resets r JOIN users u ON u.id = r.user_id WHERE r.id = ${row.id}`;
+    if (!user.totp_secret || !tied?.same || user.status !== 'active' || !user.email || !user.email_verified_at) {
       await tx`UPDATE mfa_resets SET state = 'expired', code_hash = NULL, updated_at = now() WHERE id = ${row.id}`;
       return { refuse: 'auth.code_expired' as const };
     }
@@ -282,7 +293,9 @@ export async function mfaResetStatus(
   userId: string,
 ): Promise<{ resetId: string; waitingSince: string; completesAt: string } | null> {
   const [row] = await sql<Array<{ id: string; waiting_since: Date; completes_at: Date }>>`
-    SELECT id, waiting_since, completes_at FROM mfa_resets WHERE user_id = ${userId} AND state = 'waiting'`;
+    SELECT r.id, r.waiting_since, r.completes_at FROM mfa_resets r JOIN users u ON u.id = r.user_id
+    WHERE r.user_id = ${userId} AND r.state = 'waiting'
+      AND u.totp_secret IS NOT NULL AND u.totp_enrolled_at IS NOT DISTINCT FROM r.factor_enrolled_at`;
   if (!row) return null;
   return {
     resetId: row.id,
@@ -295,7 +308,10 @@ export async function mfaResetStatus(
  * Stop the account's open reset from one of its own sessions. Answers whether one was stopped; stopping nothing is not an
  * error. A reset that was waiting mails a notice to the proved address.
  */
-export async function cancelMfaReset(deps: MfaResetDeps, input: { userId: string; sessionId: string }): Promise<{ cancelled: boolean }> {
+export async function cancelMfaReset(
+  deps: MfaResetDeps,
+  input: { userId: string; sessionId: string | null },
+): Promise<{ cancelled: boolean }> {
   const out = await transaction(deps.sql, async (tx) => {
     const user = await lockUser(tx, input.userId);
     const rows = await tx<Array<{ id: string; was: string }>>`
@@ -324,6 +340,18 @@ export async function cancelMfaReset(deps: MfaResetDeps, input: { userId: string
 }
 
 /**
+ * A sign-in whose second step passed with the authenticator app or a recovery code: the person still has a way in, so
+ * the account's open reset stops (with its notice, as a cancel). A read first, so a sign-in with nothing open takes no
+ * row lock.
+ */
+export async function stopMfaResetByProof(deps: MfaResetDeps, userId: string): Promise<boolean> {
+  const [open] = await deps.sql<Array<{ id: string }>>`
+    SELECT id FROM mfa_resets WHERE user_id = ${userId} AND state IN ('code_sent', 'waiting')`;
+  if (!open) return false;
+  return (await cancelMfaReset(deps, { userId, sessionId: null })).cancelled;
+}
+
+/**
  * At a password sign-in: complete the account's reset if its wait has passed, in one transaction with the removal of the
  * authenticator app and its recovery codes and the end of every session. Answers whether it completed. Called only after
  * the password verified and the account is active.
@@ -336,11 +364,20 @@ export async function completeDueMfaReset(deps: MfaResetDeps, userId: string): P
   const done = await transaction(deps.sql, async (tx) => {
     const user = await lockUser(tx, userId);
     if (!user || user.status !== 'active') return false;
-    const [row] = await tx<Array<{ id: string }>>`
-      UPDATE mfa_resets SET state = 'completed', completed_at = clock_timestamp(), updated_at = clock_timestamp()
-      WHERE user_id = ${userId} AND state = 'waiting' AND completes_at <= clock_timestamp()
-      RETURNING id`;
+    // The lock holds the reset: it stays waiting and completes at the first sign-in after the lock ends.
+    if (await securityLockHolds(tx, userId)) return false;
+    const [row] = await tx<Array<{ id: string; same_factor: boolean }>>`
+      SELECT r.id, r.factor_enrolled_at IS NOT DISTINCT FROM u.totp_enrolled_at AS same_factor
+      FROM mfa_resets r JOIN users u ON u.id = r.user_id
+      WHERE r.user_id = ${userId} AND r.state = 'waiting' AND r.completes_at <= clock_timestamp() FOR UPDATE OF r`;
     if (!row) return false;
+    // Only the app it was started for: one turned off or set up again since then ends the reset and stays.
+    if (!user.totp_secret || !row.same_factor) {
+      await tx`UPDATE mfa_resets SET state = 'expired', updated_at = clock_timestamp() WHERE id = ${row.id}`;
+      return false;
+    }
+    await tx`UPDATE mfa_resets SET state = 'completed', completed_at = clock_timestamp(), updated_at = clock_timestamp()
+      WHERE id = ${row.id}`;
     await tx`UPDATE users SET totp_secret = NULL, totp_label = NULL, totp_enrolled_at = NULL, totp_last_step = NULL,
       recovery_code_hashes = '[]'::jsonb, updated_at = now() WHERE id = ${userId}`;
     await tx`UPDATE sessions SET revoked = true WHERE user_id = ${userId} AND revoked = false`;

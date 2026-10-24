@@ -344,11 +344,6 @@ const schema = serviceEnvSchema
           }
         }),
       /**
-       * W-withdraw-09. Owner-set wait, in seconds, from an unlock request to when the customer security lock ends. NO
-       * DEFAULT: blank / unset → the unlock request refuses (`identity.security_lock_unlock_wait_unset`); locking still
-       * works. Zero is a published "no wait". A change applies to later requests, never to one already made.
-       */
-      /**
        * I-signin-sessions-12. Owner-set wait, in seconds, from a confirmed locked-out second-factor reset to when the next
        * password sign-in may remove the authenticator app. NO DEFAULT: blank / unset → the reset refuses
        * (`identity.mfa_reset_unconfigured`) and the sign-in page points to Support. Zero is a published "no wait". A
@@ -365,6 +360,11 @@ const schema = serviceEnvSchema
             return z.NEVER;
           }
         }),
+      /**
+       * W-withdraw-09. Owner-set wait, in seconds, from an unlock request to when the customer security lock ends. NO
+       * DEFAULT: blank / unset → the unlock request refuses (`identity.security_lock_unlock_wait_unset`); locking still
+       * works. Zero is a published "no wait". A change applies to later requests, never to one already made.
+       */
       IDENTITY_SECURITY_LOCK_UNLOCK_WAIT_SECONDS: z
         .string()
         .optional()

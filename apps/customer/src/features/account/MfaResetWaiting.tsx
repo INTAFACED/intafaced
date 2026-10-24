@@ -61,16 +61,22 @@ export function MfaResetWaiting() {
     }
   }
 
-  if (resource.status === 'loading') return note ? null : <Loading />;
+  // While the status reloads after a stop, the card stays with its note; a first load shows the spinner.
+  if (resource.status === 'loading' && !note) return <Loading />;
   if (resource.status === 'failed') {
     return (
       <section className="security__mfa-reset security__card" aria-label={t('title')} lang={languageFor('title')}>
         <h2>{t('title')}</h2>
+        {note && (
+          <p className="notice" role="status">
+            {t(note)}
+          </p>
+        )}
         <Failure result={resource.failure} retry={reload} />
       </section>
     );
   }
-  const waiting = resource.data.waiting;
+  const waiting = resource.status === 'ready' ? resource.data.waiting : null;
   if (!waiting && !note) return null;
   return (
     <section className="security__mfa-reset security__card" aria-label={t('title')} lang={languageFor('title')}>

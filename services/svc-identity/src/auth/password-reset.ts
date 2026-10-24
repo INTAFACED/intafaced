@@ -239,18 +239,24 @@ export async function requestHandleRecovery(deps: PasswordResetDeps, input: { em
 }
 
 /**
- * Retries of a password-changed notice whose send threw: the first waits `MAIL_RETRY_FIRST_WAIT_MS`, each next one twice
- * as long, and after `MAIL_RETRY_CAP` failed sends (about two hours from the first) the row stays `unknown` like any other failed mail
- * and the relay logs that it gave up. An engineering bound on retrying an outage, not an owner setting or a live
+ * Retries of a security notice (password changed, second-step reset) whose send threw: the first waits
+ * `MAIL_RETRY_FIRST_WAIT_MS`, each next one twice as long, and after `MAIL_RETRY_CAP` failed sends (about two hours from
+ * the first) the row stays `unknown` like any other failed mail and the relay logs that it gave up. An engineering bound on retrying an outage, not an owner setting or a live
  * magnitude: it decides only how long a free notice is retried.
  */
 export const MAIL_RETRY_CAP = 8;
 export const MAIL_RETRY_FIRST_WAIT_MS = 60_000;
 
 /**
+ * Notices that tell the person something already happened to the account's security: never withdrawn by a later freeze
+ * or address change, and sent again when a send threw. They carry no secret.
+ */
+const SECURITY_NOTICES = new Set(['password-changed', 'mfa-reset-started', 'mfa-reset-cancelled', 'mfa-reset-completed']);
+
+/**
  * Send the pending jobs that are due. A row is claimed (its secret cleared) before the send, so a crash or
- * a lost reply leaves `unknown` and the flow still valid (T-10), never a second mail. A password-changed notice whose
- * send threw is the one row sent again, on the wait above. With no mail transport the rows are marked `undeliverable`
+ * a lost reply leaves `unknown` and the flow still valid (T-10), never a second mail. A security notice whose send
+ * threw is the one row sent again, on the wait above. With no mail transport the rows are marked `undeliverable`
  * for the founder delivery desk.
  */
 export async function relayMailOutbox(
@@ -289,8 +295,9 @@ export async function relayMailOutbox(
   for (const job of claimed) {
     // A service mail (POST /internal/mail) goes out only while its account is still active and the address is still
     // its proved one; a freeze or an address change between the request and the send withdraws it. The password-changed
-    // notice is not withdrawn: it goes to the address proved at the change, which is the point of it.
-    if (job.user_id && job.purpose !== 'password-changed' && !(await stillOwnAddress(deps.sql, job.user_id, job.recipient))) {
+    // notice and the second-step reset notices are not withdrawn: they go to the address proved at the change, which is
+    // the point of them.
+    if (job.user_id && !SECURITY_NOTICES.has(job.purpose) && !(await stillOwnAddress(deps.sql, job.user_id, job.recipient))) {
       await deps.sql`UPDATE mail_outbox SET status = 'suppressed' WHERE id = ${job.id}`;
       continue;
     }
@@ -307,10 +314,10 @@ export async function relayMailOutbox(
       await deps.sql`UPDATE mail_outbox SET status = 'sent', sent_at = ${deps.now()} WHERE id = ${job.id}`;
       out.sent += 1;
     } catch {
-      // A throw can follow a send that landed. The row stays `unknown`, the flow stays valid. A password-changed notice
-      // carries no secret, so a second copy harms nothing: it goes back to pending and waits its turn, until the cap.
+      // A throw can follow a send that landed. The row stays `unknown`, the flow stays valid. A security notice carries
+      // no secret, so a second copy harms nothing: it goes back to pending and waits its turn, until the cap.
       deps.log.warn({ jobId: job.id, purpose: job.purpose }, 'auth.password_reset_delivery_failed');
-      if (job.purpose === 'password-changed') await retryNotice(deps, job.id);
+      if (SECURITY_NOTICES.has(job.purpose)) await retryNotice(deps, job.id);
       out.unknown += 1;
     }
   }

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { publicProcedure, router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import type { AuthService } from './auth/auth-service.js';
 import { MfaResetError } from './auth/mfa-reset.js';
+import { SecurityStepUpError, toSecurityStepUpTrpc } from './auth/security-step-up.js';
 import { toTrpcError } from './router.js';
 import { userCopy } from './user-copy.js';
 
@@ -14,7 +15,10 @@ const statusSchema = z
   .object({ waiting: z.object({ resetId: z.string().guid(), waitingSince: z.string(), completesAt: z.string() }).strict().nullable() })
   .strict();
 
-/** A blank setting or switched-off mail is 412, a wrong or spent code 401, a lockout 429 with its seconds. */
+/**
+ * A blank setting or switched-off mail is 412, a wrong or spent code 401, a lockout 429 with its seconds; a delegated
+ * caller is refused as in the security lock.
+ */
 function mapError(err: unknown): never {
   if (err instanceof MfaResetError) {
     const code =
@@ -25,12 +29,13 @@ function mapError(err: unknown): never {
           : 'PRECONDITION_FAILED';
     throw new TRPCError({ code, message: userCopy(err.code), cause: err });
   }
+  if (err instanceof SecurityStepUpError) return toSecurityStepUpTrpc(err);
   throw toTrpcError(err);
 }
 
 /** An API key or a sub-account is not the person at the keyboard: it may not stop a reset of the account's second step. */
 function refuseDelegated(principal: { kid?: string | null | undefined; sub_account?: string | null | undefined }): void {
-  if (principal.kid || principal.sub_account) throw new TRPCError({ code: 'FORBIDDEN', message: 'identity.delegated_refused' });
+  if (principal.kid || principal.sub_account) throw new SecurityStepUpError('identity.delegated_refused');
 }
 
 /**

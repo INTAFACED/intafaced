@@ -69,6 +69,7 @@ import {
   mfaResetConfigured,
   mfaResetStatus,
   startMfaReset,
+  stopMfaResetByProof,
   type MfaResetDeps,
   type MfaResetView,
 } from './mfa-reset.js';
@@ -1301,8 +1302,10 @@ export class AuthService {
     deviceKey?: string | null;
   }): Promise<SessionTokens> {
     const user = await this.passFirstFactor(input);
-    // A locked-out reset whose wait has passed completes here: the authenticator app goes, with every session.
-    const reset = user.totp_secret !== null && (await completeDueMfaReset(this.mfaResetDeps(), user.id));
+    // A locked-out reset whose wait has passed completes at a sign-in by password alone: the authenticator app goes, with
+    // every session. A sign-in that brings a code is the person who still has the app or a recovery code.
+    const reset = user.totp_secret !== null && !input.totpCode && (await completeDueMfaReset(this.mfaResetDeps(), user.id));
+    if (reset) await syncNavigatorSessionsClosedForUser(this.sql, user.id);
     const { mfa, recoveryCodesLeft } = await this.passSecondStep(reset ? { ...user, totp_secret: null } : user, input.totpCode);
     const device = await this.gateDeviceAfterSecondStep(user.id, { mfa, recoveryCodesLeft }, input.deviceKey);
     const session = await this.issueSession(user.id, { device: input.device, ip: input.ip, mfa, trustedDeviceId: device.trustedDeviceId });
@@ -1392,6 +1395,8 @@ export class AuthService {
       await this.reserve(user.id, 'mfa');
       const recovery = await this.verifyMfaCode(user.id, user.totp_secret, totpCode!);
       await recordSuccess(this.sql, user.id, 'mfa');
+      // The app or a recovery code still works for this person: a locked-out reset of it stops, with its notice.
+      await stopMfaResetByProof(this.mfaResetDeps(), user.id);
       return { mfa: true, ...recovery };
     }
     if (passkeyStep) {

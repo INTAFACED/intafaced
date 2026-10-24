@@ -19,6 +19,7 @@ const messages = {
   notYou: 'Not you? Sign in on a device you trust and stop it from Security.',
   after:
     'After that time, sign in with your password alone. The authenticator app and its recovery codes are then removed, every device is signed out, and you can set up the app again on your new phone.',
+  newCode: 'Send a new code',
   back: 'Back to sign in',
   support: 'Write to Support',
   'identity.mfa_reset_unconfigured':
@@ -26,9 +27,11 @@ const messages = {
   'identity.mfa_reset_no_proved_address':
     'This account has no proved email address to send the code to. Write to Support and a person will help you get back in.',
   'identity.mfa_reset_not_enrolled': 'This account has no authenticator app to reset. Go back and sign in with your password.',
+  'identity.security_locked':
+    'The security lock is on, so the second step cannot be reset. Write to Support and a person will help you get back in.',
   'auth.invalid_credentials': 'Those details did not work. Check the email or handle and the password.',
   'auth.code_invalid': 'That code is not right. Check the newest email.',
-  'auth.code_expired': 'This code has run out. Ask for a new one.',
+  'auth.code_expired': 'This code has run out. Press "Send a new code".',
   'auth.too_many_attempts': 'Too many tries. Wait a few minutes, then ask for a new code.',
   'auth.codes_unwired': 'Codes by email are not available: their settings are not published. Write to Support.',
   'vendor.email': 'Email delivery is switched off in this build, so no code can be sent. Write to Support.',

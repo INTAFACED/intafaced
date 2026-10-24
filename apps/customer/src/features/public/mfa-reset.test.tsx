@@ -176,6 +176,45 @@ describe('I lost my authenticator', () => {
     expect(host.querySelector('a[href="/help"]')).toBeNull();
   });
 
+  it('"Send a new code" goes back to the password and asks again', async () => {
+    const codeExpiresAt = new Date(Date.now() + 600_000).toISOString();
+    answer({ 'mfaReset.start': ok({ state: 'code_sent', resetId: RESET, email: 's•••@example.invalid', codeExpiresAt }) });
+    await lostAuthenticator();
+    await act(async () => set('mfaResetPassword', 'a long enough password'));
+    await submit('Email me a code');
+    await act(async () => {
+      await vi.waitFor(() => expect(field('mfaResetCode')).not.toBeNull());
+    });
+    await submit('Send a new code');
+    expect(field('mfaResetCode')).toBeNull();
+    expect(field('mfaResetPassword').value).toBe('');
+    await act(async () => set('mfaResetPassword', 'a long enough password'));
+    await submit('Email me a code');
+    await act(async () => {
+      await vi.waitFor(() => expect(field('mfaResetCode')).not.toBeNull());
+    });
+    expect(sent.filter((call) => call.url.includes('mfaReset.start'))).toHaveLength(2);
+  });
+
+  it('the security lock refuses in words and points to Support', async () => {
+    answer({
+      'mfaReset.start': () =>
+        new Response(
+          JSON.stringify({
+            error: { message: 'locked', data: { code: 'PRECONDITION_FAILED', intafacedCode: 'identity.security_locked' } },
+          }),
+          { status: 412 },
+        ),
+    });
+    await lostAuthenticator();
+    await act(async () => set('mfaResetPassword', 'a long enough password'));
+    await submit('Email me a code');
+    await act(async () => {
+      await vi.waitFor(() => expect(host.querySelector('[role=alert]')?.textContent).toContain('The security lock is on'));
+    });
+    expect(host.querySelector('a[href="/help"]')).not.toBeNull();
+  });
+
   it('"Back to sign in" returns to the form', async () => {
     await lostAuthenticator();
     await submit('Back to sign in');

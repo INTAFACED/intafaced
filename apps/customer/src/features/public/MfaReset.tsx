@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { Button, Failure, Field } from '../../shared/ui';
 import type { ApiResult } from '../../shared/api';
 import { useSession } from '../session/session';
+import { stamp } from '../../screens/money/time';
+import { usePreferences } from '../../shared/preferences';
 import { mfaResetCopy } from './mfa-reset-copy';
 
 /** `mfaReset.start` and `mfaReset.confirm` answers (svc-identity mfa-reset-router.ts). */
@@ -22,6 +24,7 @@ const WORDED = [
   'identity.mfa_reset_unconfigured',
   'identity.mfa_reset_no_proved_address',
   'identity.mfa_reset_not_enrolled',
+  'identity.security_locked',
   'auth.invalid_credentials',
   'auth.code_invalid',
   'auth.code_expired',
@@ -35,11 +38,10 @@ const worded = (code: string | undefined): code is Worded => (WORDED as readonly
 const TO_SUPPORT = new Set<string>([
   'identity.mfa_reset_unconfigured',
   'identity.mfa_reset_no_proved_address',
+  'identity.security_locked',
   'auth.codes_unwired',
   'vendor.email',
 ]);
-
-const when = (iso: string) => new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'medium' }).format(new Date(iso));
 
 /**
  * "I lost my authenticator" on /login (I-signin-sessions-12, J-identity-05 #2): the locked-out reset. The password again,
@@ -49,6 +51,8 @@ const when = (iso: string) => new Intl.DateTimeFormat(undefined, { dateStyle: 'm
 export function MfaReset({ identifier, onBack }: { identifier: string; onBack: () => void }) {
   const { t, languageFor } = mfaResetCopy.useCopy();
   const { api } = useSession();
+  const { timeZone } = usePreferences();
+  const when = (iso: string) => stamp(iso, timeZone);
   const [view, setView] = useState<View | null>(null);
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<Refusal | null>(null);
@@ -110,9 +114,21 @@ export function MfaReset({ identifier, onBack }: { identifier: string; onBack: (
             {t('mailed', { email: view.email, time: when(view.codeExpiresAt) })}
           </p>
           <Field label={t('code')} name="mfaResetCode" inputMode="numeric" autoComplete="one-time-code" required disabled={busy} />
-          <Button type="submit" disabled={busy}>
-            {busy ? t('confirming') : t('confirm')}
-          </Button>
+          <div className="row">
+            <Button type="submit" disabled={busy}>
+              {busy ? t('confirming') : t('confirm')}
+            </Button>
+            <Button
+              variant="ghost"
+              disabled={busy}
+              onClick={() => {
+                setRefusal(null);
+                setView(null);
+              }}
+            >
+              {t('newCode')}
+            </Button>
+          </div>
         </form>
       ) : (
         <form
