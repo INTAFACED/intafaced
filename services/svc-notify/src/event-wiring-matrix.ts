@@ -72,6 +72,12 @@ export const NOTIFY_EVENT_CONSUMERS: readonly NotifyConsumerRow[] = [
     effect: 'Inbox row for the opener only (no counterparty on payload)',
   },
   {
+    event: 'p2pTradeFiatSent',
+    durable: 'notify-p2p-trade-fiat-sent',
+    subject: 'intafaced.p2p.trade_fiat.sent',
+    effect: 'Inbox row for the seller when the buyer marks paid',
+  },
+  {
     event: 'kycApproved',
     durable: 'notify-kyc-approved',
     subject: 'intafaced.identity.kyc.approved',

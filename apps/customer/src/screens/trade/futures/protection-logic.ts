@@ -45,8 +45,12 @@ export function estimatedResult(position: Position, price: string, quantity?: st
 /** Which side of the mark each leg must sit on, for the field hint. Null when the side is unknown. */
 export function sideOfMark(position: Position, leg: Leg): 'above' | 'below' | null {
   if (position.side !== 'long' && position.side !== 'short') return null;
-  const up = (position.side === 'long') === (leg === 'take_profit');
-  return up ? 'above' : 'below';
+  return legSide(position.side, leg);
+}
+
+/** A long's take profit and a short's stop loss sit above the mark; the other two below. */
+export function legSide(side: 'long' | 'short', leg: Leg): 'above' | 'below' {
+  return (side === 'long') === (leg === 'take_profit') ? 'above' : 'below';
 }
 
 /** A part leg's size: empty is the whole position; otherwise above zero and at most the position. */
@@ -75,4 +79,18 @@ export function priceProblem(value: string): 'invalid' | null {
   if (value.trim() === '') return null;
   const parsed = dec(value.trim());
   return parsed === null || parsed <= 0n ? 'invalid' : null;
+}
+
+/**
+ * A take profit or stop loss typed on the ticket, for the position the order opens or adds to: empty is none; otherwise
+ * a positive price on its side of the mark (above it for a long's take profit, below it for its stop loss). The
+ * service checks the same against its own mark; with no mark known only the number is checked here.
+ */
+export function entryLegProblem(side: 'long' | 'short', leg: Leg, value: string, mark: string | null): 'invalid' | 'wrongSide' | null {
+  if (value.trim() === '') return null;
+  const price = dec(value.trim());
+  if (price === null || price <= 0n) return 'invalid';
+  const at = mark === null ? null : dec(mark);
+  if (at === null) return null;
+  return (legSide(side, leg) === 'above' ? price > at : price < at) ? null : 'wrongSide';
 }
