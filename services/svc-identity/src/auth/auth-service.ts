@@ -454,6 +454,8 @@ export interface SessionTokens {
   mfaRequired: boolean;
   /** A device key just trusted for this browser (`ifc_dk`): set on sign-up and on a completed new-device approval. */
   deviceKey?: string;
+  /** Set only when this sign-in's second step spent a recovery code: how many of the account's codes are left. */
+  recoveryCodesLeft?: number;
 }
 
 const DEFAULT_WEBAUTHN: WebAuthnConfig = {
@@ -475,6 +477,15 @@ function uniqueConstraintName(err: unknown): string {
  * Milliseconds of the lost-reply window. Undefined, 0, a non-integer, or a
  * value above the ceiling is off. Never invents 120.
  */
+/** A session as a sign-in answers it: plus a device key just trusted, and the recovery codes left when one was spent. */
+function withSecondStep(session: SessionTokens, deviceKey: string | undefined, recoveryCodesLeft: number | undefined): SessionTokens {
+  return {
+    ...session,
+    ...(deviceKey ? { deviceKey } : {}),
+    ...(recoveryCodesLeft !== undefined ? { recoveryCodesLeft } : {}),
+  };
+}
+
 function recoveryWindowMs(seconds: number | undefined): number {
   if (typeof seconds !== 'number' || !Number.isSafeInteger(seconds)) return 0;
   if (seconds <= 0 || seconds > REFRESH_RECOVERY_SECONDS_CEILING) return 0;
@@ -882,11 +893,11 @@ export class AuthService {
     // The code proved the mailbox, so the state is named as on password sign-in.
     if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen', accountStateOf(user.status));
     // A passkey asked for after the password is asked for after a mailed code too; the code then stays unspent until it expires.
-    const mfa = await this.passSecondStep(user, input.totpCode);
+    const { mfa, recoveryCodesLeft } = await this.passSecondStep(user, input.totpCode);
     await consumeLoginCode(deps, { flowId: input.flowId, codeHash });
     const device = await this.gateDevice(user.id, mfa, input.deviceKey);
     const session = await this.issueSession(user.id, { device: input.device, ip: input.ip, mfa, trustedDeviceId: device.trustedDeviceId });
-    return device.deviceKey ? { ...session, deviceKey: device.deviceKey } : session;
+    return withSecondStep(session, device.deviceKey, recoveryCodesLeft);
   }
 
   private emailConfirmDeps() {
@@ -1025,15 +1036,19 @@ export class AuthService {
 
   /**
    * Check a TOTP or recovery code for a user whose `mfa` attempt is already
-   * reserved. Throws `auth.mfa_invalid` when neither matches.
+   * reserved. Throws `auth.mfa_invalid` when neither matches. Answers null for
+   * an authenticator code, and the count of codes left when a recovery code was
+   * spent, so the person can be told (I-signin-sessions-12).
    */
-  private async verifyMfaCode(userId: string, storedSecret: string, code: string): Promise<void> {
+  private async verifyMfaCode(userId: string, storedSecret: string, code: string): Promise<{ recoveryCodesLeft: number } | null> {
     const secret = this.tryOpenTotpSecret(userId, storedSecret);
     if (secret !== null && matchTotpStep(secret, code) !== null) {
       await this.consumeTotpCode(userId, secret, code);
-      return;
+      return null;
     }
-    if (!(await this.tryRedeemRecoveryCode(userId, code))) throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');
+    const left = await this.tryRedeemRecoveryCode(userId, code);
+    if (left === null) throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');
+    return { recoveryCodesLeft: left };
   }
 
   async register(input: RegisterInput): Promise<SessionTokens> {
@@ -1245,10 +1260,10 @@ export class AuthService {
       const upgraded = await hashPassword(input.password);
       await this.sql`UPDATE users SET password_hash = ${upgraded}, updated_at = now() WHERE id = ${user.id}`;
     }
-    const mfa = await this.passSecondStep(user, input.totpCode);
+    const { mfa, recoveryCodesLeft } = await this.passSecondStep(user, input.totpCode);
     const device = await this.gateDevice(user.id, mfa, input.deviceKey);
     const session = await this.issueSession(user.id, { device: input.device, ip: input.ip, mfa, trustedDeviceId: device.trustedDeviceId });
-    return device.deviceKey ? { ...session, deviceKey: device.deviceKey } : session;
+    return withSecondStep(session, device.deviceKey, recoveryCodesLeft);
   }
 
   /**
@@ -1256,12 +1271,12 @@ export class AuthService {
    * authenticator needs its code; a passkey that answers for sign-in is offered beside it, and is the second step on its
    * own when the account asked for a passkey after its password (I-signin-sessions-10). With no code sent, the refusal
    * names the steps that answer and carries a passkey challenge for `loginSecondStepPasskey`. Returns whether a second
-   * factor passed here.
+   * factor passed here, and how many recovery codes are left when the code given was one of them.
    */
   private async passSecondStep(
     user: { id: string; totp_secret: string | null; passkey_second_step: boolean; webauthn_creds: unknown },
     totpCode: string | undefined,
-  ): Promise<boolean> {
+  ): Promise<{ mfa: boolean; recoveryCodesLeft?: number }> {
     const signinPasskeys = credentialsFor(asCredentialList(user.webauthn_creds), 'signin');
     const passkeyStep = signinPasskeys.length > 0 && (user.totp_secret !== null || user.passkey_second_step);
     if (!totpCode && (user.totp_secret !== null || passkeyStep)) {
@@ -1275,16 +1290,16 @@ export class AuthService {
     if (user.totp_secret) {
       // Counted before the code is looked at; a locked account is refused here without consuming a step or a recovery code.
       await this.reserve(user.id, 'mfa');
-      await this.verifyMfaCode(user.id, user.totp_secret, totpCode!);
+      const recovery = await this.verifyMfaCode(user.id, user.totp_secret, totpCode!);
       await recordSuccess(this.sql, user.id, 'mfa');
-      return true;
+      return recovery ? { mfa: true, recoveryCodesLeft: recovery.recoveryCodesLeft } : { mfa: true };
     }
     if (passkeyStep) {
       // A code sent to an account that asked for a passkey and has no authenticator is a wrong second step.
       await this.reserve(user.id, 'mfa');
       throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');
     }
-    return false;
+    return { mfa: false };
   }
 
   /** A single-use passkey challenge for the second step, bound to the account whose password just verified. */
@@ -1346,10 +1361,10 @@ export class AuthService {
     if (!user) throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
     // The provider proved the identity, so the state is named as on password sign-in.
     if (user.status !== 'active') throw new AuthError(`Account is ${user.status}`, 'auth.account_frozen', accountStateOf(user.status));
-    const mfa = await this.passSecondStep(user, input.totpCode);
+    const { mfa, recoveryCodesLeft } = await this.passSecondStep(user, input.totpCode);
     const device = await this.gateDevice(user.id, mfa, input.deviceKey);
     const session = await this.issueSession(user.id, { device: input.device, ip: input.ip, mfa, trustedDeviceId: device.trustedDeviceId });
-    return device.deviceKey ? { ...session, deviceKey: device.deviceKey } : session;
+    return withSecondStep(session, device.deviceKey, recoveryCodesLeft);
   }
 
   /**
@@ -1968,7 +1983,8 @@ export class AuthService {
     return { id: row.id, userId: row.user_id };
   }
 
-  private async tryRedeemRecoveryCode(userId: string, code: string): Promise<boolean> {
+  /** Spend one recovery code under the row lock. Answers how many are left after it, or null when the code is not one. */
+  private async tryRedeemRecoveryCode(userId: string, code: string): Promise<number | null> {
     const hash = hashToken(code.trim());
     return transaction(this.sql, async (tx) => {
       const rows = await tx<
@@ -1976,10 +1992,10 @@ export class AuthService {
       >`SELECT recovery_code_hashes FROM users WHERE id = ${userId} FOR UPDATE`;
       const hashes = asStringList(rows[0]?.recovery_code_hashes);
       const idx = hashes.indexOf(hash);
-      if (idx < 0) return false;
+      if (idx < 0) return null;
       const next = hashes.slice(0, idx).concat(hashes.slice(idx + 1));
       await tx`UPDATE users SET recovery_code_hashes = ${tx.json(next as never)}, updated_at = now() WHERE id = ${userId}`;
-      return true;
+      return next.length;
     });
   }
 
