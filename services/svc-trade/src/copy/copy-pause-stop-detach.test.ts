@@ -15,7 +15,7 @@ import type { TradeService } from '../spot/trade-service.js';
 import type { PlaceFollowerOrderPort } from './auto-mirror-place.js';
 
 import { MemoryCopyFollowStore } from './follow-store.js';
-import { GateOpenLedger, GateOpenStore, OPEN_FOLLOW_GATE } from './follow-gate.fixture.js';
+import { GateOpenLedger, GateOpenStore, OPEN_FOLLOW_GATE } from './test/follow-gate.fixture.js';
 
 const SECRET = 'copy-pause-stop-detach-edge-secret-32b';
 const FOLLOWER = '11111111-1111-4111-8111-111111111111';

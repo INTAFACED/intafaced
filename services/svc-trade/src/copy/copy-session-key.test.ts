@@ -17,7 +17,7 @@ import { CopyService } from '../controls/test-admission.js';
 import { copyLimitPriceFromPlan } from './index.js';
 import { MemoryCopyFollowStore } from './follow-store.js';
 import { hashCopySessionKey } from './session-key.js';
-import { GateOpenLedger, GateOpenStore, OPEN_FOLLOW_GATE } from './follow-gate.fixture.js';
+import { GateOpenLedger, GateOpenStore, OPEN_FOLLOW_GATE } from './test/follow-gate.fixture.js';
 
 const SECRET = 'copy-session-key-done-bar-secret-32bytes';
 const FOLLOWER = '11111111-1111-4111-8111-111111111111';

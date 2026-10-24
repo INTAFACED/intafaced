@@ -18,7 +18,7 @@ import type { TradeService } from '../spot/trade-service.js';
 import type { PlaceFollowerOrderPort } from './auto-mirror-place.js';
 import { CopyService } from '../controls/test-admission.js';
 import { COPY_AUTO_MIRROR_PLACE_SOCKET, copyLimitPriceFromPlan, copyMirrorClientOrderId } from './index.js';
-import { GateOpenLedger, GateOpenStore, OPEN_FOLLOW_GATE } from './follow-gate.fixture.js';
+import { GateOpenLedger, GateOpenStore, OPEN_FOLLOW_GATE } from './test/follow-gate.fixture.js';
 
 const SECRET = 'copy-auto-mirror-place-done-bar-secret-32b';
 const FOLLOWER = '11111111-1111-4111-8111-111111111111';

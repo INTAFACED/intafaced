@@ -15,7 +15,7 @@ import type { TradeService } from '../spot/trade-service.js';
 import { type LookupFollowerFillFeePort, type LookupLeaderFillPort } from './copy-service.js';
 import type { CopyFeeShareLaw, CopyJurisdictionLaw } from './fee-share-law.js';
 import { MemoryCopyFollowStore } from './follow-store.js';
-import { GateOpenLedger, GateOpenStore, OPEN_FOLLOW_GATE } from './follow-gate.fixture.js';
+import { GateOpenLedger, GateOpenStore, OPEN_FOLLOW_GATE } from './test/follow-gate.fixture.js';
 
 const SECRET = 'a-trade-copy-mount-test-edge-secret-long';
 const FOLLOWER = '00000000-0000-4000-8000-000000000001';

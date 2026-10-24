@@ -23,7 +23,7 @@ import {
 } from './copy-control-wire.js';
 import type { CopyFeeShareLaw, CopyJurisdictionLaw } from './fee-share-law.js';
 import { CopyError } from './errors.js';
-import { GateOpenLedger, GateOpenStore, OPEN_FOLLOW_GATE } from './follow-gate.fixture.js';
+import { GateOpenLedger, GateOpenStore, OPEN_FOLLOW_GATE } from './test/follow-gate.fixture.js';
 
 const SECRET = 'copy-desk-blockers-edge-secret-32chars';
 const FOLLOWER = '00000000-0000-4000-8000-0000000000a1';

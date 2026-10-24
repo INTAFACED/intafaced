@@ -1,12 +1,12 @@
 /**
- * Test-only: what a router-level follow needs to pass the Start copying gate (follow-gate.ts), for tests whose subject
+ * Test-only (kept under test/, which the ledger caller-binding scan skips): what a router-level follow needs to pass the Start copying gate (follow-gate.ts), for tests whose subject
  * is something after the follow. The owner values here are TEST content for unit tests, never a default.
  */
 
 import { MemoryLedger, parseAmount, recipes, type AccountRef, type Balance } from '@intafaced/ledger-client';
-import type { CopyDisclosureLaw } from './disclosure.js';
-import type { CopyTier } from './follow-gate.js';
-import { MemoryCopyFollowStore, type CopyDisclosureAcceptance } from './follow-store.js';
+import type { CopyDisclosureLaw } from '../disclosure.js';
+import type { CopyTier } from '../follow-gate.js';
+import { MemoryCopyFollowStore, type CopyDisclosureAcceptance } from '../follow-store.js';
 
 const TEST_VERSION = 'TEST-gate-v1';
 
