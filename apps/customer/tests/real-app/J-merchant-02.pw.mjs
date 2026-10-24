@@ -399,3 +399,79 @@ test(`${J} #4 the owner answers an information request from the reviewer: a bann
   }).toPass({ timeout: 200_000, intervals: [10_000] });
   await expect(page.getByRole('listitem', { name: BILL })).toContainText('Past due');
 });
+
+test(`${J} #7 the owner chooses the business category and reads its class rule; "no rule set" while the table is empty, and a high-risk category shows its reserve and extra documents`, async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(240_000);
+  const owner = await businessReadyPerson(page, 'mbc', '/pay/onboarding');
+  await openBusiness(page, owner, 'TEST Category Ltd');
+  const refused = refusedPayCalls(page);
+  await page.goto('/pay/compliance');
+  const section = page.locator('section.pay-section').filter({ has: page.getByRole('heading', { name: 'Business category' }) });
+  const all = section.getByRole('list', { name: 'Every category' });
+  await expect(section.getByTestId('category-no-rule').or(all)).toBeVisible();
+  // A shared stack may already hold categories from an earlier run; a fresh one has none and says so.
+  if (await section.getByTestId('category-no-rule').isVisible()) {
+    await expect(section).toContainText('No rule set');
+    await expect(section.getByLabel('Your business category')).toHaveCount(0);
+  }
+
+  // Founder A adds a high-risk (restricted) TEST category; founder B approves exactly that change in their own sign-in.
+  const tag = Date.now().toString(36);
+  const LABEL = `TEST gaming ${tag}`;
+  const contextA = await browser.newContext({ baseURL: ADMIN, viewport: { width: 1440, height: 1000 } });
+  const a = await contextA.newPage();
+  await founderSignIn(a, 'a');
+  await a.goto('/merchants/categories');
+  const editor = a.getByRole('group', { name: 'Change the category table' });
+  await editor.getByRole('button', { name: 'Add a category' }).click();
+  await editor.getByLabel('Key (lowercase words joined by hyphens; it never changes)').fill(`test-gaming-${tag}`);
+  await editor.getByLabel('Name the business reads').fill(LABEL);
+  await editor.getByLabel('Class').selectOption('restricted');
+  await editor.getByLabel('Reserve percent (blank: not set)').fill('5.00');
+  await editor.getByLabel('Reserve held for, in days (blank: not set)').fill('90');
+  await editor.getByLabel('Extra documents the business sends (one per line)').fill('TEST gaming licence');
+  await editor.getByLabel('Why (kept in the history)').fill('TEST add a high-risk category');
+  await editor.getByRole('button', { name: 'Review the change' }).click();
+  await expect(editor.getByTestId('category-review')).toContainText(LABEL);
+  await editor.getByRole('button', { name: 'Ask the other founder to approve' }).click();
+  const handoff = await editor.getByLabel('Request for the other founder').inputValue();
+
+  const contextB = await browser.newContext({ baseURL: ADMIN, viewport: { width: 1440, height: 1000 } });
+  const b = await contextB.newPage();
+  await founderSignIn(b, 'b');
+  await b.goto('/merchants/categories');
+  const approve = b.getByRole('group', { name: 'Approve a category change' });
+  await approve.getByLabel('Request from the other founder').fill(handoff);
+  await expect(approve).toContainText(LABEL);
+  await approve.getByRole('button', { name: 'Approve this category change' }).click();
+  await expect(approve).toContainText('Approved');
+  await contextB.close();
+
+  await editor.getByRole('button', { name: 'Save the change' }).click();
+  await expect(editor).toContainText(`${LABEL} is in the table`);
+  await a.reload();
+  await expect(a.getByTestId('category-table')).toContainText(LABEL);
+  await expect(a.getByTestId('category-event').filter({ hasText: LABEL })).toContainText('TEST add a high-risk category');
+  await contextA.close();
+
+  // The owner reads the table with the class rule, reserve and documents, and picks the new category.
+  await page.reload();
+  const item = section.getByRole('list', { name: 'Every category' }).getByRole('listitem', { name: LABEL });
+  await expect(item).toContainText('High risk');
+  await expect(item).toContainText('Crypto payments only (no card payments), extra documents and a reserve.');
+  await expect(item).toContainText('5% of payments, held for 90 days');
+  await expect(item).toContainText('TEST gaming licence');
+  await expect(section).toContainText('You haven’t chosen a category yet');
+  await section.getByLabel('Your business category').selectOption({ label: LABEL });
+  await section.getByRole('button', { name: 'Save category' }).click();
+  await expect(section.getByText('Your category was saved.')).toBeVisible();
+  const chosen = section.getByTestId('category-chosen');
+  await expect(chosen).toContainText('High risk');
+  await expect(chosen).toContainText('5% of payments, held for 90 days');
+  await page.reload();
+  await expect(section.getByTestId('category-chosen')).toContainText('TEST gaming licence');
+  expect(refused).toEqual([]);
+});

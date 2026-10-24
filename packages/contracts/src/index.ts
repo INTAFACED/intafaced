@@ -76,6 +76,7 @@ export * from './kyb-entity-types.js';
 export * from './kyb-application.js';
 export * from './kyb-documents.js';
 export * from './kyb-information-requests.js';
+export * from './business-category.js';
 export * from './quant-disclosure.js';
 export * from './quant-algo.js';
 export * from './home-work-items.js';

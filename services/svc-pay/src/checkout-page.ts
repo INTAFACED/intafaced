@@ -500,6 +500,12 @@ export function stateForError(err: unknown): CheckoutPageState {
     case 'pay.rail_unknown':
     case 'pay.rail_capability':
     case 'pay.kyb_required':
+    case 'pay.category_prohibited':
+    case 'pay.reserve_terms_unset':
+    case 'pay.category_rail_refused':
+    case 'pay.guard_category_prohibited':
+    case 'pay.guard_reserve_terms_unset':
+    case 'pay.guard_category_rail_refused':
       return { kind: 'unavailable' };
     default:
       return { kind: 'error' };

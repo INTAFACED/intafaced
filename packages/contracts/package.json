@@ -177,6 +177,10 @@
     "./kyb-information-requests": {
       "types": "./dist/kyb-information-requests.d.ts",
       "default": "./dist/kyb-information-requests.js"
+    },
+    "./business-category": {
+      "types": "./dist/business-category.d.ts",
+      "default": "./dist/business-category.js"
     }
   },
   "scripts": {

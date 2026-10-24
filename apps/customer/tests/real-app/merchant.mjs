@@ -53,9 +53,30 @@ export async function openBusiness(page, who, legalName = 'TEST Merchant Ltd') {
   return (Array.isArray(sent) ? sent[0] : sent).result.data.id;
 }
 
+/**
+ * Once the stack's category table has categories (J-merchant-02 #7 adds one), approval needs a chosen category that
+ * INTAFACED takes (RC-merchant-08). The owner picks the first taken one with its terms set; an empty table asks nothing.
+ */
+async function chooseTakenCategory(page) {
+  await page.goto('/pay/compliance');
+  const section = page.locator('section.pay-section').filter({ has: page.getByRole('heading', { name: 'Business category' }) });
+  const all = section.getByRole('list', { name: 'Every category' });
+  await expect(section.getByTestId('category-no-rule').or(all)).toBeVisible();
+  if (!(await all.isVisible())) return;
+  for (const item of await all.getByRole('listitem').all()) {
+    const text = (await item.textContent()) ?? '';
+    if (text.includes('Not taken') || text.includes('Not set.')) continue;
+    await section.getByLabel('Your business category').selectOption({ label: await item.getAttribute('aria-label') });
+    await section.getByRole('button', { name: 'Save category' }).click();
+    await expect(section.getByText('Your category was saved.')).toBeVisible();
+    return;
+  }
+}
+
 /** Step 2 of setup: the owner sends a TEST verification reference, then the stack's founder pair approves it through
  * svc-pay's two-person door (`local-test-world.mjs approve-kyb`). The owner signs in again after, for the new grant. */
 export async function verifiedBusiness(page, who, merchantId) {
+  await chooseTakenCategory(page);
   await page.goto('/pay/onboarding/verification');
   await page.getByLabel('Verification file reference *').fill(`TEST-kyb-${who.handle}`);
   await page.getByRole('button', { name: 'Send for review' }).click();

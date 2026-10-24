@@ -9,6 +9,7 @@ import type { ControlService } from '../control/service.js';
 import type { FounderAuthority } from '../founder-authority.js';
 import type { MetricsRuntime } from '../metrics/index.js';
 import type { RegistriesMountDeps } from '../registries/index.js';
+import type { CategoryPolicyMountDeps } from '../onboarding-policy/category-router.js';
 import type { DepositSettingsMountDeps } from '../custody/deposits/settings.js';
 import type { CustodyMountDeps } from '../custody/router.js';
 import type { PurchaseHoldMountDeps } from '../withdrawals/purchase-holds/router.js';
@@ -59,6 +60,7 @@ export function createPayNamespaces(deps: {
   founderAuthority: FounderAuthority;
   metrics?: MetricsRuntime;
   registries?: RegistriesMountDeps;
+  categoryPolicy?: CategoryPolicyMountDeps;
   depositSettings?: DepositSettingsMountDeps;
   limits?: WithdrawalLimitsMountDeps;
   custody?: CustodyMountDeps;
@@ -112,6 +114,7 @@ export function createPayNamespaces(deps: {
     createFounderAdminRouter(deps.founderAuthority, {
       metrics: deps.metrics,
       registries: deps.registries,
+      categoryPolicy: deps.categoryPolicy,
       depositSettings: deps.depositSettings,
       limits: deps.limits,
       custody: deps.custody,

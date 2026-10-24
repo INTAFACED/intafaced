@@ -16,6 +16,7 @@ import { accountCopy } from '../account/copy';
 import { Blocker } from '../account/ui';
 import { extensionCopy as c, portalCopy } from '../copy';
 import { kybWord } from './Onboarding';
+import { BusinessCategory } from './Category';
 import { InformationRequests } from './Requests';
 
 type Kyb = z.infer<typeof kybCurrentSchema>;
@@ -37,6 +38,7 @@ export function Compliance({ portal, merchantId, role }: { portal: PortalApi; me
         current.reload();
         history.reload();
       }}
+      category={<BusinessCategory portal={portal} merchantId={merchantId} role={role} />}
       requests={<InformationRequests portal={portal} merchantId={merchantId} role={role} />}
     />
   );
@@ -47,12 +49,15 @@ export function ComplianceView({
   history,
   loadMore,
   reload,
+  category,
   requests,
 }: {
   current: Resource<Kyb>;
   history: ListState<KybEvent>;
   loadMore: () => void;
   reload: () => void;
+  /** The business category and the table it chooses from; rendered after the record. */
+  category?: ReactNode;
   /** What INTAFACED asked the business for; rendered between the record and the history. */
   requests?: ReactNode;
 }) {
@@ -101,6 +106,7 @@ export function ComplianceView({
           )}
         </Gate>
       </PaySection>
+      {category}
       {requests}
       <PaySection title={t('compNextTitle')} description={t('compNextBody')}>
         <Blocker reason={notLive('reasonDocuments')} needs="document check provider" title={t('docsHeading')}>

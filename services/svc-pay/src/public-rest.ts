@@ -347,6 +347,9 @@ function statusFor(code: string): number {
     case 'pay.merchant_inactive':
     case 'pay.identity_admission_denied':
     case 'pay.kyb_operator_required':
+    case 'pay.category_prohibited':
+    case 'pay.reserve_terms_unset':
+    case 'pay.category_rail_refused':
       return 403;
     case 'pay.invalid_transition':
     case 'pay.identity_admission_conflict':

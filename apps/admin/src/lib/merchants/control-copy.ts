@@ -167,6 +167,36 @@ export const CONTROL_COPY: Record<string, PlainRefusal> = {
     body: 'A request needs a due date in the future, so the merchant has time to answer.',
     next: 'Pick a later due date and send it again. Nothing was sent.',
   },
+  'pay.category_not_chosen': {
+    title: 'The business has not chosen its category',
+    body: 'Business categories are published, and this business has not picked one, so it cannot be approved yet.',
+    next: 'Ask the owner to choose a category on their Compliance page, then approve again. Nothing was changed.',
+  },
+  'pay.category_prohibited': {
+    title: 'INTAFACED does not take this kind of business',
+    body: 'The category this business chose is one INTAFACED does not take, so it cannot be approved.',
+    next: 'Reject the application, or ask the owner to check the category they chose. Nothing was changed.',
+  },
+  'pay.category_exists': {
+    title: 'That category already exists',
+    body: 'A category with the same key was saved first, so nothing was added.',
+    next: 'Open it from the table and edit it instead.',
+  },
+  'pay.category_not_found': {
+    title: 'That category does not exist',
+    body: 'You are editing a category that is not in the table.',
+    next: 'Reload the page and open it from the table.',
+  },
+  'pay.category_version_conflict': {
+    title: 'This category changed while you were editing',
+    body: 'Another change was saved after you opened it, so this one was not saved and its approval cannot be used.',
+    next: 'Reload, redo your edit and ask the other founder again.',
+  },
+  'pay.category_unchanged': {
+    title: 'Nothing would change',
+    body: 'The category already reads exactly what you sent.',
+    next: 'Change something, or leave it as it is.',
+  },
   'pay.kyb_request_asked_before': {
     title: 'This exact request was already sent',
     body: 'A request with the same words and due date was sent to this merchant and is already answered or closed, so nothing new went out.',

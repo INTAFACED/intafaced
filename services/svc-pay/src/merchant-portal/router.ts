@@ -23,6 +23,9 @@ import {
   merchantProfileSecondApprovalResultSchema,
   merchantTermsAcceptInputSchema,
   merchantTermsAcceptResultSchema,
+  merchantCategoryChooseInputSchema,
+  merchantCategoryGetInputSchema,
+  merchantCategoryViewSchema,
   anyScopeProcedure,
   router,
   scopedProcedure,
@@ -43,6 +46,10 @@ import { readRoomAccess } from './room-access.js';
 import { MerchantProfileService, type ProfileWriter } from './profile.js';
 import { acceptTerms, readTermsState, type MerchantTermsConfig } from './terms.js';
 import { ownMerchantRead } from '../own-merchant-read.js';
+import { assertMerchantAreaAccess, assertMerchantOwnership } from '../merchant-ownership.js';
+import { allowMerchantRead } from '../merchant-read-access.js';
+import { CategoryPolicyService } from '../onboarding-policy/category.js';
+import { categoryToTrpcError } from '../onboarding-policy/category-router.js';
 
 /**
  * Merchant portal procedures.
@@ -72,6 +79,14 @@ export function merchantPortalExtensions(deps: {
   const approvals = deps.approvals ?? unwiredApprovalConsumer();
   const profile = new MerchantProfileService(deps.sql, deps.pay, deps.trees, deps.team);
   const analytics = new MerchantAnalyticsService(deps.sql, deps.pay, deps.trees, deps.team);
+  const categories = new CategoryPolicyService(deps.sql, approvals);
+  const inCategory = async <T>(fn: () => Promise<T>): Promise<T> => {
+    try {
+      return await fn();
+    } catch (err) {
+      throw categoryToTrpcError(err);
+    }
+  };
   const read = ownMerchantRead();
   /**
    * Profile writes take `pay:write` or `pay:onboard`, and say which one the session still holds, so the
@@ -182,6 +197,38 @@ export function merchantPortalExtensions(deps: {
             return readOnboardingProgress(deps.sql, deps.pay, deps.trees, deps.team, ctx.principal?.userId, loaded, () =>
               readTermsState(deps.sql, deps.terms ?? null, input.merchantId),
             );
+          }),
+        ),
+    }),
+    category: router({
+      /**
+       * RC-merchant-08: the business category table as the business reads it, and its own choice. The owner, and a
+       * team member who can read the profile.
+       */
+      get: read
+        .input(merchantCategoryGetInputSchema)
+        .output(merchantCategoryViewSchema)
+        .query(({ ctx, input }) =>
+          wrapPortal(async () => {
+            await allowMerchantRead({
+              ownerCheck: () => assertMerchantAreaAccess(deps.pay, ctx.principal?.userId, input.merchantId, 'merchant.profile', deps.trees),
+              team: deps.team,
+              userId: ctx.principal?.userId,
+              merchantId: input.merchantId,
+              permission: 'profile.read',
+            });
+            return inCategory(() => categories.merchantView(deps.pay, input.merchantId));
+          }),
+        ),
+      /** The owner picks the category, from an interactive session, before the business is verified. */
+      choose: termsWrite
+        .input(merchantCategoryChooseInputSchema)
+        .output(merchantCategoryViewSchema)
+        .mutation(({ ctx, input }) =>
+          wrapPortal(async () => {
+            const userId = interactive(ctx.principal);
+            await assertMerchantOwnership(deps.pay, userId, input.merchantId);
+            return inCategory(() => categories.choose(deps.pay, userId, input));
           }),
         ),
     }),

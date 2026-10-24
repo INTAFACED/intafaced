@@ -106,6 +106,8 @@ describe('no founder or operator door in the merchant portal (G9)', () => {
         'merchant.businessProfile.confirm',
         'merchant.businessProfile.setSecondApproval',
         'merchant.terms.accept',
+        'merchant.category.get',
+        'merchant.category.choose',
       ]),
       merchantControl: new Set([
         'merchantControl.get',

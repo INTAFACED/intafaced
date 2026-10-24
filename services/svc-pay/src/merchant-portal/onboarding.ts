@@ -6,6 +6,7 @@ import type { MerchantTeamRead } from '../merchant-team-read.js';
 import { maskDestination, safeDestinationLabel } from '../control/mask-destination.js';
 import type { PayService } from '../payment-service.js';
 import { SubMerchantError } from '../submerchants.js';
+import { categoryBlockers } from '../onboarding-policy/category.js';
 import { ONBOARDING_BLOCKERS, type MerchantBusinessProfile, type MerchantTermsState } from '@intafaced/contracts';
 
 type Blocker = (typeof ONBOARDING_BLOCKERS)[number];
@@ -55,6 +56,7 @@ export async function readOnboardingProgress(
   else if (terms.state === 'not_accepted') blocking.push('terms_not_accepted');
   if (merchant.kybStatus !== 'approved') blocking.push('kyb_not_approved');
   if (merchant.status !== 'active') blocking.push('merchant_not_active');
+  blocking.push(...(await categoryBlockers(sql, profile.merchantId)));
   return {
     merchantId: profile.merchantId,
     business: { done: missing.length === 0, missing },
