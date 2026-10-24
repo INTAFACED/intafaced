@@ -7,6 +7,10 @@ import { baseEnvSchema, edgeEnvSchema, httpEnvSchema, loadEnv, otelEnvSchema, po
  *
  * CAMPAIGNS_TGE_SCHEDULE_JSON is the owner's token generation event schedule, `{"claimOpensAt":"<ISO time>"}`. Blank is
  * allowed at boot: every TGE claim refuses `launch.schedule_unset`. Never a default date.
+ *
+ * CAMPAIGNS_PLATFORM_TIME_ZONE is the owner's platform time zone, an IANA name such as `UTC`. Campaign time frames,
+ * weekday and hour windows and the calendar are read in it. NO DEFAULT: blank boots, and every campaign activation and
+ * every join refuses `campaigns.timezone_unset`; a name the runtime does not know refuses at boot.
  */
 const blankAsAbsent = <T extends z.ZodTypeAny>(inner: T) =>
   z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), inner);
@@ -21,6 +25,7 @@ const schema = baseEnvSchema
       SERVICE_NAME: z.string().default('svc-campaigns'),
       HTTP_PORT: z.coerce.number().int().positive().default(4024),
       CAMPAIGNS_TGE_SCHEDULE_JSON: blankAsAbsent(z.string().optional()),
+      CAMPAIGNS_PLATFORM_TIME_ZONE: blankAsAbsent(z.string().optional()),
     }),
   );
 

@@ -14,13 +14,46 @@ import {
   tgeClaimInputSchema,
   type CampaignsRefusalCode,
 } from '@intafaced/contracts/campaigns-drops';
+import {
+  campaignCalendarSchema,
+  campaignCatalogueSchema,
+  campaignDefinitionInputSchema,
+  campaignGateSchema,
+  campaignGetInputSchema,
+  campaignJoinInputSchema,
+  campaignJoinResultSchema,
+  campaignSchema,
+  campaignTransitionInputSchema,
+  campaignUpdateInputSchema,
+  campaignViewSchema,
+  myCampaignsSchema,
+  type CampaignRefusalCode,
+} from '@intafaced/contracts/campaigns-catalogue';
+import type { CampaignService } from './campaigns.js';
 import { CampaignsError } from './codes.js';
 import type { DropService } from './drops.js';
 import { refuseTgeClaim } from './tge.js';
 
 const guard = { module: 'campaigns', plane: 'fiat' } as const;
 
-const STATUS: Record<CampaignsRefusalCode, TRPCError['code']> = {
+const STATUS: Record<CampaignsRefusalCode | CampaignRefusalCode, TRPCError['code']> = {
+  'campaign.unknown': 'NOT_FOUND',
+  'campaign.name_taken': 'CONFLICT',
+  'campaign.type_unknown': 'BAD_REQUEST',
+  'campaign.invalid_transition': 'CONFLICT',
+  'campaign.revision_conflict': 'CONFLICT',
+  'campaign.not_draft': 'CONFLICT',
+  'campaign.not_active': 'CONFLICT',
+  'campaign.outside_window': 'CONFLICT',
+  'campaign.archive_active': 'CONFLICT',
+  'campaigns.budget_unset': 'PRECONDITION_FAILED',
+  'campaigns.number_on_wire': 'BAD_REQUEST',
+  'campaigns.rules_unset': 'PRECONDITION_FAILED',
+  'campaigns.time_frame_unset': 'PRECONDITION_FAILED',
+  'campaigns.reward_unset': 'PRECONDITION_FAILED',
+  'campaigns.approval_required': 'PRECONDITION_FAILED',
+  'campaigns.eligibility_unwired': 'PRECONDITION_FAILED',
+  'owner.decision': 'PRECONDITION_FAILED',
   'campaigns.window_unset': 'PRECONDITION_FAILED',
   'campaigns.timezone_unset': 'BAD_REQUEST',
   'campaigns.window_invalid': 'BAD_REQUEST',
@@ -59,11 +92,57 @@ const opsProcedure = scopedProcedure('campaigns:ops', guard).use(({ ctx, next })
   return next();
 });
 
-export function createCampaignsRouter(drops: DropService) {
+export function createCampaignsRouter(drops: DropService, campaigns: CampaignService) {
   return router({
     health: publicProcedure
       .output(z.object({ ok: z.literal(true), service: z.literal('svc-campaigns') }))
       .query(() => ({ ok: true as const, service: 'svc-campaigns' as const })),
+
+    catalogue: router({
+      /** The type list, parked types with their blocker, and every published campaign with the caller's own participation. */
+      list: scopedProcedure('campaigns:read', guard)
+        .output(campaignCatalogueSchema)
+        .query(async ({ ctx }) => {
+          try {
+            return await campaigns.catalogue(ctx.principal!.userId);
+          } catch (err) {
+            mapError(err);
+          }
+        }),
+      get: scopedProcedure('campaigns:read', guard)
+        .input(campaignGetInputSchema)
+        .output(campaignViewSchema)
+        .query(async ({ ctx, input }) => {
+          try {
+            return await campaigns.get({ id: input.id, accountId: ctx.principal!.userId });
+          } catch (err) {
+            mapError(err);
+          }
+        }),
+    }),
+
+    participation: router({
+      /** Joins for the caller's own account only. A second call returns the first participation. */
+      join: scopedProcedure('campaigns:write', guard)
+        .input(campaignJoinInputSchema)
+        .output(campaignJoinResultSchema)
+        .mutation(async ({ ctx, input }) => {
+          try {
+            return await campaigns.join({ campaignId: input.campaignId, accountId: ctx.principal!.userId });
+          } catch (err) {
+            mapError(err);
+          }
+        }),
+      mine: scopedProcedure('campaigns:read', guard)
+        .output(myCampaignsSchema)
+        .query(async ({ ctx }) => {
+          try {
+            return await campaigns.myCampaigns(ctx.principal!.userId);
+          } catch (err) {
+            mapError(err);
+          }
+        }),
+    }),
 
     drops: router({
       /** The caller's drop phase: the season and points, each published drop with the caller's own claim, the TGE panel. */
@@ -105,6 +184,63 @@ export function createCampaignsRouter(drops: DropService) {
     }),
 
     ops: router({
+      campaigns: router({
+        list: opsProcedure.output(z.array(campaignSchema)).query(async () => {
+          try {
+            return await campaigns.listForOps();
+          } catch (err) {
+            mapError(err);
+          }
+        }),
+        calendar: opsProcedure.output(campaignCalendarSchema).query(async () => {
+          try {
+            return await campaigns.calendar();
+          } catch (err) {
+            mapError(err);
+          }
+        }),
+        create: opsProcedure
+          .input(campaignDefinitionInputSchema)
+          .output(campaignSchema)
+          .mutation(async ({ ctx, input }) => {
+            try {
+              return await campaigns.create({ definition: input, actor: ctx.principal!.userId });
+            } catch (err) {
+              mapError(err);
+            }
+          }),
+        update: opsProcedure
+          .input(campaignUpdateInputSchema)
+          .output(campaignSchema)
+          .mutation(async ({ ctx, input }) => {
+            try {
+              return await campaigns.update({ ...input, actor: ctx.principal!.userId });
+            } catch (err) {
+              mapError(err);
+            }
+          }),
+        validate: opsProcedure
+          .input(campaignGetInputSchema)
+          .output(campaignGateSchema)
+          .query(async ({ input }) => {
+            try {
+              return await campaigns.validate(input);
+            } catch (err) {
+              mapError(err);
+            }
+          }),
+        /** submit, approve (a second person), activate, pause, resume, end, close, archive. */
+        transition: opsProcedure
+          .input(campaignTransitionInputSchema)
+          .output(campaignSchema)
+          .mutation(async ({ ctx, input }) => {
+            try {
+              return await campaigns.transition({ ...input, actor: ctx.principal!.userId });
+            } catch (err) {
+              mapError(err);
+            }
+          }),
+      }),
       list: opsProcedure.output(z.object({ seasons: z.array(seasonSchema), drops: z.array(dropSchema) })).query(async () => {
         try {
           return await drops.listForOps();
