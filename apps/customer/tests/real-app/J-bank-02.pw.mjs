@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
-import { EDGE, ORIGIN, ROOT, fund, journeyState } from './stack.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, ROOT, fund, journeyState } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
 
@@ -59,7 +59,7 @@ async function bank(who) {
   const login = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
     method: 'POST',
     headers: { origin: ORIGIN, 'content-type': 'application/json' },
-    body: JSON.stringify({ identifier: who.email, password: who.password, ...(totpCode ? { totpCode } : {}) }),
+    body: JSON.stringify({ deviceKey: DEVICE_KEY, identifier: who.email, password: who.password, ...(totpCode ? { totpCode } : {}) }),
   }).then((r) => r.json());
   const token = login?.result?.data?.accessToken;
   if (!token) throw new Error(`sign-in for ${who.email} refused`);

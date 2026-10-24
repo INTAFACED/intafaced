@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
-import { EDGE, ORIGIN, ROOT, api, journeyState } from './stack.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, ROOT, api, journeyState } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
 
@@ -126,7 +126,7 @@ test(`${J} #5 Create bot-1 with an IP list: the secret once, then the record wit
   const login = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
     method: 'POST',
     headers: { origin: ORIGIN, 'content-type': 'application/json' },
-    body: JSON.stringify({ identifier: who.email, password: who.password }),
+    body: JSON.stringify({ deviceKey: DEVICE_KEY, identifier: who.email, password: who.password }),
   }).then((res) => res.json());
   const userId = login.result.data.userId;
   const asked = { name: 'bot-1', scopes: ['trade:read', 'trade:write'], ips: ['203.0.113.7'] };

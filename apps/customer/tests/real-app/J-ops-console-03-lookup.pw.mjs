@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { randomBytes } from 'node:crypto';
 import { signUp } from './desk.mjs';
-import { fund } from './stack.mjs';
+import { fund, signOutBrowser } from './stack.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 
 // J-ops-console-03 (find a transaction on the ledger and trace it to its business key) and the ledger object lookup
@@ -18,7 +18,7 @@ test('J-ops-console-03 #8 trace a business key to its transaction and look the t
   expect(funded.tx).toBeTruthy();
   const businessKey = `deposit:local-test:LOCAL-TEST-${ref}`;
 
-  await page.context().clearCookies();
+  await signOutBrowser(page.context());
   await founderSignIn(page, 'a');
   await page.goto(`${ADMIN}/ledger`, { waitUntil: 'load' });
   const lookup = page.getByTestId('ledger-lookup');

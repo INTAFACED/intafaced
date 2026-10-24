@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { founderTotp, makeContext } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { FOUNDER_VAULT_NAME } from '../../../../tooling/scripts/local-test-founders.mjs';
+import { localTestAdminDeviceCookie } from '../../../../tooling/scripts/local-test-device.mjs';
 
 // The founder console (apps/admin) for operator journeys. It runs beside the stack against the same Edge, and the founders
 // sign in with the stack's own LOCAL TEST founder pair (founders.json). Each TOTP code is taken through founderTotp, which
@@ -26,6 +27,8 @@ export async function founderSignIn(page, key = 'a') {
   const vault = JSON.parse(readFileSync(path.join(ctx.paths.stateDir, FOUNDER_VAULT_NAME), 'utf8'));
   const founder = vault.founders[key === 'a' ? 0 : 1];
   if (!founder?.totpSecret) throw new Error(`founder ${key} has no confirmed second factor yet: start the stack first (pnpm local:stack)`);
+  // The console signs in as the stack's one TEST browser, so identity's new-device check does not stop a founder here.
+  await page.context().addCookies([localTestAdminDeviceCookie(ADMIN)]);
   await page.goto(`${ADMIN}/login`);
   await page.getByLabel('Email or handle').fill(founder.handle ?? founder.email);
   await page.getByLabel('Password').fill(founder.password);

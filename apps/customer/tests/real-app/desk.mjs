@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { expect } from '@playwright/test';
-import { api, bestPrices, fromUnits, fund, signUpInBrowser, toUnits, tool } from './stack.mjs';
+import { api, bestPrices, fromUnits, fund, signUpInBrowser, toUnits, tool, signOutBrowser } from './stack.mjs';
 
 // What a person does on the spot desk in the running app, shared by the cex-spot journeys. Each journey keeps its own
 // run file; these helpers take the account they act as.
@@ -36,7 +36,7 @@ export async function verify(page, who) {
   const status = tool('local-test-gates.mjs', 'status');
   const accounts = JSON.parse(status.slice(status.indexOf('{'))).accounts;
   expect(accounts.find((a) => a.handle === who.handle)?.tiers).toContain('full');
-  await page.context().clearCookies();
+  await signOutBrowser(page.context());
 }
 
 /** A journey's starting point: signed up, verified, and funded with TEST USDT through the real ledger. Signed out after. */

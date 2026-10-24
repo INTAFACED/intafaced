@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { api, fund, journeyState, tool } from './stack.mjs';
+import { api, fund, journeyState, tool, signOutBrowser } from './stack.mjs';
 import { fundedTrader, signIn, signUp, verify } from './desk.mjs';
 import { listLeader, takeBest } from './copy.mjs';
 
@@ -55,7 +55,7 @@ test(`${J} #2 chooses the Futures tab and searches a name: only futures leaders,
   await listLeader(futuresLeader, futuresName, { marketMode: 'futures' });
   run.write({ leader, spotName, spotRef, futuresName });
 
-  await page.context().clearCookies();
+  await signOutBrowser(page.context());
   await signIn(page, state('follower'));
   await page.goto('/trade/copy?tab=futures');
   const table = page.getByRole('table', { name: 'Leaders' });
@@ -183,7 +183,7 @@ test(`${J} #5 presses Start copying below the copy verification level: refused b
   await expect(page.getByText('Your reviewed request')).toBeVisible();
   tool('local-test-gates.mjs', 'verify');
   fund(unverified.email, 'USDT', '1000');
-  await page.context().clearCookies();
+  await signOutBrowser(page.context());
   await signIn(page, unverified);
   const wizard = await openWizardAtLimits(page);
   await fillLimits(wizard, { perOrder: '50', total: '200', fixed: '20' });

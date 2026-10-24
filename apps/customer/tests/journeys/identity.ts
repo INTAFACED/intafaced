@@ -2,6 +2,7 @@ import { createHash, createHmac, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { stack } from './env';
+import { LOCAL_TEST_DEVICE_KEY } from '../../../../tooling/scripts/local-test-device.mjs';
 
 /**
  * The identity doors a journey walks through, the way the edge and the operator desk do: public doors are called bare, a
@@ -31,11 +32,16 @@ export function principalHeaders(claims: Claims): Record<string, string> {
   };
 }
 
+/** Sign-in and sign-up doors that take a device key: the rig is one TEST client, as the stack's journeys are one browser. */
+const DEVICE_DOORS = new Set(['auth.login', 'auth.loginWithCode', 'auth.register', 'auth.registerFounder']);
+
 export async function identityCall<T = unknown>(procedure: string, input: unknown, claims: Claims | null): Promise<T> {
+  const body =
+    DEVICE_DOORS.has(procedure) && input && typeof input === 'object' ? { deviceKey: LOCAL_TEST_DEVICE_KEY, ...input } : (input ?? {});
   const response = await fetch(`${stack.identity()}/trpc/${procedure}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', accept: 'application/json', ...(claims ? principalHeaders(claims) : {}) },
-    body: JSON.stringify(input ?? {}),
+    body: JSON.stringify(body),
   });
   const text = await response.text();
   if (!response.ok) throw new IdentityRefusal(procedure, response.status, text);

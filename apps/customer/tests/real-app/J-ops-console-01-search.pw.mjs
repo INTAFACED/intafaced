@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { randomBytes } from 'node:crypto';
 import { signUp } from './desk.mjs';
-import { fund } from './stack.mjs';
+import { fund, signOutBrowser } from './stack.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 
 // J-ops-console-01 #7: a founder types a business key into the console's cross-desk search. A fresh TEST customer is funded
@@ -17,7 +17,7 @@ test('J-ops-console-01 #7 a business key in the cross-desk search shows the ledg
   expect(funded.tx).toBeTruthy();
   const businessKey = `deposit:local-test:LOCAL-TEST-${ref}`;
 
-  await page.context().clearCookies();
+  await signOutBrowser(page.context());
   await founderSignIn(page, 'a');
   await page.goto(`${ADMIN}/crm`, { waitUntil: 'load' });
   const box = page.getByTestId('console-search');

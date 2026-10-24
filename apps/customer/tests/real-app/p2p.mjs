@@ -1,7 +1,7 @@
 import { createHash, createPrivateKey, generateKeyPairSync, randomBytes, randomUUID, sign } from 'node:crypto';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { EDGE, ORIGIN, ROOT, mailedConfirmLinks } from './stack.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, ROOT, mailedConfirmLinks } from './stack.mjs';
 import { PASSKEY_ORIGIN, virtualAuthenticator } from './identity-factors.mjs';
 
 // What every P2P journey needs: svc-p2p's own doors through Edge, and a taker who meets the take requirements.
@@ -222,7 +222,7 @@ export async function unconfirmedAccount(prefix) {
   const res = await fetch(`${EDGE}/api/identity/trpc/auth.register`, {
     method: 'POST',
     headers: { origin: ORIGIN, 'content-type': 'application/json' },
-    body: JSON.stringify({ handle: who.handle, email: who.email, password: who.password, region: 'DE' }),
+    body: JSON.stringify({ deviceKey: DEVICE_KEY, handle: who.handle, email: who.email, password: who.password, region: 'DE' }),
   });
   if (res.status !== 200) throw new Error(`register ${who.email} refused: ${res.status} ${(await res.text()).slice(0, 300)}`);
   return who;

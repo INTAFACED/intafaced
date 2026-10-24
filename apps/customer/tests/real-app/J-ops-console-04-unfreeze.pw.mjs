@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { EDGE, ORIGIN, signUpInBrowser, staffFreeze } from './stack.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, signUpInBrowser, staffFreeze } from './stack.mjs';
 
 // J-ops-console-04 step #6: lifting a staff freeze takes a second person. Founder A asks on Account controls; approving their
 // own request is refused by identity (action_approval.same_person), and so is running it before anyone approved; founder B
@@ -12,7 +12,7 @@ const login = (who) =>
   fetch(`${EDGE}/api/identity/trpc/auth.login`, {
     method: 'POST',
     headers: { origin: ORIGIN, 'content-type': 'application/json' },
-    body: JSON.stringify({ identifier: who.email, password: who.password }),
+    body: JSON.stringify({ deviceKey: DEVICE_KEY, identifier: who.email, password: who.password }),
   });
 
 /** One step of the two-founder request, posted as the signed-in founder in `page` (the console's own CSRF header). */
