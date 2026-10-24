@@ -60,6 +60,31 @@
       "service": "identity",
       "value": "10",
       "note": "TEST: saved screens per account. Not an owner limit."
+    },
+    "IDENTITY_LOGIN_CODE_TTL_SECONDS": {
+      "service": "identity",
+      "value": "600",
+      "note": "A sign-in code lives ten minutes (J-identity-02 #3)."
+    },
+    "IDENTITY_LOGIN_CODE_MAX_ATTEMPTS": {
+      "service": "identity",
+      "value": "5",
+      "note": "Five wrong sign-in codes lock that code, so the journey can show the lock (J-identity-02 #3)."
+    },
+    "IDENTITY_LOGIN_CODE_RESEND_SECONDS": {
+      "service": "identity",
+      "value": "30",
+      "note": "A new sign-in code after 30 seconds."
+    },
+    "IDENTITY_LOGIN_CODE_REQUEST_MAX": {
+      "service": "identity",
+      "value": "10",
+      "note": "Ten sign-in codes per email or handle an hour."
+    },
+    "IDENTITY_LOGIN_CODE_REQUEST_WINDOW_SECONDS": {
+      "service": "identity",
+      "value": "3600",
+      "note": "The hour that IDENTITY_LOGIN_CODE_REQUEST_MAX counts in."
     }
   }
 }

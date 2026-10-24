@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { test, expect } from '@playwright/test';
-import { ROOT, signUpInBrowser, staffFreeze } from './stack.mjs';
+import { EDGE, ORIGIN, ROOT, mailedCodes, nextMailedCode, signUpInBrowser, staffFreeze } from './stack.mjs';
 import { PASSKEY_ORIGIN, addAuthenticator, addPasskey, forgetSession, nextCode, virtualAuthenticator } from './identity-factors.mjs';
 
 // J-identity-02, in the running app (docs/roadmap/journeys.json): sign in, on a new device too. One test per step this
@@ -81,6 +81,77 @@ test(`${J} #2 several wrong passwords give a typed lockout with the minutes left
   // Even the right password waits out the pause, and the page says how long.
   await expect(page.getByRole('alert')).toContainText(/Too many tries\. You can try again in \d+ min\./);
   await expect(page).toHaveURL(/\/login/);
+});
+
+/** Ask for a sign-in code by email or handle on /login; answers with the newest code mailed to `email` (if any arrives). */
+async function askForCode(page, identifier) {
+  await page.getByLabel('Email or handle for the code').fill(identifier);
+  await page.getByRole('button', { name: 'Email me a code' }).click();
+  await expect(page.getByRole('heading', { name: 'Check your email' })).toBeVisible();
+  return page.getByRole('status').filter({ hasText: 'a 6-digit code is on its way' }).innerText();
+}
+
+test(`${J} #3 "send me a code" instead of a password: wrong codes lock, a used code is refused, an unknown name reads the same`, async ({
+  page,
+  browser,
+}) => {
+  const who = await account(browser);
+  const other = await account(browser);
+  const notice = () => page.getByRole('alert');
+  await page.goto('/login');
+
+  // An unknown name and a real one get the same step and the same words; only the real one is mailed.
+  const unknownName = `nobody${who.handle}`;
+  const forUnknown = await askForCode(page, unknownName);
+  await page.getByRole('button', { name: 'Use a different email or handle' }).click();
+  const forOther = await askForCode(page, other.handle);
+  expect(forUnknown.replace(unknownName, 'X')).toBe(forOther.replace(other.handle, 'X'));
+
+  // Five wrong codes lock this code, with the minutes left; then even the right one is refused.
+  const otherCode = await nextMailedCode(other.email, 0, 20_000, 'login-code');
+  const wrong = otherCode === '000000' ? '111111' : '000000';
+  for (let i = 0; i < 5; i++) {
+    await page.getByLabel('Sign-in code from the email').fill(wrong);
+    await page.getByRole('button', { name: 'Sign in with the code' }).click();
+    await expect(notice()).toContainText(i < 4 ? 'That code is not right' : /Too many tries\. Try again in \d+ min\./);
+  }
+  await page.getByLabel('Sign-in code from the email').fill(otherCode);
+  await page.getByRole('button', { name: 'Sign in with the code' }).click();
+  await expect(notice()).toContainText(/Too many tries/);
+  await expect(page).toHaveURL(/\/login/);
+
+  // The person's own code signs in once, by email this time.
+  await page.getByRole('button', { name: 'Use a different email or handle' }).click();
+  const seen = mailedCodes(who.email, 'login-code').length;
+  const asked = page.waitForResponse((res) => res.url().includes('auth.loginCodeRequest'));
+  await askForCode(page, who.email);
+  const { flowId } = (await (await asked).json()).result.data;
+  const code = await nextMailedCode(who.email, seen, 20_000, 'login-code');
+  await page.getByLabel('Sign-in code from the email').fill(code);
+  await page.getByRole('button', { name: 'Sign in with the code' }).click();
+  await expect(page).not.toHaveURL(/\/login/);
+
+  // The same code on the same request, sent again from outside the browser, is refused and opens nothing.
+  const reused = await fetch(`${EDGE}/api/identity/trpc/auth.loginWithCode`, {
+    method: 'POST',
+    headers: { origin: ORIGIN, 'content-type': 'application/json' },
+    body: JSON.stringify({ flowId, code }),
+  });
+  const body = await reused.json();
+  expect(reused.status).toBe(401);
+  expect(JSON.stringify(body)).toContain('auth.code_invalid');
+  expect(JSON.stringify(body)).not.toContain('accessToken');
+});
+
+test(`${J} #5 a browser never used before is asked to authorise this device, by a signed-in session or a mailed code`, async ({
+  page,
+  browser,
+}) => {
+  const who = await account(browser);
+  await page.goto('/login');
+  await fillSignIn(page, who.email, who.password);
+  // Not built yet (I-signin-sessions-07): the step fails here fast until the new-device check lands.
+  await expect(page.getByRole('heading', { name: 'Authorise this device' })).toBeVisible({ timeout: 5_000 });
 });
 
 test(`${J} #7 a frozen account is named after the right password, with the way to support; a wrong password names nothing`, async ({
