@@ -3099,7 +3099,10 @@ describe('svc-bank money PG-hard', () => {
         'add_money_requests.amount':
           'the amount the customer asked to add on one request; kept refused or opened, never credited from here',
         'cash_out_requests.amount':
-          'the amount the customer asked to cash out on one request; kept refused, never held or posted from here',
+          'the amount the customer asked to cash out on one request; refused, or held, settled or given back under its own key',
+        'cash_out_requests.fee': "the partner's fee for that one payout, copied once from its price; never charged from here",
+        'cash_out_requests.receive_amount': 'what the partner said arrives for that one payout, copied once; not a balance',
+        'cash_out_requests.returned_amount': 'a RECORD of what came back on one returned payout; credited once with its ledger tx id',
         'rail_send_intents.amount':
           'the amount the customer asked to send over a bank rail on one intent; kept refused, never held or posted from here',
 
