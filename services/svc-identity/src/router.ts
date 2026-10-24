@@ -1491,7 +1491,11 @@ export function createIdentityRouter(
           z
             .object({
               address: z.string().min(1).max(64),
-              chainId: z.number().int().positive().max(2 ** 53 - 1),
+              chainId: z
+                .number()
+                .int()
+                .positive()
+                .max(2 ** 53 - 1),
               origin: z.string().max(256).optional(),
             })
             .strict(),

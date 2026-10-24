@@ -66,7 +66,8 @@ const LOCAL_COPY: Readonly<Record<string, string>> = {
   'identity.method_not_linked': 'That way to sign in is not on this account.',
   'identity.method_already_linked': 'That way to sign in is already on this account.',
   'identity.method_invalid': 'That is not a way to sign in this account can use.',
-  'identity.wallet_kind_unsupported': 'That wallet signs through a contract, which we cannot check without a chain call. Use a wallet with its own key.',
+  'identity.wallet_kind_unsupported':
+    'That wallet signs through a contract, which we cannot check without a chain call. Use a wallet with its own key.',
   'identity.wallet_signature_invalid': 'That signature is not from this wallet. Nothing was changed.',
   'identity.wallet_challenge_invalid': 'That wallet message expired or was already answered. Start again.',
   'identity.totp_label_invalid': 'Use a name of 1 to 64 characters, without hidden or control characters.',

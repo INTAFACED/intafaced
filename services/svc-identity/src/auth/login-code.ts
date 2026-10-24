@@ -287,7 +287,11 @@ export async function resendLoginCode(deps: LoginCodeDeps, input: { flowId: stri
       const recent = await recentSends(tx, flow.subject_hash, flow.user_id, since);
       if (recent.n >= budget.requestMax) throw overCap(budget, recent.oldest, now);
       const account = flow.user_id
-        ? (await tx<Array<{ id: string; email: string }>>`SELECT id, email FROM users WHERE id = ${flow.user_id} AND status = 'active' AND email_code_signin`)[0]
+        ? (
+            await tx<
+              Array<{ id: string; email: string }>
+            >`SELECT id, email FROM users WHERE id = ${flow.user_id} AND status = 'active' AND email_code_signin`
+          )[0]
         : undefined;
       // A resend never keeps a flow alive past one day from its start.
       const expiresAt = new Date(

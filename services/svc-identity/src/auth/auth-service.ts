@@ -30,13 +30,7 @@ import {
   WeakPasswordError,
 } from './passwords.js';
 import { assertNotSecurityLocked } from './security-lock.js';
-import {
-  assertLeavesAWayIn,
-  lockedSigninMethods,
-  startWalletChallenge,
-  walletSigninAccount,
-  type WalletConfig,
-} from './signin-methods.js';
+import { assertLeavesAWayIn, lockedSigninMethods, startWalletChallenge, walletSigninAccount, type WalletConfig } from './signin-methods.js';
 import { accountHasSecondFactor, assertMayAddFactor, assertMayRemoveFactor, checkMayAddFactor, type FactorActor } from './factor-gate.js';
 import { confirmEmail, isEmailConfirmed, requestEmailConfirmation } from './email-confirmation.js';
 import {
