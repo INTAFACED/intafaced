@@ -1,4 +1,5 @@
 import { WITHDRAWAL_STATUSES, isCancellable, shownStatus } from './withdrawals/status.js';
+import { INTERNAL_RAIL } from './withdrawals/internal.js';
 import { ELIGIBILITY_REASONS } from './withdrawals/eligibility.js';
 import { WithdrawalQuoteError, withdrawalQuoteToTrpcError } from './withdrawals/quotes/errors.js';
 import { WithdrawalApprovalError, withdrawalApprovalToTrpcError } from './withdrawals/approvals/errors.js';
@@ -2154,22 +2155,44 @@ export function createPayRouter(
               clientRef: input.clientRef,
               destination: input.destination,
             });
+            const request = {
+              // From the token. There is no `userId` input, so there is no way
+              // to withdraw from an account that is not the caller's — an
+              // input the caller cannot supply cannot be forged.
+              userId: ctx.principal.userId,
+              assetId: input.assetId,
+              amount: parseAmount(input.amount),
+              destination: input.destination,
+              clientRef: input.clientRef,
+              ...sandboxKeyEnv(ctx.principal),
+            };
+            // W-withdraw-14: an address that is an account on the platform (another person's, the caller's own, or one that
+            // cannot take a transfer now) takes the internal branch whatever rail was named, so it never goes out on a chain
+            // to come straight back. `railId: 'internal'` asks for that branch outright and refuses an outside address.
+            const internal =
+              input.railId === INTERNAL_RAIL ||
+              (await userMoney.platformDestination(ctx.principal.userId, input.destination)).kind !== 'external';
             return toWithdrawalOut(
-              await userMoney.withdraw({
-                // From the token. There is no `userId` input, so there is no way
-                // to withdraw from an account that is not the caller's — an
-                // input the caller cannot supply cannot be forged.
-                userId: ctx.principal.userId,
-                assetId: input.assetId,
-                amount: parseAmount(input.amount),
-                rail: input.railId,
-                destination: input.destination,
-                clientRef: input.clientRef,
-                ...sandboxKeyEnv(ctx.principal),
-              }),
+              internal ? await userMoney.withdrawInternal(request) : await userMoney.withdraw({ ...request, rail: input.railId }),
             );
           }),
         ),
+
+      /**
+       * Where an address leads before anything is sent (W-withdraw-14): `internal` (another account on the platform: the
+       * send settles inside, at once, with no network fee), `self` (one of the caller's own deposit addresses: refused as a
+       * send to yourself), `unavailable` (a platform address that cannot take a transfer now: frozen, past its expiry, or
+       * held by more than one account) or `external`. It never names the other account.
+       */
+      destination: scopedProcedure('trade:read')
+        .input(z.object({ destination: z.object({ kind: z.string().min(1).max(32), ref: z.string().min(1).max(256) }).strict() }).strict())
+        .output(
+          z.discriminatedUnion('kind', [
+            z.object({ kind: z.enum(['internal', 'self', 'external']) }),
+            z.object({ kind: z.literal('unavailable'), reason: z.enum(['frozen', 'expired', 'ambiguous']) }),
+          ]),
+        )
+        .query(({ ctx, input }) => wrap(async () => userMoney.platformDestination(ctx.principal.userId, input.destination))),
 
       /**
        * Cancel one of the caller's own withdrawals before anything is sent (W-withdraw-07). `trade:write`, not
@@ -2639,6 +2662,7 @@ export function toTrpcError(err: unknown): unknown {
         return 'CONFLICT' as const;
       case 'pay.withdrawal_history_unwired':
       case 'pay.withdrawal_eligibility_unwired':
+      case 'pay.internal_settlement_unwired':
         return 'PRECONDITION_FAILED' as const;
       case 'pay.withdrawal_not_found':
       case 'pay.wallet_not_found':

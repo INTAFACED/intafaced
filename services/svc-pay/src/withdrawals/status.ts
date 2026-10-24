@@ -124,6 +124,17 @@ export function assertStoredTransition(from: StoredWithdrawalStatus, to: StoredW
   assertTransition(customerStatus(from), customerStatus(to));
 }
 
+/**
+ * The stored moves of an internal withdrawal (W-withdraw-14). It is never `held`: svc-bank's one send takes the money from
+ * the sender's balance and gives it to the receiver in a single post, so `pending -> sent` collapses `requested -> approved
+ * -> held -> settled`, and a send svc-bank proved it never posted collapses `requested -> approved -> held -> failed`. Every
+ * other move is the ordinary one.
+ */
+export function assertStoredInternalTransition(from: StoredWithdrawalStatus, to: StoredWithdrawalStatus): void {
+  if (from === 'pending' && (to === 'sent' || to === 'failed')) return;
+  assertStoredTransition(from, to);
+}
+
 /** True once a transaction may have left: the hold must never be released from these states (ENGINE W-3). */
 export function broadcastPossible(status: WithdrawalStatus): boolean {
   return status === 'dispatching' || status === 'broadcast' || status === 'confirming' || status === 'needs_review' || status === 'settled';

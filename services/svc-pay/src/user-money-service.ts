@@ -28,6 +28,13 @@ import {
 } from './seams/guards.js';
 import { GUARD_WITHDRAWAL_LIMITS_UNWIRED, type WithdrawalAllowanceView, type WithdrawalLimitReader } from './limits/reader.js';
 import {
+  bankInternalWithdrawalInputSchema,
+  internalWithdrawalTransferId,
+  type BankInternalWithdrawalPort,
+} from '@intafaced/contracts';
+import { INTERNAL_RAIL, resolvePlatformDestination } from './withdrawals/internal.js';
+import {
+  assertStoredInternalTransition,
   assertStoredTransition,
   assertTransition,
   customerStatus,
@@ -226,6 +233,12 @@ export interface UserMoneyOptions {
    * Omitted: no purchase is held back, which is the state before any hold is recorded.
    */
   readonly purchaseHolds?: PurchaseHoldGuard;
+
+  /**
+   * svc-bank's internal settlement door (W-withdraw-14): a withdrawal to another account's platform address is one send
+   * there, because `bankTransfer` is svc-bank's alone. Omitted: an internal withdrawal refuses before anything is claimed.
+   */
+  readonly internalSettlement?: BankInternalWithdrawalPort;
 }
 
 /**
@@ -253,6 +266,7 @@ export class UserMoneyService {
   private readonly withdrawalHistory: WithdrawalHistory | undefined;
   private readonly withdrawalEligibility: WithdrawalEligibility | undefined;
   private readonly purchaseHolds: PurchaseHoldGuard | undefined;
+  private readonly internalSettlement: BankInternalWithdrawalPort | undefined;
 
   constructor(
     private readonly sql: Sql,
@@ -270,6 +284,7 @@ export class UserMoneyService {
     this.withdrawalHistory = options.withdrawalHistory;
     this.withdrawalEligibility = options.withdrawalEligibility;
     this.purchaseHolds = options.purchaseHolds;
+    this.internalSettlement = options.internalSettlement;
   }
 
   // ── Deposit ────────────────────────────────────────────────────────────────
@@ -903,6 +918,178 @@ export class UserMoneyService {
   }
 
   /**
+   * A withdrawal to another account's deposit address on the platform (W-withdraw-14). It settles inside the book, at once
+   * and with no network fee, as ONE svc-bank send from the sender's main account to the receiver's (svc-bank owns
+   * `bankTransfer`; this service never posts it). No rail is asked and no hold is placed: the send itself takes the money
+   * from the sender's available balance, so a hold first would take it twice.
+   *
+   * The claim is the ordinary one (`claimWithdrawal`, rail `internal`), so every withdrawal guard still runs in its
+   * transaction: approvals, the allowlist, screening, the limits, the merchant controls and the halts.
+   *
+   * ONE SEND PER WITHDRAWAL. svc-bank's key is the withdrawal row's own id (`withdraw:<id>`), and the row is unique per
+   * person and client reference, so a retry after a lost answer is the same send and posts once.
+   *
+   *   1. The send is journalled `requested` before svc-bank is asked. From then on the row cannot be cancelled and a retry
+   *      is a recovery that asks svc-bank again under the same key.
+   *   2. `posted`: the journal and the row turn `accepted` and `sent` together.
+   *   3. `refused`: svc-bank proved nothing was posted under the key, so the journal and the row turn `refused` and `failed`
+   *      together, and nothing has to be put back.
+   *   4. Anything else is unknown: the row stays `pending` with its journal `requested`, and the caller hears
+   *      `pay.rail_outcome_unknown`. Only a retry with the same client reference finishes it.
+   *
+   * IF THIS CRASHES after the claim and before the journal, nothing was asked: the row is a plain `pending` claim, and the
+   * customer can cancel it or retry it. After the journal and before the answer is saved, the money may have moved: the
+   * retry asks svc-bank under the same key and saves its answer. Nobody's funds are stranded: they are either still in the
+   * sender's balance or in the receiver's, under one ledger transaction.
+   */
+  /**
+   * Whether an address is another account's on the platform, the caller's own, or neither (W-withdraw-14). Read from this
+   * service's own deposit address tables; it never names the other account.
+   */
+  async platformDestination(
+    userId: string,
+    destination: { kind: string; ref: string },
+  ): Promise<{ kind: 'internal' | 'self' | 'external' } | { kind: 'unavailable'; reason: 'frozen' | 'expired' | 'ambiguous' }> {
+    const place = await resolvePlatformDestination(this.sql, userId, destination);
+    return place.kind === 'unavailable' ? { kind: 'unavailable', reason: place.reason } : { kind: place.kind };
+  }
+
+  async withdrawInternal(input: {
+    userId: string;
+    assetId: string;
+    amount: Amount;
+    destination: { kind: string; ref: string };
+    clientRef: string;
+    /** A sandbox API key cannot debit a live balance. */
+    keyEnv?: 'sandbox';
+  }): Promise<WithdrawalRecord> {
+    if (input.amount <= 0n) throw new PayError('Withdrawal amount must be positive', 'pay.invalid_amount');
+    if (input.keyEnv === 'sandbox') {
+      refuseSandboxLive(
+        recipes.withdrawHold({
+          userId: input.userId,
+          assetId: input.assetId,
+          amount: input.amount,
+          rail: INTERNAL_RAIL,
+          withdrawalId: input.clientRef,
+        }),
+      );
+    }
+    const bank = this.internalSettlement;
+    if (!bank) throw new PayError('Internal settlement is not connected in this process; nothing was claimed', 'pay.internal_settlement_unwired');
+    // svc-bank's contract is checked before anything is claimed, so a send svc-bank would never take claims nothing.
+    const shape = bankInternalWithdrawalInputSchema.safeParse({
+      transferId: internalWithdrawalTransferId('00000000-0000-4000-8000-000000000000'),
+      fromUserId: input.userId,
+      toUserId: `${input.userId}:receiver`,
+      assetId: input.assetId,
+      amount: formatAmount(input.amount),
+    });
+    if (!shape.success) throw new PayError('This asset or amount cannot settle inside the platform', 'pay.invalid_amount');
+
+    return withMoneySpan('pay.withdraw', { operation: 'withdraw', rail: INTERNAL_RAIL, amount: formatAmount(input.amount) }, async (span) => {
+      try {
+        return await withPayoutLock(this.sql, `withdraw:${JSON.stringify([input.userId, input.clientRef])}`, async (connection) => {
+          const [prior] = await connection<Array<{ status: string; failure_code: string | null }>>`
+            SELECT status, failure_code FROM pay.withdrawals
+             WHERE user_id = ${input.userId} AND client_ref = ${input.clientRef}
+          `;
+          if (prior?.failure_code === WITHDRAWAL_CANCELED_CODE) {
+            throw new PayError('This withdrawal was cancelled; start a new one with a new client reference', 'pay.withdrawal_canceled');
+          }
+          const fresh = !prior || prior.status === 'failed';
+
+          // Who holds the address, from this service's own tables. An address is never handed to another account, so a
+          // resumed send names the same receiver. A frozen or expired address refuses a new send only: a send already
+          // asked of svc-bank may have posted, and only svc-bank's answer under the same key can finish it.
+          const place = await resolvePlatformDestination(connection, input.userId, input.destination);
+          if (place.kind === 'self') {
+            throw new PayError('That address is one of your own on the platform; a withdrawal to yourself is refused', 'pay.withdrawal_self_send');
+          }
+          if (place.kind === 'external') {
+            throw new PayError('That address belongs to no account on the platform', 'pay.internal_destination_external');
+          }
+          if (place.kind === 'unavailable' && (fresh || place.toUserId === null)) {
+            throw new PayError('That platform address cannot take a transfer now; nothing was claimed', 'pay.internal_destination_unavailable', {
+              reason: place.reason,
+            });
+          }
+          const toUserId = place.toUserId!;
+
+          const claimed = await this.claimWithdrawal({ ...input, rail: INTERNAL_RAIL }, connection, fresh);
+          // Already settled: the money moved once, and asking again would only repeat the same answer.
+          if (claimed.status === 'sent') return claimed;
+          if (claimed.status !== 'pending') {
+            throw new PayError('An internal withdrawal is never held; its state is unknown', 'pay.rail_outcome_unknown', {
+              withdrawalId: claimed.id,
+            });
+          }
+          const attempt = claimed.attempts;
+
+          // The journal goes down before svc-bank is asked: from here a cancel refuses and a retry is a recovery.
+          await connection`
+            INSERT INTO pay.withdrawal_rail_attempts(withdrawal_id, attempt, outcome)
+            VALUES (${claimed.id}, ${attempt}, 'requested') ON CONFLICT DO NOTHING
+          `;
+          const answer = await bank.settle({
+            transferId: internalWithdrawalTransferId(claimed.id),
+            fromUserId: claimed.userId,
+            toUserId,
+            assetId: claimed.assetId,
+            amount: formatAmount(claimed.amount),
+          });
+
+          if (answer.state === 'posted') {
+            assertStoredInternalTransition('pending', 'sent');
+            await payoutTransaction(connection, async (tx) => {
+              await tx`
+                UPDATE pay.withdrawal_rail_attempts SET outcome = 'accepted', rail_ref = ${answer.ledgerTxId}
+                 WHERE withdrawal_id = ${claimed.id} AND attempt = ${attempt}
+              `;
+              await tx`
+                UPDATE pay.withdrawals SET status = 'sent', rail_ref = ${answer.ledgerTxId}, failure_code = NULL, updated_at = now()
+                 WHERE id = ${claimed.id} AND status = 'pending'
+              `;
+            });
+            span.setAttribute('intafaced.amount', formatAmount(claimed.amount));
+            return { ...claimed, status: 'sent' as const, railRef: answer.ledgerTxId, failureCode: null, journal: 'accepted' as const };
+          }
+
+          if (answer.state === 'refused') {
+            assertStoredInternalTransition('pending', 'failed');
+            // Nothing was posted, so nothing is put back. `attempts` moves on, so a retry of the same reference journals anew.
+            await payoutTransaction(connection, async (tx) => {
+              await tx`
+                UPDATE pay.withdrawal_rail_attempts SET outcome = 'refused'
+                 WHERE withdrawal_id = ${claimed.id} AND attempt = ${attempt} AND outcome = 'requested'
+              `;
+              await tx`
+                UPDATE pay.withdrawals
+                   SET status = 'failed', failure_code = ${answer.code}, attempts = attempts + 1, updated_at = now()
+                 WHERE id = ${claimed.id} AND status = 'pending'
+              `;
+            });
+            throw new PayError('The transfer inside the platform was refused; nothing moved', 'pay.internal_settlement_refused', {
+              withdrawalId: claimed.id,
+              failureCode: answer.code,
+            });
+          }
+
+          throw new PayError(
+            'The transfer inside the platform has no answer yet; retry with the same client reference to finish it',
+            'pay.rail_outcome_unknown',
+            { withdrawalId: claimed.id, state: 'requested' },
+          );
+        });
+      } catch (error) {
+        // Same as `withdraw`: a screening refusal saves its case after the claim transaction has rolled back.
+        await settleGuardRefusal(error);
+        throw error;
+      }
+    });
+  }
+
+  /**
    * Claim `(userId, clientRef)`, or return the existing claim.
    *
    * Same reasoning as `claimDeposit`, and the same refusal: a retry that names
@@ -1031,12 +1218,19 @@ export class UserMoneyService {
    *                     throw can follow a remote commit); else fresh, nothing moved.
    */
   private async classifyWithdrawal(tx: Sql, input: { userId: string; clientRef: string }): Promise<GuardReplay> {
-    const rows = await tx<Array<{ id: string; status: WithdrawalRecord['status']; attempts: number }>>`
-      SELECT id, status, attempts FROM pay.withdrawals WHERE user_id = ${input.userId} AND client_ref = ${input.clientRef}
+    const rows = await tx<Array<{ id: string; status: WithdrawalRecord['status']; attempts: number; rail: string }>>`
+      SELECT id, status, attempts, rail FROM pay.withdrawals WHERE user_id = ${input.userId} AND client_ref = ${input.clientRef}
     `;
     const row = rows[0];
     if (!row || row.status === 'failed') return FRESH;
     if (row.status === 'sent') return { kind: 'replay', reason: 'withdrawal_already_sent' };
+    // An internal withdrawal has no hold. Once its send was asked of svc-bank it may have posted, so the retry finishes it.
+    if (row.rail === INTERNAL_RAIL && row.status === 'pending') {
+      const [asked] = await tx`
+        SELECT 1 FROM pay.withdrawal_rail_attempts WHERE withdrawal_id = ${row.id} AND attempt = ${row.attempts}
+      `;
+      return asked ? { kind: 'recovery', reason: 'withdrawal_internal_send_asked' } : FRESH;
+    }
     if (row.status === 'held') {
       const [attempt] = await tx<Array<{ outcome: string; rail_ref: string | null }>>`
         SELECT outcome, rail_ref FROM pay.withdrawal_rail_attempts WHERE withdrawal_id = ${row.id} AND attempt = ${row.attempts}

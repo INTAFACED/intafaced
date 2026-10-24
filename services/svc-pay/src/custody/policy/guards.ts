@@ -2,6 +2,7 @@ import type { Sql } from 'postgres';
 import { PayGuardRefusal, type PartialPayGuards } from '../../seams/guards.js';
 import { evaluatePolicy } from './engine.js';
 import { loadPublishedPolicy, withdrawalsUsedInWindow } from './service.js';
+import { INTERNAL_RAIL } from '../../withdrawals/internal.js';
 
 /**
  * The custody transaction policy inside the withdrawal claim (W-custody-ops-07). Runs in `beforeUserMoneyWithdrawal`,
@@ -38,6 +39,8 @@ export function createCustodyPolicyGuards(deps: { readonly sql: Sql; readonly mo
   return {
     beforeUserMoneyWithdrawal: async (ctx) => {
       if (ctx.replay.kind !== 'fresh') return;
+      // An internal withdrawal (W-withdraw-14) is not a custody transaction: nothing is signed and no wallet sends.
+      if (ctx.rail === INTERNAL_RAIL) return;
       // Same per-customer lock as the D-148 guard, so two parallel claims cannot both read the same cumulative headroom.
       await ctx.tx`SELECT pg_advisory_xact_lock(hashtext(${`pay.withdrawal_limit:${ctx.userId}`}))`;
       const policy = await loadPublishedPolicy(ctx.tx);

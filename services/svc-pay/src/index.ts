@@ -123,6 +123,7 @@ import {
   retainRawBody,
   createIdentityOperationDecisionClient,
   createBankApproverEligibilityClient,
+  createBankInternalWithdrawalClient,
   s2sFromEnv,
 } from '@intafaced/contracts';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
@@ -543,6 +544,11 @@ const userMoney = new UserMoneyService(sql, ledger, rails, {
     purchase_hold: purchaseHoldSource(purchaseHolds, ledger),
   }),
   purchaseHolds,
+  // W-withdraw-14: a withdrawal to another account's platform address is one send at svc-bank. Without BANK_URL it is not
+  // wired, so such a withdrawal refuses (`pay.internal_settlement_unwired`) before anything is claimed.
+  internalSettlement: env.BANK_URL
+    ? createBankInternalWithdrawalClient({ bankUrl: env.BANK_URL, secret: env.INTERNAL_SERVICE_SECRET, s2s: s2sKey })
+    : undefined,
 });
 
 /**
