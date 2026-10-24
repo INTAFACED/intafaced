@@ -30,7 +30,7 @@ import { AutoInvestRules } from './repeat-buy';
 import { bankReads, bankWrites, type poolSchema, type positionSchema } from './contracts';
 import type { ApiResult } from '../../shared/api';
 import { earnCopy } from './earn-copy';
-import { LoanHealth, currentLoanPreflight, loanActionAllowed, loanStatusNote } from './LoanHealth';
+import { LoanHealth, currentLoanPreflight, loanActionAllowed, loanStatusNote, readReleasable } from './LoanHealth';
 import { loanCopy, loanStatusLabel } from './loan-copy';
 import { MoneyActivity } from './activity';
 import { ExecutionHistory, StandingFacts, currentInstruction, type StandingInstruction } from './ScheduleHistory';
@@ -1331,6 +1331,8 @@ function Loans({ open }: { open: (spec: ActionSpec) => void }) {
                             ],
                             notes: [loanCopy.t('repaymentOffer'), copyText('rooms.your.request.reference.remains.stable.an.uncertain')],
                             input: (values, requestId) => ({ loanId: loan.id, eventId: requestId, amount: values.amount }),
+                            // svc-bank `loans.repay` answers a repeated eventId with the first repayment, never a second one.
+                            resendSame: true,
                           })
                         }
                       >
@@ -1382,7 +1384,12 @@ function Loans({ open }: { open: (spec: ActionSpec) => void }) {
                               copyText('rooms.the.service.obtains.current.marks.before.releasing'),
                               copyText('rooms.no.available.amount.is.optimistically.increased.refresh'),
                             ],
-                            input: (values) => ({ loanId: loan.id, amount: values.amount }),
+                            reviewTerms: {
+                              checking: loanCopy.t('releasableChecking'),
+                              read: (input, signal) => readReleasable(api, loan.id, loan.collateralAssetId, input.amount, signal),
+                            },
+                            // svc-bank `loans.releaseExcess` keys the release by this eventId, so a retry never releases twice.
+                            input: (values, requestId) => ({ loanId: loan.id, eventId: requestId, amount: values.amount }),
                           })
                         }
                       >

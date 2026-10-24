@@ -153,6 +153,12 @@ export type ActionSpec = {
   };
   submit?: string;
   unit?: string;
+  /**
+   * The bank answers this exact request sent again under its reference with the first send's result (a loan repayment's
+   * `eventId`), so after an unknown outcome the person may send it again and nothing is collected twice. Never with
+   * `stepUp`: its approval is spent by the first send.
+   */
+  resendSame?: boolean;
 };
 /** The original opened action's owner, API, mount and observed full-URL lifetime. */
 export type BankActionContext = { current: () => boolean };
@@ -340,6 +346,8 @@ export function MutationDialog({
   const [requestId, setRequestId] = useState(() => crypto.randomUUID());
   // The request that was last sent to the bank. A different request after it never reuses its reference.
   const lastSent = useRef<Record<string, unknown> | null>(null);
+  // Its journal entry while its outcome is unknown, so sending the same request again can clear it once the bank answers.
+  const journaled = useRef<PendingReservation | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [stage, setStage] = useState<'form' | 'review' | 'sending' | 'outcome'>((spec.fields?.length ?? 0) ? 'form' : 'review');
   const [result, setResult] = useState<ApiResult<unknown> | null>(null);
@@ -440,6 +448,49 @@ export function MutationDialog({
     setReviewInput(input);
     setStage('review');
   }
+  // The request on the wire and what its reply settles to. A thrown or unreadable reply cannot prove the bank did nothing.
+  async function post(input: Record<string, unknown>, sent: Record<string, unknown>) {
+    let outcome: ApiResult<unknown>;
+    try {
+      outcome = spec.transferSpaces
+        ? await createMoneyClient(api).transfer(spec.transferSpaces, sent as TransferDraft)
+        : await api.mutate(
+            'bank',
+            spec.procedure,
+            sent,
+            bankWriteForReview(spec.procedure, input).refine((data) => spec.verifyOutcome?.(data, input) ?? true),
+          );
+    } catch {
+      outcome = { ok: false, reason: 'uncertain', message: copyText('components.the.original.bank.outcome.could.not.be') };
+    }
+    // Local transfer validation precedes HTTP dispatch. Auth refusals occur
+    // before the Bank handler. Other failures cannot prove non-settlement.
+    // A typed refusal the bank makes before it posts or changes anything is definitive too, and says so in plain words.
+    const settled = settleRefusal(outcome, spec.procedure);
+    outcome = settled.outcome;
+    const definitive =
+      outcome.ok || outcome.code === 'money.invalid_transfer' || outcome.status === 401 || outcome.status === 403 || settled.refusedFirst;
+    return { outcome, definitive };
+  }
+  /** What a settled reply leaves journaled: a definitive one clears its original, anything else stays guarded and says so. */
+  async function settle(outcome: ApiResult<unknown>, definitive: boolean, original: PendingReservation, live: () => boolean) {
+    if (definitive) {
+      try {
+        await clearPendingOutcome(original, live);
+        if (journaled.current === original) journaled.current = null;
+      } catch {
+        if (live()) setClearFailure(true);
+      }
+      return outcome;
+    }
+    if (!outcome.ok && outcome.reason !== 'uncertain')
+      return {
+        ...outcome,
+        reason: 'uncertain' as const,
+        message: outcome.message + copyText('components.the.original.request.remains.guarded.until.its'),
+      };
+    return outcome;
+  }
   // The confirmation answers after an async factor check; it must reach this render's submit, not the one it began with.
   const latestSubmit = useRef<(stepUpApprovalId?: string | null) => Promise<void>>(async () => {});
   latestSubmit.current = (approval) => submit(approval);
@@ -487,6 +538,7 @@ export function MutationDialog({
       } catch {
         return { ok: false, reason: 'error', message: copyText('components.recovery.storage.is.unavailable.no.bank.request') };
       }
+      journaled.current = reservation;
       onPendingChange();
       if (!currentRun()) {
         // This original has not dispatched. Remove only its just-saved marker;
@@ -498,44 +550,13 @@ export function MutationDialog({
         }
         return authoredRefusal('aborted', { key: 'accountChanged' });
       }
-      let outcome: ApiResult<unknown>;
-      try {
-        outcome = spec.transferSpaces
-          ? await createMoneyClient(api).transfer(spec.transferSpaces, sent as TransferDraft)
-          : await api.mutate(
-              'bank',
-              spec.procedure,
-              sent,
-              bankWriteForReview(spec.procedure, input).refine((data) => spec.verifyOutcome?.(data, input) ?? true),
-            );
-      } catch {
-        outcome = { ok: false, reason: 'uncertain', message: copyText('components.the.original.bank.outcome.could.not.be') };
-      }
+      const { outcome, definitive } = await post(input, sent);
       // Even a valid late reply cannot certify a departed private review.
       // Retain its original minimal journal rather than publish or clear it.
       if (!currentRun()) return authoredRefusal('uncertain', { key: 'accountChanged' });
-      // Local transfer validation precedes HTTP dispatch. Auth refusals occur
-      // before the Bank handler. Other failures cannot prove non-settlement.
-      // A typed refusal the bank makes before it posts or changes anything is definitive too, and says so in plain words.
-      const settled = settleRefusal(outcome, spec.procedure);
-      outcome = settled.outcome;
-      const definitive =
-        outcome.ok || outcome.code === 'money.invalid_transfer' || outcome.status === 401 || outcome.status === 403 || settled.refusedFirst;
-      if (definitive) {
-        try {
-          await clearPendingOutcome(reservation, currentRun);
-        } catch {
-          if (currentRun()) setClearFailure(true);
-        }
-      } else if (!outcome.ok && outcome.reason !== 'uncertain') {
-        outcome = {
-          ...outcome,
-          reason: 'uncertain',
-          message: outcome.message + copyText('components.the.original.request.remains.guarded.until.its'),
-        };
-      }
+      const said = await settle(outcome, definitive, reservation, currentRun);
       if (currentRun()) onPendingChange();
-      return outcome;
+      return said;
     };
     const outcome = navigator.locks
       ? await navigator.locks.request(`bank-write:${userId}`, { ifAvailable: true }, (lock) =>
@@ -556,6 +577,50 @@ export function MutationDialog({
     sending.current = null;
     setResult(outcome);
     lastSent.current = input;
+    setStage('outcome');
+    if (outcome.ok) onDone();
+  }
+  /**
+   * After an unknown outcome, the same request again: the same body and reference, without a new journal entry or a
+   * fresh preflight (what it read has changed if the first send landed). The bank answers with the first send's result.
+   */
+  async function resend() {
+    const input = lastSent.current;
+    const original = journaled.current;
+    if (!spec.resendSame || spec.stepUp || !admitted() || stage !== 'outcome' || sending.current || !input || !original) return;
+    if (!result || result.ok || result.reason !== 'uncertain' || reviewed.current !== input || !userId) return;
+    const run = {};
+    sending.current = run;
+    setStage('sending');
+    const currentRun = () => current() && sending.current === run && reviewed.current === input;
+    const again = async (): Promise<ApiResult<unknown>> => {
+      // Any other original with an unknown outcome still pauses every bank write.
+      if (pendingOutcomes(userId).some((record) => record.reference !== original.reference))
+        return { ok: false, reason: 'uncertain', message: copyText('components.an.original.bank.request.still.requires.recovery') };
+      const { outcome, definitive } = await post(input, input);
+      if (!currentRun()) return authoredRefusal('uncertain', { key: 'accountChanged' });
+      const said = await settle(outcome, definitive, original, currentRun);
+      if (currentRun()) onPendingChange();
+      return said;
+    };
+    const outcome = navigator.locks
+      ? await navigator.locks.request(`bank-write:${userId}`, { ifAvailable: true }, (lock) =>
+          lock
+            ? again()
+            : Promise.resolve({
+                ok: false as const,
+                reason: 'error' as const,
+                message: copyText('components.another.tab.has.a.bank.request.running'),
+              }),
+        )
+      : {
+          ok: false as const,
+          reason: 'not_supported' as const,
+          message: copyText('components.this.browser.cannot.coordinate.bank.requests.across'),
+        };
+    if (!currentRun()) return;
+    sending.current = null;
+    setResult(outcome);
     setStage('outcome');
     if (outcome.ok) onDone();
   }
@@ -762,6 +827,16 @@ export function MutationDialog({
                   <Text k="components.request.reference" />
                   {requestId}
                 </p>
+                {spec.resendSame && !spec.stepUp && (
+                  <>
+                    <p className="muted">
+                      <Text k="components.the.bank.answers.this.reference.with.its.first.result" />
+                    </p>
+                    <Button onClick={() => void resend()}>
+                      <Text k="components.send.the.same.request.again" />
+                    </Button>
+                  </>
+                )}
                 <Button
                   variant="secondary"
                   onClick={() => {

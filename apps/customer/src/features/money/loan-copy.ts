@@ -37,6 +37,11 @@ const messages = {
     'The amount is your repayment offer. The service takes no more than the current debt, pays interest first and releases settled collateral when the debt clears.',
   unavailableHistory:
     'This list isn’t your repayment or collateral history. If an earlier request never got a clear answer, new requests stay blocked until you check it, even if a refreshed loan looks the same.',
+  releasableNow: 'Most you can release now',
+  releasableChecking: 'Checking how much collateral the bank would release now…',
+  releasableOver: 'That is more than the bank would release now. Release {releasable} or less.',
+  releasableNone: 'The bank would release no collateral from this loan now.',
+  releasableFailed: 'The bank could not say how much it would release now, so nothing was sent.',
 } as const;
 
 const es = {
@@ -78,6 +83,11 @@ const es = {
     'El importe es tu oferta de pago. El servicio no toma más que la deuda actual, paga primero los intereses y libera la garantía al saldar la deuda.',
   unavailableHistory:
     'Esta lista no es tu historial de pagos ni de garantía. Si una solicitud anterior no recibió una respuesta clara, las nuevas solicitudes quedan bloqueadas hasta que la revises, aunque un préstamo actualizado parezca igual.',
+  releasableNow: 'Lo máximo que puedes liberar ahora',
+  releasableChecking: 'Comprobando cuánta garantía liberaría el banco ahora…',
+  releasableOver: 'Es más de lo que el banco liberaría ahora. Libera {releasable} o menos.',
+  releasableNone: 'El banco no liberaría ninguna garantía de este préstamo ahora.',
+  releasableFailed: 'El banco no pudo decir cuánto liberaría ahora, así que no se envió nada.',
 } as const;
 const fr = {
   statusPending: 'En attente',
@@ -119,6 +129,11 @@ const fr = {
     'Le montant est ton offre de remboursement. Le service ne prélève pas plus que la dette actuelle, paie d’abord les intérêts et libère la garantie lorsque la dette est soldée.',
   unavailableHistory:
     'Cette liste n’est pas ton historique de remboursements ni de garantie. Si une demande précédente n’a pas reçu de réponse claire, les nouvelles demandes restent bloquées tant que tu ne l’as pas vérifiée, même si un prêt actualisé semble identique.',
+  releasableNow: 'Le maximum que tu peux libérer maintenant',
+  releasableChecking: 'Vérification de la garantie que la banque libérerait maintenant…',
+  releasableOver: 'C’est plus que ce que la banque libérerait maintenant. Libère {releasable} ou moins.',
+  releasableNone: 'La banque ne libérerait aucune garantie de ce prêt maintenant.',
+  releasableFailed: 'La banque n’a pas pu dire combien elle libérerait maintenant, donc rien n’a été envoyé.',
 } as const;
 export const loanCopy = defineCopy('customer.money.loans', messages, { es, fr });
 

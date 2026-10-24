@@ -4,7 +4,7 @@ import type { Resource } from '../../shared/resource';
 import { parseAmount } from '../../shared/money';
 import { Button } from '../../shared/ui';
 import { bankReads, type loanSchema } from './contracts';
-import { bps, type ActionSpec } from './components';
+import { amount, bps, type ActionSpec } from './components';
 import { loanCopy } from './loan-copy';
 import './loan.css';
 
@@ -46,6 +46,27 @@ export function currentLoanPreflight(api: ApiClient, loan: Loan, action: LoanAct
       return { ok: false, reason: 'error', code: 'money.loan_release_exceeds_collateral', message: loanCopy.t('releaseTooLarge') };
     return { ok: true, data: null };
   };
+}
+
+/**
+ * The release review's terms (BK-loan-05): the bank's own answer to how much collateral it would release now. The amount
+ * asked for above that, or any amount when it would release none, holds Confirm with the reason; nothing is worked out here.
+ */
+export async function readReleasable(
+  api: ApiClient,
+  loanId: string,
+  assetId: string,
+  asked: unknown,
+  signal?: AbortSignal,
+): Promise<{ rows: [string, string][]; blocked: string | null }> {
+  const read = await api.query('bank', 'loans.releasable', { loanId }, bankReads['loans.releasable'], { signal });
+  if (!read.ok) return { rows: [], blocked: loanCopy.t('releasableFailed') };
+  const most = parseAmount(read.data.releasable);
+  const shown = amount(read.data.releasable, assetId);
+  const rows: [string, string][] = [[loanCopy.t('releasableNow'), shown]];
+  if (most === 0n) return { rows, blocked: loanCopy.t('releasableNone') };
+  if (typeof asked !== 'string' || parseAmount(asked) > most) return { rows, blocked: loanCopy.t('releasableOver', { releasable: shown }) };
+  return { rows, blocked: null };
 }
 
 export function LoanHealth({ loan, resource, reload }: { loan: Loan; resource: Resource<Health>; reload: () => void }) {
