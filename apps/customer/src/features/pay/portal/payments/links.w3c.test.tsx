@@ -37,11 +37,15 @@ it('rejects invalid amounts and use caps; requires an asset for a fixed amount w
   expect(createLinkInputSchema.safeParse({ ...input, amount: '0', currency: 'USDT' }).success).toBe(false);
   expect(createLinkInputSchema.safeParse({ ...input, maxUses: 1.5 }).success).toBe(false);
   expect(createLinkInputSchema.safeParse({ ...input, maxUses: 1_000_001 }).success).toBe(false);
+  // A catalogue price is named by its id; the service sets the amount and asset from it.
+  expect(createLinkInputSchema.safeParse({ ...input, priceId: '33333333-3333-4333-8333-333333333333' }).success).toBe(true);
+  expect(createLinkInputSchema.safeParse({ ...input, priceId: 'TEST price' }).success).toBe(false);
 });
 it('shows exact amounts and scoped loaded counts, with no placeholder card on a list that works', () => {
   const out = renderToString(<LinksView {...props} resource={{ status: 'ready', data: [link] }} />);
   expect(out).toContain('9,007,199,254,740,993.00');
   expect(out).toContain('1 shown from 1 link.');
+  expect(out).toContain('1 of 3');
   expect(out).not.toMatch(/You’ll be able to/);
   expect(out).not.toContain('token=');
 });

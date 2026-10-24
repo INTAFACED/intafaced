@@ -33,6 +33,8 @@ export function paymentLinkCreateFingerprint(input: {
    * fingerprint of links created before confirmation existed.
    */
   confirmation?: string;
+  /** Present only when the link is made from a catalogue price, so older keys still replay. */
+  priceId?: string;
 }): string {
   const body: Record<string, unknown> = {
     merchantId: input.merchantId.toLowerCase(),
@@ -44,6 +46,7 @@ export function paymentLinkCreateFingerprint(input: {
     maxUses: input.maxUses,
   };
   if (input.confirmation !== undefined) body.confirmation = input.confirmation;
+  if (input.priceId !== undefined) body.priceId = input.priceId.toLowerCase();
   return fingerprintRequest('POST', 'merchant.createLink', body);
 }
 

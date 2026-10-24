@@ -22,6 +22,11 @@ import { StatusChip, ToneChip } from '../ui/StatusChip';
 import { useServerList } from '../ui/useServerList';
 import { paymentLabel } from '../presentation';
 import type { Payment } from '../schemas';
+import type { PricedProduct } from '@intafaced/contracts/merchant-catalog';
+import { LinkPricePicker } from '../catalog/LinkPrice';
+import { SubscriptionPriceFact } from '../catalog/SubscriptionPrice';
+import { catalogCopy } from '../catalog/copy';
+import { priceWords } from '../catalog/Prices';
 import { useAssetChoices } from './asset-choices';
 import { addressOf } from './checkout-address';
 import { LinkAddress } from './LinkAddress';
@@ -56,6 +61,7 @@ export const createLinkInputSchema = z
     profileId: s.id.optional(),
     amount: s.positiveAmount.optional(),
     currency: s.asset.optional(),
+    priceId: s.id.optional(),
     expiresAt: z.string().datetime({ offset: true }).optional(),
     maxUses: z.number().int().min(1).max(1_000_000).optional(),
   })
@@ -236,12 +242,7 @@ export function LinksView({
                       { header: t('status'), cell: (link) => <LinkChip value={linkState(link, now)} /> },
                       {
                         header: t('uses'),
-                        cell: (link) => (
-                          <>
-                            {link.uses}
-                            {link.maxUses !== null ? ` / ${link.maxUses}` : ''}
-                          </>
-                        ),
+                        cell: (link) => <>{link.maxUses !== null ? t('lk_usesOf', { uses: link.uses, max: link.maxUses }) : link.uses}</>,
                       },
                       { header: t('expiry'), cell: (link) => (link.expiresAt ? <DateTime value={link.expiresAt} /> : '—') },
                     ]}
@@ -339,6 +340,9 @@ function LinkDetail({ selected, now, pay, merchantId, portal, retry }: LinkDetai
               '—'
             ),
           ],
+          ...(selected.priceId && portal
+            ? [[catalogCopy.t('linkPrice'), <SubscriptionPriceFact portal={portal} priceId={selected.priceId} />] as const]
+            : []),
           [t('uses'), selected.uses],
           [t('maxUses'), selected.maxUses ?? t('noUseCap')],
           [t('expiry'), selected.expiresAt ? <DateTime value={selected.expiresAt} /> : '—'],
@@ -628,7 +632,9 @@ function LinkRecovery({
 }
 export function PaymentLinkForm({ pay, merchantId, portal }: { pay: BusinessPayApi; merchantId: string; portal?: PortalApi }) {
   const { t } = w3cCopy.useCopy();
-  const [form, setForm] = useState({ label: '', amount: '', currency: '', profileId: '', expiry: '', maxUses: '' });
+  const [form, setForm] = useState({ label: '', amount: '', currency: '', priceId: '', profileId: '', expiry: '', maxUses: '' });
+  // The catalogue price picked, as the picker read it: its product's name and price words for the review.
+  const [priced, setPriced] = useState<PricedProduct | null>(null);
   const [created, setCreated] = useState<z.infer<typeof s.newLinkSchema> | null>(null);
   const [sent, setSent] = useState(false);
   // Bumped when a lost reply is recovered, so the stale "outcome not confirmed" notice goes with it.
@@ -644,18 +650,21 @@ export function PaymentLinkForm({ pay, merchantId, portal }: { pay: BusinessPayA
     label: form.label,
     ...(form.amount ? { amount: form.amount } : {}),
     ...(form.currency ? { currency: form.currency } : {}),
+    ...(form.priceId ? { priceId: form.priceId } : {}),
     ...(form.profileId ? { profileId: form.profileId } : {}),
     ...(form.expiry ? { expiresAt: expiryIso(form.expiry) } : {}),
     ...(form.maxUses ? { maxUses: /^[1-9]\d*$/.test(form.maxUses) ? Number(form.maxUses) : NaN } : {}),
   });
   const noWrite = pay.access('pay:write') !== null;
   useUnsavedForm(!sent && Object.values(form).some(Boolean), t('unsaved'));
-  const field = (key: keyof typeof form, label: string, hint: string, required = false, type = 'text') => (
+  const fromPrice = Boolean(form.priceId);
+  const field = (key: keyof typeof form, label: string, hint: string, required = false, type = 'text', disabled = false) => (
     <Field
       label={`${label}${required ? ' *' : ''}`}
       hint={hint}
       required={required}
       type={type}
+      disabled={disabled}
       value={form[key]}
       onChange={(event) => setForm({ ...form, [key]: event.target.value })}
       error={
@@ -675,14 +684,38 @@ export function PaymentLinkForm({ pay, merchantId, portal }: { pay: BusinessPayA
       <div className="form-stack pp-form">
         <fieldset className="pp-group">
           <legend>{t('groupCheckout')}</legend>
+          {portal && (
+            <LinkPricePicker
+              portal={portal}
+              value={form.priceId}
+              disabled={sent}
+              onChange={(choice) => {
+                // The label follows the product while it is the one a price filled in; a label the owner typed stays.
+                const filled = !form.label || form.label === priced?.product.name;
+                setPriced(choice);
+                setForm(
+                  choice
+                    ? {
+                        ...form,
+                        priceId: choice.price.id,
+                        label: filled ? choice.product.name : form.label,
+                        amount: choice.price.amount ?? '',
+                        currency: choice.price.assetId,
+                      }
+                    : { ...form, priceId: '', label: filled ? '' : form.label, amount: '', currency: '' },
+                );
+              }}
+            />
+          )}
           {field('label', t('linkLabel'), t('linkLabelHint'), true)}
           <div className="form-row">
-            {field('amount', t('fixedAmount'), t('fixedAmountHint'))}
+            {field('amount', t('fixedAmount'), fromPrice ? catalogCopy.t('linkPriceSets') : t('fixedAmountHint'), false, 'text', fromPrice)}
             <SelectField
               label={t('lk_asset')}
               value={form.currency}
               onChange={(value) => setForm({ ...form, currency: value })}
-              hint={t('assetHint')}
+              hint={fromPrice ? catalogCopy.t('linkPriceSets') : t('assetHint')}
+              disabled={fromPrice}
               options={[['', t('lk_noAsset')], ...assets.map((a) => [a, a] as const)]}
             />
           </div>
@@ -705,6 +738,14 @@ export function PaymentLinkForm({ pay, merchantId, portal }: { pay: BusinessPayA
             review={
               <PayDetails
                 values={[
+                  ...(priced
+                    ? [
+                        [
+                          catalogCopy.t('linkPrice'),
+                          catalogCopy.t('linkPriceOption', { product: priced.product.name, price: priceWords(priced.price) }),
+                        ] as [string, string],
+                      ]
+                    : []),
                   [t('linkLabel'), form.label],
                   [t('amount'), form.amount ? `${form.amount} ${form.currency}` : t('payerChooses')],
                   [t('expiry'), parsed.success && parsed.data.expiresAt ? <DateTime value={parsed.data.expiresAt} /> : t('serviceExpiry')],

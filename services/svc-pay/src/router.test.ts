@@ -1987,6 +1987,29 @@ describe('payment links are capability URLs on the wire too', () => {
     expect(codeOf(err)).toBe('CONFLICT');
   });
 
+  it('forwards a catalogue price and maps its refusals', async () => {
+    const api = await caller(['pay:write']);
+    const priceId = '33333333-3333-4333-8333-333333333333';
+    await api.merchant.createLink({ merchantId: MERCHANT, label: 'TEST Hoodie', priceId, idempotencyKey: 'link-p' });
+    expect(stub.calls.find((c) => c.method === 'createPaymentLink')!.args[0]).toMatchObject({ priceId, idempotencyKey: 'link-p' });
+    expect(codeOf(await api.merchant.createLink({ merchantId: MERCHANT, label: 'TEST', priceId: 'p-1' }).catch((e: unknown) => e))).toBe(
+      'BAD_REQUEST',
+    );
+
+    for (const [code, trpc] of [
+      ['pay.price_not_found', 'NOT_FOUND'],
+      ['pay.price_archived', 'PRECONDITION_FAILED'],
+      ['pay.product_archived', 'PRECONDITION_FAILED'],
+      ['pay.link_price_not_one_time', 'BAD_REQUEST'],
+      ['pay.link_price_terms_differ', 'BAD_REQUEST'],
+    ] as const) {
+      stub.fail(new PayError('refused', code));
+      const err = await api.merchant.createLink({ merchantId: MERCHANT, label: 'TEST', priceId }).catch((e: unknown) => e);
+      expect(codeOf(err)).toBe(trpc);
+      expect((err as { message?: string }).message).toContain(code);
+    }
+  });
+
   it('refuses a maxUses of zero rather than creating a link nobody can pay', async () => {
     const api = await caller(['pay:write']);
     const err = await api.merchant.createLink({ merchantId: MERCHANT, label: 'Invoice', maxUses: 0 }).catch((e: unknown) => e);

@@ -1,4 +1,5 @@
 import { checkoutUrlFor, paymentLinkCreateFingerprint, paymentLinkCreateKey } from './payment-link-create.js';
+import { linkPrice } from './link-price.js';
 import { checkoutLookOf, type CheckoutLook } from './checkout-branding/branding.js';
 import {
   confirmationFingerprint,
@@ -516,7 +517,11 @@ export type PayErrorCode =
   /** That price's product is archived, so nothing new starts on it. */
   | 'pay.product_archived'
   /** The mandate's asset, amount or cadence is not the price's: a monthly fixed price equal to the mandate's terms. */
-  | 'pay.subscription_price_terms_differ';
+  | 'pay.subscription_price_terms_differ'
+  /** A payment link sells one payment of one amount: a monthly price or one the customer chooses is refused. */
+  | 'pay.link_price_not_one_time'
+  /** A payment link made from a price was sent an amount or asset that is not the price's. */
+  | 'pay.link_price_terms_differ';
 
 /** Owner link default lifetime unpublished. Blank PAY_LINK_DEFAULT_TTL_DAYS is not 30. */
 export function publishedLinkDefaultTtlDays(days: number | null | undefined): number {
@@ -1594,6 +1599,11 @@ export class PayService {
     profileId?: string | null;
     amount?: Amount;
     currency?: string;
+    /**
+     * A one-time fixed catalogue price (M-catalogue-03). The link charges its amount and asset and keeps it; an amount or
+     * asset sent too must be the price's.
+     */
+    priceId?: string;
     /** Omit for the default lifetime. `null` — "never expires" — is refused. */
     expiresAt?: Date | null;
     /** Completed payments this link may take. Omit for unbounded. */
@@ -1646,6 +1656,7 @@ export class PayService {
           expiresAt: input.expiresAt === undefined ? 'default' : input.expiresAt === null ? 'null' : input.expiresAt.toISOString(),
           maxUses: input.maxUses ?? null,
           ...(input.confirmation !== undefined ? { confirmation: confirmationFingerprint(share.message, share.url) } : {}),
+          ...(input.priceId !== undefined ? { priceId: input.priceId } : {}),
         })
       : null;
 
@@ -1656,12 +1667,16 @@ export class PayService {
       this.assertMerchantActive(await this.getMerchant(input.merchantId));
       const expiresAt = this.linkExpiryFor(input.expiresAt);
       await this.assertLinkProfile(this.sql, input.merchantId, input.profileId);
-      return this.insertPaymentLink(this.sql, {
-        ...input,
-        expiresAt,
-        confirmationMessage: share.message,
-        confirmationUrl: share.url,
-      });
+      // One transaction, so a catalogue price stays held (and unarchived) until the link that sells it is written.
+      return transaction(this.sql, async (tx) =>
+        this.insertPaymentLink(tx, {
+          ...input,
+          ...(input.priceId !== undefined ? await linkPrice(tx, input.merchantId, input.priceId, input) : {}),
+          expiresAt,
+          confirmationMessage: share.message,
+          confirmationUrl: share.url,
+        }),
+      );
     }
 
     const idempotencyKey = key.key;
@@ -1699,6 +1714,7 @@ export class PayService {
       await this.assertLinkProfile(tx, input.merchantId, input.profileId);
       const created = await this.insertPaymentLink(tx, {
         ...input,
+        ...(input.priceId !== undefined ? await linkPrice(tx, input.merchantId, input.priceId, input) : {}),
         expiresAt,
         confirmationMessage: share.message,
         confirmationUrl: share.url,
@@ -1748,6 +1764,7 @@ export class PayService {
       profileId?: string | null;
       amount?: Amount;
       currency?: string;
+      priceId?: string;
       expiresAt: Date;
       maxUses?: number;
       confirmationMessage?: string | null;
@@ -1770,7 +1787,7 @@ export class PayService {
     const rows = await sql<Array<{ id: string }>>`
       INSERT INTO pay.payment_links (
         merchant_id, profile_id, token_hash, token_prefix, checkout_token, label, amount, currency, expires_at, max_uses,
-        confirmation_message, confirmation_url
+        confirmation_message, confirmation_url, price_id
       ) VALUES (
         ${input.merchantId},
         ${input.profileId ?? null},
@@ -1783,7 +1800,8 @@ export class PayService {
         ${input.expiresAt},
         ${input.maxUses ?? null},
         ${input.confirmationMessage ?? null},
-        ${input.confirmationUrl ?? null}
+        ${input.confirmationUrl ?? null},
+        ${input.priceId ?? null}
       )
       RETURNING id
     `;
@@ -2020,6 +2038,7 @@ export class PayService {
       confirmationMessage: string | null;
       confirmationUrl: string | null;
       embedSnippet: string | null;
+      priceId: string | null;
     }>;
     nextCursor: string | null;
   }> {
@@ -2046,10 +2065,11 @@ export class PayService {
         inactive_message: string | null;
         confirmation_message: string | null;
         confirmation_url: string | null;
+        price_id: string | null;
       }>
     >`
       SELECT id, token_prefix, checkout_token, label, amount::text, currency, active, expires_at, max_uses, uses, created_at,
-             inactive_message, confirmation_message, confirmation_url,
+             inactive_message, confirmation_message, confirmation_url, price_id,
              to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor
         FROM pay.payment_links
        WHERE merchant_id = ${merchantId}
@@ -2102,6 +2122,7 @@ export class PayService {
     confirmationMessage: string | null;
     confirmationUrl: string | null;
     embedSnippet: string | null;
+    priceId: string | null;
   }> {
     await this.getMerchant(merchantId);
     const rows = await this.sql<
@@ -2120,10 +2141,11 @@ export class PayService {
         inactive_message: string | null;
         confirmation_message: string | null;
         confirmation_url: string | null;
+        price_id: string | null;
       }>
     >`
       SELECT id, token_prefix, checkout_token, label, amount::text, currency, active, expires_at, max_uses, uses, created_at,
-             inactive_message, confirmation_message, confirmation_url
+             inactive_message, confirmation_message, confirmation_url, price_id
         FROM pay.payment_links
        WHERE id = ${linkId}
          AND merchant_id = ${merchantId}
@@ -2148,6 +2170,7 @@ export class PayService {
     inactive_message: string | null;
     confirmation_message: string | null;
     confirmation_url: string | null;
+    price_id: string | null;
   }): {
     id: string;
     prefix: string;
@@ -2165,6 +2188,7 @@ export class PayService {
     confirmationMessage: string | null;
     confirmationUrl: string | null;
     embedSnippet: string | null;
+    priceId: string | null;
   } {
     const token = r.checkout_token;
     const checkoutUrl = token ? this.checkoutUrl(token) : null;
@@ -2190,6 +2214,7 @@ export class PayService {
         currency: r.currency,
         label: r.label,
       }),
+      priceId: r.price_id,
     };
   }
 
