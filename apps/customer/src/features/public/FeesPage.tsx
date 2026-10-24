@@ -28,6 +28,11 @@ export function FeesView({ load }: { load: Loadable<PublicFeeSchedule | null> })
         <h1>{copy.t('title')}</h1>
         <p>{copy.t('lead')}</p>
         {load.status === 'ready' && load.data ? <p className="muted">{copy.t('version', { version: load.data.version })}</p> : null}
+        <p>
+          <a className="text-link" href="/fees/my-tier">
+            {copy.t('myTierLink')} →
+          </a>
+        </p>
       </header>
       {load.status === 'loading' ? <p role="status">{copy.t('loading')}</p> : null}
       {load.status === 'error' ? (
