@@ -134,6 +134,27 @@ export interface CalculatorInput {
 }
 
 /** One futures order through the book (`POST /futures/orders`): an open, or a reduce-only close. */
+/**
+ * A take profit and stop loss attached to an opening order. The service arms them on the position once the order
+ * fills, sized to what has filled, and grows them as more fills: waiting, armed (the order may fill more), done,
+ * not_filled (it ended with no fill), no_position (nothing open on its side to protect) or not_placed (no order came).
+ */
+export const entryProtectionSchema = z.object({
+  id: z.string(),
+  symbol: z.string(),
+  clientOrderId: z.string(),
+  side: z.enum(['buy', 'sell']),
+  takeProfit: decimalSchema.nullable(),
+  stopLoss: decimalSchema.nullable(),
+  status: z.enum(['waiting', 'armed', 'done', 'not_filled', 'no_position', 'not_placed']),
+  armedQuantity: decimalSchema,
+  takeProfitClientOrderId: z.string().nullable(),
+  stopLossClientOrderId: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type EntryProtection = z.infer<typeof entryProtectionSchema>;
+
 export const futuresOrderSchema = z.object({
   orderId: z.string(),
   clientOrderId: z.string().optional(),
@@ -158,6 +179,8 @@ export const futuresOrderSchema = z.object({
   bankruptcyPrice: decimalSchema.nullable(),
   symbol: z.string().optional(),
   createdAt: z.string().optional(),
+  /** Present when the order asked for a take profit or stop loss. */
+  protection: entryProtectionSchema.optional(),
 });
 export type FuturesOrder = z.infer<typeof futuresOrderSchema>;
 
@@ -299,6 +322,9 @@ export interface OpenInput {
   priceCorrection?: 'adjust';
   /** Above the max-order: placed as children of at most the cap (`POST /futures/orders/split`), keyed `<clientOpenId>:1..N`. */
   split?: true;
+  /** A take profit and a stop loss attached to the order: they arm on what it fills (never with a split). */
+  takeProfit?: string;
+  stopLoss?: string;
   /** The margin tier the trader accepted in the confirm step; the service refuses a crossing into a tier not named. */
   confirmTier?: number;
   clientOpenId: string;
@@ -316,6 +342,8 @@ export interface PlaceOrderInput {
   collateralClass?: string;
   priceCorrection?: 'adjust';
   confirmTier?: number;
+  takeProfit?: string;
+  stopLoss?: string;
 }
 
 /** What the review asks: the form as it would be sent, so the band, the slippage cap and the split are this order's own. */
@@ -386,6 +414,11 @@ export function createFuturesApi(api: ApiClient) {
     conditionalOrders: async (signal?: AbortSignal): Promise<ApiResult<ConditionalOrder[]>> => {
       const read = await api.rest('/futures/conditional-orders', z.object({ orders: z.array(conditionalOrderSchema) }), { signal });
       return read.ok ? { ...read, data: read.data.orders } : read;
+    },
+    /** Every take profit and stop loss attached to an opening order: waiting, armed, and the newest finished. */
+    entryProtections: async (signal?: AbortSignal): Promise<ApiResult<EntryProtection[]>> => {
+      const read = await api.rest('/futures/entry-protection', z.object({ protections: z.array(entryProtectionSchema) }), { signal });
+      return read.ok ? { ...read, data: read.data.protections } : read;
     },
     conditionalOrder: (id: string, signal?: AbortSignal) =>
       api.rest(`/futures/conditional-orders/${encodeURIComponent(id)}`, conditionalOrderSchema, { signal }),

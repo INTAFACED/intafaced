@@ -265,4 +265,98 @@ describe('futures orders through the book: REST', () => {
     expect(res.statusCode).toBe(503);
     expect(res.json().error).toBe('trade.futures_orders_unmounted');
   });
+
+  describe('a take profit and stop loss on an opening order (J-derivatives-03 #4)', () => {
+    const protection = {
+      id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      symbol: 'BTC/USDT:USDT',
+      clientOrderId: 'desk-1',
+      side: 'buy' as const,
+      takeProfit: '70000',
+      stopLoss: '60000',
+      status: 'waiting' as const,
+      armedQuantity: '0',
+      takeProfitClientOrderId: null,
+      stopLossClientOrderId: null,
+      createdAt: '2026-10-23T00:00:00.000Z',
+      updatedAt: '2026-10-23T00:00:00.000Z',
+    };
+
+    it('is recorded before the order is placed, and answered with it', async () => {
+      const calls: string[] = [];
+      const server = await app({
+        place: async () => {
+          calls.push('place');
+          return order;
+        },
+        entryProtection: {
+          record: async (userId, input) => {
+            calls.push('record');
+            expect({ userId, ...input }).toEqual({
+              userId: USER,
+              symbol: 'BTC/USDT:USDT',
+              side: 'buy',
+              reduceOnly: false,
+              clientOrderId: 'desk-1',
+              takeProfit: '70000',
+              stopLoss: '60000',
+            });
+            return protection;
+          },
+        },
+      });
+      const res = await server.inject({
+        method: 'POST',
+        url: '/api/v1/futures/orders',
+        payload: { ...body, takeProfit: '70000', stopLoss: '60000' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ ...order, protection });
+      expect(calls).toEqual(['record', 'place']);
+    });
+
+    it('a refused protection places nothing; an order with none never asks', async () => {
+      let placed = 0;
+      const server = await app({
+        place: async () => {
+          placed += 1;
+          return order;
+        },
+        entryProtection: {
+          record: async (_u, input) => {
+            if (input.takeProfit === undefined) throw new Error('asked without a protection');
+            throw new MatchedOrderError('takeProfit is on the wrong side of the mark', 'trade.protection_wrong_side', 400);
+          },
+        },
+      });
+      const refused = await server.inject({ method: 'POST', url: '/api/v1/futures/orders', payload: { ...body, takeProfit: '60000' } });
+      expect(refused.statusCode).toBe(400);
+      expect(refused.json()).toMatchObject({ error: 'trade.protection_wrong_side' });
+      expect(placed).toBe(0);
+      const plain = await server.inject({ method: 'POST', url: '/api/v1/futures/orders', payload: body });
+      expect(plain.json()).toEqual(order);
+      expect(placed).toBe(1);
+    });
+
+    it('unwired is 503 with nothing placed, and the split door refuses it in words', async () => {
+      let placed = 0;
+      const server = await app({
+        place: async () => {
+          placed += 1;
+          return order;
+        },
+        placeSplit: async () => {
+          placed += 1;
+          return { parts: 1, orders: [order], stopped: null };
+        },
+      });
+      const unwired = await server.inject({ method: 'POST', url: '/api/v1/futures/orders', payload: { ...body, stopLoss: '60000' } });
+      expect(unwired.statusCode).toBe(503);
+      expect(unwired.json()).toMatchObject({ error: 'trade.entry_protection_unmounted' });
+      const split = await server.inject({ method: 'POST', url: '/api/v1/futures/orders/split', payload: { ...body, takeProfit: '70000' } });
+      expect(split.statusCode).toBe(400);
+      expect(split.json()).toMatchObject({ error: 'trade.entry_protection_split_unsupported' });
+      expect(placed).toBe(0);
+    });
+  });
 });

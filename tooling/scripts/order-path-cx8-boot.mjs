@@ -417,7 +417,7 @@ async function main() {
     // screening reader ignores 'off' there, so screening stays fail-closed.
     INTAFACED_SCREENING_FAIL_CLOSED: 'off', // SMOKE RIG ONLY — local-test fixture value, same as every service's vitest config; refused outside dev/test
     // Owner values (convert spread, slippage cap, dead-man timeouts, fee schedule, pre-trade caps): the labelled TEST profile,
-    // tooling/profiles/test-owner-values/<service>.json, listed in docs/OWNER-SETTINGS.md. Blank in compose; never a product default.
+    // tooling/profiles/test-owner-values/<service>.json, listed by `node tooling/scripts/owner-settings.mjs`. Blank in compose; never a product default.
     ...profileEnvFor('trade', common.APP_ENV),
     // NOT a boot requirement any more. svc-trade boots with this blank and logs
     // "FUTURES IS DISABLED" (optionalProfitSourceFromConfig in

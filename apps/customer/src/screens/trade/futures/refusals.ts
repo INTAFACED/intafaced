@@ -178,6 +178,20 @@ const WORDS: Readonly<Record<string, Words>> = {
     body: 'A take profit must be past the mark price in your favour, and a stop loss past it against you: above the mark for a long’s take profit, below it for its stop loss, and the other way round for a short. Nothing was saved.',
     retryable: false,
   },
+  'trade.entry_protection_reduce_only': {
+    title: 'A reduce-only order takes no take profit or stop loss',
+    body: 'A take profit or stop loss is attached to an order that opens or adds to a position. Nothing was placed.',
+    retryable: false,
+  },
+  'trade.entry_protection_split_unsupported': {
+    title: 'A split order takes no take profit or stop loss',
+    body: 'A take profit or stop loss attaches to one order. Clear them to split, then set them on the position once it is open. Nothing was placed.',
+    retryable: false,
+  },
+  'trade.entry_protection_unmounted': {
+    title: 'Take profit and stop loss on an order are not available here',
+    body: 'This deployment does not attach a take profit or stop loss to an order. Nothing was placed. Clear them to open, then set them on the position.',
+  },
   'trade.conditional_trigger_off': {
     title: 'Price triggers are switched off',
     body: 'The platform is not watching prices for take-profit, stop-loss or stop orders right now, so none can be armed. Nothing was saved. Your position is unchanged.',

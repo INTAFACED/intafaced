@@ -110,6 +110,8 @@ function openOrder(input: OpenInput): PlaceOrderInput {
     clientOrderId: input.clientOpenId,
     ...(input.collateralClass ? { collateralClass: input.collateralClass } : {}),
     ...(input.confirmTier !== undefined ? { confirmTier: input.confirmTier } : {}),
+    ...(input.takeProfit ? { takeProfit: input.takeProfit } : {}),
+    ...(input.stopLoss ? { stopLoss: input.stopLoss } : {}),
   };
 }
 
@@ -214,8 +216,14 @@ export type WriteOutcome =
  * profitable close that fails the payout-grade mark check). The shared client calls any 5xx on a write "uncertain"; for these
  * codes the answer is definite, so they must not leave the device-wide note behind.
  */
-// Answered as 503 but nothing was changed: a missing mark, and price triggers switched off (nothing is armed or replaced).
-const ROLLED_BACK_CODES: ReadonlySet<string> = new Set(['trade.mark_missing', 'trade.mark_unusable', 'trade.conditional_trigger_off']);
+// Answered as 503 but nothing was changed: a missing mark, price triggers switched off (nothing is armed, replaced or
+// placed), and a take profit or stop loss on an order where that is not mounted (refused before the order is placed).
+const ROLLED_BACK_CODES: ReadonlySet<string> = new Set([
+  'trade.mark_missing',
+  'trade.mark_unusable',
+  'trade.conditional_trigger_off',
+  'trade.entry_protection_unmounted',
+]);
 const isDefinite = (result: { ok: boolean; reason?: string; code?: string }) =>
   !result.ok && result.reason === 'uncertain' && result.code !== undefined && ROLLED_BACK_CODES.has(result.code);
 
