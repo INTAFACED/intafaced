@@ -191,25 +191,31 @@ export function AddressBook({
   return <AddressTable rows={resource.data} now={now} onRename={onRename} onRemove={onRemove} onProve={onProve} onUse={onUse} />;
 }
 
+/** The bank's refusals for the security lock (W-withdraw-09), which have plain words of their own. */
+const lockRefusal = (code: string | undefined) =>
+  code === 'bank.security_locked' || code === 'bank.security_lock_unavailable' || code === 'bank.security_lock_unset';
+
 /** The answer to "can money be sent to this address now?" in the customer's words, first reason first. */
 export function readinessWords(
   answer: DestinationReadiness,
   label: string,
   t: ReturnType<typeof withdrawalCopy.useCopy>['t'],
-): { text: string; ready: boolean; locked: boolean } {
+): { text: string; locked: boolean } {
   switch (answer.state) {
     case 'ready':
-      return { text: t('aUseReady', { label }), ready: true, locked: false };
+      return { text: t('aUseReady', { label }), locked: false };
     case 'cooling':
-      return { text: t('aUseCooling', { label, time: date(answer.coolingOffEndsAt ?? '') }), ready: false, locked: false };
+      return {
+        text: answer.coolingOffEndsAt ? t('aUseCooling', { label, time: date(answer.coolingOffEndsAt) }) : t('aUseCoolingNoEnd', { label }),
+        locked: false,
+      };
     case 'cooling_unset':
-      return { text: t('aUseCoolingUnset', { label }), ready: false, locked: false };
+      return { text: t('aUseCoolingUnset', { label }), locked: false };
     case 'blocked':
-      return { text: t('aUseBlocked', { label }), ready: false, locked: false };
+      return { text: t('aUseBlocked', { label }), locked: false };
     case 'locked':
       return {
         text: `${t('aUseLocked')} ${answer.lockUnlocksAt ? t('aUseLockEnds', { time: date(answer.lockUnlocksAt) }) : t('aUseLockAsk')}`,
-        ready: false,
         locked: true,
       };
   }
@@ -217,8 +223,8 @@ export function readinessWords(
 
 /**
  * "Withdraw to this address" (W-withdraw-09): the bank says whether money may be sent to this saved address now
- * (`ramps.destinations.readiness`), with the same rules its send path applies. A new address is refused with the time
- * its cooling-off ends, a locked account with the lock, and a ready one points to Withdraw. Nothing is sent from here.
+ * (`ramps.destinations.readiness`), with the lock and cooling-off rules its send path applies. A new address is refused
+ * with the time its cooling-off ends and a locked account with the lock. Nothing is sent from here.
  */
 export function UseAddress({ row, onClose }: { row: Destination; onClose: () => void }) {
   const { t } = withdrawalCopy.useCopy();
@@ -247,14 +253,9 @@ export function UseAddress({ row, onClose }: { row: Destination; onClose: () => 
   return (
     <div className="bd-stack" data-testid="address-use">
       {!answer && !problem && <p role="status">{t('aUseChecking')}</p>}
-      {words && <p role={words.ready ? 'status' : 'alert'}>{words.text}</p>}
+      {words && <p role={answer?.state === 'ready' ? 'status' : 'alert'}>{words.text}</p>}
       {problem && <p role="alert">{problem}</p>}
       <p>
-        {words?.ready && (
-          <a className="button button--primary" href="/uc/withdraw">
-            {t('aUseGo')}
-          </a>
-        )}
         {words?.locked && (
           <a className="button button--secondary" href="/uc/safe">
             {t('aUseSecurity')}
@@ -640,9 +641,8 @@ function AddForm({ onSaved }: { onSaved: () => void }) {
             // The two address refusals in the customer's own words; the check above makes them rare.
             if (!answer.ok && answer.code === 'bank.address_lookalike') return { ...answer, message: t('aLookalikeRefused') };
             if (!answer.ok && answer.code === 'bank.address_checksum_mismatch') return { ...answer, message: t('aAddressChecksum') };
-            // Any other refusal the bank names (the security lock among them) in the customer's words.
-            const words = answer.ok ? null : moneyRefusalWords(answer.code);
-            return words ? { ...answer, message: words } : answer;
+            // The security lock's refusals in the customer's words; any other refusal keeps the bank's own sentence.
+            return !answer.ok && lockRefusal(answer.code) ? { ...answer, message: moneyRefusalWords(answer.code)! } : answer;
           }}
           onDone={() => {
             setConfirming(false);
@@ -719,21 +719,20 @@ export function WithdrawalAddresses({ open }: { open?: (spec: ActionSpec) => voi
         {removing && (
           <WithdrawStepUp
             why={t('aRemoveWhy', { address: shortenAddress(removing.ref) })}
-            run={async (token) => {
-              const answer = await api.mutate(
+            run={(token) =>
+              api.mutate(
                 'bank',
                 'ramps.destinations.remove',
                 // One removal of one entry: a retry of it is the same request.
                 { destinationId: removing.destinationId, idempotencyKey: `destination-remove:${removing.destinationId}` },
                 destinationRemovedSchema,
                 { bearer: token },
-              );
-              // A refusal the bank names (the security lock among them) in the customer's words.
-              const words = answer.ok ? null : moneyRefusalWords(answer.code);
-              return words ? { ...answer, message: words } : answer;
-            }}
+              )
+            }
             onDone={() => {
               setRemoved(removing.label ?? shortenAddress(removing.ref));
+              // An answer about the removed address no longer stands.
+              if (using?.destinationId === removing.destinationId) setUsing(null);
               setRemoving(null);
               book.reload();
             }}

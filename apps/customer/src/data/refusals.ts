@@ -167,7 +167,7 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
   addressBookFull: { title: 'Your address book is full', body: 'Remove an address to save a new one.' },
   securityLocked: {
     title: 'Your security lock is on',
-    body: 'Withdrawal addresses cannot be added or removed and nothing can be withdrawn until the lock ends. Nothing was changed.',
+    body: 'No withdrawal address can be added and nothing can be withdrawn to one until the lock ends. Nothing was changed.',
   },
   entriesDoNotSum: {
     title: 'The entries do not add up to your balance',

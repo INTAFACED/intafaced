@@ -53,7 +53,7 @@ const en = {
   receiveCheckDown: 'We could not check whether the recipient can receive money. Nothing was sent. Try again in a moment.',
   receiveCheckOff: 'Paying other people is not set up on this service. Nothing was sent.',
   securityLocked:
-    'Your security lock is on, so withdrawal addresses cannot be added or removed and nothing can be withdrawn until it ends. Nothing was changed.',
+    'Your security lock is on, so no withdrawal address can be added and nothing can be withdrawn to one until it ends. Nothing was changed.',
   securityLockDown: 'We could not check your security lock, so nothing was changed. Try again in a moment.',
   securityLockOff:
     'Withdrawal addresses and withdrawals are not set up on this service, because the security lock cannot be checked. Nothing was changed.',
@@ -128,7 +128,7 @@ const es = {
   receiveCheckDown: 'No pudimos comprobar si el destinatario puede recibir dinero. No se envió nada. Inténtalo de nuevo en un momento.',
   receiveCheckOff: 'Pagar a otras personas no está configurado en este servicio. No se envió nada.',
   securityLocked:
-    'Tu bloqueo de seguridad está activado: no se pueden añadir ni quitar direcciones de retiro ni retirar nada hasta que termine. No se cambió nada.',
+    'Tu bloqueo de seguridad está activado: no se pueden añadir direcciones de retiro ni retirar nada a ellas hasta que termine. No se cambió nada.',
   securityLockDown: 'No pudimos comprobar tu bloqueo de seguridad, así que no se cambió nada. Inténtalo de nuevo en un momento.',
   securityLockOff:
     'Las direcciones de retiro y los retiros no están configurados en este servicio, porque no se puede comprobar el bloqueo de seguridad. No se cambió nada.',
@@ -208,7 +208,7 @@ const fr = {
     'Nous n’avons pas pu vérifier si le destinataire peut recevoir de l’argent. Rien n’a été envoyé. Réessayez dans un instant.',
   receiveCheckOff: 'Payer d’autres personnes n’est pas configuré sur ce service. Rien n’a été envoyé.',
   securityLocked:
-    'Votre verrou de sécurité est activé : aucune adresse de retrait ne peut être ajoutée ni supprimée, et rien ne peut être retiré tant qu’il dure. Rien n’a été modifié.',
+    'Votre verrou de sécurité est activé : aucune adresse de retrait ne peut être ajoutée et rien ne peut y être retiré tant qu’il dure. Rien n’a été modifié.',
   securityLockDown: 'Nous n’avons pas pu vérifier votre verrou de sécurité, donc rien n’a été modifié. Réessayez dans un instant.',
   securityLockOff:
     'Les adresses de retrait et les retraits ne sont pas configurés sur ce service, car le verrou de sécurité ne peut pas être vérifié. Rien n’a été modifié.',

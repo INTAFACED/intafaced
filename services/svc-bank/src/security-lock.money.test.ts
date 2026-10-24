@@ -134,7 +134,20 @@ describe('the address book while the security lock holds', () => {
     expect(await destinations.list(USER)).toEqual([]);
   });
 
-  it('refuses removing an address, and the entry stays', async () => {
+  it('answers a replay of a save made before the lock as before, and adds nothing new', async () => {
+    const { service, lock, destinations } = ramps();
+    const saved = await service.saveDestination(entry);
+    lock.set(USER, LOCKED);
+    await expect(service.saveDestination({ ...entry, ref: ADDRESS.toLowerCase() })).resolves.toMatchObject({
+      destinationId: saved.destinationId,
+    });
+    await expect(service.saveDestination({ ...entry, tag: 'memo-1', label: 'TEST other' })).rejects.toMatchObject({
+      code: 'bank.security_locked',
+    });
+    expect((await destinations.list(USER)).map((row) => row.destinationId)).toEqual([saved.destinationId]);
+  });
+
+  it('still removes an address: removing only takes a way out away', async () => {
     const { service, lock, destinations } = ramps();
     const saved = await service.saveDestination(entry);
     lock.set(USER, LOCKED);
@@ -144,8 +157,8 @@ describe('the address book while the security lock holds', () => {
         destinationId: saved.destinationId,
         idempotencyKey: `destination-remove:${saved.destinationId}`,
       }),
-    ).rejects.toMatchObject({ code: 'bank.security_locked' });
-    expect((await destinations.list(USER)).map((row) => row.destinationId)).toEqual([saved.destinationId]);
+    ).resolves.toEqual({ destinationId: saved.destinationId, removed: true });
+    expect(await destinations.list(USER)).toEqual([]);
   });
 
   it('still renames: a label cannot change where money goes', async () => {
@@ -222,6 +235,18 @@ describe('whether a saved address can be used now', () => {
     await expect(service('').destinationReadiness({ userId: USER, destinationId: saved.destinationId })).resolves.toEqual({
       destinationId: saved.destinationId,
       state: 'cooling_unset',
+      coolingOffEndsAt: null,
+      lockUnlocksAt: null,
+    });
+  });
+
+  it('says cooling with no end when the published period runs past any date, as the send path refuses it', async () => {
+    const clock = { now: new Date() };
+    const { service } = at(clock);
+    const saved = await service('24').saveDestination(entry);
+    await expect(service('99999999999999').destinationReadiness({ userId: USER, destinationId: saved.destinationId })).resolves.toEqual({
+      destinationId: saved.destinationId,
+      state: 'cooling',
       coolingOffEndsAt: null,
       lockUnlocksAt: null,
     });
@@ -309,6 +334,19 @@ describe('a crypto withdrawal while the security lock holds (money)', () => {
     lock.failWith(new BankError('identity is down', 'bank.security_lock_unavailable'));
     await expect(send()).rejects.toMatchObject({ code: 'bank.security_lock_unavailable' });
     await nothingMoved();
+  });
+
+  it('answers a replay of a send settled before the lock as before, and posts nothing more', async () => {
+    const id = randomUUID();
+    const first = await send(id);
+    expect(first.status).toBe('settled');
+    const posted = ledger.journal().length;
+    lock.set(USER, LOCKED);
+    await expect(send(id)).resolves.toMatchObject({ id: first.id, status: 'settled' });
+    expect(ledger.journal()).toHaveLength(posted);
+    // A new send under another id is refused.
+    await expect(send()).rejects.toMatchObject({ code: 'bank.security_locked' });
+    expect(ledger.journal()).toHaveLength(posted);
   });
 
   it('sends once the lock has ended: the same request id then goes through, hold and settle once', async () => {

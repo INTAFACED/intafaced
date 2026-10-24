@@ -287,7 +287,7 @@ test(`${J} #6 proves a private wallet by signing a message: another wallet's sig
   await expect(proved.getByRole('button', { name: 'Prove ownership' })).toHaveCount(0);
 });
 
-test(`${J} #7 (the bank's half): with the security lock on, the bank refuses adding or removing an address and withdrawing`, async ({
+test(`${J} #7 (the bank's half): with the security lock on, the bank refuses adding an address and withdrawing to one`, async ({
   page,
 }) => {
   test.setTimeout(240_000);
@@ -299,7 +299,7 @@ test(`${J} #7 (the bank's half): with the security lock on, the bank refuses add
   await expect(card.locator('.notice')).toHaveText('The lock is on.');
 
   const LOCKED =
-    'Your security lock is on, so withdrawal addresses cannot be added or removed and nothing can be withdrawn until it ends. Nothing was changed.';
+    'Your security lock is on, so no withdrawal address can be added and nothing can be withdrawn to one until it ends. Nothing was changed.';
   await page.goto('/uc/withdraw/address');
   // Adding: the bank refuses before a confirmation code is asked for.
   const form = addForm(page);
@@ -316,16 +316,9 @@ test(`${J} #7 (the bank's half): with the security lock on, the bank refuses add
   await row.getByRole('button', { name: 'Withdraw to this address' }).click();
   const use = page.getByTestId('address-use');
   await expect(use.getByRole('alert')).toHaveText(
-    'Your security lock is on, so nothing can be withdrawn until it ends. Ask to unlock it on Security.',
+    'Your security lock is on, so nothing can be withdrawn to this address until it ends. Ask to unlock it on Security.',
   );
   await expect(use.getByRole('link', { name: 'Open Security' })).toHaveAttribute('href', '/uc/safe');
-
-  // Removing: even after a fresh confirmation the bank refuses, and the entry stays.
-  await row.getByRole('button', { name: 'Remove' }).click();
-  await confirmItsMe(page);
-  await expect(page.getByRole('dialog').getByRole('alert')).toContainText(LOCKED);
-  await page.reload();
-  await expect(savedRows(page).filter({ hasText: 'TEST private wallet' })).toHaveCount(1);
 
   // Asking to unlock fixes an end time; the bank's refusal then names it, and still nothing can be withdrawn.
   await page.goto('/uc/safe');
@@ -340,6 +333,6 @@ test(`${J} #7 (the bank's half): with the security lock on, the bank refuses add
   await page.goto('/uc/withdraw/address');
   await savedRows(page).filter({ hasText: 'TEST private wallet' }).getByRole('button', { name: 'Withdraw to this address' }).click();
   await expect(page.getByTestId('address-use').getByRole('alert')).toContainText(
-    'Your security lock is on, so nothing can be withdrawn until it ends. It ends',
+    'Your security lock is on, so nothing can be withdrawn to this address until it ends. It ends',
   );
 });

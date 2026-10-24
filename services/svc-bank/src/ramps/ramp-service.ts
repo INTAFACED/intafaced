@@ -542,10 +542,12 @@ export class RampService {
     }
     assertRampAssetId(input.assetId);
     const rail = assertCryptoRamp(this.programme);
-    // While the owner's security lock holds nothing is sent (W-withdraw-09). Asked before the claim, so a locked account
-    // writes no row and posts no hold. A send claimed before the lock was set and resumed now waits here with its hold
-    // in place: held, not lost, and resumed with the same id once the lock ends.
-    await assertSecurityLockOpen(this.securityLock, input.userId, 'a withdrawal');
+    // While the owner's security lock holds, no new send starts (W-withdraw-09): asked before the claim, so a locked
+    // account writes no row and posts no hold. A send already claimed under this id before the lock was set is a replay
+    // or a resume, not a new send: it carries on, so a settled one answers as before and a held one is not left held.
+    if (!(await this.offrampClaimed(input.offrampId, input.userId))) {
+      await assertSecurityLockOpen(this.securityLock, input.userId, 'a withdrawal');
+    }
     const coolingHours = requireOfframpCoolingHours(this.ownerOfframpCoolingHoursRaw());
     const dest = await this.resolveWithdrawDestination(input.userId, input.kind, input.destinationRef);
     assertOfframpDestCoolingElapsed(coolingHours, dest.updatedAt);
@@ -701,6 +703,14 @@ export class RampService {
       `;
       return sameOnrampOrConflict(toOnramp(rows[0]!), input);
     });
+  }
+
+  /** Whether this customer already has an off-ramp under this id (claimed before now, whatever its state). */
+  private async offrampClaimed(offrampId: string, userId: string): Promise<boolean> {
+    const rows = await this.sql<Array<{ id: string }>>`
+      SELECT id FROM bank.ramp_offramps WHERE id = ${offrampId}::uuid AND user_id = ${userId}
+    `;
+    return rows.length > 0;
   }
 
   private async claimOfframp(input: {
