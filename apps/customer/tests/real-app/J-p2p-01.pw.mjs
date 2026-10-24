@@ -769,7 +769,9 @@ test('J-p2p-01 #9 the completed order has a receipt and an open one none; each s
   expect(rows.theirs).toMatchObject({ authorId: rows.mine.subjectId, subjectId: rows.mine.authorId, rating: 'bad' });
 
   // An order that has not completed has neither a receipt nor a review: a fresh one on the same ad, then cancelled.
-  const taker = p2p(await api(state.buyer), await restorePasskey(state.passkey));
+  // The account's TEST passkey for this API take. The browser's copy moved its signature counter on in #5, so this copy
+  // starts well past it, as a counter only ever rises.
+  const taker = p2p(await api(state.buyer), await restorePasskey({ ...state.passkey, signCount: state.passkey.signCount + 1000 }));
   const open = await taker.mutate('trades.take', { offerId: state.offerId, tradeId: randomUUID(), amount: AD.min, method: METHOD });
   expect(open.status).toBe('escrowed');
   await page.goto(`/uc/order?tradeId=${open.id}`);
