@@ -19,6 +19,7 @@ import { stepUpMessages } from './access/step-up-copy';
 import { reportsMessages } from './settings/reports/copy';
 import { uiMessages } from './ui/copy';
 import { w3cMessages } from './w3c-copy';
+import { catalogMessages } from './catalog/copy';
 
 /**
  * Every visible word in the merchant portal is plain business English: what happened, why, what to do next. This
@@ -42,6 +43,7 @@ const catalogs: Record<string, Record<string, string>> = {
   'pay.portal.settings.analytics': analyticsMessages,
   'pay.portal.settings.developers': developersMessages,
   'pay.portal.settings.reports': reportsMessages,
+  'pay.portal.catalog': catalogMessages,
 };
 
 const banned: Array<[name: string, pattern: RegExp]> = [

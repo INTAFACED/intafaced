@@ -58,6 +58,8 @@ export const merchantCapabilityFlagsSchema = z
     'payouts.read': z.boolean(),
     'webhooks.read': z.boolean(),
     'webhooks.manage': z.boolean(),
+    'products.read': z.boolean(),
+    'products.manage': z.boolean(),
   })
   .strict();
 

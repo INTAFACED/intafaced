@@ -25,6 +25,8 @@ export const CAPABILITIES = [
   'payouts.read',
   'webhooks.read',
   'webhooks.manage',
+  'products.read',
+  'products.manage',
 ] as const;
 export type Capability = (typeof CAPABILITIES)[number];
 export type Need = Capability | 'owner';
@@ -48,6 +50,7 @@ const READS: readonly Capability[] = [
   'halts.read',
   'activity.read',
   'payouts.read',
+  'products.read',
 ];
 export const ROLE_CAPABILITIES: Record<MemberRole, ReadonlySet<Capability>> = {
   owner: new Set(CAPABILITIES),
@@ -61,6 +64,6 @@ export const ROLE_CAPABILITIES: Record<MemberRole, ReadonlySet<Capability>> = {
     'payout.request',
     'payout.approve',
   ]),
-  developer: new Set<Capability>([...READS, 'exports.create', 'webhooks.read', 'webhooks.manage']),
+  developer: new Set<Capability>([...READS, 'exports.create', 'webhooks.read', 'webhooks.manage', 'products.manage']),
   viewer: new Set<Capability>(READS),
 };

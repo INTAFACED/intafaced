@@ -52,6 +52,8 @@ const AREA_OF = {
   'payouts.read': 'money_out',
   'webhooks.read': 'developer',
   'webhooks.manage': 'developer',
+  'products.read': 'payments',
+  'products.manage': 'payments',
 } as const satisfies Record<MerchantPermission, PermissionArea>;
 
 /**
@@ -69,6 +71,7 @@ const REQUIRES: Partial<Record<MerchantPermission, readonly MerchantPermission[]
   'payout.request': ['payouts.read'],
   'payout.approve': ['payouts.read'],
   'webhooks.manage': ['webhooks.read'],
+  'products.manage': ['products.read'],
 };
 
 export const BUILT_IN_ROLES = ['owner', ...TEAM_ROLES] as const satisfies readonly MerchantRole[];
@@ -76,11 +79,11 @@ export const BUILT_IN_ROLES = ['owner', ...TEAM_ROLES] as const satisfies readon
 /** One plain sentence per built-in role: what it can and cannot do. */
 const ROLE_DESCRIPTION = {
   owner: 'The person who opened the merchant account. Can do everything, and cannot be removed or demoted by a role change.',
-  admin: 'Can do everything the owner can, including managing the team, the business profile and webhooks.',
+  admin: 'Can do everything the owner can, including managing the team, the business profile, webhooks and products.',
   finance:
-    'Can read everything except webhooks, answer disputes, write invoices, create exports, change notification settings, and request and approve payouts. Cannot manage the team, the business profile or webhooks.',
+    'Can read everything except webhooks, answer disputes, write invoices, create exports, change notification settings, and request and approve payouts. Cannot manage the team, the business profile, webhooks or products.',
   developer:
-    'Can read everything, create exports and manage webhooks. Cannot request or approve payouts, answer disputes, write invoices or manage the team.',
+    'Can read everything, create exports, and manage webhooks and products. Cannot request or approve payouts, answer disputes, write invoices or manage the team.',
   viewer: 'Can read everything except webhooks. Cannot change anything.',
 } as const satisfies Record<MerchantRole, string>;
 

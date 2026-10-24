@@ -50,6 +50,11 @@
       "service": "pay",
       "value": "30",
       "note": "TEST days a business has to finish its verification application. Not an owner decision."
+    },
+    "PAY_PRODUCT_IMAGE_MAX_BYTES": {
+      "service": "pay",
+      "value": "500000",
+      "note": "TEST largest product image, in bytes (500 KB). Not an owner decision."
     }
   }
 }

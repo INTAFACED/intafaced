@@ -31,6 +31,7 @@ export const groups: NavGroup[] = [
       ['/pay/refunds', 'refunds'],
       ['/pay/disputes', 'disputes'],
       ['/pay/links', 'links'],
+      ['/pay/products', 'products'],
       ['/pay/checkout', 'checkout'],
     ],
   },
