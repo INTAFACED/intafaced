@@ -4,21 +4,27 @@
 // It is a LOCAL TEST value with no meaning outside the stack: identity keeps only its hash, per account.
 export const LOCAL_TEST_DEVICE_KEY = 'LOCAL-TEST-journey-browser-device-key';
 
-/** The device cookie as a Playwright storage state, for the customer app on the stack. */
-export function localTestDeviceState(host = '127.0.0.1') {
+/**
+ * The device cookie as a Playwright storage state, for the customer app on the stack: on 127.0.0.1 and on localhost
+ * (the passkey journeys' origin), since a cookie belongs to one host name.
+ */
+export function localTestDeviceState(hosts = ['127.0.0.1', 'localhost']) {
   return {
-    cookies: [
-      {
-        name: 'ifc_dk',
-        value: LOCAL_TEST_DEVICE_KEY,
-        domain: host,
-        path: '/api/identity/trpc',
-        expires: -1,
-        httpOnly: true,
-        secure: false,
-        sameSite: 'Strict',
-      },
-    ],
+    cookies: hosts.map((domain) => ({
+      name: 'ifc_dk',
+      value: LOCAL_TEST_DEVICE_KEY,
+      domain,
+      path: '/api/identity/trpc',
+      expires: -1,
+      httpOnly: true,
+      secure: false,
+      sameSite: 'Strict',
+    })),
     origins: [],
   };
+}
+
+/** The same cookie as a `Set-Cookie` value, for a door that hands the stack's TEST browser key to a visitor (Try it). */
+export function localTestDeviceCookie({ secure = false } = {}) {
+  return `ifc_dk=${LOCAL_TEST_DEVICE_KEY}; Path=/api/identity/trpc; HttpOnly; SameSite=Strict; Max-Age=86400${secure ? '; Secure' : ''}`;
 }

@@ -15,9 +15,10 @@ export const DEVICE_KEY = LOCAL_TEST_DEVICE_KEY;
  * Signs this browser out the way clearing its cookies does, and keeps it the same TEST browser: its device key goes back,
  * so the next sign-in is not a new device. A journey that means a new device clears the cookies itself (J-identity-02 #5).
  */
+const DEVICE_COOKIES = localTestDeviceState().cookies;
 export async function signOutBrowser(context) {
   await context.clearCookies();
-  await context.addCookies(localTestDeviceState().cookies);
+  await context.addCookies(DEVICE_COOKIES);
 }
 
 export const ROOT = fileURLToPath(new URL('../../../..', import.meta.url));

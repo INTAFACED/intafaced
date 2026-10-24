@@ -390,7 +390,7 @@ export async function enrolFounderAccounts({
       session = await call(
         edge,
         'auth.registerFounder',
-        { invite: f.invite, handle: f.handle, email: f.email, password: f.password },
+        { invite: f.invite, handle: f.handle, email: f.email, password: f.password, deviceKey: LOCAL_TEST_DEVICE_KEY },
         null,
         fetchImpl,
       );
