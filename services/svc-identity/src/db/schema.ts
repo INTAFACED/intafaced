@@ -312,9 +312,8 @@ export const mailOutbox = identity.table(
   'mail_outbox',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    flowId: uuid('flow_id')
-      .notNull()
-      .references(() => authFlows.id, { onDelete: 'cascade' }),
+    /** Null only for a mail another service asked for (`POST /internal/mail`), which has its key and account instead. */
+    flowId: uuid('flow_id').references(() => authFlows.id, { onDelete: 'cascade' }),
     purpose: text('purpose').notNull(),
     recipient: text('recipient').notNull(),
     code: text('code'),
@@ -323,8 +322,16 @@ export const mailOutbox = identity.table(
     status: text('status').notNull(),
     createdAt: createdAt(),
     sentAt: tstz('sent_at'),
+    userId: uuid('user_id'),
+    dedupeKey: text('dedupe_key'),
+    bodyHash: text('body_hash'),
+    detail: text('detail'),
   },
-  (t) => [index('mail_outbox_pending_idx').on(t.createdAt)],
+  (t) => [
+    index('mail_outbox_pending_idx').on(t.createdAt),
+    // Partial in the migration (WHERE dedupe_key IS NOT NULL); owner check: a flow, or a key, account and body hash.
+    uniqueIndex('mail_outbox_dedupe_key_uq').on(t.dedupeKey),
+  ],
 );
 
 /**
