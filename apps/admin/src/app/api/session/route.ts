@@ -1,16 +1,15 @@
 import {
+  adminDeviceKey,
   adminSessionConfig,
   adminSessionErrorResponse,
   AdminSessionError,
   assertAdminOrigin,
   assertAdminCsrf,
-  assertCurrentFounder,
   authorizeAdminRequest,
   founderCookie,
   founderEdgeCall,
-  newFounderSession,
+  founderSignedIn,
   openFounderSession,
-  sealFounderSession,
 } from '@/lib/founder-session';
 import { readAdminJson } from '@/lib/admin-json';
 
@@ -29,6 +28,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  let device: { key: string; cookie: string } | undefined;
   try {
     const config = adminSessionConfig();
     assertAdminOrigin(request, config, true);
@@ -45,23 +45,15 @@ export async function POST(request: Request) {
       !/^(\d{6}|[0-9A-Fa-f]{5}-[0-9A-Fa-f]{5})$/.test(input.totpCode)
     )
       throw new AdminSessionError('admin.login_input', 400);
-    const raw = await founderEdgeCall(config, 'identity', 'auth.login', 'POST', input);
-    const session = newFounderSession(raw);
-    try {
-      await assertCurrentFounder(session, config);
-    } catch (error) {
-      await founderEdgeCall(config, 'identity', 'auth.logout', 'POST', { refreshToken: session.refreshToken }).catch(() => undefined);
-      throw error;
-    }
-    const cookie = sealFounderSession(session, config);
-    return Response.json(
-      { userId: session.userId, expiresAt: session.expiresAt, csrf: session.csrf },
-      {
-        headers: { 'cache-control': 'no-store', 'set-cookie': founderCookie(cookie, (Date.parse(session.expiresAt) - Date.now()) / 1000) },
-      },
-    );
+    // Identity's new-device check knows this browser by its key; a browser it has not seen waits for approval
+    // (`/api/session/device`), and the key is kept so the approval lands on this same browser.
+    device = adminDeviceKey(request.headers.get('cookie'));
+    const raw = await founderEdgeCall(config, 'identity', 'auth.login', 'POST', { ...input, deviceKey: device.key });
+    return await founderSignedIn(raw, config, device.cookie);
   } catch (error) {
-    return adminSessionErrorResponse(error);
+    const response = adminSessionErrorResponse(error);
+    if (device && error instanceof AdminSessionError && error.deviceAuthorisation) response.headers.append('set-cookie', device.cookie);
+    return response;
   }
 }
 

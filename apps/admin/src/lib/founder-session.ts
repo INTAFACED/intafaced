@@ -20,15 +20,72 @@ export interface AdminSessionConfig {
   key: Buffer;
 }
 
+/** A sign-in identity holds until this browser is approved (identity's new-device check, I-signin-sessions-07). */
+export interface DeviceAuthorisation {
+  flowId: string;
+  secret: string;
+  expiresAt: string;
+  mailed: boolean;
+}
+
 export class AdminSessionError extends Error {
   constructor(
     public readonly code: string,
     public readonly status: number,
     /** The service's own typed code (for example `ops.crm.storage_unconfigured`), kept so a desk can say what really happened. */
     public readonly upstream?: string,
+    /** Only on `auth.device_authorisation_required`: the waiting sign-in, which only this browser's request receives. */
+    public readonly deviceAuthorisation?: DeviceAuthorisation,
   ) {
     super(code);
   }
+}
+
+/**
+ * The waiting sign-in identity attached to an `auth.device_authorisation_required` refusal, or undefined. Each field is
+ * checked for its exact shape, so nothing else in a service's error body can reach the browser this way.
+ */
+export function deviceAuthorisationOf(body: unknown): DeviceAuthorisation | undefined {
+  if (upstreamCodeOf(body) !== 'auth.device_authorisation_required') return undefined;
+  const root = body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
+  const error = root.error && typeof root.error === 'object' ? (root.error as Record<string, unknown>) : {};
+  const json = error.json && typeof error.json === 'object' ? (error.json as Record<string, unknown>) : error;
+  const data = json.data && typeof json.data === 'object' ? (json.data as Record<string, unknown>) : {};
+  const d =
+    data.deviceAuthorisation && typeof data.deviceAuthorisation === 'object' ? (data.deviceAuthorisation as Record<string, unknown>) : null;
+  if (
+    !d ||
+    typeof d.flowId !== 'string' ||
+    !UUID.test(d.flowId) ||
+    typeof d.secret !== 'string' ||
+    !/^[A-Za-z0-9_-]{16,128}$/.test(d.secret) ||
+    typeof d.expiresAt !== 'string' ||
+    !Number.isFinite(Date.parse(d.expiresAt)) ||
+    typeof d.mailed !== 'boolean'
+  )
+    return undefined;
+  return { flowId: d.flowId, secret: d.secret, expiresAt: d.expiresAt, mailed: d.mailed };
+}
+
+/**
+ * This browser's device key for identity's new-device check: the one its cookie holds, else a fresh random one. Identity
+ * trusts a browser by this key, so the console sends it on every sign-in and keeps it in its own host-only cookie
+ * (`Set-Cookie` value returned with it, renewed on each use). It is never shown to the page.
+ */
+export const ADMIN_DEVICE_COOKIE = '__Host-intafaced-admin-device';
+const DEVICE_COOKIE_MAX_AGE_SECONDS = 400 * 86_400;
+export function adminDeviceKey(cookieHeader: string | null): { key: string; cookie: string } {
+  const values = (cookieHeader ?? '')
+    .split(';')
+    .map((part) => part.trim())
+    .filter((part) => part.startsWith(`${ADMIN_DEVICE_COOKIE}=`))
+    .map((part) => part.slice(ADMIN_DEVICE_COOKIE.length + 1));
+  const held = values.length === 1 && /^[A-Za-z0-9_-]{32,128}$/.test(values[0]!) ? values[0]! : null;
+  const key = held ?? randomBytes(32).toString('base64url');
+  return {
+    key,
+    cookie: `${ADMIN_DEVICE_COOKIE}=${key}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${DEVICE_COOKIE_MAX_AGE_SECONDS}`,
+  };
 }
 
 const UPSTREAM_CODE = /^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+$/;
@@ -200,6 +257,7 @@ export async function founderEdgeCall(
       response.status === 401 || response.status === 403 ? 'admin.authority_refused' : 'admin.upstream_refused',
       response.status >= 400 && response.status < 600 ? response.status : 502,
       upstreamCodeOf(body) ?? undefined,
+      deviceAuthorisationOf(body),
     );
   if (!body || typeof body !== 'object' || !('result' in body)) throw new AdminSessionError('admin.upstream_invalid', 502);
   const result = (body as { result?: { data?: unknown } }).result;
@@ -229,10 +287,14 @@ export async function authorizeAdminRequest(request: Request): Promise<{ session
 
 export function adminSessionErrorResponse(error: unknown): Response {
   const known = error instanceof AdminSessionError ? error : new AdminSessionError('admin.request_failed', 500);
-  return Response.json(known.upstream ? { code: known.code, upstream: known.upstream } : { code: known.code }, {
-    status: known.status,
-    headers: { 'cache-control': 'no-store' },
-  });
+  return Response.json(
+    {
+      code: known.code,
+      ...(known.upstream ? { upstream: known.upstream } : {}),
+      ...(known.deviceAuthorisation ? { deviceAuthorisation: known.deviceAuthorisation } : {}),
+    },
+    { status: known.status, headers: { 'cache-control': 'no-store' } },
+  );
 }
 
 export function founderCookie(value: string, maxAge: number): string {
@@ -252,4 +314,22 @@ export function newFounderSession(value: unknown, now: Date = new Date()): Found
   };
   if (!validSession(session, now)) throw new AdminSessionError('admin.upstream_invalid', 502);
   return session;
+}
+
+/**
+ * Turns identity's session reply into the console's signed-in answer: only a current founder keeps it (anyone else's
+ * session is logged out again), sealed in the host-only cookie, with this browser's device cookie renewed beside it.
+ */
+export async function founderSignedIn(raw: unknown, config: AdminSessionConfig, deviceCookie: string): Promise<Response> {
+  const session = newFounderSession(raw);
+  try {
+    await assertCurrentFounder(session, config);
+  } catch (error) {
+    await founderEdgeCall(config, 'identity', 'auth.logout', 'POST', { refreshToken: session.refreshToken }).catch(() => undefined);
+    throw error;
+  }
+  const headers = new Headers({ 'cache-control': 'no-store' });
+  headers.append('set-cookie', founderCookie(sealFounderSession(session, config), (Date.parse(session.expiresAt) - Date.now()) / 1000));
+  headers.append('set-cookie', deviceCookie);
+  return Response.json({ userId: session.userId, expiresAt: session.expiresAt, csrf: session.csrf }, { headers });
 }

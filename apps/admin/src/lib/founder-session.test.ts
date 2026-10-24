@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ADMIN_COOKIE,
+  ADMIN_DEVICE_COOKIE,
+  adminDeviceKey,
   adminSessionConfig,
   adminSessionErrorResponse,
   assertAdminCsrf,
@@ -11,6 +13,7 @@ import {
   founderEdgeCall,
   openFounderSession,
   sealFounderSession,
+  deviceAuthorisationOf,
   upstreamCodeOf,
   type AdminSessionConfig,
   type FounderSession,
@@ -348,6 +351,42 @@ describe('founder admin session security boundaries', () => {
     expect(await adminSessionErrorResponse(refused).json()).toEqual({
       code: 'admin.upstream_refused',
       upstream: 'ops.crm.storage_unconfigured',
+    });
+  });
+
+  it('keeps one device key per browser in a host-only cookie, and makes a new one when the cookie is missing or bent', () => {
+    const fresh = adminDeviceKey(null);
+    expect(fresh.key).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(fresh.cookie).toBe(`${ADMIN_DEVICE_COOKIE}=${fresh.key}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=34560000`);
+    const held = 'A'.repeat(40);
+    expect(adminDeviceKey(`other=1; ${ADMIN_DEVICE_COOKIE}=${held}`).key).toBe(held);
+    expect(adminDeviceKey(`${ADMIN_DEVICE_COOKIE}=short`).key).not.toBe('short');
+    expect(adminDeviceKey(`${ADMIN_DEVICE_COOKIE}=${held}; ${ADMIN_DEVICE_COOKIE}=${'B'.repeat(40)}`).key).not.toMatch(/^(A+|B+)$/);
+  });
+
+  it('passes a waiting new-device sign-in to the browser only on its own refusal, field by field', async () => {
+    const waiting = { flowId: USER_ID, secret: 's'.repeat(43), expiresAt: '2026-10-10T12:10:00.000Z', mailed: true };
+    const body = {
+      error: { json: { message: 'auth.device_authorisation_required', data: { deviceAuthorisation: { ...waiting, extra: 'x' } } } },
+    };
+    expect(deviceAuthorisationOf(body)).toEqual(waiting);
+    expect(
+      deviceAuthorisationOf({ error: { json: { message: 'auth.invalid_credentials', data: { deviceAuthorisation: waiting } } } }),
+    ).toBeUndefined();
+    expect(
+      deviceAuthorisationOf({
+        error: { json: { message: 'auth.device_authorisation_required', data: { deviceAuthorisation: { ...waiting, flowId: 'x' } } } },
+      }),
+    ).toBeUndefined();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify(body), { status: 403 })),
+    );
+    const refused = await founderEdgeCall(config(), 'identity', 'auth.login', 'POST', {}).catch((error: unknown) => error);
+    expect(await adminSessionErrorResponse(refused).json()).toEqual({
+      code: 'admin.authority_refused',
+      upstream: 'auth.device_authorisation_required',
+      deviceAuthorisation: waiting,
     });
   });
 
