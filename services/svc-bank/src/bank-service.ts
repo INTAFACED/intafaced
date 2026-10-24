@@ -248,7 +248,12 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
   // No price source configured = no marks = no liquidations, and every LTV read
   // fails with `bank.mark_missing`. The correct posture for a deployment that has
   // not decided where its prices come from.
-  const loans = new LoanService(sql, ledger, options.loans ?? { priceSource: fixedPriceSource({}) });
+  const loanBase = options.loans ?? { priceSource: fixedPriceSource({}) };
+  // The payoff fee and window come from env (index.ts); unset or blank refuses.
+  const loans = new LoanService(sql, ledger, {
+    ...loanBase,
+    statementSecret: loanBase.statementSecret !== undefined ? loanBase.statementSecret : options.activity?.cursorSecret,
+  });
   // No convert port = DCA refuses rates-unset; threshold sweeps still work.
   // Constructed before cards so the capture hook can call applyRoundUp without
   // a setter or a circular constructor.
