@@ -56,8 +56,9 @@ if (!available) {
     changes,
     ...extra,
   });
-  const decision = (reviewId: string, decision: 'pass' | 'reject') => ({
+  const decision = (reviewId: string, decision: 'pass' | 'reject', userId = target) => ({
     requestId: randomUUID(),
+    userId,
     reviewId,
     decision,
     note: 'Passport and utility bill checked',
@@ -123,6 +124,16 @@ if (!available) {
       state = (await desk.state(first, { userId: target }))!;
       expect(state).toMatchObject({ version: '1', details: { legalName: 'Ada Lovelace', dateOfBirth: '1990-12-10' }, openReview: null });
       expect(await desk.decide(second, decision(reviewId, 'pass'))).toMatchObject({ code: 'identity.details_review_closed' });
+      // A review named under another customer, or one that does not exist, is not found and is filed under the customer named.
+      const other = id(await seed());
+      expect(await desk.decide(second, decision(reviewId, 'pass', other))).toMatchObject({
+        code: 'identity.details_review_not_found',
+        userId: other,
+      });
+      expect(await desk.decide(second, decision(randomUUID(), 'pass'))).toMatchObject({
+        code: 'identity.details_review_not_found',
+        userId: target,
+      });
 
       const renamed = await desk.edit(first, edit({ legalName: 'Ada King' }, '1'));
       expect(await desk.decide(second, decision(renamed.reviewId!, 'reject'))).toMatchObject({
@@ -155,7 +166,11 @@ if (!available) {
       target = id(second);
       expect(await desk.edit(first, edit({ city: 'Leeds' }))).toMatchObject({ code: 'identity.details_founder_forbidden' });
       target = id(customer);
+      // Someone who is not a live founder is answered and leaves nothing in the founders' history.
+      const before = (await desk.history(first, { userId: target, limit: 50 })).length;
       expect(await desk.edit(customer, edit({ city: 'Leeds' }))).toMatchObject({ code: 'operator.denied' });
+      expect(await desk.decide(customer, decision(withDocument.reviewId!, 'pass'))).toMatchObject({ code: 'operator.denied' });
+      expect(await desk.history(first, { userId: target, limit: 50 })).toHaveLength(before);
       await expect(desk.state(customer, { userId: target })).rejects.toMatchObject({ code: 'operator.denied' });
 
       await db.sql`UPDATE users SET status = 'closed', archived_at = now(), archive_reason = 'dormant' WHERE id = ${target}`;
@@ -174,8 +189,20 @@ if (!available) {
       const unkeyed = new CustomerDetailsDesk(db.sql, controls, null);
       expect(await unkeyed.edit(first, edit({ city: 'York' }, '1'))).toMatchObject({ code: 'identity.details_unconfigured' });
       await expect(unkeyed.state(first, { userId: target })).rejects.toMatchObject({ code: 'identity.details_unconfigured' });
+      expect(await desk.history(first, { userId: target, limit: 50 })).toHaveLength(2);
       expect(await desk.state(first, { userId: id(await seed()) })).toMatchObject({ version: '0', openReview: null });
       expect(await desk.state(first, { userId: randomUUID() })).toBeNull();
+    });
+
+    it('refuses identity.details_unreadable, and writes nothing, when the key no longer opens the record', async () => {
+      await desk.edit(first, edit({ city: 'Leeds' }));
+      const rotated = new CustomerDetailsDesk(db.sql, controls, randomBytes(32));
+      await expect(rotated.state(first, { userId: target })).rejects.toMatchObject({ code: 'identity.details_unreadable' });
+      await expect(rotated.edit(first, edit({ city: 'York' }, '1'))).rejects.toMatchObject({ code: 'identity.details_unreadable' });
+      await db.sql`UPDATE customer_details SET key_id = 'v2' WHERE user_id = ${target}`;
+      await expect(desk.state(first, { userId: target })).rejects.toMatchObject({ code: 'identity.details_unreadable' });
+      await db.sql`UPDATE customer_details SET key_id = 'v1' WHERE user_id = ${target}`;
+      expect(await desk.state(first, { userId: target })).toMatchObject({ version: '1', details: { city: 'Leeds' } });
     });
   });
 }

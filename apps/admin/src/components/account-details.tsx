@@ -27,7 +27,8 @@ export function AccountDetails({
   readOnly?: string | null;
 }) {
   const [state, setState] = useState<CustomerDetailsState | null | undefined>(undefined);
-  const [history, setHistory] = useState<CustomerDetailsResult[]>([]);
+  /** null when the history could not be read: no edit is offered then, since its request key names the newest entry. */
+  const [history, setHistory] = useState<CustomerDetailsResult[] | null>(null);
   const [error, setError] = useState('');
   const [field, setField] = useState<CustomerDetailKey | ''>('');
   const [value, setValue] = useState('');
@@ -51,12 +52,14 @@ export function AccountDetails({
       setError(
         body?.upstream === 'identity.details_unconfigured'
           ? 'Identity keeps customer details encrypted under the KYC document key (IDENTITY_KYC_DOC_KEY), which is not set, so no detail can be read or changed (identity.details_unconfigured).'
-          : 'Identity (svc-identity) did not answer for this customer’s details. Nothing can be changed until it does.',
+          : body?.upstream === 'identity.details_unreadable'
+            ? 'Identity holds details for this customer that its KYC document key does not open (a changed IDENTITY_KYC_DOC_KEY or a damaged record), so nothing is shown and nothing can be changed (identity.details_unreadable).'
+            : 'Identity (svc-identity) did not answer for this customer’s details. Nothing can be changed until it does.',
       );
       return;
     }
     setState((await stateResponse.json()) as CustomerDetailsState | null);
-    setHistory(historyResponse.ok ? ((await historyResponse.json()) as CustomerDetailsResult[]) : []);
+    setHistory(historyResponse.ok ? ((await historyResponse.json()) as CustomerDetailsResult[]) : null);
   }, [id]);
 
   useEffect(() => {
@@ -83,7 +86,7 @@ export function AccountDetails({
     } catch {
       setReply({
         ok: false,
-        text: 'The answer was lost. Read the account again: asking again on the same reading is answered with what identity stored.',
+        text: 'The answer was lost. The record and its history below are read again and show whether identity made the change.',
       });
     } finally {
       setBusy(false);
@@ -95,15 +98,17 @@ export function AccountDetails({
   const guarded = field !== '' && isProtectedDetail(field);
   const editWhy =
     readOnly ??
-    (field === ''
-      ? 'Choose the detail to change.'
-      : guarded && review
-        ? 'A compliance review of this customer’s protected details is already open; it is decided first (identity.details_review_open).'
-        : !clear && value.trim() === ''
-          ? 'Give the new value, or tick “Take it off the record”.'
-          : reason.trim().length < 12
-            ? 'Write the reason first (at least 12 characters).'
-            : null);
+    (history === null
+      ? 'The details history could not be read, so no change is offered. Read the account again.'
+      : field === ''
+        ? 'Choose the detail to change.'
+        : guarded && review
+          ? 'A compliance review of this customer’s protected details is already open; it is decided first (identity.details_review_open).'
+          : !clear && value.trim() === ''
+            ? 'Give the new value, or tick “Take it off the record”.'
+            : reason.trim().length < 12
+              ? 'Write the reason first (at least 12 characters).'
+              : null);
   const decideWhy =
     readOnly ??
     (review && review.requestedBy === founderId.toLowerCase()
@@ -200,13 +205,13 @@ export function AccountDetails({
             data-testid="account-details-edit"
             onSubmit={(event) => {
               event.preventDefault();
-              if (editWhy || field === '') return;
+              if (editWhy || field === '' || history === null) return;
               void post('/api/accounts/details', {
                 userId: id,
                 field,
                 value: clear ? null : value.trim(),
                 reason: reason.trim(),
-                basis: { version: state.version, reviewId: review?.reviewId ?? null, reviewStatus: review ? 'open' : null },
+                basis: { version: state.version, after: history[0]?.auditId ?? null },
               });
             }}
           >
@@ -250,7 +255,11 @@ export function AccountDetails({
           )}
 
           <h3>Details history</h3>
-          {history.length === 0 ? (
+          {history === null ? (
+            <p className="adm-alert" role="alert" data-testid="account-details-history-error">
+              Identity (svc-identity) did not return the details history, so it is not known whether this record was edited.
+            </p>
+          ) : history.length === 0 ? (
             <p>No recorded edits.</p>
           ) : (
             <div className="adm-table-scroll">

@@ -69,6 +69,7 @@ export class FounderControlError extends Error {
       | 'identity.controls_unconfigured'
       | 'identity.controls_unavailable'
       | 'identity.details_unconfigured'
+      | 'identity.details_unreadable'
       | 'operator.denied'
       | 'mfa.required',
     message: string,

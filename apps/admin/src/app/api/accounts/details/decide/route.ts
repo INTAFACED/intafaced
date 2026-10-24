@@ -36,7 +36,7 @@ export async function POST(request: Request) {
     'identity',
     'accountControls.detailsDecide',
     'POST',
-    { requestId: form.requestId, reviewId: form.reviewId, decision: form.decision, note: form.note },
+    { requestId: form.requestId, userId: form.userId, reviewId: form.reviewId, decision: form.decision, note: form.note },
     parseWith(customerDetailsResultSchema),
   );
   return detailsAnswer(result, form.userId);

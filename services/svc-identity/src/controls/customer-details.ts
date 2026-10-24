@@ -35,13 +35,12 @@ import { FounderControlError, type FounderControls, type UserRow } from './found
  */
 
 type DetailsRefusal = Extract<CustomerDetailsResult, { outcome: 'refused' }>['code'];
-type ReviewRow = {
+type Sealed = { ciphertext: Buffer; nonce: Buffer; key_id: string };
+type ReviewRow = Sealed & {
   review_id: string;
   user_id: string;
   status: 'open' | 'passed' | 'rejected';
   fields: string[];
-  ciphertext: Buffer;
-  nonce: Buffer;
   document_ids: string[];
   reason: string;
   requested_by: string;
@@ -69,8 +68,18 @@ export class CustomerDetailsDesk {
     return encryptDocument(this.key!, Buffer.from(JSON.stringify(value), 'utf8'));
   }
 
-  private unseal(ciphertext: Buffer, nonce: Buffer): unknown {
-    return JSON.parse(decryptDocument(this.key!, ciphertext, nonce).toString('utf8'));
+  /**
+   * Opens a stored row. A row sealed under another key id, one the key no longer opens (a rotated or wrong
+   * `IDENTITY_KYC_DOC_KEY`), or one that no longer parses refuses `identity.details_unreadable`: the record is not
+   * guessed at and nothing is written over it.
+   */
+  private unseal<T>(row: Sealed, schema: { parse(value: unknown): T }): T {
+    try {
+      if (row.key_id !== 'v1') throw new Error('unknown key id');
+      return schema.parse(JSON.parse(decryptDocument(this.key!, row.ciphertext, row.nonce).toString('utf8')));
+    } catch {
+      throw new FounderControlError('identity.details_unreadable', 'identity.details_unreadable');
+    }
   }
 
   private fingerprint(actorId: string | null, input: unknown): string {
@@ -85,10 +94,10 @@ export class CustomerDetailsDesk {
 
   private async read(tx: Sql, userId: string): Promise<{ version: string; details: CustomerDetails }> {
     const [row] = await tx<
-      Array<{ version: string; ciphertext: Buffer; nonce: Buffer }>
-    >`SELECT version::text AS version, ciphertext, nonce FROM customer_details WHERE user_id = ${userId} FOR UPDATE`;
+      Array<Sealed & { version: string }>
+    >`SELECT version::text AS version, ciphertext, nonce, key_id FROM customer_details WHERE user_id = ${userId} FOR UPDATE`;
     if (!row) return { version: '0', details: EMPTY_CUSTOMER_DETAILS };
-    return { version: row.version, details: customerDetailsSchema.parse(this.unseal(row.ciphertext, row.nonce)) };
+    return { version: row.version, details: this.unseal(row, customerDetailsSchema) };
   }
 
   private async write(tx: Sql, userId: string, version: string, details: CustomerDetails, actorId: string): Promise<void> {
@@ -105,7 +114,7 @@ export class CustomerDetailsDesk {
       userId: row.user_id,
       status: row.status,
       fields: row.fields,
-      proposed: proposedSchema.parse(this.unseal(row.ciphertext, row.nonce)),
+      proposed: this.unseal(row, proposedSchema),
       documentIds: row.document_ids,
       reason: row.reason,
       requestedBy: row.requested_by,
@@ -153,14 +162,16 @@ export class CustomerDetailsDesk {
           reviewId,
           code,
         });
-      const hash = this.key ? this.fingerprint(founder.actorId, request.input) : '';
+      // A caller who is not a live founder, or a desk without its key, is answered and leaves no row: the history is the
+      // founders' record of real attempts, and nobody else may write into it.
+      if (founder.refusal) return refused(founder.refusal);
+      if (!this.key) return refused('identity.details_unconfigured');
+      const hash = this.fingerprint(founder.actorId, request.input);
       const record = async (result: CustomerDetailsResult, stored: boolean) => {
         await tx`INSERT INTO customer_detail_events (audit_id, request_id, actor_id, user_id, fingerprint, result, stored)
           VALUES (${auditId}, ${request.requestId}, ${founder.actorId}, ${targetId}, ${hash}, ${tx.json(result as never)}, ${stored})`;
         return result;
       };
-      if (founder.refusal) return record(refused(founder.refusal), false);
-      if (!this.key) return record(refused('identity.details_unconfigured'), false);
       const [previous] = await tx<
         Array<{ fingerprint: string; result: unknown }>
       >`SELECT fingerprint, result FROM customer_detail_events WHERE request_id = ${request.requestId} AND stored`;
@@ -262,46 +273,28 @@ export class CustomerDetailsDesk {
     );
   }
 
-  /** The other founder passes or rejects an open review. A pass applies the proposed values; a reject changes nothing. */
+  /**
+   * The other founder passes or rejects an open review of the named customer. A pass applies the proposed values; a reject
+   * changes nothing. A review of anyone else reads as not found, after the same founder check as every other attempt.
+   */
   async decide(context: Context, raw: CustomerDetailDecisionInput): Promise<CustomerDetailsResult> {
     const input = customerDetailDecisionInputSchema.parse(raw);
     input.requestId = input.requestId.toLowerCase();
+    input.userId = input.userId.toLowerCase();
     input.reviewId = input.reviewId.toLowerCase();
-    const [owner] = await this.sql<
-      Array<{ user_id: string; fields: string[] }>
-    >`SELECT user_id, fields FROM customer_detail_reviews WHERE review_id = ${input.reviewId}`;
-    if (!owner) {
-      // No customer to file the attempt under: answer without storing, after the same founder check.
-      return this.controls.founderStep(context, input.reviewId, async (tx, founder) => {
-        if (founder.refusal) throw new FounderControlError(founder.refusal, 'Live founder authority is required');
-        this.requireKey();
-        const [clock] = await tx<Array<{ at: Date }>>`SELECT clock_timestamp() AS at`;
-        return customerDetailsResultSchema.parse({
-          auditId: randomUUID(),
-          requestId: input.requestId,
-          userId: input.reviewId,
-          fields: [],
-          reason: input.note,
-          occurredAt: clock!.at.toISOString(),
-          outcome: 'refused',
-          changed: false,
-          actorUserId: founder.actorId,
-          reviewId: input.reviewId,
-          code: 'identity.details_review_not_found',
-        });
-      });
-    }
-    const fields = CUSTOMER_DETAIL_KEYS.filter((key) => owner.fields.includes(key));
     return this.step(
       context,
-      owner.user_id,
-      { requestId: input.requestId, input, fields, reason: input.note },
+      input.userId,
+      { requestId: input.requestId, input, fields: [], reason: input.note },
       async (tx, { actorId, target, common, refused, finish }) => {
-        const [row] = await tx<ReviewRow[]>`SELECT * FROM customer_detail_reviews WHERE review_id = ${input.reviewId} FOR UPDATE`;
+        const [row] = await tx<ReviewRow[]>`SELECT * FROM customer_detail_reviews
+          WHERE review_id = ${input.reviewId} AND user_id = ${input.userId} FOR UPDATE`;
         if (!row) return finish(refused('identity.details_review_not_found', input.reviewId));
-        if (row.status !== 'open') return finish(refused('identity.details_review_closed', input.reviewId));
-        if (target.archived_at !== null) return finish(refused('identity.account_archived', input.reviewId));
-        if (row.requested_by === actorId) return finish(refused('identity.details_review_self_forbidden', input.reviewId));
+        const fields = CUSTOMER_DETAIL_KEYS.filter((key) => row.fields.includes(key));
+        const decline = (code: DetailsRefusal) => finish(customerDetailsResultSchema.parse({ ...refused(code, input.reviewId), fields }));
+        if (row.status !== 'open') return decline('identity.details_review_closed');
+        if (target.archived_at !== null) return decline('identity.account_archived');
+        if (row.requested_by === actorId) return decline('identity.details_review_self_forbidden');
         const current = await this.read(tx, row.user_id);
         const decided = input.decision === 'pass' ? 'passed' : 'rejected';
         await tx`UPDATE customer_detail_reviews SET status = ${decided}, decided_by = ${actorId}, decided_at = ${common.occurredAt as string},
@@ -310,6 +303,7 @@ export class CustomerDetailsDesk {
           return finish(
             customerDetailsResultSchema.parse({
               ...common,
+              fields,
               outcome: 'review_rejected',
               changed: false,
               actorUserId: actorId,
@@ -317,12 +311,13 @@ export class CustomerDetailsDesk {
               version: current.version,
             }),
           );
-        const proposed = proposedSchema.parse(this.unseal(row.ciphertext, row.nonce));
+        const proposed = this.unseal(row, proposedSchema);
         const version = (BigInt(current.version) + 1n).toString();
         await this.write(tx, row.user_id, version, { ...current.details, ...proposed }, actorId);
         return finish(
           customerDetailsResultSchema.parse({
             ...common,
+            fields,
             outcome: 'applied',
             changed: true,
             actorUserId: actorId,

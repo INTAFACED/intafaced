@@ -14,7 +14,7 @@ const form = (over: Record<string, unknown> = {}) => ({
   field: 'legalName',
   value: 'Ada Lovelace',
   reason: 'Customer letter of 20 Oct',
-  basis: { version: '3', reviewId: null, reviewStatus: null },
+  basis: { version: '3', after: null },
   ...over,
 });
 
@@ -30,8 +30,11 @@ describe('the details edit form', () => {
     const first = edit(form())!;
     expect(first).toMatchObject({ userId: USER, field: 'legalName', value: 'Ada Lovelace', expectedVersion: '3' });
     expect(edit(form({ value: 'Ada King' }))!.requestId).toBe(first.requestId);
-    expect(edit(form({ basis: { version: '4', reviewId: null, reviewStatus: null } }))!.requestId).not.toBe(first.requestId);
-    expect(edit(form({ basis: { version: '3', reviewId: REVIEW, reviewStatus: 'rejected' } }))!.requestId).not.toBe(first.requestId);
+    expect(edit(form({ basis: { version: '4', after: null } }))!.requestId).not.toBe(first.requestId);
+    // A refused edit or a rejected review leaves the version as it was but adds a history entry: the next ask is a new request.
+    const afterRefusal = edit(form({ value: 'Ada King', basis: { version: '3', after: REVIEW } }))!;
+    expect(afterRefusal.requestId).not.toBe(first.requestId);
+    expect(edit(form({ value: 'Ada King', basis: { version: '3', after: REVIEW.toUpperCase() } }))!.requestId).toBe(afterRefusal.requestId);
     expect(edit(form({ field: 'taxNumber' }))!.requestId).not.toBe(first.requestId);
     // Another founder's edit on the same reading is another request.
     expect(edit(form(), B)!.requestId).not.toBe(first.requestId);
@@ -43,14 +46,15 @@ describe('the details edit form', () => {
     expect(edit(form({ field: 'countryCode', value: 'gb' }))).toBeNull();
     expect(edit(form({ field: 'nickname' }))).toBeNull();
     expect(edit(form({ reason: 'too short' }))).toBeNull();
-    expect(edit(form({ basis: { version: '03', reviewId: null, reviewStatus: null } }))).toBeNull();
-    expect(edit(form({ basis: { version: '3', reviewId: 'x', reviewStatus: null } }))).toBeNull();
+    expect(edit(form({ basis: { version: '03', after: null } }))).toBeNull();
+    expect(edit(form({ basis: { version: '3', after: 'x' } }))).toBeNull();
+    expect(edit(form({ basis: { version: '3', reviewId: null, reviewStatus: null } }))).toBeNull();
     expect(edit({ ...form(), extra: true })).toBeNull();
   });
 
   it('keys a decision by its review and outcome', () => {
     const pass = decide({ userId: USER, reviewId: REVIEW, decision: 'pass', note: 'Passport checked in full' })!;
-    expect(pass).toMatchObject({ reviewId: REVIEW, decision: 'pass' });
+    expect(pass).toMatchObject({ userId: USER, reviewId: REVIEW, decision: 'pass' });
     expect(decide({ userId: USER, reviewId: REVIEW, decision: 'pass', note: 'Other words, same decision' })!.requestId).toBe(
       pass.requestId,
     );

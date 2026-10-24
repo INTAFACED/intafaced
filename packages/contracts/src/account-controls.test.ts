@@ -487,6 +487,8 @@ describe('customer details (J-ops-console-04 #9)', () => {
   it('reads a date of birth as a real calendar date and a country as two capitals', () => {
     expect(customerDetailValueSchemas.dateOfBirth.safeParse('1990-12-10').success).toBe(true);
     expect(customerDetailValueSchemas.dateOfBirth.safeParse('1990-02-30').success).toBe(false);
+    expect(customerDetailValueSchemas.dateOfBirth.safeParse('1899-12-31').success).toBe(false);
+    expect(customerDetailValueSchemas.dateOfBirth.safeParse('2999-01-01').success).toBe(false);
     expect(customerDetailValueSchemas.countryCode.safeParse('GB').success).toBe(true);
     expect(customerDetailValueSchemas.countryCode.safeParse('gb').success).toBe(false);
   });

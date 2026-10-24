@@ -21,7 +21,6 @@ export function keyUuid(key: string): string {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const VERSION = /^(?:0|[1-9]\d{0,39})$/;
-const REVIEW_STATUSES = ['open', 'passed', 'rejected'] as const;
 
 function exactKeys(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
   return (
@@ -44,8 +43,10 @@ export interface EditForm {
 
 /**
  * The edit form, checked before anything is sent: one detail, its new value (null takes it off the record), a reason and
- * the record as the founder read it (its version and newest review). The request id is the business key of that edit on
- * that reading by that founder: asked again after a lost answer it is the same, and identity answers with what it stored.
+ * the record as the founder read it: its version and the newest entry in its details history. The request id is the
+ * business key of that edit on that reading by that founder. Every attempt identity stores (an applied change, an opened
+ * or decided review, a refusal) adds a history entry, so the next reading is a new request and a refused or rejected edit
+ * never blocks the next one; asked again on the same reading, identity answers with what it stored.
  */
 export function readEditForm(raw: unknown, founderId: string): EditForm | null {
   if (!exactKeys(raw, ['userId', 'field', 'value', 'reason', 'basis'])) return null;
@@ -53,18 +54,17 @@ export function readEditForm(raw: unknown, founderId: string): EditForm | null {
   if (typeof userId !== 'string' || !UUID.test(userId)) return null;
   if (typeof field !== 'string' || !(CUSTOMER_DETAIL_KEYS as readonly string[]).includes(field)) return null;
   if (value !== null && typeof value !== 'string') return null;
-  if (!exactKeys(basis, ['version', 'reviewId', 'reviewStatus'])) return null;
-  const { version, reviewId, reviewStatus } = basis;
+  if (!exactKeys(basis, ['version', 'after'])) return null;
+  const { version, after } = basis;
   if (typeof version !== 'string' || !VERSION.test(version)) return null;
-  if (reviewId !== null && (typeof reviewId !== 'string' || !UUID.test(reviewId))) return null;
-  if (reviewStatus !== null && !(REVIEW_STATUSES as readonly unknown[]).includes(reviewStatus)) return null;
+  if (after !== null && (typeof after !== 'string' || !UUID.test(after))) return null;
   const key = field as CustomerDetailKey;
   const parsedValue = value === null ? null : customerDetailValueSchemas[key].safeParse(value);
   if (parsedValue !== null && !parsedValue.success) return null;
   const user = userId.toLowerCase();
   const input = customerDetailsEditInputSchema.safeParse({
     requestId: keyUuid(
-      `console:details-edit:${founderId.toLowerCase()}:${user}:v${version}:r${(reviewId as string | null)?.toLowerCase() ?? 'none'}:${(reviewStatus as string | null) ?? 'none'}:${key}`,
+      `console:details-edit:${founderId.toLowerCase()}:${user}:v${version}:after:${(after as string | null)?.toLowerCase() ?? 'none'}:${key}`,
     ),
     userId: user,
     expectedVersion: version,
@@ -95,8 +95,10 @@ export function readDecideForm(raw: unknown, founderId: string): DecideForm | nu
   if (!exactKeys(raw, ['userId', 'reviewId', 'decision', 'note'])) return null;
   if (typeof raw.userId !== 'string' || !UUID.test(raw.userId) || typeof raw.reviewId !== 'string') return null;
   const reviewId = raw.reviewId.toLowerCase();
+  const userId = raw.userId.toLowerCase();
   const input = customerDetailDecisionInputSchema.safeParse({
     requestId: keyUuid(`console:details-decide:${founderId.toLowerCase()}:${reviewId}:${String(raw.decision)}`),
+    userId,
     reviewId,
     decision: raw.decision,
     note: raw.note,
@@ -104,7 +106,7 @@ export function readDecideForm(raw: unknown, founderId: string): DecideForm | nu
   if (!input.success) return null;
   return {
     requestId: input.data.requestId,
-    userId: raw.userId.toLowerCase(),
+    userId,
     reviewId,
     decision: input.data.decision,
     note: input.data.note,

@@ -779,18 +779,24 @@ export type CustomerProtectedDetailKey = (typeof CUSTOMER_PROTECTED_DETAIL_KEYS)
 export const customerDetailKeySchema = z.enum(CUSTOMER_DETAIL_KEYS);
 
 const detailText = (max: number) => z.string().trim().min(1).max(max);
-const calendarDate = z
+/** A real calendar date of birth: from 1900 and not after today. */
+const birthDate = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/)
   .refine((value) => {
     const date = new Date(`${value}T00:00:00Z`);
-    return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
-  }, 'a real calendar date (YYYY-MM-DD)');
+    return (
+      !Number.isNaN(date.getTime()) &&
+      date.toISOString().slice(0, 10) === value &&
+      value >= '1900-01-01' &&
+      value <= new Date().toISOString().slice(0, 10)
+    );
+  }, 'a real date of birth (YYYY-MM-DD, from 1900, not in the future)');
 
 /** One schema per detail. A null value is "not on record"; identity never fills one in. */
 export const customerDetailValueSchemas = {
   legalName: detailText(200),
-  dateOfBirth: calendarDate,
+  dateOfBirth: birthDate,
   taxNumber: detailText(64),
   phone: z
     .string()
@@ -878,6 +884,8 @@ export type CustomerDetailsEditInput = z.infer<typeof customerDetailsEditInputSc
 export const customerDetailDecisionInputSchema = z
   .object({
     requestId: id,
+    /** The customer the review is about; identity refuses a review of anyone else as not found. */
+    userId: id,
     reviewId: id,
     decision: z.enum(['pass', 'reject']),
     note: detailReason,
