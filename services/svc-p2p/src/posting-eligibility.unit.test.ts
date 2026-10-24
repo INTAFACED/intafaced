@@ -44,15 +44,23 @@ describe('posting thresholds (P-ads-merchant-12)', () => {
     expect(percentHundredths('95.24')).toBe(9524);
     expect(percentHundredths('100.00')).toBe(10_000);
     expect(percentHundredths('100.5')).toBeNull();
-    const threshold = { minCompletionRatePct: '95.24' };
-    expect(postingChecks(threshold, { tier: 'basic', completedOrders: 3, completionRatePct: '95.24' })[0]!.state).toBe('met');
-    expect(postingChecks(threshold, { tier: 'basic', completedOrders: 3, completionRatePct: '95.23' })[0]!.state).toBe('not_met');
+    // 20 of 21 is 95.238...%, shown as 95.24: it meets 95.23 but not 95.24, judged on the counts.
+    const facts = { tier: 'basic' as const, completedOrders: 20, countedOrders: 21, completionRatePct: '95.24' };
+    expect(postingChecks({ minCompletionRatePct: '95.23' }, facts)[0]!.state).toBe('met');
+    expect(postingChecks({ minCompletionRatePct: '95.24' }, facts)[0]!).toMatchObject({ state: 'not_met', current: '95.24' });
+    // 20 of 20 meets 100; 179 of 180 (99.444...%) meets 99.44 and not 99.45.
+    expect(postingChecks({ minCompletionRatePct: '100' }, { ...facts, countedOrders: 20, completionRatePct: '100.00' })[0]!.state).toBe(
+      'met',
+    );
+    const near = { ...facts, completedOrders: 179, countedOrders: 180, completionRatePct: '99.44' };
+    expect(postingChecks({ minCompletionRatePct: '99.44' }, near)[0]!.state).toBe('met');
+    expect(postingChecks({ minCompletionRatePct: '99.45' }, near)[0]!.state).toBe('not_met');
   });
 
   it('ranks the verification levels in order, and a level that is not one is unknown', () => {
     const threshold = { minKycTier: 'full' as const };
     const state = (tier: string | undefined) =>
-      postingChecks(threshold, { tier: asKycTier(tier), completedOrders: 0, completionRatePct: null })[0]!.state;
+      postingChecks(threshold, { tier: asKycTier(tier), completedOrders: 0, countedOrders: 0, completionRatePct: null })[0]!.state;
     expect([state('none'), state('basic'), state('full'), state('institutional'), state('gold'), state(undefined)]).toEqual([
       'not_met',
       'not_met',

@@ -125,7 +125,9 @@ export interface PostingFacts {
   /** The signed-in verification level, or undefined when none came with the request. */
   readonly tier: KycTier | undefined;
   readonly completedOrders: number;
-  /** Lifetime completion rate as a percent string, or null when no order has an outcome. */
+  /** Lifetime orders with an outcome, the rate's denominator; the threshold is judged on the counts, never the rounded rate. */
+  readonly countedOrders: number;
+  /** Lifetime completion rate as a percent string, shown to the person, or null when no order has an outcome. */
   readonly completionRatePct: string | null;
 }
 
@@ -150,11 +152,13 @@ export function postingChecks(threshold: FiatPostingThreshold, facts: PostingFac
   }
   if (threshold.minCompletionRatePct !== undefined) {
     const required = threshold.minCompletionRatePct;
-    const current = facts.completionRatePct === null ? null : percentHundredths(facts.completionRatePct);
+    // completed / counted >= required%, as completed * 10000 >= required in hundredths * counted: exact, so a rate that
+    // rounds up to the target (89.995% shown as 90.00) does not meet a 90% threshold.
+    const met = BigInt(facts.completedOrders) * 10_000n >= BigInt(percentHundredths(required)!) * BigInt(facts.countedOrders);
     checks.push(
-      current === null
+      facts.countedOrders === 0 || facts.completionRatePct === null
         ? { id: 'completion_rate', state: 'unknown', current: null, required, reason: 'p2p.completion_rate_none' }
-        : judge('completion_rate', current >= percentHundredths(required)!, facts.completionRatePct!, required),
+        : judge('completion_rate', met, facts.completionRatePct, required),
     );
   }
   return checks;

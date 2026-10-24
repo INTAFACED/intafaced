@@ -1316,7 +1316,12 @@ export class P2pService {
   /** The level from the request, and the order history only when a threshold needs it. */
   private async postingFacts(threshold: FiatPostingThreshold, userId: string, tier: string | undefined) {
     const rates = needsOrderHistory(threshold) ? await completionRates(this.sql, userId) : null;
-    return { tier: asKycTier(tier), completedOrders: rates?.completedTotal ?? 0, completionRatePct: rates?.completionRateTotal ?? null };
+    return {
+      tier: asKycTier(tier),
+      completedOrders: rates?.completedTotal ?? 0,
+      countedOrders: rates?.countedTotal ?? 0,
+      completionRatePct: rates?.completionRateTotal ?? null,
+    };
   }
 
   /**
