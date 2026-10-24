@@ -49,8 +49,9 @@ export function createSpacesRouter(c: BankRouterContext) {
       .query(async ({ ctx, input }) =>
         guard(async () => {
           const userId = ctx.principal.userId;
+          // In turn, not together: a blank limit refuses before any query.
           const views = await bank.spaces.overview(userId, input.assetId, input.limit);
-          const bills = new Map((await bank.billsPots.list(userId)).map((pot) => [pot.spaceId, pot]));
+          const bills = new Map((await bank.billsPots.list(userId)).map((pot) => [pot.spaceId, pot.fallback]));
           const now = new Date();
           return views.map((v) => ({
             id: v.id,
@@ -58,7 +59,7 @@ export function createSpacesRouter(c: BankRouterContext) {
             kind: v.kind,
             name: v.name,
             ...potState(v, now),
-            billsPot: bills.has(v.id) ? { fallback: bills.get(v.id)!.fallback } : null,
+            billsPot: bills.has(v.id) ? { fallback: bills.get(v.id)! } : null,
             balance: v.balance,
             ledgerAccount: accountForSpace(v),
           }));
@@ -103,7 +104,6 @@ export function createSpacesRouter(c: BankRouterContext) {
           const space = await bank.spaces.get(input.spaceId);
           assertSelf(ctx.principal.userId, space.userId);
           await bank.spaces.archive(input.spaceId);
-          await bank.billsPots.released(input.spaceId);
           return { archived: true as const };
         }),
       ),

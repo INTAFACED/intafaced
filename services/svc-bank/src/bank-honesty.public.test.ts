@@ -11,6 +11,7 @@ import { fixedPriceSource } from './loans/prices.js';
 import { RampService } from './ramps/ramp-service.js';
 import { CRYPTO_LEDGER_PROGRAMME } from './ramps/rails.js';
 import { SpaceService } from './spaces/space-service.js';
+import { BillsPotService } from './spaces/bills-pot.js';
 import { createBankRouter } from './router.js';
 
 /**
@@ -225,7 +226,8 @@ describe('bank list', () => {
       return Promise.resolve([]);
     }) as unknown as Sql;
     const spaces = new SpaceService(sql, ledger);
-    const caller = createBankRouter({ spaces } as BankServices).createCaller(context());
+    const billsPots = new BillsPotService(sql, spaces);
+    const caller = createBankRouter({ spaces, billsPots } as BankServices).createCaller(context());
 
     await expect(caller.spaces.list({})).rejects.toMatchObject({
       code: 'BAD_REQUEST',
@@ -242,7 +244,8 @@ describe('bank list', () => {
     const ledger = new MemoryLedger();
     const sql = (() => Promise.resolve([])) as unknown as Sql;
     const spaces = new SpaceService(sql, ledger);
-    const caller = createBankRouter({ spaces } as BankServices).createCaller(context());
+    const billsPots = new BillsPotService(sql, spaces);
+    const caller = createBankRouter({ spaces, billsPots } as BankServices).createCaller(context());
 
     await expect(caller.directDeposit({ amount: '1000.00' })).rejects.toMatchObject({
       cause: { code: 'bank.no_paycheck_rail' },

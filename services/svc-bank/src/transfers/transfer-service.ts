@@ -1152,7 +1152,7 @@ export class TransferService {
           throw err;
         }
 
-        return this.settle(tx, executionId, { ...schedule, amount: claimAmount }, from, to, occurrence);
+        return this.settle(tx, executionId, { ...schedule, amount: claimAmount }, from, to, occurrence, now);
       },
       // `read committed` is correct here because the ordering between competing
       // runs is already established by the unique index on (schedule,
@@ -1169,6 +1169,7 @@ export class TransferService {
     from: Awaited<ReturnType<SpaceService['get']>>,
     to: Awaited<ReturnType<SpaceService['get']>>,
     occurrence: number,
+    now: Date,
   ): Promise<FiringOutcome> {
     const reject = async (code: string): Promise<FiringOutcome> => {
       await tx`
@@ -1205,7 +1206,7 @@ export class TransferService {
       // must NOT consume the occurrence. Rethrowing rolls the claim back so the
       // next pass tries again.
       if (!isInsufficientFunds(err)) throw err;
-      if (!(await this.topUpBillsPot(tx, schedule, from, occurrence))) return reject(err.code);
+      if (!(await this.topUpBillsPot(tx, schedule, from, to, occurrence, now))) return reject(err.code);
       try {
         posted = await post();
       } catch (retryErr) {
@@ -1226,28 +1227,47 @@ export class TransferService {
    * The bills pot fallback (BK-pots-03): when a standing order from the person's bills pot finds too little and they
    * turned the fallback on, move the shortfall from their main account into the pot. Keyed per order, pot and
    * occurrence, longer than any id a person can choose, so a re-driven occurrence finds its top-up instead of moving
-   * again. False when this space is no bills pot, the fallback is off, or the main account cannot cover the shortfall
-   * (that refusal moves nothing, and the order is recorded as refused).
+   * again. False when this space is no bills pot, the fallback is off, the order pays one of the person's own spaces (a
+   * bill is paid to someone else; topping up a move between their own spaces would only move their money in a circle),
+   * or the main account cannot cover the shortfall (that refusal moves nothing, and the order is recorded as refused).
+   *
+   * A transaction under the key that is not a main-to-pot move throws `BookedTransferConflict`: the claim rolls back and
+   * nothing is recorded as paid or refused on a movement nobody can account for.
    */
   private async topUpBillsPot(
     tx: Sql,
     schedule: ScheduleRecord,
     pot: Awaited<ReturnType<SpaceService['get']>>,
+    to: Awaited<ReturnType<SpaceService['get']>>,
     occurrence: number,
+    now: Date,
   ): Promise<boolean> {
-    if (pot.kind !== 'named' || !this.billsPots) return false;
+    if (pot.kind !== 'named' || !this.billsPots || to.userId === pot.userId) return false;
     const role = await this.billsPots.forSpace(pot.id, tx);
     if (!role?.fallback) return false;
+    const primary = await this.spaces.findPrimary(pot.userId, pot.assetId, tx);
+    if (!primary) return false;
     const transferId = billsFallbackTransferId(schedule.id, pot.id);
-    if (await this.ledger.getTxByKey(bankTransferKey('own', transferId, occurrence))) return true;
+    const prior = await this.ledger.getTxByKey(bankTransferKey('own', transferId, occurrence));
+    if (prior) {
+      // Its amount is the shortfall of the pass that booked it; the entries say what it was.
+      const booked = prior.entries.length > 0 ? prior : await this.ledger.getTx(prior.id);
+      const credit = booked?.entries.find((entry) => entry.direction === 'credit');
+      if (
+        !booked ||
+        !credit ||
+        !(await bookedTransferMatches(this.ledger, booked, accountForSpace(primary), accountForSpace(pot), credit.amount))
+      ) {
+        throw new BookedTransferConflict(transferId);
+      }
+      return true;
+    }
     const held = (await this.ledger.balance(accountForSpace(pot))).amount;
     const shortfall = schedule.amount - held;
     if (shortfall <= 0n) return true;
-    const primary = await this.spaces.findPrimary(pot.userId, pot.assetId, tx);
-    if (!primary) return false;
-    const main = await this.spaces.resolveForDebit(primary.id, new Date(), tx);
+    const main = await this.spaces.resolveForDebit(primary.id, now, tx);
     try {
-      await this.ledger.post(
+      const booked = await this.ledger.post(
         recipes.bankTransfer({
           transferId,
           occurrence,
@@ -1258,6 +1278,9 @@ export class TransferService {
           keySpace: 'own',
         }),
       );
+      if (!(await bookedTransferMatches(this.ledger, booked, accountForSpace(main), accountForSpace(pot), shortfall))) {
+        throw new BookedTransferConflict(transferId);
+      }
       return true;
     } catch (err) {
       if (isInsufficientFunds(err)) return false;

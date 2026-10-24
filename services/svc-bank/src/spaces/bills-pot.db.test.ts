@@ -21,7 +21,9 @@ import {
   type LedgerClient,
 } from '@intafaced/ledger-client';
 import { memoryLedgerHistory } from '../analytics/ledger-history.js';
-import { createBankServices } from '../bank-service.js';
+import { accountForSpace } from './space-service.js';
+import { billsFallbackTransferId } from '../transfers/transfer-service.js';
+import { createBankServices, memoryRecipientState } from '../bank-service.js';
 
 const USER = '41111111-1111-4111-8111-111111111111';
 const OTHER = '42222222-2222-4222-8222-222222222222';
@@ -57,7 +59,10 @@ beforeEach(async () => {
 });
 
 function services() {
-  return createBankServices(sql, ledger, memoryLedgerHistory(ledger), { scheduleEditCutoffMinutes: '60' });
+  return createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
+    scheduleEditCutoffMinutes: '60',
+    recipients: memoryRecipientState(),
+  });
 }
 
 async function fund(amount: string) {
@@ -66,13 +71,14 @@ async function fund(amount: string) {
 
 const balance = async (spaceId: string) => formatAmount((await ledger.balance(subAccountAvailable(spaceId, 'USDT'))).amount);
 const main = async () => formatAmount((await ledger.balance(userAvailable(USER, 'USDT'))).amount);
+const paid = async () => formatAmount((await ledger.balance(userAvailable(OTHER, 'USDT'))).amount);
 const topUps = () => ledger.journal().filter((tx) => tx.idempotencyKey.includes(':bills-fallback:'));
 
-/** A bills pot holding `held`, a payee space, and a TEST bill of `bill` paid from the pot tomorrow. */
+/** A bills pot holding `held`, and a TEST bill of `bill` paid from the pot tomorrow to another person's account. */
 async function billFromPot(bank: ReturnType<typeof services>, opts: { mainHolds: string; held: string; bill: string }) {
   const account = await bank.spaces.ensurePrimary(USER, 'USDT');
   const pot = await bank.spaces.create({ userId: USER, assetId: 'USDT', name: 'Bills TEST' });
-  const payee = await bank.spaces.create({ userId: USER, assetId: 'USDT', name: 'Landlord TEST' });
+  const payee = await bank.spaces.ensurePrimary(OTHER, 'USDT');
   await fund(opts.mainHolds);
   if (amt(opts.held) > 0n) {
     await bank.transfers.transfer({
@@ -100,7 +106,7 @@ describe('a standing order from the bills pot that finds too little', () => {
     const { pot, payee, order } = await billFromPot(bank, { mainHolds: '20', held: '5', bill: '8' });
     await bank.billsPots.set(USER, pot.id, true);
     expect(await bank.transfers.runDueTransfers({ now: DUE, limit: 10 })).toMatchObject({ settled: 1, rejected: 0 });
-    expect(await balance(payee.id)).toBe('8');
+    expect(await paid()).toBe('8');
     expect(await balance(pot.id)).toBe('0');
     // Main held 15 after filling the pot: the shortfall of 3 moved, once.
     expect(await main()).toBe('12');
@@ -121,7 +127,7 @@ describe('a standing order from the bills pot that finds too little', () => {
     const posts = ledger.journal().length;
     expect(await bank.transfers.runDueTransfers({ now: DUE, limit: 10 })).toMatchObject({ settled: 0, rejected: 1 });
     expect(ledger.journal().length).toBe(posts);
-    expect(await balance(payee.id)).toBe('0');
+    expect(await paid()).toBe('0');
     expect(await balance(pot.id)).toBe('5');
     expect(await main()).toBe('15');
     expect(await bank.transfers.executions(order.id, 10)).toEqual([
@@ -147,11 +153,56 @@ describe('a standing order from the bills pot that finds too little', () => {
     expect(await bank.transfers.runDueTransfers({ now: DUE, limit: 10 })).toMatchObject({ settled: 0, rejected: 1 });
     expect(topUps()).toHaveLength(0);
     expect(await balance(pot.id)).toBe('5');
-    expect(await balance(payee.id)).toBe('0');
+    expect(await paid()).toBe('0');
     expect(await main()).toBe('1');
     expect(await bank.transfers.executions(order.id, 10)).toEqual([
       expect.objectContaining({ status: 'rejected', rejectionCode: 'ledger.insufficient_funds' }),
     ]);
+  });
+
+  it('an order that pays one of the person’s own spaces is never topped up: their money would only go round', async () => {
+    const bank = services();
+    const account = await bank.spaces.ensurePrimary(USER, 'USDT');
+    const pot = await bank.spaces.create({ userId: USER, assetId: 'USDT', name: 'Bills TEST' });
+    await fund('20');
+    await bank.billsPots.set(USER, pot.id, true);
+    const order = await bank.transfers.schedule({
+      userId: USER,
+      fromSpaceId: pot.id,
+      toSpaceId: account.id,
+      amount: amt('8'),
+      cadence: 'once',
+      startsAt: TOMORROW,
+      scheduleId: randomUUID(),
+    });
+    expect(await bank.transfers.runDueTransfers({ now: DUE, limit: 10 })).toMatchObject({ settled: 0, rejected: 1 });
+    expect(topUps()).toHaveLength(0);
+    expect(await main()).toBe('20');
+    expect(await bank.transfers.executions(order.id, 10)).toEqual([
+      expect.objectContaining({ status: 'rejected', rejectionCode: 'ledger.insufficient_funds' }),
+    ]);
+  });
+
+  it('a top-up key that holds some other movement stops the order: nothing is recorded paid or refused', async () => {
+    const bank = services();
+    const { account, pot, payee, order } = await billFromPot(bank, { mainHolds: '20', held: '5', bill: '8' });
+    await bank.billsPots.set(USER, pot.id, true);
+    // Something else already booked under the top-up's key: main to the payee, not main to the pot.
+    await ledger.post(
+      recipes.bankTransfer({
+        transferId: billsFallbackTransferId(order.id, pot.id),
+        occurrence: 0,
+        from: accountForSpace(account),
+        to: accountForSpace(payee),
+        amount: amt('3'),
+        kind: 'manual',
+        keySpace: 'own',
+      }),
+    );
+    const outcome = bank.transfers.runDueTransfers({ now: DUE, limit: 10 });
+    await expect(outcome).resolves.toMatchObject({ settled: 0, rejected: 0 });
+    expect(await balance(pot.id)).toBe('5');
+    expect(await bank.transfers.executions(order.id, 10)).toEqual([]);
   });
 
   it('a pass that dies after the top-up finds it on the next pass: one top-up, and the bill pays once', async () => {
@@ -169,11 +220,11 @@ describe('a standing order from the bills pot that finds too little', () => {
     expect(first.settled).toBe(0);
     expect(topUps()).toHaveLength(1);
     expect(await balance(pot.id)).toBe('8');
-    expect(await balance(payee.id)).toBe('0');
+    expect(await paid()).toBe('0');
 
     expect(await bank.transfers.runDueTransfers({ now: new Date(DUE.getTime() + 60_000), limit: 10 })).toMatchObject({ settled: 1 });
     expect(topUps()).toHaveLength(1);
-    expect(await balance(payee.id)).toBe('8');
+    expect(await paid()).toBe('8');
     expect(await balance(pot.id)).toBe('0');
     expect(await main()).toBe('12');
   });
@@ -204,8 +255,8 @@ describe('choosing the bills pot', () => {
 
     await bank.billsPots.set(USER, bills.id, true);
     await bank.spaces.archive(bills.id);
-    await expect(bank.billsPots.set(USER, bills.id, true)).rejects.toMatchObject({ code: 'bank.space_archived' });
-    await bank.billsPots.released(bills.id);
     expect(await bank.billsPots.list(USER)).toEqual([]);
+    expect(await sql`SELECT 1 FROM bank.bills_pots WHERE space_id = ${bills.id}::uuid`).toHaveLength(0);
+    await expect(bank.billsPots.set(USER, bills.id, true)).rejects.toMatchObject({ code: 'bank.space_archived' });
   });
 });

@@ -507,6 +507,9 @@ test(`${J} #4 keeps a bills pot: a TEST bill of 8 from a pot holding 5 is refuse
   }
   const pot = named(await spaces(who), BILLS);
   expect(pot.balance).toBe('5');
+  // A rerun on the same stack starts where a first run does: the pot pays no bills yet.
+  const cleared = await api.mutate('spaces.clearBillsPot', { spaceId: pot.id });
+  expect(cleared.ok, JSON.stringify(cleared.body ?? {}).slice(0, 300)).toBe(true);
 
   // On the pot's own page: not a bills pot, then made one, with the top-up off as it starts.
   await signIn(page, who);

@@ -603,7 +603,12 @@ export class SpaceService {
     if (space.kind === 'primary') {
       throw new BankError('The primary space is the account itself and cannot be archived', 'bank.space_archived');
     }
-    await this.sql`UPDATE bank.spaces SET archived_at = now(), updated_at = now() WHERE id = ${spaceId}`;
+    // An archived space pays no bills: the bills pot role ends in the same transaction, under the row lock that
+    // `BillsPotService.set` takes, so a racing set either lands first and is ended here or finds the space archived.
+    await this.underRowLock(async (tx) => {
+      await tx`UPDATE bank.spaces SET archived_at = now(), updated_at = now() WHERE id = ${spaceId}`;
+      await tx`DELETE FROM bank.bills_pots WHERE space_id = ${spaceId}::uuid`;
+    });
   }
 
   /**
@@ -654,10 +659,10 @@ export class SpaceService {
   }
 
   /**
-   * Read one named, live pot of this owner under a row lock for a change of its goal or lock. Refuses the primary space
-   * (the account itself has no goal or lock), an archived pot and another owner's pot, the last as not found.
+   * Read one named, live pot of this owner under a row lock for a change of its goal, lock or bills pot role. Refuses the
+   * primary space (the account itself has no goal or lock), an archived pot and another owner's pot, the last as not found.
    */
-  private async ownPotForUpdate(tx: Sql, spaceId: string, userId: string): Promise<SpaceRecord> {
+  async ownPotForUpdate(tx: Sql, spaceId: string, userId: string): Promise<SpaceRecord> {
     const rows = await tx<SpaceRow[]>`
       SELECT id, user_id, asset_id, kind, name, goal_target, locked_until, unlock_requested_at, unlocks_at, archived_at
         FROM bank.spaces
@@ -675,7 +680,7 @@ export class SpaceService {
   }
 
   /** One pot change in a read-committed transaction: the row lock in `ownPotForUpdate` orders racing changes. */
-  private underRowLock<T>(fn: (tx: Sql) => Promise<T>): Promise<T> {
+  underRowLock<T>(fn: (tx: Sql) => Promise<T>): Promise<T> {
     return transaction(this.sql, fn, { isolation: 'read committed' });
   }
 
