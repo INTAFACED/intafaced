@@ -60,7 +60,7 @@ function principal(userId: string, scopes: string[]): Principal {
   } as Principal;
 }
 
-function caller(bank: BankServices, userId: string, scopes: string[], stepUp?: ReturnType<typeof createStepUpGate>) {
+function rawCaller(bank: BankServices, userId: string, scopes: string[], stepUp?: ReturnType<typeof createStepUpGate>) {
   const raw = encodePrincipal(principal(userId, scopes));
   const edge = createEdgeContext({ secret: SECRET, serviceName: 'svc-bank' });
   return createBankRouter(bank, stepUp ? { stepUp } : {}).createCaller(
@@ -73,6 +73,38 @@ function caller(bank: BankServices, userId: string, scopes: string[], stepUp?: R
       id: `req-${randomUUID()}`,
     }),
   );
+}
+
+type Caller = ReturnType<typeof rawCaller>;
+type SendInput = Parameters<Caller['global']['send']>[0];
+
+/**
+ * A caller whose global sends are confirmed on a rate lock, as the Pay card does: a send that names no `quoteId` takes
+ * one quote for its amount and currency, once per idempotency key, so a replay carries the same lock. While the rate
+ * source refuses a quote, the send goes without one and is refused by the service's own checks. A test about the lock
+ * passes its own `quoteId` (or `rawCaller`).
+ */
+function caller(bank: BankServices, userId: string, scopes: string[], stepUp?: ReturnType<typeof createStepUpGate>): Caller {
+  const me = rawCaller(bank, userId, scopes, stepUp);
+  const locks = new Map<string, string | undefined>();
+  const send = async (input: SendInput) => {
+    if (input.quoteId !== undefined) return me.global.send(input);
+    if (!locks.has(input.idempotencyKey)) {
+      const asset = await bank.spaces.get(input.fromSpaceId).then(
+        (space) => space.assetId,
+        () => 'USDT',
+      );
+      const lock = await me.global.quote({ asset, amount: input.amount, toCurrency: input.toCurrency }).then(
+        (quote) => quote.quoteId,
+        () => undefined,
+      );
+      locks.set(input.idempotencyKey, lock);
+    }
+    const quoteId = locks.get(input.idempotencyKey);
+    return me.global.send(quoteId === undefined ? input : { ...input, quoteId });
+  };
+  const global = new Proxy(me.global, { get: (target, key, receiver) => (key === 'send' ? send : Reflect.get(target, key, receiver)) });
+  return new Proxy(me, { get: (target, key, receiver) => (key === 'global' ? global : Reflect.get(target, key, receiver)) });
 }
 
 function approvingIdentity() {
@@ -221,7 +253,7 @@ describe('personal bill pay and global send', () => {
     await sql`
       TRUNCATE bank.bill_recurring_firings, bank.bill_payments, bank.bill_recurring,
                bank.global_incoming_links, bank.global_send_holds,
-               bank.global_sends, bank.global_recipients, bank.spaces
+               bank.global_sends, bank.global_quotes, bank.global_recipients, bank.spaces
       RESTART IDENTITY CASCADE
     `;
   });
@@ -552,7 +584,7 @@ describe('personal bill pay and global send', () => {
     const me2 = caller(bank2, USER, write);
     const saved2 = await me2.global.recipients.add({ idempotencyKey: 'recip-key-4', name: 'Ada', account: '123456789', country: 'DE' });
     const quote = await me2.global.quote({ asset: 'USDT', amount: '10', toCurrency: 'EUR' });
-    expect(quote).toEqual(QUOTE);
+    expect(quote).toEqual({ quoteId: expect.any(String), lockedAt: expect.any(String), ...QUOTE });
     expect(quote.receiveAmount).toBe('71.41');
     await expect(
       me2.global.send({
@@ -754,12 +786,13 @@ describe('personal bill pay and global send', () => {
       country: 'DE',
     });
     const id = randomUUID();
-    // A send that has been taken in but has not left: the only kind a hold can catch.
+    const { quoteId } = await me.global.quote({ asset: 'USDT', amount: '10', toCurrency: 'EUR' });
+    // A send that has been taken in, on its rate lock, but has not left: the only kind a hold can catch.
     await sql`
       INSERT INTO bank.global_sends (id, user_id, idempotency_key, from_space_id, asset_id, amount, to_currency, recipient_id,
-                                     country, delivery_method, compliance, status)
+                                     country, delivery_method, compliance, quote_id, status)
       VALUES (${id}, ${USER}, ${`seed-${id}`}, ${space.id}, 'USDT', '10', 'EUR', ${saved.id}, 'DE', 'bank',
-              '{"originatorName":"Ada"}', 'submitted')
+              '{"originatorName":"Ada"}', ${quoteId}, 'submitted')
     `;
     return { ledger, bank, me, id, ops: caller(bank, OP_A, compliance), other: caller(bank, OP_B, compliance) };
   }
@@ -1019,12 +1052,24 @@ describe('personal bill pay and global send', () => {
     expect(await balance()).toBe(parseAmount('100'));
     expect(transfers(ledger)).toHaveLength(2);
 
-    // Stopped after the refund posted and before it was recorded: the retry records it and credits nothing more.
+    // Stopped after the refund posted and before it was recorded (the ledger's answer is lost): the retry records it and
+    // credits nothing more.
     const second = await sendOne('send-refund-02');
     await opsA.global.ops.recordReturn({ sendId: second.id, returnRef: 'TEST-RET-R2' });
-    // The order is compared by millisecond timestamps; keep the two steps in different milliseconds.
-    await apart();
-    await turnBack(second.id);
+    let lose = true;
+    ledger.post = (async (...args: Parameters<typeof post>) => {
+      const tx = await post(...args);
+      if (lose) {
+        lose = false;
+        throw new Error('answer lost');
+      }
+      return tx;
+    }) as typeof ledger.post;
+    await expect(opsB.global.ops.refundReturn({ sendId: second.id })).rejects.toMatchObject({
+      cause: { code: 'bank.global_outcome_unknown' },
+    });
+    ledger.post = post;
+    expect(await opsB.global.ops.get({ id: second.id })).toMatchObject({ status: 'returned', refundedAt: null });
     expect(await balance()).toBe(parseAmount('100'));
     expect(await opsB.global.ops.refundReturn({ sendId: second.id })).toMatchObject({ status: 'refunded' });
     expect(await balance()).toBe(parseAmount('100'));
@@ -1173,6 +1218,91 @@ describe('personal bill pay and global send', () => {
       return { ledger, me, body, balance, row };
     }
 
+    it('a refused send gives its lock back for the corrected send; the same send twice at once is one send; old unused locks go', async () => {
+      const { ledger, bank } = mount({ sendFieldRules: RULES, global: liveGlobal() });
+      const space = await funded(bank, ledger);
+      const me = caller(bank, USER, write);
+      const saved = await me.global.recipients.add({
+        idempotencyKey: `recip-${randomUUID()}`,
+        name: 'Ada',
+        account: '123456789',
+        country: 'DE',
+      });
+      const lock = await me.global.quote({ asset: 'USDT', amount: '60', toCurrency: 'EUR' });
+      const base = {
+        fromSpaceId: space.id,
+        amount: '60',
+        toCurrency: 'EUR',
+        recipientId: saved.id,
+        country: 'DE',
+        deliveryMethod: 'bank',
+        quoteId: lock.quoteId,
+      };
+      // Over the TEST source-of-funds threshold with none given: refused, nothing posted, the lock not spent.
+      await expect(
+        me.global.send({ ...base, compliance: { originatorName: 'Ada' }, idempotencyKey: `send-${randomUUID()}` }),
+      ).rejects.toMatchObject({ cause: { code: 'bank.source_of_funds_required' } });
+      const corrected = { ...base, compliance: { originatorName: 'Ada', sourceOfFunds: 'salary' }, idempotencyKey: `send-${randomUUID()}` };
+      // The corrected send, sent twice at once (a double press): one send, paid once, at the lock.
+      const [a, b] = await Promise.all([me.global.send(corrected), me.global.send(corrected)]);
+      expect(a.id).toBe(b.id);
+      expect(a).toMatchObject({ status: 'sent', quoteId: lock.quoteId, quoteRate: '7.25' });
+      expect(transfers(ledger)).toHaveLength(1);
+      // Now the lock is spent.
+      await expect(me.global.send({ ...corrected, idempotencyKey: `send-${randomUUID()}` })).rejects.toMatchObject({
+        cause: { code: 'bank.global_quote_used' },
+      });
+      // A lock no send used, an hour past its end, is gone at the customer's next quote; a used one stays.
+      const unused = await me.global.quote({ asset: 'USDT', amount: '5', toCurrency: 'EUR' });
+      await sql`UPDATE bank.global_quotes SET valid_until = now() - interval '2 hours' WHERE id IN (${unused.quoteId}, ${lock.quoteId})`;
+      await me.global.quote({ asset: 'USDT', amount: '5', toCurrency: 'EUR' });
+      const left = await sql<{ id: string }[]>`SELECT id FROM bank.global_quotes WHERE id IN (${unused.quoteId}, ${lock.quoteId})`;
+      expect(left.map((row) => row.id)).toEqual([lock.quoteId]);
+    });
+
+    it('pays at the locked figures when the provider rate has moved since, and hands the payout rail exactly that lock', async () => {
+      const seen: Parameters<GlobalPorts['payout']['submit']>[0][] = [];
+      let rate = '7.25';
+      const { ledger, bank } = mount({
+        sendFieldRules: RULES,
+        global: liveGlobal({
+          fx: { status: () => 'live', quote: async () => ({ ...QUOTE, rate, receiveAmount: rate === '7.25' ? '71.41' : '89.10' }) },
+          payout: {
+            status: () => 'live',
+            railId: () => 'test-payout-rail',
+            async submit(input) {
+              seen.push(input);
+              return { ok: true, providerRef: 'payout-lock', status: 'sent' };
+            },
+          },
+        }),
+      });
+      const space = await funded(bank, ledger);
+      const me = caller(bank, USER, write);
+      const saved = await me.global.recipients.add({
+        idempotencyKey: `recip-${randomUUID()}`,
+        name: 'Ada',
+        account: '123456789',
+        country: 'DE',
+      });
+      const lock = await me.global.quote({ asset: 'USDT', amount: '10', toCurrency: 'EUR' });
+      rate = '9';
+      const sent = await me.global.send({
+        fromSpaceId: space.id,
+        amount: '10',
+        toCurrency: 'EUR',
+        recipientId: saved.id,
+        country: 'DE',
+        deliveryMethod: 'bank',
+        compliance: { originatorName: 'Ada' },
+        idempotencyKey: `send-${randomUUID()}`,
+        quoteId: lock.quoteId,
+      });
+      expect(sent).toMatchObject({ status: 'sent', quoteRate: '7.25', quoteReceive: '71.41', quoteId: lock.quoteId });
+      expect(seen).toEqual([expect.objectContaining({ sendId: sent.id, quoteId: lock.quoteId, rate: '7.25', receiveAmount: '71.41' })]);
+      expect(transfers(ledger)).toHaveLength(1);
+    });
+
     it('a refused payout returns the money in the same step, once, and the send is failed with the reason', async () => {
       const rail = scriptedPayout([{ ok: false }]);
       const { ledger, me, body, balance, row } = await ready(rail.port);
@@ -1294,6 +1424,191 @@ describe('personal bill pay and global send', () => {
       expect(await me.global.send(body)).toMatchObject({ id: sent.id, status: 'sent' });
       expect(transfers(ledger)).toHaveLength(1);
       expect(await balance()).toBe(parseAmount('60'));
+    });
+
+    it('a quote is a rate lock: the send confirmed on it is paid at its figures once, and the lock pays one send only', async () => {
+      const { ledger, bank, me, body, balance, rail } = await ready();
+      const lock = await me.global.quote({ asset: 'USDT', amount: '40', toCurrency: 'EUR' });
+      expect(lock).toMatchObject({ quoteId: expect.any(String), rate: '2', fee: '0', feeAsset: 'USDT', receiveAmount: '80' });
+      const sent = await me.global.send({ ...body, quoteId: lock.quoteId });
+      expect(sent).toMatchObject({
+        status: 'sent',
+        quoteId: lock.quoteId,
+        quoteRate: lock.rate,
+        quoteFee: lock.fee,
+        quoteReceive: lock.receiveAmount,
+        quoteValidUntil: lock.validUntil,
+        quoteEta: lock.eta,
+      });
+      // Confirming again (the same key) is the same send: one posting of exactly the amount, nothing more.
+      expect(await me.global.send({ ...body, quoteId: lock.quoteId })).toMatchObject({ id: sent.id, status: 'sent' });
+      expect(transfers(ledger)).toHaveLength(1);
+      expect(await balance()).toBe(parseAmount('60'));
+      expect(await rail()).toBe(parseAmount('40'));
+      // A second send on the same lock is refused and nothing is recorded or posted for it.
+      await expect(me.global.send({ ...body, idempotencyKey: `send-${randomUUID()}`, quoteId: lock.quoteId })).rejects.toMatchObject({
+        cause: { code: 'bank.global_quote_used' },
+      });
+      // A lock for other figures, or someone else's lock, pays nothing.
+      const other = await me.global.quote({ asset: 'USDT', amount: '41', toCurrency: 'EUR' });
+      await expect(me.global.send({ ...body, idempotencyKey: `send-${randomUUID()}`, quoteId: other.quoteId })).rejects.toMatchObject({
+        cause: { code: 'bank.global_quote_mismatch' },
+      });
+      const gbp = await me.global.quote({ asset: 'USDT', amount: '40', toCurrency: 'GBP' });
+      await expect(me.global.send({ ...body, idempotencyKey: `send-${randomUUID()}`, quoteId: gbp.quoteId })).rejects.toMatchObject({
+        cause: { code: 'bank.global_quote_mismatch' },
+      });
+      const theirs = await caller(bank, OTHER, write).global.quote({ asset: 'USDT', amount: '40', toCurrency: 'EUR' });
+      await expect(me.global.send({ ...body, idempotencyKey: `send-${randomUUID()}`, quoteId: theirs.quoteId })).rejects.toMatchObject({
+        cause: { code: 'bank.global_quote_not_found' },
+      });
+      await expect(
+        me.global.send({ ...body, idempotencyKey: `send-${randomUUID()}`, quoteId: '99999999-9999-4999-8999-999999999999' }),
+      ).rejects.toMatchObject({ cause: { code: 'bank.global_quote_not_found' } });
+      expect(transfers(ledger)).toHaveLength(1);
+      expect((await me.global.list({ limit: 10 })).items).toHaveLength(1);
+      // Taking a quote is a write the customer's session makes: a read-only session cannot lock a rate.
+      await expect(caller(bank, USER, read).global.quote({ asset: 'USDT', amount: '40', toCurrency: 'EUR' })).rejects.toBeTruthy();
+    });
+
+    it('a send confirmed after its lock ran out, or on none, is refused with nothing posted and the intent row kept with why', async () => {
+      const { ledger, bank, me, body, balance } = await ready();
+      const lock = await me.global.quote({ asset: 'USDT', amount: '40', toCurrency: 'EUR' });
+      await sql`UPDATE bank.global_quotes SET valid_until = now() - interval '1 second' WHERE id = ${lock.quoteId}`;
+      await expect(me.global.send({ ...body, quoteId: lock.quoteId })).rejects.toMatchObject({
+        cause: { code: 'bank.global_quote_expired' },
+      });
+      // The same confirmation again gives the same answer; a new quote is the only way on.
+      await expect(me.global.send({ ...body, quoteId: lock.quoteId })).rejects.toMatchObject({
+        cause: { code: 'bank.global_quote_expired' },
+      });
+      const unlocked = { ...body, idempotencyKey: `send-${randomUUID()}` };
+      await expect(rawCaller(bank, USER, write).global.send(unlocked)).rejects.toMatchObject({
+        cause: { code: 'bank.global_quote_required' },
+      });
+      expect(transfers(ledger)).toHaveLength(0);
+      expect(await balance()).toBe(parseAmount('100'));
+      const rows = (await me.global.list({ limit: 10 })).items;
+      expect(rows.map((row) => [row.status, row.failureCode, row.ledgerTxId]).sort()).toEqual([
+        ['failed', 'bank.global_quote_expired', null],
+        ['failed', 'bank.global_quote_required', null],
+      ]);
+      const fresh = await me.global.send({ ...body, idempotencyKey: `send-${randomUUID()}` });
+      expect(fresh).toMatchObject({ status: 'sent', quoteRate: '2', quoteReceive: '80' });
+      expect(await balance()).toBe(parseAmount('60'));
+    });
+
+    it('a send recorded inside its lock but never driven is not paid at that lock once it has run out; a lock id in capitals is the same lock', async () => {
+      const { ledger, me, body, balance } = await ready();
+      const lock = await me.global.quote({ asset: 'USDT', amount: '40', toCurrency: 'EUR' });
+      // Stranded: the instruction was recorded while the lock lasted, and nothing drove it (a stop between the two).
+      const id = randomUUID();
+      await sql`
+        INSERT INTO bank.global_sends (id, user_id, idempotency_key, from_space_id, asset_id, amount, to_currency, recipient_id,
+                                       country, delivery_method, quote_id, status)
+        VALUES (${id}, ${USER}, ${body.idempotencyKey}, ${body.fromSpaceId}, 'USDT', '40', 'EUR', ${body.recipientId}, 'DE',
+                'sepa', ${lock.quoteId}, 'submitted')
+      `;
+      await sql`UPDATE bank.global_quotes SET valid_until = now() - interval '1 second' WHERE id = ${lock.quoteId}`;
+      await expect(me.global.send({ ...body, quoteId: lock.quoteId.toUpperCase() })).rejects.toMatchObject({
+        cause: { code: 'bank.global_quote_expired' },
+      });
+      expect(transfers(ledger)).toHaveLength(0);
+      expect(await balance()).toBe(parseAmount('100'));
+      // Inside a lock, capitals change nothing: the send is recorded on the lock as written and paid at it.
+      const next = await me.global.quote({ asset: 'USDT', amount: '40', toCurrency: 'EUR' });
+      const again = { ...body, idempotencyKey: `send-${randomUUID()}` };
+      const sent = await me.global.send({ ...again, quoteId: next.quoteId.toUpperCase() });
+      expect(sent).toMatchObject({ status: 'sent', quoteId: next.quoteId, quoteReceive: '80' });
+      expect(await me.global.send({ ...again, quoteId: next.quoteId })).toMatchObject({ id: sent.id, status: 'sent' });
+      expect(transfers(ledger)).toHaveLength(1);
+    });
+
+    /** The send's row as stored. */
+    const stored = async (key: string) =>
+      (
+        await sql<{ status: string; ledger_tx_id: string | null }[]>`
+        SELECT status, ledger_tx_id FROM bank.global_sends WHERE user_id = ${USER} AND idempotency_key = ${key}
+      `
+      )[0];
+
+    /** A ledger that accepts the next forward entry and loses its answer, as a timeout after the ledger took it would. */
+    function loseNextForwardAnswer(ledger: MemoryLedger) {
+      const post = ledger.post.bind(ledger);
+      ledger.post = async (tx) => {
+        const done = await post(tx);
+        if (tx.reason === 'bank.transfer.manual') {
+          ledger.post = post;
+          throw new Error('answer lost');
+        }
+        return done;
+      };
+    }
+
+    it('a forward entry the ledger accepted but whose answer was lost is paid at the lock on the retry, even after the lock ran out', async () => {
+      const { ledger, me, body, balance } = await ready();
+      const lock = await me.global.quote({ asset: 'USDT', amount: '40', toCurrency: 'EUR' });
+      loseNextForwardAnswer(ledger);
+      await expect(me.global.send({ ...body, quoteId: lock.quoteId })).rejects.toThrow();
+      expect(transfers(ledger)).toHaveLength(1);
+      expect(await balance()).toBe(parseAmount('60'));
+      expect(await stored(body.idempotencyKey)).toEqual({ status: 'submitted', ledger_tx_id: null });
+      // The customer retries after the lock ran out (it was confirmed inside it): the posted send is paid at its lock, not
+      // failed with the debit stranded.
+      await sql`
+        UPDATE bank.global_quotes
+        SET valid_until = (SELECT created_at FROM bank.global_sends WHERE quote_id = ${lock.quoteId}) + interval '1 millisecond'
+        WHERE id = ${lock.quoteId}
+      `;
+      const sent = await me.global.send({ ...body, quoteId: lock.quoteId });
+      expect(sent).toMatchObject({ status: 'sent', quoteId: lock.quoteId, quoteRate: '2', quoteReceive: '80' });
+      expect(sent.ledgerTxId).toBe(transfers(ledger)[0]!.id);
+      expect(transfers(ledger)).toHaveLength(1);
+      expect(await balance()).toBe(parseAmount('60'));
+    });
+
+    it('a posted but unrecorded send whose corridor went away before the retry is left open as unknown, never failed with the debit stranded', async () => {
+      const { ledger, me, body, balance } = await ready();
+      const lock = await me.global.quote({ asset: 'USDT', amount: '40', toCurrency: 'EUR' });
+      loseNextForwardAnswer(ledger);
+      await expect(me.global.send({ ...body, quoteId: lock.quoteId })).rejects.toThrow();
+      // The partner's catalogue drops the corridor before the retry: a refusal now would strand the posted debit.
+      const catalogue = parseGlobalSim(stackValue('BANK_GLOBAL_SIM_JSON'))!;
+      const later = createBankServices(sql, ledger, memoryLedgerHistory(ledger), {
+        nativeAssetId: 'IFC',
+        recipients: memoryRecipientState(),
+        global: globalSimPorts({ ...catalogue, corridors: catalogue.corridors.filter((row) => row.country !== 'DE') }),
+        sendFieldRules: stackValue('BANK_SEND_FIELD_RULES_JSON'),
+        payeeControls: PAYEE_OK,
+        exchangeAllowance: ALLOWANCE_NONE,
+        proofLimits: stackValue('BANK_PROOF_LIMITS_JSON'),
+        holdCancelHours: '',
+      });
+      await expect(caller(later, USER, write).global.send({ ...body, quoteId: lock.quoteId })).rejects.toMatchObject({
+        cause: { code: 'bank.global_outcome_unknown' },
+      });
+      expect(await stored(body.idempotencyKey)).toEqual({ status: 'submitted', ledger_tx_id: transfers(ledger)[0]!.id });
+      expect(transfers(ledger)).toHaveLength(1);
+      expect(await balance()).toBe(parseAmount('60'));
+    });
+
+    it('a send held for review is paid at the lock it was confirmed on, even when released after the lock ran out', async () => {
+      const { ledger, bank, me, body, balance } = await ready();
+      await ledger.post(
+        recipes.deposit({ userId: USER, assetId: 'USDT', amount: parseAmount('500'), rail: 'test', railRef: randomUUID() }),
+      );
+      const lock = await me.global.quote({ asset: 'USDT', amount: '500', toCurrency: 'EUR' });
+      const waiting = await me.global.send({ ...body, amount: '500', quoteId: lock.quoteId });
+      expect(waiting).toMatchObject({ status: 'held', ledgerTxId: null, quoteId: lock.quoteId });
+      // The lock runs out while the send waits, after the customer confirmed inside it.
+      await sql`
+        UPDATE bank.global_quotes SET valid_until = (SELECT created_at FROM bank.global_sends WHERE id = ${waiting.id}) + interval '1 millisecond'
+        WHERE id = ${lock.quoteId}
+      `;
+      const released = await caller(bank, OP_B, compliance).global.ops.release({ sendId: waiting.id });
+      expect(released).toMatchObject({ id: waiting.id, status: 'sent', quoteRate: '2', quoteReceive: '1000', quoteId: lock.quoteId });
+      expect(transfers(ledger)).toHaveLength(1);
+      expect(await balance()).toBe(parseAmount('100'));
     });
 
     it('a USDT send at or over its TEST review amount is put on hold with nothing posted; asked for a file; released, it posts once', async () => {

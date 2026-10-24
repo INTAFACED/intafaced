@@ -270,6 +270,20 @@ const schema = serviceEnvSchema
       BANK_GLOBAL_REFUND_FEE: z.string().optional(),
 
       /**
+       * Owner-set fee added to a loan payoff quote (BK-loan-06, J-bank-11), as a decimal string in the loan's debt asset.
+       *
+       * No default. Blank / unset / not a decimal → no payoff quote is given (`bank.loan_fee_unset`). `0` is a published zero fee.
+       */
+      BANK_LOAN_PAYOFF_FEE: z.string().optional(),
+
+      /**
+       * Owner-set minutes a loan payoff quote stays valid (BK-loan-06, J-bank-11), a whole number from 1 to 10080.
+       *
+       * No default. Blank / unset / out of range → no payoff quote is given (`bank.loan_payoff_window_unset`).
+       */
+      BANK_LOAN_PAYOFF_WINDOW_MINUTES: z.string().optional(),
+
+      /**
        * Owner-set number of saved withdrawal addresses one customer may hold.
        *
        * No default. Blank / unset / zero / not a whole number → saving an address refuses

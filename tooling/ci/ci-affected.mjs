@@ -123,6 +123,21 @@ export function affectedFilters(files, edges = readEdges(), base = 'origin/main'
   return filters;
 }
 
+/**
+ * Build filters: the affected filters plus every package a selected reader reads. A reader's own build can type its
+ * tests too (apps/admin's next build does), and those tests import the read packages' sources, so their dependencies
+ * must be built even when no declared dependency leads there. Tests keep using affectedFilters.
+ */
+export function buildFilters(files, edges = readEdges(), base = 'origin/main') {
+  const filters = affectedFilters(files, edges, base);
+  const out = new Set(filters);
+  for (const [reader, reads] of Object.entries(edges)) {
+    if (!filters.includes(`./${reader}`)) continue;
+    for (const dir of reads) out.add(`./${dir}`);
+  }
+  return [...out];
+}
+
 export const SHARD_COUNT = 8;
 
 /**
@@ -232,6 +247,11 @@ function selfTest() {
   );
   assert(!affectedFilters(['services/svc-trade-extra/a.ts'], edges).includes('./apps/customer'), 'a prefix sibling is not a match');
   assert(
+    same(buildFilters(['services/svc-bank/b.ts'], edges), ['...[origin/main]', './apps/admin', './services/svc-bank']),
+    'a selected reader builds every package it reads',
+  );
+  assert(same(buildFilters(['services/svc-ledger/src/a.ts'], edges), ['...[origin/main]']), 'no reader selected, nothing added');
+  assert(
     same(Object.entries(mergeEdges({ 'apps/a': ['x', 'y'] }, { 'apps/a': ['y', 'z'], 'apps/b': ['x'] })).flat(2), [
       'apps/a',
       'x',
@@ -310,6 +330,10 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   else files = gitChangedFiles();
   if (args.includes('--filters')) {
     for (const f of affectedFilters(files)) console.log(f);
+    process.exit(0);
+  }
+  if (args.includes('--build-filters')) {
+    for (const f of buildFilters(files)) console.log(f);
     process.exit(0);
   }
   const flags = classify(files, { forceFull });

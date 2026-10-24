@@ -645,12 +645,33 @@ export const lessonRevisions = academy.table(
   (t) => [primaryKey({ columns: [t.itemId, t.revision] })],
 );
 
+/** AC-course-structure-04: an assistant draft of a lesson, keyed `draft:<item>:<revision>:<kind>`. Never live until accepted. */
+export const lessonDrafts = academy.table(
+  'lesson_drafts',
+  {
+    itemId: uuid('item_id')
+      .notNull()
+      .references(() => courseItems.id, { onDelete: 'cascade' }),
+    basedOnRevision: integer('based_on_revision').notNull(),
+    kind: text('kind').notNull(),
+    blocks: jsonb('blocks').notNull(),
+    state: text('state').notNull().default('open'),
+    createdBy: uuid('created_by').notNull(),
+    createdAt: tstz('created_at').notNull(),
+    decidedBy: uuid('decided_by'),
+    decidedAt: tstz('decided_at'),
+    acceptedRevision: integer('accepted_revision'),
+  },
+  (t) => [primaryKey({ columns: [t.itemId, t.basedOnRevision, t.kind] })],
+);
+
 export const schema = {
   courses,
   courseEvents,
   courseSections,
   courseItems,
   lessonRevisions,
+  lessonDrafts,
   plannerTodos,
   learningGoals,
   itemVideos,

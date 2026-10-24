@@ -70,6 +70,7 @@ const sendView = z.object({
   quoteReceive: z.string().nullable(),
   quoteValidUntil: z.string().nullable(),
   quoteEta: z.string().nullable(),
+  quoteId: z.string().nullable(),
   ledgerTxId: z.string().nullable(),
   cancelledBy: z.enum(['customer', 'auto']).nullable(),
   returnRef: z.string().nullable(),
@@ -391,10 +392,13 @@ export function createGlobalRouter(bank: Pick<BankServices, 'globalSend' | 'glob
         .output(z.object({ removed: z.literal(true) }))
         .mutation(({ ctx, input }) => guard(() => bank.globalSend.removeRecipient({ userId: ctx.principal.userId, ...input }))),
     }),
-    quote: scopedProcedure('bank:read', { module: 'bank' })
+    /** Takes a quote and locks it: a write, since the lock is kept until the provider's valid-until. */
+    quote: scopedProcedure('bank:write', { module: 'bank' })
       .input(z.object({ asset: z.string().min(1).max(16), amount: amountString, toCurrency: z.string().min(3).max(8) }).strict())
       .output(
         z.object({
+          quoteId: z.string().guid(),
+          lockedAt: z.string(),
           rate: amountString,
           fee: amountString,
           feeAsset: z.string(),
@@ -403,7 +407,7 @@ export function createGlobalRouter(bank: Pick<BankServices, 'globalSend' | 'glob
           eta: z.string(),
         }),
       )
-      .query(({ input }) => guard(() => bank.globalSend.quote(input))),
+      .mutation(({ ctx, input }) => guard(() => bank.globalSend.quote({ userId: ctx.principal.userId, ...input }))),
     send: scopedProcedure('bank:write', { module: 'bank' })
       .input(
         z
@@ -416,6 +420,7 @@ export function createGlobalRouter(bank: Pick<BankServices, 'globalSend' | 'glob
             country: z.string().length(2),
             deliveryMethod: z.string().min(1).max(64),
             compliance: z.record(z.string().max(64), z.string().max(200)).optional(),
+            quoteId: z.string().guid().optional(),
             stepUpApprovalId: stepUpApprovalField,
           })
           .strict(),
@@ -435,6 +440,7 @@ export function createGlobalRouter(bank: Pick<BankServices, 'globalSend' | 'glob
             country: input.country.trim().toUpperCase(),
             deliveryMethod: input.deliveryMethod.trim(),
             compliance: input.compliance,
+            quoteId: input.quoteId,
           });
           await requireStepUp(stepUp, ctx.principal, binding, input.stepUpApprovalId);
           return bank.globalSend.send({ userId: ctx.principal.userId, ...input });

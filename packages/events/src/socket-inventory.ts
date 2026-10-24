@@ -127,7 +127,7 @@ export const EVENT_BUS_MATRIX = {
   p2pTradeDisputed: { kind: 'live' },
   p2pDisputeResolved: { kind: 'socket', socketClass: 'A' },
   p2pTradeExpired: { kind: 'socket', socketClass: 'A' },
-  p2pTradeFiatSent: { kind: 'socket', socketClass: 'A' },
+  p2pTradeFiatSent: { kind: 'live' },
   p2pChatMessageSent: { kind: 'socket', socketClass: 'A' },
   p2pDisputeEscalated: { kind: 'socket', socketClass: 'A' },
   p2pQuoteExpired: { kind: 'socket', socketClass: 'A' },

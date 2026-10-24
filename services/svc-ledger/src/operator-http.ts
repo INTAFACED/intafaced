@@ -19,6 +19,7 @@ import { ActionApprovalConsumeError, consumeLedgerApproval, type ActionApprovalC
 import { LOOKUP_UNRECORDED, LookupUnrecordedError, requireLookupAuthority, type LookupActor } from './ledger/operator-lookup.js';
 import { TraceInconsistentError, operatorTraceInputSchema, operatorTraceOutputSchema, traceBusinessKey } from './ledger/operator-trace.js';
 import { LEDGER_TX_NOT_FOUND, operatorTxGet, operatorTxGetInputSchema, operatorTxGetOutputSchema } from './ledger/operator-tx-get.js';
+import { SKEW_BOUND_UNSET, WRITES_BLOCKED_CLOCK_SKEW } from './ledger/clock-skew.js';
 import { ReconciliationControlError } from './ledger/reconciliation-control-error.js';
 import {
   defineReconciliationControl,
@@ -278,6 +279,21 @@ export function registerOperatorHttp(
   app.get(
     '/operator/freeze',
     guarded(async () => shape(await ledger.freezeState())),
+  );
+
+  /**
+   * Clock integrity (OPS-ledger-desk-04). A blank owner bound is 412
+   * `ledger.skew_bound_unset`. A bound the clocks exceed is 503
+   * `ledger.writes_blocked_clock_skew`. Neither answer invents a window.
+   */
+  app.get(
+    '/operator/integrity/clock',
+    guarded(async (_operator, _body, _req, reply) => {
+      const view = await ledger.clockSkew();
+      if (!view.ok && view.code === SKEW_BOUND_UNSET) return reply.code(412).send(view);
+      if (!view.ok && view.code === WRITES_BLOCKED_CLOCK_SKEW) return reply.code(503).send(view);
+      return view;
+    }),
   );
 
   app.post(

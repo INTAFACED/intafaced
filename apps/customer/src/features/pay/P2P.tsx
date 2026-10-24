@@ -1,5 +1,5 @@
 import { payCopy, PayCopy, payRefusal } from './copy';
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable } from '@intafaced/ui';
@@ -16,7 +16,8 @@ import {
   Status,
   MutationResult,
 } from './components';
-import { id, type Trade } from './schemas';
+import { id, type Trade, type TradeDestination } from './schemas';
+import { displayAmount } from '../../shared/money';
 import { useP2PView, type P2PView } from './p2p-view';
 import { P2POffers } from './P2POffers';
 import { P2POrder } from './P2POrder';
@@ -257,7 +258,20 @@ function OrderDetail({ pay, tradeId, userId }: { pay: PersonalPayApi; tradeId: s
     />
   );
 }
-function OrderPaymentDetails({ trade, pay, userId }: { trade: Trade; pay: PersonalPayApi; userId: string | null }) {
+/** The agreed destination's values under the server's labels, in the server's order; any other key under its own name. */
+export function destinationRows(data: Pick<TradeDestination, 'details' | 'fields'>): [string, string][] {
+  const named = data.fields.filter((field) => Object.hasOwn(data.details, field.key));
+  const known = new Set(named.map((field) => field.key));
+  const rest = Object.keys(data.details).filter((key) => !known.has(key));
+  return [
+    ...named.map((field): [string, string] => [field.label, data.details[field.key]!]),
+    ...rest.map((key): [string, string] => [key, data.details[key]!]),
+  ];
+}
+export function OrderPaymentDetails({ trade, pay, userId }: { trade: Trade; pay: PersonalPayApi; userId: string | null }) {
+  const order = orderCopy.useCopy();
+  // The payee rule and the change notice are for whoever is not the seller; the seller sees their own details plainly.
+  const isBuyer = userId !== null && userId !== trade.sellerId;
   const [requested, setRequested] = useState(false);
   const destination = useResource(
     (signal) =>
@@ -271,17 +285,31 @@ function OrderPaymentDetails({ trade, pay, userId }: { trade: Trade; pay: Person
       {requested ? (
         <PayState resource={destination.resource} retry={destination.reload}>
           {(data) => (
-            <PayDetails
-              values={[
-                [payCopy.t('destinationLabel'), <span lang="und">{data.label}</span>],
-                [payCopy.t('countryCurrency'), `${data.country} / ${data.fiatCurrency}`],
-                ...Object.entries(data.details).map(([label, value]): [string, ReactNode, string?] => [
-                  label,
-                  <span lang="und">{value}</span>,
-                  'und',
-                ]),
-              ]}
-            />
+            <>
+              {isBuyer && data.payeeChange ? (
+                <div data-testid="order-payee-changed">
+                  <PayNotice title={order.t(data.payeeChange.kind === 'removed' ? 'payeeRemovedTitle' : 'payeeChangedTitle')}>
+                    {order.t(trade.status === 'escrowed' ? 'payeeChangedBody' : 'payeeChangedAfterPaidBody')}
+                  </PayNotice>
+                </div>
+              ) : null}
+              <PayDetails
+                values={[
+                  [payCopy.t('destinationLabel'), <span lang="und">{data.label}</span>],
+                  [payCopy.t('countryCurrency'), `${data.country} / ${data.fiatCurrency}`],
+                  ...destinationRows(data).map(([label, value]): [string, ReactNode, string?] => [
+                    label,
+                    <span lang="und">{value}</span>,
+                    'und',
+                  ]),
+                ]}
+              />
+              {isBuyer ? (
+                <p className="muted" data-testid="order-payee-name-rule">
+                  {order.t('payeeNameRule')}
+                </p>
+              ) : null}
+            </>
           )}
         </PayState>
       ) : (
@@ -296,7 +324,43 @@ function OrderPaymentDetails({ trade, pay, userId }: { trade: Trade; pay: Person
     </PaySection>
   );
 }
-function OrderActions({
+/**
+ * The buyer's three ticks before Mark payment sent. It lives inside the review, so every time the review opens the
+ * boxes start empty: closing it to go and pay, then coming back, asks again.
+ */
+function PaidChecklist({ trade, onReady }: { trade: Trade; onReady: (ready: boolean) => void }) {
+  const { t } = orderCopy.useCopy();
+  const [checks, setChecks] = useState({ amount: false, ownAccount: false, details: false });
+  const ready = checks.amount && checks.ownAccount && checks.details;
+  useEffect(() => onReady(ready), [ready]);
+  useEffect(() => () => onReady(false), []);
+  return (
+    <fieldset className="p2p-paid-checklist" data-testid="order-paid-checklist">
+      <legend>{t('paidChecklist')}</legend>
+      {(
+        [
+          ['amount', t('paidCheckAmount', { amount: displayAmount(trade.fiatAmount), currency: trade.fiatCurrency })],
+          ['ownAccount', t('paidCheckOwnAccount')],
+          ['details', t('paidCheckDetails')],
+        ] as const
+      ).map(([key, label]) => (
+        <label key={key}>
+          <input
+            type="checkbox"
+            checked={checks[key]}
+            onChange={(event) => {
+              // Read it now: React puts a controlled box back before a functional update runs.
+              const checked = event.target.checked;
+              setChecks((current) => ({ ...current, [key]: checked }));
+            }}
+          />
+          <span>{label}</span>
+        </label>
+      ))}
+    </fieldset>
+  );
+}
+export function OrderActions({
   trade,
   pay,
   userId,
@@ -312,6 +376,8 @@ function OrderActions({
   onOutcome: (result: ApiResult<Trade>) => void;
 }) {
   const [reason, setReason] = useState('');
+  // J-p2p-01 #7: the buyer confirms three facts about the outside payment before the order says it was paid.
+  const [paidReady, setPaidReady] = useState(false);
   const { Copy, t } = orderCopy.useCopy();
   if (locked) return null;
   const reviewValues: [string, ReactNode][] = [
@@ -342,8 +408,11 @@ function OrderActions({
                     [payCopy.t('paymentMethod'), <span lang="zxx">{trade.method}</span>],
                   ]}
                 />
+                <PaidChecklist trade={trade} onReady={setPaidReady} />
               </div>
             }
+            ready={paidReady}
+            notReadyReason={t('paidChecklistIncomplete')}
             perform={(current) => perform('markFiatSent', current)}
             onConfirmed={reload}
             disabled={locked}

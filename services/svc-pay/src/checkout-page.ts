@@ -63,6 +63,8 @@ export type CheckoutSessionPageView = {
   method: string;
   expiresAt: string;
   instruction: { reference: string; amount: string; currency: string } | null;
+  confirmationMessage?: string | null;
+  confirmationUrl?: string | null;
 };
 
 /** The slice of PayService the hosted page needs. Nothing else is reachable from here. */
@@ -96,6 +98,7 @@ export type CheckoutPageState =
   | { kind: 'session'; session: CheckoutSessionPageView }
   | { kind: 'missing_token' }
   | { kind: 'not_found' }
+  | { kind: 'inactive'; message: string }
   | { kind: 'expired' }
   | { kind: 'exhausted' }
   /** No rail on this deployment can honestly take a public payment. */
@@ -167,6 +170,11 @@ export function renderCheckoutPage(state: CheckoutPageState, paths: CheckoutPath
           errorBody(resolvePayerCopy(PAYER_COPY_KEYS.notFound), resolvePayerCopy(PAYER_COPY_KEYS.notFound)),
           resolvePayerCopy(PAYER_COPY_KEYS.notFound),
         ),
+      };
+    case 'inactive':
+      return {
+        status: 404,
+        html: pageShell(errorBody(state.message, state.message), state.message),
       };
     case 'expired':
       return {
@@ -290,6 +298,14 @@ function sessionBody(session: CheckoutSessionPageView): string {
   )}</span></p>`;
 
   if (session.status === 'completed') {
+    const redirect = httpsRedirect(session.confirmationUrl);
+    const message = session.confirmationMessage?.trim();
+    const paid = message
+      ? `<p class="cta done" role="status">${escapeHtml(message)}</p>`
+      : `<p class="cta done" role="status">Payment received</p>`;
+    const next = redirect
+      ? `<p class="hint"><a href="${escapeHtml(redirect)}">Continue</a></p>`
+      : `<p class="hint">The merchant has been notified.</p>`;
     return `
       <header class="head">
         <p class="eyebrow">Paid</p>
@@ -297,8 +313,8 @@ function sessionBody(session: CheckoutSessionPageView): string {
       </header>
       <section class="card">
         ${amountLine}
-        <p class="cta done" role="status">Payment received</p>
-        <p class="hint">The merchant has been notified.</p>
+        ${paid}
+        ${next}
       </section>
     `;
   }
@@ -418,6 +434,23 @@ function pageShell(body: string, title: string, refreshSeconds?: number): string
 }
 
 /** Read `PayError.code` (or any error with a string `code`) without importing the service. */
+function httpsRedirect(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(raw.trim());
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== 'https:' || parsed.hostname.length === 0 || !parsed.href.startsWith('https://')) return null;
+  return parsed.href;
+}
+
+function errorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  return '';
+}
+
 function errorCode(err: unknown): string | undefined {
   if (err && typeof err === 'object' && 'code' in err && typeof (err as { code: unknown }).code === 'string') {
     return (err as { code: string }).code;
@@ -437,6 +470,11 @@ export function stateForError(err: unknown): CheckoutPageState {
     case 'pay.link_not_found':
     case 'pay.checkout_session_not_found':
       return { kind: 'not_found' };
+    case 'pay.link_inactive': {
+      const message = errorMessage(err).trim();
+      if (!message || message === 'payment link not found') return { kind: 'not_found' };
+      return { kind: 'inactive', message };
+    }
     case 'pay.link_expired':
       return { kind: 'expired' };
     case 'pay.link_exhausted':
