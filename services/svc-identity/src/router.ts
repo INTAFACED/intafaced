@@ -85,7 +85,7 @@ import {
   type DocumentReview,
 } from './kyc/provider-ref-bind.js';
 import { FlagDisabledError } from '@intafaced/config';
-import { WaitlistError, type WaitlistService } from './waitlist/waitlist-service.js';
+import { WaitlistError, type WaitlistPosition, type WaitlistService } from './waitlist/waitlist-service.js';
 import type { WaitlistWave } from './waitlist/waitlist-store.js';
 import { ACTION_APPROVAL_MISSING, PrivilegedDualControlError, requirePrivilegedDualControl } from './auth/privileged-dual-control.js';
 import { ActionApprovalError } from './auth/action-approval-service.js';
@@ -301,6 +301,8 @@ function toTrpcError(err: unknown): TRPCError {
       case 'waitlist.referral_locked':
       case 'waitlist.wave_unknown':
         return new TRPCError({ code: 'CONFLICT', message: `${err.message} [${err.code}]`, cause: err });
+      case 'waitlist.email_unverified':
+        return new TRPCError({ code: 'FORBIDDEN', message: `${err.message} [${err.code}]`, cause: err });
       case 'waitlist.invalid':
         return new TRPCError({ code: 'BAD_REQUEST', message: `${err.message} [${err.code}]`, cause: err });
       case 'drop.wave_unset':
@@ -600,6 +602,25 @@ function toSocialTrpcError(err: unknown): TRPCError {
 }
 
 const iso = (d: Date | null) => (d ? d.toISOString() : null);
+
+const waitlistPlaceOutput = z.object({
+  position: z.number().int().positive(),
+  referralCode: z.string(),
+  referredCount: z.number().int().min(0),
+  queueLength: z.number().int().min(0),
+  /** Place among those still waiting (more referrals first, ties by join order); null once released. */
+  rank: z.number().int().positive().nullable(),
+  waiting: z.number().int().min(0),
+  release: z.object({ waveNumber: z.number().int().positive(), releasedAt: z.string() }).nullable(),
+});
+
+function waitlistPlaceView(out: WaitlistPosition): z.infer<typeof waitlistPlaceOutput> {
+  return {
+    ...out,
+    release: out.release ? { waveNumber: out.release.waveNumber, releasedAt: out.release.releasedAt.toISOString() } : null,
+  };
+}
+
 const waveOutput = z.object({
   waveNumber: z.number().int().positive(),
   size: z.number().int().positive(),
@@ -3656,29 +3677,33 @@ export function createIdentityRouter(
 
       position: publicProcedure
         .input(z.object({ referralCode: z.string().regex(/^[a-fA-F0-9]{12}$/) }))
-        .output(
-          z.object({
-            position: z.number().int().positive(),
-            referralCode: z.string(),
-            referredCount: z.number().int().min(0),
-            queueLength: z.number().int().min(0),
-            /** Place among those still waiting (more referrals first, ties by join order); null once released. */
-            rank: z.number().int().positive().nullable(),
-            waiting: z.number().int().min(0),
-            release: z.object({ waveNumber: z.number().int().positive(), releasedAt: z.string() }).nullable(),
-          }),
-        )
+        .output(waitlistPlaceOutput)
         .query(async ({ input }) => {
           try {
-            const out = await requireWaitlist().position(input.referralCode);
-            return {
-              ...out,
-              release: out.release ? { waveNumber: out.release.waveNumber, releasedAt: out.release.releasedAt.toISOString() } : null,
-            };
+            return waitlistPlaceView(await requireWaitlist().position(input.referralCode));
           } catch (err) {
             throw toTrpcError(err);
           }
         }),
+
+      /**
+       * The signed-in caller's own place (RC-campaigns-05's drop room, J-campaigns-20 #4): the entry whose email is this
+       * account's confirmed email, or null when it never joined. An unconfirmed email refuses `waitlist.email_unverified`,
+       * so nobody reads a place by typing someone else's address at sign-up.
+       */
+      mine: protectedProcedure.output(waitlistPlaceOutput.nullable()).query(async ({ ctx }) => {
+        try {
+          const self = await auth.selfEmail(ctx.principal.userId);
+          if (self === null) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Authentication required' });
+          if (!self.emailVerified) {
+            throw new WaitlistError('Confirm your email to see your place in the queue', 'waitlist.email_unverified');
+          }
+          const out = await requireWaitlist().mine(self.email);
+          return out ? waitlistPlaceView(out) : null;
+        } catch (err) {
+          throw err instanceof TRPCError ? err : toTrpcError(err);
+        }
+      }),
 
       /**
        * Referral-ranked waves (RC-campaigns-03, J-campaigns-20 #3). `list` shows the owner's wave size (null while blank),
