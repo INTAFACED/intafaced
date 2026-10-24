@@ -14,7 +14,7 @@ const REASON_LABEL: Record<AccountArchiveReasonCode, string> = {
 
 /**
  * Archive of one closed customer record (J-ops-console-04 #10). A two-founder request through the desk: you propose, a
- * different founder approves on their own console, and you run it. Only a closed account can be archived, and an archive
+ * different founder approves on their own console (identity accepts only a founder here), and you run it. Only a closed account can be archived, and an archive
  * cannot be undone: the record is read-only afterwards. Also shows the customers identity proposes for archive under the
  * owner's dormancy period, or that the period is not set.
  */
@@ -32,19 +32,22 @@ export function AccountArchive({
 }) {
   const [state, setState] = useState<AccountArchiveState | null>(null);
   const [history, setHistory] = useState<AccountArchiveResult[]>([]);
-  const [proposals, setProposals] = useState<AccountArchiveProposals | null>(null);
+  const [proposals, setProposals] = useState<AccountArchiveProposals | 'unread' | null>(null);
   const [error, setError] = useState('');
   const [reasonCode, setReasonCode] = useState<AccountArchiveReasonCode | ''>('');
 
   const load = useCallback(async () => {
     setError('');
     const id = encodeURIComponent(userId.toLowerCase());
-    const [stateResponse, historyResponse, proposalsResponse] = await Promise.all([
+    // The dormancy list is not about this record, so its failure never hides this record's archive state.
+    void fetch('/api/accounts/archive?proposals=true', { cache: 'no-store' })
+      .then(async (response) => setProposals(response.ok ? ((await response.json()) as AccountArchiveProposals) : 'unread'))
+      .catch(() => setProposals('unread'));
+    const [stateResponse, historyResponse] = await Promise.all([
       fetch(`/api/accounts/archive?id=${id}`, { cache: 'no-store' }),
       fetch(`/api/accounts/archive?id=${id}&history=true&limit=50`, { cache: 'no-store' }),
-      fetch('/api/accounts/archive?proposals=true', { cache: 'no-store' }),
     ]);
-    if (!stateResponse.ok || !historyResponse.ok || !proposalsResponse.ok) {
+    if (!stateResponse.ok || !historyResponse.ok) {
       setState(null);
       onState?.(undefined);
       setError('Identity (svc-identity) did not answer for this record’s archive state. Nothing can be archived until it does.');
@@ -54,7 +57,6 @@ export function AccountArchive({
     setState(current);
     onState?.(current);
     setHistory((await historyResponse.json()) as AccountArchiveResult[]);
-    setProposals((await proposalsResponse.json()) as AccountArchiveProposals);
   }, [userId, onState]);
 
   useEffect(() => {
@@ -125,7 +127,7 @@ export function AccountArchive({
                 version: state.version,
               }),
             }}
-            consequence="Two different people must agree: you make the request here, a different founder pastes the packet on their own console and approves it, and then you run it. Identity also accepts another operator as the approver, so check who approved before you run it. An archive cannot be undone: the record cannot be frozen, unfrozen or reopened afterwards, and the person needs a new application to come back."
+            consequence="Two different people must agree: you make the request here, a different founder pastes the packet on their own console and approves it, and then you run it. An archive cannot be undone: the record cannot be frozen, unfrozen or reopened afterwards. Only a founder can approve it."
             blockedButtonLabel="Archive unavailable"
             onChanged={refresh}
           />
@@ -133,6 +135,10 @@ export function AccountArchive({
           <div data-testid="account-archive-dormancy">
             {!proposals ? (
               <p className="adm-subtle">Reading identity’s proposals…</p>
+            ) : proposals === 'unread' ? (
+              <p className="adm-alert" role="alert">
+                Identity (svc-identity) did not answer for the dormant customers. Inspect the account again to retry.
+              </p>
             ) : proposals.dormancyDays === null ? (
               <p>
                 Dormancy period: not set. The owner has not set how long a closed record waits (IDENTITY_DORMANCY_DAYS), so identity

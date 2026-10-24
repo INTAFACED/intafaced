@@ -1087,7 +1087,7 @@ export class FounderControls {
           const user = actor.users.find((row) => row.id === targetId);
           if (!user) return finish(refused('target.not_found'), true);
           const before = (await this.closureStateOf(tx, targetId))!;
-          // An archived record stays closed for good: returning takes a new application (J-ops-console-04 #10).
+          // An archived record stays closed for good (J-ops-console-04 #10).
           if (user.archived_at) return finish(refused('identity.account_archived', before), true);
           if (before.version !== input.expectedVersion)
             return finish(
@@ -1211,8 +1211,8 @@ export class FounderControls {
    * Staff archive of one customer record (J-ops-console-04 #10). A live founder runs it with a four-eyes approval a second
    * person gave, spent here. Only a closed account can be archived; founders and the actor's own record cannot. It sets
    * `archived_at` and the reason code once and never clears them: afterwards freeze, unfreeze and reopen refuse
-   * `identity.account_archived`, and returning takes a new application. Each attempt, refused ones included, is in the
-   * archive history; a retry of the same request id returns the stored answer.
+   * `identity.account_archived`. Each attempt, refused ones included, is in the archive history; a retry of the same
+   * request id, or a new run of the same founder's spent approval, returns the stored answer.
    */
   async archive(context: Context, raw: AccountArchiveInput): Promise<AccountArchiveResult> {
     const input = accountArchiveInputSchema.parse(raw);
@@ -1256,7 +1256,22 @@ export class FounderControls {
           const user = actor.users.find((row) => row.id === targetId);
           if (!user) return finish(refused('target.not_found'), true);
           const before = (await this.archiveStateOf(tx, targetId))!;
-          if (before.archivedAt !== null) return finish(refused('identity.account_archived', before), true);
+          if (before.archivedAt !== null) {
+            // A run whose answer was lost: the same founder, approval and request archived it already, so answer as then.
+            const [done] = input.approvalId
+              ? await tx<Array<{ result: unknown }>>`
+                  SELECT result FROM founder_control_audit
+                   WHERE kind = 'archive' AND actor_id = ${actorId!} AND detail->>'approvalId' = ${input.approvalId}
+                     AND result->>'outcome' = 'changed' AND result->>'userId' = ${targetId}
+                   LIMIT 1`
+              : [];
+            const stored = done ? accountArchiveResultSchema.parse(done.result) : null;
+            if (stored && stored.reasonCode === input.reasonCode && stored.reason === input.reason) return stored;
+            return finish(refused('identity.account_archived', before), true);
+          }
+          // Refusals no later version can lift come before the version check, so a stale request is not sent round again.
+          if (this.pair?.includes(targetId)) return finish(refused('identity.archive_founder_forbidden', before), true);
+          if (targetId === actorId) return finish(refused('identity.archive_self_forbidden', before), true);
           if (before.version !== input.expectedVersion)
             return finish(
               accountArchiveResultSchema.parse({
@@ -1269,11 +1284,9 @@ export class FounderControls {
               }),
               true,
             );
-          if (this.pair?.includes(targetId)) return finish(refused('identity.archive_founder_forbidden', before), true);
-          if (targetId === actorId) return finish(refused('identity.archive_self_forbidden', before), true);
           if (before.status !== 'closed') return finish(refused('identity.archive_blocked_open_account', before), true);
           if (!input.approvalId) return finish(refused('identity.archive_requires_approver', before), true);
-          const spent = await this.consumeIdentityApproval(tx, {
+          const want = {
             approvalId: input.approvalId,
             actionType: IDENTITY_ARCHIVE_ACTION_TYPE,
             payloadHash: identityArchivePayloadHash(input),
@@ -1282,12 +1295,15 @@ export class FounderControls {
             actorId: actorId!,
             requestId: input.requestId,
             now: clock!.at,
-          });
-          if (spent.refusal)
-            return finish(
-              refused(spent.refusal === 'mismatch' ? 'identity.archive_approval_mismatch' : 'identity.archive_approval_consumed', before),
-              true,
-            );
+          };
+          const approvalRefusal = (refusal: 'mismatch' | 'consumed') =>
+            refused(refusal === 'mismatch' ? 'identity.archive_approval_mismatch' : 'identity.archive_approval_consumed', before);
+          const bound = await this.consumeIdentityApproval(tx, want, false);
+          if (bound.refusal) return finish(approvalRefusal(bound.refusal), true);
+          // Founder-level: an archive cannot be undone, so the approver must be the other live founder, not any operator.
+          if (!(await this.isLiveFounder(bound.approverId, tx))) return finish(approvalRefusal('mismatch'), true);
+          const spent = await this.consumeIdentityApproval(tx, want);
+          if (spent.refusal) return finish(approvalRefusal(spent.refusal), true);
           await tx`UPDATE users SET archived_at = ${clock!.at}, archive_reason = ${input.reasonCode}, identity_control_version = identity_control_version + 1, updated_at = now() WHERE id = ${targetId}`;
           const after = (await this.archiveStateOf(tx, targetId))!;
           return finish(
@@ -1371,19 +1387,23 @@ export class FounderControls {
           const days = this.dormancyDays;
           if (days === null)
             return accountArchiveProposalsSchema.parse({ dormancyDays: null, proposals: [], asOf: clock!.at.toISOString() });
+          // Activity is the latest change to the record, sign-in, or customer closure (which does not touch updated_at).
           const rows = await tx<Array<{ id: string; last_activity_at: Date }>>`
-            SELECT u.id, GREATEST(u.updated_at, COALESCE(MAX(s.created_at), u.updated_at)) AS last_activity_at
-              FROM users u LEFT JOIN sessions s ON s.user_id = u.id
-             WHERE u.status = 'closed' AND u.archived_at IS NULL
-             GROUP BY u.id, u.updated_at
-            HAVING GREATEST(u.updated_at, COALESCE(MAX(s.created_at), u.updated_at)) < ${clock!.at}::timestamptz - make_interval(days => ${days})
-             ORDER BY last_activity_at, u.id
+            SELECT id, last_activity_at FROM (
+              SELECT u.id, GREATEST(
+                       u.updated_at,
+                       (SELECT MAX(s.created_at) FROM sessions s WHERE s.user_id = u.id),
+                       (SELECT MAX(c.finalized_at) FROM account_closures c WHERE c.user_id = u.id)
+                     ) AS last_activity_at
+                FROM users u
+               WHERE u.status = 'closed' AND u.archived_at IS NULL AND u.id <> ALL(${tx.array([...(this.pair ?? [])])}::uuid[])
+            ) dormant
+             WHERE last_activity_at < ${clock!.at}::timestamptz - make_interval(days => ${days})
+             ORDER BY last_activity_at, id
              LIMIT 200`;
           return accountArchiveProposalsSchema.parse({
             dormancyDays: days,
-            proposals: rows
-              .filter((row) => !this.pair?.includes(row.id))
-              .map((row) => ({ userId: row.id, lastActivityAt: row.last_activity_at.toISOString() })),
+            proposals: rows.map((row) => ({ userId: row.id, lastActivityAt: row.last_activity_at.toISOString() })),
             asOf: clock!.at.toISOString(),
           });
         },
@@ -1618,9 +1638,11 @@ export class FounderControls {
         version: string;
         closed_reason: AccountCloseReasonCode | null;
         customer_closed: boolean;
+        archived: boolean;
       }>
     >`SELECT status, identity_control_version::text AS version, closed_reason,
-         EXISTS (SELECT 1 FROM account_closures c WHERE c.user_id = users.id AND c.status = 'closed') AS customer_closed
+         EXISTS (SELECT 1 FROM account_closures c WHERE c.user_id = users.id AND c.status = 'closed') AS customer_closed,
+         archived_at IS NOT NULL AS archived
        FROM users WHERE id = ${userId}`;
     if (!row) return null;
     const closed = row.status === 'closed';
@@ -1631,7 +1653,8 @@ export class FounderControls {
       status: row.status,
       closedBy: closed ? (customerClosed ? 'customer' : 'staff') : null,
       closeReasonCode: closed ? row.closed_reason : null,
-      reopenable: customerClosed,
+      // An archived record is never reopened (identity.account_archived).
+      reopenable: customerClosed && !row.archived,
     };
   }
 

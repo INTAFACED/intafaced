@@ -14,7 +14,8 @@ import { explainRefusal } from '@/lib/desk/refusal-copy';
  * Identity spends the approval once, in the same transaction that archives the record, and refuses without it
  * (`identity.archive_requires_approver`) or while the account is open (`identity.archive_blocked_open_account`), before the
  * approval is spent. Each run takes a new request id, for the reason given in `restore.ts`: identity replays a stored
- * refusal per request id, and single use comes from the approval.
+ * refusal per request id, and single use comes from the approval. A run again after a lost answer still reads as done:
+ * identity answers the same founder's spent approval with the stored archive.
  */
 
 type ArchiveRequest = Extract<DeskRequest, { kind: 'identity.account.archive' }>;

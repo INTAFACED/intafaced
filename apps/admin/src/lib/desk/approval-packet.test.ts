@@ -340,7 +340,7 @@ describe('identity customer archive requests', () => {
   it('names the customer in the phrase and says it cannot be undone', () => {
     expect(confirmPhrase(archive)).toBe('ARCHIVE CUSTOMER 0b6f7a3e');
     expect(describeRequest(archive)).toContain('read-only');
-    expect(describeRequest(archive)).toContain('new application');
+    expect(describeRequest(archive)).toContain('Only a founder can approve it');
     expect(requestReason(archive)).toBe(archive.reason);
   });
   it('keeps the same reason codes as identity', () => {

@@ -17,6 +17,9 @@ import { AccountHolds } from '@/components/account-holds';
 import { AccountArchive } from '@/components/account-archive';
 import { archivedNote } from '@/lib/accounts/archive-copy';
 
+const ARCHIVE_UNREAD =
+  'Identity has not said yet whether this record is archived, so changes wait until it does (see Archive the customer below).';
+
 function controlExplanation(area: 'identity' | 'trading' | 'merchant'): string {
   if (area === 'identity')
     return 'Identity restrictions revoke current sessions and credentials. Restoration requires a new sign-in and does not revive revoked credentials.';
@@ -49,9 +52,13 @@ export function AccountControls({ csrf, founderId }: { csrf: string; founderId: 
     (current: AccountClosureState | null | undefined) => setClosed(current === undefined ? null : current?.status === 'closed'),
     [],
   );
-  // Why every edit control is off (an archived record, J-ops-console-04 #10), or null while it is not archived.
-  const [readOnly, setReadOnly] = useState<string | null>(null);
-  const onArchiveState = useCallback((current: AccountArchiveState | null | undefined) => setReadOnly(archivedNote(current)), []);
+  // Why every edit control is off (an archived record, J-ops-console-04 #10), or null once identity said it is not
+  // archived. Until identity answers, or when it cannot, the controls stay off too: an archived record never looks editable.
+  const [readOnly, setReadOnly] = useState<string | null>(ARCHIVE_UNREAD);
+  const onArchiveState = useCallback(
+    (current: AccountArchiveState | null | undefined) => setReadOnly(current === undefined ? ARCHIVE_UNREAD : archivedNote(current)),
+    [],
+  );
   // Bumped after a close or reopen, so the archive panel reads the new status and version again.
   const [closureRevision, setClosureRevision] = useState(0);
   const pending = useRef<{ key: string; requestId: string } | null>(null);
@@ -90,7 +97,7 @@ export function AccountControls({ csrf, founderId }: { csrf: string; founderId: 
           setError('');
           setState(null);
           setClosed(null);
-          setReadOnly(null);
+          setReadOnly(ARCHIVE_UNREAD);
           setResult(null);
           setHistory([]);
           setConfirmed(false);

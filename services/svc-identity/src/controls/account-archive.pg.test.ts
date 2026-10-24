@@ -48,6 +48,7 @@ if (!available) {
     return { principal: await verifyAccessToken(token, tokens), service: null, region: 'DE', requestId: randomUUID() };
   };
   const id = (context: Context) => context.principal!.userId;
+  const founders = { isFounder: (userId: string) => controls.isLiveFounder(userId) };
   const archive = (
     expectedVersion: string,
     reasonCode: AccountArchiveReasonCode = 'dormant',
@@ -62,7 +63,7 @@ if (!available) {
   });
   const approved = async (by: Context, approver: string, input: AccountArchiveInput): Promise<AccountArchiveInput> => ({
     ...input,
-    approvalId: await approvedArchive(db.sql, { requesterId: id(by), approverId: approver, ...input }),
+    approvalId: await approvedArchive(db.sql, founders, { requesterId: id(by), approverId: approver, ...input }),
   });
   /** Closes the customer the way a staff close does, at the customer's request (so it would be reopenable). */
   const closeCustomer = async () => {
@@ -120,7 +121,7 @@ if (!available) {
         code: 'identity.archive_approval_mismatch',
       });
       // An approval over another reason code, or an older version, does not bind.
-      const other = await approvedArchive(db.sql, {
+      const other = await approvedArchive(db.sql, founders, {
         requesterId: id(first),
         approverId: id(second),
         ...archive('1', 'duplicate'),
@@ -140,9 +141,11 @@ if (!available) {
       expect(await row()).toMatchObject({ status: 'closed', version: '2', archive_reason: 'dormant' });
       expect((await row()).archived_at).toBeInstanceOf(Date);
       expect(await approvalStatus(input.approvalId!)).toBe('CONSUMED');
-      // The same request again returns the stored answer; the same approval on a new request is spent.
+      // The same request again returns the stored answer, and so does a new run of the same spent approval (an answer
+      // that was lost); anyone else's run on the archived record is refused.
       expect(await controls.archive(first, input)).toEqual(done);
-      expect(await controls.archive(first, { ...input, requestId: randomUUID() })).toMatchObject({ code: 'identity.account_archived' });
+      expect(await controls.archive(first, { ...input, requestId: randomUUID() })).toEqual(done);
+      expect(await controls.archive(second, { ...input, requestId: randomUUID() })).toMatchObject({ code: 'identity.account_archived' });
 
       const history = await controls.archiveHistory(first, { userId: target, limit: 20 });
       expect(history.map((entry) => entry.outcome)).toEqual(['refused', 'changed', 'refused', 'refused', 'refused']);
@@ -180,11 +183,31 @@ if (!available) {
         code: 'identity.account_archived',
       });
       expect(await row()).toMatchObject({ status: 'closed', version: '2', archive_reason: 'dormant' });
+      // Closed at the customer's request, but archived: identity no longer calls it reopenable.
+      expect(await controls.closureState(first, { userId: target })).toMatchObject({ closedBy: 'customer', reopenable: false });
+    });
+
+    it('takes the other founder as the approver, never another operator', async () => {
+      await closeCustomer();
+      const operator = id(await seed());
+      // Identity's approval service refuses an operator's approval of this type outright.
+      await expect(approved(first, operator, archive('1'))).rejects.toMatchObject({ code: 'action_approval.founder_only' });
+      // And should one ever be stored (a directory that wrongly called the operator a founder), the archive still refuses it.
+      const loose = { isFounder: async () => true };
+      const input = {
+        ...archive('1'),
+        approvalId: await approvedArchive(db.sql, loose, { requesterId: id(first), approverId: operator, ...archive('1') }),
+      };
+      expect(await controls.archive(first, input)).toMatchObject({ outcome: 'refused', code: 'identity.archive_approval_mismatch' });
+      expect(await approvalStatus(input.approvalId!)).toBe('APPROVED');
+      expect((await row()).archived_at).toBeNull();
     });
 
     it('refuses a founder record, a stale version, and anyone who is not a live founder', async () => {
       target = id(second);
       expect(await controls.archive(first, archive('0'))).toMatchObject({ code: 'identity.archive_founder_forbidden' });
+      // Never lifted by a newer version, so a stale one is not answered as a conflict to try again.
+      expect(await controls.archive(first, archive('7'))).toMatchObject({ code: 'identity.archive_founder_forbidden' });
       target = id(customer);
       await closeCustomer();
       expect(await controls.archive(first, await approved(first, id(second), archive('0')))).toMatchObject({
@@ -226,9 +249,16 @@ if (!available) {
       await db.sql`UPDATE users SET status = 'closed', closed_reason = 'other' WHERE id = ${recent}`;
       await db.sql`UPDATE users SET updated_at = now() - interval '40 days' WHERE id IN (${quiet}, ${recent}, ${open})`;
       await db.sql`UPDATE sessions SET created_at = now() - interval '40 days' WHERE user_id IN (${quiet}, ${open})`;
+      // A customer who closed it themselves this week (which leaves updated_at alone), and a closed founder record.
+      const selfClosed = id(await seed());
+      await db.sql`UPDATE users SET status = 'closed', updated_at = now() - interval '40 days' WHERE id IN (${selfClosed}, ${id(second)})`;
+      await db.sql`UPDATE sessions SET created_at = now() - interval '40 days' WHERE user_id IN (${selfClosed}, ${id(second)})`;
+      await db.sql`INSERT INTO account_closures (user_id, status, requested_at, effective_at, finalized_at, client_request_id)
+        VALUES (${selfClosed}, 'closed', now() - interval '3 days', now() - interval '3 days', now() - interval '2 days', 'self-close')`;
       const proposals = await controls.archiveProposals(first);
       expect(proposals.dormancyDays).toBe(30);
       expect(proposals.proposals.map((p) => p.userId)).toEqual([quiet]);
+      await db.sql`UPDATE users SET status = 'active' WHERE id = ${id(second)}`;
       // Once archived it is no longer proposed.
       expect(await controls.archive(first, await approved(first, id(second), archive('1')))).toMatchObject({ outcome: 'changed' });
       await db.sql`UPDATE users SET updated_at = now() - interval '40 days' WHERE id = ${quiet}`;

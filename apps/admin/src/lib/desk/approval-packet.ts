@@ -620,7 +620,7 @@ export function describeRequest(request: DeskRequest): string {
     case 'identity.account.reopen':
       return `Reopen account ${request.userId} ("${request.reason}"): its owner can sign in again with a new sign-in. Revoked sessions, API keys and sub-accounts stay revoked. Identity reopens only an account the customer closed, at control version ${request.version}.`;
     case 'identity.account.archive':
-      return `Archive customer ${request.userId} for good (reason code ${request.reasonCode.replace(/_/g, ' ')}: "${request.reason}"). The record becomes read-only: it cannot be frozen, unfrozen or reopened again, and the person needs a new application to come back. Identity archives only a closed account, at control version ${request.version}.`;
+      return `Archive customer ${request.userId} for good (reason code ${request.reasonCode.replace(/_/g, ' ')}: "${request.reason}"). The record becomes read-only: it cannot be frozen, unfrozen or reopened again. Only a founder can approve it. Identity archives only a closed account, at control version ${request.version}.`;
     case 'identity.account.tier_move':
       return `Move account ${request.userId} onto tier "${request.tierId}" ("${request.reason}"). The account takes that tier's terms as identity holds them. Identity refuses a tier with any blank term, and applies it only if the account is still at tier version ${request.version}. Both people must be founders.`;
     case 'ops.hold.release':

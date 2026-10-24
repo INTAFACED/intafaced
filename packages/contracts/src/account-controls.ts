@@ -281,10 +281,9 @@ export type AccountClosureResult = z.infer<typeof accountClosureResultSchema>;
 
 /**
  * Archive of one customer record (J-ops-console-04 #10), svc-identity only. Irreversible and four-eyes: the actor runs it
- * with an `identity.account_archive` approval a second person gave, bound to the account, the reason code, the reason and
+ * with an `identity.account_archive` approval the other founder gave, bound to the account, the reason code, the reason and
  * `expectedVersion`. Only a closed account can be archived (`identity.archive_blocked_open_account` while it is open).
- * Archived, the record is read-only: freeze, unfreeze and reopen refuse `identity.account_archived`, and returning takes
- * a new application. The reason codes are a starting list for the owner and counsel to settle.
+ * Archived, the record is read-only: freeze, unfreeze and reopen refuse `identity.account_archived`. The reason codes are a starting list for the owner and counsel to settle.
  */
 export const accountArchiveReasonCodes = ['dormant', 'customer_request', 'duplicate', 'other'] as const;
 export const accountArchiveReasonCodeSchema = z.enum(accountArchiveReasonCodes);

@@ -16,7 +16,7 @@ import { handleStep } from '@/lib/desk/step-route';
  *
  * GET reads identity's archive state for an account (`?id=`), its archive history (`?id=&history=true&limit=`), or the
  * customers identity proposes for archive under the owner's dormancy period (`?proposals=true`). POST runs one step of a
- * two-founder request: the first founder proposes at identity, a different person approves the same account, version,
+ * two-founder request: the first founder proposes at identity, the other founder approves the same account, version,
  * reason code and reason, and identity's archive spends the approval once.
  */
 

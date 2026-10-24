@@ -295,7 +295,7 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
   'identity.account_archived': {
     title: 'This customer record is archived',
     body: 'Identity keeps an archived record read-only: it cannot be frozen, unfrozen, reopened or archived again. Nothing was changed and any approval was not used.',
-    next: 'The person needs a new application to come back.',
+    next: 'Nothing to do here: an archive is not undone from the console.',
   },
   'identity.archive_blocked_open_account': {
     title: 'The account is still open',
