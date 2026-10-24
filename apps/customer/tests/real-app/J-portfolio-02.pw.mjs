@@ -42,7 +42,7 @@ const priceAt = (decimal, percent, places = 2) => {
 async function pnl(page, query = '') {
   await page.goto(`/money/pnl${query}`);
   const main = page.locator('main').first();
-  await expect(main.getByRole('heading', { name: 'Profit and loss' })).toBeVisible();
+  await expect(main.getByRole('heading', { name: 'Profit and loss', level: 1 })).toBeVisible();
   return main;
 }
 
