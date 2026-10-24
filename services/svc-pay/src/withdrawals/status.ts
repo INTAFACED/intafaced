@@ -143,17 +143,40 @@ export function isTerminal(status: WithdrawalStatus): boolean {
 export type DispatchJournal = 'requested' | 'accepted' | 'refused' | null;
 
 /**
- * What the customer sees for one row (W-withdraw-07). A stored `held` row is split by its current attempt's journal:
- * nothing journalled is `held` (the hold is booked and nothing was asked of the rail), `requested` is `dispatching` (a send
- * was asked for and its outcome is not known), `accepted` is `broadcast` (it left). A journalled refusal is still being put
- * back, so it reads `held` until the row turns `failed`. `journal` undefined means the caller did not read it: `held`.
+ * What the customer sees for one row (W-withdraw-07). A stored `held` row is split by its current attempt's journal
+ * (`HELD_SHOWN`). `journal` undefined means the caller did not read it: `held`.
  */
 export function shownStatus(stored: string, failureCode: string | null, journal?: DispatchJournal): WithdrawalStatus {
   const status = customerStatus(stored, failureCode);
-  if (status !== 'held') return status;
-  if (journal === 'requested') return 'dispatching';
-  if (journal === 'accepted') return 'broadcast';
-  return 'held';
+  if (status !== 'held' || journal === undefined) return status;
+  return HELD_SHOWN[journal ?? 'none'];
+}
+
+/** A row's journal outcome as a filter reads it: `none` when its current attempt has no journal row. */
+export type JournalFilter = 'none' | Exclude<DispatchJournal, null>;
+
+/**
+ * What a stored `held` row shows, by its current attempt's journal outcome. Nothing journalled is `held` (the hold is booked
+ * and nothing was asked of the rail), `requested` is `dispatching` (a send was asked for and its outcome is not known),
+ * `accepted` is `broadcast` (it left). A journalled refusal is still being put back, so it reads `held` until the row turns
+ * `failed`. `shownStatus` reads it and `shownFilterFor` inverts it, so the page and the filter draw one split.
+ */
+const HELD_SHOWN: Record<JournalFilter, WithdrawalStatus> = {
+  none: 'held',
+  requested: 'dispatching',
+  accepted: 'broadcast',
+  refused: 'held',
+};
+
+/**
+ * What a customer-vocabulary status filter matches, the same split `shownStatus` draws: the stored values, and for a `held`
+ * row the journal outcomes of its current attempt (`null`: any). A status no stored value can mean yet matches nothing (an
+ * empty `stored`), so a filter on it returns an empty page and never a wrong row.
+ */
+export function shownFilterFor(status: WithdrawalStatus): { stored: StoredWithdrawalStatus[]; journal: JournalFilter[] | null } {
+  const journal = (Object.keys(HELD_SHOWN) as JournalFilter[]).filter((outcome) => HELD_SHOWN[outcome] === status);
+  if (journal.length > 0) return { stored: ['held'], journal };
+  return { stored: storedStatusesFor(status), journal: null };
 }
 
 /**

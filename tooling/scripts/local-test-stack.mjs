@@ -31,7 +31,7 @@
  *   node tooling/scripts/local-test-stack.mjs expire-address-approvals <email>   TEST fixture: open approval links run out
  *   node tooling/scripts/local-test-stack.mjs expire-deposit-addresses <email>   TEST fixture: open extra deposit addresses expire
  *   node tooling/scripts/local-test-stack.mjs expire-staff-holds <email>   TEST fixture: open staff holds with an expiry reach it
- *   node tooling/scripts/local-test-stack.mjs seed-withdrawal <email> <ASSET> <amount> --state <s> --ref <label>   TEST fixture: a withdrawal in that state
+ *   node tooling/scripts/local-test-stack.mjs seed-withdrawal <email> <ASSET> <amount> --state <s> --ref <label> [--count <n>]   TEST fixture: a withdrawal in that state (or n requested ones)
  *
  * Rules this file keeps (AGENTS.md "Money"):
  *   - Value moves ONLY through the ledger (packages/ledger-client recipes -> svc-ledger).
@@ -1915,7 +1915,8 @@ async function cmdFund(rawArgs) {
  * own recipe (`withdrawHold`, keyed on the attempt), exactly as `withdraw` does, hold first. `requested`: a row and nothing
  * posted. `held`: the hold booked and the row held, nothing asked of a rail. `dispatching`: a send journalled `requested` with no
  * answer (a lost reply). `broadcast`: the send journalled `accepted` with a TEST transaction reference. What the person can do
- * next (cancel, and what that gives back) is svc-pay's own code. The same --ref is the same withdrawal.
+ * next (cancel, and what that gives back) is svc-pay's own code. The same --ref is the same withdrawal. `--count <n>` (requested
+ * only) writes n requested withdrawals one second apart, for a history longer than one page (J-wallet-06 #5).
  */
 async function cmdSeedWithdrawal(rawArgs) {
   const args = [...rawArgs];
@@ -1928,9 +1929,10 @@ async function cmdSeedWithdrawal(rawArgs) {
   };
   const state = option('--state');
   const ref = option('--ref');
+  const countRaw = option('--count');
   const [who, assetRaw, amountStr] = args;
   const usage =
-    'usage: node tooling/scripts/local-test-stack.mjs seed-withdrawal <email-or-userId> <ASSET> <amount> --state requested|held|dispatching|broadcast --ref <label>';
+    'usage: node tooling/scripts/local-test-stack.mjs seed-withdrawal <email-or-userId> <ASSET> <amount> --state requested|held|dispatching|broadcast --ref <label> [--count <n>, requested only]';
   if (!who || !assetRaw || !amountStr || !state || !ref) fail(usage, 2);
   if (!['requested', 'held', 'dispatching', 'broadcast'].includes(state))
     fail(`--state must be requested, held, dispatching or broadcast (got "${state}")`, 2);
@@ -1938,6 +1940,9 @@ async function cmdSeedWithdrawal(rawArgs) {
   const asset = assetRaw.toUpperCase();
   if (!/^[A-Z0-9]{2,12}$/.test(asset)) fail(`bad asset id: ${assetRaw}`, 2);
   if (!AMOUNT_RE.test(amountStr)) fail(`amount must be a plain decimal string like 40 or 12.5 (got "${amountStr}")`, 2);
+  if (countRaw !== undefined && (!/^\d{1,3}$/.test(countRaw) || Number(countRaw) < 1 || Number(countRaw) > 500))
+    fail(`--count must be a whole number from 1 to 500 (got "${countRaw}")`, 2);
+  if (countRaw !== undefined && state !== 'requested') fail('--count writes requested withdrawals only (nothing is held for them)', 2);
   const { secrets, userId } = localFixturePerson(who);
   if (!ownedAlive(readProcs().ledger)) fail('refusing: the local stack ledger is not running. Run: pnpm local:stack');
   const asPay = (sql, vars) =>
@@ -1945,6 +1950,32 @@ async function cmdSeedWithdrawal(rawArgs) {
       .trim()
       .split('\n')
       .filter((line) => line && !/^(INSERT|UPDATE) \d+( \d+)?$/.test(line));
+
+  if (countRaw !== undefined) {
+    // A long history (J-wallet-06 #5): <count> requested withdrawals, one second apart, the newest now. Nothing is posted for
+    // a requested withdrawal, so no ledger call is made. References are `<ref>-<n>`; the same --ref is the same rows.
+    const count = Number(countRaw);
+    asPay(
+      `INSERT INTO pay.withdrawals (user_id, asset_id, amount, rail, destination, client_ref, status, attempts, created_at, updated_at)
+       SELECT :'uid', :'asset', :'amount'::numeric, 'crypto-native',
+              jsonb_build_object('kind', 'crypto', 'ref', '0x' || substr(md5(:'ref' || '-to-' || n), 1, 40)),
+              :'ref' || '-' || n, 'pending', 0, now() - (n || ' seconds')::interval, now()
+         FROM generate_series(1, :'count'::int) AS n
+       ON CONFLICT (user_id, client_ref) DO NOTHING`,
+      { uid: userId, asset, amount: amountStr, ref: `local-test-${ref}`, count: String(count) },
+    );
+    const [found] = asPay(
+      `SELECT count(*)::text FROM pay.withdrawals
+        WHERE user_id = :'uid' AND status = 'pending' AND asset_id = :'asset' AND amount = :'amount'::numeric
+          AND client_ref IN (SELECT :'ref' || '-' || n FROM generate_series(1, :'count'::int) AS n)`,
+      { uid: userId, ref: `local-test-${ref}`, asset, amount: amountStr, count: String(count) },
+    );
+    if (Number(found) !== count) fail(`--ref ${ref} already names other withdrawals (${found} of ${count} match); use a new --ref`, 2);
+    say(`TEST withdrawals (LOCAL TEST, not real money)`);
+    say(`  withdrawals ${count}`);
+    say(`  state       requested   ${asset} ${amountStr} each   references local-test-${ref}-1..${count}`);
+    return;
+  }
 
   const clientRef = `local-test-${ref}`;
   const txRef = `0x${crypto.createHash('sha256').update(`seed-withdrawal:${ref}`).digest('hex')}`;

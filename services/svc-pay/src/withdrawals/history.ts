@@ -1,11 +1,11 @@
 import type { Sql } from 'postgres';
 import { PayError, assertWithdrawalListLimit } from '../payment-service.js';
 import { failureReason } from './reasons.js';
-import { customerStatus, storedStatusesFor, WITHDRAWAL_CANCELED_CODE, type WithdrawalStatus } from './status.js';
+import { shownFilterFor, shownStatus, WITHDRAWAL_CANCELED_CODE, type DispatchJournal, type WithdrawalStatus } from './status.js';
 
 /**
  * The customer's withdrawal history (W-withdraw-06): one page of their own withdrawals in the customer status
- * vocabulary, filtered by asset, status, id and time, paged by a keyset cursor so no page depends on an offset and a
+ * vocabulary (a held row split by its current attempt's dispatch journal, as `withdrawal.get` shows it), filtered by asset, status, id and time, paged by a keyset cursor so no page depends on an offset and a
  * history longer than 200 rows can still be read to the end. The caller says the page size; there is no default.
  */
 export interface WithdrawalHistoryFilter {
@@ -22,6 +22,8 @@ export interface WithdrawalHistoryFilter {
 
 export interface WithdrawalHistoryItem {
   readonly id: string;
+  /** Always the caller: the page is read for one user, and says whose it is so a client can refuse a crossed answer. */
+  readonly userId: string;
   readonly assetId: string;
   readonly amount: string;
   readonly rail: string;
@@ -45,6 +47,7 @@ export interface WithdrawalHistoryPage {
 
 interface Row {
   id: string;
+  user_id: string;
   asset_id: string;
   amount: string;
   rail: string;
@@ -54,6 +57,7 @@ interface Row {
   attempts: number;
   failure_code: string | null;
   status: string;
+  journal: DispatchJournal;
   returned: boolean;
   created_at: string;
 }
@@ -82,34 +86,39 @@ export function createWithdrawalHistory(sql: Sql) {
     async search(userId: string, filter: WithdrawalHistoryFilter): Promise<WithdrawalHistoryPage> {
       const limit = assertWithdrawalListLimit(filter.limit);
       // A status no stored value can mean yet matches nothing, so the page is empty rather than wrong.
-      const stored = filter.status ? storedStatusesFor(filter.status) : null;
+      const shown = filter.status ? shownFilterFor(filter.status) : null;
+      const stored = shown?.stored ?? null;
+      const journal = shown?.journal ?? null;
       if (stored !== null && stored.length === 0) return { items: [], next: null };
       // `canceled` and `failed` share a stored value; the cancel code tells them apart.
       const canceledOnly = filter.status === 'canceled' ? true : filter.status === 'failed' ? false : null;
       const cursor = filter.after ? decodeCursor(filter.after) : null;
       const rows = await sql<Row[]>`
-        SELECT id, asset_id, amount::text AS amount, rail, destination, client_ref, rail_ref, attempts, failure_code,
-               status::text AS status,
-               EXISTS (SELECT 1 FROM pay.withdrawal_returns wr WHERE wr.withdrawal_id = pay.withdrawals.id) AS returned,
-               to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at
-          FROM pay.withdrawals
-         WHERE user_id = ${userId}
-           AND (${filter.assetId ?? null}::text IS NULL OR asset_id = ${filter.assetId ?? null})
-           AND (${stored}::text[] IS NULL OR status::text = ANY(${stored}::text[]))
-           AND (${canceledOnly}::boolean IS NULL OR (failure_code IS NOT DISTINCT FROM ${WITHDRAWAL_CANCELED_CODE}) = ${canceledOnly})
-           AND (${filter.id ?? null}::uuid IS NULL OR id = ${filter.id ?? null})
-           AND (${filter.since ?? null}::text IS NULL OR created_at >= ${filter.since ?? null}::text::timestamptz)
-           AND (${filter.until ?? null}::text IS NULL OR created_at < ${filter.until ?? null}::text::timestamptz)
-           AND (${cursor?.t ?? null}::text IS NULL OR (created_at, id) < (${cursor?.t ?? null}::text::timestamptz, ${cursor?.i ?? null}::uuid))
-         ORDER BY created_at DESC, id DESC
+        SELECT w.id, w.user_id, w.asset_id, w.amount::text AS amount, w.rail, w.destination, w.client_ref, w.rail_ref, w.attempts,
+               w.failure_code, w.status::text AS status, a.outcome AS journal,
+               EXISTS (SELECT 1 FROM pay.withdrawal_returns wr WHERE wr.withdrawal_id = w.id) AS returned,
+               to_char(w.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at
+          FROM pay.withdrawals w
+          LEFT JOIN pay.withdrawal_rail_attempts a ON a.withdrawal_id = w.id AND a.attempt = w.attempts
+         WHERE w.user_id = ${userId}
+           AND (${filter.assetId ?? null}::text IS NULL OR w.asset_id = ${filter.assetId ?? null})
+           AND (${stored}::text[] IS NULL OR w.status::text = ANY(${stored}::text[]))
+           AND (${journal}::text[] IS NULL OR coalesce(a.outcome, 'none') = ANY(${journal}::text[]))
+           AND (${canceledOnly}::boolean IS NULL OR (w.failure_code IS NOT DISTINCT FROM ${WITHDRAWAL_CANCELED_CODE}) = ${canceledOnly})
+           AND (${filter.id ?? null}::uuid IS NULL OR w.id = ${filter.id ?? null})
+           AND (${filter.since ?? null}::text IS NULL OR w.created_at >= ${filter.since ?? null}::text::timestamptz)
+           AND (${filter.until ?? null}::text IS NULL OR w.created_at < ${filter.until ?? null}::text::timestamptz)
+           AND (${cursor?.t ?? null}::text IS NULL OR (w.created_at, w.id) < (${cursor?.t ?? null}::text::timestamptz, ${cursor?.i ?? null}::uuid))
+         ORDER BY w.created_at DESC, w.id DESC
          LIMIT ${limit + 1}`;
       const page = rows.slice(0, limit);
       const items = page.map((r): WithdrawalHistoryItem => {
-        const status = customerStatus(r.status, r.failure_code);
+        const status = shownStatus(r.status, r.failure_code, r.journal);
         // Only a failed row has had its hold reversed; a held or pending row with a code must not claim funds came back.
         const reason = status === 'failed' ? failureReason(r.failure_code) : null;
         return {
           id: r.id,
+          userId: r.user_id,
           assetId: r.asset_id,
           amount: r.amount,
           rail: r.rail,

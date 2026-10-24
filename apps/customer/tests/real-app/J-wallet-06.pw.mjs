@@ -7,7 +7,9 @@ import { signIn, signUp, verify } from './desk.mjs';
 // svc-pay on this stack, so each withdrawal starts in its state from `local-test-stack.mjs seed-withdrawal`, which writes it
 // the way svc-pay's `withdraw` leaves it and books its hold through the ledger first. Cancelling is svc-pay's own code, pressed
 // on the person's withdrawal page; every balance is read back from the ledger through the person's own API.
-// Not here yet: #5 (History filters past 200) and #6 (a returned withdrawal needs the returned-funds ledger recipe).
+// #5 reads the person's History, filtered by coin and status and paged by svc-pay's cursor past 200 rows; its long history is
+// written by the same tool (`--count`, requested withdrawals, nothing held). #6 (a returned withdrawal) needs the returned-funds
+// ledger recipe, which does not exist.
 const J = 'J-wallet-06';
 const ASSET = 'USDT';
 
@@ -134,4 +136,88 @@ test(`${J} #4 after a lost reply the cancel is refused and the withdrawal stays 
   await expect(status(page)).toHaveAttribute('data-status', 'dispatching', { timeout: 30_000 });
   // The funds stay in the hold: nothing came back to available.
   expect(await me.usdt()).toBe(toUnits('60'));
+});
+
+test(`${J} #5 History filters by coin and status and pages past 200; an empty result is an honest empty state`, async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(300_000);
+  const me = await person(page, 'w6e');
+  const tag = `jw06e-${me.who.handle}-r${testInfo.retry}`;
+  const many = tool(
+    'local-test-stack.mjs',
+    'seed-withdrawal',
+    me.who.email,
+    ASSET,
+    '1',
+    '--state',
+    'requested',
+    '--ref',
+    `${tag}-u`,
+    '--count',
+    '205',
+  );
+  expect(many).toContain('withdrawals 205');
+  const few = tool(
+    'local-test-stack.mjs',
+    'seed-withdrawal',
+    me.who.email,
+    'USDC',
+    '2',
+    '--state',
+    'requested',
+    '--ref',
+    `${tag}-c`,
+    '--count',
+    '3',
+  );
+  expect(few).toContain('withdrawals 3');
+  const heldId = seedWithdrawal(me.who, 'held', '40', `${tag}-h`);
+
+  await page.goto('/uc/withdraw');
+  await page.mouse.move(0, 600);
+  const windowNote = page.getByTestId('withdrawal-window');
+  const rows = page.getByTestId('withdrawal-history').locator('.withdrawal-row');
+  const coin = page.locator('select[name="withdrawal-coin"]');
+  const state = page.locator('select[name="withdrawal-status"]');
+  // Every coin and status: the newest page of 50, and more behind it.
+  await expect(windowNote).toHaveAttribute('data-count', '50', { timeout: 30_000 });
+  await expect(windowNote).toHaveAttribute('data-more', 'true');
+  await expect(rows.first()).toHaveAttribute('data-withdrawal-id', heldId);
+
+  // One coin: the three USDC withdrawals and nothing else.
+  await coin.selectOption('USDC');
+  await expect(windowNote).toHaveAttribute('data-count', '3', { timeout: 30_000 });
+  await expect(windowNote).toHaveAttribute('data-more', 'false');
+  await expect(windowNote).toContainText('That is every withdrawal that matches.');
+  for (const text of await page.getByTestId('withdrawal-history').locator('[data-withdrawal-amount]').allTextContents())
+    expect(text).toContain('USDC');
+
+  // One coin and one status: the held USDT withdrawal alone.
+  await coin.selectOption(ASSET);
+  await state.selectOption('held');
+  await expect(windowNote).toHaveAttribute('data-count', '1', { timeout: 30_000 });
+  await expect(rows.first()).toHaveAttribute('data-withdrawal-id', heldId);
+  await expect(rows.first().locator('[data-withdrawal-status]')).toHaveText('Held');
+
+  // Requested USDT: 205 rows, read page by page past 200, each once.
+  await state.selectOption('requested');
+  await expect(windowNote).toHaveAttribute('data-count', '50', { timeout: 30_000 });
+  for (const count of ['100', '150', '200', '205']) {
+    await page.getByRole('button', { name: 'Show older withdrawals' }).click();
+    await expect(windowNote).toHaveAttribute('data-count', count, { timeout: 30_000 });
+  }
+  await expect(windowNote).toHaveAttribute('data-more', 'false');
+  await expect(page.getByRole('button', { name: 'Show older withdrawals' })).toHaveCount(0);
+  const ids = await rows.evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-withdrawal-id')));
+  expect(ids).toHaveLength(205);
+  expect(new Set(ids).size).toBe(205);
+  expect(new Set(await rows.locator('[data-withdrawal-status]').allTextContents())).toEqual(new Set(['Requested']));
+
+  // A coin and status nothing matches: an honest empty state, not a made-up row.
+  await coin.selectOption('USDC');
+  await state.selectOption('settled');
+  await expect(page.getByRole('heading', { name: 'No withdrawals match' })).toBeVisible({ timeout: 30_000 });
+  await expect(rows).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Show older withdrawals' })).toHaveCount(0);
 });
