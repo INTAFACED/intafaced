@@ -54,6 +54,14 @@ const en = {
   unlockRuleUnset:
     'The bank has not set how long an early unlock waits, so no new lock is made and a locked space stays locked to its date. Nothing was changed.',
   spaceNotLocked: 'This space is not locked now, so there is no lock to end early. Nothing was changed.',
+  roundUpTarget:
+    'A round-up goes into one of your own spaces or one pool, and never back into the account it comes from. Nothing was set up.',
+  sorterTermsUnset: 'The bank has not published when incoming payments are sorted, so no sorter can be set up now. Nothing was set up.',
+  sorterInvalid:
+    'A sorter sends whole percentages of each payment into your own spaces, at most 100% in all, each space once and never the account itself. Nothing was set up.',
+  sorterExists: 'This currency already has a sorter. Stop that one first. Nothing was set up.',
+  sorterNotFound: 'That sorter could not be found. Nothing was changed.',
+  sorterConflict: 'This request was already used for a different sorter. Start again from the Spaces page. Nothing was set up.',
   cannotReceive: 'That person cannot receive this right now. Nothing was sent.',
   receiveCheckDown: 'We could not check whether the recipient can receive money. Nothing was sent. Try again in a moment.',
   receiveCheckOff: 'Paying other people is not set up on this service. Nothing was sent.',
@@ -134,6 +142,14 @@ const es = {
   unlockRuleUnset:
     'El banco no ha fijado cuánto espera un desbloqueo anticipado, así que no se crea ningún bloqueo nuevo y un espacio bloqueado sigue así hasta su fecha. No se cambió nada.',
   spaceNotLocked: 'Este espacio no está bloqueado ahora, así que no hay bloqueo que terminar antes. No se cambió nada.',
+  roundUpTarget: 'Un redondeo va a uno de tus espacios o a un fondo, y nunca de vuelta a la cuenta de la que sale. No se configuró nada.',
+  sorterTermsUnset:
+    'El banco no ha publicado cuándo se reparten los pagos entrantes, así que ahora no se puede configurar un reparto. No se configuró nada.',
+  sorterInvalid:
+    'Un reparto envía porcentajes de cada pago a tus propios espacios, como máximo el 100 % en total, cada espacio una vez y nunca a la cuenta misma. No se configuró nada.',
+  sorterExists: 'Esta moneda ya tiene un reparto. Detén ese primero. No se configuró nada.',
+  sorterNotFound: 'No se encontró ese reparto. No se cambió nada.',
+  sorterConflict: 'Esta solicitud ya se usó para otro reparto. Empieza de nuevo desde Espacios. No se configuró nada.',
   cannotReceive: 'Esa persona no puede recibir esto ahora. No se envió nada.',
   receiveCheckDown: 'No pudimos comprobar si el destinatario puede recibir dinero. No se envió nada. Inténtalo de nuevo en un momento.',
   receiveCheckOff: 'Pagar a otras personas no está configurado en este servicio. No se envió nada.',
@@ -218,6 +234,14 @@ const fr = {
   unlockRuleUnset:
     'La banque n’a pas fixé la durée d’attente d’un déverrouillage anticipé, donc aucun nouveau verrouillage n’est créé et un espace verrouillé le reste jusqu’à sa date. Rien n’a été modifié.',
   spaceNotLocked: 'Cet espace n’est pas verrouillé maintenant, donc il n’y a aucun verrouillage à terminer plus tôt. Rien n’a été modifié.',
+  roundUpTarget: 'Un arrondi va dans un de tes espaces ou dans un fonds, et jamais dans le compte d’où il part. Rien n’a été configuré.',
+  sorterTermsUnset:
+    'La banque n’a pas publié quand les paiements entrants sont répartis, donc aucune répartition ne peut être configurée pour le moment. Rien n’a été configuré.',
+  sorterInvalid:
+    'Une répartition envoie des pourcentages de chaque paiement vers tes propres espaces, 100 % au plus au total, chaque espace une fois et jamais le compte lui-même. Rien n’a été configuré.',
+  sorterExists: 'Cette devise a déjà une répartition. Arrête-la d’abord. Rien n’a été configuré.',
+  sorterNotFound: 'Cette répartition est introuvable. Rien n’a été modifié.',
+  sorterConflict: 'Cette demande a déjà servi pour une autre répartition. Recommence depuis Espaces. Rien n’a été configuré.',
   cannotReceive: 'Cette personne ne peut pas recevoir ceci pour le moment. Rien n’a été envoyé.',
   receiveCheckDown:
     'Nous n’avons pas pu vérifier si le destinataire peut recevoir de l’argent. Rien n’a été envoyé. Réessayez dans un instant.',
@@ -298,6 +322,12 @@ const WORDS: Readonly<Record<string, Key>> = {
   'bank.space_change_invalid': 'spaceChangeInvalid',
   'bank.space_unlock_rule_unset': 'unlockRuleUnset',
   'bank.space_not_locked': 'spaceNotLocked',
+  'bank.auto_invest_target_invalid': 'roundUpTarget',
+  'bank.sorter_terms_unset': 'sorterTermsUnset',
+  'bank.sorter_invalid': 'sorterInvalid',
+  'bank.sorter_exists': 'sorterExists',
+  'bank.sorter_conflict': 'sorterConflict',
+  'bank.sorter_not_found': 'sorterNotFound',
   'bank.recipient_cannot_receive': 'cannotReceive',
   'bank.dest_user_missing': 'cannotReceive',
   'bank.recipient_check_unavailable': 'receiveCheckDown',

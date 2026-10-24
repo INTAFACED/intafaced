@@ -146,6 +146,7 @@ export type RefusalKey =
   | 'refVerifyAddressUnset'
   | 'refEnrollmentNotFound'
   | 'refProgrammeInvalid'
+  | 'refProgrammeNotFound'
   | 'refPrerequisite'
   | 'refPrerequisiteUnnamed'
   | 'refVideoStorageUnconfigured'
@@ -220,6 +221,8 @@ export function academyRefusalKey(failure: Pick<Failure, 'code' | 'message'>): R
     case 'academy.cert_invalid':
     case 'academy.path_not_found':
       return 'refProgrammeInvalid';
+    case 'academy.programme_not_found':
+      return 'refProgrammeNotFound';
     case 'academy.prerequisite_unmet':
       return missingProgrammes(failure.message).length > 0 ? 'refPrerequisite' : 'refPrerequisiteUnnamed';
     case 'academy.video_storage_unconfigured':

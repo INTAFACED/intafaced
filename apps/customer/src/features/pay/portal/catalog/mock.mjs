@@ -32,6 +32,20 @@ export function createCatalogMock(ctx) {
         : [];
   state.productImages ??= [];
   state.prices ??= [];
+  state.stores ??= [];
+  /** `productId|storeId|channel` for each place a product is not sold. */
+  state.notSold ??= new Set();
+  const availability = (productId) => ({
+    productId,
+    stores: state.stores.map((store) => ({
+      storeId: store.id,
+      name: store.name,
+      status: store.status,
+      channels: Object.fromEntries(
+        ['online', 'in_person', 'invoice'].map((channel) => [channel, !state.notSold.has(`${productId}|${store.id}|${channel}`)]),
+      ),
+    })),
+  });
   return {
     /** Returns NOT_MINE for a procedure this part does not own. */
     async handle(procedure, input, route) {
@@ -304,9 +318,60 @@ export function createCatalogMock(ctx) {
           for (const p of state.prices) if (p.productId === input.productId) p.isDefault = p.id === found.id;
           return ok(route, strip(found));
         }
+        case 'merchantStores.list':
+          return ok(route, page(state.stores.filter((s) => !input.status || s.status === input.status).map(strip), input));
+        case 'merchantStores.create': {
+          const replay = state.stores.find((s) => s.requestId === input.requestId);
+          if (replay) return ok(route, { store: strip(replay), replayed: true });
+          if (state.stores.some((s) => s.name.toLowerCase() === input.name.toLowerCase()))
+            return refuse(route, 409, 'pay.store_name_taken');
+          const at = iso(Date.now());
+          const store = {
+            id: hex('c5', state.stores.length + 1),
+            requestId: input.requestId,
+            name: input.name,
+            address: input.address ?? null,
+            timezone: input.timezone,
+            status: 'active',
+            version: 1,
+            createdAt: at,
+            updatedAt: at,
+          };
+          state.stores.push(store);
+          return ok(route, { store: strip(store), replayed: false });
+        }
+        case 'merchantStores.archive':
+        case 'merchantStores.reopen': {
+          const found = state.stores.find((s) => s.id === input.storeId);
+          if (!found) return refuse(route, 404, 'pay.store_not_found');
+          const status = procedure.endsWith('archive') ? 'archived' : 'active';
+          if (found.status !== status) Object.assign(found, { status, version: found.version + 1, updatedAt: iso(Date.now()) });
+          return ok(route, strip(found));
+        }
+        case 'merchantCatalog.availability.get':
+          return state.products.some((p) => p.id === input.productId)
+            ? ok(route, availability(input.productId))
+            : refuse(route, 404, 'pay.product_not_found');
+        case 'merchantCatalog.availability.set': {
+          const store = state.stores.find((s) => s.id === input.storeId);
+          if (!store) return refuse(route, 404, 'pay.store_not_found');
+          if (store.status !== 'active') return refuse(route, 412, 'pay.store_archived');
+          if (!state.products.some((p) => p.id === input.productId)) return refuse(route, 404, 'pay.product_not_found');
+          const key = `${input.productId}|${input.storeId}|${input.channel}`;
+          if (input.sold) state.notSold.delete(key);
+          else state.notSold.add(key);
+          return ok(route, availability(input.productId));
+        }
         case 'merchantCatalog.prices.quote': {
           const found = state.prices.find((p) => p.id === input.priceId);
           if (!found) return refuse(route, 404, 'pay.price_not_found');
+          if (input.storeId) {
+            const store = state.stores.find((s) => s.id === input.storeId);
+            if (!store) return refuse(route, 404, 'pay.store_not_found');
+            if (store.status !== 'active') return refuse(route, 412, 'pay.store_archived');
+            if (state.notSold.has(`${found.productId}|${input.storeId}|${input.channel}`))
+              return refuse(route, 412, 'pay.product_not_sold_here');
+          }
           const answer = (amount) => ok(route, { priceId: found.id, assetId: found.assetId, amount, billing: found.billing });
           if (found.kind === 'fixed') return answer(found.amount);
           if (!input.amount) return refuse(route, 400, 'pay.price_amount_required');

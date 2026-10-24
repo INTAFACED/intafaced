@@ -14,7 +14,7 @@ import { parseAmount } from '../../../shared/money';
 import { dayTime } from './time';
 import { placesOf, quotePlaces } from './text';
 import { canEdit } from './EditOrder';
-import { exitKindKey } from './order-kind';
+import { canEditStop, exitKindKey } from './order-kind';
 import { orderTag } from './tif';
 import { OrderChanges } from './OrderChanges';
 
@@ -77,6 +77,37 @@ export function ExitLegs({ order, tick }: { order: Pick<Order, 'exit'>; tick: st
         ? t('Exit legs limit', { takeProfit, stopLoss, limit: fmtPrice(exit.stopLossLimit, tick) })
         : t('Exit legs', { takeProfit, stopLoss })}
     </span>
+  );
+}
+
+/**
+ * An OTO buy names its close (waiting for the fill, or placed, with a link to it); the close links back to its buy.
+ * Nothing on any other order.
+ */
+export function OtoLink({ order, tick, quote }: { order: Pick<Order, 'linked'>; tick: string | undefined; quote: string }) {
+  const { t } = deskCopy.useCopy();
+  const link = order.linked;
+  if (!link) return null;
+  if (link.role === 'close')
+    return (
+      <a
+        className="dk-tag dk-oto-link"
+        href={`/trade/orders/${encodeURIComponent(link.entryOrderId)}`}
+        aria-label={t('Oto entry link label')}
+      >
+        {t('Oto close of')}
+      </a>
+    );
+  const price = fmtPrice(link.closePrice, tick);
+  if (link.closeOrderId === null) return <span className="dk-tag dk-oto-link if-num">{t('Oto close waiting', { price, quote })}</span>;
+  return (
+    <a
+      className="dk-tag dk-oto-link if-num"
+      href={`/trade/orders/${encodeURIComponent(link.closeOrderId)}`}
+      aria-label={t('Oto close link label')}
+    >
+      {t('Oto close placed', { price, quote })}
+    </a>
   );
 }
 
@@ -185,10 +216,11 @@ export const quoteOf = (symbol: string): string => symbol.split('/')[1] ?? '';
 /** The words for an order's type; a type the screen has no words for shows as the service named it, never blank. */
 function typeWordOf(order: Order, t: ReturnType<typeof deskCopy.useCopy>['t'], precision: Precision): string {
   if (order.exit) return t(exitKindKey(order.exit.kind));
+  if (order.linked) return t(order.linked.role === 'entry' ? 'Order type oto' : 'Order type oto close');
   if (order.type === 'limit') return t('Order type limit');
   if (order.type === 'market') return t('Order type market');
-  if (order.type === 'stop_limit')
-    return `${t('Order type stopLimit')}${order.stopPrice ? ` @ ${fmtPrice(order.stopPrice, precision.tickOf(order.symbol))}` : ''}`;
+  if (order.type === 'stop_limit' || order.type === 'stop')
+    return `${t(order.type === 'stop' ? 'Order type stopMarket' : 'Order type stopLimit')}${order.stopPrice ? ` @ ${fmtPrice(order.stopPrice, precision.tickOf(order.symbol))}` : ''}`;
   return order.type;
 }
 
@@ -200,6 +232,7 @@ export function OrdersTable({
   onChanged,
   desk = false,
   onEdit,
+  lastPriceOf,
   selected,
   onSelect,
 }: {
@@ -211,6 +244,8 @@ export function OrdersTable({
   desk?: boolean;
   /** Open the edit dialog for an order (the desk hosts the dialog above the table: a replacement removes the row). */
   onEdit?: (order: Order) => void;
+  /** The last trade price of a pair, where the desk knows it: a stop that has not fired shows it beside its trigger. */
+  lastPriceOf?: (symbol: string) => string | null;
   /** Orders ticked for a batch cancel; with `onSelect`, each open order gets a checkbox. */
   selected?: ReadonlySet<string>;
   onSelect?: (id: string, on: boolean) => void;
@@ -276,6 +311,10 @@ export function OrdersTable({
                 {typeWordOf(order, t, precision)}
                 <OrderTag order={order} />
                 <ExitLegs order={order} tick={precision.tickOf(order.symbol)} />
+                <OtoLink order={order} tick={precision.tickOf(order.symbol)} quote={quoteOf(order.symbol)} />
+                {withAction && lastPriceOf ? (
+                  <PendingStop order={order} tick={precision.tickOf(order.symbol)} last={lastPriceOf(order.symbol)} />
+                ) : null}
                 {order.tag ? (
                   <span className="dk-tag" title={t('Order tag label', { tag: order.tag })}>
                     {order.tag}
@@ -307,12 +346,12 @@ export function OrdersTable({
               <td>
                 {withAction && !isTerminalOrder(order) ? (
                   <span className="dk-bt-actions">
-                    {onEdit && canEdit(order) && precision.marketOf(order.symbol) ? (
+                    {onEdit && (canEdit(order) || canEditStop(order)) && precision.marketOf(order.symbol) ? (
                       <Button
                         variant="secondary"
                         size={28}
                         onClick={() => onEdit?.(order)}
-                        aria-label={t('Edit order label', {
+                        aria-label={t(canEditStop(order) ? 'Edit stop label' : 'Edit order label', {
                           side: order.side === 'buy' ? t('Order placed side buy') : t('Order placed side sell'),
                           amount: fmtAmount(order.amount, { places: 8 }),
                           asset: baseOf(order.symbol),
@@ -333,6 +372,20 @@ export function OrdersTable({
         </tbody>
       </table>
     </>
+  );
+}
+
+/** A stop that has not fired, in the open list: its trigger, and the last trade price it waits on. */
+function PendingStop({ order, tick, last }: { order: Order; tick: string | undefined; last: string | null }) {
+  const { t } = deskCopy.useCopy();
+  if ((order.type !== 'stop_limit' && order.type !== 'stop') || !order.stopPrice || order.triggered !== null || isTerminalOrder(order))
+    return null;
+  return (
+    <span className="dk-tag dk-pending if-num">
+      {t('Pending trigger', { stop: fmtPrice(order.stopPrice, tick), quote: quoteOf(order.symbol) })}
+      {' · '}
+      {last ? t('Pending last price', { price: fmtPrice(last, tick) }) : t('Pending last price unknown')}
+    </span>
   );
 }
 

@@ -611,6 +611,39 @@ export function createPersonalPayApi(
       if (denied) return Promise.resolve(denied);
       return api.mutate('p2p', 'risk.accept', { version }, s.p2pRiskNoticeSchema.extend({ acceptedAt: z.string() }));
     },
+    /** P-ads-merchant-01: the advertiser terms version to accept before posting an ad, and when this person accepted it. */
+    advertiserTerms(signal?: AbortSignal) {
+      const denied = signedIn();
+      if (denied) return Promise.resolve(denied);
+      return api.query('p2p', 'merchants.advertiserTerms', undefined, s.p2pRiskNoticeSchema, { signal });
+    },
+    /** Accept exactly the advertiser terms version shown. Accepting again returns the first acceptance. */
+    acceptAdvertiserTerms(version: string) {
+      const denied = signedIn();
+      if (denied) return Promise.resolve(denied);
+      return api.mutate('p2p', 'merchants.acceptAdvertiserTerms', { version }, s.p2pRiskNoticeSchema.extend({ acceptedAt: z.string() }));
+    },
+    /** P-ads-merchant-01: this person's free balance of a coin, which a new sell ad's total may not exceed. */
+    sellBalance(asset: string, signal?: AbortSignal) {
+      const denied = signedIn();
+      if (denied) return Promise.resolve(denied);
+      return api.query('p2p', 'offers.sellBalance', { asset }, s.p2pSellBalanceSchema, { signal });
+    },
+    /**
+     * P-ads-merchant-01: post the reviewed ad. `idempotencyKey` is the form's business key, made once per form, so a
+     * second press or a retry after a lost reply answers the same ad. `termsVersion` is the version the form showed.
+     */
+    postOffer(input: s.PostOfferInput, idempotencyKey: string, termsVersion: string) {
+      const denied = signedIn();
+      if (denied) return Promise.resolve(denied);
+      if (!p2pCurrent()) return Promise.resolve(p2pDeparted());
+      return api.mutate(
+        'p2p',
+        'offers.create',
+        { ...input, idempotencyKey, advertiserTermsVersion: termsVersion },
+        s.offerSchema.refine((offer) => offer.makerId === userId, 'The posted ad is not this account’s'),
+      );
+    },
     standing: (signal?: AbortSignal) => api.query('p2p', 'merchants.me', undefined, s.p2pStandingSchema.nullable(), { signal }),
     apiAccess: (signal?: AbortSignal) => api.query('p2p', 'merchants.apiAccess', undefined, s.p2pApiAccessSchema, { signal }),
     applyProgramme: () =>

@@ -1634,6 +1634,10 @@ services:
       OPS_RESTORE_ARCHIVE_URL: ${OPS_RESTORE_ARCHIVE_URL:-}
       # Owner storage target for restored data. Blank → restore.start and restore.finalize refuse ops.restore_target_unset.
       OPS_RESTORE_TARGET: ${OPS_RESTORE_TARGET:-}
+      # Staff holds on funds: the owner-named account a confirmed hold moves to, and the longest hold expiry in hours.
+      # Blank → confirm refuses owner.decision and an expiry refuses ops.hold_expiry_unset. Never invent either.
+      OPS_STAFF_HOLD_CONFIRM_ACCOUNT: ${OPS_STAFF_HOLD_CONFIRM_ACCOUNT:-}
+      OPS_STAFF_HOLD_EXPIRY_MAX_HOURS: ${OPS_STAFF_HOLD_EXPIRY_MAX_HOURS:-}
       # The restore.watermark.read doors. svc-ops is the only caller each allows. IDENTITY_URL is also the founder authority and
       # the second-founder approval wiring (finalize, protocol listing, custody).
       IDENTITY_URL: http://svc-identity:4002
@@ -1767,6 +1771,7 @@ services:
       ACADEMY_TOPICS_LIST_LIMIT: ${ACADEMY_TOPICS_LIST_LIMIT:-}
       ACADEMY_GRADER_LEASE_SECONDS: ${ACADEMY_GRADER_LEASE_SECONDS:-}
       ACADEMY_CERT_ISSUE_SWEEP_SECONDS: ${ACADEMY_CERT_ISSUE_SWEEP_SECONDS:-}
+      ACADEMY_PROGRAMME_MAX_COURSES: ${ACADEMY_PROGRAMME_MAX_COURSES:-}
       ACADEMY_UPLOAD_VIDEO_TYPES: ${ACADEMY_UPLOAD_VIDEO_TYPES:-}
       ACADEMY_UPLOAD_HANDOUT_TYPES: ${ACADEMY_UPLOAD_HANDOUT_TYPES:-}
       # Owner-published seconds between watch-position saves while playing.

@@ -4,7 +4,7 @@ import { useDataEnv } from '../../../data/hooks';
 import { useSession } from '../../../features/session/session';
 import { usePreferences } from '../../../shared/preferences';
 import { fitsPlaces } from '../../../features/account/trading-settings';
-import { draftSchema, type Draft, type Preview, type TradeApi } from '../../../features/trade/trade-api';
+import { draftSchema, isStopType, type Draft, type Preview, type TradeApi } from '../../../features/trade/trade-api';
 import type { BookPick } from './OrderBook';
 import { deskCopy } from './copy';
 import { useDeskApi, useListedFees, useOpenOrders, useRefreshPrivate } from './data';
@@ -49,6 +49,7 @@ import {
   hasExits,
   isBuyOco,
   isPriced,
+  isStopTab,
   serviceType,
   type OrderType,
   type Reference,
@@ -304,6 +305,7 @@ function SideForm({
     checked.ok ? (checked.exit?.takeProfit ?? '') : '',
     checked.ok ? (checked.exit?.stopLoss ?? '') : '',
     checked.ok ? (checked.exit?.stopLossLimit ?? '') : '',
+    checked.ok ? (checked.close ?? '') : '',
     market.symbol,
     side,
     type,
@@ -611,7 +613,7 @@ function SideForm({
         }
       }}
     >
-      {type === 'stop_limit' ? stopInput(t('Stop price')) : null}
+      {isStopTab(type) ? stopInput(t('Stop price')) : null}
       {type === 'bracket' ? (
         <AmountInput
           label={t('Entry price')}
@@ -629,7 +631,7 @@ function SideForm({
         />
       ) : priced ? (
         <AmountInput
-          label={type === 'oco' ? t('Take profit') : t('Price')}
+          label={type === 'oco' ? t('Take profit') : type === 'oto' ? t('Entry price') : t('Price')}
           value={price}
           onValueChange={(next) => edit(() => (setPrice(next), setTotalEdit(null)))}
           precision={pricePlaces}
@@ -640,7 +642,7 @@ function SideForm({
           stepLabels={{ up: t('Price up one step'), down: t('Price down one step') }}
           onBbo={bbo && referenceFresh ? () => edit(() => (setPrice(padDecimals(bbo, pricePlaces)), setTotalEdit(null))) : undefined}
           bboLabel={t('BBO')}
-          aria-label={type === 'oco' ? t('Take profit') : t('Price')}
+          aria-label={type === 'oco' ? t('Take profit') : type === 'oto' ? t('Entry price') : t('Price')}
         />
       ) : (
         <AmountInput
@@ -655,9 +657,9 @@ function SideForm({
           aria-label={t('Price')}
         />
       )}
-      {type === 'bracket' ? (
+      {type === 'bracket' || type === 'oto' ? (
         <AmountInput
-          label={t('Take profit')}
+          label={type === 'oto' ? t('Close price') : t('Take profit')}
           value={takeProfit}
           onValueChange={(next) => edit(() => setTakeProfit(next))}
           precision={pricePlaces}
@@ -666,7 +668,7 @@ function SideForm({
           min={market.tickSize}
           unit={market.quote}
           stepLabels={{ up: t('Price up one step'), down: t('Price down one step') }}
-          aria-label={t('Take profit')}
+          aria-label={type === 'oto' ? t('Close price') : t('Take profit')}
         />
       ) : null}
       {hasExits(type) ? stopInput(t('Stop loss')) : null}
@@ -796,7 +798,15 @@ function SideForm({
       <div className="dk-reason" id={`dk-reason-${side}`} aria-live="polite">
         {hint ? <p className="dk-note">{hint}</p> : null}
         {signedIn && !market.open ? <p className="dk-note">{t('Market is closed')}</p> : null}
-        {signedIn && market.open && exitOff ? <p className="dk-note">{t('Bracket sell off', { asset: market.base })}</p> : null}
+        {signedIn && market.open && exitOff ? (
+          <p className="dk-note">{t(type === 'oto' ? 'Oto sell off' : 'Bracket sell off', { asset: market.base })}</p>
+        ) : null}
+        {market.open && type === 'oto' && !exitOff ? <p className="dk-note-small">{t('Exit note oto', { asset: market.base })}</p> : null}
+        {market.open && type === 'stop_market' ? (
+          <p className="dk-note-small">
+            {side === 'buy' ? t('Stop market note buy', { asset: market.base }) : t('Stop market note sell', { asset: market.base })}
+          </p>
+        ) : null}
         {market.open && hasExits(type) && !exitOff ? (
           <p className="dk-note-small">
             {type === 'oco'
@@ -863,7 +873,7 @@ function ReviewRows({ market, review, side }: { market: DeskMarket; review: { dr
   const { t } = deskCopy.useCopy();
   const { draft, preview } = review;
   const limit = draft.type !== 'market';
-  const stop = draft.type === 'stop_limit';
+  const stop = isStopType(draft.type);
   const exit = draft.exit ?? null;
   const value = limit && draft.price ? orderValue({ side, type: 'limit', price: draft.price, amount: draft.amount }, null) : null;
   const rate = preview.feeBps === null ? null : fmtPct(bpsToRatio(preview.feeBps), { signed: false });
@@ -880,16 +890,18 @@ function ReviewRows({ market, review, side }: { market: DeskMarket; review: { dr
             ? exit.kind === 'oco'
               ? t('Order type oco')
               : t('Order type bracket')
-            : stop
-              ? t('Order type stopLimit')
-              : limit
-                ? t('Order type limit')
-                : t('Order type market')}
+            : draft.close
+              ? t('Order type oto')
+              : stop
+                ? t(draft.type === 'stop' ? 'Order type stopMarket' : 'Order type stopLimit')
+                : limit
+                  ? t('Order type limit')
+                  : t('Order type market')}
         </dd>
       </div>
       <div>
         <dt>{t('Review time in force')}</dt>
-        <dd>{t(tifLabelKey(draft.type, tifOfDraft(draft)))}</dd>
+        <dd>{t(tifLabelKey(draft.type === 'stop' ? 'stop_market' : draft.type, tifOfDraft(draft)))}</dd>
       </div>
       {draft.expireAt ? (
         <div>
@@ -905,14 +917,36 @@ function ReviewRows({ market, review, side }: { market: DeskMarket; review: { dr
           </dd>
         </div>
       ) : null}
-      {exit?.kind === 'oco' ? null : (
+      {draft.type === 'stop' && preview.price ? (
         <div>
-          <dt>{exit ? t('Entry price') : t('Review price')}</dt>
+          <dt>{t('Review protection price')}</dt>
+          <dd className="if-num">
+            {fmtPrice(preview.price, market.tickSize)} {market.quote}
+          </dd>
+        </div>
+      ) : null}
+      {exit?.kind === 'oco' || draft.type === 'stop' ? null : (
+        <div>
+          <dt>{exit || draft.close ? t('Entry price') : t('Review price')}</dt>
           <dd className="if-num">
             {limit && draft.price ? `${fmtPrice(draft.price, market.tickSize)} ${market.quote}` : t('Review market price')}
           </dd>
         </div>
       )}
+      {draft.close ? (
+        <>
+          <div>
+            <dt>{t('Review close price')}</dt>
+            <dd className="if-num">
+              {fmtPrice(draft.close, market.tickSize)} {market.quote}
+            </dd>
+          </div>
+          <div>
+            <dt>{t('Review exit note label')}</dt>
+            <dd>{t('Review exit note oto', { asset: market.base })}</dd>
+          </div>
+        </>
+      ) : null}
       {exit ? (
         <>
           <div>
@@ -1211,6 +1245,8 @@ export const OrderPanel = memo(function OrderPanel({
         setType(value as OrderType);
         // A bracket entry resolves at once unless the trader picks "Rest on the book": resting is never the default.
         if (value === 'bracket') setTif('IOC');
+        // An OTO buy waits on the book for its price by default; its close is placed when it fills.
+        if (value === 'oto') setTif('GTC');
       }}
       className="dk-panel dk-order"
     >
@@ -1218,8 +1254,10 @@ export const OrderPanel = memo(function OrderPanel({
         <TabsList className="dk-tabs" aria-label={t('Order type')}>
           <TabsTab value="limit">{t('Limit')}</TabsTab>
           <TabsTab value="stop_limit">{t('Order type stopLimit')}</TabsTab>
+          <TabsTab value="stop_market">{t('Order type stopMarket')}</TabsTab>
           <TabsTab value="oco">{t('Order type oco')}</TabsTab>
           <TabsTab value="bracket">{t('Order type bracket')}</TabsTab>
+          <TabsTab value="oto">{t('Order type oto')}</TabsTab>
           <TabsTab value="market">{t('Market')}</TabsTab>
         </TabsList>
         <MoreOrderTypes />

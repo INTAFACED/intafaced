@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { test, expect } from '@playwright/test';
 import { DEVICE_KEY, EDGE, ORIGIN, fund, journeyState, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
@@ -6,11 +7,18 @@ import { signIn, signUp, verify } from './desk.mjs';
 // J-bank-07, in the running app (docs/roadmap/journeys.json): I organise money in pots, goals and a shared account. Steps 1
 // and 2 (BK-pots-02): a space with a goal whose progress is exact, rounded down and capped, changed and cleared on the
 // space's own page; then a lock that refuses every debit by name, a standing order that records the lock as its reason,
-// and an early unlock that waits out the bank's window. One TEST account funded with TEST 100 USDT. The stack publishes a
-// TEST space limit and a TEST early-unlock wait of 24 hours (tooling/profiles/test-owner-values/bank.json). The stack has
-// no timer for the standing-order runner: this file runs it with the job door's own signed call, as a scheduler would.
+// and an early unlock that waits out the bank's window. Step 3 (BK-pots-02): a standing order and a card round-up made on
+// the space's page each land once, and the space's own statement lists them. One TEST account funded with TEST 100 USDT.
+// The stack publishes a TEST space limit and a TEST early-unlock wait of 24 hours (tooling/profiles/test-owner-values/
+// bank.json). The stack has no timer for the standing-order runner: this file runs it with the job door's own signed
+// call, as a scheduler would. The stack's card issuer is the simulator, so the card payment arrives through the bank's
+// four-eyes ops doors that stand in for the issuer's webhook, approved by the stack's two TEST founders. Step 4
+// (BK-pots-03): an income sorter made on the Spaces page; one over 100% is refused by name, and a TEST 100 payment from
+// a second TEST person splits 60 and 40 into two spaces, once. The stack publishes a TEST smallest sorted payment.
 const J = 'J-bank-07';
 const POT = 'Holiday TEST';
+const BILLS = 'Bills TEST';
+const SAVINGS = 'Rainy day TEST';
 const WAIT_HOURS = 24;
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
@@ -38,6 +46,8 @@ async function bank(who) {
     return { ok: true, data: body.result.data };
   };
   return {
+    /** The signed-in person's user id, as identity answered the sign-in. */
+    userId: login.result.data.userId,
     query: (procedure, input) =>
       fetch(`${EDGE}/api/bank/trpc/${procedure}${input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`}`, {
         headers,
@@ -80,6 +90,31 @@ async function runDue() {
     const pass = await job('run-due-transfers', {});
     if (pass.schedulesConsidered === 0) return;
   }
+}
+
+let staffDoor;
+async function founders() {
+  staffDoor ??= (async () => {
+    const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
+    const ctx = await gates.makeContext({ log: () => {} });
+    return { gates, ctx, sessions: await gates.approverSessions(ctx) };
+  })();
+  return staffDoor;
+}
+/** One card-issuer event through the bank's ops door, approved by two founders as the simulator's stand-in requires. */
+async function cardEvent(actionType, procedure, fields) {
+  const { gates, ctx, sessions } = await founders();
+  const approval = await gates.twoPerson(ctx, sessions, {
+    actionType,
+    targetService: 'svc-bank',
+    targetId: actionType,
+    expectedVersion: '1',
+    payloadHash: gates.bankPayloadHash(actionType, fields),
+    policyVersion: gates.MARKERS.policyVersion,
+  });
+  const res = await ctx.edge.mutate('bank', procedure, { ...fields, ...approval }, await sessions.a.treasuryToken());
+  expect(res.status, res.text.slice(0, 300)).toBe(200);
+  return res.json.result.data;
 }
 
 function person() {
@@ -266,4 +301,172 @@ test(`${J} #2 locks the space: a debit refuses bank.space_locked, a standing ord
   const again = await api.mutate('spaces.requestUnlock', { spaceId: pot });
   expect(again).toMatchObject({ ok: true, data: { unlocksAt: new Date(opens).toISOString() } });
   expect(toUnits(named(await spaces(who), POT).balance)).toBe(toUnits('20'));
+});
+
+test(`${J} #3 money flows into the space on its own: a standing order and a card round-up land once each, and the space's statement lists them`, async ({
+  page,
+}) => {
+  test.setTimeout(360_000);
+  const who = person();
+  const { pot } = run.read();
+  if (!pot) throw new Error(`${J} #1 made no space, so this step has nowhere to save into`);
+  const api = await bank(who);
+  const before = named(await spaces(who), POT);
+  const mainBefore = main(await spaces(who)).balance;
+
+  await signIn(page, who);
+  await page.goto(`/bank/spaces?space=${pot}`);
+  const selected = page.locator('.money-selected-space');
+  const inflows = selected.getByTestId('space-inflows');
+  await expect(inflows).toContainText('No standing order pays into this space.');
+  await expect(inflows).toContainText('No card round-up goes into this space.');
+
+  // A weekly standing order of TEST 5 from the account into the space, made on the space's page. Its first run is the
+  // first whole minute at least a minute away, the soonest the form takes.
+  const first = new Date(Date.now() + 120_000);
+  first.setSeconds(0, 0);
+  await confirm(
+    await act(page, 'Save automatically', async (d) => {
+      await d.getByLabel(/^Amount/).fill('5');
+      await d.getByLabel('Cadence').selectOption('weekly');
+      await d.getByLabel('First run').fill(local(first));
+    }),
+  );
+  await close(page);
+  const order = inflows.getByTestId('space-inflow-order');
+  await expect(order).toHaveCount(1);
+  await expect(order).toContainText('5 USDT, every week');
+  const orderId = await order.getAttribute('data-id');
+
+  // A card round-up to the next TEST 1, into this space, made on the same page.
+  await confirm(await act(page, 'Add round-up', (d) => d.getByLabel(/^Round up to the next/).fill('1')));
+  await close(page);
+  const roundUp = inflows.getByTestId('space-inflow-roundup');
+  await expect(roundUp).toHaveCount(1);
+  await expect(roundUp).toContainText('Each card payment rounded up to the next 1 USDT');
+  await expect(roundUp).toContainText('Active');
+
+  // A TEST card payment of 4.30: authorised, then captured. The spare 0.70 moves into the space with the capture.
+  const cardId = randomUUID();
+  const issued = await api.mutate('cards.issue', { cardId, assetId: 'USDT', perAuthorizationLimit: '50', cardType: 'virtual' });
+  expect(issued.ok, JSON.stringify(issued.body ?? {}).slice(0, 300)).toBe(true);
+  const payment = { cardId, authorizationRef: `jb07-${randomUUID()}`, amount: '4.3' };
+  const held = await cardEvent('bank.card_authorize', 'ops.cardAuthorize', payment);
+  expect(held).toMatchObject({ decision: 'approved', declineCode: null });
+  const captured = await cardEvent('bank.card_capture', 'ops.cardCapture', payment);
+  expect(captured.roundUp).toMatchObject({ status: 'settled', amount: '0.7', spaceId: pot });
+
+  // The standing order's first run, once its time has come.
+  await expect
+    .poll(
+      async () => {
+        await runDue();
+        const ran = await api.query('transfers.executions', { scheduleId: orderId, limit: 50 });
+        return ran.ok ? ran.data.map((r) => r.status) : [];
+      },
+      { timeout: 200_000, intervals: [10_000] },
+    )
+    .toEqual(['settled']);
+
+  // Each landed once: the space gained 5.7, the account paid the card 4.3 and the space 5.7.
+  const after = await spaces(who);
+  expect(toUnits(named(after, POT).balance)).toBe(toUnits(before.balance) + toUnits('5.7'));
+  expect(toUnits(main(after).balance)).toBe(toUnits(mainBefore) - toUnits('10'));
+
+  // The space's own statement, this month so far: the order's run and the round-up, once each, and nothing else's lines.
+  await page.goto(`/bank/spaces?space=${pot}`);
+  const statement = selected.getByRole('form', { name: 'Space statement' });
+  await expect(statement.getByLabel('Format')).toHaveValue('csv');
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    statement.getByRole('button', { name: 'Download space statement' }).click(),
+  ]);
+  const csv = readFileSync(await download.path(), 'utf8').replace(/^\uFEFF/, '');
+  const [header, ...lines] = csv.trim().split('\r\n');
+  expect(header.split(',')[4]).toBe('Amount');
+  const amounts = lines.map((line) => line.split(','));
+  expect(amounts.every((cells) => cells[6] === POT)).toBe(true);
+  expect(amounts.filter((cells) => cells[4] === '5')).toHaveLength(1);
+  expect(amounts.filter((cells) => cells[4] === '0.7')).toHaveLength(1);
+  await expect(statement.getByRole('status')).toContainText(`${lines.length} lines`);
+});
+
+test(`${J} #4 sets an income sorter: one over 100% is refused, and a TEST 100 payment from another person splits 60 and 40, once`, async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  const who = person();
+  const api = await bank(who);
+  // A second TEST person who pays, holding TEST 100 USDT.
+  const payer = await signUp(page, 'jb07p');
+  await verify(page, payer);
+  expect(fund(payer.email, 'USDT', '100').tx).toBeTruthy();
+  // Two spaces for the split, made through the person's own API (making a space in the app is step 1's).
+  for (const name of [BILLS, SAVINGS]) {
+    const made = await api.mutate('spaces.create', { assetId: 'USDT', name });
+    expect(made.ok, JSON.stringify(made.body ?? {}).slice(0, 300)).toBe(true);
+  }
+  const rows = await spaces(who);
+  const bills = named(rows, BILLS);
+  const savings = named(rows, SAVINGS);
+
+  // The bank itself refuses a sorter over 100%, by name, and keeps nothing.
+  const over = await api.mutate('sorter.create', {
+    sorterId: randomUUID(),
+    assetId: 'USDT',
+    legs: [
+      { spaceId: bills.id, shareBp: 6000 },
+      { spaceId: savings.id, shareBp: 5000 },
+    ],
+  });
+  expect(over).toMatchObject({ ok: false, code: 'bank.sorter_invalid' });
+
+  await signIn(page, who);
+  await page.goto('/bank/spaces');
+  const sorter = page.getByTestId('income-sorter');
+  await expect(sorter.getByTestId('income-sorter-terms')).toHaveAttribute('data-state', 'set');
+  await expect(sorter).toContainText('No payments are sorted.');
+
+  // The page names a split over 100% before anything is sent; at 60 and 40 the bank confirms the sorter.
+  await sorter.getByRole('button', { name: 'Sort USDT payments' }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel(`${BILLS}: percent`).fill('60');
+  await dialog.getByLabel(`${SAVINGS}: percent`).fill('50');
+  await dialog.getByRole('button', { name: 'Review' }).click();
+  await expect(dialog).toContainText('The shares add up to 110%, more than 100%.');
+  await dialog.getByLabel(`${SAVINGS}: percent`).fill('40');
+  await dialog.getByRole('button', { name: 'Review' }).click();
+  await confirm(dialog);
+  await close(page);
+  const card = sorter.getByTestId('income-sorter-card');
+  await expect(card).toHaveCount(1);
+  await expect(card).toContainText(`60% into ${BILLS}`);
+  await expect(card).toContainText(`40% into ${SAVINGS}`);
+  await expect(card).toContainText('Nothing has been sorted so far.');
+
+  // The payer sends TEST 100 to this person. The split happens with the payment.
+  const before = await spaces(who);
+  const payerApi = await bank(payer);
+  const from = main((await payerApi.query('spaces.list', { limit: 50 })).data);
+  const transferId = `jb07-${randomUUID()}`;
+  const paid = await payerApi.mutate('transfers.toUser', { transferId, fromSpaceId: from.id, toUserId: api.userId, amount: '100' });
+  expect(paid.ok, JSON.stringify(paid.body ?? {}).slice(0, 300)).toBe(true);
+  // The same payment sent again, and a sweep of the sorter's job, move nothing more.
+  const again = await payerApi.mutate('transfers.toUser', { transferId, fromSpaceId: from.id, toUserId: api.userId, amount: '100' });
+  expect(again.ok && again.data.ledgerTxId).toBe(paid.data.ledgerTxId);
+  await job('run-income-sorter', { limit: 50 });
+
+  const after = await spaces(who);
+  expect(toUnits(named(after, BILLS).balance)).toBe(toUnits(named(before, BILLS).balance) + toUnits('60'));
+  expect(toUnits(named(after, SAVINGS).balance)).toBe(toUnits(named(before, SAVINGS).balance) + toUnits('40'));
+  expect(toUnits(main(after).balance)).toBe(toUnits(main(before).balance));
+
+  // The page shows the payment and both splits, moved, once.
+  await page.reload();
+  const run = card.getByTestId('income-sorter-run');
+  await expect(run).toHaveCount(1);
+  await expect(run).toHaveAttribute('data-credit', paid.data.ledgerTxId);
+  await expect(run).toContainText('100 USDT received');
+  await expect(run).toContainText(`60 USDT into ${BILLS}: moved`);
+  await expect(run).toContainText(`40 USDT into ${SAVINGS}: moved`);
 });

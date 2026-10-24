@@ -1,10 +1,12 @@
-import { postPayLedger } from './ledger-receipt.js';
+import { checkPayLedgerReceipt, postPayLedger } from './ledger-receipt.js';
 import type { Sql } from 'postgres';
 import { withPayoutLock, payoutTransaction } from './payout-admission.js';
 import { transaction } from '@intafaced/db';
 import {
   formatAmount,
+  LedgerError,
   parseAmount,
+  provesPostNotCommitted,
   recipes,
   userAvailable,
   withdrawalHoldAccount,
@@ -381,6 +383,61 @@ export class UserMoneyService {
       );
       return { id: tx.id };
     });
+  }
+
+  /**
+   * Post the reversal of a customer crypto deposit the chain took back (W-deposit-06): `depositReverse`, the inverse of the
+   * credit `postCustodyDeposit` posted, keyed `deposit.reverse:crypto-native:<network>:<tx>:<index>` so a repeat returns the
+   * first transaction. The deposit record decides WHEN (`custody/deposits/book.ts`); this posts nothing else. A balance that
+   * can no longer cover it (the funds were spent) answers `unfunded` and posts nothing: never a negative balance, never a
+   * partial take-back. That answer needs proof that nothing committed (`provesPostNotCommitted`: one attempt, the first post
+   * under the key). After a retried post an earlier attempt may still land, so the same refusal answers `unsure`. `again`
+   * (an earlier call may have posted, and the in-flight bound has passed) reads the key back first, and its post is then
+   * the first that can still land.
+   */
+  async reverseCustodyDeposit(input: {
+    userId: string;
+    assetId: string;
+    amount: Amount;
+    networkId: string;
+    txHash: string;
+    outputIndex: number;
+    again: boolean;
+  }): Promise<{ state: 'reversed'; id: string } | { state: 'unfunded' } | { state: 'unsure' }> {
+    if (input.amount <= 0n) throw new PayError('Deposit amount must be positive', 'pay.invalid_amount');
+    const rail = 'crypto-native';
+    if (!this.rails.has(rail)) throw new PayError(`No rail adapter "${rail}"`, 'pay.rail_unknown');
+    const railRef = `${input.networkId}:${input.txHash}:${input.outputIndex}`;
+    return withMoneySpan(
+      'pay.deposit_reverse',
+      { operation: 'deposit_reverse', rail, railRef, amount: formatAmount(input.amount) },
+      async () => {
+        const request = recipes.depositReverse({
+          userId: input.userId,
+          assetId: input.assetId,
+          amount: input.amount,
+          rail,
+          railRef,
+          depositId: `${rail}:${railRef}`,
+        });
+        if (input.again) {
+          const posted = await this.ledger.getTxByKey(request.idempotencyKey);
+          if (posted) return { state: 'reversed' as const, id: (await checkPayLedgerReceipt(this.ledger, request, posted)).id };
+        }
+        try {
+          const tx = await postPayLedger(this.ledger, request);
+          return { state: 'reversed' as const, id: tx.id };
+        } catch (err) {
+          if (err instanceof LedgerError && err.code === 'ledger.insufficient_funds') {
+            // A first post: proof that nothing committed. `again`: the key read back absent after the in-flight bound, which
+            // is how the post-outcome contract decides that earlier attempts are dead, so this single-attempt refusal is the
+            // only post that could still land, and it did not.
+            return provesPostNotCommitted(err) ? { state: 'unfunded' as const } : { state: 'unsure' as const };
+          }
+          throw err;
+        }
+      },
+    );
   }
 
   /**

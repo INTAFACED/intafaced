@@ -9,6 +9,7 @@ import { MemoryEventBus } from '@intafaced/events';
 import { createTestDb } from '../fixture-truncate.testkit.js';
 import { AuthService } from './auth-service.js';
 import { checkLoginCode, consumeLoginCode } from './login-code.js';
+import { unlinkSigninMethod } from './signin-methods.js';
 import { stubActionApprovals } from './privileged-dual-control.js';
 import { totp } from './totp.js';
 import { createIdentityRouter } from '../router.js';
@@ -259,6 +260,30 @@ if (!available) {
       expect(err.cause?.details?.secondStep?.totp).toBe(false);
       expect(err.cause?.details?.secondStep?.passkey.allowCredentials.map((c) => c.id)).toEqual(['cred-test-a']);
       expect(await sessionsOf(who.userId)).toBe(before);
+    });
+
+    it('mails no code once the owner turned sign-in by mailed code off, with the same answer (I-account-lifecycle-07)', async () => {
+      const who = await account();
+      const { flowId } = await anon().auth.loginCodeRequest({ identifier: who.email });
+      const [code] = codesTo(who.email);
+      // Turning it off also ends the code already sent.
+      await unlinkSigninMethod(db.sql, who.userId, 'email_code');
+      expect(await anon().auth.loginCodeRequest({ identifier: who.email })).toEqual({
+        accepted: true,
+        flowId: expect.any(String),
+        resendAfterSeconds: 60,
+      });
+      expect(codesTo(who.email)).toHaveLength(1);
+      expect(await refusal(anon().auth.loginWithCode({ flowId, code: code! }))).toMatchObject({ trpc: 'UNAUTHORIZED' });
+    });
+
+    it('a code mailed while the owner turns mailed codes off does not sign in, though its flow is still open', async () => {
+      const who = await account();
+      const { flowId } = await anon().auth.loginCodeRequest({ identifier: who.email });
+      const [code] = codesTo(who.email);
+      // The request read the setting before the owner's change committed, so its flow was not among those ended.
+      await db.sql`UPDATE users SET email_code_signin = false WHERE id = ${who.userId}`;
+      expect(await refusal(anon().auth.loginWithCode({ flowId, code: code! }))).toMatchObject({ trpc: 'UNAUTHORIZED' });
     });
 
     it('refuses every name the same way while a setting is blank, and a phone number names the switched-off provider', async () => {

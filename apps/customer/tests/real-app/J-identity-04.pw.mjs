@@ -3,6 +3,7 @@ import path from 'node:path';
 import { test, expect } from '@playwright/test';
 import { ROOT, mailedLines, signUpInBrowser } from './stack.mjs';
 import { PASSKEY_ORIGIN, addAuthenticator, addPasskey, forgetSession, nextCode, virtualAuthenticator } from './identity-factors.mjs';
+import { installTestWallet } from './test-wallet.mjs';
 
 // J-identity-04, in the running app (docs/roadmap/journeys.json): I turn on two-factor sign-in and check my Security
 // centre. Tests titled "J-identity-04 #<n>" prove a whole step; the others prove part of one and say which.
@@ -449,4 +450,92 @@ test(`${J} #4 sets a passkey as the second step and keeps one for signing in: an
   await expect(page.locator('.security__passkey-names')).toContainText(
     'On: signing in with your password also asks for one of your passkeys.',
   );
+});
+
+test(`${J} #7 links a wallet with its own signature and a confirmation, refuses a wrong key, shows the texting and social provider notices, and refuses to remove the last way in`, async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  await virtualAuthenticator(page);
+  // A TEST wallet stands in for the person's own (tests/real-app/test-wallet.mjs); nothing reaches a chain.
+  const wallet = await installTestWallet(page, { chainId: 1 });
+  const who = person('sm');
+  await signUpInBrowser(page, who);
+  await addPasskey(page);
+  const card = page.locator('.security__signin-methods');
+  const row = (name) => card.getByRole('listitem', { name, exact: true });
+  await expect(row('Password')).toContainText('On: you can sign in with your password.');
+  await expect(row('Code by email')).toContainText(`On: we can mail a sign-in code to ${who.email}.`);
+  await expect(row('Wallets')).toContainText('No wallet linked.');
+
+  // A phone number and a social account need outside providers that are off in this build; the card names them.
+  await row('Phone number').getByRole('button', { name: 'Link a phone number' }).click();
+  await row('Phone number').getByLabel('Phone number, starting with +').fill('+44 20 7946 0000');
+  await row('Phone number').getByRole('button', { name: 'Text me a code' }).click();
+  await expect(card.locator('[data-not-connected="vendor.sms"]')).toContainText('Texting a sign-in code needs an SMS delivery provider.');
+  await row('Social account').getByRole('button', { name: 'Link a social account' }).click();
+  await expect(card.locator('[data-not-connected="idp.social"]')).toContainText(
+    'Signing in with a social account needs an outside sign-in provider.',
+  );
+
+  // A signature from another key is refused before any confirmation is asked for, and nothing is linked.
+  wallet.signWithOtherKeyNext();
+  await row('Wallets').getByRole('button', { name: 'Link a wallet' }).click();
+  await expect(card.locator('.failure')).toContainText('That signature is not from this wallet. Nothing was changed.');
+  await expect(card.getByRole('form', { name: 'Confirm it is you' })).toHaveCount(0);
+  await expect(row('Wallets')).toContainText('No wallet linked.');
+
+  // The wallet's own signature, then a confirmation with the passkey, links it.
+  async function confirmWithPasskey() {
+    await card.getByRole('form', { name: 'Confirm it is you' }).getByRole('button', { name: 'Confirm with a passkey' }).click();
+  }
+  await row('Wallets').getByRole('button', { name: 'Link a wallet' }).click();
+  await confirmWithPasskey();
+  const short = `${wallet.address.slice(0, 6)}…${wallet.address.slice(-4)}`;
+  await expect(card.getByRole('status')).toContainText(`Wallet ${short} linked. You can sign in with it.`);
+  await expect(row('Wallets').getByTitle(wallet.address)).toBeVisible();
+  expect(wallet.requests.filter((request) => request.method === 'personal_sign')).toHaveLength(2);
+
+  // Code by email off, then the password, each confirmed with the passkey.
+  await row('Code by email').getByRole('button', { name: 'Turn off' }).click();
+  await confirmWithPasskey();
+  await expect(row('Code by email')).toContainText('Off: no sign-in code is mailed.');
+  await row('Password').getByRole('button', { name: 'Stop using a password' }).click();
+  await confirmWithPasskey();
+  await expect(row('Password')).toContainText('Off: your old password no longer signs in.');
+  await forgetSession(page);
+
+  // The old password no longer signs in. The passkey does, and then it is removed, leaving the wallet as the only way in.
+  await page.goto('/login');
+  await page.fill('input[name=identifier]', who.email);
+  await page.fill('input[name=password]', who.password);
+  await page.getByRole('button', { name: /^sign in$/i }).click();
+  await expect(page.locator('.failure')).toBeVisible();
+  await expect(page).toHaveURL(/\/login/);
+  await page.goto('/login');
+  await page.fill('input[name=identifier]', who.handle);
+  await page.getByRole('button', { name: 'Use a passkey' }).click();
+  await page.waitForURL((url) => url.pathname !== '/login');
+  await page.goto('/uc/safe');
+  await page.getByRole('button', { name: /^Remove passkey / }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Remove passkey' }).click();
+  await expect(row('Passkeys')).toContainText('None on this account.');
+  await expect(card).toContainText('This is your only way to sign in, so it cannot be removed. Add another first.');
+
+  // Removing the wallet now is refused as the last way in, before any confirmation, and the wallet stays.
+  await row('Wallets')
+    .getByRole('button', { name: `Remove wallet ${short}` })
+    .click();
+  await expect(card.locator('.failure')).toContainText('This is your last way to sign in. Add another before you remove it.');
+  await expect(card.getByRole('form', { name: 'Confirm it is you' })).toHaveCount(0);
+  await expect(row('Wallets').getByTitle(wallet.address)).toBeVisible();
+  await forgetSession(page);
+
+  // The wallet signs in on the sign-in page by its signature alone.
+  await page.goto('/login');
+  await page.getByRole('button', { name: 'Continue with a wallet' }).click();
+  await page.waitForURL((url) => url.pathname !== '/login');
+  await page.goto('/uc/safe');
+  await expect(row('Wallets').getByTitle(wallet.address)).toBeVisible();
+  await expect(row('Password')).toContainText('Off: your old password no longer signs in.');
 });

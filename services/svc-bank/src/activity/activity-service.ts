@@ -471,7 +471,10 @@ export class ActivityService {
    * Stops after `limit` matches and leaves the caller to notice a short page
    * only when history ended. The caller passes limit+1 to detect overflow.
    */
-  async collect(userId: string, input: { from: string; to: string; assetId?: string; limit: number }): Promise<ActivityItem[]> {
+  async collect(
+    userId: string,
+    input: { from: string; to: string; assetId?: string; accountId?: string; limit: number },
+  ): Promise<ActivityItem[]> {
     const items: ActivityItem[] = [];
     let cursor: string | undefined;
     while (items.length < input.limit) {
@@ -481,6 +484,7 @@ export class ActivityService {
         assetId: input.assetId,
         from: input.from,
         to: input.to,
+        ...(input.accountId === undefined ? {} : { accountId: input.accountId }),
       });
       items.push(...page.items);
       if (!page.nextCursor) break;

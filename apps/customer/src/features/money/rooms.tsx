@@ -21,6 +21,7 @@ import {
   positiveMoney,
   ResourceView,
   Section,
+  scheduleWindowIssue,
   startsField,
   useBankRead,
   usePageLimit,
@@ -41,6 +42,8 @@ import { OwnerCards } from './Cards';
 import { OwnerRailRecords } from './RailRecords';
 import { railCopy } from './rail-copy';
 import { SelectedSpace } from './SelectedSpace';
+import { SpaceInflows } from './SpaceInflows';
+import { IncomeSorter } from './IncomeSorter';
 import { AccountHome } from './AccountHome';
 import { AddMoney } from './AddMoney';
 import { addMoneyCopy } from './add-money-copy';
@@ -220,6 +223,7 @@ function Spaces({ open, search }: { open: (spec: ActionSpec) => void; search: st
         owner={userId ?? ''}
         reload={spaces.reload}
         actions={(space) => <SpaceActions space={space} open={open} />}
+        below={(space, all) => space.kind === 'named' && <SpaceInflows key={space.id} space={space} spaces={all} open={open} />}
       />
       <Section
         title={context.status === 'none' ? copyText('rooms.your.spaces') : <spaceCopy.Copy k="other" />}
@@ -310,6 +314,7 @@ function Spaces({ open, search }: { open: (spec: ActionSpec) => void; search: st
           </ResourceView>
         )}
       </Section>
+      {spaces.resource.status === 'ready' && <IncomeSorter spaces={spaces.resource.data} open={open} />}
       <Section
         title={copyText('rooms.assets.without.a.space')}
         description={copyText('rooms.positive.user.available.accounts.only.these.quantities')}
@@ -333,14 +338,6 @@ function Spaces({ open, search }: { open: (spec: ActionSpec) => void; search: st
       </Section>
     </BankPage>
   );
-}
-/** A one-off has no end date, and an end at or before the first run would never fire. */
-function scheduleWindowIssue(input: Record<string, unknown>): string | null {
-  if (typeof input.endsAt !== 'string') return null;
-  if (input.cadence === 'once') return copyText('components.last.run.hint');
-  return typeof input.startsAt === 'string' && Date.parse(input.endsAt) <= Date.parse(input.startsAt)
-    ? copyText('components.choose.an.end.after.first.run')
-    : null;
 }
 /** An ISO instant as the local `datetime-local` value the form shows. */
 function localInput(at: string): string {

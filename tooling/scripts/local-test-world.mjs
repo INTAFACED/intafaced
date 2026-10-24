@@ -1998,6 +1998,9 @@ async function populateP2pStep(ctx) {
     instrument.ok ? 'created' : /already have an active/.test(instrument.refusal) ? 'exists' : 'refused',
     instrument.ok ? `instrument ${instrument.data.id ?? instrument.data.instrumentId}` : instrument.refusal,
   );
+  // Posting an ad needs the published advertiser terms accepted first (P-ads-merchant-01); accepting again is harmless.
+  const terms = await call(user, 'q', 'p2p', 'merchants.advertiserTerms');
+  if (terms.ok) await call(user, 'm', 'p2p', 'merchants.acceptAdvertiserTerms', { version: terms.data.version });
   const offer = await call(user, 'm', 'p2p', 'offers.create', {
     side: 'sell',
     asset: 'USDT',

@@ -12,6 +12,7 @@ import { MARKETS_LIMIT_MAX, TradeService } from './spot/trade-service.js';
 import { createMatchingClient } from './spot/matching-client.js';
 import { bindMatchingCloseS2s } from './spot/matching-close.js';
 import { readOcoIntents } from './spot/oco-intent.js';
+import { readOrderLinks } from './spot/order-links.js';
 import { readOrderHolds } from './spot/order-holds.js';
 import { createTickerStatsReader } from './spot/ticker-stats.js';
 import { createRankPerksClient } from './spot/rank-perks.js';
@@ -1112,6 +1113,7 @@ registerSpotOrderPreviewRest(app, {
   futuresEnabled: env.TRADE_FUTURES_ENABLED,
   optionsSettlementLawStamped: env.TRADE_OPTIONS_SETTLEMENT_ASSET_LAW.trim().length > 0,
   slippageCapBps: env.TRADE_MARKET_SLIPPAGE_CAP_BPS,
+  stopMarketCapBps: futuresSlippageCapBps,
   feeSchedule,
   feeScheduleNow: () => feeScheduleAt(sql, feeSchedule, new Date()),
   feeDiscountBps: async (userId) => (await perks.perksOf(userId)).feeDiscountBps,
@@ -1358,7 +1360,10 @@ registerPrivateRest(app, {
   statements: { ledger: ledgerPages, exports: new StatementExports(sql, ledgerPages) },
   icebergDisplay: sqlIcebergDisplay(sql),
   stopTriggers,
+  // A stop-market is bounded by the same per-market cap as a market order on its pair.
+  stopMarketCapBps: futuresSlippageCapBps,
   ocoExits: (ids) => readOcoIntents(sql, ids),
+  orderLinks: (ids) => readOrderLinks(sql, ids),
   orderHolds: (orders) => readOrderHolds(sql, orders),
   findClientOrder: (principal, input) => trade.findClientOrder(principal, input),
   listFundingPayments: (principal, positionId, cursor) => listFundingPayments(sql, principal.userId, positionId, cursor),

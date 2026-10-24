@@ -1,19 +1,10 @@
 import { useState } from 'react';
-import { z } from 'zod';
 import { Download } from 'lucide-react';
 import { Button, refusalCopy } from './deps';
 import { moneyCopy } from './copy';
 import { decodeBase64, lastFullMonth, monthIsOver, monthRange, saveFile, shortFingerprint } from './statement-model';
 import { useSession } from '../../features/session/session';
-
-const fileShape = z.object({
-  format: z.enum(['csv', 'pdf']),
-  filename: z.string(),
-  contentType: z.string(),
-  bodyBase64: z.string(),
-  sha256: z.string(),
-  rowCount: z.number().int().nonnegative(),
-});
+import { statementFileSchema } from '../../features/money/contracts';
 
 type Outcome = { kind: 'done'; filename: string; rows: number; fingerprint: string } | { kind: 'error'; words: string } | null;
 
@@ -37,7 +28,7 @@ export function StatementPanel() {
     if (busy || !range || !over) return;
     setBusy(true);
     setOutcome(null);
-    const result = await api.query('bank', 'statements.export', { from: range.from, to: range.to, format }, fileShape);
+    const result = await api.query('bank', 'statements.export', { from: range.from, to: range.to, format }, statementFileSchema);
     setBusy(false);
     if (!result.ok) {
       const code = result.code ?? '';

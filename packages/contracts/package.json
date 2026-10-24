@@ -178,6 +178,10 @@
       "types": "./dist/academy-courses.d.ts",
       "default": "./dist/academy-courses.js"
     },
+    "./academy-programmes": {
+      "types": "./dist/academy-programmes.d.ts",
+      "default": "./dist/academy-programmes.js"
+    },
     "./kyb-entity-types": {
       "types": "./dist/kyb-entity-types.d.ts",
       "default": "./dist/kyb-entity-types.js"
@@ -202,9 +206,17 @@
       "types": "./dist/merchant-catalog.d.ts",
       "default": "./dist/merchant-catalog.js"
     },
+    "./merchant-stores": {
+      "types": "./dist/merchant-stores.d.ts",
+      "default": "./dist/merchant-stores.js"
+    },
     "./campaigns-drops": {
       "types": "./dist/campaigns-drops.d.ts",
       "default": "./dist/campaigns-drops.js"
+    },
+    "./campaigns-catalogue": {
+      "types": "./dist/campaigns-catalogue.d.ts",
+      "default": "./dist/campaigns-catalogue.js"
     }
   },
   "scripts": {

@@ -350,6 +350,17 @@ export const orderExitSchema = z.object({
 });
 export type OrderExit = z.infer<typeof orderExitSchema>;
 
+/**
+ * How an OTO entry and its attached close name each other. The entry carries its close price and, once its fill placed
+ * the close, the close's id; the close carries its entry's id. Absent on every other order and on wires from before
+ * this field.
+ */
+export const orderLinkSchema = z.discriminatedUnion('role', [
+  z.object({ role: z.literal('entry'), closePrice: decimal, closeOrderId: z.string().nullable() }),
+  z.object({ role: z.literal('close'), entryOrderId: z.string() }),
+]);
+export type OrderLink = z.infer<typeof orderLinkSchema>;
+
 export const orderSchema = z.object({
   id: z.string(),
   clientOrderId: z.string().nullable(),
@@ -387,6 +398,8 @@ export const orderSchema = z.object({
   trades: z.array(tradeSchema),
   /** The linked exit legs when this order is an OCO parent or a bracket's exit. Absent otherwise. */
   exit: orderExitSchema.nullable().optional(),
+  /** An OTO entry's attached close, or the entry a close belongs to. Absent otherwise. */
+  linked: orderLinkSchema.optional(),
   /** The caller's own label from the create body. Null when none was sent. Absent on wires from before this field. */
   tag: z.string().nullable().optional(),
   /**

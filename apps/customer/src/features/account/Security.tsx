@@ -10,6 +10,7 @@ import { ApiKeyRecords } from './ApiKeyRecords';
 import { ChangePassword } from './ChangePassword';
 import { Authenticator } from './Authenticator';
 import { PasskeyNames } from './PasskeyNames';
+import { SigninMethods } from './SigninMethods';
 import { AntiPhishing } from './AntiPhishing';
 import { SecurityChecklist } from './SecurityChecklist';
 import { Devices } from './Devices';
@@ -814,6 +815,7 @@ export function Security() {
           <Devices onChanged={() => setSeatVersion((value) => value + 1)} />
           <TrustedDevices onChanged={() => setSeatVersion((value) => value + 1)} />
           <PasskeyNames revision={passkeyRevision} />
+          <SigninMethods revision={passkeyRevision} onChanged={methodsChanged} />
           <AntiPhishing />
           <Authenticator onChanged={methodsChanged} />
           <ChangePassword onChanged={() => setSeatVersion((value) => value + 1)} />

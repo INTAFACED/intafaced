@@ -91,6 +91,7 @@ import { ACTION_APPROVAL_MISSING, PrivilegedDualControlError, requirePrivilegedD
 import { ActionApprovalError } from './auth/action-approval-service.js';
 import { optionalFactorProof, guardedApiKeyAction } from './auth/api-key-fresh-factor.js';
 import { SocialError, SocialSignin } from './social/social-signin.js';
+import { signinMethodTrpc, walletAnswerFields, walletChallengeInput, walletChallengeOutput } from './signin-methods-router.js';
 import { userCopy } from './user-copy.js';
 import { TradeIdentityAuthError } from './auth/trade-identity-auth.js';
 import type { FounderEnrolmentConfig } from './auth/founder-enrolment.js';
@@ -121,6 +122,10 @@ function toTrpcError(err: unknown): TRPCError {
 
   // New-device check (I-signin-sessions-07): every sign-in door can answer it once all factors passed.
   if (err instanceof TrustedDeviceError) return trustedDeviceTrpcError(err);
+
+  // A removal that would leave no way in, or a refused wallet answer (I-account-lifecycle-07).
+  const signinMethod = signinMethodTrpc(err);
+  if (signinMethod) return signinMethod;
 
   // A guard rejection (`requireMfa`) is not a server fault. It arrives as the
   // shared package's AuthError, which is a different class from this service's.
@@ -502,6 +507,8 @@ const sessionOutput = z.object({
   userId: z.string().guid(),
   /** A device key just trusted, for a native or API client only (a browser gets the `ifc_dk` cookie instead). */
   deviceKey: z.string().optional(),
+  /** Present only when this sign-in's second step spent a recovery code: how many codes the account has left. */
+  recoveryCodesLeft: z.number().int().min(0).optional(),
 });
 
 /** The tiers a user can ask for. `none` is the absence of a record, not a request. */
@@ -814,7 +821,7 @@ export function createIdentityRouter(
 
   const sessionWire = (
     ctx: { refreshCookie?: RefreshCookieBag | null },
-    session: { accessToken: string; refreshToken: string; expiresAt: Date; userId: string; deviceKey?: string },
+    session: { accessToken: string; refreshToken: string; expiresAt: Date; userId: string; deviceKey?: string; recoveryCodesLeft?: number },
   ) => {
     const bag = ctx.refreshCookie;
     bag?.issue(session.refreshToken, auth.refreshLifetimeSeconds());
@@ -823,6 +830,7 @@ export function createIdentityRouter(
       accessToken: session.accessToken,
       expiresAt: session.expiresAt.toISOString(),
       userId: session.userId,
+      ...(session.recoveryCodesLeft !== undefined ? { recoveryCodesLeft: session.recoveryCodesLeft } : {}),
     };
     if (bag?.browser) return wire;
     // A native or API client keeps its device key itself and presents it as `deviceKey` on sign-in.
@@ -1474,6 +1482,51 @@ export function createIdentityRouter(
             );
           } catch (err) {
             throw toSocialTrpcError(err);
+          }
+        }),
+
+      /**
+       * Wallet sign-in, step 1 (I-account-lifecycle-07): the EIP-4361 message a wallet signs, single use. The same answer
+       * for every wallet, linked or not.
+       */
+      walletChallenge: publicProcedure
+        .input(walletChallengeInput)
+        .output(walletChallengeOutput)
+        .mutation(async ({ input }) => {
+          try {
+            return await auth.walletSigninChallenge({
+              address: input.address,
+              chainId: input.chainId,
+              ...(input.origin ? { origin: input.origin } : {}),
+            });
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /**
+       * Wallet sign-in, step 2: the signature from a wallet an account linked signs that account in, and its second step
+       * still follows. An unlinked wallet answers `auth.invalid_credentials`; the challenge is spent either way.
+       */
+      walletSignIn: publicProcedure
+        .input(
+          z
+            .object({
+              ...walletAnswerFields,
+              totpCode: z.string().trim().min(1).max(64).optional(),
+              deviceKey: z.string().min(16).max(128).optional(),
+            })
+            .strict(),
+        )
+        .output(sessionOutput)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            return sessionWire(
+              ctx,
+              await auth.loginWithWallet({ ...input, ip: requestIpAls.getStore(), deviceKey: presentedDeviceKey(ctx, input.deviceKey) }),
+            );
+          } catch (err) {
+            throw toTrpcError(err);
           }
         }),
 

@@ -51,6 +51,8 @@ export interface DeviceAuthorisationDetails {
   readonly expiresAt: string;
   /** Whether a code was mailed to the account's address. Approval from a signed-in session works either way. */
   readonly mailed: boolean;
+  /** Set when this sign-in's second step spent a recovery code: how many are left, said once the device is approved. */
+  readonly recoveryCodesLeft?: number;
 }
 
 export class TrustedDeviceError extends Error {

@@ -26,7 +26,7 @@ const DOOR_PATH: Readonly<Record<ControlDoor, `/admin/ledger/${string}`>> = { de
  * The edge address and treasury token, or why this console has none. `readConsoleStatus` decides what configured means (a
  * trimmed, non-empty token and an edge address), the same answer the posting freeze uses.
  */
-function treasuryTransport(): { readonly edgeUrl: string; readonly token: string } | { readonly reason: string } {
+export function treasuryTransport(): { readonly edgeUrl: string; readonly token: string } | { readonly reason: string } {
   const status = readConsoleStatus();
   if (!status.treasury.configured || !status.edgeUrl) return { reason: describeUnconfigured(status.treasury) };
   return { edgeUrl: status.edgeUrl, token: (process.env[status.treasury.tokenVar] ?? '').trim() };

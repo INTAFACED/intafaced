@@ -57,6 +57,10 @@ const verifyRate = () =>
     ? {}
     : { ACADEMY_CERT_VERIFY_RATE_MAX: '10', ACADEMY_CERT_VERIFY_RATE_WINDOW_SECONDS: '30' };
 
+// LOCAL TEST programme size (a TEST owner value): four courses, every published course (J-academy-06 #1).
+// `LOCAL_STACK_ACADEMY_PROGRAMME_MAX=off` leaves it blank.
+const programmeMax = () => (process.env.LOCAL_STACK_ACADEMY_PROGRAMME_MAX === 'off' ? {} : { ACADEMY_PROGRAMME_MAX_COURSES: '4' });
+
 export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
   name: 'academy',
   env: () => ({
@@ -74,6 +78,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     ...topicsLimit(),
     ...graderLease(),
     ...certSweep(),
+    ...programmeMax(),
     ...verifyRate(),
   }),
 });

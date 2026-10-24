@@ -39,6 +39,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     // LOCAL TEST value from the bank profile (BK-pots-02): how long an early unlock of a locked space waits. Unset, every
     // early unlock refuses bank.space_unlock_rule_unset and the space stays locked to its date.
     BANK_SPACE_UNLOCK_WAIT_HOURS: testValue('BANK_SPACE_UNLOCK_WAIT_HOURS'),
+    // LOCAL TEST value from the bank profile (BK-pots-03): the smallest payment from another person the income sorter
+    // splits. Unset, making a sorter refuses bank.sorter_terms_unset and no payment is sorted.
+    BANK_INCOME_SORTER_MIN_CREDIT: testValue('BANK_INCOME_SORTER_MIN_CREDIT'),
     BANK_ACCOUNT_DETAILS_CURRENCIES: 'EUR,GBP,USD',
     // LOCAL TEST values, not owner decisions: how many withdrawal addresses one person may save, and how long a
     // new one waits before money may leave to it. Unset, the address book refuses saves and lists every row as
@@ -99,7 +102,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     // The standing-order runner has no timer: it is a signed job door, and on this stack only a test's own signed call
     // (J-bank-06) runs it. Left off, a one-off or a standing order could never be shown running here.
     SCHEDULED_TRANSFERS_ENABLED: 'true',
-    AUTO_INVEST_ENABLED: 'false',
+    // Auto-invest has no timer either: its runner is a signed job door no test calls. On, a card capture's round-up
+    // (J-bank-07 #3) moves the spare change into the person's space; off, every round-up would only say it is switched off.
+    AUTO_INVEST_ENABLED: 'true',
     INTEREST_ACCRUAL_ENABLED: 'false',
     // Loan interest moves no money (it writes the day's interest row) and has no timer either: on this stack only a
     // test's own signed call to its job door runs it (J-bank-11 #2, after `local-test-seed.mjs age-loan`). Left off, a

@@ -1,6 +1,7 @@
 import { transaction } from '@intafaced/db';
 import type { Sql } from 'postgres';
 import { generateToken, hashToken } from '../auth/passwords.js';
+import { assertLeavesAWayIn, lockedSigninMethods, SigninMethodError } from '../auth/signin-methods.js';
 
 /**
  * Social and wallet-linked sign-in, account side (I-signin-sessions-21).
@@ -141,18 +142,18 @@ export class SocialSignin {
     }
   }
 
-  /** Refused unless a password, a passkey or another provider identity remains. */
+  /** Refused unless another way in remains: a password, a mailed code, a passkey, a wallet or another provider. */
   async unlink(userId: string, provider: string): Promise<void> {
     await transaction(this.sql, async (tx) => {
-      const [user] = await tx<Array<{ password_set: boolean; passkeys: number }>>`
-        SELECT password_set, jsonb_array_length(webauthn_creds)::int AS passkeys FROM users WHERE id = ${userId} FOR UPDATE
-      `;
+      const [user] = await tx<Array<{ id: string }>>`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
       if (!user) throw new SocialError('Not found', 'auth.not_found');
-      const linked = await tx<Array<{ provider: string }>>`SELECT provider FROM social_identities WHERE user_id = ${userId}`;
-      if (!linked.some((row) => row.provider === provider)) throw new SocialError('Not found', 'auth.not_found');
-      const otherProviders = linked.filter((row) => row.provider !== provider).length;
-      if (!user.password_set && user.passkeys === 0 && otherProviders === 0) {
-        throw new SocialError('Add another way to sign in first', 'identity.last_signin_method');
+      const methods = await lockedSigninMethods(tx, userId);
+      if (!methods.providers.includes(provider)) throw new SocialError('Not found', 'auth.not_found');
+      try {
+        assertLeavesAWayIn(methods);
+      } catch (err) {
+        if (err instanceof SigninMethodError) throw new SocialError('Add another way to sign in first', 'identity.last_signin_method');
+        throw err;
       }
       await tx`DELETE FROM social_identities WHERE user_id = ${userId} AND provider = ${provider}`;
     });

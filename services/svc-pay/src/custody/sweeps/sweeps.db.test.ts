@@ -358,7 +358,7 @@ describe('custody sweeps to treasury (real Postgres)', () => {
     await setPolicy(policyBody());
     const depositId = await deposit('credited');
     const s = await sweeps().create({ depositId });
-    await db.sql`UPDATE pay.custody_deposits SET status = 'reversed', credited_at = NULL WHERE id = ${depositId}`;
+    await db.sql`UPDATE pay.custody_deposits SET status = 'reversed', reason = 'chain_reorg' WHERE id = ${depositId}`;
     expect((await refused(sweeps().execute({ sweepId: s.id }))).message).toMatch(/is reversed; it is not swept/);
     expect(sent).toHaveLength(0);
     expect((await sweeps().list({ limit: 10 }))[0]).toMatchObject({ status: 'canceled', lastError: 'custody_sweep.deposit_not_credited' });
@@ -371,7 +371,7 @@ describe('custody sweeps to treasury (real Postgres)', () => {
       throw new Error('TEST rpc timeout');
     };
     expect(await sweeps().execute({ sweepId: u.id })).toMatchObject({ status: 'unknown' });
-    await db.sql`UPDATE pay.custody_deposits SET status = 'reversed', credited_at = NULL WHERE id = ${other}`;
+    await db.sql`UPDATE pay.custody_deposits SET status = 'reversed', reason = 'chain_reorg' WHERE id = ${other}`;
     expect((await refused(sweeps().execute({ sweepId: u.id }))).message).toMatch(/is reversed; it is not swept/);
     // Left `unknown` for the operator: the first send may have gone out.
     const [row] = await db.sql`SELECT status FROM pay.custody_sweeps WHERE id = ${u.id}`;

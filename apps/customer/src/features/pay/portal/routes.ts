@@ -60,6 +60,7 @@ export const PORTAL_ROOMS = [
   'product-new',
   'product-import',
   'product',
+  'settings-stores',
 ] as const;
 export type PortalRoom = (typeof PORTAL_ROOMS)[number];
 export type OnboardingStep = 'business' | 'verification' | 'go-live';
@@ -121,6 +122,7 @@ export function parsePortalRoute(path: string): PortalRoute | null {
     if (b === undefined || b === 'profile') return { room: 'settings' };
     if (b === 'notifications') return { room: 'settings-notifications' };
     if (b === 'security') return { room: 'settings-security' };
+    if (b === 'stores') return { room: 'settings-stores' };
     return null;
   }
   if (a === 'developer') {

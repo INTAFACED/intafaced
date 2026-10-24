@@ -22,6 +22,51 @@ interface Entry {
 }
 
 const BY_CODE: Readonly<Record<string, Entry>> = {
+  'ops.hold_storage_unconfigured': {
+    title: 'Staff holds have no storage',
+    body: 'svc-ops has no database configured for staff holds, so none can be read or placed. Nothing was changed.',
+    next: 'Ask whoever runs the svc-ops host to connect its database.',
+  },
+  'ops.hold_ledger_unconfigured': {
+    title: 'svc-ops is not connected to the ledger',
+    body: 'svc-ops has no ledger address or credential, so nothing can be held, released or confirmed. Nothing was changed.',
+    next: 'Ask whoever runs the svc-ops host to set its ledger address.',
+  },
+  'ops.hold_state_illegal': {
+    title: 'The hold cannot take that now',
+    body: 'Either nothing is left on the hold, or another action on it is still waiting for the ledger’s answer. Nothing was changed.',
+    next: 'Read the holds again, then decide on what is left.',
+  },
+  'ops.hold_amount_exceeds_remaining': {
+    title: 'More than is held',
+    body: 'The amount is more than the hold still holds, so nothing was released and the approval was not spent.',
+    next: 'Read the hold again and ask for at most what is still held.',
+  },
+  'ops.hold_expiry_unset': {
+    title: 'No longest hold expiry is set',
+    body: 'The owner has not set how long a hold may last, so a hold cannot be given an expiry. Nothing was held.',
+    next: 'Place it without an expiry, or ask the owner to set the longest expiry.',
+  },
+  'ops.hold_expiry_too_long': {
+    title: 'That expiry is too long',
+    body: 'The expiry is longer than the owner allows. Nothing was held.',
+    next: 'Give a shorter expiry.',
+  },
+  'ops.idempotency_conflict': {
+    title: 'A hold from this list was already asked for',
+    body: 'An earlier place from this list of holds asked for a different hold, and svc-ops keeps that one. This one was not placed.',
+    next: 'Read the holds again: once the list shows the earlier hold, a new one can be placed.',
+  },
+  'ops.hold_not_found': {
+    title: 'No such hold',
+    body: 'svc-ops has no hold with that number. Nothing was changed.',
+    next: 'Read the holds again.',
+  },
+  'ledger.insufficient_funds': {
+    title: 'Not enough available',
+    body: 'The ledger refused: the customer does not have that much available. Nothing was moved.',
+    next: 'Read the customer’s balance and ask for less.',
+  },
   'ops.console_read_only': {
     title: 'The console is in maintenance mode',
     body: 'Two founders turned on maintenance mode, so this console takes no writes. Reads still work, and so do the halts. Nothing was sent.',

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { SALE_CHANNELS, type SaleChannel } from '@intafaced/contracts/merchant-stores';
 import { Button } from '@intafaced/ui';
 import type { MerchantPrice, MerchantProduct, PriceCreateInput, PriceReplaceInput } from '@intafaced/contracts/merchant-catalog';
 import { useResource } from '../../../../shared/resource';
@@ -151,6 +152,7 @@ export function ProductPrices({ portal, product }: { portal: PortalApi; product:
             </>
           ))}
         {chosen.length > 0 && <AmountCheck portal={portal} prices={chosen} />}
+        <SaleCheck portal={portal} productId={product.id} prices={prices.filter((p) => p.status === 'active')} />
       </div>
     </PaySection>
   );
@@ -405,6 +407,93 @@ function AmountCheck({ portal, prices }: { portal: PortalApi; prices: readonly M
             {answer.text}
           </p>
         ))}
+    </div>
+  );
+}
+
+/**
+ * Check a sale: what one active price charges in one open store and channel, or the service's refusal where the product
+ * is not sold. Shown under the prices, so a price just added is offered at once; nothing when the business has no store.
+ */
+function SaleCheck({ portal, productId, prices }: { portal: PortalApi; productId: string; prices: readonly MerchantPrice[] }) {
+  const { t } = c.useCopy();
+  // Every store at once (availability is not paged), so no open store is left out of the choice.
+  const open = useResource((signal) => portal.availability(productId, signal), `portal:catalog:sale-check:${productId}`);
+  const [priceId, setPriceId] = useState('');
+  const [storeId, setStoreId] = useState('');
+  const [channel, setChannel] = useState<SaleChannel>('online');
+  const [amount, setAmount] = useState('');
+  const [answer, setAnswer] = useState<{ ok: boolean; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  if (open.resource.status === 'loading') return <PortalLoading />;
+  if (open.resource.status === 'failed') return <PortalFailure result={open.resource.failure} retry={open.reload} />;
+  const stores = open.resource.data.stores.filter((s) => s.status === 'active');
+  if (prices.length === 0 || stores.length === 0) return null;
+  const price = prices.find((p) => p.id === priceId) ?? prices[0]!;
+  const store = stores.find((s) => s.storeId === storeId) ?? stores[0]!;
+
+  async function check() {
+    setBusy(true);
+    setAnswer(null);
+    try {
+      const result = await portal.quotePrice({
+        priceId: price.id,
+        ...(price.kind === 'customer_chosen' ? { amount: amount.trim() } : {}),
+        storeId: store.storeId,
+        channel,
+      });
+      setAnswer(
+        result.ok
+          ? { ok: true, text: t('saleCheckAccepted', { amount: moneyWords(result.data.amount, result.data.assetId) }) }
+          : { ok: false, text: refusalText(result) },
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const clear =
+    <V,>(setter: (value: V) => void) =>
+    (value: V) => {
+      setter(value);
+      setAnswer(null);
+    };
+  return (
+    <div className="form-stack pp-form" role="group" aria-label={t('saleCheckTitle')}>
+      <h3>{t('saleCheckTitle')}</h3>
+      <p className="muted">{t('saleCheckPurpose')}</p>
+      <SelectField
+        label={t('saleCheckPrice')}
+        value={price.id}
+        onChange={clear(setPriceId)}
+        options={prices.map((p) => [p.id, priceWords(p)] as const)}
+      />
+      <SelectField
+        label={t('saleCheckStore')}
+        value={store.storeId}
+        onChange={clear(setStoreId)}
+        options={stores.map((s) => [s.storeId, s.name] as const)}
+      />
+      <SelectField
+        label={t('saleCheckChannel')}
+        value={channel}
+        onChange={clear((value: string) => setChannel(value as SaleChannel))}
+        options={SALE_CHANNELS.map((ch) => [ch, t(`channel_${ch}`)] as const)}
+      />
+      {price.kind === 'customer_chosen' && (
+        <Field label={t('checkAmount')} inputMode="decimal" value={amount} onChange={(e) => clear(setAmount)(e.target.value)} />
+      )}
+      <div className="pp-actions">
+        <Button variant="secondary" disabled={busy || (price.kind === 'customer_chosen' && !amount.trim())} onClick={() => void check()}>
+          {t('saleCheckButton')}
+        </Button>
+      </div>
+      {answer && (
+        <p className={answer.ok ? 'pp-confirmed' : 'pp-callout'} role={answer.ok ? 'status' : 'alert'}>
+          {answer.text}
+        </p>
+      )}
     </div>
   );
 }

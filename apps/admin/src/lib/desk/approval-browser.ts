@@ -10,6 +10,7 @@ export type ApprovalEndpoint =
   | '/api/accounts/closure'
   | '/api/accounts/documents'
   | '/api/accounts/tier'
+  | '/api/accounts/holds'
   | '/api/ledger-freeze'
   | '/api/ledger-reconciliation/run'
   | '/api/ledger-metadata/delete'

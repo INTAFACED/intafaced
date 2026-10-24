@@ -136,6 +136,7 @@ const academy = new AcademyService(
     topicsListLimit: env.ACADEMY_TOPICS_LIST_LIMIT,
     graderLeaseSeconds: env.ACADEMY_GRADER_LEASE_SECONDS,
     certIssueSweepSeconds: env.ACADEMY_CERT_ISSUE_SWEEP_SECONDS,
+    programmeMaxCourses: env.ACADEMY_PROGRAMME_MAX_COURSES,
     uploadVideoTypes: env.ACADEMY_UPLOAD_VIDEO_TYPES,
     uploadHandoutTypes: env.ACADEMY_UPLOAD_HANDOUT_TYPES,
     videoWatchThresholdSeconds: env.ACADEMY_VIDEO_WATCH_THRESHOLD_SECONDS,

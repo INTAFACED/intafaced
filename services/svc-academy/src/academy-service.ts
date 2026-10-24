@@ -97,8 +97,14 @@ import type {
   AcademyCertIssueRule,
   AcademyCertRevocation,
   AcademySetCertIssueRuleInput,
+  AcademyProgramme,
+  AcademyProgrammeCourseState,
+  AcademyProgrammeRecord,
+  AcademySaveProgrammeInput,
 } from '@intafaced/contracts';
+import { academyProgrammeCertId } from '@intafaced/contracts';
 import { CertIssueRules, issueDueAt } from './certs/issue-rules.js';
+import { ProgrammeRecords } from './curriculum/programme-records.js';
 import { normaliseHolderName } from './certs/holder-name.js';
 import { PROGRAMME_SLUGS, type ProgrammeSlug } from './curriculum/programmes.js';
 import {
@@ -329,11 +335,28 @@ export interface AcademyServiceOptions {
    * runs, so a delayed issue rule refuses `academy.cert_sweep_unset`.
    */
   certIssueSweepSeconds?: number;
+  /** AC-programmes-01: owner-set courses per learning programme (`ACADEMY_PROGRAMME_MAX_COURSES`). Undefined: a save with courses refuses. */
+  programmeMaxCourses?: number;
   /** Test seam. Production is empty: no owner-published scored assessment. */
   assessmentCatalog?: readonly AssessmentDefinition[];
 }
 
 const MANUAL_ISSUE: AcademyCertIssue = { mode: 'manual', delayMinutes: null, issuesAt: null };
+
+/** AC-programmes-01: a programme's certificate is a grant under `programme:<slug>` (`academyProgrammeCertId`). */
+const PROGRAMME_CERT_PREFIX = academyProgrammeCertId('');
+type ProgrammeGrant = { publicId: string; grantedAt: Date; status: 'valid' | 'revoked' };
+type LearnerCourses = {
+  completed: ReadonlySet<string>;
+  enrolled: ReadonlySet<string>;
+  started: ReadonlySet<string>;
+  grants: ReadonlyMap<string, ProgrammeGrant>;
+};
+/** A course is complete once every one of its items is recorded. */
+const courseComplete = (course: CurriculumPath, completed: ReadonlySet<string>) => {
+  const items = listCurriculum({ path: course });
+  return items.length > 0 && items.every((row) => completed.has(row.slug));
+};
 
 /** Rows one pass of the issue sweep reads: a batch size of an internal loop that drains until nothing is due, not a list a person reads. */
 const CERT_ISSUE_SWEEP_BATCH = 100;
@@ -376,6 +399,7 @@ export class AcademyService {
   private readonly plannerStore: PlannerStore;
   private readonly videoTracks: VideoTracks;
   private readonly issueRules: CertIssueRules;
+  private readonly programmeRecords: ProgrammeRecords;
 
   constructor(
     private readonly sql: Sql,
@@ -423,6 +447,7 @@ export class AcademyService {
     this.plannerStore = new PlannerStore(sql, this.options.plannerTodoLimit ?? null);
     this.videoTracks = new VideoTracks(sql);
     this.issueRules = new CertIssueRules(sql);
+    this.programmeRecords = new ProgrammeRecords(sql, this.options.programmeMaxCourses);
     const assessments = this.options.assessmentCatalog ?? ASSESSMENT_CATALOG;
     this.assessments = new AssessmentRepository(sql, assessments);
     if (this.options.certCatalog) {
@@ -2085,6 +2110,7 @@ export class AcademyService {
           throw err;
         }
         await this.recordCompletion(input.userId, slug, now);
+        await this.settleProgrammesHolding(input.userId, slug, now);
       }
     }
     const completedItems: string[] = [];
@@ -2553,6 +2579,7 @@ export class AcademyService {
     if (!met) throw new AcademyError(`academy.completion_rule_unmet rule=${rule}`, 'academy.completion_rule_unmet');
     const record = await this.recordCompletion(input.userId, slug, now);
     await this.settleCertificatesNeeding(input.userId, slug, now);
+    await this.settleProgrammesHolding(input.userId, slug, now);
     return record;
   }
 
@@ -2708,6 +2735,150 @@ export class AcademyService {
       publicId: rows[0].public_id,
       status: rows[0].status === 'revoked' ? 'revoked' : 'valid',
     };
+  }
+
+  /**
+   * AC-programmes-01: staff create a learning programme or replace its details and ordered courses over the revision
+   * they read (admin door, reason required). A course is one of the published learning-path courses.
+   */
+  saveProgramme(input: AcademySaveProgrammeInput & { operatorId: string; now?: Date }): Promise<AcademyProgrammeRecord> {
+    const { now = new Date(), ...rest } = input;
+    return this.programmeRecords.save({ ...rest, now }, (course) => listCurriculum({ path: course as CurriculumPath }).length > 0);
+  }
+
+  /** AC-programmes-01: the programmes staff made, newest first, up to the caller's limit. */
+  adminProgrammes(limit: number): Promise<AcademyProgrammeRecord[]> {
+    return this.programmeRecords.list(limit);
+  }
+
+  /** AC-programmes-01: one programme as the caller stands on it: each course in order, the three counts, the certificate. */
+  async programme(input: { userId: string; slug: string; now?: Date }): Promise<AcademyProgramme> {
+    const record = await this.programmeRecords.get(input.slug);
+    if (!record) throw new AcademyError(`academy.programme_not_found slug=${input.slug}`, 'academy.programme_not_found');
+    return this.programmeStanding(input.userId, record, await this.learnerCourses(input.userId), input.now ?? new Date());
+  }
+
+  /**
+   * AC-programmes-01: the programmes newest first, up to the caller's limit, each as the caller stands on it. `mine` keeps
+   * only the programmes the caller has a certificate for or holds a completed or enrolled course of, wherever they sit in
+   * the list, so an older programme's certificate is never paged out of the Certificates tab.
+   */
+  async programmes(input: { userId: string; limit: number; mine?: boolean; now?: Date }): Promise<AcademyProgramme[]> {
+    const learner = await this.learnerCourses(input.userId);
+    const records = await this.programmeRecords.list(
+      input.limit,
+      input.mine ? { earned: [...learner.grants.keys()], courses: [...learner.started] } : undefined,
+    );
+    const now = input.now ?? new Date();
+    return Promise.all(records.map((record) => this.programmeStanding(input.userId, record, learner, now)));
+  }
+
+  /**
+   * What the caller has done, in three reads: the items recorded, the courses with an open enrolment, and the programme
+   * certificates they hold. `started` is every course they are enrolled in or have every item of.
+   */
+  private async learnerCourses(userId: string): Promise<LearnerCourses> {
+    const [completed, enrolments, grants] = await Promise.all([
+      this.completedSlugs(userId),
+      this.publishedEnrolments(userId),
+      this.programmeGrants(userId),
+    ]);
+    const enrolled = new Set(enrolments.map((row) => row.pathSlug));
+    const started = new Set([...enrolled, ...PROGRAMME_SLUGS.filter((path) => courseComplete(path, completed))]);
+    return { completed, enrolled, started, grants };
+  }
+
+  /** The caller's programme certificates by programme slug, in one read. */
+  private async programmeGrants(userId: string): Promise<Map<string, ProgrammeGrant>> {
+    const rows = await this.sql<Array<{ cert_id: string; granted_at: Date; public_id: string; status: string }>>`
+      SELECT cert_id, granted_at, public_id, status FROM academy.cert_grants
+       WHERE user_id = ${userId} AND starts_with(cert_id, ${PROGRAMME_CERT_PREFIX})
+    `;
+    return new Map(
+      rows.map((row) => [
+        row.cert_id.slice(PROGRAMME_CERT_PREFIX.length),
+        { publicId: row.public_id, grantedAt: row.granted_at, status: row.status === 'revoked' ? 'revoked' : 'valid' },
+      ]),
+    );
+  }
+
+  /**
+   * How the caller stands on one programme. A course is completed once every one of its items is recorded (whether or not
+   * the learner is still enrolled), else enrolled while an enrolment is open, else not enrolled. With every course of a
+   * non-empty programme completed, the certificate is issued here if it is not yet: once, keyed `cert:<user>:<cert>`, so a
+   * completion whose issue was lost is issued by the learner's next read. A revoked certificate stays revoked.
+   */
+  private async programmeStanding(
+    userId: string,
+    record: AcademyProgrammeRecord,
+    learner: LearnerCourses,
+    now: Date,
+  ): Promise<AcademyProgramme> {
+    const courses = record.courseSlugs.map((slug) => {
+      const items = listCurriculum({ path: slug }).map((row) => row.slug);
+      const completed = items.filter((item) => learner.completed.has(item)).length;
+      const state: AcademyProgrammeCourseState =
+        items.length > 0 && completed === items.length ? 'completed' : learner.enrolled.has(slug) ? 'enrolled' : 'not_enrolled';
+      return { slug, state, items: items.length, completed };
+    });
+    const count = (state: AcademyProgrammeCourseState) => courses.filter((row) => row.state === state).length;
+    const certId = academyProgrammeCertId(record.slug);
+    const finished = courses.length > 0 && count('completed') === courses.length;
+    const grant = learner.grants.get(record.slug) ?? (finished ? await this.issueProgrammeCert(userId, certId, now) : null);
+    return {
+      slug: record.slug,
+      title: record.title,
+      summary: record.summary,
+      courses,
+      counts: { completed: count('completed'), enrolled: count('enrolled'), notEnrolled: count('not_enrolled') },
+      certificate: grant
+        ? { state: 'earned', certId, publicId: grant.publicId, grantedAt: grant.grantedAt, status: grant.status }
+        : { state: 'not_earned', certId },
+    };
+  }
+
+  /** Writes the programme certificate once; a concurrent issue answers with the row the other one wrote. No XP, no money. */
+  private async issueProgrammeCert(userId: string, certId: string, now: Date): Promise<ProgrammeGrant> {
+    await this.insertCertGrant({ userId, certId, grantedAt: now, idempotencyKey: certIdempotencyKey(userId, certId) });
+    const grant = await this.existingGrant(userId, certId);
+    if (!grant) throw new AcademyError(`Programme certificate left no row for ${certId}`, 'academy.cert_invalid');
+    return grant;
+  }
+
+  /** The one write of a certificate grant: a new serial, and nothing when the learner already holds this certificate. */
+  private insertCertGrant(grant: CertGrantRecord) {
+    return this.sql<Array<{ user_id: string; cert_id: string; granted_at: Date; idempotency_key: string; public_id: string }>>`
+      INSERT INTO academy.cert_grants (user_id, cert_id, granted_at, idempotency_key, public_id)
+      VALUES (${grant.userId}, ${grant.certId}, ${grant.grantedAt}, ${grant.idempotencyKey}, ${randomPublicId()})
+      ON CONFLICT (user_id, cert_id) DO NOTHING
+      RETURNING user_id, cert_id, granted_at, idempotency_key, public_id
+    `;
+  }
+
+  /** A certificate's title for anyone who checks it: the published definition's, or the programme's. */
+  private async certTitle(certId: string): Promise<string | undefined> {
+    if (!certId.startsWith(PROGRAMME_CERT_PREFIX)) return this.certDefinition(certId)?.title;
+    return (await this.programmeRecords.get(certId.slice(PROGRAMME_CERT_PREFIX.length)))?.title;
+  }
+
+  /**
+   * After a completion: issues the certificate of every programme holding the item's course that the learner has now
+   * finished. The completion is already recorded and stays so; a certificate this step could not issue is issued by the
+   * learner's next programme read.
+   */
+  private async settleProgrammesHolding(userId: string, itemSlug: string, now: Date): Promise<void> {
+    const course = getCurriculumItem(itemSlug)?.path as CurriculumPath | undefined;
+    if (!course) return;
+    try {
+      // A programme can only be finished by the completion that finished its course.
+      if (!courseComplete(course, await this.completedSlugs(userId))) return;
+      const held = await this.programmeRecords.holding(course);
+      if (held.length === 0) return;
+      const learner = await this.learnerCourses(userId);
+      for (const record of held) await this.programmeStanding(userId, record, learner, now);
+    } catch (err) {
+      console.error({ err, course }, 'programme certificate issue failed; the next programme read retries it');
+    }
   }
 
   /** AC-certificates-02: staff set how one published certificate is issued (admin door, reason required). */
@@ -2941,15 +3112,9 @@ export class AcademyService {
       const perks = await resolveCertPerkOutcome({ userId: input.userId, hostRights: this.hostRights, xp });
       return { grant: { ...decision.grant, publicId: existing.publicId }, alreadyGranted: true, xp, perks };
     }
-    const publicId = randomPublicId();
     // ON CONFLICT DO NOTHING — concurrent second writer must not hardcode
     // alreadyGranted:false (UI would fire "just earned" twice; XP still safe).
-    const rows = await this.sql<Array<{ user_id: string; cert_id: string; granted_at: Date; idempotency_key: string; public_id: string }>>`
-      INSERT INTO academy.cert_grants (user_id, cert_id, granted_at, idempotency_key, public_id)
-      VALUES (${decision.grant.userId}, ${decision.grant.certId}, ${decision.grant.grantedAt}, ${decision.grant.idempotencyKey}, ${publicId})
-      ON CONFLICT (user_id, cert_id) DO NOTHING
-      RETURNING user_id, cert_id, granted_at, idempotency_key, public_id
-    `;
+    const rows = await this.insertCertGrant(decision.grant);
     if (rows.length === 0) {
       const raced = await this.existingGrant(input.userId, input.certId);
       if (!raced) {
@@ -3134,12 +3299,14 @@ export class AcademyService {
     `;
     const row = rows[0];
     if (!row) throw new AcademyError('Certificate not found', 'academy.cert_not_found');
-    const cert = this.certDefinition(row.cert_id);
-    if (!cert) throw new AcademyError(`academy.certificate_unpublished cert=${row.cert_id}`, 'academy.certificate_unpublished');
+    const title = await this.certTitle(row.cert_id);
+    if (title === undefined) {
+      throw new AcademyError(`academy.certificate_unpublished cert=${row.cert_id}`, 'academy.certificate_unpublished');
+    }
     const status = row.status === 'valid' ? 'valid' : 'revoked';
     const body: { certId: string; title: string; grantedAt: Date; status: 'valid' | 'revoked'; holderName?: string } = {
       certId: row.cert_id,
-      title: cert.title,
+      title,
       grantedAt: row.granted_at,
       status,
     };

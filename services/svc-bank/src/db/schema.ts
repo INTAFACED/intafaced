@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { bigint, boolean, date, index, integer, jsonb, pgSchema, primaryKey, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { bigint, boolean, date, index, integer, jsonb, pgSchema, primaryKey, smallint, text, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { amount, bps, createdAt, tstz, updatedAt } from '@intafaced/db';
 
 /**
@@ -1355,6 +1355,8 @@ export const autoInvestRules = bank.table(
     assetId: text('asset_id').notNull(),
     threshold: amount('threshold'),
     targetPoolId: uuid('target_pool_id'),
+    /** A card round-up into one of the person's own named spaces. Exactly one of this and `targetPoolId` on a round-up. */
+    targetSpaceId: uuid('target_space_id').references(() => spaces.id),
     buyAssetId: text('buy_asset_id'),
     amount: amount('amount'),
     cadence: transferCadenceEnum('cadence'),
@@ -1386,6 +1388,84 @@ export const autoInvestRuns = bank.table(
     uniqueIndex('auto_invest_runs_unique_claim').on(t.ruleId, t.clientRunId),
     index('auto_invest_runs_rule_idx').on(t.ruleId, t.createdAt),
   ],
+);
+
+// ── Income sorter (BK-pots-03) ───────────────────────────────────────────────
+// A payment from another person split across the person's own spaces by percentage, once. Instructions and what became
+// of each split; every split moves with the own-space bankTransfer recipe, so no balance lives here.
+
+export const incomeSorters = bank.table(
+  'income_sorters',
+  {
+    id: uuid('id').primaryKey(),
+    userId: text('user_id').notNull(),
+    assetId: text('asset_id').notNull(),
+    status: text('status').notNull().default('active'),
+    createdAt: createdAt(),
+    cancelledAt: tstz('cancelled_at'),
+  },
+  (t) => [
+    uniqueIndex('income_sorters_one_active_uq')
+      .on(t.userId, t.assetId)
+      .where(sql`${t.status} = 'active'`),
+  ],
+);
+
+export const incomeSorterLegs = bank.table(
+  'income_sorter_legs',
+  {
+    sorterId: uuid('sorter_id')
+      .notNull()
+      .references(() => incomeSorters.id),
+    position: smallint('position').notNull(),
+    spaceId: uuid('space_id')
+      .notNull()
+      .references(() => spaces.id),
+    shareBp: integer('share_bp').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.sorterId, t.position] }), uniqueIndex('income_sorter_legs_space_uq').on(t.sorterId, t.spaceId)],
+);
+
+export const incomeSorterRuns = bank.table(
+  'income_sorter_runs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    sorterId: uuid('sorter_id')
+      .notNull()
+      .references(() => incomeSorters.id),
+    /** The posted personal send this run sorts (bank.personal_transfers). */
+    creditTransferId: text('credit_transfer_id').notNull(),
+    creditTxId: text('credit_tx_id').notNull(),
+    creditAmount: amount('credit_amount').notNull(),
+    creditPostedAt: tstz('credit_posted_at').notNull(),
+    /** below_minimum or terms_unset: recorded and not split. */
+    skippedReason: text('skipped_reason'),
+    createdAt: createdAt(),
+    drivenAt: tstz('driven_at'),
+  },
+  (t) => [
+    uniqueIndex('income_sorter_runs_credit_uq').on(t.creditTransferId),
+    index('income_sorter_runs_sorter_idx').on(t.sorterId, t.createdAt.desc()),
+  ],
+);
+
+export const incomeSorterRunLegs = bank.table(
+  'income_sorter_run_legs',
+  {
+    runId: uuid('run_id')
+      .notNull()
+      .references(() => incomeSorterRuns.id),
+    position: smallint('position').notNull(),
+    spaceId: uuid('space_id')
+      .notNull()
+      .references(() => spaces.id),
+    amount: amount('amount').notNull(),
+    status: text('status').notNull().default('pending'),
+    ledgerTxId: text('ledger_tx_id'),
+    rejectionCode: text('rejection_code'),
+    settledAt: tstz('settled_at'),
+  },
+  (t) => [primaryKey({ columns: [t.runId, t.position] })],
 );
 
 // ── Business maker/checker (§31:811 partial) ─────────────────────────────────

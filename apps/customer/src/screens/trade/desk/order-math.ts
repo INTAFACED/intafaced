@@ -12,27 +12,41 @@ import type { DeskMarket } from './market';
 
 export type Side = 'buy' | 'sell';
 /**
- * `oco` (sell) and `bracket` (buy) are desk tabs, not service order types: the order the service takes is a limit
- * (OCO: priced at the take-profit) or a market/limit entry (bracket), with the exit prices riding beside it.
+ * `oco`, `bracket` (buy) and `oto` (buy) are desk tabs, not service order types: the order the service takes is a limit
+ * (OCO: priced at the take-profit; OTO: the entry), or a market/limit entry (bracket), with the exit prices riding beside it.
  */
-export type OrderType = 'limit' | 'market' | 'stop_limit' | 'oco' | 'bracket';
+export type OrderType = 'limit' | 'market' | 'stop_limit' | 'stop_market' | 'oco' | 'bracket' | 'oto';
+
+/** The two tabs that wait off the book for a trigger: stop-limit and stop-market. */
+export const isStopTab = (type: OrderType): boolean => type === 'stop_limit' || type === 'stop_market';
 
 /** The two tabs that attach a take-profit and a stop-loss. */
 export const hasExits = (type: OrderType): boolean => type === 'oco' || type === 'bracket';
 
-/** Limit, stop-limit and OCO carry a typed limit price; a market order is priced by the book and a bracket entry is when left empty. */
-export const isPriced = (type: OrderType): boolean => type !== 'market' && type !== 'bracket';
+/**
+ * Limit, stop-limit and OCO carry a typed limit price; a market order is priced by the book, a bracket entry is when left
+ * empty, and a stop-market is placed by the service at its protection price from the stop.
+ */
+export const isPriced = (type: OrderType): boolean => type !== 'market' && type !== 'bracket' && type !== 'stop_market';
 
 /** True when the typed price is what the order is judged and held at (a bracket entry with no price is a market entry). */
 export const usesTypedPrice = (type: OrderType, price: string): boolean =>
   isPriced(type) || (type === 'bracket' && positive(price) !== null);
 
 /** The order type the service is asked for: a bracket with an entry price is a limit entry, without one a market entry. */
-export const serviceType = (type: OrderType, price: string): 'market' | 'limit' | 'stop_limit' =>
-  type === 'oco' ? 'limit' : type === 'bracket' ? (positive(price) === null ? 'market' : 'limit') : type;
+export const serviceType = (type: OrderType, price: string): 'market' | 'limit' | 'stop_limit' | 'stop' =>
+  type === 'oco' || type === 'oto'
+    ? 'limit'
+    : type === 'bracket'
+      ? positive(price) === null
+        ? 'market'
+        : 'limit'
+      : type === 'stop_market'
+        ? 'stop'
+        : type;
 
-/** An OCO works on either side; a bracket starts with a buy, so its sell side is off. */
-export const exitSideOff = (side: Side, type: OrderType): boolean => type === 'bracket' && side === 'sell';
+/** An OCO works on either side; a bracket and an OTO start with a buy, so their sell side is off. */
+export const exitSideOff = (side: Side, type: OrderType): boolean => (type === 'bracket' || type === 'oto') && side === 'sell';
 
 /** A buy OCO: the take-profit buys below the stop trigger, and the stop-loss is a limit order that sizes the one hold. */
 export const isBuyOco = (side: Side, type: OrderType): boolean => type === 'oco' && side === 'buy';
@@ -59,6 +73,9 @@ export type Problem =
   | { kind: 'exitOrder' }
   | { kind: 'exitOrderBuy' }
   | { kind: 'entryBetween' }
+  | { kind: 'closeEmpty' }
+  | { kind: 'closeTick'; tick: string }
+  | { kind: 'closeAbove' }
   | { kind: 'amountLot'; lot: string }
   | { kind: 'amountMin'; min: string }
   | { kind: 'priceTick'; tick: string }
@@ -67,9 +84,14 @@ export type Problem =
 
 /** `stopLossLimit` is the buy OCO's stop-loss limit price (the stop-loss is the trigger); a sell OCO and a bracket have none. */
 export type Exit = { takeProfit: string; stopLoss: string; stopLossLimit?: string };
-export type Checked = { ok: true; amount: string; price: string | null; stopPrice?: string; exit?: Exit } | { ok: false; problem: Problem };
+/** `close` is an OTO's close price: the sell limit placed for what the entry received, once it has filled. */
+export type Checked =
+  { ok: true; amount: string; price: string | null; stopPrice?: string; exit?: Exit; close?: string } | { ok: false; problem: Problem };
 
-/** What the person typed. `price` is the limit price, the OCO take-profit, or the optional bracket entry price; `stopPrice` is the stop-limit trigger or the stop-loss. */
+/**
+ * What the person typed. `price` is the limit price, the OCO take-profit, the OTO entry, or the optional bracket entry
+ * price; `stopPrice` is the stop-limit trigger or the stop-loss; `takeProfit` is a bracket's take-profit or an OTO's close.
+ */
 type FormInput = {
   side: Side;
   type: OrderType;
@@ -118,7 +140,8 @@ export function orderValue(input: FormInput, ref: Reference | null): { value: st
     return limit === null ? null : { value: exactValue(formatAmount(limit), formatAmount(amount)), estimated: false };
   }
   const typed = usesTypedPrice(input.type, input.price);
-  const price = positive(typed ? input.price : referencePrice(input.side, ref));
+  // A stop-market is estimated at its stop, where it starts to trade.
+  const price = positive(typed ? input.price : input.type === 'stop_market' ? input.stopPrice : referencePrice(input.side, ref));
   if (price === null) return null;
   return { value: exactValue(formatAmount(price), formatAmount(amount)), estimated: !typed };
 }
@@ -163,7 +186,7 @@ export function checkOrder(
   }
 
   let stop: bigint | null = null;
-  if (input.type === 'stop_limit') {
+  if (isStopTab(input.type)) {
     stop = positive(input.stopPrice);
     if (stop === null) return { ok: false, problem: { kind: 'stopEmpty' } };
     if (offGrid(stop)) return { ok: false, problem: { kind: 'stopTick', tick: market.tickSize } };
@@ -198,7 +221,17 @@ export function checkOrder(
     };
   }
 
-  const judged = heldAt ?? price ?? positive(referencePrice(input.side, ref));
+  let close: bigint | null = null;
+  if (input.type === 'oto') {
+    close = positive(input.takeProfit);
+    if (close === null) return { ok: false, problem: { kind: 'closeEmpty' } };
+    if (offGrid(close)) return { ok: false, problem: { kind: 'closeTick', tick: market.tickSize } };
+    // The close sells what the entry bought: at or under the entry price it would only give the gain back.
+    if (price !== null && close <= price) return { ok: false, problem: { kind: 'closeAbove' } };
+  }
+
+  // A stop-market is judged at its stop: that is where it starts to trade.
+  const judged = heldAt ?? price ?? (input.type === 'stop_market' ? stop : null) ?? positive(referencePrice(input.side, ref));
   if (judged === null) return { ok: false, problem: { kind: 'noPrice' } };
   const minCost = positive(market.minCost);
   if (minCost !== null && mul(judged, amount, 'floor') < minCost) return { ok: false, problem: { kind: 'valueMin', min: market.minCost! } };
@@ -209,6 +242,7 @@ export function checkOrder(
     price: price === null ? null : formatAmount(price),
     ...(stop === null ? {} : { stopPrice: formatAmount(stop) }),
     ...(exit ? { exit } : {}),
+    ...(close === null ? {} : { close: formatAmount(close) }),
   };
 }
 
@@ -236,6 +270,8 @@ export function maxAmount(args: {
   const lot = positive(args.market.lotSize);
   if (available === null || lot === null) return null;
   if (args.side === 'sell') return formatAmount((available / lot) * lot);
+  // A stop-market buy is held at its protection price above the stop, which only the service's preview names.
+  if (args.type === 'stop_market') return null;
   const price = positive(
     isBuyOco(args.side, args.type) ? args.stopLimit : usesTypedPrice(args.type, args.price) ? args.price : (args.protectionPrice ?? null),
   );

@@ -4,6 +4,7 @@ import {
   bboPrice,
   checkOrder,
   exitSideOff,
+  isPriced,
   serviceType,
   maxAmount,
   orderValue,
@@ -187,6 +188,24 @@ describe('helpers', () => {
       stopPrice: '70100.1',
     });
   });
+
+  it('a stop-market needs only a stop price on the tick grid, is judged at it, and is sent as type stop', () => {
+    const base = { side: 'sell' as const, type: 'stop_market' as const, price: '', amount: '0.0002' };
+    expect(checkOrder({ ...base, stopPrice: '' }, market, ref)).toEqual({ ok: false, problem: { kind: 'stopEmpty' } });
+    expect(checkOrder({ ...base, stopPrice: '70100.005' }, market, ref)).toEqual({
+      ok: false,
+      problem: { kind: 'stopTick', tick: '0.01' },
+    });
+    expect(checkOrder({ ...base, stopPrice: '70100.10' }, market, ref)).toEqual({
+      ok: true,
+      amount: '0.0002',
+      price: null,
+      stopPrice: '70100.1',
+    });
+    expect(serviceType('stop_market', '')).toBe('stop');
+    expect(isPriced('stop_market')).toBe(false);
+    expect(orderValue({ ...base, stopPrice: '70000' }, ref)).toEqual({ value: '14', estimated: true });
+  });
 });
 
 describe('exit orders (OCO and bracket)', () => {
@@ -278,5 +297,32 @@ describe('exit orders (OCO and bracket)', () => {
     const args = { side: 'buy', available: '1000', market: { lotSize: '0.001' }, protectionPrice: '100' } as const;
     expect(maxAmount({ ...args, type: 'bracket', price: '' })).toBe('10');
     expect(maxAmount({ ...args, type: 'bracket', price: '50' })).toBe('20');
+  });
+});
+
+describe('OTO (a buy with one close attached)', () => {
+  const oto = { side: 'buy', type: 'oto', price: '65000', takeProfit: '70000', amount: '0.001', tif: 'GTC' } as const;
+
+  it('is a limit buy at its entry price carrying its close', () => {
+    expect(checkOrder(oto, market, ref)).toEqual({ ok: true, amount: '0.001', price: '65000', close: '70000' });
+    expect(serviceType('oto', '65000')).toBe('limit');
+    expect(isPriced('oto')).toBe(true);
+    expect(orderValue(oto, ref)).toEqual({ value: '65', estimated: false });
+  });
+
+  it('refuses a missing, off-step, or not-above-entry close, and a missing entry price', () => {
+    expect(checkOrder({ ...oto, takeProfit: '' }, market, ref)).toEqual({ ok: false, problem: { kind: 'closeEmpty' } });
+    expect(checkOrder({ ...oto, takeProfit: '70000.005' }, market, ref)).toEqual({
+      ok: false,
+      problem: { kind: 'closeTick', tick: '0.01' },
+    });
+    expect(checkOrder({ ...oto, takeProfit: '65000' }, market, ref)).toEqual({ ok: false, problem: { kind: 'closeAbove' } });
+    expect(checkOrder({ ...oto, takeProfit: '64000' }, market, ref)).toEqual({ ok: false, problem: { kind: 'closeAbove' } });
+    expect(checkOrder({ ...oto, price: '' }, market, ref)).toEqual({ ok: false, problem: { kind: 'priceEmpty' } });
+  });
+
+  it('is buy-only', () => {
+    expect(exitSideOff('sell', 'oto')).toBe(true);
+    expect(exitSideOff('buy', 'oto')).toBe(false);
   });
 });

@@ -16,6 +16,22 @@ function combinedStore(users: UserRow[], sessions: SessionRow[], keys: KeyRow[])
   const written: unknown[] = [];
   const fn = async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = strings.join('?').toLowerCase();
+    // The last-way-in check (I-account-lifecycle-07) reads the account's methods: these accounts also hold a password.
+    if (text.includes('password_set')) {
+      const userId = values[0];
+      return users
+        .filter((u) => u.id === userId)
+        .map((u) => ({
+          status: 'active',
+          password_set: true,
+          email: null,
+          email_verified_at: null,
+          email_code_signin: false,
+          handle: 'h',
+          passkeys: u.webauthn_creds.length,
+        }));
+    }
+    if (text.includes('from wallet_identities') || text.includes('from social_identities')) return [];
     if (text.includes('select') && text.includes('webauthn_creds')) {
       const userId = values[0];
       return users.filter((u) => u.id === userId).map((u) => ({ webauthn_creds: u.webauthn_creds }));

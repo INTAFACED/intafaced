@@ -5,8 +5,8 @@ import { confirm, deskPath, fundedTrader, held, openDesk, openOrders, placements
 // J-cex-spot-08, in the running app (docs/roadmap/journeys.json): a person protects a position with stops, an OCO and a
 // bracket. One test per step, titled "J-cex-spot-08 #<n>", run in order on one TEST account funded with TEST USDT and
 // TEST BTC through the real ledger. Orders are placed on the desk's own ticket; the API reads say what is held and
-// what rests on the book. The stack's other TEST trader is the buyer who takes a take-profit leg. Steps 3 (stop-market
-// and the pending list) and 10 (a close attached to an entry) join this file with the slices that build them.
+// what rests on the book. The stack's other TEST trader is the buyer who takes a take-profit leg, and the seller who
+// fills an OTO buy.
 const J = 'J-cex-spot-08';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const SYMBOL = 'BTC/USDT';
@@ -49,7 +49,7 @@ const openTable = (page) => page.locator('.dk-bottom-body table');
 const rowOf = (page, id) =>
   openTable(page)
     .locator('tbody tr')
-    .filter({ has: page.locator(`a[href$="${encodeURIComponent(id)}"]`) });
+    .filter({ has: page.locator(`a.dk-order-link[href$="${encodeURIComponent(id)}"]`) });
 
 /** Each step starts from no open orders and nothing held, so a step that failed earlier leaves nothing behind for this one. */
 async function fresh(who) {
@@ -176,6 +176,62 @@ async function ocoPrices() {
   const takeProfit = gap > toUnits('2') && toUnits(inside) > toUnits(bid) ? inside : ask;
   return { takeProfit, stopLoss: pct(bid, 95) };
 }
+
+test(`${J} #3 places a stop-market and reads the pending list: trigger, reference price, and modify or cancel on each`, async ({
+  page,
+}) => {
+  const who = account();
+  await deskFor(page, who);
+  // A sell stop-market under the market protects the BTC held: it sells when a trade prints at or below the stop.
+  const { bid } = await bestPrices();
+  const stop = pct(bid, 95);
+  const sheet = await review(page, 'sell', 'Stop-market', { 'Stop price': stop, Amount: AMOUNT });
+  await expect(sheet).toContainText('Stop-market');
+  await expect(sheet).toContainText(`${shown(stop)} USDT`);
+  // The review names the worst price it may sell at: the owner's protection under the stop, never above it.
+  await expect(sheet).toContainText('Worst price');
+  const order = await place(page, 'sell');
+  expect(order).toMatchObject({ type: 'stop', stopPrice: stop, status: 'open', triggered: null });
+  expect(toUnits(order.price)).toBeLessThan(toUnits(stop));
+  await expect.poll(async () => held(await balances(who), 'BTC')).toBe(toUnits(AMOUNT));
+  // Off the book until it fires: nothing rests at its protection price.
+  expect(await bookAt('sell', order.price)).toEqual([]);
+
+  // The pending list names the kind, the trigger and the price it watches (the last trade), with Edit and Cancel.
+  await openOrdersTab(page);
+  const row = rowOf(page, order.id);
+  await expect(row).toContainText('Stop-market');
+  await expect(row).toContainText(`Triggers at ${shown(stop)} USDT`);
+  await expect(row).toContainText(/Last price \d{1,3}(,\d{3})*\.\d{2}/);
+  await expect(row.getByRole('button', { name: /^Cancel/ })).toBeVisible();
+
+  // Modify the trigger: reviewed first, then the stop is replaced by one at the new trigger, holding the same BTC.
+  const lower = pct(bid, 93);
+  await row.getByRole('button', { name: /^Change the stop/ }).click();
+  const dialog = page.getByRole('alertdialog');
+  await expect(dialog).toContainText(`triggers at ${shown(stop)} USDT`);
+  await dialog.getByRole('textbox', { name: 'Stop price' }).fill(lower);
+  await previewed(page, () => dialog.getByRole('button', { name: 'Review replacement' }).click());
+  await expect(dialog).toContainText(`${shown(stop)} → ${shown(lower)} USDT`);
+  const answer = page.waitForResponse((r) => /\/api\/v1\/orders\/[^/]+\/replace$/.test(new URL(r.url()).pathname));
+  await dialog.getByRole('button', { name: 'Replace order' }).click();
+  const replaced = await (await answer).json();
+  expect(replaced).toMatchObject({ accepted: true, originalOrderId: order.id });
+  await expect(dialog.getByRole('status')).toContainText(`triggers at ${shown(lower)} USDT`);
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  const replacement = await orderById(who, replaced.replacementOrderId);
+  expect(replacement).toMatchObject({ type: 'stop', stopPrice: lower, status: 'open', triggered: null });
+  expect(await orderById(who, order.id)).toMatchObject({ status: 'canceled' });
+  await expect(rowOf(page, replacement.id)).toContainText(`Triggers at ${shown(lower)} USDT`);
+  await expect(rowOf(page, order.id)).toHaveCount(0);
+  expect(held(await balances(who), 'BTC')).toBe(toUnits(AMOUNT));
+
+  // Cancel: the BTC hold goes back.
+  await rowOf(page, replacement.id)
+    .getByRole('button', { name: /^Cancel/ })
+    .click();
+  await expect.poll(async () => held(await balances(who), 'BTC'), { timeout: 20_000 }).toBe(0n);
+});
 
 test(`${J} #4 places a sell OCO: the take-profit rests on one hold of the base, a cancel releases it, and a replay returns the same group`, async ({
   page,
@@ -470,4 +526,93 @@ test(`${J} #9 places a bracket: the entry buys, then the coins are held behind o
   await expect.poll(async () => held(await balances(who), 'USDT'), { timeout: 20_000 }).toBe(0n);
   await page.waitForTimeout(3000);
   expect((await openOrders(who)).filter((o) => o.exit)).toEqual([]);
+});
+
+/** The stack's other TEST trader sells `amount` into the bids at or above `price` (immediate-or-cancel), past `ours`. */
+async function sellInto(price, ours, amount, key) {
+  const { body: book } = await bestPrices(SYMBOL, 100);
+  const atOrAbove = book.bids.filter(([p]) => toUnits(p) >= toUnits(price)).reduce((sum, [, size]) => sum + toUnits(size), 0n);
+  const ahead = atOrAbove > toUnits(ours) ? atOrAbove - toUnits(ours) : 0n;
+  const res = await (
+    await api(otherTrader())
+  ).post('/api/v1/orders', {
+    symbol: SYMBOL,
+    type: 'limit',
+    side: 'sell',
+    amount: fromUnits(ahead + toUnits(amount)),
+    price,
+    timeInForce: 'IOC',
+    clientOrderId: `${J}-${key}-${Date.now()}`,
+  });
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBeLessThan(300);
+}
+
+test(`${J} #10 attaches a close to a buy (OTO): shown linked, cancelled with the buy, and placed the moment the buy fills`, async ({
+  page,
+}) => {
+  test.setTimeout(150_000);
+  const who = account();
+  await deskFor(page, who);
+  const { bid } = await bestPrices();
+  const entryPrice = pct(bid, 98);
+  const closePrice = pct(bid, 106);
+
+  // A resting OTO buy: the buy holds USDT on the book and names its close, which waits for the fill.
+  await tab(page, 'OTO').click();
+  await expect(page.getByRole('combobox', { name: 'Time in force' })).toContainText('Rest on the book');
+  const sheet = await review(page, 'buy', 'OTO', { 'Entry price': entryPrice, 'Close price': closePrice, Amount: AMOUNT });
+  await expect(sheet).toContainText('OTO');
+  await expect(sheet).toContainText(`${shown(closePrice)} USDT`);
+  const first = await place(page, 'buy');
+  expect(first).toMatchObject({ status: 'open', price: entryPrice, linked: { role: 'entry', closePrice, closeOrderId: null } });
+  expect(held(await balances(who), 'USDT')).toBe(times(entryPrice, AMOUNT));
+  await openOrdersTab(page);
+  await expect(rowOf(page, first.id)).toContainText('OTO');
+  await expect(rowOf(page, first.id)).toContainText(`Closes at ${shown(closePrice)} USDT once filled`);
+  // Cancelled with the buy: the hold comes back and no close is ever placed.
+  await rowOf(page, first.id)
+    .getByRole('button', { name: /^Cancel/ })
+    .click();
+  await expect.poll(async () => held(await balances(who), 'USDT'), { timeout: 20_000 }).toBe(0n);
+  await page.waitForTimeout(3000);
+  expect((await openOrders(who)).filter((o) => o.side === 'sell')).toEqual([]);
+  expect(held(await balances(who), 'BTC')).toBe(0n);
+
+  // Again, and this time a seller fills the buy: the close is placed at once, for what the buy received, linked both ways.
+  await page.goto(deskPath());
+  await page.mouse.move(0, 600);
+  await review(page, 'buy', 'OTO', { 'Entry price': entryPrice, 'Close price': closePrice, Amount: AMOUNT });
+  const entry = await place(page, 'buy');
+  expect(entry).toMatchObject({ status: 'open', linked: { role: 'entry', closeOrderId: null } });
+  await sellInto(entryPrice, AMOUNT, AMOUNT, '10');
+  await expect.poll(async () => (await orderById(who, entry.id)).status, { timeout: 30_000 }).toBe('closed');
+  let close;
+  await expect
+    .poll(
+      async () => {
+        close = (await openOrders(who)).find((o) => o.side === 'sell' && o.linked?.role === 'close');
+        return close?.id ?? null;
+      },
+      { timeout: 10_000 },
+    )
+    .not.toBeNull();
+  expect(close).toMatchObject({ type: 'limit', price: closePrice, linked: { role: 'close', entryOrderId: entry.id } });
+  expect((await orderById(who, entry.id)).linked).toEqual({ role: 'entry', closePrice, closeOrderId: close.id });
+  // The close sells what the buy received (the amount less a base fee), and holds exactly that.
+  const heldBtc = held(await balances(who), 'BTC');
+  expect(heldBtc).toBe(toUnits(close.amount));
+  expect(heldBtc > 0n && heldBtc <= toUnits(AMOUNT)).toBe(true);
+  expect(held(await balances(who), 'USDT')).toBe(0n);
+  await page.goto(deskPath());
+  await page.mouse.move(0, 600);
+  await openOrdersTab(page);
+  await expect(rowOf(page, close.id)).toContainText('OTO close');
+  await expect(rowOf(page, close.id).getByRole('link', { name: 'Open the OTO buy this sells for' })).toHaveAttribute(
+    'href',
+    `/trade/orders/${encodeURIComponent(entry.id)}`,
+  );
+  await rowOf(page, close.id)
+    .getByRole('button', { name: /^Cancel/ })
+    .click();
+  await expect.poll(async () => held(await balances(who), 'BTC'), { timeout: 20_000 }).toBe(0n);
 });

@@ -1,0 +1,228 @@
+import { useState } from 'react';
+import { Button, ReviewDialog as Dialog } from '@intafaced/ui';
+import type { ApiResult } from '../../../shared/api';
+import { displayAmount } from '../../../shared/money';
+import { useResource } from '../../../shared/resource';
+import { uiCopy } from '../../../shared/ui-copy';
+import { PayDetails, PayFailure } from '../components';
+import type { PersonalPayApi } from '../pay-api';
+import type { Offer, PostOfferInput } from '../schemas';
+import { postCopy } from './p2p-post-copy';
+import type { OfferFormValues } from './p2p-model';
+
+/**
+ * P-ads-merchant-01: what a sell ad may offer, from the same ledger read svc-p2p checks at post. Nothing is held when
+ * the ad is posted; each order holds its coins in escrow when it is taken.
+ */
+export function SellAvailability({ pay, asset }: { pay: PersonalPayApi; asset: string }) {
+  const { t } = postCopy.useCopy();
+  const balance = useResource((signal) => pay.sellBalance(asset, signal), `pay:p2p-sell-balance:${asset}`);
+  return (
+    <div className="stack" data-testid="offer-available">
+      {balance.resource.status === 'ready' ? (
+        <p>{t('available', { amount: displayAmount(balance.resource.data.available), asset })}</p>
+      ) : balance.resource.status === 'failed' ? (
+        <p className="muted">{t('availableFailed')}</p>
+      ) : (
+        <p className="muted">{t('availableLoading')}</p>
+      )}
+      <small className="muted">{t('availableHint')}</small>
+    </div>
+  );
+}
+
+/** The advertiser terms, read in full and accepted for the exact version svc-p2p published. */
+export function AdvertiserTermsSheet({
+  pay,
+  version,
+  onAccepted,
+  onClose,
+}: {
+  pay: PersonalPayApi;
+  version: string;
+  onAccepted: (version: string) => void;
+  onClose: () => void;
+}) {
+  const { t } = postCopy.useCopy();
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const accept = async () => {
+    setBusy(true);
+    setFailed(false);
+    const result = await pay.acceptAdvertiserTerms(version);
+    setBusy(false);
+    if (result.ok) onAccepted(result.data.version);
+    else setFailed(true);
+  };
+  return (
+    <Dialog closeLabel={uiCopy.t('closeDialog')} title={t('termsTitle')} onClose={() => (busy ? undefined : onClose())}>
+      <div className="form-stack" data-testid="advertiser-terms">
+        <p className="muted">{t('termsVersion', { version })}</p>
+        <ul className="p2p-risk-points">
+          <li>{t('termsBalance')}</li>
+          <li>{t('termsRelease')}</li>
+          <li>{t('termsHonour')}</li>
+          <li>{t('termsContact')}</li>
+          <li>{t('termsAction')}</li>
+        </ul>
+        {failed ? (
+          <p className="failure" role="alert">
+            {t('termsAcceptFailed')}
+          </p>
+        ) : null}
+        <div className="actions">
+          <Button variant="ghost" disabled={busy} onClick={onClose}>
+            {t('termsClose')}
+          </Button>
+          <Button variant="primary" disabled={busy} onClick={() => void accept()}>
+            {busy ? t('termsAccepting') : t('termsAccept')}
+          </Button>
+        </div>
+      </div>
+    </Dialog>
+  );
+}
+
+/** The form's values as `offers.create` takes them: trimmed, the coin in capitals, blank optional fields left out. */
+export function postInput(values: OfferFormValues): PostOfferInput {
+  const terms = values.terms.trim();
+  return {
+    side: values.side,
+    asset: values.asset.trim().toUpperCase(),
+    fiatCurrency: values.fiatCurrency,
+    priceType: values.priceType,
+    price: values.price.trim(),
+    minAmount: values.minAmount.trim(),
+    maxAmount: values.maxAmount.trim(),
+    ...(values.totalAmount.trim() === '' ? {} : { totalAmount: values.totalAmount.trim() }),
+    methods: values.methods,
+    ...(terms === '' ? {} : { terms }),
+    ...(values.side === 'sell' && values.acceptsNonInstant ? { acceptsNonInstant: true } : {}),
+  };
+}
+
+type Failure = Extract<ApiResult<unknown>, { ok: false }>;
+
+/** A post refusal the room says in its own words, or null for the shared failure notice. */
+function refusalKey(failure: Failure | null) {
+  switch (failure?.code) {
+    case 'p2p.config_unset':
+      return 'refusedConfig' as const;
+    case 'p2p.offer_limit_exceeded':
+      return 'refusedLimit' as const;
+    case 'p2p.offer_method_no_destination':
+      return 'refusedNoDestination' as const;
+    case 'p2p.trading_disabled':
+      return 'refusedTrading' as const;
+    case 'denied.kyc_required':
+      return 'refusedVerify' as const;
+    case 'p2p.instrument_kms_required':
+      return 'keyOff' as const;
+    // The form's key already named a different ad: a reply was lost after it posted.
+    case 'p2p.idempotency_conflict':
+    case 'p2p.idempotency_in_progress':
+      return 'refusedPostedAlready' as const;
+    default:
+      return null;
+  }
+}
+
+/**
+ * Every field of the reviewed ad, the frozen-terms note and the advertiser terms state, then Post. A refusal is shown
+ * here in the room's words; `p2p.terms_not_accepted` and `p2p.terms_version_stale` open the terms instead.
+ */
+export function OfferSummary({
+  input,
+  methodLabels,
+  termsNote,
+  failure,
+  posting,
+  onConfirm,
+  onBack,
+}: {
+  input: PostOfferInput;
+  methodLabels: string[];
+  termsNote: string | null;
+  failure: Failure | null;
+  posting: boolean;
+  onConfirm: () => void;
+  onBack: () => void;
+}) {
+  const { t } = postCopy.useCopy();
+  const limit = failure?.code === 'p2p.insufficient_balance' ? failure.p2pLimit : undefined;
+  const refused = refusalKey(failure);
+  return (
+    <section className="stack" data-testid="offer-summary" aria-label={t('summaryTitle')}>
+      <h2>{t('summaryTitle')}</h2>
+      <PayDetails
+        values={[
+          [t('summarySide'), t(input.side === 'sell' ? 'summarySell' : 'summaryBuy', { asset: input.asset, fiat: input.fiatCurrency })],
+          [
+            input.priceType === 'float' ? t('summaryMultiplier') : t('summaryPrice'),
+            input.priceType === 'float' ? displayAmount(input.price) : `${displayAmount(input.price)} ${input.fiatCurrency}`,
+          ],
+          [
+            t('summaryLimits'),
+            t('summaryLimitsValue', { min: displayAmount(input.minAmount), max: displayAmount(input.maxAmount), asset: input.asset }),
+          ],
+          [
+            t('summaryTotal'),
+            input.totalAmount === undefined ? t('summaryTotalSame') : `${displayAmount(input.totalAmount)} ${input.asset}`,
+          ],
+          [t('summaryMethods'), <span lang="und">{methodLabels.join(', ')}</span>],
+          [t('summaryTerms'), input.terms ? <span lang="und">{input.terms}</span> : t('summaryNoTerms')],
+        ]}
+      />
+      {input.acceptsNonInstant ? <p className="muted">{t('summaryNonInstant')}</p> : null}
+      <p className="muted">{t('frozenNote')}</p>
+      {termsNote ? <p role="status">{termsNote}</p> : null}
+      {limit?.available && limit.shortBy ? (
+        <p className="failure" role="alert">
+          {t('overBalance', { available: displayAmount(limit.available), shortBy: displayAmount(limit.shortBy), asset: input.asset })}
+        </p>
+      ) : refused ? (
+        <p className="failure" role="alert">
+          {t(refused)}
+        </p>
+      ) : failure ? (
+        <PayFailure result={failure} />
+      ) : null}
+      <div className="actions">
+        <Button variant="ghost" disabled={posting} onClick={onBack}>
+          {t('back')}
+        </Button>
+        <Button variant="primary" disabled={posting} onClick={onConfirm} data-testid="offer-confirm">
+          {posting ? t('posting') : t('confirm')}
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+/** The posted ad: its id and status as svc-p2p answered, and the ways on. */
+export function OfferReceipt({ offer, onAnother }: { offer: Offer; onAnother: () => void }) {
+  const { t } = postCopy.useCopy();
+  const status = offer.status === 'active' ? t('statusActive') : offer.status === 'paused' ? t('statusPaused') : t('statusClosed');
+  return (
+    <section className="stack" role="status" data-testid="offer-receipt" aria-label={t('receiptTitle')}>
+      <h2>{t('receiptTitle')}</h2>
+      <PayDetails
+        values={[
+          [t('receiptId'), <code>{offer.id}</code>],
+          [t('receiptStatus'), status],
+        ]}
+      />
+      <div className="actions">
+        <a className="button button--primary" href="/uc/ad">
+          {t('receiptMine')}
+        </a>
+        <a className="button button--secondary" href={`/p2p?asset=${encodeURIComponent(offer.asset)}`}>
+          {t('receiptBoard')}
+        </a>
+        <Button variant="ghost" onClick={onAnother}>
+          {t('receiptAnother')}
+        </Button>
+      </div>
+    </section>
+  );
+}

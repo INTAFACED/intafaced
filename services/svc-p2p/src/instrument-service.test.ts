@@ -1264,6 +1264,10 @@ describe('svc-p2p payment instruments', () => {
         'access.eligibility': undefined,
         'risk.notice': undefined,
         'risk.accept': { version: 'TEST' },
+        // P-ads-merchant-01: the caller's own terms acceptance and own free balance; no instrument table is read.
+        'merchants.advertiserTerms': undefined,
+        'merchants.acceptAdvertiserTerms': { version: 'TEST' },
+        'offers.sellBalance': { asset: 'USDT' },
       };
 
       const paths = Object.keys((api as unknown as { _def: { procedures: Record<string, unknown> } })._def.procedures);

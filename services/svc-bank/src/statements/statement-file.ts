@@ -127,12 +127,15 @@ export function statementLines(input: {
   to: string;
   generatedAt: string;
   rows: readonly ActivityItem[];
+  /** One named space: its lines only, and the header names it. */
+  space?: { id: string; name: string };
 }): string[] {
   const lines = [
-    'INTAFACED account statement',
+    input.space ? 'INTAFACED space statement' : 'INTAFACED account statement',
     'Proof of account: posted ledger lines for the holder below.',
     'This file lists posted lines. It does not state a balance.',
     `Holder: ${input.holderUserId}`,
+    ...(input.space ? [`Space: ${input.space.name} (${input.space.id})`] : []),
     `Period: ${input.from} to ${input.to}`,
     `Generated: ${input.generatedAt}`,
     `Rows: ${input.rows.length}`,

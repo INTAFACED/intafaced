@@ -12,6 +12,12 @@ export const catalogContract: ContractPart = {
     },
     { method: 'importProducts', run: (p) => p.importProducts({ csv: 'name,type\nTEST Mug,physical\nTEST Toy,toy\n', commit: false }) },
     { method: 'copyCatalog', run: (p) => p.copyCatalog('test', 'live') },
+    { method: 'stores', run: (p) => p.stores('', undefined) },
+    {
+      method: 'createStore',
+      run: (p) => p.createStore({ requestId: 'c3000001-0000-4000-8000-000000000003', name: 'TEST Stall', timezone: 'Europe/Berlin' }),
+    },
+    { method: 'availability', run: (p) => p.availability('c1000001-0000-4000-8000-000000000001') },
     { method: 'prices', run: (p) => p.prices('c1000001-0000-4000-8000-000000000001', undefined) },
     { method: 'monthlyPriceChoices', run: (p) => p.monthlyPriceChoices('USDC', '20') },
     {
@@ -34,6 +40,9 @@ export const catalogContract: ContractPart = {
     archiveProduct: write,
     unarchiveProduct: write,
     deleteProduct: write,
+    archiveStore: write,
+    reopenStore: write,
+    setAvailability: write,
     replacePrice: write,
     priceUsage: 'reads what uses a price the same run added; the catalogue view tests and the Playwright run check it',
     pricedProduct: 'reads back a price the same run added; the subscription view tests and the Playwright run check it',

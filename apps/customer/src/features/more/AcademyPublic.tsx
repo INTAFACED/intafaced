@@ -45,7 +45,13 @@ function SignIn() {
 
 export function AcademyPublic({ route }: { route: AcademyRoute }) {
   const tab =
-    route.kind === 'tab' ? route.tab : route.kind === 'reader' || route.kind === 'course' || route.kind === 'assignment' ? 'Learning' : '';
+    route.kind === 'tab'
+      ? route.tab
+      : route.kind === 'reader' || route.kind === 'course' || route.kind === 'assignment'
+        ? 'Learning'
+        : route.kind === 'programme'
+          ? 'Programmes'
+          : '';
   const { t } = copy.useCopy();
   return (
     <div className="more-grid" data-academy-visitor="true">

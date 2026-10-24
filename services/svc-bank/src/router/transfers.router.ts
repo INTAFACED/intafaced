@@ -440,6 +440,8 @@ export function createTransfersRouter(c: BankRouterContext) {
              * instead of a Zod "Required". Blank is not 50; pass 50 explicitly.
              */
             limit: z.number().int().min(1).max(200).optional(),
+            /** Only the orders paying into this one of the caller's own spaces (BK-pots-02). */
+            toSpaceId: z.string().guid().optional(),
           })
           .optional(),
       )
@@ -456,12 +458,18 @@ export function createTransfersRouter(c: BankRouterContext) {
             status: z.string(),
             /** The revision an edit must name. */
             revision: z.number().int(),
+            /** The caller's own space the order pays from. */
+            fromSpaceId: z.string(),
+            /** The caller's own space it pays into, or null when it pays another person. */
+            toSpaceId: z.string().nullable(),
           }),
         ),
       )
       .query(async ({ ctx, input }) =>
         guard(async () => {
-          const schedules = await bank.transfers.listSchedules(ctx.principal.userId, input?.limit);
+          const schedules = await (input?.toSpaceId
+            ? bank.transfers.listSchedules(ctx.principal.userId, input.limit, { toSpaceId: input.toSpaceId })
+            : bank.transfers.listSchedules(ctx.principal.userId, input?.limit));
           return schedules.map((s) => ({
             id: s.id,
             assetId: s.assetId,
@@ -472,6 +480,8 @@ export function createTransfersRouter(c: BankRouterContext) {
             nextRunAt: s.nextRunAt.toISOString(),
             status: s.status,
             revision: s.revision,
+            fromSpaceId: s.fromSpaceId,
+            toSpaceId: s.ownToSpaceId,
           }));
         }),
       ),
