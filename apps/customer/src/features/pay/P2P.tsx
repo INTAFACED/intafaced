@@ -1,5 +1,5 @@
 import { payCopy, PayCopy, payRefusal } from './copy';
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, DataTable } from '@intafaced/ui';
@@ -324,6 +324,42 @@ export function OrderPaymentDetails({ trade, pay, userId }: { trade: Trade; pay:
     </PaySection>
   );
 }
+/**
+ * The buyer's three ticks before Mark payment sent. It lives inside the review, so every time the review opens the
+ * boxes start empty: closing it to go and pay, then coming back, asks again.
+ */
+function PaidChecklist({ trade, onReady }: { trade: Trade; onReady: (ready: boolean) => void }) {
+  const { t } = orderCopy.useCopy();
+  const [checks, setChecks] = useState({ amount: false, ownAccount: false, details: false });
+  const ready = checks.amount && checks.ownAccount && checks.details;
+  useEffect(() => onReady(ready), [ready]);
+  useEffect(() => () => onReady(false), []);
+  return (
+    <fieldset className="p2p-paid-checklist" data-testid="order-paid-checklist">
+      <legend>{t('paidChecklist')}</legend>
+      {(
+        [
+          ['amount', t('paidCheckAmount', { amount: displayAmount(trade.fiatAmount), currency: trade.fiatCurrency })],
+          ['ownAccount', t('paidCheckOwnAccount')],
+          ['details', t('paidCheckDetails')],
+        ] as const
+      ).map(([key, label]) => (
+        <label key={key}>
+          <input
+            type="checkbox"
+            checked={checks[key]}
+            onChange={(event) => {
+              // Read it now: React puts a controlled box back before a functional update runs.
+              const checked = event.target.checked;
+              setChecks((current) => ({ ...current, [key]: checked }));
+            }}
+          />
+          <span>{label}</span>
+        </label>
+      ))}
+    </fieldset>
+  );
+}
 export function OrderActions({
   trade,
   pay,
@@ -341,10 +377,9 @@ export function OrderActions({
 }) {
   const [reason, setReason] = useState('');
   // J-p2p-01 #7: the buyer confirms three facts about the outside payment before the order says it was paid.
-  const [paidChecks, setPaidChecks] = useState({ amount: false, ownAccount: false, details: false });
+  const [paidReady, setPaidReady] = useState(false);
   const { Copy, t } = orderCopy.useCopy();
   if (locked) return null;
-  const paidReady = paidChecks.amount && paidChecks.ownAccount && paidChecks.details;
   const reviewValues: [string, ReactNode][] = [
     [payCopy.t('order'), <span lang="zxx">{trade.id}</span>],
     [payCopy.t('you'), trade.sellerId === userId ? payCopy.t('seller') : payCopy.t('buyer')],
@@ -373,29 +408,7 @@ export function OrderActions({
                     [payCopy.t('paymentMethod'), <span lang="zxx">{trade.method}</span>],
                   ]}
                 />
-                <fieldset className="p2p-paid-checklist" data-testid="order-paid-checklist">
-                  <legend>{t('paidChecklist')}</legend>
-                  {(
-                    [
-                      ['amount', t('paidCheckAmount', { amount: displayAmount(trade.fiatAmount), currency: trade.fiatCurrency })],
-                      ['ownAccount', t('paidCheckOwnAccount')],
-                      ['details', t('paidCheckDetails')],
-                    ] as const
-                  ).map(([key, label]) => (
-                    <label key={key}>
-                      <input
-                        type="checkbox"
-                        checked={paidChecks[key]}
-                        onChange={(event) => {
-                          // Read it now: React puts a controlled box back before a functional update runs.
-                          const checked = event.target.checked;
-                          setPaidChecks((current) => ({ ...current, [key]: checked }));
-                        }}
-                      />
-                      <span>{label}</span>
-                    </label>
-                  ))}
-                </fieldset>
+                <PaidChecklist trade={trade} onReady={setPaidReady} />
               </div>
             }
             ready={paidReady}

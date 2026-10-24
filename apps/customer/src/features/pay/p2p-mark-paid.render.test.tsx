@@ -80,6 +80,15 @@ describe('Mark payment sent checklist (J-p2p-01 #7)', () => {
     expect(confirm().disabled).toBe(false);
     expect(document.body.textContent).not.toContain('Tick each line to mark the payment sent.');
 
+    // Closing the review and opening it again asks again.
+    await act(async () => (document.querySelector('[aria-label="Close dialog"]') as HTMLButtonElement | null)?.click());
+    await act(async () => byText('Mark payment sent')[0]!.click());
+    const again = [...document.querySelectorAll<HTMLInputElement>('[data-testid="order-paid-checklist"] input[type="checkbox"]')];
+    expect(again.map((box) => box.checked)).toEqual([false, false, false]);
+    expect(confirm().disabled).toBe(true);
+    for (const box of again) await act(async () => box.click());
+    expect(confirm().disabled).toBe(false);
+
     await act(async () => confirm().click());
     expect(manageTrade).toHaveBeenCalledTimes(1);
     expect(manageTrade.mock.calls[0]![1]).toBe('markFiatSent');

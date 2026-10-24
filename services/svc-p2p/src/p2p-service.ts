@@ -2235,7 +2235,7 @@ export class P2pService {
     );
     await this.sql`
       UPDATE p2p.fiat_sent_notices SET handed_at = now()
-       WHERE trade_id = ${notice.tradeId} AND handed_at IS NULL
+       WHERE trade_id = ${notice.tradeId} AND handed_at IS NULL AND dropped_at IS NULL
     `;
   }
 
@@ -2246,11 +2246,16 @@ export class P2pService {
    */
   async sweepFiatSentNotices(limit?: number): Promise<{ sent: number; failures: SweepFailure[] }> {
     const lim = assertSweepSettlementsLimit(limit);
+    // Close what is no longer owed first, so the owed index only ever holds live notices.
+    await this.sql`
+      UPDATE p2p.fiat_sent_notices n SET dropped_at = now()
+        FROM p2p.p2p_trades t
+       WHERE t.id = n.trade_id AND n.handed_at IS NULL AND n.dropped_at IS NULL AND t.status <> 'fiat_sent'
+    `;
     const owed = await this.sql<Array<{ trade_id: string; buyer_id: string; seller_id: string; marked_at: Date }>>`
       SELECT n.trade_id, n.buyer_id, n.seller_id, n.marked_at
         FROM p2p.fiat_sent_notices n
-        JOIN p2p.p2p_trades t ON t.id = n.trade_id
-       WHERE n.handed_at IS NULL AND t.status = 'fiat_sent'
+       WHERE n.handed_at IS NULL AND n.dropped_at IS NULL
        ORDER BY n.marked_at ASC
        LIMIT ${lim}
     `;

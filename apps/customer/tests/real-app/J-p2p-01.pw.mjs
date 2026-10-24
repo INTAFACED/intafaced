@@ -675,4 +675,7 @@ test('J-p2p-01 #7 the buyer ticks the checklist and marks paid; the order moves 
     return res.body.result.data.items.filter((n) => n.kind === 'p2p.trade.fiat_sent' && n.params?.tradeId === state.tradeId);
   };
   await expect.poll(async () => (await notices()).length, { timeout: 30_000 }).toBe(1);
+  // Still one after the next svc-p2p sweep (every 30 s on the stack) has had its chance to hand it over again.
+  await page.waitForTimeout(35_000);
+  expect(await notices()).toHaveLength(1);
 });

@@ -569,6 +569,11 @@ describe('svc-p2p escrow', () => {
       // Released before the notice left: "check the payment before you release" would be wrong now.
       expect(await p2p.sweepFiatSentNotices(100)).toEqual({ sent: 0, failures: [] });
       expect(fiatSentNotices()).toHaveLength(0);
+      // And it is closed, not owed forever.
+      const [row] = await sql<Array<{ handed: boolean; dropped: boolean }>>`
+        SELECT handed_at IS NOT NULL AS handed, dropped_at IS NOT NULL AS dropped FROM p2p.fiat_sent_notices WHERE trade_id = ${trade.id}
+      `;
+      expect(row).toEqual({ handed: false, dropped: true });
       await expect(p2p.sweepFiatSentNotices(undefined)).rejects.toMatchObject({ code: 'p2p.sweep_settlements_limit_unset' });
       await expectBooksClosed();
     });
