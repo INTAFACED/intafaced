@@ -36,10 +36,30 @@ import {
   STAFF_HOLD_STORAGE_UNCONFIGURED,
 } from '../codes.js';
 import { consumeFounderApproval, type ApprovalConsumer } from '../operator-desks.js';
-import type { AttemptOutcome, HoldRow, LockedHold, MovementRow, StaffHoldStore } from './store.js';
+import {
+  expiryBlocked,
+  retryDue,
+  type AttemptOutcome,
+  type HoldRow,
+  type LockedHold,
+  type MovementRow,
+  type StaffHoldStore,
+} from './store.js';
 
-/** The ledger calls this desk makes: one post per attempt (no transport retry) and the read by key. */
-export type StaffHoldLedger = Pick<LedgerClient, 'post' | 'getTxByKey'>;
+/** What the ledger's `txByKey` door says of a booked key: the transaction, and the module and reason that posted it. */
+export interface StaffHoldLedgerKey {
+  readonly txId: string;
+  readonly module: string;
+  readonly reason: string;
+}
+
+/**
+ * The ledger calls this desk makes: one post per attempt (no transport retry) and the read by key. svc-ops reads the
+ * `txByKey` door only, so the read answers who booked the key, never the entries (ADR 3.7 rule 5).
+ */
+export interface StaffHoldLedger extends Pick<LedgerClient, 'post'> {
+  findByKey(idempotencyKey: string): Promise<StaffHoldLedgerKey | null>;
+}
 
 export interface StaffHoldSettings {
   /** Owner-named `ops:hold-confirm:<slug>` account. Blank: confirm refuses `owner.decision` and nothing posts. */
@@ -61,12 +81,27 @@ export interface StaffHoldDeskDeps {
 /** A ledger refusal that was settled on the row, passed to the caller as the ledger typed it. */
 const LEDGER_POST_LOST = 'ledger.post_lost' as const;
 const LEDGER_POST_UNSENT = 'ledger.post_unsent' as const;
+/** The key holds a post that is not this movement's (another module or reason): this body can never post under it. */
+const LEDGER_KEY_TAKEN = 'ledger.idempotency_conflict' as const;
+
+/**
+ * `ledger.post_lost` rests on the in-flight bound, which is evidence, not proof. For a day after a movement is declared
+ * lost, its key is read again every 10 minutes; a post found then is recorded, so funds it moved are never out of the
+ * desk's reach.
+ */
+const LOST_RECHECK_FOR_MS = 24 * 3_600_000;
+const LOST_RECHECK_EVERY_MS = 10 * 60_000;
 
 const HOLDING: readonly StaffHoldState[] = ['active', 'partially_released'];
+
 const sha = (text: string) => createHash('sha256').update(text).digest('hex');
 const inFlight = (movements: readonly MovementRow[]) => movements.some((m) => m.status === 'settling' || m.status === 'pending_retry');
 /** A `settling` movement that was sent at least once may have posted: only the ledger's book settles it. */
 const inDoubt = (m: MovementRow) => m.status === 'settling' && (m.uncertain || m.attempts > 0);
+/** Declared lost by the in-flight bound (evidence, not proof), as opposed to a refusal the ledger gave. */
+const isLost = (m: MovementRow) => m.status === 'refused' && m.code === LEDGER_POST_LOST && m.uncertain;
+/** The booked key is this movement's post: the same module and reason (the door gives no entries to compare). */
+const isOwnPost = (found: StaffHoldLedgerKey, request: PostRequest) => found.module === request.module && found.reason === request.reason;
 
 function view(hold: HoldRow, movements: readonly MovementRow[]): StaffHold {
   return {
@@ -96,9 +131,10 @@ function view(hold: HoldRow, movements: readonly MovementRow[]): StaffHold {
   };
 }
 
-/** The hold's remaining amount and state once a movement has posted. */
-function afterPosted(hold: HoldRow, movement: MovementRow): { remaining: string; state: StaffHoldState } {
-  if (movement.kind === 'place') return { remaining: hold.remaining, state: 'active' };
+/** The hold's remaining amount and state once a movement has posted (`late`: found after it was declared lost). */
+function afterPosted(hold: HoldRow, movement: MovementRow, late = false): { remaining: string; state: StaffHoldState } {
+  // A place found in the book after it was declared lost brings its refused hold back with everything it holds.
+  if (movement.kind === 'place') return { remaining: late ? movement.amount : hold.remaining, state: 'active' };
   const left = parseAmount(hold.remaining) - parseAmount(movement.amount);
   const remaining = formatAmount(left < 0n ? 0n : left);
   if (movement.kind === 'confirm') return { remaining, state: 'confirmed' };
@@ -302,7 +338,7 @@ export class StaffHoldDesk {
           const { hold } = locked;
           if (!HOLDING.includes(hold.state) || hold.expiresAt === null || hold.expiresAt > this.iso()) return null;
           if (inFlight(locked.movements) || parseAmount(hold.remaining) <= 0n) return null;
-          if (locked.movements.some((m) => m.cause === 'expiry' && m.status === 'refused')) return null;
+          if (expiryBlocked(locked.movements)) return null;
           const n = locked.movements.filter((m) => m.cause === 'expiry').length + 1;
           return locked.addMovement({
             kind: 'release',
@@ -338,21 +374,69 @@ export class StaffHoldDesk {
     const store = this.store();
     this.ledger();
     let settled = 0;
-    for (const holdNo of await store.unsettled(limit)) {
+    for (const holdNo of await store.unsettled(this.iso(), limit)) {
       try {
-        const open = await store.lock(
-          holdNo,
-          async (locked) => locked.movements.find((m) => m.status === 'settling' || m.status === 'pending_retry') ?? null,
-        );
-        if (!open) continue;
-        if (inDoubt(open)) await this.readBack(holdNo, open);
-        else await this.drive(holdNo, open.requestKey);
+        const found = await store.lock(holdNo, async (locked) => {
+          const open = locked.movements.find((m) => m.status === 'settling' || m.status === 'pending_retry');
+          if (!open) return null;
+          // Looked at now: the next tick starts with the movements looked at longest ago.
+          await locked.check(open.requestKey, this.iso());
+          return { hold: locked.hold, open };
+        });
+        if (!found) continue;
+        const { hold, open } = found;
+        if (inDoubt(open)) await this.readBack(hold, open);
+        else if (retryDue(open, this.deps.now().getTime())) await this.drive(holdNo, open.requestKey);
+        else continue;
         settled += 1;
       } catch (err) {
         this.deps.onWorkerError?.(holdNo, err);
       }
     }
     return settled;
+  }
+
+  /**
+   * Read again the keys of movements declared `ledger.post_lost` in the last day, each at most every 10 minutes. A post
+   * found in the book under its key, from this module with this movement's reason, is recorded as posted after all: a
+   * refused place brings its hold back, and a release or confirm takes its amount off what is held. A key found holding
+   * another post is recorded `ledger.idempotency_conflict` and not read again.
+   *
+   * Known limit: a post that commits more than a day after it was declared lost is not found here. The ledger has no way
+   * yet to close a key so it can never post; until it does, this bounded read is the guard.
+   */
+  async recheckLost(limit = 20): Promise<number> {
+    const store = this.store();
+    const ledger = this.ledger();
+    const now = this.deps.now().getTime();
+    const due = await store.lost(
+      new Date(now - LOST_RECHECK_FOR_MS).toISOString(),
+      new Date(now - LOST_RECHECK_EVERY_MS).toISOString(),
+      limit,
+    );
+    let found = 0;
+    for (const { holdNo, requestKey } of due) {
+      try {
+        const read = await store.lock(holdNo, async (locked) => {
+          const m = locked.movements.find((r) => r.requestKey === requestKey);
+          if (!m || !isLost(m)) return null;
+          await locked.check(requestKey, this.iso());
+          return { request: this.request(locked.hold, m), m };
+        });
+        if (!read) continue;
+        const booked = await ledger.findByKey(read.m.ledgerKey);
+        if (!booked) continue;
+        // Another post holds the key: this body can never post under it, so it is settled for good and not read again.
+        const outcome: Omit<AttemptOutcome, 'at'> = isOwnPost(booked, read.request)
+          ? { status: 'posted', uncertain: true, txId: booked.txId, code: null }
+          : { status: 'refused', uncertain: true, txId: null, code: LEDGER_KEY_TAKEN };
+        await this.record(holdNo, requestKey, outcome, undefined, true);
+        if (outcome.status === 'posted') found += 1;
+      } catch (err) {
+        this.deps.onWorkerError?.(holdNo, err);
+      }
+    }
+    return found;
   }
 
   /* ---------------------------------------------------------------- internals */
@@ -392,7 +476,9 @@ export class StaffHoldDesk {
   /** Drive a movement that has not settled, then answer with the hold as stored. */
   private async finish(holdNo: string, requestKey: string, replay: boolean): Promise<StaffHoldResult> {
     const found = await this.store().findByRequestKey(requestKey);
-    if (found && (found.movement.status === 'settling' || found.movement.status === 'pending_retry') && !inDoubt(found.movement)) {
+    const open = found && (found.movement.status === 'settling' || found.movement.status === 'pending_retry');
+    // A client asking again does not jump the retry wait: the worker sends it when it is due.
+    if (open && !inDoubt(found.movement) && retryDue(found.movement, this.deps.now().getTime())) {
       await this.drive(holdNo, requestKey);
     }
     const after = await this.store().lock(holdNo, async (locked) => ({
@@ -460,10 +546,21 @@ export class StaffHoldDesk {
    * bound has passed since the last send (it never will be: refused `ledger.post_lost`). Before the bound, a missing key
    * changes nothing.
    */
-  private async readBack(holdNo: string, open: MovementRow): Promise<void> {
-    const tx = await this.ledger().getTxByKey(open.ledgerKey);
-    if (tx) {
-      await this.record(holdNo, open.requestKey, { status: 'posted', uncertain: true, txId: tx.id, code: null });
+  private async readBack(hold: HoldRow, open: MovementRow): Promise<void> {
+    const holdNo = hold.holdNo;
+    const booked = await this.ledger().findByKey(open.ledgerKey);
+    if (booked) {
+      // A post from another module or for another reason is not this movement's.
+      if (!isOwnPost(booked, this.request(hold, open))) {
+        await this.record(
+          holdNo,
+          open.requestKey,
+          { status: 'refused', uncertain: true, txId: null, code: LEDGER_KEY_TAKEN },
+          open.attempts,
+        );
+        return;
+      }
+      await this.record(holdNo, open.requestKey, { status: 'posted', uncertain: true, txId: booked.txId, code: null });
       return;
     }
     const sentAt = Date.parse(open.lastAttemptAt ?? open.at);
@@ -471,16 +568,26 @@ export class StaffHoldDesk {
     await this.record(holdNo, open.requestKey, { status: 'refused', uncertain: true, txId: null, code: LEDGER_POST_LOST }, open.attempts);
   }
 
-  /** `sentTimes`: a key read back as missing proves nothing if another send went out under it after the read began. */
-  private async record(holdNo: string, requestKey: string, outcome: Omit<AttemptOutcome, 'at'>, sentTimes?: number): Promise<void> {
+  /**
+   * `sentTimes`: a key read back as missing proves nothing if another send went out under it after the read began.
+   * `late`: a movement declared lost may still become posted, and nothing else.
+   */
+  private async record(
+    holdNo: string,
+    requestKey: string,
+    outcome: Omit<AttemptOutcome, 'at'>,
+    sentTimes?: number,
+    late = false,
+  ): Promise<void> {
     await this.store().lock(holdNo, async (locked) => {
       const m = locked.movements.find((r) => r.requestKey === requestKey);
-      if (!m || (m.status !== 'settling' && m.status !== 'pending_retry')) return;
+      if (!m) return;
+      if (late ? !isLost(m) : m.status !== 'settling' && m.status !== 'pending_retry') return;
       if (sentTimes !== undefined && m.attempts !== sentTimes) return;
       const at = this.iso();
       if (outcome.status === 'posted') {
-        await locked.settle(requestKey, { ...outcome, at }, afterPosted(locked.hold, m));
-      } else if (outcome.status === 'refused' && m.kind === 'place') {
+        await locked.settle(requestKey, { ...outcome, at }, afterPosted(locked.hold, m, late));
+      } else if (outcome.status === 'refused' && m.kind === 'place' && !late) {
         await locked.settle(requestKey, { ...outcome, at }, { remaining: '0', state: 'refused' });
       } else {
         await locked.settle(requestKey, { ...outcome, at }, { remaining: locked.hold.remaining, state: locked.hold.state });

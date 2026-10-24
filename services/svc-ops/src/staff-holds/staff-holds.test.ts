@@ -115,12 +115,20 @@ class TestLedger implements StaffHoldLedger {
   timeouts = 0;
   /** Refuse the next post with this engine code. */
   refuseNext: string | null = null;
+  /** Fail this many times with a connection that was never made (the request never left the process). */
+  unsent = 0;
   /** Reads by key that fail, by key. */
   readFails = new Set<string>();
+  /** Every key read, in order. */
+  reads: string[] = [];
   posts = 0;
 
   async post(request: PostRequest): Promise<LedgerTx> {
     this.posts += 1;
+    if (this.unsent > 0) {
+      this.unsent -= 1;
+      throw new Error('fetch failed', { cause: { code: 'ECONNREFUSED' } });
+    }
     if (this.timeouts > 0) {
       this.timeouts -= 1;
       throw new Error('svc-ledger timed out');
@@ -139,9 +147,12 @@ class TestLedger implements StaffHoldLedger {
     return tx;
   }
 
-  async getTxByKey(key: string) {
+  /** The `txByKey` door: who booked the key, never the entries. */
+  async findByKey(key: string) {
+    this.reads.push(key);
     if (this.readFails.has(key)) throw new Error('svc-ledger read timed out');
-    return this.book.getTxByKey(key);
+    const tx = await this.book.getTxByKey(key);
+    return tx ? { txId: tx.id, module: tx.module, reason: tx.reason } : null;
   }
 
   async balance(account: Parameters<MemoryLedger['balance']>[0]) {
@@ -151,7 +162,9 @@ class TestLedger implements StaffHoldLedger {
 
 const SETTINGS: StaffHoldSettings = { confirmAccount: 'held-funds', expiryMaxHours: 24 };
 
-async function build(options: { settings?: StaffHoldSettings; store?: StaffHoldStore | null; ledger?: TestLedger | null } = {}) {
+async function build(
+  options: { settings?: StaffHoldSettings; store?: StaffHoldStore | null; ledger?: TestLedger | null; ticking?: boolean } = {},
+) {
   const ids = identity();
   const ledger = options.ledger === undefined ? new TestLedger() : options.ledger;
   if (ledger) {
@@ -166,7 +179,8 @@ async function build(options: { settings?: StaffHoldSettings; store?: StaffHoldS
     ledger: ledger ?? undefined,
     approvals: ids,
     settings: options.settings ?? SETTINGS,
-    now: () => new Date(clock),
+    // `ticking`: every reading of the clock is a millisecond later, as in a running process.
+    now: () => new Date(options.ticking ? clock++ : clock),
     onWorkerError: (holdNo) => errors.push(holdNo),
   });
   const router = createOpsRouter(new OpsService(), undefined, { approvals: ids, staffHolds: desk });
@@ -330,7 +344,7 @@ describe('staff holds on funds (OPS-accounts-desk-01)', () => {
   });
 
   it('under the posting freeze the place waits as pending_retry under the same key, and posts once the freeze lifts', async () => {
-    const { caller, ledger, desk } = await build();
+    const { caller, ledger, desk, advance } = await build();
     ledger.frozen = true;
     const c = await caller();
     const waiting = await c.staffHolds.place(place());
@@ -338,6 +352,9 @@ describe('staff holds on funds (OPS-accounts-desk-01)', () => {
     expect(waiting.hold.movements[0]).toMatchObject({ status: 'pending_retry', code: 'ledger.frozen', idempotencyKey: 'ops:hold:1' });
     await expect(c.staffHolds.release(release(identity(), '1', '1'))).rejects.toThrow(/ops\.hold_state_illegal/);
     ledger.frozen = false;
+    // A movement turned back waits 5 s after its first send before it is sent again.
+    expect(await desk.resolve()).toBe(0);
+    advance(5_000);
     expect(await desk.resolve()).toBe(1);
     const [hold] = (await c.staffHolds.list({ userId: CUSTOMER })).holds;
     expect(hold).toMatchObject({ state: 'active', movements: [{ status: 'posted', idempotencyKey: 'ops:hold:1' }] });
@@ -424,6 +441,183 @@ describe('staff holds on funds (OPS-accounts-desk-01)', () => {
     const holds = (await c.staffHolds.list({ userId: CUSTOMER })).holds;
     expect(holds.find((h) => h.holdNo === '1')).toMatchObject({ state: 'placing' });
     expect(holds.find((h) => h.holdNo === '2')).toMatchObject({ state: 'refused' });
+  });
+
+  it('a request that never left waits longer after each send, up to a minute, then posts once under the same key', async () => {
+    const { caller, ledger, desk, advance } = await build();
+    ledger.unsent = 4;
+    const c = await caller();
+    const waiting = await c.staffHolds.place(place());
+    expect(waiting.hold.movements[0]).toMatchObject({ status: 'pending_retry', code: 'ledger.post_unsent' });
+    // Sends 2 to 5 wait 5, 10, 20 and 40 seconds after the one before; a tick before then sends nothing.
+    for (const wait of [5_000, 10_000, 20_000, 40_000]) {
+      advance(wait - 1_000);
+      await desk.resolve();
+      const before = ledger.posts;
+      advance(1_000);
+      await desk.resolve();
+      expect(ledger.posts).toBe(before + 1);
+    }
+    expect((await c.staffHolds.list({ userId: CUSTOMER })).holds[0]).toMatchObject({ state: 'active' });
+    expect(ledger.posts).toBe(5);
+    expect(await ledger.balance(held('1'))).toBe('40');
+  });
+
+  it('the worker starts each tick with the movements it looked at longest ago, so a long queue never starves its tail', async () => {
+    const { caller, ledger, desk, advance } = await build({ ticking: true });
+    const c = await caller();
+    ledger.timeouts = 3;
+    await c.staffHolds.place(place('10'));
+    await c.staffHolds.place(place('10', { idempotencyKey: 'console:place:0002' }));
+    await c.staffHolds.place(place('10', { idempotencyKey: 'console:place:0003' }));
+    // Two a tick, three waiting: each is read in turn, and none waits more than one tick.
+    for (let i = 0; i < 3; i++) {
+      advance(5_000);
+      await desk.resolve(2);
+    }
+    expect(ledger.reads).toEqual(['ops:hold:1', 'ops:hold:2', 'ops:hold:3', 'ops:hold:1', 'ops:hold:2', 'ops:hold:3']);
+  });
+
+  it('a client asking again does not jump the retry wait, and a movement not yet due takes no place in the worker’s tick', async () => {
+    const { caller, ledger, desk, advance } = await build();
+    ledger.frozen = true;
+    const c = await caller();
+    await c.staffHolds.place(place());
+    const asked = () => c.staffHolds.place(place());
+    expect(await asked()).toMatchObject({ outcome: 'settling' });
+    expect(await asked()).toMatchObject({ outcome: 'settling' });
+    expect(ledger.posts).toBe(1);
+    expect(await desk.resolve()).toBe(0);
+    advance(5_000);
+    expect(await asked()).toMatchObject({ outcome: 'settling' });
+    expect(ledger.posts).toBe(2);
+    // The second wait is 10 s, so a tick 5 s later sends nothing.
+    advance(5_000);
+    expect(await desk.resolve()).toBe(0);
+    expect(ledger.posts).toBe(2);
+  });
+
+  it('a key that holds another module’s post is not taken as the hold’s: the place is refused and nothing is held', async () => {
+    const { caller, ledger, desk } = await build();
+    const foreign = recipes.deposit({ userId: CUSTOMER, assetId: 'USD', amount: parseAmount('1'), rail: 'bank-sandbox', railRef: 'dep-2' });
+    await ledger.book.post({ ...foreign, idempotencyKey: 'ops:hold:1' });
+    ledger.timeouts = 1;
+    const c = await caller();
+    expect(await c.staffHolds.place(place())).toMatchObject({ outcome: 'settling' });
+    await desk.resolve();
+    const [hold] = (await c.staffHolds.list({ userId: CUSTOMER })).holds;
+    expect(hold).toMatchObject({ state: 'refused', movements: [{ status: 'refused', code: 'ledger.idempotency_conflict', txId: null }] });
+    expect(await ledger.balance(held('1'))).toBe('0');
+  });
+
+  it('a place that lands after it was declared lost is found on a later read, and the hold comes back with all it holds', async () => {
+    const { caller, ledger, desk, advance, ids } = await build();
+    ledger.timeouts = 1;
+    const c = await caller();
+    await c.staffHolds.place(place());
+    advance(8 * 60_000);
+    await desk.resolve();
+    expect((await c.staffHolds.list({ userId: CUSTOMER })).holds[0]).toMatchObject({ state: 'refused', remaining: '0' });
+    // The post was queued, not dead: it commits under its key after the bound.
+    await ledger.book.post(recipes.staffHoldPlace({ holdNo: '1', userId: CUSTOMER, assetId: 'USD', amount: parseAmount('40') }));
+    // Not read again before 10 minutes have passed since it was declared lost.
+    expect(await desk.recheckLost()).toBe(0);
+    advance(10 * 60_000);
+    expect(await desk.recheckLost()).toBe(1);
+    const [hold] = (await c.staffHolds.list({ userId: CUSTOMER })).holds;
+    expect(hold).toMatchObject({ state: 'active', remaining: '40', movements: [{ status: 'posted', code: null }] });
+    expect(hold!.movements[0]!.txId).toBeTruthy();
+    // The held funds are within reach again: a founder release gives them back.
+    expect(await c.staffHolds.release(release(ids, '1', '40.00'))).toMatchObject({ outcome: 'done', hold: { state: 'released' } });
+    expect(await ledger.balance(held('1'))).toBe('0');
+    expect(await ledger.balance(available())).toBe('100');
+  });
+
+  it('a lost release found later takes its amount off the hold; a lost movement still missing after a day is no longer read', async () => {
+    const { caller, ledger, desk, advance, ids } = await build();
+    const c = await caller();
+    await c.staffHolds.place(place('40'));
+    ledger.timeouts = 1;
+    await c.staffHolds.release(release(ids, '1', '15'));
+    advance(8 * 60_000);
+    await desk.resolve();
+    expect((await c.staffHolds.list({ userId: CUSTOMER })).holds[0]).toMatchObject({ state: 'active', remaining: '40' });
+    await ledger.book.post(
+      recipes.staffHoldRelease({
+        holdNo: '1',
+        userId: CUSTOMER,
+        assetId: 'USD',
+        amount: parseAmount('15'),
+        releaseNo: '1',
+        cause: { kind: 'approval', approvalId: 'ap_1' },
+      }),
+    );
+    advance(10 * 60_000);
+    expect(await desk.recheckLost()).toBe(1);
+    expect((await c.staffHolds.list({ userId: CUSTOMER })).holds[0]).toMatchObject({ state: 'partially_released', remaining: '25' });
+    expect(await ledger.balance(held('1'))).toBe('25');
+
+    ledger.timeouts = 1;
+    await c.staffHolds.place(place('5', { idempotencyKey: 'console:place:0002' }));
+    advance(8 * 60_000);
+    await desk.resolve();
+    ledger.reads = [];
+    advance(25 * 3_600_000);
+    expect(await desk.recheckLost()).toBe(0);
+    expect(ledger.reads).toEqual([]);
+  });
+
+  it('a lost movement whose key turns out to hold another post is settled as such and not read again', async () => {
+    const { caller, ledger, desk, advance } = await build();
+    ledger.timeouts = 1;
+    const c = await caller();
+    await c.staffHolds.place(place());
+    advance(8 * 60_000);
+    await desk.resolve();
+    const foreign = recipes.deposit({ userId: CUSTOMER, assetId: 'USD', amount: parseAmount('1'), rail: 'bank-sandbox', railRef: 'dep-3' });
+    await ledger.book.post({ ...foreign, idempotencyKey: 'ops:hold:1' });
+    advance(10 * 60_000);
+    expect(await desk.recheckLost()).toBe(0);
+    expect((await c.staffHolds.list({ userId: CUSTOMER })).holds[0]).toMatchObject({
+      state: 'refused',
+      movements: [{ status: 'refused', code: 'ledger.idempotency_conflict' }],
+    });
+    ledger.reads = [];
+    advance(10 * 60_000);
+    await desk.recheckLost();
+    expect(ledger.reads).toEqual([]);
+  });
+
+  it('an expiry refused for a stale amount is tried again, for the corrected amount, once a lost release is found', async () => {
+    const { caller, ledger, desk, advance, ids } = await build();
+    const c = await caller();
+    await c.staffHolds.place(place('40', { expiresInHours: 1 }));
+    ledger.timeouts = 1;
+    await c.staffHolds.release(release(ids, '1', '15'));
+    advance(8 * 60_000);
+    await desk.resolve();
+    // The release was queued, not dead.
+    await ledger.book.post(
+      recipes.staffHoldRelease({
+        holdNo: '1',
+        userId: CUSTOMER,
+        assetId: 'USD',
+        amount: parseAmount('15'),
+        releaseNo: '1',
+        cause: { kind: 'approval', approvalId: 'ap_1' },
+      }),
+    );
+    advance(60 * 60_000);
+    // The expiry release is sized from the desk's 40; the ledger holds 25 and refuses it.
+    expect(await desk.expireDue()).toBe(1);
+    expect(await desk.expireDue()).toBe(0);
+    advance(1_000);
+    expect(await desk.recheckLost()).toBe(1);
+    expect((await c.staffHolds.list({ userId: CUSTOMER })).holds[0]).toMatchObject({ state: 'partially_released', remaining: '25' });
+    expect(await desk.expireDue()).toBe(1);
+    expect((await c.staffHolds.list({ userId: CUSTOMER })).holds[0]).toMatchObject({ state: 'expired', remaining: '0' });
+    expect(await ledger.balance(held('1'))).toBe('0');
+    expect(await ledger.balance(available())).toBe('100');
   });
 
   it('a retried place answers from the stored hold after the owner changes the expiry setting; a different expiry is a conflict', async () => {
