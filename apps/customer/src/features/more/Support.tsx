@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import { usePreferences } from '../../shared/preferences';
 import { useResource } from '../../shared/resource';
@@ -9,7 +9,7 @@ import { useApi, useSession } from '../session/session';
 import { t as copyText } from './copy';
 import { Details, Read, Select, useAction } from './common';
 import { SupportHelpArticles } from './SupportHelpArticles';
-import { CustomerStatusBadge, RequestNotFound, SupportRequest } from './SupportRequest';
+import { CustomerStatusBadge, RequestNotFound, SupportAddressUnknown, SupportRequest } from './SupportRequest';
 import { navigate } from '../../app/location';
 import { deskCopy } from './support-desk-copy';
 import {
@@ -46,10 +46,11 @@ const categoryLabel = (value: string): string =>
   value in CATEGORY_KEYS ? copyText(CATEGORY_KEYS[value as keyof typeof CATEGORY_KEYS]) : value;
 
 /** The page title for each support address. */
-export function supportPageTitleKey(route: SupportRoute): 'pageNewRequest' | 'pageMyRequests' | 'pageRequest' | null {
+export function supportPageTitleKey(route: SupportRoute): 'pageNewRequest' | 'pageMyRequests' | 'pageRequest' | 'pageUnknown' | null {
   if (route.view === 'new') return 'pageNewRequest';
   if (route.view === 'requests') return 'pageMyRequests';
   if (route.view === 'request' || route.view === 'badRequest') return 'pageRequest';
+  if (route.view === 'unknown') return 'pageUnknown';
   return null;
 }
 
@@ -64,10 +65,14 @@ export function Support({ path }: { path: string }) {
     { userId } = useSession();
   const url = new URL(path, location.origin);
   const route = supportRoute(url.pathname, url.search);
-  const view: View = route.view === 'new' ? 'new' : route.view === 'help' ? 'help' : 'requests';
-  // What the create key recovered: the stored request to open, or null when that send never reached the service.
+  const view: View = route.view === 'new' ? 'new' : route.view === 'help' || route.view === 'unknown' ? 'help' : 'requests';
+  // Replies, closing, rating, attaching and article feedback share one action with no recovery lookup, as before.
+  const action = useAction('support');
+  // A new request has its own action, because only its key can be read back (support.createdByRequest): a lost answer is
+  // recovered by that read, never by sending again. `recovered` holds what the read found: the stored request to open, or
+  // null when that send never reached the service.
   const recovered = useRef<Ticket | null | undefined>(undefined);
-  const action = useAction('support', {
+  const createAction = useAction('support-create', {
     recover: async (reference) => {
       const read = await api.query(
         'support',
@@ -85,11 +90,16 @@ export function Support({ path }: { path: string }) {
       recovered.current = undefined;
       reloadRequests();
       if (found) navigate(supportRequestHref(found.id));
-      else if (found === null) setNotReached(true);
+      else if (found === null) setNotReached(location.pathname + location.search);
     },
   });
   const [followUp, setFollowUp] = useState<Ticket | null>(null),
-    [notReached, setNotReached] = useState(false);
+    // The address where the "that send did not reach us" notice belongs; it goes once the person moves on.
+    [notReached, setNotReached] = useState<string | null>(null);
+  // A follow-up draft belongs to the form it was started for: leaving the form by any way (a tab, Back, a link) drops it.
+  useEffect(() => {
+    if (route.view !== 'new') setFollowUp(null);
+  }, [route.view]);
   const limit = 200;
   const tickets = useResource(
     (signal) =>
@@ -114,17 +124,8 @@ export function Support({ path }: { path: string }) {
   const labels = Object.fromEntries(VIEWS.map((id) => [id, copy.t(VIEW_KEY[id])]));
   return (
     <div className="support-desk">
-      <Tabs
-        items={VIEWS}
-        value={view}
-        onChange={(next) => {
-          if (next !== 'new') setFollowUp(null);
-          navigate(VIEW_HREF[next as View]);
-        }}
-        label={copy.t('tabsLabel')}
-        labels={labels}
-      />
-      {view === 'help' && <SupportHelpArticles action={action} onStartRequest={() => navigate(VIEW_HREF.new)} />}
+      <Tabs items={VIEWS} value={view} onChange={(next) => navigate(VIEW_HREF[next as View])} label={copy.t('tabsLabel')} labels={labels} />
+      {route.view === 'help' && <SupportHelpArticles action={action} onStartRequest={() => navigate(VIEW_HREF.new)} />}
       {route.view === 'request' && (
         <SupportRequest
           key={route.id}
@@ -139,6 +140,7 @@ export function Support({ path }: { path: string }) {
         />
       )}
       {route.view === 'badRequest' && <RequestNotFound />}
+      {route.view === 'unknown' && <SupportAddressUnknown />}
       {route.view === 'requests' && (
         <Read resource={tickets.resource} retry={tickets.reload}>
           {(rows) => (
@@ -154,7 +156,7 @@ export function Support({ path }: { path: string }) {
       {route.view === 'new' && (
         <NewRequest
           key={`${userId}:${route.subject}`}
-          action={action}
+          action={createAction}
           subject={route.subject}
           follows={followUp}
           onClearFollows={() => setFollowUp(null)}
@@ -165,13 +167,14 @@ export function Support({ path }: { path: string }) {
           }}
         />
       )}
-      {notReached && (
+      {notReached === path && (
         <p className="notice" role="status" data-testid="support-create-not-reached">
           {copy.t('createNotReached')}
         </p>
       )}
-      {action.feedback}
+      {route.view === 'new' ? createAction.feedback : action.feedback}
       {action.dialog}
+      {createAction.dialog}
     </div>
   );
 }

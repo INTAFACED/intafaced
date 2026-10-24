@@ -206,6 +206,8 @@ describe('opening one request from an address', () => {
     expect(supportRoute('/support/new', `?subject=${'x'.repeat(300)}`)).toEqual({ view: 'new', subject: 'x'.repeat(200) });
     for (const bad of ['/support/tickets/abc', '/support/tickets/%E0%A4%A', `/support/tickets/${ID}x`])
       expect(supportRoute(bad, '')).toEqual({ view: 'badRequest' });
+    for (const other of ['/support/ticket', '/support/foo', `/support/tickets/${ID}/comments`])
+      expect(supportRoute(other, '')).toEqual({ view: 'unknown' });
   });
   it('drafts the form address from search words, and the form with none', () => {
     expect(supportNewHref('  lost phone ')).toBe('/support/new?subject=lost+phone');

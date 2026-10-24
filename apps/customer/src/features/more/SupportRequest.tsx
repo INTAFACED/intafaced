@@ -75,6 +75,23 @@ export function RequestNotFound() {
   );
 }
 
+/** An address under /support/ that is none of the desk's own: it says so instead of opening the help articles. */
+export function SupportAddressUnknown() {
+  const copy = deskCopy.useCopy();
+  return (
+    <EmptyState
+      title={copy.t('unknownAddressTitle')}
+      action={
+        <a className="button button--secondary" href="/support">
+          {copy.t('openSupport')}
+        </a>
+      }
+    >
+      {copy.t('unknownAddressBody')}
+    </EmptyState>
+  );
+}
+
 /** One request: what was asked, every reply, the history, and the controls to reply, close, rate and attach a file. */
 export function SupportRequest({
   id,

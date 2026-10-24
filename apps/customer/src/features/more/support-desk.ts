@@ -187,9 +187,17 @@ export function requestFromSearch(search: string): string | null {
 
 const SUBJECT_MAX = 200;
 
-/** Which part of the support desk an address opens. An address under /support/tickets/ that is not an id opens no request. */
+/**
+ * Which part of the support desk an address opens. An address under /support/tickets/ that is not an id opens no request,
+ * and any other address under /support/ is none of the desk's own.
+ */
 export type SupportRoute =
-  { view: 'help' } | { view: 'new'; subject: string } | { view: 'requests' } | { view: 'request'; id: string } | { view: 'badRequest' };
+  | { view: 'help' }
+  | { view: 'new'; subject: string }
+  | { view: 'requests' }
+  | { view: 'request'; id: string }
+  | { view: 'badRequest' }
+  | { view: 'unknown' };
 
 export function supportRoute(pathname: string, search: string): SupportRoute {
   const path = pathname.replace(/\/+$/, '') || '/';
@@ -206,6 +214,7 @@ export function supportRoute(pathname: string, search: string): SupportRoute {
     }
     return REQUEST_ID.test(id) ? { view: 'request', id: id.toLowerCase() } : { view: 'badRequest' };
   }
+  if (path !== '/support') return { view: 'unknown' };
   const legacy = requestFromSearch(search);
   return legacy ? { view: 'request', id: legacy } : { view: 'help' };
 }

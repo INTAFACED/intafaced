@@ -177,6 +177,11 @@ export class SupportError extends Error {
  * foreign ticket with `not_found` rather than a forbidden is that the caller
  * cannot tell the two apart. One construction site, so they cannot drift again.
  */
+/** Resolved and closed requests are finished: they wait on nobody and read as solved to their owner. */
+function isFinished(status: SupportTicket['status']): boolean {
+  return status === 'resolved' || status === 'closed';
+}
+
 function ticketNotFound(): SupportError {
   return new SupportError('ticket not found', 'support.not_found');
 }
@@ -565,29 +570,30 @@ export class SupportService implements SupportContract {
       } | null;
       const id = receipt?.ticket?.id;
       if (typeof id !== 'string') return null;
-      const ticket = await this.store.findById(id);
-      if (!ticket || ticket.userId !== input.userId) return null;
-      return (await this.withCustomerStatus([ticket]))[0]!;
+      // The owner's own read, so a merged request says what it was merged into, exactly as `get` does.
+      try {
+        return await this.getTicket({ userId: input.userId, ticketId: id });
+      } catch (err) {
+        if (err instanceof SupportError && err.code === 'support.not_found') return null;
+        throw err;
+      }
     });
   }
 
   /** Each ticket with what its owner reads as its status: whose turn it is, from the lifecycle facts. */
   private async withCustomerStatus(tickets: SupportTicket[]): Promise<SupportTicket[]> {
-    const waiting = new Set(
-      (await this.lifecycle.awaitingCustomer(tickets.filter((t) => t.status !== 'resolved' && t.status !== 'closed').map((t) => t.id))).map(
-        (row) => row.ticketId,
-      ),
-    );
+    const open = tickets.filter((t) => !isFinished(t.status)).map((t) => t.id);
+    const waiting = new Set((await this.lifecycle.awaitingCustomer(open)).map((row) => row.ticketId));
     return tickets.map((ticket) => ({
       ...ticket,
-      customerStatus:
-        ticket.status === 'resolved' || ticket.status === 'closed' ? 'solved' : waiting.has(ticket.id) ? 'awaiting_reply' : 'open',
+      customerStatus: isFinished(ticket.status) ? 'solved' : waiting.has(ticket.id) ? 'awaiting_reply' : 'open',
     }));
   }
 
   /**
    * How many of the caller's own requests wait on them, and which has waited longest. A count and one pointer, not a list,
-   * so it needs no page size; the ticket itself never carries who it waits on. Finished requests wait on nobody.
+   * so it needs no page size. The owner's ticket reads say only whose turn it is (`customerStatus`), never the desk's
+   * waiting side or since. Finished requests wait on nobody.
    */
   async awaitingMine(input: { userId: string }): Promise<SupportAwaitingMine> {
     return withSupportSpan('support.awaitingMine', { op: 'awaitingMine' }, async () => {
