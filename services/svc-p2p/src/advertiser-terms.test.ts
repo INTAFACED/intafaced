@@ -234,7 +234,9 @@ describe('svc-p2p advertiser terms and the sell balance at post (P-ads-merchant-
     const ad = sellAd({ advertiserTermsVersion: VERSION });
     const posted = await c.offers.create(ad);
     // The maker's coins leave (a withdrawal elsewhere): a new post of that size is now refused.
-    await ledger.post(recipes.escrowLock({ tradeId: crypto.randomUUID(), sellerId: MAKER, assetId: ASSET, amount: parseAmount('60') }));
+    await ledger.post(
+      recipes.escrowLock({ tradeId: crypto.randomUUID(), sellerId: MAKER, buyerId: OTHER, assetId: ASSET, amount: parseAmount('60') }),
+    );
     await expect(c.offers.create(sellAd())).rejects.toMatchObject({ cause: expect.objectContaining({ code: 'p2p.insufficient_balance' }) });
     // The lost reply's retry still answers the ad it posted, under a newer terms version too.
     expect((await c.offers.create(ad)).id).toBe(posted.id);
@@ -247,7 +249,9 @@ describe('svc-p2p advertiser terms and the sell balance at post (P-ads-merchant-
     await caller(p2p).merchants.acceptAdvertiserTerms({ version: VERSION });
     const offerId = adId();
     const posted = await p2p.createOffer({ ...serviceAd(), offerId, totalAmt: parseAmount('100') });
-    await ledger.post(recipes.escrowLock({ tradeId: crypto.randomUUID(), sellerId: MAKER, assetId: ASSET, amount: parseAmount('60') }));
+    await ledger.post(
+      recipes.escrowLock({ tradeId: crypto.randomUUID(), sellerId: MAKER, buyerId: OTHER, assetId: ASSET, amount: parseAmount('60') }),
+    );
     const terms = new P2pService(sql, ledger, new MemoryEventBus('svc-p2p'), {
       instruments,
       feeBps: 0,
