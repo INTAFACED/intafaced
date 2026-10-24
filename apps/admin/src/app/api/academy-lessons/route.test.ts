@@ -87,6 +87,7 @@ const LESSON = {
     },
   ],
   importMaxBytes: 8192,
+  draft: null,
 };
 
 describe('academy lesson editor BFF', () => {
@@ -164,5 +165,18 @@ describe('academy lesson editor BFF', () => {
     expect(res.status).toBe(400);
     expect(await res.json()).toMatchObject({ code: 'academy.import_too_large', title: 'The file is over the size limit' });
     expect(sent(c, 'admin.importLesson').document).toHaveLength(40_000);
+  });
+
+  it('the model path comes back as an owner decision by name; accept sends the draft it names', async () => {
+    configure();
+    const c = upstream({
+      'admin.assistantDraft': () => refusal('owner.decision', 412),
+      'admin.decideDraft': () => ok(LESSON),
+    });
+    const res = await POST(post({ op: 'draft', itemId: ITEM_ID, revision: 1, path: 'model' }));
+    expect(res.status).toBe(412);
+    expect(await res.json()).toMatchObject({ ok: false, code: 'owner.decision', title: 'Waiting for an owner decision' });
+    await POST(post({ op: 'decide', itemId: ITEM_ID, basedOnRevision: 1, kind: 'template', decision: 'accept' }));
+    expect(sent(c, 'admin.decideDraft')).toEqual({ itemId: ITEM_ID, basedOnRevision: 1, kind: 'template', decision: 'accept' });
   });
 });

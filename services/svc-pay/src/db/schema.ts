@@ -526,6 +526,12 @@ export const paymentLinks = pay.table(
      */
     uses: integer('uses').notNull().default(0),
     expiresAt: tstz('expires_at'),
+    /** Payer-facing words after deactivate. Null means none was stored. */
+    inactiveMessage: text('inactive_message'),
+    /** After-payment message. Mutually exclusive with confirmationUrl. */
+    confirmationMessage: text('confirmation_message'),
+    /** After-payment https redirect. Mutually exclusive with confirmationMessage. */
+    confirmationUrl: text('confirmation_url'),
     createdAt: createdAt(),
   },
   (t) => [

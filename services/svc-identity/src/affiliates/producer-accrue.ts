@@ -53,6 +53,8 @@ export type AffiliateProducerAccrueDeps = {
   readonly freeze: { frozenIds(): Promise<ReadonlySet<string>> };
   readonly accruals: AccrualStore;
   readonly accrualTierLaw: AccrualTierLaw | undefined;
+  /** Stamps the payer's latest fee event for the referral lapse (CM-referral-01 RF-4), whether or not it earns commission. */
+  readonly activity?: { recordFeeEvent(userId: string): Promise<void> };
 };
 
 /**
@@ -99,6 +101,8 @@ export function registerAffiliateProducerAccrue(app: FastifyInstance, deps: Affi
     }
 
     try {
+      // A fee event is activity even when it earns nothing (rates unset, a frozen referrer, a zero rate).
+      await deps.activity?.recordFeeEvent(body.userId);
       const parent = await deps.referral.loadParentMap();
       const frozen = await deps.freeze.frozenIds();
       const out = accrueTreeUnderRateAuthority({

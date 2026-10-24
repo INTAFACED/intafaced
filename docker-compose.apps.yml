@@ -1075,6 +1075,11 @@ services:
       BLUEPRINT_CREW_CAPACITY: ${BLUEPRINT_CREW_CAPACITY:-}
       BLUEPRINT_MENTOR_SHORTLIST_SIZE: ${BLUEPRINT_MENTOR_SHORTLIST_SIZE:-}
       BLUEPRINT_SEASON: ${BLUEPRINT_SEASON:-}
+      # Active shares per account and opener-list page size (MC-blueprint-01).
+      # Empty pass-through. Blank stays refuse-closed. 0 is a deliberate cap
+      # or an empty page. Never invent a count.
+      BLUEPRINT_SHARES_PER_OWNER: ${BLUEPRINT_SHARES_PER_OWNER:-}
+      BLUEPRINT_OPENS_LIST_LIMIT: ${BLUEPRINT_OPENS_LIST_LIMIT:-}
       # The card rasterizer. DELIBERATELY has no default: unset means this
       # deployment has no renderer, and the service says so with a typed code
       # while still serving the full vector card. A default pointing at a host
@@ -1882,6 +1887,9 @@ services:
       # invent one.
       INDEXER_BATCH_SIZE: ${INDEXER_BATCH_SIZE:-}
       INDEXER_EXPLORER_LIST_LIMIT: ${INDEXER_EXPLORER_LIST_LIMIT:-}
+      # No :-seconds: unset must not invent a drop window. tx.get refuses
+      # indexer.tx_drop_window_unset when a previously seen hash disappears.
+      INDEXER_TX_DROP_WINDOW_SECONDS: ${INDEXER_TX_DROP_WINDOW_SECONDS:-}
       INDEXER_INGEST_ENABLED: ${INDEXER_INGEST_ENABLED:-true}
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4013']

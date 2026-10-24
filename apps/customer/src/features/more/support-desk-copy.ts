@@ -158,6 +158,10 @@ export const deskCopy = defineCopy('support-desk', {
     'This request already holds as many of your replies as it can take, so this one was not sent. Start a new request instead.',
   refuseReplyChanged:
     'The request changed while you were writing, so this reply was not sent. Refresh the page, then send it again. Your words are still in the box.',
+  refuseFeedbackRate: 'You have rated many answers in a short time, so this vote was not kept. Try again later.',
+  refuseFeedbackOff: 'Rating answers is switched off in this build, so this vote was not kept.',
+  refuseFeedbackRequest: 'A support request from an answer needs a "No" vote and a few words about what was missing.',
+  refuseFeedbackLong: 'That comment is longer than 2,000 characters, so nothing was sent. Shorten it and send again.',
   // Help article feedback and related articles
   feedbackQuestion: 'Did this answer help?',
   feedbackYes: 'Yes, it helped',

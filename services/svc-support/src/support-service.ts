@@ -358,7 +358,7 @@ export class SupportService implements SupportContract {
     /** How many requests one bulk change may hold. Owner value; blank (null) refuses `support.bulk_cap_unset`. */
     private readonly bulkCap: number | null = null,
     /**
-     * SP-kb-03 owner values. A blank rate refuses a public vote. A blank model
+     * SP-kb-03 owner values. A blank rate refuses every vote, an account's or a public one. A blank model
      * refuses the answer panel. A blank search maximum leaves the contract bound.
      * The model string is never returned, logged or sent on.
      */
@@ -2137,7 +2137,14 @@ export class SupportService implements SupportContract {
     comment?: string;
     openRequest?: boolean;
   }): Promise<KbFeedbackVote> {
-    return this.recordFeedback(input);
+    // The owner's vote rate binds an account too: blank refuses and stores nothing.
+    return this.recordFeedback({ ...input, rate: this.feedbackRate() });
+  }
+
+  private feedbackRate(): { limit: number; windowSeconds: number } | 'unset' {
+    const limit = this.kbDesk.feedbackRateLimit;
+    const windowSeconds = this.kbDesk.feedbackRateWindowSeconds;
+    return limit != null && windowSeconds != null ? { limit, windowSeconds } : 'unset';
   }
 
   /**
@@ -2151,15 +2158,13 @@ export class SupportService implements SupportContract {
     helpful: boolean;
     clientRequestId: string;
   }): Promise<{ articleId: string; version: number; helpful: boolean }> {
-    const limit = this.kbDesk.feedbackRateLimit;
-    const windowSeconds = this.kbDesk.feedbackRateWindowSeconds;
     const vote = await this.recordFeedback({
       userId: readerActorId(input.readerToken),
       id: input.id,
       helpful: input.helpful,
       clientRequestId: input.clientRequestId,
       viewer: ANONYMOUS_KB_VIEWER,
-      rate: limit != null && windowSeconds != null ? { limit, windowSeconds } : 'unset',
+      rate: this.feedbackRate(),
     });
     return { articleId: vote.articleId, version: vote.version, helpful: vote.helpful };
   }
@@ -2232,6 +2237,8 @@ export class SupportService implements SupportContract {
   }): Promise<KbFeedbackVote> {
     return withSupportSpan('support.kbFeedback', { op: 'kbFeedback' }, async () => {
       this.requireClientRequestId(input.clientRequestId);
+      // A blank owner rate refuses every vote, a repeat of an earlier one too: rating is switched off.
+      if (input.rate === 'unset') throw new SupportError('the feedback rate limit is not set', SUPPORT_FEEDBACK_RATE_LIMIT_UNSET);
       const comment = input.comment?.trim() ?? '';
       if (comment.length > FEEDBACK_COMMENT_MAX) {
         throw new SupportError('feedback comment is too long', 'support.feedback_comment_too_long');

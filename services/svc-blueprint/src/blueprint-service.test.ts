@@ -1,8 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import postgres from 'postgres';
-import { assertTestDatabase, postgresAvailable } from '@intafaced/db';
+import { createTestDatabase, postgresAvailable, type TestDatabase } from '@intafaced/db';
 import { describe, expect, it, beforeEach, afterAll } from 'vitest';
 import { MemoryEventBus, MemorySeenStore, idempotent } from '@intafaced/events';
 import { CARD_DIMENSIONS, cardRenderSchema, type BlueprintProfile, type CardRaster, type OnboardInput } from '@intafaced/contracts';
@@ -27,9 +26,13 @@ import { UnconfiguredCardRenderer, type CardRasterizeRequest, type CardRenderer 
  * `NeuralEngineClient` interface.
  */
 
-const URL = process.env.TEST_DATABASE_URL_BLUEPRINT ?? 'postgres://svc_blueprint:svc_blueprint@localhost:5433/intafaced_test';
+// createTestDatabase makes a whole database, so it connects as the test admin
+// (TEST_DATABASE_URL, which has CREATEDB), not as the svc_blueprint role.
+const raw = process.env.TEST_DATABASE_URL;
 const here = dirname(fileURLToPath(import.meta.url));
-const migration = readFileSync(join(here, '..', 'drizzle', '0000_blueprint_init.sql'), 'utf8');
+const migrations = ['0000_blueprint_init.sql', '0001_card_shares.sql'].map((name) =>
+  readFileSync(join(here, '..', 'drizzle', name), 'utf8'),
+);
 
 const uuid = (n: number) => `${String(n).padStart(8, '0')}-0000-4000-8000-000000000000`;
 
@@ -51,23 +54,15 @@ const USER_C = uuid(103);
  * letting turbo's "N successful" imply that everything did.
  * (`tooling/ci/skip-honesty-scan.mjs` fails a build that re-adds a private probe.)
  */
-const available = await postgresAvailable(URL);
+const available = raw ? await postgresAvailable(raw) : await postgresAvailable();
 
 if (!available) {
   describe.skip('svc-blueprint (Postgres unavailable — start docker compose)', () => {
     it('skipped', () => undefined);
   });
 } else {
-  const sql = postgres(URL, {
-    max: 8,
-    connection: { search_path: 'blueprint,public', application_name: 'svc-blueprint-test' },
-    onnotice: () => undefined,
-  });
-
-  // Owns its database, or does not run. Must precede the first migration.
-  await assertTestDatabase(sql, 'svc-blueprint');
-
-  await sql.unsafe(migration);
+  const db: TestDatabase = await createTestDatabase({ service: 'blueprint', ...(raw ? { url: raw } : {}), migrations });
+  const sql = db.sql;
 
   let bus: MemoryEventBus;
   let engine: MockNeuralEngine;
@@ -179,8 +174,8 @@ if (!available) {
 
   beforeEach(async () => {
     await sql`
-      TRUNCATE blueprint.mentor_matches, blueprint.match_runs, blueprint.crew_members,
-               blueprint.crews, blueprint.blueprints
+      TRUNCATE blueprint.card_opens, blueprint.card_shares, blueprint.mentor_matches, blueprint.match_runs,
+               blueprint.crew_members, blueprint.crews, blueprint.blueprints
       RESTART IDENTITY CASCADE
     `;
     bus = new MemoryEventBus('svc-blueprint');
@@ -191,7 +186,7 @@ if (!available) {
   });
 
   afterAll(async () => {
-    await sql.end({ timeout: 5 });
+    await db.drop();
   });
 
   // ── Onboarding ────────────────────────────────────────────────────────────
@@ -1022,6 +1017,8 @@ if (!available) {
         matchRuns: 0,
         mentorMatches: 0,
         emptiedCrews: 0,
+        shares: 0,
+        cardOpens: 0,
       });
       expect(bus.emitted('blueprintDeleted')).toHaveLength(1);
     });

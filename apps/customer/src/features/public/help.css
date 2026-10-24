@@ -204,3 +204,25 @@
   font-size: 13px;
   line-height: 22px;
 }
+
+.help__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.help__feedback {
+  display: grid;
+  gap: 12px;
+}
+
+.help__feedback textarea {
+  width: 100%;
+  font: inherit;
+}
+
+.help__check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

@@ -7,6 +7,8 @@ import {
   positiveAmountOf,
   type BookSide,
   type ChainBlock,
+  type ChainTx,
+  type ChainTxLog,
   type TakerSide,
 } from '../chain/source.js';
 import {
@@ -21,6 +23,7 @@ import {
   type UnwindOutcome,
 } from './store.js';
 import type { ExplorerBlockFact } from '../explorer/blocks.js';
+import type { IndexedExplorerTx } from '../explorer/tx.js';
 
 interface ExplorerFactRow {
   height: string;
@@ -124,6 +127,70 @@ export class PostgresProjectionStore implements ProjectionStore {
       LIMIT 1
     `;
     return row ? this.#fact(row) : null;
+  }
+
+  /** D-explorer-02. Null when this hash was never indexed. Orphans stay visible. */
+  async explorerTx(hash: string): Promise<IndexedExplorerTx | null> {
+    const id = hash.toLowerCase();
+    const [row] = await this.sql<ExplorerTxRow[]>`
+      SELECT t.hash, t.tx_index, t.from_address, t.to_address, t.value_wei::text AS value_wei,
+             t.nonce, t.gas_limit::text AS gas_limit, t.gas_price_wei::text AS gas_price_wei,
+             t.gas_consumed::text AS gas_consumed, t.receipt_status, t.revert_reason, t.input_data,
+             t.created_contract, b.status AS block_status
+      FROM explorer_txs t
+      JOIN blocks b ON b.chain_id = t.chain_id AND b.hash = t.block_hash
+      WHERE t.chain_id = ${this.chainId} AND t.hash = ${id}
+    `;
+    if (!row) return null;
+    const logs = await this.sql<ExplorerTxLogRow[]>`
+      SELECT log_index, address, topics, data
+      FROM explorer_tx_logs
+      WHERE chain_id = ${this.chainId} AND tx_hash = ${id}
+      ORDER BY log_index ASC
+    `;
+    let replacementHash: string | null = null;
+    if (row.block_status === 'orphaned') {
+      const [replacement] = await this.sql<Array<{ hash: string }>>`
+        SELECT t2.hash
+        FROM explorer_txs t2
+        JOIN blocks b2 ON b2.chain_id = t2.chain_id AND b2.hash = t2.block_hash
+        WHERE t2.chain_id = ${this.chainId}
+          AND t2.from_address = ${row.from_address}
+          AND t2.nonce = ${row.nonce}
+          AND t2.hash <> ${id}
+          AND b2.status = 'canonical'
+        ORDER BY b2.height DESC
+        LIMIT 1
+      `;
+      replacementHash = replacement?.hash ?? null;
+    }
+    const orphaned = row.block_status === 'orphaned';
+    return {
+      tx: txFromRow(row, logs),
+      blockStatus: orphaned ? 'orphaned' : 'canonical',
+      replacementHash,
+      orphaned: orphaned ? { reason: 'reorg' } : null,
+    };
+  }
+
+  /** First mempool sight. A repeat keeps the original time. */
+  async noteExplorerTxPending(hash: string, at: Date): Promise<void> {
+    const seen = at.toISOString();
+    await this.sql`
+      INSERT INTO explorer_tx_seen (chain_id, hash, first_seen_at)
+      VALUES (${this.chainId}, ${hash.toLowerCase()}, ${seen})
+      ON CONFLICT (chain_id, hash) DO NOTHING
+    `;
+  }
+
+  async explorerTxPendingSince(hash: string): Promise<Date | null> {
+    const [row] = await this.sql<Array<{ first_seen_at: Date | string }>>`
+      SELECT first_seen_at FROM explorer_tx_seen
+      WHERE chain_id = ${this.chainId} AND hash = ${hash.toLowerCase()}
+    `;
+    if (!row) return null;
+    const at = row.first_seen_at instanceof Date ? row.first_seen_at : new Date(row.first_seen_at);
+    return Number.isNaN(at.getTime()) ? null : at;
   }
 
   #fact(r: ExplorerFactRow): ExplorerBlockFact {
@@ -266,6 +333,8 @@ export class PostgresProjectionStore implements ProjectionStore {
           ON CONFLICT (chain_id, hash) DO NOTHING
         `;
       }
+
+      await writeExplorerTxs(tx, this.chainId, block);
 
       for (const event of block.events) {
         switch (event.kind) {
@@ -633,4 +702,106 @@ function toPosition(row: PositionRow): PositionRecord {
     blockHeight: Number(row.block_height),
     blockHash: row.block_hash,
   };
+}
+
+interface ExplorerTxRow {
+  hash: string;
+  tx_index: number;
+  from_address: string;
+  to_address: string | null;
+  value_wei: string;
+  nonce: number;
+  gas_limit: string;
+  gas_price_wei: string | null;
+  gas_consumed: string | null;
+  receipt_status: string;
+  revert_reason: string | null;
+  input_data: string;
+  created_contract: string | null;
+  block_status: string;
+}
+
+interface ExplorerTxLogRow {
+  log_index: number;
+  address: string;
+  topics: string;
+  data: string;
+}
+
+function weiColumn(value: string | null): bigint | null {
+  if (value === null) return null;
+  return BigInt(value);
+}
+
+function txFromRow(row: ExplorerTxRow, logs: readonly ExplorerTxLogRow[]): ChainTx {
+  if (row.receipt_status !== 'success' && row.receipt_status !== 'failed') {
+    throw new Error(`indexer.tx_status_unreadable: ${row.hash}`);
+  }
+  const parsedLogs: ChainTxLog[] = logs.map((log) => {
+    const topics = JSON.parse(log.topics) as unknown;
+    if (!Array.isArray(topics) || topics.some((topic) => typeof topic !== 'string')) {
+      throw new Error(`indexer.tx_log_unreadable: ${row.hash}`);
+    }
+    return { logIndex: log.log_index, address: log.address, topics, data: log.data };
+  });
+  return {
+    hash: row.hash,
+    index: row.tx_index,
+    from: row.from_address,
+    to: row.to_address,
+    valueWei: BigInt(row.value_wei),
+    nonce: row.nonce,
+    gasLimit: BigInt(row.gas_limit),
+    gasPriceWei: weiColumn(row.gas_price_wei),
+    gasConsumed: weiColumn(row.gas_consumed),
+    status: row.receipt_status,
+    revertReason: row.revert_reason,
+    input: row.input_data,
+    createdContract: row.created_contract,
+    logs: parsedLogs,
+  };
+}
+
+/**
+ * Replace this block's transaction rows. Absent `transactions` leaves them alone.
+ *
+ * Unwind only marks the block orphaned, so a hash this block re-includes still
+ * sits on the orphan. Delete that row here, before insert, or the primary key
+ * rolls the winning block back. A hash this block does not carry stays on the
+ * orphan, and its logs stay with it. Logs of a deleted row cascade.
+ */
+async function writeExplorerTxs(sql: TransactionSql, chainId: number, block: ChainBlock): Promise<void> {
+  if (!block.transactions) return;
+  const hashes = block.transactions.map((row) => row.hash.toLowerCase());
+  await sql`
+    DELETE FROM explorer_txs
+    WHERE chain_id = ${chainId}
+      AND (
+        block_hash = ${block.hash}
+        ${hashes.length > 0 ? sql`OR hash = ANY(${sql.array(hashes)}::text[])` : sql``}
+      )
+  `;
+  for (const row of block.transactions) {
+    await sql`
+      INSERT INTO explorer_txs (
+        chain_id, hash, block_hash, tx_index, from_address, to_address, value_wei, nonce,
+        gas_limit, gas_price_wei, gas_consumed, receipt_status, revert_reason, input_data, created_contract
+      ) VALUES (
+        ${chainId}, ${row.hash.toLowerCase()}, ${block.hash}, ${row.index}, ${row.from.toLowerCase()},
+        ${row.to === null ? null : row.to.toLowerCase()}, ${row.valueWei.toString()}, ${row.nonce},
+        ${row.gasLimit.toString()}, ${row.gasPriceWei === null ? null : row.gasPriceWei.toString()},
+        ${row.gasConsumed === null ? null : row.gasConsumed.toString()}, ${row.status}, ${row.revertReason},
+        ${row.input}, ${row.createdContract === null ? null : row.createdContract.toLowerCase()}
+      )
+    `;
+    for (const log of row.logs) {
+      await sql`
+        INSERT INTO explorer_tx_logs (chain_id, tx_hash, log_index, address, topics, data)
+        VALUES (
+          ${chainId}, ${row.hash.toLowerCase()}, ${log.logIndex}, ${log.address.toLowerCase()},
+          ${JSON.stringify(log.topics.map((topic) => topic.toLowerCase()))}, ${log.data}
+        )
+      `;
+    }
+  }
 }

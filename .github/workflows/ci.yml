@@ -168,6 +168,7 @@ jobs:
       - run: node tooling/ci/cross-package-reads.mjs --self-test
       - run: node tooling/ci/boundary-scan.mjs --self-test
       - run: node tooling/ci/why-red.mjs --self-test
+      - run: node tooling/ci/migration-check.mjs --self-test
       - id: cls
         name: Classify changed paths
         run: node tooling/ci/ci-affected.mjs --github-output
@@ -205,7 +206,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       # Same selection as the tests (tooling/ci/ci-affected.mjs): a run-everything change (and every push to main)
       # builds and typechecks the whole repo; any other change builds and typechecks the changed packages and their
-      # dependents, turbo's ^build covering their dependencies; docs only has nothing to build. Measured: the whole
+      # dependents, turbo's ^build covering their dependencies, plus what a selected reader's tests read (--build-filters:
+      # apps/admin's next build types its tests, which import other services' sources); docs only has nothing to build. Measured: the whole
       # repo took 3m50s to build plus 5m50s to typecheck, the slowest job of a PR run.
       - name: Build
         env:
@@ -217,7 +219,7 @@ jobs:
           if [ "$FULL" = true ]; then pnpm build
           elif [ "$AFFECTED" = true ]; then
             filters=()
-            while IFS= read -r f; do filters+=("--filter=$f"); done < <(node tooling/ci/ci-affected.mjs --filters)
+            while IFS= read -r f; do filters+=("--filter=$f"); done < <(node tooling/ci/ci-affected.mjs --build-filters)
             pnpm turbo run build "${filters[@]}"
           else echo "docs only: nothing to build"; fi
           } 2>&1 | tee "$RUNNER_TEMP/build.log"

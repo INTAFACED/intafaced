@@ -2,7 +2,8 @@
  * The late-attach window (CM-referral-01, ENGINE RF-2; J-campaigns-05 #4 and #5).
  *
  * A signed-in person may attach a referrer through a link only while their account is younger than the owner setting
- * `IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS`, measured on the server from the account's creation time. A blank window
+ * `IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS`, measured on the server from the account's creation time, or from the end
+ * of an earlier relationship that lapsed (RF-4; `attachWindowStart` in referral-lapse.ts). A blank window
  * refuses every link attach (`referral.attach_window_unset`) and writes nothing; a closed one refuses with
  * `referral.attach_window_closed`. A referrer named at sign-up completion is not subject to the window (RF-1).
  *

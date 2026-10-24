@@ -6,6 +6,7 @@ import { Button, Failure, Loading } from '../../shared/ui';
 import { useLocation } from '../../app/location';
 import { useSession } from '../session/session';
 import { invitationCopy as copy } from './invitation-copy';
+import { ReferrerChange } from './ReferrerChange';
 import {
   attachWindowSchema,
   currentReferrerFor,
@@ -47,6 +48,8 @@ const REFUSAL_COPY = {
   'referral.attach_window_closed': 'refusalWindowClosed',
   'referral.attach_window_unset': 'refusalWindowNotSet',
 } as const satisfies Record<ReferralRefusal, string>;
+/** A link that could not attach for these reasons can still be asked for through a reviewed change (J-campaigns-05 #5). */
+const REVIEWABLE = new Set<string>(['referral.attach_window_closed', 'referral.attach_window_unset', 'referral.already_set']);
 
 export function Invitation() {
   useLocation();
@@ -554,6 +557,14 @@ export function Invitation() {
               </div>
             )}
             <AttachWindowNote key={userId} />
+            <ReferrerChange
+              key={`${userId}:${latestReceipt?.record.localRef ?? ''}`}
+              offerToken={
+                parsed.success && latestReceipt && !latestReceipt.answer.ok && REVIEWABLE.has(latestReceipt.answer.code ?? '')
+                  ? parsed.data
+                  : null
+              }
+            />
             <a href="/uc/promotion" className="invitation__link text-link">
               {t('account')}
             </a>
@@ -590,7 +601,11 @@ function AttachWindowNote() {
               ? t('windowUnset')
               : t(resource.data.state === 'open' ? 'windowOpen' : 'windowClosed', { closesAt: when(resource.data.closesAt!) })}
           </p>
-          <p className="muted">{t('windowCreated', { createdAt: when(resource.data.accountCreatedAt) })}</p>
+          <p className="muted">
+            {resource.data.reopenedAt
+              ? t('windowReopened', { reopenedAt: when(resource.data.reopenedAt) })
+              : t('windowCreated', { createdAt: when(resource.data.accountCreatedAt) })}
+          </p>
         </>
       )}
     </div>

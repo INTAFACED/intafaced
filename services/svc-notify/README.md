@@ -452,6 +452,7 @@ _None._
 | `intafaced.p2p.escrow.released`           | `notify-p2p-escrow-released`      | Inbox rows when escrow releases to buyer                                                                     |
 | `intafaced.p2p.escrow.refunded`           | `notify-p2p-escrow-refunded`      | Inbox rows when escrow returns to seller                                                                     |
 | `intafaced.p2p.trade.disputed`            | `notify-p2p-trade-disputed`       | Inbox row for the opener only (no counterparty on payload)                                                   |
+| `intafaced.p2p.trade_fiat.sent`           | `notify-p2p-trade-fiat-sent`      | Inbox row `p2p.trade.fiat_sent` for the seller when the buyer marks the order paid                           |
 | `intafaced.identity.kyc.approved`         | `notify-kyc-approved`             | Inbox row when verification tier is granted                                                                  |
 | `intafaced.identity.rank.updated`         | `notify-rank-updated`             | Inbox row when rank changes                                                                                  |
 | `intafaced.token.stake.created`           | `notify-stake-created`            | Inbox row when a stake is locked                                                                             |

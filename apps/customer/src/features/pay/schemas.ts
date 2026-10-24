@@ -203,7 +203,11 @@ export const tradeDestinationSchema = z.object({
   fiatCurrency: z.string(),
   label: z.string(),
   details: z.record(z.string(), z.string()),
+  /** Each detail's label from the method schema, in its order. */
+  fields: z.array(z.object({ key: z.string(), label: z.string() })),
   attachedAt: z.string(),
+  /** The seller changed or removed this destination after the order was placed; the order still pays the details above. */
+  payeeChange: z.object({ kind: z.enum(['changed', 'removed']) }).nullable(),
 });
 export const moderationSchema = z.discriminatedUnion('status', [
   z.object({ status: z.literal('absent'), code: z.literal('p2p.moderation_unreachable') }),
@@ -567,6 +571,7 @@ export const webhookDeliverySchema = z.object({
 });
 export type Offer = z.infer<typeof offerSchema>;
 export type Trade = z.infer<typeof tradeSchema>;
+export type TradeDestination = z.infer<typeof tradeDestinationSchema>;
 export type OrderPage = z.infer<typeof orderPageSchema>;
 export type OrderTab = (typeof orderTabs)[number];
 export type OrderExport = z.infer<typeof orderExportSchema>;

@@ -59,6 +59,8 @@ import { AffiliateMembersLimitUnsetError, type ReferralService } from './affilia
 import { ShareError } from './affiliates/share-service.js';
 import type { ShareService } from './affiliates/share-service.js';
 import type { ReferralCodeService } from './affiliates/referral-code.js';
+import type { RebindRequest, ReferralRebindService } from './affiliates/referral-rebind.js';
+import type { ReferralLapse, ReferralLapseService } from './affiliates/referral-lapse.js';
 import { attachWindowStatus } from './affiliates/attach-window.js';
 import { FreezeError } from './affiliates/freeze-store.js';
 import { AffiliateFreezesLimitUnsetError, type FreezeService } from './affiliates/freeze-service.js';
@@ -169,12 +171,20 @@ function toTrpcError(err: unknown): TRPCError {
       case 'referral.invalid':
         return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
       case 'referral.attach_window_closed':
+      case 'referral.rebind_interested':
         return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
       case 'referral.attach_window_unset':
       case 'referral.code_length_unset':
+      case 'referral.lapse_period_unset':
         return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
       case 'referral.code_exhausted':
+      case 'referral.rebind_open':
+      case 'referral.rebind_not_needed':
+      case 'referral.rebind_not_open':
+      case 'referral.rebind_stale':
         return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
+      case 'referral.rebind_not_found':
+        return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
     }
   }
 
@@ -533,6 +543,57 @@ function toSocialTrpcError(err: unknown): TRPCError {
   return toTrpcError(err);
 }
 
+const iso = (d: Date | null) => (d ? d.toISOString() : null);
+const rebindStateSchema = z.enum(['submitted', 'under_review', 'approved', 'rejected', 'withdrawn', 'expired']);
+/** What the person sees of their own referrer change request. The deciding operator is not named. */
+const rebindForCustomer = z.object({
+  requestId: z.string().uuid(),
+  state: rebindStateSchema,
+  fromReferrerId: z.string().uuid().nullable(),
+  toReferrerId: z.string().uuid(),
+  reason: z.string(),
+  decisionReason: z.string().nullable(),
+  createdAt: z.string(),
+  reviewEndsAt: z.string().nullable(),
+  decidedAt: z.string().nullable(),
+  appliedAt: z.string().nullable(),
+});
+const rebindForOperator = rebindForCustomer.extend({ userId: z.string().uuid(), decidedBy: z.string().uuid().nullable() });
+/** An ended referral relationship (CM-referral-01 RF-4): who it was with, from when, the last activity and the end. */
+const lapseOutput = z.object({
+  userId: z.string().uuid(),
+  referrerId: z.string().uuid(),
+  attributedAt: z.string(),
+  lastActivityAt: z.string(),
+  periodSeconds: z.number().int(),
+  lapsedAt: z.string(),
+});
+const lapseView = (l: ReferralLapse): z.infer<typeof lapseOutput> => ({
+  userId: l.userId,
+  referrerId: l.referrerId,
+  attributedAt: l.attributedAt.toISOString(),
+  lastActivityAt: l.lastActivityAt.toISOString(),
+  periodSeconds: l.periodSeconds,
+  lapsedAt: l.lapsedAt.toISOString(),
+});
+function customerRebind(r: RebindRequest): z.infer<typeof rebindForCustomer> {
+  return {
+    requestId: r.id,
+    state: r.state,
+    fromReferrerId: r.fromReferrerId,
+    toReferrerId: r.toReferrerId,
+    reason: r.reason,
+    decisionReason: r.decisionReason,
+    createdAt: r.createdAt.toISOString(),
+    reviewEndsAt: iso(r.approvalExpiresAt),
+    decidedAt: iso(r.decidedAt),
+    appliedAt: iso(r.appliedAt),
+  };
+}
+function operatorRebind(r: RebindRequest): z.infer<typeof rebindForOperator> {
+  return { ...customerRebind(r), userId: r.userId, decidedBy: r.decidedBy };
+}
+
 export function createIdentityRouter(
   auth: AuthService,
   rank: RankService,
@@ -569,6 +630,10 @@ export function createIdentityRouter(
     share?: ShareService;
     /** Short referral codes beside the share link (CM-referral-01). */
     referralCodes?: ReferralCodeService;
+    /** Reviewed referrer change (CM-referral-01 RF-3). Absent → the rebind doors refuse closed. */
+    referralRebind?: ReferralRebindService;
+    /** Referral lapse after the owner's inactivity period (CM-referral-01 RF-4). Absent → the lapse doors refuse closed. */
+    referralLapse?: ReferralLapseService;
     /**
      * Owner setting `IDENTITY_REFERRAL_ATTACH_WINDOW_SECONDS`: how long after sign-up a person may attach a referrer
      * through a link. Undefined (blank) refuses every link attach with `referral.attach_window_unset`.
@@ -695,6 +760,20 @@ export function createIdentityRouter(
       throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Referral tree is not configured' });
     }
     return referral;
+  }
+
+  function requireReferralRebind(): ReferralRebindService {
+    if (!options.referralRebind) {
+      throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Referrer change review is not configured' });
+    }
+    return options.referralRebind;
+  }
+
+  function requireReferralLapse(): ReferralLapseService {
+    if (!options.referralLapse) {
+      throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Referral lapse is not configured' });
+    }
+    return options.referralLapse;
   }
 
   function requireReferralCodes(): ReferralCodeService {
@@ -2520,19 +2599,140 @@ export function createIdentityRouter(
             accountCreatedAt: z.string(),
             windowSeconds: z.number().int().nullable(),
             closesAt: z.string().nullable(),
+            /** Set when an earlier relationship lapsed: the window runs again from then (RF-4). */
+            reopenedAt: z.string().nullable(),
           }),
         )
         .query(async ({ ctx }) => {
           try {
             const age = await requireReferral().accountAge(ctx.principal.userId);
             if (!age) throw new TRPCError({ code: 'NOT_FOUND', message: 'Account not found' });
-            const status = attachWindowStatus(age.createdAt, options.referralAttachWindowSeconds, age.now);
+            const status = attachWindowStatus(age.reopenedAt ?? age.createdAt, options.referralAttachWindowSeconds, age.now);
             return {
               state: status.state,
-              accountCreatedAt: status.accountCreatedAt.toISOString(),
+              accountCreatedAt: age.createdAt.toISOString(),
+              reopenedAt: age.reopenedAt?.toISOString() ?? null,
               windowSeconds: status.state === 'unset' ? null : status.windowSeconds,
               closesAt: status.state === 'unset' ? null : status.closesAt.toISOString(),
             };
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /**
+       * Ask for a reviewed change of referrer (J-campaigns-05 #5): the invitation link names the new referrer, the
+       * person gives a reason, and a second person decides. Only when a link attach cannot apply (window closed or
+       * unset, or a referrer is already set). Asking again for the same link returns the open request.
+       */
+      requestRebind: scopedProcedure('identity:write')
+        .input(z.object({ token: z.string().uuid(), reason: z.string().min(3).max(500) }))
+        .output(rebindForCustomer)
+        .mutation(async ({ ctx, input }) => {
+          try {
+            const toReferrerId = await requireShare().referrerOf(input.token);
+            if (!toReferrerId) throw new ShareError('This invitation link is revoked or unknown [share.revoked]', 'share.revoked');
+            return customerRebind(await requireReferralRebind().request(ctx.principal.userId, toReferrerId, input.reason));
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /** This person's latest referrer change request and its state, or null. */
+      myRebind: scopedProcedure('identity:read')
+        .output(rebindForCustomer.nullable())
+        .query(async ({ ctx }) => {
+          try {
+            const rec = await requireReferralRebind().latestOf(ctx.principal.userId);
+            return rec ? customerRebind(rec) : null;
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /** The person withdraws their own open request. */
+      withdrawRebind: scopedProcedure('identity:write')
+        .input(z.object({ requestId: z.string().uuid() }))
+        .output(rebindForCustomer)
+        .mutation(async ({ ctx, input }) => {
+          try {
+            return customerRebind(await requireReferralRebind().withdraw(ctx.principal.userId, input.requestId));
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /** Requests waiting for a second person (founder-ops queue). Operator session with a second factor. */
+      rebindQueue: scopedProcedure('admin:compliance')
+        .input(z.object({ limit: z.number().int().min(1).max(100) }))
+        .output(z.array(rebindForOperator))
+        .query(async ({ ctx, input }) => {
+          try {
+            requireMfa(ctx.principal);
+            return (await requireReferralRebind().queue(input.limit)).map(operatorRebind);
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /**
+       * A second person approves or rejects, with a reason (J-campaigns-05 #6). The requester can never decide their
+       * own (`action_approval.same_person`), and neither the referrer it moves to nor the one it moves from may decide it
+       * (`referral.rebind_interested`). Approval applies the new referrer from this time; stored accruals stay.
+       */
+      decideRebind: scopedProcedure('admin:compliance')
+        .input(z.object({ requestId: z.string().uuid(), decision: z.enum(['approve', 'reject']), reason: z.string().min(3).max(500) }))
+        .output(rebindForOperator)
+        .mutation(async ({ ctx, input }) => {
+          try {
+            requireMfa(ctx.principal);
+            return operatorRebind(
+              await requireReferralRebind().decide(ctx.principal.userId, input.requestId, input.decision, input.reason),
+            );
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /**
+       * Where this person's referral relationship stands against the owner's inactivity period (J-campaigns-05 #7): the
+       * date it ends without a fee event, and their latest ended relationship. A blank period reads `unset`; no end date
+       * is invented.
+       */
+      myLapse: scopedProcedure('identity:read')
+        .output(
+          z.object({
+            state: z.enum(['unset', 'none', 'active']),
+            periodSeconds: z.number().int().nullable(),
+            lastActivityAt: z.string().nullable(),
+            endsAt: z.string().nullable(),
+            ended: lapseOutput.nullable(),
+          }),
+        )
+        .query(async ({ ctx }) => {
+          try {
+            const lapse = requireReferralLapse();
+            const [standing, ended] = await Promise.all([lapse.standingOf(ctx.principal.userId), lapse.latestOf(ctx.principal.userId)]);
+            return {
+              state: standing.state,
+              periodSeconds: standing.state === 'active' ? standing.periodSeconds : null,
+              lastActivityAt: standing.state === 'active' ? standing.lastActivityAt.toISOString() : null,
+              endsAt: standing.state === 'active' ? standing.endsAt.toISOString() : null,
+              ended: ended ? lapseView(ended) : null,
+            };
+          } catch (err) {
+            throw toTrpcError(err);
+          }
+        }),
+
+      /** The lapse log for founder-ops, newest first. Operator session with a second factor. */
+      lapseLog: scopedProcedure('admin:compliance')
+        .input(z.object({ limit: z.number().int().min(1).max(100) }))
+        .output(z.array(lapseOutput))
+        .query(async ({ ctx, input }) => {
+          try {
+            requireMfa(ctx.principal);
+            return (await requireReferralLapse().log(input.limit)).map(lapseView);
           } catch (err) {
             throw toTrpcError(err);
           }

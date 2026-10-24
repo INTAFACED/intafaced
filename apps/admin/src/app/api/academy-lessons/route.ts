@@ -12,6 +12,9 @@ import { changeLesson, isLessonOp, loadLesson } from '@/lib/academy/lessons-serv
  *   POST { op: 'revert', itemId, revision, toRevision }   a new revision with an older one's blocks
  *   POST { op: 'publish', itemId, lessonRevision, courseRevision, reason }   learners see this revision from now on
  *   POST { op: 'duplicate', itemId, courseRevision }   a copy of the item and its newest lesson, right after it
+ *   POST { op: 'draft', itemId, revision, path: 'template' | 'model' }   an assistant draft; the model path refuses
+ *        owner.decision while no provider is chosen
+ *   POST { op: 'decide', itemId, basedOnRevision, kind: 'template', decision: 'accept' | 'discard' }   a person's call
  *   POST { op: 'import', itemId, revision, document }   a lesson file as a new revision; over the owner's size limit
  *        it is refused before it is read, and a bad block comes back in a report with nothing created
  *

@@ -981,6 +981,8 @@ export function createSupportRouter(
           helpful: z.boolean(),
           /** Present only when this vote opened a request. */
           ticketId: z.string().guid().optional(),
+          /** True when this account had already voted on this version; the first vote stands. */
+          earlier: z.literal(true).optional(),
         }),
       )
       .mutation(async ({ ctx, input }) => {

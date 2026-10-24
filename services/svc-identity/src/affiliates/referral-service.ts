@@ -20,6 +20,7 @@ import {
   type ReferralEdge,
 } from './referral-tree.js';
 import { assertAttachWindowOpen } from './attach-window.js';
+import { attachWindowStart } from './referral-lapse.js';
 
 /**
  * Durable referral tree (Slice A) — attribution only, no commission/payout.
@@ -30,9 +31,9 @@ import { assertAttachWindowOpen } from './attach-window.js';
  */
 
 /** pg_advisory_xact_lock classid — fixed namespace for referral_edges mutations. */
-const REFERRAL_GRAPH_LOCK_CLASS = 87201401;
+export const REFERRAL_GRAPH_LOCK_CLASS = 87201401;
 /** pg_advisory_xact_lock objid — single graph mutex (attribution volume is low). */
-const REFERRAL_GRAPH_LOCK_OBJ = 1;
+export const REFERRAL_GRAPH_LOCK_OBJ = 1;
 
 /** Blank / non-integer / out of 1..500 affiliates.members window. Never invent 100. */
 export const IDENTITY_AFFILIATE_MEMBERS_LIMIT_UNSET = 'identity.affiliate_members_limit_unset' as const;
@@ -189,10 +190,11 @@ export class ReferralService {
             throw new ReferralError('Referral already set for this user', 'referral.already_set');
           }
           if (late) {
-            // Both instants from the database, so the app host's clock cannot move the window edge.
-            const [row] = await tx<Array<{ created_at: Date; now: Date }>>`SELECT created_at, now() AS now FROM users WHERE id = ${userId}`;
-            if (!row) throw new ReferralError('Referrer is not a known user', 'referral.unknown_referrer');
-            assertAttachWindowOpen(row.created_at, late.windowSeconds, row.now);
+            // Both instants from the database, so the app host's clock cannot move the window edge. The window starts at
+            // sign-up, or again when an earlier relationship lapsed (RF-4).
+            const opens = await attachWindowStart(tx, userId);
+            if (!opens) throw new ReferralError('Referrer is not a known user', 'referral.unknown_referrer');
+            assertAttachWindowOpen(opens.start, late.windowSeconds, opens.now);
           }
           if (wouldCreateCycle(parent, userId, referrerId)) {
             throw new ReferralError('Referral would create a cycle', 'referral.cycle');
@@ -258,10 +260,13 @@ export class ReferralService {
     };
   }
 
-  /** When the account was made and the database's now, for the attach-window read; null for an unknown account. */
-  async accountAge(userId: string): Promise<{ createdAt: Date; now: Date } | null> {
-    const rows = await this.sql<Array<{ created_at: Date; now: Date }>>`SELECT created_at, now() AS now FROM users WHERE id = ${userId}`;
-    return rows[0] ? { createdAt: rows[0].created_at, now: rows[0].now } : null;
+  /**
+   * When the account was made, when its attach window last reopened (a lapsed relationship, else null) and the
+   * database's now, for the attach-window read; null for an unknown account.
+   */
+  async accountAge(userId: string): Promise<{ createdAt: Date; reopenedAt: Date | null; now: Date } | null> {
+    const opens = await attachWindowStart(this.sql, userId);
+    return opens ? { createdAt: opens.createdAt, reopenedAt: opens.reopenedAt, now: opens.now } : null;
   }
 
   async ancestorsOf(userId: string): Promise<string[]> {
