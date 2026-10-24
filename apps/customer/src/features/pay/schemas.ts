@@ -243,6 +243,8 @@ export const instrumentSchema = z.object({
   updatedAt: z.string(),
   removedAt: z.string().nullable(),
 });
+/** `instruments.reveal`: the owner's own values, read only on request and logged by svc-p2p like every read. */
+export const revealedInstrumentSchema = instrumentSchema.extend({ details: z.record(z.string(), z.string()) });
 /** One field a payment method asks for, as svc-p2p's registry publishes it. About the method, never about a person. */
 export const methodFieldSchema = z.object({
   key: z.string(),

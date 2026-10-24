@@ -2,14 +2,17 @@ import { randomUUID } from 'node:crypto';
 import { test, expect } from '@playwright/test';
 import { api, fund, journeyState, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
+import { PASSKEY_ORIGIN } from './identity-factors.mjs';
 import {
   METHOD,
   TEST_IBAN,
+  browserHoldsPasskey,
   holderOf,
   p2p,
   readyTaker,
   refusalCode,
   registerTestMethod,
+  restorePasskey,
   retireTestMethod,
   testInstrument,
   verifiedName,
@@ -18,7 +21,8 @@ import {
 // J-p2p-04, in the running app (docs/roadmap/journeys.json): I add and manage the payment methods I get paid with. One
 // test per step part, titled "J-p2p-04 #<n>", run in order on one verified TEST seller whose TEST legal name the founder
 // pair recorded (the own-name rule compares against it). The shared TEST bank transfer (`local-test-gates.mjs p2p`)
-// asks for an account holder in the person's own name and an IBAN with a format hint.
+// asks for an account holder in the person's own name and an IBAN with a format hint. Every payment-method change is
+// confirmed with the seller's TEST passkey (P-ads-merchant-18), saved on the account the first time one asks.
 const J = 'J-p2p-04';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 /** This journey's own TEST method, which step 1 retires; no other journey pays with it. */
@@ -40,7 +44,22 @@ function journey() {
   return state;
 }
 
-const seller = async (state) => p2p(await api(state.seller));
+/** The seller's svc-p2p client in a new session, confirming payment-method changes with the account's TEST passkey. */
+const seller = async (state) => p2p(await api(state.seller), await restorePasskey(state.sellerPasskey));
+/** A passkey's counter only goes up: keep how far it went, so the next confirmation is not read as a replay. */
+const keepCounter = (s) => run.write({ sellerPasskey: s.passkey().saved() });
+/**
+ * The seller in the app on the passkey origin, the browser's (virtual) authenticator holding the account's TEST passkey.
+ * The browser counts its own answers past every count the stored key used, so later API answers start well past them.
+ */
+async function sellerInApp(browser, state) {
+  const context = await browser.newContext({ baseURL: PASSKEY_ORIGIN });
+  const page = await context.newPage();
+  await browserHoldsPasskey(page, state.sellerPasskey);
+  run.write({ sellerPasskey: { ...state.sellerPasskey, signCount: state.sellerPasskey.signCount + 1000 } });
+  await signIn(page, state.seller);
+  return page;
+}
 
 /** A TEST bank account for `methodId` as the add form sends it, held in `holder`. */
 const account = (methodId, holder, extra = {}) => ({
@@ -95,7 +114,14 @@ test('J-p2p-04 #1 the catalogue shows each method per country with what it asks 
   await verify(page, buyer);
   const b = await readyTaker(await api(buyer), buyer);
   const trade = await b.mutate('trades.take', { offerId: offer.id, tradeId: randomUUID(), amount: '20', method: J04_METHOD });
-  run.reset({ seller: who, sellerId: me.body.result.data.userId, offerId: offer.id, tradeId: trade.id });
+  // Saving the first method asked for a confirmation, so the seller now holds a TEST passkey.
+  run.reset({
+    seller: who,
+    sellerId: me.body.result.data.userId,
+    offerId: offer.id,
+    tradeId: trade.id,
+    sellerPasskey: s.passkey().saved(),
+  });
 
   // In the app: the catalogue for DE lists the TEST bank transfer with each field it asks for and the own-name rule.
   await signIn(page, who);
@@ -143,16 +169,18 @@ test('J-p2p-04 #1 cash in person and payment-note rules come from the method row
 });
 
 test('J-p2p-04 #2 a holder name that is not the verified name is refused and nothing is stored; a badly formatted IBAN shows the format hint', async ({
-  page,
+  browser,
 }) => {
   test.setTimeout(120_000);
   const state = journey();
   const s = await seller(state);
   const before = await s.query('instruments.list', { limit: 200 });
-  // Straight to the service: someone else's name, then an IBAN in the wrong shape. Neither stores anything.
-  const mismatch = await s.bare.mutate('instruments.create', account(METHOD, 'TEST Somebody Else', { fiatCurrency: 'USD' }));
+  // Straight to the service, confirmed with the passkey: someone else's name, then an IBAN in the wrong shape. Neither
+  // stores anything.
+  const mismatch = await s.raw.mutate('instruments.create', account(METHOD, 'TEST Somebody Else', { fiatCurrency: 'USD' }));
+  keepCounter(s);
   expect(refusalCode(mismatch)).toBe('p2p.holder_name_mismatch');
-  const badIban = await s.bare.mutate(
+  const badIban = await s.raw.mutate(
     'instruments.create',
     account(METHOD, holderOf(state.seller), {
       fiatCurrency: 'USD',
@@ -163,8 +191,9 @@ test('J-p2p-04 #2 a holder name that is not the verified name is refused and not
   expect(badIban.body.error.data.p2pLimit).toEqual({ until: null, field: 'iban' });
   expect(await s.query('instruments.list', { limit: 200 })).toEqual(before);
 
-  // In the app: the same two refusals, each on its field, and the saved list unchanged.
-  await signIn(page, state.seller);
+  // In the app: the same two refusals, each on its field, and the saved list unchanged. The first save asks the seller
+  // to confirm it's them; the second is covered by that confirmation.
+  const page = await sellerInApp(browser, run.read());
   await page.goto('/p2p/methods');
   const saved = page.getByTestId('saved-method');
   await expect(saved).toHaveCount(before.filter((row) => row.status === 'active').length);
@@ -175,13 +204,14 @@ test('J-p2p-04 #2 a holder name that is not the verified name is refused and not
   await form.getByLabel('IBAN').fill(TEST_IBAN);
   await form.getByRole('button', { name: 'Review' }).click();
   await expect(page.getByTestId('method-add-review')).toContainText('TEST Somebody Else');
-  await page.getByTestId('method-add-confirm').click();
+  await page.getByTestId('method-add-review').getByRole('button', { name: 'Use a passkey' }).click();
   await expect(form.locator('[data-field="account_holder"] [role="alert"]')).toHaveText(
     'The account holder must be you. The name you entered does not match your verified name, so nothing was saved.',
   );
   await form.getByLabel('Account holder').fill(holderOf(state.seller));
   await form.getByLabel('IBAN').fill('de89 3704');
   await form.getByRole('button', { name: 'Review' }).click();
+  await expect(page.getByTestId('method-add-covered')).toContainText('need no new check until');
   await page.getByTestId('method-add-confirm').click();
   await expect(form.locator('[data-field="iban"] [role="alert"]')).toHaveText(
     'This is not in the format the method needs: Two capital letters, two digits, then 11 to 30 capital letters or digits, with no spaces',
@@ -190,13 +220,58 @@ test('J-p2p-04 #2 a holder name that is not the verified name is refused and not
   expect(await s.query('instruments.list', { limit: 200 })).toEqual(before);
 });
 
-test('J-p2p-04 #3 saving a payment method asks for a step-up and shows it masked', async () => {
+test('J-p2p-04 #3 saving a payment method asks for a step-up and shows it masked; with the key service off the owner notice shows', async ({
+  browser,
+}) => {
+  test.setTimeout(120_000);
   const state = journey();
-  const s = await seller(state);
-  const res = await s.bare.mutate('instruments.create', account(METHOD, holderOf(state.seller), { fiatCurrency: 'GBP' }));
-  expect(refusalCode(res), 'saving a payment method asks for no step-up yet (P-ads-merchant-18 step-up slice)').toBe(
-    'auth.step_up_required',
-  );
+  // Straight to the service from a new session with no confirmation: refused by name, nothing stored.
+  const s = p2p(await api(state.seller));
+  const before = await s.query('instruments.list', { limit: 200 });
+  const bare = await s.bare.mutate('instruments.create', account(METHOD, holderOf(state.seller), { fiatCurrency: 'GBP' }));
+  expect(bare.status).toBe(403);
+  expect(refusalCode(bare)).toBe('auth.step_up_required');
+  expect(await s.query('instruments.list', { limit: 200 })).toEqual(before);
+
+  // In the app: the review asks the seller to confirm it's them; the passkey saves the method.
+  const page = await sellerInApp(browser, state);
+  await page.goto('/p2p/methods');
+  const saved = page.getByTestId('saved-method');
+  await expect(saved).toHaveCount(before.length);
+  const form = await pickMethod(page, 'TEST bank transfer');
+  await form.getByTestId('method-add-fiat').selectOption('GBP');
+  await form.getByLabel('Account holder').fill(holderOf(state.seller));
+  await form.getByLabel('IBAN').fill(TEST_IBAN);
+  await form.getByLabel('Your name for it (optional)').fill('TEST pounds account');
+  await form.getByRole('button', { name: 'Review' }).click();
+  const review = page.getByTestId('method-add-review');
+  await expect(review.getByTestId('step-up-confirm')).toBeVisible();
+  await expect(page.getByTestId('method-add-confirm')).toHaveCount(0);
+  await review.getByRole('button', { name: 'Use a passkey' }).click();
+  await expect(form.getByTestId('method-add-saved')).toBeVisible();
+  await expect(saved).toHaveCount(before.length + 1);
+
+  // Shown masked: the holder whole, the IBAN by its last four only, read through the logged read.
+  const row = saved.filter({ hasText: 'TEST pounds account' });
+  await row.getByTestId('saved-method-show').click();
+  const details = row.getByTestId('saved-method-details');
+  await expect(details.locator('[data-field="account_holder"]')).toHaveText(holderOf(state.seller));
+  await expect(details.locator('[data-field="iban"]')).toHaveText(`•••• ${TEST_IBAN.slice(-4)}`);
+  await expect(details).not.toContainText(TEST_IBAN);
+  const [pounds] = (await s.query('instruments.list', { limit: 200 })).filter((r) => r.label === 'TEST pounds account');
+  const log = await s.query('instruments.accessLog', { limit: 50 });
+  expect(log.some((entry) => entry.instrumentId === pounds.id && entry.viewerRole === 'owner' && entry.outcome === 'revealed')).toBe(true);
+
+  // With the owner's key service off, the owner-decision notice shows and the form stays shut.
+  await page.route('**/api/p2p/trpc/health*', async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    body.result.data.instrumentKeyProvider = 'none';
+    await route.fulfill({ response, json: body });
+  });
+  await page.reload();
+  await expect(page.getByTestId('methods-key-off')).toContainText('the owner has not switched one on');
+  await expect(page.getByTestId('method-add-form').getByTestId('method-add-country')).toBeDisabled();
 });
 
 test('J-p2p-04 #4 removing a method an ad uses lists the ads first; confirming pauses them and tells me', async () => {

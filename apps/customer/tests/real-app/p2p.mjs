@@ -18,6 +18,14 @@ export const TAKE_STEP_UP = { scope: 'p2p.step_up.trades.take', purpose: 'trades
 /** The scope and purpose a release is confirmed under (svc-p2p release-step-up.ts): one confirmation covers the
  * session's releases for ten minutes. */
 export const RELEASE_STEP_UP = { scope: 'p2p.step_up.trades.confirmReceived', purpose: 'trades.confirmReceived' };
+/** Adding, changing or removing a payment method (P-ads-merchant-18): one confirmation per change, then ten minutes. */
+export const INSTRUMENT_STEP_UP = { scope: 'p2p.step_up.instruments.change', purpose: 'instruments.change' };
+const INSTRUMENT_CHANGES = { 'instruments.create': 'create', 'instruments.update': 'update', 'instruments.remove': 'remove' };
+export const instrumentStepUpRequest = (instrumentId, change) => ({
+  ...INSTRUMENT_STEP_UP,
+  target: instrumentId,
+  fields: { instrumentId, change },
+});
 
 /**
  * svc-p2p through Edge as `who` (an api() session): queries as GET, mutations as POST; the answer or a thrown refusal.
@@ -60,6 +68,17 @@ export function p2p(who, passkey = null) {
     const stepUpApprovalId = await confirmStepUp(who, passkey, releaseStepUpRequest(input.tradeId));
     return bare.mutate('trades.confirmReceived', { ...input, stepUpApprovalId });
   };
+  // A payment-method change asks for a confirmation only when svc-p2p refuses for want of one; one confirmation then
+  // covers this session's changes for ten minutes. A person who never saved a passkey gets a TEST one here, held by
+  // this client, the first time a change asks.
+  let held = passkey;
+  const change = async (proc, input) => {
+    const res = await bare.mutate(proc, input);
+    if (res.status !== 403 || !['auth.step_up_required', 'auth.step_up_expired'].includes(refusalCode(res))) return res;
+    held ??= await testPasskey(who);
+    const stepUpApprovalId = await confirmStepUp(who, held, instrumentStepUpRequest(input.instrumentId, INSTRUMENT_CHANGES[proc]));
+    return bare.mutate(proc, { ...input, stepUpApprovalId });
+  };
   // Posting an ad needs the published advertiser terms accepted (P-ads-merchant-01). The person accepts them in the
   // post-an-ad form (J-p2p-03); a journey that only needs an ad to exist accepts them here when svc-p2p asks.
   const post = async (input) => {
@@ -72,6 +91,8 @@ export function p2p(who, passkey = null) {
     bare,
     /** The api() session this client speaks for (identity reads, the person's own name). */
     session: who,
+    /** The TEST passkey this client confirms with: the one it was given, or the one a payment-method change made. */
+    passkey: () => held,
     raw: {
       query: bare.query,
       mutate: (proc, input) =>
@@ -81,7 +102,9 @@ export function p2p(who, passkey = null) {
             ? post(input)
             : proc === 'trades.confirmReceived' && passkey && !input.stepUpApprovalId
               ? release(input)
-              : bare.mutate(proc, input),
+              : proc in INSTRUMENT_CHANGES && !input.stepUpApprovalId
+                ? change(proc, input)
+                : bare.mutate(proc, input),
     },
     async query(proc, input) {
       await pace();
