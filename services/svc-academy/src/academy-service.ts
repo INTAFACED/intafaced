@@ -45,6 +45,7 @@ import { CourseRecords } from './curriculum/courses.js';
 import { LessonRecords } from './curriculum/lessons.js';
 import { CourseMedia, type ReadBackFn } from './curriculum/media.js';
 import { CourseAssignments, type PutObjectFn } from './curriculum/assignments.js';
+import { CourseQuizzes } from './curriculum/course-quizzes.js';
 import { PeerReviews, type GetObjectFn } from './curriculum/peer-review.js';
 import { AssignmentGrading } from './curriculum/grading.js';
 import { LearnHub } from './curriculum/learn-hub.js';
@@ -412,6 +413,8 @@ export class AcademyService {
   readonly discussion: CourseDiscussion;
   /** AC-rooms-04: conversations with course teams. The router calls it directly. */
   readonly courseMessages: CourseMessages;
+  /** AC-quizzes-01: quizzes on the items of a course staff made. The router calls it directly; starts go through `startCourseQuiz`. */
+  readonly courseQuizzes: CourseQuizzes;
 
   constructor(
     private readonly sql: Sql,
@@ -461,6 +464,7 @@ export class AcademyService {
     this.issueRules = new CertIssueRules(sql);
     this.programmeRecords = new ProgrammeRecords(sql, this.options.programmeMaxCourses);
     this.courseMessages = new CourseMessages(sql, this.options.messageMaxChars ?? null);
+    this.courseQuizzes = new CourseQuizzes(sql);
     this.discussion = new CourseDiscussion(sql, {
       postMaxChars: this.options.postMaxChars ?? null,
       imageMaxBytes: this.options.postImageMaxBytes ?? null,
@@ -3264,6 +3268,11 @@ export class AcademyService {
 
   assessmentAttempts(userId: string, slug: string): Promise<VisibleAttemptRow[]> {
     return this.assessments.attempts(userId, slug);
+  }
+
+  /** AC-quizzes-01: start (or get back) an attempt on a quiz in a course staff made, after its enrolment, code and address checks. */
+  startCourseQuiz(input: { itemId: string; userId: string; accessCode: string | null; clientAddress: string | null; now?: Date }) {
+    return this.courseQuizzes.start({ ...input, now: input.now ?? new Date() }, (start) => this.assessments.start(start));
   }
 
   /** AC-quizzes-03: Start (or resume) a timed attempt; see AssessmentRepository.start. */

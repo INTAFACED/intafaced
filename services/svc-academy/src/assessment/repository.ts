@@ -248,12 +248,20 @@ export class AssessmentRepository {
    * and inside a cooldown `academy.attempt_cooldown`. The attempt keeps a copy of the quiz as it was at Start, so a
    * later staff edit or take-down changes neither its scoring nor its review.
    */
-  async start(input: { userId: string; slug: string; now?: Date }): Promise<AcademyQuizAttempt> {
+  async start(input: {
+    userId: string;
+    slug: string;
+    now?: Date;
+    definition?: AssessmentDefinition;
+    /** The caller's open transaction, holding the quiz it checked, so the attempt lands under that same hold (AC-quizzes-01). */
+    tx?: Sql;
+  }): Promise<AcademyQuizAttempt> {
     const now = input.now ?? new Date();
-    return this.underQuizLock(input.userId, async (tx) => {
+    return this.underQuizLock(input.userId, input.tx, async (tx) => {
       const open = await this.settleOpen(tx, input.userId, input.slug, now);
       if (open) return attemptView(open, now, null);
-      const def = await this.definition(input.slug, tx);
+      // A quiz on a course staff made (AC-quizzes-01) is read and checked by its caller, which passes it in.
+      const def = input.definition ?? (await this.definition(input.slug, tx));
       if (!def) throw new AcademyError(`academy.assessment_unpublished slug=${input.slug}`, 'academy.assessment_unpublished');
       if (def.passMark === null) throw new AcademyError(`academy.pass_mark_unset slug=${def.slug}`, 'academy.pass_mark_unset');
       const count = await this.assertMayAttempt(tx, def, input.userId, now);
@@ -274,7 +282,7 @@ export class AssessmentRepository {
    */
   async current(input: { userId: string; slug: string; now?: Date }): Promise<AcademyQuizAttempt | null> {
     const now = input.now ?? new Date();
-    return this.underQuizLock(input.userId, async (tx) => {
+    return this.underQuizLock(input.userId, undefined, async (tx) => {
       const open = await this.settleOpen(tx, input.userId, input.slug, now);
       return open ? attemptView(open, now, null) : null;
     });
@@ -290,7 +298,7 @@ export class AssessmentRepository {
   }): Promise<AcademyQuizAttempt> {
     const now = input.now ?? new Date();
     const slug = await this.attemptSlug(input.userId, input.attemptId);
-    return this.underQuizLock(input.userId, async (tx) => {
+    return this.underQuizLock(input.userId, undefined, async (tx) => {
       const open = await this.settleOpen(tx, input.userId, slug, now);
       if (!open || open.id !== input.attemptId) {
         throw new AcademyError('academy.attempt_closed this attempt is finished', 'academy.attempt_closed');
@@ -312,7 +320,7 @@ export class AssessmentRepository {
   async finish(input: { userId: string; attemptId: string; now?: Date }): Promise<AcademyQuizAttempt> {
     const now = input.now ?? new Date();
     await this.attemptSlug(input.userId, input.attemptId);
-    return this.underQuizLock(input.userId, async (tx) => {
+    return this.underQuizLock(input.userId, undefined, async (tx) => {
       const rows = await tx<AttemptRowSql[]>`
         SELECT ${tx.unsafe(ATTEMPT_COLUMNS)} FROM academy.quiz_attempts WHERE id = ${input.attemptId} AND user_id = ${input.userId}
       `;
@@ -386,12 +394,13 @@ export class AssessmentRepository {
     return rows[0]?.until ?? null;
   }
 
-  private async underQuizLock<T>(userId: string, fn: (tx: Sql) => Promise<T>): Promise<T> {
-    return transaction(this.sql, async (tx) => {
+  private async underQuizLock<T>(userId: string, outer: Sql | undefined, fn: (tx: Sql) => Promise<T>): Promise<T> {
+    const locked = async (tx: Sql) => {
       // The same key `submit` takes, so a timed attempt and a direct submit never count the limit apart.
       await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${userId}:assessment`}, 0))`;
       return fn(tx);
-    });
+    };
+    return outer ? locked(outer) : transaction(this.sql, locked);
   }
 
   /**

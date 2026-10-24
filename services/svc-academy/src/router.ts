@@ -108,6 +108,12 @@ import {
   academyCourseByLinkInputSchema,
   academyLeaveAuthoredCourseInputSchema,
   academyAdminAssignmentSchema,
+  academyAdminCourseQuizSchema,
+  academyCourseQuizInputSchema,
+  academyLearnerCourseQuizSchema,
+  academySaveCourseQuizInputSchema,
+  academySetCourseQuizStateInputSchema,
+  academyStartCourseQuizInputSchema,
   academyAssignmentInputSchema,
   academyAssignmentViewSchema,
   academySaveAssignmentInputSchema,
@@ -904,6 +910,9 @@ function toTrpcError(err: unknown): TRPCError {
 
     case 'academy.assessment_unpublished':
     case 'academy.pass_mark_unset':
+    case 'academy.quiz_no_questions':
+    case 'academy.scoring_policy_unset':
+    case 'academy.ip_unreadable':
     case 'academy.certificate_unpublished':
     case 'academy.enrolment_closed':
     case 'academy.verify_rate_unset':
@@ -923,10 +932,12 @@ function toTrpcError(err: unknown): TRPCError {
     case 'academy.attempt_open':
     case 'academy.attempt_required':
     case 'academy.planner_full':
+    case 'academy.item_has_attempts':
       return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
 
     case 'academy.attempt_not_found':
     case 'academy.todo_not_found':
+    case 'academy.quiz_not_found':
       return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
 
     case 'academy.attempt_limit':
@@ -935,6 +946,8 @@ function toTrpcError(err: unknown): TRPCError {
       return new TRPCError({ code: 'TOO_MANY_REQUESTS', message: err.message, cause: err });
 
     case 'academy.sign_in_required':
+    case 'academy.access_code_invalid':
+    case 'academy.ip_not_allowed':
       return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
 
     case 'academy.assessment_invalid':
@@ -1022,6 +1035,7 @@ function toTrpcError(err: unknown): TRPCError {
 
     case 'academy.prerequisite_cycle':
     case 'academy.window_invalid':
+    case 'academy.ip_rule_invalid':
     case 'academy.reason_required':
     case 'academy.grade_invalid':
       return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
@@ -1089,6 +1103,12 @@ async function consumeApproval(
     targetId,
     expectedVersion: '1',
   });
+}
+
+/** The caller address an IP filter checks, as the trusted edge named it; null when it cannot be read (AC-quizzes-01). */
+function quizClientAddressOf(ctx: object): string | null {
+  const value = (ctx as { quizClientAddress?: unknown }).quizClientAddress;
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }
 
 /** TCP peer the HTTP adapter attached. Blank is not an address. */
@@ -2544,6 +2564,27 @@ export function createAcademyRouter(
       .output(academyAssignmentViewSchema)
       .query(({ input, ctx }) => guard(() => academy.assignment({ itemId: input.itemId, userId: ctx.principal.userId }))),
 
+    /** AC-quizzes-01: a published quiz in a course staff made, as the enrolled learner reads it: no key, code or filter. */
+    courseQuiz: scopedProcedure('academy:read', { module: 'academy' })
+      .input(academyCourseQuizInputSchema)
+      .output(academyLearnerCourseQuizSchema)
+      .query(({ input, ctx }) => guard(() => academy.courseQuizzes.learnerView({ itemId: input.itemId, userId: ctx.principal.userId }))),
+
+    /** AC-quizzes-01: start (or get back) the caller's attempt; enrolment, the access code and the IP filter are checked first. */
+    startCourseQuiz: scopedProcedure('academy:write', { module: 'academy' })
+      .input(academyStartCourseQuizInputSchema)
+      .output(academyQuizAttemptSchema)
+      .mutation(({ input, ctx }) =>
+        guard(() =>
+          academy.startCourseQuiz({
+            itemId: input.itemId,
+            userId: ctx.principal.userId,
+            accessCode: input.accessCode,
+            clientAddress: quizClientAddressOf(ctx),
+          }),
+        ),
+      ),
+
     /** AC-assignments-01: a file for the next hand-in, checked against the owner's limits; the same file is the same row. */
     uploadAssignmentFile: scopedProcedure('academy:write', { module: 'academy' })
       .input(academyUploadAssignmentFileInputSchema)
@@ -3245,6 +3286,28 @@ export function createAcademyRouter(
         .input(academyImportLessonInputSchema)
         .output(academyImportLessonResultSchema)
         .mutation(({ input, ctx }) => guard(() => academy.importLesson({ ...input, operatorId: ctx.principal!.userId }))),
+
+      /** AC-quizzes-01: a quiz item's questions, rules, state, attempts and what stops Publish. */
+      courseQuiz: scopedProcedure('admin:read', { module: 'academy' })
+        .input(academyCourseQuizInputSchema)
+        .output(academyAdminCourseQuizSchema)
+        .query(({ input }) => guard(() => academy.courseQuizzes.adminView(input.itemId))),
+
+      /** AC-quizzes-01: the draft over the revision read; questions are fixed once a learner has an attempt. */
+      saveCourseQuiz: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academySaveCourseQuizInputSchema)
+        .output(academyAdminCourseQuizSchema)
+        .mutation(({ input, ctx }) =>
+          guard(() => academy.courseQuizzes.save({ ...input, operatorId: ctx.principal!.userId, now: new Date() })),
+        ),
+
+      /** AC-quizzes-01: publish when nothing blocks it, or take back to draft while no learner has an attempt, with a reason. */
+      setCourseQuizState: scopedProcedure('admin:write', { module: 'academy' })
+        .input(academySetCourseQuizStateInputSchema)
+        .output(academyAdminCourseQuizSchema)
+        .mutation(({ input, ctx }) =>
+          guard(() => academy.courseQuizzes.setState({ ...input, operatorId: ctx.principal!.userId, now: new Date() })),
+        ),
 
       /** AC-assignments-01: an assignment item's brief, who saved it, and how many learners handed in. */
       assignment: scopedProcedure('admin:read', { module: 'academy' })

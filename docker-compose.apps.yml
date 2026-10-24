@@ -1778,6 +1778,8 @@ services:
       ACADEMY_POST_MAX_CHARS: ${ACADEMY_POST_MAX_CHARS:-}
       ACADEMY_POST_IMAGE_MAX_BYTES: ${ACADEMY_POST_IMAGE_MAX_BYTES:-}
       ACADEMY_MESSAGE_MAX_CHARS: ${ACADEMY_MESSAGE_MAX_CHARS:-}
+      # Proxies whose x-intafaced-client-ip names the caller (CIDR list). Empty: a quiz with an IP filter refuses.
+      ACADEMY_TRUSTED_PROXY_CIDRS: ${ACADEMY_TRUSTED_PROXY_CIDRS:-}
       ACADEMY_UPLOAD_VIDEO_TYPES: ${ACADEMY_UPLOAD_VIDEO_TYPES:-}
       ACADEMY_UPLOAD_HANDOUT_TYPES: ${ACADEMY_UPLOAD_HANDOUT_TYPES:-}
       # Owner-published seconds between watch-position saves while playing.

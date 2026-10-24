@@ -156,6 +156,15 @@ const schema = serviceEnvSchema
       ),
 
       /**
+       * AC-quizzes-01: the proxies (comma-separated CIDR ranges) whose `x-intafaced-client-ip` header names the caller.
+       * Blank / unset: no caller address can be read, so a quiz with an IP filter refuses `academy.ip_unreadable`.
+       */
+      ACADEMY_TRUSTED_PROXY_CIDRS: z.preprocess(
+        (v) => (v === undefined || (typeof v === 'string' && v.trim() === '') ? undefined : v),
+        z.union([z.undefined(), z.string().max(4000)]),
+      ),
+
+      /**
        * AC-certificates-02: seconds between issue sweeps, which issue delayed certificates once due. Blank / unset is
        * unpublished: no sweep runs and a delayed issue rule refuses `academy.cert_sweep_unset`.
        */
