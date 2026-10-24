@@ -82,6 +82,8 @@ export function knownAuthRefusal(kind: AuthKind, answer: ApiResult<unknown>): bo
       'auth.not_found': 404,
       // The per-account pause after too many wrong passwords (svc-identity attempt-lockout): nothing was signed in.
       'auth.too_many_attempts': 429,
+      // Every factor passed on a browser the account has not trusted yet: nothing was signed in; approval comes next.
+      'auth.device_authorisation_required': 403,
     },
     passkey: { 'auth.invalid_credentials': 401, 'auth.account_frozen': 403, 'auth.webauthn_not_enrolled': 403 },
   };

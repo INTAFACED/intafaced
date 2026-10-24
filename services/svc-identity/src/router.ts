@@ -1113,7 +1113,11 @@ export function createIdentityRouter(
           }
           try {
             const { referrerId, ...registerInput } = input;
-            const session = await auth.register({ ...registerInput, ip: requestIpAls.getStore() });
+            const session = await auth.register({
+              ...registerInput,
+              ip: requestIpAls.getStore(),
+              deviceKey: presentedDeviceKey(ctx, undefined),
+            });
             if (referrerId) {
               await requireReferral().attribute({ userId: session.userId, referrerId });
             }
@@ -1193,7 +1197,7 @@ export function createIdentityRouter(
         .mutation(async ({ input, ctx }) => {
           assertRegistrationOpen();
           try {
-            const done = await auth.signUpConfirm({ ...input, ip: requestIpAls.getStore() });
+            const done = await auth.signUpConfirm({ ...input, ip: requestIpAls.getStore(), deviceKey: presentedDeviceKey(ctx, undefined) });
             if (done.referrerId) {
               // Attribution never blocks the account (it is already made); a refusal, or no referral tree, is logged.
               try {
@@ -1390,7 +1394,10 @@ export function createIdentityRouter(
         .output(sessionOutput)
         .mutation(async ({ input, ctx }) => {
           try {
-            return sessionWire(ctx, await auth.deviceApprove({ ...input, ip: requestIpAls.getStore() }));
+            return sessionWire(
+              ctx,
+              await auth.deviceApprove({ ...input, ip: requestIpAls.getStore(), deviceKey: presentedDeviceKey(ctx, undefined) }),
+            );
           } catch (err) {
             throw toTrpcError(err);
           }
@@ -1405,7 +1412,10 @@ export function createIdentityRouter(
         .output(sessionOutput)
         .mutation(async ({ input, ctx }) => {
           try {
-            return sessionWire(ctx, await auth.deviceComplete({ ...input, ip: requestIpAls.getStore() }));
+            return sessionWire(
+              ctx,
+              await auth.deviceComplete({ ...input, ip: requestIpAls.getStore(), deviceKey: presentedDeviceKey(ctx, undefined) }),
+            );
           } catch (err) {
             throw toTrpcError(err);
           }

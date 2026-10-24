@@ -138,16 +138,23 @@ export async function liveDevice(sql: Sql, userId: string, key: string | null | 
   return rows[0]?.id ?? null;
 }
 
-/** Trust a new device for the account: a fresh key (for the cookie) and its row. */
+const DEVICE_KEY = /^[A-Za-z0-9_-]{32,128}$/;
+
+/**
+ * Trust this browser for the account. A browser that already holds a device key (it signed in to another account, or
+ * was trusted before) keeps it, so one browser is one device; otherwise it gets a fresh key. Only the hash is stored.
+ */
 export async function trustDevice(
   q: Sql | TransactionSql,
   policy: NewDevicePolicy,
-  input: { userId: string; label: string; now: Date },
+  input: { userId: string; label: string; now: Date; presentedKey?: string | null | undefined },
 ): Promise<{ id: string; key: string }> {
-  const key = randomBytes(32).toString('base64url');
+  const key = input.presentedKey && DEVICE_KEY.test(input.presentedKey) ? input.presentedKey : randomBytes(32).toString('base64url');
   const [row] = await q<Array<{ id: string }>>`
     INSERT INTO trusted_devices (user_id, device_key_hash, label, first_seen_at, last_seen_at, trusted_until)
     VALUES (${input.userId}, ${deviceKeyHash(key)}, ${input.label}, ${input.now}, ${input.now}, ${trustedUntil(policy, input.now)})
+    ON CONFLICT (user_id, device_key_hash) WHERE removed_at IS NULL
+    DO UPDATE SET last_seen_at = EXCLUDED.last_seen_at, trusted_until = EXCLUDED.trusted_until
     RETURNING id
   `;
   return { id: row!.id, key };
@@ -333,7 +340,7 @@ export async function approveFromSession(
  */
 export async function completeAuthorisation(
   deps: TrustedDeviceDeps,
-  input: { flowId: string; secret: string },
+  input: { flowId: string; secret: string; presentedKey?: string | null | undefined },
 ): Promise<{ userId: string; mfa: boolean; trustedDeviceId: string; deviceKey: string }> {
   const now = deps.now();
   return deps.sql.begin(async (tx) => {
@@ -348,7 +355,7 @@ export async function completeAuthorisation(
     }
     await tx`UPDATE device_authorisations SET completed_at = ${now} WHERE flow_id = ${input.flowId}`;
     await tx`UPDATE auth_flows SET status = 'consumed', consumed_at = ${now} WHERE id = ${input.flowId}`;
-    const device = await trustDevice(tx, deps.policy, { userId: row.user_id, label: row.label, now });
+    const device = await trustDevice(tx, deps.policy, { userId: row.user_id, label: row.label, now, presentedKey: input.presentedKey });
     return { userId: row.user_id, mfa: row.mfa, trustedDeviceId: device.id, deviceKey: device.key };
   });
 }

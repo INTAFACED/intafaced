@@ -85,6 +85,21 @@
       "service": "identity",
       "value": "3600",
       "note": "The hour that IDENTITY_LOGIN_CODE_REQUEST_MAX counts in."
+    },
+    "IDENTITY_NEW_DEVICE_CHECK": {
+      "service": "identity",
+      "value": "off",
+      "note": "The new-device check stays off on the stack until the journey helpers sign in through it; then this turns on (J-identity-02 #5)."
+    },
+    "IDENTITY_NEW_DEVICE_TTL_SECONDS": {
+      "service": "identity",
+      "value": "600",
+      "note": "A new-device sign-in can be approved for ten minutes."
+    },
+    "IDENTITY_NEW_DEVICE_MAX_ATTEMPTS": {
+      "service": "identity",
+      "value": "5",
+      "note": "Five wrong device codes lock a new-device sign-in (J-identity-02 #5)."
     }
   }
 }

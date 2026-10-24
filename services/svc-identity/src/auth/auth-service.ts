@@ -420,6 +420,8 @@ export interface RegisterInput {
   region?: string;
   device?: string;
   ip?: string;
+  /** The device key this browser already holds (`ifc_dk`), kept as the new account's first trusted device. */
+  deviceKey?: string | null;
 }
 
 export interface SessionTokens {
@@ -705,6 +707,7 @@ export class AuthService {
     code: string;
     device?: string;
     ip?: string;
+    deviceKey?: string | null;
   }): Promise<{ session: SessionTokens; accountType: AccountType; referrerId: string | null }> {
     const { userId, draft } = await confirmSignUp(this.signUpDeps(), input, (tx, d) =>
       this.insertNewUser(tx, { handle: d.handle, email: d.email, password: '', region: d.country }, d.passwordHash),
@@ -716,6 +719,7 @@ export class AuthService {
       region: draft.country,
       ...(input.device ? { device: input.device } : {}),
       ...(input.ip ? { ip: input.ip } : {}),
+      deviceKey: input.deviceKey ?? null,
     });
     return { session, accountType: draft.accountType, referrerId: draft.referrerId };
   }
@@ -756,14 +760,24 @@ export class AuthService {
   }
 
   /** New device, approved with the mailed code by the waiting browser, which then signs in at once. */
-  async deviceApprove(input: { flowId: string; secret: string; code: string; ip?: string }): Promise<SessionTokens> {
+  async deviceApprove(input: {
+    flowId: string;
+    secret: string;
+    code: string;
+    ip?: string;
+    deviceKey?: string | null;
+  }): Promise<SessionTokens> {
     await approveWithCode(this.deviceDeps(), input);
     return this.deviceComplete(input);
   }
 
   /** The waiting browser finishes an approved new-device sign-in, once. */
-  async deviceComplete(input: { flowId: string; secret: string; ip?: string }): Promise<SessionTokens> {
-    const done = await completeAuthorisation(this.deviceDeps(), input);
+  async deviceComplete(input: { flowId: string; secret: string; ip?: string; deviceKey?: string | null }): Promise<SessionTokens> {
+    const done = await completeAuthorisation(this.deviceDeps(), {
+      flowId: input.flowId,
+      secret: input.secret,
+      presentedKey: input.deviceKey,
+    });
     const session = await this.issueSession(done.userId, { ip: input.ip, mfa: done.mfa, trustedDeviceId: done.trustedDeviceId });
     return { ...session, deviceKey: done.deviceKey };
   }
@@ -1038,6 +1052,7 @@ export class AuthService {
       userId,
       label: deviceLabel(currentUserAgent()),
       now: this.passwordResetNow(),
+      presentedKey: input.deviceKey,
     });
     const session = await this.issueSession(userId, { device: input.device, ip: input.ip, mfa: false, trustedDeviceId: device.id });
     return { ...session, deviceKey: device.key };

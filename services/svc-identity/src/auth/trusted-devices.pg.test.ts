@@ -123,6 +123,17 @@ if (!available) {
       expect(JSON.stringify(await db.sql`SELECT * FROM trusted_devices`)).not.toContain(who.deviceKey);
     });
 
+    it('keeps the key a browser already holds, so one browser is one device across accounts', async () => {
+      const first = await account();
+      const handle = `td${process.pid}x${++counter}`;
+      const second = await auth.register({ handle, email: `${handle}@example.com`, password: PASSWORD, deviceKey: first.deviceKey });
+      expect(second.deviceKey).toBe(first.deviceKey);
+      await auth.login({ identifier: `${handle}@example.com`, password: PASSWORD, deviceKey: first.deviceKey });
+      // A malformed key is never stored; the browser gets a fresh one.
+      const third = await auth.register({ handle: `${handle}b`, email: `${handle}b@example.com`, password: PASSWORD, deviceKey: 'short' });
+      expect(third.deviceKey).not.toBe('short');
+    });
+
     it('asks a browser with no key, or a key of another account, only after the password passed, and mails a code', async () => {
       const who = await account();
       const other = await account();
