@@ -165,21 +165,57 @@ test(`${J} #2 the owner adds a product with type, unit label, descriptor and ima
   expect(refused.filter((r) => !r.includes('merchantCatalog.products.create'))).toEqual([]);
 });
 
-// Steps 3 to 6 come with their slices (M-catalogue-02, M-adv-payments-core-20 and -21). Until then each fails at its
-// first check, quickly.
-const unbuilt = { timeout: 5000 };
-
 test(`${J} #3 a one-time TEST 20 USDC price is the default until the monthly one is set as default`, async ({ page }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(180_000);
   const state = journey();
   if (!state.productUrl) throw new Error(`${J} #2 made no product, so this step has none to price`);
   await signInOwner(page, state, state.productUrl);
-  await page.getByRole('button', { name: 'Add price' }).click(unbuilt);
-  await page.getByLabel('Amount *').fill('20');
-  await page.getByLabel('Asset *').selectOption('USDC');
-  await page.getByRole('button', { name: 'Save price' }).click();
-  await expect(page.getByRole('row').filter({ hasText: 'TEST 20 USDC' }).filter({ hasText: 'Default' })).toBeVisible();
+  const refused = refusedPayCalls(page);
+  const prices = page.getByRole('region', { name: 'Prices of this product' });
+  const row = (text) => prices.getByRole('row').filter({ hasText: text });
+
+  async function addPrice({ billing, amount, chosen }) {
+    await page.getByRole('button', { name: 'Add price' }).click();
+    await page.getByLabel('Billing *').selectOption({ label: billing });
+    if (chosen) {
+      await page.getByLabel('How the amount is set *').selectOption({ label: 'The customer chooses' });
+      await page.getByLabel('Minimum *').fill(chosen.min);
+      await page.getByLabel('Maximum *').fill(chosen.max);
+    } else await page.getByLabel('Amount *').fill(amount);
+    await page.getByLabel('Asset *').fill('USDC');
+    await page.getByRole('button', { name: 'Save price' }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'Price added.' })).toBeVisible();
+  }
+
+  // The first price is the default; a second one is not, until Set as default is pressed on it.
+  await addPrice({ billing: 'One time', amount: '20' });
+  const once = row('20.00 USDC').filter({ hasText: 'One time' });
+  await expect(once.getByText('Default', { exact: true })).toBeVisible();
+  await addPrice({ billing: 'Monthly', amount: '5' });
+  const monthly = row('5.00 USDC').filter({ hasText: 'Monthly' });
+  await expect(monthly.getByRole('button', { name: 'Set as default' })).toBeVisible();
+  await expect(once.getByText('Default', { exact: true })).toBeVisible();
+  await monthly.getByRole('button', { name: 'Set as default' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'The default price changed.' })).toBeVisible();
+  await expect(monthly.getByText('Default', { exact: true })).toBeVisible();
+  await expect(once.getByRole('button', { name: 'Set as default' })).toBeVisible();
+
+  // A customer-chosen amount below its minimum is refused, and one inside the range is taken.
+  await addPrice({ billing: 'One time', chosen: { min: '5', max: '100' } });
+  await expect(row('Customer chooses')).toHaveCount(1);
+  const check = page.getByRole('group', { name: "Try a customer's amount" });
+  await check.getByLabel('Amount the customer enters').fill('2');
+  await check.getByRole('button', { name: 'Check amount' }).click();
+  await expect(check.getByRole('alert')).toHaveText('This amount is below the minimum for this price.');
+  await check.getByLabel('Amount the customer enters').fill('10');
+  await check.getByRole('button', { name: 'Check amount' }).click();
+  await expect(check.getByRole('status')).toContainText('A customer can pay 10');
+  expect(refused.filter((r) => !r.includes('merchantCatalog.prices.quote'))).toEqual([]);
 });
+
+// Steps 4 to 6 come with their slices (M-adv-payments-core-20 and -21, the import). Until then each fails at its first
+// check, quickly.
+const unbuilt = { timeout: 5000 };
 
 test(`${J} #4 replacing a price a subscription uses keeps the subscription on the old one, and archiving keeps old documents readable`, async ({
   page,

@@ -16,7 +16,7 @@ import type { ProductImageRule } from './image-rules.js';
  * session without a second factor holds no writes. The portal writes `live` products; nothing here writes `test`.
  *
  * A create is keyed by the client's request id: the same id with the same details answers with the product it made,
- * the same id with other details is refused. Nothing here holds a price or moves money.
+ * the same id with other details is refused. Nothing here moves money; prices are in `prices.ts`.
  */
 
 const MODE = 'live' as const;
@@ -65,10 +65,10 @@ const view = (row: ProductRow): MerchantProduct => ({
   updatedAt: iso(row.updated_at),
 });
 
-const productNotFound = () => new MerchantOpsError('pay.product_not_found', 'not_found');
+export const productNotFound = () => new MerchantOpsError('pay.product_not_found', 'not_found');
 const imageNotFound = () => new MerchantOpsError('pay.product_image_not_found', 'not_found');
 
-function assertWriter(caller: MerchantCaller): void {
+export function assertWriter(caller: MerchantCaller): void {
   assertPermission(caller, 'products.manage');
   if (!caller.interactive) throw new MerchantOpsError('pay.catalog_interactive_only', 'forbidden');
 }
@@ -93,7 +93,7 @@ function generatedKey(): string {
   return `prod_${[...randomBytes(16)].map((b) => alphabet[b % 32]).join('')}`;
 }
 
-const isUnique = (err: unknown, constraint: string): boolean =>
+export const isUnique = (err: unknown, constraint: string): boolean =>
   typeof err === 'object' &&
   err !== null &&
   (err as { code?: string }).code === '23505' &&
@@ -108,7 +108,7 @@ export function sniffImageType(bytes: Buffer): ImageType | null {
 }
 
 /** Row ids are uuids; anything else in an address or a cursor names no row, so it never reaches a `::uuid` cast. */
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 

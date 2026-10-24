@@ -30,6 +30,7 @@ export function createCatalogMock(ctx) {
           ]
         : [];
   state.productImages ??= [];
+  state.prices ??= [];
   return {
     /** Returns NOT_MINE for a procedure this part does not own. */
     async handle(procedure, input, route) {
@@ -84,11 +85,62 @@ export function createCatalogMock(ctx) {
           const found = state.productImages.find((i) => i.imageId === input.imageId);
           return found ? ok(route, found) : refuse(route, 404, 'pay.product_image_not_found');
         }
+        case 'merchantCatalog.prices.list': {
+          if (!state.products.some((p) => p.id === input.productId)) return refuse(route, 404, 'pay.product_not_found');
+          return ok(route, page(state.prices.filter((p) => p.productId === input.productId).map(strip), input));
+        }
+        case 'merchantCatalog.prices.create': {
+          const replay = state.prices.find((p) => p.requestId === input.requestId);
+          if (replay) return ok(route, { price: strip(replay), replayed: true });
+          if (!state.products.some((p) => p.id === input.productId)) return refuse(route, 404, 'pay.product_not_found');
+          const chosen = input.kind === 'customer_chosen';
+          if (chosen && input.billing !== 'one_time') return refuse(route, 400, 'pay.price_customer_chosen_one_time');
+          if (chosen ? !input.minAmount || !input.maxAmount : !input.amount)
+            return refuse(route, 400, chosen ? 'pay.price_bounds_required' : 'pay.price_amount_required');
+          const price = {
+            id: hex('c3', state.prices.length + 1),
+            productId: input.productId,
+            billing: input.billing,
+            kind: input.kind,
+            assetId: input.assetId,
+            amount: chosen ? null : input.amount,
+            minAmount: chosen ? input.minAmount : null,
+            maxAmount: chosen ? input.maxAmount : null,
+            isDefault: !state.prices.some((p) => p.productId === input.productId && p.isDefault),
+            status: 'active',
+            createdAt: iso(Date.now()),
+            createdBy: USER_ID,
+          };
+          state.prices.push({ ...price, requestId: input.requestId });
+          return ok(route, { price, replayed: false });
+        }
+        case 'merchantCatalog.prices.setDefault': {
+          const found = state.prices.find((p) => p.id === input.priceId && p.productId === input.productId);
+          if (!found) return refuse(route, 404, 'pay.price_not_found');
+          for (const p of state.prices) if (p.productId === input.productId) p.isDefault = p.id === found.id;
+          return ok(route, strip(found));
+        }
+        case 'merchantCatalog.prices.quote': {
+          const found = state.prices.find((p) => p.id === input.priceId);
+          if (!found) return refuse(route, 404, 'pay.price_not_found');
+          const answer = (amount) => ok(route, { priceId: found.id, assetId: found.assetId, amount, billing: found.billing });
+          if (found.kind === 'fixed') return answer(found.amount);
+          if (!input.amount) return refuse(route, 400, 'pay.price_amount_required');
+          if (scaled(input.amount) < scaled(found.minAmount)) return refuse(route, 400, 'pay.price_amount_below_minimum');
+          if (scaled(input.amount) > scaled(found.maxAmount)) return refuse(route, 400, 'pay.price_amount_above_maximum');
+          return answer(input.amount);
+        }
         default:
           return NOT_MINE;
       }
     },
   };
 }
+
+/** A decimal string as 18-place scaled integer, as the ledger keeps it; never a float. */
+const scaled = (value) => {
+  const [whole, fraction = ''] = String(value).split('.');
+  return BigInt(whole + fraction.padEnd(18, '0').slice(0, 18));
+};
 
 const strip = ({ requestId: _requestId, ...product }) => product;
