@@ -1,9 +1,7 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { MerchantOpsError } from '../merchant-ops/errors.js';
 import { assertReceiptAddress, automaticReceipts, gateReceipt } from './receipt.js';
+import { payServiceSource } from '../payment-service/source.testkit.js';
 
 describe('receipt gate (M-plat-org-10)', () => {
   it('does not treat a pending or failed payment as paid', () => {
@@ -57,7 +55,7 @@ describe('receipt gate (M-plat-org-10)', () => {
   });
 
   it('does not hook receipt send into payment capture', () => {
-    const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'payment-service.ts'), 'utf8');
+    const src = payServiceSource();
     expect(src).not.toContain('customerEmails');
     expect(src).not.toContain('vendor.email');
     expect(src).not.toContain('ReceiptService');

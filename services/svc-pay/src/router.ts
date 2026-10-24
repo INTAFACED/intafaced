@@ -239,7 +239,7 @@ function reviewReasons(c: FraudReviewCase | DurableReviewCase): Array<{ ruleId: 
  * fence is wired, ones it holds the matching permission area over.
  *
  * HOW MERCHANTS RELATE TO USERS. `pay.merchants` carries `user_id` and inserts
- * `ON CONFLICT (user_id) DO NOTHING` (`payment-service.ts`), so there is still
+ * `ON CONFLICT (user_id) DO NOTHING` (`payment-service/merchants.ts`), so there is still
  * exactly one merchant per user. Self-action is ownership. Parent action is
  * area (`payment`, `payment.refund`, `settlement`, `settlement.payout`, …).
  *

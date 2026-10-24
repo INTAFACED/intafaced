@@ -7,8 +7,7 @@
 import { postPayLedger } from '../ledger-receipt.js';
 import { FRESH, settleGuardRefusal } from '../seams/guards.js';
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
-import { formatAmount, merchantProceeds, parseAmount, recipes, userAvailable } from '@intafaced/ledger-client';
+import { formatAmount, merchantProceeds, parseAmount, recipes } from '@intafaced/ledger-client';
 import { assertRailMayMoveValue } from '../rails/posture.js';
 import { assertPayoutDestinationKind, DestinationKindError } from '../payout-destination.js';
 import { PayoutDestinationMissingError } from '../merchant-payout-destination.js';
@@ -29,6 +28,7 @@ import {
 import { withMoneySpan, withRailSpan } from '../tracing.js';
 import type {
   PayService,
+  PayServiceInternal,
   SettlementDetailRow,
   SettlementLinePage,
   SettlementPage,
@@ -46,7 +46,7 @@ import {
   readIncludedAmount,
   refuseUnusableRail,
   toSettlement,
-} from '../payment-service.js';
+} from './internal.js';
 
 /**
  * Pay a settled window out of the book, to a bank or a chain (§6.1 "payout to
@@ -68,7 +68,7 @@ import {
  * queries that same key.
  */
 export async function payoutSettlement(
-  svc: PayService,
+  svc: PayServiceInternal,
   input: {
     settlementId: string;
     railId: string;
@@ -438,7 +438,7 @@ export async function payoutSettlement(
  * Ask the rail about a dispatched payout's original key, then reverse once
  * or finalise once. A rail with no status query leaves the hold where it is.
  */
-export async function reconcileDispatchedPayout(svc: PayService, settlementId: string): Promise<SettlementRecord> {
+export async function reconcileDispatchedPayout(svc: PayServiceInternal, settlementId: string): Promise<SettlementRecord> {
   return withMoneySpan('pay.reconcileDispatchedPayout', { operation: 'payout', settlementId }, async () => {
     return withPayoutLock(svc.sql, settlementId, async (connection) => {
       const settlement = await svc.getSettlement(settlementId, connection);
@@ -573,7 +573,7 @@ export async function reconcileDispatchedPayout(svc: PayService, settlementId: s
  * are not payable. Does not write. Does not invent a PSP.
  */
 export async function resolvePayoutDestination(
-  svc: PayService,
+  svc: PayServiceInternal,
   railId: string,
   merchantId: string,
   connection?: Sql,
@@ -593,7 +593,7 @@ export async function resolvePayoutDestination(
   }
 }
 
-export async function getSettlement(svc: PayService, settlementId: string, connection: Sql = svc.sql): Promise<SettlementRecord> {
+export async function getSettlement(svc: PayServiceInternal, settlementId: string, connection: Sql = svc.sql): Promise<SettlementRecord> {
   const rows = await connection<SettlementRow[]>`
     SELECT id, merchant_id, "window", asset_id, gross, fees, net, payout_method, payout_ref, payout_attempts, status
       FROM pay.settlements WHERE id = ${settlementId}
@@ -608,7 +608,7 @@ export async function getSettlement(svc: PayService, settlementId: string, conne
  * No freeze, no post, no payout. Caller fences merchant ownership / area.
  */
 export async function listSettlements(
-  svc: PayService,
+  svc: PayServiceInternal,
   input: {
     merchantId: string;
     status?: SettlementStatus;
@@ -654,7 +654,7 @@ export async function listSettlements(
 }
 
 /** One settlement with the timestamps, failure and pricing snapshot stored for it. */
-export async function readSettlement(svc: PayService, settlementId: string): Promise<SettlementRead> {
+export async function readSettlement(svc: PayServiceInternal, settlementId: string): Promise<SettlementRead> {
   const rows = await svc.sql<SettlementDetailRow[]>`
     SELECT id, merchant_id, "window", asset_id, gross, fees, net,
            payout_method, payout_ref, payout_attempts, status,
@@ -675,7 +675,7 @@ export async function readSettlement(svc: PayService, settlementId: string): Pro
  * An included event from before that field returns a null amount and a flag.
  */
 export async function listSettlementLines(
-  svc: PayService,
+  svc: PayServiceInternal,
   input: { settlementId: string; limit?: number; cursor?: string },
 ): Promise<SettlementLinePage> {
   const limit = assertSettlementListLimit(input.limit);
@@ -720,7 +720,7 @@ export async function listSettlementLines(
   };
 }
 
-export async function settlementPage(svc: PayService, rows: SettlementDetailRow[], limit: number): Promise<SettlementPage> {
+export async function settlementPage(svc: PayServiceInternal, rows: SettlementDetailRow[], limit: number): Promise<SettlementPage> {
   const pageRows = rows.slice(0, limit);
   const snapshots = await readPricingSnapshots(
     svc.sql,

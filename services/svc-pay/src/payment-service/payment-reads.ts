@@ -4,7 +4,7 @@
  * Moved out of `payment-service.ts` as it was (owner decision 2026-10-23): `PayService` keeps one method per
  * function here, which passes itself as `svc`.
  */
-import { merchantClearing, merchantProceeds, userAvailable, type Amount } from '@intafaced/ledger-client';
+import { merchantClearing, merchantProceeds, type Amount } from '@intafaced/ledger-client';
 import { encodeListCursor } from '../list-page.js';
 import { attemptFromRailAuthorize, type PaymentAttemptView } from '../payments/attempts.js';
 import { boundAmount } from '../payments/amounts.js';
@@ -13,6 +13,7 @@ import { safeFailure, type MerchantFailure } from '../merchant-failure.js';
 import { readPricingSnapshots, type StoredPricingSnapshot } from '../control/snapshots.js';
 import type {
   PayService,
+  PayServiceInternal,
   PaymentEventRecord,
   PaymentPage,
   PaymentRead,
@@ -20,7 +21,7 @@ import type {
   PaymentStatus,
   PaymentView,
 } from '../payment-service.js';
-import { PayError, assertPaymentHistoryLimit, assertPaymentListLimit, listFilters } from '../payment-service.js';
+import { PayError, assertPaymentHistoryLimit, assertPaymentListLimit, listFilters } from './internal.js';
 
 /**
  * Merchant payment list — durable status projection for the acquiring surface.
@@ -39,7 +40,7 @@ import { PayError, assertPaymentHistoryLimit, assertPaymentListLimit, listFilter
  * so the page is empty. That is not an error.
  */
 export async function listPayments(
-  svc: PayService,
+  svc: PayServiceInternal,
   input: {
     merchantId: string;
     status?: PaymentStatus;
@@ -160,7 +161,7 @@ export async function listPayments(
  * invented. A payment that has not been sent to a rail has an empty list.
  * The caller has already checked ownership.
  */
-export async function listPaymentAttempts(svc: PayService, paymentId: string): Promise<PaymentAttemptView[]> {
+export async function listPaymentAttempts(svc: PayServiceInternal, paymentId: string): Promise<PaymentAttemptView[]> {
   const rows = await svc.sql<Array<{ id: string; payload: unknown; ts: Date }>>`
     SELECT id, payload, ts
       FROM pay.payment_events
@@ -177,7 +178,7 @@ export async function listPaymentAttempts(svc: PayService, paymentId: string): P
 
 /** Stored snapshot and safe failure for one payment. Null when nothing was recorded. */
 export async function paymentFacts(
-  svc: PayService,
+  svc: PayServiceInternal,
   paymentId: string,
 ): Promise<{ pricingSnapshot: StoredPricingSnapshot | null; failure: MerchantFailure | null }> {
   const facts = await svc.paymentFactsFor([paymentId]);
@@ -185,7 +186,7 @@ export async function paymentFacts(
 }
 
 export async function paymentFactsFor(
-  svc: PayService,
+  svc: PayServiceInternal,
   ids: string[],
 ): Promise<Map<string, { pricingSnapshot: StoredPricingSnapshot | null; failure: MerchantFailure | null }>> {
   const out = new Map<string, { pricingSnapshot: StoredPricingSnapshot | null; failure: MerchantFailure | null }>();
@@ -211,14 +212,14 @@ export async function paymentFactsFor(
   return out;
 }
 
-export function assertListStatus(svc: PayService, status: string | undefined, allowed: readonly string[]): void {
+export function assertListStatus(svc: PayServiceInternal, status: string | undefined, allowed: readonly string[]): void {
   if (status !== undefined && !allowed.includes(status)) {
     throw new PayError('List status filter is not a known status', 'pay.validation_failed');
   }
 }
 
 // ── Reads ──────────────────────────────────────────────────────────────────
-export async function getPayment(svc: PayService, paymentId: string): Promise<PaymentView> {
+export async function getPayment(svc: PayServiceInternal, paymentId: string): Promise<PaymentView> {
   const rows = await svc.sql<PaymentRow[]>`
     SELECT id, merchant_id, profile_id, amount, currency, method, rail_adapter, rail_ref, status, created_at
       FROM pay.payments WHERE id = ${paymentId}
@@ -229,7 +230,7 @@ export async function getPayment(svc: PayService, paymentId: string): Promise<Pa
 }
 
 /** The append-only state history for one payment, oldest first (§6.1). Page size is owner-published — omit is not 50. */
-export async function history(svc: PayService, paymentId: string, requestedLimit?: number): Promise<PaymentEventRecord[]> {
+export async function history(svc: PayServiceInternal, paymentId: string, requestedLimit?: number): Promise<PaymentEventRecord[]> {
   const limit = assertPaymentHistoryLimit(requestedLimit);
   const rows = await svc.sql<
     Array<{ id: string; event: string; payload: Record<string, unknown>; rail_event_id: string | null; ts: Date }>
@@ -248,7 +249,7 @@ export async function history(svc: PayService, paymentId: string, requestedLimit
  * clearing account is the answer, and asking the ledger keeps the two
  * independent — which is the entire property a reconciliation job needs.
  */
-export async function clearingBalance(svc: PayService, merchantId: string, assetId: string): Promise<Amount> {
+export async function clearingBalance(svc: PayServiceInternal, merchantId: string, assetId: string): Promise<Amount> {
   return (await svc.ledger.balance(merchantClearing(merchantId, assetId))).amount;
 }
 
@@ -260,7 +261,7 @@ export async function clearingBalance(svc: PayService, merchantId: string, asset
  * replay of that key does not move the money. Summing proceeds under-counts
  * that history; the shortfall is still on the personal account.
  */
-export async function merchantBalance(svc: PayService, merchantId: string, assetId: string): Promise<Amount> {
+export async function merchantBalance(svc: PayServiceInternal, merchantId: string, assetId: string): Promise<Amount> {
   await svc.getMerchant(merchantId);
   return (await svc.ledger.balance(merchantProceeds(merchantId, assetId))).amount;
 }

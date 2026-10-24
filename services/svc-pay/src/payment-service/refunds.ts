@@ -22,19 +22,9 @@ import {
 import { classifySettlementTx, readSettlementBook, settlementIdempotencyKey } from '../settlement-book.js';
 import { type RailResult } from '../rails/rail-adapter.js';
 import { assertRailMayMoveValue } from '../rails/posture.js';
-import { stable } from '../payout-admission.js';
 import { withMoneySpan, withRailSpan } from '../tracing.js';
-import type { PayService, PaymentView } from '../payment-service.js';
-import {
-  PayError,
-  appendEvent,
-  countEvents,
-  lockPayment,
-  railPayload,
-  readPayment,
-  refuseUnusableRail,
-  totalsFor,
-} from '../payment-service.js';
+import type { PayService, PayServiceInternal, PaymentView } from '../payment-service.js';
+import { PayError, appendEvent, countEvents, lockPayment, railPayload, readPayment, refuseUnusableRail, totalsFor } from './internal.js';
 
 /**
  * Refund, in full or in part. THE OUTBOUND MONEY PATH.
@@ -66,7 +56,7 @@ import {
  * hope" is how one refund becomes two.
  */
 export async function refund(
-  svc: PayService,
+  svc: PayServiceInternal,
   paymentId: string,
   amount: Amount,
   options: { refundId?: string; keyEnv?: 'sandbox' } = {},
@@ -77,7 +67,7 @@ export async function refund(
 }
 
 export async function refundInner(
-  svc: PayService,
+  svc: PayServiceInternal,
   paymentId: string,
   amount: Amount,
   options: { refundId?: string; keyEnv?: 'sandbox' },
@@ -473,7 +463,7 @@ export async function refundInner(
  * No settled event, or a post that is neither legacy nor proceeds, refuses.
  */
 export async function settledPotForPayment(
-  svc: PayService,
+  svc: PayServiceInternal,
   sql: Sql,
   paymentId: string,
   merchantUserId: string,
@@ -516,7 +506,11 @@ export async function settledPotForPayment(
  * dispute key. No settled event means the money is still in clearing, and
  * the settled leg (if any) is proceeds.
  */
-export async function chargebackSettledPot(svc: PayService, paymentId: string, merchantUserId: string): Promise<'proceeds' | 'user'> {
+export async function chargebackSettledPot(
+  svc: PayServiceInternal,
+  paymentId: string,
+  merchantUserId: string,
+): Promise<'proceeds' | 'user'> {
   const settled = await svc.sql<Array<{ ok: number }>>`
     SELECT 1 AS ok FROM pay.payment_events
      WHERE payment_id = ${paymentId} AND event = 'settled'
@@ -536,7 +530,7 @@ export async function chargebackSettledPot(svc: PayService, paymentId: string, m
  * dispute from a closed one. Only an open or contested case (or a disputed payment with no case row
  * yet) can still hand money back.
  */
-export async function hasUnresolvedDispute(svc: PayService, sql: Sql, merchantId: string, assetId: string): Promise<boolean> {
+export async function hasUnresolvedDispute(svc: PayServiceInternal, sql: Sql, merchantId: string, assetId: string): Promise<boolean> {
   const disputed = await sql<Array<{ id: string }>>`
     SELECT id FROM pay.payments
      WHERE merchant_id = ${merchantId}::uuid AND currency = ${assetId} AND status = 'disputed'
@@ -549,7 +543,7 @@ export async function hasUnresolvedDispute(svc: PayService, sql: Sql, merchantId
 }
 
 export async function recognisedPayoutBook(
-  svc: PayService,
+  svc: PayServiceInternal,
   input: {
     settlementId: string;
     merchantId: string;
@@ -585,7 +579,7 @@ export async function recognisedPayoutBook(
  * Anything else, including nothing booked, returns null so the caller rethrows the original error.
  */
 export async function recoverBookedRefund(
-  svc: PayService,
+  svc: PayServiceInternal,
   error: unknown,
   input: {
     key: string;

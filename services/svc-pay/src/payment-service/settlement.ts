@@ -12,14 +12,21 @@ import { payoutRailSourceKey, targetKey } from '../halts/store.js';
 import type { PayHaltTarget } from '../halts/types.js';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
-import { formatAmount, mulBps, parseAmount, recipes, userAvailable, type Amount } from '@intafaced/ledger-client';
+import { formatAmount, mulBps, parseAmount, recipes, type Amount } from '@intafaced/ledger-client';
 import { classifySettlementTx, legacyPostMatchesFrozen } from '../settlement-book.js';
 import { merchantKybMoneyGateRefusal } from '../merchant-kyb-money-gate.js';
 import { withMoneySpan } from '../tracing.js';
 import { affiliateLegAfterPaySettlement, fireAffiliateAccrue } from '../affiliate-accrue.js';
 import { fireAffiliatePayout } from '../affiliate-payout.js';
-import type { MerchantRecord, PayService, SettlementRecord, SettlementRow, SettlementStatus } from '../payment-service.js';
-import { PayError, appendEvent, lockPayment, publishedDefaultFeeBps, toSettlement, totalsFor, windowBounds } from '../payment-service.js';
+import type {
+  MerchantRecord,
+  PayService,
+  PayServiceInternal,
+  SettlementRecord,
+  SettlementRow,
+  SettlementStatus,
+} from '../payment-service.js';
+import { PayError, appendEvent, lockPayment, publishedDefaultFeeBps, toSettlement, totalsFor, windowBounds } from './internal.js';
 
 // ── Settlement (§6.1) ──────────────────────────────────────────────────────
 
@@ -48,7 +55,7 @@ import { PayError, appendEvent, lockPayment, publishedDefaultFeeBps, toSettlemen
  * Re-reading an already-posted settlement is still fine (no value moves).
  */
 export async function settleWindow(
-  svc: PayService,
+  svc: PayServiceInternal,
   input: {
     merchantId: string;
     /** Window label, e.g. '2026-07-27'. Half the business key. */
@@ -125,7 +132,7 @@ export async function settleWindow(
  * labels — custom windows need from/to that release does not have).
  */
 export async function postPendingSettlement(
-  svc: PayService,
+  svc: PayServiceInternal,
   settlementId: string,
   replay: GuardReplay,
   span?: { setAttribute: (k: string, v: string | number) => void },
@@ -278,7 +285,7 @@ export async function postPendingSettlement(
 }
 
 /** Best-effort; never throws. Settlement already committed. */
-export async function notifyPayAffiliateAccrue(svc: PayService, posted: SettlementRecord, merchantUserId: string): Promise<void> {
+export async function notifyPayAffiliateAccrue(svc: PayServiceInternal, posted: SettlementRecord, merchantUserId: string): Promise<void> {
   if (posted.status !== 'posted') return;
   await fireAffiliateAccrue(
     svc.affiliateAccrue,
@@ -292,7 +299,7 @@ export async function notifyPayAffiliateAccrue(svc: PayService, posted: Settleme
 }
 
 /** Best-effort payout after accrue; never throws. Settlement already committed. */
-export async function notifyPayAffiliatePayout(svc: PayService, posted: SettlementRecord, merchantUserId: string): Promise<void> {
+export async function notifyPayAffiliatePayout(svc: PayServiceInternal, posted: SettlementRecord, merchantUserId: string): Promise<void> {
   if (posted.status !== 'posted') return;
   await fireAffiliatePayout(
     svc.affiliatePayout,
@@ -313,7 +320,7 @@ export async function notifyPayAffiliatePayout(svc: PayService, posted: Settleme
  * more payments into a settlement a suspended operator can then try to post.
  */
 export async function prepareSettlement(
-  svc: PayService,
+  svc: PayServiceInternal,
   input: {
     merchantId: string;
     window: string;
@@ -499,7 +506,7 @@ export async function prepareSettlement(
  * Only `pending` windows. Posted/paid_out/failed refuse (failed is idempotent).
  */
 export async function releasePendingSettlement(
-  svc: PayService,
+  svc: PayServiceInternal,
   input: {
     settlementId: string;
     /** Free-text ops reason (journaled; required so silent cancels are impossible). */
@@ -590,7 +597,7 @@ export async function releasePendingSettlement(
  * Adapter throws count. Destination and customer refusals do not.
  */
 export async function accountRailOutcome(
-  svc: PayService,
+  svc: PayServiceInternal,
   input: {
     kind: 'failure' | 'success' | 'throw';
     target: PayHaltTarget;

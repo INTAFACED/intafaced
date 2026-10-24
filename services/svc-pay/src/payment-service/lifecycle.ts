@@ -17,13 +17,12 @@ import { randomUUID } from 'node:crypto';
 import { withPaymentAdmission, type PreparedPaymentOperation } from '../payment-admission.js';
 import { FRESH, type GuardReplay } from '../seams/guards.js';
 import type { Sql } from 'postgres';
-import { transaction } from '@intafaced/db';
 import { formatAmount, parseAmount, recipes, type Amount } from '@intafaced/ledger-client';
 import { isSandboxRailId } from '../sandbox-key-routing.js';
-import { isRailHealthBlockingCode, railReasonCode, type PaymentIntent, type RailAdapter } from '../rails/rail-adapter.js';
+import { isRailHealthBlockingCode, railReasonCode, type PaymentIntent } from '../rails/rail-adapter.js';
 import { PayoutAdmissionError, stable } from '../payout-admission.js';
 import { withMoneySpan, withRailSpan } from '../tracing.js';
-import type { PayService, PaymentRow, PaymentStatus, PaymentView } from '../payment-service.js';
+import type { PayService, PayServiceInternal, PaymentRow, PaymentStatus, PaymentView } from '../payment-service.js';
 import {
   PayError,
   appendEvent,
@@ -37,7 +36,7 @@ import {
   readPayment,
   refuseUnusableRail,
   toPayment,
-} from '../payment-service.js';
+} from './internal.js';
 
 // ── Payment lifecycle ──────────────────────────────────────────────────────
 
@@ -50,7 +49,7 @@ import {
  * this file changing.
  */
 export async function createPayment(
-  svc: PayService,
+  svc: PayServiceInternal,
   input: {
     requestId?: string;
     identityAuthority?: import('@intafaced/contracts').IdentityOperationIntent['authority'];
@@ -118,7 +117,7 @@ export async function createPayment(
 }
 
 export async function admitPaymentOperation<T>(
-  svc: PayService,
+  svc: PayServiceInternal,
   input: PreparedPaymentOperation,
   effect: (tx: Sql, admitted: boolean) => Promise<T>,
 ): Promise<T> {
@@ -163,7 +162,7 @@ export async function admitPaymentOperation<T>(
  *              recovery (the post landed, the projection did not).
  * A rail capture whose ledger post rolled back leaves no trace and is `fresh`.
  */
-export async function classifyPaymentAdmission(svc: PayService, tx: Sql, input: PreparedPaymentOperation): Promise<GuardReplay> {
+export async function classifyPaymentAdmission(svc: PayServiceInternal, tx: Sql, input: PreparedPaymentOperation): Promise<GuardReplay> {
   const rows = await tx<Array<{ status: PaymentStatus }>>`SELECT status FROM pay.payments WHERE id=${input.paymentId}`;
   const status = rows[0]?.status;
   if (!status) return FRESH;
@@ -179,7 +178,7 @@ export async function classifyPaymentAdmission(svc: PayService, tx: Sql, input: 
 }
 
 export async function existingPaymentCreation(
-  svc: PayService,
+  svc: PayServiceInternal,
   tx: Sql,
   input: Parameters<PayService['createPayment']>[0],
   paymentId: string,
@@ -217,7 +216,7 @@ export async function existingPaymentCreation(
  * this method can be retried freely.
  */
 export async function authorize(
-  svc: PayService,
+  svc: PayServiceInternal,
   paymentId: string,
   options: { identityAuthority?: import('@intafaced/contracts').IdentityOperationIntent['authority'] } = {},
 ): Promise<PaymentView> {
@@ -398,7 +397,7 @@ export async function authorize(
  * on the payment rather than on the attempt.
  */
 export async function capture(
-  svc: PayService,
+  svc: PayServiceInternal,
   paymentId: string,
   options: {
     amount?: Amount;
@@ -553,7 +552,7 @@ export async function capture(
  * calls it when that key is already on the book.
  */
 export async function finishBookedCapture(
-  svc: PayService,
+  svc: PayServiceInternal,
   tx: Sql,
   row: PaymentRow,
   booked: BookedCaptureCompletion,
@@ -585,7 +584,7 @@ export async function finishBookedCapture(
  * Does not post. `mode: 'off'` throws and reads nothing.
  */
 export async function reconcileAuthorizedCaptures(
-  svc: PayService,
+  svc: PayServiceInternal,
   input: CaptureReconcileInput,
   mode: CaptureReconcileMode,
 ): Promise<CaptureReconcileReport> {

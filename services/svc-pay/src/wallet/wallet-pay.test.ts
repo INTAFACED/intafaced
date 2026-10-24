@@ -227,7 +227,8 @@ describe('D-128 one withdrawal and deposit engine', () => {
       }
     };
     walk(root);
-    const allowed = new Set(['user-money-service.ts', 'payment-service.ts']);
+    // payment-service/internal.ts holds PayService's legacy payout plan, moved there from payment-service.ts.
+    const allowed = new Set(['user-money-service.ts', 'payment-service.ts', 'payment-service/internal.ts']);
     const offenders = files
       .filter((file) => /recipes\.(withdrawHold|withdrawSettle|withdrawReverse|deposit)\(/.test(readFileSync(file, 'utf8')))
       .map((file) => relative(root, file))

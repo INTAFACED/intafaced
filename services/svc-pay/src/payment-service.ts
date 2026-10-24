@@ -1,58 +1,23 @@
-import { postPayLedger } from './ledger-receipt.js';
-import { MerchantStoredFeeError, normalizeStoredFeeBps } from './starter-fee.js';
 import { checkoutUrlFor, paymentLinkCreateFingerprint, paymentLinkCreateKey } from './payment-link-create.js';
 import {
-  CaptureReconcileError,
-  runCaptureReconcile,
   type BookedCaptureCompletion,
   type CaptureReconcileInput,
   type CaptureReconcileMode,
   type CaptureReconcileReport,
 } from './capture-reconcile.js';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { withPaymentAdmission, preparePaymentAdmission, type PreparedPaymentOperation } from './payment-admission.js';
-import { FRESH, NOOP_GUARDS, settleGuardRefusal, type GuardReplay, type PayGuards } from './seams/guards.js';
-import { noteAutoTripAccountError } from './halts/autotrip-log.js';
-import { isRailHealthFailureCode } from './halts/rail-health.js';
-import { payoutRailSourceKey, targetKey, type PayHaltStore } from './halts/store.js';
+import { preparePaymentAdmission, type PreparedPaymentOperation } from './payment-admission.js';
+import { FRESH, NOOP_GUARDS, type GuardReplay, type PayGuards } from './seams/guards.js';
+import { type PayHaltStore } from './halts/store.js';
 import type { PayHaltTarget } from './halts/types.js';
 import type { OwnerIdentityAuthorityPort } from './payment-authority.js';
 import type { Sql } from 'postgres';
-import { kybBindingMatches, loadKybDecisionBinding } from './kyb-decision-binding.js';
 import { transaction } from '@intafaced/db';
-import {
-  formatAmount,
-  InsufficientFundsError,
-  InvalidEntryError,
-  LedgerError,
-  insuranceFund,
-  merchantClearing,
-  merchantProceeds,
-  mulBps,
-  parseAmount,
-  railBoundary,
-  recipes,
-  userAvailable,
-  type Amount,
-  type LedgerClient,
-  type LedgerTx,
-  type PostRequest,
-} from '@intafaced/ledger-client';
-import { liveAccountsIn, sandboxChargebackOpeningProbe, sandboxChargebackWonProbe } from './sandbox-ledger-guard.js';
-import { isSandboxRailId } from './sandbox-key-routing.js';
-import { classifySettlementTx, legacyPostMatchesFrozen, readSettlementBook, settlementIdempotencyKey } from './settlement-book.js';
-import {
-  isRailHealthBlockingCode,
-  railBlockingReason,
-  railReasonCode,
-  type PaymentIntent,
-  type RailAdapter,
-  type RailEvent,
-  type RailResult,
-  type RailWebhookRequest,
-} from './rails/rail-adapter.js';
+import { formatAmount, parseAmount, type Amount, type LedgerClient, type LedgerTx, type PostRequest } from '@intafaced/ledger-client';
+import { liveAccountsIn } from './sandbox-ledger-guard.js';
+import { type PaymentIntent, type RailAdapter, type RailEvent, type RailWebhookRequest } from './rails/rail-adapter.js';
 import type { RailRegistry } from './rails/registry.js';
-import { assertRailMayMoveValue, PublicCheckoutUnavailable, type ValueMovementPolicy } from './rails/posture.js';
+import { PublicCheckoutUnavailable, type ValueMovementPolicy } from './rails/posture.js';
 import {
   REFERENCE_RAIL_ROUTING_PROFILES,
   selectSmartCheckoutRail,
@@ -62,63 +27,23 @@ import {
 } from './routing/decide.js';
 import { RoutingInputError } from './routing-inputs.js';
 import { merchantKybMoneyGateRefusal } from './merchant-kyb-money-gate.js';
-import { cleanMerchantName, MERCHANT_NAME_MAX, resolveMerchantNames } from './merchant-names.js';
-import { assertPayoutDestinationKind, DestinationKindError } from './payout-destination.js';
-import {
-  assertOnlyPayoutDestinations,
-  PayoutDestinationMissingError,
-  type MerchantPayoutDestinations,
-} from './merchant-payout-destination.js';
-import { settlementLedgerPlan, type SettlementLedgerPlan } from './settlement-ledger.js';
-import { dispatchedMarker, payoutRailKey, readDispatchedKey } from './payout-dispatch.js';
-import { encodeListCursor, ListQueryError, parseListFilters, type ListFilters } from './list-page.js';
-import { attemptFromRailAuthorize, type PaymentAttemptView } from './payments/attempts.js';
-import { boundAmount } from './payments/amounts.js';
-import { paymentListSummaryFromText, type PaymentListSummary } from './payments/list-summary.js';
-import { safeFailure, type MerchantFailure } from './merchant-failure.js';
-import { assertPayoutReserveWired } from './control/reserve.js';
-import { readPricingSnapshots, type StoredPricingSnapshot } from './control/snapshots.js';
-import {
-  finalizePayoutIdentity,
-  PayoutAdmissionError,
-  insertPayoutAdmission,
-  loadPayoutAdmission,
-  payoutTransaction,
-  withPayoutLock,
-  stable,
-  type IdentityPayoutAdmissionPort,
-} from './payout-admission.js';
-import {
-  chargebackKeys,
-  disputeOpeningKey,
-  postDisputeOpening,
-  postDisputeShortfall,
-  postDisputeShortfallRecovered,
-  postDisputeWon,
-  type ChargebackPostInput,
-  type ChargebackShortfallPostInput,
-} from './chargeback-ledger.js';
-import { CHARGEBACK_LEDGER_EFFECT_EVENT, chargebackLedgerEffect, type ChargebackLedgerEffect } from './chargeback-ledger-effect.js';
-import { recordRailDisputeDeadline } from './merchant-ops/dispute-deadlines.js';
-import { withMoneySpan, withRailSpan } from './tracing.js';
+import { assertOnlyPayoutDestinations, type MerchantPayoutDestinations } from './merchant-payout-destination.js';
+import { encodeListCursor } from './list-page.js';
+import { type PaymentAttemptView } from './payments/attempts.js';
+import { type PaymentListSummary } from './payments/list-summary.js';
+import { type MerchantFailure } from './merchant-failure.js';
+import { type StoredPricingSnapshot } from './control/snapshots.js';
+import { type IdentityPayoutAdmissionPort } from './payout-admission.js';
+import { chargebackLedgerEffect, type ChargebackLedgerEffect } from './chargeback-ledger-effect.js';
 import {
   defaultDisputeCaseStore,
-  DisputeCaseError,
-  isTerminalDisputeStatus,
-  railOutcomeConflicts,
-  refuseChargebackNothingToReverse,
-  refuseChargebackOpeningPostedShortfallUnfunded,
-  refuseChargebackPlanConflict,
-  refuseChargebackShortfallUnfunded,
-  refuseChargebackUncovered,
   type ChargebackLedgerRefuse,
   type DisputeCaseStatus,
   type DisputeCaseStore,
   type RailResolutionOutcome,
 } from './fraud/dispute-case.js';
-import { recordDisputeOutcomeConflict } from './fraud/dispute-outcome-conflict.js';
-import { affiliateLegAfterPaySettlement, fireAffiliateAccrue, NoopAffiliateAccrue, type AffiliateAccruePort } from './affiliate-accrue.js';
-import { fireAffiliatePayout, NoopAffiliatePayout, type AffiliatePayoutPort } from './affiliate-payout.js';
+import { NoopAffiliateAccrue, type AffiliateAccruePort } from './affiliate-accrue.js';
+import { NoopAffiliatePayout, type AffiliatePayoutPort } from './affiliate-payout.js';
 import {
   listMerchantPayoutDestinations,
   removeMerchantPayoutDestination,
@@ -127,7 +52,6 @@ import {
 import { readPayoutLifecycle as readPayoutLifecycleProjection } from './portal-reads/lifecycle.js';
 import { listMerchantRefunds, locateRefundMerchant, readMerchantRefund } from './portal-reads/refunds.js';
 import { listMerchantStatement } from './portal-reads/statement.js';
-import { MAX_FEE_BPS } from './fee-bps-bound.js';
 import * as merchants from './payment-service/merchants.js';
 import * as paymentReads from './payment-service/payment-reads.js';
 import * as lifecycle from './payment-service/lifecycle.js';
@@ -136,6 +60,25 @@ import * as webhooks from './payment-service/webhooks.js';
 import * as settlement from './payment-service/settlement.js';
 import * as payouts from './payment-service/payouts.js';
 import * as chargebacks from './payment-service/chargebacks.js';
+import {
+  PayError,
+  assertOwnerPageLimit,
+  toMerchant,
+  listFilters,
+  paymentCreationPayload,
+  insertPayment,
+  appendEvent,
+  totalsFor,
+  toPayment,
+} from './payment-service/internal.js';
+
+export {
+  PayError,
+  assertPaymentHistoryLimit,
+  assertPaymentListLimit,
+  assertSettlementListLimit,
+  publishedDefaultFeeBps,
+} from './payment-service/internal.js';
 
 /**
  * svc-pay — THE PAYMENTS CORE (§6.1).
@@ -545,37 +488,6 @@ export type PayErrorCode =
    */
   | 'pay.subscription_mandate_open';
 
-export class PayError extends Error {
-  constructor(
-    message: string,
-    readonly code: PayErrorCode,
-    readonly detail?: Record<string, unknown>,
-  ) {
-    super(message);
-    this.name = 'PayError';
-  }
-}
-
-/** Stale, probe-failed, or marked-down. Throws before a hold or a rail send. Absent rails are not this case. */
-export function refuseUnusableRail(adapter: RailAdapter, now: Date): void {
-  const reason = railBlockingReason(adapter, now);
-  if (!reason) return;
-  throw new PayError(`Rail "${adapter.id}" is not usable (${reason}). No value moved.`, 'pay.rail_failed', {
-    failureCode: railReasonCode(reason),
-  });
-}
-
-/** Owner house take unpublished. Blank PAY_DEFAULT_FEE_BPS is not 0. */
-export function publishedDefaultFeeBps(feeBps: number | null | undefined): number {
-  if (feeBps == null) {
-    throw new PayError('PAY_DEFAULT_FEE_BPS is unset — refusing rather than settling at 0 bps', 'pay.fee_bps_unset');
-  }
-  if (!Number.isInteger(feeBps) || feeBps < 0 || feeBps > MAX_FEE_BPS) {
-    throw new PayError(`Fee must be an integer between 0 and ${MAX_FEE_BPS} bps, got ${feeBps}`, 'pay.merchant_pricing_invalid');
-  }
-  return feeBps;
-}
-
 /** Owner link default lifetime unpublished. Blank PAY_LINK_DEFAULT_TTL_DAYS is not 30. */
 export function publishedLinkDefaultTtlDays(days: number | null | undefined): number {
   if (days == null) {
@@ -632,37 +544,6 @@ export function publishedMaxOpenSessionsPerLink(n: number | null | undefined): n
   return n;
 }
 
-function assertOwnerPageLimit(limit: number | undefined, code: PayErrorCode, cap: number, message: string): number {
-  if (limit === undefined || typeof limit !== 'number' || !Number.isFinite(limit)) {
-    throw new PayError(message, code);
-  }
-  const n = Math.floor(limit);
-  if (n < 1) {
-    throw new PayError(message, code);
-  }
-  return Math.min(cap, n);
-}
-
-/** payment.list page size unpublished. Blank / non-finite / <1 refuses. Never invent 50. */
-export function assertPaymentListLimit(limit: number | undefined): number {
-  return assertOwnerPageLimit(
-    limit,
-    'pay.payment_list_limit_unset',
-    200,
-    'payment.list page size is unset. Blank refuses — never 50. Pass a positive integer (50 is allowed if explicit).',
-  );
-}
-
-/** payment.history page size unpublished. Blank / non-finite / <1 refuses. Never invent 50. */
-export function assertPaymentHistoryLimit(limit: number | undefined): number {
-  return assertOwnerPageLimit(
-    limit,
-    'pay.payment_history_limit_unset',
-    200,
-    'payment.history page size is unset. Blank refuses — never 50. Pass a positive integer (50 is allowed if explicit).',
-  );
-}
-
 /** merchant.listLinks page size unpublished. Blank / non-finite / <1 refuses. Never invent 50. */
 export function assertPaymentLinkListLimit(limit: number | undefined): number {
   return assertOwnerPageLimit(
@@ -670,16 +551,6 @@ export function assertPaymentLinkListLimit(limit: number | undefined): number {
     'pay.payment_link_list_limit_unset',
     200,
     'merchant.listLinks page size is unset. Blank refuses — never 50. Pass a positive integer (50 is allowed if explicit).',
-  );
-}
-
-/** settlement.list page size unpublished. Blank / non-finite / <1 refuses. Never invent 50. */
-export function assertSettlementListLimit(limit: number | undefined): number {
-  return assertOwnerPageLimit(
-    limit,
-    'pay.settlement_list_limit_unset',
-    200,
-    'settlement.list page size is unset. Blank refuses — never 50. Pass a positive integer (50 is allowed if explicit).',
   );
 }
 
@@ -1204,15 +1075,6 @@ export interface SettlementDetailRow extends SettlementRow {
   created_at_cursor: string;
 }
 
-export function listFilters(input: { search?: string; assetId?: string; from?: string; to?: string; cursor?: string }): ListFilters {
-  try {
-    return parseListFilters(input);
-  } catch (err) {
-    if (err instanceof ListQueryError) throw new PayError(err.message, err.code);
-    throw err;
-  }
-}
-
 /** JSON object as stored. An array or a scalar is unreadable, not an empty object. */
 function storedJsonObject(value: unknown): Record<string, unknown> | null {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -1224,52 +1086,8 @@ function storedDomainList(value: unknown): string[] | null {
   return value;
 }
 
-/** Which statuses may legally follow which. Anything else is a bug, not an edge case. */
-const TRANSITIONS: Readonly<Record<PaymentStatus, readonly PaymentStatus[]>> = {
-  created: ['authorized', 'failed'],
-  authorized: ['captured', 'failed'],
-  captured: ['settled', 'refunded', 'disputed'],
-  settled: ['refunded', 'disputed'],
-  refunded: [],
-  // A won dispute returns the money, so the payment goes back to where it came from (see restoreAfterWonDispute).
-  disputed: ['captured', 'settled'],
-  failed: [],
-};
-
 /** The v1 public checkout estate: one rail, and the only one that can ever be live. */
 export const DEFAULT_CHECKOUT_RAILS: readonly CheckoutRail[] = [{ railId: 'crypto-native', method: 'crypto' }];
-
-/** Hold keys for one payout attempt. The legacy key is a pre-cutover user hold. */
-export function payoutHoldKeys(settlementId: string, attempt: number): { legacy: string; proceeds: string } {
-  const withdrawalId = `${settlementId}:${attempt}`;
-  return {
-    legacy: `withdraw.hold:${withdrawalId}`,
-    proceeds: `pay.proceeds.payout.hold:${withdrawalId}`,
-  };
-}
-
-/**
- * A hold booked before proceeds existed debited `userAvailable` into a user
- * withdrawal hold. Finishing it uses that trio. A new attempt uses proceeds.
- * Posting the proceeds trio on top of the legacy hold would pay twice.
- */
-export function legacyUserPayoutPlan(
-  userId: string,
-  assetId: string,
-  amount: Amount,
-  railId: string,
-  withdrawalId: string,
-  destinationKind: SettlementLedgerPlan['destinationKind'],
-): SettlementLedgerPlan {
-  const withdrawal = { userId, assetId, amount, rail: railId, withdrawalId };
-  return {
-    withdrawalId,
-    destinationKind,
-    hold: recipes.withdrawHold(withdrawal),
-    settle: recipes.withdrawSettle(withdrawal),
-    reverse: recipes.withdrawReverse(withdrawal),
-  };
-}
 
 function isCardishCheckoutRail(rail: CheckoutRail): boolean {
   return rail.method.trim().toLowerCase() === 'card' || /card|psp|acquirer/i.test(rail.railId);
@@ -1286,9 +1104,89 @@ function checkoutRailsAreUnsetPsp(checkoutRails: readonly CheckoutRail[], rails:
   return checkoutRails.every((r) => !rails.has(r.railId) || rails.get(r.railId).mode === 'absent');
 }
 
+/**
+ * `PayService` as the area files in `payment-service/` see it: its public surface plus the private members those
+ * files run on. The class passes itself through `internal`, so only the class and its area files reach these
+ * members; any other caller still gets a compile error for them.
+ */
+export type PayServiceInternal = { [K in keyof PayService]: PayService[K] } & {
+  accountRailOutcome: PayService['accountRailOutcome'];
+  acquireChargebackOutcomeSlot: PayService['acquireChargebackOutcomeSlot'];
+  admitPaymentOperation: PayService['admitPaymentOperation'];
+  affiliateAccrue: PayService['affiliateAccrue'];
+  affiliatePayout: PayService['affiliatePayout'];
+  afterPayoutAdmission: PayService['afterPayoutAdmission'];
+  afterSettlementMerchantLock: PayService['afterSettlementMerchantLock'];
+  applyWebhook: PayService['applyWebhook'];
+  assertListStatus: PayService['assertListStatus'];
+  assertMerchantActive: PayService['assertMerchantActive'];
+  beforeSettlementPostMerchantLock: PayService['beforeSettlementPostMerchantLock'];
+  bookDisputeResolution: PayService['bookDisputeResolution'];
+  chargebackBookedTx: PayService['chargebackBookedTx'];
+  chargebackLedgerRefusal: PayService['chargebackLedgerRefusal'];
+  chargebackOutcomeHeld: PayService['chargebackOutcomeHeld'];
+  chargebackOutcomeSlots: PayService['chargebackOutcomeSlots'];
+  chargebackOutcomeTails: PayService['chargebackOutcomeTails'];
+  chargebackOutcomeWaiters: PayService['chargebackOutcomeWaiters'];
+  chargebackSettledPot: PayService['chargebackSettledPot'];
+  chargebackSplit: PayService['chargebackSplit'];
+  classifyPaymentAdmission: PayService['classifyPaymentAdmission'];
+  custodyDeposits: PayService['custodyDeposits'];
+  defaultFeeBps: PayService['defaultFeeBps'];
+  disputeCases: PayService['disputeCases'];
+  enqueueChargebackOutcome: PayService['enqueueChargebackOutcome'];
+  ensureChargebackPlanLive: PayService['ensureChargebackPlanLive'];
+  existingPaymentCreation: PayService['existingPaymentCreation'];
+  finishBookedCapture: PayService['finishBookedCapture'];
+  guards: PayService['guards'];
+  haltStore: PayService['haltStore'];
+  hasUnresolvedDispute: PayService['hasUnresolvedDispute'];
+  identityAuthorityGuard: PayService['identityAuthorityGuard'];
+  identityOperationAdmission: PayService['identityOperationAdmission'];
+  lockChargebackOutcome: PayService['lockChargebackOutcome'];
+  lockMerchantEligibility: PayService['lockMerchantEligibility'];
+  markDisputedIfLive: PayService['markDisputedIfLive'];
+  markFailed: PayService['markFailed'];
+  notifyPayAffiliateAccrue: PayService['notifyPayAffiliateAccrue'];
+  notifyPayAffiliatePayout: PayService['notifyPayAffiliatePayout'];
+  notifyPaymentEvent: PayService['notifyPaymentEvent'];
+  now: PayService['now'];
+  paymentFactsFor: PayService['paymentFactsFor'];
+  paymentIsSandbox: PayService['paymentIsSandbox'];
+  payoutDestinations: PayService['payoutDestinations'];
+  postChargebackOpenOrRefuse: PayService['postChargebackOpenOrRefuse'];
+  postPendingSettlement: PayService['postPendingSettlement'];
+  prepareSettlement: PayService['prepareSettlement'];
+  recognisedPayoutBook: PayService['recognisedPayoutBook'];
+  recordChargebackLedgerEffect: PayService['recordChargebackLedgerEffect'];
+  recordChargebackPlanConflict: PayService['recordChargebackPlanConflict'];
+  recoverBookedRefund: PayService['recoverBookedRefund'];
+  refundInner: PayService['refundInner'];
+  refuseSandboxLive: PayService['refuseSandboxLive'];
+  releaseChargebackOutcomeSlot: PayService['releaseChargebackOutcomeSlot'];
+  resolvePayoutDestination: PayService['resolvePayoutDestination'];
+  restoreAfterWonDispute: PayService['restoreAfterWonDispute'];
+  reverseChargeback: PayService['reverseChargeback'];
+  settledPotForPayment: PayService['settledPotForPayment'];
+  settlementIncludesSandbox: PayService['settlementIncludesSandbox'];
+  settlementPage: PayService['settlementPage'];
+  throwUnfundedChargebackShortfall: PayService['throwUnfundedChargebackShortfall'];
+  valueMovement: PayService['valueMovement'];
+  view: PayService['view'];
+  voidChargebackPlan: PayService['voidChargebackPlan'];
+  withChargebackOutcomeLock: PayService['withChargebackOutcomeLock'];
+  withChargebackOutcomeSlot: PayService['withChargebackOutcomeSlot'];
+  writeKybDecision: PayService['writeKybDecision'];
+};
+
 export class PayService {
-  readonly defaultFeeBps: number | null;
-  readonly valueMovement: ValueMovementPolicy;
+  /** This service as its area files in `payment-service/` see it: see `PayServiceInternal`. */
+  private get internal(): PayServiceInternal {
+    return this as unknown as PayServiceInternal;
+  }
+
+  private readonly defaultFeeBps: number | null;
+  private readonly valueMovement: ValueMovementPolicy;
   private readonly publicCheckoutMovement: ValueMovementPolicy;
   private readonly checkoutRails: readonly CheckoutRail[];
   private readonly checkoutRiskBand: string | undefined;
@@ -1298,29 +1196,29 @@ export class PayService {
   private readonly linkMaxTtlDays: number | null;
   private readonly checkoutPublicBasePath: string;
   private readonly maxOpenSessionsPerLink: number | null;
-  readonly now: () => Date;
-  readonly custodyDeposits: CustodyDepositReceiver | undefined;
+  private readonly now: () => Date;
+  private readonly custodyDeposits: CustodyDepositReceiver | undefined;
   private readonly afterPaymentEvent:
     | ((event: {
         type: 'payment.authorized' | 'payment.captured' | 'payment.refunded' | 'payment.failed';
         payment: PaymentView;
       }) => void | Promise<void>)
     | undefined;
-  readonly afterSettlementMerchantLock: (() => void | Promise<void>) | undefined;
-  readonly beforeSettlementPostMerchantLock: (() => void | Promise<void>) | undefined;
-  readonly affiliateAccrue: AffiliateAccruePort;
-  readonly affiliatePayout: AffiliatePayoutPort;
-  readonly payoutDestinations: MerchantPayoutDestinations;
-  readonly identityOperationAdmission: IdentityPayoutAdmissionPort | undefined;
-  readonly identityAuthorityGuard: OwnerIdentityAuthorityPort | undefined;
-  readonly afterPayoutAdmission: (() => void | Promise<void>) | undefined;
-  readonly guards: PayGuards;
-  readonly haltStore: PayHaltStore | undefined;
-  readonly disputeCases: DisputeCaseStore;
-  readonly chargebackOutcomeSlots: number;
-  chargebackOutcomeHeld: number;
-  readonly chargebackOutcomeWaiters: Array<() => void>;
-  readonly chargebackOutcomeTails: Map<string, Promise<void>>;
+  private readonly afterSettlementMerchantLock: (() => void | Promise<void>) | undefined;
+  private readonly beforeSettlementPostMerchantLock: (() => void | Promise<void>) | undefined;
+  private readonly affiliateAccrue: AffiliateAccruePort;
+  private readonly affiliatePayout: AffiliatePayoutPort;
+  private readonly payoutDestinations: MerchantPayoutDestinations;
+  private readonly identityOperationAdmission: IdentityPayoutAdmissionPort | undefined;
+  private readonly identityAuthorityGuard: OwnerIdentityAuthorityPort | undefined;
+  private readonly afterPayoutAdmission: (() => void | Promise<void>) | undefined;
+  private readonly guards: PayGuards;
+  private readonly haltStore: PayHaltStore | undefined;
+  private readonly disputeCases: DisputeCaseStore;
+  private readonly chargebackOutcomeSlots: number;
+  private chargebackOutcomeHeld: number;
+  private readonly chargebackOutcomeWaiters: Array<() => void>;
+  private readonly chargebackOutcomeTails: Map<string, Promise<void>>;
 
   constructor(
     readonly sql: Sql,
@@ -1419,7 +1317,10 @@ export class PayService {
   }
 
   /** Fire-and-forget outbound notify — never throws into the money path. */
-  notifyPaymentEvent(type: 'payment.authorized' | 'payment.captured' | 'payment.refunded' | 'payment.failed', payment: PaymentView): void {
+  private notifyPaymentEvent(
+    type: 'payment.authorized' | 'payment.captured' | 'payment.refunded' | 'payment.failed',
+    payment: PaymentView,
+  ): void {
     if (!this.afterPaymentEvent) return;
     void Promise.resolve(this.afterPaymentEvent({ type, payment })).catch(() => undefined);
   }
@@ -1437,23 +1338,23 @@ export class PayService {
     displayName?: string | null;
     legalName?: string | null;
   }): Promise<MerchantRecord> {
-    return merchants.createMerchant(this, input);
+    return merchants.createMerchant(this.internal, input);
   }
 
   async getMerchant(merchantId: string, connection: Sql = this.sql): Promise<MerchantRecord> {
-    return merchants.getMerchant(this, merchantId, connection);
+    return merchants.getMerchant(this.internal, merchantId, connection);
   }
 
-  async lockMerchantEligibility(sql: Sql, merchantId: string): Promise<MerchantRecord> {
-    return merchants.lockMerchantEligibility(this, sql, merchantId);
+  private async lockMerchantEligibility(sql: Sql, merchantId: string): Promise<MerchantRecord> {
+    return merchants.lockMerchantEligibility(this.internal, sql, merchantId);
   }
 
   async getMerchantByUserId(userId: string): Promise<MerchantRecord | null> {
-    return merchants.getMerchantByUserId(this, userId);
+    return merchants.getMerchantByUserId(this.internal, userId);
   }
 
   async submitKyb(input: { merchantId: string; kybRef: string; actor: KybActor }): Promise<MerchantRecord> {
-    return merchants.submitKyb(this, input);
+    return merchants.submitKyb(this.internal, input);
   }
 
   async decideKyb(input: {
@@ -1468,21 +1369,21 @@ export class PayService {
     beforeWrite?: () => Promise<void>;
     actor: KybActor;
   }): Promise<MerchantRecord> {
-    return merchants.decideKyb(this, input);
+    return merchants.decideKyb(this.internal, input);
   }
 
   async decideKybStub(input: { merchantId: string; decision: 'approved' | 'rejected'; actor: KybActor }): Promise<MerchantRecord> {
-    return merchants.decideKybStub(this, input);
+    return merchants.decideKybStub(this.internal, input);
   }
 
-  async writeKybDecision(
+  private async writeKybDecision(
     merchantId: string,
     decision: 'approved' | 'rejected',
     actor: KybActor,
     reason: string,
     binding?: { identityHash: string; beforeWrite?: () => Promise<void> },
   ): Promise<MerchantRecord> {
-    return merchants.writeKybDecision(this, merchantId, decision, actor, reason, binding);
+    return merchants.writeKybDecision(this.internal, merchantId, decision, actor, reason, binding);
   }
 
   async listPayments(input: {
@@ -1504,25 +1405,25 @@ export class PayService {
      */
     railMode?: 'sandbox';
   }): Promise<PaymentPage> {
-    return paymentReads.listPayments(this, input);
+    return paymentReads.listPayments(this.internal, input);
   }
 
   async listPaymentAttempts(paymentId: string): Promise<PaymentAttemptView[]> {
-    return paymentReads.listPaymentAttempts(this, paymentId);
+    return paymentReads.listPaymentAttempts(this.internal, paymentId);
   }
 
   async paymentFacts(paymentId: string): Promise<{ pricingSnapshot: StoredPricingSnapshot | null; failure: MerchantFailure | null }> {
-    return paymentReads.paymentFacts(this, paymentId);
+    return paymentReads.paymentFacts(this.internal, paymentId);
   }
 
-  async paymentFactsFor(
+  private async paymentFactsFor(
     ids: string[],
   ): Promise<Map<string, { pricingSnapshot: StoredPricingSnapshot | null; failure: MerchantFailure | null }>> {
-    return paymentReads.paymentFactsFor(this, ids);
+    return paymentReads.paymentFactsFor(this.internal, ids);
   }
 
-  assertListStatus(status: string | undefined, allowed: readonly string[]): void {
-    return paymentReads.assertListStatus(this, status, allowed);
+  private assertListStatus(status: string | undefined, allowed: readonly string[]): void {
+    return paymentReads.assertListStatus(this.internal, status, allowed);
   }
 
   async createProfile(input: {
@@ -2491,30 +2392,30 @@ export class PayService {
      */
     keyEnv?: 'live' | 'sandbox';
   }): Promise<PaymentView> {
-    return lifecycle.createPayment(this, input);
+    return lifecycle.createPayment(this.internal, input);
   }
 
-  async admitPaymentOperation<T>(input: PreparedPaymentOperation, effect: (tx: Sql, admitted: boolean) => Promise<T>): Promise<T> {
-    return lifecycle.admitPaymentOperation(this, input, effect);
+  private async admitPaymentOperation<T>(input: PreparedPaymentOperation, effect: (tx: Sql, admitted: boolean) => Promise<T>): Promise<T> {
+    return lifecycle.admitPaymentOperation(this.internal, input, effect);
   }
 
-  async classifyPaymentAdmission(tx: Sql, input: PreparedPaymentOperation): Promise<GuardReplay> {
-    return lifecycle.classifyPaymentAdmission(this, tx, input);
+  private async classifyPaymentAdmission(tx: Sql, input: PreparedPaymentOperation): Promise<GuardReplay> {
+    return lifecycle.classifyPaymentAdmission(this.internal, tx, input);
   }
 
-  async existingPaymentCreation(
+  private async existingPaymentCreation(
     tx: Sql,
     input: Parameters<PayService['createPayment']>[0],
     paymentId: string,
   ): Promise<PaymentView | null> {
-    return lifecycle.existingPaymentCreation(this, tx, input, paymentId);
+    return lifecycle.existingPaymentCreation(this.internal, tx, input, paymentId);
   }
 
   async authorize(
     paymentId: string,
     options: { identityAuthority?: import('@intafaced/contracts').IdentityOperationIntent['authority'] } = {},
   ): Promise<PaymentView> {
-    return lifecycle.authorize(this, paymentId, options);
+    return lifecycle.authorize(this.internal, paymentId, options);
   }
 
   async capture(
@@ -2526,48 +2427,48 @@ export class PayService {
       keyEnv?: 'sandbox';
     } = {},
   ): Promise<PaymentView> {
-    return lifecycle.capture(this, paymentId, options);
+    return lifecycle.capture(this.internal, paymentId, options);
   }
 
-  async finishBookedCapture(tx: Sql, row: PaymentRow, booked: BookedCaptureCompletion): Promise<PaymentView> {
-    return lifecycle.finishBookedCapture(this, tx, row, booked);
+  private async finishBookedCapture(tx: Sql, row: PaymentRow, booked: BookedCaptureCompletion): Promise<PaymentView> {
+    return lifecycle.finishBookedCapture(this.internal, tx, row, booked);
   }
 
   async reconcileAuthorizedCaptures(input: CaptureReconcileInput, mode: CaptureReconcileMode): Promise<CaptureReconcileReport> {
-    return lifecycle.reconcileAuthorizedCaptures(this, input, mode);
+    return lifecycle.reconcileAuthorizedCaptures(this.internal, input, mode);
   }
 
   async refund(paymentId: string, amount: Amount, options: { refundId?: string; keyEnv?: 'sandbox' } = {}): Promise<PaymentView> {
-    return refunds.refund(this, paymentId, amount, options);
+    return refunds.refund(this.internal, paymentId, amount, options);
   }
 
-  async refundInner(paymentId: string, amount: Amount, options: { refundId?: string; keyEnv?: 'sandbox' }): Promise<PaymentView> {
-    return refunds.refundInner(this, paymentId, amount, options);
+  private async refundInner(paymentId: string, amount: Amount, options: { refundId?: string; keyEnv?: 'sandbox' }): Promise<PaymentView> {
+    return refunds.refundInner(this.internal, paymentId, amount, options);
   }
 
-  async settledPotForPayment(sql: Sql, paymentId: string, merchantUserId: string): Promise<'proceeds' | 'user'> {
-    return refunds.settledPotForPayment(this, sql, paymentId, merchantUserId);
+  private async settledPotForPayment(sql: Sql, paymentId: string, merchantUserId: string): Promise<'proceeds' | 'user'> {
+    return refunds.settledPotForPayment(this.internal, sql, paymentId, merchantUserId);
   }
 
-  async chargebackSettledPot(paymentId: string, merchantUserId: string): Promise<'proceeds' | 'user'> {
-    return refunds.chargebackSettledPot(this, paymentId, merchantUserId);
+  private async chargebackSettledPot(paymentId: string, merchantUserId: string): Promise<'proceeds' | 'user'> {
+    return refunds.chargebackSettledPot(this.internal, paymentId, merchantUserId);
   }
 
-  async hasUnresolvedDispute(sql: Sql, merchantId: string, assetId: string): Promise<boolean> {
-    return refunds.hasUnresolvedDispute(this, sql, merchantId, assetId);
+  private async hasUnresolvedDispute(sql: Sql, merchantId: string, assetId: string): Promise<boolean> {
+    return refunds.hasUnresolvedDispute(this.internal, sql, merchantId, assetId);
   }
 
-  async recognisedPayoutBook(input: {
+  private async recognisedPayoutBook(input: {
     settlementId: string;
     merchantId: string;
     merchantUserId: string;
     window: string;
     assetId: string;
   }): Promise<'legacy' | 'proceeds'> {
-    return refunds.recognisedPayoutBook(this, input);
+    return refunds.recognisedPayoutBook(this.internal, input);
   }
 
-  async recoverBookedRefund(
+  private async recoverBookedRefund(
     error: unknown,
     input: {
       key: string;
@@ -2580,19 +2481,19 @@ export class PayService {
       amount: Amount;
     },
   ): Promise<{ tx: LedgerTx; source: 'clearing' | 'settled'; settledPot: 'proceeds' | 'user' } | null> {
-    return refunds.recoverBookedRefund(this, error, input);
+    return refunds.recoverBookedRefund(this.internal, error, input);
   }
 
   async handleWebhook(railId: string, request: RailWebhookRequest): Promise<WebhookOutcome> {
-    return webhooks.handleWebhook(this, railId, request);
+    return webhooks.handleWebhook(this.internal, railId, request);
   }
 
-  async applyWebhook(adapter: RailAdapter, event: RailEvent): Promise<WebhookOutcome> {
-    return webhooks.applyWebhook(this, adapter, event);
+  private async applyWebhook(adapter: RailAdapter, event: RailEvent): Promise<WebhookOutcome> {
+    return webhooks.applyWebhook(this.internal, adapter, event);
   }
 
-  async markFailed(paymentId: string, failureCode: string): Promise<void> {
-    return webhooks.markFailed(this, paymentId, failureCode);
+  private async markFailed(paymentId: string, failureCode: string): Promise<void> {
+    return webhooks.markFailed(this.internal, paymentId, failureCode);
   }
 
   async markDisputed(
@@ -2604,15 +2505,15 @@ export class PayService {
       ledgerTxId?: string | null;
     },
   ): Promise<PaymentView> {
-    return webhooks.markDisputed(this, paymentId, meta);
+    return webhooks.markDisputed(this.internal, paymentId, meta);
   }
 
-  async markDisputedIfLive(paymentId: string, meta: Parameters<PayService['markDisputed']>[1]): Promise<boolean> {
-    return webhooks.markDisputedIfLive(this, paymentId, meta);
+  private async markDisputedIfLive(paymentId: string, meta: Parameters<PayService['markDisputed']>[1]): Promise<boolean> {
+    return webhooks.markDisputedIfLive(this.internal, paymentId, meta);
   }
 
-  async restoreAfterWonDispute(paymentId: string, disputeId: string): Promise<void> {
-    return webhooks.restoreAfterWonDispute(this, paymentId, disputeId);
+  private async restoreAfterWonDispute(paymentId: string, disputeId: string): Promise<void> {
+    return webhooks.restoreAfterWonDispute(this.internal, paymentId, disputeId);
   }
 
   async settleWindow(input: {
@@ -2626,33 +2527,33 @@ export class PayService {
     /** A sandbox key cannot freeze or post a live settlement. */
     keyEnv?: 'sandbox';
   }): Promise<SettlementRecord> {
-    return settlement.settleWindow(this, input);
+    return settlement.settleWindow(this.internal, input);
   }
 
-  async postPendingSettlement(
+  private async postPendingSettlement(
     settlementId: string,
     replay: GuardReplay,
     span?: { setAttribute: (k: string, v: string | number) => void },
   ): Promise<SettlementRecord> {
-    return settlement.postPendingSettlement(this, settlementId, replay, span);
+    return settlement.postPendingSettlement(this.internal, settlementId, replay, span);
   }
 
-  async notifyPayAffiliateAccrue(posted: SettlementRecord, merchantUserId: string): Promise<void> {
-    return settlement.notifyPayAffiliateAccrue(this, posted, merchantUserId);
+  private async notifyPayAffiliateAccrue(posted: SettlementRecord, merchantUserId: string): Promise<void> {
+    return settlement.notifyPayAffiliateAccrue(this.internal, posted, merchantUserId);
   }
 
-  async notifyPayAffiliatePayout(posted: SettlementRecord, merchantUserId: string): Promise<void> {
-    return settlement.notifyPayAffiliatePayout(this, posted, merchantUserId);
+  private async notifyPayAffiliatePayout(posted: SettlementRecord, merchantUserId: string): Promise<void> {
+    return settlement.notifyPayAffiliatePayout(this.internal, posted, merchantUserId);
   }
 
-  async prepareSettlement(input: {
+  private async prepareSettlement(input: {
     merchantId: string;
     window: string;
     assetId: string;
     from?: Date;
     to?: Date;
   }): Promise<SettlementRecord> {
-    return settlement.prepareSettlement(this, input);
+    return settlement.prepareSettlement(this.internal, input);
   }
 
   async releasePendingSettlement(input: {
@@ -2660,10 +2561,10 @@ export class PayService {
     /** Free-text ops reason (journaled; required so silent cancels are impossible). */
     reason: string;
   }): Promise<SettlementRecord> {
-    return settlement.releasePendingSettlement(this, input);
+    return settlement.releasePendingSettlement(this.internal, input);
   }
 
-  async accountRailOutcome(input: {
+  private async accountRailOutcome(input: {
     kind: 'failure' | 'success' | 'throw';
     target: PayHaltTarget;
     railId: string;
@@ -2671,7 +2572,7 @@ export class PayService {
     eventKey?: string;
     connection?: Sql;
   }): Promise<void> {
-    return settlement.accountRailOutcome(this, input);
+    return settlement.accountRailOutcome(this.internal, input);
   }
 
   async payoutSettlement(input: {
@@ -2682,19 +2583,19 @@ export class PayService {
     /** A sandbox key cannot enter a live payout. */
     keyEnv?: 'sandbox';
   }): Promise<SettlementRecord> {
-    return payouts.payoutSettlement(this, input);
+    return payouts.payoutSettlement(this.internal, input);
   }
 
   async reconcileDispatchedPayout(settlementId: string): Promise<SettlementRecord> {
-    return payouts.reconcileDispatchedPayout(this, settlementId);
+    return payouts.reconcileDispatchedPayout(this.internal, settlementId);
   }
 
-  async resolvePayoutDestination(railId: string, merchantId: string, connection?: Sql): Promise<{ kind: string; ref: string }> {
-    return payouts.resolvePayoutDestination(this, railId, merchantId, connection);
+  private async resolvePayoutDestination(railId: string, merchantId: string, connection?: Sql): Promise<{ kind: string; ref: string }> {
+    return payouts.resolvePayoutDestination(this.internal, railId, merchantId, connection);
   }
 
   async getSettlement(settlementId: string, connection: Sql = this.sql): Promise<SettlementRecord> {
-    return payouts.getSettlement(this, settlementId, connection);
+    return payouts.getSettlement(this.internal, settlementId, connection);
   }
 
   async listSettlements(input: {
@@ -2707,35 +2608,35 @@ export class PayService {
     from?: string;
     to?: string;
   }): Promise<SettlementPage> {
-    return payouts.listSettlements(this, input);
+    return payouts.listSettlements(this.internal, input);
   }
 
   async readSettlement(settlementId: string): Promise<SettlementRead> {
-    return payouts.readSettlement(this, settlementId);
+    return payouts.readSettlement(this.internal, settlementId);
   }
 
   async listSettlementLines(input: { settlementId: string; limit?: number; cursor?: string }): Promise<SettlementLinePage> {
-    return payouts.listSettlementLines(this, input);
+    return payouts.listSettlementLines(this.internal, input);
   }
 
-  async settlementPage(rows: SettlementDetailRow[], limit: number): Promise<SettlementPage> {
-    return payouts.settlementPage(this, rows, limit);
+  private async settlementPage(rows: SettlementDetailRow[], limit: number): Promise<SettlementPage> {
+    return payouts.settlementPage(this.internal, rows, limit);
   }
 
   async getPayment(paymentId: string): Promise<PaymentView> {
-    return paymentReads.getPayment(this, paymentId);
+    return paymentReads.getPayment(this.internal, paymentId);
   }
 
   async history(paymentId: string, requestedLimit?: number): Promise<PaymentEventRecord[]> {
-    return paymentReads.history(this, paymentId, requestedLimit);
+    return paymentReads.history(this.internal, paymentId, requestedLimit);
   }
 
   async clearingBalance(merchantId: string, assetId: string): Promise<Amount> {
-    return paymentReads.clearingBalance(this, merchantId, assetId);
+    return paymentReads.clearingBalance(this.internal, merchantId, assetId);
   }
 
   async merchantBalance(merchantId: string, assetId: string): Promise<Amount> {
-    return paymentReads.merchantBalance(this, merchantId, assetId);
+    return paymentReads.merchantBalance(this.internal, merchantId, assetId);
   }
 
   async openChargeback(input: {
@@ -2747,28 +2648,33 @@ export class PayService {
     /** A sandbox key cannot open a chargeback against live pots. */
     keyEnv?: 'sandbox';
   }): Promise<{ txId: string; openingTxId: string | null; shortfallTxId: string | null }> {
-    return chargebacks.openChargeback(this, input);
+    return chargebacks.openChargeback(this.internal, input);
   }
 
-  async chargebackSplit(
+  private async chargebackSplit(
     paymentId: string,
     disputeId: string,
     amount: Amount,
     settledPot: 'proceeds' | 'user',
     compute: () => Promise<{ fromClearing: Amount; fromMerchantBalance: Amount; shortfall: Amount }>,
   ): Promise<ChargebackSplit> {
-    return chargebacks.chargebackSplit(this, paymentId, disputeId, amount, settledPot, compute);
+    return chargebacks.chargebackSplit(this.internal, paymentId, disputeId, amount, settledPot, compute);
   }
 
-  async voidChargebackPlan(paymentId: string, disputeId: string, planSeq: string, idempotencyKey: string): Promise<{ id: string } | null> {
-    return chargebacks.voidChargebackPlan(this, paymentId, disputeId, planSeq, idempotencyKey);
+  private async voidChargebackPlan(
+    paymentId: string,
+    disputeId: string,
+    planSeq: string,
+    idempotencyKey: string,
+  ): Promise<{ id: string } | null> {
+    return chargebacks.voidChargebackPlan(this.internal, paymentId, disputeId, planSeq, idempotencyKey);
   }
 
-  async ensureChargebackPlanLive(paymentId: string, disputeId: string, plan: ChargebackSplit): Promise<void> {
-    return chargebacks.ensureChargebackPlanLive(this, paymentId, disputeId, plan);
+  private async ensureChargebackPlanLive(paymentId: string, disputeId: string, plan: ChargebackSplit): Promise<void> {
+    return chargebacks.ensureChargebackPlanLive(this.internal, paymentId, disputeId, plan);
   }
 
-  async bookDisputeResolution(input: {
+  private async bookDisputeResolution(input: {
     disputeId: string;
     paymentId: string;
     merchantId: string;
@@ -2778,10 +2684,10 @@ export class PayService {
     /** True when the rail event named an amount. Absent means return the stored plan in full. */
     amountExplicit?: boolean;
   }): Promise<ChargebackLedgerEffect> {
-    return chargebacks.bookDisputeResolution(this, input);
+    return chargebacks.bookDisputeResolution(this.internal, input);
   }
 
-  async reverseChargeback(input: {
+  private async reverseChargeback(input: {
     disputeId: string;
     paymentId: string;
     merchantId: string;
@@ -2789,60 +2695,60 @@ export class PayService {
     assetId: string;
     amountExplicit?: boolean;
   }): Promise<ChargebackLedgerEffect> {
-    return chargebacks.reverseChargeback(this, input);
+    return chargebacks.reverseChargeback(this.internal, input);
   }
 
-  chargebackLedgerRefusal(e: unknown): PayError {
-    return chargebacks.chargebackLedgerRefusal(this, e);
+  private chargebackLedgerRefusal(e: unknown): PayError {
+    return chargebacks.chargebackLedgerRefusal(this.internal, e);
   }
 
-  async throwUnfundedChargebackShortfall(input: {
+  private async throwUnfundedChargebackShortfall(input: {
     paymentId: string;
     disputeId: string;
     openingTxId: string | null;
     shortfall?: string;
     fund?: string;
   }): Promise<never> {
-    return chargebacks.throwUnfundedChargebackShortfall(this, input);
+    return chargebacks.throwUnfundedChargebackShortfall(this.internal, input);
   }
 
-  async recordChargebackLedgerEffect(
+  private async recordChargebackLedgerEffect(
     paymentId: string,
     disputeId: string,
     effect: Parameters<typeof chargebackLedgerEffect>[0],
   ): Promise<void> {
-    return chargebacks.recordChargebackLedgerEffect(this, paymentId, disputeId, effect);
+    return chargebacks.recordChargebackLedgerEffect(this.internal, paymentId, disputeId, effect);
   }
 
-  async withChargebackOutcomeLock<T>(disputeId: string, fn: () => Promise<T>): Promise<T> {
-    return chargebacks.withChargebackOutcomeLock(this, disputeId, fn);
+  private async withChargebackOutcomeLock<T>(disputeId: string, fn: () => Promise<T>): Promise<T> {
+    return chargebacks.withChargebackOutcomeLock(this.internal, disputeId, fn);
   }
 
-  enqueueChargebackOutcome<T>(disputeId: string, run: () => Promise<T>): Promise<T> {
-    return chargebacks.enqueueChargebackOutcome(this, disputeId, run);
+  private enqueueChargebackOutcome<T>(disputeId: string, run: () => Promise<T>): Promise<T> {
+    return chargebacks.enqueueChargebackOutcome(this.internal, disputeId, run);
   }
 
-  async withChargebackOutcomeSlot<T>(run: () => Promise<T>): Promise<T> {
-    return chargebacks.withChargebackOutcomeSlot(this, run);
+  private async withChargebackOutcomeSlot<T>(run: () => Promise<T>): Promise<T> {
+    return chargebacks.withChargebackOutcomeSlot(this.internal, run);
   }
 
-  acquireChargebackOutcomeSlot(): Promise<void> {
-    return chargebacks.acquireChargebackOutcomeSlot(this);
+  private acquireChargebackOutcomeSlot(): Promise<void> {
+    return chargebacks.acquireChargebackOutcomeSlot(this.internal);
   }
 
-  releaseChargebackOutcomeSlot(): void {
-    return chargebacks.releaseChargebackOutcomeSlot(this);
+  private releaseChargebackOutcomeSlot(): void {
+    return chargebacks.releaseChargebackOutcomeSlot(this.internal);
   }
 
-  async lockChargebackOutcome<T>(disputeId: string, fn: () => Promise<T>): Promise<T> {
-    return chargebacks.lockChargebackOutcome(this, disputeId, fn);
+  private async lockChargebackOutcome<T>(disputeId: string, fn: () => Promise<T>): Promise<T> {
+    return chargebacks.lockChargebackOutcome(this.internal, disputeId, fn);
   }
 
-  async chargebackBookedTx(key: string): Promise<LedgerTx | null> {
-    return chargebacks.chargebackBookedTx(this, key);
+  private async chargebackBookedTx(key: string): Promise<LedgerTx | null> {
+    return chargebacks.chargebackBookedTx(this.internal, key);
   }
 
-  async recordChargebackPlanConflict(input: {
+  private async recordChargebackPlanConflict(input: {
     merchantId: string;
     disputeId: string;
     paymentId: string;
@@ -2855,20 +2761,20 @@ export class PayService {
     outcome: RailResolutionOutcome;
     evidenceDueBy: Date | null;
   }): Promise<void> {
-    return chargebacks.recordChargebackPlanConflict(this, input);
+    return chargebacks.recordChargebackPlanConflict(this.internal, input);
   }
 
-  async postChargebackOpenOrRefuse(input: {
+  private async postChargebackOpenOrRefuse(input: {
     disputeId: string;
     paymentId: string;
     merchantId: string;
     amount: string;
     assetId: string;
   }): Promise<{ ledgerPost?: { txId: string }; ledgerRefuse?: ChargebackLedgerRefuse }> {
-    return chargebacks.postChargebackOpenOrRefuse(this, input);
+    return chargebacks.postChargebackOpenOrRefuse(this.internal, input);
   }
 
-  async view(sql: Sql, row: PaymentRow): Promise<PaymentView> {
+  private async view(sql: Sql, row: PaymentRow): Promise<PaymentView> {
     const totals = await totalsFor(sql, row.id);
     return { ...toPayment(row), capturedAmount: totals.captured, refundedAmount: totals.refunded };
   }
@@ -2883,7 +2789,7 @@ export class PayService {
    * Layer B also reads `kybStatus`: `rejected` never pays; `live-only` requires
    * approved KYB (`pay.kyb_required`). Does not invent `pay:*` scopes.
    */
-  assertMerchantActive(merchant: MerchantRecord): void {
+  private assertMerchantActive(merchant: MerchantRecord): void {
     if (merchant.status !== 'active') {
       throw new PayError(`Merchant ${merchant.id} is ${merchant.status}`, 'pay.merchant_inactive');
     }
@@ -2939,7 +2845,7 @@ export class PayService {
    * Sandbox flag from the created event. Absent is not sandbox. The event is
    * insert-only, so a later call cannot clear it.
    */
-  async paymentIsSandbox(sql: Sql, paymentId: string): Promise<boolean> {
+  private async paymentIsSandbox(sql: Sql, paymentId: string): Promise<boolean> {
     const rows = await sql<Array<{ sandbox: string | null }>>`
       SELECT payload->>'sandbox' AS sandbox
         FROM pay.payment_events
@@ -2950,7 +2856,7 @@ export class PayService {
   }
 
   /** True when a frozen window contains a payment created with a sandbox key. */
-  async settlementIncludesSandbox(sql: Sql, settlementId: string): Promise<boolean> {
+  private async settlementIncludesSandbox(sql: Sql, settlementId: string): Promise<boolean> {
     const rows = await sql<Array<{ ok: number }>>`
       SELECT 1 AS ok
         FROM pay.payment_events inc
@@ -2965,7 +2871,7 @@ export class PayService {
   }
 
   /** Refuse before `ledger.post` when a sandbox flag would touch a live account. */
-  refuseSandboxLive(sandbox: boolean, request: PostRequest): void {
+  private refuseSandboxLive(sandbox: boolean, request: PostRequest): void {
     if (!sandbox) return;
     const live = liveAccountsIn(request);
     if (live.length === 0) return;
@@ -2981,116 +2887,6 @@ export class PayService {
   /** Timeline for one settlement. Status is derived inside the projection, not copied from the status column. */
   readPayoutLifecycle(settlementId: string) {
     return readPayoutLifecycleProjection(this.sql, settlementId, (message, code) => this.portalFail(message, code));
-  }
-}
-
-// ── helpers ──────────────────────────────────────────────────────────────────
-
-/**
- * Write a payment row and its `created` event.
- *
- * Extracted so `createPayment` (a merchant integration naming its own rail) and
- * `openCheckoutSession` (an anonymous payer on a rail the server chose) produce
- * BYTE-IDENTICAL rows and event payloads. Two code paths writing a payments row
- * two slightly different ways is how one of them ends up missing a field the
- * settlement sweep or a dispute later depends on.
- */
-export function paymentCreationPayload(input: Parameters<PayService['createPayment']>[0], paymentId: string): Record<string, unknown> {
-  return {
-    paymentId,
-    merchantId: input.merchantId.toLowerCase(),
-    profileId: input.profileId?.toLowerCase() ?? null,
-    amount: formatAmount(input.amount),
-    assetId: input.assetId,
-    method: input.method,
-    railAdapter: input.railAdapter,
-    instrument: input.instrument ?? null,
-    customerRef: input.customerRef ?? null,
-    metadata: input.metadata ?? {},
-    ...(input.keyEnv === 'sandbox' ? { sandbox: true } : {}),
-  };
-}
-export async function insertPayment(
-  tx: Sql,
-  input: {
-    id?: string;
-    merchantId: string;
-    profileId?: string | null;
-    amount: Amount;
-    assetId: string;
-    method: string;
-    railAdapter: string;
-    instrument?: PaymentIntent['instrument'];
-    customerRef?: string;
-    metadata?: Record<string, string>;
-    /** Immutable. Written only when the creating key was sandbox. */
-    sandbox?: boolean;
-  },
-): Promise<PaymentRow> {
-  const rows = await tx<PaymentRow[]>`
-    INSERT INTO pay.payments (id, merchant_id, profile_id, amount, currency, method, rail_adapter, status)
-    VALUES (
-      ${input.id ?? randomUUID()}, ${input.merchantId}, ${input.profileId ?? null}, ${formatAmount(input.amount)}::numeric,
-      ${input.assetId}, ${input.method}, ${input.railAdapter}, 'created'
-    )
-    RETURNING id, merchant_id, profile_id, amount, currency, method, rail_adapter, rail_ref, status, created_at
-  `;
-  const row = rows[0]!;
-
-  await appendEvent(tx, row.id, 'created', {
-    amount: formatAmount(input.amount),
-    assetId: input.assetId,
-    method: input.method,
-    railAdapter: input.railAdapter,
-    customerRef: input.customerRef ?? null,
-    // The instrument lives on the `created` event rather than in a column
-    // because it is a rail's business, not ours, and because a tokenised
-    // instrument is the sort of thing that must never end up in a WHERE clause
-    // by accident.
-    instrument: input.instrument ?? null,
-    metadata: input.metadata ?? {},
-    ...(input.sandbox ? { sandbox: true } : {}),
-  });
-
-  return row;
-}
-
-/**
- * Mark a hosted-checkout session paid, and count the use against its link.
- *
- * Runs inside the capture transaction. Two properties are load-bearing:
- *
- *   IT IS IDEMPOTENT — the UPDATE only matches a session that is not already
- *   `completed` — so a redelivered webhook that re-runs capture does not count a
- *   second use against the link.
- *
- *   IT PROMOTES AN `expired` SESSION TO `completed`. A payer whose tab timed out
- *   and who then sent the funds anyway HAS PAID, and the session is the record of
- *   that payer's attempt. Leaving it `expired` next to a captured payment would
- *   be the books and the checkout disagreeing about the same money.
- *
- *   IT NEVER REFUSES. The link's `uses` is incremented UNCONDITIONALLY, even
- *   past `max_uses`. That is not sloppiness about the bound, it is the same rule
- *   that governs a deposit: money that has ALREADY ARRIVED must always be
- *   bookable. The bound is a gate on opening a checkout, where nothing has
- *   moved; enforcing it here would mean refusing to record value sitting at an
- *   address we control, and stranding it is a far worse outcome than a merchant
- *   taking one payment past their own ceiling.
- *
- * Which makes the bound honestly ADVISORY under concurrency: two payers who
- * open sessions at the same instant on a `maxUses: 1` link can both pay, and
- * both are booked. `payment_links.uses` then reads 2 and the next open is
- * refused. The service says so rather than implying a hard cap it cannot keep.
- */
-export async function completeCheckoutSession(tx: Sql, paymentId: string): Promise<void> {
-  const closed = await tx<Array<{ link_id: string }>>`
-    UPDATE pay.checkout_sessions
-       SET status = 'completed', updated_at = now()
-     WHERE payment_id = ${paymentId} AND status IN ('open', 'expired')
-     RETURNING link_id
-  `;
-  for (const { link_id } of closed) {
-    await tx`UPDATE pay.payment_links SET uses = uses + 1 WHERE id = ${link_id}`;
   }
 }
 
@@ -3115,74 +2911,6 @@ function toCheckoutSessionView(row: CheckoutSessionRow, label: string, method: s
   };
 }
 
-export async function readPayment(tx: Sql, paymentId: string): Promise<PaymentRow> {
-  const rows = await tx<PaymentRow[]>`
-    SELECT id, merchant_id, profile_id, amount, currency, method, rail_adapter, rail_ref, status, created_at
-      FROM pay.payments WHERE id = ${paymentId}
-  `;
-  const row = rows[0];
-  if (!row) throw new PayError(`Payment ${paymentId} not found`, 'pay.payment_not_found');
-  return row;
-}
-
-export async function lockPayment(tx: Sql, paymentId: string): Promise<PaymentRow> {
-  const rows = await tx<PaymentRow[]>`
-    SELECT id, merchant_id, profile_id, amount, currency, method, rail_adapter, rail_ref, status, created_at
-      FROM pay.payments WHERE id = ${paymentId} FOR UPDATE
-  `;
-  const row = rows[0];
-  if (!row) throw new PayError(`Payment ${paymentId} not found`, 'pay.payment_not_found');
-  return row;
-}
-
-export function assertTransition(row: PaymentRow, next: PaymentStatus): void {
-  if (!TRANSITIONS[row.status].includes(next)) {
-    throw new PayError(`Payment ${row.id} cannot go from ${row.status} to ${next}`, 'pay.invalid_transition', {
-      from: row.status,
-      to: next,
-    });
-  }
-}
-
-/**
- * Captured and refunded totals, summed from the append-only log.
- *
- * Deliberately not columns. A running total on the payment row would be a
- * second source of truth for money, and the day it disagrees with the event log
- * is the day nobody can say which one was right.
- */
-export function readIncludedAmount(raw: string | null): { amount: Amount | null; includedAmountKnown: boolean } {
-  if (raw == null || raw.trim() === '') return { amount: null, includedAmountKnown: false };
-  try {
-    return { amount: parseAmount(raw), includedAmountKnown: true };
-  } catch {
-    return { amount: null, includedAmountKnown: false };
-  }
-}
-
-export async function totalsFor(sql: Sql, paymentId: string): Promise<{ captured: Amount; refunded: Amount }> {
-  const rows = await sql<Array<{ captured: string; refunded: string }>>`
-    SELECT
-      COALESCE(SUM(CASE WHEN event = 'captured' THEN (payload->>'amount')::numeric END), 0) AS captured,
-      COALESCE(SUM(CASE WHEN event = 'refunded' THEN (payload->>'amount')::numeric END), 0) AS refunded
-      FROM pay.payment_events WHERE payment_id = ${paymentId}
-  `;
-  const row = rows[0];
-  return { captured: parseAmount(row?.captured ?? '0'), refunded: parseAmount(row?.refunded ?? '0') };
-}
-
-export async function countEvents(sql: Sql, paymentId: string, event: string): Promise<number> {
-  const rows = await sql<Array<{ n: string }>>`
-    SELECT COUNT(*)::text AS n FROM pay.payment_events WHERE payment_id = ${paymentId} AND event = ${event}
-  `;
-  return Number.parseInt(rows[0]?.n ?? '0', 10);
-}
-
-/** The ledger refused for want of funds: the HTTP client rebuilds the subclass, but any LedgerError carrying the code counts. */
-export function isInsufficientFunds(e: unknown): boolean {
-  return e instanceof InsufficientFundsError || (e instanceof LedgerError && e.code === 'ledger.insufficient_funds');
-}
-
 /** Absent means one slot. A non-positive count would wait forever and hold the pool. */
 function chargebackOutcomeSlotCount(slots: number | undefined): number {
   const value = slots ?? 1;
@@ -3190,17 +2918,6 @@ function chargebackOutcomeSlotCount(slots: number | undefined): number {
     throw new Error('pay.chargeback_outcome_slots: chargebackOutcomeSlots must be an integer of at least 1');
   }
   return value;
-}
-
-export function postgresErrorCode(err: unknown): string | undefined {
-  if (!err || typeof err !== 'object') return undefined;
-  const code = (err as { code?: unknown }).code;
-  return typeof code === 'string' ? code : undefined;
-}
-
-export function openingTxIdFromDetail(detail: Record<string, unknown> | undefined): string | null {
-  const id = detail?.openingTxId;
-  return typeof id === 'string' && id.trim().length > 0 ? id : null;
 }
 
 export type ChargebackSplit = {
@@ -3223,199 +2940,10 @@ export type ChargebackPlan = {
 };
 
 /**
- * The dispute's live opening plan: the latest `chargeback.opening_planned` that no later `chargeback.opening_plan_voided`
- * retired. A void applies to the plans before it; a plan made after a void is live.
- */
-export async function readLivePlan(sql: Sql, paymentId: string, disputeId: string): Promise<ChargebackPlan | null> {
-  const rows = await sql<Array<{ seq: string; event: string; payload: Omit<ChargebackPlan, 'seq'> }>>`
-    SELECT seq, event, payload FROM pay.payment_events
-     WHERE payment_id = ${paymentId}
-       AND event IN ('chargeback.opening_planned', 'chargeback.opening_plan_voided')
-       AND payload->>'disputeId' = ${disputeId}
-     ORDER BY seq ASC
-  `;
-  let live: ChargebackPlan | null = null;
-  for (const row of rows) {
-    live = row.event === 'chargeback.opening_planned' ? { ...row.payload, seq: String(row.seq) } : null;
-  }
-  return live;
-}
-
-export async function appendEvent(sql: Sql, paymentId: string, event: string, payload: Record<string, unknown>): Promise<void> {
-  await sql`
-    INSERT INTO pay.payment_events (payment_id, event, payload)
-    VALUES (${paymentId}, ${event}, ${sql.json(payload as never)})
-  `;
-}
-
-/** The instrument the payment was created with, read back off the `created` event. */
-export async function instrumentFor(sql: Sql, paymentId: string): Promise<PaymentIntent['instrument']> {
-  const rows = await sql<Array<{ payload: Record<string, unknown> }>>`
-    SELECT payload FROM pay.payment_events WHERE payment_id = ${paymentId} AND event = 'created' LIMIT 1
-  `;
-  const instrument = rows[0]?.payload?.instrument;
-  if (typeof instrument !== 'object' || instrument === null) return undefined;
-  const i = instrument as Record<string, unknown>;
-  if (typeof i.kind !== 'string') return undefined;
-  return {
-    kind: i.kind,
-    token: typeof i.token === 'string' ? i.token : undefined,
-    address: typeof i.address === 'string' ? i.address : undefined,
-  };
-}
-
-export function railPayload(result: RailResult): Record<string, unknown> {
-  return {
-    ok: result.ok,
-    status: result.status,
-    railRef: result.railRef,
-    // Decimal string. A bigint does not survive JSON and a number does not
-    // survive 18 decimal places.
-    amount: formatAmount(result.amount),
-    assetId: result.assetId,
-    at: result.at.toISOString(),
-    failureCode: result.failureCode ?? null,
-    failureReason: result.failureReason ?? null,
-  };
-}
-
-/**
  * Who moved a merchant's KYB, as `merchant_kyb_events` records it. The scope says which door: a `pay:*` scope is
  * the merchant (or the sandbox stub), anything else is INTAFACED. The portal history reads it that way.
  */
 export interface KybActor {
   readonly id: string;
   readonly scope: string;
-}
-
-/** One `merchant_kyb_events` row, written inside the transaction that moved `kyb_status`. */
-export async function recordKybEvent(
-  tx: Sql,
-  e: {
-    merchantId: string;
-    from: MerchantRecord['kybStatus'];
-    to: MerchantRecord['kybStatus'];
-    kybRef: string | null;
-    reason: string;
-    actor: KybActor;
-  },
-): Promise<void> {
-  await tx`
-    INSERT INTO pay.merchant_kyb_events (merchant_id, from_status, to_status, kyb_ref, reason, actor_id, actor_scope)
-    VALUES (${e.merchantId}, ${e.from}::pay.kyb_status, ${e.to}::pay.kyb_status, ${e.kybRef}, ${e.reason}, ${e.actor.id}, ${e.actor.scope})`;
-}
-
-export const kybDecisionReason = (decision: 'approved' | 'rejected') =>
-  decision === 'approved' ? 'Verification approved' : 'Verification rejected';
-
-export function toMerchant(row: MerchantRow): MerchantRecord {
-  let feeBps: number | null;
-  try {
-    feeBps = normalizeStoredFeeBps(row.pricing);
-  } catch (err) {
-    if (err instanceof MerchantStoredFeeError) {
-      throw new PayError(`Merchant ${row.id} has malformed pricing`, 'pay.merchant_pricing_invalid', { pricing: row.pricing });
-    }
-    throw err;
-  }
-  return {
-    id: row.id,
-    userId: row.user_id,
-    mode: row.mode,
-    tier: Number(row.tier),
-    kybStatus: row.kyb_status,
-    kybRef: row.kyb_ref ?? null,
-    status: row.status,
-    pricing: { feeBps: feeBps ?? undefined },
-    settlementPrefs: row.settlement_prefs ?? {},
-  };
-}
-
-export function toPayment(row: PaymentRow): PaymentRecord {
-  return {
-    id: row.id,
-    merchantId: row.merchant_id,
-    profileId: row.profile_id,
-    amount: parseAmount(row.amount),
-    assetId: row.currency,
-    method: row.method,
-    railAdapter: row.rail_adapter,
-    railRef: row.rail_ref,
-    status: row.status,
-    createdAt: row.created_at,
-  };
-}
-
-export function toSettlement(row: SettlementRow): SettlementRecord {
-  return {
-    id: row.id,
-    merchantId: row.merchant_id,
-    window: row.window,
-    assetId: row.asset_id,
-    gross: parseAmount(row.gross),
-    fees: parseAmount(row.fees),
-    net: parseAmount(row.net),
-    payoutMethod: row.payout_method,
-    payoutRef: row.payout_ref,
-    payoutAttempts: Number(row.payout_attempts),
-    status: row.status,
-  };
-}
-
-export function assertFeeBps(feeBps: number): void {
-  if (!Number.isInteger(feeBps) || feeBps < 0 || feeBps > MAX_FEE_BPS) {
-    throw new PayError(`Fee must be an integer between 0 and ${MAX_FEE_BPS} bps, got ${feeBps}`, 'pay.merchant_pricing_invalid');
-  }
-}
-
-/**
- * `'2026-07-27'` → that UTC day, half-open, ending 24 hours later.
- * A year 0000–0099 label is that written year. Both explicit bounds win.
- * Exactly one bound refuses. A label that matches YYYY-MM-DD but is not a
- * real UTC calendar day (2026-02-31) refuses — it is not rolled through Date
- * and not frozen under the original window key.
- */
-export function windowBounds(window: string, from?: Date, to?: Date): { from: Date; to: Date } {
-  if (from && to) return { from, to };
-  if (from || to) {
-    throw new PayError(`Window "${window}" was given only one of from/to; pass both bounds or neither`, 'pay.invalid_window');
-  }
-  const day = utcCalendarDay(window);
-  if (!day) {
-    throw new PayError(
-      `Window "${window}" is not a YYYY-MM-DD date; pass explicit from/to bounds for a custom window`,
-      'pay.invalid_window',
-    );
-  }
-  return { from: day, to: new Date(day.getTime() + 24 * 60 * 60 * 1000) };
-}
-
-/**
- * UTC midnight of a real calendar day, or null.
- * Impossible dates are rejected from the year/month/day fields. The instant is
- * then `YYYY-MM-DDT00:00:00.000Z`, which keeps years 0000–0099. Date.UTC maps
- * years 0–99 onto 1900–1999, so it is the wrong construction here. The result
- * is checked so a rollover cannot be returned.
- */
-function utcCalendarDay(window: string): Date | null {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(window);
-  if (!match) return null;
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null;
-  if (month < 1 || month > 12 || day < 1 || day > daysInUtcMonth(year, month)) return null;
-  const start = new Date(`${window}T00:00:00.000Z`);
-  if (start.getUTCFullYear() !== year || start.getUTCMonth() !== month - 1 || start.getUTCDate() !== day) return null;
-  return start;
-}
-
-function daysInUtcMonth(year: number, month: number): number {
-  if (month === 2) return isUtcLeapYear(year) ? 29 : 28;
-  if (month === 4 || month === 6 || month === 9 || month === 11) return 30;
-  return 31;
-}
-
-function isUtcLeapYear(year: number): boolean {
-  return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
 }

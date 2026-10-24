@@ -1,7 +1,8 @@
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { payServiceSource } from './payment-service/source.testkit.js';
 
 /**
  * Wave 6 honesty pins — promises that are true-as-gap, not true-as-product.
@@ -11,14 +12,7 @@ import { describe, expect, it } from 'vitest';
 const here = dirname(fileURLToPath(import.meta.url));
 const paymentServiceClass = readFileSync(join(here, 'payment-service.ts'), 'utf8');
 const webhooks = readFileSync(join(here, 'payment-service', 'webhooks.ts'), 'utf8');
-// PayService is payment-service.ts plus its area files in payment-service/.
-const paymentService = [
-  paymentServiceClass,
-  ...readdirSync(join(here, 'payment-service'))
-    .filter((f) => f.endsWith('.ts'))
-    .sort()
-    .map((f) => readFileSync(join(here, 'payment-service', f), 'utf8')),
-].join('\n');
+const paymentService = payServiceSource();
 const railAdapter = readFileSync(join(here, 'rails/rail-adapter.ts'), 'utf8');
 
 function stripComments(src: string): string {
@@ -30,7 +24,7 @@ describe('W6 honesty residuals', () => {
     // Live acquiring must require approved KYB via merchantKybMoneyGateRefusal.
     // Pin the call so a silent remove is deliberate — Layer A grant issuance
     // stays refuse-closed in @intafaced/auth (never auto-grant here).
-    const m = paymentServiceClass.match(/\n  assertMerchantActive\([^)]*\)[^{]*\{([\s\S]*?)\n  \}/);
+    const m = paymentServiceClass.match(/private assertMerchantActive\([^)]*\)[^{]*\{([\s\S]*?)\n  \}/);
     expect(m, 'assertMerchantActive missing').toBeTruthy();
     const captured = m?.[1];
     expect(captured, 'assertMerchantActive body missing').toEqual(expect.any(String));

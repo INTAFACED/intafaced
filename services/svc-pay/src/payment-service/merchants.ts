@@ -8,12 +8,12 @@ import type { Sql } from 'postgres';
 import { kybBindingMatches, loadKybDecisionBinding } from '../kyb-decision-binding.js';
 import { transaction } from '@intafaced/db';
 import { cleanMerchantName, MERCHANT_NAME_MAX, resolveMerchantNames } from '../merchant-names.js';
-import type { KybActor, MerchantRecord, MerchantRow, PayService } from '../payment-service.js';
-import { PayError, assertFeeBps, kybDecisionReason, recordKybEvent, toMerchant } from '../payment-service.js';
+import type { KybActor, MerchantRecord, MerchantRow, PayService, PayServiceInternal } from '../payment-service.js';
+import { PayError, assertFeeBps, kybDecisionReason, recordKybEvent, toMerchant } from './internal.js';
 
 // ── Merchants ──────────────────────────────────────────────────────────────
 export async function createMerchant(
-  svc: PayService,
+  svc: PayServiceInternal,
   input: {
     userId: string;
     mode?: MerchantRecord['mode'];
@@ -69,7 +69,7 @@ export async function createMerchant(
   return toMerchant(row);
 }
 
-export async function getMerchant(svc: PayService, merchantId: string, connection: Sql = svc.sql): Promise<MerchantRecord> {
+export async function getMerchant(svc: PayServiceInternal, merchantId: string, connection: Sql = svc.sql): Promise<MerchantRecord> {
   const rows = await connection<MerchantRow[]>`
     SELECT id, user_id, mode, tier, kyb_status, kyb_ref, status, pricing, settlement_prefs
       FROM pay.merchants WHERE id = ${merchantId}
@@ -80,7 +80,7 @@ export async function getMerchant(svc: PayService, merchantId: string, connectio
 }
 
 /** Serialize eligibility reads with KYB/status writers in the money-door transaction. */
-export async function lockMerchantEligibility(svc: PayService, sql: Sql, merchantId: string): Promise<MerchantRecord> {
+export async function lockMerchantEligibility(svc: PayServiceInternal, sql: Sql, merchantId: string): Promise<MerchantRecord> {
   const rows = await sql<MerchantRow[]>`
     SELECT id, user_id, mode, tier, kyb_status, kyb_ref, status, pricing, settlement_prefs
       FROM pay.merchants WHERE id = ${merchantId} FOR SHARE
@@ -90,7 +90,7 @@ export async function lockMerchantEligibility(svc: PayService, sql: Sql, merchan
   return toMerchant(row);
 }
 
-export async function getMerchantByUserId(svc: PayService, userId: string): Promise<MerchantRecord | null> {
+export async function getMerchantByUserId(svc: PayServiceInternal, userId: string): Promise<MerchantRecord | null> {
   const rows = await svc.sql<MerchantRow[]>`
     SELECT id, user_id, mode, tier, kyb_status, kyb_ref, status, pricing, settlement_prefs
       FROM pay.merchants WHERE user_id = ${userId}
@@ -105,7 +105,10 @@ export async function getMerchantByUserId(svc: PayService, userId: string): Prom
  * Records the change in `merchant_kyb_events` in the same transaction, so the portal's
  * verification history shows it.
  */
-export async function submitKyb(svc: PayService, input: { merchantId: string; kybRef: string; actor: KybActor }): Promise<MerchantRecord> {
+export async function submitKyb(
+  svc: PayServiceInternal,
+  input: { merchantId: string; kybRef: string; actor: KybActor },
+): Promise<MerchantRecord> {
   const ref = input.kybRef.trim();
   if (!ref || ref.length > 128) {
     throw new PayError('kybRef must be 1–128 characters', 'pay.kyb_invalid');
@@ -153,7 +156,7 @@ export async function submitKyb(svc: PayService, input: { merchantId: string; ky
  * Does not invent a vendor webhook, fee bps, or `pay:*` scopes (Layer A).
  */
 export async function decideKyb(
-  svc: PayService,
+  svc: PayServiceInternal,
   input: {
     merchantId: string;
     decision: 'approved' | 'rejected';
@@ -179,7 +182,7 @@ export async function decideKyb(
  * Never invents an external KYB vendor response.
  */
 export async function decideKybStub(
-  svc: PayService,
+  svc: PayServiceInternal,
   input: { merchantId: string; decision: 'approved' | 'rejected'; actor: KybActor },
 ): Promise<MerchantRecord> {
   if (svc.valueMovement === 'live-only') {
@@ -194,7 +197,7 @@ export async function decideKybStub(
 }
 
 export async function writeKybDecision(
-  svc: PayService,
+  svc: PayServiceInternal,
   merchantId: string,
   decision: 'approved' | 'rejected',
   actor: KybActor,

@@ -38,8 +38,8 @@ import {
   type RailResolutionOutcome,
 } from '../fraud/dispute-case.js';
 import { recordDisputeOutcomeConflict } from '../fraud/dispute-outcome-conflict.js';
-import type { ChargebackPlan, ChargebackSplit, PayService } from '../payment-service.js';
-import { PayError, appendEvent, isInsufficientFunds, openingTxIdFromDetail, postgresErrorCode, readLivePlan } from '../payment-service.js';
+import type { ChargebackPlan, ChargebackSplit, PayService, PayServiceInternal } from '../payment-service.js';
+import { PayError, appendEvent, isInsufficientFunds, openingTxIdFromDetail, postgresErrorCode, readLivePlan } from './internal.js';
 
 /**
  * Post the opening debit: clearing first, then the settled merchant pot,
@@ -47,7 +47,7 @@ import { PayError, appendEvent, isInsufficientFunds, openingTxIdFromDetail, post
  * owns the legs. No fee is added.
  */
 export async function openChargeback(
-  svc: PayService,
+  svc: PayServiceInternal,
   input: {
     disputeId: string;
     paymentId: string;
@@ -220,7 +220,7 @@ export async function openChargeback(
  * The balance reads (network) happen outside any transaction; only the insert-once is serialised, per dispute.
  */
 export async function chargebackSplit(
-  svc: PayService,
+  svc: PayServiceInternal,
   paymentId: string,
   disputeId: string,
   amount: Amount,
@@ -291,7 +291,7 @@ export async function chargebackSplit(
  * ours was refused); if so nothing is voided and that transaction is returned.
  */
 export async function voidChargebackPlan(
-  svc: PayService,
+  svc: PayServiceInternal,
   paymentId: string,
   disputeId: string,
   planSeq: string,
@@ -316,7 +316,7 @@ export async function voidChargebackPlan(
  * ledger commit and now), append it again so the stored plan matches the book. Takes the same per-dispute lock as the void.
  */
 export async function ensureChargebackPlanLive(
-  svc: PayService,
+  svc: PayServiceInternal,
   paymentId: string,
   disputeId: string,
   plan: ChargebackSplit,
@@ -342,7 +342,7 @@ export async function ensureChargebackPlanLive(
  * not move the dispute row (the caller posts the case after this returns).
  */
 export async function bookDisputeResolution(
-  svc: PayService,
+  svc: PayServiceInternal,
   input: {
     disputeId: string;
     paymentId: string;
@@ -370,7 +370,7 @@ export async function bookDisputeResolution(
 
 /** Return booked chargeback value. A missing opening is not a credit. */
 export async function reverseChargeback(
-  svc: PayService,
+  svc: PayServiceInternal,
   input: {
     disputeId: string;
     paymentId: string;
@@ -457,7 +457,7 @@ export async function reverseChargeback(
   return effect;
 }
 
-export function chargebackLedgerRefusal(svc: PayService, e: unknown): PayError {
+export function chargebackLedgerRefusal(svc: PayServiceInternal, e: unknown): PayError {
   if (e instanceof PayError) return e;
   const ledgerCode = e instanceof LedgerError ? e.code : undefined;
   const message = e instanceof Error ? e.message : 'Chargeback ledger post failed';
@@ -469,7 +469,7 @@ export function chargebackLedgerRefusal(svc: PayService, e: unknown): PayError {
  * transaction before throwing so the case is not told that nothing moved.
  */
 export async function throwUnfundedChargebackShortfall(
-  svc: PayService,
+  svc: PayServiceInternal,
   input: {
     paymentId: string;
     disputeId: string;
@@ -494,7 +494,7 @@ export async function throwUnfundedChargebackShortfall(
 }
 
 export async function recordChargebackLedgerEffect(
-  svc: PayService,
+  svc: PayServiceInternal,
   paymentId: string,
   disputeId: string,
   effect: Parameters<typeof chargebackLedgerEffect>[0],
@@ -512,12 +512,12 @@ export async function recordChargebackLedgerEffect(
  * serialises other processes. Taken before `pay.chargeback.plan:<disputeId>`, which the
  * booking transactions acquire on their own connection. Those transactions never take this key.
  */
-export async function withChargebackOutcomeLock<T>(svc: PayService, disputeId: string, fn: () => Promise<T>): Promise<T> {
+export async function withChargebackOutcomeLock<T>(svc: PayServiceInternal, disputeId: string, fn: () => Promise<T>): Promise<T> {
   return svc.enqueueChargebackOutcome(disputeId, () => svc.withChargebackOutcomeSlot(() => svc.lockChargebackOutcome(disputeId, fn)));
 }
 
 /** Same-dispute deliveries queue here. The tail is dropped once it settles and nothing newer replaced it. */
-export function enqueueChargebackOutcome<T>(svc: PayService, disputeId: string, run: () => Promise<T>): Promise<T> {
+export function enqueueChargebackOutcome<T>(svc: PayServiceInternal, disputeId: string, run: () => Promise<T>): Promise<T> {
   const previous = svc.chargebackOutcomeTails.get(disputeId) ?? Promise.resolve();
   const gate = previous.then(
     () => undefined,
@@ -536,7 +536,7 @@ export function enqueueChargebackOutcome<T>(svc: PayService, disputeId: string, 
 }
 
 /** Waiting for a slot holds no connection. */
-export async function withChargebackOutcomeSlot<T>(svc: PayService, run: () => Promise<T>): Promise<T> {
+export async function withChargebackOutcomeSlot<T>(svc: PayServiceInternal, run: () => Promise<T>): Promise<T> {
   await svc.acquireChargebackOutcomeSlot();
   try {
     return await run();
@@ -545,7 +545,7 @@ export async function withChargebackOutcomeSlot<T>(svc: PayService, run: () => P
   }
 }
 
-export function acquireChargebackOutcomeSlot(svc: PayService): Promise<void> {
+export function acquireChargebackOutcomeSlot(svc: PayServiceInternal): Promise<void> {
   if (svc.chargebackOutcomeHeld < svc.chargebackOutcomeSlots) {
     svc.chargebackOutcomeHeld += 1;
     return Promise.resolve();
@@ -555,7 +555,7 @@ export function acquireChargebackOutcomeSlot(svc: PayService): Promise<void> {
   });
 }
 
-export function releaseChargebackOutcomeSlot(svc: PayService): void {
+export function releaseChargebackOutcomeSlot(svc: PayServiceInternal): void {
   const next = svc.chargebackOutcomeWaiters.shift();
   if (next) {
     next();
@@ -564,7 +564,7 @@ export function releaseChargebackOutcomeSlot(svc: PayService): void {
   svc.chargebackOutcomeHeld -= 1;
 }
 
-export async function lockChargebackOutcome<T>(svc: PayService, disputeId: string, fn: () => Promise<T>): Promise<T> {
+export async function lockChargebackOutcome<T>(svc: PayServiceInternal, disputeId: string, fn: () => Promise<T>): Promise<T> {
   try {
     return await transaction(
       svc.sql,
@@ -587,7 +587,7 @@ export async function lockChargebackOutcome<T>(svc: PayService, disputeId: strin
  * Not-found is null. A transport or validation error is `pay.chargeback_ledger_failed`,
  * never "not booked", so a plan is not voided and a won credit is not skipped.
  */
-export async function chargebackBookedTx(svc: PayService, key: string): Promise<LedgerTx | null> {
+export async function chargebackBookedTx(svc: PayServiceInternal, key: string): Promise<LedgerTx | null> {
   try {
     return await svc.ledger.getTxByKey(key);
   } catch (e) {
@@ -600,7 +600,7 @@ export async function chargebackBookedTx(svc: PayService, key: string): Promise<
  * where it is, and record the conflict so this delivery is not retried forever.
  */
 export async function recordChargebackPlanConflict(
-  svc: PayService,
+  svc: PayServiceInternal,
   input: {
     merchantId: string;
     disputeId: string;
@@ -652,7 +652,7 @@ export async function recordChargebackPlanConflict(
  * is still the named uncovered refuse.
  */
 export async function postChargebackOpenOrRefuse(
-  svc: PayService,
+  svc: PayServiceInternal,
   input: {
     disputeId: string;
     paymentId: string;

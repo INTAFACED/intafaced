@@ -18,8 +18,8 @@ import {
   type RailResolutionOutcome,
 } from '../fraud/dispute-case.js';
 import { recordDisputeOutcomeConflict } from '../fraud/dispute-outcome-conflict.js';
-import type { PayService, PaymentRow, PaymentStatus, PaymentView, WebhookOutcome } from '../payment-service.js';
-import { PayError, appendEvent, assertTransition, lockPayment } from '../payment-service.js';
+import type { PayService, PayServiceInternal, PaymentRow, PaymentStatus, PaymentView, WebhookOutcome } from '../payment-service.js';
+import { PayError, appendEvent, assertTransition, lockPayment } from './internal.js';
 
 // ── Webhooks ───────────────────────────────────────────────────────────────
 
@@ -39,7 +39,7 @@ import { PayError, appendEvent, assertTransition, lockPayment } from '../payment
  * already idempotent on the payment id, which costs a wasted call and
  * changes nothing.
  */
-export async function handleWebhook(svc: PayService, railId: string, request: RailWebhookRequest): Promise<WebhookOutcome> {
+export async function handleWebhook(svc: PayServiceInternal, railId: string, request: RailWebhookRequest): Promise<WebhookOutcome> {
   const adapter = svc.rails.require(railId, 'webhook');
 
   const event = adapter.verifyWebhook(request);
@@ -55,7 +55,7 @@ export async function handleWebhook(svc: PayService, railId: string, request: Ra
   );
 }
 
-export async function applyWebhook(svc: PayService, adapter: RailAdapter, event: RailEvent): Promise<WebhookOutcome> {
+export async function applyWebhook(svc: PayServiceInternal, adapter: RailAdapter, event: RailEvent): Promise<WebhookOutcome> {
   const rows = await svc.sql<PaymentRow[]>`
     SELECT id, merchant_id, profile_id, amount, currency, method, rail_adapter, rail_ref, status, created_at
       FROM pay.payments WHERE rail_adapter = ${adapter.id} AND rail_ref = ${event.railRef}
@@ -341,7 +341,7 @@ export async function applyWebhook(svc: PayService, adapter: RailAdapter, event:
   };
 }
 
-export async function markFailed(svc: PayService, paymentId: string, failureCode: string): Promise<void> {
+export async function markFailed(svc: PayServiceInternal, paymentId: string, failureCode: string): Promise<void> {
   const view = await transaction(
     svc.sql,
     async (tx) => {
@@ -363,7 +363,7 @@ export async function markFailed(svc: PayService, paymentId: string, failureCode
  * Status only. Money moves in `openChargeback` / is named-refused there.
  */
 export async function markDisputed(
-  svc: PayService,
+  svc: PayServiceInternal,
   paymentId: string,
   meta: {
     disputeId: string;
@@ -397,7 +397,7 @@ export async function markDisputed(
 
 /** `markDisputed` only when the payment is live right now (captured or settled). True when this call moved it. */
 export async function markDisputedIfLive(
-  svc: PayService,
+  svc: PayServiceInternal,
   paymentId: string,
   meta: Parameters<PayService['markDisputed']>[1],
 ): Promise<boolean> {
@@ -420,7 +420,7 @@ export async function markDisputedIfLive(
  * Only when every case on the payment is won. An open case still has its
  * opening debit on the book; a lost or accepted one kept the money away.
  */
-export async function restoreAfterWonDispute(svc: PayService, paymentId: string, disputeId: string): Promise<void> {
+export async function restoreAfterWonDispute(svc: PayServiceInternal, paymentId: string, disputeId: string): Promise<void> {
   // Read the cases before the transaction: the caller already holds a pooled connection for the dispute lock, and
   // a read on the pool from inside a transaction would need a third one.
   const allWon = async () => {
