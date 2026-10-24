@@ -93,7 +93,7 @@ archived spaces remain visible. `loans.releaseExcess` requires a caller-supplied
 | `spaces.clearBillsPot` | `bank:write`           | The pot stops paying bills; its money stays. Archiving a pot ends the role too                                                                                                                       |
 | `spaces.ownedAccounts` | service (svc-tax only) | Every named space the customer ever owned (id, asset, name, archived), so svc-tax can follow own-account moves in the lot book (PF-cost-basis-02). No balance                                        |
 
-A standing order from the caller's bills pot that finds too little is refused `ledger.insufficient_funds` like any other, unless its top-up is on: then the shortfall moves first from the main account into the pot (an own-space `bankTransfer` keyed `bills-fallback:<order>:<pot>` with the occurrence), and the order pays once. When the main account is short too, nothing moves and the run is recorded as refused.
+A standing order from the caller's bills pot that finds too little is refused `ledger.insufficient_funds` like any other, unless its top-up is on: then the shortfall moves first from the main account into the pot (an own-space `bankTransfer` keyed `bills-fallback:<order>:<pot>` with the occurrence), and the order pays once. When the main account is short too, nothing moves and the run is recorded as refused. An order that pays one of the caller's own spaces is never topped up, and archiving the pot ends its role in the same transaction.
 
 ### `transfers`
 
