@@ -25,6 +25,14 @@ import {
   accountTierHistoryInputSchema,
   accountTierStateSchema,
   accountTierResultSchema,
+  customerDetailDecisionInputSchema,
+  customerDetailReviewSchema,
+  customerDetailReviewsInputSchema,
+  customerDetailsEditInputSchema,
+  customerDetailsHistoryInputSchema,
+  customerDetailsLookupInputSchema,
+  customerDetailsResultSchema,
+  customerDetailsStateSchema,
   serviceOperatorEntitlementInputSchema,
   currentAuthorityInputSchema,
   currentAuthorityResultSchema,
@@ -36,6 +44,7 @@ import {
   type Context,
 } from '@intafaced/contracts';
 import { FounderControlError, founderEntitlementChangeSchema, type FounderControls } from './founder-controls.js';
+import type { CustomerDetailsDesk } from './customer-details.js';
 import {
   RestrictedListCursorError,
   RestrictedListDeniedError,
@@ -66,6 +75,7 @@ export type FounderControlsPort = Pick<
   | 'tierState'
   | 'tierHistory'
 >;
+export type CustomerDetailsPort = Pick<CustomerDetailsDesk, 'state' | 'edit' | 'decide' | 'reviews' | 'history'>;
 export const identityRestrictionInputSchema = accountControlInputSchema.refine(
   (input) => input.target.area === 'identity',
   'Identity target required',
@@ -124,7 +134,13 @@ export async function controlCall<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-export function createFounderControlsRouter(controls: FounderControlsPort) {
+/** Without a details desk (no wiring), the details doors refuse as unconfigured rather than answer with nothing. */
+function detailsDesk(details: CustomerDetailsPort | undefined): CustomerDetailsPort {
+  if (details) return details;
+  throw new FounderControlError('identity.details_unconfigured', 'identity.details_unconfigured');
+}
+
+export function createFounderControlsRouter(controls: FounderControlsPort, details?: CustomerDetailsPort) {
   return router({
     accountControls: router({
       change: protectedProcedure
@@ -191,6 +207,28 @@ export function createFounderControlsRouter(controls: FounderControlsPort) {
         .input(accountTierHistoryInputSchema)
         .output(z.array(accountTierResultSchema))
         .query(({ ctx, input }) => controlCall(() => controls.tierHistory(ctx, input))),
+      // Customer details (J-ops-console-04 #9): open details apply at once; name, date of birth and tax number go through a
+      // compliance review the other founder passes. Values are encrypted at rest; the history names fields, never values.
+      details: protectedProcedure
+        .input(customerDetailsLookupInputSchema)
+        .output(customerDetailsStateSchema.nullable())
+        .query(({ ctx, input }) => controlCall(() => detailsDesk(details).state(ctx, input))),
+      detailsEdit: protectedProcedure
+        .input(customerDetailsEditInputSchema)
+        .output(customerDetailsResultSchema)
+        .mutation(({ ctx, input }) => controlCall(() => detailsDesk(details).edit(ctx, input))),
+      detailsDecide: protectedProcedure
+        .input(customerDetailDecisionInputSchema)
+        .output(customerDetailsResultSchema)
+        .mutation(({ ctx, input }) => controlCall(() => detailsDesk(details).decide(ctx, input))),
+      detailsReviews: protectedProcedure
+        .input(customerDetailReviewsInputSchema)
+        .output(z.array(customerDetailReviewSchema))
+        .query(({ ctx, input }) => controlCall(() => detailsDesk(details).reviews(ctx, input))),
+      detailsHistory: protectedProcedure
+        .input(customerDetailsHistoryInputSchema)
+        .output(z.array(customerDetailsResultSchema))
+        .query(({ ctx, input }) => controlCall(() => detailsDesk(details).history(ctx, input))),
       listRestricted: scopedProcedure('admin:read')
         .input(
           z

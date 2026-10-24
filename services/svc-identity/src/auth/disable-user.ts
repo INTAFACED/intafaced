@@ -52,9 +52,11 @@ export async function disableUser(
   if (!users[0]) {
     throw new DisableUserError('User not found', 'auth.not_found');
   }
-  await sql`
-    UPDATE users SET status = 'frozen', updated_at = now() WHERE id = ${named} AND archived_at IS NULL
+  const frozen = await sql<Array<{ id: string }>>`
+    UPDATE users SET status = 'frozen', updated_at = now() WHERE id = ${named} AND archived_at IS NULL RETURNING id
   `;
+  // Archived between the check above and this write: nothing froze, so say so rather than answer 'frozen'.
+  if (frozen.length === 0) throw new DisableUserError('The customer record is archived and stays read-only', 'identity.account_archived');
   // A frozen account must not keep live seats: refresh rotation and the session
   // door honour a live session, so revoke sessions with the keys. Passkeys stay on the account; the
   // frozen status blocks them and an unfreeze restores them.
